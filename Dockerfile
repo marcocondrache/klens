@@ -1,8 +1,17 @@
 # syntax=docker/dockerfile:1
 
+FROM oven/bun:1 AS frontend
+WORKDIR /app
+
+COPY frontend/ ./
+
+RUN bun install --frozen-lockfile
+RUN bun run build
+
 FROM rust:1.95 AS builder
 WORKDIR /app
 
+COPY --from=frontend /app/crates/klens-server/static ./crates/klens-server/static
 COPY . .
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
