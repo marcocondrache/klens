@@ -7,3 +7,9 @@ publish.workspace = true
 [dependencies]
 axum.workspace = true
 klens-server = { workspace = true, default-features = false }
+anyhow.workspace = true
+klens-kafka.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
