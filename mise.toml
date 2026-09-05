@@ -2,23 +2,6 @@
 bun = "latest"
 rust = "latest"
 
-[tasks."frontend:install"]
-description = "Install frontend dependencies"
-dir = "frontend"
-run = "bun install"
-
-[tasks."frontend:dev"]
-description = "Run the Vite dev server (proxies /api and /health to :8080)"
-dir = "frontend"
-depends = ["frontend:install"]
-run = "bun run dev"
-
-[tasks."frontend:build"]
-description = "Build the frontend into crates/klens-server/static"
-dir = "frontend"
-depends = ["frontend:install"]
-run = "bun run build"
-
 [tasks."web:install"]
 description = "Install web dependencies"
 dir = "web"
