@@ -22,6 +22,10 @@ fn schema() -> AppSchema {
     )
 }
 
+pub(crate) fn schema_sdl() -> String {
+    schema().as_sdl()
+}
+
 pub fn router() -> Router<AppState> {
     let router = Router::new()
         .route("/graphql", get(graphql).post(graphql))

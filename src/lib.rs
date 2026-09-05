@@ -3,7 +3,7 @@ pub mod kafka;
 pub mod server;
 pub mod telemetry;
 
-pub use app::{AppState, router};
+pub use app::{AppState, router, schema_sdl};
 pub use kafka::{
     BrokerInfo, ClusterClient, ClusterConfig, ClusterInfo, ClusterRegistry, ClustersConfig,
     KafkaError, MetadataApi, SaslConfig, SaslMechanism, SecurityConfig, SecurityProtocol,

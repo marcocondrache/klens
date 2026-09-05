@@ -1,0 +1,13 @@
+schema {
+  query: Query
+}
+
+type Cluster {
+  name: String!
+  bootstrapServers: [String!]!
+}
+
+type Query {
+  clusters: [Cluster!]!
+  cluster(name: String!): Cluster
+}
