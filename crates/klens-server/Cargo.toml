@@ -5,7 +5,6 @@ edition.workspace = true
 publish.workspace = true
 
 [features]
-default = ["ui"]
 ui = ["dep:rust-embed", "dep:mime_guess"]
 
 [dependencies]
