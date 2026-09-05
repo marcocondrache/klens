@@ -1,40 +1,29 @@
-[workspace]
-resolver = "3"
-members = [
-    "crates/klens",
-    "crates/klens-app",
-    "crates/klens-kafka",
-    "crates/klens-server",
-    "crates/klens-telemetry",
-]
-
-[workspace.package]
+[package]
+name = "klens"
 version = "0.1.0"
 edition = "2024"
 publish = false
 
-[workspace.dependencies]
-klens-app = { path = "crates/klens-app" }
-klens-kafka = { path = "crates/klens-kafka" }
-klens-server = { path = "crates/klens-server", default-features = false }
-klens-telemetry = { path = "crates/klens-telemetry" }
+[features]
+ui = ["dep:rust-embed", "dep:mime_guess"]
 
-tokio = { version = "1", features = ["full"] }
-axum = { version = "0.8", features = ["http2"] }
-tower = { version = "0.5.3" }
-tower-http = { version = "0.6", features = ["catch-panic", "trace", "request-id", "sensitive-headers"] }
-clap = { version = "4", features = ["derive", "env"] }
+[dependencies]
 anyhow = "1"
-tracing = "0.1"
-tracing-appender = "0.2"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-rust-embed = "8"
-mime_guess = "2"
 async-trait = "0.1"
+axum = { version = "0.8", features = ["http2"] }
+clap = { version = "4", features = ["derive", "env"] }
 juniper = "0.17"
 juniper_axum = "0.3"
+mime_guess = { version = "2", optional = true }
 rdkafka = { version = "0.39", features = ["ssl-vendored", "libz-static"] }
+rust-embed = { version = "8", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml_ng = "0.10"
 thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tower = "0.5.3"
+tower-http = { version = "0.6", features = ["catch-panic", "trace", "request-id", "sensitive-headers"] }
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

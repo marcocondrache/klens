@@ -14,7 +14,7 @@ depends = ["web:install"]
 run = "bun run dev"
 
 [tasks."web:build"]
-description = "Build the web UI into crates/klens-server/static"
+description = "Build the web UI into static/"
 dir = "web"
 depends = ["web:install"]
 run = "bun run build"

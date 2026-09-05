@@ -75,8 +75,8 @@ async fn graphql(
 mod tests {
     use std::collections::HashMap;
 
+    use crate::kafka::{ClusterConfig, ClusterRegistry};
     use juniper::{Variables, execute};
-    use klens_kafka::{ClusterConfig, ClusterRegistry};
 
     use super::*;
 

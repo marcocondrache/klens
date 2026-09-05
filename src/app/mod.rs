@@ -1,13 +1,10 @@
 use std::sync::Arc;
 
+use crate::kafka::ClusterRegistry;
 use axum::Router;
-use klens_kafka::ClusterRegistry;
 
-mod api_error;
 mod graphql;
 mod health;
-
-pub use api_error::ApiError;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -25,5 +22,5 @@ pub fn router(state: AppState) -> Router {
         .merge(graphql::router())
         .with_state(state)
         .merge(health::router())
-        .fallback(klens_server::web::serve)
+        .fallback(crate::server::web::serve)
 }

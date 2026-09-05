@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use clap::Parser;
-use klens_app::{AppState, router};
-use klens_kafka::{ClusterConfig, ClusterRegistry, ClustersConfig};
+use klens::app::{AppState, router};
+use klens::kafka::{ClusterConfig, ClusterRegistry, ClustersConfig};
 
 #[derive(Debug, Parser)]
 #[command(author, version, about)]
@@ -23,7 +23,7 @@ struct Args {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::try_parse()?;
-    let _telemetry = klens_telemetry::Telemetry::init(&args.log, env!("CARGO_CRATE_NAME"))?;
+    let _telemetry = klens::telemetry::Telemetry::init(&args.log, env!("CARGO_CRATE_NAME"))?;
 
     let clusters = load_clusters(&args.config)?;
     let registry =
@@ -31,7 +31,7 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!(clusters = ?registry.names(), "configured kafka clusters");
 
-    klens_server::serve(router(AppState::new(registry)), args.bind).await
+    klens::serve(router(AppState::new(registry)), args.bind).await
 }
 
 fn load_clusters(path: &Path) -> anyhow::Result<Vec<ClusterConfig>> {

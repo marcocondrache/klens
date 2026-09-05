@@ -17,7 +17,7 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: "../crates/klens-server/static",
+    outDir: "../static",
     emptyOutDir: true,
   },
 });

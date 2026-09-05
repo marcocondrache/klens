@@ -5,9 +5,9 @@ use rdkafka::admin::AdminClient;
 use rdkafka::client::DefaultClientContext;
 use rdkafka::config::ClientConfig;
 
-use crate::config::{ClusterConfig, SaslConfig, SecurityConfig, TlsConfig};
-use crate::error::KafkaError;
-use crate::metadata::{BrokerInfo, ClusterInfo, MetadataApi};
+use crate::kafka::config::{ClusterConfig, SaslConfig, SecurityConfig, TlsConfig};
+use crate::kafka::error::KafkaError;
+use crate::kafka::metadata::{BrokerInfo, ClusterInfo, MetadataApi};
 
 #[derive(Debug)]
 pub struct ClusterClient {
