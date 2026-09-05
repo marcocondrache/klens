@@ -1,7 +1,3 @@
-mod app;
-mod server;
-mod telemetry;
-
 use std::net::SocketAddr;
 
 use clap::Parser;
@@ -19,7 +15,7 @@ struct Args {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::try_parse()?;
-    let _telemetry = telemetry::Telemetry::init(&args.log)?;
+    let _telemetry = klens_telemetry::Telemetry::init(&args.log, env!("CARGO_CRATE_NAME"))?;
 
-    server::serve(app::router(), args.bind).await
+    klens_server::serve(klens_app::router(), args.bind).await
 }

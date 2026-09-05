@@ -1,9 +1,22 @@
-[package]
-name = "service-template"
+[workspace]
+resolver = "3"
+members = [
+    "crates/klens",
+    "crates/klens-app",
+    "crates/klens-server",
+    "crates/klens-telemetry",
+]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
+publish = false
 
-[dependencies]
+[workspace.dependencies]
+klens-app = { path = "crates/klens-app" }
+klens-server = { path = "crates/klens-server" }
+klens-telemetry = { path = "crates/klens-telemetry" }
+
 tokio = { version = "1", features = ["full"] }
 axum = { version = "0.8", features = ["http2"] }
 tower = { version = "0.5.3" }

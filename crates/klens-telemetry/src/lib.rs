@@ -3,15 +3,13 @@ use tracing_subscriber::{
     EnvFilter, filter::ParseError, layer::SubscriberExt, util::SubscriberInitExt,
 };
 
-const PKG_NAME: &str = env!("CARGO_CRATE_NAME");
-
 pub struct Telemetry {
     _guard: WorkerGuard,
 }
 
 impl Telemetry {
-    pub fn init(filter: &str) -> anyhow::Result<Self> {
-        let filter = filter_from_value(filter)?;
+    pub fn init(filter: &str, target: &str) -> anyhow::Result<Self> {
+        let filter = filter_from_value(filter, target)?;
         let (writer, guard) = tracing_appender::non_blocking(std::io::stdout());
 
         tracing_subscriber::registry()
@@ -23,20 +21,20 @@ impl Telemetry {
     }
 }
 
-pub fn filter_from_value(value: &str) -> Result<EnvFilter, ParseError> {
+pub fn filter_from_value(value: &str, target: &str) -> Result<EnvFilter, ParseError> {
     match value.trim() {
         "none" | "off" => Ok(EnvFilter::default()),
         "error" => Ok(EnvFilter::default().add_directive(tracing::Level::ERROR.into())),
         "warn" => Ok(EnvFilter::default().add_directive(tracing::Level::WARN.into())),
         "info" => Ok(EnvFilter::default()
             .add_directive(tracing::Level::WARN.into())
-            .add_directive(format!("{PKG_NAME}=info").parse()?)),
+            .add_directive(format!("{target}=info").parse()?)),
         "debug" => Ok(EnvFilter::default()
             .add_directive(tracing::Level::WARN.into())
-            .add_directive(format!("{PKG_NAME}=debug").parse()?)),
+            .add_directive(format!("{target}=debug").parse()?)),
         "trace" => Ok(EnvFilter::default()
             .add_directive(tracing::Level::WARN.into())
-            .add_directive(format!("{PKG_NAME}=trace").parse()?)),
+            .add_directive(format!("{target}=trace").parse()?)),
         custom => EnvFilter::builder().parse(custom),
     }
 }
