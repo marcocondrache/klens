@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::client::ClusterClient;
-use crate::config::ClusterConfig;
-use crate::error::KafkaError;
+use crate::kafka::client::ClusterClient;
+use crate::kafka::config::ClusterConfig;
+use crate::kafka::error::KafkaError;
 
 #[derive(Debug, Clone, Default)]
 pub struct ClusterRegistry {

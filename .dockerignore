@@ -4,7 +4,7 @@ target/
 .devenv/
 .idea/
 web/
-crates/klens-server/static/
+static/
 
 .env
 .env.*

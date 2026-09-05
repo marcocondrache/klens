@@ -20,15 +20,15 @@ worked well for me in production.
 ## ✦ Using The Template
 
 This repository is intended to be used as a GitHub template repository or with
-`cargo generate`. Create a new repository from it, then rename the crates to
+`cargo generate`. Create a new repository from it, then rename the crate to
 match the actual service and binary name.
 
-The workspace is split by concern:
+The source is split by concern:
 
-- `crates/klens` — the binary: configuration and startup
-- `crates/klens-app` — application routing, the part you replace first
-- `crates/klens-server` — HTTP serving with production defaults
-- `crates/klens-telemetry` — structured, non-blocking logging
+- `src/main.rs` — the binary: configuration and startup
+- `src/app/` — application routing, the part you replace first
+- `src/server/` — HTTP serving with production defaults
+- `src/telemetry.rs` — structured, non-blocking logging
 
 ## ✦ Local Kafka
 
