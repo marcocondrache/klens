@@ -11,13 +11,13 @@ RUN bun run build
 FROM rust:1.95 AS builder
 WORKDIR /app
 
-COPY --from=web /app/crates/klens-server/static ./crates/klens-server/static
+COPY --from=web /app/static ./static
 COPY . .
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/app/target,sharing=locked \
-    cargo build --release --locked --features ui --package klens \
+    cargo build --release --locked --features ui \
           && cp /app/target/release/klens /app/klens
 
 FROM cgr.dev/chainguard/glibc-dynamic@sha256:e9a3236ebb746bbab93bda4ca842e55a6aaea2c812a685646043e842e69220be

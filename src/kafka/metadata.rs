@@ -3,7 +3,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use serde::Serialize;
 
-use crate::error::KafkaError;
+use crate::kafka::error::KafkaError;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct BrokerInfo {
