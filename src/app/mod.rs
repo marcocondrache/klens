@@ -17,6 +17,10 @@ impl AppState {
     }
 }
 
+pub fn schema_sdl() -> String {
+    graphql::schema_sdl()
+}
+
 pub fn router(state: AppState) -> Router {
     Router::new()
         .merge(graphql::router())
