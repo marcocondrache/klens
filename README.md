@@ -30,6 +30,17 @@ The workspace is split by concern:
 - `crates/klens-server` — HTTP serving with production defaults
 - `crates/klens-telemetry` — structured, non-blocking logging
 
+## ✦ Local Kafka
+
+`compose.yaml` ships a single-node Kafka broker on `localhost:9092`:
+
+    docker compose up -d            # broker and the klens UI on :8080
+    docker compose up -d kafka      # broker only, for `cargo run` against localhost:9092
+
+Create topics with:
+
+    docker compose exec kafka kafka-topics --bootstrap-server localhost:9092 --create --topic orders --partitions 3
+
 ## ✦ Philosophy
 
 This template tries to follow the [12-factor app](https://12factor.net/) style
