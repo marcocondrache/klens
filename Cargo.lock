@@ -443,6 +443,47 @@ dependencies = [
 ]
 
 [[package]]
+name = "klens"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "klens-app",
+ "klens-server",
+ "klens-telemetry",
+ "tokio",
+]
+
+[[package]]
+name = "klens-app"
+version = "0.1.0"
+dependencies = [
+ "axum",
+]
+
+[[package]]
+name = "klens-server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tracing",
+]
+
+[[package]]
+name = "klens-telemetry"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -706,21 +747,6 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
-]
-
-[[package]]
-name = "service-template"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "clap",
- "tokio",
- "tower",
- "tower-http",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
 ]
 
 [[package]]
