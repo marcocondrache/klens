@@ -48,25 +48,8 @@ jobs:
       - name: Cache cargo registry and build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - name: Run clippy
-        run: cargo clippy --all --no-default-features -- -D warnings
+        run: cargo clippy --all -- -D warnings
 
-  frontend:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Install bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-      - name: Install dependencies
-        working-directory: web
-        run: bun install --frozen-lockfile
-      - name: Lint
-        working-directory: web
-        run: bun run lint
-      - name: Build
-        working-directory: frontend
-        run: bun run build
   web:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -101,9 +84,9 @@ jobs:
       - name: Install nextest
         uses: taiki-e/install-action@c6702eacb5b86c67cc1f5b92f3c9e322e1a687b7 # nextest
       - name: Build
-        run: cargo build --verbose --no-default-features
+        run: cargo build --verbose
       - name: Run tests
-        run: cargo nextest run --verbose --no-default-features --no-tests=pass
+        run: cargo nextest run --verbose --no-tests=pass
 
   docs:
     runs-on: ubuntu-latest
@@ -120,7 +103,7 @@ jobs:
       - name: Check documentation
         env:
           RUSTDOCFLAGS: -D warnings
-        run: cargo doc --no-deps --no-default-features --document-private-items
+        run: cargo doc --no-deps --document-private-items
 
   machete:
     name: machete
@@ -156,7 +139,7 @@ jobs:
 
           check_result "style" "$RESULT_STYLE"
           check_result "clippy" "$RESULT_CLIPPY"
-          check_result "frontend" "$RESULT_FRONTEND"
+          check_result "web" "$RESULT_WEB"
           check_result "test" "$RESULT_TEST"
           check_result "docs" "$RESULT_DOCS"
           check_result "machete" "$RESULT_MACHETE"
@@ -165,7 +148,6 @@ jobs:
         env:
           RESULT_STYLE: ${{ needs.style.result }}
           RESULT_CLIPPY: ${{ needs.clippy.result }}
-          RESULT_FRONTEND: ${{ needs.frontend.result }}
           RESULT_WEB: ${{ needs.web.result }}
           RESULT_TEST: ${{ needs.test.result }}
           RESULT_DOCS: ${{ needs.docs.result }}
