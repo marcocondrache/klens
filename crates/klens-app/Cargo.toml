@@ -6,3 +6,4 @@ publish.workspace = true
 
 [dependencies]
 axum.workspace = true
+klens-server = { workspace = true, default-features = false }

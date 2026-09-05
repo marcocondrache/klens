@@ -3,6 +3,8 @@ target/
 .direnv/
 .devenv/
 .idea/
+web/
+crates/klens-server/static/
 
 .env
 .env.*

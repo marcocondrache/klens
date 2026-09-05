@@ -17,6 +17,8 @@ use tower_http::sensitive_headers::{
 use tower_http::trace::TraceLayer;
 use tracing::Span;
 
+pub mod web;
+
 pub async fn serve(router: Router, bind: SocketAddr) -> Result<()> {
     let listener = TcpListener::bind(bind).await?;
     let sensitive_headers: Arc<[_]> = Arc::new([
