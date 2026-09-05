@@ -9,9 +9,12 @@ ui = ["klens-server/ui"]
 
 [dependencies]
 klens-app.workspace = true
+klens-kafka.workspace = true
 klens-server = { workspace = true, default-features = false }
 klens-telemetry.workspace = true
 
 anyhow.workspace = true
 clap.workspace = true
+serde_yaml_ng.workspace = true
 tokio.workspace = true
+tracing.workspace = true

@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/klens",
     "crates/klens-app",
+    "crates/klens-kafka",
     "crates/klens-server",
     "crates/klens-telemetry",
 ]
@@ -14,6 +15,7 @@ publish = false
 
 [workspace.dependencies]
 klens-app = { path = "crates/klens-app" }
+klens-kafka = { path = "crates/klens-kafka" }
 klens-server = { path = "crates/klens-server", default-features = false }
 klens-telemetry = { path = "crates/klens-telemetry" }
 
@@ -28,3 +30,9 @@ tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rust-embed = "8"
 mime_guess = "2"
+async-trait = "0.1"
+rdkafka = { version = "0.39", features = ["ssl-vendored", "libz-static"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml_ng = "0.10"
+thiserror = "2"
