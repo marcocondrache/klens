@@ -1,7 +1,7 @@
 import type { ReactNode } from "react"
 import { cn } from "@/lib/utils"
 
-import type { ClusterStatus, ConsumerGroupState, Environment } from "@/lib/api/types"
+import type { ClusterStatus, ConsumerGroupState } from "@/lib/api/types"
 import type { Tone } from "@/lib/tone"
 
 const TONE_DOT: Record<Tone, string> = {
@@ -85,22 +85,3 @@ export function GroupStateBadge({ state }: { state: ConsumerGroupState }) {
   )
 }
 
-const ENVIRONMENT_LABEL: Record<Environment, string> = {
-  development: "dev",
-  staging: "staging",
-  production: "prod",
-}
-
-const ENVIRONMENT_TONE: Record<Environment, Tone> = {
-  development: "idle",
-  staging: "brand",
-  production: "warn",
-}
-
-export function EnvironmentBadge({ environment }: { environment: Environment }) {
-  return (
-    <Pill tone={ENVIRONMENT_TONE[environment]} className="uppercase">
-      {ENVIRONMENT_LABEL[environment]}
-    </Pill>
-  )
-}

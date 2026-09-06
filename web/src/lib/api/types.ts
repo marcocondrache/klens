@@ -1,11 +1,8 @@
 export type ClusterStatus = "healthy" | "degraded" | "offline"
 
-export type Environment = "development" | "staging" | "production"
-
 export interface Cluster {
   name: string
   label: string
-  environment: Environment
   clusterId: string
   bootstrapServers: string[]
   securityProtocol: "PLAINTEXT" | "SSL" | "SASL_SSL"
