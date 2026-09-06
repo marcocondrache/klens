@@ -1,34 +1,55 @@
 # klens
 
-A production-minded Rust service template with a small set of strong defaults.
+A fast, modern Kafka UI for inspecting topics, messages, consumer groups, and
+more.
 
-It is not a framework. The goal is to start new microservices from a baseline
-that is simple to understand, easy to replace, and shaped by defaults that have
-worked well for me in production.
+It is a small Rust service with an embedded web UI, not a platform. Point it at
+one or more clusters, then browse topics, brokers, consumer groups, schemas, and
+ACLs from a single process that is easy to run and easy to replace.
 
 ## ✦ What It Includes
 
-- A clear separation between startup, serving, and application routing
-- Environment-driven configuration with a simple command-line interface
+- A React UI for topics, messages, brokers, consumer groups, schemas, and ACLs
+- A GraphQL API over Axum, with GraphiQL available in debug builds
+- YAML cluster configuration, including optional SASL, TLS, and extra librdkafka
+  properties
+- Multi-cluster support from a single process
 - Production-oriented HTTP defaults around request visibility, failure handling,
   and safe logging
 - Graceful shutdown for local development and orchestrated environments
 - Structured, non-blocking logs written to stdout
-- A small container image for deployment
-- A default CI workflow suitable for pre-merge checks
+- An optional embedded UI compiled into a small container image
 
-## ✦ Using The Template
+## ✦ Getting Started
 
-This repository is intended to be used as a GitHub template repository or with
-`cargo generate`. Create a new repository from it, then rename the crate to
-match the actual service and binary name.
+Copy the example cluster config, then start the server:
+
+    cp config/clusters.example.yaml config/clusters.yaml
+    cargo run
+
+The process listens on `0.0.0.0:8080` by default. Override bind address, log
+filter, and config path with `--bind`, `--log`, and `--config`, or the `BIND`,
+`RUST_LOG`, and `CONFIG` environment variables.
+
+For UI work, run the Vite dev server alongside it. It proxies `/health` and
+`/api` to the backend:
+
+    mise run web:dev
+
+To serve the UI from the same binary, build the frontend and enable the `ui`
+feature:
+
+    mise run web:build
+    cargo run --features ui
 
 The source is split by concern:
 
 - `src/main.rs` — the binary: configuration and startup
-- `src/app/` — application routing, the part you replace first
-- `src/server/` — HTTP serving with production defaults
+- `src/app/` — GraphQL API and health routes
+- `src/kafka/` — cluster registry and Kafka clients
+- `src/server/` — HTTP serving and the embedded UI
 - `src/telemetry.rs` — structured, non-blocking logging
+- `web/` — the React UI
 
 ## ✦ Local Kafka
 
@@ -43,9 +64,10 @@ Create topics with:
 
 ## ✦ Philosophy
 
-This template tries to follow the [12-factor app](https://12factor.net/) style
-without turning that into ceremony.
+klens tries to stay a lens, not a control plane. Kafka already has enough moving
+parts; the UI should be a clear window onto a cluster, not another system to
+operate.
 
-It should give a service the operational baseline it needs on day one, then get
-out of the way. Application-specific decisions, business logic, and deployment
-policy stay with each service.
+It should give you a usable view of topics, messages, and consumers on day one,
+then get out of the way. How you run Kafka, who may change it, and what you
+deploy around it stay yours.
