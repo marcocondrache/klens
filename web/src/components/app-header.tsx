@@ -17,39 +17,34 @@ import { Kbd } from "@/components/ui/kbd"
 import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { ClusterSwitcher } from "@/components/cluster-switcher"
 import { ModeToggle } from "@/components/mode-toggle"
-import { useCluster } from "@/lib/api/queries"
 import { clusterPath, useClusterName } from "@/lib/clusters"
-
-const SECTION_LABELS: Record<string, string> = {
-  nodes: "Nodes",
-  topics: "Topics",
-  groups: "Consumer groups",
-  schemas: "Schema registry",
-  acls: "ACLs",
-}
+import { findSection } from "@/lib/sections"
 
 interface Crumb {
   label: string
   href?: string
+  icon?: typeof SearchIcon
   mono?: boolean
 }
 
 export function AppHeader({ onSearch }: { onSearch: () => void }) {
   const cluster = useClusterName()
-  const { data } = useCluster(cluster)
   const { pathname } = useLocation()
   const queryClient = useQueryClient()
   const fetching = useIsFetching() > 0
 
-  const [, , , section, detail] = pathname.split("/")
+  const [, , , segment, detail] = pathname.split("/")
+  const section = findSection(segment)
 
-  const crumbs: Crumb[] = [{ label: data?.label ?? cluster, href: clusterPath(cluster) }]
+  const crumbs: Crumb[] = []
 
-  if (section && SECTION_LABELS[section]) {
+  if (section) {
     crumbs.push({
-      label: SECTION_LABELS[section],
-      href: detail ? clusterPath(cluster, section) : undefined,
+      label: section.label,
+      icon: section.icon,
+      href: detail ? clusterPath(cluster, section.segment) : undefined,
     })
   }
 
@@ -60,7 +55,13 @@ export function AppHeader({ onSearch }: { onSearch: () => void }) {
   return (
     <header className="sticky top-0 z-20 flex h-12 shrink-0 items-center gap-2 border-b bg-background/85 px-3 backdrop-blur-md">
       <SidebarTrigger className="-ml-1" />
-      <Separator orientation="vertical" className="mr-1 !h-4" />
+      <Separator orientation="vertical" className="mx-1 !h-4 my-auto" />
+
+      <ClusterSwitcher />
+
+      {crumbs.length ? (
+        <Separator orientation="vertical" className="mx-1 !h-4 my-auto" />
+      ) : null}
 
       <Breadcrumb className="min-w-0">
         <BreadcrumbList className="flex-nowrap">
@@ -69,7 +70,8 @@ export function AppHeader({ onSearch }: { onSearch: () => void }) {
 
             return (
               <Fragment key={`${crumb.label}-${index}`}>
-                <BreadcrumbItem className="min-w-0">
+                <BreadcrumbItem className="min-w-0 gap-1.5">
+                  {crumb.icon ? <crumb.icon className="size-3.5 shrink-0" /> : null}
                   {last || !crumb.href ? (
                     <BreadcrumbPage
                       className={cn("truncate", crumb.mono && "font-mono text-[0.8rem]")}
