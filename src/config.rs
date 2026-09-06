@@ -75,7 +75,6 @@ impl Config {
 #[serde(deny_unknown_fields)]
 pub struct ClusterConfig {
     pub name: String,
-    #[serde(deserialize_with = "one_or_many")]
     pub bootstrap_servers: Vec<String>,
     #[serde(default)]
     pub security: Option<SecurityConfig>,
@@ -114,37 +113,6 @@ impl ClusterConfig {
 
         Ok(())
     }
-}
-
-fn one_or_many<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum Raw {
-        One(String),
-        Many(Vec<String>),
-    }
-
-    let entries = match Raw::deserialize(deserializer)? {
-        Raw::One(value) => value.split(',').map(str::to_owned).collect(),
-        Raw::Many(values) => values,
-    };
-
-    let servers: Vec<String> = entries
-        .into_iter()
-        .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty())
-        .collect();
-
-    if servers.is_empty() {
-        return Err(serde::de::Error::custom(
-            "bootstrap_servers must not be empty",
-        ));
-    }
-
-    Ok(servers)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -239,7 +207,8 @@ mod tests {
             "
             clusters:
               - name: local
-                bootstrap_servers: localhost:9092
+                bootstrap_servers:
+                  - localhost:9092
               - name: staging
                 bootstrap_servers:
                   - broker-1:9092
@@ -259,7 +228,8 @@ mod tests {
         let config = parse_cluster(
             "
             name: local
-            bootstrap_servers: localhost:9092
+            bootstrap_servers:
+              - localhost:9092
             ",
         )
         .unwrap();
@@ -268,22 +238,6 @@ mod tests {
         assert_eq!(config.bootstrap_servers, vec!["localhost:9092"]);
         assert_eq!(config.security, None);
         assert!(config.properties.is_empty());
-    }
-
-    #[test]
-    fn parses_comma_separated_bootstrap_servers() {
-        let config = parse_cluster(
-            "
-            name: local
-            bootstrap_servers: broker-1:9092, broker-2:9092
-            ",
-        )
-        .unwrap();
-
-        assert_eq!(
-            config.bootstrap_servers,
-            vec!["broker-1:9092", "broker-2:9092"]
-        );
     }
 
     #[test]
@@ -309,7 +263,8 @@ mod tests {
         let config = parse_cluster(
             "
             name: secure
-            bootstrap_servers: broker:9092
+            bootstrap_servers:
+              - broker:9092
             security:
               protocol: SASL_SSL
               sasl:
@@ -346,7 +301,8 @@ mod tests {
             parse_cluster(
                 "
             name: local
-            bootstrap_servers: localhost:9092
+            bootstrap_servers:
+              - localhost:9092
             bogus: true
             "
             )
@@ -368,15 +324,33 @@ mod tests {
     }
 
     #[test]
-    fn rejects_empty_bootstrap_servers() {
+    fn rejects_scalar_bootstrap_servers() {
         assert!(
             parse_cluster(
                 "
             name: local
-            bootstrap_servers: ' '
+            bootstrap_servers: localhost:9092
             "
             )
             .is_err()
+        );
+    }
+
+    #[test]
+    fn rejects_empty_bootstrap_servers() {
+        let config = parse_cluster(
+            "
+            name: local
+            bootstrap_servers: []
+            ",
+        )
+        .unwrap();
+
+        let error = config.validate().unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("bootstrap_servers must not be empty")
         );
     }
 
@@ -397,7 +371,8 @@ mod tests {
         let config = parse_cluster(
             "
             name: local
-            bootstrap_servers: localhost:9092
+            bootstrap_servers:
+              - localhost:9092
             security:
               protocol: SASL_PLAINTEXT
             ",
@@ -413,7 +388,8 @@ mod tests {
         let config = parse_cluster(
             "
             name: local
-            bootstrap_servers: localhost:9092
+            bootstrap_servers:
+              - localhost:9092
             security:
               protocol: SSL
               tls:
@@ -432,9 +408,11 @@ mod tests {
             "
             clusters:
               - name: local
-                bootstrap_servers: localhost:9092
+                bootstrap_servers:
+                  - localhost:9092
               - name: local
-                bootstrap_servers: localhost:9093
+                bootstrap_servers:
+                  - localhost:9093
             ",
         )
         .unwrap();

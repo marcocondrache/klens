@@ -3,7 +3,8 @@
 # Copy this file to config/clusters.yaml and adjust it for your environment.
 clusters:
   - name: local
-    bootstrap_servers: localhost:9092
+    bootstrap_servers:
+      - localhost:9092
 
     # SASL and TLS are optional. Example:
     # security:

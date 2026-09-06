@@ -98,7 +98,9 @@ mod tests {
         let cluster = cluster(
             "
             name: local
-            bootstrap_servers: broker-1:9092, broker-2:9092
+            bootstrap_servers:
+              - broker-1:9092
+              - broker-2:9092
             properties:
               request.timeout.ms: '10000'
             ",
@@ -121,7 +123,8 @@ mod tests {
         let cluster = cluster(
             "
             name: secure
-            bootstrap_servers: broker:9092
+            bootstrap_servers:
+              - broker:9092
             security:
               protocol: SASL_SSL
               sasl:
@@ -161,9 +164,11 @@ mod tests {
             "
             clusters:
               - name: local
-                bootstrap_servers: localhost:9092
+                bootstrap_servers:
+                  - localhost:9092
               - name: staging
-                bootstrap_servers: staging:9092
+                bootstrap_servers:
+                  - staging:9092
             ",
         )
         .unwrap();
@@ -185,7 +190,8 @@ mod tests {
         let cluster = cluster(
             "
             name: local
-            bootstrap_servers: localhost:9092
+            bootstrap_servers:
+              - localhost:9092
             security:
               protocol: SASL_PLAINTEXT
             ",
