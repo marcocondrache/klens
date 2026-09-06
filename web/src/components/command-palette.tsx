@@ -1,11 +1,9 @@
 import { useState } from "react"
 import {
   FileJsonIcon,
-  GaugeIcon,
   HardDriveIcon,
   LayersIcon,
   ServerIcon,
-  ShieldCheckIcon,
   UsersRoundIcon,
 } from "lucide-react"
 import { useLocation, useNavigate } from "react-router"
@@ -23,16 +21,8 @@ import {
 import { StatusDot } from "@/components/status"
 import { useClusters, useSearch } from "@/lib/api/queries"
 import { clusterPath, useClusterName } from "@/lib/clusters"
+import { SECTIONS, findSection } from "@/lib/sections"
 import type { ClusterStatus } from "@/lib/api/types"
-
-const NAV = [
-  { label: "Overview", segment: "", icon: GaugeIcon },
-  { label: "Nodes", segment: "nodes", icon: HardDriveIcon },
-  { label: "Topics", segment: "topics", icon: LayersIcon },
-  { label: "Consumer groups", segment: "groups", icon: UsersRoundIcon },
-  { label: "Schema registry", segment: "schemas", icon: FileJsonIcon },
-  { label: "ACLs", segment: "acls", icon: ShieldCheckIcon },
-]
 
 const RESULT_ICON = {
   topic: LayersIcon,
@@ -46,8 +36,6 @@ const STATUS_TONE: Record<ClusterStatus, "ok" | "warn" | "error"> = {
   degraded: "warn",
   offline: "error",
 }
-
-const SECTIONS = new Set(["topics", "groups", "nodes", "schemas", "acls"])
 
 export function CommandPalette({
   open,
@@ -83,13 +71,13 @@ export function CommandPalette({
       open={open}
       onOpenChange={changeOpen}
       title="Search klens"
-      description="Jump to a topic, consumer group, node or section"
+      description="Jump to a topic, consumer group, broker or section"
     >
       <Command shouldFilter={false}>
         <CommandInput
           value={term}
           onValueChange={setTerm}
-          placeholder="Search topics, groups and nodes…"
+          placeholder="Search topics, groups and brokers…"
         />
         <CommandList>
           {term && !isFetching && results.length === 0 ? (
@@ -132,7 +120,7 @@ export function CommandPalette({
           ) : null}
 
           {nodes.length ? (
-            <CommandGroup heading="Nodes">
+            <CommandGroup heading="Brokers">
               {nodes.map((result) => (
                 <CommandItem
                   key={result.href}
@@ -152,14 +140,14 @@ export function CommandPalette({
           {results.length ? <CommandSeparator /> : null}
 
           <CommandGroup heading="Go to">
-            {NAV.map((item) => (
+            {SECTIONS.map((section) => (
               <CommandItem
-                key={item.label}
-                value={`nav:${item.label}`}
-                onSelect={() => run(() => navigate(clusterPath(cluster, item.segment)))}
+                key={section.segment}
+                value={`nav:${section.label}`}
+                onSelect={() => run(() => navigate(clusterPath(cluster, section.segment)))}
               >
-                <item.icon className="text-muted-foreground" />
-                <span>{item.label}</span>
+                <section.icon className="text-muted-foreground" />
+                <span>{section.label}</span>
               </CommandItem>
             ))}
           </CommandGroup>
@@ -171,10 +159,10 @@ export function CommandPalette({
                 value={`cluster:${entry.name}`}
                 onSelect={() =>
                   run(() => {
-                    const [, , , section] = location.pathname.split("/")
+                    const section = findSection(location.pathname.split("/")[3])
                     navigate(
-                      section && SECTIONS.has(section)
-                        ? `/cluster/${entry.name}/${section}`
+                      section
+                        ? `/cluster/${entry.name}/${section.segment}`
                         : `/cluster/${entry.name}`,
                     )
                   })
@@ -184,7 +172,7 @@ export function CommandPalette({
                 <span>{entry.label}</span>
                 <span className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
                   <StatusDot tone={STATUS_TONE[entry.status]} />
-                  {entry.brokerCount} brokers
+                  {entry.brokerCount} {entry.brokerCount === 1 ? "broker" : "brokers"}
                 </span>
               </CommandItem>
             ))}

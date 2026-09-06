@@ -97,7 +97,7 @@ export function NodesPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Nodes"
+        title="Brokers"
         description={`${brokers.length} brokers · Kafka ${info?.version ?? "—"}`}
       />
 

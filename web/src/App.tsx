@@ -7,7 +7,6 @@ import { ConsumerGroupsPage } from "@/routes/groups"
 import { NodePage } from "@/routes/node-detail"
 import { NodesPage } from "@/routes/nodes"
 import { NotFoundPage } from "@/routes/not-found"
-import { OverviewPage } from "@/routes/overview"
 import { SchemasPage } from "@/routes/schemas"
 import { TopicPage } from "@/routes/topic-detail"
 import { TopicsPage } from "@/routes/topics"
@@ -16,9 +15,9 @@ import { DEFAULT_CLUSTER } from "@/lib/clusters"
 function App() {
   return (
     <Routes>
-      <Route path="/" element={<Navigate to={`/cluster/${DEFAULT_CLUSTER}`} replace />} />
+      <Route path="/" element={<Navigate to={`/cluster/${DEFAULT_CLUSTER}/topics`} replace />} />
       <Route path="/cluster/:cluster" element={<AppLayout />}>
-        <Route index element={<OverviewPage />} />
+        <Route index element={<Navigate to="topics" replace />} />
         <Route path="nodes" element={<NodesPage />} />
         <Route path="nodes/:id" element={<NodePage />} />
         <Route path="topics" element={<TopicsPage />} />

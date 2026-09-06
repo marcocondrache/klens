@@ -21,11 +21,11 @@ export function NotFoundPage() {
         </EmptyMedia>
         <EmptyTitle>Page not found</EmptyTitle>
         <EmptyDescription>
-          That route does not exist in klens. Try the cluster overview or search with ⌘K.
+          That route does not exist in klens. Try the topics list or search with ⌘K.
         </EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
-        <Button render={<Link to={`/cluster/${DEFAULT_CLUSTER}`} />}>Back to overview</Button>
+        <Button render={<Link to={`/cluster/${DEFAULT_CLUSTER}/topics`} />}>Back to topics</Button>
       </EmptyContent>
     </Empty>
   )
