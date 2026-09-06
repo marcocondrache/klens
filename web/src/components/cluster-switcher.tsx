@@ -10,7 +10,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { EnvironmentBadge, StatusDot } from "@/components/status"
+import { StatusDot } from "@/components/status"
 import { useClusterName } from "@/lib/clusters"
 import { useClusters } from "@/lib/api/queries"
 import { findSection } from "@/lib/sections"
@@ -53,7 +53,6 @@ export function ClusterSwitcher() {
             <DropdownMenuRadioItem key={cluster.name} value={cluster.name}>
               <StatusDot tone={STATUS_TONE[cluster.status]} />
               <span className="flex-1 truncate">{cluster.label}</span>
-              <EnvironmentBadge environment={cluster.environment} />
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>

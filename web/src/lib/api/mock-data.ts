@@ -7,7 +7,6 @@ import type {
   ConsumerGroup,
   ConsumerGroupMember,
   ConsumerGroupState,
-  Environment,
   GroupOffset,
   MemberAssignment,
   Partition,
@@ -58,7 +57,6 @@ export class Rand {
 interface ClusterDef {
   name: string
   label: string
-  environment: Environment
   brokers: number
   securityProtocol: Cluster["securityProtocol"]
   version: string
@@ -73,7 +71,6 @@ const CLUSTER_DEFS: ClusterDef[] = [
   {
     name: "local",
     label: "Local",
-    environment: "development",
     brokers: 1,
     securityProtocol: "PLAINTEXT",
     version: "4.1.0",
@@ -86,7 +83,6 @@ const CLUSTER_DEFS: ClusterDef[] = [
   {
     name: "staging",
     label: "Staging",
-    environment: "staging",
     brokers: 3,
     securityProtocol: "SASL_SSL",
     version: "3.9.1",
@@ -99,7 +95,6 @@ const CLUSTER_DEFS: ClusterDef[] = [
   {
     name: "production",
     label: "Production",
-    environment: "production",
     brokers: 6,
     securityProtocol: "SASL_SSL",
     version: "3.9.1",
@@ -344,7 +339,6 @@ function buildCluster(def: ClusterDef): ClusterSnapshot {
   const cluster: Cluster = {
     name: def.name,
     label: def.label,
-    environment: def.environment,
     clusterId: `${def.name}-Xk3PmR${hashString(def.name).toString(36).slice(0, 6)}`,
     bootstrapServers: brokers.map((broker) => `${broker.host}:${broker.port}`).slice(0, 3),
     securityProtocol: def.securityProtocol,
