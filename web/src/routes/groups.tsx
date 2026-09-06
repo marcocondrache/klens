@@ -20,10 +20,16 @@ import { GroupStateBadge, Pill } from "@/components/status"
 import { lagTone } from "@/lib/tone"
 import { useConsumerGroups } from "@/lib/api/queries"
 import { clusterPath, useClusterName } from "@/lib/clusters"
-import { formatCount, formatNumber } from "@/lib/format"
-import type { ConsumerGroup } from "@/lib/api/types"
+import { formatCount, formatEnumLabel, formatNumber } from "@/lib/format"
+import type { ConsumerGroup, ConsumerGroupState } from "@/lib/api/types"
 
-const STATES = ["Stable", "Empty", "PreparingRebalance", "CompletingRebalance", "Dead"]
+const STATES: ConsumerGroupState[] = [
+  "STABLE",
+  "EMPTY",
+  "PREPARING_REBALANCE",
+  "COMPLETING_REBALANCE",
+  "DEAD",
+]
 
 export function ConsumerGroupsPage() {
   const cluster = useClusterName()
@@ -148,7 +154,7 @@ export function ConsumerGroupsPage() {
             <SelectItem value="all">All states</SelectItem>
             {STATES.map((value) => (
               <SelectItem key={value} value={value}>
-                {value}
+                {formatEnumLabel(value)}
               </SelectItem>
             ))}
           </SelectContent>

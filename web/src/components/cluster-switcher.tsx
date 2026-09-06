@@ -17,9 +17,9 @@ import { findSection } from "@/lib/sections"
 import type { ClusterStatus } from "@/lib/api/types"
 
 const STATUS_TONE: Record<ClusterStatus, "ok" | "warn" | "error"> = {
-  healthy: "ok",
-  degraded: "warn",
-  offline: "error",
+  HEALTHY: "ok",
+  DEGRADED: "warn",
+  OFFLINE: "error",
 }
 
 export function ClusterSwitcher() {

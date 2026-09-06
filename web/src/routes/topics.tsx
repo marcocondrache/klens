@@ -21,7 +21,15 @@ import { PageHeader } from "@/components/page-header"
 import { Pill } from "@/components/status"
 import { useTopics } from "@/lib/api/queries"
 import { clusterPath, useClusterName } from "@/lib/clusters"
-import { formatBytes, formatCount, formatDuration, formatNumber, formatRate } from "@/lib/format"
+import {
+  formatBytes,
+  formatCleanupPolicy,
+  formatCount,
+  formatDuration,
+  formatNumber,
+  formatRate,
+  isCompactCleanup,
+} from "@/lib/format"
 import type { Topic } from "@/lib/api/types"
 
 export function TopicsPage() {
@@ -50,7 +58,7 @@ export function TopicsPage() {
 
     return topics.filter((topic) => {
       if (!showInternal && topic.internal) return false
-      if (policy !== "all" && !topic.cleanupPolicy.includes(policy)) return false
+      if (policy !== "all" && !formatCleanupPolicy(topic.cleanupPolicy).includes(policy)) return false
       if (needle && !topic.name.toLowerCase().includes(needle)) return false
       return true
     })
@@ -131,8 +139,8 @@ export function TopicsPage() {
       align: "right",
       sortValue: (topic) => topic.cleanupPolicy,
       cell: (topic) => (
-        <Pill tone={topic.cleanupPolicy.includes("compact") ? "brand" : "idle"}>
-          {topic.cleanupPolicy}
+        <Pill tone={isCompactCleanup(topic.cleanupPolicy) ? "brand" : "idle"}>
+          {formatCleanupPolicy(topic.cleanupPolicy)}
         </Pill>
       ),
     },

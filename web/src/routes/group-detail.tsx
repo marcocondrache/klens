@@ -212,7 +212,7 @@ export function ConsumerGroupPage() {
         <Stat
           label="Members"
           value={group?.members.length ?? 0}
-          hint={group?.state === "Empty" ? "no active consumers" : "active consumers"}
+          hint={group?.state === "EMPTY" ? "no active consumers" : "active consumers"}
           icon={<UsersRoundIcon />}
           loading={isPending}
         />
