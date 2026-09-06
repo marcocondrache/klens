@@ -1,10 +1,36 @@
+import { Navigate, Route, Routes } from "react-router"
+
+import { AppLayout } from "@/routes/app-layout"
+import { AclsPage } from "@/routes/acls"
+import { ConsumerGroupPage } from "@/routes/group-detail"
+import { ConsumerGroupsPage } from "@/routes/groups"
+import { NodePage } from "@/routes/node-detail"
+import { NodesPage } from "@/routes/nodes"
+import { NotFoundPage } from "@/routes/not-found"
+import { OverviewPage } from "@/routes/overview"
+import { SchemasPage } from "@/routes/schemas"
+import { TopicPage } from "@/routes/topic-detail"
+import { TopicsPage } from "@/routes/topics"
+import { DEFAULT_CLUSTER } from "@/lib/clusters"
+
 function App() {
   return (
-    <main className="flex min-h-svh flex-col items-center justify-center">
-      <h1 className="text-4xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
-        klens
-      </h1>
-    </main>
+    <Routes>
+      <Route path="/" element={<Navigate to={`/cluster/${DEFAULT_CLUSTER}`} replace />} />
+      <Route path="/cluster/:cluster" element={<AppLayout />}>
+        <Route index element={<OverviewPage />} />
+        <Route path="nodes" element={<NodesPage />} />
+        <Route path="nodes/:id" element={<NodePage />} />
+        <Route path="topics" element={<TopicsPage />} />
+        <Route path="topics/:topic" element={<TopicPage />} />
+        <Route path="groups" element={<ConsumerGroupsPage />} />
+        <Route path="groups/:group" element={<ConsumerGroupPage />} />
+        <Route path="schemas" element={<SchemasPage />} />
+        <Route path="acls" element={<AclsPage />} />
+        <Route path="*" element={<NotFoundPage />} />
+      </Route>
+      <Route path="*" element={<NotFoundPage />} />
+    </Routes>
   )
 }
 

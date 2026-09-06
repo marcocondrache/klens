@@ -1,0 +1,134 @@
+import { Fragment } from "react"
+import { RefreshCwIcon, SearchIcon } from "lucide-react"
+import { Link, useLocation } from "react-router"
+import { useIsFetching, useQueryClient } from "@tanstack/react-query"
+import { cn } from "@/lib/utils"
+
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb"
+import { Button } from "@/components/ui/button"
+import { Kbd } from "@/components/ui/kbd"
+import { Separator } from "@/components/ui/separator"
+import { SidebarTrigger } from "@/components/ui/sidebar"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { ModeToggle } from "@/components/mode-toggle"
+import { useCluster } from "@/lib/api/queries"
+import { clusterPath, useClusterName } from "@/lib/clusters"
+
+const SECTION_LABELS: Record<string, string> = {
+  nodes: "Nodes",
+  topics: "Topics",
+  groups: "Consumer groups",
+  schemas: "Schema registry",
+  acls: "ACLs",
+}
+
+interface Crumb {
+  label: string
+  href?: string
+  mono?: boolean
+}
+
+export function AppHeader({ onSearch }: { onSearch: () => void }) {
+  const cluster = useClusterName()
+  const { data } = useCluster(cluster)
+  const { pathname } = useLocation()
+  const queryClient = useQueryClient()
+  const fetching = useIsFetching() > 0
+
+  const [, , , section, detail] = pathname.split("/")
+
+  const crumbs: Crumb[] = [{ label: data?.label ?? cluster, href: clusterPath(cluster) }]
+
+  if (section && SECTION_LABELS[section]) {
+    crumbs.push({
+      label: SECTION_LABELS[section],
+      href: detail ? clusterPath(cluster, section) : undefined,
+    })
+  }
+
+  if (detail) {
+    crumbs.push({ label: decodeURIComponent(detail), mono: true })
+  }
+
+  return (
+    <header className="sticky top-0 z-20 flex h-12 shrink-0 items-center gap-2 border-b bg-background/85 px-3 backdrop-blur-md">
+      <SidebarTrigger className="-ml-1" />
+      <Separator orientation="vertical" className="mr-1 !h-4" />
+
+      <Breadcrumb className="min-w-0">
+        <BreadcrumbList className="flex-nowrap">
+          {crumbs.map((crumb, index) => {
+            const last = index === crumbs.length - 1
+
+            return (
+              <Fragment key={`${crumb.label}-${index}`}>
+                <BreadcrumbItem className="min-w-0">
+                  {last || !crumb.href ? (
+                    <BreadcrumbPage
+                      className={cn("truncate", crumb.mono && "font-mono text-[0.8rem]")}
+                    >
+                      {crumb.label}
+                    </BreadcrumbPage>
+                  ) : (
+                    <BreadcrumbLink render={<Link to={crumb.href} />} className="truncate">
+                      {crumb.label}
+                    </BreadcrumbLink>
+                  )}
+                </BreadcrumbItem>
+                {last ? null : <BreadcrumbSeparator />}
+              </Fragment>
+            )
+          })}
+        </BreadcrumbList>
+      </Breadcrumb>
+
+      <div className="ml-auto flex items-center gap-1.5">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onSearch}
+          className="hidden gap-2 text-muted-foreground sm:flex"
+        >
+          <SearchIcon />
+          <span className="text-xs">Search</span>
+          <Kbd className="ml-2">⌘K</Kbd>
+        </Button>
+
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={onSearch}
+          aria-label="Search"
+          className="sm:hidden"
+        >
+          <SearchIcon />
+        </Button>
+
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Refresh"
+                onClick={() => queryClient.invalidateQueries()}
+              />
+            }
+          >
+            <RefreshCwIcon className={cn(fetching && "animate-spin")} />
+          </TooltipTrigger>
+          <TooltipContent>Refresh</TooltipContent>
+        </Tooltip>
+
+        <ModeToggle />
+      </div>
+    </header>
+  )
+}
