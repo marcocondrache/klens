@@ -1,4 +1,4 @@
-# klens cluster configuration.
+# klens service configuration.
 #
 # Copy this file to config/clusters.yaml and adjust it for your environment.
 clusters:

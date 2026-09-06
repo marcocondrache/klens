@@ -3,9 +3,9 @@ use std::time::Duration;
 use async_trait::async_trait;
 use rdkafka::admin::AdminClient;
 use rdkafka::client::DefaultClientContext;
-use rdkafka::config::ClientConfig;
 
-use crate::kafka::config::{ClusterConfig, SaslConfig, SecurityConfig, TlsConfig};
+use crate::config::ClusterConfig;
+use crate::kafka::config::KafkaClusterConfig;
 use crate::kafka::error::KafkaError;
 use crate::kafka::metadata::{BrokerInfo, ClusterInfo, MetadataApi};
 
@@ -17,21 +17,8 @@ pub struct ClusterClient {
 
 impl ClusterClient {
     pub fn from_config(config: ClusterConfig) -> Result<Self, KafkaError> {
-        config.validate()?;
-
-        let mut client = ClientConfig::new();
-        client.set("bootstrap.servers", config.bootstrap_servers.join(","));
-        client.set("client.id", format!("klens-{}", config.name));
-
-        if let Some(security) = &config.security {
-            apply_security(&mut client, security);
-        }
-
-        for (key, value) in &config.properties {
-            client.set(key, value);
-        }
-
-        let admin = client.create()?;
+        let kafka = KafkaClusterConfig::try_from(&config)?;
+        let admin = kafka.into_client_config().create()?;
 
         Ok(Self { config, admin })
     }
@@ -61,44 +48,5 @@ impl MetadataApi for ClusterClient {
             .collect();
 
         Ok(ClusterInfo { brokers })
-    }
-}
-
-fn apply_security(client: &mut ClientConfig, security: &SecurityConfig) {
-    client.set("security.protocol", security.protocol.as_str());
-
-    if let Some(sasl) = &security.sasl {
-        apply_sasl(client, sasl);
-    }
-
-    if let Some(tls) = &security.tls {
-        apply_tls(client, tls);
-    }
-}
-
-fn apply_sasl(client: &mut ClientConfig, sasl: &SaslConfig) {
-    client.set("sasl.mechanisms", sasl.mechanism.as_str());
-    client.set("sasl.username", &sasl.username);
-    client.set("sasl.password", &sasl.password);
-}
-
-fn apply_tls(client: &mut ClientConfig, tls: &TlsConfig) {
-    if let Some(ca_cert) = &tls.ca_cert {
-        client.set("ssl.ca.location", ca_cert.to_string_lossy().as_ref());
-    }
-
-    if let Some(client_cert) = &tls.client_cert {
-        client.set(
-            "ssl.certificate.location",
-            client_cert.to_string_lossy().as_ref(),
-        );
-    }
-
-    if let Some(client_key) = &tls.client_key {
-        client.set("ssl.key.location", client_key.to_string_lossy().as_ref());
-    }
-
-    if tls.insecure_skip_verify {
-        client.set("enable.ssl.certificate.verification", "false");
     }
 }

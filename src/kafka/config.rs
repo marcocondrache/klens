@@ -1,233 +1,124 @@
-use std::collections::HashMap;
-use std::path::PathBuf;
+use rdkafka::config::ClientConfig;
 
-use serde::Deserialize;
-
+use crate::config::{ClusterConfig, Config, SaslConfig, SecurityConfig, TlsConfig};
 use crate::kafka::error::KafkaError;
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ClustersConfig {
-    #[serde(default)]
-    pub clusters: Vec<ClusterConfig>,
+/// Kafka client settings derived from a cluster config node.
+#[derive(Debug, Clone)]
+pub struct KafkaClusterConfig {
+    client: ClientConfig,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ClusterConfig {
-    pub name: String,
-    #[serde(deserialize_with = "one_or_many")]
-    pub bootstrap_servers: Vec<String>,
-    #[serde(default)]
-    pub security: Option<SecurityConfig>,
-    #[serde(default)]
-    pub properties: HashMap<String, String>,
-}
+impl KafkaClusterConfig {
+    pub fn from_config(config: &Config) -> Result<Vec<Self>, KafkaError> {
+        config.validate()?;
+        config.clusters.iter().map(Self::try_from).collect()
+    }
 
-impl ClusterConfig {
-    pub fn validate(&self) -> Result<(), KafkaError> {
-        let fail = |reason: &str| {
-            Err(KafkaError::InvalidConfig {
-                cluster: self.name.clone(),
-                reason: reason.to_owned(),
-            })
-        };
+    pub fn client_config(&self) -> &ClientConfig {
+        &self.client
+    }
 
-        if self.name.trim().is_empty() {
-            return fail("name must not be empty");
-        }
-
-        if self.bootstrap_servers.is_empty() {
-            return fail("bootstrap_servers must not be empty");
-        }
-
-        if let Some(security) = &self.security {
-            let needs_sasl = matches!(
-                security.protocol,
-                SecurityProtocol::SaslPlaintext | SecurityProtocol::SaslSsl
-            );
-
-            if needs_sasl && security.sasl.is_none() {
-                return fail("sasl settings are required for SASL protocols");
-            }
-
-            if let Some(tls) = &security.tls
-                && tls.client_cert.is_some() != tls.client_key.is_some()
-            {
-                return fail("client_cert and client_key must be set together");
-            }
-        }
-
-        Ok(())
+    pub fn into_client_config(self) -> ClientConfig {
+        self.client
     }
 }
 
-fn one_or_many<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum Raw {
-        One(String),
-        Many(Vec<String>),
-    }
+impl TryFrom<&ClusterConfig> for KafkaClusterConfig {
+    type Error = KafkaError;
 
-    let entries = match Raw::deserialize(deserializer)? {
-        Raw::One(value) => value.split(',').map(str::to_owned).collect(),
-        Raw::Many(values) => values,
-    };
+    fn try_from(cluster: &ClusterConfig) -> Result<Self, Self::Error> {
+        cluster.validate()?;
 
-    let servers: Vec<String> = entries
-        .into_iter()
-        .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty())
-        .collect();
+        let mut client = ClientConfig::new();
+        client.set("bootstrap.servers", cluster.bootstrap_servers.join(","));
+        client.set("client.id", format!("klens-{}", cluster.name));
 
-    if servers.is_empty() {
-        return Err(serde::de::Error::custom(
-            "bootstrap_servers must not be empty",
-        ));
-    }
-
-    Ok(servers)
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-pub enum SecurityProtocol {
-    #[serde(rename = "PLAINTEXT")]
-    Plaintext,
-    #[serde(rename = "SSL")]
-    Ssl,
-    #[serde(rename = "SASL_PLAINTEXT")]
-    SaslPlaintext,
-    #[serde(rename = "SASL_SSL")]
-    SaslSsl,
-}
-
-impl SecurityProtocol {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Plaintext => "PLAINTEXT",
-            Self::Ssl => "SSL",
-            Self::SaslPlaintext => "SASL_PLAINTEXT",
-            Self::SaslSsl => "SASL_SSL",
+        if let Some(security) = &cluster.security {
+            apply_security(&mut client, security);
         }
-    }
-}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-pub enum SaslMechanism {
-    #[serde(rename = "PLAIN")]
-    Plain,
-    #[serde(rename = "SCRAM-SHA-256")]
-    ScramSha256,
-    #[serde(rename = "SCRAM-SHA-512")]
-    ScramSha512,
-}
-
-impl SaslMechanism {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Plain => "PLAIN",
-            Self::ScramSha256 => "SCRAM-SHA-256",
-            Self::ScramSha512 => "SCRAM-SHA-512",
+        for (key, value) in &cluster.properties {
+            client.set(key, value);
         }
+
+        Ok(Self { client })
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SecurityConfig {
-    pub protocol: SecurityProtocol,
-    #[serde(default)]
-    pub sasl: Option<SaslConfig>,
-    #[serde(default)]
-    pub tls: Option<TlsConfig>,
+fn apply_security(client: &mut ClientConfig, security: &SecurityConfig) {
+    client.set("security.protocol", security.protocol.as_str());
+
+    if let Some(sasl) = &security.sasl {
+        apply_sasl(client, sasl);
+    }
+
+    if let Some(tls) = &security.tls {
+        apply_tls(client, tls);
+    }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SaslConfig {
-    pub mechanism: SaslMechanism,
-    pub username: String,
-    pub password: String,
+fn apply_sasl(client: &mut ClientConfig, sasl: &SaslConfig) {
+    client.set("sasl.mechanisms", sasl.mechanism.as_str());
+    client.set("sasl.username", &sasl.username);
+    client.set("sasl.password", &sasl.password);
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct TlsConfig {
-    #[serde(default)]
-    pub ca_cert: Option<PathBuf>,
-    #[serde(default)]
-    pub client_cert: Option<PathBuf>,
-    #[serde(default)]
-    pub client_key: Option<PathBuf>,
-    #[serde(default)]
-    pub insecure_skip_verify: bool,
+fn apply_tls(client: &mut ClientConfig, tls: &TlsConfig) {
+    if let Some(ca_cert) = &tls.ca_cert {
+        client.set("ssl.ca.location", ca_cert.to_string_lossy().as_ref());
+    }
+
+    if let Some(client_cert) = &tls.client_cert {
+        client.set(
+            "ssl.certificate.location",
+            client_cert.to_string_lossy().as_ref(),
+        );
+    }
+
+    if let Some(client_key) = &tls.client_key {
+        client.set("ssl.key.location", client_key.to_string_lossy().as_ref());
+    }
+
+    if tls.insecure_skip_verify {
+        client.set("enable.ssl.certificate.verification", "false");
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn parse(yaml: &str) -> Result<ClusterConfig, serde_yaml_ng::Error> {
-        serde_yaml_ng::from_str(yaml)
+    fn cluster(yaml: &str) -> ClusterConfig {
+        serde_yaml_ng::from_str(yaml).unwrap()
     }
 
     #[test]
-    fn parses_minimal_cluster() {
-        let config = parse(
-            "
-            name: local
-            bootstrap_servers: localhost:9092
-            ",
-        )
-        .unwrap();
-
-        assert_eq!(config.name, "local");
-        assert_eq!(config.bootstrap_servers, vec!["localhost:9092"]);
-        assert_eq!(config.security, None);
-        assert!(config.properties.is_empty());
-    }
-
-    #[test]
-    fn parses_comma_separated_bootstrap_servers() {
-        let config = parse(
+    fn derives_plaintext_client_settings() {
+        let cluster = cluster(
             "
             name: local
             bootstrap_servers: broker-1:9092, broker-2:9092
+            properties:
+              request.timeout.ms: '10000'
             ",
-        )
-        .unwrap();
+        );
+
+        let kafka = KafkaClusterConfig::try_from(&cluster).unwrap();
+        let client = kafka.client_config();
 
         assert_eq!(
-            config.bootstrap_servers,
-            vec!["broker-1:9092", "broker-2:9092"]
+            client.get("bootstrap.servers"),
+            Some("broker-1:9092,broker-2:9092")
         );
+        assert_eq!(client.get("client.id"), Some("klens-local"));
+        assert_eq!(client.get("request.timeout.ms"), Some("10000"));
+        assert_eq!(client.get("security.protocol"), None);
     }
 
     #[test]
-    fn parses_bootstrap_server_list() {
-        let config = parse(
-            "
-            name: local
-            bootstrap_servers:
-              - broker-1:9092
-              - broker-2:9092
-            ",
-        )
-        .unwrap();
-
-        assert_eq!(
-            config.bootstrap_servers,
-            vec!["broker-1:9092", "broker-2:9092"]
-        );
-    }
-
-    #[test]
-    fn parses_full_security_settings() {
-        let config = parse(
+    fn derives_sasl_ssl_client_settings() {
+        let cluster = cluster(
             "
             name: secure
             bootstrap_servers: broker:9092
@@ -242,95 +133,65 @@ mod tests {
                 client_cert: /etc/client.pem
                 client_key: /etc/client.key
                 insecure_skip_verify: true
-            properties:
-              request.timeout.ms: '10000'
+            ",
+        );
+
+        let kafka = KafkaClusterConfig::try_from(&cluster).unwrap();
+        let client = kafka.client_config();
+
+        assert_eq!(client.get("security.protocol"), Some("SASL_SSL"));
+        assert_eq!(client.get("sasl.mechanisms"), Some("SCRAM-SHA-512"));
+        assert_eq!(client.get("sasl.username"), Some("admin"));
+        assert_eq!(client.get("sasl.password"), Some("secret"));
+        assert_eq!(client.get("ssl.ca.location"), Some("/etc/ca.pem"));
+        assert_eq!(
+            client.get("ssl.certificate.location"),
+            Some("/etc/client.pem")
+        );
+        assert_eq!(client.get("ssl.key.location"), Some("/etc/client.key"));
+        assert_eq!(
+            client.get("enable.ssl.certificate.verification"),
+            Some("false")
+        );
+    }
+
+    #[test]
+    fn derives_each_cluster_from_root_config() {
+        let config: Config = serde_yaml_ng::from_str(
+            "
+            clusters:
+              - name: local
+                bootstrap_servers: localhost:9092
+              - name: staging
+                bootstrap_servers: staging:9092
             ",
         )
         .unwrap();
 
-        let security = config.security.unwrap();
-        assert_eq!(security.protocol, SecurityProtocol::SaslSsl);
-        assert_eq!(security.sasl.unwrap().mechanism, SaslMechanism::ScramSha512);
-        assert_eq!(security.tls.unwrap().ca_cert, Some("/etc/ca.pem".into()));
+        let derived = KafkaClusterConfig::from_config(&config).unwrap();
+        assert_eq!(derived.len(), 2);
         assert_eq!(
-            config
-                .properties
-                .get("request.timeout.ms")
-                .map(String::as_str),
-            Some("10000")
+            derived[0].client_config().get("client.id"),
+            Some("klens-local")
+        );
+        assert_eq!(
+            derived[1].client_config().get("client.id"),
+            Some("klens-staging")
         );
     }
 
     #[test]
-    fn rejects_unknown_fields() {
-        assert!(
-            parse(
-                "
-            name: local
-            bootstrap_servers: localhost:9092
-            bogus: true
-            "
-            )
-            .is_err()
-        );
-    }
-
-    #[test]
-    fn rejects_empty_bootstrap_servers() {
-        assert!(
-            parse(
-                "
-            name: local
-            bootstrap_servers: ' '
-            "
-            )
-            .is_err()
-        );
-    }
-
-    #[test]
-    fn validation_accepts_plaintext_without_sasl() {
-        let config = ClusterConfig {
-            name: "local".to_owned(),
-            bootstrap_servers: vec!["localhost:9092".to_owned()],
-            security: None,
-            properties: HashMap::new(),
-        };
-
-        config.validate().unwrap();
-    }
-
-    #[test]
-    fn validation_requires_sasl_for_sasl_protocols() {
-        let config = parse(
+    fn derivation_rejects_invalid_cluster_config() {
+        let cluster = cluster(
             "
             name: local
             bootstrap_servers: localhost:9092
             security:
               protocol: SASL_PLAINTEXT
             ",
-        )
-        .unwrap();
+        );
 
-        let error = config.validate().unwrap_err();
+        let error = KafkaClusterConfig::try_from(&cluster).unwrap_err();
         assert!(error.to_string().contains("sasl settings are required"));
-    }
-
-    #[test]
-    fn validation_requires_client_cert_and_key_together() {
-        let config = parse(
-            "
-            name: local
-            bootstrap_servers: localhost:9092
-            security:
-              protocol: SSL
-              tls:
-                client_cert: /etc/client.pem
-            ",
-        )
-        .unwrap();
-
-        let error = config.validate().unwrap_err();
-        assert!(error.to_string().contains("must be set together"));
     }
 }

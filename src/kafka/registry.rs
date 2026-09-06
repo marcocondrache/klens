@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::config::{ClusterConfig, Config, ConfigError};
 use crate::kafka::client::ClusterClient;
-use crate::kafka::config::ClusterConfig;
 use crate::kafka::error::KafkaError;
 
 #[derive(Debug, Clone, Default)]
@@ -12,6 +12,11 @@ pub struct ClusterRegistry {
 }
 
 impl ClusterRegistry {
+    pub fn from_config(config: &Config) -> Result<Self, KafkaError> {
+        config.validate()?;
+        Self::build(config.clusters.clone())
+    }
+
     pub fn build(configs: Vec<ClusterConfig>) -> Result<Self, KafkaError> {
         let mut clusters = HashMap::with_capacity(configs.len());
         let mut order = Vec::with_capacity(configs.len());
@@ -20,17 +25,15 @@ impl ClusterRegistry {
             let name = config.name.trim().to_owned();
 
             if name.is_empty() {
-                return Err(KafkaError::InvalidConfig {
-                    cluster: config.name.clone(),
-                    reason: "name must not be empty".to_owned(),
-                });
+                return Err(ConfigError::invalid_cluster(
+                    config.name.clone(),
+                    "name must not be empty",
+                )
+                .into());
             }
 
             if clusters.contains_key(&name) {
-                return Err(KafkaError::InvalidConfig {
-                    cluster: name,
-                    reason: "duplicate cluster name".to_owned(),
-                });
+                return Err(ConfigError::invalid_cluster(name, "duplicate cluster name").into());
             }
 
             let client = Arc::new(ClusterClient::from_config(config)?);
@@ -64,7 +67,7 @@ impl ClusterRegistry {
 mod tests {
     use super::*;
 
-    fn config(name: &str) -> ClusterConfig {
+    fn cluster(name: &str) -> ClusterConfig {
         ClusterConfig {
             name: name.to_owned(),
             bootstrap_servers: vec!["localhost:9092".to_owned()],
@@ -75,7 +78,7 @@ mod tests {
 
     #[test]
     fn preserves_configuration_order() {
-        let registry = ClusterRegistry::build(vec![config("b"), config("a")]).unwrap();
+        let registry = ClusterRegistry::build(vec![cluster("b"), cluster("a")]).unwrap();
 
         assert_eq!(registry.names(), vec!["b", "a"]);
         assert_eq!(
@@ -90,23 +93,34 @@ mod tests {
 
     #[test]
     fn rejects_duplicate_names() {
-        let error = ClusterRegistry::build(vec![config("a"), config("a")]).unwrap_err();
+        let error = ClusterRegistry::build(vec![cluster("a"), cluster("a")]).unwrap_err();
 
         assert!(error.to_string().contains("duplicate cluster name"));
     }
 
     #[test]
     fn rejects_empty_names() {
-        let error = ClusterRegistry::build(vec![config("  ")]).unwrap_err();
+        let error = ClusterRegistry::build(vec![cluster("  ")]).unwrap_err();
 
         assert!(error.to_string().contains("name must not be empty"));
     }
 
     #[test]
     fn returns_none_for_unknown_cluster() {
-        let registry = ClusterRegistry::build(vec![config("a")]).unwrap();
+        let registry = ClusterRegistry::build(vec![cluster("a")]).unwrap();
 
         assert!(registry.get("missing").is_none());
         assert!(registry.get("a").is_some());
+    }
+
+    #[test]
+    fn builds_from_root_config() {
+        let config = Config {
+            clusters: vec![cluster("b"), cluster("a")],
+        };
+
+        let registry = ClusterRegistry::from_config(&config).unwrap();
+
+        assert_eq!(registry.names(), vec!["b", "a"]);
     }
 }
