@@ -4,23 +4,16 @@ use crate::kafka::{ClusterClient, SecurityProtocol as KafkaSecurityProtocol};
 
 #[derive(GraphQLEnum, Clone, Copy)]
 pub(super) enum ClusterStatus {
-    #[graphql(name = "HEALTHY")]
     Healthy,
-    #[graphql(name = "DEGRADED")]
     Degraded,
-    #[graphql(name = "OFFLINE")]
     Offline,
 }
 
 #[derive(GraphQLEnum, Clone, Copy)]
 pub(super) enum SecurityProtocol {
-    #[graphql(name = "PLAINTEXT")]
     Plaintext,
-    #[graphql(name = "SSL")]
     Ssl,
-    #[graphql(name = "SASL_PLAINTEXT")]
     SaslPlaintext,
-    #[graphql(name = "SASL_SSL")]
     SaslSsl,
 }
 
@@ -114,11 +107,8 @@ pub(super) struct Partition {
 
 #[derive(GraphQLEnum, Clone, Copy)]
 pub(super) enum CleanupPolicy {
-    #[graphql(name = "DELETE")]
     Delete,
-    #[graphql(name = "COMPACT")]
     Compact,
-    #[graphql(name = "COMPACT_DELETE")]
     CompactDelete,
 }
 
@@ -141,13 +131,9 @@ pub(super) struct Topic {
 #[derive(GraphQLEnum, Clone, Copy)]
 #[allow(clippy::enum_variant_names)]
 pub(super) enum ConfigSource {
-    #[graphql(name = "DYNAMIC_TOPIC_CONFIG")]
     DynamicTopicConfig,
-    #[graphql(name = "DYNAMIC_BROKER_CONFIG")]
     DynamicBrokerConfig,
-    #[graphql(name = "STATIC_BROKER_CONFIG")]
     StaticBrokerConfig,
-    #[graphql(name = "DEFAULT_CONFIG")]
     DefaultConfig,
 }
 
@@ -163,15 +149,10 @@ pub(super) struct ConfigEntry {
 
 #[derive(GraphQLEnum, Clone, Copy)]
 pub(super) enum ConsumerGroupState {
-    #[graphql(name = "STABLE")]
     Stable,
-    #[graphql(name = "EMPTY")]
     Empty,
-    #[graphql(name = "PREPARING_REBALANCE")]
     PreparingRebalance,
-    #[graphql(name = "COMPLETING_REBALANCE")]
     CompletingRebalance,
-    #[graphql(name = "DEAD")]
     Dead,
 }
 
@@ -213,15 +194,10 @@ pub(super) struct ConsumerGroup {
 
 #[derive(GraphQLEnum, Clone, Copy)]
 pub(super) enum Compression {
-    #[graphql(name = "NONE")]
     None,
-    #[graphql(name = "GZIP")]
     Gzip,
-    #[graphql(name = "SNAPPY")]
     Snappy,
-    #[graphql(name = "LZ4")]
     Lz4,
-    #[graphql(name = "ZSTD")]
     Zstd,
 }
 
@@ -246,9 +222,7 @@ pub(super) struct TopicRecord {
 
 #[derive(GraphQLEnum, Clone, Copy)]
 pub(super) enum RecordOrder {
-    #[graphql(name = "NEWEST")]
     Newest,
-    #[graphql(name = "OLDEST")]
     Oldest,
 }
 
@@ -272,23 +246,16 @@ pub(super) struct ThroughputPoint {
 
 #[derive(GraphQLEnum, Clone, Copy)]
 pub(super) enum SchemaType {
-    #[graphql(name = "AVRO")]
     Avro,
-    #[graphql(name = "JSON")]
     Json,
-    #[graphql(name = "PROTOBUF")]
     Protobuf,
 }
 
 #[derive(GraphQLEnum, Clone, Copy)]
 pub(super) enum SchemaCompatibility {
-    #[graphql(name = "BACKWARD")]
     Backward,
-    #[graphql(name = "FORWARD")]
     Forward,
-    #[graphql(name = "FULL")]
     Full,
-    #[graphql(name = "NONE")]
     None,
 }
 
@@ -306,29 +273,21 @@ pub(super) struct SchemaSubject {
 
 #[derive(GraphQLEnum, Clone, Copy)]
 pub(super) enum AclResourceType {
-    #[graphql(name = "TOPIC")]
     Topic,
-    #[graphql(name = "GROUP")]
     Group,
-    #[graphql(name = "CLUSTER")]
     Cluster,
-    #[graphql(name = "TRANSACTIONAL_ID")]
     TransactionalId,
 }
 
 #[derive(GraphQLEnum, Clone, Copy)]
 pub(super) enum AclPatternType {
-    #[graphql(name = "LITERAL")]
     Literal,
-    #[graphql(name = "PREFIXED")]
     Prefixed,
 }
 
 #[derive(GraphQLEnum, Clone, Copy)]
 pub(super) enum AclPermission {
-    #[graphql(name = "ALLOW")]
     Allow,
-    #[graphql(name = "DENY")]
     Deny,
 }
 
@@ -345,13 +304,9 @@ pub(super) struct Acl {
 
 #[derive(GraphQLEnum, Clone, Copy)]
 pub(super) enum SearchResultKind {
-    #[graphql(name = "TOPIC")]
     Topic,
-    #[graphql(name = "GROUP")]
     Group,
-    #[graphql(name = "NODE")]
     Node,
-    #[graphql(name = "SUBJECT")]
     Subject,
 }
 
