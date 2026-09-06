@@ -52,23 +52,15 @@ async fn graphql(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
-    use crate::config::ClusterConfig;
-    use crate::kafka::ClusterRegistry;
+    use crate::kafka::{FakeCluster, QueryEngine};
     use juniper::{Variables, execute};
 
     use super::*;
 
     fn state() -> AppState {
-        let config = ClusterConfig {
-            name: "local".to_owned(),
-            bootstrap_servers: vec!["localhost:9092".to_owned()],
-            security: None,
-            properties: HashMap::new(),
-        };
-
-        AppState::new(Arc::new(ClusterRegistry::build(vec![config]).unwrap()))
+        AppState::new(Arc::new(QueryEngine::from_sessions(vec![
+            FakeCluster::local(),
+        ])))
     }
 
     #[tokio::test]
@@ -167,19 +159,23 @@ mod tests {
                     "securityProtocol": "PLAINTEXT",
                     "status": "HEALTHY",
                     "version": "",
-                    "clusterId": ""
+                    "clusterId": "test-cluster"
                 }
             })
         );
     }
 
     #[tokio::test]
-    async fn stubs_return_empty_collections() {
+    async fn resolves_catalog_from_the_query_engine() {
         let state = state();
         let schema = schema();
 
         let (value, errors) = execute(
-            r#"{ brokers(cluster: "local") { id } topics(cluster: "local") { name } }"#,
+            r#"{
+                brokers(cluster: "local") { id host }
+                topics(cluster: "local") { name messageCount consumerGroups }
+                consumerGroups(cluster: "local") { id lag }
+            }"#,
             None,
             &schema,
             &Variables::new(),
@@ -192,8 +188,50 @@ mod tests {
         assert_eq!(
             serde_json::to_value(value).unwrap(),
             serde_json::json!({
-                "brokers": [],
-                "topics": []
+                "brokers": [{ "id": 1, "host": "localhost" }],
+                "topics": [{
+                    "name": "orders.created",
+                    "messageCount": 16.0,
+                    "consumerGroups": ["order-processor"]
+                }],
+                "consumerGroups": [{ "id": "order-processor", "lag": 5.0 }]
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn browses_and_searches_records() {
+        let state = state();
+        let schema = schema();
+
+        let (value, errors) = execute(
+            r#"{
+                records(query: {
+                    cluster: "local"
+                    topic: "orders.created"
+                    search: "ord_1"
+                    limit: 10
+                    order: OLDEST
+                }) { key }
+                search(cluster: "local", term: "order") { kind id }
+            }"#,
+            None,
+            &schema,
+            &Variables::new(),
+            &state,
+        )
+        .await
+        .unwrap();
+
+        assert!(errors.is_empty());
+        assert_eq!(
+            serde_json::to_value(value).unwrap(),
+            serde_json::json!({
+                "records": [{ "key": "ord_1" }],
+                "search": [
+                    { "kind": "TOPIC", "id": "orders.created" },
+                    { "kind": "GROUP", "id": "order-processor" }
+                ]
             })
         );
     }

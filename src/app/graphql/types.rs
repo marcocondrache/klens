@@ -1,7 +1,7 @@
 use juniper::{GraphQLEnum, GraphQLInputObject, GraphQLObject};
 
 use crate::config::SecurityProtocol as ConfigSecurityProtocol;
-use crate::kafka::ClusterClient;
+use crate::kafka::model as domain;
 
 #[derive(GraphQLEnum, Clone, Copy)]
 pub(super) enum ClusterStatus {
@@ -50,33 +50,36 @@ pub(super) struct Cluster {
     pub bytes_out_per_sec: f64,
 }
 
-impl Cluster {
-    pub(super) fn from_client(client: &ClusterClient) -> Self {
-        let security_protocol = client
-            .config()
-            .security
-            .as_ref()
-            .map(|security| SecurityProtocol::from(security.protocol))
-            .unwrap_or(SecurityProtocol::Plaintext);
-
+impl From<domain::ClusterOverview> for Cluster {
+    fn from(overview: domain::ClusterOverview) -> Self {
         Self {
-            name: client.name().to_owned(),
-            label: client.name().to_owned(),
-            cluster_id: String::new(),
-            bootstrap_servers: client.config().bootstrap_servers.clone(),
-            security_protocol,
+            name: overview.identity.name.clone(),
+            label: overview.identity.name,
+            cluster_id: overview.cluster_id,
+            bootstrap_servers: overview.identity.bootstrap_servers,
+            security_protocol: SecurityProtocol::from(overview.identity.security_protocol),
             version: String::new(),
-            status: ClusterStatus::Healthy,
-            broker_count: 0,
-            topic_count: 0,
-            partition_count: 0,
-            consumer_group_count: 0,
-            under_replicated_partitions: 0,
-            offline_partitions: 0,
-            message_count: 0.0,
+            status: ClusterStatus::from(overview.health),
+            broker_count: overview.broker_count,
+            topic_count: overview.topic_count,
+            partition_count: overview.partition_count,
+            consumer_group_count: overview.consumer_group_count,
+            under_replicated_partitions: overview.under_replicated_partitions,
+            offline_partitions: overview.offline_partitions,
+            message_count: overview.message_count as f64,
             size_bytes: 0.0,
             bytes_in_per_sec: 0.0,
             bytes_out_per_sec: 0.0,
+        }
+    }
+}
+
+impl From<domain::ClusterHealth> for ClusterStatus {
+    fn from(health: domain::ClusterHealth) -> Self {
+        match health {
+            domain::ClusterHealth::Healthy => Self::Healthy,
+            domain::ClusterHealth::Degraded => Self::Degraded,
+            domain::ClusterHealth::Offline => Self::Offline,
         }
     }
 }
@@ -93,6 +96,23 @@ pub(super) struct Broker {
     pub log_dir_size_bytes: f64,
     pub bytes_in_per_sec: f64,
     pub bytes_out_per_sec: f64,
+}
+
+impl From<domain::Broker> for Broker {
+    fn from(broker: domain::Broker) -> Self {
+        Self {
+            id: broker.id,
+            host: broker.host,
+            port: broker.port,
+            rack: broker.rack,
+            controller: broker.controller,
+            partition_count: broker.partition_count,
+            leader_count: broker.leader_count,
+            log_dir_size_bytes: 0.0,
+            bytes_in_per_sec: 0.0,
+            bytes_out_per_sec: 0.0,
+        }
+    }
 }
 
 #[derive(GraphQLObject)]
@@ -129,6 +149,49 @@ pub(super) struct Topic {
     pub under_replicated: bool,
 }
 
+impl From<domain::Topic> for Topic {
+    fn from(topic: domain::Topic) -> Self {
+        Self {
+            name: topic.name,
+            internal: topic.internal,
+            partitions: topic.partitions.into_iter().map(Partition::from).collect(),
+            replication_factor: topic.replication_factor,
+            message_count: topic.message_count as f64,
+            size_bytes: 0.0,
+            cleanup_policy: CleanupPolicy::from(topic.cleanup_policy),
+            retention_ms: topic.retention_ms as f64,
+            consumer_groups: topic.consumer_groups,
+            bytes_in_per_sec: 0.0,
+            messages_per_sec: 0.0,
+            under_replicated: topic.under_replicated,
+        }
+    }
+}
+
+impl From<domain::Partition> for Partition {
+    fn from(partition: domain::Partition) -> Self {
+        Self {
+            id: partition.id,
+            leader: partition.leader,
+            replicas: partition.replicas,
+            isr: partition.isr,
+            low_watermark: partition.low_watermark as f64,
+            high_watermark: partition.high_watermark as f64,
+            size_bytes: 0.0,
+        }
+    }
+}
+
+impl From<domain::CleanupPolicy> for CleanupPolicy {
+    fn from(policy: domain::CleanupPolicy) -> Self {
+        match policy {
+            domain::CleanupPolicy::Delete => Self::Delete,
+            domain::CleanupPolicy::Compact => Self::Compact,
+            domain::CleanupPolicy::CompactDelete => Self::CompactDelete,
+        }
+    }
+}
+
 #[derive(GraphQLEnum, Clone, Copy)]
 #[allow(clippy::enum_variant_names)]
 pub(super) enum ConfigSource {
@@ -146,6 +209,30 @@ pub(super) struct ConfigEntry {
     pub read_only: bool,
     pub sensitive: bool,
     pub documentation: Option<String>,
+}
+
+impl From<domain::ConfigEntry> for ConfigEntry {
+    fn from(entry: domain::ConfigEntry) -> Self {
+        Self {
+            name: entry.name,
+            value: entry.value,
+            source: ConfigSource::from(entry.source),
+            read_only: entry.read_only,
+            sensitive: entry.sensitive,
+            documentation: None,
+        }
+    }
+}
+
+impl From<domain::ConfigSource> for ConfigSource {
+    fn from(source: domain::ConfigSource) -> Self {
+        match source {
+            domain::ConfigSource::DynamicTopic => Self::DynamicTopicConfig,
+            domain::ConfigSource::DynamicBroker => Self::DynamicBrokerConfig,
+            domain::ConfigSource::StaticBroker => Self::StaticBrokerConfig,
+            domain::ConfigSource::Default => Self::DefaultConfig,
+        }
+    }
 }
 
 #[derive(GraphQLEnum, Clone, Copy)]
@@ -193,6 +280,74 @@ pub(super) struct ConsumerGroup {
     pub offsets: Vec<GroupOffset>,
 }
 
+impl From<domain::ConsumerGroup> for ConsumerGroup {
+    fn from(group: domain::ConsumerGroup) -> Self {
+        Self {
+            id: group.id,
+            state: ConsumerGroupState::from(group.state),
+            protocol: group.protocol,
+            coordinator: group.coordinator,
+            members: group
+                .members
+                .into_iter()
+                .map(ConsumerGroupMember::from)
+                .collect(),
+            topics: group.topics,
+            lag: group.lag as f64,
+            offsets: group.offsets.into_iter().map(GroupOffset::from).collect(),
+        }
+    }
+}
+
+impl From<domain::GroupState> for ConsumerGroupState {
+    fn from(state: domain::GroupState) -> Self {
+        match state {
+            domain::GroupState::Stable => Self::Stable,
+            domain::GroupState::Empty => Self::Empty,
+            domain::GroupState::PreparingRebalance => Self::PreparingRebalance,
+            domain::GroupState::CompletingRebalance => Self::CompletingRebalance,
+            domain::GroupState::Dead => Self::Dead,
+        }
+    }
+}
+
+impl From<domain::GroupMember> for ConsumerGroupMember {
+    fn from(member: domain::GroupMember) -> Self {
+        Self {
+            id: member.id,
+            client_id: member.client_id,
+            host: member.host,
+            assignments: member
+                .assignments
+                .into_iter()
+                .map(MemberAssignment::from)
+                .collect(),
+        }
+    }
+}
+
+impl From<domain::MemberAssignment> for MemberAssignment {
+    fn from(assignment: domain::MemberAssignment) -> Self {
+        Self {
+            topic: assignment.topic,
+            partitions: assignment.partitions,
+        }
+    }
+}
+
+impl From<domain::GroupOffset> for GroupOffset {
+    fn from(offset: domain::GroupOffset) -> Self {
+        Self {
+            topic: offset.topic,
+            partition: offset.partition,
+            current_offset: offset.current_offset as f64,
+            end_offset: offset.end_offset as f64,
+            lag: offset.lag as f64,
+            member_id: offset.member_id,
+        }
+    }
+}
+
 #[derive(GraphQLEnum, Clone, Copy)]
 pub(super) enum Compression {
     None,
@@ -235,6 +390,65 @@ pub(super) struct RecordQuery {
     pub search: String,
     pub limit: i32,
     pub order: RecordOrder,
+}
+
+impl From<RecordQuery> for domain::RecordQuery {
+    fn from(query: RecordQuery) -> Self {
+        Self {
+            cluster: query.cluster,
+            topic: query.topic,
+            partition: query.partition,
+            search: query.search,
+            limit: query.limit,
+            order: domain::RecordOrder::from(query.order),
+        }
+    }
+}
+
+impl From<RecordOrder> for domain::RecordOrder {
+    fn from(order: RecordOrder) -> Self {
+        match order {
+            RecordOrder::Newest => Self::Newest,
+            RecordOrder::Oldest => Self::Oldest,
+        }
+    }
+}
+
+impl From<domain::Record> for TopicRecord {
+    fn from(record: domain::Record) -> Self {
+        Self {
+            topic: record.topic,
+            partition: record.partition,
+            offset: record.offset as f64,
+            timestamp: record.timestamp as f64,
+            key: record.key,
+            value: record.value,
+            headers: record.headers.into_iter().map(RecordHeader::from).collect(),
+            size_bytes: record.size_bytes as f64,
+            compression: Compression::from(record.compression),
+        }
+    }
+}
+
+impl From<domain::RecordHeader> for RecordHeader {
+    fn from(header: domain::RecordHeader) -> Self {
+        Self {
+            key: header.key,
+            value: header.value,
+        }
+    }
+}
+
+impl From<domain::Compression> for Compression {
+    fn from(compression: domain::Compression) -> Self {
+        match compression {
+            domain::Compression::None => Self::None,
+            domain::Compression::Gzip => Self::Gzip,
+            domain::Compression::Snappy => Self::Snappy,
+            domain::Compression::Lz4 => Self::Lz4,
+            domain::Compression::Zstd => Self::Zstd,
+        }
+    }
 }
 
 #[derive(GraphQLObject)]
@@ -317,4 +531,26 @@ pub(super) struct SearchResult {
     pub id: String,
     pub label: String,
     pub detail: String,
+}
+
+impl From<domain::SearchHit> for SearchResult {
+    fn from(hit: domain::SearchHit) -> Self {
+        Self {
+            kind: SearchResultKind::from(hit.kind),
+            id: hit.id,
+            label: hit.label,
+            detail: hit.detail,
+        }
+    }
+}
+
+impl From<domain::SearchKind> for SearchResultKind {
+    fn from(kind: domain::SearchKind) -> Self {
+        match kind {
+            domain::SearchKind::Topic => Self::Topic,
+            domain::SearchKind::Group => Self::Group,
+            domain::SearchKind::Node => Self::Node,
+            domain::SearchKind::Subject => Self::Subject,
+        }
+    }
 }

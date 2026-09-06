@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::kafka::ClusterRegistry;
+use crate::kafka::QueryEngine;
 use axum::Router;
 
 mod graphql;
@@ -8,12 +8,12 @@ mod health;
 
 #[derive(Clone)]
 pub struct AppState {
-    clusters: Arc<ClusterRegistry>,
+    pub(crate) query: Arc<QueryEngine>,
 }
 
 impl AppState {
-    pub fn new(clusters: Arc<ClusterRegistry>) -> Self {
-        Self { clusters }
+    pub fn new(query: Arc<QueryEngine>) -> Self {
+        Self { query }
     }
 }
 
