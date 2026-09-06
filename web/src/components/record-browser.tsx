@@ -35,7 +35,7 @@ import { JsonBlock } from "@/components/json-block"
 import { Pill } from "@/components/status"
 import { useRecords } from "@/lib/api/queries"
 import { formatBytes, formatRelative, formatTimestamp } from "@/lib/format"
-import type { Topic, TopicRecord } from "@/lib/api/types"
+import type { RecordOrder, Topic, TopicRecord } from "@/lib/api/types"
 
 const LIMITS = ["25", "50", "100"]
 
@@ -48,7 +48,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
   const [partition, setPartition] = useState<string>("all")
   const [term, setTerm] = useState("")
   const [limit, setLimit] = useState("50")
-  const [order, setOrder] = useState<"newest" | "oldest">("newest")
+  const [order, setOrder] = useState<RecordOrder>("NEWEST")
   const [selected, setSelected] = useState<TopicRecord | null>(null)
 
   const { data: records = [], isFetching } = useRecords({
@@ -153,13 +153,13 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
           </SelectContent>
         </Select>
 
-        <Select value={order} onValueChange={(value) => setOrder(value as "newest" | "oldest")}>
+        <Select value={order} onValueChange={(value) => setOrder(value as RecordOrder)}>
           <SelectTrigger size="sm" className="w-36">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="newest">Newest first</SelectItem>
-            <SelectItem value="oldest">Oldest first</SelectItem>
+            <SelectItem value="NEWEST">Newest first</SelectItem>
+            <SelectItem value="OLDEST">Oldest first</SelectItem>
           </SelectContent>
         </Select>
 
@@ -215,7 +215,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                 </SheetTitle>
                 <SheetDescription>
                   {formatTimestamp(selected.timestamp)} · {formatBytes(selected.sizeBytes)} ·{" "}
-                  {selected.compression}
+                  {selected.compression.toLowerCase()}
                 </SheetDescription>
               </SheetHeader>
 
@@ -298,7 +298,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                     <Meta label="Size" value={formatBytes(selected.sizeBytes)} />
                     <Meta
                       label="Compression"
-                      value={<Pill>{selected.compression}</Pill>}
+                      value={<Pill>{selected.compression.toLowerCase()}</Pill>}
                     />
                   </div>
                 </section>

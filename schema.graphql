@@ -20,23 +20,23 @@ enum AclResourceType {
 }
 
 enum CleanupPolicy {
-  delete
-  compact
-  compact_delete
+  DELETE
+  COMPACT
+  COMPACT_DELETE
 }
 
 enum ClusterStatus {
-  healthy
-  degraded
-  offline
+  HEALTHY
+  DEGRADED
+  OFFLINE
 }
 
 enum Compression {
-  none
-  gzip
-  snappy
-  lz4
-  zstd
+  NONE
+  GZIP
+  SNAPPY
+  LZ4
+  ZSTD
 }
 
 enum ConfigSource {
@@ -47,16 +47,16 @@ enum ConfigSource {
 }
 
 enum ConsumerGroupState {
-  Stable
-  Empty
-  PreparingRebalance
-  CompletingRebalance
-  Dead
+  STABLE
+  EMPTY
+  PREPARING_REBALANCE
+  COMPLETING_REBALANCE
+  DEAD
 }
 
 enum RecordOrder {
-  newest
-  oldest
+  NEWEST
+  OLDEST
 }
 
 enum SchemaCompatibility {
@@ -73,10 +73,10 @@ enum SchemaType {
 }
 
 enum SearchResultKind {
-  topic
-  group
-  node
-  subject
+  TOPIC
+  GROUP
+  NODE
+  SUBJECT
 }
 
 enum SecurityProtocol {

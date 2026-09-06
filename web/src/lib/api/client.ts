@@ -8,6 +8,7 @@ import {
   topicConfigEntries,
 } from "./mock-data"
 import { buildRecord } from "./records"
+import { formatEnumLabel } from "@/lib/format"
 import type {
   Acl,
   Broker,
@@ -132,7 +133,7 @@ export function fetchRecords(query: RecordQuery): Promise<TopicRecord[]> {
 
     return Array.from({ length: take }, (_, index) => {
       const offset =
-        query.order === "newest"
+        query.order === "NEWEST"
           ? partition.highWatermark - 1 - index
           : partition.lowWatermark + index
 
@@ -148,7 +149,7 @@ export function fetchRecords(query: RecordQuery): Promise<TopicRecord[]> {
     : candidates
 
   const sorted = matching.sort((left, right) =>
-    query.order === "newest" ? right.timestamp - left.timestamp : left.timestamp - right.timestamp,
+    query.order === "NEWEST" ? right.timestamp - left.timestamp : left.timestamp - right.timestamp,
   )
 
   return resolve(sorted.slice(0, query.limit))
@@ -167,7 +168,7 @@ export function search(clusterName: string, term: string): Promise<SearchResult[
     ...topics
       .filter((topic) => topic.name.toLowerCase().includes(needle))
       .map((topic) => ({
-        kind: "topic" as const,
+        kind: "TOPIC" as const,
         id: topic.name,
         label: topic.name,
         detail: `${topic.partitions.length} partitions`,
@@ -176,16 +177,16 @@ export function search(clusterName: string, term: string): Promise<SearchResult[
     ...groups
       .filter((group) => group.id.toLowerCase().includes(needle))
       .map((group) => ({
-        kind: "group" as const,
+        kind: "GROUP" as const,
         id: group.id,
         label: group.id,
-        detail: group.state,
+        detail: formatEnumLabel(group.state),
         href: `${base}/groups/${encodeURIComponent(group.id)}`,
       })),
     ...brokers
       .filter((broker) => `${broker.id} ${broker.host}`.toLowerCase().includes(needle))
       .map((broker) => ({
-        kind: "node" as const,
+        kind: "NODE" as const,
         id: String(broker.id),
         label: `Broker ${broker.id}`,
         detail: broker.host,

@@ -47,9 +47,9 @@ export type Broker = {
 };
 
 export type CleanupPolicy =
-  | 'compact'
-  | 'compact_delete'
-  | 'delete';
+  | 'COMPACT'
+  | 'COMPACT_DELETE'
+  | 'DELETE';
 
 export type Cluster = {
   bootstrapServers: Array<Scalars['String']['output']>;
@@ -72,16 +72,16 @@ export type Cluster = {
 };
 
 export type ClusterStatus =
-  | 'degraded'
-  | 'healthy'
-  | 'offline';
+  | 'DEGRADED'
+  | 'HEALTHY'
+  | 'OFFLINE';
 
 export type Compression =
-  | 'gzip'
-  | 'lz4'
-  | 'none'
-  | 'snappy'
-  | 'zstd';
+  | 'GZIP'
+  | 'LZ4'
+  | 'NONE'
+  | 'SNAPPY'
+  | 'ZSTD';
 
 export type ConfigEntry = {
   documentation: Maybe<Scalars['String']['output']>;
@@ -117,11 +117,11 @@ export type ConsumerGroupMember = {
 };
 
 export type ConsumerGroupState =
-  | 'CompletingRebalance'
-  | 'Dead'
-  | 'Empty'
-  | 'PreparingRebalance'
-  | 'Stable';
+  | 'COMPLETING_REBALANCE'
+  | 'DEAD'
+  | 'EMPTY'
+  | 'PREPARING_REBALANCE'
+  | 'STABLE';
 
 export type GroupOffset = {
   currentOffset: Scalars['Float']['output'];
@@ -254,8 +254,8 @@ export type RecordHeader = {
 };
 
 export type RecordOrder =
-  | 'newest'
-  | 'oldest';
+  | 'NEWEST'
+  | 'OLDEST';
 
 export type RecordQuery = {
   cluster: Scalars['String']['input'];
@@ -295,10 +295,10 @@ export type SearchResult = {
 };
 
 export type SearchResultKind =
-  | 'group'
-  | 'node'
-  | 'subject'
-  | 'topic';
+  | 'GROUP'
+  | 'NODE'
+  | 'SUBJECT'
+  | 'TOPIC';
 
 export type SecurityProtocol =
   | 'PLAINTEXT'

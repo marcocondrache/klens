@@ -74,7 +74,7 @@ const CLUSTER_DEFS: ClusterDef[] = [
     brokers: 1,
     securityProtocol: "PLAINTEXT",
     version: "4.1.0",
-    status: "healthy",
+    status: "HEALTHY",
     region: "localhost",
     scale: 0.01,
     topics: 9,
@@ -86,7 +86,7 @@ const CLUSTER_DEFS: ClusterDef[] = [
     brokers: 3,
     securityProtocol: "SASL_SSL",
     version: "3.9.1",
-    status: "healthy",
+    status: "HEALTHY",
     region: "eu-west-1",
     scale: 0.18,
     topics: 19,
@@ -98,7 +98,7 @@ const CLUSTER_DEFS: ClusterDef[] = [
     brokers: 6,
     securityProtocol: "SASL_SSL",
     version: "3.9.1",
-    status: "degraded",
+    status: "DEGRADED",
     region: "eu-west-1",
     scale: 1,
     topics: 26,
@@ -115,32 +115,32 @@ interface TopicDef {
 }
 
 const TOPIC_DEFS: TopicDef[] = [
-  { name: "orders.created", partitions: 12, cleanupPolicy: "delete", retentionDays: 7, weight: 90 },
-  { name: "orders.updated", partitions: 12, cleanupPolicy: "delete", retentionDays: 7, weight: 62 },
-  { name: "orders.cancelled", partitions: 6, cleanupPolicy: "delete", retentionDays: 7, weight: 8 },
-  { name: "payments.authorized", partitions: 12, cleanupPolicy: "delete", retentionDays: 30, weight: 74 },
-  { name: "payments.captured", partitions: 12, cleanupPolicy: "delete", retentionDays: 30, weight: 68 },
-  { name: "payments.failed", partitions: 6, cleanupPolicy: "delete", retentionDays: 30, weight: 11 },
-  { name: "inventory.reserved", partitions: 8, cleanupPolicy: "delete", retentionDays: 3, weight: 55 },
-  { name: "inventory.released", partitions: 8, cleanupPolicy: "delete", retentionDays: 3, weight: 24 },
-  { name: "inventory.snapshot", partitions: 6, cleanupPolicy: "compact", retentionDays: 0, weight: 14 },
-  { name: "shipments.dispatched", partitions: 6, cleanupPolicy: "delete", retentionDays: 14, weight: 31 },
-  { name: "shipments.delivered", partitions: 6, cleanupPolicy: "delete", retentionDays: 14, weight: 28 },
-  { name: "users.registered", partitions: 3, cleanupPolicy: "delete", retentionDays: 90, weight: 6 },
-  { name: "users.profile", partitions: 6, cleanupPolicy: "compact", retentionDays: 0, weight: 18 },
-  { name: "notifications.email", partitions: 6, cleanupPolicy: "delete", retentionDays: 2, weight: 42 },
-  { name: "notifications.push", partitions: 6, cleanupPolicy: "delete", retentionDays: 2, weight: 47 },
-  { name: "analytics.pageviews", partitions: 24, cleanupPolicy: "delete", retentionDays: 1, weight: 240 },
-  { name: "analytics.clicks", partitions: 24, cleanupPolicy: "delete", retentionDays: 1, weight: 186 },
-  { name: "search.queries", partitions: 12, cleanupPolicy: "delete", retentionDays: 3, weight: 96 },
-  { name: "cart.events", partitions: 12, cleanupPolicy: "delete", retentionDays: 3, weight: 118 },
-  { name: "pricing.updates", partitions: 6, cleanupPolicy: "compact", retentionDays: 0, weight: 9 },
-  { name: "fraud.signals", partitions: 6, cleanupPolicy: "delete", retentionDays: 30, weight: 16 },
-  { name: "audit.log", partitions: 3, cleanupPolicy: "delete", retentionDays: 365, weight: 12 },
-  { name: "cdc.public.customers", partitions: 6, cleanupPolicy: "compact_delete", retentionDays: 7, weight: 22 },
-  { name: "cdc.public.orders", partitions: 12, cleanupPolicy: "compact_delete", retentionDays: 7, weight: 58 },
-  { name: "dead-letter.orders", partitions: 3, cleanupPolicy: "delete", retentionDays: 30, weight: 2 },
-  { name: "__consumer_offsets", partitions: 50, cleanupPolicy: "compact", retentionDays: 0, weight: 34 },
+  { name: "orders.created", partitions: 12, cleanupPolicy: "DELETE", retentionDays: 7, weight: 90 },
+  { name: "orders.updated", partitions: 12, cleanupPolicy: "DELETE", retentionDays: 7, weight: 62 },
+  { name: "orders.cancelled", partitions: 6, cleanupPolicy: "DELETE", retentionDays: 7, weight: 8 },
+  { name: "payments.authorized", partitions: 12, cleanupPolicy: "DELETE", retentionDays: 30, weight: 74 },
+  { name: "payments.captured", partitions: 12, cleanupPolicy: "DELETE", retentionDays: 30, weight: 68 },
+  { name: "payments.failed", partitions: 6, cleanupPolicy: "DELETE", retentionDays: 30, weight: 11 },
+  { name: "inventory.reserved", partitions: 8, cleanupPolicy: "DELETE", retentionDays: 3, weight: 55 },
+  { name: "inventory.released", partitions: 8, cleanupPolicy: "DELETE", retentionDays: 3, weight: 24 },
+  { name: "inventory.snapshot", partitions: 6, cleanupPolicy: "COMPACT", retentionDays: 0, weight: 14 },
+  { name: "shipments.dispatched", partitions: 6, cleanupPolicy: "DELETE", retentionDays: 14, weight: 31 },
+  { name: "shipments.delivered", partitions: 6, cleanupPolicy: "DELETE", retentionDays: 14, weight: 28 },
+  { name: "users.registered", partitions: 3, cleanupPolicy: "DELETE", retentionDays: 90, weight: 6 },
+  { name: "users.profile", partitions: 6, cleanupPolicy: "COMPACT", retentionDays: 0, weight: 18 },
+  { name: "notifications.email", partitions: 6, cleanupPolicy: "DELETE", retentionDays: 2, weight: 42 },
+  { name: "notifications.push", partitions: 6, cleanupPolicy: "DELETE", retentionDays: 2, weight: 47 },
+  { name: "analytics.pageviews", partitions: 24, cleanupPolicy: "DELETE", retentionDays: 1, weight: 240 },
+  { name: "analytics.clicks", partitions: 24, cleanupPolicy: "DELETE", retentionDays: 1, weight: 186 },
+  { name: "search.queries", partitions: 12, cleanupPolicy: "DELETE", retentionDays: 3, weight: 96 },
+  { name: "cart.events", partitions: 12, cleanupPolicy: "DELETE", retentionDays: 3, weight: 118 },
+  { name: "pricing.updates", partitions: 6, cleanupPolicy: "COMPACT", retentionDays: 0, weight: 9 },
+  { name: "fraud.signals", partitions: 6, cleanupPolicy: "DELETE", retentionDays: 30, weight: 16 },
+  { name: "audit.log", partitions: 3, cleanupPolicy: "DELETE", retentionDays: 365, weight: 12 },
+  { name: "cdc.public.customers", partitions: 6, cleanupPolicy: "COMPACT_DELETE", retentionDays: 7, weight: 22 },
+  { name: "cdc.public.orders", partitions: 12, cleanupPolicy: "COMPACT_DELETE", retentionDays: 7, weight: 58 },
+  { name: "dead-letter.orders", partitions: 3, cleanupPolicy: "DELETE", retentionDays: 30, weight: 2 },
+  { name: "__consumer_offsets", partitions: 50, cleanupPolicy: "COMPACT", retentionDays: 0, weight: 34 },
 ]
 
 interface GroupDef {
@@ -152,20 +152,20 @@ interface GroupDef {
 }
 
 const GROUP_DEFS: GroupDef[] = [
-  { id: "order-processor", topics: ["orders.created", "orders.updated"], state: "Stable", members: 6, lagFactor: 0.02 },
-  { id: "payment-service", topics: ["payments.authorized", "payments.captured"], state: "Stable", members: 4, lagFactor: 0.04 },
-  { id: "inventory-sync", topics: ["inventory.reserved", "inventory.released"], state: "Stable", members: 3, lagFactor: 0.01 },
-  { id: "shipping-worker", topics: ["shipments.dispatched"], state: "Stable", members: 2, lagFactor: 0.03 },
-  { id: "notification-dispatcher", topics: ["notifications.email", "notifications.push"], state: "Stable", members: 4, lagFactor: 0.08 },
-  { id: "analytics-etl", topics: ["analytics.pageviews", "analytics.clicks"], state: "Stable", members: 8, lagFactor: 0.42 },
-  { id: "fraud-detector", topics: ["orders.created", "fraud.signals"], state: "Stable", members: 3, lagFactor: 0.02 },
-  { id: "search-indexer", topics: ["search.queries", "pricing.updates"], state: "PreparingRebalance", members: 2, lagFactor: 0.31 },
-  { id: "dwh-sink-connector", topics: ["cdc.public.orders", "cdc.public.customers"], state: "Stable", members: 4, lagFactor: 0.12 },
-  { id: "cart-abandonment", topics: ["cart.events"], state: "Stable", members: 3, lagFactor: 0.06 },
-  { id: "audit-archiver", topics: ["audit.log"], state: "Stable", members: 1, lagFactor: 0.01 },
-  { id: "legacy-batch-job", topics: ["orders.created"], state: "Empty", members: 0, lagFactor: 0.94 },
-  { id: "user-projection", topics: ["users.registered", "users.profile"], state: "Stable", members: 2, lagFactor: 0.02 },
-  { id: "dlq-monitor", topics: ["dead-letter.orders"], state: "Stable", members: 1, lagFactor: 0 },
+  { id: "order-processor", topics: ["orders.created", "orders.updated"], state: "STABLE", members: 6, lagFactor: 0.02 },
+  { id: "payment-service", topics: ["payments.authorized", "payments.captured"], state: "STABLE", members: 4, lagFactor: 0.04 },
+  { id: "inventory-sync", topics: ["inventory.reserved", "inventory.released"], state: "STABLE", members: 3, lagFactor: 0.01 },
+  { id: "shipping-worker", topics: ["shipments.dispatched"], state: "STABLE", members: 2, lagFactor: 0.03 },
+  { id: "notification-dispatcher", topics: ["notifications.email", "notifications.push"], state: "STABLE", members: 4, lagFactor: 0.08 },
+  { id: "analytics-etl", topics: ["analytics.pageviews", "analytics.clicks"], state: "STABLE", members: 8, lagFactor: 0.42 },
+  { id: "fraud-detector", topics: ["orders.created", "fraud.signals"], state: "STABLE", members: 3, lagFactor: 0.02 },
+  { id: "search-indexer", topics: ["search.queries", "pricing.updates"], state: "PREPARING_REBALANCE", members: 2, lagFactor: 0.31 },
+  { id: "dwh-sink-connector", topics: ["cdc.public.orders", "cdc.public.customers"], state: "STABLE", members: 4, lagFactor: 0.12 },
+  { id: "cart-abandonment", topics: ["cart.events"], state: "STABLE", members: 3, lagFactor: 0.06 },
+  { id: "audit-archiver", topics: ["audit.log"], state: "STABLE", members: 1, lagFactor: 0.01 },
+  { id: "legacy-batch-job", topics: ["orders.created"], state: "EMPTY", members: 0, lagFactor: 0.94 },
+  { id: "user-projection", topics: ["users.registered", "users.profile"], state: "STABLE", members: 2, lagFactor: 0.02 },
+  { id: "dlq-monitor", topics: ["dead-letter.orders"], state: "STABLE", members: 1, lagFactor: 0 },
 ]
 
 function buildBrokers(def: ClusterDef): Broker[] {
@@ -207,7 +207,7 @@ function buildTopics(def: ClusterDef, brokers: Broker[]): Topic[] {
         (_, offset) => brokers[(id + hashString(topicDef.name) + offset) % brokers.length].id,
       )
 
-      const degraded = def.status === "degraded" && rand.chance(0.04)
+      const degraded = def.status === "DEGRADED" && rand.chance(0.04)
       const isr = degraded && replicas.length > 1 ? replicas.slice(0, replicas.length - 1) : replicas
 
       const total = Math.round(topicDef.weight * def.scale * rand.int(9_000, 26_000))
@@ -305,7 +305,7 @@ function buildGroups(def: ClusterDef, topics: Topic[]): ConsumerGroup[] {
       return {
         id: groupDef.id,
         state: groupDef.state,
-        protocol: groupDef.state === "Empty" ? "" : "cooperative-sticky",
+        protocol: groupDef.state === "EMPTY" ? "" : "cooperative-sticky",
         coordinator: rand.int(1, def.brokers),
         members,
         topics: groupTopics,
@@ -415,7 +415,7 @@ export function topicConfigEntries(clusterName: string, topic: Topic): ConfigEnt
   const rand = new Rand(`${clusterName}:${topic.name}:config`)
 
   const overrides: Record<string, string> = {
-    "cleanup.policy": topic.cleanupPolicy === "compact_delete" ? "compact,delete" : topic.cleanupPolicy,
+    "cleanup.policy": topic.cleanupPolicy === "COMPACT_DELETE" ? "compact,delete" : topic.cleanupPolicy.toLowerCase(),
     "retention.ms": String(topic.retentionMs),
     "min.insync.replicas": String(Math.max(1, topic.replicationFactor - 1)),
     "compression.type": rand.pick(["producer", "zstd", "lz4"]),

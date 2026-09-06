@@ -2,6 +2,7 @@ import type { ReactNode } from "react"
 import { cn } from "@/lib/utils"
 
 import type { ClusterStatus, ConsumerGroupState } from "@/lib/api/types"
+import { formatEnumLabel } from "@/lib/format"
 import type { Tone } from "@/lib/tone"
 
 const TONE_DOT: Record<Tone, string> = {
@@ -54,33 +55,33 @@ export function Pill({
 }
 
 const CLUSTER_TONE: Record<ClusterStatus, Tone> = {
-  healthy: "ok",
-  degraded: "warn",
-  offline: "error",
+  HEALTHY: "ok",
+  DEGRADED: "warn",
+  OFFLINE: "error",
 }
 
 export function ClusterStatusBadge({ status }: { status: ClusterStatus }) {
   return (
     <Pill tone={CLUSTER_TONE[status]}>
-      <StatusDot tone={CLUSTER_TONE[status]} pulse={status !== "offline"} />
-      {status}
+      <StatusDot tone={CLUSTER_TONE[status]} pulse={status !== "OFFLINE"} />
+      {formatEnumLabel(status)}
     </Pill>
   )
 }
 
 const GROUP_TONE: Record<ConsumerGroupState, Tone> = {
-  Stable: "ok",
-  Empty: "idle",
-  PreparingRebalance: "warn",
-  CompletingRebalance: "warn",
-  Dead: "error",
+  STABLE: "ok",
+  EMPTY: "idle",
+  PREPARING_REBALANCE: "warn",
+  COMPLETING_REBALANCE: "warn",
+  DEAD: "error",
 }
 
 export function GroupStateBadge({ state }: { state: ConsumerGroupState }) {
   return (
     <Pill tone={GROUP_TONE[state]}>
       <StatusDot tone={GROUP_TONE[state]} />
-      {state}
+      {formatEnumLabel(state)}
     </Pill>
   )
 }

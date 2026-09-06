@@ -164,7 +164,7 @@ mod tests {
                 "cluster": {
                     "label": "local",
                     "securityProtocol": "PLAINTEXT",
-                    "status": "healthy",
+                    "status": "HEALTHY",
                     "version": "",
                     "clusterId": ""
                 }

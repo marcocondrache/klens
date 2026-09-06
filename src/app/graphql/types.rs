@@ -4,11 +4,11 @@ use crate::kafka::{ClusterClient, SecurityProtocol as KafkaSecurityProtocol};
 
 #[derive(GraphQLEnum, Clone, Copy)]
 pub(super) enum ClusterStatus {
-    #[graphql(name = "healthy")]
+    #[graphql(name = "HEALTHY")]
     Healthy,
-    #[graphql(name = "degraded")]
+    #[graphql(name = "DEGRADED")]
     Degraded,
-    #[graphql(name = "offline")]
+    #[graphql(name = "OFFLINE")]
     Offline,
 }
 
@@ -114,11 +114,11 @@ pub(super) struct Partition {
 
 #[derive(GraphQLEnum, Clone, Copy)]
 pub(super) enum CleanupPolicy {
-    #[graphql(name = "delete")]
+    #[graphql(name = "DELETE")]
     Delete,
-    #[graphql(name = "compact")]
+    #[graphql(name = "COMPACT")]
     Compact,
-    #[graphql(name = "compact_delete")]
+    #[graphql(name = "COMPACT_DELETE")]
     CompactDelete,
 }
 
@@ -163,15 +163,15 @@ pub(super) struct ConfigEntry {
 
 #[derive(GraphQLEnum, Clone, Copy)]
 pub(super) enum ConsumerGroupState {
-    #[graphql(name = "Stable")]
+    #[graphql(name = "STABLE")]
     Stable,
-    #[graphql(name = "Empty")]
+    #[graphql(name = "EMPTY")]
     Empty,
-    #[graphql(name = "PreparingRebalance")]
+    #[graphql(name = "PREPARING_REBALANCE")]
     PreparingRebalance,
-    #[graphql(name = "CompletingRebalance")]
+    #[graphql(name = "COMPLETING_REBALANCE")]
     CompletingRebalance,
-    #[graphql(name = "Dead")]
+    #[graphql(name = "DEAD")]
     Dead,
 }
 
@@ -213,15 +213,15 @@ pub(super) struct ConsumerGroup {
 
 #[derive(GraphQLEnum, Clone, Copy)]
 pub(super) enum Compression {
-    #[graphql(name = "none")]
+    #[graphql(name = "NONE")]
     None,
-    #[graphql(name = "gzip")]
+    #[graphql(name = "GZIP")]
     Gzip,
-    #[graphql(name = "snappy")]
+    #[graphql(name = "SNAPPY")]
     Snappy,
-    #[graphql(name = "lz4")]
+    #[graphql(name = "LZ4")]
     Lz4,
-    #[graphql(name = "zstd")]
+    #[graphql(name = "ZSTD")]
     Zstd,
 }
 
@@ -246,9 +246,9 @@ pub(super) struct TopicRecord {
 
 #[derive(GraphQLEnum, Clone, Copy)]
 pub(super) enum RecordOrder {
-    #[graphql(name = "newest")]
+    #[graphql(name = "NEWEST")]
     Newest,
-    #[graphql(name = "oldest")]
+    #[graphql(name = "OLDEST")]
     Oldest,
 }
 
@@ -345,13 +345,13 @@ pub(super) struct Acl {
 
 #[derive(GraphQLEnum, Clone, Copy)]
 pub(super) enum SearchResultKind {
-    #[graphql(name = "topic")]
+    #[graphql(name = "TOPIC")]
     Topic,
-    #[graphql(name = "group")]
+    #[graphql(name = "GROUP")]
     Group,
-    #[graphql(name = "node")]
+    #[graphql(name = "NODE")]
     Node,
-    #[graphql(name = "subject")]
+    #[graphql(name = "SUBJECT")]
     Subject,
 }
 

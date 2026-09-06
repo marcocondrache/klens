@@ -1,5 +1,5 @@
 import { GENERATED_AT, Rand } from "./mock-data"
-import type { RecordHeader, Topic, TopicRecord } from "./types"
+import type { Compression, RecordHeader, Topic, TopicRecord } from "./types"
 
 const FIRST_NAMES = ["ada", "linus", "grace", "rob", "barbara", "ken", "margaret", "alan", "edsger", "leslie"]
 const LAST_NAMES = ["lovelace", "torvalds", "hopper", "pike", "liskov", "thompson", "hamilton", "kay", "dijkstra", "lamport"]
@@ -9,7 +9,7 @@ const CURRENCIES = ["EUR", "EUR", "EUR", "USD", "GBP", "CHF"]
 const CARRIERS = ["dhl", "ups", "gls", "fedex", "poste"]
 const DEVICES = ["ios", "android", "web-chrome", "web-safari", "web-firefox"]
 const SERVICES = ["checkout-api", "order-service", "payment-gateway", "web-storefront", "mobile-bff"]
-const COMPRESSIONS = ["none", "snappy", "lz4", "zstd", "gzip"] as const
+const COMPRESSIONS: Compression[] = ["NONE", "SNAPPY", "LZ4", "ZSTD", "GZIP"]
 
 function sku(rand: Rand) {
   return `SKU-${rand.int(1000, 9999)}-${rand.pick(["S", "M", "L", "XL"])}`
