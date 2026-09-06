@@ -1,44 +1,40 @@
 # klens
 
-Run klens against a Kafka cluster.
+A Kafka UI for inspecting topics, messages, consumer groups, and more.
 
-## Start a local Kafka broker
+It is a small Rust service with a web UI, not a Kafka platform. Point it at one
+or more clusters, then browse topics, brokers, consumer groups, schemas, and
+ACLs from a single process.
 
-Start the broker on `localhost:9092`:
+## ✦ What It Includes
 
-	docker compose up -d kafka
+- A React UI for topics, messages, brokers, consumer groups, schemas, and ACLs
+- A GraphQL API over Axum, with GraphiQL in debug builds
+- YAML configuration for multiple clusters, including optional SASL, TLS, and
+  extra librdkafka properties
+- An embedded UI compiled into the same binary
+- A Compose file with a single-node Kafka broker
+- Production-oriented HTTP defaults around request visibility, failure handling,
+  and safe logging
+- Structured logs on stdout and graceful shutdown
 
-To create a topic:
+## ✦ Layout
 
-	docker compose exec kafka kafka-topics --bootstrap-server localhost:9092 --create --topic orders --partitions 3
+The source is split by concern:
 
-If you want the klens container, copy `config/clusters.example.yaml` to `config.yaml` first. Then start both services:
+- `src/main.rs` — the binary: configuration and startup
+- `src/app/` — GraphQL API and health routes
+- `src/kafka/` — cluster registry and Kafka clients
+- `src/server/` — HTTP serving and the embedded UI
+- `src/telemetry.rs` — structured, non-blocking logging
+- `web/` — the React UI
 
-	cp config/clusters.example.yaml config.yaml
-	docker compose up -d
+## ✦ Philosophy
 
-The container listens on port 8080.
+klens stays a lens on a cluster, not a control plane. Kafka already has enough
+moving parts. The UI should show you the cluster, not become another system to
+operate.
 
-## Run the server from source
-
-1. Copy `config/clusters.example.yaml` to `config/clusters.yaml`.
-2. Start the server:
-
-	cargo run
-
-The server listens on `0.0.0.0:8080`. It reads `config/clusters.yaml`.
-
-If the cluster uses SASL or TLS, fill in the commented `security` fields in `config/clusters.yaml`.
-
-## Run the web UI
-
-Start the Vite dev server. It proxies `/health` and `/api` to port 8080:
-
-	mise run web:dev
-
-## Serve the UI from the binary
-
-Build the frontend into `static/`. Then run with the `ui` feature:
-
-	mise run web:build
-	cargo run --features ui
+It should give you a usable view of topics, messages, and consumers on day one,
+then get out of the way. How you run Kafka, who may change it, and what you
+deploy around it stay yours.
