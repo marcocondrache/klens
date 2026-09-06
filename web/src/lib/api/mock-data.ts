@@ -137,8 +137,8 @@ const TOPIC_DEFS: TopicDef[] = [
   { name: "pricing.updates", partitions: 6, cleanupPolicy: "compact", retentionDays: 0, weight: 9 },
   { name: "fraud.signals", partitions: 6, cleanupPolicy: "delete", retentionDays: 30, weight: 16 },
   { name: "audit.log", partitions: 3, cleanupPolicy: "delete", retentionDays: 365, weight: 12 },
-  { name: "cdc.public.customers", partitions: 6, cleanupPolicy: "compact,delete", retentionDays: 7, weight: 22 },
-  { name: "cdc.public.orders", partitions: 12, cleanupPolicy: "compact,delete", retentionDays: 7, weight: 58 },
+  { name: "cdc.public.customers", partitions: 6, cleanupPolicy: "compact_delete", retentionDays: 7, weight: 22 },
+  { name: "cdc.public.orders", partitions: 12, cleanupPolicy: "compact_delete", retentionDays: 7, weight: 58 },
   { name: "dead-letter.orders", partitions: 3, cleanupPolicy: "delete", retentionDays: 30, weight: 2 },
   { name: "__consumer_offsets", partitions: 50, cleanupPolicy: "compact", retentionDays: 0, weight: 34 },
 ]
@@ -415,7 +415,7 @@ export function topicConfigEntries(clusterName: string, topic: Topic): ConfigEnt
   const rand = new Rand(`${clusterName}:${topic.name}:config`)
 
   const overrides: Record<string, string> = {
-    "cleanup.policy": topic.cleanupPolicy,
+    "cleanup.policy": topic.cleanupPolicy === "compact_delete" ? "compact,delete" : topic.cleanupPolicy,
     "retention.ms": String(topic.retentionMs),
     "min.insync.replicas": String(Math.max(1, topic.replicationFactor - 1)),
     "compression.type": rand.pick(["producer", "zstd", "lz4"]),

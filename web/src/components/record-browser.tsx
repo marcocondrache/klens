@@ -54,7 +54,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
   const { data: records = [], isFetching } = useRecords({
     cluster,
     topic: topic.name,
-    partition: partition === "all" ? "all" : Number(partition),
+    partition: partition === "all" ? null : Number(partition),
     search: term,
     limit: Number(limit),
     order,

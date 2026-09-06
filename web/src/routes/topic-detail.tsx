@@ -19,7 +19,14 @@ import {
   useTopicThroughput,
 } from "@/lib/api/queries"
 import { clusterPath, useClusterName } from "@/lib/clusters"
-import { formatBytes, formatCount, formatDuration, formatNumber } from "@/lib/format"
+import {
+  formatBytes,
+  formatCleanupPolicy,
+  formatCount,
+  formatDuration,
+  formatNumber,
+  isCompactCleanup,
+} from "@/lib/format"
 import type { ConsumerGroup, Partition } from "@/lib/api/types"
 
 const TABS = ["data", "partitions", "groups", "config"]
@@ -198,8 +205,8 @@ export function TopicPage() {
           topic ? (
             <>
               {topic.internal ? <Pill>internal</Pill> : null}
-              <Pill tone={topic.cleanupPolicy.includes("compact") ? "brand" : "idle"}>
-                {topic.cleanupPolicy}
+              <Pill tone={isCompactCleanup(topic.cleanupPolicy) ? "brand" : "idle"}>
+                {formatCleanupPolicy(topic.cleanupPolicy)}
               </Pill>
               <Pill>RF {topic.replicationFactor}</Pill>
               {topic.underReplicated ? (

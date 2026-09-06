@@ -119,7 +119,7 @@ export function listAcls(clusterName: string): Promise<Acl[]> {
 export function fetchRecords(query: RecordQuery): Promise<TopicRecord[]> {
   const topic = requireTopic(query.cluster, query.topic)
   const partitions =
-    query.partition === "all"
+    query.partition == null
       ? topic.partitions
       : topic.partitions.filter((partition) => partition.id === query.partition)
 
