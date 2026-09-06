@@ -17,10 +17,10 @@ use query::Query;
 
 impl juniper::Context for AppState {}
 
-type AppSchema = RootNode<Query, EmptyMutation<AppState>, EmptySubscription<AppState>>;
+type Schema = RootNode<Query, EmptyMutation<AppState>, EmptySubscription<AppState>>;
 
-fn schema() -> AppSchema {
-    RootNode::new(
+fn schema() -> Schema {
+    Schema::new(
         Query,
         EmptyMutation::<AppState>::new(),
         EmptySubscription::<AppState>::new(),
@@ -43,7 +43,7 @@ pub fn router() -> Router<AppState> {
 }
 
 async fn graphql(
-    Extension(schema): Extension<Arc<AppSchema>>,
+    Extension(schema): Extension<Arc<Schema>>,
     State(state): State<AppState>,
     JuniperRequest(request): JuniperRequest,
 ) -> JuniperResponse {
