@@ -1,13 +1,7 @@
-import {
-  FileJsonIcon,
-  GaugeIcon,
-  HardDriveIcon,
-  LayersIcon,
-  ShieldCheckIcon,
-  UsersRoundIcon,
-} from "lucide-react"
+import { GitCommitHorizontalIcon } from "lucide-react"
 import { Link, useLocation } from "react-router"
 
+import { Button } from "@/components/ui/button"
 import {
   Sidebar,
   SidebarContent,
@@ -21,105 +15,105 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
-  SidebarSeparator,
 } from "@/components/ui/sidebar"
-import { ClusterSwitcher } from "@/components/cluster-switcher"
-import { useCluster } from "@/lib/api/queries"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { GithubIcon } from "@/components/icons"
+import { useAcls, useCluster, useSchemaSubjects } from "@/lib/api/queries"
+import { COMMIT_SHA, COMMIT_URL, REPO_URL, VERSION } from "@/lib/build"
 import { clusterPath, useClusterName } from "@/lib/clusters"
 import { formatCount } from "@/lib/format"
+import { SECTIONS } from "@/lib/sections"
 
-interface NavItem {
-  label: string
-  segment: string
-  icon: typeof GaugeIcon
-  count?: number
-}
+const ACTIVE_MARKER =
+  "relative data-active:before:absolute data-active:before:inset-y-1.5 data-active:before:-left-3 data-active:before:w-0.5 data-active:before:rounded-r-full data-active:before:bg-sidebar-primary"
 
 export function AppSidebar() {
   const cluster = useClusterName()
-  const { data } = useCluster(cluster)
   const { pathname } = useLocation()
 
-  const groups: Array<{ label: string; items: NavItem[] }> = [
-    {
-      label: "Cluster",
-      items: [
-        { label: "Overview", segment: "", icon: GaugeIcon },
-        { label: "Nodes", segment: "nodes", icon: HardDriveIcon, count: data?.brokerCount },
-      ],
-    },
-    {
-      label: "Data",
-      items: [
-        { label: "Topics", segment: "topics", icon: LayersIcon, count: data?.topicCount },
-        {
-          label: "Consumer groups",
-          segment: "groups",
-          icon: UsersRoundIcon,
-          count: data?.consumerGroupCount,
-        },
-        { label: "Schema registry", segment: "schemas", icon: FileJsonIcon },
-      ],
-    },
-    {
-      label: "Security",
-      items: [{ label: "ACLs", segment: "acls", icon: ShieldCheckIcon }],
-    },
-  ]
+  const { data } = useCluster(cluster)
+  const { data: subjects } = useSchemaSubjects(cluster)
+  const { data: acls } = useAcls(cluster)
 
-  const root = clusterPath(cluster)
-
-  function isActive(segment: string) {
-    if (!segment) return pathname === root || pathname === `${root}/`
-    return pathname.startsWith(`${root}/${segment}`)
+  const counts: Record<string, number | undefined> = {
+    topics: data?.topicCount,
+    groups: data?.consumerGroupCount,
+    schemas: subjects?.length,
+    nodes: data?.brokerCount,
+    acls: acls?.length,
   }
 
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader>
-        <ClusterSwitcher />
+      <SidebarHeader className="group-data-[collapsible=icon]:hidden">
+        <div className="flex h-12 items-center px-3">
+          <span className="text-2xl font-semibold tracking-tight">klens</span>
+        </div>
       </SidebarHeader>
 
       <SidebarContent>
-        {groups.map((group) => (
-          <SidebarGroup key={group.label}>
-            <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {group.items.map((item) => (
-                  <SidebarMenuItem key={item.label}>
-                    <SidebarMenuButton
-                      isActive={isActive(item.segment)}
-                      tooltip={item.label}
-                      render={<Link to={clusterPath(cluster, item.segment)} />}
-                    >
-                      <item.icon />
-                      <span>{item.label}</span>
-                    </SidebarMenuButton>
-                    {item.count === undefined ? null : (
-                      <SidebarMenuBadge className="numeric">
-                        {formatCount(item.count)}
-                      </SidebarMenuBadge>
-                    )}
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        ))}
+        <SidebarGroup className="px-3">
+          <SidebarGroupLabel>Cluster</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu className="gap-2">
+              {SECTIONS.map((section) => (
+                <SidebarMenuItem key={section.segment}>
+                  <SidebarMenuButton
+                    isActive={pathname.startsWith(clusterPath(cluster, section.segment))}
+                    tooltip={section.label}
+                    className={ACTIVE_MARKER}
+                    render={<Link to={clusterPath(cluster, section.segment)} />}
+                  >
+                    <section.icon />
+                    <span>{section.label}</span>
+                  </SidebarMenuButton>
+                  {counts[section.segment] === undefined ? null : (
+                    <SidebarMenuBadge className="numeric text-muted-foreground">
+                      {formatCount(counts[section.segment] ?? 0)}
+                    </SidebarMenuBadge>
+                  )}
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
       </SidebarContent>
 
-      <SidebarSeparator />
+      <SidebarFooter className="px-3 group-data-[collapsible=icon]:hidden">
+        <div className="flex items-center justify-between gap-2">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <a
+                  href={COMMIT_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                />
+              }
+            >
+              <GitCommitHorizontalIcon className="size-3.5 shrink-0" />
+              <span className="numeric truncate font-mono">{COMMIT_SHA}</span>
+            </TooltipTrigger>
+            <TooltipContent>klens v{VERSION}</TooltipContent>
+          </Tooltip>
 
-      <SidebarFooter>
-        <div className="flex items-center gap-2 px-2 py-1 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
-          <span className="size-1.5 shrink-0 rounded-full bg-brand" />
-          <span className="truncate text-xs font-medium tracking-tight group-data-[collapsible=icon]:hidden">
-            klens
-          </span>
-          <span className="numeric ml-auto text-[0.7rem] text-muted-foreground group-data-[collapsible=icon]:hidden">
-            v0.1.0
-          </span>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label="Open repository"
+                  className="text-muted-foreground"
+                  render={<a href={REPO_URL} target="_blank" rel="noreferrer" />}
+                />
+              }
+            >
+              <GithubIcon className="size-3.5" />
+            </TooltipTrigger>
+            <TooltipContent>Repository</TooltipContent>
+          </Tooltip>
         </div>
       </SidebarFooter>
 
