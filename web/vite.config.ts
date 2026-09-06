@@ -19,7 +19,7 @@ function commitSha() {
 
 function appVersion() {
   try {
-    const cargo = readFileSync(path.resolve(__dirname, "../Cargo.toml"), "utf8");
+    const cargo = readFileSync(path.resolve(import.meta.dirname, "../Cargo.toml"), "utf8");
     return cargo.match(/^version = "(.+)"$/m)?.[1] ?? "0.0.0";
   } catch {
     return "0.0.0";
@@ -40,7 +40,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": path.resolve(import.meta.dirname, "./src"),
     },
   },
   build: {
