@@ -9,9 +9,6 @@ pub use config::{
     ClusterConfig, Config, ConfigError, SaslConfig, SaslMechanism, SecurityConfig,
     SecurityProtocol, TlsConfig,
 };
-pub use kafka::{
-    BrokerInfo, ClusterClient, ClusterInfo, ClusterRegistry, KafkaClusterConfig, KafkaError,
-    MetadataApi,
-};
+pub use kafka::{ClusterHandle, ClusterRegistry, KafkaClusterConfig, KafkaError, QueryEngine};
 pub use server::serve;
 pub use telemetry::{Telemetry, filter_from_value};
