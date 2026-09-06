@@ -1,6 +1,9 @@
 # klens service configuration.
 #
-# Copy this file to config/clusters.yaml and adjust it for your environment.
+# Copy this file to config.yaml and adjust it for your environment.
+bind: 0.0.0.0:8080
+log: info
+
 clusters:
   - name: local
     bootstrap_servers:

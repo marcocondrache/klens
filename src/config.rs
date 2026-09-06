@@ -1,8 +1,11 @@
 use std::collections::{HashMap, HashSet};
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 use thiserror::Error;
+
+pub const DEFAULT_PATH: &str = "config.yaml";
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -31,14 +34,51 @@ impl ConfigError {
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    #[serde(default = "default_bind", deserialize_with = "deserialize_bind")]
+    pub bind: SocketAddr,
+    #[serde(default = "default_log")]
+    pub log: String,
     #[serde(default)]
     pub clusters: Vec<ClusterConfig>,
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            bind: default_bind(),
+            log: default_log(),
+            clusters: Vec::new(),
+        }
+    }
+}
+
+fn default_bind() -> SocketAddr {
+    SocketAddr::from(([0, 0, 0, 0], 8080))
+}
+
+fn default_log() -> String {
+    String::from("info")
+}
+
+fn deserialize_bind<'de, D>(deserializer: D) -> Result<SocketAddr, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    String::deserialize(deserializer)?
+        .parse()
+        .map_err(serde::de::Error::custom)
+}
+
 impl Config {
+    pub fn path() -> PathBuf {
+        std::env::var_os("CONFIG")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(DEFAULT_PATH))
+    }
+
     pub fn load(path: impl AsRef<Path>) -> Result<Self, ConfigError> {
         let path = path.as_ref();
         let raw = std::fs::read_to_string(path).map_err(|source| ConfigError::Read {
@@ -220,7 +260,37 @@ mod tests {
         assert_eq!(config.clusters.len(), 2);
         assert_eq!(config.clusters[0].name, "local");
         assert_eq!(config.clusters[1].name, "staging");
+        assert_eq!(config.bind, default_bind());
+        assert_eq!(config.log, "info");
         config.validate().unwrap();
+    }
+
+    #[test]
+    fn parses_bind_and_log() {
+        let config = parse_config(
+            "
+            bind: 127.0.0.1:3000
+            log: debug
+            clusters: []
+            ",
+        )
+        .unwrap();
+
+        assert_eq!(config.bind, "127.0.0.1:3000".parse().unwrap());
+        assert_eq!(config.log, "debug");
+    }
+
+    #[test]
+    fn rejects_invalid_bind() {
+        assert!(
+            parse_config(
+                "
+            bind: not-an-address
+            clusters: []
+            "
+            )
+            .is_err()
+        );
     }
 
     #[test]

@@ -117,6 +117,7 @@ mod tests {
     fn builds_from_root_config() {
         let config = Config {
             clusters: vec![cluster("b"), cluster("a")],
+            ..Config::default()
         };
 
         let registry = ClusterRegistry::from_config(&config).unwrap();
