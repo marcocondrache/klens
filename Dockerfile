@@ -22,6 +22,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
 
 FROM cgr.dev/chainguard/glibc-dynamic@sha256:e9a3236ebb746bbab93bda4ca842e55a6aaea2c812a685646043e842e69220be
 
+WORKDIR /
 COPY --from=builder /app/klens /usr/local/bin/klens
 
 ENTRYPOINT ["klens"]

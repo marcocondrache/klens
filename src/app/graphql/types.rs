@@ -1,6 +1,7 @@
 use juniper::{GraphQLEnum, GraphQLInputObject, GraphQLObject};
 
-use crate::kafka::{ClusterClient, SecurityProtocol as KafkaSecurityProtocol};
+use crate::config::SecurityProtocol as ConfigSecurityProtocol;
+use crate::kafka::ClusterClient;
 
 #[derive(GraphQLEnum, Clone, Copy)]
 pub(super) enum ClusterStatus {
@@ -17,13 +18,13 @@ pub(super) enum SecurityProtocol {
     SaslSsl,
 }
 
-impl From<KafkaSecurityProtocol> for SecurityProtocol {
-    fn from(value: KafkaSecurityProtocol) -> Self {
+impl From<ConfigSecurityProtocol> for SecurityProtocol {
+    fn from(value: ConfigSecurityProtocol) -> Self {
         match value {
-            KafkaSecurityProtocol::Plaintext => Self::Plaintext,
-            KafkaSecurityProtocol::Ssl => Self::Ssl,
-            KafkaSecurityProtocol::SaslPlaintext => Self::SaslPlaintext,
-            KafkaSecurityProtocol::SaslSsl => Self::SaslSsl,
+            ConfigSecurityProtocol::Plaintext => Self::Plaintext,
+            ConfigSecurityProtocol::Ssl => Self::Ssl,
+            ConfigSecurityProtocol::SaslPlaintext => Self::SaslPlaintext,
+            ConfigSecurityProtocol::SaslSsl => Self::SaslSsl,
         }
     }
 }

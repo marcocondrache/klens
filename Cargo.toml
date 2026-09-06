@@ -15,7 +15,6 @@ default-members = ["."]
 anyhow = "1"
 async-trait = "0.1"
 axum = { version = "0.8", features = ["http2"] }
-clap = { version = "4", features = ["derive", "env"] }
 juniper = { version = "0.17", features = ["schema-language"] }
 juniper_axum = "0.3"
 mime_guess = { version = "2", optional = true }
