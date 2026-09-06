@@ -2,12 +2,264 @@ schema {
   query: Query
 }
 
+enum AclPatternType {
+  LITERAL
+  PREFIXED
+}
+
+enum AclPermission {
+  ALLOW
+  DENY
+}
+
+enum AclResourceType {
+  TOPIC
+  GROUP
+  CLUSTER
+  TRANSACTIONAL_ID
+}
+
+enum CleanupPolicy {
+  DELETE
+  COMPACT
+  COMPACT_DELETE
+}
+
+enum ClusterStatus {
+  HEALTHY
+  DEGRADED
+  OFFLINE
+}
+
+enum Compression {
+  NONE
+  GZIP
+  SNAPPY
+  LZ4
+  ZSTD
+}
+
+enum ConfigSource {
+  DYNAMIC_TOPIC_CONFIG
+  DYNAMIC_BROKER_CONFIG
+  STATIC_BROKER_CONFIG
+  DEFAULT_CONFIG
+}
+
+enum ConsumerGroupState {
+  STABLE
+  EMPTY
+  PREPARING_REBALANCE
+  COMPLETING_REBALANCE
+  DEAD
+}
+
+enum RecordOrder {
+  NEWEST
+  OLDEST
+}
+
+enum SchemaCompatibility {
+  BACKWARD
+  FORWARD
+  FULL
+  NONE
+}
+
+enum SchemaType {
+  AVRO
+  JSON
+  PROTOBUF
+}
+
+enum SearchResultKind {
+  TOPIC
+  GROUP
+  NODE
+  SUBJECT
+}
+
+enum SecurityProtocol {
+  PLAINTEXT
+  SSL
+  SASL_PLAINTEXT
+  SASL_SSL
+}
+
+input RecordQuery {
+  cluster: String!
+  topic: String!
+  partition: Int
+  search: String!
+  limit: Int!
+  order: RecordOrder!
+}
+
+type Acl {
+  principal: String!
+  resourceType: AclResourceType!
+  resourceName: String!
+  patternType: AclPatternType!
+  operation: String!
+  permission: AclPermission!
+  host: String!
+}
+
+type Broker {
+  id: Int!
+  host: String!
+  port: Int!
+  rack: String
+  controller: Boolean!
+  partitionCount: Int!
+  leaderCount: Int!
+  logDirSizeBytes: Float!
+  bytesInPerSec: Float!
+  bytesOutPerSec: Float!
+}
+
 type Cluster {
   name: String!
+  label: String!
+  clusterId: String!
   bootstrapServers: [String!]!
+  securityProtocol: SecurityProtocol!
+  version: String!
+  status: ClusterStatus!
+  brokerCount: Int!
+  topicCount: Int!
+  partitionCount: Int!
+  consumerGroupCount: Int!
+  underReplicatedPartitions: Int!
+  offlinePartitions: Int!
+  messageCount: Float!
+  sizeBytes: Float!
+  bytesInPerSec: Float!
+  bytesOutPerSec: Float!
+}
+
+type ConfigEntry {
+  name: String!
+  value: String
+  source: ConfigSource!
+  readOnly: Boolean!
+  sensitive: Boolean!
+  documentation: String
+}
+
+type ConsumerGroup {
+  id: String!
+  state: ConsumerGroupState!
+  protocol: String!
+  coordinator: Int!
+  members: [ConsumerGroupMember!]!
+  topics: [String!]!
+  lag: Float!
+  offsets: [GroupOffset!]!
+}
+
+type ConsumerGroupMember {
+  id: String!
+  clientId: String!
+  host: String!
+  assignments: [MemberAssignment!]!
+}
+
+type GroupOffset {
+  topic: String!
+  partition: Int!
+  currentOffset: Float!
+  endOffset: Float!
+  lag: Float!
+  memberId: String
+}
+
+type MemberAssignment {
+  topic: String!
+  partitions: [Int!]!
+}
+
+type Partition {
+  id: Int!
+  leader: Int!
+  replicas: [Int!]!
+  isr: [Int!]!
+  lowWatermark: Float!
+  highWatermark: Float!
+  sizeBytes: Float!
 }
 
 type Query {
   clusters: [Cluster!]!
   cluster(name: String!): Cluster
+  brokers(cluster: String!): [Broker!]!
+  broker(cluster: String!, id: Int!): Broker
+  brokerConfigs(cluster: String!, id: Int!): [ConfigEntry!]!
+  topics(cluster: String!): [Topic!]!
+  topic(cluster: String!, name: String!): Topic
+  topicConfigs(cluster: String!, name: String!): [ConfigEntry!]!
+  consumerGroups(cluster: String!): [ConsumerGroup!]!
+  consumerGroup(cluster: String!, id: String!): ConsumerGroup
+  clusterThroughput(cluster: String!): [ThroughputPoint!]!
+  topicThroughput(cluster: String!, topic: String!): [ThroughputPoint!]!
+  schemaSubjects(cluster: String!): [SchemaSubject!]!
+  acls(cluster: String!): [Acl!]!
+  records(query: RecordQuery!): [TopicRecord!]!
+  search(cluster: String!, term: String!): [SearchResult!]!
+}
+
+type RecordHeader {
+  key: String!
+  value: String!
+}
+
+type SchemaSubject {
+  subject: String!
+  id: Int!
+  type: SchemaType!
+  latestVersion: Int!
+  versions: [Int!]!
+  compatibility: SchemaCompatibility!
+  schema: String!
+}
+
+type SearchResult {
+  kind: SearchResultKind!
+  id: String!
+  label: String!
+  detail: String!
+}
+
+type ThroughputPoint {
+  timestamp: Float!
+  bytesIn: Float!
+  bytesOut: Float!
+  messages: Float!
+}
+
+type Topic {
+  name: String!
+  internal: Boolean!
+  partitions: [Partition!]!
+  replicationFactor: Int!
+  messageCount: Float!
+  sizeBytes: Float!
+  cleanupPolicy: CleanupPolicy!
+  retentionMs: Float!
+  consumerGroups: [String!]!
+  bytesInPerSec: Float!
+  messagesPerSec: Float!
+  underReplicated: Boolean!
+}
+
+type TopicRecord {
+  topic: String!
+  partition: Int!
+  offset: Float!
+  timestamp: Float!
+  key: String
+  value: String
+  headers: [RecordHeader!]!
+  sizeBytes: Float!
+  compression: Compression!
 }

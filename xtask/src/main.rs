@@ -27,7 +27,10 @@ fn schema() {
         .canonicalize()
         .expect("failed to resolve schema.graphql path");
 
-    let sdl = klens::schema_sdl();
+    let mut sdl = klens::schema_sdl();
+    if !sdl.ends_with('\n') {
+        sdl.push('\n');
+    }
     fs::write(&path, sdl).expect("failed to write schema.graphql");
     println!("regenerated {}", path.display());
 }

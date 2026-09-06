@@ -25,16 +25,16 @@ import { SECTIONS, findSection } from "@/lib/sections"
 import type { ClusterStatus } from "@/lib/api/types"
 
 const RESULT_ICON = {
-  topic: LayersIcon,
-  group: UsersRoundIcon,
-  node: HardDriveIcon,
-  subject: FileJsonIcon,
+  TOPIC: LayersIcon,
+  GROUP: UsersRoundIcon,
+  NODE: HardDriveIcon,
+  SUBJECT: FileJsonIcon,
 }
 
 const STATUS_TONE: Record<ClusterStatus, "ok" | "warn" | "error"> = {
-  healthy: "ok",
-  degraded: "warn",
-  offline: "error",
+  HEALTHY: "ok",
+  DEGRADED: "warn",
+  OFFLINE: "error",
 }
 
 export function CommandPalette({
@@ -62,9 +62,9 @@ export function CommandPalette({
     action()
   }
 
-  const topics = results.filter((result) => result.kind === "topic")
-  const groups = results.filter((result) => result.kind === "group")
-  const nodes = results.filter((result) => result.kind === "node")
+  const topics = results.filter((result) => result.kind === "TOPIC")
+  const groups = results.filter((result) => result.kind === "GROUP")
+  const nodes = results.filter((result) => result.kind === "NODE")
 
   return (
     <CommandDialog

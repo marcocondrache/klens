@@ -3,10 +3,20 @@ bun = "latest"
 node = "latest"
 rust = "latest"
 
+[tasks.schema]
+description = "Regenerate schema.graphql from the Rust schema"
+run = "cargo xtask schema"
+
 [tasks."web:install"]
 description = "Install web dependencies"
 dir = "web"
 run = "bun install"
+
+[tasks."web:codegen"]
+description = "Generate TypeScript types from schema.graphql"
+dir = "web"
+depends = ["schema", "web:install"]
+run = "bun run codegen"
 
 [tasks."web:dev"]
 description = "Run the Vite dev server (proxies /api and /health to :8080)"
@@ -17,5 +27,5 @@ run = "bun run dev"
 [tasks."web:build"]
 description = "Build the web UI into static/"
 dir = "web"
-depends = ["web:install"]
+depends = ["web:install", "web:codegen"]
 run = "bun run build"

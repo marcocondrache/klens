@@ -1,5 +1,23 @@
+import type { CleanupPolicy } from "@/lib/api/types"
+
 const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB", "PB"]
 const COUNT_UNITS = ["", "K", "M", "B", "T"]
+
+export function formatEnumLabel(value: string) {
+  return value
+    .split("_")
+    .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
+    .join(" ")
+}
+
+export function formatCleanupPolicy(policy: CleanupPolicy) {
+  if (policy === "COMPACT_DELETE") return "compact,delete"
+  return policy.toLowerCase()
+}
+
+export function isCompactCleanup(policy: CleanupPolicy) {
+  return policy === "COMPACT" || policy === "COMPACT_DELETE"
+}
 
 export function formatBytes(value: number, digits = 1) {
   if (value === 0) return "0 B"

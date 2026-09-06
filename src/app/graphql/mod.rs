@@ -5,10 +5,15 @@ use axum::{
     extract::{Extension, State},
     routing::get,
 };
-use juniper::{EmptyMutation, EmptySubscription, GraphQLObject, RootNode, graphql_object};
+use juniper::{EmptyMutation, EmptySubscription, RootNode};
 use juniper_axum::{extract::JuniperRequest, response::JuniperResponse};
 
 use crate::AppState;
+
+mod query;
+mod types;
+
+use query::Query;
 
 impl juniper::Context for AppState {}
 
@@ -35,36 +40,6 @@ pub fn router() -> Router<AppState> {
     let router = router.route("/graphiql", get(juniper_axum::graphiql("/graphql", None)));
 
     router
-}
-
-#[derive(GraphQLObject)]
-struct Cluster {
-    name: String,
-    bootstrap_servers: Vec<String>,
-}
-
-struct Query;
-
-#[graphql_object(context = AppState)]
-impl Query {
-    async fn clusters(context: &AppState) -> Vec<Cluster> {
-        context
-            .clusters
-            .list()
-            .into_iter()
-            .map(|client| Cluster {
-                name: client.name().to_owned(),
-                bootstrap_servers: client.config().bootstrap_servers.clone(),
-            })
-            .collect()
-    }
-
-    async fn cluster(context: &AppState, name: String) -> Option<Cluster> {
-        context.clusters.get(&name).map(|client| Cluster {
-            name: client.name().to_owned(),
-            bootstrap_servers: client.config().bootstrap_servers.clone(),
-        })
-    }
 }
 
 async fn graphql(
@@ -164,6 +139,61 @@ mod tests {
         assert_eq!(
             serde_json::to_value(value).unwrap(),
             serde_json::json!({ "cluster": serde_json::Value::Null })
+        );
+    }
+
+    #[tokio::test]
+    async fn fills_cluster_identity_from_config() {
+        let state = state();
+        let schema = schema();
+
+        let (value, errors) = execute(
+            "{ cluster(name: \"local\") { label securityProtocol status version clusterId } }",
+            None,
+            &schema,
+            &Variables::new(),
+            &state,
+        )
+        .await
+        .unwrap();
+
+        assert!(errors.is_empty());
+        assert_eq!(
+            serde_json::to_value(value).unwrap(),
+            serde_json::json!({
+                "cluster": {
+                    "label": "local",
+                    "securityProtocol": "PLAINTEXT",
+                    "status": "HEALTHY",
+                    "version": "",
+                    "clusterId": ""
+                }
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn stubs_return_empty_collections() {
+        let state = state();
+        let schema = schema();
+
+        let (value, errors) = execute(
+            r#"{ brokers(cluster: "local") { id } topics(cluster: "local") { name } }"#,
+            None,
+            &schema,
+            &Variables::new(),
+            &state,
+        )
+        .await
+        .unwrap();
+
+        assert!(errors.is_empty());
+        assert_eq!(
+            serde_json::to_value(value).unwrap(),
+            serde_json::json!({
+                "brokers": [],
+                "topics": []
+            })
         );
     }
 }
