@@ -1,0 +1,315 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use crate::config::Config;
+use crate::kafka::catalog::{
+    assemble_brokers, assemble_group, assemble_overview, assemble_topic, clamp_record_limit,
+    groups_for_topic, plan_records, search_catalog, should_fetch_list_watermarks,
+};
+use crate::kafka::error::KafkaError;
+use crate::kafka::model::{
+    Broker, ClusterOverview, ConfigEntry, ConsumerGroup, Record, RecordQuery, SearchHit, Topic,
+    Watermarks,
+};
+use crate::kafka::registry::ClusterRegistry;
+use crate::kafka::session::ClusterSession;
+
+/// Answers GraphQL catalog and browse queries from [`ClusterSession`]s.
+pub struct QueryEngine {
+    clusters: HashMap<String, Arc<dyn ClusterSession>>,
+    order: Vec<String>,
+}
+
+impl std::fmt::Debug for QueryEngine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("QueryEngine")
+            .field("clusters", &self.order)
+            .finish()
+    }
+}
+
+impl QueryEngine {
+    pub fn from_config(config: &Config) -> Result<Self, KafkaError> {
+        Ok(Self::from_registry(ClusterRegistry::from_config(config)?))
+    }
+
+    pub fn from_registry(registry: ClusterRegistry) -> Self {
+        let order = registry.names();
+        let clusters = registry
+            .into_sessions()
+            .into_iter()
+            .map(|(name, handle)| {
+                let session: Arc<dyn ClusterSession> = handle;
+                (name, session)
+            })
+            .collect();
+
+        Self { clusters, order }
+    }
+
+    pub fn from_sessions(sessions: Vec<Arc<dyn ClusterSession>>) -> Self {
+        let mut clusters = HashMap::with_capacity(sessions.len());
+        let mut order = Vec::with_capacity(sessions.len());
+
+        for session in sessions {
+            let name = session.identity().name.clone();
+            order.push(name.clone());
+            clusters.insert(name, session);
+        }
+
+        Self { clusters, order }
+    }
+
+    pub fn names(&self) -> Vec<String> {
+        self.order.clone()
+    }
+
+    fn session(&self, name: &str) -> Result<&Arc<dyn ClusterSession>, KafkaError> {
+        self.clusters
+            .get(name)
+            .ok_or_else(|| KafkaError::UnknownCluster(name.to_owned()))
+    }
+
+    pub async fn clusters(&self) -> Vec<ClusterOverview> {
+        let mut overviews = Vec::with_capacity(self.order.len());
+        for name in &self.order {
+            if let Some(session) = self.clusters.get(name) {
+                overviews.push(self.overview_of(session.as_ref()).await);
+            }
+        }
+        overviews
+    }
+
+    pub async fn cluster(&self, name: &str) -> Option<ClusterOverview> {
+        let session = self.clusters.get(name)?;
+        Some(self.overview_of(session.as_ref()).await)
+    }
+
+    async fn overview_of(&self, session: &dyn ClusterSession) -> ClusterOverview {
+        let identity = session.identity().clone();
+        match session.metadata().await {
+            Ok(meta) => {
+                let group_count = session
+                    .consumer_groups()
+                    .await
+                    .map(|groups| groups.len() as i32)
+                    .unwrap_or(0);
+                assemble_overview(identity, &meta, group_count)
+            }
+            Err(_) => ClusterOverview::offline(identity),
+        }
+    }
+
+    pub async fn brokers(&self, cluster: &str) -> Result<Vec<Broker>, KafkaError> {
+        let session = self.session(cluster)?;
+        Ok(assemble_brokers(&session.metadata().await?))
+    }
+
+    pub async fn broker(&self, cluster: &str, id: i32) -> Result<Broker, KafkaError> {
+        self.brokers(cluster)
+            .await?
+            .into_iter()
+            .find(|broker| broker.id == id)
+            .ok_or_else(|| KafkaError::UnknownBroker {
+                cluster: cluster.to_owned(),
+                id,
+            })
+    }
+
+    pub async fn broker_configs(
+        &self,
+        cluster: &str,
+        id: i32,
+    ) -> Result<Vec<ConfigEntry>, KafkaError> {
+        let session = self.session(cluster)?;
+        if session.metadata().await?.broker(id).is_none() {
+            return Err(KafkaError::UnknownBroker {
+                cluster: cluster.to_owned(),
+                id,
+            });
+        }
+        session.broker_configs(id).await
+    }
+
+    pub async fn topics(&self, cluster: &str) -> Result<Vec<Topic>, KafkaError> {
+        let session = self.session(cluster)?;
+        let meta = session.metadata().await?;
+        let configs = session
+            .topic_configs(&meta.topic_names())
+            .await
+            .unwrap_or_default();
+        let groups = session.consumer_groups().await.unwrap_or_default();
+        let fetch_watermarks = should_fetch_list_watermarks(&meta);
+
+        let mut topics = Vec::with_capacity(meta.topics.len());
+        for topic in &meta.topics {
+            let partitions: Vec<i32> = topic
+                .partitions
+                .iter()
+                .map(|partition| partition.id)
+                .collect();
+            let watermarks = if fetch_watermarks {
+                session
+                    .watermarks(&topic.name, &partitions)
+                    .await
+                    .unwrap_or_default()
+            } else {
+                HashMap::new()
+            };
+            topics.push(assemble_topic(
+                topic,
+                &watermarks,
+                configs.get(&topic.name).map(Vec::as_slice),
+                groups_for_topic(&topic.name, &groups),
+            ));
+        }
+
+        Ok(topics)
+    }
+
+    pub async fn topic(&self, cluster: &str, name: &str) -> Result<Topic, KafkaError> {
+        let session = self.session(cluster)?;
+        let meta = session.metadata().await?;
+        let topic = meta.topic(name).ok_or_else(|| KafkaError::UnknownTopic {
+            cluster: cluster.to_owned(),
+            topic: name.to_owned(),
+        })?;
+        let partitions: Vec<i32> = topic
+            .partitions
+            .iter()
+            .map(|partition| partition.id)
+            .collect();
+        let watermarks = session
+            .watermarks(name, &partitions)
+            .await
+            .unwrap_or_default();
+        let configs = session
+            .topic_configs(&[name.to_owned()])
+            .await
+            .unwrap_or_default();
+        let groups = session.consumer_groups().await.unwrap_or_default();
+
+        Ok(assemble_topic(
+            topic,
+            &watermarks,
+            configs.get(name).map(Vec::as_slice),
+            groups_for_topic(name, &groups),
+        ))
+    }
+
+    pub async fn topic_configs(
+        &self,
+        cluster: &str,
+        name: &str,
+    ) -> Result<Vec<ConfigEntry>, KafkaError> {
+        let session = self.session(cluster)?;
+        if session.metadata().await?.topic(name).is_none() {
+            return Err(KafkaError::UnknownTopic {
+                cluster: cluster.to_owned(),
+                topic: name.to_owned(),
+            });
+        }
+
+        session
+            .topic_configs(&[name.to_owned()])
+            .await
+            .map(|mut configs| configs.remove(name).unwrap_or_default())
+    }
+
+    pub async fn consumer_groups(&self, cluster: &str) -> Result<Vec<ConsumerGroup>, KafkaError> {
+        let session = self.session(cluster)?;
+        let snapshots = session.consumer_groups().await?;
+        let ends = self.end_offsets(session.as_ref(), &snapshots).await;
+        Ok(snapshots
+            .iter()
+            .map(|group| assemble_group(group, &ends))
+            .collect())
+    }
+
+    pub async fn consumer_group(
+        &self,
+        cluster: &str,
+        id: &str,
+    ) -> Result<ConsumerGroup, KafkaError> {
+        self.consumer_groups(cluster)
+            .await?
+            .into_iter()
+            .find(|group| group.id == id)
+            .ok_or_else(|| KafkaError::UnknownGroup {
+                cluster: cluster.to_owned(),
+                id: id.to_owned(),
+            })
+    }
+
+    async fn end_offsets(
+        &self,
+        session: &dyn ClusterSession,
+        groups: &[crate::kafka::model::GroupSnapshot],
+    ) -> HashMap<(String, i32), i64> {
+        let mut by_topic: HashMap<String, Vec<i32>> = HashMap::new();
+        for group in groups {
+            for (topic, partition) in group.assigned_partitions() {
+                by_topic.entry(topic).or_default().push(partition);
+            }
+            for committed in &group.committed {
+                by_topic
+                    .entry(committed.topic.clone())
+                    .or_default()
+                    .push(committed.partition);
+            }
+        }
+
+        let mut ends = HashMap::new();
+        for (topic, mut partitions) in by_topic {
+            partitions.sort();
+            partitions.dedup();
+            if let Ok(watermarks) = session.watermarks(&topic, &partitions).await {
+                for (partition, Watermarks { high, .. }) in watermarks {
+                    ends.insert((topic.clone(), partition), high);
+                }
+            }
+        }
+        ends
+    }
+
+    pub async fn records(&self, query: RecordQuery) -> Result<Vec<Record>, KafkaError> {
+        let session = self.session(&query.cluster)?;
+        let meta = session.metadata().await?;
+        let topic = meta
+            .topic(&query.topic)
+            .ok_or_else(|| KafkaError::UnknownTopic {
+                cluster: query.cluster.clone(),
+                topic: query.topic.clone(),
+            })?;
+
+        if let Some(partition) = query.partition
+            && topic.partition(partition).is_none()
+        {
+            return Err(KafkaError::UnknownPartition {
+                cluster: query.cluster.clone(),
+                topic: query.topic.clone(),
+                partition,
+            });
+        }
+
+        let limit = clamp_record_limit(query.limit).map_err(KafkaError::InvalidQuery)?;
+        let partitions: Vec<i32> = match query.partition {
+            Some(id) => vec![id],
+            None => topic
+                .partitions
+                .iter()
+                .map(|partition| partition.id)
+                .collect(),
+        };
+        let watermarks = session.watermarks(&query.topic, &partitions).await?;
+        let plan = plan_records(&query, topic, &watermarks, limit);
+        session.records(&plan).await
+    }
+
+    pub async fn search(&self, cluster: &str, term: &str) -> Result<Vec<SearchHit>, KafkaError> {
+        let session = self.session(cluster)?;
+        let meta = session.metadata().await?;
+        let groups = session.consumer_groups().await.unwrap_or_default();
+        Ok(search_catalog(term, &meta.topics, &meta.brokers, &groups))
+    }
+}

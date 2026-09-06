@@ -1,11 +1,29 @@
-mod client;
+mod assignment;
+mod browse;
+mod cache;
+mod catalog;
 mod config;
+mod engine;
 mod error;
-mod metadata;
+mod factory;
+mod handle;
+pub(crate) mod model;
 mod registry;
+mod session;
 
-pub use client::ClusterClient;
+#[cfg(test)]
+mod testing;
+
 pub use config::KafkaClusterConfig;
+pub use engine::QueryEngine;
 pub use error::KafkaError;
-pub use metadata::{BrokerInfo, ClusterInfo, MetadataApi};
+pub use handle::ClusterHandle;
+pub use model::{
+    Broker, ClusterHealth, ClusterIdentity, ClusterOverview, ConfigEntry, ConsumerGroup, Record,
+    RecordQuery, SearchHit, Topic,
+};
 pub use registry::ClusterRegistry;
+pub use session::ClusterSession;
+
+#[cfg(test)]
+pub use testing::FakeCluster;

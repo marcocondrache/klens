@@ -2,13 +2,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::config::{ClusterConfig, Config, ConfigError};
-use crate::kafka::client::ClusterClient;
 use crate::kafka::error::KafkaError;
+use crate::kafka::handle::ClusterHandle;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 pub struct ClusterRegistry {
-    clusters: Arc<HashMap<String, Arc<ClusterClient>>>,
-    order: Arc<[String]>,
+    clusters: HashMap<String, Arc<ClusterHandle>>,
+    order: Vec<String>,
 }
 
 impl ClusterRegistry {
@@ -36,22 +36,19 @@ impl ClusterRegistry {
                 return Err(ConfigError::invalid_cluster(name, "duplicate cluster name").into());
             }
 
-            let client = Arc::new(ClusterClient::from_config(config)?);
-            clusters.insert(name.clone(), client);
+            let handle = Arc::new(ClusterHandle::from_config(config)?);
+            clusters.insert(name.clone(), handle);
             order.push(name);
         }
 
-        Ok(Self {
-            clusters: Arc::new(clusters),
-            order: order.into(),
-        })
+        Ok(Self { clusters, order })
     }
 
-    pub fn get(&self, name: &str) -> Option<Arc<ClusterClient>> {
+    pub fn get(&self, name: &str) -> Option<Arc<ClusterHandle>> {
         self.clusters.get(name).cloned()
     }
 
-    pub fn list(&self) -> Vec<Arc<ClusterClient>> {
+    pub fn list(&self) -> Vec<Arc<ClusterHandle>> {
         self.order
             .iter()
             .filter_map(|name| self.clusters.get(name).cloned())
@@ -59,13 +56,18 @@ impl ClusterRegistry {
     }
 
     pub fn names(&self) -> Vec<String> {
-        self.order.to_vec()
+        self.order.clone()
+    }
+
+    pub(crate) fn into_sessions(self) -> HashMap<String, Arc<ClusterHandle>> {
+        self.clusters
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kafka::session::ClusterSession;
 
     fn cluster(name: &str) -> ClusterConfig {
         ClusterConfig {
@@ -85,7 +87,7 @@ mod tests {
             registry
                 .list()
                 .iter()
-                .map(|c| c.name().to_owned())
+                .map(|cluster| cluster.identity().name.clone())
                 .collect::<Vec<_>>(),
             vec!["b", "a"]
         );
