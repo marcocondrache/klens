@@ -13,7 +13,7 @@ import type { Broker } from "@/lib/api/types"
 export function NodesPage() {
   const cluster = useClusterName()
   const navigate = useNavigate()
-  const { data: brokers = [], isPending } = useBrokers(cluster)
+  const { data: brokers = [], isPending, isError, error } = useBrokers(cluster)
   const { data: info } = useCluster(cluster)
 
   const columns: Array<Column<Broker>> = [
@@ -106,6 +106,7 @@ export function NodesPage() {
         rows={brokers}
         rowKey={(broker) => String(broker.id)}
         loading={isPending}
+        error={isError ? (error instanceof Error ? error.message : "Failed to load brokers.") : undefined}
         defaultSort={{ id: "id", direction: "asc" }}
         onRowClick={(broker) => navigate(clusterPath(cluster, "nodes", String(broker.id)))}
       />

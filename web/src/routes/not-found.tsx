@@ -10,7 +10,6 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty"
-import { DEFAULT_CLUSTER } from "@/lib/clusters"
 
 export function NotFoundPage() {
   return (
@@ -25,7 +24,7 @@ export function NotFoundPage() {
         </EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
-        <Button render={<Link to={`/cluster/${DEFAULT_CLUSTER}/topics`} />}>Back to topics</Button>
+        <Button render={<Link to="/" />}>Back to topics</Button>
       </EmptyContent>
     </Empty>
   )

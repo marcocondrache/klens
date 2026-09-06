@@ -25,12 +25,21 @@ export interface Column<T> {
 
 type Direction = "asc" | "desc"
 
+function tablePlaceholder(content: ReactNode) {
+  if (typeof content === "string") {
+    return <p className="py-10 text-center text-sm text-muted-foreground">{content}</p>
+  }
+
+  return content
+}
+
 interface DataTableProps<T> {
   columns: Array<Column<T>>
   rows: T[]
   rowKey: (row: T) => string
   onRowClick?: (row: T) => void
   loading?: boolean
+  error?: ReactNode
   emptyState?: ReactNode
   defaultSort?: { id: string; direction: Direction }
   pageSize?: number
@@ -42,6 +51,7 @@ export function DataTable<T>({
   rowKey,
   onRowClick,
   loading = false,
+  error,
   emptyState,
   defaultSort,
   pageSize = 25,
@@ -134,9 +144,7 @@ export function DataTable<T>({
             ) : visible.length === 0 ? (
               <TableRow className="hover:bg-transparent">
                 <TableCell colSpan={columns.length} className="p-0">
-                  {emptyState ?? (
-                    <p className="py-10 text-center text-sm text-muted-foreground">No results.</p>
-                  )}
+                  {tablePlaceholder(error ?? emptyState ?? "No results.")}
                 </TableCell>
               </TableRow>
             ) : (
