@@ -1,4 +1,4 @@
-import { useMemo } from "react"
+import { useMemo, type ReactNode } from "react"
 import { AlertTriangleIcon, SearchIcon } from "lucide-react"
 import { useNavigate, useSearchParams } from "react-router"
 
@@ -31,6 +31,14 @@ import {
   isCompactCleanup,
 } from "@/lib/format"
 import type { Topic } from "@/lib/api/types"
+
+function emptyMetric(value: number, display: ReactNode) {
+  if (value === 0) {
+    return <span className="text-muted-foreground">—</span>
+  }
+
+  return display
+}
 
 export function TopicsPage() {
   const cluster = useClusterName()
@@ -101,28 +109,28 @@ export function TopicsPage() {
       header: "Messages",
       align: "right",
       sortValue: (topic) => topic.messageCount,
-      cell: (topic) => formatNumber(topic.messageCount),
+      cell: (topic) => emptyMetric(topic.messageCount, formatNumber(topic.messageCount)),
     },
     {
       id: "size",
       header: "Size",
       align: "right",
       sortValue: (topic) => topic.sizeBytes,
-      cell: (topic) => formatBytes(topic.sizeBytes),
+      cell: (topic) => emptyMetric(topic.sizeBytes, formatBytes(topic.sizeBytes)),
     },
     {
       id: "rate",
       header: "Msg/s",
       align: "right",
       sortValue: (topic) => topic.messagesPerSec,
-      cell: (topic) => formatThroughput(topic.messagesPerSec),
+      cell: (topic) => emptyMetric(topic.messagesPerSec, formatThroughput(topic.messagesPerSec)),
     },
     {
       id: "in",
       header: "Bytes in",
       align: "right",
       sortValue: (topic) => topic.bytesInPerSec,
-      cell: (topic) => formatRate(topic.bytesInPerSec),
+      cell: (topic) => emptyMetric(topic.bytesInPerSec, formatRate(topic.bytesInPerSec)),
     },
     {
       id: "retention",
@@ -149,12 +157,7 @@ export function TopicsPage() {
       header: "Groups",
       align: "right",
       sortValue: (topic) => topic.consumerGroups.length,
-      cell: (topic) =>
-        topic.consumerGroups.length ? (
-          topic.consumerGroups.length
-        ) : (
-          <span className="text-muted-foreground">—</span>
-        ),
+      cell: (topic) => emptyMetric(topic.consumerGroups.length, topic.consumerGroups.length),
     },
   ]
 
