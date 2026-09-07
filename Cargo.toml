@@ -19,6 +19,7 @@ axum-extra = { version = "0.12.6", features = ["cookie-private"] }
 cookie = { version = "0.18.2", features = ["key-expansion", "private"] }
 juniper = { version = "0.17", features = ["schema-language"] }
 juniper_axum = "0.3"
+moka = { version = "0.12", features = ["future"] }
 mime_guess = { version = "2", optional = true }
 openidconnect = "4.0.1"
 rdkafka = { version = "0.39", features = ["ssl-vendored", "libz-static"] }
