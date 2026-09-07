@@ -449,7 +449,7 @@ pub fn is_internal_topic(name: &str) -> bool {
 }
 
 pub fn is_internal_group(id: &str) -> bool {
-    id.starts_with("klens.internal.")
+    id.starts_with(crate::environment::INTERNAL_GROUP_PREFIX)
 }
 
 pub fn decode_bytes(bytes: &[u8]) -> String {
