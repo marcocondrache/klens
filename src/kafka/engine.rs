@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
 
 use tokio::task::JoinSet;
 use tokio::time::timeout;
 
 use crate::config::Config;
+use crate::environment::{OFFSET_FETCH_BATCH, OVERVIEW_BUDGET};
 use crate::kafka::catalog::{
     assemble_brokers, assemble_group, assemble_overview, assemble_topic, clamp_record_limit,
     clamp_record_page, groups_for_topic, plan_records, search_catalog,
@@ -18,9 +18,6 @@ use crate::kafka::model::{
 };
 use crate::kafka::registry::ClusterRegistry;
 use crate::kafka::session::ClusterSession;
-
-const OFFSET_FETCH_BATCH: usize = 8;
-const OVERVIEW_BUDGET: Duration = Duration::from_secs(20);
 
 /// Answers GraphQL catalog and browse queries from [`ClusterSession`]s.
 pub struct QueryEngine {
@@ -107,7 +104,7 @@ impl QueryEngine {
     async fn overview_of(session: Arc<dyn ClusterSession>) -> ClusterOverview {
         let identity = session.identity().clone();
         match timeout(
-            OVERVIEW_BUDGET,
+            *OVERVIEW_BUDGET,
             Self::load_overview(session, identity.clone()),
         )
         .await
@@ -269,7 +266,7 @@ impl QueryEngine {
         session: &Arc<dyn ClusterSession>,
         groups: &mut [GroupSnapshot],
     ) {
-        for chunk in groups.chunks_mut(OFFSET_FETCH_BATCH) {
+        for chunk in groups.chunks_mut(*OFFSET_FETCH_BATCH) {
             let mut join = JoinSet::new();
             for (offset, group) in chunk.iter().enumerate() {
                 let partitions = group.assigned_partitions();
@@ -393,6 +390,7 @@ impl QueryEngine {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
 
     use async_trait::async_trait;
 

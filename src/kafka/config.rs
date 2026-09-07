@@ -1,6 +1,9 @@
 use rdkafka::config::ClientConfig;
 
 use crate::config::{ClusterConfig, Config, SaslConfig, SecurityConfig, TlsConfig};
+use crate::environment::{
+    API_VERSION_REQUEST_TIMEOUT_MS, CLIENT_ID_PREFIX, SOCKET_CONNECTION_SETUP_TIMEOUT_MS,
+};
 use crate::kafka::error::KafkaError;
 
 /// Kafka client settings derived from a cluster config node.
@@ -32,9 +35,15 @@ impl TryFrom<&ClusterConfig> for KafkaClusterConfig {
 
         let mut client = ClientConfig::new();
         client.set("bootstrap.servers", cluster.bootstrap_servers.join(","));
-        client.set("client.id", format!("klens-{}", cluster.name));
-        client.set("socket.connection.setup.timeout.ms", "10000");
-        client.set("api.version.request.timeout.ms", "10000");
+        client.set("client.id", format!("{CLIENT_ID_PREFIX}-{}", cluster.name));
+        client.set(
+            "socket.connection.setup.timeout.ms",
+            SOCKET_CONNECTION_SETUP_TIMEOUT_MS.to_string(),
+        );
+        client.set(
+            "api.version.request.timeout.ms",
+            API_VERSION_REQUEST_TIMEOUT_MS.to_string(),
+        );
 
         if let Some(security) = &cluster.security {
             apply_security(&mut client, security);
@@ -169,6 +178,7 @@ mod tests {
     fn derives_each_cluster_from_root_config() {
         let config: Config = serde_yaml_ng::from_str(
             "
+            bind: 127.0.0.1:8080
             clusters:
               - name: local
                 bootstrap_servers:

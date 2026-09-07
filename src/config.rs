@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use thiserror::Error;
 
-pub const DEFAULT_PATH: &str = "config.yaml";
+use crate::environment;
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -45,33 +45,18 @@ impl ConfigError {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    #[serde(default = "default_bind", deserialize_with = "deserialize_bind")]
+    #[serde(deserialize_with = "deserialize_bind")]
     pub bind: SocketAddr,
-    #[serde(default = "default_log")]
-    pub log: String,
+    #[serde(default = "default_log_level")]
+    pub log_level: String,
     #[serde(default)]
     pub clusters: Vec<ClusterConfig>,
     #[serde(default)]
     pub auth: Option<AuthConfig>,
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            bind: default_bind(),
-            log: default_log(),
-            clusters: Vec::new(),
-            auth: None,
-        }
-    }
-}
-
-fn default_bind() -> SocketAddr {
-    SocketAddr::from(([0, 0, 0, 0], 8080))
-}
-
-fn default_log() -> String {
-    String::from("info")
+fn default_log_level() -> String {
+    environment::LOG_LEVEL.clone()
 }
 
 fn deserialize_bind<'de, D>(deserializer: D) -> Result<SocketAddr, D::Error>
@@ -85,9 +70,7 @@ where
 
 impl Config {
     pub fn path() -> PathBuf {
-        std::env::var_os("CONFIG")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(DEFAULT_PATH))
+        PathBuf::from(environment::CONFIG_PATH.as_str())
     }
 
     pub fn load(path: impl AsRef<Path>) -> Result<Self, ConfigError> {
@@ -146,11 +129,10 @@ pub struct OidcConfig {
 }
 
 fn default_scopes() -> Vec<String> {
-    vec![
-        "openid".to_owned(),
-        "email".to_owned(),
-        "profile".to_owned(),
-    ]
+    environment::DEFAULT_OIDC_SCOPES
+        .iter()
+        .map(|scope| (*scope).to_owned())
+        .collect()
 }
 
 impl OidcConfig {
@@ -346,6 +328,7 @@ mod tests {
     fn parses_root_config() {
         let config = parse_config(
             "
+            bind: 0.0.0.0:8080
             clusters:
               - name: local
                 bootstrap_servers:
@@ -361,25 +344,37 @@ mod tests {
         assert_eq!(config.clusters.len(), 2);
         assert_eq!(config.clusters[0].name, "local");
         assert_eq!(config.clusters[1].name, "staging");
-        assert_eq!(config.bind, default_bind());
-        assert_eq!(config.log, "info");
+        assert_eq!(config.bind, "0.0.0.0:8080".parse().unwrap());
+        assert_eq!(config.log_level, "info");
         assert_eq!(config.auth, None);
         config.validate().unwrap();
     }
 
     #[test]
-    fn parses_bind_and_log() {
+    fn parses_bind_and_log_level() {
         let config = parse_config(
             "
             bind: 127.0.0.1:3000
-            log: debug
+            log_level: debug
             clusters: []
             ",
         )
         .unwrap();
 
         assert_eq!(config.bind, "127.0.0.1:3000".parse().unwrap());
-        assert_eq!(config.log, "debug");
+        assert_eq!(config.log_level, "debug");
+    }
+
+    #[test]
+    fn rejects_missing_bind() {
+        assert!(
+            parse_config(
+                "
+            clusters: []
+            "
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -487,6 +482,7 @@ mod tests {
         assert!(
             parse_config(
                 "
+            bind: 127.0.0.1:8080
             clusters: []
             bogus: true
             "
@@ -578,6 +574,7 @@ mod tests {
     fn validation_rejects_duplicate_cluster_names() {
         let config = parse_config(
             "
+            bind: 127.0.0.1:8080
             clusters:
               - name: local
                 bootstrap_servers:
@@ -597,6 +594,7 @@ mod tests {
     fn parses_oidc_auth_config() {
         let config = parse_config(
             "
+            bind: 127.0.0.1:8080
             clusters: []
             auth:
               oidc:
@@ -623,6 +621,7 @@ mod tests {
     fn oidc_cookie_secure_follows_redirect_uri_and_override() {
         let https = parse_config(
             "
+            bind: 127.0.0.1:8080
             clusters: []
             auth:
               oidc:
@@ -637,6 +636,7 @@ mod tests {
 
         let forced = parse_config(
             "
+            bind: 127.0.0.1:8080
             clusters: []
             auth:
               oidc:
@@ -655,6 +655,7 @@ mod tests {
     fn oidc_always_includes_openid_scope() {
         let config = parse_config(
             "
+            bind: 127.0.0.1:8080
             clusters: []
             auth:
               oidc:
@@ -678,6 +679,7 @@ mod tests {
     fn rejects_invalid_oidc_issuer() {
         let config = parse_config(
             "
+            bind: 127.0.0.1:8080
             clusters: []
             auth:
               oidc:
@@ -697,6 +699,7 @@ mod tests {
     fn rejects_empty_oidc_client_secret() {
         let config = parse_config(
             "
+            bind: 127.0.0.1:8080
             clusters: []
             auth:
               oidc:
@@ -716,6 +719,7 @@ mod tests {
     fn rejects_non_http_redirect_uri() {
         let config = parse_config(
             "
+            bind: 127.0.0.1:8080
             clusters: []
             auth:
               oidc:

@@ -35,7 +35,7 @@ mod embedded {
                 if path.starts_with("assets/") {
                     response.headers_mut().insert(
                         header::CACHE_CONTROL,
-                        HeaderValue::from_static("public, max-age=31536000, immutable"),
+                        HeaderValue::from_static(crate::environment::STATIC_ASSET_CACHE_CONTROL),
                     );
                 }
 
@@ -49,9 +49,10 @@ mod embedded {
         match WebAssets::get("index.html") {
             Some(file) => {
                 let mut response = Html(file.data.into_owned()).into_response();
-                response
-                    .headers_mut()
-                    .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+                response.headers_mut().insert(
+                    header::CACHE_CONTROL,
+                    HeaderValue::from_static(crate::environment::INDEX_CACHE_CONTROL),
+                );
                 response
             }
             None => StatusCode::NOT_FOUND.into_response(),
