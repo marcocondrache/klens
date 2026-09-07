@@ -23,3 +23,22 @@ docker run --rm -p 8080:8080 \
 ```
 
 [compose.yaml](compose.yaml) starts a local Kafka broker and builds klens from this repository.
+
+## Authentication
+
+By default the UI and GraphQL API are open to anyone who can reach the process.
+
+To require a login, add an OIDC provider to `config.yaml`. klens uses the
+authorization code flow with PKCE. `/health` stays public.
+
+```yaml
+auth:
+  oidc:
+    issuer: https://keycloak.example.com/realms/klens
+    client_id: klens
+    client_secret: "..."
+    redirect_uri: http://localhost:8080/auth/callback
+```
+
+Register `redirect_uri` with the identity provider. Any authenticated user has
+the same access as an open deployment.
