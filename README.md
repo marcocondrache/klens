@@ -8,7 +8,7 @@ ACLs from a single process.
 
 ## Install
 
-Images are published to GHCR on each `v*` tag:
+Images are published to GHCR on each release from `main`:
 
 ```sh
 docker pull ghcr.io/marcocondrache/klens:latest
