@@ -525,12 +525,33 @@ pub(super) enum SchemaType {
     Protobuf,
 }
 
+impl From<domain::SchemaType> for SchemaType {
+    fn from(schema_type: domain::SchemaType) -> Self {
+        match schema_type {
+            domain::SchemaType::Avro => Self::Avro,
+            domain::SchemaType::Json => Self::Json,
+            domain::SchemaType::Protobuf => Self::Protobuf,
+        }
+    }
+}
+
 #[derive(GraphQLEnum, Clone, Copy)]
 pub(super) enum SchemaCompatibility {
     Backward,
     Forward,
     Full,
     None,
+}
+
+impl From<domain::SchemaCompatibility> for SchemaCompatibility {
+    fn from(compatibility: domain::SchemaCompatibility) -> Self {
+        match compatibility {
+            domain::SchemaCompatibility::Backward => Self::Backward,
+            domain::SchemaCompatibility::Forward => Self::Forward,
+            domain::SchemaCompatibility::Full => Self::Full,
+            domain::SchemaCompatibility::None => Self::None,
+        }
+    }
 }
 
 #[derive(GraphQLObject)]
@@ -543,6 +564,20 @@ pub(super) struct SchemaSubject {
     pub versions: Vec<i32>,
     pub compatibility: SchemaCompatibility,
     pub schema: String,
+}
+
+impl From<domain::SchemaSubject> for SchemaSubject {
+    fn from(subject: domain::SchemaSubject) -> Self {
+        Self {
+            subject: subject.subject,
+            id: subject.id,
+            schema_type: SchemaType::from(subject.schema_type),
+            latest_version: subject.latest_version,
+            versions: subject.versions,
+            compatibility: SchemaCompatibility::from(subject.compatibility),
+            schema: subject.schema,
+        }
+    }
 }
 
 #[derive(GraphQLEnum, Clone, Copy)]

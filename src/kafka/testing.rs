@@ -8,7 +8,8 @@ use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
     BrokerMetadata, ClusterIdentity, CommittedOffset, Compression, ConfigEntry, ConfigSource,
     FetchPlan, GroupMember, GroupSnapshot, GroupState, MemberAssignment, MetadataSnapshot,
-    PartitionMetadata, Record, RecordHeader, TopicMetadata, Watermarks,
+    PartitionMetadata, Record, RecordHeader, SchemaCompatibility, SchemaSubject, SchemaType,
+    TopicMetadata, Watermarks,
 };
 use crate::kafka::session::ClusterSession;
 
@@ -21,6 +22,7 @@ pub struct FakeCluster {
     broker_configs: HashMap<i32, Vec<ConfigEntry>>,
     groups: Vec<GroupSnapshot>,
     records: Vec<Record>,
+    subjects: Vec<SchemaSubject>,
 }
 
 impl FakeCluster {
@@ -142,6 +144,18 @@ impl FakeCluster {
             })
             .collect();
 
+        let subjects = vec![SchemaSubject {
+            subject: "orders.created-value".into(),
+            id: 1,
+            schema_type: SchemaType::Avro,
+            latest_version: 2,
+            versions: vec![1, 2],
+            compatibility: SchemaCompatibility::Backward,
+            schema:
+                r#"{"type":"record","name":"Order","fields":[{"name":"orderId","type":"string"}]}"#
+                    .into(),
+        }];
+
         Arc::new(Self {
             identity,
             metadata,
@@ -150,6 +164,7 @@ impl FakeCluster {
             broker_configs,
             groups,
             records,
+            subjects,
         })
     }
 
@@ -278,5 +293,9 @@ impl ClusterSession for FakeCluster {
         });
         records.truncate(plan.limit);
         Ok(records)
+    }
+
+    async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
+        Ok(self.subjects.clone())
     }
 }

@@ -6,8 +6,8 @@ use crate::environment::{
 use crate::kafka::model::{
     Broker, BrokerMetadata, CleanupPolicy, ClusterHealth, ClusterIdentity, ClusterOverview,
     ConfigEntry, ConsumerGroup, FetchPlan, GroupOffset, GroupSnapshot, MetadataSnapshot, Partition,
-    PartitionWindow, RecordOrder, RecordQuery, SearchHit, SearchKind, Topic, TopicMetadata,
-    Watermarks,
+    PartitionWindow, RecordOrder, RecordQuery, SchemaSubject, SearchHit, SearchKind, Topic,
+    TopicMetadata, Watermarks,
 };
 
 pub fn partition_health(meta: &MetadataSnapshot) -> (i32, i32, i32) {
@@ -373,6 +373,7 @@ pub fn search_catalog(
     topics: &[TopicMetadata],
     brokers: &[BrokerMetadata],
     groups: &[GroupSnapshot],
+    subjects: &[SchemaSubject],
 ) -> Vec<SearchHit> {
     let needle = term.trim().to_ascii_lowercase();
     if needle.is_empty() {
@@ -411,6 +412,17 @@ pub fn search_catalog(
                 id: broker.id.to_string(),
                 label: format!("Broker {}", broker.id),
                 detail: broker.host.clone(),
+            });
+        }
+    }
+
+    for subject in subjects {
+        if subject.subject.to_ascii_lowercase().contains(&needle) {
+            hits.push(SearchHit {
+                kind: SearchKind::Subject,
+                id: subject.subject.clone(),
+                label: subject.subject.clone(),
+                detail: format!("{} · v{}", subject.schema_type, subject.latest_version),
             });
         }
     }
@@ -620,12 +632,23 @@ mod tests {
             committed: Vec::new(),
         }];
 
-        let hits = search_catalog("order", &topics, &brokers, &groups);
-        assert_eq!(hits.len(), 2);
+        let subjects = vec![crate::kafka::model::SchemaSubject {
+            subject: "orders.created-value".into(),
+            id: 1,
+            schema_type: crate::kafka::model::SchemaType::Avro,
+            latest_version: 2,
+            versions: vec![1, 2],
+            compatibility: crate::kafka::model::SchemaCompatibility::Backward,
+            schema: "{}".into(),
+        }];
+
+        let hits = search_catalog("order", &topics, &brokers, &groups, &subjects);
+        assert_eq!(hits.len(), 3);
         assert!(hits.iter().any(|hit| hit.kind == SearchKind::Topic));
         assert!(hits.iter().any(|hit| hit.kind == SearchKind::Group));
+        assert!(hits.iter().any(|hit| hit.kind == SearchKind::Subject));
 
-        let nodes = search_catalog("broker-a", &topics, &brokers, &groups);
+        let nodes = search_catalog("broker-a", &topics, &brokers, &groups, &[]);
         assert_eq!(nodes[0].kind, SearchKind::Node);
     }
 

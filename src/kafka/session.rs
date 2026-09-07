@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
     ClusterIdentity, CommittedOffset, ConfigEntry, FetchPlan, GroupSnapshot, MetadataSnapshot,
-    Record, Watermarks,
+    Record, SchemaSubject, Watermarks,
 };
 
 /// Per-cluster Kafka I/O. The query engine talks only to this port.
@@ -38,6 +38,10 @@ pub trait ClusterSession: Send + Sync {
     ) -> Result<Vec<CommittedOffset>, KafkaError>;
 
     async fn records(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError>;
+
+    async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
+        Ok(Vec::new())
+    }
 
     fn consume_timeout(&self) -> Duration {
         *crate::environment::CONSUME_TIMEOUT
