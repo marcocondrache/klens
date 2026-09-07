@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router"
 
+import { AuthGate } from "@/components/auth-gate"
 import { AppLayout } from "@/routes/app-layout"
 import { AclsPage } from "@/routes/acls"
 import { ConsumerGroupPage } from "@/routes/group-detail"
@@ -15,23 +16,25 @@ import { TopicsPage } from "@/routes/topics"
 
 function App() {
   return (
-    <Routes>
-      <Route path="/" element={<HomePage />} />
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/cluster/:cluster" element={<AppLayout />}>
-        <Route index element={<Navigate to="topics" replace />} />
-        <Route path="nodes" element={<NodesPage />} />
-        <Route path="nodes/:id" element={<NodePage />} />
-        <Route path="topics" element={<TopicsPage />} />
-        <Route path="topics/:topic" element={<TopicPage />} />
-        <Route path="groups" element={<ConsumerGroupsPage />} />
-        <Route path="groups/:group" element={<ConsumerGroupPage />} />
-        <Route path="schemas" element={<SchemasPage />} />
-        <Route path="acls" element={<AclsPage />} />
+    <AuthGate>
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/cluster/:cluster" element={<AppLayout />}>
+          <Route index element={<Navigate to="topics" replace />} />
+          <Route path="nodes" element={<NodesPage />} />
+          <Route path="nodes/:id" element={<NodePage />} />
+          <Route path="topics" element={<TopicsPage />} />
+          <Route path="topics/:topic" element={<TopicPage />} />
+          <Route path="groups" element={<ConsumerGroupsPage />} />
+          <Route path="groups/:group" element={<ConsumerGroupPage />} />
+          <Route path="schemas" element={<SchemasPage />} />
+          <Route path="acls" element={<AclsPage />} />
+          <Route path="*" element={<NotFoundPage />} />
+        </Route>
         <Route path="*" element={<NotFoundPage />} />
-      </Route>
-      <Route path="*" element={<NotFoundPage />} />
-    </Routes>
+      </Routes>
+    </AuthGate>
   )
 }
 

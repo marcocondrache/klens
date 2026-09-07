@@ -15,9 +15,12 @@ default-members = ["."]
 anyhow = "1"
 async-trait = "0.1"
 axum = { version = "0.8", features = ["http2"] }
+axum-extra = { version = "0.12.6", features = ["cookie-private"] }
+cookie = { version = "0.18.2", features = ["key-expansion", "private"] }
 juniper = { version = "0.17", features = ["schema-language"] }
 juniper_axum = "0.3"
 mime_guess = { version = "2", optional = true }
+openidconnect = "4.0.1"
 rdkafka = { version = "0.39", features = ["ssl-vendored", "libz-static"] }
 rust-embed = { version = "8", optional = true }
 serde = { version = "1", features = ["derive"] }
@@ -25,8 +28,9 @@ serde_json = "1"
 serde_yaml_ng = "0.10"
 thiserror = "2"
 tokio = { version = "1", features = ["full"] }
-tower = "0.5.3"
+tower = { version = "0.5.3", features = ["util"] }
 tower-http = { version = "0.6", features = ["catch-panic", "trace", "request-id", "sensitive-headers"] }
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = "2.5.8"

@@ -23,12 +23,20 @@ pub enum ConfigError {
     },
     #[error("invalid configuration for cluster '{cluster}': {reason}")]
     InvalidCluster { cluster: String, reason: String },
+    #[error("invalid authentication configuration: {reason}")]
+    InvalidAuth { reason: String },
 }
 
 impl ConfigError {
     pub(crate) fn invalid_cluster(cluster: impl Into<String>, reason: impl Into<String>) -> Self {
         Self::InvalidCluster {
             cluster: cluster.into(),
+            reason: reason.into(),
+        }
+    }
+
+    pub(crate) fn invalid_auth(reason: impl Into<String>) -> Self {
+        Self::InvalidAuth {
             reason: reason.into(),
         }
     }
@@ -43,6 +51,8 @@ pub struct Config {
     pub log: String,
     #[serde(default)]
     pub clusters: Vec<ClusterConfig>,
+    #[serde(default)]
+    pub auth: Option<AuthConfig>,
 }
 
 impl Default for Config {
@@ -51,6 +61,7 @@ impl Default for Config {
             bind: default_bind(),
             log: default_log(),
             clusters: Vec::new(),
+            auth: None,
         }
     }
 }
@@ -96,6 +107,10 @@ impl Config {
     }
 
     pub fn validate(&self) -> Result<(), ConfigError> {
+        if let Some(auth) = &self.auth {
+            auth.oidc.validate()?;
+        }
+
         let mut seen = HashSet::with_capacity(self.clusters.len());
 
         for cluster in &self.clusters {
@@ -109,6 +124,92 @@ impl Config {
 
         Ok(())
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthConfig {
+    pub oidc: OidcConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OidcConfig {
+    pub issuer: String,
+    pub client_id: String,
+    pub client_secret: String,
+    pub redirect_uri: String,
+    #[serde(default = "default_scopes")]
+    pub scopes: Vec<String>,
+    #[serde(default)]
+    pub cookie_secure: Option<bool>,
+}
+
+fn default_scopes() -> Vec<String> {
+    vec![
+        "openid".to_owned(),
+        "email".to_owned(),
+        "profile".to_owned(),
+    ]
+}
+
+impl OidcConfig {
+    pub fn cookie_secure(&self) -> bool {
+        self.cookie_secure.unwrap_or_else(|| {
+            url::Url::parse(&self.redirect_uri)
+                .map(|parsed| parsed.scheme() == "https")
+                .unwrap_or(false)
+        })
+    }
+
+    pub fn effective_scopes(&self) -> Vec<String> {
+        let mut scopes = self.scopes.clone();
+        if !scopes.iter().any(|scope| scope == "openid") {
+            scopes.insert(0, "openid".to_owned());
+        }
+        scopes
+    }
+
+    fn validate(&self) -> Result<(), ConfigError> {
+        let fail = |reason: &str| Err(ConfigError::invalid_auth(reason));
+
+        if self.client_id.trim().is_empty() {
+            return fail("oidc client_id must not be empty");
+        }
+
+        if self.client_secret.trim().is_empty() {
+            return fail("oidc client_secret must not be empty");
+        }
+
+        validate_http_url("issuer", &self.issuer)?;
+        validate_http_url("redirect_uri", &self.redirect_uri)?;
+
+        if self.scopes.iter().any(|scope| scope.trim().is_empty()) {
+            return fail("oidc scopes must not contain empty values");
+        }
+
+        Ok(())
+    }
+}
+
+fn validate_http_url(field: &str, value: &str) -> Result<(), ConfigError> {
+    let parsed = url::Url::parse(value).map_err(|error| {
+        ConfigError::invalid_auth(format!("oidc {field} is not a valid URL: {error}"))
+    })?;
+
+    if parsed.scheme() != "http" && parsed.scheme() != "https" {
+        return Err(ConfigError::invalid_auth(format!(
+            "oidc {field} must be an http or https URL"
+        )));
+    }
+
+    if parsed.host_str().is_none() {
+        return Err(ConfigError::invalid_auth(format!(
+            "oidc {field} must include a host"
+        )));
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -262,6 +363,7 @@ mod tests {
         assert_eq!(config.clusters[1].name, "staging");
         assert_eq!(config.bind, default_bind());
         assert_eq!(config.log, "info");
+        assert_eq!(config.auth, None);
         config.validate().unwrap();
     }
 
@@ -489,5 +591,143 @@ mod tests {
 
         let error = config.validate().unwrap_err();
         assert!(error.to_string().contains("duplicate cluster name"));
+    }
+
+    #[test]
+    fn parses_oidc_auth_config() {
+        let config = parse_config(
+            "
+            clusters: []
+            auth:
+              oidc:
+                issuer: https://keycloak.example.com/realms/klens
+                client_id: klens
+                client_secret: secret
+                redirect_uri: http://localhost:8080/auth/callback
+            ",
+        )
+        .unwrap();
+
+        let oidc = config.auth.as_ref().unwrap().oidc.clone();
+        assert_eq!(oidc.issuer, "https://keycloak.example.com/realms/klens");
+        assert_eq!(oidc.client_id, "klens");
+        assert_eq!(oidc.client_secret, "secret");
+        assert_eq!(oidc.redirect_uri, "http://localhost:8080/auth/callback");
+        assert_eq!(oidc.scopes, vec!["openid", "email", "profile"]);
+        assert_eq!(oidc.cookie_secure, None);
+        assert!(!oidc.cookie_secure());
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn oidc_cookie_secure_follows_redirect_uri_and_override() {
+        let https = parse_config(
+            "
+            clusters: []
+            auth:
+              oidc:
+                issuer: https://idp.example
+                client_id: klens
+                client_secret: secret
+                redirect_uri: https://klens.example/auth/callback
+            ",
+        )
+        .unwrap();
+        assert!(https.auth.unwrap().oidc.cookie_secure());
+
+        let forced = parse_config(
+            "
+            clusters: []
+            auth:
+              oidc:
+                issuer: https://idp.example
+                client_id: klens
+                client_secret: secret
+                redirect_uri: https://klens.example/auth/callback
+                cookie_secure: false
+            ",
+        )
+        .unwrap();
+        assert!(!forced.auth.unwrap().oidc.cookie_secure());
+    }
+
+    #[test]
+    fn oidc_always_includes_openid_scope() {
+        let config = parse_config(
+            "
+            clusters: []
+            auth:
+              oidc:
+                issuer: https://idp.example
+                client_id: klens
+                client_secret: secret
+                redirect_uri: http://localhost:8080/auth/callback
+                scopes:
+                  - email
+            ",
+        )
+        .unwrap();
+
+        assert_eq!(
+            config.auth.unwrap().oidc.effective_scopes(),
+            vec!["openid", "email"]
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_oidc_issuer() {
+        let config = parse_config(
+            "
+            clusters: []
+            auth:
+              oidc:
+                issuer: not-a-url
+                client_id: klens
+                client_secret: secret
+                redirect_uri: http://localhost:8080/auth/callback
+            ",
+        )
+        .unwrap();
+
+        let error = config.validate().unwrap_err();
+        assert!(error.to_string().contains("issuer"));
+    }
+
+    #[test]
+    fn rejects_empty_oidc_client_secret() {
+        let config = parse_config(
+            "
+            clusters: []
+            auth:
+              oidc:
+                issuer: https://idp.example
+                client_id: klens
+                client_secret: '   '
+                redirect_uri: http://localhost:8080/auth/callback
+            ",
+        )
+        .unwrap();
+
+        let error = config.validate().unwrap_err();
+        assert!(error.to_string().contains("client_secret"));
+    }
+
+    #[test]
+    fn rejects_non_http_redirect_uri() {
+        let config = parse_config(
+            "
+            clusters: []
+            auth:
+              oidc:
+                issuer: https://idp.example
+                client_id: klens
+                client_secret: secret
+                redirect_uri: ftp://localhost/auth/callback
+            ",
+        )
+        .unwrap();
+
+        let error = config.validate().unwrap_err();
+        assert!(error.to_string().contains("redirect_uri"));
     }
 }

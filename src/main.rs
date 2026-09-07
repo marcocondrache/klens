@@ -15,5 +15,17 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!(clusters = ?engine.names(), "configured kafka clusters");
 
-    klens::serve(router(AppState::new(Arc::new(engine))), config.bind).await
+    let auth = klens::app::AuthState::from_config(config.auth.as_ref())
+        .await
+        .context("failed to initialize authentication")?;
+
+    if auth.is_enabled() {
+        tracing::info!("oidc authentication enabled");
+    }
+
+    klens::serve(
+        router(AppState::with_auth(Arc::new(engine), auth)),
+        config.bind,
+    )
+    .await
 }

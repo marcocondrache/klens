@@ -25,3 +25,18 @@ clusters:
     # Extra librdkafka properties, applied on top of the settings above.
     # properties:
     #   request.timeout.ms: "10000"
+
+# Optional OpenID Connect login gate. When omitted, the UI and GraphQL API are
+# open to anyone who can reach the process. /health stays public either way.
+#
+# Register redirect_uri with the identity provider. Any authenticated user has
+# the same access as an open deployment.
+#
+# auth:
+#   oidc:
+#     issuer: https://keycloak.example.com/realms/klens
+#     client_id: klens
+#     client_secret: "..."
+#     redirect_uri: http://localhost:8080/auth/callback
+#     # scopes: [openid, email, profile]
+#     # cookie_secure: false  # default: true when redirect_uri is https
