@@ -112,7 +112,9 @@ impl OidcFlow for RealOidc {
             .set_pkce_challenge(pkce_challenge);
 
         for scope in &self.scopes {
-            request = request.add_scope(scope.clone());
+            if scope.as_str() != "openid" {
+                request = request.add_scope(scope.clone());
+            }
         }
 
         request.url().0
