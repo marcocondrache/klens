@@ -1,14 +1,15 @@
 use std::collections::HashMap;
 
+use crate::environment::{
+    LIST_WATERMARK_CAP, MAX_RECORD_LIMIT, RECORD_MIN_WINDOW, RECORD_SEARCH_WINDOW_MULTIPLIER,
+    RECORD_WINDOW_MULTIPLIER,
+};
 use crate::kafka::model::{
     Broker, BrokerMetadata, CleanupPolicy, ClusterHealth, ClusterIdentity, ClusterOverview,
     ConfigEntry, ConsumerGroup, FetchPlan, GroupOffset, GroupSnapshot, MetadataSnapshot, Partition,
     PartitionWindow, RecordOrder, RecordQuery, SearchHit, SearchKind, Topic, TopicMetadata,
     Watermarks,
 };
-
-pub const MAX_RECORD_LIMIT: usize = 500;
-const LIST_WATERMARK_CAP: usize = 128;
 
 pub fn partition_health(meta: &MetadataSnapshot) -> (i32, i32, i32) {
     let mut partitions = 0;
@@ -179,7 +180,7 @@ pub fn assemble_topic(
 
 pub fn should_fetch_list_watermarks(meta: &MetadataSnapshot) -> bool {
     let partitions: usize = meta.topics.iter().map(|topic| topic.partitions.len()).sum();
-    partitions <= LIST_WATERMARK_CAP
+    partitions <= *LIST_WATERMARK_CAP
 }
 
 pub fn clamp_record_limit(limit: i32) -> Result<usize, String> {
@@ -187,7 +188,7 @@ pub fn clamp_record_limit(limit: i32) -> Result<usize, String> {
         return Err("limit must be at least 1".into());
     }
 
-    Ok((limit as usize).min(MAX_RECORD_LIMIT))
+    Ok((limit as usize).min(*MAX_RECORD_LIMIT))
 }
 
 pub fn clamp_record_page(page: i32) -> Result<usize, String> {
@@ -200,8 +201,14 @@ pub fn clamp_record_page(page: i32) -> Result<usize, String> {
 
 fn window_span(partition_count: usize, limit: usize, searching: bool, page: usize) -> (i64, i64) {
     let n = partition_count.max(1);
-    let multiplier = if searching { 8 } else { 2 };
-    let take = (limit.saturating_mul(multiplier)).div_ceil(n).max(4) as i64;
+    let multiplier = if searching {
+        *RECORD_SEARCH_WINDOW_MULTIPLIER
+    } else {
+        *RECORD_WINDOW_MULTIPLIER
+    };
+    let take = (limit.saturating_mul(multiplier))
+        .div_ceil(n)
+        .max(*RECORD_MIN_WINDOW) as i64;
     let skip = (page.saturating_mul(limit)).div_ceil(n) as i64;
     (skip, take)
 }

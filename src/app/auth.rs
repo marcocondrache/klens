@@ -14,15 +14,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::AppState;
 use crate::config::AuthConfig;
+use crate::environment::{
+    COOKIE_KEY_MIN_LEN, LOGIN_COOKIE, LOGIN_MAX_AGE_SECS, SESSION_COOKIE, SESSION_COOKIE_KEY_PREFIX,
+};
 
 mod oidc;
 
 use oidc::{OidcFlow, RealOidc};
-
-const SESSION_COOKIE: &str = "klens_session";
-const LOGIN_COOKIE: &str = "klens_login";
-const LOGIN_MAX_AGE_SECS: i64 = 10 * 60;
-pub(crate) const MAX_SESSION_SECS: i64 = 12 * 60 * 60;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub(crate) struct SessionUser {
@@ -184,7 +182,7 @@ async fn login(State(state): State<AppState>, jar: PrivateCookieJar) -> Response
     let jar = jar.add(build_cookie(
         LOGIN_COOKIE,
         serde_json::to_string(&pending).expect("login pending json"),
-        LOGIN_MAX_AGE_SECS,
+        *LOGIN_MAX_AGE_SECS,
         state.auth.cookie_secure(),
     ));
 
@@ -306,9 +304,9 @@ fn removal_cookie(name: &'static str, secure: bool) -> Cookie<'static> {
 }
 
 fn derive_cookie_key(issuer: &str, client_secret: &str) -> Key {
-    let mut material = format!("klens-session-v1|{issuer}|{client_secret}").into_bytes();
-    if material.len() < 32 {
-        material.resize(32, 0);
+    let mut material = format!("{SESSION_COOKIE_KEY_PREFIX}|{issuer}|{client_secret}").into_bytes();
+    if material.len() < COOKIE_KEY_MIN_LEN {
+        material.resize(COOKIE_KEY_MIN_LEN, 0);
     }
     Key::derive_from(&material)
 }

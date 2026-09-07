@@ -166,7 +166,7 @@ impl OidcFlow for RealOidc {
         let exp = claims
             .expiration()
             .timestamp()
-            .min(now + super::MAX_SESSION_SECS);
+            .min(now + *crate::environment::MAX_SESSION_SECS);
         if exp <= now {
             return Err(OidcError::ExpiredToken);
         }

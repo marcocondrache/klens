@@ -118,8 +118,10 @@ mod tests {
     #[test]
     fn builds_from_root_config() {
         let config = Config {
+            bind: "127.0.0.1:8080".parse().unwrap(),
+            log_level: "info".into(),
             clusters: vec![cluster("b"), cluster("a")],
-            ..Config::default()
+            auth: None,
         };
 
         let registry = ClusterRegistry::from_config(&config).unwrap();

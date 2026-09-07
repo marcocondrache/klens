@@ -1,6 +1,8 @@
 pub mod app;
 pub mod config;
+pub mod environment;
 pub mod kafka;
+mod r#macro;
 pub mod server;
 pub mod telemetry;
 

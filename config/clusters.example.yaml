@@ -2,7 +2,7 @@
 #
 # Copy this file to config.yaml and adjust it for your environment.
 bind: 0.0.0.0:8080
-log: info
+log_level: info
 
 clusters:
   - name: local

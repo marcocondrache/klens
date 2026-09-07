@@ -6,10 +6,9 @@ use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{BaseConsumer, StreamConsumer};
 
 use crate::config::ClusterConfig;
+use crate::environment::{BROWSE_GROUP_PREFIX, CLIENT_ID_PREFIX};
 use crate::kafka::config::KafkaClusterConfig;
 use crate::kafka::error::KafkaError;
-
-const BROWSE_GROUP_PREFIX: &str = "klens.internal.browse";
 
 /// Builds typed rdkafka clients from a cluster's shared settings.
 #[derive(Clone)]
@@ -50,7 +49,10 @@ impl ClientFactory {
 
     fn consumer_config(&self, group_id: &str, role: &str, partition_eof: bool) -> ClientConfig {
         let mut client = self.client.clone();
-        client.set("client.id", format!("klens-{}-{role}", self.cluster));
+        client.set(
+            "client.id",
+            format!("{CLIENT_ID_PREFIX}-{}-{role}", self.cluster),
+        );
         client.set("group.id", group_id);
         client.set("enable.auto.commit", "false");
         client.set("enable.auto.offset.store", "false");
@@ -82,7 +84,7 @@ mod tests {
         let first = browse_group_id("local");
         let second = browse_group_id("local");
 
-        assert!(first.starts_with("klens.internal.browse.local."));
+        assert!(first.starts_with(&format!("{BROWSE_GROUP_PREFIX}.local.")));
         assert_ne!(first, second);
     }
 }

@@ -15,6 +15,10 @@ use rdkafka::topic_partition_list::{Offset, TopicPartitionList};
 use tokio::task::JoinSet;
 
 use crate::config::ClusterConfig;
+use crate::environment::{
+    ADMIN_TIMEOUT, BLOCKING_SLACK, CONFIG_BATCH, CONSUME_TIMEOUT, METADATA_TIMEOUT, METADATA_TTL,
+    WATERMARK_BATCH, WATERMARK_TIMEOUT,
+};
 use crate::kafka::assignment::parse_consumer_assignment;
 use crate::kafka::browse;
 use crate::kafka::error::KafkaError;
@@ -25,11 +29,6 @@ use crate::kafka::model::{
     TopicMetadata, Watermarks, is_internal_group, is_internal_topic,
 };
 use crate::kafka::session::ClusterSession;
-
-const METADATA_TTL: Duration = Duration::from_secs(3);
-const WATERMARK_BATCH: usize = 32;
-const CONFIG_BATCH: usize = 20;
-const BLOCKING_SLACK: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Copy)]
 struct Timeouts {
@@ -42,10 +41,10 @@ struct Timeouts {
 impl Default for Timeouts {
     fn default() -> Self {
         Self {
-            metadata: Duration::from_secs(5),
-            watermark: Duration::from_secs(3),
-            admin: Duration::from_secs(10),
-            consume: Duration::from_secs(5),
+            metadata: *METADATA_TIMEOUT,
+            watermark: *WATERMARK_TIMEOUT,
+            admin: *ADMIN_TIMEOUT,
+            consume: *CONSUME_TIMEOUT,
         }
     }
 }
@@ -78,8 +77,8 @@ impl ClusterHandle {
             identity,
             factory,
             admin,
-            metadata: snapshot_cache(METADATA_TTL),
-            groups: snapshot_cache(METADATA_TTL),
+            metadata: snapshot_cache(*METADATA_TTL),
+            groups: snapshot_cache(*METADATA_TTL),
             timeouts: Timeouts::default(),
         })
     }
@@ -116,7 +115,7 @@ impl ClusterSession for ClusterHandle {
     ) -> Result<HashMap<i32, Watermarks>, KafkaError> {
         let mut out = HashMap::with_capacity(partitions.len());
 
-        for chunk in partitions.chunks(WATERMARK_BATCH) {
+        for chunk in partitions.chunks(*WATERMARK_BATCH) {
             let mut join = JoinSet::new();
             for &partition in chunk {
                 let admin = Arc::clone(&self.admin);
@@ -143,7 +142,7 @@ impl ClusterSession for ClusterHandle {
     ) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError> {
         let mut out = HashMap::new();
 
-        for chunk in topics.chunks(CONFIG_BATCH) {
+        for chunk in topics.chunks(*CONFIG_BATCH) {
             let specs: Vec<ResourceSpecifier<'_>> = chunk
                 .iter()
                 .map(|topic| ResourceSpecifier::Topic(topic))
@@ -215,7 +214,7 @@ impl ClusterSession for ClusterHandle {
         let partitions = partitions.to_vec();
         let timeout = self.timeouts.admin;
 
-        run_blocking(timeout + BLOCKING_SLACK, move || {
+        run_blocking(timeout + *BLOCKING_SLACK, move || {
             let consumer = factory.offset_consumer(&group_id)?;
             let mut tpl = TopicPartitionList::new();
             for (topic, partition) in &partitions {
@@ -248,7 +247,7 @@ impl ClusterHandle {
         admin: Arc<AdminClient<DefaultClientContext>>,
         timeout: Duration,
     ) -> Result<MetadataSnapshot, KafkaError> {
-        run_blocking(timeout + timeout + BLOCKING_SLACK, move || {
+        run_blocking(timeout + timeout + *BLOCKING_SLACK, move || {
             let client = admin.inner();
             let metadata = client.fetch_metadata(None, timeout)?;
             let cluster_id = client.fetch_cluster_id(timeout);
@@ -261,7 +260,7 @@ impl ClusterHandle {
         admin: Arc<AdminClient<DefaultClientContext>>,
         timeout: Duration,
     ) -> Result<Vec<GroupSnapshot>, KafkaError> {
-        run_blocking(timeout + BLOCKING_SLACK, move || {
+        run_blocking(timeout + *BLOCKING_SLACK, move || {
             let list = admin.inner().fetch_group_list(None, timeout)?;
             Ok(list
                 .groups()

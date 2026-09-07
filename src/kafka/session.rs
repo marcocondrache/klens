@@ -40,6 +40,6 @@ pub trait ClusterSession: Send + Sync {
     async fn records(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError>;
 
     fn consume_timeout(&self) -> Duration {
-        Duration::from_secs(5)
+        *crate::environment::CONSUME_TIMEOUT
     }
 }
