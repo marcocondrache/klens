@@ -29,6 +29,7 @@ use crate::kafka::session::ClusterSession;
 const METADATA_TTL: Duration = Duration::from_secs(3);
 const WATERMARK_BATCH: usize = 32;
 const CONFIG_BATCH: usize = 20;
+const BLOCKING_SLACK: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Copy)]
 struct Timeouts {
@@ -103,13 +104,13 @@ impl ClusterSession for ClusterHandle {
 
         let admin = Arc::clone(&self.admin);
         let timeout = self.timeouts.metadata;
-        let snapshot = tokio::task::spawn_blocking(move || {
+        let snapshot = run_blocking(timeout + timeout + BLOCKING_SLACK, move || {
             let client = admin.inner();
             let metadata = client.fetch_metadata(None, timeout)?;
             let cluster_id = client.fetch_cluster_id(timeout);
-            Ok::<_, KafkaError>(MetadataSnapshot::from_rdkafka(&metadata, cluster_id))
+            Ok(MetadataSnapshot::from_rdkafka(&metadata, cluster_id))
         })
-        .await??;
+        .await?;
 
         self.cache.store_metadata(snapshot.clone()).await;
         Ok(snapshot)
@@ -202,20 +203,7 @@ impl ClusterSession for ClusterHandle {
             return Ok(hit);
         }
 
-        let listings = self.fetch_group_list().await?;
-        let mut groups = Vec::with_capacity(listings.len());
-
-        for mut group in listings {
-            let partitions = group.assigned_partitions();
-            if !partitions.is_empty() {
-                group.committed = self
-                    .committed_offsets(&group.id, &partitions)
-                    .await
-                    .unwrap_or_default();
-            }
-            groups.push(group);
-        }
-
+        let groups = self.fetch_group_list().await?;
         self.cache.store_groups(groups.clone()).await;
         Ok(groups)
     }
@@ -234,7 +222,7 @@ impl ClusterSession for ClusterHandle {
         let partitions = partitions.to_vec();
         let timeout = self.timeouts.admin;
 
-        tokio::task::spawn_blocking(move || {
+        run_blocking(timeout + BLOCKING_SLACK, move || {
             let consumer = factory.offset_consumer(&group_id)?;
             let mut tpl = TopicPartitionList::new();
             for (topic, partition) in &partitions {
@@ -254,7 +242,7 @@ impl ClusterSession for ClusterHandle {
             }
             Ok(offsets)
         })
-        .await?
+        .await
     }
 
     async fn records(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError> {
@@ -267,7 +255,7 @@ impl ClusterHandle {
         let admin = Arc::clone(&self.admin);
         let timeout = self.timeouts.admin;
 
-        tokio::task::spawn_blocking(move || {
+        run_blocking(timeout + BLOCKING_SLACK, move || {
             let list = admin.inner().fetch_group_list(None, timeout)?;
             Ok(list
                 .groups()
@@ -276,8 +264,19 @@ impl ClusterHandle {
                 .map(GroupSnapshot::from_rdkafka)
                 .collect())
         })
-        .await?
+        .await
     }
+}
+
+async fn run_blocking<T, F>(limit: Duration, work: F) -> Result<T, KafkaError>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, KafkaError> + Send + 'static,
+{
+    tokio::time::timeout(limit, tokio::task::spawn_blocking(work))
+        .await
+        .map_err(|_| KafkaError::Admin("kafka request timed out".into()))?
+        .map_err(KafkaError::from)?
 }
 
 impl MetadataSnapshot {
