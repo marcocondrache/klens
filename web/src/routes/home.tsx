@@ -8,7 +8,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty"
-import { Spinner } from "@/components/ui/spinner"
+import { PageLoading } from "@/components/page-loading"
 import { useClusters } from "@/lib/api/queries"
 
 export function HomePage() {
@@ -17,9 +17,11 @@ export function HomePage() {
 
   if (isPending) {
     return (
-      <div className="flex min-h-svh items-center justify-center">
-        <Spinner className="size-6" />
-      </div>
+      <PageLoading
+        title="Loading clusters"
+        description="Fetching broker metadata. First contact with Kafka can take a few seconds."
+        slowDescription="Still waiting on brokers. Large or unreachable clusters take longer on first load."
+      />
     )
   }
 

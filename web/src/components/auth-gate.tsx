@@ -1,7 +1,7 @@
 import type { ReactNode } from "react"
 import { Navigate, useLocation } from "react-router"
 
-import { Spinner } from "@/components/ui/spinner"
+import { PageLoading } from "@/components/page-loading"
 import { useAuth } from "@/hooks/use-auth"
 
 export function AuthGate({ children }: { children: ReactNode }) {
@@ -11,9 +11,10 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   if (isPending) {
     return (
-      <div className="flex min-h-svh items-center justify-center">
-        <Spinner className="size-6" />
-      </div>
+      <PageLoading
+        title="Starting"
+        description="Checking whether sign-in is required."
+      />
     )
   }
 
