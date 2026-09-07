@@ -37,7 +37,17 @@ import { useRecords } from "@/lib/api/queries"
 import { formatBytes, formatRelative, formatTimestamp } from "@/lib/format"
 import type { RecordOrder, Topic, TopicRecord } from "@/lib/api/types"
 
-const LIMITS = ["25", "50", "100"]
+const LIMITS = ["25", "50", "100"] as const
+
+const ORDER_ITEMS = [
+  { value: "NEWEST", label: "Newest first" },
+  { value: "OLDEST", label: "Oldest first" },
+] as const
+
+const LIMIT_ITEMS = LIMITS.map((value) => ({
+  value,
+  label: `${value} rows`,
+}))
 
 function preview(value: string | null) {
   if (!value) return "—"
@@ -63,6 +73,13 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
   })
   const records = data?.records ?? []
   const hasMore = data?.hasMore ?? false
+  const partitionItems = [
+    { value: "all", label: "All partitions" },
+    ...topic.partitions.map((part) => ({
+      value: String(part.id),
+      label: `Partition ${part.id}`,
+    })),
+  ]
 
   const columns: Array<Column<TopicRecord>> = [
     {
@@ -148,19 +165,19 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
 
         <Select
           value={partition}
+          items={partitionItems}
           onValueChange={(value) => {
             setPartition(String(value))
             setPage(0)
           }}
         >
-          <SelectTrigger size="sm" className="w-36">
+          <SelectTrigger size="sm" className="w-40">
             <SelectValue placeholder="Partition" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All partitions</SelectItem>
-            {topic.partitions.map((part) => (
-              <SelectItem key={part.id} value={String(part.id)}>
-                Partition {part.id}
+            {partitionItems.map((item) => (
+              <SelectItem key={item.value} value={item.value}>
+                {item.label}
               </SelectItem>
             ))}
           </SelectContent>
@@ -168,6 +185,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
 
         <Select
           value={order}
+          items={ORDER_ITEMS}
           onValueChange={(value) => {
             setOrder(value as RecordOrder)
             setPage(0)
@@ -177,13 +195,17 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="NEWEST">Newest first</SelectItem>
-            <SelectItem value="OLDEST">Oldest first</SelectItem>
+            {ORDER_ITEMS.map((item) => (
+              <SelectItem key={item.value} value={item.value}>
+                {item.label}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
 
         <Select
           value={limit}
+          items={LIMIT_ITEMS}
           onValueChange={(value) => {
             setLimit(String(value))
             setPage(0)
@@ -193,9 +215,9 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {LIMITS.map((value) => (
-              <SelectItem key={value} value={value}>
-                {value} rows
+            {LIMIT_ITEMS.map((item) => (
+              <SelectItem key={item.value} value={item.value}>
+                {item.label}
               </SelectItem>
             ))}
           </SelectContent>
