@@ -20,7 +20,7 @@ use crate::environment::{
 
 mod oidc;
 
-use oidc::{OidcFlow, RealOidc};
+use oidc::{Oidc, OidcFlow};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub(crate) struct SessionUser {
@@ -57,7 +57,7 @@ impl AuthState {
         match auth {
             None => Ok(Self::disabled()),
             Some(config) => {
-                let flow = RealOidc::discover(&config.oidc).await?;
+                let flow = Oidc::discover(&config.oidc).await?;
                 Ok(Self::enabled(Arc::new(flow), &config.oidc))
             }
         }
@@ -325,7 +325,7 @@ mod tests {
     use axum::http::{Request, header};
     use tower::ServiceExt;
 
-    use super::oidc::StubOidc;
+    use super::oidc::FakeOidc;
     use super::*;
     use crate::kafka::{FakeCluster, QueryEngine};
 
@@ -333,7 +333,7 @@ mod tests {
         pub(crate) fn enabled_for_tests() -> Self {
             Self {
                 inner: Inner::Enabled {
-                    flow: Arc::new(StubOidc),
+                    flow: Arc::new(FakeOidc),
                     cookie_secure: false,
                 },
                 key: Key::derive_from(b"klens-test-session-cookie-key-32b!!"),

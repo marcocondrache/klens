@@ -50,13 +50,13 @@ pub(crate) trait OidcFlow: Send + Sync {
     ) -> Result<SessionUser, OidcError>;
 }
 
-pub(crate) struct RealOidc {
-    client: DiscoveredClient,
+pub(crate) struct Oidc {
     http: reqwest::Client,
+    client: DiscoveredClient,
     scopes: Vec<Scope>,
 }
 
-impl RealOidc {
+impl Oidc {
     pub(crate) async fn discover(config: &OidcConfig) -> anyhow::Result<Self> {
         let http = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
@@ -95,7 +95,7 @@ impl RealOidc {
 }
 
 #[async_trait]
-impl OidcFlow for RealOidc {
+impl OidcFlow for Oidc {
     fn authorize_url(
         &self,
         csrf: CsrfToken,
@@ -188,11 +188,11 @@ impl OidcFlow for RealOidc {
 }
 
 #[cfg(test)]
-pub(crate) struct StubOidc;
+pub(crate) struct FakeOidc;
 
 #[cfg(test)]
 #[async_trait]
-impl OidcFlow for StubOidc {
+impl OidcFlow for FakeOidc {
     fn authorize_url(
         &self,
         csrf: CsrfToken,
