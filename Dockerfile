@@ -3,10 +3,12 @@
 FROM oven/bun:1 AS web
 WORKDIR /app
 
-COPY web/ ./
+COPY Cargo.toml schema.graphql ./
+COPY web/ ./web/
 
+WORKDIR /app/web
 RUN bun install --frozen-lockfile
-RUN bun run build
+RUN bun run build && test -f /app/static/index.html
 
 FROM rust:1.95 AS builder
 WORKDIR /app
