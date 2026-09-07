@@ -4,13 +4,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio::time::Instant;
 
-/// How often a live subscription samples topic high watermarks.
-pub const SAMPLE_INTERVAL: Duration = Duration::from_secs(2);
-
-/// Ignore a previous snapshot older than this when computing a rate.
-const MAX_SAMPLE_GAP: Duration = Duration::from_secs(15);
-
-const HISTORY_LEN: usize = 60;
+use crate::environment::{HISTORY_LEN, MAX_SAMPLE_GAP};
 
 /// Produce rate for one topic, derived from high-watermark deltas.
 #[derive(Debug, Clone, PartialEq)]
@@ -164,7 +158,7 @@ impl ClusterSamples {
 
 fn rate_between(previous: &Sample, current: &Sample, topic: &str) -> Option<f64> {
     let elapsed = current.at.saturating_duration_since(previous.at);
-    if elapsed.is_zero() || elapsed > MAX_SAMPLE_GAP {
+    if elapsed.is_zero() || elapsed > *MAX_SAMPLE_GAP {
         return None;
     }
 
@@ -186,7 +180,7 @@ fn round_rate(value: f64) -> f64 {
 }
 
 fn push_history(history: &mut VecDeque<ThroughputPoint>, point: ThroughputPoint) {
-    if history.len() == HISTORY_LEN {
+    if history.len() == *HISTORY_LEN {
         history.pop_front();
     }
     history.push_back(point);
@@ -322,7 +316,7 @@ mod tests {
     fn history_is_capped() {
         let store = RateStore::new();
         let start = Instant::now();
-        for index in 0..=HISTORY_LEN {
+        for index in 0..=*HISTORY_LEN {
             store.observe_at(
                 "local",
                 counts(&[("orders", index as u64)]),
@@ -331,8 +325,8 @@ mod tests {
             );
         }
 
-        assert_eq!(store.topic_history("local", "orders").len(), HISTORY_LEN);
-        assert_eq!(store.cluster_history("local").len(), HISTORY_LEN);
+        assert_eq!(store.topic_history("local", "orders").len(), *HISTORY_LEN);
+        assert_eq!(store.cluster_history("local").len(), *HISTORY_LEN);
     }
 
     #[test]

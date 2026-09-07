@@ -138,6 +138,26 @@ pub static LIST_WATERMARK_CAP: LazyLock<usize> =
 pub static MAX_RECORD_LIMIT: LazyLock<usize> =
     lazy_env_parse!("KLENS_MAX_RECORD_LIMIT", usize, 500);
 
+/// How often a live `topicRates` subscription samples high watermarks
+/// (default: 2 seconds).
+///
+/// Override with `KLENS_SAMPLE_INTERVAL` (seconds).
+pub static SAMPLE_INTERVAL: LazyLock<Duration> =
+    lazy_env_parse!(duration, "KLENS_SAMPLE_INTERVAL", Duration::from_secs(2));
+
+/// Ignore a previous watermark snapshot older than this when computing a
+/// produce rate (default: 15 seconds).
+///
+/// Override with `KLENS_MAX_SAMPLE_GAP` (seconds).
+pub static MAX_SAMPLE_GAP: LazyLock<Duration> =
+    lazy_env_parse!(duration, "KLENS_MAX_SAMPLE_GAP", Duration::from_secs(15));
+
+/// How many throughput points to keep per topic and for the cluster total
+/// (default: 60).
+///
+/// Override with `KLENS_HISTORY_LEN`.
+pub static HISTORY_LEN: LazyLock<usize> = lazy_env_parse!("KLENS_HISTORY_LEN", usize, 60);
+
 /// Extra partition-window multiplier when a record search is active
 /// (default: 8).
 ///

@@ -3,7 +3,7 @@ use juniper::{FieldResult, graphql_subscription};
 
 use super::types::TopicRate;
 use crate::AppState;
-use crate::kafka::SAMPLE_INTERVAL;
+use crate::environment::SAMPLE_INTERVAL;
 
 pub(super) struct Subscription;
 
@@ -17,7 +17,7 @@ impl Subscription {
             (state, cluster, true),
             |(state, cluster, first)| async move {
                 if !first {
-                    tokio::time::sleep(SAMPLE_INTERVAL).await;
+                    tokio::time::sleep(*SAMPLE_INTERVAL).await;
                 }
                 let item = sample_topic_rates(&state, &cluster).await;
                 Some((item, (state, cluster, false)))
@@ -145,7 +145,7 @@ mod tests {
         assert_eq!(first["data"]["topicRates"][0]["name"], "orders.created");
         assert_eq!(first["data"]["topicRates"][0]["messagesPerSec"], 0.0);
 
-        tokio::time::advance(SAMPLE_INTERVAL + Duration::from_millis(1)).await;
+        tokio::time::advance(*SAMPLE_INTERVAL + Duration::from_millis(1)).await;
 
         let second = stream.next().await.unwrap();
         let second = serde_json::to_value(second).unwrap();

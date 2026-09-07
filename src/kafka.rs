@@ -22,7 +22,7 @@ pub use model::{
     Broker, ClusterHealth, ClusterIdentity, ClusterOverview, ConfigEntry, ConsumerGroup, Record,
     RecordPage, RecordQuery, SearchHit, Topic,
 };
-pub use rates::{RateStore, SAMPLE_INTERVAL, ThroughputPoint, TopicRate};
+pub use rates::{RateStore, ThroughputPoint, TopicRate};
 pub use registry::ClusterRegistry;
 pub use session::ClusterSession;
 
