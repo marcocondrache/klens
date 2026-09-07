@@ -113,8 +113,11 @@ impl MetadataSnapshot {
         self.brokers.iter().find(|broker| broker.id == id)
     }
 
-    pub fn topic_names(&self) -> Vec<String> {
-        self.topics.iter().map(|topic| topic.name.clone()).collect()
+    pub fn topic_names(&self) -> Vec<&str> {
+        self.topics
+            .iter()
+            .map(|topic| topic.name.as_str())
+            .collect()
     }
 }
 
@@ -280,35 +283,38 @@ pub struct GroupSnapshot {
 }
 
 impl GroupSnapshot {
-    pub fn topics(&self) -> Vec<String> {
-        let mut topics: Vec<String> = self
-            .members
+    pub fn consumed_topics(&self) -> impl Iterator<Item = &str> {
+        self.members
             .iter()
             .flat_map(|member| {
                 member
                     .assignments
                     .iter()
-                    .map(|assignment| assignment.topic.clone())
+                    .map(|assignment| assignment.topic.as_str())
             })
-            .chain(self.committed.iter().map(|offset| offset.topic.clone()))
-            .collect();
-        topics.sort();
-        topics.dedup();
-        topics
+            .chain(self.committed.iter().map(|offset| offset.topic.as_str()))
+    }
+
+    pub fn consumes_topic(&self, topic: &str) -> bool {
+        self.consumed_topics().any(|name| name == topic)
+    }
+
+    pub fn assigned_partition_refs(&self) -> impl Iterator<Item = (&str, i32)> {
+        self.members.iter().flat_map(|member| {
+            member.assignments.iter().flat_map(|assignment| {
+                assignment
+                    .partitions
+                    .iter()
+                    .copied()
+                    .map(|partition| (assignment.topic.as_str(), partition))
+            })
+        })
     }
 
     pub fn assigned_partitions(&self) -> Vec<(String, i32)> {
         let mut partitions: Vec<(String, i32)> = self
-            .members
-            .iter()
-            .flat_map(|member| {
-                member.assignments.iter().flat_map(|assignment| {
-                    assignment
-                        .partitions
-                        .iter()
-                        .map(|partition| (assignment.topic.clone(), *partition))
-                })
-            })
+            .assigned_partition_refs()
+            .map(|(topic, partition)| (topic.to_owned(), partition))
             .collect();
         partitions.sort();
         partitions.dedup();

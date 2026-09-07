@@ -38,9 +38,8 @@ impl QueryEngine {
     }
 
     pub fn from_registry(registry: ClusterRegistry) -> Self {
-        let order = registry.names();
-        let clusters = registry
-            .into_sessions()
+        let (handles, order) = registry.into_parts();
+        let clusters = handles
             .into_iter()
             .map(|(name, handle)| {
                 let session: Arc<dyn ClusterSession> = handle;
@@ -64,8 +63,8 @@ impl QueryEngine {
         Self { clusters, order }
     }
 
-    pub fn names(&self) -> Vec<String> {
-        self.order.clone()
+    pub fn names(&self) -> &[String] {
+        &self.order
     }
 
     fn session(&self, name: &str) -> Result<&Arc<dyn ClusterSession>, KafkaError> {
@@ -219,10 +218,7 @@ impl QueryEngine {
             .watermarks(name, &partitions)
             .await
             .unwrap_or_default();
-        let configs = session
-            .topic_configs(&[name.to_owned()])
-            .await
-            .unwrap_or_default();
+        let configs = session.topic_configs(&[name]).await.unwrap_or_default();
         let groups = session.consumer_groups().await.unwrap_or_default();
 
         Ok(assemble_topic(
@@ -247,7 +243,7 @@ impl QueryEngine {
         }
 
         session
-            .topic_configs(&[name.to_owned()])
+            .topic_configs(&[name])
             .await
             .map(|mut configs| configs.remove(name).unwrap_or_default())
     }
@@ -315,8 +311,11 @@ impl QueryEngine {
     ) -> HashMap<(String, i32), i64> {
         let mut by_topic: HashMap<String, Vec<i32>> = HashMap::new();
         for group in groups {
-            for (topic, partition) in group.assigned_partitions() {
-                by_topic.entry(topic).or_default().push(partition);
+            for (topic, partition) in group.assigned_partition_refs() {
+                by_topic
+                    .entry(topic.to_owned())
+                    .or_default()
+                    .push(partition);
             }
             for committed in &group.committed {
                 by_topic
@@ -437,7 +436,7 @@ impl QueryEngine {
                 .collect(),
         };
         let watermarks = session.watermarks(&query.topic, &partitions).await?;
-        let plan = plan_records(&query, topic, &watermarks, limit, page);
+        let plan = plan_records(&query, &partitions, &watermarks, limit, page);
         let records = session.records(&plan).await?;
         Ok(RecordPage {
             records,
@@ -524,7 +523,7 @@ mod tests {
 
         async fn topic_configs(
             &self,
-            topics: &[String],
+            topics: &[&str],
         ) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError> {
             self.inner.topic_configs(topics).await
         }

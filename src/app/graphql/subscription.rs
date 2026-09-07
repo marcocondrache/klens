@@ -96,7 +96,7 @@ mod tests {
 
         async fn topic_configs(
             &self,
-            topics: &[String],
+            topics: &[&str],
         ) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError> {
             self.inner.topic_configs(topics).await
         }

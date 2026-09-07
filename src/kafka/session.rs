@@ -24,7 +24,7 @@ pub trait ClusterSession: Send + Sync {
 
     async fn topic_configs(
         &self,
-        topics: &[String],
+        topics: &[&str],
     ) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError>;
 
     async fn broker_configs(&self, broker_id: i32) -> Result<Vec<ConfigEntry>, KafkaError>;

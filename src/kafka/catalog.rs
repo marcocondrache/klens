@@ -124,7 +124,7 @@ pub fn topic_config_values(entries: Option<&[ConfigEntry]>) -> (CleanupPolicy, i
 pub fn groups_for_topic(topic: &str, groups: &[GroupSnapshot]) -> Vec<String> {
     groups
         .iter()
-        .filter(|group| group.topics().iter().any(|name| name == topic))
+        .filter(|group| group.consumes_topic(topic))
         .map(|group| group.id.clone())
         .collect()
 }
@@ -135,7 +135,7 @@ pub fn assemble_topic(
     config: Option<&[ConfigEntry]>,
     consumer_groups: Vec<String>,
 ) -> Topic {
-    let partitions = topic
+    let partitions: Vec<Partition> = topic
         .partitions
         .iter()
         .map(|partition| {
@@ -149,7 +149,7 @@ pub fn assemble_topic(
                 high_watermark: marks.high,
             }
         })
-        .collect::<Vec<_>>();
+        .collect();
 
     let replication_factor = partitions
         .first()
@@ -262,28 +262,20 @@ pub fn plan_has_more(
 
 pub fn plan_records(
     query: &RecordQuery,
-    topic: &TopicMetadata,
+    partitions: &[i32],
     watermarks: &HashMap<i32, Watermarks>,
     limit: usize,
     page: usize,
 ) -> FetchPlan {
-    let partitions = match query.partition {
-        Some(id) => vec![id],
-        None => topic
-            .partitions
-            .iter()
-            .map(|partition| partition.id)
-            .collect(),
-    };
     let searching = !query.search.trim().is_empty();
 
     FetchPlan {
         topic: query.topic.clone(),
-        windows: plan_windows(&partitions, watermarks, query.order, limit, searching, page),
+        windows: plan_windows(partitions, watermarks, query.order, limit, searching, page),
         search: query.search.trim().to_ascii_lowercase(),
         limit,
         order: query.order,
-        has_more: plan_has_more(&partitions, watermarks, limit, page),
+        has_more: plan_has_more(partitions, watermarks, limit, page),
     }
 }
 
@@ -327,19 +319,23 @@ pub fn assemble_group(group: &GroupSnapshot, ends: &HashMap<(String, i32), i64>)
         );
     }
 
-    for (topic, partition) in group.assigned_partitions() {
-        seen.entry((topic.clone(), partition)).or_insert_with(|| {
-            let end = ends.get(&(topic.clone(), partition)).copied().unwrap_or(0);
-            GroupOffset {
-                topic: topic.clone(),
-                partition,
-                current_offset: 0,
-                end_offset: end,
-                lag: end,
-                member_id: member_for_partition(&group.members, &topic, partition)
-                    .map(ToOwned::to_owned),
-            }
-        });
+    for (topic, partition) in group.assigned_partition_refs() {
+        seen.entry((topic.to_owned(), partition))
+            .or_insert_with(|| {
+                let end = ends
+                    .get(&(topic.to_owned(), partition))
+                    .copied()
+                    .unwrap_or(0);
+                GroupOffset {
+                    topic: topic.to_owned(),
+                    partition,
+                    current_offset: 0,
+                    end_offset: end,
+                    lag: end,
+                    member_id: member_for_partition(&group.members, topic, partition)
+                        .map(ToOwned::to_owned),
+                }
+            });
     }
 
     let mut offsets: Vec<GroupOffset> = seen.into_values().collect();
@@ -356,10 +352,20 @@ pub fn assemble_group(group: &GroupSnapshot, ends: &HashMap<(String, i32), i64>)
         protocol: group.protocol.clone(),
         coordinator: group.coordinator,
         members: group.members.clone(),
-        topics: group.topics(),
+        topics: unique_offset_topics(&offsets),
         lag,
         offsets,
     }
+}
+
+fn unique_offset_topics(offsets: &[GroupOffset]) -> Vec<String> {
+    let mut topics = Vec::new();
+    for offset in offsets {
+        if topics.last() != Some(&offset.topic) {
+            topics.push(offset.topic.clone());
+        }
+    }
+    topics
 }
 
 pub fn search_catalog(
@@ -624,6 +630,59 @@ mod tests {
     }
 
     #[test]
+    fn groups_for_topic_does_not_need_a_materialized_topic_list() {
+        let assigned = GroupSnapshot {
+            id: "assigned".into(),
+            state: GroupState::Stable,
+            protocol: "range".into(),
+            coordinator: 1,
+            members: vec![GroupMember {
+                id: "m1".into(),
+                client_id: "c1".into(),
+                host: "127.0.0.1".into(),
+                assignments: vec![MemberAssignment {
+                    topic: "orders".into(),
+                    partitions: vec![0],
+                }],
+            }],
+            committed: Vec::new(),
+        };
+        let committed = GroupSnapshot {
+            id: "committed".into(),
+            state: GroupState::Stable,
+            protocol: "range".into(),
+            coordinator: 1,
+            members: Vec::new(),
+            committed: vec![crate::kafka::model::CommittedOffset {
+                topic: "orders".into(),
+                partition: 0,
+                offset: 1,
+            }],
+        };
+        let other = GroupSnapshot {
+            id: "other".into(),
+            state: GroupState::Empty,
+            protocol: String::new(),
+            coordinator: 1,
+            members: vec![GroupMember {
+                id: "m2".into(),
+                client_id: "c2".into(),
+                host: "127.0.0.1".into(),
+                assignments: vec![MemberAssignment {
+                    topic: "payments".into(),
+                    partitions: vec![0],
+                }],
+            }],
+            committed: Vec::new(),
+        };
+
+        assert_eq!(
+            groups_for_topic("orders", &[assigned, committed, other]),
+            vec!["assigned", "committed"]
+        );
+    }
+
+    #[test]
     fn assemble_group_computes_lag_from_end_offsets() {
         let group = GroupSnapshot {
             id: "g".into(),
@@ -651,5 +710,6 @@ mod tests {
         let view = assemble_group(&group, &ends);
         assert_eq!(view.lag, 6);
         assert_eq!(view.offsets[0].member_id.as_deref(), Some("m1"));
+        assert_eq!(view.topics, vec!["orders"]);
     }
 }
