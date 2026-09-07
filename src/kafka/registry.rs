@@ -74,6 +74,7 @@ mod tests {
             name: name.to_owned(),
             bootstrap_servers: vec!["localhost:9092".to_owned()],
             security: None,
+            schema_registry: None,
             properties: HashMap::new(),
         }
     }

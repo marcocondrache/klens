@@ -66,20 +66,21 @@ export function CommandPalette({
   const topics = results.filter((result) => result.kind === "TOPIC")
   const groups = results.filter((result) => result.kind === "GROUP")
   const nodes = results.filter((result) => result.kind === "NODE")
+  const subjects = results.filter((result) => result.kind === "SUBJECT")
 
   return (
     <CommandDialog
       open={open}
       onOpenChange={changeOpen}
       title="Search klens"
-      description="Jump to a topic, consumer group, broker or section"
+      description="Jump to a topic, consumer group, broker, schema or section"
       className="sm:max-w-xl"
     >
       <Command shouldFilter={false}>
         <CommandInput
           value={term}
           onValueChange={setTerm}
-          placeholder="Search topics, groups and brokers…"
+          placeholder="Search topics, groups, brokers and schemas…"
         />
         <CommandList className="max-h-[min(24rem,50vh)]">
           {term && !isFetching && results.length === 0 ? (
@@ -139,6 +140,25 @@ export function CommandPalette({
                   <HardDriveIcon className="text-muted-foreground" />
                   <span className="min-w-0 flex-1 truncate">{result.label}</span>
                   <CommandShortcut className="shrink-0 font-mono tracking-normal">{result.detail}</CommandShortcut>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          ) : null}
+
+          {subjects.length ? (
+            <CommandGroup heading="Schemas">
+              {subjects.map((result) => (
+                <CommandItem
+                  key={result.href}
+                  value={result.href}
+                  onSelect={() => run(() => navigate(result.href))}
+                  className="min-w-0"
+                >
+                  <FileJsonIcon className="text-muted-foreground" />
+                  <span className="min-w-0 flex-1 truncate font-mono text-[0.8rem]" title={result.label}>
+                    {result.label}
+                  </span>
+                  <CommandShortcut className="shrink-0 tracking-normal">{result.detail}</CommandShortcut>
                 </CommandItem>
               ))}
             </CommandGroup>

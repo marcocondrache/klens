@@ -29,7 +29,7 @@ export function SchemasPage() {
   const [selected, setSelected] = useState<SchemaSubject | null>(null)
 
   const term = params.get("q") ?? ""
-  const { data: subjects = [], isPending } = useSchemaSubjects(cluster)
+  const { data: subjects = [], isPending, isError, error } = useSchemaSubjects(cluster)
 
   const rows = useMemo(() => {
     const needle = term.trim().toLowerCase()
@@ -117,6 +117,7 @@ export function SchemasPage() {
         rows={rows}
         rowKey={(subject) => subject.subject}
         loading={isPending}
+        error={isError ? (error instanceof Error ? error.message : "Failed to load schemas.") : undefined}
         defaultSort={{ id: "subject", direction: "asc" }}
         onRowClick={setSelected}
       />

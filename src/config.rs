@@ -174,24 +174,23 @@ impl OidcConfig {
     }
 }
 
-fn validate_http_url(field: &str, value: &str) -> Result<(), ConfigError> {
-    let parsed = url::Url::parse(value).map_err(|error| {
-        ConfigError::invalid_auth(format!("oidc {field} is not a valid URL: {error}"))
-    })?;
+fn parse_http_url(field: &str, value: &str) -> Result<(), String> {
+    let parsed =
+        url::Url::parse(value).map_err(|error| format!("{field} is not a valid URL: {error}"))?;
 
     if parsed.scheme() != "http" && parsed.scheme() != "https" {
-        return Err(ConfigError::invalid_auth(format!(
-            "oidc {field} must be an http or https URL"
-        )));
+        return Err(format!("{field} must be an http or https URL"));
     }
 
     if parsed.host_str().is_none() {
-        return Err(ConfigError::invalid_auth(format!(
-            "oidc {field} must include a host"
-        )));
+        return Err(format!("{field} must include a host"));
     }
 
     Ok(())
+}
+
+fn validate_http_url(field: &str, value: &str) -> Result<(), ConfigError> {
+    parse_http_url(&format!("oidc {field}"), value).map_err(ConfigError::invalid_auth)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -202,7 +201,51 @@ pub struct ClusterConfig {
     #[serde(default)]
     pub security: Option<SecurityConfig>,
     #[serde(default)]
+    pub schema_registry: Option<SchemaRegistryConfig>,
+    #[serde(default)]
     pub properties: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SchemaRegistryConfig {
+    pub url: String,
+    #[serde(default)]
+    pub username: Option<String>,
+    #[serde(default)]
+    pub password: Option<String>,
+}
+
+impl SchemaRegistryConfig {
+    fn validate(&self, cluster: &str) -> Result<(), ConfigError> {
+        let fail = |reason: &str| Err(ConfigError::invalid_cluster(cluster, reason));
+
+        parse_http_url("schema_registry.url", &self.url)
+            .map_err(|reason| ConfigError::invalid_cluster(cluster, reason))?;
+
+        let has_user = self
+            .username
+            .as_ref()
+            .is_some_and(|username| !username.trim().is_empty());
+        let has_pass = self
+            .password
+            .as_ref()
+            .is_some_and(|password| !password.is_empty());
+
+        if has_user != has_pass {
+            return fail("schema_registry username and password must be set together");
+        }
+
+        if self
+            .username
+            .as_ref()
+            .is_some_and(|username| username.trim().is_empty())
+        {
+            return fail("schema_registry username must not be empty");
+        }
+
+        Ok(())
+    }
 }
 
 impl ClusterConfig {
@@ -232,6 +275,10 @@ impl ClusterConfig {
             {
                 return fail("client_cert and client_key must be set together");
             }
+        }
+
+        if let Some(schema_registry) = &self.schema_registry {
+            schema_registry.validate(&self.name)?;
         }
 
         Ok(())
@@ -401,6 +448,7 @@ mod tests {
         assert_eq!(config.name, "local");
         assert_eq!(config.bootstrap_servers, vec!["localhost:9092"]);
         assert_eq!(config.security, None);
+        assert_eq!(config.schema_registry, None);
         assert!(config.properties.is_empty());
     }
 
@@ -525,6 +573,7 @@ mod tests {
             name: "local".to_owned(),
             bootstrap_servers: vec!["localhost:9092".to_owned()],
             security: None,
+            schema_registry: None,
             properties: HashMap::new(),
         };
 
@@ -730,5 +779,66 @@ mod tests {
 
         let error = config.validate().unwrap_err();
         assert!(error.to_string().contains("redirect_uri"));
+    }
+
+    #[test]
+    fn parses_schema_registry_settings() {
+        let config = parse_cluster(
+            "
+            name: local
+            bootstrap_servers:
+              - localhost:9092
+            schema_registry:
+              url: http://localhost:8081
+              username: user
+              password: secret
+            ",
+        )
+        .unwrap();
+
+        let registry = config.schema_registry.as_ref().unwrap();
+        assert_eq!(registry.url, "http://localhost:8081");
+        assert_eq!(registry.username.as_deref(), Some("user"));
+        assert_eq!(registry.password.as_deref(), Some("secret"));
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn rejects_invalid_schema_registry_url() {
+        let config = parse_cluster(
+            "
+            name: local
+            bootstrap_servers:
+              - localhost:9092
+            schema_registry:
+              url: not-a-url
+            ",
+        )
+        .unwrap();
+
+        let error = config.validate().unwrap_err();
+        assert!(error.to_string().contains("schema_registry.url"));
+    }
+
+    #[test]
+    fn rejects_mismatched_schema_registry_auth() {
+        let config = parse_cluster(
+            "
+            name: local
+            bootstrap_servers:
+              - localhost:9092
+            schema_registry:
+              url: http://localhost:8081
+              username: user
+            ",
+        )
+        .unwrap();
+
+        let error = config.validate().unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("username and password must be set together")
+        );
     }
 }
