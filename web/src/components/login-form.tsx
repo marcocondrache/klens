@@ -16,7 +16,6 @@ import {
   FieldLabel,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { DEFAULT_CLUSTER } from "@/lib/clusters"
 import { cn } from "@/lib/utils"
 
 export function LoginForm({ className, ...props }: React.ComponentProps<"div">) {
@@ -34,7 +33,7 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
     setErrors(next)
     if (Object.keys(next).length > 0) return
 
-    navigate(`/cluster/${DEFAULT_CLUSTER}/topics`)
+    navigate("/")
   }
 
   return (

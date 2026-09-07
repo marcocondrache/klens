@@ -13,13 +13,13 @@ dir = "web"
 run = "bun install"
 
 [tasks."web:codegen"]
-description = "Generate TypeScript types from schema.graphql"
+description = "Generate TypeScript GraphQL documents from schema.graphql and graphql() operations"
 dir = "web"
 depends = ["schema", "web:install"]
 run = "bun run codegen"
 
 [tasks."web:dev"]
-description = "Run the Vite dev server (proxies /api and /health to :8080)"
+description = "Run the Vite dev server (proxies /graphql, /api and /health to :8080)"
 dir = "web"
 depends = ["web:install"]
 run = "bun run dev"
