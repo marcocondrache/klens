@@ -154,6 +154,28 @@ impl FakeCluster {
         cluster.identity.name = name.to_owned();
         Arc::new(cluster)
     }
+
+    pub fn extra_topic(self: &Arc<Self>, name: &str, partitions: i32, high: i64) -> Arc<Self> {
+        let mut cluster = (**self).clone();
+        cluster.metadata.topics.push(TopicMetadata {
+            name: name.to_owned(),
+            internal: false,
+            partitions: (0..partitions)
+                .map(|id| PartitionMetadata {
+                    id,
+                    leader: 1,
+                    replicas: vec![1],
+                    isr: vec![1],
+                })
+                .collect(),
+        });
+        for id in 0..partitions {
+            cluster
+                .watermarks
+                .insert((name.to_owned(), id), Watermarks { low: 0, high });
+        }
+        Arc::new(cluster)
+    }
 }
 
 #[async_trait]
