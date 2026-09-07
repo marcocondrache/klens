@@ -34,43 +34,44 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+          fetch-tags: true
           persist-credentials: true
           ref: ${{ github.event.workflow_run.head_sha }}
           token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22.22.2
+      - name: Setup bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - name: Bootstrap or release
         id: release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -B main
-          git fetch --tags --force origin
 
           if [[ -z "$(git tag -l 'v*')" ]]; then
-            git tag -a v0.1.0 -m "v0.1.0"
-            git push origin v0.1.0
-            gh release create v0.1.0 --title "v0.1.0" --notes "Initial release."
+            gh release create v0.1.0 \
+              --target "${{ github.event.workflow_run.head_sha }}" \
+              --title "v0.1.0" \
+              --notes "Initial release."
             echo "new_release_published=true" >> "$GITHUB_OUTPUT"
             echo "new_release_version=0.1.0" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           PREFIX="${RUNNER_TEMP}/semantic-release"
-          npm install --prefix "$PREFIX" \
+          mkdir -p "$PREFIX"
+          bun add --cwd "$PREFIX" \
             semantic-release@25.0.9 \
             @semantic-release/exec@7.1.0 \
             @semantic-release/git@11.0.1 \
             @semantic-release/github@12.0.9 \
             conventional-changelog-conventionalcommits@10.4.0
-          export PATH="$PREFIX/node_modules/.bin:$PATH"
           export NODE_PATH="$PREFIX/node_modules${NODE_PATH:+:$NODE_PATH}"
-          semantic-release
+          bun "$PREFIX/node_modules/semantic-release/bin/semantic-release.js"
 
   publish-image:
     name: publish
