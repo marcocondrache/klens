@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query"
+import { useEffect } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { execute } from "@/graphql/execute"
 import { clusterPath } from "@/lib/clusters"
@@ -18,10 +19,12 @@ import {
   searchQuery,
   topicConfigsQuery,
   topicQuery,
+  topicRatesSubscription,
   topicsQuery,
   topicThroughputQuery,
 } from "./documents"
-import type { RecordQuery, SearchResult } from "./types"
+import { subscribe } from "./subscribe"
+import type { RecordQuery, SearchResult, ThroughputPoint, Topic, TopicRate } from "./types"
 
 export const keys = {
   clusters: () => ["clusters"] as const,
@@ -228,4 +231,69 @@ export function useSearch(cluster: string, term: string) {
     },
     enabled: term.trim().length > 0,
   })
+}
+
+const RATE_HISTORY = 60
+
+export function useTopicRates(cluster: string) {
+  const queryClient = useQueryClient()
+
+  useEffect(() => {
+    if (!cluster) {
+      return
+    }
+
+    return subscribe(topicRatesSubscription, { cluster }, (data) => {
+      const rates = new Map(data.topicRates.map((rate) => [rate.name, rate]))
+      const timestamp = Date.now()
+
+      queryClient.setQueryData(keys.topics(cluster), (topics: Topic[] | undefined) =>
+        topics?.map((topic) => withRate(topic, rates.get(topic.name))),
+      )
+
+      for (const rate of data.topicRates) {
+        queryClient.setQueryData(keys.topic(cluster, rate.name), (topic: Topic | undefined) =>
+          topic ? withRate(topic, rate) : topic,
+        )
+        queryClient.setQueryData(
+          keys.topicThroughput(cluster, rate.name),
+          (points: ThroughputPoint[] | undefined) =>
+            appendThroughput(points, timestamp, rate.messagesPerSec),
+        )
+      }
+
+      queryClient.setQueryData(
+        keys.throughput(cluster),
+        (points: ThroughputPoint[] | undefined) =>
+          appendThroughput(
+            points,
+            timestamp,
+            data.topicRates.reduce((total, rate) => total + rate.messagesPerSec, 0),
+          ),
+      )
+    })
+  }, [cluster, queryClient])
+}
+
+function withRate(topic: Topic, rate: TopicRate | undefined): Topic {
+  if (!rate) {
+    return topic
+  }
+
+  return {
+    ...topic,
+    messagesPerSec: rate.messagesPerSec,
+    bytesInPerSec: rate.bytesInPerSec,
+  }
+}
+
+function appendThroughput(
+  points: ThroughputPoint[] | undefined,
+  timestamp: number,
+  messages: number,
+): ThroughputPoint[] {
+  return [
+    ...(points ?? []),
+    { timestamp, bytesIn: 0, bytesOut: 0, messages },
+  ].slice(-RATE_HISTORY)
 }

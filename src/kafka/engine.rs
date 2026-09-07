@@ -339,6 +339,47 @@ impl QueryEngine {
         ends
     }
 
+    pub async fn topic_message_counts(
+        &self,
+        cluster: &str,
+    ) -> Result<HashMap<String, u64>, KafkaError> {
+        let session = self.session(cluster)?;
+        let meta = session.metadata().await?;
+        let mut join = JoinSet::new();
+
+        for topic in meta.topics {
+            let session = Arc::clone(session);
+            join.spawn(async move {
+                let partitions: Vec<i32> = topic
+                    .partitions
+                    .iter()
+                    .map(|partition| partition.id)
+                    .collect();
+                let watermarks = session
+                    .watermarks(&topic.name, &partitions)
+                    .await
+                    .unwrap_or_default();
+                let messages = watermarks
+                    .values()
+                    .map(|marks| marks.high.max(0) as u64)
+                    .sum::<u64>();
+                (topic.name, messages)
+            });
+        }
+
+        let mut counts = HashMap::with_capacity(join.len());
+        while let Some(result) = join.join_next().await {
+            match result {
+                Ok((name, messages)) => {
+                    counts.insert(name, messages);
+                }
+                Err(error) => tracing::warn!(%error, "topic watermark task failed"),
+            }
+        }
+
+        Ok(counts)
+    }
+
     pub async fn records(&self, query: RecordQuery) -> Result<RecordPage, KafkaError> {
         let session = self.session(&query.cluster)?;
         let meta = session.metadata().await?;
@@ -503,6 +544,13 @@ mod tests {
 
         engine.consumer_groups("local").await.unwrap();
         assert_eq!(probe.committed.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn topic_message_counts_sum_high_watermarks() {
+        let engine = QueryEngine::from_sessions(vec![FakeCluster::local()]);
+        let counts = engine.topic_message_counts("local").await.unwrap();
+        assert_eq!(counts.get("orders.created"), Some(&16));
     }
 
     #[tokio::test(start_paused = true)]

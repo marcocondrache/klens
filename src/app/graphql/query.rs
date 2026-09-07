@@ -57,12 +57,13 @@ impl Query {
     }
 
     async fn topics(context: &AppState, cluster: String) -> FieldResult<Vec<Topic>> {
-        Ok(context
-            .query
-            .topics(&cluster)
-            .await?
+        let topics = context.query.topics(&cluster).await?;
+        Ok(topics
             .into_iter()
-            .map(Topic::from)
+            .map(|topic| {
+                let rate = context.rates.topic_rate(&cluster, &topic.name);
+                Topic::from_domain(topic, rate.as_ref())
+            })
             .collect())
     }
 
@@ -72,7 +73,10 @@ impl Query {
         name: String,
     ) -> FieldResult<Option<Topic>> {
         match context.query.topic(&cluster, &name).await {
-            Ok(topic) => Ok(Some(Topic::from(topic))),
+            Ok(topic) => {
+                let rate = context.rates.topic_rate(&cluster, &topic.name);
+                Ok(Some(Topic::from_domain(topic, rate.as_ref())))
+            }
             Err(crate::kafka::KafkaError::UnknownTopic { .. }) => Ok(None),
             Err(error) => Err(error.into()),
         }
@@ -117,14 +121,26 @@ impl Query {
         }
     }
 
-    async fn cluster_throughput(cluster: String) -> Vec<ThroughputPoint> {
-        let _ = cluster;
-        Vec::new()
+    async fn cluster_throughput(context: &AppState, cluster: String) -> Vec<ThroughputPoint> {
+        context
+            .rates
+            .cluster_history(&cluster)
+            .into_iter()
+            .map(ThroughputPoint::from)
+            .collect()
     }
 
-    async fn topic_throughput(cluster: String, topic: String) -> Vec<ThroughputPoint> {
-        let _ = (cluster, topic);
-        Vec::new()
+    async fn topic_throughput(
+        context: &AppState,
+        cluster: String,
+        topic: String,
+    ) -> Vec<ThroughputPoint> {
+        context
+            .rates
+            .topic_history(&cluster, &topic)
+            .into_iter()
+            .map(ThroughputPoint::from)
+            .collect()
     }
 
     async fn schema_subjects(cluster: String) -> Vec<SchemaSubject> {

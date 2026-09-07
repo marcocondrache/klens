@@ -1,5 +1,6 @@
 schema {
   query: Query
+  subscription: Subscription
 }
 
 enum AclPatternType {
@@ -236,6 +237,10 @@ type SearchResult {
   detail: String!
 }
 
+type Subscription {
+  topicRates(cluster: String!): [TopicRate!]!
+}
+
 type ThroughputPoint {
   timestamp: Float!
   bytesIn: Float!
@@ -256,6 +261,12 @@ type Topic {
   bytesInPerSec: Float!
   messagesPerSec: Float!
   underReplicated: Boolean!
+}
+
+type TopicRate {
+  name: String!
+  messagesPerSec: Float!
+  bytesInPerSec: Float!
 }
 
 type TopicRecord {

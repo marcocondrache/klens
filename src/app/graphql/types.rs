@@ -149,6 +149,20 @@ pub(super) struct Topic {
     pub under_replicated: bool,
 }
 
+impl Topic {
+    pub(super) fn from_domain(
+        topic: domain::Topic,
+        rate: Option<&crate::kafka::TopicRate>,
+    ) -> Self {
+        let mut graph = Self::from(topic);
+        if let Some(rate) = rate {
+            graph.bytes_in_per_sec = rate.bytes_in_per_sec;
+            graph.messages_per_sec = rate.messages_per_sec;
+        }
+        graph
+    }
+}
+
 impl From<domain::Topic> for Topic {
     fn from(topic: domain::Topic) -> Self {
         Self {
@@ -474,6 +488,34 @@ pub(super) struct ThroughputPoint {
     pub bytes_in: f64,
     pub bytes_out: f64,
     pub messages: f64,
+}
+
+impl From<crate::kafka::ThroughputPoint> for ThroughputPoint {
+    fn from(point: crate::kafka::ThroughputPoint) -> Self {
+        Self {
+            timestamp: point.timestamp,
+            bytes_in: point.bytes_in,
+            bytes_out: point.bytes_out,
+            messages: point.messages,
+        }
+    }
+}
+
+#[derive(GraphQLObject, Clone)]
+pub(super) struct TopicRate {
+    pub name: String,
+    pub messages_per_sec: f64,
+    pub bytes_in_per_sec: f64,
+}
+
+impl From<crate::kafka::TopicRate> for TopicRate {
+    fn from(rate: crate::kafka::TopicRate) -> Self {
+        Self {
+            name: rate.name,
+            messages_per_sec: rate.messages_per_sec,
+            bytes_in_per_sec: rate.bytes_in_per_sec,
+        }
+    }
 }
 
 #[derive(GraphQLEnum, Clone, Copy)]

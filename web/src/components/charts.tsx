@@ -96,7 +96,7 @@ export function ThroughputChart({
 }
 
 const SPARK_CONFIG = {
-  bytesIn: { label: "Bytes in", color: "var(--brand)" },
+  messages: { label: "Messages", color: "var(--brand)" },
 } satisfies ChartConfig
 
 export function Sparkline({ data, className }: { data: ThroughputPoint[]; className?: string }) {
@@ -105,14 +105,14 @@ export function Sparkline({ data, className }: { data: ThroughputPoint[]; classN
       <AreaChart data={data} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
         <defs>
           <linearGradient id="spark-fill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--color-bytesIn)" stopOpacity={0.32} />
-            <stop offset="100%" stopColor="var(--color-bytesIn)" stopOpacity={0} />
+            <stop offset="0%" stopColor="var(--color-messages)" stopOpacity={0.32} />
+            <stop offset="100%" stopColor="var(--color-messages)" stopOpacity={0} />
           </linearGradient>
         </defs>
         <Area
-          dataKey="bytesIn"
+          dataKey="messages"
           type="monotone"
-          stroke="var(--color-bytesIn)"
+          stroke="var(--color-messages)"
           strokeWidth={1.5}
           fill="url(#spark-fill)"
           dot={false}
