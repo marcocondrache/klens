@@ -4,11 +4,12 @@ use std::sync::Arc;
 use crate::config::Config;
 use crate::kafka::catalog::{
     assemble_brokers, assemble_group, assemble_overview, assemble_topic, clamp_record_limit,
-    groups_for_topic, plan_records, search_catalog, should_fetch_list_watermarks,
+    clamp_record_page, groups_for_topic, plan_records, search_catalog,
+    should_fetch_list_watermarks,
 };
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
-    Broker, ClusterOverview, ConfigEntry, ConsumerGroup, Record, RecordQuery, SearchHit, Topic,
+    Broker, ClusterOverview, ConfigEntry, ConsumerGroup, RecordPage, RecordQuery, SearchHit, Topic,
     Watermarks,
 };
 use crate::kafka::registry::ClusterRegistry;
@@ -272,7 +273,7 @@ impl QueryEngine {
         ends
     }
 
-    pub async fn records(&self, query: RecordQuery) -> Result<Vec<Record>, KafkaError> {
+    pub async fn records(&self, query: RecordQuery) -> Result<RecordPage, KafkaError> {
         let session = self.session(&query.cluster)?;
         let meta = session.metadata().await?;
         let topic = meta
@@ -293,6 +294,7 @@ impl QueryEngine {
         }
 
         let limit = clamp_record_limit(query.limit).map_err(KafkaError::InvalidQuery)?;
+        let page = clamp_record_page(query.page).map_err(KafkaError::InvalidQuery)?;
         let partitions: Vec<i32> = match query.partition {
             Some(id) => vec![id],
             None => topic
@@ -302,8 +304,12 @@ impl QueryEngine {
                 .collect(),
         };
         let watermarks = session.watermarks(&query.topic, &partitions).await?;
-        let plan = plan_records(&query, topic, &watermarks, limit);
-        session.records(&plan).await
+        let plan = plan_records(&query, topic, &watermarks, limit, page);
+        let records = session.records(&plan).await?;
+        Ok(RecordPage {
+            records,
+            has_more: plan.has_more,
+        })
     }
 
     pub async fn search(&self, cluster: &str, term: &str) -> Result<Vec<SearchHit>, KafkaError> {

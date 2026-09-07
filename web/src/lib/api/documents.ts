@@ -305,7 +305,10 @@ export const aclsQuery = graphql(`
 export const recordsQuery = graphql(`
   query Records($query: RecordQuery!) {
     records(query: $query) {
-      ...TopicRecordFields
+      records {
+        ...TopicRecordFields
+      }
+      hasMore
     }
   }
 `)
