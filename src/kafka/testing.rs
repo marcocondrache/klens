@@ -16,7 +16,7 @@ use crate::kafka::session::ClusterSession;
 pub struct FakeCluster {
     identity: ClusterIdentity,
     metadata: MetadataSnapshot,
-    watermarks: HashMap<(String, i32), Watermarks>,
+    watermarks: HashMap<String, HashMap<i32, Watermarks>>,
     topic_configs: HashMap<String, Vec<ConfigEntry>>,
     broker_configs: HashMap<i32, Vec<ConfigEntry>>,
     groups: Vec<GroupSnapshot>,
@@ -58,9 +58,13 @@ impl FakeCluster {
             }],
         };
 
-        let mut watermarks = HashMap::new();
-        watermarks.insert(("orders.created".into(), 0), Watermarks { low: 0, high: 8 });
-        watermarks.insert(("orders.created".into(), 1), Watermarks { low: 0, high: 8 });
+        let watermarks = HashMap::from([(
+            "orders.created".into(),
+            HashMap::from([
+                (0, Watermarks { low: 0, high: 8 }),
+                (1, Watermarks { low: 0, high: 8 }),
+            ]),
+        )]);
 
         let topic_configs = HashMap::from([(
             "orders.created".into(),
@@ -169,11 +173,12 @@ impl FakeCluster {
                 })
                 .collect(),
         });
-        for id in 0..partitions {
-            cluster
-                .watermarks
-                .insert((name.to_owned(), id), Watermarks { low: 0, high });
-        }
+        cluster.watermarks.insert(
+            name.to_owned(),
+            (0..partitions)
+                .map(|id| (id, Watermarks { low: 0, high }))
+                .collect(),
+        );
         Arc::new(cluster)
     }
 }
@@ -197,8 +202,8 @@ impl ClusterSession for FakeCluster {
             .iter()
             .filter_map(|partition| {
                 self.watermarks
-                    .get(&(topic.to_owned(), *partition))
-                    .copied()
+                    .get(topic)
+                    .and_then(|marks| marks.get(partition).copied())
                     .map(|marks| (*partition, marks))
             })
             .collect())
@@ -206,15 +211,15 @@ impl ClusterSession for FakeCluster {
 
     async fn topic_configs(
         &self,
-        topics: &[String],
+        topics: &[&str],
     ) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError> {
         Ok(topics
             .iter()
             .filter_map(|topic| {
                 self.topic_configs
-                    .get(topic)
+                    .get(*topic)
                     .cloned()
-                    .map(|entries| (topic.clone(), entries))
+                    .map(|entries| ((*topic).to_owned(), entries))
             })
             .collect())
     }

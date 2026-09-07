@@ -138,14 +138,15 @@ impl ClusterSession for ClusterHandle {
 
     async fn topic_configs(
         &self,
-        topics: &[String],
+        topics: &[&str],
     ) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError> {
         let mut out = HashMap::new();
 
         for chunk in topics.chunks(*CONFIG_BATCH) {
             let specs: Vec<ResourceSpecifier<'_>> = chunk
                 .iter()
-                .map(|topic| ResourceSpecifier::Topic(topic))
+                .copied()
+                .map(ResourceSpecifier::Topic)
                 .collect();
             let results = self
                 .admin
