@@ -55,12 +55,12 @@ impl ClusterRegistry {
             .collect()
     }
 
-    pub fn names(&self) -> Vec<String> {
-        self.order.clone()
+    pub fn names(&self) -> &[String] {
+        &self.order
     }
 
-    pub(crate) fn into_sessions(self) -> HashMap<String, Arc<ClusterHandle>> {
-        self.clusters
+    pub(crate) fn into_parts(self) -> (HashMap<String, Arc<ClusterHandle>>, Vec<String>) {
+        (self.clusters, self.order)
     }
 }
 
