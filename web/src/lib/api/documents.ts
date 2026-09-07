@@ -134,6 +134,14 @@ export const ThroughputPointFields = graphql(`
   }
 `)
 
+export const TopicRateFields = graphql(`
+  fragment TopicRateFields on TopicRate {
+    name
+    messagesPerSec
+    bytesInPerSec
+  }
+`)
+
 export const SchemaSubjectFields = graphql(`
   fragment SchemaSubjectFields on SchemaSubject {
     subject
@@ -317,6 +325,14 @@ export const searchQuery = graphql(`
   query Search($cluster: String!, $term: String!) {
     search(cluster: $cluster, term: $term) {
       ...SearchResultFields
+    }
+  }
+`)
+
+export const topicRatesSubscription = graphql(`
+  subscription TopicRates($cluster: String!) {
+    topicRates(cluster: $cluster) {
+      ...TopicRateFields
     }
   }
 `)

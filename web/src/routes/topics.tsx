@@ -24,10 +24,10 @@ import { clusterPath, useClusterName } from "@/lib/clusters"
 import {
   formatBytes,
   formatCleanupPolicy,
-  formatCount,
   formatDuration,
   formatNumber,
   formatRate,
+  formatThroughput,
   isCompactCleanup,
 } from "@/lib/format"
 import type { Topic } from "@/lib/api/types"
@@ -115,7 +115,7 @@ export function TopicsPage() {
       header: "Msg/s",
       align: "right",
       sortValue: (topic) => topic.messagesPerSec,
-      cell: (topic) => formatCount(topic.messagesPerSec),
+      cell: (topic) => formatThroughput(topic.messagesPerSec),
     },
     {
       id: "in",

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::kafka::QueryEngine;
+use crate::kafka::{QueryEngine, RateStore};
 use axum::Router;
 use axum::middleware;
 
@@ -13,6 +13,7 @@ pub use auth::AuthState;
 #[derive(Clone)]
 pub struct AppState {
     pub(crate) query: Arc<QueryEngine>,
+    pub(crate) rates: RateStore,
     pub(crate) auth: AuthState,
 }
 
@@ -20,12 +21,17 @@ impl AppState {
     pub fn new(query: Arc<QueryEngine>) -> Self {
         Self {
             query,
+            rates: RateStore::new(),
             auth: AuthState::disabled(),
         }
     }
 
     pub fn with_auth(query: Arc<QueryEngine>, auth: AuthState) -> Self {
-        Self { query, auth }
+        Self {
+            query,
+            rates: RateStore::new(),
+            auth,
+        }
     }
 }
 

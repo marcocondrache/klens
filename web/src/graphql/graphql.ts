@@ -105,6 +105,8 @@ export type ConsumerGroupFieldsFragment = { id: string, state: ConsumerGroupStat
 
 export type ThroughputPointFieldsFragment = { timestamp: number, bytesIn: number, bytesOut: number, messages: number };
 
+export type TopicRateFieldsFragment = { name: string, messagesPerSec: number, bytesInPerSec: number };
+
 export type SchemaSubjectFieldsFragment = { subject: string, id: number, type: SchemaType, latestVersion: number, versions: Array<number>, compatibility: SchemaCompatibility, schema: string };
 
 export type AclFieldsFragment = { principal: string, resourceType: AclResourceType, resourceName: string, patternType: AclPatternType, operation: string, permission: AclPermission, host: string };
@@ -231,6 +233,13 @@ export type SearchQueryVariables = Exact<{
 
 
 export type SearchQuery = { search: Array<{ kind: SearchResultKind, id: string, label: string, detail: string }> };
+
+export type TopicRatesSubscriptionVariables = Exact<{
+  cluster: string;
+}>;
+
+
+export type TopicRatesSubscription = { topicRates: Array<{ name: string, messagesPerSec: number, bytesInPerSec: number }> };
 
 export class TypedDocumentString<TResult, TVariables>
   extends String
@@ -404,6 +413,13 @@ export const ThroughputPointFieldsFragmentDoc = new TypedDocumentString(`
   messages
 }
     `, {"fragmentName":"ThroughputPointFields"}) as unknown as TypedDocumentString<ThroughputPointFieldsFragment, unknown>;
+export const TopicRateFieldsFragmentDoc = new TypedDocumentString(`
+    fragment TopicRateFields on TopicRate {
+  name
+  messagesPerSec
+  bytesInPerSec
+}
+    `, {"fragmentName":"TopicRateFields"}) as unknown as TypedDocumentString<TopicRateFieldsFragment, unknown>;
 export const SchemaSubjectFieldsFragmentDoc = new TypedDocumentString(`
     fragment SchemaSubjectFields on SchemaSubject {
   subject
@@ -806,3 +822,14 @@ export const SearchDocument = new TypedDocumentString(`
   label
   detail
 }`) as unknown as TypedDocumentString<SearchQuery, SearchQueryVariables>;
+export const TopicRatesDocument = new TypedDocumentString(`
+    subscription TopicRates($cluster: String!) {
+  topicRates(cluster: $cluster) {
+    ...TopicRateFields
+  }
+}
+    fragment TopicRateFields on TopicRate {
+  name
+  messagesPerSec
+  bytesInPerSec
+}`) as unknown as TypedDocumentString<TopicRatesSubscription, TopicRatesSubscriptionVariables>;

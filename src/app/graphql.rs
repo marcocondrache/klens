@@ -1,30 +1,32 @@
 use std::sync::Arc;
 
+use axum::extract::WebSocketUpgrade;
+use axum::response::Response;
 use axum::{
     Router,
     extract::{Extension, State},
     routing::get,
 };
-use juniper::{EmptyMutation, EmptySubscription, RootNode};
+use juniper::{EmptyMutation, RootNode};
+use juniper_axum::subscriptions;
 use juniper_axum::{extract::JuniperRequest, response::JuniperResponse};
+use juniper_graphql_ws::ConnectionConfig;
 
 use crate::AppState;
 
 mod query;
+mod subscription;
 mod types;
 
 use query::Query;
+use subscription::Subscription;
 
 impl juniper::Context for AppState {}
 
-type Schema = RootNode<Query, EmptyMutation<AppState>, EmptySubscription<AppState>>;
+type Schema = RootNode<Query, EmptyMutation<AppState>, Subscription>;
 
 fn schema() -> Schema {
-    Schema::new(
-        Query,
-        EmptyMutation::<AppState>::new(),
-        EmptySubscription::<AppState>::new(),
-    )
+    Schema::new(Query, EmptyMutation::<AppState>::new(), Subscription)
 }
 
 pub(crate) fn schema_sdl() -> String {
@@ -33,11 +35,14 @@ pub(crate) fn schema_sdl() -> String {
 
 pub fn router() -> Router<AppState> {
     let router = Router::new()
-        .route("/graphql", get(graphql).post(graphql))
+        .route("/graphql", get(graphql_ws).post(graphql))
         .layer(Extension(Arc::new(schema())));
 
     #[cfg(debug_assertions)]
-    let router = router.route("/graphiql", get(juniper_axum::graphiql("/graphql", None)));
+    let router = router.route(
+        "/graphiql",
+        get(juniper_axum::graphiql("/graphql", "/graphql")),
+    );
 
     router
 }
@@ -48,6 +53,17 @@ async fn graphql(
     JuniperRequest(request): JuniperRequest,
 ) -> JuniperResponse {
     JuniperResponse(request.execute(&*schema, &state).await)
+}
+
+async fn graphql_ws(
+    Extension(schema): Extension<Arc<Schema>>,
+    State(state): State<AppState>,
+    ws: WebSocketUpgrade,
+) -> Response {
+    ws.protocols(["graphql-transport-ws", "graphql-ws"])
+        .on_upgrade(move |socket| {
+            subscriptions::serve_ws(socket, schema, ConnectionConfig::new(state))
+        })
 }
 
 #[cfg(test)]
@@ -288,6 +304,48 @@ mod tests {
         assert_eq!(
             serde_json::to_value(value).unwrap()["records"]["hasMore"],
             false
+        );
+    }
+
+    #[tokio::test]
+    async fn schema_includes_topic_rate_subscription() {
+        let sdl = schema().as_sdl();
+        assert!(sdl.contains("type Subscription"));
+        assert!(sdl.contains("topicRates(cluster: String!): [TopicRate!]!"));
+    }
+
+    #[tokio::test]
+    async fn topics_query_uses_stored_produce_rates() {
+        let state = state();
+        let start = tokio::time::Instant::now();
+        state.rates.observe_at(
+            "local",
+            [("orders.created".to_owned(), 10)].into_iter().collect(),
+            start,
+            1_000.0,
+        );
+        state.rates.observe_at(
+            "local",
+            [("orders.created".to_owned(), 30)].into_iter().collect(),
+            start + std::time::Duration::from_secs(2),
+            3_000.0,
+        );
+
+        let schema = schema();
+        let (value, errors) = execute(
+            r#"{ topics(cluster: "local") { name messagesPerSec } }"#,
+            None,
+            &schema,
+            &Variables::new(),
+            &state,
+        )
+        .await
+        .unwrap();
+
+        assert!(errors.is_empty());
+        assert_eq!(
+            serde_json::to_value(value).unwrap()["topics"][0],
+            serde_json::json!({ "name": "orders.created", "messagesPerSec": 10.0 })
         );
     }
 }

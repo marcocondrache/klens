@@ -7,12 +7,13 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { AppHeader } from "@/components/app-header"
 import { AppSidebar } from "@/components/app-sidebar"
 import { CommandPalette } from "@/components/command-palette"
-import { useClusters } from "@/lib/api/queries"
+import { useClusters, useTopicRates } from "@/lib/api/queries"
 import { useClusterName } from "@/lib/clusters"
 
 export function AppLayout() {
   const cluster = useClusterName()
   const { data: clusters, isPending } = useClusters()
+  useTopicRates(cluster)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const current = clusters?.find((entry) => entry.name === cluster)
 

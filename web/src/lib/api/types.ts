@@ -26,6 +26,7 @@ export type {
   SecurityProtocol,
   ThroughputPointFieldsFragment as ThroughputPoint,
   TopicFieldsFragment as Topic,
+  TopicRateFieldsFragment as TopicRate,
   TopicRecordFieldsFragment as TopicRecord,
 } from "@/graphql/graphql"
 

@@ -37,7 +37,10 @@ export default defineConfig({
       "/health": "http://localhost:8080",
       "/api": "http://localhost:8080",
       "/auth": "http://localhost:8080",
-      "/graphql": "http://localhost:8080",
+      "/graphql": {
+        target: "http://localhost:8080",
+        ws: true,
+      },
       "/graphiql": "http://localhost:8080",
     },
   },
