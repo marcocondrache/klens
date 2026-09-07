@@ -6,6 +6,7 @@ export async function execute<TResult, TVariables>(
 ) {
   const response = await fetch("/graphql", {
     method: "POST",
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       Accept: "application/graphql-response+json",
@@ -15,6 +16,13 @@ export async function execute<TResult, TVariables>(
       variables,
     }),
   })
+
+  if (response.status === 401) {
+    if (window.location.pathname !== "/login") {
+      window.location.assign("/login")
+    }
+    throw new Error("Unauthorized")
+  }
 
   const payload = (await response.json()) as {
     data?: TResult

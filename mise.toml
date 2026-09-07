@@ -19,7 +19,7 @@ depends = ["schema", "web:install"]
 run = "bun run codegen"
 
 [tasks."web:dev"]
-description = "Run the Vite dev server (proxies /graphql, /api and /health to :8080)"
+description = "Run the Vite dev server (proxies /graphql, /auth, /api and /health to :8080)"
 dir = "web"
 depends = ["web:install"]
 run = "bun run dev"
