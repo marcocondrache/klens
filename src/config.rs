@@ -239,14 +239,11 @@ impl ClusterConfig {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum SecurityProtocol {
-    #[serde(rename = "PLAINTEXT")]
     Plaintext,
-    #[serde(rename = "SSL")]
     Ssl,
-    #[serde(rename = "SASL_PLAINTEXT")]
     SaslPlaintext,
-    #[serde(rename = "SASL_SSL")]
     SaslSsl,
 }
 
@@ -262,8 +259,8 @@ impl SecurityProtocol {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum SaslMechanism {
-    #[serde(rename = "PLAIN")]
     Plain,
     #[serde(rename = "SCRAM-SHA-256")]
     ScramSha256,
