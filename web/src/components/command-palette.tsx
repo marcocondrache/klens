@@ -17,6 +17,7 @@ import {
   CommandItem,
   CommandList,
   CommandSeparator,
+  CommandShortcut,
 } from "@/components/ui/command"
 import { StatusDot } from "@/components/status"
 import { useClusters, useSearch } from "@/lib/api/queries"
@@ -72,6 +73,7 @@ export function CommandPalette({
       onOpenChange={changeOpen}
       title="Search klens"
       description="Jump to a topic, consumer group, broker or section"
+      className="sm:max-w-xl"
     >
       <Command shouldFilter={false}>
         <CommandInput
@@ -79,7 +81,7 @@ export function CommandPalette({
           onValueChange={setTerm}
           placeholder="Search topics, groups and brokers…"
         />
-        <CommandList>
+        <CommandList className="max-h-[min(24rem,50vh)]">
           {term && !isFetching && results.length === 0 ? (
             <CommandEmpty>No matches in {cluster}.</CommandEmpty>
           ) : null}
@@ -93,10 +95,13 @@ export function CommandPalette({
                     key={result.href}
                     value={result.href}
                     onSelect={() => run(() => navigate(result.href))}
+                    className="min-w-0"
                   >
                     <Icon className="text-muted-foreground" />
-                    <span className="font-mono text-[0.8rem]">{result.label}</span>
-                    <span className="ml-auto text-xs text-muted-foreground">{result.detail}</span>
+                    <span className="min-w-0 flex-1 truncate font-mono text-[0.8rem]" title={result.label}>
+                      {result.label}
+                    </span>
+                    <CommandShortcut className="shrink-0 tracking-normal">{result.detail}</CommandShortcut>
                   </CommandItem>
                 )
               })}
@@ -110,10 +115,13 @@ export function CommandPalette({
                   key={result.href}
                   value={result.href}
                   onSelect={() => run(() => navigate(result.href))}
+                  className="min-w-0"
                 >
                   <UsersRoundIcon className="text-muted-foreground" />
-                  <span className="font-mono text-[0.8rem]">{result.label}</span>
-                  <span className="ml-auto text-xs text-muted-foreground">{result.detail}</span>
+                  <span className="min-w-0 flex-1 truncate font-mono text-[0.8rem]" title={result.label}>
+                    {result.label}
+                  </span>
+                  <CommandShortcut className="shrink-0 tracking-normal">{result.detail}</CommandShortcut>
                 </CommandItem>
               ))}
             </CommandGroup>
@@ -126,12 +134,11 @@ export function CommandPalette({
                   key={result.href}
                   value={result.href}
                   onSelect={() => run(() => navigate(result.href))}
+                  className="min-w-0"
                 >
                   <HardDriveIcon className="text-muted-foreground" />
-                  <span>{result.label}</span>
-                  <span className="ml-auto font-mono text-xs text-muted-foreground">
-                    {result.detail}
-                  </span>
+                  <span className="min-w-0 flex-1 truncate">{result.label}</span>
+                  <CommandShortcut className="shrink-0 font-mono tracking-normal">{result.detail}</CommandShortcut>
                 </CommandItem>
               ))}
             </CommandGroup>
@@ -157,6 +164,7 @@ export function CommandPalette({
               <CommandItem
                 key={entry.name}
                 value={`cluster:${entry.name}`}
+                className="min-w-0"
                 onSelect={() =>
                   run(() => {
                     const section = findSection(location.pathname.split("/")[3])
@@ -169,11 +177,11 @@ export function CommandPalette({
                 }
               >
                 <ServerIcon className="text-muted-foreground" />
-                <span>{entry.label}</span>
-                <span className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+                <span className="min-w-0 flex-1 truncate">{entry.label}</span>
+                <CommandShortcut className="flex shrink-0 items-center gap-1.5 tracking-normal">
                   <StatusDot tone={STATUS_TONE[entry.status]} />
                   {entry.brokerCount} {entry.brokerCount === 1 ? "broker" : "brokers"}
-                </span>
+                </CommandShortcut>
               </CommandItem>
             ))}
           </CommandGroup>
