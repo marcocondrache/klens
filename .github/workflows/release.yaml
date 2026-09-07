@@ -1,8 +1,13 @@
 name: release
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -12,25 +17,65 @@ defaults:
     shell: bash -euxo pipefail {0}
 
 jobs:
-  github-release:
-    name: github-release
+  semantic-release:
+    name: semantic-release
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      new_release_published: ${{ steps.release.outputs.new_release_published }}
+      new_release_version: ${{ steps.release.outputs.new_release_version }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Create GitHub release
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+          ref: ${{ github.event.workflow_run.head_sha }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.22.2
+      - name: Bootstrap or release
+        id: release
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ github.ref_name }}" \
-            --title "${{ github.ref_name }}" \
-            --generate-notes
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B main
+          git fetch --tags --force origin
+
+          if [[ -z "$(git tag -l 'v*')" ]]; then
+            git tag -a v0.1.0 -m "v0.1.0"
+            git push origin v0.1.0
+            gh release create v0.1.0 --title "v0.1.0" --notes "Initial release."
+            echo "new_release_published=true" >> "$GITHUB_OUTPUT"
+            echo "new_release_version=0.1.0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          PREFIX="${RUNNER_TEMP}/semantic-release"
+          npm install --prefix "$PREFIX" \
+            semantic-release@25.0.9 \
+            @semantic-release/exec@7.1.0 \
+            @semantic-release/git@11.0.1 \
+            @semantic-release/github@12.0.9 \
+            conventional-changelog-conventionalcommits@10.4.0
+          export PATH="$PREFIX/node_modules/.bin:$PATH"
+          export NODE_PATH="$PREFIX/node_modules${NODE_PATH:+:$NODE_PATH}"
+          semantic-release
 
   publish-image:
     name: publish
+    needs: semantic-release
+    if: needs.semantic-release.outputs.new_release_published == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -39,10 +84,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Resolve version
-        id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        with:
+          ref: v${{ needs.semantic-release.outputs.new_release_version }}
       - uses: ./.github/actions/docker
         with:
-          version: ${{ steps.version.outputs.version }}
+          version: ${{ needs.semantic-release.outputs.new_release_version }}
           gh-token: ${{ secrets.GITHUB_TOKEN }}
