@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use moka::future::Cache;
 use rdkafka::admin::{
     AdminClient, AdminOptions, ConfigSource as RdConfigSource, OwnedResourceSpecifier,
     ResourceSpecifier,
@@ -16,7 +17,6 @@ use tokio::task::JoinSet;
 use crate::config::ClusterConfig;
 use crate::kafka::assignment::parse_consumer_assignment;
 use crate::kafka::browse;
-use crate::kafka::cache::MetadataCache;
 use crate::kafka::error::KafkaError;
 use crate::kafka::factory::ClientFactory;
 use crate::kafka::model::{
@@ -55,7 +55,8 @@ pub struct ClusterHandle {
     identity: ClusterIdentity,
     factory: ClientFactory,
     admin: Arc<AdminClient<DefaultClientContext>>,
-    cache: MetadataCache,
+    metadata: Cache<(), MetadataSnapshot>,
+    groups: Cache<(), Vec<GroupSnapshot>>,
     timeouts: Timeouts,
 }
 
@@ -77,7 +78,8 @@ impl ClusterHandle {
             identity,
             factory,
             admin,
-            cache: MetadataCache::new(METADATA_TTL),
+            metadata: snapshot_cache(METADATA_TTL),
+            groups: snapshot_cache(METADATA_TTL),
             timeouts: Timeouts::default(),
         })
     }
@@ -98,22 +100,13 @@ impl ClusterSession for ClusterHandle {
     }
 
     async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError> {
-        if let Some(hit) = self.cache.metadata().await {
-            return Ok(hit);
-        }
-
-        let admin = Arc::clone(&self.admin);
-        let timeout = self.timeouts.metadata;
-        let snapshot = run_blocking(timeout + timeout + BLOCKING_SLACK, move || {
-            let client = admin.inner();
-            let metadata = client.fetch_metadata(None, timeout)?;
-            let cluster_id = client.fetch_cluster_id(timeout);
-            Ok(MetadataSnapshot::from_rdkafka(&metadata, cluster_id))
-        })
-        .await?;
-
-        self.cache.store_metadata(snapshot.clone()).await;
-        Ok(snapshot)
+        self.metadata
+            .try_get_with(
+                (),
+                Self::fetch_metadata(Arc::clone(&self.admin), self.timeouts.metadata),
+            )
+            .await
+            .map_err(into_kafka_error)
     }
 
     async fn watermarks(
@@ -199,13 +192,13 @@ impl ClusterSession for ClusterHandle {
     }
 
     async fn consumer_groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
-        if let Some(hit) = self.cache.groups().await {
-            return Ok(hit);
-        }
-
-        let groups = self.fetch_group_list().await?;
-        self.cache.store_groups(groups.clone()).await;
-        Ok(groups)
+        self.groups
+            .try_get_with(
+                (),
+                Self::fetch_group_list(Arc::clone(&self.admin), self.timeouts.admin),
+            )
+            .await
+            .map_err(into_kafka_error)
     }
 
     async fn committed_offsets(
@@ -251,10 +244,23 @@ impl ClusterSession for ClusterHandle {
 }
 
 impl ClusterHandle {
-    async fn fetch_group_list(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
-        let admin = Arc::clone(&self.admin);
-        let timeout = self.timeouts.admin;
+    async fn fetch_metadata(
+        admin: Arc<AdminClient<DefaultClientContext>>,
+        timeout: Duration,
+    ) -> Result<MetadataSnapshot, KafkaError> {
+        run_blocking(timeout + timeout + BLOCKING_SLACK, move || {
+            let client = admin.inner();
+            let metadata = client.fetch_metadata(None, timeout)?;
+            let cluster_id = client.fetch_cluster_id(timeout);
+            Ok(MetadataSnapshot::from_rdkafka(&metadata, cluster_id))
+        })
+        .await
+    }
 
+    async fn fetch_group_list(
+        admin: Arc<AdminClient<DefaultClientContext>>,
+        timeout: Duration,
+    ) -> Result<Vec<GroupSnapshot>, KafkaError> {
         run_blocking(timeout + BLOCKING_SLACK, move || {
             let list = admin.inner().fetch_group_list(None, timeout)?;
             Ok(list
@@ -277,6 +283,17 @@ where
         .await
         .map_err(|_| KafkaError::Admin("kafka request timed out".into()))?
         .map_err(KafkaError::from)?
+}
+
+fn snapshot_cache<V>(ttl: Duration) -> Cache<(), V>
+where
+    V: Clone + Send + Sync + 'static,
+{
+    Cache::builder().max_capacity(1).time_to_live(ttl).build()
+}
+
+fn into_kafka_error(err: Arc<KafkaError>) -> KafkaError {
+    Arc::try_unwrap(err).unwrap_or_else(|err| KafkaError::Admin(err.to_string()))
 }
 
 impl MetadataSnapshot {
@@ -364,5 +381,117 @@ impl From<RdConfigSource> for ConfigSource {
             | RdConfigSource::DynamicDefaultBroker
             | RdConfigSource::Default => Self::Default,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::*;
+
+    fn snapshot() -> MetadataSnapshot {
+        MetadataSnapshot {
+            cluster_id: Some("id".into()),
+            brokers: Vec::new(),
+            topics: Vec::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn expires_metadata_after_ttl() {
+        let cache = snapshot_cache(Duration::from_millis(20));
+        let fetches = Arc::new(AtomicUsize::new(0));
+
+        let first = {
+            let fetches = Arc::clone(&fetches);
+            cache
+                .try_get_with((), async move {
+                    fetches.fetch_add(1, Ordering::SeqCst);
+                    Ok::<_, KafkaError>(snapshot())
+                })
+                .await
+                .unwrap()
+        };
+        assert_eq!(first.cluster_id.as_deref(), Some("id"));
+        assert_eq!(fetches.load(Ordering::SeqCst), 1);
+
+        cache
+            .try_get_with((), async {
+                fetches.fetch_add(1, Ordering::SeqCst);
+                Ok::<_, KafkaError>(snapshot())
+            })
+            .await
+            .unwrap();
+        assert_eq!(fetches.load(Ordering::SeqCst), 1);
+
+        tokio::time::sleep(Duration::from_millis(30)).await;
+
+        cache
+            .try_get_with((), async {
+                fetches.fetch_add(1, Ordering::SeqCst);
+                Ok::<_, KafkaError>(snapshot())
+            })
+            .await
+            .unwrap();
+        assert_eq!(fetches.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn coalesces_concurrent_misses() {
+        let cache = Arc::new(snapshot_cache(Duration::from_secs(5)));
+        let fetches = Arc::new(AtomicUsize::new(0));
+        let mut joins = JoinSet::new();
+
+        for _ in 0..8 {
+            let cache = Arc::clone(&cache);
+            let fetches = Arc::clone(&fetches);
+            joins.spawn(async move {
+                cache
+                    .try_get_with((), async move {
+                        fetches.fetch_add(1, Ordering::SeqCst);
+                        tokio::time::sleep(Duration::from_millis(50)).await;
+                        Ok::<_, KafkaError>(snapshot())
+                    })
+                    .await
+            });
+        }
+
+        while let Some(result) = joins.join_next().await {
+            result.unwrap().unwrap();
+        }
+
+        assert_eq!(fetches.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn does_not_cache_errors() {
+        let cache: Cache<(), MetadataSnapshot> = snapshot_cache(Duration::from_secs(5));
+        let fetches = Arc::new(AtomicUsize::new(0));
+
+        let failed = {
+            let fetches = Arc::clone(&fetches);
+            cache
+                .try_get_with((), async move {
+                    fetches.fetch_add(1, Ordering::SeqCst);
+                    Err(KafkaError::Admin("boom".into()))
+                })
+                .await
+                .map_err(into_kafka_error)
+        };
+        assert!(failed.is_err());
+
+        let recovered = {
+            let fetches = Arc::clone(&fetches);
+            cache
+                .try_get_with((), async move {
+                    fetches.fetch_add(1, Ordering::SeqCst);
+                    Ok::<_, KafkaError>(snapshot())
+                })
+                .await
+                .unwrap()
+        };
+        assert_eq!(recovered.cluster_id.as_deref(), Some("id"));
+        assert_eq!(fetches.load(Ordering::SeqCst), 2);
     }
 }

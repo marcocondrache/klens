@@ -1,6 +1,5 @@
 mod assignment;
 mod browse;
-mod cache;
 mod catalog;
 mod config;
 mod engine;
