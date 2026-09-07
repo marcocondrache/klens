@@ -9,7 +9,6 @@ use crate::environment::{OFFSET_FETCH_BATCH, OVERVIEW_BUDGET};
 use crate::kafka::catalog::{
     assemble_brokers, assemble_group, assemble_overview, assemble_topic, clamp_record_limit,
     clamp_record_page, groups_for_topic, plan_records, search_catalog,
-    should_fetch_list_watermarks,
 };
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
@@ -174,7 +173,6 @@ impl QueryEngine {
             .await
             .unwrap_or_default();
         let groups = session.consumer_groups().await.unwrap_or_default();
-        let fetch_watermarks = should_fetch_list_watermarks(&meta);
 
         let mut topics = Vec::with_capacity(meta.topics.len());
         for topic in &meta.topics {
@@ -183,14 +181,10 @@ impl QueryEngine {
                 .iter()
                 .map(|partition| partition.id)
                 .collect();
-            let watermarks = if fetch_watermarks {
-                session
-                    .watermarks(&topic.name, &partitions)
-                    .await
-                    .unwrap_or_default()
-            } else {
-                HashMap::new()
-            };
+            let watermarks = session
+                .watermarks(&topic.name, &partitions)
+                .await
+                .unwrap_or_default();
             topics.push(assemble_topic(
                 topic,
                 &watermarks,

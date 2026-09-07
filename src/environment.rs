@@ -125,13 +125,6 @@ pub static CONFIG_BATCH: LazyLock<usize> = lazy_env_parse!("KLENS_CONFIG_BATCH",
 pub static OFFSET_FETCH_BATCH: LazyLock<usize> =
     lazy_env_parse!("KLENS_OFFSET_FETCH_BATCH", usize, 8);
 
-/// Skip per-partition watermark fetches on the topic list when a cluster
-/// has more partitions than this (default: 128).
-///
-/// Override with `KLENS_LIST_WATERMARK_CAP`.
-pub static LIST_WATERMARK_CAP: LazyLock<usize> =
-    lazy_env_parse!("KLENS_LIST_WATERMARK_CAP", usize, 128);
-
 /// Maximum records a browse or search query may request (default: 500).
 ///
 /// Override with `KLENS_MAX_RECORD_LIMIT`.

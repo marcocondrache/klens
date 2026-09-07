@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 
 use crate::environment::{
-    LIST_WATERMARK_CAP, MAX_RECORD_LIMIT, RECORD_MIN_WINDOW, RECORD_SEARCH_WINDOW_MULTIPLIER,
-    RECORD_WINDOW_MULTIPLIER,
+    MAX_RECORD_LIMIT, RECORD_MIN_WINDOW, RECORD_SEARCH_WINDOW_MULTIPLIER, RECORD_WINDOW_MULTIPLIER,
 };
 use crate::kafka::model::{
     Broker, BrokerMetadata, CleanupPolicy, ClusterHealth, ClusterIdentity, ClusterOverview,
@@ -176,11 +175,6 @@ pub fn assemble_topic(
         consumer_groups,
         under_replicated,
     }
-}
-
-pub fn should_fetch_list_watermarks(meta: &MetadataSnapshot) -> bool {
-    let partitions: usize = meta.topics.iter().map(|topic| topic.partitions.len()).sum();
-    partitions <= *LIST_WATERMARK_CAP
 }
 
 pub fn clamp_record_limit(limit: i32) -> Result<usize, String> {
