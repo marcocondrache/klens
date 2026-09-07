@@ -69,7 +69,7 @@ jobs:
             @semantic-release/exec@7.1.0 \
             @semantic-release/git@11.0.1 \
             @semantic-release/github@12.0.9 \
-            conventional-changelog-conventionalcommits@10.4.0
+            conventional-changelog-conventionalcommits@9.3.1 # writer@8 until semantic-release ships writer@9
           export NODE_PATH="$PREFIX/node_modules${NODE_PATH:+:$NODE_PATH}"
           bun "$PREFIX/node_modules/semantic-release/bin/semantic-release.js"
 
