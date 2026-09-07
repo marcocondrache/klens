@@ -11,10 +11,11 @@ impl Telemetry {
     pub fn init(filter: &str, target: &str) -> anyhow::Result<Self> {
         let filter = filter_from_value(filter, target)?;
         let (writer, guard) = tracing_appender::non_blocking(std::io::stdout());
+        let layer = tracing_subscriber::fmt::layer().with_ansi(false);
 
         tracing_subscriber::registry()
             .with(filter)
-            .with(tracing_subscriber::fmt::layer().with_writer(writer))
+            .with(layer.with_writer(writer))
             .try_init()?;
 
         Ok(Self { _guard: guard })
