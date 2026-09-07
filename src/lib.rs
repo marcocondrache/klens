@@ -9,7 +9,7 @@ pub mod telemetry;
 pub use app::{AppState, AuthState, router, schema_sdl};
 pub use config::{
     AuthConfig, ClusterConfig, Config, ConfigError, OidcConfig, SaslConfig, SaslMechanism,
-    SecurityConfig, SecurityProtocol, TlsConfig,
+    SchemaRegistryConfig, SecurityConfig, SecurityProtocol, TlsConfig,
 };
 pub use kafka::{ClusterHandle, ClusterRegistry, KafkaClusterConfig, KafkaError, QueryEngine};
 pub use server::serve;

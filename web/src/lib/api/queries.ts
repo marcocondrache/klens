@@ -62,7 +62,7 @@ function searchHref(cluster: string, result: Omit<SearchResult, "href">): string
     case "NODE":
       return clusterPath(cluster, "nodes", result.id)
     case "SUBJECT":
-      return clusterPath(cluster, "schemas")
+      return `${clusterPath(cluster, "schemas")}?q=${encodeURIComponent(result.id)}`
   }
 }
 

@@ -13,7 +13,7 @@ use crate::kafka::catalog::{
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
     Broker, ClusterIdentity, ClusterOverview, ConfigEntry, ConsumerGroup, GroupSnapshot,
-    RecordPage, RecordQuery, SearchHit, Topic, Watermarks,
+    RecordPage, RecordQuery, SchemaSubject, SearchHit, Topic, Watermarks,
 };
 use crate::kafka::registry::ClusterRegistry;
 use crate::kafka::session::ClusterSession;
@@ -448,7 +448,18 @@ impl QueryEngine {
         let session = self.session(cluster)?;
         let meta = session.metadata().await?;
         let groups = session.consumer_groups().await.unwrap_or_default();
-        Ok(search_catalog(term, &meta.topics, &meta.brokers, &groups))
+        let subjects = session.schema_subjects().await.unwrap_or_default();
+        Ok(search_catalog(
+            term,
+            &meta.topics,
+            &meta.brokers,
+            &groups,
+            &subjects,
+        ))
+    }
+
+    pub async fn schema_subjects(&self, cluster: &str) -> Result<Vec<SchemaSubject>, KafkaError> {
+        self.session(cluster)?.schema_subjects().await
     }
 }
 
@@ -637,5 +648,35 @@ mod tests {
         assert_eq!(overviews[0].health, ClusterHealth::Offline);
         assert_eq!(overviews[1].identity.name, "fast");
         assert_eq!(overviews[1].health, ClusterHealth::Healthy);
+    }
+
+    #[tokio::test]
+    async fn schema_subjects_come_from_the_cluster_session() {
+        let engine = QueryEngine::from_sessions(vec![FakeCluster::local()]);
+        let subjects = engine.schema_subjects("local").await.unwrap();
+
+        assert_eq!(subjects.len(), 1);
+        assert_eq!(subjects[0].subject, "orders.created-value");
+    }
+
+    #[tokio::test]
+    async fn schema_subjects_default_to_empty_when_session_does_not_override() {
+        let probe = Probe::new(FakeCluster::local(), Duration::ZERO);
+        let engine =
+            QueryEngine::from_sessions(vec![Arc::clone(&probe) as Arc<dyn ClusterSession>]);
+
+        assert!(engine.schema_subjects("local").await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn search_includes_schema_subjects() {
+        let engine = QueryEngine::from_sessions(vec![FakeCluster::local()]);
+        let hits = engine.search("local", "order").await.unwrap();
+
+        assert!(
+            hits.iter()
+                .any(|hit| hit.kind == crate::kafka::model::SearchKind::Subject
+                    && hit.id == "orders.created-value")
+        );
     }
 }

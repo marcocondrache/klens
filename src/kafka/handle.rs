@@ -26,8 +26,9 @@ use crate::kafka::factory::ClientFactory;
 use crate::kafka::model::{
     BrokerMetadata, ClusterIdentity, CommittedOffset, ConfigEntry, ConfigSource, FetchPlan,
     GroupMember, GroupSnapshot, GroupState, MetadataSnapshot, PartitionMetadata, Record,
-    TopicMetadata, Watermarks, is_internal_group, is_internal_topic,
+    SchemaSubject, TopicMetadata, Watermarks, is_internal_group, is_internal_topic,
 };
+use crate::kafka::schema::SchemaRegistryClient;
 use crate::kafka::session::ClusterSession;
 
 #[derive(Clone, Copy)]
@@ -56,6 +57,8 @@ pub struct ClusterHandle {
     admin: Arc<AdminClient<DefaultClientContext>>,
     metadata: Cache<(), MetadataSnapshot>,
     groups: Cache<(), Vec<GroupSnapshot>>,
+    subjects: Cache<(), Vec<SchemaSubject>>,
+    schema_registry: Option<SchemaRegistryClient>,
     timeouts: Timeouts,
 }
 
@@ -72,6 +75,11 @@ impl ClusterHandle {
         let identity = ClusterIdentity::from(&config);
         let factory = ClientFactory::new(&config)?;
         let admin = Arc::new(factory.admin()?);
+        let schema_registry = config
+            .schema_registry
+            .as_ref()
+            .map(|registry| SchemaRegistryClient::new(&identity.name, registry))
+            .transpose()?;
 
         Ok(Self {
             identity,
@@ -79,6 +87,8 @@ impl ClusterHandle {
             admin,
             metadata: snapshot_cache(*METADATA_TTL),
             groups: snapshot_cache(*METADATA_TTL),
+            subjects: snapshot_cache(*METADATA_TTL),
+            schema_registry,
             timeouts: Timeouts::default(),
         })
     }
@@ -240,6 +250,17 @@ impl ClusterSession for ClusterHandle {
 
     async fn records(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError> {
         browse::consume(&self.factory, plan, self.timeouts.consume).await
+    }
+
+    async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
+        let Some(client) = self.schema_registry.clone() else {
+            return Ok(Vec::new());
+        };
+
+        self.subjects
+            .try_get_with((), async move { client.subjects().await })
+            .await
+            .map_err(into_kafka_error)
     }
 }
 

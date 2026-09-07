@@ -216,6 +216,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn resolves_schema_subjects_from_the_query_engine() {
+        let state = state();
+        let schema = schema();
+
+        let (value, errors) = execute(
+            r#"{ schemaSubjects(cluster: "local") { subject id type latestVersion versions compatibility schema } }"#,
+            None,
+            &schema,
+            &Variables::new(),
+            &state,
+        )
+        .await
+        .unwrap();
+
+        assert!(errors.is_empty());
+        assert_eq!(
+            serde_json::to_value(value).unwrap(),
+            serde_json::json!({
+                "schemaSubjects": [{
+                    "subject": "orders.created-value",
+                    "id": 1,
+                    "type": "AVRO",
+                    "latestVersion": 2,
+                    "versions": [1, 2],
+                    "compatibility": "BACKWARD",
+                    "schema": "{\"type\":\"record\",\"name\":\"Order\",\"fields\":[{\"name\":\"orderId\",\"type\":\"string\"}]}"
+                }]
+            })
+        );
+    }
+
+    #[tokio::test]
     async fn browses_and_searches_records() {
         let state = state();
         let schema = schema();
@@ -246,7 +278,8 @@ mod tests {
                 "records": { "records": [{ "key": "ord_1" }], "hasMore": true },
                 "search": [
                     { "kind": "TOPIC", "id": "orders.created" },
-                    { "kind": "GROUP", "id": "order-processor" }
+                    { "kind": "GROUP", "id": "order-processor" },
+                    { "kind": "SUBJECT", "id": "orders.created-value" }
                 ]
             })
         );

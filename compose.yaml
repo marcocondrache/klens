@@ -29,6 +29,19 @@ services:
       retries: 12
       start_period: 20s
 
+  schema-registry:
+    image: confluentinc/cp-schema-registry:8.3.1
+    hostname: schema-registry
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:29092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+    depends_on:
+      kafka:
+        condition: service_healthy
+
   klens:
     build: .
     ports:

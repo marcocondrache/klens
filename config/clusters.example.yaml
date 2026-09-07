@@ -26,6 +26,13 @@ clusters:
     # properties:
     #   request.timeout.ms: "10000"
 
+    # Optional Confluent-compatible Schema Registry. When omitted, the Schemas
+    # page is empty for this cluster.
+    schema_registry:
+      url: http://localhost:8081
+      # username: user
+      # password: secret
+
 # Optional OpenID Connect login gate. When omitted, the UI and GraphQL API are
 # open to anyone who can reach the process. /health stays public either way.
 #

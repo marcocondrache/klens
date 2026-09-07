@@ -22,7 +22,7 @@ docker run --rm -p 8080:8080 \
   ghcr.io/marcocondrache/klens:latest
 ```
 
-[compose.yaml](compose.yaml) starts a local Kafka broker and builds klens from this repository.
+[compose.yaml](compose.yaml) starts a local Kafka broker, Schema Registry, and builds klens from this repository.
 
 ## Authentication
 
@@ -42,3 +42,15 @@ auth:
 
 Register `redirect_uri` with the identity provider. Any authenticated user has
 the same access as an open deployment.
+
+## Schema Registry
+
+Each cluster can optionally point at a Confluent-compatible Schema Registry.
+When omitted, the Schemas page is empty for that cluster.
+
+```yaml
+schema_registry:
+  url: http://localhost:8081
+  # username: user
+  # password: secret
+```

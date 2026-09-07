@@ -143,9 +143,17 @@ impl Query {
             .collect()
     }
 
-    async fn schema_subjects(cluster: String) -> Vec<SchemaSubject> {
-        let _ = cluster;
-        Vec::new()
+    async fn schema_subjects(
+        context: &AppState,
+        cluster: String,
+    ) -> FieldResult<Vec<SchemaSubject>> {
+        Ok(context
+            .query
+            .schema_subjects(&cluster)
+            .await?
+            .into_iter()
+            .map(SchemaSubject::from)
+            .collect())
     }
 
     async fn acls(cluster: String) -> Vec<Acl> {

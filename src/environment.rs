@@ -77,6 +77,15 @@ pub static METADATA_TTL: LazyLock<Duration> =
 pub static METADATA_TIMEOUT: LazyLock<Duration> =
     lazy_env_parse!(duration, "KLENS_METADATA_TIMEOUT", Duration::from_secs(5));
 
+/// Timeout for Schema Registry HTTP requests (default: 5 seconds).
+///
+/// Override with `KLENS_SCHEMA_REGISTRY_TIMEOUT` (seconds).
+pub static SCHEMA_REGISTRY_TIMEOUT: LazyLock<Duration> = lazy_env_parse!(
+    duration,
+    "KLENS_SCHEMA_REGISTRY_TIMEOUT",
+    Duration::from_secs(5)
+);
+
 /// Timeout for watermark fetches (default: 3 seconds).
 ///
 /// Override with `KLENS_WATERMARK_TIMEOUT` (seconds).

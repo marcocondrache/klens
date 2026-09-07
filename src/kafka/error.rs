@@ -29,6 +29,9 @@ pub enum KafkaError {
     #[error("kafka admin request failed: {0}")]
     Admin(String),
 
+    #[error("schema registry request failed for cluster '{cluster}': {message}")]
+    SchemaRegistry { cluster: String, message: String },
+
     #[error(transparent)]
     Config(#[from] ConfigError),
 
