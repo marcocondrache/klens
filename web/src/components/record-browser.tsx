@@ -1,7 +1,6 @@
 import { useState } from "react"
-import { ClockIcon, DownloadIcon, SearchIcon } from "lucide-react"
+import { ClockIcon, SearchIcon } from "lucide-react"
 
-import { Button } from "@/components/ui/button"
 import {
   Empty,
   EmptyDescription,
@@ -29,13 +28,13 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { CopyButton } from "@/components/copy-button"
 import { DataTable, type Column } from "@/components/data-table"
-import { JsonBlock } from "@/components/json-block"
+import { PayloadView } from "@/components/payload-view"
 import { Pill } from "@/components/status"
 import { useRecords } from "@/lib/api/queries"
 import { formatBytes, formatRelative, formatTimestamp } from "@/lib/format"
 import type { RecordOrder, Topic, TopicRecord } from "@/lib/api/types"
+import { cn } from "@/lib/utils"
 
 const LIMITS = ["25", "50", "100"] as const
 
@@ -61,6 +60,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
   const [order, setOrder] = useState<RecordOrder>("NEWEST")
   const [page, setPage] = useState(0)
   const [selected, setSelected] = useState<TopicRecord | null>(null)
+  const [expanded, setExpanded] = useState(false)
 
   const { data, isFetching } = useRecords({
     cluster,
@@ -255,8 +255,22 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
         }
       />
 
-      <Sheet open={selected !== null} onOpenChange={(open) => !open && setSelected(null)}>
-        <SheetContent side="right" className="w-full gap-0 sm:max-w-xl">
+      <Sheet
+        open={selected !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelected(null)
+            setExpanded(false)
+          }
+        }}
+      >
+        <SheetContent
+          side="right"
+          className={cn(
+            "w-full gap-0",
+            expanded ? "sm:max-w-[min(90vw,56rem)]" : "sm:max-w-2xl",
+          )}
+        >
           {selected ? (
             <>
               <SheetHeader className="border-b">
@@ -269,51 +283,30 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                 </SheetDescription>
               </SheetHeader>
 
-              <div className="flex-1 space-y-5 overflow-y-auto p-4">
-                <section className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
-                      Key
-                    </h3>
-                    {selected.key ? <CopyButton value={selected.key} label="Copy key" /> : null}
-                  </div>
-                  <p className="rounded-lg border bg-muted/30 p-3 font-mono text-xs break-all">
-                    {selected.key ?? "null"}
-                  </p>
-                </section>
+              <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-hidden p-4">
+                <PayloadView
+                  key={`key-${selected.partition}-${selected.offset}`}
+                  label="Key"
+                  source={selected.key ?? "null"}
+                  copyLabel="Copy key"
+                  showCopy={Boolean(selected.key)}
+                />
 
-                <section className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
-                      Value
-                    </h3>
-                    <div className="flex items-center gap-1">
-                      {selected.value ? (
-                        <CopyButton value={selected.value} label="Copy value" />
-                      ) : null}
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        aria-label="Download value"
-                        className="text-muted-foreground"
-                        onClick={() => {
-                          const blob = new Blob([selected.value ?? ""], { type: "application/json" })
-                          const url = URL.createObjectURL(blob)
-                          const anchor = document.createElement("a")
-                          anchor.href = url
-                          anchor.download = `${topic.name}-${selected.partition}-${selected.offset}.json`
-                          anchor.click()
-                          URL.revokeObjectURL(url)
-                        }}
-                      >
-                        <DownloadIcon />
-                      </Button>
-                    </div>
-                  </div>
-                  <JsonBlock source={selected.value ?? "null"} className="max-h-96" />
-                </section>
+                <PayloadView
+                  key={`value-${selected.partition}-${selected.offset}`}
+                  label="Value"
+                  source={selected.value ?? "null"}
+                  filename={`${topic.name}-${selected.partition}-${selected.offset}.json`}
+                  copyLabel="Copy value"
+                  showCopy={Boolean(selected.value)}
+                  showDownload
+                  showExpand
+                  expanded={expanded}
+                  onExpandedChange={setExpanded}
+                  fill
+                />
 
-                <section className="space-y-2">
+                <section className="shrink-0 space-y-2">
                   <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
                     Headers
                   </h3>
@@ -336,7 +329,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                   )}
                 </section>
 
-                <section className="space-y-2">
+                <section className="shrink-0 space-y-2">
                   <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
                     Metadata
                   </h3>

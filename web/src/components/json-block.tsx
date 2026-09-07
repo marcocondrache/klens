@@ -58,7 +58,7 @@ export function JsonBlock({
     <pre
       className={cn(
         "overflow-auto rounded-lg border bg-muted/30 p-3 font-mono text-xs leading-relaxed",
-        wrap && "whitespace-pre-wrap break-all",
+        wrap && "whitespace-pre-wrap break-words",
         className,
       )}
     >
