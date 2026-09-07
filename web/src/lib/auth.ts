@@ -26,3 +26,21 @@ export async function signOut(): Promise<void> {
 export function displayName(user: AuthUser): string {
   return user.name?.trim() || user.email?.trim() || user.sub
 }
+
+export function initials(user: AuthUser): string {
+  const name = user.name?.trim()
+  if (name) {
+    const parts = name.split(/\s+/).filter(Boolean)
+    if (parts.length >= 2) {
+      return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
+    }
+    return name.slice(0, 2).toUpperCase()
+  }
+
+  const email = user.email?.trim()
+  if (email) {
+    return email.slice(0, 2).toUpperCase()
+  }
+
+  return user.sub.slice(0, 2).toUpperCase()
+}
