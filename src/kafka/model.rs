@@ -352,6 +352,7 @@ pub struct RecordQuery {
     pub search: String,
     pub limit: i32,
     pub order: RecordOrder,
+    pub page: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -418,6 +419,13 @@ pub struct FetchPlan {
     pub search: String,
     pub limit: usize,
     pub order: RecordOrder,
+    pub has_more: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordPage {
+    pub records: Vec<Record>,
+    pub has_more: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

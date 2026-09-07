@@ -93,6 +93,7 @@ input RecordQuery {
   search: String!
   limit: Int!
   order: RecordOrder!
+  page: Int
 }
 
 type Acl {
@@ -204,13 +205,18 @@ type Query {
   topicThroughput(cluster: String!, topic: String!): [ThroughputPoint!]!
   schemaSubjects(cluster: String!): [SchemaSubject!]!
   acls(cluster: String!): [Acl!]!
-  records(query: RecordQuery!): [TopicRecord!]!
+  records(query: RecordQuery!): RecordPage!
   search(cluster: String!, term: String!): [SearchResult!]!
 }
 
 type RecordHeader {
   key: String!
   value: String!
+}
+
+type RecordPage {
+  records: [TopicRecord!]!
+  hasMore: Boolean!
 }
 
 type SchemaSubject {

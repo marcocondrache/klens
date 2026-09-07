@@ -212,7 +212,7 @@ mod tests {
                     search: "ord_1"
                     limit: 10
                     order: OLDEST
-                }) { key }
+                }) { records { key } hasMore }
                 search(cluster: "local", term: "order") { kind id }
             }"#,
             None,
@@ -227,12 +227,67 @@ mod tests {
         assert_eq!(
             serde_json::to_value(value).unwrap(),
             serde_json::json!({
-                "records": [{ "key": "ord_1" }],
+                "records": { "records": [{ "key": "ord_1" }], "hasMore": true },
                 "search": [
                     { "kind": "TOPIC", "id": "orders.created" },
                     { "kind": "GROUP", "id": "order-processor" }
                 ]
             })
+        );
+    }
+
+    #[tokio::test]
+    async fn pages_through_records() {
+        let state = state();
+        let schema = schema();
+
+        let (value, errors) = execute(
+            r#"{
+                records(query: {
+                    cluster: "local"
+                    topic: "orders.created"
+                    search: ""
+                    limit: 5
+                    order: OLDEST
+                    page: 0
+                }) { records { key } hasMore }
+            }"#,
+            None,
+            &schema,
+            &Variables::new(),
+            &state,
+        )
+        .await
+        .unwrap();
+
+        assert!(errors.is_empty());
+        let page = serde_json::to_value(value).unwrap();
+        assert_eq!(page["records"]["hasMore"], true);
+        assert_eq!(page["records"]["records"].as_array().unwrap().len(), 5);
+
+        let (value, errors) = execute(
+            r#"{
+                records(query: {
+                    cluster: "local"
+                    topic: "orders.created"
+                    search: ""
+                    limit: 5
+                    order: OLDEST
+                    page: 3
+                }) { records { key } hasMore }
+            }"#,
+            None,
+            &schema,
+            &Variables::new(),
+            &state,
+        )
+        .await
+        .unwrap();
+
+        assert!(errors.is_empty());
+        assert_eq!(
+            serde_json::to_value(value).unwrap()["records"]["hasMore"],
+            false
         );
     }
 }

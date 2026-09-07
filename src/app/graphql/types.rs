@@ -376,6 +376,12 @@ pub(super) struct TopicRecord {
     pub compression: Compression,
 }
 
+#[derive(GraphQLObject)]
+pub(super) struct RecordPage {
+    pub records: Vec<TopicRecord>,
+    pub has_more: bool,
+}
+
 #[derive(GraphQLEnum, Clone, Copy)]
 pub(super) enum RecordOrder {
     Newest,
@@ -390,6 +396,7 @@ pub(super) struct RecordQuery {
     pub search: String,
     pub limit: i32,
     pub order: RecordOrder,
+    pub page: Option<i32>,
 }
 
 impl From<RecordQuery> for domain::RecordQuery {
@@ -401,6 +408,7 @@ impl From<RecordQuery> for domain::RecordQuery {
             search: query.search,
             limit: query.limit,
             order: domain::RecordOrder::from(query.order),
+            page: query.page.unwrap_or(0),
         }
     }
 }
@@ -426,6 +434,15 @@ impl From<domain::Record> for TopicRecord {
             headers: record.headers.into_iter().map(RecordHeader::from).collect(),
             size_bytes: record.size_bytes as f64,
             compression: Compression::from(record.compression),
+        }
+    }
+}
+
+impl From<domain::RecordPage> for RecordPage {
+    fn from(page: domain::RecordPage) -> Self {
+        Self {
+            records: page.records.into_iter().map(TopicRecord::from).collect(),
+            has_more: page.has_more,
         }
     }
 }

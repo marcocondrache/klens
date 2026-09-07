@@ -1,8 +1,8 @@
 use juniper::{FieldResult, graphql_object};
 
 use super::types::{
-    Acl, Broker, Cluster, ConfigEntry, ConsumerGroup, RecordQuery, SchemaSubject, SearchResult,
-    ThroughputPoint, Topic, TopicRecord,
+    Acl, Broker, Cluster, ConfigEntry, ConsumerGroup, RecordPage, RecordQuery, SchemaSubject,
+    SearchResult, ThroughputPoint, Topic,
 };
 use crate::AppState;
 
@@ -137,14 +137,8 @@ impl Query {
         Vec::new()
     }
 
-    async fn records(context: &AppState, query: RecordQuery) -> FieldResult<Vec<TopicRecord>> {
-        Ok(context
-            .query
-            .records(query.into())
-            .await?
-            .into_iter()
-            .map(TopicRecord::from)
-            .collect())
+    async fn records(context: &AppState, query: RecordQuery) -> FieldResult<RecordPage> {
+        Ok(RecordPage::from(context.query.records(query.into()).await?))
     }
 
     async fn search(
