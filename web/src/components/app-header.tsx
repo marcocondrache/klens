@@ -19,9 +19,9 @@ import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ClusterSwitcher } from "@/components/cluster-switcher"
 import { ModeToggle } from "@/components/mode-toggle"
+import { UserMenu } from "@/components/user-menu"
 import { useAuth } from "@/hooks/use-auth"
 import { clusterPath, useClusterName } from "@/lib/clusters"
-import { displayName, signOut } from "@/lib/auth"
 import { findSection } from "@/lib/sections"
 
 interface Crumb {
@@ -132,18 +132,9 @@ export function AppHeader({ onSearch }: { onSearch: () => void }) {
           <TooltipContent>Refresh</TooltipContent>
         </Tooltip>
 
-        {auth?.enabled && auth.user ? (
-          <>
-            <span className="hidden max-w-40 truncate text-xs text-muted-foreground sm:inline">
-              {displayName(auth.user)}
-            </span>
-            <Button variant="ghost" size="sm" onClick={() => void signOut()}>
-              Sign out
-            </Button>
-          </>
-        ) : null}
-
         <ModeToggle />
+
+        {auth?.enabled && auth.user ? <UserMenu user={auth.user} /> : null}
       </div>
     </header>
   )
