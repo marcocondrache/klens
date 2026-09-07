@@ -34,3 +34,6 @@ tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2.5.8"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
