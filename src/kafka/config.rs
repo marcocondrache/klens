@@ -33,6 +33,8 @@ impl TryFrom<&ClusterConfig> for KafkaClusterConfig {
         let mut client = ClientConfig::new();
         client.set("bootstrap.servers", cluster.bootstrap_servers.join(","));
         client.set("client.id", format!("klens-{}", cluster.name));
+        client.set("socket.connection.setup.timeout.ms", "10000");
+        client.set("api.version.request.timeout.ms", "10000");
 
         if let Some(security) = &cluster.security {
             apply_security(&mut client, security);
@@ -115,6 +117,11 @@ mod tests {
         );
         assert_eq!(client.get("client.id"), Some("klens-local"));
         assert_eq!(client.get("request.timeout.ms"), Some("10000"));
+        assert_eq!(
+            client.get("socket.connection.setup.timeout.ms"),
+            Some("10000")
+        );
+        assert_eq!(client.get("api.version.request.timeout.ms"), Some("10000"));
         assert_eq!(client.get("security.protocol"), None);
     }
 
@@ -182,6 +189,27 @@ mod tests {
         assert_eq!(
             derived[1].client_config().get("client.id"),
             Some("klens-staging")
+        );
+    }
+
+    #[test]
+    fn cluster_properties_override_connection_timeouts() {
+        let cluster = cluster(
+            "
+            name: local
+            bootstrap_servers:
+              - localhost:9092
+            properties:
+              socket.connection.setup.timeout.ms: '30000'
+            ",
+        );
+
+        let kafka = KafkaClusterConfig::try_from(&cluster).unwrap();
+        assert_eq!(
+            kafka
+                .client_config()
+                .get("socket.connection.setup.timeout.ms"),
+            Some("30000")
         );
     }
 

@@ -148,6 +148,12 @@ impl FakeCluster {
             records,
         })
     }
+
+    pub fn named(name: &str) -> Arc<Self> {
+        let mut cluster = (*Self::local()).clone();
+        cluster.identity.name = name.to_owned();
+        Arc::new(cluster)
+    }
 }
 
 #[async_trait]
