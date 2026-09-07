@@ -267,8 +267,10 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
         <SheetContent
           side="right"
           className={cn(
-            "w-full gap-0",
-            expanded ? "sm:max-w-[min(90vw,72rem)]" : "sm:max-w-3xl",
+            "w-full gap-0 data-[side=right]:w-full",
+            expanded
+              ? "data-[side=right]:sm:max-w-[min(92vw,80rem)]"
+              : "data-[side=right]:sm:max-w-3xl",
           )}
         >
           {selected ? (

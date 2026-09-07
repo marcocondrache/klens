@@ -81,6 +81,7 @@ export function PayloadView({
           {showExpand ? (
             <IconButton
               label={expanded ? "Collapse value" : "Expand value"}
+              pressed={expanded}
               onClick={() => onExpandedChange?.(!expanded)}
             >
               {expanded ? <Minimize2Icon /> : <Maximize2Icon />}
@@ -96,10 +97,12 @@ export function PayloadView({
 function IconButton({
   label,
   onClick,
+  pressed,
   children,
 }: {
   label: string
   onClick: () => void
+  pressed?: boolean
   children: ReactNode
 }) {
   return (
@@ -110,6 +113,7 @@ function IconButton({
             variant="ghost"
             size="icon-xs"
             aria-label={label}
+            aria-pressed={pressed}
             className="text-muted-foreground"
             onClick={onClick}
           />
