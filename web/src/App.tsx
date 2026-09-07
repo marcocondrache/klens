@@ -4,6 +4,7 @@ import { AppLayout } from "@/routes/app-layout"
 import { AclsPage } from "@/routes/acls"
 import { ConsumerGroupPage } from "@/routes/group-detail"
 import { ConsumerGroupsPage } from "@/routes/groups"
+import { HomePage } from "@/routes/home"
 import { LoginPage } from "@/routes/login"
 import { NodePage } from "@/routes/node-detail"
 import { NodesPage } from "@/routes/nodes"
@@ -11,12 +12,11 @@ import { NotFoundPage } from "@/routes/not-found"
 import { SchemasPage } from "@/routes/schemas"
 import { TopicPage } from "@/routes/topic-detail"
 import { TopicsPage } from "@/routes/topics"
-import { DEFAULT_CLUSTER } from "@/lib/clusters"
 
 function App() {
   return (
     <Routes>
-      <Route path="/" element={<Navigate to={`/cluster/${DEFAULT_CLUSTER}/topics`} replace />} />
+      <Route path="/" element={<HomePage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/cluster/:cluster" element={<AppLayout />}>
         <Route index element={<Navigate to="topics" replace />} />

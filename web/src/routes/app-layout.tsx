@@ -1,17 +1,20 @@
 import { useEffect, useState } from "react"
+import { TriangleAlertIcon } from "lucide-react"
 import { Navigate, Outlet } from "react-router"
 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { AppHeader } from "@/components/app-header"
 import { AppSidebar } from "@/components/app-sidebar"
 import { CommandPalette } from "@/components/command-palette"
 import { useClusters } from "@/lib/api/queries"
-import { DEFAULT_CLUSTER, useClusterName } from "@/lib/clusters"
+import { useClusterName } from "@/lib/clusters"
 
 export function AppLayout() {
   const cluster = useClusterName()
   const { data: clusters, isPending } = useClusters()
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const current = clusters?.find((entry) => entry.name === cluster)
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -27,8 +30,8 @@ export function AppLayout() {
 
   const known = clusters?.some((entry) => entry.name === cluster)
 
-  if (!isPending && clusters?.length && !known) {
-    return <Navigate to={`/cluster/${clusters[0]?.name ?? DEFAULT_CLUSTER}`} replace />
+  if (!isPending && clusters && clusters.length > 0 && !known) {
+    return <Navigate to={`/cluster/${clusters[0].name}`} replace />
   }
 
   return (
@@ -37,6 +40,16 @@ export function AppLayout() {
       <SidebarInset className="min-w-0 overflow-hidden">
         <AppHeader onSearch={() => setPaletteOpen(true)} />
         <div className="flex-1 space-y-5 p-4 md:p-6">
+          {current?.status === "OFFLINE" ? (
+            <Alert variant="destructive">
+              <TriangleAlertIcon />
+              <AlertTitle>Cluster unreachable</AlertTitle>
+              <AlertDescription>
+                Metadata for {current.label} could not be fetched. Catalog pages stay empty until the
+                brokers respond.
+              </AlertDescription>
+            </Alert>
+          ) : null}
           <Outlet />
         </div>
       </SidebarInset>

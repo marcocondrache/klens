@@ -39,7 +39,7 @@ export function ConsumerGroupsPage() {
   const term = params.get("q") ?? ""
   const state = params.get("state") ?? "all"
 
-  const { data: groups = [], isPending } = useConsumerGroups(cluster)
+  const { data: groups = [], isPending, isError, error } = useConsumerGroups(cluster)
 
   function update(key: string, value: string | null) {
     const next = new URLSearchParams(params)
@@ -166,6 +166,7 @@ export function ConsumerGroupsPage() {
         rows={rows}
         rowKey={(group) => group.id}
         loading={isPending}
+        error={isError ? (error instanceof Error ? error.message : "Failed to load consumer groups.") : undefined}
         defaultSort={{ id: "lag", direction: "desc" }}
         onRowClick={(group) => navigate(clusterPath(cluster, "groups", group.id))}
       />

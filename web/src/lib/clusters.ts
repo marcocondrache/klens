@@ -1,6 +1,6 @@
 import { useParams } from "react-router"
 
-export const DEFAULT_CLUSTER = "production"
+export const DEFAULT_CLUSTER = "local"
 
 export function useClusterName() {
   const { cluster } = useParams<{ cluster: string }>()

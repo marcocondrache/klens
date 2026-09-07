@@ -1,7 +1,27 @@
 import { useQuery } from "@tanstack/react-query"
 
-import * as api from "./client"
-import type { RecordQuery } from "./types"
+import { execute } from "@/graphql/execute"
+import { clusterPath } from "@/lib/clusters"
+
+import {
+  aclsQuery,
+  brokerConfigsQuery,
+  brokerQuery,
+  brokersQuery,
+  clusterQuery,
+  clustersQuery,
+  clusterThroughputQuery,
+  consumerGroupQuery,
+  consumerGroupsQuery,
+  recordsQuery,
+  schemaSubjectsQuery,
+  searchQuery,
+  topicConfigsQuery,
+  topicQuery,
+  topicsQuery,
+  topicThroughputQuery,
+} from "./documents"
+import type { RecordQuery, SearchResult } from "./types"
 
 export const keys = {
   clusters: () => ["clusters"] as const,
@@ -22,26 +42,74 @@ export const keys = {
   search: (cluster: string, term: string) => ["cluster", cluster, "search", term] as const,
 }
 
+function required<T>(value: T | null | undefined, message: string): T {
+  if (value == null) {
+    throw new Error(message)
+  }
+
+  return value
+}
+
+function searchHref(cluster: string, result: Omit<SearchResult, "href">): string {
+  switch (result.kind) {
+    case "TOPIC":
+      return clusterPath(cluster, "topics", result.id)
+    case "GROUP":
+      return clusterPath(cluster, "groups", result.id)
+    case "NODE":
+      return clusterPath(cluster, "nodes", result.id)
+    case "SUBJECT":
+      return clusterPath(cluster, "schemas")
+  }
+}
+
 export function useClusters() {
-  return useQuery({ queryKey: keys.clusters(), queryFn: api.listClusters })
+  return useQuery({
+    queryKey: keys.clusters(),
+    queryFn: async () => {
+      const { clusters } = await execute(clustersQuery)
+      return clusters
+    },
+  })
 }
 
 export function useCluster(cluster: string) {
-  return useQuery({ queryKey: keys.cluster(cluster), queryFn: () => api.getCluster(cluster) })
+  return useQuery({
+    queryKey: keys.cluster(cluster),
+    queryFn: async () => {
+      const { cluster: data } = await execute(clusterQuery, { name: cluster })
+      return required(data, `unknown cluster '${cluster}'`)
+    },
+  })
 }
 
 export function useClusterThroughput(cluster: string) {
-  return useQuery({ queryKey: keys.throughput(cluster), queryFn: () => api.clusterThroughput(cluster) })
+  return useQuery({
+    queryKey: keys.throughput(cluster),
+    queryFn: async () => {
+      const { clusterThroughput } = await execute(clusterThroughputQuery, { cluster })
+      return clusterThroughput
+    },
+  })
 }
 
 export function useBrokers(cluster: string) {
-  return useQuery({ queryKey: keys.brokers(cluster), queryFn: () => api.listBrokers(cluster) })
+  return useQuery({
+    queryKey: keys.brokers(cluster),
+    queryFn: async () => {
+      const { brokers } = await execute(brokersQuery, { cluster })
+      return brokers
+    },
+  })
 }
 
 export function useBroker(cluster: string, id: number) {
   return useQuery({
     queryKey: keys.broker(cluster, id),
-    queryFn: () => api.getBroker(cluster, id),
+    queryFn: async () => {
+      const { broker } = await execute(brokerQuery, { cluster, id })
+      return required(broker, `unknown broker '${id}' in cluster '${cluster}'`)
+    },
     enabled: Number.isFinite(id),
   })
 }
@@ -49,64 +117,115 @@ export function useBroker(cluster: string, id: number) {
 export function useBrokerConfigs(cluster: string, id: number) {
   return useQuery({
     queryKey: keys.brokerConfigs(cluster, id),
-    queryFn: () => api.brokerConfigs(cluster, id),
+    queryFn: async () => {
+      const { brokerConfigs } = await execute(brokerConfigsQuery, { cluster, id })
+      return brokerConfigs
+    },
     enabled: Number.isFinite(id),
   })
 }
 
 export function useTopics(cluster: string) {
-  return useQuery({ queryKey: keys.topics(cluster), queryFn: () => api.listTopics(cluster) })
+  return useQuery({
+    queryKey: keys.topics(cluster),
+    queryFn: async () => {
+      const { topics } = await execute(topicsQuery, { cluster })
+      return topics
+    },
+  })
 }
 
 export function useTopic(cluster: string, topic: string) {
-  return useQuery({ queryKey: keys.topic(cluster, topic), queryFn: () => api.getTopic(cluster, topic) })
+  return useQuery({
+    queryKey: keys.topic(cluster, topic),
+    queryFn: async () => {
+      const { topic: data } = await execute(topicQuery, { cluster, name: topic })
+      return required(data, `unknown topic '${topic}' in cluster '${cluster}'`)
+    },
+  })
 }
 
 export function useTopicConfigs(cluster: string, topic: string) {
   return useQuery({
     queryKey: keys.topicConfigs(cluster, topic),
-    queryFn: () => api.topicConfigs(cluster, topic),
+    queryFn: async () => {
+      const { topicConfigs } = await execute(topicConfigsQuery, { cluster, name: topic })
+      return topicConfigs
+    },
   })
 }
 
 export function useTopicThroughput(cluster: string, topic: string) {
   return useQuery({
     queryKey: keys.topicThroughput(cluster, topic),
-    queryFn: () => api.topicThroughput(cluster, topic),
+    queryFn: async () => {
+      const { topicThroughput } = await execute(topicThroughputQuery, { cluster, topic })
+      return topicThroughput
+    },
   })
 }
 
 export function useRecords(query: RecordQuery) {
   return useQuery({
     queryKey: keys.records(query),
-    queryFn: () => api.fetchRecords(query),
+    queryFn: async () => {
+      const { records } = await execute(recordsQuery, { query })
+      return records
+    },
     placeholderData: (previous) => previous,
   })
 }
 
 export function useConsumerGroups(cluster: string) {
-  return useQuery({ queryKey: keys.groups(cluster), queryFn: () => api.listConsumerGroups(cluster) })
+  return useQuery({
+    queryKey: keys.groups(cluster),
+    queryFn: async () => {
+      const { consumerGroups } = await execute(consumerGroupsQuery, { cluster })
+      return consumerGroups
+    },
+  })
 }
 
 export function useConsumerGroup(cluster: string, group: string) {
   return useQuery({
     queryKey: keys.group(cluster, group),
-    queryFn: () => api.getConsumerGroup(cluster, group),
+    queryFn: async () => {
+      const { consumerGroup } = await execute(consumerGroupQuery, { cluster, id: group })
+      return required(consumerGroup, `unknown consumer group '${group}' in cluster '${cluster}'`)
+    },
   })
 }
 
 export function useSchemaSubjects(cluster: string) {
-  return useQuery({ queryKey: keys.subjects(cluster), queryFn: () => api.listSchemaSubjects(cluster) })
+  return useQuery({
+    queryKey: keys.subjects(cluster),
+    queryFn: async () => {
+      const { schemaSubjects } = await execute(schemaSubjectsQuery, { cluster })
+      return schemaSubjects
+    },
+  })
 }
 
 export function useAcls(cluster: string) {
-  return useQuery({ queryKey: keys.acls(cluster), queryFn: () => api.listAcls(cluster) })
+  return useQuery({
+    queryKey: keys.acls(cluster),
+    queryFn: async () => {
+      const { acls } = await execute(aclsQuery, { cluster })
+      return acls
+    },
+  })
 }
 
 export function useSearch(cluster: string, term: string) {
   return useQuery({
     queryKey: keys.search(cluster, term),
-    queryFn: () => api.search(cluster, term),
+    queryFn: async () => {
+      const { search } = await execute(searchQuery, { cluster, term })
+      return search.map((result) => ({
+        ...result,
+        href: searchHref(cluster, result),
+      }))
+    },
     enabled: term.trim().length > 0,
   })
 }

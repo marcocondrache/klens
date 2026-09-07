@@ -1,36 +1,36 @@
 export type {
-  Acl,
+  AclFieldsFragment as Acl,
   AclPatternType,
   AclPermission,
   AclResourceType,
-  Broker,
+  BrokerFieldsFragment as Broker,
   CleanupPolicy,
-  Cluster,
+  ClusterFieldsFragment as Cluster,
   ClusterStatus,
   Compression,
-  ConfigEntry,
+  ConfigEntryFieldsFragment as ConfigEntry,
   ConfigSource,
-  ConsumerGroup,
-  ConsumerGroupMember,
+  ConsumerGroupFieldsFragment as ConsumerGroup,
+  ConsumerGroupMemberFieldsFragment as ConsumerGroupMember,
   ConsumerGroupState,
-  GroupOffset,
-  MemberAssignment,
-  Partition,
-  RecordHeader,
+  GroupOffsetFieldsFragment as GroupOffset,
+  MemberAssignmentFieldsFragment as MemberAssignment,
+  PartitionFieldsFragment as Partition,
+  RecordHeaderFieldsFragment as RecordHeader,
   RecordOrder,
   RecordQuery,
   SchemaCompatibility,
-  SchemaSubject,
+  SchemaSubjectFieldsFragment as SchemaSubject,
   SchemaType,
   SearchResultKind,
   SecurityProtocol,
-  ThroughputPoint,
-  Topic,
-  TopicRecord,
-} from "./generated/graphql"
+  ThroughputPointFieldsFragment as ThroughputPoint,
+  TopicFieldsFragment as Topic,
+  TopicRecordFieldsFragment as TopicRecord,
+} from "@/graphql/graphql"
 
-import type { SearchResult as SchemaSearchResult } from "./generated/graphql"
+import type { SearchResultFieldsFragment } from "@/graphql/graphql"
 
-export type SearchResult = SchemaSearchResult & {
+export type SearchResult = SearchResultFieldsFragment & {
   href: string
 }

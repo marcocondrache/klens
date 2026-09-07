@@ -41,7 +41,7 @@ export function TopicsPage() {
   const showInternal = params.get("internal") === "1"
   const policy = params.get("policy") ?? "all"
 
-  const { data: topics = [], isPending } = useTopics(cluster)
+  const { data: topics = [], isPending, isError, error } = useTopics(cluster)
 
   function update(key: string, value: string | null) {
     const next = new URLSearchParams(params)
@@ -203,6 +203,7 @@ export function TopicsPage() {
         rows={rows}
         rowKey={(topic) => topic.name}
         loading={isPending}
+        error={isError ? (error instanceof Error ? error.message : "Failed to load topics.") : undefined}
         defaultSort={{ id: "name", direction: "asc" }}
         onRowClick={(topic) => navigate(clusterPath(cluster, "topics", topic.name))}
       />

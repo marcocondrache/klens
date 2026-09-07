@@ -1,0 +1,319 @@
+import { graphql } from "@/graphql/gql"
+
+export const ClusterFields = graphql(`
+  fragment ClusterFields on Cluster {
+    name
+    label
+    clusterId
+    bootstrapServers
+    securityProtocol
+    version
+    status
+    brokerCount
+    topicCount
+    partitionCount
+    consumerGroupCount
+    underReplicatedPartitions
+    offlinePartitions
+    messageCount
+    sizeBytes
+    bytesInPerSec
+    bytesOutPerSec
+  }
+`)
+
+export const BrokerFields = graphql(`
+  fragment BrokerFields on Broker {
+    id
+    host
+    port
+    rack
+    controller
+    partitionCount
+    leaderCount
+    logDirSizeBytes
+    bytesInPerSec
+    bytesOutPerSec
+  }
+`)
+
+export const PartitionFields = graphql(`
+  fragment PartitionFields on Partition {
+    id
+    leader
+    replicas
+    isr
+    lowWatermark
+    highWatermark
+    sizeBytes
+  }
+`)
+
+export const TopicFields = graphql(`
+  fragment TopicFields on Topic {
+    name
+    internal
+    partitions {
+      ...PartitionFields
+    }
+    replicationFactor
+    messageCount
+    sizeBytes
+    cleanupPolicy
+    retentionMs
+    consumerGroups
+    bytesInPerSec
+    messagesPerSec
+    underReplicated
+  }
+`)
+
+export const ConfigEntryFields = graphql(`
+  fragment ConfigEntryFields on ConfigEntry {
+    name
+    value
+    source
+    readOnly
+    sensitive
+    documentation
+  }
+`)
+
+export const MemberAssignmentFields = graphql(`
+  fragment MemberAssignmentFields on MemberAssignment {
+    topic
+    partitions
+  }
+`)
+
+export const ConsumerGroupMemberFields = graphql(`
+  fragment ConsumerGroupMemberFields on ConsumerGroupMember {
+    id
+    clientId
+    host
+    assignments {
+      ...MemberAssignmentFields
+    }
+  }
+`)
+
+export const GroupOffsetFields = graphql(`
+  fragment GroupOffsetFields on GroupOffset {
+    topic
+    partition
+    currentOffset
+    endOffset
+    lag
+    memberId
+  }
+`)
+
+export const ConsumerGroupFields = graphql(`
+  fragment ConsumerGroupFields on ConsumerGroup {
+    id
+    state
+    protocol
+    coordinator
+    members {
+      ...ConsumerGroupMemberFields
+    }
+    topics
+    lag
+    offsets {
+      ...GroupOffsetFields
+    }
+  }
+`)
+
+export const ThroughputPointFields = graphql(`
+  fragment ThroughputPointFields on ThroughputPoint {
+    timestamp
+    bytesIn
+    bytesOut
+    messages
+  }
+`)
+
+export const SchemaSubjectFields = graphql(`
+  fragment SchemaSubjectFields on SchemaSubject {
+    subject
+    id
+    type
+    latestVersion
+    versions
+    compatibility
+    schema
+  }
+`)
+
+export const AclFields = graphql(`
+  fragment AclFields on Acl {
+    principal
+    resourceType
+    resourceName
+    patternType
+    operation
+    permission
+    host
+  }
+`)
+
+export const RecordHeaderFields = graphql(`
+  fragment RecordHeaderFields on RecordHeader {
+    key
+    value
+  }
+`)
+
+export const TopicRecordFields = graphql(`
+  fragment TopicRecordFields on TopicRecord {
+    topic
+    partition
+    offset
+    timestamp
+    key
+    value
+    headers {
+      ...RecordHeaderFields
+    }
+    sizeBytes
+    compression
+  }
+`)
+
+export const SearchResultFields = graphql(`
+  fragment SearchResultFields on SearchResult {
+    kind
+    id
+    label
+    detail
+  }
+`)
+
+export const clustersQuery = graphql(`
+  query Clusters {
+    clusters {
+      ...ClusterFields
+    }
+  }
+`)
+
+export const clusterQuery = graphql(`
+  query Cluster($name: String!) {
+    cluster(name: $name) {
+      ...ClusterFields
+    }
+  }
+`)
+
+export const brokersQuery = graphql(`
+  query Brokers($cluster: String!) {
+    brokers(cluster: $cluster) {
+      ...BrokerFields
+    }
+  }
+`)
+
+export const brokerQuery = graphql(`
+  query Broker($cluster: String!, $id: Int!) {
+    broker(cluster: $cluster, id: $id) {
+      ...BrokerFields
+    }
+  }
+`)
+
+export const brokerConfigsQuery = graphql(`
+  query BrokerConfigs($cluster: String!, $id: Int!) {
+    brokerConfigs(cluster: $cluster, id: $id) {
+      ...ConfigEntryFields
+    }
+  }
+`)
+
+export const topicsQuery = graphql(`
+  query Topics($cluster: String!) {
+    topics(cluster: $cluster) {
+      ...TopicFields
+    }
+  }
+`)
+
+export const topicQuery = graphql(`
+  query Topic($cluster: String!, $name: String!) {
+    topic(cluster: $cluster, name: $name) {
+      ...TopicFields
+    }
+  }
+`)
+
+export const topicConfigsQuery = graphql(`
+  query TopicConfigs($cluster: String!, $name: String!) {
+    topicConfigs(cluster: $cluster, name: $name) {
+      ...ConfigEntryFields
+    }
+  }
+`)
+
+export const consumerGroupsQuery = graphql(`
+  query ConsumerGroups($cluster: String!) {
+    consumerGroups(cluster: $cluster) {
+      ...ConsumerGroupFields
+    }
+  }
+`)
+
+export const consumerGroupQuery = graphql(`
+  query ConsumerGroup($cluster: String!, $id: String!) {
+    consumerGroup(cluster: $cluster, id: $id) {
+      ...ConsumerGroupFields
+    }
+  }
+`)
+
+export const clusterThroughputQuery = graphql(`
+  query ClusterThroughput($cluster: String!) {
+    clusterThroughput(cluster: $cluster) {
+      ...ThroughputPointFields
+    }
+  }
+`)
+
+export const topicThroughputQuery = graphql(`
+  query TopicThroughput($cluster: String!, $topic: String!) {
+    topicThroughput(cluster: $cluster, topic: $topic) {
+      ...ThroughputPointFields
+    }
+  }
+`)
+
+export const schemaSubjectsQuery = graphql(`
+  query SchemaSubjects($cluster: String!) {
+    schemaSubjects(cluster: $cluster) {
+      ...SchemaSubjectFields
+    }
+  }
+`)
+
+export const aclsQuery = graphql(`
+  query Acls($cluster: String!) {
+    acls(cluster: $cluster) {
+      ...AclFields
+    }
+  }
+`)
+
+export const recordsQuery = graphql(`
+  query Records($query: RecordQuery!) {
+    records(query: $query) {
+      ...TopicRecordFields
+    }
+  }
+`)
+
+export const searchQuery = graphql(`
+  query Search($cluster: String!, $term: String!) {
+    search(cluster: $cluster, term: $term) {
+      ...SearchResultFields
+    }
+  }
+`)
