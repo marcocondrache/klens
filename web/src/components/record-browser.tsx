@@ -49,16 +49,20 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
   const [term, setTerm] = useState("")
   const [limit, setLimit] = useState("50")
   const [order, setOrder] = useState<RecordOrder>("NEWEST")
+  const [page, setPage] = useState(0)
   const [selected, setSelected] = useState<TopicRecord | null>(null)
 
-  const { data: records = [], isFetching } = useRecords({
+  const { data, isFetching } = useRecords({
     cluster,
     topic: topic.name,
     partition: partition === "all" ? null : Number(partition),
     search: term,
     limit: Number(limit),
     order,
+    page,
   })
+  const records = data?.records ?? []
+  const hasMore = data?.hasMore ?? false
 
   const columns: Array<Column<TopicRecord>> = [
     {
@@ -134,12 +138,21 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
           </InputGroupAddon>
           <InputGroupInput
             value={term}
-            onChange={(event) => setTerm(event.target.value)}
+            onChange={(event) => {
+              setTerm(event.target.value)
+              setPage(0)
+            }}
             placeholder="Search key or value…"
           />
         </InputGroup>
 
-        <Select value={partition} onValueChange={(value) => setPartition(String(value))}>
+        <Select
+          value={partition}
+          onValueChange={(value) => {
+            setPartition(String(value))
+            setPage(0)
+          }}
+        >
           <SelectTrigger size="sm" className="w-36">
             <SelectValue placeholder="Partition" />
           </SelectTrigger>
@@ -153,7 +166,13 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
           </SelectContent>
         </Select>
 
-        <Select value={order} onValueChange={(value) => setOrder(value as RecordOrder)}>
+        <Select
+          value={order}
+          onValueChange={(value) => {
+            setOrder(value as RecordOrder)
+            setPage(0)
+          }}
+        >
           <SelectTrigger size="sm" className="w-36">
             <SelectValue />
           </SelectTrigger>
@@ -163,7 +182,13 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
           </SelectContent>
         </Select>
 
-        <Select value={limit} onValueChange={(value) => setLimit(String(value))}>
+        <Select
+          value={limit}
+          onValueChange={(value) => {
+            setLimit(String(value))
+            setPage(0)
+          }}
+        >
           <SelectTrigger size="sm" className="w-28">
             <SelectValue />
           </SelectTrigger>
@@ -187,6 +212,9 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
         rowKey={(record) => `${record.partition}-${record.offset}`}
         loading={isFetching && records.length === 0}
         pageSize={Number(limit)}
+        page={page}
+        hasMore={hasMore}
+        onPageChange={setPage}
         onRowClick={setSelected}
         emptyState={
           <Empty className="py-10">

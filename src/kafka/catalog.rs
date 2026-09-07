@@ -190,29 +190,51 @@ pub fn clamp_record_limit(limit: i32) -> Result<usize, String> {
     Ok((limit as usize).min(MAX_RECORD_LIMIT))
 }
 
+pub fn clamp_record_page(page: i32) -> Result<usize, String> {
+    if page < 0 {
+        return Err("page must be at least 0".into());
+    }
+
+    Ok(page as usize)
+}
+
+fn window_span(partition_count: usize, limit: usize, searching: bool, page: usize) -> (i64, i64) {
+    let n = partition_count.max(1);
+    let multiplier = if searching { 8 } else { 2 };
+    let take = (limit.saturating_mul(multiplier)).div_ceil(n).max(4) as i64;
+    let skip = (page.saturating_mul(limit)).div_ceil(n) as i64;
+    (skip, take)
+}
+
 pub fn plan_windows(
     partitions: &[i32],
     watermarks: &HashMap<i32, Watermarks>,
     order: RecordOrder,
     limit: usize,
     searching: bool,
+    page: usize,
 ) -> Vec<PartitionWindow> {
-    let n = partitions.len().max(1);
-    let multiplier = if searching { 8 } else { 2 };
-    let window = (limit.saturating_mul(multiplier)).div_ceil(n).max(4) as i64;
+    let (skip, window) = window_span(partitions.len(), limit, searching, page);
 
     partitions
         .iter()
         .filter_map(|partition| {
             let marks = watermarks.get(partition)?;
-            let take = window.min(marks.available());
+            let remaining = (marks.available() - skip).max(0);
+            let take = window.min(remaining);
             if take == 0 {
                 return None;
             }
 
             let (start, end) = match order {
-                RecordOrder::Newest => (marks.high - take, marks.high),
-                RecordOrder::Oldest => (marks.low, marks.low + take),
+                RecordOrder::Newest => {
+                    let end = marks.high - skip;
+                    (end - take, end)
+                }
+                RecordOrder::Oldest => {
+                    let start = marks.low + skip;
+                    (start, start + take)
+                }
             };
 
             Some(PartitionWindow {
@@ -224,11 +246,25 @@ pub fn plan_windows(
         .collect()
 }
 
+pub fn plan_has_more(
+    partitions: &[i32],
+    watermarks: &HashMap<i32, Watermarks>,
+    limit: usize,
+    page: usize,
+) -> bool {
+    let available: i64 = partitions
+        .iter()
+        .filter_map(|partition| watermarks.get(partition).map(|marks| marks.available()))
+        .sum();
+    ((page + 1).saturating_mul(limit) as i64) < available
+}
+
 pub fn plan_records(
     query: &RecordQuery,
     topic: &TopicMetadata,
     watermarks: &HashMap<i32, Watermarks>,
     limit: usize,
+    page: usize,
 ) -> FetchPlan {
     let partitions = match query.partition {
         Some(id) => vec![id],
@@ -242,10 +278,11 @@ pub fn plan_records(
 
     FetchPlan {
         topic: query.topic.clone(),
-        windows: plan_windows(&partitions, watermarks, query.order, limit, searching),
+        windows: plan_windows(&partitions, watermarks, query.order, limit, searching, page),
         search: query.search.trim().to_ascii_lowercase(),
         limit,
         order: query.order,
+        has_more: plan_has_more(&partitions, watermarks, limit, page),
     }
 }
 
@@ -448,7 +485,7 @@ mod tests {
         let mut watermarks = HashMap::new();
         watermarks.insert(0, Watermarks { low: 10, high: 40 });
 
-        let windows = plan_windows(&[0], &watermarks, RecordOrder::Newest, 5, false);
+        let windows = plan_windows(&[0], &watermarks, RecordOrder::Newest, 5, false, 0);
         assert_eq!(
             windows,
             vec![PartitionWindow {
@@ -457,6 +494,7 @@ mod tests {
                 end: 40,
             }]
         );
+        assert!(plan_has_more(&[0], &watermarks, 5, 0));
     }
 
     #[test]
@@ -464,13 +502,75 @@ mod tests {
         let mut watermarks = HashMap::new();
         watermarks.insert(0, Watermarks { low: 10, high: 40 });
 
-        let windows = plan_windows(&[0], &watermarks, RecordOrder::Oldest, 5, false);
+        let windows = plan_windows(&[0], &watermarks, RecordOrder::Oldest, 5, false, 0);
         assert_eq!(
             windows,
             vec![PartitionWindow {
                 partition: 0,
                 start: 10,
                 end: 20,
+            }]
+        );
+        assert!(plan_has_more(&[0], &watermarks, 5, 0));
+    }
+
+    #[test]
+    fn newest_window_on_later_page_moves_back_from_the_high_watermark() {
+        let mut watermarks = HashMap::new();
+        watermarks.insert(0, Watermarks { low: 10, high: 40 });
+
+        let windows = plan_windows(&[0], &watermarks, RecordOrder::Newest, 5, false, 1);
+        assert_eq!(
+            windows,
+            vec![PartitionWindow {
+                partition: 0,
+                start: 25,
+                end: 35,
+            }]
+        );
+        assert!(plan_has_more(&[0], &watermarks, 5, 1));
+    }
+
+    #[test]
+    fn oldest_window_on_later_page_moves_forward_from_the_low_watermark() {
+        let mut watermarks = HashMap::new();
+        watermarks.insert(0, Watermarks { low: 10, high: 40 });
+
+        let windows = plan_windows(&[0], &watermarks, RecordOrder::Oldest, 5, false, 1);
+        assert_eq!(
+            windows,
+            vec![PartitionWindow {
+                partition: 0,
+                start: 15,
+                end: 25,
+            }]
+        );
+        assert!(plan_has_more(&[0], &watermarks, 5, 1));
+    }
+
+    #[test]
+    fn page_past_available_records_yields_no_windows() {
+        let mut watermarks = HashMap::new();
+        watermarks.insert(0, Watermarks { low: 10, high: 40 });
+
+        let windows = plan_windows(&[0], &watermarks, RecordOrder::Newest, 5, false, 6);
+        assert!(windows.is_empty());
+        assert!(!plan_has_more(&[0], &watermarks, 5, 6));
+    }
+
+    #[test]
+    fn first_page_has_more_when_returned_limit_is_below_log_size() {
+        let mut watermarks = HashMap::new();
+        watermarks.insert(0, Watermarks { low: 0, high: 10 });
+
+        assert!(plan_has_more(&[0], &watermarks, 5, 0));
+        assert!(!plan_has_more(&[0], &watermarks, 5, 1));
+        assert_eq!(
+            plan_windows(&[0], &watermarks, RecordOrder::Oldest, 5, false, 1),
+            vec![PartitionWindow {
+                partition: 0,
+                start: 5,
+                end: 10,
             }]
         );
     }

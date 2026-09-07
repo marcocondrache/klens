@@ -20,7 +20,7 @@ pub use error::KafkaError;
 pub use handle::ClusterHandle;
 pub use model::{
     Broker, ClusterHealth, ClusterIdentity, ClusterOverview, ConfigEntry, ConsumerGroup, Record,
-    RecordQuery, SearchHit, Topic,
+    RecordPage, RecordQuery, SearchHit, Topic,
 };
 pub use registry::ClusterRegistry;
 pub use session::ClusterSession;

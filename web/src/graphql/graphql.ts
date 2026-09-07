@@ -56,6 +56,7 @@ export type RecordQuery = {
   cluster: string;
   limit: number;
   order: RecordOrder;
+  page: number | null | undefined;
   partition: number | null | undefined;
   search: string;
   topic: string;
@@ -221,7 +222,7 @@ export type RecordsQueryVariables = Exact<{
 }>;
 
 
-export type RecordsQuery = { records: Array<{ topic: string, partition: number, offset: number, timestamp: number, key: string | null, value: string | null, sizeBytes: number, compression: Compression, headers: Array<{ key: string, value: string }> }> };
+export type RecordsQuery = { records: { hasMore: boolean, records: Array<{ topic: string, partition: number, offset: number, timestamp: number, key: string | null, value: string | null, sizeBytes: number, compression: Compression, headers: Array<{ key: string, value: string }> }> } };
 
 export type SearchQueryVariables = Exact<{
   cluster: string;
@@ -770,7 +771,10 @@ export const AclsDocument = new TypedDocumentString(`
 export const RecordsDocument = new TypedDocumentString(`
     query Records($query: RecordQuery!) {
   records(query: $query) {
-    ...TopicRecordFields
+    records {
+      ...TopicRecordFields
+    }
+    hasMore
   }
 }
     fragment RecordHeaderFields on RecordHeader {

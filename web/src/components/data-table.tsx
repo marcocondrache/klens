@@ -43,6 +43,9 @@ interface DataTableProps<T> {
   emptyState?: ReactNode
   defaultSort?: { id: string; direction: Direction }
   pageSize?: number
+  page?: number
+  hasMore?: boolean
+  onPageChange?: (page: number) => void
 }
 
 export function DataTable<T>({
@@ -55,9 +58,13 @@ export function DataTable<T>({
   emptyState,
   defaultSort,
   pageSize = 25,
+  page,
+  hasMore = false,
+  onPageChange,
 }: DataTableProps<T>) {
   const [sort, setSort] = useState<{ id: string; direction: Direction } | null>(defaultSort ?? null)
-  const [page, setPage] = useState(0)
+  const [localPage, setLocalPage] = useState(0)
+  const serverPaging = onPageChange != null
 
   const sorted = useMemo(() => {
     if (!sort) return rows
@@ -80,13 +87,24 @@ export function DataTable<T>({
   }, [rows, sort, columns])
 
   const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize))
-  const current = Math.min(page, pageCount - 1)
-  const visible = sorted.slice(current * pageSize, current * pageSize + pageSize)
+  const current = serverPaging ? (page ?? 0) : Math.min(localPage, pageCount - 1)
+  const visible = serverPaging
+    ? sorted
+    : sorted.slice(current * pageSize, current * pageSize + pageSize)
+  const showPager = serverPaging ? current > 0 || hasMore : pageCount > 1
+
+  function goToPage(next: number) {
+    if (onPageChange) {
+      onPageChange(next)
+      return
+    }
+    setLocalPage(next)
+  }
 
   function toggleSort(column: Column<T>) {
     if (!column.sortValue) return
 
-    setPage(0)
+    if (!serverPaging) setLocalPage(0)
     setSort((previous) => {
       if (previous?.id !== column.id) return { id: column.id, direction: "asc" }
       if (previous.direction === "asc") return { id: column.id, direction: "desc" }
@@ -176,30 +194,33 @@ export function DataTable<T>({
         </Table>
       </div>
 
-      {pageCount > 1 ? (
+      {showPager ? (
         <div className="flex items-center justify-between px-1 text-xs text-muted-foreground">
           <span className="numeric">
-            {current * pageSize + 1}–{Math.min(sorted.length, (current + 1) * pageSize)} of{" "}
-            {sorted.length}
+            {current * pageSize + (visible.length > 0 ? 1 : 0)}
+            {visible.length > 0 ? `–${current * pageSize + visible.length}` : ""}
+            {serverPaging ? (hasMore ? "+" : "") : ` of ${sorted.length}`}
           </span>
           <div className="flex items-center gap-1">
             <Button
               variant="outline"
               size="icon-xs"
               disabled={current === 0}
-              onClick={() => setPage(current - 1)}
+              onClick={() => goToPage(current - 1)}
               aria-label="Previous page"
             >
               <ChevronLeftIcon />
             </Button>
             <span className="numeric px-2">
-              {current + 1} / {pageCount}
+              {serverPaging
+                ? `Page ${current + 1}`
+                : `${current + 1} / ${pageCount}`}
             </span>
             <Button
               variant="outline"
               size="icon-xs"
-              disabled={current >= pageCount - 1}
-              onClick={() => setPage(current + 1)}
+              disabled={serverPaging ? !hasMore : current >= pageCount - 1}
+              onClick={() => goToPage(current + 1)}
               aria-label="Next page"
             >
               <ChevronRightIcon />
