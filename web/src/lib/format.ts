@@ -41,6 +41,13 @@ export function formatCount(value: number, digits = 1) {
   return `${scaled.toFixed(scaled >= 100 ? 0 : digits)}${COUNT_UNITS[exponent]}`
 }
 
+export function formatThroughput(value: number, digits = 1) {
+  if (value <= 0) return "0"
+  if (value < 10) return value.toFixed(digits)
+  if (value < 1000) return String(Math.round(value))
+  return formatCount(value, digits)
+}
+
 export function formatNumber(value: number) {
   return value.toLocaleString("en-US")
 }

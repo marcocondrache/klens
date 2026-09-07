@@ -25,6 +25,7 @@ import {
   formatCount,
   formatDuration,
   formatNumber,
+  formatThroughput,
   isCompactCleanup,
 } from "@/lib/format"
 import type { ConsumerGroup, Partition } from "@/lib/api/types"
@@ -247,7 +248,7 @@ export function TopicPage() {
         />
         <Stat
           label="Produce rate"
-          value={`${formatCount(topic?.messagesPerSec ?? 0)}/s`}
+          value={`${formatThroughput(topic?.messagesPerSec ?? 0)}/s`}
           icon={<GaugeIcon />}
           loading={isPending}
           accent
