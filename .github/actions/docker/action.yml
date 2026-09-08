@@ -17,12 +17,31 @@ runs:
   using: composite
   steps:
     - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+      id: buildx
 
     - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
         password: ${{ inputs.gh-token }}
+
+    # `cache-to: type=gha` stores image layers only. Cargo's registry/git/target
+    # live in BuildKit cache mounts, which are discarded with the ephemeral
+    # builder unless they are injected and extracted around the build.
+    - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      id: cache
+      with:
+        path: cache-mount
+        key: docker-cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+        restore-keys: |
+          docker-cargo-${{ runner.os }}-
+
+    - uses: reproducible-containers/buildkit-cache-dance@5422eac04292c961a382e0f584ea0f03ad9da723 # v3.4.0
+      with:
+        builder: ${{ steps.buildx.outputs.name }}
+        cache-dir: cache-mount
+        dockerfile: Dockerfile
+        skip-extraction: ${{ steps.cache.outputs.cache-hit }}
 
     - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
       with:
@@ -31,7 +50,5 @@ runs:
         tags: |
           ${{ inputs.image }}:${{ inputs.version }}
           ${{ inputs.image }}:latest
-        # Layer cache only. BuildKit cache mounts are not stored here; cargo
-        # dependency artifacts must live in an image layer (see Dockerfile).
-        cache-from: type=gha,scope=klens
-        cache-to: type=gha,mode=max,scope=klens
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
