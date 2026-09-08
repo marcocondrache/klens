@@ -1,9 +1,9 @@
-import { useState } from "react"
-import { CheckIcon, CopyIcon } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { useState } from "react";
+import { CheckIcon, CopyIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
 
-import { Button } from "@/components/ui/button"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export function CopyButton({
   value,
@@ -11,22 +11,22 @@ export function CopyButton({
   className,
   size = "icon-xs",
 }: {
-  value: string
-  label?: string
-  className?: string
-  size?: "icon-xs" | "icon-sm" | "icon"
+  value: string;
+  label?: string;
+  className?: string;
+  size?: "icon-xs" | "icon-sm" | "icon";
 }) {
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied] = useState(false);
 
   async function copy() {
     try {
-      await navigator.clipboard.writeText(value)
+      await navigator.clipboard.writeText(value);
     } catch {
-      return
+      return;
     }
 
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1200)
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1200);
   }
 
   return (
@@ -46,5 +46,5 @@ export function CopyButton({
       </TooltipTrigger>
       <TooltipContent>{copied ? "Copied" : label}</TooltipContent>
     </Tooltip>
-  )
+  );
 }

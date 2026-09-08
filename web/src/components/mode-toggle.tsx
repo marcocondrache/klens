@@ -1,12 +1,12 @@
-import { MoonIcon, SunIcon } from "lucide-react"
-import { useTheme } from "next-themes"
+import { MoonIcon, SunIcon } from "lucide-react";
+import { useTheme } from "next-themes";
 
-import { Button } from "@/components/ui/button"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export function ModeToggle() {
-  const { resolvedTheme, setTheme } = useTheme()
-  const dark = resolvedTheme !== "light"
+  const { resolvedTheme, setTheme } = useTheme();
+  const dark = resolvedTheme !== "light";
 
   return (
     <Tooltip>
@@ -24,5 +24,5 @@ export function ModeToggle() {
       </TooltipTrigger>
       <TooltipContent>{dark ? "Light mode" : "Dark mode"}</TooltipContent>
     </Tooltip>
-  )
+  );
 }

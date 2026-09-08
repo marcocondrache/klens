@@ -1,23 +1,28 @@
-import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts"
-import { cn } from "@/lib/utils"
+import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import { cn } from "@/lib/utils";
 
-import { ChartContainer, ChartTooltip, type ChartConfig } from "@/components/ui/chart"
-import { formatBytes, formatRate, formatTime } from "@/lib/format"
-import type { ThroughputPoint } from "@/lib/api/types"
+import { ChartContainer, ChartTooltip, type ChartConfig } from "@/components/ui/chart";
+import { formatBytes, formatRate, formatTime } from "@/lib/format";
+import type { ThroughputPoint } from "@/lib/api/types";
 
 const THROUGHPUT_CONFIG = {
   bytesIn: { label: "Bytes in", color: "var(--chart-1)" },
   bytesOut: { label: "Bytes out", color: "var(--chart-2)" },
-} satisfies ChartConfig
+} satisfies ChartConfig;
 
 interface TooltipPayload {
-  active?: boolean
-  label?: string | number
-  payload?: Array<{ dataKey?: string | number; name?: string | number; value?: number; color?: string }>
+  active?: boolean;
+  label?: string | number;
+  payload?: Array<{
+    dataKey?: string | number;
+    name?: string | number;
+    value?: number;
+    color?: string;
+  }>;
 }
 
 function ThroughputTooltip({ active, label, payload }: TooltipPayload) {
-  if (!active || !payload?.length) return null
+  if (!active || !payload?.length) return null;
 
   return (
     <div className="min-w-40 rounded-lg border bg-popover/95 p-2.5 text-xs shadow-md backdrop-blur">
@@ -34,15 +39,15 @@ function ThroughputTooltip({ active, label, payload }: TooltipPayload) {
         ))}
       </div>
     </div>
-  )
+  );
 }
 
 export function ThroughputChart({
   data,
   className,
 }: {
-  data: ThroughputPoint[]
-  className?: string
+  data: ThroughputPoint[];
+  className?: string;
 }) {
   return (
     <ChartContainer config={THROUGHPUT_CONFIG} className={cn("h-56 w-full", className)}>
@@ -92,12 +97,12 @@ export function ThroughputChart({
         />
       </AreaChart>
     </ChartContainer>
-  )
+  );
 }
 
 const SPARK_CONFIG = {
   messages: { label: "Messages", color: "var(--brand)" },
-} satisfies ChartConfig
+} satisfies ChartConfig;
 
 export function Sparkline({ data, className }: { data: ThroughputPoint[]; className?: string }) {
   return (
@@ -120,5 +125,5 @@ export function Sparkline({ data, className }: { data: ThroughputPoint[]; classN
         />
       </AreaChart>
     </ChartContainer>
-  )
+  );
 }

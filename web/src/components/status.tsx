@@ -1,9 +1,9 @@
-import type { ReactNode } from "react"
-import { cn } from "@/lib/utils"
+import type { ReactNode } from "react";
+import { cn } from "@/lib/utils";
 
-import type { ClusterStatus, ConsumerGroupState } from "@/lib/api/types"
-import { formatEnumLabel } from "@/lib/format"
-import type { Tone } from "@/lib/tone"
+import type { ClusterStatus, ConsumerGroupState } from "@/lib/api/types";
+import { formatEnumLabel } from "@/lib/format";
+import type { Tone } from "@/lib/tone";
 
 const TONE_DOT: Record<Tone, string> = {
   ok: "bg-emerald-500",
@@ -11,7 +11,7 @@ const TONE_DOT: Record<Tone, string> = {
   error: "bg-rose-500",
   idle: "bg-muted-foreground/60",
   brand: "bg-brand",
-}
+};
 
 const TONE_PILL: Record<Tone, string> = {
   ok: "border-emerald-500/25 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
@@ -19,17 +19,19 @@ const TONE_PILL: Record<Tone, string> = {
   error: "border-rose-500/25 bg-rose-500/10 text-rose-600 dark:text-rose-400",
   idle: "border-border bg-muted/60 text-muted-foreground",
   brand: "border-brand/25 bg-brand/10 text-brand",
-}
+};
 
 export function StatusDot({ tone, pulse = false }: { tone: Tone; pulse?: boolean }) {
   return (
     <span className="relative inline-flex size-2 shrink-0">
       {pulse ? (
-        <span className={cn("absolute inset-0 animate-ping rounded-full opacity-60", TONE_DOT[tone])} />
+        <span
+          className={cn("absolute inset-0 animate-ping rounded-full opacity-60", TONE_DOT[tone])}
+        />
       ) : null}
       <span className={cn("relative size-2 rounded-full", TONE_DOT[tone])} />
     </span>
-  )
+  );
 }
 
 export function Pill({
@@ -37,9 +39,9 @@ export function Pill({
   children,
   className,
 }: {
-  tone?: Tone
-  children: ReactNode
-  className?: string
+  tone?: Tone;
+  children: ReactNode;
+  className?: string;
 }) {
   return (
     <span
@@ -51,14 +53,14 @@ export function Pill({
     >
       {children}
     </span>
-  )
+  );
 }
 
 const CLUSTER_TONE: Record<ClusterStatus, Tone> = {
   HEALTHY: "ok",
   DEGRADED: "warn",
   OFFLINE: "error",
-}
+};
 
 export function ClusterStatusBadge({ status }: { status: ClusterStatus }) {
   return (
@@ -66,7 +68,7 @@ export function ClusterStatusBadge({ status }: { status: ClusterStatus }) {
       <StatusDot tone={CLUSTER_TONE[status]} pulse={status !== "OFFLINE"} />
       {formatEnumLabel(status)}
     </Pill>
-  )
+  );
 }
 
 const GROUP_TONE: Record<ConsumerGroupState, Tone> = {
@@ -75,7 +77,7 @@ const GROUP_TONE: Record<ConsumerGroupState, Tone> = {
   PREPARING_REBALANCE: "warn",
   COMPLETING_REBALANCE: "warn",
   DEAD: "error",
-}
+};
 
 export function GroupStateBadge({ state }: { state: ConsumerGroupState }) {
   return (
@@ -83,6 +85,5 @@ export function GroupStateBadge({ state }: { state: ConsumerGroupState }) {
       <StatusDot tone={GROUP_TONE[state]} />
       {formatEnumLabel(state)}
     </Pill>
-  )
+  );
 }
-

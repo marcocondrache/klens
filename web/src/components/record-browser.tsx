@@ -1,5 +1,5 @@
-import { useState } from "react"
-import { ClockIcon, SearchIcon } from "lucide-react"
+import { useState } from "react";
+import { ClockIcon, SearchIcon } from "lucide-react";
 
 import {
   Empty,
@@ -7,60 +7,56 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-} from "@/components/ui/empty"
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from "@/components/ui/input-group"
+} from "@/components/ui/empty";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select"
+} from "@/components/ui/select";
 import {
   Sheet,
   SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
-} from "@/components/ui/sheet"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { DataTable, type Column } from "@/components/data-table"
-import { PayloadView } from "@/components/payload-view"
-import { Pill } from "@/components/status"
-import { useRecords } from "@/lib/api/queries"
-import { formatBytes, formatRelative, formatTimestamp } from "@/lib/format"
-import type { RecordOrder, Topic, TopicRecord } from "@/lib/api/types"
-import { cn } from "@/lib/utils"
+} from "@/components/ui/sheet";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { DataTable, type Column } from "@/components/data-table";
+import { PayloadView } from "@/components/payload-view";
+import { Pill } from "@/components/status";
+import { useRecords } from "@/lib/api/queries";
+import { formatBytes, formatRelative, formatTimestamp } from "@/lib/format";
+import type { RecordOrder, Topic, TopicRecord } from "@/lib/api/types";
+import { cn } from "@/lib/utils";
 
-const LIMITS = ["25", "50", "100"] as const
+const LIMITS = ["25", "50", "100"] as const;
 
 const ORDER_ITEMS = [
   { value: "NEWEST", label: "Newest first" },
   { value: "OLDEST", label: "Oldest first" },
-] as const
+] as const;
 
 const LIMIT_ITEMS = LIMITS.map((value) => ({
   value,
   label: `${value} rows`,
-}))
+}));
 
 function preview(value: string | null) {
-  if (!value) return "—"
-  return value.replace(/\s+/g, " ").trim()
+  if (!value) return "—";
+  return value.replace(/\s+/g, " ").trim();
 }
 
 export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topic }) {
-  const [partition, setPartition] = useState<string>("all")
-  const [term, setTerm] = useState("")
-  const [limit, setLimit] = useState("50")
-  const [order, setOrder] = useState<RecordOrder>("NEWEST")
-  const [page, setPage] = useState(0)
-  const [selected, setSelected] = useState<TopicRecord | null>(null)
-  const [expanded, setExpanded] = useState(false)
+  const [partition, setPartition] = useState<string>("all");
+  const [term, setTerm] = useState("");
+  const [limit, setLimit] = useState("50");
+  const [order, setOrder] = useState<RecordOrder>("NEWEST");
+  const [page, setPage] = useState(0);
+  const [selected, setSelected] = useState<TopicRecord | null>(null);
+  const [expanded, setExpanded] = useState(false);
 
   const { data, isFetching } = useRecords({
     cluster,
@@ -70,16 +66,16 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
     limit: Number(limit),
     order,
     page,
-  })
-  const records = data?.records ?? []
-  const hasMore = data?.hasMore ?? false
+  });
+  const records = data?.records ?? [];
+  const hasMore = data?.hasMore ?? false;
   const partitionItems = [
     { value: "all", label: "All partitions" },
     ...topic.partitions.map((part) => ({
       value: String(part.id),
       label: `Partition ${part.id}`,
     })),
-  ]
+  ];
 
   const columns: Array<Column<TopicRecord>> = [
     {
@@ -144,7 +140,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
         </Tooltip>
       ),
     },
-  ]
+  ];
 
   return (
     <div className="space-y-3">
@@ -156,8 +152,8 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
           <InputGroupInput
             value={term}
             onChange={(event) => {
-              setTerm(event.target.value)
-              setPage(0)
+              setTerm(event.target.value);
+              setPage(0);
             }}
             placeholder="Search key or value…"
           />
@@ -167,8 +163,8 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
           value={partition}
           items={partitionItems}
           onValueChange={(value) => {
-            setPartition(String(value))
-            setPage(0)
+            setPartition(String(value));
+            setPage(0);
           }}
         >
           <SelectTrigger size="sm" className="w-40">
@@ -187,8 +183,8 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
           value={order}
           items={ORDER_ITEMS}
           onValueChange={(value) => {
-            setOrder(value as RecordOrder)
-            setPage(0)
+            setOrder(value as RecordOrder);
+            setPage(0);
           }}
         >
           <SelectTrigger size="sm" className="w-36">
@@ -207,8 +203,8 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
           value={limit}
           items={LIMIT_ITEMS}
           onValueChange={(value) => {
-            setLimit(String(value))
-            setPage(0)
+            setLimit(String(value));
+            setPage(0);
           }}
         >
           <SelectTrigger size="sm" className="w-28">
@@ -259,8 +255,8 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
         open={selected !== null}
         onOpenChange={(open) => {
           if (!open) {
-            setSelected(null)
-            setExpanded(false)
+            setSelected(null);
+            setExpanded(false);
           }
         }}
       >
@@ -353,7 +349,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
         </SheetContent>
       </Sheet>
     </div>
-  )
+  );
 }
 
 function Meta({ label, value }: { label: string; value: React.ReactNode }) {
@@ -362,5 +358,5 @@ function Meta({ label, value }: { label: string; value: React.ReactNode }) {
       <p className="text-[0.7rem] tracking-wider text-muted-foreground uppercase">{label}</p>
       <p className="numeric mt-0.5 font-mono text-xs">{value}</p>
     </div>
-  )
+  );
 }

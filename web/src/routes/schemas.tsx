@@ -1,41 +1,37 @@
-import { useMemo, useState } from "react"
-import { SearchIcon } from "lucide-react"
-import { useSearchParams } from "react-router"
+import { useMemo, useState } from "react";
+import { SearchIcon } from "lucide-react";
+import { useSearchParams } from "react-router";
 
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from "@/components/ui/input-group"
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import {
   Sheet,
   SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
-} from "@/components/ui/sheet"
-import { CopyButton } from "@/components/copy-button"
-import { DataTable, type Column } from "@/components/data-table"
-import { JsonBlock } from "@/components/json-block"
-import { PageHeader } from "@/components/page-header"
-import { Pill } from "@/components/status"
-import { useSchemaSubjects } from "@/lib/api/queries"
-import { useClusterName } from "@/lib/clusters"
-import type { SchemaSubject } from "@/lib/api/types"
+} from "@/components/ui/sheet";
+import { CopyButton } from "@/components/copy-button";
+import { DataTable, type Column } from "@/components/data-table";
+import { JsonBlock } from "@/components/json-block";
+import { PageHeader } from "@/components/page-header";
+import { Pill } from "@/components/status";
+import { useSchemaSubjects } from "@/lib/api/queries";
+import { useClusterName } from "@/lib/clusters";
+import type { SchemaSubject } from "@/lib/api/types";
 
 export function SchemasPage() {
-  const cluster = useClusterName()
-  const [params, setParams] = useSearchParams()
-  const [selected, setSelected] = useState<SchemaSubject | null>(null)
+  const cluster = useClusterName();
+  const [params, setParams] = useSearchParams();
+  const [selected, setSelected] = useState<SchemaSubject | null>(null);
 
-  const term = params.get("q") ?? ""
-  const { data: subjects = [], isPending, isError, error } = useSchemaSubjects(cluster)
+  const term = params.get("q") ?? "";
+  const { data: subjects = [], isPending, isError, error } = useSchemaSubjects(cluster);
 
   const rows = useMemo(() => {
-    const needle = term.trim().toLowerCase()
-    if (!needle) return subjects
-    return subjects.filter((subject) => subject.subject.toLowerCase().includes(needle))
-  }, [subjects, term])
+    const needle = term.trim().toLowerCase();
+    if (!needle) return subjects;
+    return subjects.filter((subject) => subject.subject.toLowerCase().includes(needle));
+  }, [subjects, term]);
 
   const columns: Array<Column<SchemaSubject>> = [
     {
@@ -62,9 +58,7 @@ export function SchemasPage() {
       header: "Latest version",
       align: "right",
       sortValue: (subject) => subject.latestVersion,
-      cell: (subject) => (
-        <span className="numeric font-mono">v{subject.latestVersion}</span>
-      ),
+      cell: (subject) => <span className="numeric font-mono">v{subject.latestVersion}</span>,
     },
     {
       id: "versions",
@@ -84,14 +78,11 @@ export function SchemasPage() {
         </Pill>
       ),
     },
-  ]
+  ];
 
   return (
     <div className="space-y-5">
-      <PageHeader
-        title="Schema registry"
-        description={`${rows.length} subjects registered`}
-      />
+      <PageHeader title="Schema registry" description={`${rows.length} subjects registered`} />
 
       <InputGroup className="w-full max-w-sm">
         <InputGroupAddon>
@@ -100,13 +91,13 @@ export function SchemasPage() {
         <InputGroupInput
           value={term}
           onChange={(event) => {
-            const next = new URLSearchParams(params)
+            const next = new URLSearchParams(params);
             if (event.target.value) {
-              next.set("q", event.target.value)
+              next.set("q", event.target.value);
             } else {
-              next.delete("q")
+              next.delete("q");
             }
-            setParams(next, { replace: true })
+            setParams(next, { replace: true });
           }}
           placeholder="Search subjects…"
         />
@@ -117,7 +108,9 @@ export function SchemasPage() {
         rows={rows}
         rowKey={(subject) => subject.subject}
         loading={isPending}
-        error={isError ? (error instanceof Error ? error.message : "Failed to load schemas.") : undefined}
+        error={
+          isError ? (error instanceof Error ? error.message : "Failed to load schemas.") : undefined
+        }
         defaultSort={{ id: "subject", direction: "asc" }}
         onRowClick={setSelected}
       />
@@ -164,5 +157,5 @@ export function SchemasPage() {
         </SheetContent>
       </Sheet>
     </div>
-  )
+  );
 }
