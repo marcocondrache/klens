@@ -36,7 +36,7 @@ auth:
   oidc:
     issuer: https://keycloak.example.com/realms/klens
     client_id: klens
-    client_secret: ${OIDC_CLIENT_SECRET}
+    client_secret: "..."
     redirect_uri: http://localhost:8080/auth/callback
 ```
 
@@ -51,67 +51,6 @@ When omitted, the Schemas page is empty for that cluster.
 ```yaml
 schema_registry:
   url: http://localhost:8081
-  username: ${SCHEMA_REGISTRY_USERNAME}
-  password: ${SCHEMA_REGISTRY_PASSWORD}
+  # username: user
+  # password: secret
 ```
-
-## Secrets
-
-`config.yaml` expands environment variables before it is parsed:
-
-- `${VAR}` or `$VAR` — required; startup fails if the variable is unset
-- `${VAR:-default}` — use `default` when the variable is unset
-- `$$` — a literal `$`
-
-On Kubernetes, keep non-secret config in a ConfigMap and inject credentials
-from a Secret. Do not put passwords in the ConfigMap.
-
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: klens
-data:
-  config.yaml: |
-    bind: 0.0.0.0:8080
-    auth:
-      oidc:
-        issuer: https://keycloak.example.com/realms/klens
-        client_id: klens
-        client_secret: ${OIDC_CLIENT_SECRET}
-        redirect_uri: https://klens.example/auth/callback
-    clusters:
-      - name: prod
-        bootstrap_servers:
-          - kafka:9092
-        security:
-          protocol: SASL_SSL
-          sasl:
-            mechanism: SCRAM-SHA-512
-            username: ${KAFKA_USERNAME}
-            password: ${KAFKA_PASSWORD}
-          tls:
-            ca_cert: /var/run/secrets/klens/ca.pem
-```
-
-```yaml
-env:
-  - name: OIDC_CLIENT_SECRET
-    valueFrom:
-      secretKeyRef:
-        name: klens
-        key: oidc-client-secret
-  - name: KAFKA_USERNAME
-    valueFrom:
-      secretKeyRef:
-        name: klens
-        key: kafka-username
-  - name: KAFKA_PASSWORD
-    valueFrom:
-      secretKeyRef:
-        name: klens
-        key: kafka-password
-```
-
-TLS material is still file paths. Mount those Secret keys as files and leave
-`ca_cert` / `client_cert` / `client_key` pointing at the mount.
