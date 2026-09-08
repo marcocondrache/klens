@@ -26,7 +26,7 @@ function ThroughputTooltip({ active, label, payload }: TooltipPayload) {
 
   return (
     <div className="min-w-40 rounded-lg border bg-popover/95 p-2.5 text-xs shadow-md backdrop-blur">
-      <p className="numeric mb-1.5 font-medium">{formatTime(Number(label))}</p>
+      <p className="numeric mb-1.5 font-medium">{formatTime(label ?? 0)}</p>
       <div className="space-y-1">
         {payload.map((entry) => (
           <div key={String(entry.dataKey)} className="flex items-center justify-between gap-4">
@@ -66,7 +66,7 @@ export function ThroughputChart({
         <CartesianGrid vertical={false} stroke="var(--border)" strokeDasharray="3 3" />
         <XAxis
           dataKey="timestamp"
-          tickFormatter={(value) => formatTime(Number(value)).slice(0, 5)}
+          tickFormatter={(value) => formatTime(value).slice(0, 5)}
           tickLine={false}
           axisLine={false}
           minTickGap={40}

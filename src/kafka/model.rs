@@ -1,3 +1,7 @@
+use std::ops::{Bound, RangeBounds};
+
+use chrono::{DateTime, Utc};
+
 use crate::config::{ClusterConfig, SecurityProtocol};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -355,34 +359,101 @@ pub struct RecordQuery {
     pub topic: String,
     pub partition: Option<i32>,
     pub search: String,
-    pub timestamp_from: Option<i64>,
-    pub timestamp_to: Option<i64>,
+    pub timestamps: TimestampRange,
     pub limit: i32,
     pub order: RecordOrder,
     pub page: i32,
 }
 
-pub fn unix_millis(value: f64) -> Result<i64, String> {
-    if !value.is_finite() {
-        return Err("timestamp must be a finite unix time in milliseconds".into());
-    }
-
-    let truncated = value.trunc();
-    if truncated < i64::MIN as f64 || truncated > i64::MAX as f64 {
-        return Err("timestamp is out of range".into());
-    }
-
-    Ok(truncated as i64)
+/// UTC bounds for a record browse. Either side may be unbounded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TimestampRange {
+    start: Bound<DateTime<Utc>>,
+    end: Bound<DateTime<Utc>>,
 }
 
-pub fn validate_timestamp_range(from: Option<i64>, to: Option<i64>) -> Result<(), String> {
-    if let (Some(from), Some(to)) = (from, to)
-        && from > to
-    {
-        return Err("timestampFrom must not be after timestampTo".into());
+impl TimestampRange {
+    pub const UNBOUNDED: Self = Self {
+        start: Bound::Unbounded,
+        end: Bound::Unbounded,
+    };
+
+    pub fn new(from: Option<DateTime<Utc>>, to: Option<DateTime<Utc>>) -> Result<Self, String> {
+        match (from, to) {
+            (None, None) => Self::UNBOUNDED,
+            (Some(from), None) => Self::from_bounds(from..),
+            (None, Some(to)) => Self::from_bounds(..=to),
+            (Some(from), Some(to)) => Self::from_bounds(from..=to),
+        }
+        .validate()
     }
 
-    Ok(())
+    pub fn from_bounds(range: impl RangeBounds<DateTime<Utc>>) -> Self {
+        Self {
+            start: copy_bound(range.start_bound()),
+            end: copy_bound(range.end_bound()),
+        }
+    }
+
+    pub fn validate(self) -> Result<Self, String> {
+        match (self.start, self.end) {
+            (
+                Bound::Included(from) | Bound::Excluded(from),
+                Bound::Included(to) | Bound::Excluded(to),
+            ) if from > to => Err("timestampFrom must not be after timestampTo".into()),
+            _ => Ok(self),
+        }
+    }
+
+    /// Timestamp for Kafka `offsetsForTimes` at the low bound, if any.
+    pub fn start_seek(self) -> Option<i64> {
+        timestamp_seek(self.start, false)
+    }
+
+    /// Timestamp for Kafka `offsetsForTimes` at the exclusive high bound, if any.
+    pub fn end_seek(self) -> Option<i64> {
+        timestamp_seek(self.end, true)
+    }
+}
+
+impl Default for TimestampRange {
+    fn default() -> Self {
+        Self::UNBOUNDED
+    }
+}
+
+impl RangeBounds<DateTime<Utc>> for TimestampRange {
+    fn start_bound(&self) -> Bound<&DateTime<Utc>> {
+        self.start.as_ref()
+    }
+
+    fn end_bound(&self) -> Bound<&DateTime<Utc>> {
+        self.end.as_ref()
+    }
+}
+
+fn copy_bound(bound: Bound<&DateTime<Utc>>) -> Bound<DateTime<Utc>> {
+    match bound {
+        Bound::Included(value) => Bound::Included(*value),
+        Bound::Excluded(value) => Bound::Excluded(*value),
+        Bound::Unbounded => Bound::Unbounded,
+    }
+}
+
+fn timestamp_seek(bound: Bound<DateTime<Utc>>, is_end: bool) -> Option<i64> {
+    match (bound, is_end) {
+        (Bound::Unbounded, _) => None,
+        (Bound::Included(timestamp), false) | (Bound::Excluded(timestamp), true) => {
+            Some(timestamp.timestamp_millis())
+        }
+        (Bound::Included(timestamp), true) | (Bound::Excluded(timestamp), false) => {
+            Some(timestamp.timestamp_millis().saturating_add(1))
+        }
+    }
+}
+
+pub(crate) fn unix_datetime(ms: i64) -> DateTime<Utc> {
+    DateTime::from_timestamp_millis(ms).unwrap_or(DateTime::UNIX_EPOCH)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

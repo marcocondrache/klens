@@ -249,7 +249,7 @@ export function useTopicRates(cluster: string) {
 
     return subscribe(topicRatesSubscription, { cluster }, (data) => {
       const rates = new Map(data.topicRates.map((rate) => [rate.name, rate]));
-      const timestamp = Date.now();
+      const timestamp = new Date().toISOString();
 
       queryClient.setQueryData(keys.topics(cluster), (topics: Topic[] | undefined) =>
         topics?.map((topic) => withRate(topic, rates.get(topic.name))),
@@ -291,7 +291,7 @@ function withRate(topic: Topic, rate: TopicRate | undefined): Topic {
 
 function appendThroughput(
   points: ThroughputPoint[] | undefined,
-  timestamp: number,
+  timestamp: string,
   messages: number,
 ): ThroughputPoint[] {
   return [...(points ?? []), { timestamp, bytesIn: 0, bytesOut: 0, messages }].slice(-RATE_HISTORY);

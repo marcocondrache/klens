@@ -33,3 +33,5 @@ target
 
 # Cluster configuration may contain credentials
 /config/clusters.yaml
+
+.vendir*

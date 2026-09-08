@@ -19,7 +19,7 @@ pub use engine::QueryEngine;
 pub use error::KafkaError;
 pub use model::{
     Broker, ClusterHealth, ClusterIdentity, ClusterOverview, ConfigEntry, ConsumerGroup, Record,
-    RecordPage, RecordQuery, SearchHit, Topic,
+    RecordPage, RecordQuery, SearchHit, TimestampRange, Topic,
 };
 pub use rates::{RateStore, ThroughputPoint, TopicRate};
 pub use session::ClusterSession;
