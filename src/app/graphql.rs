@@ -337,6 +337,79 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn records_honor_timestamp_bounds() {
+        let state = state();
+        let schema = schema();
+
+        let (value, errors) = execute(
+            r#"{
+                records(query: {
+                    cluster: "local"
+                    topic: "orders.created"
+                    search: ""
+                    timestampFrom: 1700000003000.0
+                    timestampTo: 1700000005000.0
+                    limit: 50
+                    order: OLDEST
+                }) { records { key timestamp } hasMore }
+            }"#,
+            None,
+            &schema,
+            &Variables::new(),
+            &state,
+        )
+        .await
+        .unwrap();
+
+        assert!(errors.is_empty());
+        assert_eq!(
+            serde_json::to_value(value).unwrap(),
+            serde_json::json!({
+                "records": {
+                    "records": [
+                        { "key": "ord_3", "timestamp": 1_700_000_003_000.0 },
+                        { "key": "ord_4", "timestamp": 1_700_000_004_000.0 },
+                        { "key": "ord_5", "timestamp": 1_700_000_005_000.0 }
+                    ],
+                    "hasMore": false
+                }
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn records_reject_inverted_timestamp_range() {
+        let state = state();
+        let schema = schema();
+
+        let (_, errors) = execute(
+            r#"{
+                records(query: {
+                    cluster: "local"
+                    topic: "orders.created"
+                    search: ""
+                    timestampFrom: 2000.0
+                    timestampTo: 1000.0
+                    limit: 10
+                    order: OLDEST
+                }) { records { key } }
+            }"#,
+            None,
+            &schema,
+            &Variables::new(),
+            &state,
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.error().message().contains("timestampFrom"))
+        );
+    }
+
+    #[tokio::test]
     async fn schema_includes_topic_rate_subscription() {
         let sdl = schema().as_sdl();
         assert!(sdl.contains("type Subscription"));

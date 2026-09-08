@@ -40,6 +40,8 @@ export type RecordQuery = {
   page: number | null | undefined;
   partition: number | null | undefined;
   search: string;
+  timestampFrom: number | null | undefined;
+  timestampTo: number | null | undefined;
   topic: string;
 };
 

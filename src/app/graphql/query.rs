@@ -163,8 +163,11 @@ impl Query {
 
     async fn records(context: &AppState, query: RecordQuery) -> FieldResult<RecordPage> {
         let cluster = query.cluster.clone();
+        let query = query
+            .try_into()
+            .map_err(crate::kafka::KafkaError::InvalidQuery)?;
         Ok(RecordPage::from(
-            context.query.records(&cluster, query.into()).await?,
+            context.query.records(&cluster, query).await?,
         ))
     }
 
