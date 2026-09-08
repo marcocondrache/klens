@@ -31,5 +31,7 @@ runs:
         tags: |
           ${{ inputs.image }}:${{ inputs.version }}
           ${{ inputs.image }}:latest
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+        # Layer cache only. BuildKit cache mounts are not stored here; cargo
+        # dependency artifacts must live in an image layer (see Dockerfile).
+        cache-from: type=gha,scope=klens
+        cache-to: type=gha,mode=max,scope=klens
