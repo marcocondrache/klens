@@ -58,16 +58,16 @@ mod tests {
     use crate::kafka::{ClusterSession, FakeCluster, KafkaError, QueryEngine};
 
     struct GrowingCluster {
-        inner: Arc<FakeCluster>,
+        inner: FakeCluster,
         extra: AtomicI64,
     }
 
     impl GrowingCluster {
-        fn new() -> Arc<Self> {
-            Arc::new(Self {
+        fn new() -> Self {
+            Self {
                 inner: FakeCluster::local(),
                 extra: AtomicI64::new(0),
-            })
+            }
         }
     }
 
@@ -128,10 +128,9 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn topic_rates_subscription_emits_watermark_delta() {
-        let state =
-            AppState::new(Arc::new(QueryEngine::from_sessions(vec![
-                Arc::clone(&GrowingCluster::new()) as Arc<dyn ClusterSession>,
-            ])));
+        let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
+            GrowingCluster::new(),
+        ])));
         let coordinator = Coordinator::new(schema());
         let request: GraphQLRequest = serde_json::from_str(
             r#"{ "query": "subscription { topicRates(cluster: \"local\") { name messagesPerSec } }" }"#,

@@ -1,8 +1,7 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 
+use futures::future::join_all;
 use indexmap::IndexMap;
-use tokio::task::JoinSet;
 use tokio::time::timeout;
 
 use crate::config::Config;
@@ -14,115 +13,92 @@ use crate::kafka::catalog::{
 use crate::kafka::error::KafkaError;
 use crate::kafka::handle::ClusterHandle;
 use crate::kafka::model::{
-    Broker, ClusterIdentity, ClusterOverview, ConfigEntry, ConsumerGroup, GroupSnapshot,
-    RecordPage, RecordQuery, SchemaSubject, SearchHit, Topic, Watermarks,
+    Broker, ClusterOverview, ConfigEntry, ConsumerGroup, GroupSnapshot, RecordPage, RecordQuery,
+    SchemaSubject, SearchHit, Topic, Watermarks,
 };
 use crate::kafka::session::ClusterSession;
 
 /// Answers GraphQL catalog and browse queries from [`ClusterSession`]s.
-pub struct QueryEngine {
-    clusters: IndexMap<String, Arc<dyn ClusterSession>>,
+pub struct QueryEngine<S: ?Sized> {
+    registry: IndexMap<String, Box<S>>,
 }
 
-impl std::fmt::Debug for QueryEngine {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("QueryEngine")
-            .field("clusters", &self.names())
-            .finish()
-    }
-}
-
-impl QueryEngine {
+impl QueryEngine<dyn ClusterSession> {
     pub fn from_config(config: &Config) -> Result<Self, KafkaError> {
-        let mut clusters = IndexMap::with_capacity(config.clusters.len());
-        for cluster in &config.clusters {
-            let name = cluster.name.trim().to_owned();
-            let session: Arc<dyn ClusterSession> = Arc::new(ClusterHandle::from_config(cluster)?);
-            clusters.insert(name, session);
-        }
-
-        Ok(Self { clusters })
+        Ok(Self::from_sessions(
+            config
+                .clusters
+                .iter()
+                .map(ClusterHandle::from_config)
+                .collect::<Result<Vec<_>, _>>()?,
+        ))
     }
 
-    pub fn from_sessions(sessions: Vec<Arc<dyn ClusterSession>>) -> Self {
-        let mut clusters = IndexMap::with_capacity(sessions.len());
+    pub fn from_sessions(sessions: Vec<impl ClusterSession>) -> Self {
+        let mut registry = IndexMap::with_capacity(sessions.len());
         for session in sessions {
-            clusters.insert(session.identity().name.clone(), session);
+            registry.insert(
+                session.identity().name.clone(),
+                Box::new(session) as Box<dyn ClusterSession>,
+            );
         }
 
-        Self { clusters }
+        Self { registry }
     }
+}
 
+impl<S: ClusterSession + ?Sized> QueryEngine<S> {
     pub fn names(&self) -> Vec<&str> {
-        self.clusters.keys().map(String::as_str).collect()
+        self.registry.keys().map(String::as_str).collect()
     }
 
-    fn session(&self, name: &str) -> Result<&Arc<dyn ClusterSession>, KafkaError> {
-        self.clusters
+    pub fn session(&self, name: &str) -> Result<&S, KafkaError> {
+        self.registry
             .get(name)
+            .map(Box::as_ref)
             .ok_or_else(|| KafkaError::UnknownCluster(name.to_owned()))
     }
 
     pub async fn clusters(&self) -> Vec<ClusterOverview> {
-        let mut join = JoinSet::new();
-        for (index, session) in self.clusters.values().enumerate() {
-            let session = Arc::clone(session);
-            join.spawn(async move { (index, Self::overview_of(session).await) });
-        }
-
-        let mut slots: Vec<Option<ClusterOverview>> = vec![None; self.clusters.len()];
-        while let Some(result) = join.join_next().await {
-            match result {
-                Ok((index, overview)) => slots[index] = Some(overview),
-                Err(error) => tracing::warn!(%error, "cluster overview task failed"),
-            }
-        }
-
-        slots.into_iter().flatten().collect()
-    }
-
-    pub async fn cluster(&self, name: &str) -> Option<ClusterOverview> {
-        let session = self.clusters.get(name)?;
-        Some(Self::overview_of(Arc::clone(session)).await)
-    }
-
-    async fn overview_of(session: Arc<dyn ClusterSession>) -> ClusterOverview {
-        let identity = session.identity().clone();
-        match timeout(
-            *OVERVIEW_BUDGET,
-            Self::load_overview(session, identity.clone()),
+        join_all(
+            self.registry
+                .values()
+                .map(|session| Self::overview_for(session.as_ref())),
         )
         .await
-        {
+    }
+
+    pub async fn overview(&self, cluster: &str) -> Result<ClusterOverview, KafkaError> {
+        Ok(Self::overview_for(self.session(cluster)?).await)
+    }
+
+    async fn overview_for(session: &S) -> ClusterOverview {
+        match timeout(*OVERVIEW_BUDGET, Self::load_overview(session)).await {
             Ok(overview) => overview,
             Err(_) => {
-                tracing::warn!(cluster = %identity.name, "cluster overview timed out");
-                ClusterOverview::offline(identity)
+                tracing::warn!(cluster = %session.identity().name, "cluster overview timed out");
+                ClusterOverview::offline(session.identity().clone())
             }
         }
     }
 
-    async fn load_overview(
-        session: Arc<dyn ClusterSession>,
-        identity: ClusterIdentity,
-    ) -> ClusterOverview {
+    async fn load_overview(session: &S) -> ClusterOverview {
         let metadata = session.metadata();
         let groups = session.consumer_groups();
         match tokio::join!(metadata, groups) {
             (Ok(meta), groups) => {
                 let group_count = groups.map(|groups| groups.len() as i32).unwrap_or(0);
-                assemble_overview(identity, &meta, group_count)
+                assemble_overview(session.identity().clone(), &meta, group_count)
             }
             (Err(error), _) => {
-                tracing::warn!(cluster = %identity.name, %error, "cluster metadata failed");
-                ClusterOverview::offline(identity)
+                tracing::warn!(cluster = %session.identity().name, %error, "cluster metadata failed");
+                ClusterOverview::offline(session.identity().clone())
             }
         }
     }
 
     pub async fn brokers(&self, cluster: &str) -> Result<Vec<Broker>, KafkaError> {
-        let session = self.session(cluster)?;
-        Ok(assemble_brokers(&session.metadata().await?))
+        Ok(assemble_brokers(&self.session(cluster)?.metadata().await?))
     }
 
     pub async fn broker(&self, cluster: &str, id: i32) -> Result<Broker, KafkaError> {
@@ -246,33 +222,26 @@ impl QueryEngine {
             .collect())
     }
 
-    async fn hydrate_committed_offsets(
-        session: &Arc<dyn ClusterSession>,
-        groups: &mut [GroupSnapshot],
-    ) {
+    async fn hydrate_committed_offsets(session: &S, groups: &mut [GroupSnapshot]) {
         for chunk in groups.chunks_mut(*OFFSET_FETCH_BATCH) {
-            let mut join = JoinSet::new();
-            for (offset, group) in chunk.iter().enumerate() {
+            let fetches = chunk.iter().enumerate().filter_map(|(offset, group)| {
                 let partitions = group.assigned_partitions();
                 if partitions.is_empty() {
-                    continue;
+                    return None;
                 }
 
-                let session = Arc::clone(session);
                 let group_id = group.id.clone();
-                join.spawn(async move {
+                Some(async move {
                     let committed = session
                         .committed_offsets(&group_id, &partitions)
                         .await
                         .unwrap_or_default();
                     (offset, committed)
-                });
-            }
+                })
+            });
 
-            while let Some(result) = join.join_next().await {
-                if let Ok((offset, committed)) = result {
-                    chunk[offset].committed = committed;
-                }
+            for (offset, committed) in join_all(fetches).await {
+                chunk[offset].committed = committed;
             }
         }
     }
@@ -292,10 +261,7 @@ impl QueryEngine {
             })
     }
 
-    async fn end_offsets(
-        session: &Arc<dyn ClusterSession>,
-        groups: &[GroupSnapshot],
-    ) -> HashMap<(String, i32), i64> {
+    async fn end_offsets(session: &S, groups: &[GroupSnapshot]) -> HashMap<(String, i32), i64> {
         let mut by_topic: HashMap<String, Vec<i32>> = HashMap::new();
         for group in groups {
             for (topic, partition) in group.assigned_partition_refs() {
@@ -332,31 +298,19 @@ impl QueryEngine {
     }
 
     async fn topic_watermarks(
-        session: &Arc<dyn ClusterSession>,
+        session: &S,
         topics: impl IntoIterator<Item = (String, Vec<i32>)>,
     ) -> HashMap<String, HashMap<i32, Watermarks>> {
-        let mut join = JoinSet::new();
-        for (name, partitions) in topics {
-            let session = Arc::clone(session);
-            join.spawn(async move {
-                let watermarks = session
-                    .watermarks(&name, &partitions)
-                    .await
-                    .unwrap_or_default();
-                (name, watermarks)
-            });
-        }
-
-        let mut marks = HashMap::with_capacity(join.len());
-        while let Some(result) = join.join_next().await {
-            match result {
-                Ok((name, watermarks)) => {
-                    marks.insert(name, watermarks);
-                }
-                Err(error) => tracing::warn!(%error, "topic watermark task failed"),
-            }
-        }
-        marks
+        join_all(topics.into_iter().map(|(name, partitions)| async move {
+            let watermarks = session
+                .watermarks(&name, &partitions)
+                .await
+                .unwrap_or_default();
+            (name, watermarks)
+        }))
+        .await
+        .into_iter()
+        .collect()
     }
 
     pub async fn topic_message_counts(
@@ -392,13 +346,17 @@ impl QueryEngine {
             .collect())
     }
 
-    pub async fn records(&self, query: RecordQuery) -> Result<RecordPage, KafkaError> {
-        let session = self.session(&query.cluster)?;
+    pub async fn records(
+        &self,
+        cluster: &str,
+        query: RecordQuery,
+    ) -> Result<RecordPage, KafkaError> {
+        let session = self.session(cluster)?;
         let meta = session.metadata().await?;
         let topic = meta
             .topic(&query.topic)
             .ok_or_else(|| KafkaError::UnknownTopic {
-                cluster: query.cluster.clone(),
+                cluster: cluster.to_owned(),
                 topic: query.topic.clone(),
             })?;
 
@@ -406,7 +364,7 @@ impl QueryEngine {
             && topic.partition(partition).is_none()
         {
             return Err(KafkaError::UnknownPartition {
-                cluster: query.cluster.clone(),
+                cluster: cluster.to_owned(),
                 topic: query.topic.clone(),
                 partition,
             });
@@ -453,6 +411,7 @@ impl QueryEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
@@ -461,8 +420,8 @@ mod tests {
     use crate::config::{ClusterConfig, Config};
     use crate::kafka::error::KafkaError;
     use crate::kafka::model::{
-        ClusterHealth, CommittedOffset, ConfigEntry, FetchPlan, MetadataSnapshot, Record,
-        Watermarks,
+        ClusterHealth, ClusterIdentity, CommittedOffset, ConfigEntry, FetchPlan, MetadataSnapshot,
+        Record, Watermarks,
     };
     use crate::kafka::testing::FakeCluster;
 
@@ -476,33 +435,34 @@ mod tests {
         }
     }
 
+    #[derive(Clone)]
     struct Probe {
-        inner: Arc<FakeCluster>,
+        inner: FakeCluster,
         delay: Duration,
         watermark_delay: Duration,
-        group_lists: AtomicUsize,
-        committed: AtomicUsize,
+        group_lists: Arc<AtomicUsize>,
+        committed: Arc<AtomicUsize>,
     }
 
     impl Probe {
-        fn new(inner: Arc<FakeCluster>, delay: Duration) -> Arc<Self> {
-            Arc::new(Self {
+        fn new(inner: FakeCluster, delay: Duration) -> Self {
+            Self {
                 inner,
                 delay,
                 watermark_delay: Duration::ZERO,
-                group_lists: AtomicUsize::new(0),
-                committed: AtomicUsize::new(0),
-            })
+                group_lists: Arc::new(AtomicUsize::new(0)),
+                committed: Arc::new(AtomicUsize::new(0)),
+            }
         }
 
-        fn with_watermark_delay(inner: Arc<FakeCluster>, delay: Duration) -> Arc<Self> {
-            Arc::new(Self {
+        fn with_watermark_delay(inner: FakeCluster, delay: Duration) -> Self {
+            Self {
                 inner,
                 delay: Duration::ZERO,
                 watermark_delay: delay,
-                group_lists: AtomicUsize::new(0),
-                committed: AtomicUsize::new(0),
-            })
+                group_lists: Arc::new(AtomicUsize::new(0)),
+                committed: Arc::new(AtomicUsize::new(0)),
+            }
         }
     }
 
@@ -587,7 +547,7 @@ mod tests {
             .clusters()
             .await
             .into_iter()
-            .map(|cluster| cluster.identity.name)
+            .map(|cluster| cluster.identity.name.clone())
             .collect();
 
         assert_eq!(names, vec!["prod", "staging"]);
@@ -596,8 +556,7 @@ mod tests {
     #[tokio::test]
     async fn cluster_list_does_not_fetch_committed_offsets() {
         let probe = Probe::new(FakeCluster::local(), Duration::ZERO);
-        let engine =
-            QueryEngine::from_sessions(vec![Arc::clone(&probe) as Arc<dyn ClusterSession>]);
+        let engine = QueryEngine::from_sessions(vec![probe.clone()]);
 
         let overviews = engine.clusters().await;
         assert_eq!(overviews[0].consumer_group_count, 1);
@@ -630,8 +589,7 @@ mod tests {
     async fn topics_fetch_watermarks_in_parallel() {
         let cluster = FakeCluster::local().extra_topic("payments.captured", 1, 4);
         let probe = Probe::with_watermark_delay(cluster, Duration::from_secs(1));
-        let engine =
-            QueryEngine::from_sessions(vec![Arc::clone(&probe) as Arc<dyn ClusterSession>]);
+        let engine = QueryEngine::from_sessions(vec![probe]);
 
         let started = tokio::time::Instant::now();
         let mut topics = engine.topics("local").await.unwrap();
@@ -651,8 +609,7 @@ mod tests {
     async fn cluster_list_marks_slow_cluster_offline_without_blocking_others() {
         let slow = Probe::new(FakeCluster::named("slow"), Duration::from_secs(60));
         let fast = FakeCluster::named("fast");
-        let engine =
-            QueryEngine::from_sessions(vec![Arc::clone(&slow) as Arc<dyn ClusterSession>, fast]);
+        let engine = QueryEngine::from_sessions(vec![slow, Probe::new(fast, Duration::ZERO)]);
 
         let overviews = engine.clusters().await;
         assert_eq!(overviews[0].identity.name, "slow");
@@ -673,8 +630,7 @@ mod tests {
     #[tokio::test]
     async fn schema_subjects_default_to_empty_when_session_does_not_override() {
         let probe = Probe::new(FakeCluster::local(), Duration::ZERO);
-        let engine =
-            QueryEngine::from_sessions(vec![Arc::clone(&probe) as Arc<dyn ClusterSession>]);
+        let engine = QueryEngine::from_sessions(vec![probe.clone()]);
 
         assert!(engine.schema_subjects("local").await.unwrap().is_empty());
     }
