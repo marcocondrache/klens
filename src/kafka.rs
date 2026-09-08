@@ -1,6 +1,7 @@
 mod browse;
 mod catalog;
 mod config;
+mod decode;
 mod engine;
 mod error;
 mod factory;

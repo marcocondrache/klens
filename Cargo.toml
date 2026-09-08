@@ -50,6 +50,7 @@ url = "2.5.8"
 base64 = "0.22"
 progenitor-client = "0.14"
 reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls"] }
+apache-avro = "0.22"
 
 [build-dependencies]
 anyhow = "1"
