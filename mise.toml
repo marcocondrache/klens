@@ -2,6 +2,7 @@
 bun = "latest"
 node = "latest"
 rust = "latest"
+"npm:vite-plus" = "latest"
 
 [tasks.schema]
 description = "Regenerate schema.graphql from the Rust schema"
@@ -10,22 +11,28 @@ run = "cargo xtask schema"
 [tasks."web:install"]
 description = "Install web dependencies"
 dir = "web"
-run = "bun install"
+run = "vp install"
 
 [tasks."web:codegen"]
 description = "Generate TypeScript GraphQL documents from schema.graphql and graphql() operations"
 dir = "web"
 depends = ["schema", "web:install"]
-run = "bun run codegen"
+run = "vp run codegen"
 
 [tasks."web:dev"]
 description = "Run the Vite dev server (proxies /graphql, /auth, /api and /health to :8080)"
 dir = "web"
 depends = ["web:install"]
-run = "bun run dev"
+run = "vp dev"
+
+[tasks."web:check"]
+description = "Format, lint, and type-check the web UI"
+dir = "web"
+depends = ["web:install"]
+run = "vp check"
 
 [tasks."web:build"]
 description = "Build the web UI into static/"
 dir = "web"
 depends = ["web:install", "web:codegen"]
-run = "bun run build"
+run = "vp run build"
