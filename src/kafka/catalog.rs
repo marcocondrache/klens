@@ -644,21 +644,62 @@ mod tests {
     }
 
     #[test]
-    fn unix_millis_truncates_and_rejects_non_finite_values() {
-        use crate::kafka::model::unix_millis;
+    fn timestamp_range_rejects_from_after_to() {
+        use std::ops::Bound;
 
-        assert!(unix_millis(f64::NAN).is_err());
-        assert!(unix_millis(f64::INFINITY).is_err());
-        assert_eq!(unix_millis(1_700_000_000_000.9).unwrap(), 1_700_000_000_000);
+        use crate::kafka::model::{TimestampRange, unix_datetime};
+
+        let early = unix_datetime(1);
+        let late = unix_datetime(2);
+
+        assert!(TimestampRange::new(Some(late), Some(early)).is_err());
+        assert!(TimestampRange::new(Some(early), Some(early)).is_ok());
+        assert!(TimestampRange::new(Some(early), None).is_ok());
+        assert!(
+            TimestampRange::from_bounds((Bound::Included(late), Bound::Included(early)))
+                .validate()
+                .is_err()
+        );
+        assert!(
+            TimestampRange::from_bounds(early..=early)
+                .validate()
+                .is_ok()
+        );
+        assert!(TimestampRange::from_bounds(early..).validate().is_ok());
     }
 
     #[test]
-    fn timestamp_range_rejects_from_after_to() {
-        use crate::kafka::model::validate_timestamp_range;
+    fn timestamp_range_maps_std_ranges_to_kafka_seek_times() {
+        use std::ops::{Bound, RangeBounds};
 
-        assert!(validate_timestamp_range(Some(2), Some(1)).is_err());
-        assert!(validate_timestamp_range(Some(1), Some(1)).is_ok());
-        assert!(validate_timestamp_range(Some(1), None).is_ok());
+        use crate::kafka::model::{TimestampRange, unix_datetime};
+
+        let start = unix_datetime(10);
+        let end = unix_datetime(20);
+        let inside = unix_datetime(19);
+        let after = unix_datetime(21);
+
+        let inclusive = TimestampRange::from_bounds(start..=end);
+        assert_eq!(inclusive.start_bound(), Bound::Included(&start));
+        assert_eq!(inclusive.end_bound(), Bound::Included(&end));
+        assert_eq!(inclusive.start_seek(), Some(10));
+        assert_eq!(inclusive.end_seek(), Some(21));
+        assert!(inclusive.contains(&start));
+        assert!(inclusive.contains(&end));
+        assert!(!inclusive.contains(&after));
+
+        let exclusive_end = TimestampRange::from_bounds(start..end);
+        assert_eq!(exclusive_end.end_seek(), Some(20));
+        assert!(exclusive_end.contains(&inside));
+        assert!(!exclusive_end.contains(&end));
+
+        let from = TimestampRange::from_bounds(start..);
+        assert_eq!(from.start_seek(), Some(10));
+        assert_eq!(from.end_seek(), None);
+
+        let to = TimestampRange::from_bounds(..=end);
+        assert_eq!(to.start_seek(), None);
+        assert_eq!(to.end_seek(), Some(21));
     }
 
     #[test]

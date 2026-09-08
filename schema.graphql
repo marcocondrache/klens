@@ -92,12 +92,28 @@ input RecordQuery {
   topic: String!
   partition: Int
   search: String!
-  timestampFrom: Float
-  timestampTo: Float
+  timestampFrom: DateTime
+  timestampTo: DateTime
   limit: Int!
   order: RecordOrder!
   page: Int
 }
+
+"""
+  Combined date and time (with time zone) in [RFC 3339][0] format.
+
+  Represents a description of an exact instant on the time-line (such as the
+  instant that a user account was created).
+
+  [`DateTime` scalar][1] compliant.
+
+  See also [`chrono::DateTime`][2] for details.
+
+  [0]: https://datatracker.ietf.org/doc/html/rfc3339#section-5
+  [1]: https://graphql-scalars.dev/docs/scalars/date-time
+  [2]: https://docs.rs/chrono/latest/chrono/struct.DateTime.html
+"""
+scalar DateTime
 
 type Acl {
   principal: String!
@@ -244,7 +260,7 @@ type Subscription {
 }
 
 type ThroughputPoint {
-  timestamp: Float!
+  timestamp: DateTime!
   bytesIn: Float!
   bytesOut: Float!
   messages: Float!
@@ -275,7 +291,7 @@ type TopicRecord {
   topic: String!
   partition: Int!
   offset: Float!
-  timestamp: Float!
+  timestamp: DateTime!
   key: String
   value: String
   headers: [RecordHeader!]!

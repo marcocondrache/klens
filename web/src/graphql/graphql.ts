@@ -40,8 +40,8 @@ export type RecordQuery = {
   page: number | null | undefined;
   partition: number | null | undefined;
   search: string;
-  timestampFrom: number | null | undefined;
-  timestampTo: number | null | undefined;
+  timestampFrom: string | null | undefined;
+  timestampTo: string | null | undefined;
   topic: string;
 };
 
@@ -170,7 +170,7 @@ export type ConsumerGroupFieldsFragment = {
 };
 
 export type ThroughputPointFieldsFragment = {
-  timestamp: number;
+  timestamp: string;
   bytesIn: number;
   bytesOut: number;
   messages: number;
@@ -208,7 +208,7 @@ export type TopicRecordFieldsFragment = {
   topic: string;
   partition: number;
   offset: number;
-  timestamp: number;
+  timestamp: string;
   key: string | null;
   value: string | null;
   sizeBytes: number;
@@ -468,7 +468,7 @@ export type ClusterThroughputQueryVariables = Exact<{
 
 export type ClusterThroughputQuery = {
   clusterThroughput: Array<{
-    timestamp: number;
+    timestamp: string;
     bytesIn: number;
     bytesOut: number;
     messages: number;
@@ -482,7 +482,7 @@ export type TopicThroughputQueryVariables = Exact<{
 
 export type TopicThroughputQuery = {
   topicThroughput: Array<{
-    timestamp: number;
+    timestamp: string;
     bytesIn: number;
     bytesOut: number;
     messages: number;
@@ -532,7 +532,7 @@ export type RecordsQuery = {
       topic: string;
       partition: number;
       offset: number;
-      timestamp: number;
+      timestamp: string;
       key: string | null;
       value: string | null;
       sizeBytes: number;

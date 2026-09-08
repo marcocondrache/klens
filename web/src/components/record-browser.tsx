@@ -374,7 +374,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <Meta label="Partition" value={String(selected.partition)} />
                     <Meta label="Offset" value={String(selected.offset)} />
-                    <Meta label="Timestamp" value={String(selected.timestamp)} />
+                    <Meta label="Timestamp" value={formatTimestamp(selected.timestamp)} />
                     <Meta label="Age" value={formatRelative(selected.timestamp)} />
                     <Meta label="Size" value={formatBytes(selected.sizeBytes)} />
                     <Meta
