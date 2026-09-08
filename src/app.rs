@@ -35,9 +35,7 @@ impl AppState {
     }
 }
 
-pub fn schema_sdl() -> String {
-    graphql::schema_sdl()
-}
+pub use graphql::{Schema, schema};
 
 pub fn router(state: AppState) -> Router {
     let graphql = graphql::router().route_layer(middleware::from_fn_with_state(

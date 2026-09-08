@@ -23,14 +23,10 @@ use subscription::Subscription;
 
 impl juniper::Context for AppState {}
 
-type Schema = RootNode<Query, EmptyMutation<AppState>, Subscription>;
+pub type Schema = RootNode<Query, EmptyMutation<AppState>, Subscription>;
 
-fn schema() -> Schema {
+pub fn schema() -> Schema {
     Schema::new(Query, EmptyMutation::<AppState>::new(), Subscription)
-}
-
-pub(crate) fn schema_sdl() -> String {
-    schema().as_sdl()
 }
 
 pub fn router() -> Router<AppState> {
