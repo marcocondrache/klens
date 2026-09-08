@@ -14,6 +14,7 @@ default-members = ["."]
 [dependencies]
 anyhow = "1"
 async-trait = "0.1"
+indexmap = "2"
 axum = { version = "0.8", features = ["http2", "ws"] }
 axum-extra = { version = "0.12.6", features = ["cookie-private"] }
 cookie = { version = "0.18.2", features = ["key-expansion", "private"] }

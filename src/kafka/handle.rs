@@ -51,7 +51,7 @@ impl Default for Timeouts {
 }
 
 /// Live Kafka connection for one configured cluster.
-pub struct ClusterHandle {
+pub(crate) struct ClusterHandle {
     identity: ClusterIdentity,
     factory: ClientFactory,
     admin: Arc<AdminClient<DefaultClientContext>>,
@@ -71,9 +71,9 @@ impl std::fmt::Debug for ClusterHandle {
 }
 
 impl ClusterHandle {
-    pub fn from_config(config: ClusterConfig) -> Result<Self, KafkaError> {
-        let identity = ClusterIdentity::from(&config);
-        let factory = ClientFactory::new(&config)?;
+    pub(crate) fn from_config(config: &ClusterConfig) -> Result<Self, KafkaError> {
+        let identity = ClusterIdentity::from(config);
+        let factory = ClientFactory::new(config);
         let admin = Arc::new(factory.admin()?);
         let schema_registry = config
             .schema_registry
