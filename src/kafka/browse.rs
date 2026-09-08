@@ -9,6 +9,7 @@ use rdkafka::topic_partition_list::Offset;
 use rdkafka::topic_partition_list::TopicPartitionList;
 use tokio::time::timeout;
 
+use crate::kafka::decode::{PayloadDecoder, decode_field};
 use crate::kafka::error::KafkaError;
 use crate::kafka::factory::ClientFactory;
 use crate::kafka::model::{
@@ -19,6 +20,7 @@ pub async fn consume(
     factory: &ClientFactory,
     plan: &FetchPlan,
     budget: std::time::Duration,
+    decoder: Option<&PayloadDecoder>,
 ) -> Result<Vec<Record>, KafkaError> {
     if plan.windows.is_empty() || plan.limit == 0 {
         return Ok(Vec::new());
@@ -71,7 +73,7 @@ pub async fn consume(
                     remaining.remove(&partition);
                 }
 
-                let record = record_from_message(&message);
+                let record = record_from_message(&message, decoder).await;
                 if record.matches(&plan.search) {
                     records.push(record);
                 }
@@ -94,7 +96,10 @@ pub async fn consume(
     Ok(records)
 }
 
-fn record_from_message(message: &rdkafka::message::BorrowedMessage<'_>) -> Record {
+async fn record_from_message(
+    message: &rdkafka::message::BorrowedMessage<'_>,
+    decoder: Option<&PayloadDecoder>,
+) -> Record {
     let headers = message
         .headers()
         .map(|headers| {
@@ -123,10 +128,44 @@ fn record_from_message(message: &rdkafka::message::BorrowedMessage<'_>) -> Recor
         partition: message.partition(),
         offset: message.offset(),
         timestamp,
-        key: message.key().map(decode_bytes),
-        value: message.payload().map(decode_bytes),
+        key: decode_field(decoder, message.key()).await,
+        value: decode_field(decoder, message.payload()).await,
         headers,
         size_bytes: size_bytes as u64,
         compression: Compression::None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kafka::decode::decode_field;
+
+    fn record(value: Option<String>) -> Record {
+        Record {
+            topic: "orders".into(),
+            partition: 0,
+            offset: 0,
+            timestamp: 0,
+            key: None,
+            value,
+            headers: Vec::new(),
+            size_bytes: 0,
+            compression: Compression::None,
+        }
+    }
+
+    #[tokio::test]
+    async fn search_matches_decoded_json_fields() {
+        let value = decode_field(None, Some(br#"{"orderId":"abc"}"#))
+            .await
+            .unwrap();
+        assert!(record(Some(value)).matches("orderid"));
+    }
+
+    #[tokio::test]
+    async fn search_does_not_match_unrelated_payloads() {
+        let value = decode_field(None, Some(b"binary-looking")).await.unwrap();
+        assert!(!record(Some(value)).matches("orderid"));
     }
 }

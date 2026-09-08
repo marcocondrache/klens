@@ -21,6 +21,7 @@ use crate::environment::{
     METADATA_TIMEOUT, METADATA_TTL, WATERMARK_BATCH, WATERMARK_TIMEOUT,
 };
 use crate::kafka::browse;
+use crate::kafka::decode::PayloadDecoder;
 use crate::kafka::error::KafkaError;
 use crate::kafka::factory::ClientFactory;
 use crate::kafka::model::{
@@ -58,7 +59,7 @@ pub(crate) struct ClusterHandle {
     metadata: Cache<(), MetadataSnapshot>,
     groups: Cache<(), Vec<GroupSnapshot>>,
     subjects: Cache<(), Vec<SchemaSubject>>,
-    schema_registry: Option<SchemaRegistryClient>,
+    schema_registry: Option<PayloadDecoder>,
     timeouts: Timeouts,
 }
 
@@ -78,7 +79,9 @@ impl ClusterHandle {
         let schema_registry = config
             .schema_registry
             .as_ref()
-            .map(|registry| SchemaRegistryClient::new(identity.name.clone(), registry))
+            .map(|registry| {
+                SchemaRegistryClient::new(identity.name.clone(), registry).map(PayloadDecoder::new)
+            })
             .transpose()?;
 
         Ok(Self {
@@ -290,16 +293,22 @@ impl ClusterSession for ClusterHandle {
     }
 
     async fn records(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError> {
-        browse::consume(&self.factory, plan, self.timeouts.consume).await
+        browse::consume(
+            &self.factory,
+            plan,
+            self.timeouts.consume,
+            self.schema_registry.as_ref(),
+        )
+        .await
     }
 
     async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
-        let Some(client) = self.schema_registry.clone() else {
+        let Some(decoder) = self.schema_registry.clone() else {
             return Ok(Vec::new());
         };
 
         self.subjects
-            .try_get_with((), async move { client.subjects().await })
+            .try_get_with((), async move { decoder.client().subjects().await })
             .await
             .map_err(into_kafka_error)
     }
