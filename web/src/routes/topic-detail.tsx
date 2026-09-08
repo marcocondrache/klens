@@ -1,24 +1,24 @@
-import { useMemo } from "react"
-import { AlertTriangleIcon, DatabaseIcon, GaugeIcon, NetworkIcon } from "lucide-react"
-import { useNavigate, useParams, useSearchParams } from "react-router"
+import { useMemo } from "react";
+import { AlertTriangleIcon, DatabaseIcon, GaugeIcon, NetworkIcon } from "lucide-react";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ConfigTable } from "@/components/config-table"
-import { CopyButton } from "@/components/copy-button"
-import { DataTable, type Column } from "@/components/data-table"
-import { PageHeader } from "@/components/page-header"
-import { RecordBrowser } from "@/components/record-browser"
-import { Sparkline } from "@/components/charts"
-import { Stat, StatGrid } from "@/components/stat"
-import { GroupStateBadge, Pill } from "@/components/status"
-import { lagTone } from "@/lib/tone"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ConfigTable } from "@/components/config-table";
+import { CopyButton } from "@/components/copy-button";
+import { DataTable, type Column } from "@/components/data-table";
+import { PageHeader } from "@/components/page-header";
+import { RecordBrowser } from "@/components/record-browser";
+import { Sparkline } from "@/components/charts";
+import { Stat, StatGrid } from "@/components/stat";
+import { GroupStateBadge, Pill } from "@/components/status";
+import { lagTone } from "@/lib/tone";
 import {
   useConsumerGroups,
   useTopic,
   useTopicConfigs,
   useTopicThroughput,
-} from "@/lib/api/queries"
-import { clusterPath, useClusterName } from "@/lib/clusters"
+} from "@/lib/api/queries";
+import { clusterPath, useClusterName } from "@/lib/clusters";
 import {
   formatBytes,
   formatCleanupPolicy,
@@ -27,38 +27,38 @@ import {
   formatNumber,
   formatThroughput,
   isCompactCleanup,
-} from "@/lib/format"
-import type { ConsumerGroup, Partition } from "@/lib/api/types"
+} from "@/lib/format";
+import type { ConsumerGroup, Partition } from "@/lib/api/types";
 
-const TABS = ["data", "partitions", "groups", "config"]
+const TABS = ["data", "partitions", "groups", "config"];
 
 export function TopicPage() {
-  const cluster = useClusterName()
-  const navigate = useNavigate()
-  const { topic: topicParam } = useParams<{ topic: string }>()
-  const topicName = decodeURIComponent(topicParam ?? "")
-  const [params, setParams] = useSearchParams()
+  const cluster = useClusterName();
+  const navigate = useNavigate();
+  const { topic: topicParam } = useParams<{ topic: string }>();
+  const topicName = decodeURIComponent(topicParam ?? "");
+  const [params, setParams] = useSearchParams();
 
-  const tab = TABS.includes(params.get("tab") ?? "") ? params.get("tab")! : "data"
+  const tab = TABS.includes(params.get("tab") ?? "") ? params.get("tab")! : "data";
 
-  const { data: topic, isPending, isError } = useTopic(cluster, topicName)
-  const { data: configs = [], isPending: configsPending } = useTopicConfigs(cluster, topicName)
-  const { data: throughput = [] } = useTopicThroughput(cluster, topicName)
-  const { data: groups = [] } = useConsumerGroups(cluster)
+  const { data: topic, isPending, isError } = useTopic(cluster, topicName);
+  const { data: configs = [], isPending: configsPending } = useTopicConfigs(cluster, topicName);
+  const { data: throughput = [] } = useTopicThroughput(cluster, topicName);
+  const { data: groups = [] } = useConsumerGroups(cluster);
 
   const consuming = useMemo(
     () => groups.filter((group) => group.topics.includes(topicName)),
     [groups, topicName],
-  )
+  );
 
   function selectTab(value: string) {
-    const next = new URLSearchParams(params)
+    const next = new URLSearchParams(params);
     if (value === "data") {
-      next.delete("tab")
+      next.delete("tab");
     } else {
-      next.set("tab", value)
+      next.set("tab", value);
     }
-    setParams(next, { replace: true })
+    setParams(next, { replace: true });
   }
 
   if (isError) {
@@ -68,7 +68,7 @@ export function TopicPage() {
         mono
         description="This topic does not exist in the selected cluster."
       />
-    )
+    );
   }
 
   const partitionColumns: Array<Column<Partition>> = [
@@ -148,7 +148,7 @@ export function TopicPage() {
       sortValue: (partition) => partition.sizeBytes,
       cell: (partition) => formatBytes(partition.sizeBytes),
     },
-  ]
+  ];
 
   const groupColumns: Array<Column<ConsumerGroup>> = [
     {
@@ -181,16 +181,16 @@ export function TopicPage() {
       cell: (group) => {
         const lag = group.offsets
           .filter((offset) => offset.topic === topicName)
-          .reduce((sum, offset) => sum + offset.lag, 0)
+          .reduce((sum, offset) => sum + offset.lag, 0);
 
         return (
           <Pill tone={lagTone(lag)} className="numeric font-mono">
             {formatNumber(lag)}
           </Pill>
-        )
+        );
       },
     },
-  ]
+  ];
 
   return (
     <div className="space-y-5">
@@ -220,7 +220,9 @@ export function TopicPage() {
           ) : null
         }
         description={
-          topic ? `retention ${formatDuration(topic.retentionMs)} · ${consuming.length} consumer groups` : null
+          topic
+            ? `retention ${formatDuration(topic.retentionMs)} · ${consuming.length} consumer groups`
+            : null
         }
       />
 
@@ -308,5 +310,5 @@ export function TopicPage() {
         </TabsContent>
       </Tabs>
     </div>
-  )
+  );
 }

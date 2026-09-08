@@ -1,8 +1,8 @@
-import { Fragment } from "react"
-import { RefreshCwIcon, SearchIcon } from "lucide-react"
-import { Link, useLocation } from "react-router"
-import { useIsFetching, useQueryClient } from "@tanstack/react-query"
-import { cn } from "@/lib/utils"
+import { Fragment } from "react";
+import { RefreshCwIcon, SearchIcon } from "lucide-react";
+import { Link, useLocation } from "react-router";
+import { useIsFetching, useQueryClient } from "@tanstack/react-query";
+import { cn } from "@/lib/utils";
 
 import {
   Breadcrumb,
@@ -11,48 +11,48 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
   BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb"
-import { Button } from "@/components/ui/button"
-import { Kbd } from "@/components/ui/kbd"
-import { Separator } from "@/components/ui/separator"
-import { SidebarTrigger } from "@/components/ui/sidebar"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { ClusterSwitcher } from "@/components/cluster-switcher"
-import { ModeToggle } from "@/components/mode-toggle"
-import { UserMenu } from "@/components/user-menu"
-import { useAuth } from "@/hooks/use-auth"
-import { clusterPath, useClusterName } from "@/lib/clusters"
-import { findSection } from "@/lib/sections"
+} from "@/components/ui/breadcrumb";
+import { Button } from "@/components/ui/button";
+import { Kbd } from "@/components/ui/kbd";
+import { Separator } from "@/components/ui/separator";
+import { SidebarTrigger } from "@/components/ui/sidebar";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ClusterSwitcher } from "@/components/cluster-switcher";
+import { ModeToggle } from "@/components/mode-toggle";
+import { UserMenu } from "@/components/user-menu";
+import { useAuth } from "@/hooks/use-auth";
+import { clusterPath, useClusterName } from "@/lib/clusters";
+import { findSection } from "@/lib/sections";
 
 interface Crumb {
-  label: string
-  href?: string
-  icon?: typeof SearchIcon
-  mono?: boolean
+  label: string;
+  href?: string;
+  icon?: typeof SearchIcon;
+  mono?: boolean;
 }
 
 export function AppHeader({ onSearch }: { onSearch: () => void }) {
-  const cluster = useClusterName()
-  const { pathname } = useLocation()
-  const queryClient = useQueryClient()
-  const fetching = useIsFetching() > 0
-  const { data: auth } = useAuth()
+  const cluster = useClusterName();
+  const { pathname } = useLocation();
+  const queryClient = useQueryClient();
+  const fetching = useIsFetching() > 0;
+  const { data: auth } = useAuth();
 
-  const [, , , segment, detail] = pathname.split("/")
-  const section = findSection(segment)
+  const [, , , segment, detail] = pathname.split("/");
+  const section = findSection(segment);
 
-  const crumbs: Crumb[] = []
+  const crumbs: Crumb[] = [];
 
   if (section) {
     crumbs.push({
       label: section.label,
       icon: section.icon,
       href: detail ? clusterPath(cluster, section.segment) : undefined,
-    })
+    });
   }
 
   if (detail) {
-    crumbs.push({ label: decodeURIComponent(detail), mono: true })
+    crumbs.push({ label: decodeURIComponent(detail), mono: true });
   }
 
   return (
@@ -62,14 +62,12 @@ export function AppHeader({ onSearch }: { onSearch: () => void }) {
 
       <ClusterSwitcher />
 
-      {crumbs.length ? (
-        <Separator orientation="vertical" className="mx-1 !h-4 my-auto" />
-      ) : null}
+      {crumbs.length ? <Separator orientation="vertical" className="mx-1 !h-4 my-auto" /> : null}
 
       <Breadcrumb className="min-w-0">
         <BreadcrumbList className="flex-nowrap">
           {crumbs.map((crumb, index) => {
-            const last = index === crumbs.length - 1
+            const last = index === crumbs.length - 1;
 
             return (
               <Fragment key={`${crumb.label}-${index}`}>
@@ -89,7 +87,7 @@ export function AppHeader({ onSearch }: { onSearch: () => void }) {
                 </BreadcrumbItem>
                 {last ? null : <BreadcrumbSeparator />}
               </Fragment>
-            )
+            );
           })}
         </BreadcrumbList>
       </Breadcrumb>
@@ -137,5 +135,5 @@ export function AppHeader({ onSearch }: { onSearch: () => void }) {
         {auth?.enabled && auth.user ? <UserMenu user={auth.user} /> : null}
       </div>
     </header>
-  )
+  );
 }

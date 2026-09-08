@@ -1,9 +1,9 @@
-import { useMemo, useState, type ReactNode } from "react"
-import { ArrowDownIcon, ArrowUpIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { useMemo, useState, type ReactNode } from "react";
+import { ArrowDownIcon, ArrowUpIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
 
-import { Button } from "@/components/ui/button"
-import { Skeleton } from "@/components/ui/skeleton"
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -11,41 +11,41 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table"
+} from "@/components/ui/table";
 
 export interface Column<T> {
-  id: string
-  header: ReactNode
-  cell: (row: T) => ReactNode
-  sortValue?: (row: T) => string | number
-  align?: "left" | "right"
-  className?: string
-  headerClassName?: string
+  id: string;
+  header: ReactNode;
+  cell: (row: T) => ReactNode;
+  sortValue?: (row: T) => string | number;
+  align?: "left" | "right";
+  className?: string;
+  headerClassName?: string;
 }
 
-type Direction = "asc" | "desc"
+type Direction = "asc" | "desc";
 
 function tablePlaceholder(content: ReactNode) {
   if (typeof content === "string") {
-    return <p className="py-10 text-center text-sm text-muted-foreground">{content}</p>
+    return <p className="py-10 text-center text-sm text-muted-foreground">{content}</p>;
   }
 
-  return content
+  return content;
 }
 
 interface DataTableProps<T> {
-  columns: Array<Column<T>>
-  rows: T[]
-  rowKey: (row: T) => string
-  onRowClick?: (row: T) => void
-  loading?: boolean
-  error?: ReactNode
-  emptyState?: ReactNode
-  defaultSort?: { id: string; direction: Direction }
-  pageSize?: number
-  page?: number
-  hasMore?: boolean
-  onPageChange?: (page: number) => void
+  columns: Array<Column<T>>;
+  rows: T[];
+  rowKey: (row: T) => string;
+  onRowClick?: (row: T) => void;
+  loading?: boolean;
+  error?: ReactNode;
+  emptyState?: ReactNode;
+  defaultSort?: { id: string; direction: Direction };
+  pageSize?: number;
+  page?: number;
+  hasMore?: boolean;
+  onPageChange?: (page: number) => void;
 }
 
 export function DataTable<T>({
@@ -62,54 +62,56 @@ export function DataTable<T>({
   hasMore = false,
   onPageChange,
 }: DataTableProps<T>) {
-  const [sort, setSort] = useState<{ id: string; direction: Direction } | null>(defaultSort ?? null)
-  const [localPage, setLocalPage] = useState(0)
-  const serverPaging = onPageChange != null
+  const [sort, setSort] = useState<{ id: string; direction: Direction } | null>(
+    defaultSort ?? null,
+  );
+  const [localPage, setLocalPage] = useState(0);
+  const serverPaging = onPageChange != null;
 
   const sorted = useMemo(() => {
-    if (!sort) return rows
+    if (!sort) return rows;
 
-    const column = columns.find((candidate) => candidate.id === sort.id)
-    if (!column?.sortValue) return rows
+    const column = columns.find((candidate) => candidate.id === sort.id);
+    if (!column?.sortValue) return rows;
 
-    const factor = sort.direction === "asc" ? 1 : -1
+    const factor = sort.direction === "asc" ? 1 : -1;
 
     return [...rows].sort((left, right) => {
-      const leftValue = column.sortValue!(left)
-      const rightValue = column.sortValue!(right)
+      const leftValue = column.sortValue!(left);
+      const rightValue = column.sortValue!(right);
 
       if (typeof leftValue === "number" && typeof rightValue === "number") {
-        return (leftValue - rightValue) * factor
+        return (leftValue - rightValue) * factor;
       }
 
-      return String(leftValue).localeCompare(String(rightValue)) * factor
-    })
-  }, [rows, sort, columns])
+      return String(leftValue).localeCompare(String(rightValue)) * factor;
+    });
+  }, [rows, sort, columns]);
 
-  const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize))
-  const current = serverPaging ? (page ?? 0) : Math.min(localPage, pageCount - 1)
+  const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
+  const current = serverPaging ? (page ?? 0) : Math.min(localPage, pageCount - 1);
   const visible = serverPaging
     ? sorted
-    : sorted.slice(current * pageSize, current * pageSize + pageSize)
-  const showPager = serverPaging ? current > 0 || hasMore : pageCount > 1
+    : sorted.slice(current * pageSize, current * pageSize + pageSize);
+  const showPager = serverPaging ? current > 0 || hasMore : pageCount > 1;
 
   function goToPage(next: number) {
     if (onPageChange) {
-      onPageChange(next)
-      return
+      onPageChange(next);
+      return;
     }
-    setLocalPage(next)
+    setLocalPage(next);
   }
 
   function toggleSort(column: Column<T>) {
-    if (!column.sortValue) return
+    if (!column.sortValue) return;
 
-    if (!serverPaging) setLocalPage(0)
+    if (!serverPaging) setLocalPage(0);
     setSort((previous) => {
-      if (previous?.id !== column.id) return { id: column.id, direction: "asc" }
-      if (previous.direction === "asc") return { id: column.id, direction: "desc" }
-      return null
-    })
+      if (previous?.id !== column.id) return { id: column.id, direction: "asc" };
+      if (previous.direction === "asc") return { id: column.id, direction: "desc" };
+      return null;
+    });
   }
 
   return (
@@ -170,10 +172,7 @@ export function DataTable<T>({
                 <TableRow
                   key={rowKey(row)}
                   onClick={onRowClick ? () => onRowClick(row) : undefined}
-                  className={cn(
-                    "border-border/60",
-                    onRowClick && "cursor-pointer",
-                  )}
+                  className={cn("border-border/60", onRowClick && "cursor-pointer")}
                 >
                   {columns.map((column) => (
                     <TableCell
@@ -212,9 +211,7 @@ export function DataTable<T>({
               <ChevronLeftIcon />
             </Button>
             <span className="numeric px-2">
-              {serverPaging
-                ? `Page ${current + 1}`
-                : `${current + 1} / ${pageCount}`}
+              {serverPaging ? `Page ${current + 1}` : `${current + 1} / ${pageCount}`}
             </span>
             <Button
               variant="outline"
@@ -229,5 +226,5 @@ export function DataTable<T>({
         </div>
       ) : null}
     </div>
-  )
+  );
 }

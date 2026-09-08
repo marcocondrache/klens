@@ -1,26 +1,22 @@
-import { useMemo, type ReactNode } from "react"
-import { AlertTriangleIcon, SearchIcon } from "lucide-react"
-import { useNavigate, useSearchParams } from "react-router"
+import { useMemo, type ReactNode } from "react";
+import { AlertTriangleIcon, SearchIcon } from "lucide-react";
+import { useNavigate, useSearchParams } from "react-router";
 
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from "@/components/ui/input-group"
-import { Label } from "@/components/ui/label"
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
-import { DataTable, type Column } from "@/components/data-table"
-import { PageHeader } from "@/components/page-header"
-import { Pill } from "@/components/status"
-import { useTopics } from "@/lib/api/queries"
-import { clusterPath, useClusterName } from "@/lib/clusters"
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { DataTable, type Column } from "@/components/data-table";
+import { PageHeader } from "@/components/page-header";
+import { Pill } from "@/components/status";
+import { useTopics } from "@/lib/api/queries";
+import { clusterPath, useClusterName } from "@/lib/clusters";
 import {
   formatBytes,
   formatCleanupPolicy,
@@ -29,48 +25,49 @@ import {
   formatRate,
   formatThroughput,
   isCompactCleanup,
-} from "@/lib/format"
-import type { Topic } from "@/lib/api/types"
+} from "@/lib/format";
+import type { Topic } from "@/lib/api/types";
 
 function emptyMetric(value: number, display: ReactNode) {
   if (value === 0) {
-    return <span className="text-muted-foreground">—</span>
+    return <span className="text-muted-foreground">—</span>;
   }
 
-  return display
+  return display;
 }
 
 export function TopicsPage() {
-  const cluster = useClusterName()
-  const navigate = useNavigate()
-  const [params, setParams] = useSearchParams()
+  const cluster = useClusterName();
+  const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
 
-  const term = params.get("q") ?? ""
-  const showInternal = params.get("internal") === "1"
-  const policy = params.get("policy") ?? "all"
+  const term = params.get("q") ?? "";
+  const showInternal = params.get("internal") === "1";
+  const policy = params.get("policy") ?? "all";
 
-  const { data: topics = [], isPending, isError, error } = useTopics(cluster)
+  const { data: topics = [], isPending, isError, error } = useTopics(cluster);
 
   function update(key: string, value: string | null) {
-    const next = new URLSearchParams(params)
+    const next = new URLSearchParams(params);
     if (value === null || value === "" || value === "all") {
-      next.delete(key)
+      next.delete(key);
     } else {
-      next.set(key, value)
+      next.set(key, value);
     }
-    setParams(next, { replace: true })
+    setParams(next, { replace: true });
   }
 
   const rows = useMemo(() => {
-    const needle = term.trim().toLowerCase()
+    const needle = term.trim().toLowerCase();
 
     return topics.filter((topic) => {
-      if (!showInternal && topic.internal) return false
-      if (policy !== "all" && !formatCleanupPolicy(topic.cleanupPolicy).includes(policy)) return false
-      if (needle && !topic.name.toLowerCase().includes(needle)) return false
-      return true
-    })
-  }, [topics, term, showInternal, policy])
+      if (!showInternal && topic.internal) return false;
+      if (policy !== "all" && !formatCleanupPolicy(topic.cleanupPolicy).includes(policy))
+        return false;
+      if (needle && !topic.name.toLowerCase().includes(needle)) return false;
+      return true;
+    });
+  }, [topics, term, showInternal, policy]);
 
   const columns: Array<Column<Topic>> = [
     {
@@ -159,14 +156,11 @@ export function TopicsPage() {
       sortValue: (topic) => topic.consumerGroups.length,
       cell: (topic) => emptyMetric(topic.consumerGroups.length, topic.consumerGroups.length),
     },
-  ]
+  ];
 
   return (
     <div className="space-y-5">
-      <PageHeader
-        title="Topics"
-        description={`${rows.length} of ${topics.length} topics`}
-      />
+      <PageHeader title="Topics" description={`${rows.length} of ${topics.length} topics`} />
 
       <div className="flex flex-wrap items-center gap-3">
         <InputGroup className="w-full max-w-sm">
@@ -206,10 +200,12 @@ export function TopicsPage() {
         rows={rows}
         rowKey={(topic) => topic.name}
         loading={isPending}
-        error={isError ? (error instanceof Error ? error.message : "Failed to load topics.") : undefined}
+        error={
+          isError ? (error instanceof Error ? error.message : "Failed to load topics.") : undefined
+        }
         defaultSort={{ id: "name", direction: "asc" }}
         onRowClick={(topic) => navigate(clusterPath(cluster, "topics", topic.name))}
       />
     </div>
-  )
+  );
 }

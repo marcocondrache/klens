@@ -1,7 +1,7 @@
-import { GitCommitHorizontalIcon } from "lucide-react"
-import { Link, useLocation } from "react-router"
+import { GitCommitHorizontalIcon } from "lucide-react";
+import { Link, useLocation } from "react-router";
 
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/ui/button";
 import {
   Sidebar,
   SidebarContent,
@@ -15,25 +15,25 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
-} from "@/components/ui/sidebar"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { GithubIcon } from "@/components/icons"
-import { useAcls, useCluster, useSchemaSubjects } from "@/lib/api/queries"
-import { COMMIT_SHA, COMMIT_URL, REPO_URL, VERSION } from "@/lib/build"
-import { clusterPath, useClusterName } from "@/lib/clusters"
-import { formatCount } from "@/lib/format"
-import { SECTIONS } from "@/lib/sections"
+} from "@/components/ui/sidebar";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { GithubIcon } from "@/components/icons";
+import { useAcls, useCluster, useSchemaSubjects } from "@/lib/api/queries";
+import { COMMIT_SHA, COMMIT_URL, REPO_URL, VERSION } from "@/lib/build";
+import { clusterPath, useClusterName } from "@/lib/clusters";
+import { formatCount } from "@/lib/format";
+import { SECTIONS } from "@/lib/sections";
 
 const ACTIVE_MARKER =
-  "relative data-active:before:absolute data-active:before:inset-y-1.5 data-active:before:-left-3 data-active:before:w-0.5 data-active:before:rounded-r-full data-active:before:bg-sidebar-primary"
+  "relative data-active:before:absolute data-active:before:inset-y-1.5 data-active:before:-left-3 data-active:before:w-0.5 data-active:before:rounded-r-full data-active:before:bg-sidebar-primary";
 
 export function AppSidebar() {
-  const cluster = useClusterName()
-  const { pathname } = useLocation()
+  const cluster = useClusterName();
+  const { pathname } = useLocation();
 
-  const { data } = useCluster(cluster)
-  const { data: subjects } = useSchemaSubjects(cluster)
-  const { data: acls } = useAcls(cluster)
+  const { data } = useCluster(cluster);
+  const { data: subjects } = useSchemaSubjects(cluster);
+  const { data: acls } = useAcls(cluster);
 
   const counts: Record<string, number | undefined> = {
     topics: data?.topicCount,
@@ -41,7 +41,7 @@ export function AppSidebar() {
     schemas: subjects?.length,
     nodes: data?.brokerCount,
     acls: acls?.length,
-  }
+  };
 
   return (
     <Sidebar collapsible="icon">
@@ -119,5 +119,5 @@ export function AppSidebar() {
 
       <SidebarRail />
     </Sidebar>
-  )
+  );
 }

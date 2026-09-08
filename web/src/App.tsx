@@ -1,18 +1,18 @@
-import { Navigate, Route, Routes } from "react-router"
+import { Navigate, Route, Routes } from "react-router";
 
-import { AuthGate } from "@/components/auth-gate"
-import { AppLayout } from "@/routes/app-layout"
-import { AclsPage } from "@/routes/acls"
-import { ConsumerGroupPage } from "@/routes/group-detail"
-import { ConsumerGroupsPage } from "@/routes/groups"
-import { HomePage } from "@/routes/home"
-import { LoginPage } from "@/routes/login"
-import { NodePage } from "@/routes/node-detail"
-import { NodesPage } from "@/routes/nodes"
-import { NotFoundPage } from "@/routes/not-found"
-import { SchemasPage } from "@/routes/schemas"
-import { TopicPage } from "@/routes/topic-detail"
-import { TopicsPage } from "@/routes/topics"
+import { AuthGate } from "@/components/auth-gate";
+import { AppLayout } from "@/routes/app-layout";
+import { AclsPage } from "@/routes/acls";
+import { ConsumerGroupPage } from "@/routes/group-detail";
+import { ConsumerGroupsPage } from "@/routes/groups";
+import { HomePage } from "@/routes/home";
+import { LoginPage } from "@/routes/login";
+import { NodePage } from "@/routes/node-detail";
+import { NodesPage } from "@/routes/nodes";
+import { NotFoundPage } from "@/routes/not-found";
+import { SchemasPage } from "@/routes/schemas";
+import { TopicPage } from "@/routes/topic-detail";
+import { TopicsPage } from "@/routes/topics";
 
 function App() {
   return (
@@ -35,7 +35,7 @@ function App() {
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </AuthGate>
-  )
+  );
 }
 
-export default App
+export default App;

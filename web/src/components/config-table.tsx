@@ -1,48 +1,44 @@
-import { useMemo, useState } from "react"
-import { EyeOffIcon, LockIcon, SearchIcon } from "lucide-react"
+import { useMemo, useState } from "react";
+import { EyeOffIcon, LockIcon, SearchIcon } from "lucide-react";
 
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from "@/components/ui/input-group"
-import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { CopyButton } from "@/components/copy-button"
-import { DataTable, type Column } from "@/components/data-table"
-import { Pill } from "@/components/status"
-import type { ConfigEntry } from "@/lib/api/types"
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { CopyButton } from "@/components/copy-button";
+import { DataTable, type Column } from "@/components/data-table";
+import { Pill } from "@/components/status";
+import type { ConfigEntry } from "@/lib/api/types";
 
 const SOURCE_LABEL: Record<ConfigEntry["source"], string> = {
   DYNAMIC_TOPIC_CONFIG: "topic override",
   DYNAMIC_BROKER_CONFIG: "broker override",
   STATIC_BROKER_CONFIG: "static",
   DEFAULT_CONFIG: "default",
-}
+};
 
 export function ConfigTable({
   entries,
   loading = false,
 }: {
-  entries: ConfigEntry[]
-  loading?: boolean
+  entries: ConfigEntry[];
+  loading?: boolean;
 }) {
-  const [term, setTerm] = useState("")
-  const [onlyOverrides, setOnlyOverrides] = useState(false)
+  const [term, setTerm] = useState("");
+  const [onlyOverrides, setOnlyOverrides] = useState(false);
 
   const rows = useMemo(() => {
-    const needle = term.trim().toLowerCase()
+    const needle = term.trim().toLowerCase();
 
     return entries.filter((entry) => {
-      if (onlyOverrides && entry.source === "DEFAULT_CONFIG") return false
-      if (!needle) return true
+      if (onlyOverrides && entry.source === "DEFAULT_CONFIG") return false;
+      if (!needle) return true;
       return (
         entry.name.toLowerCase().includes(needle) ||
         (entry.value ?? "").toLowerCase().includes(needle)
-      )
-    })
-  }, [entries, term, onlyOverrides])
+      );
+    });
+  }, [entries, term, onlyOverrides]);
 
   const columns: Array<Column<ConfigEntry>> = [
     {
@@ -90,7 +86,7 @@ export function ConfigTable({
         </Pill>
       ),
     },
-  ]
+  ];
 
   return (
     <div className="space-y-3">
@@ -125,5 +121,5 @@ export function ConfigTable({
         defaultSort={{ id: "name", direction: "asc" }}
       />
     </div>
-  )
+  );
 }

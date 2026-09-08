@@ -63,7 +63,7 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Check
         working-directory: web
-        run: bunx vp check --no-fmt
+        run: bunx vp check
       - name: Build
         working-directory: web
         run: bun run build

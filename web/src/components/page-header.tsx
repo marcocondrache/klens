@@ -1,5 +1,5 @@
-import type { ReactNode } from "react"
-import { cn } from "@/lib/utils"
+import type { ReactNode } from "react";
+import { cn } from "@/lib/utils";
 
 export function PageHeader({
   title,
@@ -8,11 +8,11 @@ export function PageHeader({
   actions,
   mono = false,
 }: {
-  title: ReactNode
-  description?: ReactNode
-  badges?: ReactNode
-  actions?: ReactNode
-  mono?: boolean
+  title: ReactNode;
+  description?: ReactNode;
+  badges?: ReactNode;
+  actions?: ReactNode;
+  mono?: boolean;
 }) {
   return (
     <div className="flex flex-wrap items-start justify-between gap-4">
@@ -28,14 +28,12 @@ export function PageHeader({
           </h1>
           {badges}
         </div>
-        {description ? (
-          <p className="text-sm text-muted-foreground">{description}</p>
-        ) : null}
+        {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
       </div>
 
       {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
     </div>
-  )
+  );
 }
 
 export function SectionTitle({
@@ -43,9 +41,9 @@ export function SectionTitle({
   description,
   actions,
 }: {
-  title: ReactNode
-  description?: ReactNode
-  actions?: ReactNode
+  title: ReactNode;
+  description?: ReactNode;
+  actions?: ReactNode;
 }) {
   return (
     <div className="flex flex-wrap items-end justify-between gap-3">
@@ -55,5 +53,5 @@ export function SectionTitle({
       </div>
       {actions}
     </div>
-  )
+  );
 }

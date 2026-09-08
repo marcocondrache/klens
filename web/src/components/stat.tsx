@@ -1,12 +1,12 @@
-import type { ReactNode } from "react"
-import { cn } from "@/lib/utils"
+import type { ReactNode } from "react";
+import { cn } from "@/lib/utils";
 
-import { Skeleton } from "@/components/ui/skeleton"
+import { Skeleton } from "@/components/ui/skeleton";
 
 export function StatGrid({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <div className={cn("grid gap-3 sm:grid-cols-2 xl:grid-cols-4", className)}>{children}</div>
-  )
+  );
 }
 
 export function Stat({
@@ -18,13 +18,13 @@ export function Stat({
   loading = false,
   children,
 }: {
-  label: string
-  value: ReactNode
-  hint?: ReactNode
-  icon?: ReactNode
-  accent?: boolean
-  loading?: boolean
-  children?: ReactNode
+  label: string;
+  value: ReactNode;
+  hint?: ReactNode;
+  icon?: ReactNode;
+  accent?: boolean;
+  loading?: boolean;
+  children?: ReactNode;
 }) {
   return (
     <div
@@ -66,5 +66,5 @@ export function Stat({
 
       {children ? <div className="relative mt-3">{children}</div> : null}
     </div>
-  )
+  );
 }

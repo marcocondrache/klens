@@ -1,8 +1,8 @@
-import { useQuery } from "@tanstack/react-query"
+import { useQuery } from "@tanstack/react-query";
 
-import { fetchAuth } from "@/lib/auth"
+import { fetchAuth } from "@/lib/auth";
 
-export const authQueryKey = ["auth", "me"] as const
+export const authQueryKey = ["auth", "me"] as const;
 
 export function useAuth() {
   return useQuery({
@@ -10,5 +10,5 @@ export function useAuth() {
     queryFn: fetchAuth,
     staleTime: 60_000,
     retry: false,
-  })
+  });
 }

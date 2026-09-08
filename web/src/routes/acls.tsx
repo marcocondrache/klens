@@ -1,61 +1,54 @@
-import { useMemo } from "react"
-import { SearchIcon } from "lucide-react"
-import { useSearchParams } from "react-router"
+import { useMemo } from "react";
+import { SearchIcon } from "lucide-react";
+import { useSearchParams } from "react-router";
 
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from "@/components/ui/input-group"
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select"
-import { DataTable, type Column } from "@/components/data-table"
-import { PageHeader } from "@/components/page-header"
-import { Pill } from "@/components/status"
-import { useAcls } from "@/lib/api/queries"
-import { useClusterName } from "@/lib/clusters"
-import type { Acl } from "@/lib/api/types"
+} from "@/components/ui/select";
+import { DataTable, type Column } from "@/components/data-table";
+import { PageHeader } from "@/components/page-header";
+import { Pill } from "@/components/status";
+import { useAcls } from "@/lib/api/queries";
+import { useClusterName } from "@/lib/clusters";
+import type { Acl } from "@/lib/api/types";
 
-const RESOURCE_TYPES = ["TOPIC", "GROUP", "CLUSTER", "TRANSACTIONAL_ID"]
+const RESOURCE_TYPES = ["TOPIC", "GROUP", "CLUSTER", "TRANSACTIONAL_ID"];
 
 export function AclsPage() {
-  const cluster = useClusterName()
-  const [params, setParams] = useSearchParams()
+  const cluster = useClusterName();
+  const [params, setParams] = useSearchParams();
 
-  const term = params.get("q") ?? ""
-  const resource = params.get("resource") ?? "all"
+  const term = params.get("q") ?? "";
+  const resource = params.get("resource") ?? "all";
 
-  const { data: entries = [], isPending } = useAcls(cluster)
+  const { data: entries = [], isPending } = useAcls(cluster);
 
   function update(key: string, value: string | null) {
-    const next = new URLSearchParams(params)
+    const next = new URLSearchParams(params);
     if (value === null || value === "" || value === "all") {
-      next.delete(key)
+      next.delete(key);
     } else {
-      next.set(key, value)
+      next.set(key, value);
     }
-    setParams(next, { replace: true })
+    setParams(next, { replace: true });
   }
 
   const rows = useMemo(() => {
-    const needle = term.trim().toLowerCase()
+    const needle = term.trim().toLowerCase();
 
     return entries.filter((entry) => {
-      if (resource !== "all" && entry.resourceType !== resource) return false
-      if (
-        needle &&
-        !`${entry.principal} ${entry.resourceName}`.toLowerCase().includes(needle)
-      ) {
-        return false
+      if (resource !== "all" && entry.resourceType !== resource) return false;
+      if (needle && !`${entry.principal} ${entry.resourceName}`.toLowerCase().includes(needle)) {
+        return false;
       }
-      return true
-    })
-  }, [entries, term, resource])
+      return true;
+    });
+  }, [entries, term, resource]);
 
   const columns: Array<Column<Acl>> = [
     {
@@ -112,7 +105,7 @@ export function AclsPage() {
         <Pill tone={entry.permission === "ALLOW" ? "ok" : "error"}>{entry.permission}</Pill>
       ),
     },
-  ]
+  ];
 
   return (
     <div className="space-y-5">
@@ -148,11 +141,13 @@ export function AclsPage() {
       <DataTable
         columns={columns}
         rows={rows}
-        rowKey={(entry) => `${entry.principal}-${entry.resourceType}-${entry.resourceName}-${entry.operation}`}
+        rowKey={(entry) =>
+          `${entry.principal}-${entry.resourceType}-${entry.resourceName}-${entry.operation}`
+        }
         loading={isPending}
         defaultSort={{ id: "principal", direction: "asc" }}
         pageSize={30}
       />
     </div>
-  )
+  );
 }

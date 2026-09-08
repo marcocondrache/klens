@@ -1,17 +1,17 @@
-import { createClient } from "graphql-ws"
+import { createClient } from "graphql-ws";
 
-import type { TypedDocumentString } from "@/graphql/graphql"
+import type { TypedDocumentString } from "@/graphql/graphql";
 
 function websocketUrl() {
-  const protocol = window.location.protocol === "https:" ? "wss" : "ws"
-  return `${protocol}://${window.location.host}/graphql`
+  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+  return `${protocol}://${window.location.host}/graphql`;
 }
 
 const client = createClient({
   url: websocketUrl,
   lazy: true,
   retryAttempts: 8,
-})
+});
 
 export function subscribe<TResult, TVariables extends Record<string, unknown>>(
   document: TypedDocumentString<TResult, TVariables>,
@@ -26,13 +26,13 @@ export function subscribe<TResult, TVariables extends Record<string, unknown>>(
     {
       next(result) {
         if (result.data) {
-          onNext(result.data as TResult)
+          onNext(result.data as TResult);
         }
       },
       error(error) {
-        console.error(error)
+        console.error(error);
       },
       complete() {},
     },
-  )
+  );
 }

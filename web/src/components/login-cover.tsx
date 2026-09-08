@@ -37,12 +37,26 @@ export function LoginCover() {
         <circle cx="428" cy="538" r="3" fill="#47bfff" fillOpacity="0.8" />
         <circle cx="428" cy="538" r="9" fill="#47bfff" fillOpacity="0.18" />
         <defs>
-          <linearGradient id="klens-stream-1" x1="0" y1="0" x2="800" y2="0" gradientUnits="userSpaceOnUse">
+          <linearGradient
+            id="klens-stream-1"
+            x1="0"
+            y1="0"
+            x2="800"
+            y2="0"
+            gradientUnits="userSpaceOnUse"
+          >
             <stop offset="0" stopColor="#863bff" stopOpacity="0" />
             <stop offset="0.45" stopColor="#863bff" stopOpacity="0.7" />
             <stop offset="1" stopColor="#47bfff" stopOpacity="0" />
           </linearGradient>
-          <linearGradient id="klens-stream-2" x1="0" y1="0" x2="800" y2="0" gradientUnits="userSpaceOnUse">
+          <linearGradient
+            id="klens-stream-2"
+            x1="0"
+            y1="0"
+            x2="800"
+            y2="0"
+            gradientUnits="userSpaceOnUse"
+          >
             <stop offset="0" stopColor="#47bfff" stopOpacity="0" />
             <stop offset="0.5" stopColor="#863bff" stopOpacity="0.45" />
             <stop offset="1" stopColor="#863bff" stopOpacity="0" />
@@ -59,10 +73,10 @@ export function LoginCover() {
       <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-[#0c0814] via-[#0c0814]/70 to-transparent p-10 pt-24">
         <p className="text-xl font-semibold tracking-tight text-white">A lens for Kafka</p>
         <p className="mt-1.5 max-w-md text-sm leading-relaxed text-white/55">
-          Open a cluster and look through the topics and the messages on them, the
-          groups consuming them, the brokers, the schemas, and the ACLs.
+          Open a cluster and look through the topics and the messages on them, the groups consuming
+          them, the brokers, the schemas, and the ACLs.
         </p>
       </div>
     </div>
-  )
+  );
 }

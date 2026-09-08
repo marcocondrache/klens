@@ -5,12 +5,12 @@ import {
   ShieldCheckIcon,
   UsersRoundIcon,
   type LucideIcon,
-} from "lucide-react"
+} from "lucide-react";
 
 export interface Section {
-  segment: string
-  label: string
-  icon: LucideIcon
+  segment: string;
+  label: string;
+  icon: LucideIcon;
 }
 
 export const SECTIONS: Section[] = [
@@ -19,8 +19,8 @@ export const SECTIONS: Section[] = [
   { segment: "schemas", label: "Schema Registry", icon: FileJsonIcon },
   { segment: "nodes", label: "Brokers", icon: HardDriveIcon },
   { segment: "acls", label: "ACLs", icon: ShieldCheckIcon },
-]
+];
 
 export function findSection(segment: string | undefined) {
-  return SECTIONS.find((section) => section.segment === segment)
+  return SECTIONS.find((section) => section.segment === segment);
 }

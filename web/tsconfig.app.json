@@ -9,7 +9,7 @@
     "skipLibCheck": true,
 
     "paths": {
-      "@/*": ["./src/*"],
+      "@/*": ["./src/*"]
     },
 
     /* Bundler mode */
@@ -29,9 +29,9 @@
     "plugins": [
       {
         "name": "@0no-co/graphqlsp",
-        "schema": "../schema.graphql",
-      },
-    ],
+        "schema": "../schema.graphql"
+      }
+    ]
   },
-  "include": ["src"],
+  "include": ["src"]
 }

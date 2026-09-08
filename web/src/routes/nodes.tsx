@@ -1,20 +1,20 @@
-import { CrownIcon } from "lucide-react"
-import { useNavigate } from "react-router"
+import { CrownIcon } from "lucide-react";
+import { useNavigate } from "react-router";
 
-import { CopyButton } from "@/components/copy-button"
-import { DataTable, type Column } from "@/components/data-table"
-import { PageHeader } from "@/components/page-header"
-import { Pill } from "@/components/status"
-import { useBrokers, useCluster } from "@/lib/api/queries"
-import { clusterPath, useClusterName } from "@/lib/clusters"
-import { formatBytes, formatNumber, formatRate } from "@/lib/format"
-import type { Broker } from "@/lib/api/types"
+import { CopyButton } from "@/components/copy-button";
+import { DataTable, type Column } from "@/components/data-table";
+import { PageHeader } from "@/components/page-header";
+import { Pill } from "@/components/status";
+import { useBrokers, useCluster } from "@/lib/api/queries";
+import { clusterPath, useClusterName } from "@/lib/clusters";
+import { formatBytes, formatNumber, formatRate } from "@/lib/format";
+import type { Broker } from "@/lib/api/types";
 
 export function NodesPage() {
-  const cluster = useClusterName()
-  const navigate = useNavigate()
-  const { data: brokers = [], isPending, isError, error } = useBrokers(cluster)
-  const { data: info } = useCluster(cluster)
+  const cluster = useClusterName();
+  const navigate = useNavigate();
+  const { data: brokers = [], isPending, isError, error } = useBrokers(cluster);
+  const { data: info } = useCluster(cluster);
 
   const columns: Array<Column<Broker>> = [
     {
@@ -92,7 +92,7 @@ export function NodesPage() {
       sortValue: (broker) => broker.bytesOutPerSec,
       cell: (broker) => formatRate(broker.bytesOutPerSec),
     },
-  ]
+  ];
 
   return (
     <div className="space-y-5">
@@ -106,10 +106,12 @@ export function NodesPage() {
         rows={brokers}
         rowKey={(broker) => String(broker.id)}
         loading={isPending}
-        error={isError ? (error instanceof Error ? error.message : "Failed to load brokers.") : undefined}
+        error={
+          isError ? (error instanceof Error ? error.message : "Failed to load brokers.") : undefined
+        }
         defaultSort={{ id: "id", direction: "asc" }}
         onRowClick={(broker) => navigate(clusterPath(cluster, "nodes", String(broker.id)))}
       />
     </div>
-  )
+  );
 }

@@ -1,37 +1,37 @@
-import { ActivityIcon, LayersIcon, NetworkIcon, UsersRoundIcon } from "lucide-react"
-import { Link, useNavigate, useParams, useSearchParams } from "react-router"
+import { ActivityIcon, LayersIcon, NetworkIcon, UsersRoundIcon } from "lucide-react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { CopyButton } from "@/components/copy-button"
-import { DataTable, type Column } from "@/components/data-table"
-import { PageHeader } from "@/components/page-header"
-import { Stat, StatGrid } from "@/components/stat"
-import { GroupStateBadge, Pill } from "@/components/status"
-import { useConsumerGroup } from "@/lib/api/queries"
-import { clusterPath, useClusterName } from "@/lib/clusters"
-import { formatCount, formatNumber } from "@/lib/format"
-import type { ConsumerGroupMember, GroupOffset } from "@/lib/api/types"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { CopyButton } from "@/components/copy-button";
+import { DataTable, type Column } from "@/components/data-table";
+import { PageHeader } from "@/components/page-header";
+import { Stat, StatGrid } from "@/components/stat";
+import { GroupStateBadge, Pill } from "@/components/status";
+import { useConsumerGroup } from "@/lib/api/queries";
+import { clusterPath, useClusterName } from "@/lib/clusters";
+import { formatCount, formatNumber } from "@/lib/format";
+import type { ConsumerGroupMember, GroupOffset } from "@/lib/api/types";
 
-const TABS = ["offsets", "members"]
+const TABS = ["offsets", "members"];
 
 export function ConsumerGroupPage() {
-  const cluster = useClusterName()
-  const navigate = useNavigate()
-  const { group: groupParam } = useParams<{ group: string }>()
-  const groupId = decodeURIComponent(groupParam ?? "")
-  const [params, setParams] = useSearchParams()
+  const cluster = useClusterName();
+  const navigate = useNavigate();
+  const { group: groupParam } = useParams<{ group: string }>();
+  const groupId = decodeURIComponent(groupParam ?? "");
+  const [params, setParams] = useSearchParams();
 
-  const tab = TABS.includes(params.get("tab") ?? "") ? params.get("tab")! : "offsets"
-  const { data: group, isPending, isError } = useConsumerGroup(cluster, groupId)
+  const tab = TABS.includes(params.get("tab") ?? "") ? params.get("tab")! : "offsets";
+  const { data: group, isPending, isError } = useConsumerGroup(cluster, groupId);
 
   function selectTab(value: string) {
-    const next = new URLSearchParams(params)
+    const next = new URLSearchParams(params);
     if (value === "offsets") {
-      next.delete("tab")
+      next.delete("tab");
     } else {
-      next.set("tab", value)
+      next.set("tab", value);
     }
-    setParams(next, { replace: true })
+    setParams(next, { replace: true });
   }
 
   if (isError) {
@@ -41,13 +41,13 @@ export function ConsumerGroupPage() {
         mono
         description="This consumer group does not exist in the selected cluster."
       />
-    )
+    );
   }
 
-  const maxLag = Math.max(1, ...(group?.offsets ?? []).map((offset) => offset.lag))
+  const maxLag = Math.max(1, ...(group?.offsets ?? []).map((offset) => offset.lag));
   const memberLabels = new Map(
     (group?.members ?? []).map((member) => [member.id, member.clientId] as const),
-  )
+  );
 
   const offsetColumns: Array<Column<GroupOffset>> = [
     {
@@ -101,7 +101,9 @@ export function ConsumerGroupPage() {
                     ? "block h-full bg-rose-500/70"
                     : "block h-full bg-amber-500/70"
               }
-              style={{ width: `${Math.max(offset.lag === 0 ? 0 : 4, (offset.lag / maxLag) * 100)}%` }}
+              style={{
+                width: `${Math.max(offset.lag === 0 ? 0 : 4, (offset.lag / maxLag) * 100)}%`,
+              }}
             />
           </span>
           <span className="numeric w-16 font-mono">{formatNumber(offset.lag)}</span>
@@ -122,7 +124,7 @@ export function ConsumerGroupPage() {
           <Pill tone="idle">unassigned</Pill>
         ),
     },
-  ]
+  ];
 
   const memberColumns: Array<Column<ConsumerGroupMember>> = [
     {
@@ -172,7 +174,7 @@ export function ConsumerGroupPage() {
       cell: (member) =>
         member.assignments.reduce((sum, assignment) => sum + assignment.partitions.length, 0),
     },
-  ]
+  ];
 
   return (
     <div className="space-y-5">
@@ -274,5 +276,5 @@ export function ConsumerGroupPage() {
         </TabsContent>
       </Tabs>
     </div>
-  )
+  );
 }

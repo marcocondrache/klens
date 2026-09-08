@@ -1,22 +1,28 @@
-import { ArrowDownRightIcon, ArrowUpRightIcon, CrownIcon, DatabaseIcon, NetworkIcon } from "lucide-react"
-import { useParams } from "react-router"
+import {
+  ArrowDownRightIcon,
+  ArrowUpRightIcon,
+  CrownIcon,
+  DatabaseIcon,
+  NetworkIcon,
+} from "lucide-react";
+import { useParams } from "react-router";
 
-import { ConfigTable } from "@/components/config-table"
-import { CopyButton } from "@/components/copy-button"
-import { PageHeader } from "@/components/page-header"
-import { Pill } from "@/components/status"
-import { Stat, StatGrid } from "@/components/stat"
-import { useBroker, useBrokerConfigs } from "@/lib/api/queries"
-import { useClusterName } from "@/lib/clusters"
-import { formatBytes, formatNumber, formatRate } from "@/lib/format"
+import { ConfigTable } from "@/components/config-table";
+import { CopyButton } from "@/components/copy-button";
+import { PageHeader } from "@/components/page-header";
+import { Pill } from "@/components/status";
+import { Stat, StatGrid } from "@/components/stat";
+import { useBroker, useBrokerConfigs } from "@/lib/api/queries";
+import { useClusterName } from "@/lib/clusters";
+import { formatBytes, formatNumber, formatRate } from "@/lib/format";
 
 export function NodePage() {
-  const cluster = useClusterName()
-  const { id } = useParams<{ id: string }>()
-  const brokerId = Number(id)
+  const cluster = useClusterName();
+  const { id } = useParams<{ id: string }>();
+  const brokerId = Number(id);
 
-  const { data: broker, isPending } = useBroker(cluster, brokerId)
-  const { data: configs = [], isPending: configsPending } = useBrokerConfigs(cluster, brokerId)
+  const { data: broker, isPending } = useBroker(cluster, brokerId);
+  const { data: configs = [], isPending: configsPending } = useBrokerConfigs(cluster, brokerId);
 
   return (
     <div className="space-y-5">
@@ -78,5 +84,5 @@ export function NodePage() {
 
       <ConfigTable entries={configs} loading={configsPending} />
     </div>
-  )
+  );
 }

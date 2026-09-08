@@ -1,6 +1,6 @@
-import { LoginCover } from "@/components/login-cover"
-import { LoginForm } from "@/components/login-form"
-import { ModeToggle } from "@/components/mode-toggle"
+import { LoginCover } from "@/components/login-cover";
+import { LoginForm } from "@/components/login-form";
+import { ModeToggle } from "@/components/mode-toggle";
 
 export function LoginPage() {
   return (
@@ -21,5 +21,5 @@ export function LoginPage() {
       </div>
       <LoginCover />
     </div>
-  )
+  );
 }

@@ -1,38 +1,38 @@
-import { useEffect, useState } from "react"
-import { TriangleAlertIcon } from "lucide-react"
-import { Navigate, Outlet } from "react-router"
+import { useEffect, useState } from "react";
+import { TriangleAlertIcon } from "lucide-react";
+import { Navigate, Outlet } from "react-router";
 
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
-import { AppHeader } from "@/components/app-header"
-import { AppSidebar } from "@/components/app-sidebar"
-import { CommandPalette } from "@/components/command-palette"
-import { useClusters, useTopicRates } from "@/lib/api/queries"
-import { useClusterName } from "@/lib/clusters"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { AppHeader } from "@/components/app-header";
+import { AppSidebar } from "@/components/app-sidebar";
+import { CommandPalette } from "@/components/command-palette";
+import { useClusters, useTopicRates } from "@/lib/api/queries";
+import { useClusterName } from "@/lib/clusters";
 
 export function AppLayout() {
-  const cluster = useClusterName()
-  const { data: clusters, isPending } = useClusters()
-  useTopicRates(cluster)
-  const [paletteOpen, setPaletteOpen] = useState(false)
-  const current = clusters?.find((entry) => entry.name === cluster)
+  const cluster = useClusterName();
+  const { data: clusters, isPending } = useClusters();
+  useTopicRates(cluster);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const current = clusters?.find((entry) => entry.name === cluster);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "k" && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault()
-        setPaletteOpen((open) => !open)
+        event.preventDefault();
+        setPaletteOpen((open) => !open);
       }
     }
 
-    window.addEventListener("keydown", onKeyDown)
-    return () => window.removeEventListener("keydown", onKeyDown)
-  }, [])
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
-  const known = clusters?.some((entry) => entry.name === cluster)
+  const known = clusters?.some((entry) => entry.name === cluster);
 
   if (!isPending && clusters && clusters.length > 0 && !known) {
-    return <Navigate to={`/cluster/${clusters[0].name}`} replace />
+    return <Navigate to={`/cluster/${clusters[0].name}`} replace />;
   }
 
   return (
@@ -46,8 +46,8 @@ export function AppLayout() {
               <TriangleAlertIcon />
               <AlertTitle>Cluster unreachable</AlertTitle>
               <AlertDescription>
-                Metadata for {current.label} could not be fetched. Catalog pages stay empty until the
-                brokers respond.
+                Metadata for {current.label} could not be fetched. Catalog pages stay empty until
+                the brokers respond.
               </AlertDescription>
             </Alert>
           ) : null}
@@ -56,5 +56,5 @@ export function AppLayout() {
       </SidebarInset>
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
     </SidebarProvider>
-  )
+  );
 }

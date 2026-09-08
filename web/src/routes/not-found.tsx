@@ -1,7 +1,7 @@
-import { CompassIcon } from "lucide-react"
-import { Link } from "react-router"
+import { CompassIcon } from "lucide-react";
+import { Link } from "react-router";
 
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/ui/button";
 import {
   Empty,
   EmptyContent,
@@ -9,7 +9,7 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-} from "@/components/ui/empty"
+} from "@/components/ui/empty";
 
 export function NotFoundPage() {
   return (
@@ -27,5 +27,5 @@ export function NotFoundPage() {
         <Button render={<Link to="/" />}>Back to topics</Button>
       </EmptyContent>
     </Empty>
-  )
+  );
 }

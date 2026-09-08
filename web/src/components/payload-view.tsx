@@ -1,12 +1,12 @@
-import { useMemo, useState, type ReactNode } from "react"
-import { DownloadIcon, Maximize2Icon, Minimize2Icon } from "lucide-react"
+import { useMemo, useState, type ReactNode } from "react";
+import { DownloadIcon, Maximize2Icon, Minimize2Icon } from "lucide-react";
 
-import { Button } from "@/components/ui/button"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { CopyButton } from "@/components/copy-button"
-import { JsonBlock } from "@/components/json-block"
-import { isJson, prettyJson } from "@/lib/format"
-import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { CopyButton } from "@/components/copy-button";
+import { JsonBlock } from "@/components/json-block";
+import { isJson, prettyJson } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 export function PayloadView({
   label,
@@ -20,37 +20,41 @@ export function PayloadView({
   onExpandedChange,
   fill = false,
 }: {
-  label: string
-  source: string
-  filename?: string
-  copyLabel?: string
-  showCopy?: boolean
-  showDownload?: boolean
-  showExpand?: boolean
-  expanded?: boolean
-  onExpandedChange?: (expanded: boolean) => void
-  fill?: boolean
+  label: string;
+  source: string;
+  filename?: string;
+  copyLabel?: string;
+  showCopy?: boolean;
+  showDownload?: boolean;
+  showExpand?: boolean;
+  expanded?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
+  fill?: boolean;
 }) {
-  const json = useMemo(() => isJson(source), [source])
-  const prettySource = useMemo(() => (json ? prettyJson(source) : source), [json, source])
-  const [pretty, setPretty] = useState(true)
-  const displayed = json && pretty ? prettySource : source
-  const showPrettyToggle = json && prettySource !== source
+  const json = useMemo(() => isJson(source), [source]);
+  const prettySource = useMemo(() => (json ? prettyJson(source) : source), [json, source]);
+  const [pretty, setPretty] = useState(true);
+  const displayed = json && pretty ? prettySource : source;
+  const showPrettyToggle = json && prettySource !== source;
 
   function download() {
-    const blob = new Blob([source], { type: json ? "application/json" : "text/plain" })
-    const url = URL.createObjectURL(blob)
-    const anchor = document.createElement("a")
-    anchor.href = url
-    anchor.download = filename ?? (json ? "payload.json" : "payload.txt")
-    anchor.click()
-    URL.revokeObjectURL(url)
+    const blob = new Blob([source], { type: json ? "application/json" : "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename ?? (json ? "payload.json" : "payload.txt");
+    anchor.click();
+    URL.revokeObjectURL(url);
   }
 
   return (
-    <div className={cn("flex min-h-0 flex-col gap-2", fill ? "flex-1 overflow-hidden" : "shrink-0")}>
+    <div
+      className={cn("flex min-h-0 flex-col gap-2", fill ? "flex-1 overflow-hidden" : "shrink-0")}
+    >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">{label}</h3>
+        <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+          {label}
+        </h3>
         <div className="flex items-center gap-1">
           {showPrettyToggle ? (
             <div className="mr-1 flex rounded-lg border p-0.5">
@@ -91,7 +95,7 @@ export function PayloadView({
       </div>
       <JsonBlock source={displayed} wrap className={fill ? "min-h-0 flex-1" : "max-h-40"} />
     </div>
-  )
+  );
 }
 
 function IconButton({
@@ -100,10 +104,10 @@ function IconButton({
   pressed,
   children,
 }: {
-  label: string
-  onClick: () => void
-  pressed?: boolean
-  children: ReactNode
+  label: string;
+  onClick: () => void;
+  pressed?: boolean;
+  children: ReactNode;
 }) {
   return (
     <Tooltip>
@@ -123,5 +127,5 @@ function IconButton({
       </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
     </Tooltip>
-  )
+  );
 }

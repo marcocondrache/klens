@@ -1,4 +1,4 @@
-import { graphql } from "@/graphql/gql"
+import { graphql } from "@/graphql/gql";
 
 export const ClusterFields = graphql(`
   fragment ClusterFields on Cluster {
@@ -20,7 +20,7 @@ export const ClusterFields = graphql(`
     bytesInPerSec
     bytesOutPerSec
   }
-`)
+`);
 
 export const BrokerFields = graphql(`
   fragment BrokerFields on Broker {
@@ -35,7 +35,7 @@ export const BrokerFields = graphql(`
     bytesInPerSec
     bytesOutPerSec
   }
-`)
+`);
 
 export const PartitionFields = graphql(`
   fragment PartitionFields on Partition {
@@ -47,7 +47,7 @@ export const PartitionFields = graphql(`
     highWatermark
     sizeBytes
   }
-`)
+`);
 
 export const TopicFields = graphql(`
   fragment TopicFields on Topic {
@@ -66,7 +66,7 @@ export const TopicFields = graphql(`
     messagesPerSec
     underReplicated
   }
-`)
+`);
 
 export const ConfigEntryFields = graphql(`
   fragment ConfigEntryFields on ConfigEntry {
@@ -77,14 +77,14 @@ export const ConfigEntryFields = graphql(`
     sensitive
     documentation
   }
-`)
+`);
 
 export const MemberAssignmentFields = graphql(`
   fragment MemberAssignmentFields on MemberAssignment {
     topic
     partitions
   }
-`)
+`);
 
 export const ConsumerGroupMemberFields = graphql(`
   fragment ConsumerGroupMemberFields on ConsumerGroupMember {
@@ -95,7 +95,7 @@ export const ConsumerGroupMemberFields = graphql(`
       ...MemberAssignmentFields
     }
   }
-`)
+`);
 
 export const GroupOffsetFields = graphql(`
   fragment GroupOffsetFields on GroupOffset {
@@ -106,7 +106,7 @@ export const GroupOffsetFields = graphql(`
     lag
     memberId
   }
-`)
+`);
 
 export const ConsumerGroupFields = graphql(`
   fragment ConsumerGroupFields on ConsumerGroup {
@@ -123,7 +123,7 @@ export const ConsumerGroupFields = graphql(`
       ...GroupOffsetFields
     }
   }
-`)
+`);
 
 export const ThroughputPointFields = graphql(`
   fragment ThroughputPointFields on ThroughputPoint {
@@ -132,7 +132,7 @@ export const ThroughputPointFields = graphql(`
     bytesOut
     messages
   }
-`)
+`);
 
 export const TopicRateFields = graphql(`
   fragment TopicRateFields on TopicRate {
@@ -140,7 +140,7 @@ export const TopicRateFields = graphql(`
     messagesPerSec
     bytesInPerSec
   }
-`)
+`);
 
 export const SchemaSubjectFields = graphql(`
   fragment SchemaSubjectFields on SchemaSubject {
@@ -152,7 +152,7 @@ export const SchemaSubjectFields = graphql(`
     compatibility
     schema
   }
-`)
+`);
 
 export const AclFields = graphql(`
   fragment AclFields on Acl {
@@ -164,14 +164,14 @@ export const AclFields = graphql(`
     permission
     host
   }
-`)
+`);
 
 export const RecordHeaderFields = graphql(`
   fragment RecordHeaderFields on RecordHeader {
     key
     value
   }
-`)
+`);
 
 export const TopicRecordFields = graphql(`
   fragment TopicRecordFields on TopicRecord {
@@ -187,7 +187,7 @@ export const TopicRecordFields = graphql(`
     sizeBytes
     compression
   }
-`)
+`);
 
 export const SearchResultFields = graphql(`
   fragment SearchResultFields on SearchResult {
@@ -196,7 +196,7 @@ export const SearchResultFields = graphql(`
     label
     detail
   }
-`)
+`);
 
 export const clustersQuery = graphql(`
   query Clusters {
@@ -204,7 +204,7 @@ export const clustersQuery = graphql(`
       ...ClusterFields
     }
   }
-`)
+`);
 
 export const clusterQuery = graphql(`
   query Cluster($name: String!) {
@@ -212,7 +212,7 @@ export const clusterQuery = graphql(`
       ...ClusterFields
     }
   }
-`)
+`);
 
 export const brokersQuery = graphql(`
   query Brokers($cluster: String!) {
@@ -220,7 +220,7 @@ export const brokersQuery = graphql(`
       ...BrokerFields
     }
   }
-`)
+`);
 
 export const brokerQuery = graphql(`
   query Broker($cluster: String!, $id: Int!) {
@@ -228,7 +228,7 @@ export const brokerQuery = graphql(`
       ...BrokerFields
     }
   }
-`)
+`);
 
 export const brokerConfigsQuery = graphql(`
   query BrokerConfigs($cluster: String!, $id: Int!) {
@@ -236,7 +236,7 @@ export const brokerConfigsQuery = graphql(`
       ...ConfigEntryFields
     }
   }
-`)
+`);
 
 export const topicsQuery = graphql(`
   query Topics($cluster: String!) {
@@ -244,7 +244,7 @@ export const topicsQuery = graphql(`
       ...TopicFields
     }
   }
-`)
+`);
 
 export const topicQuery = graphql(`
   query Topic($cluster: String!, $name: String!) {
@@ -252,7 +252,7 @@ export const topicQuery = graphql(`
       ...TopicFields
     }
   }
-`)
+`);
 
 export const topicConfigsQuery = graphql(`
   query TopicConfigs($cluster: String!, $name: String!) {
@@ -260,7 +260,7 @@ export const topicConfigsQuery = graphql(`
       ...ConfigEntryFields
     }
   }
-`)
+`);
 
 export const consumerGroupsQuery = graphql(`
   query ConsumerGroups($cluster: String!) {
@@ -268,7 +268,7 @@ export const consumerGroupsQuery = graphql(`
       ...ConsumerGroupFields
     }
   }
-`)
+`);
 
 export const consumerGroupQuery = graphql(`
   query ConsumerGroup($cluster: String!, $id: String!) {
@@ -276,7 +276,7 @@ export const consumerGroupQuery = graphql(`
       ...ConsumerGroupFields
     }
   }
-`)
+`);
 
 export const clusterThroughputQuery = graphql(`
   query ClusterThroughput($cluster: String!) {
@@ -284,7 +284,7 @@ export const clusterThroughputQuery = graphql(`
       ...ThroughputPointFields
     }
   }
-`)
+`);
 
 export const topicThroughputQuery = graphql(`
   query TopicThroughput($cluster: String!, $topic: String!) {
@@ -292,7 +292,7 @@ export const topicThroughputQuery = graphql(`
       ...ThroughputPointFields
     }
   }
-`)
+`);
 
 export const schemaSubjectsQuery = graphql(`
   query SchemaSubjects($cluster: String!) {
@@ -300,7 +300,7 @@ export const schemaSubjectsQuery = graphql(`
       ...SchemaSubjectFields
     }
   }
-`)
+`);
 
 export const aclsQuery = graphql(`
   query Acls($cluster: String!) {
@@ -308,7 +308,7 @@ export const aclsQuery = graphql(`
       ...AclFields
     }
   }
-`)
+`);
 
 export const recordsQuery = graphql(`
   query Records($query: RecordQuery!) {
@@ -319,7 +319,7 @@ export const recordsQuery = graphql(`
       hasMore
     }
   }
-`)
+`);
 
 export const searchQuery = graphql(`
   query Search($cluster: String!, $term: String!) {
@@ -327,7 +327,7 @@ export const searchQuery = graphql(`
       ...SearchResultFields
     }
   }
-`)
+`);
 
 export const topicRatesSubscription = graphql(`
   subscription TopicRates($cluster: String!) {
@@ -335,4 +335,4 @@ export const topicRatesSubscription = graphql(`
       ...TopicRateFields
     }
   }
-`)
+`);
