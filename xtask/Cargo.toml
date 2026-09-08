@@ -7,3 +7,4 @@ publish = false
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 klens = { path = ".." }
+xshell = "0.2"
