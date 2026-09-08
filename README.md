@@ -48,6 +48,10 @@ the same access as an open deployment.
 Each cluster can optionally point at a Confluent-compatible Schema Registry.
 When omitted, the Schemas page is empty for that cluster.
 
+When a registry is configured, Confluent-framed Avro and JSON Schema keys and
+values (magic byte `0x00` plus schema id) are decoded to JSON in the topic
+browser. Protobuf and unframed payloads are still shown as UTF-8 text.
+
 ```yaml
 schema_registry:
   url: http://localhost:8081

@@ -10,7 +10,9 @@ use url::Url;
 use crate::config::SchemaRegistryConfig;
 use crate::environment::SCHEMA_REGISTRY_TIMEOUT;
 use crate::kafka::error::KafkaError;
-use crate::kafka::model::{SchemaCompatibility, SchemaSubject, SchemaType};
+use crate::kafka::model::{
+    RegisteredSchema, SchemaCompatibility, SchemaReference, SchemaSubject, SchemaType,
+};
 use schema_registry::{Client, Error as RegistryError};
 
 mod schema_registry {
@@ -89,6 +91,34 @@ impl SchemaRegistryClient {
 
         subjects.sort_by(|left, right| left.subject.cmp(&right.subject));
         Ok(subjects)
+    }
+
+    pub async fn schema_by_id(&self, id: i32) -> Result<Option<RegisteredSchema>, KafkaError> {
+        match self.inner.get_schema().id(id).send().await {
+            Ok(response) => self
+                .registered_from_schema_string(id, response.into_inner())
+                .map(Some),
+            Err(error) if is_not_found(&error) => Ok(None),
+            Err(error) => Err(self.fail_error(error)),
+        }
+    }
+
+    pub async fn schema_by_subject_version(
+        &self,
+        subject: &str,
+        version: i32,
+    ) -> Result<RegisteredSchema, KafkaError> {
+        let latest = self
+            .inner
+            .get_schema_by_version()
+            .subject(subject)
+            .version(version.to_string())
+            .send()
+            .await
+            .map_err(|error| self.fail_error(error))?
+            .into_inner();
+        let id = latest.id.ok_or_else(|| self.fail("schema is missing id"))?;
+        self.registered_from_schema(id, latest)
     }
 
     async fn load_subject(&self, name: &str) -> Result<SchemaSubject, KafkaError> {
@@ -179,6 +209,62 @@ impl SchemaRegistryClient {
             message: message.into(),
         }
     }
+
+    fn registered_from_schema_string(
+        &self,
+        id: i32,
+        value: schema_registry::types::SchemaString,
+    ) -> Result<RegisteredSchema, KafkaError> {
+        self.registered_schema(
+            id,
+            value.schema_type.as_deref(),
+            value.schema,
+            value.references,
+        )
+    }
+
+    fn registered_from_schema(
+        &self,
+        id: i32,
+        value: schema_registry::types::Schema,
+    ) -> Result<RegisteredSchema, KafkaError> {
+        self.registered_schema(
+            id,
+            value.schema_type.as_deref(),
+            value.schema,
+            value.references,
+        )
+    }
+
+    fn registered_schema(
+        &self,
+        id: i32,
+        schema_type: Option<&str>,
+        schema: Option<String>,
+        references: Vec<schema_registry::types::SchemaReference>,
+    ) -> Result<RegisteredSchema, KafkaError> {
+        Ok(RegisteredSchema {
+            id,
+            schema_type: SchemaType::from_registry(schema_type),
+            schema: schema.ok_or_else(|| self.fail("schema is missing schema body"))?,
+            references: schema_references(references),
+        })
+    }
+}
+
+fn schema_references(
+    references: Vec<schema_registry::types::SchemaReference>,
+) -> Vec<SchemaReference> {
+    references
+        .into_iter()
+        .filter_map(|reference| {
+            Some(SchemaReference {
+                name: reference.name?,
+                subject: reference.subject?,
+                version: reference.version?,
+            })
+        })
+        .collect()
 }
 
 fn compatibility_from_config(config: &schema_registry::types::Config) -> SchemaCompatibility {
@@ -372,6 +458,80 @@ mod tests {
 
         assert!(error.to_string().contains("prod"));
         assert!(error.to_string().contains("503"));
+    }
+
+    #[tokio::test]
+    async fn fetches_schema_by_id_including_references() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/schemas/ids/20"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "schemaType": "AVRO",
+                "schema": r#"{"type":"record","name":"Order","fields":[{"name":"status","type":"Status"}]}"#,
+                "references": [{
+                    "name": "Status",
+                    "subject": "Status",
+                    "version": 1
+                }]
+            })))
+            .mount(&server)
+            .await;
+
+        let client = SchemaRegistryClient::new("local", &config(&server.uri())).unwrap();
+        let schema = client.schema_by_id(20).await.unwrap().unwrap();
+
+        assert_eq!(schema.id, 20);
+        assert_eq!(schema.schema_type, SchemaType::Avro);
+        assert_eq!(
+            schema.references,
+            vec![SchemaReference {
+                name: "Status".into(),
+                subject: "Status".into(),
+                version: 1,
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn schema_by_id_returns_none_when_missing() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/schemas/ids/99"))
+            .respond_with(ResponseTemplate::new(404).set_body_json(serde_json::json!({
+                "error_code": 40403,
+                "message": "Schema not found.",
+            })))
+            .mount(&server)
+            .await;
+
+        let client = SchemaRegistryClient::new("local", &config(&server.uri())).unwrap();
+        assert!(client.schema_by_id(99).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn fetches_schema_by_subject_version() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/subjects/Status/versions/1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "subject": "Status",
+                "id": 4,
+                "version": 1,
+                "schemaType": "AVRO",
+                "schema": r#"{"type":"enum","name":"Status","symbols":["OPEN","CLOSED"]}"#,
+            })))
+            .mount(&server)
+            .await;
+
+        let client = SchemaRegistryClient::new("local", &config(&server.uri())).unwrap();
+        let schema = client.schema_by_subject_version("Status", 1).await.unwrap();
+
+        assert_eq!(schema.id, 4);
+        assert_eq!(schema.schema_type, SchemaType::Avro);
+        assert!(schema.schema.contains("CLOSED"));
     }
 
     #[test]

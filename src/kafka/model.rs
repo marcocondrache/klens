@@ -707,6 +707,21 @@ pub struct SchemaSubject {
     pub schema: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SchemaReference {
+    pub name: String,
+    pub subject: String,
+    pub version: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegisteredSchema {
+    pub id: i32,
+    pub schema_type: SchemaType,
+    pub schema: String,
+    pub references: Vec<SchemaReference>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchKind {
     Topic,
