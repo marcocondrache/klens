@@ -352,7 +352,6 @@ pub enum RecordOrder {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordQuery {
-    pub cluster: String,
     pub topic: String,
     pub partition: Option<i32>,
     pub search: String,

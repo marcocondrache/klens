@@ -78,7 +78,7 @@ impl ClusterHandle {
         let schema_registry = config
             .schema_registry
             .as_ref()
-            .map(|registry| SchemaRegistryClient::new(&identity.name, registry))
+            .map(|registry| SchemaRegistryClient::new(identity.name.clone(), registry))
             .transpose()?;
 
         Ok(Self {

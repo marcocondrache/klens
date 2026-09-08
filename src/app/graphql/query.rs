@@ -21,7 +21,7 @@ impl Query {
     }
 
     async fn cluster(context: &AppState, name: String) -> Option<Cluster> {
-        context.query.cluster(&name).await.map(Cluster::from)
+        context.query.overview(&name).await.ok().map(Cluster::from)
     }
 
     async fn brokers(context: &AppState, cluster: String) -> FieldResult<Vec<Broker>> {
@@ -162,7 +162,10 @@ impl Query {
     }
 
     async fn records(context: &AppState, query: RecordQuery) -> FieldResult<RecordPage> {
-        Ok(RecordPage::from(context.query.records(query.into()).await?))
+        let cluster = query.cluster.clone();
+        Ok(RecordPage::from(
+            context.query.records(&cluster, query.into()).await?,
+        ))
     }
 
     async fn search(

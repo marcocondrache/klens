@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use async_trait::async_trait;
 
@@ -26,7 +25,7 @@ pub struct FakeCluster {
 }
 
 impl FakeCluster {
-    pub fn local() -> Arc<Self> {
+    pub fn local() -> Self {
         let identity = ClusterIdentity {
             name: "local".into(),
             bootstrap_servers: vec!["localhost:9092".into()],
@@ -156,7 +155,7 @@ impl FakeCluster {
                     .into(),
         }];
 
-        Arc::new(Self {
+        Self {
             identity,
             metadata,
             watermarks,
@@ -165,17 +164,17 @@ impl FakeCluster {
             groups,
             records,
             subjects,
-        })
+        }
     }
 
-    pub fn named(name: &str) -> Arc<Self> {
-        let mut cluster = (*Self::local()).clone();
+    pub fn named(name: &str) -> Self {
+        let mut cluster = Self::local();
         cluster.identity.name = name.to_owned();
-        Arc::new(cluster)
+        cluster
     }
 
-    pub fn extra_topic(self: &Arc<Self>, name: &str, partitions: i32, high: i64) -> Arc<Self> {
-        let mut cluster = (**self).clone();
+    pub fn extra_topic(&self, name: &str, partitions: i32, high: i64) -> Self {
+        let mut cluster = self.clone();
         cluster.metadata.topics.push(TopicMetadata {
             name: name.to_owned(),
             internal: false,
@@ -194,7 +193,7 @@ impl FakeCluster {
                 .map(|id| (id, Watermarks { low: 0, high }))
                 .collect(),
         );
-        Arc::new(cluster)
+        cluster
     }
 }
 

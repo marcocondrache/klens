@@ -416,7 +416,6 @@ pub(super) struct RecordQuery {
 impl From<RecordQuery> for domain::RecordQuery {
     fn from(query: RecordQuery) -> Self {
         Self {
-            cluster: query.cluster,
             topic: query.topic,
             partition: query.partition,
             search: query.search,
