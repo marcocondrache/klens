@@ -207,20 +207,8 @@ impl ClusterSession for FakeCluster {
         Ok(self.metadata.clone())
     }
 
-    async fn watermarks(
-        &self,
-        topic: &str,
-        partitions: &[i32],
-    ) -> Result<HashMap<i32, Watermarks>, KafkaError> {
-        Ok(partitions
-            .iter()
-            .filter_map(|partition| {
-                self.watermarks
-                    .get(topic)
-                    .and_then(|marks| marks.get(partition).copied())
-                    .map(|marks| (*partition, marks))
-            })
-            .collect())
+    async fn watermarks(&self, topic: &str) -> Result<HashMap<i32, Watermarks>, KafkaError> {
+        Ok(self.watermarks.get(topic).cloned().unwrap_or_default())
     }
 
     async fn offsets_for_times(
