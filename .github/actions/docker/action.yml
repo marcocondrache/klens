@@ -25,9 +25,6 @@ runs:
         username: ${{ github.actor }}
         password: ${{ inputs.gh-token }}
 
-    # `cache-to: type=gha` stores image layers only. Cargo's registry/git/target
-    # live in BuildKit cache mounts, which are discarded with the ephemeral
-    # builder unless they are injected and extracted around the build.
     - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       id: cache
       with:
