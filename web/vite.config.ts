@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig, lazyPlugins } from "vite-plus";
 
 function commitSha() {
   try {
@@ -27,7 +27,32 @@ function appVersion() {
 }
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  fmt: {},
+  lint: {
+    ignorePatterns: ["src/graphql/gql.ts", "src/graphql/graphql.ts", "src/graphql/index.ts"],
+    plugins: ["react", "typescript", "oxc"],
+    rules: {
+      "react/rules-of-hooks": "error",
+      "react/only-export-components": [
+        "warn",
+        {
+          allowConstantExport: true,
+        },
+      ],
+      "vite-plus/prefer-vite-plus-imports": "error",
+    },
+    options: {
+      typeAware: true,
+      typeCheck: true,
+    },
+    jsPlugins: [
+      {
+        name: "vite-plus",
+        specifier: "vite-plus/oxlint-plugin",
+      },
+    ],
+  },
+  plugins: lazyPlugins(() => [react(), tailwindcss()]),
   define: {
     __APP_VERSION__: JSON.stringify(appVersion()),
     __COMMIT_SHA__: JSON.stringify(commitSha()),
