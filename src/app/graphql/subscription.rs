@@ -5,7 +5,7 @@ use super::types::TopicRate;
 use crate::AppState;
 use crate::environment::SAMPLE_INTERVAL;
 
-pub(super) struct Subscription;
+pub struct Subscription;
 
 type TopicRateStream = BoxStream<'static, FieldResult<Vec<TopicRate>>>;
 

@@ -6,7 +6,7 @@ use super::types::{
 };
 use crate::AppState;
 
-pub(super) struct Query;
+pub struct Query;
 
 #[graphql_object(context = AppState)]
 impl Query {

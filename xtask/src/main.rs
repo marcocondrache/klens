@@ -1,6 +1,7 @@
-use std::{fs, path::Path};
-
 use clap::{Parser, Subcommand};
+use xshell::Shell;
+
+mod tasks;
 
 #[derive(Parser)]
 #[command(name = "xtask", about = "Project automation tasks")]
@@ -15,22 +16,9 @@ enum Command {
     Schema,
 }
 
-fn main() {
+fn main() -> xshell::Result<()> {
+    let sh = Shell::new()?;
     match Cli::parse().command {
-        Command::Schema => schema(),
+        Command::Schema => tasks::schema::run(&sh),
     }
-}
-
-fn schema() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../schema.graphql")
-        .canonicalize()
-        .expect("failed to resolve schema.graphql path");
-
-    let mut sdl = klens::schema_sdl();
-    if !sdl.ends_with('\n') {
-        sdl.push('\n');
-    }
-    fs::write(&path, sdl).expect("failed to write schema.graphql");
-    println!("regenerated {}", path.display());
 }
