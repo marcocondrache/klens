@@ -1,4 +1,3 @@
-mod assignment;
 mod browse;
 mod catalog;
 mod config;
