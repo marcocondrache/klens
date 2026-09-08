@@ -1,0 +1,11 @@
+apiVersion: vendir.k14s.io/v1alpha1
+directories:
+- contents:
+  - git:
+      commitTitle: Set Confluent to 8.3.1, Kafka to 8.3.1.
+      sha: 1591732f0d6aec44a5cbe4c3be555571d8ae8139
+      tags:
+      - v8.3.1
+    path: .
+  path: vendor/schema-registry
+kind: LockConfig

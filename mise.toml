@@ -2,11 +2,16 @@
 bun = "latest"
 node = "latest"
 rust = "latest"
+vendir = "0.46.0"
 viteplus = "latest"
 
 [tasks.schema]
 description = "Regenerate schema.graphql from the Rust schema"
 run = "cargo xtask schema"
+
+[tasks.vendor]
+description = "Sync vendored third-party files declared in vendir.yml"
+run = "vendir sync"
 
 [tasks."web:install"]
 description = "Install web dependencies"
