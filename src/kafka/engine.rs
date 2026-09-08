@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use indexmap::IndexMap;
 use tokio::task::JoinSet;
 use tokio::time::timeout;
 
@@ -11,60 +12,49 @@ use crate::kafka::catalog::{
     clamp_record_page, groups_for_topic, plan_records, search_catalog,
 };
 use crate::kafka::error::KafkaError;
+use crate::kafka::handle::ClusterHandle;
 use crate::kafka::model::{
     Broker, ClusterIdentity, ClusterOverview, ConfigEntry, ConsumerGroup, GroupSnapshot,
     RecordPage, RecordQuery, SchemaSubject, SearchHit, Topic, Watermarks,
 };
-use crate::kafka::registry::ClusterRegistry;
 use crate::kafka::session::ClusterSession;
 
 /// Answers GraphQL catalog and browse queries from [`ClusterSession`]s.
 pub struct QueryEngine {
-    clusters: HashMap<String, Arc<dyn ClusterSession>>,
-    order: Vec<String>,
+    clusters: IndexMap<String, Arc<dyn ClusterSession>>,
 }
 
 impl std::fmt::Debug for QueryEngine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("QueryEngine")
-            .field("clusters", &self.order)
+            .field("clusters", &self.names())
             .finish()
     }
 }
 
 impl QueryEngine {
     pub fn from_config(config: &Config) -> Result<Self, KafkaError> {
-        Ok(Self::from_registry(ClusterRegistry::from_config(config)?))
-    }
-
-    pub fn from_registry(registry: ClusterRegistry) -> Self {
-        let (handles, order) = registry.into_parts();
-        let clusters = handles
-            .into_iter()
-            .map(|(name, handle)| {
-                let session: Arc<dyn ClusterSession> = handle;
-                (name, session)
-            })
-            .collect();
-
-        Self { clusters, order }
-    }
-
-    pub fn from_sessions(sessions: Vec<Arc<dyn ClusterSession>>) -> Self {
-        let mut clusters = HashMap::with_capacity(sessions.len());
-        let mut order = Vec::with_capacity(sessions.len());
-
-        for session in sessions {
-            let name = session.identity().name.clone();
-            order.push(name.clone());
+        let mut clusters = IndexMap::with_capacity(config.clusters.len());
+        for cluster in &config.clusters {
+            let name = cluster.name.trim().to_owned();
+            let session: Arc<dyn ClusterSession> = Arc::new(ClusterHandle::from_config(cluster)?);
             clusters.insert(name, session);
         }
 
-        Self { clusters, order }
+        Ok(Self { clusters })
     }
 
-    pub fn names(&self) -> &[String] {
-        &self.order
+    pub fn from_sessions(sessions: Vec<Arc<dyn ClusterSession>>) -> Self {
+        let mut clusters = IndexMap::with_capacity(sessions.len());
+        for session in sessions {
+            clusters.insert(session.identity().name.clone(), session);
+        }
+
+        Self { clusters }
+    }
+
+    pub fn names(&self) -> Vec<&str> {
+        self.clusters.keys().map(String::as_str).collect()
     }
 
     fn session(&self, name: &str) -> Result<&Arc<dyn ClusterSession>, KafkaError> {
@@ -75,15 +65,12 @@ impl QueryEngine {
 
     pub async fn clusters(&self) -> Vec<ClusterOverview> {
         let mut join = JoinSet::new();
-        for (index, name) in self.order.iter().enumerate() {
-            let Some(session) = self.clusters.get(name) else {
-                continue;
-            };
+        for (index, session) in self.clusters.values().enumerate() {
             let session = Arc::clone(session);
             join.spawn(async move { (index, Self::overview_of(session).await) });
         }
 
-        let mut slots: Vec<Option<ClusterOverview>> = vec![None; self.order.len()];
+        let mut slots: Vec<Option<ClusterOverview>> = vec![None; self.clusters.len()];
         while let Some(result) = join.join_next().await {
             match result {
                 Ok((index, overview)) => slots[index] = Some(overview),
@@ -471,12 +458,23 @@ mod tests {
 
     use async_trait::async_trait;
 
+    use crate::config::{ClusterConfig, Config};
     use crate::kafka::error::KafkaError;
     use crate::kafka::model::{
         ClusterHealth, CommittedOffset, ConfigEntry, FetchPlan, MetadataSnapshot, Record,
         Watermarks,
     };
     use crate::kafka::testing::FakeCluster;
+
+    fn cluster_config(name: &str) -> ClusterConfig {
+        ClusterConfig {
+            name: name.to_owned(),
+            bootstrap_servers: vec!["localhost:9092".to_owned()],
+            security: None,
+            schema_registry: None,
+            properties: HashMap::new(),
+        }
+    }
 
     struct Probe {
         inner: Arc<FakeCluster>,
@@ -563,6 +561,19 @@ mod tests {
         async fn records(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError> {
             self.inner.records(plan).await
         }
+    }
+
+    #[test]
+    fn from_config_keeps_cluster_order() {
+        let engine = QueryEngine::from_config(&Config {
+            bind: "127.0.0.1:8080".parse().unwrap(),
+            log_level: "info".into(),
+            clusters: vec![cluster_config("b"), cluster_config("a")],
+            auth: None,
+        })
+        .unwrap();
+
+        assert_eq!(engine.names(), vec!["b", "a"]);
     }
 
     #[tokio::test]

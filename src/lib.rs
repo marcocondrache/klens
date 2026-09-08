@@ -11,6 +11,6 @@ pub use config::{
     AuthConfig, ClusterConfig, Config, ConfigError, OidcConfig, SaslConfig, SaslMechanism,
     SchemaRegistryConfig, SecurityConfig, SecurityProtocol, TlsConfig,
 };
-pub use kafka::{ClusterHandle, ClusterRegistry, KafkaClusterConfig, KafkaError, QueryEngine};
+pub use kafka::{KafkaClusterConfig, KafkaError, QueryEngine};
 pub use server::serve;
 pub use telemetry::{Telemetry, filter_from_value};

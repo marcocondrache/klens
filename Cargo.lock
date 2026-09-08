@@ -1638,6 +1638,7 @@ dependencies = [
  "axum-extra",
  "cookie",
  "futures",
+ "indexmap 2.14.2",
  "juniper",
  "juniper_axum",
  "juniper_graphql_ws",
