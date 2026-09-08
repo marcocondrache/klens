@@ -29,6 +29,7 @@ chrono = { version = "0.4", default-features = false, features = ["std"] }
 juniper = { version = "0.17", features = ["chrono", "schema-language"] }
 juniper_axum = { version = "0.3", features = ["subscriptions"] }
 juniper_graphql_ws = { version = "0.5", features = ["graphql-transport-ws", "graphql-ws"] }
+kafka-protocol = { version = "0.18", default-features = false }
 moka = { version = "0.12", features = ["future"] }
 mime_guess = { version = "2", optional = true }
 openidconnect = "4.0.1"
