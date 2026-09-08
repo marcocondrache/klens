@@ -11,7 +11,7 @@ use crate::kafka::model::{
 
 /// Per-cluster Kafka I/O. The query engine talks only to this port.
 #[async_trait]
-pub trait ClusterSession: Send + Sync {
+pub trait ClusterSession: Send + Sync + 'static {
     fn identity(&self) -> &ClusterIdentity;
 
     async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError>;
