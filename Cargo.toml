@@ -45,7 +45,16 @@ tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2.5.8"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+base64 = "0.22"
+progenitor-client = "0.14"
+reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls"] }
+
+[build-dependencies]
+anyhow = "1"
+prettyplease = "0.2"
+progenitor = "0.14"
+serde_yaml_ng = "0.10"
+syn = "2"
 
 [dev-dependencies]
 juniper_subscriptions = "0.18"
