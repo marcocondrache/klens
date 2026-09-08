@@ -19,7 +19,7 @@ fn main() -> Result<()> {
         .with_interface(InterfaceStyle::Builder)
         .with_tag(TagStyle::Merged);
 
-    let tokens = Generator::new(&settings)
+    let tokens = Generator::new(settings)
         .generate_tokens(&spec)
         .context("failed to generate Schema Registry client")?;
 
