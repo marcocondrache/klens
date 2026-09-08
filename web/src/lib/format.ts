@@ -73,6 +73,12 @@ export function formatDuration(ms: number) {
   return `${ms}ms`;
 }
 
+export function fromDatetimeLocalValue(value: string) {
+  if (!value) return null;
+  const ms = new Date(value).getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
 export function formatTimestamp(ms: number) {
   return new Date(ms).toLocaleString("en-GB", {
     year: "numeric",

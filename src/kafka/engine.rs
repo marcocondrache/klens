@@ -7,14 +7,14 @@ use tokio::time::timeout;
 use crate::config::Config;
 use crate::environment::{OFFSET_FETCH_BATCH, OVERVIEW_BUDGET};
 use crate::kafka::catalog::{
-    assemble_brokers, assemble_group, assemble_overview, assemble_topic, clamp_record_limit,
-    clamp_record_page, groups_for_topic, plan_records, search_catalog,
+    apply_timestamp_bounds, assemble_brokers, assemble_group, assemble_overview, assemble_topic,
+    clamp_record_limit, clamp_record_page, groups_for_topic, plan_records, search_catalog,
 };
 use crate::kafka::error::KafkaError;
 use crate::kafka::handle::ClusterHandle;
 use crate::kafka::model::{
     Broker, ClusterOverview, ConfigEntry, ConsumerGroup, GroupSnapshot, RecordPage, RecordQuery,
-    SchemaSubject, SearchHit, Topic, Watermarks,
+    SchemaSubject, SearchHit, Topic, Watermarks, validate_timestamp_range,
 };
 use crate::kafka::session::ClusterSession;
 
@@ -372,6 +372,8 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
 
         let limit = clamp_record_limit(query.limit).map_err(KafkaError::InvalidQuery)?;
         let page = clamp_record_page(query.page).map_err(KafkaError::InvalidQuery)?;
+        validate_timestamp_range(query.timestamp_from, query.timestamp_to)
+            .map_err(KafkaError::InvalidQuery)?;
         let partitions: Vec<i32> = match query.partition {
             Some(id) => vec![id],
             None => topic
@@ -380,7 +382,31 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
                 .map(|partition| partition.id)
                 .collect(),
         };
-        let watermarks = session.watermarks(&query.topic, &partitions).await?;
+        let mut watermarks = session.watermarks(&query.topic, &partitions).await?;
+        if query.timestamp_from.is_some() || query.timestamp_to.is_some() {
+            let topic = query.topic.as_str();
+            let (from_offsets, to_offsets) = tokio::try_join!(
+                async {
+                    match query.timestamp_from {
+                        Some(timestamp) => session
+                            .offsets_for_times(topic, &partitions, timestamp)
+                            .await
+                            .map(Some),
+                        None => Ok(None),
+                    }
+                },
+                async {
+                    match query.timestamp_to {
+                        Some(timestamp) => session
+                            .offsets_for_times(topic, &partitions, timestamp.saturating_add(1))
+                            .await
+                            .map(Some),
+                        None => Ok(None),
+                    }
+                },
+            )?;
+            apply_timestamp_bounds(&mut watermarks, from_offsets.as_ref(), to_offsets.as_ref());
+        }
         let plan = plan_records(&query, &partitions, &watermarks, limit, page);
         let records = session.records(&plan).await?;
         Ok(RecordPage {
@@ -421,7 +447,7 @@ mod tests {
     use crate::kafka::error::KafkaError;
     use crate::kafka::model::{
         ClusterHealth, ClusterIdentity, CommittedOffset, ConfigEntry, FetchPlan, MetadataSnapshot,
-        Record, Watermarks,
+        Record, RecordOrder, RecordQuery, Watermarks,
     };
     use crate::kafka::testing::FakeCluster;
 
@@ -488,6 +514,17 @@ mod tests {
                 tokio::time::sleep(self.watermark_delay).await;
             }
             self.inner.watermarks(topic, partitions).await
+        }
+
+        async fn offsets_for_times(
+            &self,
+            topic: &str,
+            partitions: &[i32],
+            timestamp: i64,
+        ) -> Result<HashMap<i32, Option<i64>>, KafkaError> {
+            self.inner
+                .offsets_for_times(topic, partitions, timestamp)
+                .await
         }
 
         async fn topic_configs(
@@ -645,5 +682,58 @@ mod tests {
                 .any(|hit| hit.kind == crate::kafka::model::SearchKind::Subject
                     && hit.id == "orders.created-value")
         );
+    }
+
+    fn browse_query() -> RecordQuery {
+        RecordQuery {
+            topic: "orders.created".into(),
+            partition: None,
+            search: String::new(),
+            timestamp_from: None,
+            timestamp_to: None,
+            limit: 50,
+            order: RecordOrder::Oldest,
+            page: 0,
+        }
+    }
+
+    #[tokio::test]
+    async fn records_filter_by_timestamp_range() {
+        let engine = QueryEngine::from_sessions(vec![FakeCluster::local()]);
+        let mut query = browse_query();
+        query.timestamp_from = Some(1_700_000_000_000 + 3_000);
+        query.timestamp_to = Some(1_700_000_000_000 + 5_000);
+
+        let page = engine.records("local", query).await.unwrap();
+        let keys: Vec<_> = page
+            .records
+            .iter()
+            .map(|record| record.key.as_deref())
+            .collect();
+
+        assert_eq!(keys, vec![Some("ord_3"), Some("ord_4"), Some("ord_5")]);
+        assert!(!page.has_more);
+    }
+
+    #[tokio::test]
+    async fn records_timestamp_from_after_the_log_is_empty() {
+        let engine = QueryEngine::from_sessions(vec![FakeCluster::local()]);
+        let mut query = browse_query();
+        query.timestamp_from = Some(1_800_000_000_000);
+
+        let page = engine.records("local", query).await.unwrap();
+        assert!(page.records.is_empty());
+        assert!(!page.has_more);
+    }
+
+    #[tokio::test]
+    async fn records_reject_timestamp_from_after_to() {
+        let engine = QueryEngine::from_sessions(vec![FakeCluster::local()]);
+        let mut query = browse_query();
+        query.timestamp_from = Some(2);
+        query.timestamp_to = Some(1);
+
+        let error = engine.records("local", query).await.unwrap_err();
+        assert!(error.to_string().contains("timestampFrom"));
     }
 }

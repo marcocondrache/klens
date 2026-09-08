@@ -193,6 +193,31 @@ pub fn clamp_record_page(page: i32) -> Result<usize, String> {
     Ok(page as usize)
 }
 
+pub fn apply_timestamp_bounds(
+    watermarks: &mut HashMap<i32, Watermarks>,
+    from_offsets: Option<&HashMap<i32, Option<i64>>>,
+    to_offsets: Option<&HashMap<i32, Option<i64>>>,
+) {
+    for (partition, marks) in watermarks {
+        if let Some(from_offsets) = from_offsets {
+            match from_offsets.get(partition).copied().flatten() {
+                Some(offset) => marks.low = marks.low.max(offset),
+                None => marks.low = marks.high,
+            }
+        }
+
+        if let Some(to_offsets) = to_offsets
+            && let Some(offset) = to_offsets.get(partition).copied().flatten()
+        {
+            marks.high = marks.high.min(offset);
+        }
+
+        if marks.low > marks.high {
+            marks.low = marks.high;
+        }
+    }
+}
+
 fn window_span(partition_count: usize, limit: usize, searching: bool, page: usize) -> (i64, i64) {
     let n = partition_count.max(1);
     let multiplier = if searching {
@@ -565,6 +590,75 @@ mod tests {
             }]
         );
         assert!(plan_has_more(&[0], &watermarks, 5, 1));
+    }
+
+    #[test]
+    fn timestamp_from_raises_the_low_watermark() {
+        let mut watermarks = HashMap::new();
+        watermarks.insert(0, Watermarks { low: 10, high: 40 });
+        let from = HashMap::from([(0, Some(25))]);
+
+        apply_timestamp_bounds(&mut watermarks, Some(&from), None);
+        assert_eq!(watermarks[&0], Watermarks { low: 25, high: 40 });
+    }
+
+    #[test]
+    fn timestamp_to_lowers_the_high_watermark() {
+        let mut watermarks = HashMap::new();
+        watermarks.insert(0, Watermarks { low: 10, high: 40 });
+        let to = HashMap::from([(0, Some(22))]);
+
+        apply_timestamp_bounds(&mut watermarks, None, Some(&to));
+        assert_eq!(watermarks[&0], Watermarks { low: 10, high: 22 });
+    }
+
+    #[test]
+    fn missing_from_offset_empties_the_partition() {
+        let mut watermarks = HashMap::new();
+        watermarks.insert(0, Watermarks { low: 10, high: 40 });
+        let from = HashMap::from([(0, None)]);
+
+        apply_timestamp_bounds(&mut watermarks, Some(&from), None);
+        assert_eq!(watermarks[&0], Watermarks { low: 40, high: 40 });
+    }
+
+    #[test]
+    fn missing_to_offset_keeps_the_high_watermark() {
+        let mut watermarks = HashMap::new();
+        watermarks.insert(0, Watermarks { low: 10, high: 40 });
+        let to = HashMap::from([(0, None)]);
+
+        apply_timestamp_bounds(&mut watermarks, None, Some(&to));
+        assert_eq!(watermarks[&0], Watermarks { low: 10, high: 40 });
+    }
+
+    #[test]
+    fn inverted_timestamp_bounds_collapse_to_empty() {
+        let mut watermarks = HashMap::new();
+        watermarks.insert(0, Watermarks { low: 10, high: 40 });
+        let from = HashMap::from([(0, Some(30))]);
+        let to = HashMap::from([(0, Some(20))]);
+
+        apply_timestamp_bounds(&mut watermarks, Some(&from), Some(&to));
+        assert_eq!(watermarks[&0], Watermarks { low: 20, high: 20 });
+    }
+
+    #[test]
+    fn unix_millis_truncates_and_rejects_non_finite_values() {
+        use crate::kafka::model::unix_millis;
+
+        assert!(unix_millis(f64::NAN).is_err());
+        assert!(unix_millis(f64::INFINITY).is_err());
+        assert_eq!(unix_millis(1_700_000_000_000.9).unwrap(), 1_700_000_000_000);
+    }
+
+    #[test]
+    fn timestamp_range_rejects_from_after_to() {
+        use crate::kafka::model::validate_timestamp_range;
+
+        assert!(validate_timestamp_range(Some(2), Some(1)).is_err());
+        assert!(validate_timestamp_range(Some(1), Some(1)).is_ok());
+        assert!(validate_timestamp_range(Some(1), None).is_ok());
     }
 
     #[test]
