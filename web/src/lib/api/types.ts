@@ -28,10 +28,10 @@ export type {
   TopicFieldsFragment as Topic,
   TopicRateFieldsFragment as TopicRate,
   TopicRecordFieldsFragment as TopicRecord,
-} from "@/graphql/graphql"
+} from "@/graphql/graphql";
 
-import type { SearchResultFieldsFragment } from "@/graphql/graphql"
+import type { SearchResultFieldsFragment } from "@/graphql/graphql";
 
 export type SearchResult = SearchResultFieldsFragment & {
-  href: string
-}
+  href: string;
+};

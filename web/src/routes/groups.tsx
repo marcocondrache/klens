@@ -1,27 +1,23 @@
-import { useMemo } from "react"
-import { SearchIcon } from "lucide-react"
-import { useNavigate, useSearchParams } from "react-router"
+import { useMemo } from "react";
+import { SearchIcon } from "lucide-react";
+import { useNavigate, useSearchParams } from "react-router";
 
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from "@/components/ui/input-group"
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select"
-import { DataTable, type Column } from "@/components/data-table"
-import { PageHeader } from "@/components/page-header"
-import { GroupStateBadge, Pill } from "@/components/status"
-import { lagTone } from "@/lib/tone"
-import { useConsumerGroups } from "@/lib/api/queries"
-import { clusterPath, useClusterName } from "@/lib/clusters"
-import { formatCount, formatEnumLabel, formatNumber } from "@/lib/format"
-import type { ConsumerGroup, ConsumerGroupState } from "@/lib/api/types"
+} from "@/components/ui/select";
+import { DataTable, type Column } from "@/components/data-table";
+import { PageHeader } from "@/components/page-header";
+import { GroupStateBadge, Pill } from "@/components/status";
+import { lagTone } from "@/lib/tone";
+import { useConsumerGroups } from "@/lib/api/queries";
+import { clusterPath, useClusterName } from "@/lib/clusters";
+import { formatCount, formatEnumLabel, formatNumber } from "@/lib/format";
+import type { ConsumerGroup, ConsumerGroupState } from "@/lib/api/types";
 
 const STATES: ConsumerGroupState[] = [
   "STABLE",
@@ -29,39 +25,39 @@ const STATES: ConsumerGroupState[] = [
   "PREPARING_REBALANCE",
   "COMPLETING_REBALANCE",
   "DEAD",
-]
+];
 
 export function ConsumerGroupsPage() {
-  const cluster = useClusterName()
-  const navigate = useNavigate()
-  const [params, setParams] = useSearchParams()
+  const cluster = useClusterName();
+  const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
 
-  const term = params.get("q") ?? ""
-  const state = params.get("state") ?? "all"
+  const term = params.get("q") ?? "";
+  const state = params.get("state") ?? "all";
 
-  const { data: groups = [], isPending, isError, error } = useConsumerGroups(cluster)
+  const { data: groups = [], isPending, isError, error } = useConsumerGroups(cluster);
 
   function update(key: string, value: string | null) {
-    const next = new URLSearchParams(params)
+    const next = new URLSearchParams(params);
     if (value === null || value === "" || value === "all") {
-      next.delete(key)
+      next.delete(key);
     } else {
-      next.set(key, value)
+      next.set(key, value);
     }
-    setParams(next, { replace: true })
+    setParams(next, { replace: true });
   }
 
   const rows = useMemo(() => {
-    const needle = term.trim().toLowerCase()
+    const needle = term.trim().toLowerCase();
 
     return groups.filter((group) => {
-      if (state !== "all" && group.state !== state) return false
-      if (needle && !group.id.toLowerCase().includes(needle)) return false
-      return true
-    })
-  }, [groups, term, state])
+      if (state !== "all" && group.state !== state) return false;
+      if (needle && !group.id.toLowerCase().includes(needle)) return false;
+      return true;
+    });
+  }, [groups, term, state]);
 
-  const totalLag = rows.reduce((sum, group) => sum + group.lag, 0)
+  const totalLag = rows.reduce((sum, group) => sum + group.lag, 0);
 
   const columns: Array<Column<ConsumerGroup>> = [
     {
@@ -125,7 +121,7 @@ export function ConsumerGroupsPage() {
         <span className="numeric font-mono text-muted-foreground">broker {group.coordinator}</span>
       ),
     },
-  ]
+  ];
 
   return (
     <div className="space-y-5">
@@ -166,10 +162,16 @@ export function ConsumerGroupsPage() {
         rows={rows}
         rowKey={(group) => group.id}
         loading={isPending}
-        error={isError ? (error instanceof Error ? error.message : "Failed to load consumer groups.") : undefined}
+        error={
+          isError
+            ? error instanceof Error
+              ? error.message
+              : "Failed to load consumer groups."
+            : undefined
+        }
         defaultSort={{ id: "lag", direction: "desc" }}
         onRowClick={(group) => navigate(clusterPath(cluster, "groups", group.id))}
       />
     </div>
-  )
+  );
 }

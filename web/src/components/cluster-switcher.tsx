@@ -1,7 +1,7 @@
-import { ChevronDownIcon } from "lucide-react"
-import { useLocation, useNavigate } from "react-router"
+import { ChevronDownIcon } from "lucide-react";
+import { useLocation, useNavigate } from "react-router";
 
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9,31 +9,31 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { StatusDot } from "@/components/status"
-import { useClusterName } from "@/lib/clusters"
-import { useClusters } from "@/lib/api/queries"
-import { findSection } from "@/lib/sections"
-import type { ClusterStatus } from "@/lib/api/types"
+} from "@/components/ui/dropdown-menu";
+import { StatusDot } from "@/components/status";
+import { useClusterName } from "@/lib/clusters";
+import { useClusters } from "@/lib/api/queries";
+import { findSection } from "@/lib/sections";
+import type { ClusterStatus } from "@/lib/api/types";
 
 const STATUS_TONE: Record<ClusterStatus, "ok" | "warn" | "error"> = {
   HEALTHY: "ok",
   DEGRADED: "warn",
   OFFLINE: "error",
-}
+};
 
 export function ClusterSwitcher() {
-  const active = useClusterName()
-  const { data: clusters = [] } = useClusters()
-  const navigate = useNavigate()
-  const location = useLocation()
+  const active = useClusterName();
+  const { data: clusters = [] } = useClusters();
+  const navigate = useNavigate();
+  const location = useLocation();
 
-  const current = clusters.find((cluster) => cluster.name === active)
+  const current = clusters.find((cluster) => cluster.name === active);
 
   function switchTo(name: string) {
-    const [, , , segment] = location.pathname.split("/")
-    const section = findSection(segment)
-    navigate(section ? `/cluster/${name}/${section.segment}` : `/cluster/${name}`)
+    const [, , , segment] = location.pathname.split("/");
+    const section = findSection(segment);
+    navigate(section ? `/cluster/${name}/${section.segment}` : `/cluster/${name}`);
   }
 
   return (
@@ -58,5 +58,5 @@ export function ClusterSwitcher() {
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>
-  )
+  );
 }

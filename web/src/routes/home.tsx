@@ -1,5 +1,5 @@
-import { ServerOffIcon } from "lucide-react"
-import { Navigate } from "react-router"
+import { ServerOffIcon } from "lucide-react";
+import { Navigate } from "react-router";
 
 import {
   Empty,
@@ -7,13 +7,13 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-} from "@/components/ui/empty"
-import { PageLoading } from "@/components/page-loading"
-import { useClusters } from "@/lib/api/queries"
+} from "@/components/ui/empty";
+import { PageLoading } from "@/components/page-loading";
+import { useClusters } from "@/lib/api/queries";
 
 export function HomePage() {
-  const { data: clusters, isPending, isError } = useClusters()
-  const name = clusters?.[0]?.name
+  const { data: clusters, isPending, isError } = useClusters();
+  const name = clusters?.[0]?.name;
 
   if (isPending) {
     return (
@@ -22,11 +22,11 @@ export function HomePage() {
         description="Fetching broker metadata. First contact with Kafka can take a few seconds."
         slowDescription="Still waiting on brokers. Large or unreachable clusters take longer on first load."
       />
-    )
+    );
   }
 
   if (name) {
-    return <Navigate to={`/cluster/${name}/topics`} replace />
+    return <Navigate to={`/cluster/${name}/topics`} replace />;
   }
 
   return (
@@ -43,5 +43,5 @@ export function HomePage() {
         </EmptyDescription>
       </EmptyHeader>
     </Empty>
-  )
+  );
 }

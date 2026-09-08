@@ -1,7 +1,7 @@
-import { LogOutIcon } from "lucide-react"
+import { LogOutIcon } from "lucide-react";
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Button } from "@/components/ui/button"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,12 +10,12 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { displayName, initials, signOut, type AuthUser } from "@/lib/auth"
+} from "@/components/ui/dropdown-menu";
+import { displayName, initials, signOut, type AuthUser } from "@/lib/auth";
 
 export function UserMenu({ user }: { user: AuthUser }) {
-  const name = displayName(user)
-  const email = user.email?.trim()
+  const name = displayName(user);
+  const email = user.email?.trim();
 
   return (
     <DropdownMenu>
@@ -49,5 +49,5 @@ export function UserMenu({ user }: { user: AuthUser }) {
         </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
-  )
+  );
 }
