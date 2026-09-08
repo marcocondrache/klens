@@ -94,6 +94,17 @@ mod tests {
             Ok(marks)
         }
 
+        async fn offsets_for_times(
+            &self,
+            topic: &str,
+            partitions: &[i32],
+            timestamp: i64,
+        ) -> Result<HashMap<i32, Option<i64>>, KafkaError> {
+            self.inner
+                .offsets_for_times(topic, partitions, timestamp)
+                .await
+        }
+
         async fn topic_configs(
             &self,
             topics: &[&str],

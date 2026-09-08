@@ -28,7 +28,7 @@ import { DataTable, type Column } from "@/components/data-table";
 import { PayloadView } from "@/components/payload-view";
 import { Pill } from "@/components/status";
 import { useRecords } from "@/lib/api/queries";
-import { formatBytes, formatRelative, formatTimestamp } from "@/lib/format";
+import { formatBytes, formatRelative, formatTimestamp, fromDatetimeLocalValue } from "@/lib/format";
 import type { RecordOrder, Topic, TopicRecord } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
@@ -52,17 +52,23 @@ function preview(value: string | null) {
 export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topic }) {
   const [partition, setPartition] = useState<string>("all");
   const [term, setTerm] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const [limit, setLimit] = useState("50");
   const [order, setOrder] = useState<RecordOrder>("NEWEST");
   const [page, setPage] = useState(0);
   const [selected, setSelected] = useState<TopicRecord | null>(null);
   const [expanded, setExpanded] = useState(false);
 
+  const timestampFrom = fromDatetimeLocalValue(from);
+  const timestampTo = fromDatetimeLocalValue(to);
   const { data, isFetching } = useRecords({
     cluster,
     topic: topic.name,
     partition: partition === "all" ? null : Number(partition),
     search: term,
+    timestampFrom,
+    timestampTo,
     limit: Number(limit),
     order,
     page,
@@ -159,6 +165,38 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
           />
         </InputGroup>
 
+        <InputGroup className="w-auto min-w-[13.5rem]">
+          <InputGroupAddon>
+            <ClockIcon />
+          </InputGroupAddon>
+          <InputGroupInput
+            type="datetime-local"
+            value={from}
+            max={to || undefined}
+            onChange={(event) => {
+              setFrom(event.target.value);
+              setPage(0);
+            }}
+            aria-label="From timestamp"
+          />
+        </InputGroup>
+
+        <InputGroup className="w-auto min-w-[13.5rem]">
+          <InputGroupAddon>
+            <span className="text-xs">to</span>
+          </InputGroupAddon>
+          <InputGroupInput
+            type="datetime-local"
+            value={to}
+            min={from || undefined}
+            onChange={(event) => {
+              setTo(event.target.value);
+              setPage(0);
+            }}
+            aria-label="To timestamp"
+          />
+        </InputGroup>
+
         <Select
           value={partition}
           items={partitionItems}
@@ -242,9 +280,11 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
               </EmptyMedia>
               <EmptyTitle>No records</EmptyTitle>
               <EmptyDescription>
-                {term
-                  ? "Nothing matched your search in the scanned offset window."
-                  : "This topic has no records in the selected range."}
+                {from || to
+                  ? "Nothing in the selected time range."
+                  : term
+                    ? "Nothing matched your search in the scanned offset window."
+                    : "This topic has no records in the selected range."}
               </EmptyDescription>
             </EmptyHeader>
           </Empty>

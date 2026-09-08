@@ -223,6 +223,30 @@ impl ClusterSession for FakeCluster {
             .collect())
     }
 
+    async fn offsets_for_times(
+        &self,
+        topic: &str,
+        partitions: &[i32],
+        timestamp: i64,
+    ) -> Result<HashMap<i32, Option<i64>>, KafkaError> {
+        Ok(partitions
+            .iter()
+            .map(|partition| {
+                let offset = self
+                    .records
+                    .iter()
+                    .filter(|record| {
+                        record.topic == topic
+                            && record.partition == *partition
+                            && record.timestamp >= timestamp
+                    })
+                    .map(|record| record.offset)
+                    .min();
+                (*partition, offset)
+            })
+            .collect())
+    }
+
     async fn topic_configs(
         &self,
         topics: &[&str],

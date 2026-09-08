@@ -16,8 +16,8 @@ use tokio::task::JoinSet;
 
 use crate::config::ClusterConfig;
 use crate::environment::{
-    ADMIN_TIMEOUT, BLOCKING_SLACK, CONFIG_BATCH, CONSUME_TIMEOUT, METADATA_TIMEOUT, METADATA_TTL,
-    WATERMARK_BATCH, WATERMARK_TIMEOUT,
+    ADMIN_TIMEOUT, BLOCKING_SLACK, CONFIG_BATCH, CONSUME_TIMEOUT, INTERNAL_GROUP_PREFIX,
+    METADATA_TIMEOUT, METADATA_TTL, WATERMARK_BATCH, WATERMARK_TIMEOUT,
 };
 use crate::kafka::assignment::parse_consumer_assignment;
 use crate::kafka::browse;
@@ -144,6 +144,47 @@ impl ClusterSession for ClusterHandle {
         }
 
         Ok(out)
+    }
+
+    async fn offsets_for_times(
+        &self,
+        topic: &str,
+        partitions: &[i32],
+        timestamp: i64,
+    ) -> Result<HashMap<i32, Option<i64>>, KafkaError> {
+        if partitions.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let factory = self.factory.clone();
+        let group_id = format!("{INTERNAL_GROUP_PREFIX}list-offsets.{}", self.identity.name);
+        let topic = topic.to_owned();
+        let partitions = partitions.to_vec();
+        let timeout = self.timeouts.watermark;
+
+        run_blocking(timeout + *BLOCKING_SLACK, move || {
+            let consumer = factory.offset_consumer(&group_id)?;
+            let mut tpl = TopicPartitionList::new();
+            for partition in &partitions {
+                tpl.add_partition_offset(&topic, *partition, Offset::Offset(timestamp))?;
+            }
+
+            let listed = consumer.offsets_for_times(tpl, timeout)?;
+            let mut out: HashMap<i32, Option<i64>> = partitions
+                .iter()
+                .copied()
+                .map(|partition| (partition, None))
+                .collect();
+            for element in listed.elements() {
+                let offset = match element.offset() {
+                    Offset::Offset(offset) if offset >= 0 => Some(offset),
+                    _ => None,
+                };
+                out.insert(element.partition(), offset);
+            }
+            Ok(out)
+        })
+        .await
     }
 
     async fn topic_configs(

@@ -408,21 +408,31 @@ pub(super) struct RecordQuery {
     pub topic: String,
     pub partition: Option<i32>,
     pub search: String,
+    pub timestamp_from: Option<f64>,
+    pub timestamp_to: Option<f64>,
     pub limit: i32,
     pub order: RecordOrder,
     pub page: Option<i32>,
 }
 
-impl From<RecordQuery> for domain::RecordQuery {
-    fn from(query: RecordQuery) -> Self {
-        Self {
+impl TryFrom<RecordQuery> for domain::RecordQuery {
+    type Error = String;
+
+    fn try_from(query: RecordQuery) -> Result<Self, Self::Error> {
+        let timestamp_from = query.timestamp_from.map(domain::unix_millis).transpose()?;
+        let timestamp_to = query.timestamp_to.map(domain::unix_millis).transpose()?;
+        domain::validate_timestamp_range(timestamp_from, timestamp_to)?;
+
+        Ok(Self {
             topic: query.topic,
             partition: query.partition,
             search: query.search,
+            timestamp_from,
+            timestamp_to,
             limit: query.limit,
             order: domain::RecordOrder::from(query.order),
             page: query.page.unwrap_or(0),
-        }
+        })
     }
 }
 

@@ -22,6 +22,17 @@ pub trait ClusterSession: Send + Sync + 'static {
         partitions: &[i32],
     ) -> Result<HashMap<i32, Watermarks>, KafkaError>;
 
+    /// Earliest offset at or after `timestamp` (unix ms) for each partition.
+    ///
+    /// `None` means the broker has no message at or after that time (the Kafka
+    /// `ListOffsets` invalid offset).
+    async fn offsets_for_times(
+        &self,
+        topic: &str,
+        partitions: &[i32],
+        timestamp: i64,
+    ) -> Result<HashMap<i32, Option<i64>>, KafkaError>;
+
     async fn topic_configs(
         &self,
         topics: &[&str],

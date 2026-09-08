@@ -355,9 +355,34 @@ pub struct RecordQuery {
     pub topic: String,
     pub partition: Option<i32>,
     pub search: String,
+    pub timestamp_from: Option<i64>,
+    pub timestamp_to: Option<i64>,
     pub limit: i32,
     pub order: RecordOrder,
     pub page: i32,
+}
+
+pub fn unix_millis(value: f64) -> Result<i64, String> {
+    if !value.is_finite() {
+        return Err("timestamp must be a finite unix time in milliseconds".into());
+    }
+
+    let truncated = value.trunc();
+    if truncated < i64::MIN as f64 || truncated > i64::MAX as f64 {
+        return Err("timestamp is out of range".into());
+    }
+
+    Ok(truncated as i64)
+}
+
+pub fn validate_timestamp_range(from: Option<i64>, to: Option<i64>) -> Result<(), String> {
+    if let (Some(from), Some(to)) = (from, to)
+        && from > to
+    {
+        return Err("timestampFrom must not be after timestampTo".into());
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -92,6 +92,8 @@ input RecordQuery {
   topic: String!
   partition: Int
   search: String!
+  timestampFrom: Float
+  timestampTo: Float
   limit: Int!
   order: RecordOrder!
   page: Int
