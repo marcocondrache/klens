@@ -1,6 +1,9 @@
+use std::sync::Arc;
+
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use reqwest::StatusCode;
-use serde::Deserialize;
-use serde::de::DeserializeOwned;
+use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use tokio::task::JoinSet;
 use url::Url;
 
@@ -8,30 +11,13 @@ use crate::config::SchemaRegistryConfig;
 use crate::environment::SCHEMA_REGISTRY_TIMEOUT;
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{SchemaCompatibility, SchemaSubject, SchemaType};
+use crate::kafka::schema_registry::{self, Client, Error as RegistryError};
 
 /// HTTP client for a Confluent-compatible Schema Registry.
 #[derive(Clone)]
 pub struct SchemaRegistryClient {
     cluster: String,
-    base: Url,
-    http: reqwest::Client,
-    username: Option<String>,
-    password: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct VersionedSchema {
-    id: i32,
-    version: i32,
-    #[serde(rename = "schemaType")]
-    schema_type: Option<String>,
-    schema: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct CompatibilityConfig {
-    #[serde(rename = "compatibilityLevel", alias = "compatibility")]
-    compatibility_level: Option<String>,
+    inner: Arc<Client>,
 }
 
 impl SchemaRegistryClient {
@@ -40,17 +26,31 @@ impl SchemaRegistryClient {
         config: &SchemaRegistryConfig,
     ) -> Result<Self, KafkaError> {
         let cluster = cluster.into();
-        let mut base = Url::parse(&config.url).map_err(|error| KafkaError::SchemaRegistry {
+        let base = Url::parse(&config.url).map_err(|error| KafkaError::SchemaRegistry {
             cluster: cluster.clone(),
             message: error.to_string(),
         })?;
-        if !base.path().ends_with('/') {
-            let path = format!("{}/", base.path());
-            base.set_path(&path);
+        let baseurl = base.as_str().trim_end_matches('/').to_owned();
+
+        let mut headers = HeaderMap::new();
+        match (&config.username, &config.password) {
+            (Some(username), Some(password)) => {
+                let encoded = BASE64.encode(format!("{username}:{password}"));
+                let value =
+                    HeaderValue::from_str(&format!("Basic {encoded}")).map_err(|error| {
+                        KafkaError::SchemaRegistry {
+                            cluster: cluster.clone(),
+                            message: error.to_string(),
+                        }
+                    })?;
+                headers.insert(AUTHORIZATION, value);
+            }
+            _ => {}
         }
 
         let http = reqwest::Client::builder()
             .timeout(*SCHEMA_REGISTRY_TIMEOUT)
+            .default_headers(headers)
             .build()
             .map_err(|error| KafkaError::SchemaRegistry {
                 cluster: cluster.clone(),
@@ -59,15 +59,18 @@ impl SchemaRegistryClient {
 
         Ok(Self {
             cluster,
-            base,
-            http,
-            username: config.username.clone(),
-            password: config.password.clone(),
+            inner: Arc::new(Client::new_with_client(&baseurl, http)),
         })
     }
 
     pub async fn subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
-        let names: Vec<String> = self.get(self.join(&["subjects"])?).await?;
+        let names = self
+            .inner
+            .list()
+            .send()
+            .await
+            .map_err(|error| self.fail_error(error))?
+            .into_inner();
         let mut join = JoinSet::new();
 
         for name in names {
@@ -85,96 +88,85 @@ impl SchemaRegistryClient {
     }
 
     async fn load_subject(&self, name: &str) -> Result<SchemaSubject, KafkaError> {
-        let versions: Vec<i32> = self
-            .get(self.join(&["subjects", name, "versions"])?)
-            .await?;
-        let latest: VersionedSchema = self
-            .get(self.join(&["subjects", name, "versions", "latest"])?)
-            .await?;
+        let versions = self
+            .inner
+            .list_versions()
+            .subject(name)
+            .send()
+            .await
+            .map_err(|error| self.fail_error(error))?
+            .into_inner();
+        let latest = self
+            .inner
+            .get_schema_by_version()
+            .subject(name)
+            .version("latest")
+            .send()
+            .await
+            .map_err(|error| self.fail_error(error))?
+            .into_inner();
         let compatibility = self.compatibility(name).await?;
 
         Ok(SchemaSubject {
             subject: name.to_owned(),
-            id: latest.id,
+            id: latest.id.ok_or_else(|| self.fail("schema is missing id"))?,
             schema_type: SchemaType::from_registry(latest.schema_type.as_deref()),
-            latest_version: latest.version,
+            latest_version: latest
+                .version
+                .ok_or_else(|| self.fail("schema is missing version"))?,
             versions,
             compatibility,
-            schema: latest.schema,
+            schema: latest
+                .schema
+                .ok_or_else(|| self.fail("schema is missing schema body"))?,
         })
     }
 
     async fn compatibility(&self, name: &str) -> Result<SchemaCompatibility, KafkaError> {
-        if let Some(config) = self
-            .get_optional::<CompatibilityConfig>(self.join(&["config", name])?)
-            .await?
-        {
-            return Ok(SchemaCompatibility::from_registry(
-                config.compatibility_level.as_deref(),
-            ));
+        if let Some(config) = self.subject_config(name).await? {
+            return Ok(compatibility_from_config(&config));
         }
 
-        if let Some(config) = self
-            .get_optional::<CompatibilityConfig>(self.join(&["config"])?)
-            .await?
-        {
-            return Ok(SchemaCompatibility::from_registry(
-                config.compatibility_level.as_deref(),
-            ));
+        if let Some(config) = self.global_config().await? {
+            return Ok(compatibility_from_config(&config));
         }
 
         Ok(SchemaCompatibility::None)
     }
 
-    fn join(&self, segments: &[&str]) -> Result<Url, KafkaError> {
-        let mut url = self.base.clone();
-        url.path_segments_mut()
-            .map_err(|()| self.fail("schema registry URL cannot be a base"))?
-            .extend(segments);
-        Ok(url)
-    }
-
-    fn request(&self, url: Url) -> reqwest::RequestBuilder {
-        let request = self.http.get(url).header(
-            "Accept",
-            "application/vnd.schemaregistry.v1+json, application/vnd.schemaregistry+json, application/json",
-        );
-
-        match (&self.username, &self.password) {
-            (Some(username), Some(password)) => request.basic_auth(username, Some(password)),
-            _ => request,
-        }
-    }
-
-    async fn get<T: DeserializeOwned>(&self, url: Url) -> Result<T, KafkaError> {
-        match self.get_optional(url.clone()).await? {
-            Some(value) => Ok(value),
-            None => Err(self.fail(format!("404 from {url}"))),
-        }
-    }
-
-    async fn get_optional<T: DeserializeOwned>(&self, url: Url) -> Result<Option<T>, KafkaError> {
-        let response = self
-            .request(url.clone())
+    async fn subject_config(
+        &self,
+        name: &str,
+    ) -> Result<Option<schema_registry::types::Config>, KafkaError> {
+        match self
+            .inner
+            .get_subject_level_config()
+            .subject(name)
             .send()
             .await
-            .map_err(|error| self.fail(error.to_string()))?;
-        let status = response.status();
-
-        if status == StatusCode::NOT_FOUND {
-            return Ok(None);
+        {
+            Ok(response) => Ok(Some(response.into_inner())),
+            Err(error) if is_not_found(&error) => Ok(None),
+            Err(error) => Err(self.fail_error(error)),
         }
+    }
 
-        if !status.is_success() {
-            let body = response.text().await.unwrap_or_default();
-            return Err(self.fail(format!("{status} from {url}: {body}")));
+    async fn global_config(&self) -> Result<Option<schema_registry::types::Config>, KafkaError> {
+        match self.inner.get_top_level_config().send().await {
+            Ok(response) => Ok(Some(response.into_inner())),
+            Err(error) if is_not_found(&error) => Ok(None),
+            Err(error) => Err(self.fail_error(error)),
         }
+    }
 
-        response
-            .json()
-            .await
-            .map_err(|error| self.fail(error.to_string()))
-            .map(Some)
+    fn fail_error<E>(&self, error: RegistryError<E>) -> KafkaError
+    where
+        RegistryError<E>: std::fmt::Display,
+    {
+        match error.status() {
+            Some(status) => self.fail(format!("{status}: {error}")),
+            None => self.fail(error.to_string()),
+        }
     }
 
     fn fail(&self, message: impl Into<String>) -> KafkaError {
@@ -183,6 +175,15 @@ impl SchemaRegistryClient {
             message: message.into(),
         }
     }
+}
+
+fn compatibility_from_config(config: &schema_registry::types::Config) -> SchemaCompatibility {
+    let level = config.compatibility_level.map(|level| level.to_string());
+    SchemaCompatibility::from_registry(level.as_deref())
+}
+
+fn is_not_found<E>(error: &RegistryError<E>) -> bool {
+    error.status() == Some(StatusCode::NOT_FOUND)
 }
 
 #[cfg(test)]

@@ -9,6 +9,7 @@ mod handle;
 pub(crate) mod model;
 mod rates;
 mod schema;
+mod schema_registry;
 mod session;
 
 #[cfg(test)]

@@ -1,0 +1,13 @@
+apiVersion: vendir.k14s.io/v1alpha1
+kind: Config
+directories:
+  - path: vendor/schema-registry
+    contents:
+      - path: .
+        git:
+          url: https://github.com/confluentinc/schema-registry
+          ref: v8.3.1
+          depth: 1
+        includePaths:
+          - core/generated/swagger-ui/schema-registry-api-spec.yaml
+        newRootPath: core/generated/swagger-ui
