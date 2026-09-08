@@ -3,6 +3,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use kafka_protocol::messages::consumer_protocol_assignment::ConsumerProtocolAssignment;
+use kafka_protocol::protocol::Decodable;
 use moka::future::Cache;
 use rdkafka::admin::{
     AdminClient, AdminOptions, ConfigSource as RdConfigSource, OwnedResourceSpecifier,
@@ -18,14 +20,13 @@ use crate::environment::{
     ADMIN_TIMEOUT, BLOCKING_SLACK, CONFIG_BATCH, CONSUME_TIMEOUT, INTERNAL_GROUP_PREFIX,
     METADATA_TIMEOUT, METADATA_TTL, WATERMARK_BATCH, WATERMARK_TIMEOUT,
 };
-use crate::kafka::assignment::parse_consumer_assignment;
 use crate::kafka::browse;
 use crate::kafka::error::KafkaError;
 use crate::kafka::factory::ClientFactory;
 use crate::kafka::model::{
     BrokerMetadata, ClusterIdentity, CommittedOffset, ConfigEntry, ConfigSource, FetchPlan,
-    GroupMember, GroupSnapshot, GroupState, MetadataSnapshot, PartitionMetadata, Record,
-    SchemaSubject, TopicMetadata, Watermarks, is_internal_group, is_internal_topic,
+    GroupMember, GroupSnapshot, GroupState, MemberAssignment, MetadataSnapshot, PartitionMetadata,
+    Record, SchemaSubject, TopicMetadata, Watermarks, is_internal_group, is_internal_topic,
 };
 use crate::kafka::schema::SchemaRegistryClient;
 use crate::kafka::session::ClusterSession;
@@ -441,6 +442,26 @@ impl MetadataSnapshot {
     }
 }
 
+fn member_assignments(bytes: &[u8]) -> Vec<MemberAssignment> {
+    let Some((version_bytes, rest)) = bytes.split_first_chunk() else {
+        return Vec::new();
+    };
+    let version = i16::from_be_bytes(*version_bytes);
+    let mut buf = rest;
+    let Ok(assignment) = ConsumerProtocolAssignment::decode(&mut buf, version) else {
+        return Vec::new();
+    };
+
+    assignment
+        .assigned_partitions
+        .into_iter()
+        .map(|assigned| MemberAssignment {
+            topic: assigned.topic.as_str().to_owned(),
+            partitions: assigned.partitions,
+        })
+        .collect()
+}
+
 impl GroupSnapshot {
     fn from_rdkafka(info: &rdkafka::groups::GroupInfo) -> Self {
         Self {
@@ -457,7 +478,7 @@ impl GroupSnapshot {
                     host: member.client_host().trim_start_matches('/').to_owned(),
                     assignments: member
                         .assignment()
-                        .map(parse_consumer_assignment)
+                        .map(member_assignments)
                         .unwrap_or_default(),
                 })
                 .collect(),
@@ -643,5 +664,52 @@ mod tests {
                 ),
             ])
         );
+    }
+
+    fn encode_assignment(assignment: ConsumerProtocolAssignment) -> Vec<u8> {
+        use kafka_protocol::protocol::Encodable;
+
+        let version = 0i16;
+        let mut buf = Vec::from(version.to_be_bytes());
+        assignment.encode(&mut buf, version).unwrap();
+        buf
+    }
+
+    #[test]
+    fn member_assignments_decodes_version_prefixed_blob() {
+        use kafka_protocol::messages::TopicName;
+        use kafka_protocol::messages::consumer_protocol_assignment::TopicPartition;
+        use kafka_protocol::protocol::StrBytes;
+
+        let bytes = encode_assignment(
+            ConsumerProtocolAssignment::default().with_assigned_partitions(vec![
+                TopicPartition::default()
+                    .with_topic(TopicName(StrBytes::from_static_str("orders.created")))
+                    .with_partitions(vec![0, 2]),
+                TopicPartition::default()
+                    .with_topic(TopicName(StrBytes::from_static_str("payments.captured")))
+                    .with_partitions(vec![1]),
+            ]),
+        );
+
+        assert_eq!(
+            member_assignments(&bytes),
+            vec![
+                MemberAssignment {
+                    topic: "orders.created".into(),
+                    partitions: vec![0, 2],
+                },
+                MemberAssignment {
+                    topic: "payments.captured".into(),
+                    partitions: vec![1],
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn member_assignments_ignores_empty_and_truncated_blobs() {
+        assert!(member_assignments(&[]).is_empty());
+        assert!(member_assignments(&[0, 0, 0]).is_empty());
     }
 }
