@@ -33,19 +33,15 @@ impl SchemaRegistryClient {
         let baseurl = base.as_str().trim_end_matches('/').to_owned();
 
         let mut headers = HeaderMap::new();
-        match (&config.username, &config.password) {
-            (Some(username), Some(password)) => {
-                let encoded = BASE64.encode(format!("{username}:{password}"));
-                let value =
-                    HeaderValue::from_str(&format!("Basic {encoded}")).map_err(|error| {
-                        KafkaError::SchemaRegistry {
-                            cluster: cluster.clone(),
-                            message: error.to_string(),
-                        }
-                    })?;
-                headers.insert(AUTHORIZATION, value);
-            }
-            _ => {}
+        if let (Some(username), Some(password)) = (&config.username, &config.password) {
+            let encoded = BASE64.encode(format!("{username}:{password}"));
+            let value = HeaderValue::from_str(&format!("Basic {encoded}")).map_err(|error| {
+                KafkaError::SchemaRegistry {
+                    cluster: cluster.clone(),
+                    message: error.to_string(),
+                }
+            })?;
+            headers.insert(AUTHORIZATION, value);
         }
 
         let http = reqwest::Client::builder()
@@ -250,7 +246,10 @@ mod tests {
             None => {
                 Mock::given(method("GET"))
                     .and(path(registry_path(&["config", subject])))
-                    .respond_with(ResponseTemplate::new(404))
+                    .respond_with(ResponseTemplate::new(404).set_body_json(serde_json::json!({
+                        "error_code": 40401,
+                        "message": "Subject not found.",
+                    })))
                     .mount(server)
                     .await;
             }

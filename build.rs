@@ -172,18 +172,15 @@ fn looks_like_media_type(key: &str) -> bool {
 }
 
 fn merge_values(existing: &mut Value, incoming: Value) {
-    match (existing, incoming) {
-        (Value::Object(dst), Value::Object(src)) => {
-            for (key, value) in src {
-                match dst.get_mut(&key) {
-                    Some(existing) => merge_values(existing, value),
-                    None => {
-                        dst.insert(key, value);
-                    }
+    if let (Value::Object(dst), Value::Object(src)) = (existing, incoming) {
+        for (key, value) in src {
+            match dst.get_mut(&key) {
+                Some(existing) => merge_values(existing, value),
+                None => {
+                    dst.insert(key, value);
                 }
             }
         }
-        (_, _) => {}
     }
 }
 
