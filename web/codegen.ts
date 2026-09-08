@@ -16,6 +16,9 @@ const config: CodegenConfig = {
         skipTypename: true,
         useTypeImports: true,
         documentMode: "string",
+        scalars: {
+          DateTime: "string",
+        },
       },
     },
   },

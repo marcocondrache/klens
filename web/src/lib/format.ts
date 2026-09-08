@@ -75,12 +75,12 @@ export function formatDuration(ms: number) {
 
 export function fromDatetimeLocalValue(value: string) {
   if (!value) return null;
-  const ms = new Date(value).getTime();
-  return Number.isFinite(ms) ? ms : null;
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
 }
 
-export function formatTimestamp(ms: number) {
-  return new Date(ms).toLocaleString("en-GB", {
+export function formatTimestamp(value: string | number) {
+  return new Date(value).toLocaleString("en-GB", {
     year: "numeric",
     month: "short",
     day: "2-digit",
@@ -90,16 +90,16 @@ export function formatTimestamp(ms: number) {
   });
 }
 
-export function formatTime(ms: number) {
-  return new Date(ms).toLocaleTimeString("en-GB", {
+export function formatTime(value: string | number) {
+  return new Date(value).toLocaleTimeString("en-GB", {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
   });
 }
 
-export function formatRelative(ms: number) {
-  const delta = Date.now() - ms;
+export function formatRelative(value: string | number) {
+  const delta = Date.now() - new Date(value).getTime();
   const absolute = Math.abs(delta);
   const suffix = delta >= 0 ? "ago" : "from now";
 

@@ -14,7 +14,7 @@ use crate::kafka::error::KafkaError;
 use crate::kafka::handle::ClusterHandle;
 use crate::kafka::model::{
     Broker, ClusterOverview, ConfigEntry, ConsumerGroup, GroupSnapshot, RecordPage, RecordQuery,
-    SchemaSubject, SearchHit, Topic, Watermarks, validate_timestamp_range,
+    SchemaSubject, SearchHit, Topic, Watermarks,
 };
 use crate::kafka::session::ClusterSession;
 
@@ -372,7 +372,9 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
 
         let limit = clamp_record_limit(query.limit).map_err(KafkaError::InvalidQuery)?;
         let page = clamp_record_page(query.page).map_err(KafkaError::InvalidQuery)?;
-        validate_timestamp_range(query.timestamp_from, query.timestamp_to)
+        query
+            .timestamps
+            .validate()
             .map_err(KafkaError::InvalidQuery)?;
         let partitions: Vec<i32> = match query.partition {
             Some(id) => vec![id],
@@ -383,11 +385,13 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
                 .collect(),
         };
         let mut watermarks = session.watermarks(&query.topic, &partitions).await?;
-        if query.timestamp_from.is_some() || query.timestamp_to.is_some() {
+        let start_time = query.timestamps.start_seek();
+        let end_time = query.timestamps.end_seek();
+        if start_time.is_some() || end_time.is_some() {
             let topic = query.topic.as_str();
             let (from_offsets, to_offsets) = tokio::try_join!(
                 async {
-                    match query.timestamp_from {
+                    match start_time {
                         Some(timestamp) => session
                             .offsets_for_times(topic, &partitions, timestamp)
                             .await
@@ -396,9 +400,9 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
                     }
                 },
                 async {
-                    match query.timestamp_to {
+                    match end_time {
                         Some(timestamp) => session
-                            .offsets_for_times(topic, &partitions, timestamp.saturating_add(1))
+                            .offsets_for_times(topic, &partitions, timestamp)
                             .await
                             .map(Some),
                         None => Ok(None),
@@ -437,6 +441,7 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ops::Bound;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
@@ -447,7 +452,7 @@ mod tests {
     use crate::kafka::error::KafkaError;
     use crate::kafka::model::{
         ClusterHealth, ClusterIdentity, CommittedOffset, ConfigEntry, FetchPlan, MetadataSnapshot,
-        Record, RecordOrder, RecordQuery, Watermarks,
+        Record, RecordOrder, RecordQuery, TimestampRange, Watermarks, unix_datetime,
     };
     use crate::kafka::testing::FakeCluster;
 
@@ -689,8 +694,7 @@ mod tests {
             topic: "orders.created".into(),
             partition: None,
             search: String::new(),
-            timestamp_from: None,
-            timestamp_to: None,
+            timestamps: TimestampRange::default(),
             limit: 50,
             order: RecordOrder::Oldest,
             page: 0,
@@ -701,8 +705,9 @@ mod tests {
     async fn records_filter_by_timestamp_range() {
         let engine = QueryEngine::from_sessions(vec![FakeCluster::local()]);
         let mut query = browse_query();
-        query.timestamp_from = Some(1_700_000_000_000 + 3_000);
-        query.timestamp_to = Some(1_700_000_000_000 + 5_000);
+        query.timestamps = TimestampRange::from_bounds(
+            unix_datetime(1_700_000_000_000 + 3_000)..=unix_datetime(1_700_000_000_000 + 5_000),
+        );
 
         let page = engine.records("local", query).await.unwrap();
         let keys: Vec<_> = page
@@ -719,7 +724,7 @@ mod tests {
     async fn records_timestamp_from_after_the_log_is_empty() {
         let engine = QueryEngine::from_sessions(vec![FakeCluster::local()]);
         let mut query = browse_query();
-        query.timestamp_from = Some(1_800_000_000_000);
+        query.timestamps = TimestampRange::from_bounds(unix_datetime(1_800_000_000_000)..);
 
         let page = engine.records("local", query).await.unwrap();
         assert!(page.records.is_empty());
@@ -730,8 +735,10 @@ mod tests {
     async fn records_reject_timestamp_from_after_to() {
         let engine = QueryEngine::from_sessions(vec![FakeCluster::local()]);
         let mut query = browse_query();
-        query.timestamp_from = Some(2);
-        query.timestamp_to = Some(1);
+        query.timestamps = TimestampRange::from_bounds((
+            Bound::Included(unix_datetime(2)),
+            Bound::Included(unix_datetime(1)),
+        ));
 
         let error = engine.records("local", query).await.unwrap_err();
         assert!(error.to_string().contains("timestampFrom"));

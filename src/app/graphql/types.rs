@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use juniper::{GraphQLEnum, GraphQLInputObject, GraphQLObject};
 
 use crate::config::SecurityProtocol as ConfigSecurityProtocol;
@@ -382,7 +383,7 @@ pub(super) struct TopicRecord {
     pub topic: String,
     pub partition: i32,
     pub offset: f64,
-    pub timestamp: f64,
+    pub timestamp: DateTime<Utc>,
     pub key: Option<String>,
     pub value: Option<String>,
     pub headers: Vec<RecordHeader>,
@@ -408,8 +409,8 @@ pub(super) struct RecordQuery {
     pub topic: String,
     pub partition: Option<i32>,
     pub search: String,
-    pub timestamp_from: Option<f64>,
-    pub timestamp_to: Option<f64>,
+    pub timestamp_from: Option<DateTime<Utc>>,
+    pub timestamp_to: Option<DateTime<Utc>>,
     pub limit: i32,
     pub order: RecordOrder,
     pub page: Option<i32>,
@@ -419,16 +420,13 @@ impl TryFrom<RecordQuery> for domain::RecordQuery {
     type Error = String;
 
     fn try_from(query: RecordQuery) -> Result<Self, Self::Error> {
-        let timestamp_from = query.timestamp_from.map(domain::unix_millis).transpose()?;
-        let timestamp_to = query.timestamp_to.map(domain::unix_millis).transpose()?;
-        domain::validate_timestamp_range(timestamp_from, timestamp_to)?;
+        let timestamps = domain::TimestampRange::new(query.timestamp_from, query.timestamp_to)?;
 
         Ok(Self {
             topic: query.topic,
             partition: query.partition,
             search: query.search,
-            timestamp_from,
-            timestamp_to,
+            timestamps,
             limit: query.limit,
             order: domain::RecordOrder::from(query.order),
             page: query.page.unwrap_or(0),
@@ -451,7 +449,7 @@ impl From<domain::Record> for TopicRecord {
             topic: record.topic,
             partition: record.partition,
             offset: record.offset as f64,
-            timestamp: record.timestamp as f64,
+            timestamp: domain::unix_datetime(record.timestamp),
             key: record.key,
             value: record.value,
             headers: record.headers.into_iter().map(RecordHeader::from).collect(),
@@ -493,7 +491,7 @@ impl From<domain::Compression> for Compression {
 
 #[derive(GraphQLObject)]
 pub(super) struct ThroughputPoint {
-    pub timestamp: f64,
+    pub timestamp: DateTime<Utc>,
     pub bytes_in: f64,
     pub bytes_out: f64,
     pub messages: f64,
@@ -502,7 +500,7 @@ pub(super) struct ThroughputPoint {
 impl From<crate::kafka::ThroughputPoint> for ThroughputPoint {
     fn from(point: crate::kafka::ThroughputPoint) -> Self {
         Self {
-            timestamp: point.timestamp,
+            timestamp: domain::unix_datetime(point.timestamp as i64),
             bytes_in: point.bytes_in,
             bytes_out: point.bytes_out,
             messages: point.messages,

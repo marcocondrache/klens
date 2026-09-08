@@ -347,8 +347,8 @@ mod tests {
                     cluster: "local"
                     topic: "orders.created"
                     search: ""
-                    timestampFrom: 1700000003000.0
-                    timestampTo: 1700000005000.0
+                    timestampFrom: "2023-11-14T22:13:23Z"
+                    timestampTo: "2023-11-14T22:13:25Z"
                     limit: 50
                     order: OLDEST
                 }) { records { key timestamp } hasMore }
@@ -367,9 +367,9 @@ mod tests {
             serde_json::json!({
                 "records": {
                     "records": [
-                        { "key": "ord_3", "timestamp": 1_700_000_003_000.0 },
-                        { "key": "ord_4", "timestamp": 1_700_000_004_000.0 },
-                        { "key": "ord_5", "timestamp": 1_700_000_005_000.0 }
+                        { "key": "ord_3", "timestamp": "2023-11-14T22:13:23Z" },
+                        { "key": "ord_4", "timestamp": "2023-11-14T22:13:24Z" },
+                        { "key": "ord_5", "timestamp": "2023-11-14T22:13:25Z" }
                     ],
                     "hasMore": false
                 }
@@ -388,8 +388,8 @@ mod tests {
                     cluster: "local"
                     topic: "orders.created"
                     search: ""
-                    timestampFrom: 2000.0
-                    timestampTo: 1000.0
+                    timestampFrom: "1970-01-01T00:00:02Z"
+                    timestampTo: "1970-01-01T00:00:01Z"
                     limit: 10
                     order: OLDEST
                 }) { records { key } }
