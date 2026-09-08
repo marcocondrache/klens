@@ -61,9 +61,9 @@ jobs:
       - name: Install dependencies
         working-directory: web
         run: bun install --frozen-lockfile
-      - name: Lint
+      - name: Check
         working-directory: web
-        run: bun run lint
+        run: bunx vp check --no-fmt
       - name: Build
         working-directory: web
         run: bun run build
