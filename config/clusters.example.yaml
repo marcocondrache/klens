@@ -1,6 +1,9 @@
 # klens service configuration.
 #
 # Copy this file to config.yaml and adjust it for your environment.
+#
+# Values may reference environment variables, so secrets can stay out of this
+# file: ${VAR}, $VAR, ${VAR:-default}. Use $$ for a literal dollar sign.
 bind: 0.0.0.0:8080
 log_level: info
 
@@ -14,8 +17,8 @@ clusters:
     #   protocol: SASL_SSL
     #   sasl:
     #     mechanism: SCRAM-SHA-512
-    #     username: admin
-    #     password: secret
+    #     username: ${KAFKA_USERNAME}
+    #     password: ${KAFKA_PASSWORD}
     #   tls:
     #     ca_cert: /path/to/ca.pem
     #     client_cert: /path/to/client.pem
@@ -30,8 +33,8 @@ clusters:
     # page is empty for this cluster.
     schema_registry:
       url: http://localhost:8081
-      # username: user
-      # password: secret
+      # username: ${SCHEMA_REGISTRY_USERNAME}
+      # password: ${SCHEMA_REGISTRY_PASSWORD}
 
 # Optional OpenID Connect login gate. When omitted, the UI and GraphQL API are
 # open to anyone who can reach the process. /health stays public either way.
@@ -43,7 +46,7 @@ clusters:
 #   oidc:
 #     issuer: https://keycloak.example.com/realms/klens
 #     client_id: klens
-#     client_secret: "..."
+#     client_secret: ${OIDC_CLIENT_SECRET}
 #     redirect_uri: http://localhost:8080/auth/callback
 #     # scopes: [openid, email, profile]
 #     # cookie_secure: false  # default: true when redirect_uri is https

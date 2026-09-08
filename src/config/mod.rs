@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::env::VarError;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
@@ -7,6 +8,8 @@ use thiserror::Error;
 
 use crate::environment;
 
+mod expand;
+
 #[derive(Debug, Error)]
 pub enum ConfigError {
     #[error("failed to read config file {}: {source}", path.display())]
@@ -14,6 +17,12 @@ pub enum ConfigError {
         path: PathBuf,
         #[source]
         source: std::io::Error,
+    },
+    #[error("failed to expand variables in config file {}: {source}", path.display())]
+    Expand {
+        path: PathBuf,
+        #[source]
+        source: shellexpand::LookupError<VarError>,
     },
     #[error("failed to parse config file {}: {source}", path.display())]
     Parse {
@@ -80,10 +89,16 @@ impl Config {
             source,
         })?;
 
-        let config: Self = serde_yaml_ng::from_str(&raw).map_err(|source| ConfigError::Parse {
+        let expanded = expand::expand(&raw).map_err(|source| ConfigError::Expand {
             path: path.to_owned(),
             source,
         })?;
+
+        let config: Self =
+            serde_yaml_ng::from_str(&expanded).map_err(|source| ConfigError::Parse {
+                path: path.to_owned(),
+                source,
+            })?;
 
         config.validate()?;
         Ok(config)
@@ -840,5 +855,132 @@ mod tests {
                 .to_string()
                 .contains("username and password must be set together")
         );
+    }
+
+    fn load_yaml(yaml: &str, vars: &[(&str, &str)]) -> Result<Config, ConfigError> {
+        let vars: HashMap<&str, &str> = vars.iter().copied().collect();
+        let expanded = expand::expand_with(yaml, |name| match vars.get(name) {
+            Some(value) => Ok(Some(*value)),
+            None => Err(std::env::VarError::NotPresent),
+        })
+        .map_err(|source| ConfigError::Expand {
+            path: PathBuf::from("test.yaml"),
+            source,
+        })?;
+
+        let config: Config =
+            serde_yaml_ng::from_str(&expanded).map_err(|source| ConfigError::Parse {
+                path: PathBuf::from("test.yaml"),
+                source,
+            })?;
+        config.validate()?;
+        Ok(config)
+    }
+
+    #[test]
+    fn load_expands_secret_placeholders() {
+        let config = load_yaml(
+            "
+            bind: 127.0.0.1:8080
+            clusters:
+              - name: prod
+                bootstrap_servers:
+                  - broker:9092
+                security:
+                  protocol: SASL_PLAINTEXT
+                  sasl:
+                    mechanism: PLAIN
+                    username: ${KAFKA_USERNAME}
+                    password: ${KAFKA_PASSWORD}
+            auth:
+              oidc:
+                issuer: https://idp.example
+                client_id: klens
+                client_secret: ${OIDC_CLIENT_SECRET}
+                redirect_uri: https://klens.example/auth/callback
+            ",
+            &[
+                ("KAFKA_USERNAME", "admin"),
+                ("KAFKA_PASSWORD", "sasl-secret"),
+                ("OIDC_CLIENT_SECRET", "oidc-secret"),
+            ],
+        )
+        .unwrap();
+
+        let sasl = config.clusters[0]
+            .security
+            .as_ref()
+            .unwrap()
+            .sasl
+            .as_ref()
+            .unwrap();
+        assert_eq!(sasl.username, "admin");
+        assert_eq!(sasl.password, "sasl-secret");
+        assert_eq!(config.auth.unwrap().oidc.client_secret, "oidc-secret");
+    }
+
+    #[test]
+    fn load_errors_on_missing_placeholder_without_leaking_values() {
+        let error = load_yaml(
+            "
+            bind: 127.0.0.1:8080
+            clusters: []
+            auth:
+              oidc:
+                issuer: https://idp.example
+                client_id: klens
+                client_secret: ${OIDC_CLIENT_SECRET}
+                redirect_uri: https://klens.example/auth/callback
+            ",
+            &[],
+        )
+        .unwrap_err();
+
+        let message = error.to_string();
+        assert!(message.contains("test.yaml"));
+        assert!(message.contains("OIDC_CLIENT_SECRET"));
+        assert!(!message.contains("oidc-secret"));
+        assert!(matches!(error, ConfigError::Expand { .. }));
+    }
+
+    #[test]
+    fn load_from_file_expands_environment() {
+        static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = ENV_LOCK.lock().unwrap();
+
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let secret_var = format!("KLENS_TEST_OIDC_{nonce}");
+        let path = std::env::temp_dir().join(format!("{secret_var}.yaml"));
+        let yaml = format!(
+            "
+            bind: 127.0.0.1:8080
+            clusters: []
+            auth:
+              oidc:
+                issuer: https://idp.example
+                client_id: klens
+                client_secret: ${{{secret_var}}}
+                redirect_uri: https://klens.example/auth/callback
+            "
+        );
+        std::fs::write(&path, yaml).unwrap();
+        struct Cleanup<'a>(&'a Path, &'a str);
+        impl Drop for Cleanup<'_> {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(self.0);
+                // SAFETY: serialized by ENV_LOCK for the lifetime of this test.
+                unsafe { std::env::remove_var(self.1) };
+            }
+        }
+        let _cleanup = Cleanup(&path, &secret_var);
+
+        // SAFETY: serialized by ENV_LOCK; this variable name is unique to the test.
+        unsafe { std::env::set_var(&secret_var, "from-env") };
+
+        let config = Config::load(&path).unwrap();
+        assert_eq!(config.auth.unwrap().oidc.client_secret, "from-env");
     }
 }
