@@ -4,7 +4,6 @@ use crate::config::{ClusterConfig, Config, SaslConfig, SecurityConfig, TlsConfig
 use crate::environment::{
     API_VERSION_REQUEST_TIMEOUT_MS, CLIENT_ID_PREFIX, SOCKET_CONNECTION_SETUP_TIMEOUT_MS,
 };
-use crate::kafka::error::KafkaError;
 
 /// Kafka client settings derived from a cluster config node.
 #[derive(Debug, Clone)]
@@ -13,9 +12,8 @@ pub struct KafkaClusterConfig {
 }
 
 impl KafkaClusterConfig {
-    pub fn from_config(config: &Config) -> Result<Vec<Self>, KafkaError> {
-        config.validate()?;
-        config.clusters.iter().map(Self::try_from).collect()
+    pub fn from_config(config: &Config) -> Vec<Self> {
+        config.clusters.iter().map(Self::from).collect()
     }
 
     pub fn client_config(&self) -> &ClientConfig {
@@ -27,12 +25,8 @@ impl KafkaClusterConfig {
     }
 }
 
-impl TryFrom<&ClusterConfig> for KafkaClusterConfig {
-    type Error = KafkaError;
-
-    fn try_from(cluster: &ClusterConfig) -> Result<Self, Self::Error> {
-        cluster.validate()?;
-
+impl From<&ClusterConfig> for KafkaClusterConfig {
+    fn from(cluster: &ClusterConfig) -> Self {
         let mut client = ClientConfig::new();
         client.set("bootstrap.servers", cluster.bootstrap_servers.join(","));
         client.set("client.id", format!("{CLIENT_ID_PREFIX}-{}", cluster.name));
@@ -53,7 +47,7 @@ impl TryFrom<&ClusterConfig> for KafkaClusterConfig {
             client.set(key, value);
         }
 
-        Ok(Self { client })
+        Self { client }
     }
 }
 
@@ -117,7 +111,7 @@ mod tests {
             ",
         );
 
-        let kafka = KafkaClusterConfig::try_from(&cluster).unwrap();
+        let kafka = KafkaClusterConfig::from(&cluster);
         let client = kafka.client_config();
 
         assert_eq!(
@@ -155,7 +149,7 @@ mod tests {
             ",
         );
 
-        let kafka = KafkaClusterConfig::try_from(&cluster).unwrap();
+        let kafka = KafkaClusterConfig::from(&cluster);
         let client = kafka.client_config();
 
         assert_eq!(client.get("security.protocol"), Some("SASL_SSL"));
@@ -190,7 +184,7 @@ mod tests {
         )
         .unwrap();
 
-        let derived = KafkaClusterConfig::from_config(&config).unwrap();
+        let derived = KafkaClusterConfig::from_config(&config);
         assert_eq!(derived.len(), 2);
         assert_eq!(
             derived[0].client_config().get("client.id"),
@@ -214,28 +208,12 @@ mod tests {
             ",
         );
 
-        let kafka = KafkaClusterConfig::try_from(&cluster).unwrap();
+        let kafka = KafkaClusterConfig::from(&cluster);
         assert_eq!(
             kafka
                 .client_config()
                 .get("socket.connection.setup.timeout.ms"),
             Some("30000")
         );
-    }
-
-    #[test]
-    fn derivation_rejects_invalid_cluster_config() {
-        let cluster = cluster(
-            "
-            name: local
-            bootstrap_servers:
-              - localhost:9092
-            security:
-              protocol: SASL_PLAINTEXT
-            ",
-        );
-
-        let error = KafkaClusterConfig::try_from(&cluster).unwrap_err();
-        assert!(error.to_string().contains("sasl settings are required"));
     }
 }

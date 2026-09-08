@@ -8,7 +8,6 @@ mod factory;
 mod handle;
 pub(crate) mod model;
 mod rates;
-mod registry;
 mod schema;
 mod session;
 
@@ -18,13 +17,11 @@ mod testing;
 pub use config::KafkaClusterConfig;
 pub use engine::QueryEngine;
 pub use error::KafkaError;
-pub use handle::ClusterHandle;
 pub use model::{
     Broker, ClusterHealth, ClusterIdentity, ClusterOverview, ConfigEntry, ConsumerGroup, Record,
     RecordPage, RecordQuery, SearchHit, Topic,
 };
 pub use rates::{RateStore, ThroughputPoint, TopicRate};
-pub use registry::ClusterRegistry;
 pub use session::ClusterSession;
 
 #[cfg(test)]

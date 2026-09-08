@@ -1,7 +1,5 @@
 use thiserror::Error;
 
-use crate::config::ConfigError;
-
 #[derive(Debug, Error)]
 pub enum KafkaError {
     #[error("unknown cluster '{0}'")]
@@ -31,9 +29,6 @@ pub enum KafkaError {
 
     #[error("schema registry request failed for cluster '{cluster}': {message}")]
     SchemaRegistry { cluster: String, message: String },
-
-    #[error(transparent)]
-    Config(#[from] ConfigError),
 
     #[error(transparent)]
     Client(#[from] rdkafka::error::KafkaError),

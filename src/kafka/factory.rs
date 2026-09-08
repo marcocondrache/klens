@@ -26,11 +26,11 @@ impl std::fmt::Debug for ClientFactory {
 }
 
 impl ClientFactory {
-    pub fn new(config: &ClusterConfig) -> Result<Self, KafkaError> {
-        Ok(Self {
+    pub fn new(config: &ClusterConfig) -> Self {
+        Self {
             cluster: config.name.trim().to_owned(),
-            client: KafkaClusterConfig::try_from(config)?.into_client_config(),
-        })
+            client: KafkaClusterConfig::from(config).into_client_config(),
+        }
     }
 
     pub fn admin(&self) -> Result<AdminClient<DefaultClientContext>, KafkaError> {
