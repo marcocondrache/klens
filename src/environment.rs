@@ -118,10 +118,12 @@ pub static BLOCKING_SLACK: LazyLock<Duration> =
 pub static OVERVIEW_BUDGET: LazyLock<Duration> =
     lazy_env_parse!(duration, "KLENS_OVERVIEW_BUDGET", Duration::from_secs(20));
 
-/// Partition watermark fetches issued per Kafka round-trip (default: 32).
+/// Max partitions per ListOffsets watermark request (default: 1024).
+/// Chunks run sequentially on one consumer; librdkafka fans each TPL out
+/// per leader.
 ///
 /// Override with `KLENS_WATERMARK_BATCH`.
-pub static WATERMARK_BATCH: LazyLock<usize> = lazy_env_parse!("KLENS_WATERMARK_BATCH", usize, 32);
+pub static WATERMARK_BATCH: LazyLock<usize> = lazy_env_parse!("KLENS_WATERMARK_BATCH", usize, 1024);
 
 /// Topic config fetches issued per Kafka round-trip (default: 20).
 ///

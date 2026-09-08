@@ -12,7 +12,6 @@ use rdkafka::client::DefaultClientContext;
 use rdkafka::consumer::Consumer;
 use rdkafka::metadata::Metadata;
 use rdkafka::topic_partition_list::{Offset, TopicPartitionList};
-use tokio::task::JoinSet;
 
 use crate::config::ClusterConfig;
 use crate::environment::{
@@ -118,32 +117,32 @@ impl ClusterSession for ClusterHandle {
             .map_err(into_kafka_error)
     }
 
-    async fn watermarks(
-        &self,
-        topic: &str,
-        partitions: &[i32],
-    ) -> Result<HashMap<i32, Watermarks>, KafkaError> {
-        let mut out = HashMap::with_capacity(partitions.len());
-
-        for chunk in partitions.chunks(*WATERMARK_BATCH) {
-            let mut join = JoinSet::new();
-            for &partition in chunk {
-                let admin = Arc::clone(&self.admin);
-                let topic = topic.to_owned();
-                let timeout = self.timeouts.watermark;
-                join.spawn_blocking(move || {
-                    let (low, high) = admin.inner().fetch_watermarks(&topic, partition, timeout)?;
-                    Ok::<_, KafkaError>((partition, Watermarks { low, high }))
-                });
-            }
-
-            while let Some(result) = join.join_next().await {
-                let (partition, marks) = result??;
-                out.insert(partition, marks);
-            }
+    async fn watermarks_many(&self, topics: &[&str]) -> HashMap<String, HashMap<i32, Watermarks>> {
+        let Ok(meta) = self.metadata().await else {
+            return HashMap::new();
+        };
+        let partitions = meta.topic_partition_pairs(topics);
+        if partitions.is_empty() {
+            return HashMap::new();
         }
 
-        Ok(out)
+        let factory = self.factory.clone();
+        let group_id = format!("{INTERNAL_GROUP_PREFIX}list-offsets.{}", self.identity.name);
+        let timeout = self.timeouts.watermark;
+        let batch = (*WATERMARK_BATCH).max(1);
+
+        run_blocking(timeout + timeout + *BLOCKING_SLACK, move || {
+            let consumer = factory.offset_consumer(&group_id)?;
+            let mut beginning = HashMap::new();
+            let mut end = HashMap::new();
+            for chunk in partitions.chunks(batch) {
+                beginning.extend(list_offsets(&consumer, chunk, Offset::Beginning, timeout)?);
+                end.extend(list_offsets(&consumer, chunk, Offset::End, timeout)?);
+            }
+            Ok(merge_watermark_offsets(&beginning, &end))
+        })
+        .await
+        .unwrap_or_default()
     }
 
     async fn offsets_for_times(
@@ -358,6 +357,52 @@ fn into_kafka_error(err: Arc<KafkaError>) -> KafkaError {
     Arc::try_unwrap(err).unwrap_or_else(|err| KafkaError::Admin(err.to_string()))
 }
 
+fn list_offsets(
+    consumer: &impl Consumer,
+    partitions: &[(String, i32)],
+    timestamp: Offset,
+    timeout: Duration,
+) -> Result<HashMap<(String, i32), Option<i64>>, KafkaError> {
+    let mut tpl = TopicPartitionList::new();
+    for (topic, partition) in partitions {
+        tpl.add_partition_offset(topic, *partition, timestamp)?;
+    }
+
+    let listed = consumer.offsets_for_times(tpl, timeout)?;
+    Ok(listed
+        .elements()
+        .into_iter()
+        .map(|element| {
+            let offset = match element.offset() {
+                Offset::Offset(offset) if offset >= 0 => Some(offset),
+                _ => None,
+            };
+            ((element.topic().to_owned(), element.partition()), offset)
+        })
+        .collect())
+}
+
+fn merge_watermark_offsets(
+    beginning: &HashMap<(String, i32), Option<i64>>,
+    end: &HashMap<(String, i32), Option<i64>>,
+) -> HashMap<String, HashMap<i32, Watermarks>> {
+    let mut out: HashMap<String, HashMap<i32, Watermarks>> = HashMap::new();
+    for (key, high) in end {
+        let Some(high) = *high else {
+            continue;
+        };
+        // Empty partitions often return only the last offset.
+        let low = beginning.get(key).copied().flatten().unwrap_or(high);
+        if high < low {
+            continue;
+        }
+        out.entry(key.0.clone())
+            .or_default()
+            .insert(key.1, Watermarks { low, high });
+    }
+    out
+}
+
 impl MetadataSnapshot {
     fn from_rdkafka(metadata: &Metadata, cluster_id: Option<String>) -> Self {
         Self {
@@ -449,6 +494,8 @@ impl From<RdConfigSource> for ConfigSource {
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use tokio::task::JoinSet;
 
     use super::*;
 
@@ -555,5 +602,46 @@ mod tests {
         };
         assert_eq!(recovered.cluster_id.as_deref(), Some("id"));
         assert_eq!(fetches.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn merge_watermark_offsets_keeps_empty_skips_inverted_and_partial() {
+        let beginning = HashMap::from([
+            (("orders".into(), 0), Some(0)),
+            (("orders".into(), 1), Some(10)),
+            (("orders".into(), 2), Some(4)),
+            (("payments".into(), 0), Some(1)),
+            (("payments".into(), 1), None),
+            (("logs".into(), 0), Some(3)),
+        ]);
+        let end = HashMap::from([
+            (("orders".into(), 0), Some(0)),
+            (("orders".into(), 1), Some(5)),
+            (("orders".into(), 2), Some(12)),
+            (("payments".into(), 0), None),
+            (("payments".into(), 1), Some(9)),
+            (("logs".into(), 0), Some(9)),
+        ]);
+
+        assert_eq!(
+            merge_watermark_offsets(&beginning, &end),
+            HashMap::from([
+                (
+                    "orders".into(),
+                    HashMap::from([
+                        (0, Watermarks { low: 0, high: 0 }),
+                        (2, Watermarks { low: 4, high: 12 }),
+                    ]),
+                ),
+                (
+                    "payments".into(),
+                    HashMap::from([(1, Watermarks { low: 9, high: 9 })]),
+                ),
+                (
+                    "logs".into(),
+                    HashMap::from([(0, Watermarks { low: 3, high: 9 })]),
+                ),
+            ])
+        );
     }
 }

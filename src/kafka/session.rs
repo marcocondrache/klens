@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use futures::future::join_all;
 
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
@@ -16,11 +17,27 @@ pub trait ClusterSession: Send + Sync + 'static {
 
     async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError>;
 
-    async fn watermarks(
-        &self,
-        topic: &str,
-        partitions: &[i32],
-    ) -> Result<HashMap<i32, Watermarks>, KafkaError>;
+    async fn watermarks(&self, topic: &str) -> Result<HashMap<i32, Watermarks>, KafkaError> {
+        Ok(self
+            .watermarks_many(&[topic])
+            .await
+            .remove(topic)
+            .unwrap_or_default())
+    }
+
+    /// Low/high watermarks for many topics in one sweep.
+    ///
+    /// The default joins per-topic [`watermarks`](Self::watermarks) calls.
+    /// Live clusters override this with batched `ListOffsets`.
+    async fn watermarks_many(&self, topics: &[&str]) -> HashMap<String, HashMap<i32, Watermarks>> {
+        join_all(topics.iter().map(|name| async move {
+            let watermarks = self.watermarks(name).await.unwrap_or_default();
+            ((*name).to_owned(), watermarks)
+        }))
+        .await
+        .into_iter()
+        .collect()
+    }
 
     /// Earliest offset at or after `timestamp` (unix ms) for each partition.
     ///

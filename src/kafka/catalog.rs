@@ -10,45 +10,24 @@ use crate::kafka::model::{
     TopicMetadata, Watermarks,
 };
 
-pub fn partition_health(meta: &MetadataSnapshot) -> (i32, i32, i32) {
-    let mut partitions = 0;
-    let mut under_replicated = 0;
-    let mut offline = 0;
-
-    for topic in &meta.topics {
-        for partition in &topic.partitions {
-            partitions += 1;
-            if partition.under_replicated() {
-                under_replicated += 1;
-            }
-            if partition.offline() {
-                offline += 1;
-            }
-        }
-    }
-
-    (partitions, under_replicated, offline)
-}
-
-pub fn cluster_health(under_replicated: i32, offline: i32) -> ClusterHealth {
-    if under_replicated > 0 || offline > 0 {
-        ClusterHealth::Degraded
-    } else {
-        ClusterHealth::Healthy
-    }
-}
-
 pub fn assemble_overview(
     identity: ClusterIdentity,
     meta: &MetadataSnapshot,
     group_count: i32,
 ) -> ClusterOverview {
-    let (partition_count, under_replicated, offline) = partition_health(meta);
+    let mut partition_count = 0;
+    let mut under_replicated = 0;
+    let mut offline = 0;
+    for partition in meta.partitions() {
+        partition_count += 1;
+        under_replicated += i32::from(partition.under_replicated());
+        offline += i32::from(partition.offline());
+    }
 
     ClusterOverview {
         identity,
         cluster_id: meta.cluster_id.clone().unwrap_or_default(),
-        health: cluster_health(under_replicated, offline),
+        health: ClusterHealth::from_partitions(meta.partitions()),
         broker_count: meta.brokers.len() as i32,
         topic_count: meta.topics.len() as i32,
         partition_count,
@@ -63,14 +42,12 @@ pub fn assemble_brokers(meta: &MetadataSnapshot) -> Vec<Broker> {
     let mut partition_counts = HashMap::<i32, i32>::new();
     let mut leader_counts = HashMap::<i32, i32>::new();
 
-    for topic in &meta.topics {
-        for partition in &topic.partitions {
-            for replica in &partition.replicas {
-                *partition_counts.entry(*replica).or_default() += 1;
-            }
-            if partition.leader >= 0 {
-                *leader_counts.entry(partition.leader).or_default() += 1;
-            }
+    for partition in meta.partitions() {
+        for replica in &partition.replicas {
+            *partition_counts.entry(*replica).or_default() += 1;
+        }
+        if !partition.offline() {
+            *leader_counts.entry(partition.leader).or_default() += 1;
         }
     }
 
@@ -97,27 +74,13 @@ pub fn assemble_broker(
 }
 
 pub fn topic_config_values(entries: Option<&[ConfigEntry]>) -> (CleanupPolicy, i64) {
-    let mut cleanup_policy = CleanupPolicy::Delete;
-    let mut retention_ms = 0;
-
-    if let Some(entries) = entries {
-        for entry in entries {
-            match entry.name.as_str() {
-                "cleanup.policy" => {
-                    if let Some(value) = &entry.value {
-                        cleanup_policy = CleanupPolicy::parse(value);
-                    }
-                }
-                "retention.ms" => {
-                    if let Some(value) = &entry.value {
-                        retention_ms = value.parse().unwrap_or(0);
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-
+    let entries = entries.unwrap_or(&[]);
+    let cleanup_policy = ConfigEntry::lookup(entries, "cleanup.policy")
+        .map(CleanupPolicy::parse)
+        .unwrap_or(CleanupPolicy::Delete);
+    let retention_ms = ConfigEntry::lookup(entries, "retention.ms")
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0);
     (cleanup_policy, retention_ms)
 }
 
@@ -139,15 +102,7 @@ pub fn assemble_topic(
         .partitions
         .iter()
         .map(|partition| {
-            let marks = watermarks.get(&partition.id).copied().unwrap_or_default();
-            Partition {
-                id: partition.id,
-                leader: partition.leader,
-                replicas: partition.replicas.clone(),
-                isr: partition.isr.clone(),
-                low_watermark: marks.low,
-                high_watermark: marks.high,
-            }
+            partition.with_watermarks(watermarks.get(&partition.id).copied().unwrap_or_default())
         })
         .collect();
 
@@ -157,11 +112,9 @@ pub fn assemble_topic(
         .unwrap_or(0);
     let message_count = partitions
         .iter()
-        .map(|partition| (partition.high_watermark - partition.low_watermark).max(0) as u64)
+        .map(|partition| partition.available() as u64)
         .sum();
-    let under_replicated = partitions
-        .iter()
-        .any(|partition| partition.isr.len() < partition.replicas.len());
+    let under_replicated = partitions.iter().any(Partition::under_replicated);
     let (cleanup_policy, retention_ms) = topic_config_values(config);
 
     Topic {
@@ -304,22 +257,6 @@ pub fn plan_records(
     }
 }
 
-pub fn member_for_partition<'a>(
-    members: &'a [crate::kafka::model::GroupMember],
-    topic: &str,
-    partition: i32,
-) -> Option<&'a str> {
-    members.iter().find_map(|member| {
-        member
-            .assignments
-            .iter()
-            .any(|assignment| {
-                assignment.topic == topic && assignment.partitions.contains(&partition)
-            })
-            .then_some(member.id.as_str())
-    })
-}
-
 pub fn assemble_group(group: &GroupSnapshot, ends: &HashMap<(String, i32), i64>) -> ConsumerGroup {
     let mut seen = HashMap::<(String, i32), GroupOffset>::new();
 
@@ -334,12 +271,9 @@ pub fn assemble_group(group: &GroupSnapshot, ends: &HashMap<(String, i32), i64>)
                 current_offset: committed.offset,
                 end_offset: end,
                 lag: (end - committed.offset).max(0),
-                member_id: member_for_partition(
-                    &group.members,
-                    &committed.topic,
-                    committed.partition,
-                )
-                .map(ToOwned::to_owned),
+                member_id: group
+                    .member_for(&committed.topic, committed.partition)
+                    .map(ToOwned::to_owned),
             },
         );
     }
@@ -357,8 +291,7 @@ pub fn assemble_group(group: &GroupSnapshot, ends: &HashMap<(String, i32), i64>)
                     current_offset: 0,
                     end_offset: end,
                     lag: end,
-                    member_id: member_for_partition(&group.members, topic, partition)
-                        .map(ToOwned::to_owned),
+                    member_id: group.member_for(topic, partition).map(ToOwned::to_owned),
                 }
             });
     }
@@ -492,9 +425,18 @@ mod tests {
 
     #[test]
     fn health_is_degraded_when_partitions_are_unhealthy() {
-        assert_eq!(cluster_health(0, 0), ClusterHealth::Healthy);
-        assert_eq!(cluster_health(1, 0), ClusterHealth::Degraded);
-        assert_eq!(cluster_health(0, 2), ClusterHealth::Degraded);
+        assert_eq!(
+            ClusterHealth::from_partitions(&[partition(0, 1, vec![1], vec![1])]),
+            ClusterHealth::Healthy
+        );
+        assert_eq!(
+            ClusterHealth::from_partitions(&[partition(0, 1, vec![1, 2], vec![1])]),
+            ClusterHealth::Degraded
+        );
+        assert_eq!(
+            ClusterHealth::from_partitions(&[partition(0, -1, vec![1], vec![])]),
+            ClusterHealth::Degraded
+        );
     }
 
     #[test]

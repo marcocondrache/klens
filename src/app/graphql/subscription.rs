@@ -81,13 +81,9 @@ mod tests {
             self.inner.metadata().await
         }
 
-        async fn watermarks(
-            &self,
-            topic: &str,
-            partitions: &[i32],
-        ) -> Result<HashMap<i32, Watermarks>, KafkaError> {
+        async fn watermarks(&self, topic: &str) -> Result<HashMap<i32, Watermarks>, KafkaError> {
             let extra = self.extra.fetch_add(10, Ordering::SeqCst);
-            let mut marks = self.inner.watermarks(topic, partitions).await?;
+            let mut marks = self.inner.watermarks(topic).await?;
             if let Some(partition) = marks.get_mut(&0) {
                 partition.high += extra;
             }

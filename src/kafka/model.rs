@@ -32,6 +32,21 @@ pub enum ClusterHealth {
     Offline,
 }
 
+impl ClusterHealth {
+    pub fn from_partitions<'a>(
+        partitions: impl IntoIterator<Item = &'a PartitionMetadata>,
+    ) -> Self {
+        if partitions
+            .into_iter()
+            .any(|partition| partition.under_replicated() || partition.offline())
+        {
+            Self::Degraded
+        } else {
+            Self::Healthy
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClusterOverview {
     pub identity: ClusterIdentity,
@@ -86,6 +101,17 @@ impl PartitionMetadata {
     pub fn offline(&self) -> bool {
         self.leader < 0
     }
+
+    pub fn with_watermarks(&self, marks: Watermarks) -> Partition {
+        Partition {
+            id: self.id,
+            leader: self.leader,
+            replicas: self.replicas.clone(),
+            isr: self.isr.clone(),
+            low_watermark: marks.low,
+            high_watermark: marks.high,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -98,6 +124,13 @@ pub struct TopicMetadata {
 impl TopicMetadata {
     pub fn partition(&self, id: i32) -> Option<&PartitionMetadata> {
         self.partitions.iter().find(|partition| partition.id == id)
+    }
+
+    pub fn partition_ids(&self) -> Vec<i32> {
+        self.partitions
+            .iter()
+            .map(|partition| partition.id)
+            .collect()
     }
 }
 
@@ -123,6 +156,28 @@ impl MetadataSnapshot {
             .map(|topic| topic.name.as_str())
             .collect()
     }
+
+    pub fn topic_partitions(&self, name: &str) -> Vec<i32> {
+        self.topic(name)
+            .map(TopicMetadata::partition_ids)
+            .unwrap_or_default()
+    }
+
+    pub fn topic_partition_pairs(&self, names: &[&str]) -> Vec<(String, i32)> {
+        names
+            .iter()
+            .copied()
+            .flat_map(|name| {
+                self.topic_partitions(name)
+                    .into_iter()
+                    .map(|id| (name.to_owned(), id))
+            })
+            .collect()
+    }
+
+    pub fn partitions(&self) -> impl Iterator<Item = &PartitionMetadata> {
+        self.topics.iter().flat_map(|topic| topic.partitions.iter())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -134,6 +189,10 @@ pub struct Watermarks {
 impl Watermarks {
     pub fn available(&self) -> i64 {
         (self.high - self.low).max(0)
+    }
+
+    pub fn messages(&self) -> u64 {
+        self.high.max(0) as u64
     }
 }
 
@@ -152,6 +211,15 @@ pub struct ConfigEntry {
     pub source: ConfigSource,
     pub read_only: bool,
     pub sensitive: bool,
+}
+
+impl ConfigEntry {
+    pub fn lookup<'a>(entries: &'a [Self], name: &str) -> Option<&'a str> {
+        entries
+            .iter()
+            .find(|entry| entry.name == name)
+            .and_then(|entry| entry.value.as_deref())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -190,6 +258,16 @@ pub struct Partition {
     pub isr: Vec<i32>,
     pub low_watermark: i64,
     pub high_watermark: i64,
+}
+
+impl Partition {
+    pub fn available(&self) -> i64 {
+        (self.high_watermark - self.low_watermark).max(0)
+    }
+
+    pub fn under_replicated(&self) -> bool {
+        self.isr.len() < self.replicas.len()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -269,6 +347,14 @@ pub struct GroupMember {
     pub assignments: Vec<MemberAssignment>,
 }
 
+impl GroupMember {
+    pub fn assigned_to(&self, topic: &str, partition: i32) -> bool {
+        self.assignments.iter().any(|assignment| {
+            assignment.topic == topic && assignment.partitions.contains(&partition)
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommittedOffset {
     pub topic: String,
@@ -323,6 +409,24 @@ impl GroupSnapshot {
         partitions.sort();
         partitions.dedup();
         partitions
+    }
+
+    pub fn member_for(&self, topic: &str, partition: i32) -> Option<&str> {
+        self.members
+            .iter()
+            .find(|member| member.assigned_to(topic, partition))
+            .map(|member| member.id.as_str())
+    }
+
+    pub fn consumed_topic_names(groups: &[Self]) -> Vec<String> {
+        let mut names: Vec<String> = groups
+            .iter()
+            .flat_map(|group| group.consumed_topics())
+            .map(str::to_owned)
+            .collect();
+        names.sort();
+        names.dedup();
+        names
     }
 }
 
@@ -629,4 +733,95 @@ pub fn is_internal_group(id: &str) -> bool {
 
 pub fn decode_bytes(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn snapshot() -> MetadataSnapshot {
+        MetadataSnapshot {
+            cluster_id: None,
+            brokers: Vec::new(),
+            topics: vec![TopicMetadata {
+                name: "orders.created".into(),
+                internal: false,
+                partitions: vec![
+                    PartitionMetadata {
+                        id: 0,
+                        leader: 1,
+                        replicas: vec![1],
+                        isr: vec![1],
+                    },
+                    PartitionMetadata {
+                        id: 2,
+                        leader: 1,
+                        replicas: vec![1],
+                        isr: vec![1],
+                    },
+                ],
+            }],
+        }
+    }
+
+    #[test]
+    fn topic_partitions_returns_ids_and_skips_unknown() {
+        let meta = snapshot();
+        assert_eq!(meta.topic_partitions("orders.created"), vec![0, 2]);
+        assert_eq!(meta.topic_partitions("missing"), Vec::<i32>::new());
+        assert_eq!(
+            meta.topic("orders.created").unwrap().partition_ids(),
+            vec![0, 2]
+        );
+        assert_eq!(
+            meta.topic_partition_pairs(&["missing", "orders.created"]),
+            vec![("orders.created".into(), 0), ("orders.created".into(), 2),]
+        );
+    }
+
+    #[test]
+    fn config_lookup_and_group_assignment() {
+        let entries = [ConfigEntry {
+            name: "cleanup.policy".into(),
+            value: Some("compact".into()),
+            source: ConfigSource::Default,
+            read_only: false,
+            sensitive: false,
+        }];
+        assert_eq!(
+            ConfigEntry::lookup(&entries, "cleanup.policy"),
+            Some("compact")
+        );
+        assert_eq!(ConfigEntry::lookup(&entries, "retention.ms"), None);
+
+        let group = GroupSnapshot {
+            id: "g".into(),
+            state: GroupState::Stable,
+            protocol: "range".into(),
+            coordinator: 1,
+            members: vec![GroupMember {
+                id: "m1".into(),
+                client_id: "c1".into(),
+                host: "127.0.0.1".into(),
+                assignments: vec![MemberAssignment {
+                    topic: "orders".into(),
+                    partitions: vec![0, 1],
+                }],
+            }],
+            committed: vec![CommittedOffset {
+                topic: "payments".into(),
+                partition: 0,
+                offset: 3,
+            }],
+        };
+        assert!(group.members[0].assigned_to("orders", 1));
+        assert!(!group.members[0].assigned_to("orders", 2));
+        assert_eq!(group.member_for("orders", 0), Some("m1"));
+        assert_eq!(
+            GroupSnapshot::consumed_topic_names(&[group]),
+            vec!["orders".to_owned(), "payments".to_owned()]
+        );
+        assert_eq!(Watermarks { low: 2, high: 10 }.messages(), 10);
+        assert_eq!(Watermarks { low: 0, high: -1 }.messages(), 0);
+    }
 }

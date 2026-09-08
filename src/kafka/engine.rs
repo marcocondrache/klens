@@ -130,26 +130,10 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
     pub async fn topics(&self, cluster: &str) -> Result<Vec<Topic>, KafkaError> {
         let session = self.session(cluster)?;
         let meta = session.metadata().await?;
-        let configs = session
-            .topic_configs(&meta.topic_names())
-            .await
-            .unwrap_or_default();
+        let names = meta.topic_names();
+        let configs = session.topic_configs(&names).await.unwrap_or_default();
         let groups = session.consumer_groups().await.unwrap_or_default();
-
-        let watermarks = Self::topic_watermarks(
-            session,
-            meta.topics.iter().map(|topic| {
-                (
-                    topic.name.clone(),
-                    topic
-                        .partitions
-                        .iter()
-                        .map(|partition| partition.id)
-                        .collect(),
-                )
-            }),
-        )
-        .await;
+        let watermarks = session.watermarks_many(&names).await;
 
         Ok(meta
             .topics
@@ -172,15 +156,7 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
             cluster: cluster.to_owned(),
             topic: name.to_owned(),
         })?;
-        let partitions: Vec<i32> = topic
-            .partitions
-            .iter()
-            .map(|partition| partition.id)
-            .collect();
-        let watermarks = session
-            .watermarks(name, &partitions)
-            .await
-            .unwrap_or_default();
+        let watermarks = session.watermarks(name).await.unwrap_or_default();
         let configs = session.topic_configs(&[name]).await.unwrap_or_default();
         let groups = session.consumer_groups().await.unwrap_or_default();
 
@@ -262,31 +238,9 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
     }
 
     async fn end_offsets(session: &S, groups: &[GroupSnapshot]) -> HashMap<(String, i32), i64> {
-        let mut by_topic: HashMap<String, Vec<i32>> = HashMap::new();
-        for group in groups {
-            for (topic, partition) in group.assigned_partition_refs() {
-                by_topic
-                    .entry(topic.to_owned())
-                    .or_default()
-                    .push(partition);
-            }
-            for committed in &group.committed {
-                by_topic
-                    .entry(committed.topic.clone())
-                    .or_default()
-                    .push(committed.partition);
-            }
-        }
-
-        let watermarks = Self::topic_watermarks(
-            session,
-            by_topic.into_iter().map(|(topic, mut partitions)| {
-                partitions.sort();
-                partitions.dedup();
-                (topic, partitions)
-            }),
-        )
-        .await;
+        let names = GroupSnapshot::consumed_topic_names(groups);
+        let topics: Vec<&str> = names.iter().map(String::as_str).collect();
+        let watermarks = session.watermarks_many(&topics).await;
 
         let mut ends = HashMap::new();
         for (topic, marks) in watermarks {
@@ -297,50 +251,19 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
         ends
     }
 
-    async fn topic_watermarks(
-        session: &S,
-        topics: impl IntoIterator<Item = (String, Vec<i32>)>,
-    ) -> HashMap<String, HashMap<i32, Watermarks>> {
-        join_all(topics.into_iter().map(|(name, partitions)| async move {
-            let watermarks = session
-                .watermarks(&name, &partitions)
-                .await
-                .unwrap_or_default();
-            (name, watermarks)
-        }))
-        .await
-        .into_iter()
-        .collect()
-    }
-
     pub async fn topic_message_counts(
         &self,
         cluster: &str,
     ) -> Result<HashMap<String, u64>, KafkaError> {
         let session = self.session(cluster)?;
         let meta = session.metadata().await?;
-        let watermarks = Self::topic_watermarks(
-            session,
-            meta.topics.into_iter().map(|topic| {
-                (
-                    topic.name,
-                    topic
-                        .partitions
-                        .iter()
-                        .map(|partition| partition.id)
-                        .collect(),
-                )
-            }),
-        )
-        .await;
+        let names = meta.topic_names();
+        let watermarks = session.watermarks_many(&names).await;
 
         Ok(watermarks
             .into_iter()
             .map(|(name, marks)| {
-                let messages = marks
-                    .values()
-                    .map(|marks| marks.high.max(0) as u64)
-                    .sum::<u64>();
+                let messages = marks.values().map(Watermarks::messages).sum::<u64>();
                 (name, messages)
             })
             .collect())
@@ -378,13 +301,10 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
             .map_err(KafkaError::InvalidQuery)?;
         let partitions: Vec<i32> = match query.partition {
             Some(id) => vec![id],
-            None => topic
-                .partitions
-                .iter()
-                .map(|partition| partition.id)
-                .collect(),
+            None => topic.partition_ids(),
         };
-        let mut watermarks = session.watermarks(&query.topic, &partitions).await?;
+        let mut watermarks = session.watermarks(&query.topic).await?;
+        watermarks.retain(|partition, _| partitions.contains(partition));
         let start_time = query.timestamps.start_seek();
         let end_time = query.timestamps.end_seek();
         if start_time.is_some() || end_time.is_some() {
@@ -510,15 +430,11 @@ mod tests {
             self.inner.metadata().await
         }
 
-        async fn watermarks(
-            &self,
-            topic: &str,
-            partitions: &[i32],
-        ) -> Result<HashMap<i32, Watermarks>, KafkaError> {
+        async fn watermarks(&self, topic: &str) -> Result<HashMap<i32, Watermarks>, KafkaError> {
             if !self.watermark_delay.is_zero() {
                 tokio::time::sleep(self.watermark_delay).await;
             }
-            self.inner.watermarks(topic, partitions).await
+            self.inner.watermarks(topic).await
         }
 
         async fn offsets_for_times(
@@ -557,6 +473,78 @@ mod tests {
             partitions: &[(String, i32)],
         ) -> Result<Vec<CommittedOffset>, KafkaError> {
             self.committed.fetch_add(1, Ordering::SeqCst);
+            self.inner.committed_offsets(group_id, partitions).await
+        }
+
+        async fn records(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError> {
+            self.inner.records(plan).await
+        }
+    }
+
+    #[derive(Clone)]
+    struct CountingMany {
+        inner: FakeCluster,
+        many: Arc<AtomicUsize>,
+    }
+
+    impl CountingMany {
+        fn new(inner: FakeCluster) -> Self {
+            Self {
+                inner,
+                many: Arc::new(AtomicUsize::new(0)),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl ClusterSession for CountingMany {
+        fn identity(&self) -> &ClusterIdentity {
+            self.inner.identity()
+        }
+
+        async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError> {
+            self.inner.metadata().await
+        }
+
+        async fn watermarks_many(
+            &self,
+            topics: &[&str],
+        ) -> HashMap<String, HashMap<i32, Watermarks>> {
+            self.many.fetch_add(1, Ordering::SeqCst);
+            self.inner.watermarks_many(topics).await
+        }
+
+        async fn offsets_for_times(
+            &self,
+            topic: &str,
+            partitions: &[i32],
+            timestamp: i64,
+        ) -> Result<HashMap<i32, Option<i64>>, KafkaError> {
+            self.inner
+                .offsets_for_times(topic, partitions, timestamp)
+                .await
+        }
+
+        async fn topic_configs(
+            &self,
+            topics: &[&str],
+        ) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError> {
+            self.inner.topic_configs(topics).await
+        }
+
+        async fn broker_configs(&self, broker_id: i32) -> Result<Vec<ConfigEntry>, KafkaError> {
+            self.inner.broker_configs(broker_id).await
+        }
+
+        async fn consumer_groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
+            self.inner.consumer_groups().await
+        }
+
+        async fn committed_offsets(
+            &self,
+            group_id: &str,
+            partitions: &[(String, i32)],
+        ) -> Result<Vec<CommittedOffset>, KafkaError> {
             self.inner.committed_offsets(group_id, partitions).await
         }
 
@@ -687,6 +675,20 @@ mod tests {
                 .any(|hit| hit.kind == crate::kafka::model::SearchKind::Subject
                     && hit.id == "orders.created-value")
         );
+    }
+
+    #[tokio::test]
+    async fn topics_and_counts_call_watermarks_many_once() {
+        let session = CountingMany::new(FakeCluster::local());
+        let engine = QueryEngine::from_sessions(vec![session.clone()]);
+
+        let topics = engine.topics("local").await.unwrap();
+        assert_eq!(session.many.load(Ordering::SeqCst), 1);
+        assert_eq!(topics[0].message_count, 16);
+
+        let counts = engine.topic_message_counts("local").await.unwrap();
+        assert_eq!(session.many.load(Ordering::SeqCst), 2);
+        assert_eq!(counts.get("orders.created"), Some(&16));
     }
 
     fn browse_query() -> RecordQuery {
