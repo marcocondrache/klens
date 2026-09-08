@@ -1,11 +1,3 @@
-mod schema_registry {
-    #![allow(dead_code, unused_imports, clippy::all)]
-
-    use progenitor_client as _;
-
-    include!(concat!(env!("OUT_DIR"), "/schema_registry.rs"));
-}
-
 use std::sync::Arc;
 
 use base64::Engine as _;
@@ -20,6 +12,14 @@ use crate::environment::SCHEMA_REGISTRY_TIMEOUT;
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{SchemaCompatibility, SchemaSubject, SchemaType};
 use schema_registry::{Client, Error as RegistryError};
+
+mod schema_registry {
+    #![allow(dead_code, unused_imports, clippy::all)]
+
+    use progenitor_client as _;
+
+    include!(concat!(env!("OUT_DIR"), "/schema_registry.rs"));
+}
 
 /// HTTP client for a Confluent-compatible Schema Registry.
 #[derive(Clone)]
