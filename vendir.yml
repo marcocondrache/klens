@@ -1,6 +1,10 @@
 apiVersion: vendir.k14s.io/v1alpha1
 kind: Config
 directories:
+  # progenitor 0.14 cannot consume Confluent's swagger as published (missing
+  # response descriptions, multiple request media types, operationIds `get` /
+  # `post`). The checked-in YAML includes those OpenAPI compatibility edits;
+  # re-apply them after `vendir sync` or generation will fail.
   - path: vendor/schema-registry
     contents:
       - path: .
