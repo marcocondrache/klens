@@ -405,6 +405,7 @@ export type TopicConfigsQuery = {
 
 export type ConsumerGroupsQueryVariables = Exact<{
   cluster: string;
+  topic: string | null | undefined;
 }>;
 
 export type ConsumerGroupsQuery = {
@@ -1017,8 +1018,8 @@ export const TopicConfigsDocument = new TypedDocumentString(`
   documentation
 }`) as unknown as TypedDocumentString<TopicConfigsQuery, TopicConfigsQueryVariables>;
 export const ConsumerGroupsDocument = new TypedDocumentString(`
-    query ConsumerGroups($cluster: String!) {
-  consumerGroups(cluster: $cluster) {
+    query ConsumerGroups($cluster: String!, $topic: String) {
+  consumerGroups(cluster: $cluster, topic: $topic) {
     ...ConsumerGroupFields
   }
 }

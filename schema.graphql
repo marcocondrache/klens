@@ -218,7 +218,7 @@ type Query {
   topics(cluster: String!): [Topic!]!
   topic(cluster: String!, name: String!): Topic
   topicConfigs(cluster: String!, name: String!): [ConfigEntry!]!
-  consumerGroups(cluster: String!): [ConsumerGroup!]!
+  consumerGroups(cluster: String!, topic: String): [ConsumerGroup!]!
   consumerGroup(cluster: String!, id: String!): ConsumerGroup
   clusterThroughput(cluster: String!): [ThroughputPoint!]!
   topicThroughput(cluster: String!, topic: String!): [ThroughputPoint!]!

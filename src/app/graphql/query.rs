@@ -99,10 +99,11 @@ impl Query {
     async fn consumer_groups(
         context: &AppState,
         cluster: String,
+        topic: Option<String>,
     ) -> FieldResult<Vec<ConsumerGroup>> {
         Ok(context
             .query
-            .consumer_groups(&cluster)
+            .consumer_groups(&cluster, topic.as_deref())
             .await?
             .into_iter()
             .map(ConsumerGroup::from)

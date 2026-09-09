@@ -42,14 +42,23 @@ export function TopicPage() {
   const tab = TABS.includes(params.get("tab") ?? "") ? params.get("tab")! : "data";
 
   const { data: topic, isPending, isError } = useTopic(cluster, topicName);
-  const { data: configs = [], isPending: configsPending } = useTopicConfigs(cluster, topicName);
+  const { data: configs = [], isPending: configsPending } = useTopicConfigs(
+    cluster,
+    topicName,
+    tab === "config",
+  );
   const { data: throughput = [] } = useTopicThroughput(cluster, topicName);
-  const { data: groups = [] } = useConsumerGroups(cluster);
+  const { data: groups = [], isPending: groupsPending } = useConsumerGroups(
+    cluster,
+    topicName,
+    tab === "groups",
+  );
 
   const consuming = useMemo(
     () => groups.filter((group) => group.topics.includes(topicName)),
     [groups, topicName],
   );
+  const groupCount = topic?.consumerGroups.length ?? consuming.length;
 
   function selectTab(value: string) {
     const next = new URLSearchParams(params);
@@ -221,7 +230,7 @@ export function TopicPage() {
         }
         description={
           topic
-            ? `retention ${formatDuration(topic.retentionMs)} · ${consuming.length} consumer groups`
+            ? `retention ${formatDuration(topic.retentionMs)} · ${groupCount} consumer groups`
             : null
         }
       />
@@ -270,7 +279,7 @@ export function TopicPage() {
           </TabsTrigger>
           <TabsTrigger value="groups">
             Consumer groups
-            <span className="numeric ml-1.5 text-muted-foreground">{consuming.length}</span>
+            <span className="numeric ml-1.5 text-muted-foreground">{groupCount}</span>
           </TabsTrigger>
           <TabsTrigger value="config">Configuration</TabsTrigger>
         </TabsList>
@@ -295,7 +304,7 @@ export function TopicPage() {
             columns={groupColumns}
             rows={consuming}
             rowKey={(group) => group.id}
-            loading={isPending}
+            loading={groupsPending}
             onRowClick={(group) => navigate(clusterPath(cluster, "groups", group.id))}
             emptyState={
               <p className="py-10 text-center text-sm text-muted-foreground">

@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use futures::stream::{self, StreamExt};
 use moka::future::Cache;
 use rdkafka::admin::{AdminClient, AdminOptions, OwnedResourceSpecifier, ResourceSpecifier};
 use rdkafka::client::DefaultClientContext;
@@ -17,8 +18,9 @@ use rdkafka::topic_partition_list::Offset;
 
 use crate::config::ClusterConfig;
 use crate::environment::{
-    ADMIN_TIMEOUT, BLOCKING_SLACK, CONFIG_BATCH, CONSUME_TIMEOUT, INTERNAL_GROUP_PREFIX,
-    METADATA_TIMEOUT, METADATA_TTL, WATERMARK_BATCH, WATERMARK_TIMEOUT,
+    ADMIN_TIMEOUT, BLOCKING_SLACK, CONFIG_BATCH, CONFIG_CONCURRENCY, CONSUME_TIMEOUT,
+    INTERNAL_GROUP_PREFIX, METADATA_TIMEOUT, METADATA_TTL, WATERMARK_BATCH, WATERMARK_TIMEOUT,
+    WATERMARK_TTL,
 };
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
@@ -67,6 +69,7 @@ pub(crate) struct ClusterHandle {
     metadata: Cache<(), MetadataSnapshot>,
     groups: Cache<(), Vec<GroupSnapshot>>,
     subjects: Cache<(), Vec<SchemaSubject>>,
+    watermarks: Cache<(), HashMap<String, HashMap<i32, Watermarks>>>,
     schema_registry: Option<PayloadDecoder>,
     timeouts: Timeouts,
 }
@@ -99,6 +102,7 @@ impl ClusterHandle {
             metadata: snapshot_cache(*METADATA_TTL),
             groups: snapshot_cache(*METADATA_TTL),
             subjects: snapshot_cache(*METADATA_TTL),
+            watermarks: snapshot_cache(*WATERMARK_TTL),
             schema_registry,
             timeouts: Timeouts::default(),
         })
@@ -111,6 +115,35 @@ impl ClusterHandle {
     /// Consumer group used for this cluster's `ListOffsets` probes.
     fn offsets_group_id(&self) -> String {
         format!("{INTERNAL_GROUP_PREFIX}list-offsets.{}", self.identity.name)
+    }
+
+    async fn load_watermarks(
+        &self,
+        topics: Vec<String>,
+    ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError> {
+        let meta = self.metadata().await?;
+        let names: Vec<&str> = topics.iter().map(String::as_str).collect();
+        let partitions = meta.topic_partition_pairs(&names);
+        if partitions.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let factory = self.factory.clone();
+        let group_id = self.offsets_group_id();
+        let timeout = self.timeouts.watermark;
+        let batch = (*WATERMARK_BATCH).max(1);
+
+        run_blocking(timeout + timeout + *BLOCKING_SLACK, move || {
+            let consumer = factory.offset_consumer(&group_id)?;
+            let mut beginning = HashMap::new();
+            let mut end = HashMap::new();
+            for chunk in partitions.chunks(batch) {
+                beginning.extend(list_offsets(&consumer, chunk, Offset::Beginning, timeout)?);
+                end.extend(list_offsets(&consumer, chunk, Offset::End, timeout)?);
+            }
+            Ok(merge_watermark_offsets(&beginning, &end))
+        })
+        .await
     }
 
     async fn fetch_metadata(
@@ -164,31 +197,37 @@ impl ClusterSession for ClusterHandle {
     }
 
     async fn watermarks_many(&self, topics: &[&str]) -> HashMap<String, HashMap<i32, Watermarks>> {
-        let Ok(meta) = self.metadata().await else {
-            return HashMap::new();
-        };
-        let partitions = meta.topic_partition_pairs(topics);
-        if partitions.is_empty() {
+        if topics.is_empty() {
             return HashMap::new();
         }
 
-        let factory = self.factory.clone();
-        let group_id = self.offsets_group_id();
-        let timeout = self.timeouts.watermark;
-        let batch = (*WATERMARK_BATCH).max(1);
+        if let Some(cached) = self.watermarks.get(&()).await {
+            return select_watermarks(cached, topics);
+        }
 
-        run_blocking(timeout + timeout + *BLOCKING_SLACK, move || {
-            let consumer = factory.offset_consumer(&group_id)?;
-            let mut beginning = HashMap::new();
-            let mut end = HashMap::new();
-            for chunk in partitions.chunks(batch) {
-                beginning.extend(list_offsets(&consumer, chunk, Offset::Beginning, timeout)?);
-                end.extend(list_offsets(&consumer, chunk, Offset::End, timeout)?);
+        let Ok(meta) = self.metadata().await else {
+            return HashMap::new();
+        };
+        let all = meta.topic_names();
+        let fetch_all = !all.is_empty() && topics.len() >= all.len();
+        let requested: Vec<String> = if fetch_all {
+            all.into_iter().map(str::to_owned).collect()
+        } else {
+            topics.iter().map(|name| (*name).to_owned()).collect()
+        };
+
+        if fetch_all {
+            match self
+                .watermarks
+                .try_get_with((), self.load_watermarks(requested))
+                .await
+            {
+                Ok(cached) => select_watermarks(cached, topics),
+                Err(_) => HashMap::new(),
             }
-            Ok(merge_watermark_offsets(&beginning, &end))
-        })
-        .await
-        .unwrap_or_default()
+        } else {
+            self.load_watermarks(requested).await.unwrap_or_default()
+        }
     }
 
     async fn offsets_for_times(
@@ -235,36 +274,33 @@ impl ClusterSession for ClusterHandle {
         &self,
         topics: &[&str],
     ) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError> {
-        let mut out = HashMap::new();
-
-        for chunk in topics.chunks(*CONFIG_BATCH) {
-            let specs: Vec<ResourceSpecifier<'_>> = chunk
-                .iter()
-                .copied()
-                .map(ResourceSpecifier::Topic)
-                .collect();
-            let results = self
-                .admin
-                .describe_configs(&specs, &self.admin_options())
-                .await?;
-
-            for result in results {
-                let Ok(resource) = result else {
-                    continue;
-                };
-                if let OwnedResourceSpecifier::Topic(name) = resource.specifier {
-                    out.insert(
-                        name,
-                        resource
-                            .entries
-                            .into_iter()
-                            .map(ConfigEntry::from)
-                            .collect(),
-                    );
-                }
-            }
+        if topics.is_empty() {
+            return Ok(HashMap::new());
         }
 
+        let chunk_size = (*CONFIG_BATCH).max(1);
+        let concurrency = (*CONFIG_CONCURRENCY).max(1);
+        let names: Vec<String> = topics.iter().map(|name| (*name).to_owned()).collect();
+        let chunks: Vec<Vec<String>> = names
+            .chunks(chunk_size)
+            .map(|chunk| chunk.to_vec())
+            .collect();
+        let admin = Arc::clone(&self.admin);
+        let timeout = self.timeouts.admin;
+
+        let results = stream::iter(chunks)
+            .map(|chunk| {
+                let admin = Arc::clone(&admin);
+                async move { describe_topic_configs(&admin, &chunk, timeout).await }
+            })
+            .buffer_unordered(concurrency)
+            .collect::<Vec<_>>()
+            .await;
+
+        let mut out = HashMap::new();
+        for result in results {
+            out.extend(result?);
+        }
         Ok(out)
     }
 
@@ -355,5 +391,79 @@ impl ClusterSession for ClusterHandle {
             .try_get_with((), async move { decoder.client().subjects().await })
             .await
             .map_err(into_kafka_error)
+    }
+}
+
+fn select_watermarks(
+    mut cached: HashMap<String, HashMap<i32, Watermarks>>,
+    topics: &[&str],
+) -> HashMap<String, HashMap<i32, Watermarks>> {
+    if topics.len() == cached.len() {
+        return cached;
+    }
+
+    let mut out = HashMap::with_capacity(topics.len());
+    for name in topics {
+        if let Some(marks) = cached.remove(*name) {
+            out.insert((*name).to_owned(), marks);
+        }
+    }
+    out
+}
+
+async fn describe_topic_configs(
+    admin: &AdminClient<DefaultClientContext>,
+    names: &[String],
+    timeout: Duration,
+) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError> {
+    let specs: Vec<ResourceSpecifier<'_>> = names
+        .iter()
+        .map(|name| ResourceSpecifier::Topic(name.as_str()))
+        .collect();
+    let options = AdminOptions::new().operation_timeout(Some(timeout));
+    let results = admin.describe_configs(&specs, &options).await?;
+
+    let mut out = HashMap::new();
+    for result in results {
+        let Ok(resource) = result else {
+            continue;
+        };
+        if let OwnedResourceSpecifier::Topic(name) = resource.specifier {
+            out.insert(
+                name,
+                resource
+                    .entries
+                    .into_iter()
+                    .map(ConfigEntry::from)
+                    .collect(),
+            );
+        }
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn select_watermarks_keeps_requested_topics() {
+        let cached = HashMap::from([
+            (
+                "orders".into(),
+                HashMap::from([(0, Watermarks { low: 0, high: 8 })]),
+            ),
+            (
+                "payments".into(),
+                HashMap::from([(0, Watermarks { low: 1, high: 4 })]),
+            ),
+        ]);
+
+        let selected = select_watermarks(cached.clone(), &["orders"]);
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected["orders"][&0], Watermarks { low: 0, high: 8 });
+
+        let all = select_watermarks(cached, &["orders", "payments"]);
+        assert_eq!(all.len(), 2);
     }
 }
