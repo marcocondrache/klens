@@ -40,7 +40,7 @@ export function AppLayout() {
       <AppSidebar />
       <SidebarInset className="min-w-0 overflow-hidden">
         <AppHeader onSearch={() => setPaletteOpen(true)} />
-        <div className="flex-1 space-y-5 p-4 md:p-6">
+        <div className="flex-1 space-y-5 p-4 md:p-6 md:group-has-data-[collapsible=icon]/sidebar-wrapper:px-8">
           {current?.status === "OFFLINE" ? (
             <Alert variant="destructive">
               <TriangleAlertIcon />
