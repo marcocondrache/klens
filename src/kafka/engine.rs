@@ -141,7 +141,7 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
         let session = self.session(cluster)?;
         let meta = session.metadata().await?;
         let names = meta.topic_names();
-        let (configs, groups, watermarks) = Self::load_topic_state(session, &names).await;
+        let (configs, groups, watermarks) = Self::load_topics_state(session, &names).await;
 
         Ok(meta
             .topics
@@ -164,19 +164,39 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
             cluster: cluster.to_owned(),
             topic: name.to_owned(),
         })?;
-        let (configs, groups, watermarks) = Self::load_topic_state(session, &[name]).await;
-        let empty = HashMap::new();
+        let (config, groups, watermarks) = Self::load_topic_state(session, name).await;
 
         Ok(Topic::assemble(
             topic,
-            watermarks.get(name).unwrap_or(&empty),
-            configs.get(name).map(Vec::as_slice),
+            &watermarks,
+            Some(config.as_slice()),
             groups_for_topic(name, &groups),
         ))
     }
 
     /// Configs, group membership, and watermarks are independent Kafka calls.
     async fn load_topic_state(
+        session: &S,
+        name: &str,
+    ) -> (
+        Vec<ConfigEntry>,
+        Vec<GroupSnapshot>,
+        HashMap<i32, Watermarks>,
+    ) {
+        let names = [name];
+        let (configs, groups, watermarks) = tokio::join!(
+            session.topic_configs(&names),
+            session.consumer_groups(),
+            session.watermarks(name),
+        );
+        (
+            configs.unwrap_or_default().remove(name).unwrap_or_default(),
+            groups.unwrap_or_default(),
+            watermarks.unwrap_or_default(),
+        )
+    }
+
+    async fn load_topics_state(
         session: &S,
         names: &[&str],
     ) -> (
