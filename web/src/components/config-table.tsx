@@ -6,9 +6,10 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CopyButton } from "@/components/copy-button";
-import { DataTable, type Column } from "@/components/data-table";
+import { DataTable } from "@/components/data-table";
 import { Pill } from "@/components/status";
 import type { ConfigEntry } from "@/lib/api/types";
+import { createAppColumnHelper } from "@/lib/table";
 import { cn } from "@/lib/utils";
 
 const SOURCE_LABEL: Record<ConfigEntry["source"], string> = {
@@ -17,6 +18,60 @@ const SOURCE_LABEL: Record<ConfigEntry["source"], string> = {
   STATIC_BROKER_CONFIG: "static",
   DEFAULT_CONFIG: "default",
 };
+
+const columnHelper = createAppColumnHelper<ConfigEntry>();
+
+const columns = columnHelper.columns([
+  columnHelper.accessor("name", {
+    header: "Key",
+    cell: ({ row }) => {
+      const entry = row.original;
+
+      return (
+        <span className="flex items-center gap-1.5">
+          <span className="font-mono text-sm">{entry.name}</span>
+          {entry.readOnly ? (
+            <Tooltip>
+              <TooltipTrigger render={<LockIcon className="size-3 text-muted-foreground" />} />
+              <TooltipContent>Read-only</TooltipContent>
+            </Tooltip>
+          ) : null}
+        </span>
+      );
+    },
+  }),
+  columnHelper.display({
+    id: "value",
+    header: "Value",
+    meta: { className: "whitespace-normal" },
+    cell: ({ row }) => {
+      const entry = row.original;
+
+      return entry.sensitive ? (
+        <span className="flex items-center gap-1.5 text-muted-foreground">
+          <EyeOffIcon className="size-3" />
+          <span className="text-xs">hidden</span>
+        </span>
+      ) : (
+        <span className="flex items-center gap-1">
+          <span className="numeric font-mono text-sm break-all">
+            {entry.value === "" ? "—" : entry.value}
+          </span>
+          {entry.value ? <CopyButton value={entry.value} label="Copy value" /> : null}
+        </span>
+      );
+    },
+  }),
+  columnHelper.accessor("source", {
+    header: "Source",
+    meta: { align: "right" },
+    cell: ({ getValue }) => (
+      <Pill tone={getValue() === "DEFAULT_CONFIG" ? "idle" : "brand"}>
+        {SOURCE_LABEL[getValue()]}
+      </Pill>
+    ),
+  }),
+]);
 
 export function ConfigTable({
   entries,
@@ -42,55 +97,6 @@ export function ConfigTable({
       );
     });
   }, [entries, term, onlyOverrides]);
-
-  const columns: Array<Column<ConfigEntry>> = [
-    {
-      id: "name",
-      header: "Key",
-      sortValue: (entry) => entry.name,
-      cell: (entry) => (
-        <span className="flex items-center gap-1.5">
-          <span className="font-mono text-sm">{entry.name}</span>
-          {entry.readOnly ? (
-            <Tooltip>
-              <TooltipTrigger render={<LockIcon className="size-3 text-muted-foreground" />} />
-              <TooltipContent>Read-only</TooltipContent>
-            </Tooltip>
-          ) : null}
-        </span>
-      ),
-    },
-    {
-      id: "value",
-      header: "Value",
-      className: "whitespace-normal",
-      cell: (entry) =>
-        entry.sensitive ? (
-          <span className="flex items-center gap-1.5 text-muted-foreground">
-            <EyeOffIcon className="size-3" />
-            <span className="text-xs">hidden</span>
-          </span>
-        ) : (
-          <span className="flex items-center gap-1">
-            <span className="numeric font-mono text-sm break-all">
-              {entry.value === "" ? "—" : entry.value}
-            </span>
-            {entry.value ? <CopyButton value={entry.value} label="Copy value" /> : null}
-          </span>
-        ),
-    },
-    {
-      id: "source",
-      header: "Source",
-      align: "right",
-      sortValue: (entry) => entry.source,
-      cell: (entry) => (
-        <Pill tone={entry.source === "DEFAULT_CONFIG" ? "idle" : "brand"}>
-          {SOURCE_LABEL[entry.source]}
-        </Pill>
-      ),
-    },
-  ];
 
   return (
     <div className={cn(fill ? "flex min-h-0 flex-1 flex-col gap-3" : "space-y-3")}>
@@ -118,8 +124,8 @@ export function ConfigTable({
 
       <DataTable
         columns={columns}
-        rows={rows}
-        rowKey={(entry) => entry.name}
+        data={rows}
+        getRowId={(entry) => entry.name}
         loading={loading}
         pageSize={50}
         defaultSort={{ id: "name", direction: "asc" }}

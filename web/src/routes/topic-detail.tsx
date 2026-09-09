@@ -5,7 +5,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConfigTable } from "@/components/config-table";
 import { CopyButton } from "@/components/copy-button";
-import { DataTable, type Column } from "@/components/data-table";
+import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { RecordBrowser } from "@/components/record-browser";
 import { Sparkline } from "@/components/charts";
@@ -29,8 +29,82 @@ import {
   isCompactCleanup,
 } from "@/lib/format";
 import type { ConsumerGroup, Partition } from "@/lib/api/types";
+import { createAppColumnHelper } from "@/lib/table";
 
 const TABS = ["data", "partitions", "groups", "config"];
+
+const partitionColumnHelper = createAppColumnHelper<Partition>();
+const groupColumnHelper = createAppColumnHelper<ConsumerGroup>();
+
+const partitionColumns = partitionColumnHelper.columns([
+  partitionColumnHelper.accessor("id", {
+    header: "Partition",
+    meta: { align: "right" },
+    cell: ({ getValue }) => <span className="numeric font-mono">{getValue()}</span>,
+  }),
+  partitionColumnHelper.accessor("leader", {
+    header: "Leader",
+    meta: { align: "right" },
+    cell: ({ getValue }) => <span className="numeric font-mono">{getValue()}</span>,
+  }),
+  partitionColumnHelper.display({
+    id: "replicas",
+    header: "Replicas",
+    cell: ({ row }) => (
+      <span className="flex flex-wrap gap-1">
+        {row.original.replicas.map((replica) => (
+          <Pill
+            key={replica}
+            tone={row.original.isr.includes(replica) ? "idle" : "error"}
+            className="numeric font-mono"
+          >
+            {replica}
+          </Pill>
+        ))}
+      </span>
+    ),
+  }),
+  partitionColumnHelper.accessor((partition) => partition.isr.length, {
+    id: "isr",
+    header: "In sync",
+    meta: { align: "right" },
+    cell: ({ row }) => (
+      <span
+        className={
+          row.original.isr.length < row.original.replicas.length
+            ? "numeric font-mono text-amber-500"
+            : "numeric font-mono"
+        }
+      >
+        {row.original.isr.length}/{row.original.replicas.length}
+      </span>
+    ),
+  }),
+  partitionColumnHelper.accessor("lowWatermark", {
+    id: "low",
+    header: "Low offset",
+    meta: { align: "right" },
+    cell: ({ getValue }) => formatNumber(getValue()),
+  }),
+  partitionColumnHelper.accessor("highWatermark", {
+    id: "high",
+    header: "High offset",
+    meta: { align: "right" },
+    cell: ({ getValue }) => formatNumber(getValue()),
+  }),
+  partitionColumnHelper.accessor((partition) => partition.highWatermark - partition.lowWatermark, {
+    id: "messages",
+    header: "Messages",
+    meta: { align: "right" },
+    cell: ({ getValue }) => formatNumber(getValue()),
+  }),
+  partitionColumnHelper.accessor("sizeBytes", {
+    id: "size",
+    header: "Size",
+    meta: { align: "right" },
+    cell: ({ getValue }) => formatBytes(getValue()),
+  }),
+]);
 
 export function TopicPage() {
   const cluster = useClusterName();
@@ -80,126 +154,38 @@ export function TopicPage() {
     );
   }
 
-  const partitionColumns: Array<Column<Partition>> = [
-    {
-      id: "id",
-      header: "Partition",
-      align: "right",
-      sortValue: (partition) => partition.id,
-      cell: (partition) => <span className="numeric font-mono">{partition.id}</span>,
-    },
-    {
-      id: "leader",
-      header: "Leader",
-      align: "right",
-      sortValue: (partition) => partition.leader,
-      cell: (partition) => <span className="numeric font-mono">{partition.leader}</span>,
-    },
-    {
-      id: "replicas",
-      header: "Replicas",
-      cell: (partition) => (
-        <span className="flex flex-wrap gap-1">
-          {partition.replicas.map((replica) => (
-            <Pill
-              key={replica}
-              tone={partition.isr.includes(replica) ? "idle" : "error"}
-              className="numeric font-mono"
-            >
-              {replica}
-            </Pill>
-          ))}
-        </span>
-      ),
-    },
-    {
-      id: "isr",
-      header: "In sync",
-      align: "right",
-      sortValue: (partition) => partition.isr.length,
-      cell: (partition) => (
-        <span
-          className={
-            partition.isr.length < partition.replicas.length
-              ? "numeric font-mono text-amber-500"
-              : "numeric font-mono"
-          }
-        >
-          {partition.isr.length}/{partition.replicas.length}
-        </span>
-      ),
-    },
-    {
-      id: "low",
-      header: "Low offset",
-      align: "right",
-      sortValue: (partition) => partition.lowWatermark,
-      cell: (partition) => formatNumber(partition.lowWatermark),
-    },
-    {
-      id: "high",
-      header: "High offset",
-      align: "right",
-      sortValue: (partition) => partition.highWatermark,
-      cell: (partition) => formatNumber(partition.highWatermark),
-    },
-    {
-      id: "messages",
-      header: "Messages",
-      align: "right",
-      sortValue: (partition) => partition.highWatermark - partition.lowWatermark,
-      cell: (partition) => formatNumber(partition.highWatermark - partition.lowWatermark),
-    },
-    {
-      id: "size",
-      header: "Size",
-      align: "right",
-      sortValue: (partition) => partition.sizeBytes,
-      cell: (partition) => formatBytes(partition.sizeBytes),
-    },
-  ];
-
-  const groupColumns: Array<Column<ConsumerGroup>> = [
-    {
-      id: "id",
+  const groupColumns = groupColumnHelper.columns([
+    groupColumnHelper.accessor("id", {
       header: "Group",
-      sortValue: (group) => group.id,
-      cell: (group) => <span className="font-mono text-sm">{group.id}</span>,
-    },
-    {
-      id: "state",
+      cell: ({ getValue }) => <span className="font-mono text-sm">{getValue()}</span>,
+    }),
+    groupColumnHelper.accessor("state", {
       header: "State",
-      sortValue: (group) => group.state,
-      cell: (group) => <GroupStateBadge state={group.state} />,
-    },
-    {
+      cell: ({ getValue }) => <GroupStateBadge state={getValue()} />,
+    }),
+    groupColumnHelper.accessor((group) => group.members.length, {
       id: "members",
       header: "Members",
-      align: "right",
-      sortValue: (group) => group.members.length,
-      cell: (group) => group.members.length,
-    },
-    {
-      id: "lag",
-      header: "Lag on this topic",
-      align: "right",
-      sortValue: (group) =>
+      meta: { align: "right" },
+      cell: ({ getValue }) => getValue(),
+    }),
+    groupColumnHelper.accessor(
+      (group) =>
         group.offsets
           .filter((offset) => offset.topic === topicName)
           .reduce((sum, offset) => sum + offset.lag, 0),
-      cell: (group) => {
-        const lag = group.offsets
-          .filter((offset) => offset.topic === topicName)
-          .reduce((sum, offset) => sum + offset.lag, 0);
-
-        return (
-          <Pill tone={lagTone(lag)} className="numeric font-mono">
-            {formatNumber(lag)}
+      {
+        id: "lag",
+        header: "Lag on this topic",
+        meta: { align: "right" },
+        cell: ({ getValue }) => (
+          <Pill tone={lagTone(getValue())} className="numeric font-mono">
+            {formatNumber(getValue())}
           </Pill>
-        );
+        ),
       },
-    },
-  ];
+    ),
+  ]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
@@ -295,8 +281,8 @@ export function TopicPage() {
         <TabsContent value="partitions" className="mt-4 flex min-h-0 flex-col">
           <DataTable
             columns={partitionColumns}
-            rows={topic?.partitions ?? []}
-            rowKey={(partition) => String(partition.id)}
+            data={topic?.partitions ?? []}
+            getRowId={(partition) => String(partition.id)}
             loading={isPending}
             pageSize={25}
             defaultSort={{ id: "id", direction: "asc" }}
@@ -307,8 +293,8 @@ export function TopicPage() {
         <TabsContent value="groups" className="mt-4 flex min-h-0 flex-col">
           <DataTable
             columns={groupColumns}
-            rows={consuming}
-            rowKey={(group) => group.id}
+            data={consuming}
+            getRowId={(group) => group.id}
             loading={groupsPending}
             onRowClick={(group) => navigate(clusterPath(cluster, "groups", group.id))}
             emptyState={

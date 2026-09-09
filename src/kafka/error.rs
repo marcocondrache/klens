@@ -43,8 +43,8 @@ pub enum QueryError {
     #[error("limit must be at least 1")]
     LimitTooSmall,
 
-    #[error("page must be at least 0")]
-    NegativePage,
+    #[error("cursor is invalid")]
+    InvalidCursor,
 
     #[error("timestampFrom must not be after timestampTo")]
     InvertedTimestampRange,

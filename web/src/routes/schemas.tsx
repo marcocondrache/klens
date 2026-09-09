@@ -11,13 +11,51 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { CopyButton } from "@/components/copy-button";
-import { DataTable, type Column } from "@/components/data-table";
+import { DataTable } from "@/components/data-table";
 import { JsonBlock } from "@/components/json-block";
 import { PageHeader } from "@/components/page-header";
 import { Pill } from "@/components/status";
 import { useSchemaSubjects } from "@/lib/api/queries";
 import { useClusterName } from "@/lib/clusters";
 import type { SchemaSubject } from "@/lib/api/types";
+import { createAppColumnHelper } from "@/lib/table";
+
+const columnHelper = createAppColumnHelper<SchemaSubject>();
+
+const columns = columnHelper.columns([
+  columnHelper.accessor("subject", {
+    header: "Subject",
+    cell: ({ getValue }) => <span className="font-mono text-sm">{getValue()}</span>,
+  }),
+  columnHelper.accessor("id", {
+    header: "ID",
+    meta: { align: "right" },
+    cell: ({ getValue }) => <span className="numeric font-mono">{getValue()}</span>,
+  }),
+  columnHelper.accessor("type", {
+    header: "Type",
+    cell: ({ getValue }) => <Pill tone="brand">{getValue()}</Pill>,
+  }),
+  columnHelper.accessor("latestVersion", {
+    id: "version",
+    header: "Latest version",
+    meta: { align: "right" },
+    cell: ({ getValue }) => <span className="numeric font-mono">v{getValue()}</span>,
+  }),
+  columnHelper.accessor((subject) => subject.versions.length, {
+    id: "versions",
+    header: "Versions",
+    meta: { align: "right" },
+    cell: ({ getValue }) => getValue(),
+  }),
+  columnHelper.accessor("compatibility", {
+    header: "Compatibility",
+    meta: { align: "right" },
+    cell: ({ getValue }) => (
+      <Pill tone={getValue() === "NONE" ? "warn" : "idle"}>{getValue()}</Pill>
+    ),
+  }),
+]);
 
 export function SchemasPage() {
   const cluster = useClusterName();
@@ -32,53 +70,6 @@ export function SchemasPage() {
     if (!needle) return subjects;
     return subjects.filter((subject) => subject.subject.toLowerCase().includes(needle));
   }, [subjects, term]);
-
-  const columns: Array<Column<SchemaSubject>> = [
-    {
-      id: "subject",
-      header: "Subject",
-      sortValue: (subject) => subject.subject,
-      cell: (subject) => <span className="font-mono text-sm">{subject.subject}</span>,
-    },
-    {
-      id: "id",
-      header: "ID",
-      align: "right",
-      sortValue: (subject) => subject.id,
-      cell: (subject) => <span className="numeric font-mono">{subject.id}</span>,
-    },
-    {
-      id: "type",
-      header: "Type",
-      sortValue: (subject) => subject.type,
-      cell: (subject) => <Pill tone="brand">{subject.type}</Pill>,
-    },
-    {
-      id: "version",
-      header: "Latest version",
-      align: "right",
-      sortValue: (subject) => subject.latestVersion,
-      cell: (subject) => <span className="numeric font-mono">v{subject.latestVersion}</span>,
-    },
-    {
-      id: "versions",
-      header: "Versions",
-      align: "right",
-      sortValue: (subject) => subject.versions.length,
-      cell: (subject) => subject.versions.length,
-    },
-    {
-      id: "compatibility",
-      header: "Compatibility",
-      align: "right",
-      sortValue: (subject) => subject.compatibility,
-      cell: (subject) => (
-        <Pill tone={subject.compatibility === "NONE" ? "warn" : "idle"}>
-          {subject.compatibility}
-        </Pill>
-      ),
-    },
-  ];
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
@@ -105,8 +96,8 @@ export function SchemasPage() {
 
       <DataTable
         columns={columns}
-        rows={rows}
-        rowKey={(subject) => subject.subject}
+        data={rows}
+        getRowId={(subject) => subject.subject}
         loading={isPending}
         error={
           isError ? (error instanceof Error ? error.message : "Failed to load schemas.") : undefined

@@ -10,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { DataTable, type Column } from "@/components/data-table";
+import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { GroupStateBadge, Pill } from "@/components/status";
 import { lagTone } from "@/lib/tone";
@@ -18,6 +18,7 @@ import { useConsumerGroups } from "@/lib/api/queries";
 import { clusterPath, useClusterName } from "@/lib/clusters";
 import { formatCount, formatEnumLabel, formatNumber } from "@/lib/format";
 import type { ConsumerGroup, ConsumerGroupState } from "@/lib/api/types";
+import { createAppColumnHelper } from "@/lib/table";
 
 const STATES: ConsumerGroupState[] = [
   "STABLE",
@@ -26,6 +27,59 @@ const STATES: ConsumerGroupState[] = [
   "COMPLETING_REBALANCE",
   "DEAD",
 ];
+
+const columnHelper = createAppColumnHelper<ConsumerGroup>();
+
+const columns = columnHelper.columns([
+  columnHelper.accessor("id", {
+    header: "Group",
+    cell: ({ getValue }) => <span className="font-mono text-sm">{getValue()}</span>,
+  }),
+  columnHelper.accessor("state", {
+    header: "State",
+    cell: ({ getValue }) => <GroupStateBadge state={getValue()} />,
+  }),
+  columnHelper.accessor((group) => group.members.length, {
+    id: "members",
+    header: "Members",
+    meta: { align: "right" },
+    cell: ({ getValue }) => getValue(),
+  }),
+  columnHelper.accessor((group) => group.topics.length, {
+    id: "topics",
+    header: "Topics",
+    cell: ({ row }) => (
+      <span className="flex flex-wrap gap-1">
+        {row.original.topics.slice(0, 2).map((topic) => (
+          <Pill key={topic} className="font-mono">
+            {topic}
+          </Pill>
+        ))}
+        {row.original.topics.length > 2 ? <Pill>+{row.original.topics.length - 2}</Pill> : null}
+      </span>
+    ),
+  }),
+  columnHelper.accessor((group) => group.offsets.length, {
+    id: "partitions",
+    header: "Assigned",
+    meta: { align: "right" },
+    cell: ({ getValue }) => getValue(),
+  }),
+  columnHelper.accessor("lag", {
+    header: "Lag",
+    meta: { align: "right" },
+    cell: ({ getValue }) => (
+      <Pill tone={lagTone(getValue())} className="numeric font-mono">
+        {formatNumber(getValue())}
+      </Pill>
+    ),
+  }),
+  columnHelper.accessor("coordinator", {
+    header: "Coordinator",
+    meta: { align: "right" },
+    cell: ({ getValue }) => <span className="numeric font-mono">broker {getValue()}</span>,
+  }),
+]);
 
 export function ConsumerGroupsPage() {
   const cluster = useClusterName();
@@ -58,68 +112,6 @@ export function ConsumerGroupsPage() {
   }, [groups, term, state]);
 
   const totalLag = rows.reduce((sum, group) => sum + group.lag, 0);
-
-  const columns: Array<Column<ConsumerGroup>> = [
-    {
-      id: "id",
-      header: "Group",
-      sortValue: (group) => group.id,
-      cell: (group) => <span className="font-mono text-sm">{group.id}</span>,
-    },
-    {
-      id: "state",
-      header: "State",
-      sortValue: (group) => group.state,
-      cell: (group) => <GroupStateBadge state={group.state} />,
-    },
-    {
-      id: "members",
-      header: "Members",
-      align: "right",
-      sortValue: (group) => group.members.length,
-      cell: (group) => group.members.length,
-    },
-    {
-      id: "topics",
-      header: "Topics",
-      sortValue: (group) => group.topics.length,
-      cell: (group) => (
-        <span className="flex flex-wrap gap-1">
-          {group.topics.slice(0, 2).map((topic) => (
-            <Pill key={topic} className="font-mono">
-              {topic}
-            </Pill>
-          ))}
-          {group.topics.length > 2 ? <Pill>+{group.topics.length - 2}</Pill> : null}
-        </span>
-      ),
-    },
-    {
-      id: "partitions",
-      header: "Assigned",
-      align: "right",
-      sortValue: (group) => group.offsets.length,
-      cell: (group) => group.offsets.length,
-    },
-    {
-      id: "lag",
-      header: "Lag",
-      align: "right",
-      sortValue: (group) => group.lag,
-      cell: (group) => (
-        <Pill tone={lagTone(group.lag)} className="numeric font-mono">
-          {formatNumber(group.lag)}
-        </Pill>
-      ),
-    },
-    {
-      id: "coordinator",
-      header: "Coordinator",
-      align: "right",
-      sortValue: (group) => group.coordinator,
-      cell: (group) => <span className="numeric font-mono">broker {group.coordinator}</span>,
-    },
-  ];
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
@@ -157,8 +149,8 @@ export function ConsumerGroupsPage() {
 
       <DataTable
         columns={columns}
-        rows={rows}
-        rowKey={(group) => group.id}
+        data={rows}
+        getRowId={(group) => group.id}
         loading={isPending}
         error={
           isError

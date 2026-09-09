@@ -1,6 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::kafka::limits::RecordLimits;
+use crate::kafka::record::Record;
+use crate::kafka::record::cursor::RecordCursor;
 use crate::kafka::record::query::{RecordOrder, RecordQuery};
 use crate::kafka::watermarks::Watermarks;
 
@@ -24,7 +26,6 @@ pub struct FetchPlan {
     pub search: String,
     pub limit: usize,
     pub order: RecordOrder,
-    pub has_more: bool,
 }
 
 impl FetchPlan {
@@ -33,10 +34,10 @@ impl FetchPlan {
         partitions: &[i32],
         watermarks: &HashMap<i32, Watermarks>,
         limit: usize,
-        page: usize,
         limits: RecordLimits,
     ) -> Self {
         let searching = !query.search.trim().is_empty();
+        let cursor = query.cursor.as_ref();
 
         Self {
             topic: query.topic.clone(),
@@ -46,13 +47,12 @@ impl FetchPlan {
                 query.order,
                 limit,
                 searching,
-                page,
+                cursor,
                 limits,
             ),
             search: query.search.trim().to_ascii_lowercase(),
             limit,
             order: query.order,
-            has_more: has_more(partitions, watermarks, limit, page),
         }
     }
 }
@@ -65,28 +65,36 @@ pub fn plan_windows(
     order: RecordOrder,
     limit: usize,
     searching: bool,
-    page: usize,
+    cursor: Option<&RecordCursor>,
     limits: RecordLimits,
 ) -> Vec<PartitionWindow> {
-    let (skip, window) = limits.window_span(partitions.len(), limit, searching, page);
+    let take = limits.window_take(partitions.len(), limit, searching);
 
     partitions
         .iter()
         .filter_map(|partition| {
             let marks = watermarks.get(partition)?;
-            let remaining = (marks.available() - skip).max(0);
-            let take = window.min(remaining);
-            if take == 0 {
-                return None;
-            }
+            let resume = cursor
+                .and_then(|cursor| cursor.offsets.get(partition))
+                .copied();
 
             let (start, end) = match order {
                 RecordOrder::Newest => {
-                    let end = marks.high - skip;
+                    let end = resume.unwrap_or(marks.high).min(marks.high).max(marks.low);
+                    let remaining = (end - marks.low).max(0);
+                    let take = take.min(remaining);
+                    if take == 0 {
+                        return None;
+                    }
                     (end - take, end)
                 }
                 RecordOrder::Oldest => {
-                    let start = marks.low + skip;
+                    let start = resume.unwrap_or(marks.low).max(marks.low).min(marks.high);
+                    let remaining = (marks.high - start).max(0);
+                    let take = take.min(remaining);
+                    if take == 0 {
+                        return None;
+                    }
                     (start, start + take)
                 }
             };
@@ -100,17 +108,62 @@ pub fn plan_windows(
         .collect()
 }
 
-pub fn has_more(
-    partitions: &[i32],
+/// Resume point after this page. `None` means the log (within the current
+/// watermark bounds) is exhausted.
+pub fn next_cursor(
+    order: RecordOrder,
+    windows: &[PartitionWindow],
     watermarks: &HashMap<i32, Watermarks>,
+    records: &[Record],
     limit: usize,
-    page: usize,
-) -> bool {
-    let available: i64 = partitions
-        .iter()
-        .filter_map(|partition| watermarks.get(partition).map(|marks| marks.available()))
-        .sum();
-    ((page + 1).saturating_mul(limit) as i64) < available
+) -> Option<RecordCursor> {
+    let filled = records.len() >= limit;
+    let mut offsets = BTreeMap::new();
+
+    for window in windows {
+        let Some(marks) = watermarks.get(&window.partition) else {
+            continue;
+        };
+
+        match order {
+            RecordOrder::Oldest => {
+                let next = if filled {
+                    records
+                        .iter()
+                        .filter(|record| record.partition == window.partition)
+                        .map(|record| record.offset + 1)
+                        .max()
+                        .unwrap_or(window.start)
+                } else {
+                    window.end
+                };
+                if next < marks.high {
+                    offsets.insert(window.partition, next);
+                }
+            }
+            RecordOrder::Newest => {
+                let next = if filled {
+                    records
+                        .iter()
+                        .filter(|record| record.partition == window.partition)
+                        .map(|record| record.offset)
+                        .min()
+                        .unwrap_or(window.end)
+                } else {
+                    window.start
+                };
+                if next > marks.low {
+                    offsets.insert(window.partition, next);
+                }
+            }
+        }
+    }
+
+    if offsets.is_empty() {
+        None
+    } else {
+        Some(RecordCursor { offsets })
+    }
 }
 
 /// A missing `from` offset means nothing was written at or after that time, so
@@ -159,6 +212,26 @@ mod tests {
         HashMap::from([(0, Watermarks { low, high })])
     }
 
+    fn cursor(partition: i32, offset: i64) -> RecordCursor {
+        RecordCursor {
+            offsets: std::collections::BTreeMap::from([(partition, offset)]),
+        }
+    }
+
+    fn record(partition: i32, offset: i64) -> Record {
+        Record {
+            topic: "orders".into(),
+            partition,
+            offset,
+            timestamp: offset,
+            key: None,
+            value: None,
+            headers: Vec::new(),
+            size_bytes: 0,
+            compression: crate::kafka::record::Compression::None,
+        }
+    }
+
     #[test]
     fn newest_window_reads_from_the_high_watermark() {
         let watermarks = marks(10, 40);
@@ -169,7 +242,7 @@ mod tests {
             RecordOrder::Newest,
             5,
             false,
-            0,
+            None,
             limits(),
         );
         assert_eq!(
@@ -180,7 +253,6 @@ mod tests {
                 end: 40,
             }]
         );
-        assert!(has_more(&[0], &watermarks, 5, 0));
     }
 
     #[test]
@@ -193,7 +265,7 @@ mod tests {
             RecordOrder::Oldest,
             5,
             false,
-            0,
+            None,
             limits(),
         );
         assert_eq!(
@@ -204,12 +276,12 @@ mod tests {
                 end: 20,
             }]
         );
-        assert!(has_more(&[0], &watermarks, 5, 0));
     }
 
     #[test]
-    fn newest_window_on_later_page_moves_back_from_the_high_watermark() {
+    fn newest_cursor_ends_the_next_window() {
         let watermarks = marks(10, 40);
+        let resume = cursor(0, 35);
 
         let windows = plan_windows(
             &[0],
@@ -217,7 +289,7 @@ mod tests {
             RecordOrder::Newest,
             5,
             false,
-            1,
+            Some(&resume),
             limits(),
         );
         assert_eq!(
@@ -228,12 +300,12 @@ mod tests {
                 end: 35,
             }]
         );
-        assert!(has_more(&[0], &watermarks, 5, 1));
     }
 
     #[test]
-    fn oldest_window_on_later_page_moves_forward_from_the_low_watermark() {
+    fn oldest_cursor_starts_the_next_window() {
         let watermarks = marks(10, 40);
+        let resume = cursor(0, 15);
 
         let windows = plan_windows(
             &[0],
@@ -241,7 +313,7 @@ mod tests {
             RecordOrder::Oldest,
             5,
             false,
-            1,
+            Some(&resume),
             limits(),
         );
         assert_eq!(
@@ -252,48 +324,73 @@ mod tests {
                 end: 25,
             }]
         );
-        assert!(has_more(&[0], &watermarks, 5, 1));
     }
 
     #[test]
-    fn page_past_available_records_yields_no_windows() {
+    fn cursor_past_available_records_yields_no_windows() {
         let watermarks = marks(10, 40);
 
-        let windows = plan_windows(
+        let newest = plan_windows(
             &[0],
             &watermarks,
             RecordOrder::Newest,
             5,
             false,
-            6,
+            Some(&cursor(0, 10)),
             limits(),
         );
-        assert!(windows.is_empty());
-        assert!(!has_more(&[0], &watermarks, 5, 6));
+        let oldest = plan_windows(
+            &[0],
+            &watermarks,
+            RecordOrder::Oldest,
+            5,
+            false,
+            Some(&cursor(0, 40)),
+            limits(),
+        );
+        assert!(newest.is_empty());
+        assert!(oldest.is_empty());
     }
 
     #[test]
-    fn first_page_has_more_when_returned_limit_is_below_log_size() {
-        let watermarks = marks(0, 10);
+    fn next_cursor_advances_oldest_past_returned_offsets() {
+        let watermarks = marks(10, 40);
+        let windows = vec![PartitionWindow {
+            partition: 0,
+            start: 10,
+            end: 20,
+        }];
+        let records = vec![record(0, 10), record(0, 14)];
 
-        assert!(has_more(&[0], &watermarks, 5, 0));
-        assert!(!has_more(&[0], &watermarks, 5, 1));
-        assert_eq!(
-            plan_windows(
-                &[0],
-                &watermarks,
-                RecordOrder::Oldest,
-                5,
-                false,
-                1,
-                limits()
-            ),
-            vec![PartitionWindow {
-                partition: 0,
-                start: 5,
-                end: 10,
-            }]
-        );
+        let cursor = next_cursor(RecordOrder::Oldest, &windows, &watermarks, &records, 2).unwrap();
+        assert_eq!(cursor.offsets[&0], 15);
+    }
+
+    #[test]
+    fn next_cursor_walks_newest_back_from_returned_offsets() {
+        let watermarks = marks(10, 40);
+        let windows = vec![PartitionWindow {
+            partition: 0,
+            start: 30,
+            end: 40,
+        }];
+        let records = vec![record(0, 39), record(0, 35)];
+
+        let cursor = next_cursor(RecordOrder::Newest, &windows, &watermarks, &records, 2).unwrap();
+        assert_eq!(cursor.offsets[&0], 35);
+    }
+
+    #[test]
+    fn next_cursor_is_none_when_the_log_is_exhausted() {
+        let watermarks = marks(10, 20);
+        let windows = vec![PartitionWindow {
+            partition: 0,
+            start: 10,
+            end: 20,
+        }];
+        let records = vec![record(0, 10), record(0, 19)];
+
+        assert!(next_cursor(RecordOrder::Oldest, &windows, &watermarks, &records, 50).is_none());
     }
 
     #[test]
@@ -306,10 +403,18 @@ mod tests {
             RecordOrder::Newest,
             5,
             false,
-            0,
+            None,
             limits(),
         );
-        let searching = plan_windows(&[0], &watermarks, RecordOrder::Newest, 5, true, 0, limits());
+        let searching = plan_windows(
+            &[0],
+            &watermarks,
+            RecordOrder::Newest,
+            5,
+            true,
+            None,
+            limits(),
+        );
 
         assert_eq!(plain[0].end - plain[0].start, 10);
         assert_eq!(searching[0].end - searching[0].start, 40);
@@ -370,10 +475,10 @@ mod tests {
             timestamps: crate::kafka::record::query::TimestampRange::UNBOUNDED,
             limit: 5,
             order: RecordOrder::Newest,
-            page: 0,
+            cursor: None,
         };
 
-        let plan = FetchPlan::build(&query, &[0], &marks(0, 100), 5, 0, limits());
+        let plan = FetchPlan::build(&query, &[0], &marks(0, 100), 5, limits());
         assert_eq!(plan.search, "orderid");
         assert_eq!(plan.topic, "orders");
     }

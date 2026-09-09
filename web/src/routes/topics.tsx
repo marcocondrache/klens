@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { DataTable, type Column } from "@/components/data-table";
+import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { Pill } from "@/components/status";
 import { useTopics } from "@/lib/api/queries";
@@ -27,6 +27,7 @@ import {
   isCompactCleanup,
 } from "@/lib/format";
 import type { Topic } from "@/lib/api/types";
+import { createAppColumnHelper } from "@/lib/table";
 
 function emptyMetric(value: number, display: ReactNode) {
   if (value === 0) {
@@ -35,6 +36,87 @@ function emptyMetric(value: number, display: ReactNode) {
 
   return display;
 }
+
+const columnHelper = createAppColumnHelper<Topic>();
+
+const columns = columnHelper.columns([
+  columnHelper.accessor("name", {
+    header: "Topic",
+    cell: ({ row }) => {
+      const topic = row.original;
+
+      return (
+        <span className="flex items-center gap-2">
+          <span className="font-mono text-sm">{topic.name}</span>
+          {topic.internal ? <Pill>internal</Pill> : null}
+          {topic.underReplicated ? (
+            <Pill tone="warn">
+              <AlertTriangleIcon className="size-3" />
+              under-replicated
+            </Pill>
+          ) : null}
+        </span>
+      );
+    },
+  }),
+  columnHelper.accessor((topic) => topic.partitions.length, {
+    id: "partitions",
+    header: "Parts",
+    meta: { align: "right" },
+    cell: ({ getValue }) => getValue(),
+  }),
+  columnHelper.accessor("replicationFactor", {
+    id: "replication",
+    header: "RF",
+    meta: { align: "right" },
+  }),
+  columnHelper.accessor("messageCount", {
+    id: "messages",
+    header: "Messages",
+    meta: { align: "right" },
+    cell: ({ getValue }) => emptyMetric(getValue(), formatNumber(getValue())),
+  }),
+  columnHelper.accessor("sizeBytes", {
+    id: "size",
+    header: "Size",
+    meta: { align: "right" },
+    cell: ({ getValue }) => emptyMetric(getValue(), formatBytes(getValue())),
+  }),
+  columnHelper.accessor("messagesPerSec", {
+    id: "rate",
+    header: "Msg/s",
+    meta: { align: "right" },
+    cell: ({ getValue }) => emptyMetric(getValue(), formatThroughput(getValue())),
+  }),
+  columnHelper.accessor("bytesInPerSec", {
+    id: "in",
+    header: "Bytes in",
+    meta: { align: "right" },
+    cell: ({ getValue }) => emptyMetric(getValue(), formatRate(getValue())),
+  }),
+  columnHelper.accessor("retentionMs", {
+    id: "retention",
+    header: "Retention",
+    meta: { align: "right" },
+    cell: ({ getValue }) => <span>{formatDuration(getValue())}</span>,
+  }),
+  columnHelper.accessor("cleanupPolicy", {
+    id: "policy",
+    header: "Policy",
+    meta: { align: "right" },
+    cell: ({ getValue }) => (
+      <Pill tone={isCompactCleanup(getValue()) ? "brand" : "idle"}>
+        {formatCleanupPolicy(getValue())}
+      </Pill>
+    ),
+  }),
+  columnHelper.accessor((topic) => topic.consumerGroups.length, {
+    id: "groups",
+    header: "Groups",
+    meta: { align: "right" },
+    cell: ({ getValue }) => emptyMetric(getValue(), getValue()),
+  }),
+]);
 
 export function TopicsPage() {
   const cluster = useClusterName();
@@ -68,93 +150,6 @@ export function TopicsPage() {
       return true;
     });
   }, [topics, term, showInternal, policy]);
-
-  const columns: Array<Column<Topic>> = [
-    {
-      id: "name",
-      header: "Topic",
-      sortValue: (topic) => topic.name,
-      cell: (topic) => (
-        <span className="flex items-center gap-2">
-          <span className="font-mono text-sm">{topic.name}</span>
-          {topic.internal ? <Pill>internal</Pill> : null}
-          {topic.underReplicated ? (
-            <Pill tone="warn">
-              <AlertTriangleIcon className="size-3" />
-              under-replicated
-            </Pill>
-          ) : null}
-        </span>
-      ),
-    },
-    {
-      id: "partitions",
-      header: "Parts",
-      align: "right",
-      sortValue: (topic) => topic.partitions.length,
-      cell: (topic) => topic.partitions.length,
-    },
-    {
-      id: "replication",
-      header: "RF",
-      align: "right",
-      sortValue: (topic) => topic.replicationFactor,
-      cell: (topic) => topic.replicationFactor,
-    },
-    {
-      id: "messages",
-      header: "Messages",
-      align: "right",
-      sortValue: (topic) => topic.messageCount,
-      cell: (topic) => emptyMetric(topic.messageCount, formatNumber(topic.messageCount)),
-    },
-    {
-      id: "size",
-      header: "Size",
-      align: "right",
-      sortValue: (topic) => topic.sizeBytes,
-      cell: (topic) => emptyMetric(topic.sizeBytes, formatBytes(topic.sizeBytes)),
-    },
-    {
-      id: "rate",
-      header: "Msg/s",
-      align: "right",
-      sortValue: (topic) => topic.messagesPerSec,
-      cell: (topic) => emptyMetric(topic.messagesPerSec, formatThroughput(topic.messagesPerSec)),
-    },
-    {
-      id: "in",
-      header: "Bytes in",
-      align: "right",
-      sortValue: (topic) => topic.bytesInPerSec,
-      cell: (topic) => emptyMetric(topic.bytesInPerSec, formatRate(topic.bytesInPerSec)),
-    },
-    {
-      id: "retention",
-      header: "Retention",
-      align: "right",
-      sortValue: (topic) => topic.retentionMs,
-      cell: (topic) => <span>{formatDuration(topic.retentionMs)}</span>,
-    },
-    {
-      id: "policy",
-      header: "Policy",
-      align: "right",
-      sortValue: (topic) => topic.cleanupPolicy,
-      cell: (topic) => (
-        <Pill tone={isCompactCleanup(topic.cleanupPolicy) ? "brand" : "idle"}>
-          {formatCleanupPolicy(topic.cleanupPolicy)}
-        </Pill>
-      ),
-    },
-    {
-      id: "groups",
-      header: "Groups",
-      align: "right",
-      sortValue: (topic) => topic.consumerGroups.length,
-      cell: (topic) => emptyMetric(topic.consumerGroups.length, topic.consumerGroups.length),
-    },
-  ];
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
@@ -195,8 +190,8 @@ export function TopicsPage() {
 
       <DataTable
         columns={columns}
-        rows={rows}
-        rowKey={(topic) => topic.name}
+        data={rows}
+        getRowId={(topic) => topic.name}
         loading={isPending}
         error={
           isError ? (error instanceof Error ? error.message : "Failed to load topics.") : undefined

@@ -43,7 +43,7 @@ type Documents = {
   "\n  query TopicThroughput($cluster: String!, $topic: String!) {\n    topicThroughput(cluster: $cluster, topic: $topic) {\n      ...ThroughputPointFields\n    }\n  }\n": typeof types.TopicThroughputDocument;
   "\n  query SchemaSubjects($cluster: String!) {\n    schemaSubjects(cluster: $cluster) {\n      ...SchemaSubjectFields\n    }\n  }\n": typeof types.SchemaSubjectsDocument;
   "\n  query Acls($cluster: String!) {\n    acls(cluster: $cluster) {\n      ...AclFields\n    }\n  }\n": typeof types.AclsDocument;
-  "\n  query Records($query: RecordQuery!) {\n    records(query: $query) {\n      records {\n        ...TopicRecordFields\n      }\n      hasMore\n    }\n  }\n": typeof types.RecordsDocument;
+  "\n  query Records($query: RecordQuery!) {\n    records(query: $query) {\n      records {\n        ...TopicRecordFields\n      }\n      hasMore\n      nextCursor\n    }\n  }\n": typeof types.RecordsDocument;
   "\n  query Search($cluster: String!, $term: String!) {\n    search(cluster: $cluster, term: $term) {\n      ...SearchResultFields\n    }\n  }\n": typeof types.SearchDocument;
   "\n  subscription TopicRates($cluster: String!) {\n    topicRates(cluster: $cluster) {\n      ...TopicRateFields\n    }\n  }\n": typeof types.TopicRatesDocument;
 };
@@ -108,7 +108,7 @@ const documents: Documents = {
     types.SchemaSubjectsDocument,
   "\n  query Acls($cluster: String!) {\n    acls(cluster: $cluster) {\n      ...AclFields\n    }\n  }\n":
     types.AclsDocument,
-  "\n  query Records($query: RecordQuery!) {\n    records(query: $query) {\n      records {\n        ...TopicRecordFields\n      }\n      hasMore\n    }\n  }\n":
+  "\n  query Records($query: RecordQuery!) {\n    records(query: $query) {\n      records {\n        ...TopicRecordFields\n      }\n      hasMore\n      nextCursor\n    }\n  }\n":
     types.RecordsDocument,
   "\n  query Search($cluster: String!, $term: String!) {\n    search(cluster: $cluster, term: $term) {\n      ...SearchResultFields\n    }\n  }\n":
     types.SearchDocument,
@@ -300,7 +300,7 @@ export function graphql(
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(
-  source: "\n  query Records($query: RecordQuery!) {\n    records(query: $query) {\n      records {\n        ...TopicRecordFields\n      }\n      hasMore\n    }\n  }\n",
+  source: "\n  query Records($query: RecordQuery!) {\n    records(query: $query) {\n      records {\n        ...TopicRecordFields\n      }\n      hasMore\n      nextCursor\n    }\n  }\n",
 ): typeof import("./graphql").RecordsDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
