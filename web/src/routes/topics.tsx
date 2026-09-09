@@ -76,7 +76,7 @@ export function TopicsPage() {
       sortValue: (topic) => topic.name,
       cell: (topic) => (
         <span className="flex items-center gap-2">
-          <span className="font-mono text-[0.8rem]">{topic.name}</span>
+          <span className="font-mono text-sm">{topic.name}</span>
           {topic.internal ? <Pill>internal</Pill> : null}
           {topic.underReplicated ? (
             <Pill tone="warn">
@@ -134,9 +134,7 @@ export function TopicsPage() {
       header: "Retention",
       align: "right",
       sortValue: (topic) => topic.retentionMs,
-      cell: (topic) => (
-        <span className="text-muted-foreground">{formatDuration(topic.retentionMs)}</span>
-      ),
+      cell: (topic) => <span>{formatDuration(topic.retentionMs)}</span>,
     },
     {
       id: "policy",
@@ -185,7 +183,7 @@ export function TopicsPage() {
           </SelectContent>
         </Select>
 
-        <Label className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Label className="flex items-center gap-2 text-sm text-muted-foreground">
           <Switch
             size="sm"
             checked={showInternal}

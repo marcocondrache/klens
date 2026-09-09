@@ -17,7 +17,7 @@ const TONE_PILL: Record<Tone, string> = {
   ok: "border-emerald-500/25 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
   warn: "border-amber-500/25 bg-amber-500/10 text-amber-600 dark:text-amber-400",
   error: "border-rose-500/25 bg-rose-500/10 text-rose-600 dark:text-rose-400",
-  idle: "border-border bg-muted/60 text-muted-foreground",
+  idle: "border-border bg-muted text-foreground/80",
   brand: "border-brand/25 bg-brand/10 text-brand",
 };
 
@@ -46,7 +46,7 @@ export function Pill({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-md border px-1.5 py-0.5 text-xs font-medium whitespace-nowrap",
+        "inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-sm font-medium whitespace-nowrap",
         TONE_PILL[tone],
         className,
       )}

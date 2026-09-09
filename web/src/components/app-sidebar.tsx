@@ -46,7 +46,7 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader className="group-data-[collapsible=icon]:hidden">
-        <div className="flex h-12 items-center px-3">
+        <div className="flex h-14 items-center px-3">
           <span className="text-2xl font-semibold tracking-tight">klens</span>
         </div>
       </SidebarHeader>

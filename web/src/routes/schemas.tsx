@@ -38,7 +38,7 @@ export function SchemasPage() {
       id: "subject",
       header: "Subject",
       sortValue: (subject) => subject.subject,
-      cell: (subject) => <span className="font-mono text-[0.8rem]">{subject.subject}</span>,
+      cell: (subject) => <span className="font-mono text-sm">{subject.subject}</span>,
     },
     {
       id: "id",
@@ -128,7 +128,7 @@ export function SchemasPage() {
 
               <div className="flex-1 space-y-4 overflow-y-auto p-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                  <h3 className="text-sm font-medium tracking-wide text-muted-foreground">
                     Schema
                   </h3>
                   <CopyButton value={selected.schema} label="Copy schema" />
@@ -136,7 +136,7 @@ export function SchemasPage() {
                 <JsonBlock source={selected.schema} />
 
                 <div className="space-y-2">
-                  <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                  <h3 className="text-sm font-medium tracking-wide text-muted-foreground">
                     Versions
                   </h3>
                   <div className="flex flex-wrap gap-1.5">

@@ -57,7 +57,7 @@ export function ConsumerGroupPage() {
       cell: (offset) => (
         <Link
           to={clusterPath(cluster, "topics", offset.topic)}
-          className="font-mono text-[0.8rem] hover:text-brand hover:underline"
+          className="font-mono text-sm hover:text-brand hover:underline"
           onClick={(event) => event.stopPropagation()}
         >
           {offset.topic}
@@ -117,7 +117,7 @@ export function ConsumerGroupPage() {
       sortValue: (offset) => offset.memberId ?? "",
       cell: (offset) =>
         offset.memberId ? (
-          <span className="font-mono text-xs text-muted-foreground">
+          <span className="font-mono text-sm">
             {memberLabels.get(offset.memberId) ?? offset.memberId}
           </span>
         ) : (
@@ -131,16 +131,14 @@ export function ConsumerGroupPage() {
       id: "clientId",
       header: "Client ID",
       sortValue: (member) => member.clientId,
-      cell: (member) => <span className="font-mono text-[0.8rem]">{member.clientId}</span>,
+      cell: (member) => <span className="font-mono text-sm">{member.clientId}</span>,
     },
     {
       id: "id",
       header: "Member ID",
       cell: (member) => (
         <span className="flex items-center gap-1">
-          <span className="max-w-56 truncate font-mono text-xs text-muted-foreground">
-            {member.id}
-          </span>
+          <span className="max-w-72 truncate font-mono text-sm">{member.id}</span>
           <CopyButton value={member.id} label="Copy member ID" />
         </span>
       ),
@@ -149,7 +147,7 @@ export function ConsumerGroupPage() {
       id: "host",
       header: "Host",
       sortValue: (member) => member.host,
-      cell: (member) => <span className="font-mono text-xs">{member.host}</span>,
+      cell: (member) => <span className="font-mono text-sm">{member.host}</span>,
     },
     {
       id: "assignments",

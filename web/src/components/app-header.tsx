@@ -56,7 +56,7 @@ export function AppHeader({ onSearch }: { onSearch: () => void }) {
   }
 
   return (
-    <header className="sticky top-0 z-20 flex h-12 shrink-0 items-center gap-2 border-b bg-background/85 px-3 backdrop-blur-md">
+    <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b bg-background/95 px-3 backdrop-blur-md">
       <SidebarTrigger className="-ml-1" />
       <Separator orientation="vertical" className="mx-1 !h-4 my-auto" />
 
@@ -74,9 +74,7 @@ export function AppHeader({ onSearch }: { onSearch: () => void }) {
                 <BreadcrumbItem className="min-w-0 gap-1.5">
                   {crumb.icon ? <crumb.icon className="size-3.5 shrink-0" /> : null}
                   {last || !crumb.href ? (
-                    <BreadcrumbPage
-                      className={cn("truncate", crumb.mono && "font-mono text-[0.8rem]")}
-                    >
+                    <BreadcrumbPage className={cn("truncate", crumb.mono && "font-mono text-sm")}>
                       {crumb.label}
                     </BreadcrumbPage>
                   ) : (
@@ -100,7 +98,7 @@ export function AppHeader({ onSearch }: { onSearch: () => void }) {
           className="hidden gap-2 text-muted-foreground sm:flex"
         >
           <SearchIcon />
-          <span className="text-xs">Search</span>
+          <span>Search</span>
           <Kbd className="ml-2">⌘K</Kbd>
         </Button>
 

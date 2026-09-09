@@ -39,7 +39,7 @@ export function NodesPage() {
       sortValue: (broker) => broker.host,
       cell: (broker) => (
         <span className="flex items-center gap-1">
-          <span className="font-mono text-[0.8rem]">
+          <span className="font-mono text-sm">
             {broker.host}:{broker.port}
           </span>
           <CopyButton value={`${broker.host}:${broker.port}`} label="Copy address" />
@@ -52,7 +52,7 @@ export function NodesPage() {
       sortValue: (broker) => broker.rack ?? "",
       cell: (broker) =>
         broker.rack ? (
-          <span className="font-mono text-xs text-muted-foreground">{broker.rack}</span>
+          <span className="font-mono text-sm">{broker.rack}</span>
         ) : (
           <span className="text-muted-foreground">—</span>
         ),
