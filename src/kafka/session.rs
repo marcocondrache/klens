@@ -50,7 +50,7 @@ pub trait ClusterSession: Send + Sync + 'static {
         timestamp: i64,
     ) -> Result<HashMap<i32, Option<i64>>, KafkaError>;
 
-    async fn topic_configs(
+    async fn topics_configs(
         &self,
         topics: &[&str],
     ) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError>;
