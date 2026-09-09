@@ -5,9 +5,9 @@ use apache_avro::Schema;
 use apache_avro::reader::datum::GenericDatumReader;
 use moka::future::Cache;
 
+use super::client::SchemaRegistryClient;
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{RegisteredSchema, SchemaType, decode_bytes};
-use crate::kafka::schema::SchemaRegistryClient;
 
 const CONFLUENT_MAGIC: u8 = 0;
 
