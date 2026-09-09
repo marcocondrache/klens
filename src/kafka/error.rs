@@ -22,7 +22,7 @@ pub enum KafkaError {
     },
 
     #[error("invalid record query: {0}")]
-    InvalidQuery(String),
+    InvalidQuery(#[from] QueryError),
 
     #[error("kafka admin request failed: {0}")]
     Admin(String),
@@ -35,4 +35,17 @@ pub enum KafkaError {
 
     #[error("background kafka task failed: {0}")]
     Join(#[from] tokio::task::JoinError),
+}
+
+/// A record query rejected before any Kafka call is made.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum QueryError {
+    #[error("limit must be at least 1")]
+    LimitTooSmall,
+
+    #[error("page must be at least 0")]
+    NegativePage,
+
+    #[error("timestampFrom must not be after timestampTo")]
+    InvertedTimestampRange,
 }

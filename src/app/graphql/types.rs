@@ -417,7 +417,7 @@ pub(super) struct RecordQuery {
 }
 
 impl TryFrom<RecordQuery> for domain::RecordQuery {
-    type Error = String;
+    type Error = crate::kafka::QueryError;
 
     fn try_from(query: RecordQuery) -> Result<Self, Self::Error> {
         let timestamps = domain::TimestampRange::new(query.timestamp_from, query.timestamp_to)?;

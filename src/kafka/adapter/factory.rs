@@ -5,9 +5,9 @@ use rdkafka::client::DefaultClientContext;
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{BaseConsumer, StreamConsumer};
 
+use super::client_config::KafkaClusterConfig;
 use crate::config::ClusterConfig;
 use crate::environment::{BROWSE_GROUP_PREFIX, CLIENT_ID_PREFIX};
-use crate::kafka::config::KafkaClusterConfig;
 use crate::kafka::error::KafkaError;
 
 /// Builds typed rdkafka clients from a cluster's shared settings.
