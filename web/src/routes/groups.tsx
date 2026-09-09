@@ -64,7 +64,7 @@ export function ConsumerGroupsPage() {
       id: "id",
       header: "Group",
       sortValue: (group) => group.id,
-      cell: (group) => <span className="font-mono text-[0.8rem]">{group.id}</span>,
+      cell: (group) => <span className="font-mono text-sm">{group.id}</span>,
     },
     {
       id: "state",
@@ -117,9 +117,7 @@ export function ConsumerGroupsPage() {
       header: "Coordinator",
       align: "right",
       sortValue: (group) => group.coordinator,
-      cell: (group) => (
-        <span className="numeric font-mono text-muted-foreground">broker {group.coordinator}</span>
-      ),
+      cell: (group) => <span className="numeric font-mono">broker {group.coordinator}</span>,
     },
   ];
 

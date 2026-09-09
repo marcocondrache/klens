@@ -38,6 +38,7 @@ interface DataTableProps<T> {
   rows: T[];
   rowKey: (row: T) => string;
   onRowClick?: (row: T) => void;
+  selectedKey?: string;
   loading?: boolean;
   error?: ReactNode;
   emptyState?: ReactNode;
@@ -53,6 +54,7 @@ export function DataTable<T>({
   rows,
   rowKey,
   onRowClick,
+  selectedKey,
   loading = false,
   error,
   emptyState,
@@ -124,7 +126,7 @@ export function DataTable<T>({
                 <TableHead
                   key={column.id}
                   className={cn(
-                    "h-9 bg-muted/40 text-[0.7rem] font-medium tracking-wider text-muted-foreground uppercase",
+                    "h-10 bg-muted/40 text-sm font-medium tracking-wide text-muted-foreground",
                     column.align === "right" && "text-right",
                     column.sortValue && "cursor-pointer select-none hover:text-foreground",
                     column.headerClassName,
@@ -168,33 +170,43 @@ export function DataTable<T>({
                 </TableCell>
               </TableRow>
             ) : (
-              visible.map((row) => (
-                <TableRow
-                  key={rowKey(row)}
-                  onClick={onRowClick ? () => onRowClick(row) : undefined}
-                  className={cn("border-border/60", onRowClick && "cursor-pointer")}
-                >
-                  {columns.map((column) => (
-                    <TableCell
-                      key={column.id}
-                      className={cn(
-                        "py-2.5 text-sm",
-                        column.align === "right" && "text-right numeric",
-                        column.className,
-                      )}
-                    >
-                      {column.cell(row)}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
+              visible.map((row, index) => {
+                const key = rowKey(row);
+                const selected = selectedKey === key;
+
+                return (
+                  <TableRow
+                    key={key}
+                    data-state={selected ? "selected" : undefined}
+                    onClick={onRowClick ? () => onRowClick(row) : undefined}
+                    className={cn(
+                      "border-border",
+                      index % 2 === 1 && !selected && "bg-muted/35",
+                      onRowClick && "cursor-pointer",
+                    )}
+                  >
+                    {columns.map((column) => (
+                      <TableCell
+                        key={column.id}
+                        className={cn(
+                          "py-2.5 text-sm",
+                          column.align === "right" && "text-right numeric",
+                          column.className,
+                        )}
+                      >
+                        {column.cell(row)}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>
       </div>
 
       {showPager ? (
-        <div className="flex items-center justify-between px-1 text-xs text-muted-foreground">
+        <div className="flex items-center justify-between px-1 text-sm text-muted-foreground">
           <span className="numeric">
             {current * pageSize + (visible.length > 0 ? 1 : 0)}
             {visible.length > 0 ? `–${current * pageSize + visible.length}` : ""}

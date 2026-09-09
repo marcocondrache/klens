@@ -39,7 +39,7 @@ export function ClusterSwitcher() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        render={<Button variant="outline" size="sm" className="max-w-56 font-medium" />}
+        render={<Button variant="outline" size="sm" className="max-w-64 font-medium" />}
       >
         <StatusDot tone={current ? STATUS_TONE[current.status] : "idle"} />
         <span className="truncate">{current?.label ?? active}</span>

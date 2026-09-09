@@ -52,9 +52,7 @@ export function PayloadView({
       className={cn("flex min-h-0 flex-col gap-2", fill ? "flex-1 overflow-hidden" : "shrink-0")}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
-          {label}
-        </h3>
+        <h3 className="text-sm font-medium tracking-wide text-muted-foreground">{label}</h3>
         <div className="flex items-center gap-1">
           {showPrettyToggle ? (
             <div className="mr-1 flex rounded-lg border p-0.5">

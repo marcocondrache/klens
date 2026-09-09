@@ -39,17 +39,15 @@ export function Stat({
 
       <div className="relative flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-1.5">
-          <p className="text-[0.7rem] font-medium tracking-wider text-muted-foreground uppercase">
-            {label}
-          </p>
+          <p className="text-sm font-medium tracking-wide text-muted-foreground">{label}</p>
           {loading ? (
-            <Skeleton className="h-7 w-20" />
+            <Skeleton className="h-8 w-24" />
           ) : (
-            <p className="numeric truncate text-2xl leading-none font-semibold tracking-tight">
+            <p className="numeric truncate text-3xl leading-none font-semibold tracking-tight">
               {value}
             </p>
           )}
-          {hint ? <p className="truncate text-xs text-muted-foreground">{hint}</p> : null}
+          {hint ? <p className="truncate text-sm text-muted-foreground">{hint}</p> : null}
         </div>
 
         {icon ? (
