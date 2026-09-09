@@ -19,8 +19,7 @@ use rdkafka::topic_partition_list::Offset;
 use crate::config::ClusterConfig;
 use crate::environment::{
     ADMIN_TIMEOUT, BLOCKING_SLACK, CONFIG_BATCH, CONFIG_CONCURRENCY, CONSUME_TIMEOUT,
-    INTERNAL_GROUP_PREFIX, METADATA_TIMEOUT, METADATA_TTL, WATERMARK_BATCH, WATERMARK_TIMEOUT,
-    WATERMARK_TTL,
+    INTERNAL_GROUP_PREFIX, METADATA_TIMEOUT, METADATA_TTL, WATERMARK_TIMEOUT, WATERMARK_TTL,
 };
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
@@ -131,16 +130,11 @@ impl ClusterHandle {
         let factory = self.factory.clone();
         let group_id = self.offsets_group_id();
         let timeout = self.timeouts.watermark;
-        let batch = (*WATERMARK_BATCH).max(1);
 
         run_blocking(timeout + timeout + *BLOCKING_SLACK, move || {
             let consumer = factory.offset_consumer(&group_id)?;
-            let mut beginning = HashMap::new();
-            let mut end = HashMap::new();
-            for chunk in partitions.chunks(batch) {
-                beginning.extend(list_offsets(&consumer, chunk, Offset::Beginning, timeout)?);
-                end.extend(list_offsets(&consumer, chunk, Offset::End, timeout)?);
-            }
+            let beginning = list_offsets(&consumer, &partitions, Offset::Beginning, timeout)?;
+            let end = list_offsets(&consumer, &partitions, Offset::End, timeout)?;
             Ok(merge_watermark_offsets(&beginning, &end))
         })
         .await
