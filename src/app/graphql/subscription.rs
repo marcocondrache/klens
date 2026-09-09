@@ -101,11 +101,11 @@ mod tests {
                 .await
         }
 
-        async fn topic_configs(
+        async fn topics_configs(
             &self,
             topics: &[&str],
         ) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError> {
-            self.inner.topic_configs(topics).await
+            self.inner.topics_configs(topics).await
         }
 
         async fn broker_configs(&self, broker_id: i32) -> Result<Vec<ConfigEntry>, KafkaError> {

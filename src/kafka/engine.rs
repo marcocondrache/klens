@@ -164,50 +164,28 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
             cluster: cluster.to_owned(),
             topic: name.to_owned(),
         })?;
-        let (config, groups, watermarks) = Self::load_topic_state(session, name).await;
+        let (configs, groups, watermarks) = Self::load_topics_state(session, &[name]).await;
 
         Ok(Topic::assemble(
             topic,
-            &watermarks,
-            Some(config.as_slice()),
+            watermarks.get(name).unwrap_or(&HashMap::new()),
+            configs.get(&topic.name).map(Vec::as_slice),
             groups_for_topic(name, &groups),
         ))
     }
 
-    /// Configs, group membership, and watermarks are independent Kafka calls.
-    async fn load_topic_state(
-        session: &S,
-        name: &str,
-    ) -> (
-        Vec<ConfigEntry>,
-        Vec<GroupSnapshot>,
-        HashMap<i32, Watermarks>,
-    ) {
-        let names = [name];
-        let (configs, groups, watermarks) = tokio::join!(
-            session.topic_configs(&names),
-            session.consumer_groups(),
-            session.watermarks(name),
-        );
-        (
-            configs.unwrap_or_default().remove(name).unwrap_or_default(),
-            groups.unwrap_or_default(),
-            watermarks.unwrap_or_default(),
-        )
-    }
-
     async fn load_topics_state(
         session: &S,
-        names: &[&str],
+        topics: &[&str],
     ) -> (
         HashMap<String, Vec<ConfigEntry>>,
         Vec<GroupSnapshot>,
         HashMap<String, HashMap<i32, Watermarks>>,
     ) {
         let (configs, groups, watermarks) = tokio::join!(
-            session.topic_configs(names),
+            session.topics_configs(topics),
             session.consumer_groups(),
-            session.watermarks_many(names),
+            session.watermarks_many(topics),
         );
         (
             configs.unwrap_or_default(),
@@ -230,7 +208,7 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
         }
 
         session
-            .topic_configs(&[name])
+            .topics_configs(&[name])
             .await
             .map(|mut configs| configs.remove(name).unwrap_or_default())
     }
@@ -509,11 +487,11 @@ mod tests {
                 .await
         }
 
-        async fn topic_configs(
+        async fn topics_configs(
             &self,
             topics: &[&str],
         ) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError> {
-            self.inner.topic_configs(topics).await
+            self.inner.topics_configs(topics).await
         }
 
         async fn broker_configs(&self, broker_id: i32) -> Result<Vec<ConfigEntry>, KafkaError> {
@@ -586,11 +564,11 @@ mod tests {
                 .await
         }
 
-        async fn topic_configs(
+        async fn topics_configs(
             &self,
             topics: &[&str],
         ) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError> {
-            self.inner.topic_configs(topics).await
+            self.inner.topics_configs(topics).await
         }
 
         async fn broker_configs(&self, broker_id: i32) -> Result<Vec<ConfigEntry>, KafkaError> {

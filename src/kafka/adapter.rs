@@ -226,7 +226,7 @@ impl ClusterSession for ClusterHandle {
         .await
     }
 
-    async fn topic_configs(
+    async fn topics_configs(
         &self,
         topics: &[&str],
     ) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError> {
