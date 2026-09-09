@@ -202,7 +202,7 @@ export function TopicPage() {
   ];
 
   return (
-    <div className="space-y-5">
+    <div className="flex min-h-0 flex-1 flex-col gap-5">
       <PageHeader
         title={
           <span className="flex items-center gap-1">
@@ -268,8 +268,12 @@ export function TopicPage() {
         </Stat>
       </StatGrid>
 
-      <Tabs value={tab} onValueChange={(value) => selectTab(String(value))}>
-        <TabsList variant="line">
+      <Tabs
+        value={tab}
+        onValueChange={(value) => selectTab(String(value))}
+        className="min-h-0 flex-1"
+      >
+        <TabsList variant="line" className="shrink-0">
           <TabsTrigger value="data">Data</TabsTrigger>
           <TabsTrigger value="partitions">
             Partitions
@@ -284,11 +288,11 @@ export function TopicPage() {
           <TabsTrigger value="config">Configuration</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="data" className="mt-4">
+        <TabsContent value="data" className="mt-4 flex min-h-0 flex-col">
           {topic ? <RecordBrowser cluster={cluster} topic={topic} /> : null}
         </TabsContent>
 
-        <TabsContent value="partitions" className="mt-4">
+        <TabsContent value="partitions" className="mt-4 flex min-h-0 flex-col">
           <DataTable
             columns={partitionColumns}
             rows={topic?.partitions ?? []}
@@ -296,10 +300,11 @@ export function TopicPage() {
             loading={isPending}
             pageSize={25}
             defaultSort={{ id: "id", direction: "asc" }}
+            fill
           />
         </TabsContent>
 
-        <TabsContent value="groups" className="mt-4">
+        <TabsContent value="groups" className="mt-4 flex min-h-0 flex-col">
           <DataTable
             columns={groupColumns}
             rows={consuming}
@@ -311,11 +316,12 @@ export function TopicPage() {
                 No consumer group is subscribed to this topic.
               </p>
             }
+            fill
           />
         </TabsContent>
 
-        <TabsContent value="config" className="mt-4">
-          <ConfigTable entries={configs} loading={configsPending} />
+        <TabsContent value="config" className="mt-4 flex min-h-0 flex-col">
+          <ConfigTable entries={configs} loading={configsPending} fill />
         </TabsContent>
       </Tabs>
     </div>

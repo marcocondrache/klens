@@ -122,7 +122,7 @@ export function ConsumerGroupsPage() {
   ];
 
   return (
-    <div className="space-y-5">
+    <div className="flex min-h-0 flex-1 flex-col gap-5">
       <PageHeader
         title="Consumer groups"
         description={`${rows.length} groups · ${formatCount(totalLag)} messages of lag`}
@@ -169,6 +169,7 @@ export function ConsumerGroupsPage() {
         }
         defaultSort={{ id: "lag", direction: "desc" }}
         onRowClick={(group) => navigate(clusterPath(cluster, "groups", group.id))}
+        fill
       />
     </div>
   );
