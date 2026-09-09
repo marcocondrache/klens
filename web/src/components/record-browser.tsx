@@ -89,7 +89,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
       header: "Part",
       align: "right",
       sortValue: (record) => record.partition,
-      cell: (record) => <span className="numeric font-mono text-xs">{record.partition}</span>,
+      cell: (record) => <span className="numeric font-mono">{record.partition}</span>,
       headerClassName: "w-16",
     },
     {
@@ -97,7 +97,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
       header: "Offset",
       align: "right",
       sortValue: (record) => record.offset,
-      cell: (record) => <span className="numeric font-mono text-xs">{record.offset}</span>,
+      cell: (record) => <span className="numeric font-mono">{record.offset}</span>,
       headerClassName: "w-28",
     },
     {
@@ -105,7 +105,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
       header: "Key",
       sortValue: (record) => record.key ?? "",
       cell: (record) => (
-        <span className="block max-w-40 truncate font-mono text-xs text-brand">
+        <span className="block max-w-48 truncate font-mono text-sm text-brand">
           {record.key ?? "null"}
         </span>
       ),
@@ -114,7 +114,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
       id: "value",
       header: "Value",
       cell: (record) => (
-        <span className="block max-w-md truncate font-mono text-xs text-muted-foreground lg:max-w-xl">
+        <span className="block max-w-md truncate font-mono text-sm text-muted-foreground lg:max-w-2xl">
           {preview(record.value)}
         </span>
       ),
@@ -124,9 +124,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
       header: "Size",
       align: "right",
       sortValue: (record) => record.sizeBytes,
-      cell: (record) => (
-        <span className="text-xs text-muted-foreground">{formatBytes(record.sizeBytes)}</span>
-      ),
+      cell: (record) => <span className="numeric">{formatBytes(record.sizeBytes)}</span>,
     },
     {
       id: "timestamp",
@@ -135,14 +133,10 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
       sortValue: (record) => record.timestamp,
       cell: (record) => (
         <Tooltip>
-          <TooltipTrigger
-            render={
-              <span className="numeric cursor-default text-xs whitespace-nowrap text-muted-foreground" />
-            }
-          >
-            {formatRelative(record.timestamp)}
+          <TooltipTrigger render={<span className="numeric cursor-default whitespace-nowrap" />}>
+            {formatTimestamp(record.timestamp)}
           </TooltipTrigger>
-          <TooltipContent>{formatTimestamp(record.timestamp)}</TooltipContent>
+          <TooltipContent>{formatRelative(record.timestamp)}</TooltipContent>
         </Tooltip>
       ),
     },
@@ -183,7 +177,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
 
         <InputGroup className="w-auto min-w-[13.5rem]">
           <InputGroupAddon>
-            <span className="text-xs">to</span>
+            <span className="text-sm">to</span>
           </InputGroupAddon>
           <InputGroupInput
             type="datetime-local"
@@ -257,7 +251,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
           </SelectContent>
         </Select>
 
-        <span className="ml-auto text-xs text-muted-foreground">
+        <span className="ml-auto text-sm text-muted-foreground">
           {isFetching ? "polling…" : `${records.length} records`}
         </span>
       </div>
@@ -272,6 +266,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
         hasMore={hasMore}
         onPageChange={setPage}
         onRowClick={setSelected}
+        selectedKey={selected ? `${selected.partition}-${selected.offset}` : undefined}
         emptyState={
           <Empty className="py-10">
             <EmptyHeader>
@@ -345,11 +340,11 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                 />
 
                 <section className="shrink-0 space-y-2">
-                  <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                  <h3 className="text-sm font-medium tracking-wide text-muted-foreground">
                     Headers
                   </h3>
                   {selected.headers.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">No headers.</p>
+                    <p className="text-sm text-muted-foreground">No headers.</p>
                   ) : (
                     <div className="divide-y overflow-hidden rounded-lg border">
                       {selected.headers.map((header) => (
@@ -357,8 +352,8 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                           key={header.key}
                           className="flex items-start justify-between gap-3 px-3 py-2"
                         >
-                          <span className="font-mono text-xs text-brand">{header.key}</span>
-                          <span className="max-w-[60%] font-mono text-xs break-all text-muted-foreground">
+                          <span className="font-mono text-sm text-brand">{header.key}</span>
+                          <span className="max-w-[60%] font-mono text-sm break-all">
                             {header.value}
                           </span>
                         </div>
@@ -368,7 +363,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                 </section>
 
                 <section className="shrink-0 space-y-2">
-                  <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+                  <h3 className="text-sm font-medium tracking-wide text-muted-foreground">
                     Metadata
                   </h3>
                   <div className="grid grid-cols-2 gap-2 text-xs">
@@ -395,8 +390,8 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
 function Meta({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="rounded-lg border bg-muted/20 px-3 py-2">
-      <p className="text-[0.7rem] tracking-wider text-muted-foreground uppercase">{label}</p>
-      <p className="numeric mt-0.5 font-mono text-xs">{value}</p>
+      <p className="text-sm tracking-wide text-muted-foreground">{label}</p>
+      <p className="numeric mt-0.5 font-mono text-sm">{value}</p>
     </div>
   );
 }

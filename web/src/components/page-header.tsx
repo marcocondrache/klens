@@ -20,8 +20,8 @@ export function PageHeader({
         <div className="flex flex-wrap items-center gap-2">
           <h1
             className={cn(
-              "truncate text-xl font-semibold tracking-tight",
-              mono && "font-mono text-lg",
+              "truncate text-2xl font-semibold tracking-tight",
+              mono && "font-mono text-xl",
             )}
           >
             {title}
@@ -48,8 +48,8 @@ export function SectionTitle({
   return (
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div className="space-y-1">
-        <h2 className="text-sm font-medium">{title}</h2>
-        {description ? <p className="text-xs text-muted-foreground">{description}</p> : null}
+        <h2 className="text-base font-medium">{title}</h2>
+        {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
       </div>
       {actions}
     </div>

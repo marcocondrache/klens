@@ -31,7 +31,7 @@ export function NodePage() {
         description={
           broker ? (
             <span className="flex items-center gap-1">
-              <span className="font-mono text-xs">
+              <span className="font-mono text-sm">
                 {broker.host}:{broker.port}
               </span>
               <CopyButton value={`${broker.host}:${broker.port}`} label="Copy address" />

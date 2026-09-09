@@ -47,7 +47,7 @@ export function ConfigTable({
       sortValue: (entry) => entry.name,
       cell: (entry) => (
         <span className="flex items-center gap-1.5">
-          <span className="font-mono text-[0.8rem]">{entry.name}</span>
+          <span className="font-mono text-sm">{entry.name}</span>
           {entry.readOnly ? (
             <Tooltip>
               <TooltipTrigger render={<LockIcon className="size-3 text-muted-foreground" />} />
@@ -60,6 +60,7 @@ export function ConfigTable({
     {
       id: "value",
       header: "Value",
+      className: "whitespace-normal",
       cell: (entry) =>
         entry.sensitive ? (
           <span className="flex items-center gap-1.5 text-muted-foreground">
@@ -68,7 +69,7 @@ export function ConfigTable({
           </span>
         ) : (
           <span className="flex items-center gap-1">
-            <span className="numeric font-mono text-[0.8rem] break-all">
+            <span className="numeric font-mono text-sm break-all">
               {entry.value === "" ? "—" : entry.value}
             </span>
             {entry.value ? <CopyButton value={entry.value} label="Copy value" /> : null}
@@ -102,7 +103,7 @@ export function ConfigTable({
           />
         </InputGroup>
 
-        <Label className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Label className="flex items-center gap-2 text-sm text-muted-foreground">
           <Switch
             size="sm"
             checked={onlyOverrides}

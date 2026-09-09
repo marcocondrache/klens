@@ -55,7 +55,7 @@ export function AclsPage() {
       id: "principal",
       header: "Principal",
       sortValue: (entry) => entry.principal,
-      cell: (entry) => <span className="font-mono text-[0.8rem]">{entry.principal}</span>,
+      cell: (entry) => <span className="font-mono text-sm">{entry.principal}</span>,
     },
     {
       id: "resourceType",
@@ -68,7 +68,7 @@ export function AclsPage() {
       header: "Resource",
       sortValue: (entry) => entry.resourceName,
       cell: (entry) => (
-        <span className="font-mono text-[0.8rem]">
+        <span className="font-mono text-sm">
           {entry.resourceName}
           {entry.patternType === "PREFIXED" ? (
             <span className="text-muted-foreground">*</span>
@@ -80,9 +80,7 @@ export function AclsPage() {
       id: "pattern",
       header: "Pattern",
       sortValue: (entry) => entry.patternType,
-      cell: (entry) => (
-        <span className="text-xs text-muted-foreground">{entry.patternType.toLowerCase()}</span>
-      ),
+      cell: (entry) => <span>{entry.patternType.toLowerCase()}</span>,
     },
     {
       id: "operation",
@@ -94,7 +92,7 @@ export function AclsPage() {
       id: "host",
       header: "Host",
       align: "right",
-      cell: (entry) => <span className="font-mono text-xs">{entry.host}</span>,
+      cell: (entry) => <span className="font-mono text-sm">{entry.host}</span>,
     },
     {
       id: "permission",

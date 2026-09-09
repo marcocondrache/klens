@@ -155,7 +155,7 @@ export function TopicPage() {
       id: "id",
       header: "Group",
       sortValue: (group) => group.id,
-      cell: (group) => <span className="font-mono text-[0.8rem]">{group.id}</span>,
+      cell: (group) => <span className="font-mono text-sm">{group.id}</span>,
     },
     {
       id: "state",
