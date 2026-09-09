@@ -141,7 +141,7 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
         let session = self.session(cluster)?;
         let meta = session.metadata().await?;
         let names = meta.topic_names();
-        let (configs, groups, watermarks) = Self::topic_parts(session, &names).await;
+        let (configs, groups, watermarks) = Self::load_topic_state(session, &names).await;
 
         Ok(meta
             .topics
@@ -164,7 +164,7 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
             cluster: cluster.to_owned(),
             topic: name.to_owned(),
         })?;
-        let (configs, groups, watermarks) = Self::topic_parts(session, &[name]).await;
+        let (configs, groups, watermarks) = Self::load_topic_state(session, &[name]).await;
         let empty = HashMap::new();
 
         Ok(Topic::assemble(
@@ -176,7 +176,7 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
     }
 
     /// Configs, group membership, and watermarks are independent Kafka calls.
-    async fn topic_parts(
+    async fn load_topic_state(
         session: &S,
         names: &[&str],
     ) -> (
