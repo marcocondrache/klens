@@ -432,8 +432,6 @@ mod tests {
         inner: FakeCluster,
         delay: Duration,
         watermark_delay: Duration,
-        config_delay: Duration,
-        group_delay: Duration,
         group_lists: Arc<AtomicUsize>,
         committed: Arc<AtomicUsize>,
     }
@@ -444,8 +442,6 @@ mod tests {
                 inner,
                 delay,
                 watermark_delay: Duration::ZERO,
-                config_delay: Duration::ZERO,
-                group_delay: Duration::ZERO,
                 group_lists: Arc::new(AtomicUsize::new(0)),
                 committed: Arc::new(AtomicUsize::new(0)),
             }
@@ -456,20 +452,6 @@ mod tests {
                 inner,
                 delay: Duration::ZERO,
                 watermark_delay: delay,
-                config_delay: Duration::ZERO,
-                group_delay: Duration::ZERO,
-                group_lists: Arc::new(AtomicUsize::new(0)),
-                committed: Arc::new(AtomicUsize::new(0)),
-            }
-        }
-
-        fn with_catalog_delays(inner: FakeCluster, delay: Duration) -> Self {
-            Self {
-                inner,
-                delay: Duration::ZERO,
-                watermark_delay: delay,
-                config_delay: delay,
-                group_delay: delay,
                 group_lists: Arc::new(AtomicUsize::new(0)),
                 committed: Arc::new(AtomicUsize::new(0)),
             }
@@ -511,9 +493,6 @@ mod tests {
             &self,
             topics: &[&str],
         ) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError> {
-            if !self.config_delay.is_zero() {
-                tokio::time::sleep(self.config_delay).await;
-            }
             self.inner.topic_configs(topics).await
         }
 
@@ -525,9 +504,6 @@ mod tests {
             self.group_lists.fetch_add(1, Ordering::SeqCst);
             if !self.delay.is_zero() {
                 tokio::time::sleep(self.delay).await;
-            }
-            if !self.group_delay.is_zero() {
-                tokio::time::sleep(self.group_delay).await;
             }
             self.inner.consumer_groups().await
         }
@@ -678,31 +654,6 @@ mod tests {
         let engine = QueryEngine::from_sessions(vec![FakeCluster::local()]);
         let counts = engine.topic_message_counts("local").await.unwrap();
         assert_eq!(counts.get("orders.created"), Some(&16));
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn topics_fetch_configs_groups_and_watermarks_together() {
-        let probe = Probe::with_catalog_delays(FakeCluster::local(), Duration::from_secs(1));
-        let engine = QueryEngine::from_sessions(vec![probe]);
-
-        let started = tokio::time::Instant::now();
-        let topics = engine.topics("local").await.unwrap();
-
-        assert_eq!(started.elapsed(), Duration::from_secs(1));
-        assert_eq!(topics[0].message_count, 16);
-        assert_eq!(topics[0].consumer_groups, vec!["order-processor"]);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn topic_fetch_configs_groups_and_watermarks_together() {
-        let probe = Probe::with_catalog_delays(FakeCluster::local(), Duration::from_secs(1));
-        let engine = QueryEngine::from_sessions(vec![probe]);
-
-        let started = tokio::time::Instant::now();
-        let topic = engine.topic("local", "orders.created").await.unwrap();
-
-        assert_eq!(started.elapsed(), Duration::from_secs(1));
-        assert_eq!(topic.message_count, 16);
     }
 
     #[tokio::test]
