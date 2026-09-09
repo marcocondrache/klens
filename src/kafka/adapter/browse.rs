@@ -11,9 +11,7 @@ use tokio::time::timeout;
 
 use super::factory::ClientFactory;
 use crate::kafka::error::KafkaError;
-use crate::kafka::model::{
-    Compression, FetchPlan, Record, RecordHeader, RecordOrder, decode_bytes,
-};
+use crate::kafka::model::{Compression, FetchPlan, Record, RecordHeader, decode_bytes};
 use crate::kafka::registry::decode::{PayloadDecoder, decode_field};
 
 pub async fn consume(
@@ -51,7 +49,7 @@ pub async fn consume(
         .collect();
     let mut records = Vec::new();
 
-    while !remaining.is_empty() && records.len() < plan.limit {
+    while !remaining.is_empty() {
         let leftover = deadline.saturating_duration_since(Instant::now());
         if leftover.is_zero() {
             break;
@@ -81,17 +79,7 @@ pub async fn consume(
         }
     }
 
-    records.sort_by(|left, right| match plan.order {
-        RecordOrder::Newest => left
-            .timestamp
-            .cmp(&right.timestamp)
-            .reverse()
-            .then(left.offset.cmp(&right.offset).reverse()),
-        RecordOrder::Oldest => left
-            .timestamp
-            .cmp(&right.timestamp)
-            .then(left.offset.cmp(&right.offset)),
-    });
+    records.sort_by(|left, right| left.cmp_for_order(right, plan.order));
     records.truncate(plan.limit);
     Ok(records)
 }

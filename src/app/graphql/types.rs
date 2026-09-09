@@ -430,11 +430,10 @@ impl TryFrom<RecordQuery> for domain::RecordQuery {
             timestamps,
             limit: query.limit,
             order: domain::RecordOrder::from(query.order),
-            cursor: query
-                .cursor
-                .as_deref()
-                .map(crate::kafka::RecordCursor::parse)
-                .transpose()?,
+            cursor: match query.cursor.as_deref().map(str::trim) {
+                None | Some("") => None,
+                Some(cursor) => Some(crate::kafka::RecordCursor::parse(cursor)?),
+            },
         })
     }
 }

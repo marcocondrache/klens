@@ -7,6 +7,9 @@ use crate::kafka::error::QueryError;
 ///
 /// Oldest pages treat each value as the next start offset. Newest pages treat
 /// it as the exclusive end of the next window.
+///
+/// A missing cursor is the first page (start at the watermark). Once a cursor
+/// exists, an omitted partition is exhausted and must not restart.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct RecordCursor {
     pub offsets: BTreeMap<i32, i64>,

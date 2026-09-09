@@ -31,6 +31,22 @@ pub struct Record {
 }
 
 impl Record {
+    pub fn cmp_for_order(&self, other: &Self, order: query::RecordOrder) -> std::cmp::Ordering {
+        match order {
+            query::RecordOrder::Newest => self
+                .timestamp
+                .cmp(&other.timestamp)
+                .reverse()
+                .then(self.partition.cmp(&other.partition))
+                .then(self.offset.cmp(&other.offset).reverse()),
+            query::RecordOrder::Oldest => self
+                .timestamp
+                .cmp(&other.timestamp)
+                .then(self.partition.cmp(&other.partition))
+                .then(self.offset.cmp(&other.offset)),
+        }
+    }
+
     /// `term` is expected to be lowercase already; the fetch plan normalises it
     /// once rather than per record.
     pub fn matches(&self, term: &str) -> bool {

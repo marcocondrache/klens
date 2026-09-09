@@ -205,6 +205,51 @@ impl FakeCluster {
         cluster.groups.push(group);
         cluster
     }
+
+    pub fn with_orders_records(mut self, records: Vec<Record>) -> Self {
+        let mut highs = HashMap::<i32, i64>::new();
+        for record in &records {
+            let high = highs.entry(record.partition).or_insert(0);
+            *high = (*high).max(record.offset + 1);
+        }
+
+        let mut ids: Vec<i32> = highs.keys().copied().collect();
+        ids.sort_unstable();
+
+        if let Some(topic) = self
+            .metadata
+            .topics
+            .iter_mut()
+            .find(|topic| topic.name == "orders.created")
+        {
+            topic.partitions = ids
+                .iter()
+                .map(|id| PartitionMetadata {
+                    id: *id,
+                    leader: 1,
+                    replicas: vec![1],
+                    isr: vec![1],
+                })
+                .collect();
+        }
+
+        self.watermarks.insert(
+            "orders.created".into(),
+            ids.into_iter()
+                .map(|id| {
+                    (
+                        id,
+                        Watermarks {
+                            low: 0,
+                            high: highs[&id],
+                        },
+                    )
+                })
+                .collect(),
+        );
+        self.records = records;
+        self
+    }
 }
 
 #[async_trait]
@@ -301,17 +346,7 @@ impl ClusterSession for FakeCluster {
             .cloned()
             .collect();
 
-        records.sort_by(|left, right| match plan.order {
-            crate::kafka::model::RecordOrder::Newest => left
-                .timestamp
-                .cmp(&right.timestamp)
-                .reverse()
-                .then(left.offset.cmp(&right.offset).reverse()),
-            crate::kafka::model::RecordOrder::Oldest => left
-                .timestamp
-                .cmp(&right.timestamp)
-                .then(left.offset.cmp(&right.offset)),
-        });
+        records.sort_by(|left, right| left.cmp_for_order(right, plan.order));
         records.truncate(plan.limit);
         Ok(records)
     }
