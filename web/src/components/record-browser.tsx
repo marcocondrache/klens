@@ -251,9 +251,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
           </SelectContent>
         </Select>
 
-        <span className="ml-auto text-sm text-muted-foreground">
-          {isFetching ? "polling…" : `${records.length} records`}
-        </span>
+        <span className="ml-auto text-sm text-muted-foreground">{records.length} records</span>
       </div>
 
       <DataTable
@@ -261,6 +259,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
         rows={records}
         rowKey={(record) => `${record.partition}-${record.offset}`}
         loading={isFetching && records.length === 0}
+        refreshing={isFetching && records.length > 0}
         pageSize={Number(limit)}
         page={page}
         hasMore={hasMore}

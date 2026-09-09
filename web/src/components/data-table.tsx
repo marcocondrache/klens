@@ -3,6 +3,7 @@ import { ArrowDownIcon, ArrowUpIcon, ChevronLeftIcon, ChevronRightIcon } from "l
 import { cn } from "@/lib/utils";
 
 import { Button } from "@/components/ui/button";
+import { RefreshBar } from "@/components/refresh-bar";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -40,6 +41,7 @@ interface DataTableProps<T> {
   onRowClick?: (row: T) => void;
   selectedKey?: string;
   loading?: boolean;
+  refreshing?: boolean;
   error?: ReactNode;
   emptyState?: ReactNode;
   defaultSort?: { id: string; direction: Direction };
@@ -58,6 +60,7 @@ export function DataTable<T>({
   onRowClick,
   selectedKey,
   loading = false,
+  refreshing = false,
   error,
   emptyState,
   defaultSort,
@@ -122,8 +125,12 @@ export function DataTable<T>({
   return (
     <div className={cn(fill ? "flex min-h-0 flex-1 flex-col gap-3" : "space-y-3")}>
       <div
-        className={cn("overflow-hidden rounded-xl border bg-card", fill && "flex min-h-0 flex-col")}
+        className={cn(
+          "relative overflow-hidden rounded-xl border bg-card",
+          fill && "flex min-h-0 flex-col",
+        )}
       >
+        {refreshing ? <RefreshBar className="absolute inset-x-0 top-0 z-20" /> : null}
         <Table containerClassName={cn(fill && "min-h-0 flex-1 overflow-auto")}>
           {/* A sticky header leaves its row behind, so the cells carry their own
               opaque backdrop and bottom rule. */}
