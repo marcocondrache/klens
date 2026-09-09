@@ -263,8 +263,8 @@ export const topicConfigsQuery = graphql(`
 `);
 
 export const consumerGroupsQuery = graphql(`
-  query ConsumerGroups($cluster: String!) {
-    consumerGroups(cluster: $cluster) {
+  query ConsumerGroups($cluster: String!, $topic: String) {
+    consumerGroups(cluster: $cluster, topic: $topic) {
       ...ConsumerGroupFields
     }
   }

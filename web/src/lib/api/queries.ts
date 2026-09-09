@@ -43,6 +43,8 @@ export const keys = {
   records: (query: RecordQuery) =>
     ["cluster", query.cluster, "topics", query.topic, "records", query] as const,
   groups: (cluster: string) => ["cluster", cluster, "groups"] as const,
+  topicGroups: (cluster: string, topic: string) =>
+    ["cluster", cluster, "topics", topic, "groups"] as const,
   group: (cluster: string, group: string) => ["cluster", cluster, "groups", group] as const,
   subjects: (cluster: string) => ["cluster", cluster, "subjects"] as const,
   acls: (cluster: string) => ["cluster", cluster, "acls"] as const,
@@ -152,13 +154,14 @@ export function useTopic(cluster: string, topic: string) {
   });
 }
 
-export function useTopicConfigs(cluster: string, topic: string) {
+export function useTopicConfigs(cluster: string, topic: string, enabled = true) {
   return useQuery({
     queryKey: keys.topicConfigs(cluster, topic),
     queryFn: async () => {
       const { topicConfigs } = await execute(topicConfigsQuery, { cluster, name: topic });
       return topicConfigs;
     },
+    enabled,
   });
 }
 
@@ -183,13 +186,17 @@ export function useRecords(query: RecordQuery) {
   });
 }
 
-export function useConsumerGroups(cluster: string) {
+export function useConsumerGroups(cluster: string, topic?: string, enabled = true) {
   return useQuery({
-    queryKey: keys.groups(cluster),
+    queryKey: topic ? keys.topicGroups(cluster, topic) : keys.groups(cluster),
     queryFn: async () => {
-      const { consumerGroups } = await execute(consumerGroupsQuery, { cluster });
+      const { consumerGroups } = await execute(consumerGroupsQuery, {
+        cluster,
+        topic: topic ?? null,
+      });
       return consumerGroups;
     },
+    enabled,
   });
 }
 

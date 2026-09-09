@@ -141,9 +141,7 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
         let session = self.session(cluster)?;
         let meta = session.metadata().await?;
         let names = meta.topic_names();
-        let configs = session.topic_configs(&names).await.unwrap_or_default();
-        let groups = session.consumer_groups().await.unwrap_or_default();
-        let watermarks = session.watermarks_many(&names).await;
+        let (configs, groups, watermarks) = Self::load_topics_state(session, &names).await;
 
         Ok(meta
             .topics
@@ -166,16 +164,56 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
             cluster: cluster.to_owned(),
             topic: name.to_owned(),
         })?;
-        let watermarks = session.watermarks(name).await.unwrap_or_default();
-        let configs = session.topic_configs(&[name]).await.unwrap_or_default();
-        let groups = session.consumer_groups().await.unwrap_or_default();
+        let (config, groups, watermarks) = Self::load_topic_state(session, name).await;
 
         Ok(Topic::assemble(
             topic,
             &watermarks,
-            configs.get(name).map(Vec::as_slice),
+            Some(config.as_slice()),
             groups_for_topic(name, &groups),
         ))
+    }
+
+    /// Configs, group membership, and watermarks are independent Kafka calls.
+    async fn load_topic_state(
+        session: &S,
+        name: &str,
+    ) -> (
+        Vec<ConfigEntry>,
+        Vec<GroupSnapshot>,
+        HashMap<i32, Watermarks>,
+    ) {
+        let names = [name];
+        let (configs, groups, watermarks) = tokio::join!(
+            session.topic_configs(&names),
+            session.consumer_groups(),
+            session.watermarks(name),
+        );
+        (
+            configs.unwrap_or_default().remove(name).unwrap_or_default(),
+            groups.unwrap_or_default(),
+            watermarks.unwrap_or_default(),
+        )
+    }
+
+    async fn load_topics_state(
+        session: &S,
+        names: &[&str],
+    ) -> (
+        HashMap<String, Vec<ConfigEntry>>,
+        Vec<GroupSnapshot>,
+        HashMap<String, HashMap<i32, Watermarks>>,
+    ) {
+        let (configs, groups, watermarks) = tokio::join!(
+            session.topic_configs(names),
+            session.consumer_groups(),
+            session.watermarks_many(names),
+        );
+        (
+            configs.unwrap_or_default(),
+            groups.unwrap_or_default(),
+            watermarks,
+        )
     }
 
     pub async fn topic_configs(
@@ -197,9 +235,16 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
             .map(|mut configs| configs.remove(name).unwrap_or_default())
     }
 
-    pub async fn consumer_groups(&self, cluster: &str) -> Result<Vec<ConsumerGroup>, KafkaError> {
+    pub async fn consumer_groups(
+        &self,
+        cluster: &str,
+        topic: Option<&str>,
+    ) -> Result<Vec<ConsumerGroup>, KafkaError> {
         let session = self.session(cluster)?;
         let mut snapshots = session.consumer_groups().await?;
+        if let Some(topic) = topic {
+            snapshots.retain(|group| group.consumes_topic(topic));
+        }
         Self::hydrate_committed_offsets(session, &mut snapshots).await;
         let ends = Self::end_offsets(session, &snapshots).await;
         Ok(snapshots
@@ -237,7 +282,7 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
         cluster: &str,
         id: &str,
     ) -> Result<ConsumerGroup, KafkaError> {
-        self.consumer_groups(cluster)
+        self.consumer_groups(cluster, None)
             .await?
             .into_iter()
             .find(|group| group.id == id)
@@ -609,7 +654,7 @@ mod tests {
         assert_eq!(probe.group_lists.load(Ordering::SeqCst), 1);
         assert_eq!(probe.committed.load(Ordering::SeqCst), 0);
 
-        engine.consumer_groups("local").await.unwrap();
+        engine.consumer_groups("local", None).await.unwrap();
         assert_eq!(probe.committed.load(Ordering::SeqCst), 1);
     }
 
@@ -629,6 +674,48 @@ mod tests {
         let engine = QueryEngine::from_sessions(vec![FakeCluster::local()]);
         let counts = engine.topic_message_counts("local").await.unwrap();
         assert_eq!(counts.get("orders.created"), Some(&16));
+    }
+
+    #[tokio::test]
+    async fn consumer_groups_topic_filter_skips_unrelated_offset_fetches() {
+        let payments = GroupSnapshot {
+            id: "payments-processor".into(),
+            state: crate::kafka::group::GroupState::Stable,
+            protocol: "range".into(),
+            coordinator: 1,
+            members: vec![crate::kafka::group::GroupMember {
+                id: "m-pay".into(),
+                client_id: "payments".into(),
+                host: "127.0.0.1".into(),
+                assignments: vec![crate::kafka::group::MemberAssignment {
+                    topic: "payments.captured".into(),
+                    partitions: vec![0],
+                }],
+            }],
+            committed: Vec::new(),
+        };
+        let cluster = FakeCluster::local()
+            .extra_topic("payments.captured", 1, 4)
+            .extra_group(payments);
+        let probe = Probe::new(cluster, Duration::ZERO);
+        let engine = QueryEngine::from_sessions(vec![probe.clone()]);
+
+        let filtered = engine
+            .consumer_groups("local", Some("orders.created"))
+            .await
+            .unwrap();
+        assert_eq!(
+            filtered
+                .iter()
+                .map(|group| group.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["order-processor"]
+        );
+        assert_eq!(probe.committed.load(Ordering::SeqCst), 1);
+
+        let all = engine.consumer_groups("local", None).await.unwrap();
+        assert_eq!(all.len(), 2);
+        assert_eq!(probe.committed.load(Ordering::SeqCst), 3);
     }
 
     #[tokio::test(start_paused = true)]

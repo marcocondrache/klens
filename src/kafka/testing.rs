@@ -199,6 +199,12 @@ impl FakeCluster {
         );
         cluster
     }
+
+    pub fn extra_group(&self, group: GroupSnapshot) -> Self {
+        let mut cluster = self.clone();
+        cluster.groups.push(group);
+        cluster
+    }
 }
 
 #[async_trait]
