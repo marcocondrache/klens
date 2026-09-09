@@ -1,4 +1,3 @@
-import { GitCommitHorizontalIcon } from "lucide-react";
 import { Link, useLocation } from "react-router";
 
 import { Button } from "@/components/ui/button";
@@ -19,7 +18,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { GithubIcon } from "@/components/icons";
 import { useAcls, useCluster, useSchemaSubjects } from "@/lib/api/queries";
-import { COMMIT_SHA, COMMIT_URL, REPO_URL, VERSION } from "@/lib/build";
+import { RELEASE_URL, REPO_URL, VERSION } from "@/lib/build";
 import { clusterPath, useClusterName } from "@/lib/clusters";
 import { formatCount } from "@/lib/format";
 import { SECTIONS } from "@/lib/sections";
@@ -85,17 +84,16 @@ export function AppSidebar() {
             <TooltipTrigger
               render={
                 <a
-                  href={COMMIT_URL}
+                  href={RELEASE_URL}
                   target="_blank"
                   rel="noreferrer"
-                  className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                  className="flex min-w-0 items-center text-xs text-muted-foreground transition-colors hover:text-foreground"
                 />
               }
             >
-              <GitCommitHorizontalIcon className="size-3.5 shrink-0" />
-              <span className="numeric truncate font-mono">{COMMIT_SHA}</span>
+              <span className="numeric truncate font-mono">v{VERSION}</span>
             </TooltipTrigger>
-            <TooltipContent>klens v{VERSION}</TooltipContent>
+            <TooltipContent>GitHub release</TooltipContent>
           </Tooltip>
 
           <Tooltip>
