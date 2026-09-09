@@ -317,6 +317,7 @@ export const recordsQuery = graphql(`
         ...TopicRecordFields
       }
       hasMore
+      nextCursor
     }
   }
 `);

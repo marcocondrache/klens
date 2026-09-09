@@ -33,23 +33,9 @@ impl RecordLimits {
         Ok((limit as usize).min(self.max_limit))
     }
 
-    pub fn clamp_page(&self, page: i32) -> Result<usize, QueryError> {
-        if page < 0 {
-            return Err(QueryError::NegativePage);
-        }
-
-        Ok(page as usize)
-    }
-
     /// Searching widens the window because most records read are discarded by
     /// the filter before they reach the page.
-    pub fn window_span(
-        &self,
-        partition_count: usize,
-        limit: usize,
-        searching: bool,
-        page: usize,
-    ) -> (i64, i64) {
+    pub fn window_take(&self, partition_count: usize, limit: usize, searching: bool) -> i64 {
         let partitions = partition_count.max(1);
         let multiplier = if searching {
             self.search_window_multiplier
@@ -57,11 +43,9 @@ impl RecordLimits {
             self.window_multiplier
         };
 
-        let take = (limit.saturating_mul(multiplier))
+        (limit.saturating_mul(multiplier))
             .div_ceil(partitions)
-            .max(self.min_window) as i64;
-        let skip = (page.saturating_mul(limit)).div_ceil(partitions) as i64;
-        (skip, take)
+            .max(self.min_window) as i64
     }
 }
 

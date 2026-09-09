@@ -1,3 +1,4 @@
+pub mod cursor;
 pub mod plan;
 pub mod query;
 
@@ -51,6 +52,7 @@ impl Record {
 pub struct RecordPage {
     pub records: Vec<Record>,
     pub has_more: bool,
+    pub next_cursor: Option<String>,
 }
 
 /// Best-effort text for bytes that carry no schema.

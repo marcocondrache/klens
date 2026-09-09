@@ -333,16 +333,23 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
         let partitions = self.resolve_partitions(cluster, session, &query).await?;
 
         let limit = self.limits.clamp_limit(query.limit)?;
-        let page = self.limits.clamp_page(query.page)?;
         query.timestamps.validate()?;
 
         let watermarks = Self::window_watermarks(session, &query, &partitions).await?;
 
-        let plan = FetchPlan::build(&query, &partitions, &watermarks, limit, page, self.limits);
+        let plan = FetchPlan::build(&query, &partitions, &watermarks, limit, self.limits);
         let records = session.records(&plan).await?;
+        let next_cursor = crate::kafka::record::plan::next_cursor(
+            plan.order,
+            &plan.windows,
+            &watermarks,
+            &records,
+            plan.limit,
+        );
         Ok(RecordPage {
             records,
-            has_more: plan.has_more,
+            has_more: next_cursor.is_some(),
+            next_cursor: next_cursor.map(|cursor| cursor.encode()),
         })
     }
 
@@ -802,7 +809,7 @@ mod tests {
             timestamps: TimestampRange::default(),
             limit: 50,
             order: RecordOrder::Oldest,
-            page: 0,
+            cursor: None,
         }
     }
 

@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { execute } from "@/graphql/execute";
 import { clusterPath } from "@/lib/clusters";
@@ -26,6 +26,8 @@ import {
 import { subscribe } from "./subscribe";
 import type { RecordQuery, SearchResult, ThroughputPoint, Topic, TopicRate } from "./types";
 
+export type RecordsFilter = Omit<RecordQuery, "cursor">;
+
 export const keys = {
   clusters: () => ["clusters"] as const,
   cluster: (cluster: string) => ["cluster", cluster] as const,
@@ -40,7 +42,7 @@ export const keys = {
     ["cluster", cluster, "topics", topic, "configs"] as const,
   topicThroughput: (cluster: string, topic: string) =>
     ["cluster", cluster, "topics", topic, "throughput"] as const,
-  records: (query: RecordQuery) =>
+  records: (query: RecordsFilter) =>
     ["cluster", query.cluster, "topics", query.topic, "records", query] as const,
   groups: (cluster: string) => ["cluster", cluster, "groups"] as const,
   topicGroups: (cluster: string, topic: string) =>
@@ -175,14 +177,17 @@ export function useTopicThroughput(cluster: string, topic: string) {
   });
 }
 
-export function useRecords(query: RecordQuery) {
-  return useQuery({
+export function useRecords(query: RecordsFilter) {
+  return useInfiniteQuery({
     queryKey: keys.records(query),
-    queryFn: async () => {
-      const { records } = await execute(recordsQuery, { query });
+    queryFn: async ({ pageParam }) => {
+      const { records } = await execute(recordsQuery, {
+        query: { ...query, cursor: pageParam },
+      });
       return records;
     },
-    placeholderData: (previous) => previous,
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
   });
 }
 
