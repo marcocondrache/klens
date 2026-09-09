@@ -1,22 +1,9 @@
-import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "path";
 import babel from "@rolldown/plugin-babel";
 import tailwindcss from "@tailwindcss/vite";
 import react, { reactCompilerPreset } from "@vitejs/plugin-react";
 import { defineConfig, lazyPlugins } from "vite-plus";
-
-function commitSha() {
-  try {
-    return execSync("git rev-parse --short HEAD", {
-      stdio: ["ignore", "pipe", "ignore"],
-    })
-      .toString()
-      .trim();
-  } catch {
-    return "unknown";
-  }
-}
 
 function appVersion() {
   try {
@@ -56,7 +43,6 @@ export default defineConfig({
   plugins: lazyPlugins(() => [react(), babel({ presets: [reactCompilerPreset()] }), tailwindcss()]),
   define: {
     __APP_VERSION__: JSON.stringify(appVersion()),
-    __COMMIT_SHA__: JSON.stringify(commitSha()),
   },
   server: {
     proxy: {
