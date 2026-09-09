@@ -9,6 +9,7 @@ import { CopyButton } from "@/components/copy-button";
 import { DataTable, type Column } from "@/components/data-table";
 import { Pill } from "@/components/status";
 import type { ConfigEntry } from "@/lib/api/types";
+import { cn } from "@/lib/utils";
 
 const SOURCE_LABEL: Record<ConfigEntry["source"], string> = {
   DYNAMIC_TOPIC_CONFIG: "topic override",
@@ -20,9 +21,11 @@ const SOURCE_LABEL: Record<ConfigEntry["source"], string> = {
 export function ConfigTable({
   entries,
   loading = false,
+  fill = false,
 }: {
   entries: ConfigEntry[];
   loading?: boolean;
+  fill?: boolean;
 }) {
   const [term, setTerm] = useState("");
   const [onlyOverrides, setOnlyOverrides] = useState(false);
@@ -90,8 +93,8 @@ export function ConfigTable({
   ];
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className={cn(fill ? "flex min-h-0 flex-1 flex-col gap-3" : "space-y-3")}>
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
         <InputGroup className="w-full max-w-xs">
           <InputGroupAddon>
             <SearchIcon />
@@ -120,6 +123,7 @@ export function ConfigTable({
         loading={loading}
         pageSize={50}
         defaultSort={{ id: "name", direction: "asc" }}
+        fill={fill}
       />
     </div>
   );

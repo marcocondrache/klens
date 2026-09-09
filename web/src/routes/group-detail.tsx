@@ -175,7 +175,7 @@ export function ConsumerGroupPage() {
   ];
 
   return (
-    <div className="space-y-5">
+    <div className="flex min-h-0 flex-1 flex-col gap-5">
       <PageHeader
         title={
           <span className="flex items-center gap-1">
@@ -231,8 +231,12 @@ export function ConsumerGroupPage() {
         />
       </StatGrid>
 
-      <Tabs value={tab} onValueChange={(value) => selectTab(String(value))}>
-        <TabsList variant="line">
+      <Tabs
+        value={tab}
+        onValueChange={(value) => selectTab(String(value))}
+        className="min-h-0 flex-1"
+      >
+        <TabsList variant="line" className="shrink-0">
           <TabsTrigger value="offsets">
             Offsets
             <span className="numeric ml-1.5 text-muted-foreground">
@@ -247,7 +251,7 @@ export function ConsumerGroupPage() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="offsets" className="mt-4">
+        <TabsContent value="offsets" className="mt-4 flex min-h-0 flex-col">
           <DataTable
             columns={offsetColumns}
             rows={group?.offsets ?? []}
@@ -256,10 +260,11 @@ export function ConsumerGroupPage() {
             pageSize={25}
             defaultSort={{ id: "lag", direction: "desc" }}
             onRowClick={(offset) => navigate(clusterPath(cluster, "topics", offset.topic))}
+            fill
           />
         </TabsContent>
 
-        <TabsContent value="members" className="mt-4">
+        <TabsContent value="members" className="mt-4 flex min-h-0 flex-col">
           <DataTable
             columns={memberColumns}
             rows={group?.members ?? []}
@@ -270,6 +275,7 @@ export function ConsumerGroupPage() {
                 This group has no active members.
               </p>
             }
+            fill
           />
         </TabsContent>
       </Tabs>

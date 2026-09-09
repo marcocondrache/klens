@@ -95,7 +95,7 @@ export function NodesPage() {
   ];
 
   return (
-    <div className="space-y-5">
+    <div className="flex min-h-0 flex-1 flex-col gap-5">
       <PageHeader
         title="Brokers"
         description={`${brokers.length} brokers · Kafka ${info?.version ?? "—"}`}
@@ -111,6 +111,7 @@ export function NodesPage() {
         }
         defaultSort={{ id: "id", direction: "asc" }}
         onRowClick={(broker) => navigate(clusterPath(cluster, "nodes", String(broker.id)))}
+        fill
       />
     </div>
   );

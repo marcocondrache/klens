@@ -106,7 +106,7 @@ export function AclsPage() {
   ];
 
   return (
-    <div className="space-y-5">
+    <div className="flex min-h-0 flex-1 flex-col gap-5">
       <PageHeader title="ACLs" description={`${rows.length} access control entries`} />
 
       <div className="flex flex-wrap items-center gap-3">
@@ -145,6 +145,7 @@ export function AclsPage() {
         loading={isPending}
         defaultSort={{ id: "principal", direction: "asc" }}
         pageSize={30}
+        fill
       />
     </div>
   );
