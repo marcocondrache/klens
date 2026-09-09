@@ -35,9 +35,9 @@ export type RecordOrder = "NEWEST" | "OLDEST";
 
 export type RecordQuery = {
   cluster: string;
+  cursor: string | null | undefined;
   limit: number;
   order: RecordOrder;
-  page: number | null | undefined;
   partition: number | null | undefined;
   search: string;
   timestampFrom: string | null | undefined;
@@ -529,6 +529,7 @@ export type RecordsQueryVariables = Exact<{
 export type RecordsQuery = {
   records: {
     hasMore: boolean;
+    nextCursor: string | null;
     records: Array<{
       topic: string;
       partition: number;
@@ -1158,6 +1159,7 @@ export const RecordsDocument = new TypedDocumentString(`
       ...TopicRecordFields
     }
     hasMore
+    nextCursor
   }
 }
     fragment RecordHeaderFields on RecordHeader {

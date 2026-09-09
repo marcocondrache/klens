@@ -395,6 +395,7 @@ pub(super) struct TopicRecord {
 pub(super) struct RecordPage {
     pub records: Vec<TopicRecord>,
     pub has_more: bool,
+    pub next_cursor: Option<String>,
 }
 
 #[derive(GraphQLEnum, Clone, Copy)]
@@ -413,7 +414,7 @@ pub(super) struct RecordQuery {
     pub timestamp_to: Option<DateTime<Utc>>,
     pub limit: i32,
     pub order: RecordOrder,
-    pub page: Option<i32>,
+    pub cursor: Option<String>,
 }
 
 impl TryFrom<RecordQuery> for domain::RecordQuery {
@@ -429,7 +430,11 @@ impl TryFrom<RecordQuery> for domain::RecordQuery {
             timestamps,
             limit: query.limit,
             order: domain::RecordOrder::from(query.order),
-            page: query.page.unwrap_or(0),
+            cursor: query
+                .cursor
+                .as_deref()
+                .map(crate::kafka::RecordCursor::parse)
+                .transpose()?,
         })
     }
 }
@@ -464,6 +469,7 @@ impl From<domain::RecordPage> for RecordPage {
         Self {
             records: page.records.into_iter().map(TopicRecord::from).collect(),
             has_more: page.has_more,
+            next_cursor: page.next_cursor,
         }
     }
 }

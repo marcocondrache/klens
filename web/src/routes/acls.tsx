@@ -10,14 +10,60 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { DataTable, type Column } from "@/components/data-table";
+import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { Pill } from "@/components/status";
 import { useAcls } from "@/lib/api/queries";
 import { useClusterName } from "@/lib/clusters";
 import type { Acl } from "@/lib/api/types";
+import { createAppColumnHelper } from "@/lib/table";
 
 const RESOURCE_TYPES = ["TOPIC", "GROUP", "CLUSTER", "TRANSACTIONAL_ID"];
+
+const columnHelper = createAppColumnHelper<Acl>();
+
+const columns = columnHelper.columns([
+  columnHelper.accessor("principal", {
+    header: "Principal",
+    cell: ({ getValue }) => <span className="font-mono text-sm">{getValue()}</span>,
+  }),
+  columnHelper.accessor("resourceType", {
+    header: "Resource type",
+    cell: ({ getValue }) => <Pill>{getValue().toLowerCase()}</Pill>,
+  }),
+  columnHelper.accessor("resourceName", {
+    header: "Resource",
+    cell: ({ row }) => (
+      <span className="font-mono text-sm">
+        {row.original.resourceName}
+        {row.original.patternType === "PREFIXED" ? (
+          <span className="text-muted-foreground">*</span>
+        ) : null}
+      </span>
+    ),
+  }),
+  columnHelper.accessor("patternType", {
+    id: "pattern",
+    header: "Pattern",
+    cell: ({ getValue }) => <span>{getValue().toLowerCase()}</span>,
+  }),
+  columnHelper.accessor("operation", {
+    header: "Operation",
+  }),
+  columnHelper.display({
+    id: "host",
+    header: "Host",
+    meta: { align: "right" },
+    cell: ({ row }) => <span className="font-mono text-sm">{row.original.host}</span>,
+  }),
+  columnHelper.accessor("permission", {
+    header: "Permission",
+    meta: { align: "right" },
+    cell: ({ getValue }) => (
+      <Pill tone={getValue() === "ALLOW" ? "ok" : "error"}>{getValue()}</Pill>
+    ),
+  }),
+]);
 
 export function AclsPage() {
   const cluster = useClusterName();
@@ -49,61 +95,6 @@ export function AclsPage() {
       return true;
     });
   }, [entries, term, resource]);
-
-  const columns: Array<Column<Acl>> = [
-    {
-      id: "principal",
-      header: "Principal",
-      sortValue: (entry) => entry.principal,
-      cell: (entry) => <span className="font-mono text-sm">{entry.principal}</span>,
-    },
-    {
-      id: "resourceType",
-      header: "Resource type",
-      sortValue: (entry) => entry.resourceType,
-      cell: (entry) => <Pill>{entry.resourceType.toLowerCase()}</Pill>,
-    },
-    {
-      id: "resourceName",
-      header: "Resource",
-      sortValue: (entry) => entry.resourceName,
-      cell: (entry) => (
-        <span className="font-mono text-sm">
-          {entry.resourceName}
-          {entry.patternType === "PREFIXED" ? (
-            <span className="text-muted-foreground">*</span>
-          ) : null}
-        </span>
-      ),
-    },
-    {
-      id: "pattern",
-      header: "Pattern",
-      sortValue: (entry) => entry.patternType,
-      cell: (entry) => <span>{entry.patternType.toLowerCase()}</span>,
-    },
-    {
-      id: "operation",
-      header: "Operation",
-      sortValue: (entry) => entry.operation,
-      cell: (entry) => entry.operation,
-    },
-    {
-      id: "host",
-      header: "Host",
-      align: "right",
-      cell: (entry) => <span className="font-mono text-sm">{entry.host}</span>,
-    },
-    {
-      id: "permission",
-      header: "Permission",
-      align: "right",
-      sortValue: (entry) => entry.permission,
-      cell: (entry) => (
-        <Pill tone={entry.permission === "ALLOW" ? "ok" : "error"}>{entry.permission}</Pill>
-      ),
-    },
-  ];
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
@@ -138,8 +129,8 @@ export function AclsPage() {
 
       <DataTable
         columns={columns}
-        rows={rows}
-        rowKey={(entry) =>
+        data={rows}
+        getRowId={(entry) =>
           `${entry.principal}-${entry.resourceType}-${entry.resourceName}-${entry.operation}`
         }
         loading={isPending}

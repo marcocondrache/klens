@@ -3,6 +3,7 @@ use std::ops::{Bound, RangeBounds};
 use chrono::{DateTime, Utc};
 
 use crate::kafka::error::QueryError;
+use crate::kafka::record::cursor::RecordCursor;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RecordOrder {
@@ -18,7 +19,7 @@ pub struct RecordQuery {
     pub timestamps: TimestampRange,
     pub limit: i32,
     pub order: RecordOrder,
-    pub page: i32,
+    pub cursor: Option<RecordCursor>,
 }
 
 /// UTC bounds for a record browse. Either side may be unbounded.

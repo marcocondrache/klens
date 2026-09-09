@@ -29,6 +29,7 @@ pub use model::{
     RecordPage, RecordQuery, SearchHit, TimestampRange, Topic,
 };
 pub use rates::{RateStore, ThroughputPoint, TopicRate};
+pub use record::cursor::RecordCursor;
 pub use session::ClusterSession;
 
 #[cfg(test)]

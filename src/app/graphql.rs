@@ -256,7 +256,7 @@ mod tests {
                     search: "ord_1"
                     limit: 10
                     order: OLDEST
-                }) { records { key } hasMore }
+                }) { records { key } hasMore nextCursor }
                 search(cluster: "local", term: "order") { kind id }
             }"#,
             None,
@@ -271,7 +271,7 @@ mod tests {
         assert_eq!(
             serde_json::to_value(value).unwrap(),
             serde_json::json!({
-                "records": { "records": [{ "key": "ord_1" }], "hasMore": true },
+                "records": { "records": [{ "key": "ord_1" }], "hasMore": false, "nextCursor": null },
                 "search": [
                     { "kind": "TOPIC", "id": "orders.created" },
                     { "kind": "GROUP", "id": "order-processor" },
@@ -294,8 +294,7 @@ mod tests {
                     search: ""
                     limit: 5
                     order: OLDEST
-                    page: 0
-                }) { records { key } hasMore }
+                }) { records { key } hasMore nextCursor }
             }"#,
             None,
             &schema,
@@ -309,18 +308,21 @@ mod tests {
         let page = serde_json::to_value(value).unwrap();
         assert_eq!(page["records"]["hasMore"], true);
         assert_eq!(page["records"]["records"].as_array().unwrap().len(), 5);
+        let cursor = page["records"]["nextCursor"].as_str().unwrap();
 
         let (value, errors) = execute(
-            r#"{
-                records(query: {
+            &format!(
+                r#"{{
+                records(query: {{
                     cluster: "local"
                     topic: "orders.created"
                     search: ""
                     limit: 5
                     order: OLDEST
-                    page: 3
-                }) { records { key } hasMore }
-            }"#,
+                    cursor: "{cursor}"
+                }}) {{ records {{ key }} hasMore nextCursor }}
+            }}"#
+            ),
             None,
             &schema,
             &Variables::new(),
@@ -330,10 +332,8 @@ mod tests {
         .unwrap();
 
         assert!(errors.is_empty());
-        assert_eq!(
-            serde_json::to_value(value).unwrap()["records"]["hasMore"],
-            false
-        );
+        let next = serde_json::to_value(value).unwrap();
+        assert!(!next["records"]["records"].as_array().unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -351,7 +351,7 @@ mod tests {
                     timestampTo: "2023-11-14T22:13:25Z"
                     limit: 50
                     order: OLDEST
-                }) { records { key timestamp } hasMore }
+                }) { records { key timestamp } hasMore nextCursor }
             }"#,
             None,
             &schema,
@@ -371,7 +371,8 @@ mod tests {
                         { "key": "ord_4", "timestamp": "2023-11-14T22:13:24Z" },
                         { "key": "ord_5", "timestamp": "2023-11-14T22:13:25Z" }
                     ],
-                    "hasMore": false
+                    "hasMore": false,
+                    "nextCursor": null
                 }
             })
         );

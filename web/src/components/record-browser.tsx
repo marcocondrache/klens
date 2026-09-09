@@ -24,12 +24,13 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { DataTable, type Column } from "@/components/data-table";
+import { DataTable } from "@/components/data-table";
 import { PayloadView } from "@/components/payload-view";
 import { Pill } from "@/components/status";
 import { useRecords } from "@/lib/api/queries";
 import { formatBytes, formatRelative, formatTimestamp, fromDatetimeLocalValue } from "@/lib/format";
 import type { RecordOrder, Topic, TopicRecord } from "@/lib/api/types";
+import { createAppColumnHelper } from "@/lib/table";
 import { cn } from "@/lib/utils";
 
 const LIMITS = ["25", "50", "100"] as const;
@@ -49,6 +50,57 @@ function preview(value: string | null) {
   return value.replace(/\s+/g, " ").trim();
 }
 
+const columnHelper = createAppColumnHelper<TopicRecord>();
+
+const columns = columnHelper.columns([
+  columnHelper.accessor("partition", {
+    header: "Part",
+    meta: { align: "right", headerClassName: "w-16" },
+    cell: ({ getValue }) => <span className="numeric font-mono">{getValue()}</span>,
+  }),
+  columnHelper.accessor("offset", {
+    header: "Offset",
+    meta: { align: "right", headerClassName: "w-28" },
+    cell: ({ getValue }) => <span className="numeric font-mono">{getValue()}</span>,
+  }),
+  columnHelper.accessor((record) => record.key ?? "", {
+    id: "key",
+    header: "Key",
+    cell: ({ row }) => (
+      <span className="block max-w-48 truncate font-mono text-sm text-brand">
+        {row.original.key ?? "null"}
+      </span>
+    ),
+  }),
+  columnHelper.display({
+    id: "value",
+    header: "Value",
+    cell: ({ row }) => (
+      <span className="block max-w-md truncate font-mono text-sm text-muted-foreground lg:max-w-2xl">
+        {preview(row.original.value)}
+      </span>
+    ),
+  }),
+  columnHelper.accessor("sizeBytes", {
+    id: "size",
+    header: "Size",
+    meta: { align: "right" },
+    cell: ({ getValue }) => <span className="numeric">{formatBytes(getValue())}</span>,
+  }),
+  columnHelper.accessor("timestamp", {
+    header: "Timestamp",
+    meta: { align: "right" },
+    cell: ({ getValue }) => (
+      <Tooltip>
+        <TooltipTrigger render={<span className="numeric cursor-default whitespace-nowrap" />}>
+          {formatTimestamp(getValue())}
+        </TooltipTrigger>
+        <TooltipContent>{formatRelative(getValue())}</TooltipContent>
+      </Tooltip>
+    ),
+  }),
+]);
+
 export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topic }) {
   const [partition, setPartition] = useState<string>("all");
   const [term, setTerm] = useState("");
@@ -56,13 +108,13 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
   const [to, setTo] = useState("");
   const [limit, setLimit] = useState("50");
   const [order, setOrder] = useState<RecordOrder>("NEWEST");
-  const [page, setPage] = useState(0);
+  const [pageIndex, setPageIndex] = useState(0);
   const [selected, setSelected] = useState<TopicRecord | null>(null);
   const [expanded, setExpanded] = useState(false);
 
   const timestampFrom = fromDatetimeLocalValue(from);
   const timestampTo = fromDatetimeLocalValue(to);
-  const { data, isFetching } = useRecords({
+  const { data, isFetching, hasNextPage, fetchNextPage, isFetchingNextPage } = useRecords({
     cluster,
     topic: topic.name,
     partition: partition === "all" ? null : Number(partition),
@@ -71,75 +123,31 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
     timestampTo,
     limit: Number(limit),
     order,
-    page,
   });
-  const records = data?.records ?? [];
-  const hasMore = data?.hasMore ?? false;
+  const pages = data?.pages ?? [];
+  const currentPage = pages[pageIndex];
+  const records = currentPage?.records ?? [];
+  const hasCachedNextPage = Boolean(pages[pageIndex + 1]);
+  const hasMore = hasCachedNextPage || (pageIndex === pages.length - 1 && Boolean(hasNextPage));
+
+  function resetPages() {
+    setPageIndex(0);
+  }
+
+  async function goToNextPage() {
+    const nextPageIndex = pageIndex + 1;
+    if (!pages[nextPageIndex]) {
+      const result = await fetchNextPage();
+      if (!result.data?.pages[nextPageIndex]) return;
+    }
+    setPageIndex(nextPageIndex);
+  }
   const partitionItems = [
     { value: "all", label: "All partitions" },
     ...topic.partitions.map((part) => ({
       value: String(part.id),
       label: `Partition ${part.id}`,
     })),
-  ];
-
-  const columns: Array<Column<TopicRecord>> = [
-    {
-      id: "partition",
-      header: "Part",
-      align: "right",
-      sortValue: (record) => record.partition,
-      cell: (record) => <span className="numeric font-mono">{record.partition}</span>,
-      headerClassName: "w-16",
-    },
-    {
-      id: "offset",
-      header: "Offset",
-      align: "right",
-      sortValue: (record) => record.offset,
-      cell: (record) => <span className="numeric font-mono">{record.offset}</span>,
-      headerClassName: "w-28",
-    },
-    {
-      id: "key",
-      header: "Key",
-      sortValue: (record) => record.key ?? "",
-      cell: (record) => (
-        <span className="block max-w-48 truncate font-mono text-sm text-brand">
-          {record.key ?? "null"}
-        </span>
-      ),
-    },
-    {
-      id: "value",
-      header: "Value",
-      cell: (record) => (
-        <span className="block max-w-md truncate font-mono text-sm text-muted-foreground lg:max-w-2xl">
-          {preview(record.value)}
-        </span>
-      ),
-    },
-    {
-      id: "size",
-      header: "Size",
-      align: "right",
-      sortValue: (record) => record.sizeBytes,
-      cell: (record) => <span className="numeric">{formatBytes(record.sizeBytes)}</span>,
-    },
-    {
-      id: "timestamp",
-      header: "Timestamp",
-      align: "right",
-      sortValue: (record) => record.timestamp,
-      cell: (record) => (
-        <Tooltip>
-          <TooltipTrigger render={<span className="numeric cursor-default whitespace-nowrap" />}>
-            {formatTimestamp(record.timestamp)}
-          </TooltipTrigger>
-          <TooltipContent>{formatRelative(record.timestamp)}</TooltipContent>
-        </Tooltip>
-      ),
-    },
   ];
 
   return (
@@ -153,7 +161,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
             value={term}
             onChange={(event) => {
               setTerm(event.target.value);
-              setPage(0);
+              resetPages();
             }}
             placeholder="Search key or value…"
           />
@@ -169,7 +177,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
             max={to || undefined}
             onChange={(event) => {
               setFrom(event.target.value);
-              setPage(0);
+              resetPages();
             }}
             aria-label="From timestamp"
           />
@@ -185,7 +193,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
             min={from || undefined}
             onChange={(event) => {
               setTo(event.target.value);
-              setPage(0);
+              resetPages();
             }}
             aria-label="To timestamp"
           />
@@ -196,7 +204,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
           items={partitionItems}
           onValueChange={(value) => {
             setPartition(String(value));
-            setPage(0);
+            resetPages();
           }}
         >
           <SelectTrigger size="sm" className="w-40">
@@ -216,7 +224,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
           items={ORDER_ITEMS}
           onValueChange={(value) => {
             setOrder(value as RecordOrder);
-            setPage(0);
+            resetPages();
           }}
         >
           <SelectTrigger size="sm" className="w-36">
@@ -236,7 +244,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
           items={LIMIT_ITEMS}
           onValueChange={(value) => {
             setLimit(String(value));
-            setPage(0);
+            resetPages();
           }}
         >
           <SelectTrigger size="sm" className="w-28">
@@ -256,14 +264,18 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
 
       <DataTable
         columns={columns}
-        rows={records}
-        rowKey={(record) => `${record.partition}-${record.offset}`}
-        loading={isFetching && records.length === 0}
-        refreshing={isFetching && records.length > 0}
+        data={records}
+        getRowId={(record) => `${record.partition}-${record.offset}`}
+        loading={isFetching && records.length === 0 && !isFetchingNextPage}
+        refreshing={(isFetching && records.length > 0) || isFetchingNextPage}
         pageSize={Number(limit)}
-        page={page}
-        hasMore={hasMore}
-        onPageChange={setPage}
+        pageIndex={pageIndex}
+        hasMore={hasMore && !isFetchingNextPage}
+        canPreviousPage={pageIndex > 0}
+        onPreviousPage={() => setPageIndex((current) => Math.max(0, current - 1))}
+        onNextPage={() => {
+          void goToNextPage();
+        }}
         onRowClick={setSelected}
         selectedKey={selected ? `${selected.partition}-${selected.offset}` : undefined}
         fill

@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CopyButton } from "@/components/copy-button";
-import { DataTable, type Column } from "@/components/data-table";
+import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { Stat, StatGrid } from "@/components/stat";
 import { GroupStateBadge, Pill } from "@/components/status";
@@ -11,8 +11,57 @@ import { useConsumerGroup } from "@/lib/api/queries";
 import { clusterPath, useClusterName } from "@/lib/clusters";
 import { formatCount, formatNumber } from "@/lib/format";
 import type { ConsumerGroupMember, GroupOffset } from "@/lib/api/types";
+import { createAppColumnHelper } from "@/lib/table";
 
 const TABS = ["offsets", "members"];
+
+const offsetColumnHelper = createAppColumnHelper<GroupOffset>();
+const memberColumnHelper = createAppColumnHelper<ConsumerGroupMember>();
+
+const memberColumns = memberColumnHelper.columns([
+  memberColumnHelper.accessor("clientId", {
+    header: "Client ID",
+    cell: ({ getValue }) => <span className="font-mono text-sm">{getValue()}</span>,
+  }),
+  memberColumnHelper.display({
+    id: "id",
+    header: "Member ID",
+    cell: ({ row }) => (
+      <span className="flex items-center gap-1">
+        <span className="max-w-72 truncate font-mono text-sm">{row.original.id}</span>
+        <CopyButton value={row.original.id} label="Copy member ID" />
+      </span>
+    ),
+  }),
+  memberColumnHelper.accessor("host", {
+    header: "Host",
+    cell: ({ getValue }) => <span className="font-mono text-sm">{getValue()}</span>,
+  }),
+  memberColumnHelper.display({
+    id: "assignments",
+    header: "Assignments",
+    cell: ({ row }) => (
+      <span className="flex flex-wrap gap-1">
+        {row.original.assignments.map((assignment) => (
+          <Pill key={assignment.topic} className="font-mono">
+            {assignment.topic}
+            <span className="text-muted-foreground">[{assignment.partitions.length}]</span>
+          </Pill>
+        ))}
+      </span>
+    ),
+  }),
+  memberColumnHelper.accessor(
+    (member) =>
+      member.assignments.reduce((sum, assignment) => sum + assignment.partitions.length, 0),
+    {
+      id: "partitions",
+      header: "Partitions",
+      meta: { align: "right" },
+      cell: ({ getValue }) => getValue(),
+    },
+  ),
+]);
 
 export function ConsumerGroupPage() {
   const cluster = useClusterName();
@@ -49,130 +98,77 @@ export function ConsumerGroupPage() {
     (group?.members ?? []).map((member) => [member.id, member.clientId] as const),
   );
 
-  const offsetColumns: Array<Column<GroupOffset>> = [
-    {
-      id: "topic",
+  const offsetColumns = offsetColumnHelper.columns([
+    offsetColumnHelper.accessor("topic", {
       header: "Topic",
-      sortValue: (offset) => offset.topic,
-      cell: (offset) => (
+      cell: ({ getValue }) => (
         <Link
-          to={clusterPath(cluster, "topics", offset.topic)}
+          to={clusterPath(cluster, "topics", getValue())}
           className="font-mono text-sm hover:text-brand hover:underline"
           onClick={(event) => event.stopPropagation()}
         >
-          {offset.topic}
+          {getValue()}
         </Link>
       ),
-    },
-    {
-      id: "partition",
+    }),
+    offsetColumnHelper.accessor("partition", {
       header: "Partition",
-      align: "right",
-      sortValue: (offset) => offset.partition,
-      cell: (offset) => <span className="numeric font-mono">{offset.partition}</span>,
-    },
-    {
+      meta: { align: "right" },
+      cell: ({ getValue }) => <span className="numeric font-mono">{getValue()}</span>,
+    }),
+    offsetColumnHelper.accessor("currentOffset", {
       id: "current",
       header: "Committed",
-      align: "right",
-      sortValue: (offset) => offset.currentOffset,
-      cell: (offset) => formatNumber(offset.currentOffset),
-    },
-    {
+      meta: { align: "right" },
+      cell: ({ getValue }) => formatNumber(getValue()),
+    }),
+    offsetColumnHelper.accessor("endOffset", {
       id: "end",
       header: "End offset",
-      align: "right",
-      sortValue: (offset) => offset.endOffset,
-      cell: (offset) => formatNumber(offset.endOffset),
-    },
-    {
-      id: "lag",
+      meta: { align: "right" },
+      cell: ({ getValue }) => formatNumber(getValue()),
+    }),
+    offsetColumnHelper.accessor("lag", {
       header: "Lag",
-      align: "right",
-      sortValue: (offset) => offset.lag,
-      cell: (offset) => (
-        <span className="flex items-center justify-end gap-2">
-          <span className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
-            <span
-              className={
-                offset.lag === 0
-                  ? "block h-full bg-emerald-500/70"
-                  : offset.lag > maxLag / 2
-                    ? "block h-full bg-rose-500/70"
-                    : "block h-full bg-amber-500/70"
-              }
-              style={{
-                width: `${Math.max(offset.lag === 0 ? 0 : 4, (offset.lag / maxLag) * 100)}%`,
-              }}
-            />
+      meta: { align: "right" },
+      cell: ({ getValue }) => {
+        const lag = getValue();
+
+        return (
+          <span className="flex items-center justify-end gap-2">
+            <span className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
+              <span
+                className={
+                  lag === 0
+                    ? "block h-full bg-emerald-500/70"
+                    : lag > maxLag / 2
+                      ? "block h-full bg-rose-500/70"
+                      : "block h-full bg-amber-500/70"
+                }
+                style={{
+                  width: `${Math.max(lag === 0 ? 0 : 4, (lag / maxLag) * 100)}%`,
+                }}
+              />
+            </span>
+            <span className="numeric w-16 font-mono">{formatNumber(lag)}</span>
           </span>
-          <span className="numeric w-16 font-mono">{formatNumber(offset.lag)}</span>
-        </span>
-      ),
-    },
-    {
+        );
+      },
+    }),
+    offsetColumnHelper.accessor((offset) => offset.memberId ?? "", {
       id: "member",
       header: "Member",
-      align: "right",
-      sortValue: (offset) => offset.memberId ?? "",
-      cell: (offset) =>
-        offset.memberId ? (
+      meta: { align: "right" },
+      cell: ({ row }) =>
+        row.original.memberId ? (
           <span className="font-mono text-sm">
-            {memberLabels.get(offset.memberId) ?? offset.memberId}
+            {memberLabels.get(row.original.memberId) ?? row.original.memberId}
           </span>
         ) : (
           <Pill tone="idle">unassigned</Pill>
         ),
-    },
-  ];
-
-  const memberColumns: Array<Column<ConsumerGroupMember>> = [
-    {
-      id: "clientId",
-      header: "Client ID",
-      sortValue: (member) => member.clientId,
-      cell: (member) => <span className="font-mono text-sm">{member.clientId}</span>,
-    },
-    {
-      id: "id",
-      header: "Member ID",
-      cell: (member) => (
-        <span className="flex items-center gap-1">
-          <span className="max-w-72 truncate font-mono text-sm">{member.id}</span>
-          <CopyButton value={member.id} label="Copy member ID" />
-        </span>
-      ),
-    },
-    {
-      id: "host",
-      header: "Host",
-      sortValue: (member) => member.host,
-      cell: (member) => <span className="font-mono text-sm">{member.host}</span>,
-    },
-    {
-      id: "assignments",
-      header: "Assignments",
-      cell: (member) => (
-        <span className="flex flex-wrap gap-1">
-          {member.assignments.map((assignment) => (
-            <Pill key={assignment.topic} className="font-mono">
-              {assignment.topic}
-              <span className="text-muted-foreground">[{assignment.partitions.length}]</span>
-            </Pill>
-          ))}
-        </span>
-      ),
-    },
-    {
-      id: "partitions",
-      header: "Partitions",
-      align: "right",
-      sortValue: (member) =>
-        member.assignments.reduce((sum, assignment) => sum + assignment.partitions.length, 0),
-      cell: (member) =>
-        member.assignments.reduce((sum, assignment) => sum + assignment.partitions.length, 0),
-    },
-  ];
+    }),
+  ]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
@@ -254,8 +250,8 @@ export function ConsumerGroupPage() {
         <TabsContent value="offsets" className="mt-4 flex min-h-0 flex-col">
           <DataTable
             columns={offsetColumns}
-            rows={group?.offsets ?? []}
-            rowKey={(offset) => `${offset.topic}-${offset.partition}`}
+            data={group?.offsets ?? []}
+            getRowId={(offset) => `${offset.topic}-${offset.partition}`}
             loading={isPending}
             pageSize={25}
             defaultSort={{ id: "lag", direction: "desc" }}
@@ -267,8 +263,8 @@ export function ConsumerGroupPage() {
         <TabsContent value="members" className="mt-4 flex min-h-0 flex-col">
           <DataTable
             columns={memberColumns}
-            rows={group?.members ?? []}
-            rowKey={(member) => member.id}
+            data={group?.members ?? []}
+            getRowId={(member) => member.id}
             loading={isPending}
             emptyState={
               <p className="py-10 text-center text-sm text-muted-foreground">
