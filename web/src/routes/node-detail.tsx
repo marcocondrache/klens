@@ -25,7 +25,7 @@ export function NodePage() {
   const { data: configs = [], isPending: configsPending } = useBrokerConfigs(cluster, brokerId);
 
   return (
-    <div className="space-y-5">
+    <div className="flex min-h-0 flex-1 flex-col gap-5">
       <PageHeader
         title={`Broker ${brokerId}`}
         description={
@@ -82,7 +82,7 @@ export function NodePage() {
         />
       </StatGrid>
 
-      <ConfigTable entries={configs} loading={configsPending} />
+      <ConfigTable entries={configs} loading={configsPending} fill />
     </div>
   );
 }

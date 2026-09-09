@@ -81,10 +81,10 @@ export function SchemasPage() {
   ];
 
   return (
-    <div className="space-y-5">
+    <div className="flex min-h-0 flex-1 flex-col gap-5">
       <PageHeader title="Schema registry" description={`${rows.length} subjects registered`} />
 
-      <InputGroup className="w-full max-w-sm">
+      <InputGroup className="w-full max-w-sm shrink-0">
         <InputGroupAddon>
           <SearchIcon />
         </InputGroupAddon>
@@ -113,6 +113,7 @@ export function SchemasPage() {
         }
         defaultSort={{ id: "subject", direction: "asc" }}
         onRowClick={setSelected}
+        fill
       />
 
       <Sheet open={selected !== null} onOpenChange={(open) => !open && setSelected(null)}>

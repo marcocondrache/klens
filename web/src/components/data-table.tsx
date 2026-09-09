@@ -47,6 +47,8 @@ interface DataTableProps<T> {
   page?: number;
   hasMore?: boolean;
   onPageChange?: (page: number) => void;
+  /** Fill the parent's height and scroll the rows instead of the page. */
+  fill?: boolean;
 }
 
 export function DataTable<T>({
@@ -63,6 +65,7 @@ export function DataTable<T>({
   page,
   hasMore = false,
   onPageChange,
+  fill = false,
 }: DataTableProps<T>) {
   const [sort, setSort] = useState<{ id: string; direction: Direction } | null>(
     defaultSort ?? null,
@@ -117,16 +120,22 @@ export function DataTable<T>({
   }
 
   return (
-    <div className="space-y-3">
-      <div className="overflow-hidden rounded-xl border bg-card">
-        <Table>
-          <TableHeader>
+    <div className={cn(fill ? "flex min-h-0 flex-1 flex-col gap-3" : "space-y-3")}>
+      <div
+        className={cn("overflow-hidden rounded-xl border bg-card", fill && "flex min-h-0 flex-col")}
+      >
+        <Table containerClassName={cn(fill && "min-h-0 flex-1 overflow-auto")}>
+          {/* A sticky header leaves its row behind, so the cells carry their own
+              opaque backdrop and bottom rule. */}
+          <TableHeader className={cn(fill && "[&_tr]:border-b-0!")}>
             <TableRow className="hover:bg-transparent">
               {columns.map((column) => (
                 <TableHead
                   key={column.id}
                   className={cn(
                     "h-10 bg-muted/40 text-sm font-medium tracking-wide text-muted-foreground",
+                    fill &&
+                      "sticky top-0 z-10 bg-card bg-linear-to-b from-muted/40 to-muted/40 shadow-[inset_0_-1px_0_0_var(--color-border)]",
                     column.align === "right" && "text-right",
                     column.sortValue && "cursor-pointer select-none hover:text-foreground",
                     column.headerClassName,
@@ -206,7 +215,12 @@ export function DataTable<T>({
       </div>
 
       {showPager ? (
-        <div className="flex items-center justify-between px-1 text-sm text-muted-foreground">
+        <div
+          className={cn(
+            "flex items-center justify-between px-1 text-sm text-muted-foreground",
+            fill && "shrink-0",
+          )}
+        >
           <span className="numeric">
             {current * pageSize + (visible.length > 0 ? 1 : 0)}
             {visible.length > 0 ? `–${current * pageSize + visible.length}` : ""}
