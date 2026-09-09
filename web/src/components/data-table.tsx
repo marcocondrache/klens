@@ -75,6 +75,7 @@ export function DataTable<TData extends RowData>({
       columns,
       data,
       getRowId,
+      enableSorting: !serverPaging,
       initialState: {
         sorting,
         ...(serverPaging ? {} : { pagination: { pageIndex: 0, pageSize } }),
