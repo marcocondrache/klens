@@ -118,11 +118,10 @@ impl ClusterHandle {
 
     async fn load_watermarks(
         &self,
-        topics: Vec<String>,
+        topics: &[&str],
     ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError> {
         let meta = self.metadata().await?;
-        let names: Vec<&str> = topics.iter().map(String::as_str).collect();
-        let partitions = meta.topic_partition_pairs(&names);
+        let partitions = meta.topic_partition_pairs(topics);
         if partitions.is_empty() {
             return Ok(HashMap::new());
         }
@@ -204,23 +203,19 @@ impl ClusterSession for ClusterHandle {
         };
         let all = meta.topic_names();
         let fetch_all = !all.is_empty() && topics.len() >= all.len();
-        let requested: Vec<String> = if fetch_all {
-            all.into_iter().map(str::to_owned).collect()
-        } else {
-            topics.iter().map(|name| (*name).to_owned()).collect()
-        };
+        let names = if fetch_all { all.as_slice() } else { topics };
 
         if fetch_all {
             match self
                 .watermarks
-                .try_get_with((), self.load_watermarks(requested))
+                .try_get_with((), self.load_watermarks(names))
                 .await
             {
                 Ok(cached) => select_watermarks(cached, topics),
                 Err(_) => HashMap::new(),
             }
         } else {
-            self.load_watermarks(requested).await.unwrap_or_default()
+            self.load_watermarks(names).await.unwrap_or_default()
         }
     }
 
@@ -242,9 +237,9 @@ impl ClusterSession for ClusterHandle {
 
         run_blocking(timeout + *BLOCKING_SLACK, move || {
             let consumer = factory.offset_consumer(&group_id)?;
-            let pairs: Vec<(String, i32)> = partitions
+            let pairs: Vec<(&str, i32)> = partitions
                 .iter()
-                .map(|partition| (topic.clone(), *partition))
+                .map(|partition| (topic.as_str(), *partition))
                 .collect();
             let listed = list_offsets(&consumer, &pairs, Offset::Offset(timestamp), timeout)?;
 

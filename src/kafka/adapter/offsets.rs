@@ -11,15 +11,15 @@ use crate::kafka::watermarks::Watermarks;
 /// [`Offset::End`], or [`Offset::Offset`] with a unix-millis value to resolve a
 /// time. `None` in the result means the broker returned Kafka's invalid-offset
 /// sentinel for that partition.
-pub fn list_offsets(
+pub fn list_offsets<S: AsRef<str>>(
     consumer: &impl Consumer,
-    partitions: &[(String, i32)],
+    partitions: &[(S, i32)],
     timestamp: Offset,
     timeout: Duration,
 ) -> Result<HashMap<(String, i32), Option<i64>>, KafkaError> {
     let mut tpl = TopicPartitionList::new();
     for (topic, partition) in partitions {
-        tpl.add_partition_offset(topic, *partition, timestamp)?;
+        tpl.add_partition_offset(topic.as_ref(), *partition, timestamp)?;
     }
 
     let listed = consumer.offsets_for_times(tpl, timeout)?;
