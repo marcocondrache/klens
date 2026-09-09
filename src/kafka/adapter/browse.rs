@@ -9,12 +9,12 @@ use rdkafka::topic_partition_list::Offset;
 use rdkafka::topic_partition_list::TopicPartitionList;
 use tokio::time::timeout;
 
-use crate::kafka::decode::{PayloadDecoder, decode_field};
+use super::factory::ClientFactory;
 use crate::kafka::error::KafkaError;
-use crate::kafka::factory::ClientFactory;
 use crate::kafka::model::{
     Compression, FetchPlan, Record, RecordHeader, RecordOrder, decode_bytes,
 };
+use crate::kafka::registry::decode::{PayloadDecoder, decode_field};
 
 pub async fn consume(
     factory: &ClientFactory,
@@ -139,7 +139,7 @@ async fn record_from_message(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kafka::decode::decode_field;
+    use crate::kafka::registry::decode::decode_field;
 
     fn record(value: Option<String>) -> Record {
         Record {

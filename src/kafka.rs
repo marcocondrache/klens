@@ -1,22 +1,29 @@
-mod browse;
-mod catalog;
-mod config;
-mod decode;
+mod adapter;
+mod broker;
+mod cluster;
 mod engine;
 mod error;
-mod factory;
-mod handle;
+mod group;
+mod limits;
+mod metadata;
+mod record;
+mod registry;
+mod search;
+mod session;
+mod topic;
+mod topic_config;
+mod watermarks;
+
 pub(crate) mod model;
 mod rates;
-mod schema;
-mod session;
 
 #[cfg(test)]
 mod testing;
 
-pub use config::KafkaClusterConfig;
+pub use adapter::KafkaClusterConfig;
 pub use engine::QueryEngine;
-pub use error::KafkaError;
+pub use error::{KafkaError, QueryError};
+pub use limits::RecordLimits;
 pub use model::{
     Broker, ClusterHealth, ClusterIdentity, ClusterOverview, ConfigEntry, ConsumerGroup, Record,
     RecordPage, RecordQuery, SearchHit, TimestampRange, Topic,

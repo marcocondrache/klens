@@ -6,21 +6,26 @@ use tokio::time::timeout;
 
 use crate::config::Config;
 use crate::environment::{OFFSET_FETCH_BATCH, OVERVIEW_BUDGET};
-use crate::kafka::catalog::{
-    apply_timestamp_bounds, assemble_brokers, assemble_group, assemble_overview, assemble_topic,
-    clamp_record_limit, clamp_record_page, groups_for_topic, plan_records, search_catalog,
-};
+use crate::kafka::adapter::ClusterHandle;
+use crate::kafka::broker::Broker;
+use crate::kafka::cluster::ClusterOverview;
 use crate::kafka::error::KafkaError;
-use crate::kafka::handle::ClusterHandle;
-use crate::kafka::model::{
-    Broker, ClusterOverview, ConfigEntry, ConsumerGroup, GroupSnapshot, RecordPage, RecordQuery,
-    SchemaSubject, SearchHit, Topic, Watermarks,
-};
+use crate::kafka::group::{ConsumerGroup, GroupSnapshot};
+use crate::kafka::limits::RecordLimits;
+use crate::kafka::record::RecordPage;
+use crate::kafka::record::plan::{FetchPlan, apply_timestamp_bounds};
+use crate::kafka::record::query::RecordQuery;
+use crate::kafka::registry::SchemaSubject;
+use crate::kafka::search::{SearchHit, search_catalog};
 use crate::kafka::session::ClusterSession;
+use crate::kafka::topic::{Topic, groups_for_topic};
+use crate::kafka::topic_config::ConfigEntry;
+use crate::kafka::watermarks::Watermarks;
 
 /// Answers GraphQL catalog and browse queries from [`ClusterSession`]s.
 pub struct QueryEngine<S: ?Sized> {
     registry: IndexMap<String, Box<S>>,
+    limits: RecordLimits,
 }
 
 impl QueryEngine<dyn ClusterSession> {
@@ -43,7 +48,10 @@ impl QueryEngine<dyn ClusterSession> {
             );
         }
 
-        Self { registry }
+        Self {
+            registry,
+            limits: RecordLimits::from_env(),
+        }
     }
 }
 
@@ -88,7 +96,7 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
         match tokio::join!(metadata, groups) {
             (Ok(meta), groups) => {
                 let group_count = groups.map(|groups| groups.len() as i32).unwrap_or(0);
-                assemble_overview(session.identity().clone(), &meta, group_count)
+                ClusterOverview::assemble(session.identity().clone(), &meta, group_count)
             }
             (Err(error), _) => {
                 tracing::warn!(cluster = %session.identity().name, %error, "cluster metadata failed");
@@ -98,7 +106,9 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
     }
 
     pub async fn brokers(&self, cluster: &str) -> Result<Vec<Broker>, KafkaError> {
-        Ok(assemble_brokers(&self.session(cluster)?.metadata().await?))
+        Ok(Broker::assemble_all(
+            &self.session(cluster)?.metadata().await?,
+        ))
     }
 
     pub async fn broker(&self, cluster: &str, id: i32) -> Result<Broker, KafkaError> {
@@ -139,7 +149,7 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
             .topics
             .iter()
             .map(|topic| {
-                assemble_topic(
+                Topic::assemble(
                     topic,
                     watermarks.get(&topic.name).unwrap_or(&HashMap::new()),
                     configs.get(&topic.name).map(Vec::as_slice),
@@ -160,7 +170,7 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
         let configs = session.topic_configs(&[name]).await.unwrap_or_default();
         let groups = session.consumer_groups().await.unwrap_or_default();
 
-        Ok(assemble_topic(
+        Ok(Topic::assemble(
             topic,
             &watermarks,
             configs.get(name).map(Vec::as_slice),
@@ -194,7 +204,7 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
         let ends = Self::end_offsets(session, &snapshots).await;
         Ok(snapshots
             .iter()
-            .map(|group| assemble_group(group, &ends))
+            .map(|group| ConsumerGroup::assemble(group, &ends))
             .collect())
     }
 
@@ -275,6 +285,28 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
         query: RecordQuery,
     ) -> Result<RecordPage, KafkaError> {
         let session = self.session(cluster)?;
+        let partitions = self.resolve_partitions(cluster, session, &query).await?;
+
+        let limit = self.limits.clamp_limit(query.limit)?;
+        let page = self.limits.clamp_page(query.page)?;
+        query.timestamps.validate()?;
+
+        let watermarks = Self::window_watermarks(session, &query, &partitions).await?;
+
+        let plan = FetchPlan::build(&query, &partitions, &watermarks, limit, page, self.limits);
+        let records = session.records(&plan).await?;
+        Ok(RecordPage {
+            records,
+            has_more: plan.has_more,
+        })
+    }
+
+    async fn resolve_partitions(
+        &self,
+        cluster: &str,
+        session: &S,
+        query: &RecordQuery,
+    ) -> Result<Vec<i32>, KafkaError> {
         let meta = session.metadata().await?;
         let topic = meta
             .topic(&query.topic)
@@ -283,60 +315,44 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
                 topic: query.topic.clone(),
             })?;
 
-        if let Some(partition) = query.partition
-            && topic.partition(partition).is_none()
-        {
-            return Err(KafkaError::UnknownPartition {
+        match query.partition {
+            Some(id) if topic.partition(id).is_none() => Err(KafkaError::UnknownPartition {
                 cluster: cluster.to_owned(),
                 topic: query.topic.clone(),
-                partition,
-            });
+                partition: id,
+            }),
+            Some(id) => Ok(vec![id]),
+            None => Ok(topic.partition_ids()),
         }
+    }
 
-        let limit = clamp_record_limit(query.limit).map_err(KafkaError::InvalidQuery)?;
-        let page = clamp_record_page(query.page).map_err(KafkaError::InvalidQuery)?;
-        query
-            .timestamps
-            .validate()
-            .map_err(KafkaError::InvalidQuery)?;
-        let partitions: Vec<i32> = match query.partition {
-            Some(id) => vec![id],
-            None => topic.partition_ids(),
-        };
+    async fn window_watermarks(
+        session: &S,
+        query: &RecordQuery,
+        partitions: &[i32],
+    ) -> Result<HashMap<i32, Watermarks>, KafkaError> {
         let mut watermarks = session.watermarks(&query.topic).await?;
         watermarks.retain(|partition, _| partitions.contains(partition));
-        let start_time = query.timestamps.start_seek();
-        let end_time = query.timestamps.end_seek();
-        if start_time.is_some() || end_time.is_some() {
-            let topic = query.topic.as_str();
-            let (from_offsets, to_offsets) = tokio::try_join!(
-                async {
-                    match start_time {
-                        Some(timestamp) => session
-                            .offsets_for_times(topic, &partitions, timestamp)
-                            .await
-                            .map(Some),
-                        None => Ok(None),
-                    }
-                },
-                async {
-                    match end_time {
-                        Some(timestamp) => session
-                            .offsets_for_times(topic, &partitions, timestamp)
-                            .await
-                            .map(Some),
-                        None => Ok(None),
-                    }
-                },
-            )?;
-            apply_timestamp_bounds(&mut watermarks, from_offsets.as_ref(), to_offsets.as_ref());
+
+        let start = query.timestamps.start_seek();
+        let end = query.timestamps.end_seek();
+        if start.is_none() && end.is_none() {
+            return Ok(watermarks);
         }
-        let plan = plan_records(&query, &partitions, &watermarks, limit, page);
-        let records = session.records(&plan).await?;
-        Ok(RecordPage {
-            records,
-            has_more: plan.has_more,
-        })
+
+        let seek = |timestamp: Option<i64>| async move {
+            match timestamp {
+                Some(timestamp) => session
+                    .offsets_for_times(&query.topic, partitions, timestamp)
+                    .await
+                    .map(Some),
+                None => Ok(None),
+            }
+        };
+        let (from_offsets, to_offsets) = tokio::try_join!(seek(start), seek(end))?;
+
+        apply_timestamp_bounds(&mut watermarks, from_offsets.as_ref(), to_offsets.as_ref());
+        Ok(watermarks)
     }
 
     pub async fn search(&self, cluster: &str, term: &str) -> Result<Vec<SearchHit>, KafkaError> {

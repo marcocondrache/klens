@@ -3,14 +3,18 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 
 use crate::config::SecurityProtocol;
+use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
-use crate::kafka::model::{
-    BrokerMetadata, ClusterIdentity, CommittedOffset, Compression, ConfigEntry, ConfigSource,
-    FetchPlan, GroupMember, GroupSnapshot, GroupState, MemberAssignment, MetadataSnapshot,
-    PartitionMetadata, Record, RecordHeader, SchemaCompatibility, SchemaSubject, SchemaType,
-    TopicMetadata, Watermarks,
+use crate::kafka::group::{
+    CommittedOffset, GroupMember, GroupSnapshot, GroupState, MemberAssignment,
 };
+use crate::kafka::metadata::{BrokerMetadata, MetadataSnapshot, PartitionMetadata, TopicMetadata};
+use crate::kafka::record::plan::FetchPlan;
+use crate::kafka::record::{Compression, Record, RecordHeader};
+use crate::kafka::registry::{SchemaCompatibility, SchemaSubject, SchemaType};
 use crate::kafka::session::ClusterSession;
+use crate::kafka::topic_config::{ConfigEntry, ConfigSource};
+use crate::kafka::watermarks::Watermarks;
 
 #[derive(Debug, Clone)]
 pub struct FakeCluster {
