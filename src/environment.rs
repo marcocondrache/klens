@@ -118,17 +118,6 @@ pub static BLOCKING_SLACK: LazyLock<Duration> =
 pub static OVERVIEW_BUDGET: LazyLock<Duration> =
     lazy_env_parse!(duration, "KLENS_OVERVIEW_BUDGET", Duration::from_secs(20));
 
-/// Topic config fetches issued per Kafka round-trip (default: 50).
-///
-/// Override with `KLENS_CONFIG_BATCH`.
-pub static CONFIG_BATCH: LazyLock<usize> = lazy_env_parse!("KLENS_CONFIG_BATCH", usize, 50);
-
-/// Max in-flight `DescribeConfigs` batches (default: 4).
-///
-/// Override with `KLENS_CONFIG_CONCURRENCY`.
-pub static CONFIG_CONCURRENCY: LazyLock<usize> =
-    lazy_env_parse!("KLENS_CONFIG_CONCURRENCY", usize, 4);
-
 /// How long a full-cluster watermark sweep is reused (default: 1 second).
 ///
 /// Keep this below [`SAMPLE_INTERVAL`] so produce-rate samples stay distinct.

@@ -10,7 +10,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use futures::stream::{self, StreamExt};
 use moka::future::Cache;
 use rdkafka::admin::{AdminClient, AdminOptions, OwnedResourceSpecifier, ResourceSpecifier};
 use rdkafka::client::DefaultClientContext;
@@ -18,8 +17,8 @@ use rdkafka::topic_partition_list::Offset;
 
 use crate::config::ClusterConfig;
 use crate::environment::{
-    ADMIN_TIMEOUT, BLOCKING_SLACK, CONFIG_BATCH, CONFIG_CONCURRENCY, CONSUME_TIMEOUT,
-    INTERNAL_GROUP_PREFIX, METADATA_TIMEOUT, METADATA_TTL, WATERMARK_TIMEOUT, WATERMARK_TTL,
+    ADMIN_TIMEOUT, BLOCKING_SLACK, CONSUME_TIMEOUT, INTERNAL_GROUP_PREFIX, METADATA_TIMEOUT,
+    METADATA_TTL, WATERMARK_TIMEOUT, WATERMARK_TTL,
 };
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
@@ -267,28 +266,31 @@ impl ClusterSession for ClusterHandle {
             return Ok(HashMap::new());
         }
 
-        let chunk_size = (*CONFIG_BATCH).max(1);
-        let concurrency = (*CONFIG_CONCURRENCY).max(1);
-        let names: Vec<String> = topics.iter().map(|name| (*name).to_owned()).collect();
-        let chunks: Vec<Vec<String>> = names
-            .chunks(chunk_size)
-            .map(|chunk| chunk.to_vec())
+        let specs: Vec<ResourceSpecifier<'_>> = topics
+            .iter()
+            .copied()
+            .map(ResourceSpecifier::Topic)
             .collect();
-        let admin = Arc::clone(&self.admin);
-        let timeout = self.timeouts.admin;
-
-        let results = stream::iter(chunks)
-            .map(|chunk| {
-                let admin = Arc::clone(&admin);
-                async move { describe_topic_configs(&admin, &chunk, timeout).await }
-            })
-            .buffer_unordered(concurrency)
-            .collect::<Vec<_>>()
-            .await;
+        let results = self
+            .admin
+            .describe_configs(&specs, &self.admin_options())
+            .await?;
 
         let mut out = HashMap::new();
         for result in results {
-            out.extend(result?);
+            let Ok(resource) = result else {
+                continue;
+            };
+            if let OwnedResourceSpecifier::Topic(name) = resource.specifier {
+                out.insert(
+                    name,
+                    resource
+                        .entries
+                        .into_iter()
+                        .map(ConfigEntry::from)
+                        .collect(),
+                );
+            }
         }
         Ok(out)
     }
@@ -398,37 +400,6 @@ fn select_watermarks(
         }
     }
     out
-}
-
-async fn describe_topic_configs(
-    admin: &AdminClient<DefaultClientContext>,
-    names: &[String],
-    timeout: Duration,
-) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError> {
-    let specs: Vec<ResourceSpecifier<'_>> = names
-        .iter()
-        .map(|name| ResourceSpecifier::Topic(name.as_str()))
-        .collect();
-    let options = AdminOptions::new().operation_timeout(Some(timeout));
-    let results = admin.describe_configs(&specs, &options).await?;
-
-    let mut out = HashMap::new();
-    for result in results {
-        let Ok(resource) = result else {
-            continue;
-        };
-        if let OwnedResourceSpecifier::Topic(name) = resource.specifier {
-            out.insert(
-                name,
-                resource
-                    .entries
-                    .into_iter()
-                    .map(ConfigEntry::from)
-                    .collect(),
-            );
-        }
-    }
-    Ok(out)
 }
 
 #[cfg(test)]
