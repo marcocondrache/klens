@@ -68,19 +68,17 @@ pub fn plan_windows(
     cursor: Option<&RecordCursor>,
     limits: RecordLimits,
 ) -> Vec<PartitionWindow> {
-    let take = limits.window_take(partitions.len(), limit, searching);
+    let take = limits.window_take(limit, searching);
 
     partitions
         .iter()
         .filter_map(|partition| {
             let marks = watermarks.get(partition)?;
-            let resume = cursor
-                .and_then(|cursor| cursor.offsets.get(partition))
-                .copied();
+            let resume = resume_offset(cursor, *partition, marks, order);
 
             let (start, end) = match order {
                 RecordOrder::Newest => {
-                    let end = resume.unwrap_or(marks.high).min(marks.high).max(marks.low);
+                    let end = resume.min(marks.high).max(marks.low);
                     let remaining = (end - marks.low).max(0);
                     let take = take.min(remaining);
                     if take == 0 {
@@ -89,7 +87,7 @@ pub fn plan_windows(
                     (end - take, end)
                 }
                 RecordOrder::Oldest => {
-                    let start = resume.unwrap_or(marks.low).max(marks.low).min(marks.high);
+                    let start = resume.max(marks.low).min(marks.high);
                     let remaining = (marks.high - start).max(0);
                     let take = take.min(remaining);
                     if take == 0 {
@@ -106,6 +104,31 @@ pub fn plan_windows(
             })
         })
         .collect()
+}
+
+/// Where the next window for `partition` should start (oldest) or exclusively
+/// end (newest).
+///
+/// A missing cursor means the first page. A cursor that omits a partition means
+/// that partition is exhausted — not that it should restart from the log end.
+fn resume_offset(
+    cursor: Option<&RecordCursor>,
+    partition: i32,
+    marks: &Watermarks,
+    order: RecordOrder,
+) -> i64 {
+    match (cursor, order) {
+        (None, RecordOrder::Newest) => marks.high,
+        (None, RecordOrder::Oldest) => marks.low,
+        (Some(cursor), RecordOrder::Newest) => {
+            cursor.offsets.get(&partition).copied().unwrap_or(marks.low)
+        }
+        (Some(cursor), RecordOrder::Oldest) => cursor
+            .offsets
+            .get(&partition)
+            .copied()
+            .unwrap_or(marks.high),
+    }
 }
 
 /// Resume point after this page. `None` means the log (within the current
@@ -391,6 +414,85 @@ mod tests {
         let records = vec![record(0, 10), record(0, 19)];
 
         assert!(next_cursor(RecordOrder::Oldest, &windows, &watermarks, &records, 50).is_none());
+    }
+
+    #[test]
+    fn each_partition_keeps_a_full_page_window() {
+        let watermarks = HashMap::from([
+            (0, Watermarks { low: 0, high: 100 }),
+            (1, Watermarks { low: 0, high: 100 }),
+        ]);
+
+        let windows = plan_windows(
+            &[0, 1],
+            &watermarks,
+            RecordOrder::Newest,
+            5,
+            false,
+            None,
+            limits(),
+        );
+
+        assert_eq!(
+            windows
+                .iter()
+                .map(|window| window.end - window.start)
+                .collect::<Vec<_>>(),
+            vec![10, 10]
+        );
+    }
+
+    #[test]
+    fn omitted_cursor_partition_stays_exhausted() {
+        let watermarks = HashMap::from([
+            (0, Watermarks { low: 0, high: 40 }),
+            (1, Watermarks { low: 0, high: 40 }),
+        ]);
+        let resume = cursor(0, 20);
+
+        let windows = plan_windows(
+            &[0, 1],
+            &watermarks,
+            RecordOrder::Newest,
+            5,
+            false,
+            Some(&resume),
+            limits(),
+        );
+
+        assert_eq!(
+            windows,
+            vec![PartitionWindow {
+                partition: 0,
+                start: 10,
+                end: 20,
+            }]
+        );
+    }
+
+    #[test]
+    fn next_cursor_holds_unreturned_partition_at_window_end() {
+        let watermarks = HashMap::from([
+            (0, Watermarks { low: 10, high: 40 }),
+            (1, Watermarks { low: 10, high: 40 }),
+        ]);
+        let windows = vec![
+            PartitionWindow {
+                partition: 0,
+                start: 30,
+                end: 40,
+            },
+            PartitionWindow {
+                partition: 1,
+                start: 30,
+                end: 40,
+            },
+        ];
+        let records = vec![record(0, 39), record(0, 35)];
+
+        let cursor = next_cursor(RecordOrder::Newest, &windows, &watermarks, &records, 2).unwrap();
+        assert_eq!(cursor.offsets[&0], 35);
+        assert_eq!(cursor.offsets[&1], 40);
     }
 
     #[test]

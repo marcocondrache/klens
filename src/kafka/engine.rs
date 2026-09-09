@@ -791,6 +791,67 @@ mod tests {
         }
     }
 
+    fn browse_record(partition: i32, offset: i64, timestamp: i64) -> Record {
+        Record {
+            topic: "orders.created".into(),
+            partition,
+            offset,
+            timestamp,
+            key: Some(format!("p{partition}-{offset}")),
+            value: None,
+            headers: Vec::new(),
+            size_bytes: 0,
+            compression: crate::kafka::record::Compression::None,
+        }
+    }
+
+    #[tokio::test]
+    async fn all_partitions_newest_stays_timestamp_ordered_across_cursors() {
+        let evening = 1_700_080_000_000;
+        let morning = 1_700_037_000_000;
+        let mut records = Vec::new();
+        for offset in 0..10 {
+            records.push(browse_record(0, offset, evening + offset * 1_000));
+            records.push(browse_record(1, offset, morning + offset * 1_000));
+        }
+
+        let engine =
+            QueryEngine::from_sessions(vec![FakeCluster::local().with_orders_records(records)]);
+        let mut query = browse_query();
+        query.limit = 5;
+        query.order = RecordOrder::Newest;
+
+        let mut seen = Vec::new();
+        for _ in 0..8 {
+            let page = engine.records("local", query.clone()).await.unwrap();
+            assert!(!page.records.is_empty());
+            seen.extend(
+                page.records
+                    .iter()
+                    .map(|record| (record.partition, record.timestamp)),
+            );
+            if !page.has_more {
+                break;
+            }
+            query.cursor = Some(
+                crate::kafka::RecordCursor::parse(page.next_cursor.as_deref().unwrap()).unwrap(),
+            );
+        }
+
+        let timestamps: Vec<_> = seen.iter().map(|(_, timestamp)| *timestamp).collect();
+        let mut newest_first = timestamps.clone();
+        newest_first.sort_by(|left, right| right.cmp(left));
+        assert_eq!(timestamps, newest_first);
+
+        let first_morning = seen.iter().position(|(partition, _)| *partition == 1);
+        let last_evening = seen.iter().rposition(|(partition, _)| *partition == 0);
+        assert!(first_morning.is_some() && last_evening.is_some());
+        assert!(
+            first_morning.unwrap() > last_evening.unwrap(),
+            "partition 1 morning records must not appear before remaining partition 0 evening records"
+        );
+    }
+
     #[tokio::test]
     async fn records_filter_by_timestamp_range() {
         let engine = QueryEngine::from_sessions(vec![FakeCluster::local()]);

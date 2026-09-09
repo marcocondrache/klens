@@ -35,17 +35,17 @@ impl RecordLimits {
 
     /// Searching widens the window because most records read are discarded by
     /// the filter before they reach the page.
-    pub fn window_take(&self, partition_count: usize, limit: usize, searching: bool) -> i64 {
-        let partitions = partition_count.max(1);
+    ///
+    /// The window is *per partition*, not split across them: one partition can
+    /// own an entire page when timestamps are uneven.
+    pub fn window_take(&self, limit: usize, searching: bool) -> i64 {
         let multiplier = if searching {
             self.search_window_multiplier
         } else {
             self.window_multiplier
         };
 
-        (limit.saturating_mul(multiplier))
-            .div_ceil(partitions)
-            .max(self.min_window) as i64
+        (limit.saturating_mul(multiplier)).max(self.min_window) as i64
     }
 }
 
