@@ -18,7 +18,7 @@ use rdkafka::topic_partition_list::Offset;
 use crate::config::ClusterConfig;
 use crate::environment::{
     ADMIN_TIMEOUT, BLOCKING_SLACK, CONSUME_TIMEOUT, INTERNAL_GROUP_PREFIX, METADATA_TIMEOUT,
-    METADATA_TTL, WATERMARK_TIMEOUT, WATERMARK_TTL,
+    METADATA_TTL, WATERMARK_TIMEOUT,
 };
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
@@ -67,7 +67,6 @@ pub(crate) struct ClusterHandle {
     metadata: Cache<(), MetadataSnapshot>,
     groups: Cache<(), Vec<GroupSnapshot>>,
     subjects: Cache<(), Vec<SchemaSubject>>,
-    watermarks: Cache<(), HashMap<String, HashMap<i32, Watermarks>>>,
     schema_registry: Option<PayloadDecoder>,
     timeouts: Timeouts,
 }
@@ -100,7 +99,6 @@ impl ClusterHandle {
             metadata: snapshot_cache(*METADATA_TTL),
             groups: snapshot_cache(*METADATA_TTL),
             subjects: snapshot_cache(*METADATA_TTL),
-            watermarks: snapshot_cache(*WATERMARK_TTL),
             schema_registry,
             timeouts: Timeouts::default(),
         })
@@ -113,29 +111,6 @@ impl ClusterHandle {
     /// Consumer group used for this cluster's `ListOffsets` probes.
     fn offsets_group_id(&self) -> String {
         format!("{INTERNAL_GROUP_PREFIX}list-offsets.{}", self.identity.name)
-    }
-
-    async fn load_watermarks(
-        &self,
-        topics: &[&str],
-    ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError> {
-        let meta = self.metadata().await?;
-        let partitions = meta.topic_partition_pairs(topics);
-        if partitions.is_empty() {
-            return Ok(HashMap::new());
-        }
-
-        let factory = self.factory.clone();
-        let group_id = self.offsets_group_id();
-        let timeout = self.timeouts.watermark;
-
-        run_blocking(timeout + timeout + *BLOCKING_SLACK, move || {
-            let consumer = factory.offset_consumer(&group_id)?;
-            let beginning = list_offsets(&consumer, &partitions, Offset::Beginning, timeout)?;
-            let end = list_offsets(&consumer, &partitions, Offset::End, timeout)?;
-            Ok(merge_watermark_offsets(&beginning, &end))
-        })
-        .await
     }
 
     async fn fetch_metadata(
@@ -189,33 +164,26 @@ impl ClusterSession for ClusterHandle {
     }
 
     async fn watermarks_many(&self, topics: &[&str]) -> HashMap<String, HashMap<i32, Watermarks>> {
-        if topics.is_empty() {
-            return HashMap::new();
-        }
-
-        if let Some(cached) = self.watermarks.get(&()).await {
-            return select_watermarks(cached, topics);
-        }
-
         let Ok(meta) = self.metadata().await else {
             return HashMap::new();
         };
-        let all = meta.topic_names();
-        let fetch_all = !all.is_empty() && topics.len() >= all.len();
-        let names = if fetch_all { all.as_slice() } else { topics };
-
-        if fetch_all {
-            match self
-                .watermarks
-                .try_get_with((), self.load_watermarks(names))
-                .await
-            {
-                Ok(cached) => select_watermarks(cached, topics),
-                Err(_) => HashMap::new(),
-            }
-        } else {
-            self.load_watermarks(names).await.unwrap_or_default()
+        let partitions = meta.topic_partition_pairs(topics);
+        if partitions.is_empty() {
+            return HashMap::new();
         }
+
+        let factory = self.factory.clone();
+        let group_id = self.offsets_group_id();
+        let timeout = self.timeouts.watermark;
+
+        run_blocking(timeout + timeout + *BLOCKING_SLACK, move || {
+            let consumer = factory.offset_consumer(&group_id)?;
+            let beginning = list_offsets(&consumer, &partitions, Offset::Beginning, timeout)?;
+            let end = list_offsets(&consumer, &partitions, Offset::End, timeout)?;
+            Ok(merge_watermark_offsets(&beginning, &end))
+        })
+        .await
+        .unwrap_or_default()
     }
 
     async fn offsets_for_times(
@@ -382,48 +350,5 @@ impl ClusterSession for ClusterHandle {
             .try_get_with((), async move { decoder.client().subjects().await })
             .await
             .map_err(into_kafka_error)
-    }
-}
-
-fn select_watermarks(
-    mut cached: HashMap<String, HashMap<i32, Watermarks>>,
-    topics: &[&str],
-) -> HashMap<String, HashMap<i32, Watermarks>> {
-    if topics.len() == cached.len() {
-        return cached;
-    }
-
-    let mut out = HashMap::with_capacity(topics.len());
-    for name in topics {
-        if let Some(marks) = cached.remove(*name) {
-            out.insert((*name).to_owned(), marks);
-        }
-    }
-    out
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn select_watermarks_keeps_requested_topics() {
-        let cached = HashMap::from([
-            (
-                "orders".into(),
-                HashMap::from([(0, Watermarks { low: 0, high: 8 })]),
-            ),
-            (
-                "payments".into(),
-                HashMap::from([(0, Watermarks { low: 1, high: 4 })]),
-            ),
-        ]);
-
-        let selected = select_watermarks(cached.clone(), &["orders"]);
-        assert_eq!(selected.len(), 1);
-        assert_eq!(selected["orders"][&0], Watermarks { low: 0, high: 8 });
-
-        let all = select_watermarks(cached, &["orders", "payments"]);
-        assert_eq!(all.len(), 2);
     }
 }

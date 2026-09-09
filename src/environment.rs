@@ -118,13 +118,6 @@ pub static BLOCKING_SLACK: LazyLock<Duration> =
 pub static OVERVIEW_BUDGET: LazyLock<Duration> =
     lazy_env_parse!(duration, "KLENS_OVERVIEW_BUDGET", Duration::from_secs(20));
 
-/// How long a full-cluster watermark sweep is reused (default: 1 second).
-///
-/// Keep this below [`SAMPLE_INTERVAL`] so produce-rate samples stay distinct.
-/// Override with `KLENS_WATERMARK_TTL` (seconds).
-pub static WATERMARK_TTL: LazyLock<Duration> =
-    lazy_env_parse!(duration, "KLENS_WATERMARK_TTL", Duration::from_secs(1));
-
 /// Consumer groups whose committed offsets are fetched together (default: 8).
 ///
 /// Override with `KLENS_OFFSET_FETCH_BATCH`.
