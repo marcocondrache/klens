@@ -17,8 +17,8 @@ use rdkafka::topic_partition_list::Offset;
 
 use crate::config::ClusterConfig;
 use crate::environment::{
-    ADMIN_TIMEOUT, BLOCKING_SLACK, CONFIG_BATCH, CONSUME_TIMEOUT, INTERNAL_GROUP_PREFIX,
-    METADATA_TIMEOUT, METADATA_TTL, WATERMARK_BATCH, WATERMARK_TIMEOUT,
+    ADMIN_TIMEOUT, BLOCKING_SLACK, CONSUME_TIMEOUT, INTERNAL_GROUP_PREFIX, METADATA_TIMEOUT,
+    METADATA_TTL, WATERMARK_TIMEOUT,
 };
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
@@ -175,16 +175,11 @@ impl ClusterSession for ClusterHandle {
         let factory = self.factory.clone();
         let group_id = self.offsets_group_id();
         let timeout = self.timeouts.watermark;
-        let batch = (*WATERMARK_BATCH).max(1);
 
         run_blocking(timeout + timeout + *BLOCKING_SLACK, move || {
             let consumer = factory.offset_consumer(&group_id)?;
-            let mut beginning = HashMap::new();
-            let mut end = HashMap::new();
-            for chunk in partitions.chunks(batch) {
-                beginning.extend(list_offsets(&consumer, chunk, Offset::Beginning, timeout)?);
-                end.extend(list_offsets(&consumer, chunk, Offset::End, timeout)?);
-            }
+            let beginning = list_offsets(&consumer, &partitions, Offset::Beginning, timeout)?;
+            let end = list_offsets(&consumer, &partitions, Offset::End, timeout)?;
             Ok(merge_watermark_offsets(&beginning, &end))
         })
         .await
@@ -209,9 +204,9 @@ impl ClusterSession for ClusterHandle {
 
         run_blocking(timeout + *BLOCKING_SLACK, move || {
             let consumer = factory.offset_consumer(&group_id)?;
-            let pairs: Vec<(String, i32)> = partitions
+            let pairs: Vec<(&str, i32)> = partitions
                 .iter()
-                .map(|partition| (topic.clone(), *partition))
+                .map(|partition| (topic.as_str(), *partition))
                 .collect();
             let listed = list_offsets(&consumer, &pairs, Offset::Offset(timestamp), timeout)?;
 
@@ -235,36 +230,36 @@ impl ClusterSession for ClusterHandle {
         &self,
         topics: &[&str],
     ) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError> {
-        let mut out = HashMap::new();
-
-        for chunk in topics.chunks(*CONFIG_BATCH) {
-            let specs: Vec<ResourceSpecifier<'_>> = chunk
-                .iter()
-                .copied()
-                .map(ResourceSpecifier::Topic)
-                .collect();
-            let results = self
-                .admin
-                .describe_configs(&specs, &self.admin_options())
-                .await?;
-
-            for result in results {
-                let Ok(resource) = result else {
-                    continue;
-                };
-                if let OwnedResourceSpecifier::Topic(name) = resource.specifier {
-                    out.insert(
-                        name,
-                        resource
-                            .entries
-                            .into_iter()
-                            .map(ConfigEntry::from)
-                            .collect(),
-                    );
-                }
-            }
+        if topics.is_empty() {
+            return Ok(HashMap::new());
         }
 
+        let specs: Vec<ResourceSpecifier<'_>> = topics
+            .iter()
+            .copied()
+            .map(ResourceSpecifier::Topic)
+            .collect();
+        let results = self
+            .admin
+            .describe_configs(&specs, &self.admin_options())
+            .await?;
+
+        let mut out = HashMap::new();
+        for result in results {
+            let Ok(resource) = result else {
+                continue;
+            };
+            if let OwnedResourceSpecifier::Topic(name) = resource.specifier {
+                out.insert(
+                    name,
+                    resource
+                        .entries
+                        .into_iter()
+                        .map(ConfigEntry::from)
+                        .collect(),
+                );
+            }
+        }
         Ok(out)
     }
 

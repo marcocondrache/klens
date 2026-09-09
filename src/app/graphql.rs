@@ -410,6 +410,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn consumer_groups_can_filter_by_topic() {
+        let state = state();
+        let schema = schema();
+
+        let (value, errors) = execute(
+            r#"{
+                matching: consumerGroups(cluster: "local", topic: "orders.created") { id }
+                none: consumerGroups(cluster: "local", topic: "missing") { id }
+            }"#,
+            None,
+            &schema,
+            &Variables::new(),
+            &state,
+        )
+        .await
+        .unwrap();
+
+        assert!(errors.is_empty());
+        assert_eq!(
+            serde_json::to_value(value).unwrap(),
+            serde_json::json!({
+                "matching": [{ "id": "order-processor" }],
+                "none": []
+            })
+        );
+    }
+
+    #[tokio::test]
     async fn schema_includes_topic_rate_subscription() {
         let sdl = schema().as_sdl();
         assert!(sdl.contains("type Subscription"));

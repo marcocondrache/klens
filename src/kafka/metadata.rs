@@ -32,14 +32,17 @@ impl MetadataSnapshot {
             .unwrap_or_default()
     }
 
-    pub fn topic_partition_pairs(&self, names: &[&str]) -> Vec<(String, i32)> {
+    pub fn topic_partition_pairs<S: AsRef<str>>(&self, names: &[S]) -> Vec<(String, i32)> {
         names
             .iter()
-            .copied()
             .flat_map(|name| {
-                self.topic_partitions(name)
-                    .into_iter()
-                    .map(|id| (name.to_owned(), id))
+                let name = name.as_ref();
+                self.topic(name).into_iter().flat_map(|topic| {
+                    topic
+                        .partitions
+                        .iter()
+                        .map(|partition| (name.to_owned(), partition.id))
+                })
             })
             .collect()
     }
