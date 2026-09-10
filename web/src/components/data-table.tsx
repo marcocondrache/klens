@@ -4,6 +4,13 @@ import type { RowData } from "@tanstack/react-table";
 
 import { Button } from "@/components/ui/button";
 import { RefreshBar } from "@/components/refresh-bar";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -15,6 +22,9 @@ import {
 } from "@/components/ui/table";
 import { type AppColumnDef, useAppTable } from "@/lib/table";
 import { cn } from "@/lib/utils";
+
+const PAGE_SIZES = [25, 50, 100, 200, 500] as const;
+const DEFAULT_PAGE_SIZE = 200;
 
 export type { AppColumnDef };
 
@@ -57,7 +67,7 @@ export function DataTable<TData extends RowData>({
   error,
   emptyState,
   defaultSort,
-  pageSize = 25,
+  pageSize = DEFAULT_PAGE_SIZE,
   pageIndex = 0,
   hasMore = false,
   canPreviousPage = false,
@@ -99,7 +109,12 @@ export function DataTable<TData extends RowData>({
   const rows = table.getRowModel().rows;
   const pagination = table.state.pagination;
   const pageCount = table.getPageCount();
-  const showPager = serverPaging ? canPreviousPage || hasMore : pageCount > 1;
+  const showPageSize = !serverPaging && data.length > PAGE_SIZES[0];
+  const showNav = serverPaging ? canPreviousPage || hasMore : pageCount > 1;
+  const showPager = showNav || showPageSize;
+  const pageSizeItems = [...new Set<number>([...PAGE_SIZES, pagination.pageSize])]
+    .sort((left, right) => left - right)
+    .map((size) => ({ value: String(size), label: String(size) }));
 
   return (
     <div className={cn(fill ? "flex min-h-0 flex-1 flex-col gap-3" : "space-y-3")}>
@@ -221,30 +236,60 @@ export function DataTable<TData extends RowData>({
             {rows.length > 0 ? `–${pagination.pageIndex * pagination.pageSize + rows.length}` : ""}
             {serverPaging ? (hasMore ? "+" : "") : ` of ${table.getRowCount()}`}
           </span>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="outline"
-              size="icon-xs"
-              disabled={serverPaging ? !canPreviousPage : !table.getCanPreviousPage()}
-              onClick={serverPaging ? onPreviousPage : () => table.previousPage()}
-              aria-label="Previous page"
-            >
-              <ChevronLeftIcon />
-            </Button>
-            <span className="numeric px-2">
-              {serverPaging
-                ? `Page ${pageIndex + 1}`
-                : `${pagination.pageIndex + 1} / ${pageCount}`}
-            </span>
-            <Button
-              variant="outline"
-              size="icon-xs"
-              disabled={serverPaging ? !hasMore : !table.getCanNextPage()}
-              onClick={serverPaging ? onNextPage : () => table.nextPage()}
-              aria-label="Next page"
-            >
-              <ChevronRightIcon />
-            </Button>
+          <div className="flex items-center gap-3">
+            {showPageSize ? (
+              <div className="flex items-center gap-2">
+                <span>Rows</span>
+                <Select
+                  value={String(pagination.pageSize)}
+                  items={pageSizeItems}
+                  onValueChange={(value) => {
+                    const next = Number(value);
+                    if (Number.isFinite(next) && next > 0) {
+                      table.setPageSize(next);
+                    }
+                  }}
+                >
+                  <SelectTrigger size="sm" className="w-20" aria-label="Rows per page">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {pageSizeItems.map((item) => (
+                      <SelectItem key={item.value} value={item.value}>
+                        {item.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+            {showNav ? (
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="icon-xs"
+                  disabled={serverPaging ? !canPreviousPage : !table.getCanPreviousPage()}
+                  onClick={serverPaging ? onPreviousPage : () => table.previousPage()}
+                  aria-label="Previous page"
+                >
+                  <ChevronLeftIcon />
+                </Button>
+                <span className="numeric px-2">
+                  {serverPaging
+                    ? `Page ${pageIndex + 1}`
+                    : `${pagination.pageIndex + 1} / ${pageCount}`}
+                </span>
+                <Button
+                  variant="outline"
+                  size="icon-xs"
+                  disabled={serverPaging ? !hasMore : !table.getCanNextPage()}
+                  onClick={serverPaging ? onNextPage : () => table.nextPage()}
+                  aria-label="Next page"
+                >
+                  <ChevronRightIcon />
+                </Button>
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}
