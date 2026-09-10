@@ -133,6 +133,11 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
   const records = currentPage?.records ?? [];
   const hasCachedNextPage = Boolean(pages[pageIndex + 1]);
   const hasMore = hasCachedNextPage || (pageIndex === pages.length - 1 && Boolean(hasNextPage));
+  const showSchemaPicker =
+    schemaId != null ||
+    pages.some((page) =>
+      page.records.some((record) => record.value != null && record.schemaId == null),
+    );
   const selectedRecord =
     selected == null
       ? null
@@ -277,6 +282,15 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
           </SelectContent>
         </Select>
 
+        {showSchemaPicker ? (
+          <SchemaPicker
+            subjects={subjects}
+            topic={topic.name}
+            value={schemaId}
+            onChange={selectSchema}
+          />
+        ) : null}
+
         <span className="ml-auto text-sm text-muted-foreground">{records.length} records</span>
       </div>
 
@@ -370,16 +384,6 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                   expanded={expanded}
                   onExpandedChange={setExpanded}
                   fill
-                  actions={
-                    selectedRecord.value != null && selectedRecord.schemaId == null ? (
-                      <SchemaPicker
-                        subjects={subjects}
-                        topic={topic.name}
-                        value={schemaId}
-                        onChange={selectSchema}
-                      />
-                    ) : null
-                  }
                 />
 
                 <section className="shrink-0 space-y-2">
