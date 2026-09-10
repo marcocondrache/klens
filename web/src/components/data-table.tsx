@@ -45,7 +45,6 @@ interface DataTableProps<TData extends RowData> {
   canPreviousPage?: boolean;
   onPreviousPage?: () => void;
   onNextPage?: () => void;
-  /** Keep the pager visible while disabling Next during a next-page fetch. */
   loadingMore?: boolean;
   fill?: boolean;
 }
