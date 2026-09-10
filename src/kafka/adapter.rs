@@ -129,17 +129,33 @@ impl ClusterHandle {
     async fn fetch_group_list(
         admin: Arc<AdminClient<DefaultClientContext>>,
         timeout: Duration,
-        group: Option<&str>,
     ) -> Result<Vec<GroupSnapshot>, KafkaError> {
-        let group = group.map(str::to_owned);
         run_blocking(timeout + *BLOCKING_SLACK, move || {
-            let list = admin.inner().fetch_group_list(group.as_deref(), timeout)?;
+            let list = admin.inner().fetch_group_list(None, timeout)?;
             Ok(list
                 .groups()
                 .iter()
                 .filter(|group| !is_internal_group(group.name()))
                 .map(GroupSnapshot::from_rdkafka)
                 .collect())
+        })
+        .await
+    }
+
+    async fn fetch_group(
+        admin: Arc<AdminClient<DefaultClientContext>>,
+        timeout: Duration,
+        id: &str,
+    ) -> Result<Option<GroupSnapshot>, KafkaError> {
+        let id = id.to_owned();
+        run_blocking(timeout + *BLOCKING_SLACK, move || {
+            let list = admin.inner().fetch_group_list(Some(&id), timeout)?;
+            Ok(list
+                .groups()
+                .iter()
+                .filter(|group| !is_internal_group(group.name()))
+                .find(|group| group.name() == id)
+                .map(GroupSnapshot::from_rdkafka))
         })
         .await
     }
@@ -287,17 +303,15 @@ impl ClusterSession for ClusterHandle {
         self.groups
             .try_get_with(
                 (),
-                Self::fetch_group_list(Arc::clone(&self.admin), self.timeouts.admin, None),
+                Self::fetch_group_list(Arc::clone(&self.admin), self.timeouts.admin),
             )
             .await
             .map_err(into_kafka_error)
     }
 
     async fn consumer_group(&self, id: &str) -> Result<GroupSnapshot, KafkaError> {
-        Self::fetch_group_list(Arc::clone(&self.admin), self.timeouts.admin, Some(id))
+        Self::fetch_group(Arc::clone(&self.admin), self.timeouts.admin, id)
             .await?
-            .into_iter()
-            .find(|group| group.id == id)
             .ok_or_else(|| KafkaError::UnknownGroup {
                 cluster: self.identity.name.clone(),
                 id: id.to_owned(),
