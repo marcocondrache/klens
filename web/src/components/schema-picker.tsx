@@ -14,7 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import type { SchemaSubject } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
-const DECODABLE = new Set(["AVRO", "JSON"]);
+const DECODABLE = new Set(["AVRO", "JSON", "PROTOBUF"]);
 
 export function SchemaPicker({
   subjects,
