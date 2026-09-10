@@ -1,24 +1,30 @@
 #!/usr/bin/env bash
-# Idempotent Cloud Agent setup for klens: toolchains, Docker, and builds.
-# Runs after the repository is checked out. Safe to run repeatedly.
+# Idempotent Cloud Agent setup for klens. Dependencies are installed with mise
+# (see mise.toml: rust, node, bun, vendir, viteplus). Docker is the only
+# dependency mise cannot manage, since it is a system daemon rather than a tool.
+# Safe to run repeatedly.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 REPO_ROOT="$PWD"
 
-echo "==> Ensuring Rust stable toolchain (edition 2024 needs >= 1.85)"
-rustup toolchain install stable --profile minimal -c rustfmt -c clippy
-rustup default stable
-rustc --version
-
-echo "==> Ensuring bun is installed"
-if ! command -v bun >/dev/null 2>&1 && [ ! -x "$HOME/.bun/bin/bun" ]; then
-  curl -fsSL https://bun.sh/install | bash
+echo "==> Installing mise"
+if ! command -v mise >/dev/null 2>&1 && [ ! -x "$HOME/.local/bin/mise" ]; then
+  curl -fsSL https://mise.run | sh
 fi
-export PATH="$HOME/.bun/bin:$PATH"
-bun --version
+export PATH="$HOME/.local/bin:$PATH"
+export MISE_YES=1
+mise --version
 
-echo "==> Ensuring Docker Engine is installed"
+echo "==> Installing the project toolchain via mise (rust, node, bun, vendir, viteplus)"
+mise trust "$REPO_ROOT"
+mise install
+mise ls
+
+# Put the mise-managed tools (and RUSTUP_TOOLCHAIN) on PATH for this script.
+eval "$(mise env -s bash)"
+
+echo "==> Ensuring Docker Engine (system daemon; not managed by mise)"
 if ! command -v docker >/dev/null 2>&1; then
   curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
   sudo sh /tmp/get-docker.sh
@@ -32,8 +38,9 @@ for _ in $(seq 1 15); do sudo docker info >/dev/null 2>&1 && break; sleep 2; don
 sudo docker pull confluentinc/cp-kafka:8.3.1
 sudo docker pull confluentinc/cp-schema-registry:8.3.1
 
-echo "==> Building the klens backend (with embedded UI feature)"
-# Build the web UI first so the `ui` feature can embed static/.
+echo "==> Building the web UI (bun) and the klens backend (cargo, ui feature)"
+# The `ui` feature embeds static/, so build the web UI first. bun runs the
+# pinned, lockfile-resolved vite-plus toolchain from web/node_modules.
 pushd web >/dev/null
 bun install --frozen-lockfile
 bun run codegen

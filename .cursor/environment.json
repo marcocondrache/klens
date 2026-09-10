@@ -10,7 +10,7 @@
     },
     {
       "name": "web-dev",
-      "command": "cd web && $HOME/.bun/bin/bun run dev"
+      "command": "cd web && $HOME/.local/bin/mise exec -- bun run dev"
     }
   ],
   "ports": [8080, 5173, 8081, 9092]
