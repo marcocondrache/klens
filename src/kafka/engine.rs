@@ -260,14 +260,19 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
         cluster: &str,
         id: &str,
     ) -> Result<ConsumerGroup, KafkaError> {
-        self.consumer_groups(cluster, None)
-            .await?
-            .into_iter()
-            .find(|group| group.id == id)
-            .ok_or_else(|| KafkaError::UnknownGroup {
+        let session = self.session(cluster)?;
+        let mut snapshots = session.consumer_groups().await?;
+        snapshots.retain(|group| group.id == id);
+        let Some(mut snapshot) = snapshots.pop() else {
+            return Err(KafkaError::UnknownGroup {
                 cluster: cluster.to_owned(),
                 id: id.to_owned(),
-            })
+            });
+        };
+
+        Self::hydrate_committed_offsets(session, std::slice::from_mut(&mut snapshot)).await;
+        let ends = Self::end_offsets(session, std::slice::from_ref(&snapshot)).await;
+        Ok(ConsumerGroup::assemble(&snapshot, &ends))
     }
 
     async fn end_offsets(session: &S, groups: &[GroupSnapshot]) -> HashMap<(String, i32), i64> {
@@ -701,6 +706,38 @@ mod tests {
         let all = engine.consumer_groups("local", None).await.unwrap();
         assert_eq!(all.len(), 2);
         assert_eq!(probe.committed.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn consumer_group_hydrates_only_the_requested_group() {
+        let payments = GroupSnapshot {
+            id: "payments-processor".into(),
+            state: crate::kafka::group::GroupState::Stable,
+            protocol: "range".into(),
+            coordinator: 1,
+            members: vec![crate::kafka::group::GroupMember {
+                id: "m-pay".into(),
+                client_id: "payments".into(),
+                host: "127.0.0.1".into(),
+                assignments: vec![crate::kafka::group::MemberAssignment {
+                    topic: "payments.captured".into(),
+                    partitions: vec![0],
+                }],
+            }],
+            committed: Vec::new(),
+        };
+        let cluster = FakeCluster::local()
+            .extra_topic("payments.captured", 1, 4)
+            .extra_group(payments);
+        let probe = Probe::new(cluster, Duration::ZERO);
+        let engine = QueryEngine::from_sessions(vec![probe.clone()]);
+
+        let group = engine
+            .consumer_group("local", "order-processor")
+            .await
+            .unwrap();
+        assert_eq!(group.id, "order-processor");
+        assert_eq!(probe.committed.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test(start_paused = true)]

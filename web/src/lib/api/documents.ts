@@ -338,3 +338,11 @@ export const topicRatesSubscription = graphql(`
     }
   }
 `);
+
+export const consumerGroupLagSubscription = graphql(`
+  subscription ConsumerGroupLag($cluster: String!, $id: String!) {
+    consumerGroupLag(cluster: $cluster, id: $id) {
+      ...ConsumerGroupFields
+    }
+  }
+`);

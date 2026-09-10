@@ -507,6 +507,9 @@ mod tests {
         let sdl = schema().as_sdl();
         assert!(sdl.contains("type Subscription"));
         assert!(sdl.contains("topicRates(cluster: String!): [TopicRate!]!"));
+        assert!(sdl.contains(
+            "consumerGroupLag(cluster: String!, id: String!): ConsumerGroup!"
+        ));
         assert!(sdl.contains("schemaId: Int"));
     }
 

@@ -12,6 +12,7 @@ import {
   clusterQuery,
   clustersQuery,
   clusterThroughputQuery,
+  consumerGroupLagSubscription,
   consumerGroupQuery,
   consumerGroupsQuery,
   recordsQuery,
@@ -24,7 +25,14 @@ import {
   topicThroughputQuery,
 } from "./documents";
 import { subscribe } from "./subscribe";
-import type { RecordQuery, SearchResult, ThroughputPoint, Topic, TopicRate } from "./types";
+import type {
+  ConsumerGroup,
+  RecordQuery,
+  SearchResult,
+  ThroughputPoint,
+  Topic,
+  TopicRate,
+} from "./types";
 
 export type RecordsFilter = Omit<RecordQuery, "cursor">;
 
@@ -287,6 +295,33 @@ export function useTopicRates(cluster: string) {
       );
     });
   }, [cluster, queryClient]);
+}
+
+export function useConsumerGroupLag(cluster: string, group: string) {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!cluster || !group) {
+      return;
+    }
+
+    return subscribe(consumerGroupLagSubscription, { cluster, id: group }, (data) => {
+      const next = data.consumerGroupLag;
+      queryClient.setQueryData(keys.group(cluster, group), next);
+
+      queryClient.setQueryData(keys.groups(cluster), (groups: ConsumerGroup[] | undefined) =>
+        groups?.map((entry) => (entry.id === next.id ? next : entry)),
+      );
+
+      for (const topic of next.topics) {
+        queryClient.setQueryData(
+          keys.topicGroups(cluster, topic),
+          (groups: ConsumerGroup[] | undefined) =>
+            groups?.map((entry) => (entry.id === next.id ? next : entry)),
+        );
+      }
+    });
+  }, [cluster, group, queryClient]);
 }
 
 function withRate(topic: Topic, rate: TopicRate | undefined): Topic {
