@@ -505,6 +505,20 @@ export type TopicThroughputQuery = {
   }>;
 };
 
+export type GroupLagHistoryQueryVariables = Exact<{
+  cluster: string;
+  id: string;
+}>;
+
+export type GroupLagHistoryQuery = {
+  groupLagHistory: Array<{
+    timestamp: string;
+    bytesIn: number;
+    bytesOut: number;
+    messages: number;
+  }>;
+};
+
 export type SchemaSubjectsQueryVariables = Exact<{
   cluster: string;
 }>;
@@ -1178,6 +1192,18 @@ export const TopicThroughputDocument = new TypedDocumentString(`
   bytesOut
   messages
 }`) as unknown as TypedDocumentString<TopicThroughputQuery, TopicThroughputQueryVariables>;
+export const GroupLagHistoryDocument = new TypedDocumentString(`
+    query GroupLagHistory($cluster: String!, $id: String!) {
+  groupLagHistory(cluster: $cluster, id: $id) {
+    ...ThroughputPointFields
+  }
+}
+    fragment ThroughputPointFields on ThroughputPoint {
+  timestamp
+  bytesIn
+  bytesOut
+  messages
+}`) as unknown as TypedDocumentString<GroupLagHistoryQuery, GroupLagHistoryQueryVariables>;
 export const SchemaSubjectsDocument = new TypedDocumentString(`
     query SchemaSubjects($cluster: String!) {
   schemaSubjects(cluster: $cluster) {
