@@ -261,15 +261,7 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
         id: &str,
     ) -> Result<ConsumerGroup, KafkaError> {
         let session = self.session(cluster)?;
-        let mut snapshots = session.consumer_groups().await?;
-        snapshots.retain(|group| group.id == id);
-        let Some(mut snapshot) = snapshots.pop() else {
-            return Err(KafkaError::UnknownGroup {
-                cluster: cluster.to_owned(),
-                id: id.to_owned(),
-            });
-        };
-
+        let mut snapshot = session.consumer_group(id).await?;
         Self::hydrate_committed_offsets(session, std::slice::from_mut(&mut snapshot)).await;
         let ends = Self::end_offsets(session, std::slice::from_ref(&snapshot)).await;
         Ok(ConsumerGroup::assemble(&snapshot, &ends))

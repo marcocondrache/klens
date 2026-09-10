@@ -59,6 +59,21 @@ pub trait ClusterSession: Send + Sync + 'static {
 
     async fn consumer_groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError>;
 
+    /// Snapshot for one consumer group.
+    ///
+    /// The default scans [`consumer_groups`](Self::consumer_groups). Live
+    /// clusters override this with a single-group broker fetch.
+    async fn consumer_group(&self, id: &str) -> Result<GroupSnapshot, KafkaError> {
+        self.consumer_groups()
+            .await?
+            .into_iter()
+            .find(|group| group.id == id)
+            .ok_or_else(|| KafkaError::UnknownGroup {
+                cluster: self.identity().name.clone(),
+                id: id.to_owned(),
+            })
+    }
+
     async fn committed_offsets(
         &self,
         group_id: &str,
