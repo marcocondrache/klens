@@ -1,0 +1,17 @@
+{
+  "name": "klens",
+  "user": "ubuntu",
+  "install": "bash .cursor/install.sh",
+  "start": "bash .cursor/start.sh",
+  "terminals": [
+    {
+      "name": "klens",
+      "command": "RUST_LOG=info ./target/debug/klens"
+    },
+    {
+      "name": "web-dev",
+      "command": "cd web && $HOME/.bun/bin/bun run dev"
+    }
+  ],
+  "ports": [8080, 5173, 8081, 9092]
+}
