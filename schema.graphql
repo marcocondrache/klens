@@ -179,6 +179,12 @@ type ConsumerGroup {
   offsets: [GroupOffset!]!
 }
 
+type ConsumerGroupLag {
+  id: String!
+  lag: Float!
+  offsets: [GroupOffset!]!
+}
+
 type ConsumerGroupMember {
   id: String!
   clientId: String!
@@ -259,7 +265,7 @@ type SearchResult {
 
 type Subscription {
   topicRates(cluster: String!): [TopicRate!]!
-  consumerGroupLag(cluster: String!, id: String!): ConsumerGroup!
+  consumerGroupLag(cluster: String!, id: String!): ConsumerGroupLag!
 }
 
 type ThroughputPoint {

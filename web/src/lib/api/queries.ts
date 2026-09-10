@@ -27,6 +27,7 @@ import {
 import { subscribe } from "./subscribe";
 import type {
   ConsumerGroup,
+  GroupOffset,
   RecordQuery,
   SearchResult,
   ThroughputPoint,
@@ -306,22 +307,38 @@ export function useConsumerGroupLag(cluster: string, group: string) {
     }
 
     return subscribe(consumerGroupLagSubscription, { cluster, id: group }, (data) => {
-      const next = data.consumerGroupLag;
-      queryClient.setQueryData(keys.group(cluster, group), next);
+      const lag = data.consumerGroupLag;
+      const topics =
+        queryClient.getQueryData<ConsumerGroup>(keys.group(cluster, group))?.topics ?? [];
 
-      queryClient.setQueryData(keys.groups(cluster), (groups: ConsumerGroup[] | undefined) =>
-        groups?.map((entry) => (entry.id === next.id ? next : entry)),
+      queryClient.setQueryData(keys.group(cluster, group), (existing: ConsumerGroup | undefined) =>
+        existing ? withLag(existing, lag) : existing,
       );
 
-      for (const topic of next.topics) {
+      queryClient.setQueryData(keys.groups(cluster), (groups: ConsumerGroup[] | undefined) =>
+        groups?.map((entry) => (entry.id === lag.id ? withLag(entry, lag) : entry)),
+      );
+
+      for (const topic of topics) {
         queryClient.setQueryData(
           keys.topicGroups(cluster, topic),
           (groups: ConsumerGroup[] | undefined) =>
-            groups?.map((entry) => (entry.id === next.id ? next : entry)),
+            groups?.map((entry) => (entry.id === lag.id ? withLag(entry, lag) : entry)),
         );
       }
     });
   }, [cluster, group, queryClient]);
+}
+
+function withLag(
+  group: ConsumerGroup,
+  lag: { id: string; lag: number; offsets: GroupOffset[] },
+): ConsumerGroup {
+  return {
+    ...group,
+    lag: lag.lag,
+    offsets: lag.offsets,
+  };
 }
 
 function withRate(topic: Topic, rate: TopicRate | undefined): Topic {

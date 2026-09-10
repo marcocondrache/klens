@@ -183,6 +183,19 @@ export type TopicRateFieldsFragment = {
   bytesInPerSec: number;
 };
 
+export type ConsumerGroupLagFieldsFragment = {
+  id: string;
+  lag: number;
+  offsets: Array<{
+    topic: string;
+    partition: number;
+    currentOffset: number;
+    endOffset: number;
+    lag: number;
+    memberId: string | null;
+  }>;
+};
+
 export type SchemaSubjectFieldsFragment = {
   subject: string;
   id: number;
@@ -572,17 +585,7 @@ export type ConsumerGroupLagSubscriptionVariables = Exact<{
 export type ConsumerGroupLagSubscription = {
   consumerGroupLag: {
     id: string;
-    state: ConsumerGroupState;
-    protocol: string;
-    coordinator: number;
-    topics: Array<string>;
     lag: number;
-    members: Array<{
-      id: string;
-      clientId: string;
-      host: string;
-      assignments: Array<{ topic: string; partitions: Array<number> }>;
-    }>;
     offsets: Array<{
       topic: string;
       partition: number;
@@ -806,6 +809,25 @@ export const TopicRateFieldsFragmentDoc = new TypedDocumentString(
     `,
   { fragmentName: "TopicRateFields" },
 ) as unknown as TypedDocumentString<TopicRateFieldsFragment, unknown>;
+export const ConsumerGroupLagFieldsFragmentDoc = new TypedDocumentString(
+  `
+    fragment ConsumerGroupLagFields on ConsumerGroupLag {
+  id
+  lag
+  offsets {
+    ...GroupOffsetFields
+  }
+}
+    fragment GroupOffsetFields on GroupOffset {
+  topic
+  partition
+  currentOffset
+  endOffset
+  lag
+  memberId
+}`,
+  { fragmentName: "ConsumerGroupLagFields" },
+) as unknown as TypedDocumentString<ConsumerGroupLagFieldsFragment, unknown>;
 export const SchemaSubjectFieldsFragmentDoc = new TypedDocumentString(
   `
     fragment SchemaSubjectFields on SchemaSubject {
@@ -1240,22 +1262,10 @@ export const TopicRatesDocument = new TypedDocumentString(`
 export const ConsumerGroupLagDocument = new TypedDocumentString(`
     subscription ConsumerGroupLag($cluster: String!, $id: String!) {
   consumerGroupLag(cluster: $cluster, id: $id) {
-    ...ConsumerGroupFields
+    ...ConsumerGroupLagFields
   }
 }
-    fragment MemberAssignmentFields on MemberAssignment {
-  topic
-  partitions
-}
-fragment ConsumerGroupMemberFields on ConsumerGroupMember {
-  id
-  clientId
-  host
-  assignments {
-    ...MemberAssignmentFields
-  }
-}
-fragment GroupOffsetFields on GroupOffset {
+    fragment GroupOffsetFields on GroupOffset {
   topic
   partition
   currentOffset
@@ -1263,15 +1273,8 @@ fragment GroupOffsetFields on GroupOffset {
   lag
   memberId
 }
-fragment ConsumerGroupFields on ConsumerGroup {
+fragment ConsumerGroupLagFields on ConsumerGroupLag {
   id
-  state
-  protocol
-  coordinator
-  members {
-    ...ConsumerGroupMemberFields
-  }
-  topics
   lag
   offsets {
     ...GroupOffsetFields

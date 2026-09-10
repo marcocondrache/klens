@@ -1,14 +1,14 @@
 use futures::stream::{self, BoxStream};
 use juniper::{FieldResult, graphql_subscription};
 
-use super::types::{ConsumerGroup, TopicRate};
+use super::types::{ConsumerGroupLag, TopicRate};
 use crate::AppState;
 use crate::environment::SAMPLE_INTERVAL;
 
 pub struct Subscription;
 
 type TopicRateStream = BoxStream<'static, FieldResult<Vec<TopicRate>>>;
-type ConsumerGroupStream = BoxStream<'static, FieldResult<ConsumerGroup>>;
+type ConsumerGroupLagStream = BoxStream<'static, FieldResult<ConsumerGroupLag>>;
 
 #[graphql_subscription(context = AppState)]
 impl Subscription {
@@ -30,7 +30,7 @@ impl Subscription {
         context: &AppState,
         cluster: String,
         id: String,
-    ) -> ConsumerGroupStream {
+    ) -> ConsumerGroupLagStream {
         let state = context.clone();
         Box::pin(stream::unfold(
             (state, cluster, id, true),
@@ -60,8 +60,8 @@ async fn sample_consumer_group_lag(
     state: &AppState,
     cluster: &str,
     id: &str,
-) -> FieldResult<ConsumerGroup> {
-    Ok(ConsumerGroup::from(
+) -> FieldResult<ConsumerGroupLag> {
+    Ok(ConsumerGroupLag::from(
         state.query.consumer_group(cluster, id).await?,
     ))
 }

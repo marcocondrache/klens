@@ -295,6 +295,13 @@ pub(super) struct ConsumerGroup {
     pub offsets: Vec<GroupOffset>,
 }
 
+#[derive(GraphQLObject)]
+pub(super) struct ConsumerGroupLag {
+    pub id: String,
+    pub lag: f64,
+    pub offsets: Vec<GroupOffset>,
+}
+
 impl From<domain::ConsumerGroup> for ConsumerGroup {
     fn from(group: domain::ConsumerGroup) -> Self {
         Self {
@@ -308,6 +315,16 @@ impl From<domain::ConsumerGroup> for ConsumerGroup {
                 .map(ConsumerGroupMember::from)
                 .collect(),
             topics: group.topics,
+            lag: group.lag as f64,
+            offsets: group.offsets.into_iter().map(GroupOffset::from).collect(),
+        }
+    }
+}
+
+impl From<domain::ConsumerGroup> for ConsumerGroupLag {
+    fn from(group: domain::ConsumerGroup) -> Self {
+        Self {
+            id: group.id,
             lag: group.lag as f64,
             offsets: group.offsets.into_iter().map(GroupOffset::from).collect(),
         }
