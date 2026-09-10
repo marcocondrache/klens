@@ -43,7 +43,7 @@ function SidebarFind({ onSearch }: { onSearch: () => void }) {
               size="icon"
               aria-label="Find"
               onClick={onSearch}
-              className="size-9 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+              className="size-9 text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
             />
           }
         >
@@ -60,13 +60,13 @@ function SidebarFind({ onSearch }: { onSearch: () => void }) {
     <button
       type="button"
       onClick={onSearch}
-      className="relative flex h-9 w-full items-center rounded-md bg-background outline outline-1 outline-sidebar-border transition-colors hover:bg-sidebar-accent/60 focus-visible:outline-2 focus-visible:outline-ring"
+      className="relative flex h-9 w-full items-center rounded-md text-sidebar-foreground/80 outline outline-1 outline-sidebar-border transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-2 focus-visible:outline-ring"
     >
-      <span className="grid size-9 shrink-0 place-content-center text-muted-foreground">
+      <span className="grid size-9 shrink-0 place-content-center">
         <SearchIcon className="size-4" />
       </span>
-      <span className="flex-1 truncate text-left text-sm text-muted-foreground">Find</span>
-      <span className="grid size-9 place-content-center">
+      <span className="min-w-0 flex-1 truncate pr-2 text-left text-sm font-medium">Find</span>
+      <span className="grid size-9 shrink-0 place-content-center">
         <Kbd className="bg-background shadow-[0_0_0_1px_var(--sidebar-border)]">/</Kbd>
       </span>
     </button>
@@ -124,12 +124,14 @@ export function AppSidebar({ onSearch }: { onSearch: () => void }) {
 
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader className="gap-1 pt-1">
-        <div className="flex h-12 items-center gap-2 px-4 group-data-[collapsible=icon]:hidden">
-          <img src="/favicon.svg" alt="" className="size-6" />
-          <span className="text-2xl font-semibold tracking-tight">klens</span>
+      <SidebarHeader className="gap-px px-2 pt-2">
+        <div className="flex h-9 items-center rounded-md group-data-[collapsible=icon]:hidden">
+          <span className="grid size-9 shrink-0 place-content-center">
+            <img src="/favicon.svg" alt="" className="size-4" />
+          </span>
+          <span className="min-w-0 flex-1 truncate pr-2 text-sm font-medium">klens</span>
         </div>
-        <div className="px-2 pb-1 group-data-[collapsible=icon]:flex group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-1 group-data-[collapsible=icon]:pt-1">
+        <div className="group-data-[collapsible=icon]:flex group-data-[collapsible=icon]:justify-center">
           <SidebarFind onSearch={onSearch} />
         </div>
       </SidebarHeader>
