@@ -46,7 +46,8 @@ the same access as an open deployment.
 ## Schema Registry
 
 Each cluster can optionally point at a Confluent-compatible Schema Registry.
-When omitted, the Schemas page is empty for that cluster.
+When omitted, the Schemas page is empty for that cluster. Framed Avro, JSON, and
+Protobuf payloads decode to JSON when a registry is configured.
 
 ```yaml
 schema_registry:

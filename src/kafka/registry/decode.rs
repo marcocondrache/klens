@@ -6,6 +6,7 @@ use apache_avro::reader::datum::GenericDatumReader;
 use moka::future::Cache;
 
 use super::client::SchemaRegistryClient;
+use super::protobuf::ProtobufCodec;
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{RegisteredSchema, SchemaType, decode_bytes};
 
@@ -21,6 +22,7 @@ pub(crate) struct DecodedField {
 struct ConfluentFrame<'a> {
     schema_id: i32,
     payload: &'a [u8],
+    indexed: bool,
 }
 
 impl<'a> ConfluentFrame<'a> {
@@ -31,6 +33,7 @@ impl<'a> ConfluentFrame<'a> {
         Some(Self {
             schema_id: i32::from_be_bytes(bytes[1..5].try_into().ok()?),
             payload: &bytes[5..],
+            indexed: true,
         })
     }
 }
@@ -45,7 +48,7 @@ pub(crate) struct PayloadDecoder {
 enum CachedSchema {
     Avro(AvroCodec),
     Json,
-    Unsupported,
+    Protobuf(ProtobufCodec),
     Missing,
 }
 
@@ -86,6 +89,7 @@ impl PayloadDecoder {
             let frame = ConfluentFrame {
                 schema_id,
                 payload: bytes,
+                indexed: false,
             };
             return DecodedField {
                 text: self.decode_or_raw(frame, bytes).await,
@@ -104,7 +108,7 @@ impl PayloadDecoder {
             Ok(json) => json,
             Err(error) => {
                 match error.kind {
-                    DecodeKind::Unsupported | DecodeKind::Missing => {
+                    DecodeKind::Missing => {
                         tracing::debug!(
                             schema_id = frame.schema_id,
                             error = %error.message,
@@ -153,7 +157,6 @@ struct DecodeError {
 #[derive(Clone, Copy)]
 enum DecodeKind {
     Missing,
-    Unsupported,
     Failed,
 }
 
@@ -161,13 +164,6 @@ impl DecodeError {
     fn missing(message: impl Into<String>) -> Self {
         Self {
             kind: DecodeKind::Missing,
-            message: message.into(),
-        }
-    }
-
-    fn unsupported(message: impl Into<String>) -> Self {
-        Self {
-            kind: DecodeKind::Unsupported,
             message: message.into(),
         }
     }
@@ -185,9 +181,9 @@ impl PayloadDecoder {
         let cached = self.resolved(frame.schema_id).await?;
         match cached.as_ref() {
             CachedSchema::Missing => Err(DecodeError::missing("schema id not found in registry")),
-            CachedSchema::Unsupported => Err(DecodeError::unsupported("unsupported schema type")),
             CachedSchema::Json => json_payload(frame.payload),
             CachedSchema::Avro(codec) => avro_payload(codec, frame.payload),
+            CachedSchema::Protobuf(codec) => protobuf_payload(codec, frame.payload, frame.indexed),
         }
     }
 
@@ -212,20 +208,37 @@ impl PayloadDecoder {
         registered: RegisteredSchema,
     ) -> Result<CachedSchema, DecodeError> {
         match registered.schema_type {
-            SchemaType::Protobuf => Ok(CachedSchema::Unsupported),
             SchemaType::Json => Ok(CachedSchema::Json),
             SchemaType::Avro => {
-                let dependencies = self.collect_references(&registered).await?;
+                let dependencies = self.collect_reference_bodies(&registered).await?;
                 let codec = parse_avro(&registered.schema, &dependencies)?;
                 Ok(CachedSchema::Avro(codec))
+            }
+            SchemaType::Protobuf => {
+                let dependencies = self.collect_named_references(&registered).await?;
+                let codec = ProtobufCodec::compile(&registered.schema, &dependencies)
+                    .map_err(DecodeError::failed)?;
+                Ok(CachedSchema::Protobuf(codec))
             }
         }
     }
 
-    async fn collect_references(
+    async fn collect_reference_bodies(
         &self,
         registered: &RegisteredSchema,
     ) -> Result<Vec<String>, DecodeError> {
+        Ok(self
+            .collect_named_references(registered)
+            .await?
+            .into_iter()
+            .map(|(_, schema)| schema)
+            .collect())
+    }
+
+    async fn collect_named_references(
+        &self,
+        registered: &RegisteredSchema,
+    ) -> Result<Vec<(String, String)>, DecodeError> {
         let mut bodies = Vec::new();
         let mut pending = registered.references.clone();
         let mut seen = HashSet::new();
@@ -240,7 +253,7 @@ impl PayloadDecoder {
                 .await
                 .map_err(registry_error)?;
             pending.extend(fetched.references);
-            bodies.push(fetched.schema);
+            bodies.push((reference.name, fetched.schema));
         }
 
         Ok(bodies)
@@ -294,6 +307,19 @@ fn json_payload(payload: &[u8]) -> Result<String, DecodeError> {
     serde_json::to_string(&json).map_err(|error| DecodeError::failed(error.to_string()))
 }
 
+fn protobuf_payload(
+    codec: &ProtobufCodec,
+    payload: &[u8],
+    indexed: bool,
+) -> Result<String, DecodeError> {
+    let decoded = if indexed {
+        codec.decode_framed(payload)
+    } else {
+        codec.decode_raw(payload)
+    };
+    decoded.map_err(DecodeError::failed)
+}
+
 fn registry_error(error: KafkaError) -> DecodeError {
     DecodeError::failed(error.to_string())
 }
@@ -330,6 +356,38 @@ mod tests {
             {"name": "status", "type": "Status"}
         ]
     }"#;
+
+    const ORDER_PROTO: &str = r#"
+        syntax = "proto3";
+        message Order {
+            string order_id = 1;
+            int64 amount = 2;
+        }
+        message Wrapper {
+            message Inner {
+                string name = 1;
+            }
+        }
+        message Count {
+            int32 n = 1;
+        }
+    "#;
+
+    const STATUS_PROTO: &str = r#"
+        syntax = "proto3";
+        package common;
+        message Status {
+            string code = 1;
+        }
+    "#;
+
+    const TAGGED_ORDER_PROTO: &str = r#"
+        syntax = "proto3";
+        import "common.proto";
+        message TaggedOrder {
+            common.Status status = 1;
+        }
+    "#;
 
     fn config(url: &str) -> SchemaRegistryConfig {
         SchemaRegistryConfig {
@@ -490,14 +548,89 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn falls_back_for_protobuf() {
+    async fn decodes_protobuf_record_to_json() {
+        let server = MockServer::start().await;
+        mock_schema(&server, 3, "PROTOBUF", ORDER_PROTO).await;
+
+        let mut payload = crate::kafka::registry::protobuf::encode_indexes(&[0]);
+        payload.extend_from_slice(b"\x0a\x03abc\x10\x2a");
+        let framed = frame(3, &payload);
+        let json = decoder(&server.uri()).decode(&framed).await;
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(value["orderId"], "abc");
+        assert_eq!(value["amount"], "42");
+        assert!(sample_record(None, Some(json)).matches("orderid"));
+    }
+
+    #[tokio::test]
+    async fn decodes_protobuf_nested_message_index() {
+        let server = MockServer::start().await;
+        mock_schema(&server, 3, "PROTOBUF", ORDER_PROTO).await;
+
+        let mut payload = crate::kafka::registry::protobuf::encode_indexes(&[2]);
+        payload.extend_from_slice(b"\x08\x07");
+        let json = decoder(&server.uri()).decode(&frame(3, &payload)).await;
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["n"], 7);
+    }
+
+    #[tokio::test]
+    async fn falls_back_when_protobuf_schema_has_no_messages() {
         let server = MockServer::start().await;
         mock_schema(&server, 3, "PROTOBUF", "syntax = \"proto3\";").await;
-        let framed = frame(3, b"\x08\x01");
+        let framed = frame(3, b"\x00\x08\x01");
         assert_eq!(
             decoder(&server.uri()).decode(&framed).await,
             decode_bytes(&framed)
         );
+    }
+
+    #[tokio::test]
+    async fn decodes_unframed_protobuf_with_override_schema_id() {
+        let server = MockServer::start().await;
+        mock_schema(&server, 3, "PROTOBUF", ORDER_PROTO).await;
+
+        let payload = b"\x0a\x03abc\x10\x2a";
+        let decoded = decoder(&server.uri()).decode_with(payload, Some(3)).await;
+        let value: serde_json::Value = serde_json::from_str(&decoded.text).unwrap();
+        assert_eq!(value["orderId"], "abc");
+        assert_eq!(value["amount"], "42");
+        assert_eq!(decoded.schema_id, None);
+    }
+
+    #[tokio::test]
+    async fn decodes_protobuf_schema_references() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/schemas/ids/20"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "schemaType": "PROTOBUF",
+                "schema": TAGGED_ORDER_PROTO,
+                "references": [{
+                    "name": "common.proto",
+                    "subject": "common.proto",
+                    "version": 1
+                }]
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/subjects/common.proto/versions/1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": 4,
+                "version": 1,
+                "schemaType": "PROTOBUF",
+                "schema": STATUS_PROTO,
+            })))
+            .mount(&server)
+            .await;
+
+        let mut payload = crate::kafka::registry::protobuf::encode_indexes(&[0]);
+        payload.extend_from_slice(b"\x0a\x06\x0a\x04OPEN");
+        let json = decoder(&server.uri()).decode(&frame(20, &payload)).await;
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["status"]["code"], "OPEN");
     }
 
     #[tokio::test]
