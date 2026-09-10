@@ -305,6 +305,14 @@ export const topicThroughputQuery = graphql(`
   }
 `);
 
+export const groupLagHistoryQuery = graphql(`
+  query GroupLagHistory($cluster: String!, $id: String!) {
+    groupLagHistory(cluster: $cluster, id: $id) {
+      ...ThroughputPointFields
+    }
+  }
+`);
+
 export const schemaSubjectsQuery = graphql(`
   query SchemaSubjects($cluster: String!) {
     schemaSubjects(cluster: $cluster) {

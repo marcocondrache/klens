@@ -1,10 +1,11 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use tokio::time::Instant;
 
-use crate::environment::{HISTORY_LEN, MAX_SAMPLE_GAP};
+use super::series::{Series, SeriesMap, ThroughputPoint, unix_ms_now};
+use crate::environment::MAX_SAMPLE_GAP;
 
 /// Produce rate for one topic, derived from high-watermark deltas.
 #[derive(Debug, Clone, PartialEq)]
@@ -12,15 +13,6 @@ pub struct TopicRate {
     pub name: String,
     pub messages_per_sec: f64,
     pub bytes_in_per_sec: f64,
-}
-
-/// One sampled throughput observation.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ThroughputPoint {
-    pub timestamp: f64,
-    pub bytes_in: f64,
-    pub bytes_out: f64,
-    pub messages: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -34,8 +26,8 @@ struct Sample {
 struct ClusterSamples {
     current: Option<Sample>,
     rates: HashMap<String, TopicRate>,
-    topic_history: HashMap<String, VecDeque<ThroughputPoint>>,
-    cluster_history: VecDeque<ThroughputPoint>,
+    topic_history: SeriesMap,
+    cluster_history: Series,
 }
 
 /// Remembers watermark snapshots so GraphQL queries and subscriptions can
@@ -92,8 +84,7 @@ impl RateStore {
         let clusters = self.inner.read().expect("rate store lock");
         clusters
             .get(cluster)
-            .and_then(|cluster| cluster.topic_history.get(topic))
-            .map(|history| history.iter().cloned().collect())
+            .map(|cluster| cluster.topic_history.history(topic))
             .unwrap_or_default()
     }
 
@@ -101,7 +92,7 @@ impl RateStore {
         let clusters = self.inner.read().expect("rate store lock");
         clusters
             .get(cluster)
-            .map(|cluster| cluster.cluster_history.iter().cloned().collect())
+            .map(|cluster| cluster.cluster_history.to_vec())
             .unwrap_or_default()
     }
 }
@@ -129,30 +120,20 @@ impl ClusterSamples {
                 },
             );
 
-            push_history(
-                self.topic_history.entry(name.clone()).or_default(),
-                ThroughputPoint {
-                    timestamp: current.unix_ms,
-                    bytes_in: 0.0,
-                    bytes_out: 0.0,
-                    messages: messages_per_sec,
-                },
+            self.topic_history.push(
+                name,
+                ThroughputPoint::messages(current.unix_ms, messages_per_sec),
             );
         }
 
         self.topic_history
-            .retain(|topic, _| current.counts.contains_key(topic));
+            .retain(|topic| current.counts.contains_key(topic));
         self.rates = rates;
 
-        push_history(
-            &mut self.cluster_history,
-            ThroughputPoint {
-                timestamp: current.unix_ms,
-                bytes_in: 0.0,
-                bytes_out: 0.0,
-                messages: round_rate(cluster_messages),
-            },
-        );
+        self.cluster_history.push(ThroughputPoint::messages(
+            current.unix_ms,
+            round_rate(cluster_messages),
+        ));
     }
 }
 
@@ -179,23 +160,10 @@ fn round_rate(value: f64) -> f64 {
     (value * 1000.0).round() / 1000.0
 }
 
-fn push_history(history: &mut VecDeque<ThroughputPoint>, point: ThroughputPoint) {
-    if history.len() == *HISTORY_LEN {
-        history.pop_front();
-    }
-    history.push_back(point);
-}
-
-fn unix_ms_now() -> f64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as f64)
-        .unwrap_or(0.0)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::environment::HISTORY_LEN;
 
     fn counts(pairs: &[(&str, u64)]) -> HashMap<String, u64> {
         pairs

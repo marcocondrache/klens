@@ -21,6 +21,8 @@ mod types;
 use query::Query;
 use subscription::Subscription;
 
+pub(crate) use subscription::Samplers;
+
 impl juniper::Context for AppState {}
 
 pub type Schema = RootNode<Query, EmptyMutation<AppState>, Subscription>;

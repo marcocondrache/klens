@@ -259,13 +259,13 @@ pub(super) enum ConsumerGroupState {
     Dead,
 }
 
-#[derive(GraphQLObject)]
+#[derive(GraphQLObject, Clone)]
 pub(super) struct MemberAssignment {
     pub topic: String,
     pub partitions: Vec<i32>,
 }
 
-#[derive(GraphQLObject)]
+#[derive(GraphQLObject, Clone)]
 pub(super) struct ConsumerGroupMember {
     pub id: String,
     pub client_id: String,
@@ -273,7 +273,7 @@ pub(super) struct ConsumerGroupMember {
     pub assignments: Vec<MemberAssignment>,
 }
 
-#[derive(GraphQLObject)]
+#[derive(GraphQLObject, Clone)]
 pub(super) struct GroupOffset {
     pub topic: String,
     pub partition: i32,
@@ -283,7 +283,7 @@ pub(super) struct GroupOffset {
     pub member_id: Option<String>,
 }
 
-#[derive(GraphQLObject)]
+#[derive(GraphQLObject, Clone)]
 pub(super) struct ConsumerGroup {
     pub id: String,
     pub state: ConsumerGroupState,
