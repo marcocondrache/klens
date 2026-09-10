@@ -24,6 +24,7 @@ type Documents = {
   "\n  fragment ConsumerGroupFields on ConsumerGroup {\n    id\n    state\n    protocol\n    coordinator\n    members {\n      ...ConsumerGroupMemberFields\n    }\n    topics\n    lag\n    offsets {\n      ...GroupOffsetFields\n    }\n  }\n": typeof types.ConsumerGroupFieldsFragmentDoc;
   "\n  fragment ThroughputPointFields on ThroughputPoint {\n    timestamp\n    bytesIn\n    bytesOut\n    messages\n  }\n": typeof types.ThroughputPointFieldsFragmentDoc;
   "\n  fragment TopicRateFields on TopicRate {\n    name\n    messagesPerSec\n    bytesInPerSec\n  }\n": typeof types.TopicRateFieldsFragmentDoc;
+  "\n  fragment ConsumerGroupLagFields on ConsumerGroup {\n    id\n    lag\n    offsets {\n      ...GroupOffsetFields\n    }\n  }\n": typeof types.ConsumerGroupLagFieldsFragmentDoc;
   "\n  fragment SchemaSubjectFields on SchemaSubject {\n    subject\n    id\n    type\n    latestVersion\n    versions\n    compatibility\n    schema\n  }\n": typeof types.SchemaSubjectFieldsFragmentDoc;
   "\n  fragment AclFields on Acl {\n    principal\n    resourceType\n    resourceName\n    patternType\n    operation\n    permission\n    host\n  }\n": typeof types.AclFieldsFragmentDoc;
   "\n  fragment RecordHeaderFields on RecordHeader {\n    key\n    value\n  }\n": typeof types.RecordHeaderFieldsFragmentDoc;
@@ -46,6 +47,7 @@ type Documents = {
   "\n  query Records($query: RecordQuery!) {\n    records(query: $query) {\n      records {\n        ...TopicRecordFields\n      }\n      hasMore\n      nextCursor\n    }\n  }\n": typeof types.RecordsDocument;
   "\n  query Search($cluster: String!, $term: String!) {\n    search(cluster: $cluster, term: $term) {\n      ...SearchResultFields\n    }\n  }\n": typeof types.SearchDocument;
   "\n  subscription TopicRates($cluster: String!) {\n    topicRates(cluster: $cluster) {\n      ...TopicRateFields\n    }\n  }\n": typeof types.TopicRatesDocument;
+  "\n  subscription ConsumerGroupLag($cluster: String!, $id: String!) {\n    consumerGroupLag(cluster: $cluster, id: $id) {\n      ...ConsumerGroupLagFields\n    }\n  }\n": typeof types.ConsumerGroupLagDocument;
 };
 const documents: Documents = {
   "\n  fragment ClusterFields on Cluster {\n    name\n    label\n    clusterId\n    bootstrapServers\n    securityProtocol\n    version\n    status\n    brokerCount\n    topicCount\n    partitionCount\n    consumerGroupCount\n    underReplicatedPartitions\n    offlinePartitions\n    messageCount\n    sizeBytes\n    bytesInPerSec\n    bytesOutPerSec\n  }\n":
@@ -70,6 +72,8 @@ const documents: Documents = {
     types.ThroughputPointFieldsFragmentDoc,
   "\n  fragment TopicRateFields on TopicRate {\n    name\n    messagesPerSec\n    bytesInPerSec\n  }\n":
     types.TopicRateFieldsFragmentDoc,
+  "\n  fragment ConsumerGroupLagFields on ConsumerGroup {\n    id\n    lag\n    offsets {\n      ...GroupOffsetFields\n    }\n  }\n":
+    types.ConsumerGroupLagFieldsFragmentDoc,
   "\n  fragment SchemaSubjectFields on SchemaSubject {\n    subject\n    id\n    type\n    latestVersion\n    versions\n    compatibility\n    schema\n  }\n":
     types.SchemaSubjectFieldsFragmentDoc,
   "\n  fragment AclFields on Acl {\n    principal\n    resourceType\n    resourceName\n    patternType\n    operation\n    permission\n    host\n  }\n":
@@ -114,6 +118,8 @@ const documents: Documents = {
     types.SearchDocument,
   "\n  subscription TopicRates($cluster: String!) {\n    topicRates(cluster: $cluster) {\n      ...TopicRateFields\n    }\n  }\n":
     types.TopicRatesDocument,
+  "\n  subscription ConsumerGroupLag($cluster: String!, $id: String!) {\n    consumerGroupLag(cluster: $cluster, id: $id) {\n      ...ConsumerGroupLagFields\n    }\n  }\n":
+    types.ConsumerGroupLagDocument,
 };
 
 /**
@@ -182,6 +188,12 @@ export function graphql(
 export function graphql(
   source: "\n  fragment TopicRateFields on TopicRate {\n    name\n    messagesPerSec\n    bytesInPerSec\n  }\n",
 ): typeof import("./graphql").TopicRateFieldsFragmentDoc;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(
+  source: "\n  fragment ConsumerGroupLagFields on ConsumerGroup {\n    id\n    lag\n    offsets {\n      ...GroupOffsetFields\n    }\n  }\n",
+): typeof import("./graphql").ConsumerGroupLagFieldsFragmentDoc;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
@@ -314,6 +326,12 @@ export function graphql(
 export function graphql(
   source: "\n  subscription TopicRates($cluster: String!) {\n    topicRates(cluster: $cluster) {\n      ...TopicRateFields\n    }\n  }\n",
 ): typeof import("./graphql").TopicRatesDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(
+  source: "\n  subscription ConsumerGroupLag($cluster: String!, $id: String!) {\n    consumerGroupLag(cluster: $cluster, id: $id) {\n      ...ConsumerGroupLagFields\n    }\n  }\n",
+): typeof import("./graphql").ConsumerGroupLagDocument;
 
 export function graphql(source: string) {
   return (documents as any)[source] ?? {};

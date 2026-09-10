@@ -7,7 +7,7 @@ import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { Stat, StatGrid } from "@/components/stat";
 import { GroupStateBadge, Pill } from "@/components/status";
-import { useConsumerGroup } from "@/lib/api/queries";
+import { useConsumerGroup, useConsumerGroupLag } from "@/lib/api/queries";
 import { clusterPath, useClusterName } from "@/lib/clusters";
 import { formatCount, formatNumber } from "@/lib/format";
 import type { ConsumerGroupMember, GroupOffset } from "@/lib/api/types";
@@ -72,6 +72,7 @@ export function ConsumerGroupPage() {
 
   const tab = TABS.includes(params.get("tab") ?? "") ? params.get("tab")! : "offsets";
   const { data: group, isPending, isError } = useConsumerGroup(cluster, groupId);
+  useConsumerGroupLag(cluster, groupId);
 
   function selectTab(value: string) {
     const next = new URLSearchParams(params);

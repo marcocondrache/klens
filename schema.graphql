@@ -259,6 +259,7 @@ type SearchResult {
 
 type Subscription {
   topicRates(cluster: String!): [TopicRate!]!
+  consumerGroupLag(cluster: String!, id: String!): ConsumerGroup!
 }
 
 type ThroughputPoint {

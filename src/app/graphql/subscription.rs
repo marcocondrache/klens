@@ -1,13 +1,14 @@
 use futures::stream::{self, BoxStream};
 use juniper::{FieldResult, graphql_subscription};
 
-use super::types::TopicRate;
+use super::types::{ConsumerGroup, TopicRate};
 use crate::AppState;
 use crate::environment::SAMPLE_INTERVAL;
 
 pub struct Subscription;
 
 type TopicRateStream = BoxStream<'static, FieldResult<Vec<TopicRate>>>;
+type ConsumerGroupStream = BoxStream<'static, FieldResult<ConsumerGroup>>;
 
 #[graphql_subscription(context = AppState)]
 impl Subscription {
@@ -24,6 +25,24 @@ impl Subscription {
             },
         ))
     }
+
+    async fn consumer_group_lag(
+        context: &AppState,
+        cluster: String,
+        id: String,
+    ) -> ConsumerGroupStream {
+        let state = context.clone();
+        Box::pin(stream::unfold(
+            (state, cluster, id, true),
+            |(state, cluster, id, first)| async move {
+                if !first {
+                    tokio::time::sleep(*SAMPLE_INTERVAL).await;
+                }
+                let item = sample_consumer_group_lag(&state, &cluster, &id).await;
+                Some((item, (state, cluster, id, false)))
+            },
+        ))
+    }
 }
 
 async fn sample_topic_rates(state: &AppState, cluster: &str) -> FieldResult<Vec<TopicRate>> {
@@ -35,6 +54,16 @@ async fn sample_topic_rates(state: &AppState, cluster: &str) -> FieldResult<Vec<
         .into_iter()
         .map(TopicRate::from)
         .collect())
+}
+
+async fn sample_consumer_group_lag(
+    state: &AppState,
+    cluster: &str,
+    id: &str,
+) -> FieldResult<ConsumerGroup> {
+    Ok(ConsumerGroup::from(
+        state.query.consumer_group(cluster, id).await?,
+    ))
 }
 
 #[cfg(test)]
@@ -161,6 +190,37 @@ mod tests {
                 .as_f64()
                 .unwrap()
                 > 0.0
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn consumer_group_lag_subscription_emits_updated_lag() {
+        let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
+            GrowingCluster::new(),
+        ])));
+        let coordinator = Coordinator::new(schema());
+        let request: GraphQLRequest = serde_json::from_str(
+            r#"{ "query": "subscription { consumerGroupLag(cluster: \"local\", id: \"order-processor\") { id lag offsets { partition lag endOffset } } }" }"#,
+        )
+        .unwrap();
+
+        let mut stream = coordinator.subscribe(&request, &state).await.unwrap();
+
+        let first = stream.next().await.unwrap();
+        let first = serde_json::to_value(first).unwrap();
+        assert_eq!(first["data"]["consumerGroupLag"]["id"], "order-processor");
+        let first_lag = first["data"]["consumerGroupLag"]["lag"].as_f64().unwrap();
+        assert!(first_lag >= 0.0);
+
+        tokio::time::advance(*SAMPLE_INTERVAL + Duration::from_millis(1)).await;
+
+        let second = stream.next().await.unwrap();
+        let second = serde_json::to_value(second).unwrap();
+        assert_eq!(second["data"]["consumerGroupLag"]["id"], "order-processor");
+        let second_lag = second["data"]["consumerGroupLag"]["lag"].as_f64().unwrap();
+        assert!(
+            second_lag > first_lag,
+            "expected lag to grow after high watermarks advance (first={first_lag}, second={second_lag})"
         );
     }
 }
