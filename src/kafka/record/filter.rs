@@ -41,6 +41,7 @@ impl Debug for RecordFilter {
 }
 
 impl RecordFilter {
+    #[cfg(test)]
     pub fn source(&self) -> &str {
         &self.source
     }
