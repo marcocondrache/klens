@@ -73,8 +73,8 @@ function FilterChip({
   return (
     <div
       className={cn(
-        "inline-flex h-8 max-w-64 items-center gap-1 rounded-full border border-dashed border-border bg-background px-1 dark:bg-input/20",
-        active && "border-solid bg-muted/40",
+        "inline-flex h-8 max-w-64 items-center gap-1 rounded-full border border-dashed border-muted-foreground/45 bg-transparent px-1",
+        active && "border-solid border-border bg-muted/40",
       )}
     >
       <button
