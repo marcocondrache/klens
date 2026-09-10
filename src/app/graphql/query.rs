@@ -1,7 +1,7 @@
 use juniper::{FieldResult, graphql_object};
 
 use super::types::{
-    Acl, Broker, Cluster, ConfigEntry, ConsumerGroup, RecordPage, RecordQuery, SchemaSubject,
+    Broker, Cluster, ConfigEntry, ConsumerGroup, RecordPage, RecordQuery, SchemaSubject,
     SearchResult, ThroughputPoint, Topic,
 };
 use crate::AppState;
@@ -155,11 +155,6 @@ impl Query {
             .into_iter()
             .map(SchemaSubject::from)
             .collect())
-    }
-
-    async fn acls(cluster: String) -> Vec<Acl> {
-        let _ = cluster;
-        Vec::new()
     }
 
     async fn records(context: &AppState, query: RecordQuery) -> FieldResult<RecordPage> {

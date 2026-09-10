@@ -5,7 +5,6 @@ import { execute } from "@/graphql/execute";
 import { clusterPath } from "@/lib/clusters";
 
 import {
-  aclsQuery,
   brokerConfigsQuery,
   brokerQuery,
   brokersQuery,
@@ -58,7 +57,6 @@ export const keys = {
     ["cluster", cluster, "topics", topic, "groups"] as const,
   group: (cluster: string, group: string) => ["cluster", cluster, "groups", group] as const,
   subjects: (cluster: string) => ["cluster", cluster, "subjects"] as const,
-  acls: (cluster: string) => ["cluster", cluster, "acls"] as const,
   search: (cluster: string, term: string) => ["cluster", cluster, "search", term] as const,
 };
 
@@ -230,16 +228,6 @@ export function useSchemaSubjects(cluster: string) {
     queryFn: async () => {
       const { schemaSubjects } = await execute(schemaSubjectsQuery, { cluster });
       return schemaSubjects;
-    },
-  });
-}
-
-export function useAcls(cluster: string) {
-  return useQuery({
-    queryKey: keys.acls(cluster),
-    queryFn: async () => {
-      const { acls } = await execute(aclsQuery, { cluster });
-      return acls;
     },
   });
 }

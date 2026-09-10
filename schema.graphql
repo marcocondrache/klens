@@ -3,23 +3,6 @@ schema {
   subscription: Subscription
 }
 
-enum AclPatternType {
-  LITERAL
-  PREFIXED
-}
-
-enum AclPermission {
-  ALLOW
-  DENY
-}
-
-enum AclResourceType {
-  TOPIC
-  GROUP
-  CLUSTER
-  TRANSACTIONAL_ID
-}
-
 enum CleanupPolicy {
   DELETE
   COMPACT
@@ -115,16 +98,6 @@ input RecordQuery {
   [2]: https://docs.rs/chrono/latest/chrono/struct.DateTime.html
 """
 scalar DateTime
-
-type Acl {
-  principal: String!
-  resourceType: AclResourceType!
-  resourceName: String!
-  patternType: AclPatternType!
-  operation: String!
-  permission: AclPermission!
-  host: String!
-}
 
 type Broker {
   id: Int!
@@ -224,7 +197,6 @@ type Query {
   clusterThroughput(cluster: String!): [ThroughputPoint!]!
   topicThroughput(cluster: String!, topic: String!): [ThroughputPoint!]!
   schemaSubjects(cluster: String!): [SchemaSubject!]!
-  acls(cluster: String!): [Acl!]!
   records(query: RecordQuery!): RecordPage!
   search(cluster: String!, term: String!): [SearchResult!]!
 }

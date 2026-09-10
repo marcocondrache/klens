@@ -74,7 +74,7 @@ export function LoginCover() {
         <p className="text-xl font-semibold tracking-tight text-white">A lens for Kafka</p>
         <p className="mt-1.5 max-w-md text-sm leading-relaxed text-white/55">
           Open a cluster and look through the topics and the messages on them, the groups consuming
-          them, the brokers, the schemas, and the ACLs.
+          them, the brokers, and the schemas.
         </p>
       </div>
     </div>
