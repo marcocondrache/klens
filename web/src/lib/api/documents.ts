@@ -142,6 +142,16 @@ export const TopicRateFields = graphql(`
   }
 `);
 
+export const ConsumerGroupLagFields = graphql(`
+  fragment ConsumerGroupLagFields on ConsumerGroup {
+    id
+    lag
+    offsets {
+      ...GroupOffsetFields
+    }
+  }
+`);
+
 export const SchemaSubjectFields = graphql(`
   fragment SchemaSubjectFields on SchemaSubject {
     subject
@@ -335,6 +345,14 @@ export const topicRatesSubscription = graphql(`
   subscription TopicRates($cluster: String!) {
     topicRates(cluster: $cluster) {
       ...TopicRateFields
+    }
+  }
+`);
+
+export const consumerGroupLagSubscription = graphql(`
+  subscription ConsumerGroupLag($cluster: String!, $id: String!) {
+    consumerGroupLag(cluster: $cluster, id: $id) {
+      ...ConsumerGroupLagFields
     }
   }
 `);

@@ -183,6 +183,19 @@ export type TopicRateFieldsFragment = {
   bytesInPerSec: number;
 };
 
+export type ConsumerGroupLagFieldsFragment = {
+  id: string;
+  lag: number;
+  offsets: Array<{
+    topic: string;
+    partition: number;
+    currentOffset: number;
+    endOffset: number;
+    lag: number;
+    memberId: string | null;
+  }>;
+};
+
 export type SchemaSubjectFieldsFragment = {
   subject: string;
   id: number;
@@ -564,6 +577,26 @@ export type TopicRatesSubscription = {
   topicRates: Array<{ name: string; messagesPerSec: number; bytesInPerSec: number }>;
 };
 
+export type ConsumerGroupLagSubscriptionVariables = Exact<{
+  cluster: string;
+  id: string;
+}>;
+
+export type ConsumerGroupLagSubscription = {
+  consumerGroupLag: {
+    id: string;
+    lag: number;
+    offsets: Array<{
+      topic: string;
+      partition: number;
+      currentOffset: number;
+      endOffset: number;
+      lag: number;
+      memberId: string | null;
+    }>;
+  };
+};
+
 export class TypedDocumentString<TResult, TVariables>
   extends String
   implements DocumentTypeDecoration<TResult, TVariables>
@@ -776,6 +809,25 @@ export const TopicRateFieldsFragmentDoc = new TypedDocumentString(
     `,
   { fragmentName: "TopicRateFields" },
 ) as unknown as TypedDocumentString<TopicRateFieldsFragment, unknown>;
+export const ConsumerGroupLagFieldsFragmentDoc = new TypedDocumentString(
+  `
+    fragment ConsumerGroupLagFields on ConsumerGroup {
+  id
+  lag
+  offsets {
+    ...GroupOffsetFields
+  }
+}
+    fragment GroupOffsetFields on GroupOffset {
+  topic
+  partition
+  currentOffset
+  endOffset
+  lag
+  memberId
+}`,
+  { fragmentName: "ConsumerGroupLagFields" },
+) as unknown as TypedDocumentString<ConsumerGroupLagFieldsFragment, unknown>;
 export const SchemaSubjectFieldsFragmentDoc = new TypedDocumentString(
   `
     fragment SchemaSubjectFields on SchemaSubject {
@@ -1207,3 +1259,27 @@ export const TopicRatesDocument = new TypedDocumentString(`
   messagesPerSec
   bytesInPerSec
 }`) as unknown as TypedDocumentString<TopicRatesSubscription, TopicRatesSubscriptionVariables>;
+export const ConsumerGroupLagDocument = new TypedDocumentString(`
+    subscription ConsumerGroupLag($cluster: String!, $id: String!) {
+  consumerGroupLag(cluster: $cluster, id: $id) {
+    ...ConsumerGroupLagFields
+  }
+}
+    fragment GroupOffsetFields on GroupOffset {
+  topic
+  partition
+  currentOffset
+  endOffset
+  lag
+  memberId
+}
+fragment ConsumerGroupLagFields on ConsumerGroup {
+  id
+  lag
+  offsets {
+    ...GroupOffsetFields
+  }
+}`) as unknown as TypedDocumentString<
+  ConsumerGroupLagSubscription,
+  ConsumerGroupLagSubscriptionVariables
+>;

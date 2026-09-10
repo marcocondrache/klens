@@ -141,6 +141,24 @@ impl ClusterHandle {
         })
         .await
     }
+
+    async fn fetch_group(
+        admin: Arc<AdminClient<DefaultClientContext>>,
+        timeout: Duration,
+        id: &str,
+    ) -> Result<Option<GroupSnapshot>, KafkaError> {
+        let id = id.to_owned();
+        run_blocking(timeout + *BLOCKING_SLACK, move || {
+            let list = admin.inner().fetch_group_list(Some(&id), timeout)?;
+            Ok(list
+                .groups()
+                .iter()
+                .filter(|group| !is_internal_group(group.name()))
+                .find(|group| group.name() == id)
+                .map(GroupSnapshot::from_rdkafka))
+        })
+        .await
+    }
 }
 
 #[async_trait]
@@ -289,6 +307,15 @@ impl ClusterSession for ClusterHandle {
             )
             .await
             .map_err(into_kafka_error)
+    }
+
+    async fn consumer_group(&self, id: &str) -> Result<GroupSnapshot, KafkaError> {
+        Self::fetch_group(Arc::clone(&self.admin), self.timeouts.admin, id)
+            .await?
+            .ok_or_else(|| KafkaError::UnknownGroup {
+                cluster: self.identity.name.clone(),
+                id: id.to_owned(),
+            })
     }
 
     async fn committed_offsets(
