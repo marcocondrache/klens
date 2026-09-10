@@ -138,8 +138,7 @@ impl FakeCluster {
                 timestamp: 1_700_000_000_000 + i64::from(offset) * 1_000,
                 key: Some(format!("ord_{offset}")),
                 value: Some(format!(r#"{{"orderId":"ord_{offset}"}}"#)),
-                key_schema_id: None,
-                value_schema_id: None,
+                schema_id: None,
                 headers: vec![RecordHeader {
                     key: "source".into(),
                     value: "checkout".into(),

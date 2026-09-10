@@ -112,8 +112,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
   const [pageIndex, setPageIndex] = useState(0);
   const [selected, setSelected] = useState<TopicRecord | null>(null);
   const [expanded, setExpanded] = useState(false);
-  const [keySchemaId, setKeySchemaId] = useState<number | null>(null);
-  const [valueSchemaId, setValueSchemaId] = useState<number | null>(null);
+  const [schemaId, setSchemaId] = useState<number | null>(null);
 
   const timestampFrom = fromDatetimeLocalValue(from);
   const timestampTo = fromDatetimeLocalValue(to);
@@ -127,8 +126,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
     timestampTo,
     limit: Number(limit),
     order,
-    keySchemaId,
-    valueSchemaId,
+    schemaId,
   });
   const pages = data?.pages ?? [];
   const currentPage = pages[pageIndex];
@@ -149,13 +147,8 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
     setPageIndex(0);
   }
 
-  function selectKeySchema(id: number | null) {
-    setKeySchemaId(id);
-    resetPages();
-  }
-
-  function selectValueSchema(id: number | null) {
-    setValueSchemaId(id);
+  function selectSchema(id: number | null) {
+    setSchemaId(id);
     resetPages();
   }
 
@@ -363,17 +356,6 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                   source={selectedRecord.key ?? "null"}
                   copyLabel="Copy key"
                   showCopy={Boolean(selectedRecord.key)}
-                  actions={
-                    selectedRecord.key != null && selectedRecord.keySchemaId == null ? (
-                      <SchemaPicker
-                        subjects={subjects}
-                        topic={topic.name}
-                        field="key"
-                        value={keySchemaId}
-                        onChange={selectKeySchema}
-                      />
-                    ) : null
-                  }
                 />
 
                 <PayloadView
@@ -389,13 +371,12 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                   onExpandedChange={setExpanded}
                   fill
                   actions={
-                    selectedRecord.value != null && selectedRecord.valueSchemaId == null ? (
+                    selectedRecord.value != null && selectedRecord.schemaId == null ? (
                       <SchemaPicker
                         subjects={subjects}
                         topic={topic.name}
-                        field="value"
-                        value={valueSchemaId}
-                        onChange={selectValueSchema}
+                        value={schemaId}
+                        onChange={selectSchema}
                       />
                     ) : null
                   }

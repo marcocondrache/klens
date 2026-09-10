@@ -97,8 +97,7 @@ input RecordQuery {
   limit: Int!
   order: RecordOrder!
   cursor: String
-  keySchemaId: Int
-  valueSchemaId: Int
+  schemaId: Int
 }
 
 """
@@ -297,8 +296,7 @@ type TopicRecord {
   timestamp: DateTime!
   key: String
   value: String
-  keySchemaId: Int
-  valueSchemaId: Int
+  schemaId: Int
   headers: [RecordHeader!]!
   sizeBytes: Float!
   compression: Compression!

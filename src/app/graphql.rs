@@ -294,9 +294,8 @@ mod tests {
                     search: ""
                     limit: 1
                     order: OLDEST
-                    keySchemaId: 2
-                    valueSchemaId: 1
-                }) { records { keySchemaId valueSchemaId } }
+                    schemaId: 1
+                }) { records { schemaId } }
             }"#,
             None,
             &schema,
@@ -310,7 +309,7 @@ mod tests {
         assert_eq!(
             serde_json::to_value(value).unwrap(),
             serde_json::json!({
-                "records": { "records": [{ "keySchemaId": null, "valueSchemaId": null }] }
+                "records": { "records": [{ "schemaId": null }] }
             })
         );
     }
@@ -477,8 +476,7 @@ mod tests {
         let sdl = schema().as_sdl();
         assert!(sdl.contains("type Subscription"));
         assert!(sdl.contains("topicRates(cluster: String!): [TopicRate!]!"));
-        assert!(sdl.contains("keySchemaId: Int"));
-        assert!(sdl.contains("valueSchemaId: Int"));
+        assert!(sdl.contains("schemaId: Int"));
     }
 
     #[tokio::test]

@@ -36,15 +36,14 @@ export type RecordOrder = "NEWEST" | "OLDEST";
 export type RecordQuery = {
   cluster: string;
   cursor: string | null | undefined;
-  keySchemaId: number | null | undefined;
   limit: number;
   order: RecordOrder;
   partition: number | null | undefined;
+  schemaId: number | null | undefined;
   search: string;
   timestampFrom: string | null | undefined;
   timestampTo: string | null | undefined;
   topic: string;
-  valueSchemaId: number | null | undefined;
 };
 
 export type SchemaCompatibility = "BACKWARD" | "FORWARD" | "FULL" | "NONE";
@@ -213,8 +212,7 @@ export type TopicRecordFieldsFragment = {
   timestamp: string;
   key: string | null;
   value: string | null;
-  keySchemaId: number | null;
-  valueSchemaId: number | null;
+  schemaId: number | null;
   sizeBytes: number;
   compression: Compression;
   headers: Array<{ key: string; value: string }>;
@@ -541,8 +539,7 @@ export type RecordsQuery = {
       timestamp: string;
       key: string | null;
       value: string | null;
-      keySchemaId: number | null;
-      valueSchemaId: number | null;
+      schemaId: number | null;
       sizeBytes: number;
       compression: Compression;
       headers: Array<{ key: string; value: string }>;
@@ -825,8 +822,7 @@ export const TopicRecordFieldsFragmentDoc = new TypedDocumentString(
   timestamp
   key
   value
-  keySchemaId
-  valueSchemaId
+  schemaId
   headers {
     ...RecordHeaderFields
   }
@@ -1181,8 +1177,7 @@ fragment TopicRecordFields on TopicRecord {
   timestamp
   key
   value
-  keySchemaId
-  valueSchemaId
+  schemaId
   headers {
     ...RecordHeaderFields
   }

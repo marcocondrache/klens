@@ -19,18 +19,16 @@ const DECODABLE = new Set(["AVRO", "JSON"]);
 export function SchemaPicker({
   subjects,
   topic,
-  field,
   value,
   onChange,
 }: {
   subjects: SchemaSubject[];
   topic: string;
-  field: "key" | "value";
   value: number | null;
   onChange: (id: number | null) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const preferred = `${topic}-${field}`;
+  const preferred = `${topic}-value`;
   const options = useMemo(() => {
     const decodable = subjects.filter((subject) => DECODABLE.has(subject.type));
     return {
@@ -58,7 +56,7 @@ export function SchemaPicker({
             variant="outline"
             size="xs"
             className="max-w-64 min-w-0 gap-1 font-normal"
-            aria-label={`Decode ${field} with schema`}
+            aria-label="Decode value with schema"
           />
         }
       >

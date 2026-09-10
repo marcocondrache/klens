@@ -112,10 +112,11 @@ async fn record_from_message(
     let size_bytes = message.key().map(|key| key.len()).unwrap_or(0)
         + message.payload().map(|payload| payload.len()).unwrap_or(0);
 
-    let key = decode_field(decoder, message.key(), plan.key_schema_id).await;
-    let value = decode_field(decoder, message.payload(), plan.value_schema_id).await;
-    let (key, key_schema_id) = split_decoded(key);
-    let (value, value_schema_id) = split_decoded(value);
+    let key = decode_field(decoder, message.key(), None)
+        .await
+        .map(|field| field.text);
+    let value = decode_field(decoder, message.payload(), plan.schema_id).await;
+    let (value, schema_id) = split_decoded(value);
 
     Record {
         topic: message.topic().to_owned(),
@@ -124,8 +125,7 @@ async fn record_from_message(
         timestamp,
         key,
         value,
-        key_schema_id,
-        value_schema_id,
+        schema_id,
         headers,
         size_bytes: size_bytes as u64,
         compression: Compression::None,
@@ -151,8 +151,7 @@ mod tests {
             timestamp: 0,
             key: None,
             value,
-            key_schema_id: None,
-            value_schema_id: None,
+            schema_id: None,
             headers: Vec::new(),
             size_bytes: 0,
             compression: Compression::None,
