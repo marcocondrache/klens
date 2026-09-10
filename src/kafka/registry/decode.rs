@@ -11,6 +11,12 @@ use crate::kafka::model::{RegisteredSchema, SchemaType, decode_bytes};
 
 const CONFLUENT_MAGIC: u8 = 0;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DecodedField {
+    pub text: String,
+    pub schema_id: Option<i32>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ConfluentFrame<'a> {
     schema_id: i32,
@@ -61,10 +67,39 @@ impl PayloadDecoder {
         &self.client
     }
 
+    #[cfg(test)]
     pub(crate) async fn decode(&self, bytes: &[u8]) -> String {
-        let Some(frame) = ConfluentFrame::parse(bytes) else {
-            return decode_bytes(bytes);
-        };
+        self.decode_with(bytes, None).await.text
+    }
+
+    /// Decode a payload, optionally using `override_id` when the bytes are not
+    /// Confluent-framed. Wire-format schema ids always win over the override.
+    pub(crate) async fn decode_with(&self, bytes: &[u8], override_id: Option<i32>) -> DecodedField {
+        if let Some(frame) = ConfluentFrame::parse(bytes) {
+            return DecodedField {
+                text: self.decode_or_raw(frame, bytes).await,
+                schema_id: Some(frame.schema_id),
+            };
+        }
+
+        if let Some(schema_id) = override_id {
+            let frame = ConfluentFrame {
+                schema_id,
+                payload: bytes,
+            };
+            return DecodedField {
+                text: self.decode_or_raw(frame, bytes).await,
+                schema_id: None,
+            };
+        }
+
+        DecodedField {
+            text: decode_bytes(bytes),
+            schema_id: None,
+        }
+    }
+
+    async fn decode_or_raw(&self, frame: ConfluentFrame<'_>, original: &[u8]) -> String {
         match self.decode_frame(frame).await {
             Ok(json) => json,
             Err(error) => {
@@ -84,7 +119,7 @@ impl PayloadDecoder {
                         );
                     }
                 }
-                decode_bytes(bytes)
+                decode_bytes(original)
             }
         }
     }
@@ -93,11 +128,15 @@ impl PayloadDecoder {
 pub(crate) async fn decode_field(
     decoder: Option<&PayloadDecoder>,
     bytes: Option<&[u8]>,
-) -> Option<String> {
+    override_id: Option<i32>,
+) -> Option<DecodedField> {
     match (bytes, decoder) {
         (None, _) => None,
-        (Some(bytes), Some(decoder)) => Some(decoder.decode(bytes).await),
-        (Some(bytes), None) => Some(decode_bytes(bytes)),
+        (Some(bytes), Some(decoder)) => Some(decoder.decode_with(bytes, override_id).await),
+        (Some(bytes), None) => Some(DecodedField {
+            text: decode_bytes(bytes),
+            schema_id: ConfluentFrame::parse(bytes).map(|frame| frame.schema_id),
+        }),
     }
 }
 
@@ -342,6 +381,7 @@ mod tests {
             timestamp: 0,
             key,
             value,
+            schema_id: None,
             headers: Vec::new(),
             size_bytes: 0,
             compression: Compression::None,
@@ -462,11 +502,86 @@ mod tests {
 
     #[tokio::test]
     async fn decode_field_without_decoder_is_lossy_utf8() {
-        assert_eq!(
-            decode_field(None, Some(b"hello")).await.as_deref(),
-            Some("hello")
+        let decoded = decode_field(None, Some(b"hello"), None).await.unwrap();
+        assert_eq!(decoded.text, "hello");
+        assert_eq!(decoded.schema_id, None);
+        assert!(decode_field(None, None, None).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn decode_field_without_decoder_exposes_wire_schema_id() {
+        let framed = frame(12, b"datum");
+        let decoded = decode_field(None, Some(&framed), None).await.unwrap();
+        assert_eq!(decoded.schema_id, Some(12));
+        assert_eq!(decoded.text, decode_bytes(&framed));
+    }
+
+    #[tokio::test]
+    async fn decodes_unframed_avro_with_override_schema_id() {
+        let server = MockServer::start().await;
+        mock_schema(&server, 12, "AVRO", ORDER_SCHEMA).await;
+
+        let payload = encode_avro(ORDER_SCHEMA, |_, record| {
+            record.put("orderId", "abc".to_owned());
+            record.put("amount", 42i64);
+        });
+        let decoded = decoder(&server.uri()).decode_with(&payload, Some(12)).await;
+        let value: serde_json::Value = serde_json::from_str(&decoded.text).unwrap();
+
+        assert_eq!(value["orderId"], "abc");
+        assert_eq!(value["amount"], 42);
+        assert_eq!(decoded.schema_id, None);
+        assert!(
+            !decode_bytes(&payload)
+                .to_ascii_lowercase()
+                .contains("orderid")
         );
-        assert!(decode_field(None, None).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn framed_payload_ignores_override_schema_id() {
+        let server = MockServer::start().await;
+        mock_schema(&server, 12, "AVRO", ORDER_SCHEMA).await;
+        mock_schema(&server, 99, "JSON", r#"{"type":"object"}"#).await;
+
+        let payload = encode_avro(ORDER_SCHEMA, |_, record| {
+            record.put("orderId", "abc".to_owned());
+            record.put("amount", 42i64);
+        });
+        let framed = frame(12, &payload);
+        let decoded = decoder(&server.uri()).decode_with(&framed, Some(99)).await;
+        let value: serde_json::Value = serde_json::from_str(&decoded.text).unwrap();
+
+        assert_eq!(value["orderId"], "abc");
+        assert_eq!(decoded.schema_id, Some(12));
+    }
+
+    #[tokio::test]
+    async fn unframed_override_falls_back_when_payload_does_not_match() {
+        let server = MockServer::start().await;
+        mock_schema(&server, 12, "AVRO", ORDER_SCHEMA).await;
+        let raw = b"????";
+        let decoded = decoder(&server.uri()).decode_with(raw, Some(12)).await;
+        assert_eq!(decoded.text, decode_bytes(raw));
+        assert_eq!(decoded.schema_id, None);
+    }
+
+    #[tokio::test]
+    async fn unframed_override_falls_back_when_schema_is_missing() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/schemas/ids/99"))
+            .respond_with(ResponseTemplate::new(404).set_body_json(serde_json::json!({
+                "error_code": 40403,
+                "message": "Schema not found.",
+            })))
+            .mount(&server)
+            .await;
+
+        let raw = b"not-json";
+        let decoded = decoder(&server.uri()).decode_with(raw, Some(99)).await;
+        assert_eq!(decoded.text, decode_bytes(raw));
+        assert_eq!(decoded.schema_id, None);
     }
 
     #[tokio::test]

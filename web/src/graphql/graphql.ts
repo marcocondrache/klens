@@ -39,6 +39,7 @@ export type RecordQuery = {
   limit: number;
   order: RecordOrder;
   partition: number | null | undefined;
+  schemaId: number | null | undefined;
   search: string;
   timestampFrom: string | null | undefined;
   timestampTo: string | null | undefined;
@@ -211,6 +212,7 @@ export type TopicRecordFieldsFragment = {
   timestamp: string;
   key: string | null;
   value: string | null;
+  schemaId: number | null;
   sizeBytes: number;
   compression: Compression;
   headers: Array<{ key: string; value: string }>;
@@ -537,6 +539,7 @@ export type RecordsQuery = {
       timestamp: string;
       key: string | null;
       value: string | null;
+      schemaId: number | null;
       sizeBytes: number;
       compression: Compression;
       headers: Array<{ key: string; value: string }>;
@@ -819,6 +822,7 @@ export const TopicRecordFieldsFragmentDoc = new TypedDocumentString(
   timestamp
   key
   value
+  schemaId
   headers {
     ...RecordHeaderFields
   }
@@ -1173,6 +1177,7 @@ fragment TopicRecordFields on TopicRecord {
   timestamp
   key
   value
+  schemaId
   headers {
     ...RecordHeaderFields
   }

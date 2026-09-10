@@ -282,6 +282,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn records_accept_schema_overrides_and_expose_wire_ids() {
+        let state = state();
+        let schema = schema();
+
+        let (value, errors) = execute(
+            r#"{
+                records(query: {
+                    cluster: "local"
+                    topic: "orders.created"
+                    search: ""
+                    limit: 1
+                    order: OLDEST
+                    schemaId: 1
+                }) { records { schemaId } }
+            }"#,
+            None,
+            &schema,
+            &Variables::new(),
+            &state,
+        )
+        .await
+        .unwrap();
+
+        assert!(errors.is_empty());
+        assert_eq!(
+            serde_json::to_value(value).unwrap(),
+            serde_json::json!({
+                "records": { "records": [{ "schemaId": null }] }
+            })
+        );
+    }
+
+    #[tokio::test]
     async fn pages_through_records() {
         let state = state();
         let schema = schema();
@@ -443,6 +476,7 @@ mod tests {
         let sdl = schema().as_sdl();
         assert!(sdl.contains("type Subscription"));
         assert!(sdl.contains("topicRates(cluster: String!): [TopicRate!]!"));
+        assert!(sdl.contains("schemaId: Int"));
     }
 
     #[tokio::test]

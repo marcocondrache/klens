@@ -26,6 +26,7 @@ pub struct FetchPlan {
     pub search: String,
     pub limit: usize,
     pub order: RecordOrder,
+    pub schema_id: Option<i32>,
 }
 
 impl FetchPlan {
@@ -53,6 +54,7 @@ impl FetchPlan {
             search: query.search.trim().to_ascii_lowercase(),
             limit,
             order: query.order,
+            schema_id: query.schema_id,
         }
     }
 }
@@ -249,6 +251,7 @@ mod tests {
             timestamp: offset,
             key: None,
             value: None,
+            schema_id: None,
             headers: Vec::new(),
             size_bytes: 0,
             compression: crate::kafka::record::Compression::None,
@@ -578,6 +581,7 @@ mod tests {
             limit: 5,
             order: RecordOrder::Newest,
             cursor: None,
+            schema_id: None,
         };
 
         let plan = FetchPlan::build(&query, &[0], &marks(0, 100), 5, limits());
