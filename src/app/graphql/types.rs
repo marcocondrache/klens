@@ -597,37 +597,6 @@ impl From<domain::SchemaSubject> for SchemaSubject {
 }
 
 #[derive(GraphQLEnum, Clone, Copy)]
-pub(super) enum AclResourceType {
-    Topic,
-    Group,
-    Cluster,
-    TransactionalId,
-}
-
-#[derive(GraphQLEnum, Clone, Copy)]
-pub(super) enum AclPatternType {
-    Literal,
-    Prefixed,
-}
-
-#[derive(GraphQLEnum, Clone, Copy)]
-pub(super) enum AclPermission {
-    Allow,
-    Deny,
-}
-
-#[derive(GraphQLObject)]
-pub(super) struct Acl {
-    pub principal: String,
-    pub resource_type: AclResourceType,
-    pub resource_name: String,
-    pub pattern_type: AclPatternType,
-    pub operation: String,
-    pub permission: AclPermission,
-    pub host: String,
-}
-
-#[derive(GraphQLEnum, Clone, Copy)]
 pub(super) enum SearchResultKind {
     Topic,
     Group,

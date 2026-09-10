@@ -6,12 +6,6 @@ export type Incremental<T> =
   | T
   | { [P in keyof T]?: P extends " $fragmentName" | "__typename" ? T[P] : never };
 import type { DocumentTypeDecoration } from "@graphql-typed-document-node/core";
-export type AclPatternType = "LITERAL" | "PREFIXED";
-
-export type AclPermission = "ALLOW" | "DENY";
-
-export type AclResourceType = "CLUSTER" | "GROUP" | "TOPIC" | "TRANSACTIONAL_ID";
-
 export type CleanupPolicy = "COMPACT" | "COMPACT_DELETE" | "DELETE";
 
 export type ClusterStatus = "DEGRADED" | "HEALTHY" | "OFFLINE";
@@ -204,16 +198,6 @@ export type SchemaSubjectFieldsFragment = {
   versions: Array<number>;
   compatibility: SchemaCompatibility;
   schema: string;
-};
-
-export type AclFieldsFragment = {
-  principal: string;
-  resourceType: AclResourceType;
-  resourceName: string;
-  patternType: AclPatternType;
-  operation: string;
-  permission: AclPermission;
-  host: string;
 };
 
 export type RecordHeaderFieldsFragment = { key: string; value: string };
@@ -535,22 +519,6 @@ export type SchemaSubjectsQuery = {
   }>;
 };
 
-export type AclsQueryVariables = Exact<{
-  cluster: string;
-}>;
-
-export type AclsQuery = {
-  acls: Array<{
-    principal: string;
-    resourceType: AclResourceType;
-    resourceName: string;
-    patternType: AclPatternType;
-    operation: string;
-    permission: AclPermission;
-    host: string;
-  }>;
-};
-
 export type RecordsQueryVariables = Exact<{
   query: RecordQuery;
 }>;
@@ -856,20 +824,6 @@ export const SchemaSubjectFieldsFragmentDoc = new TypedDocumentString(
     `,
   { fragmentName: "SchemaSubjectFields" },
 ) as unknown as TypedDocumentString<SchemaSubjectFieldsFragment, unknown>;
-export const AclFieldsFragmentDoc = new TypedDocumentString(
-  `
-    fragment AclFields on Acl {
-  principal
-  resourceType
-  resourceName
-  patternType
-  operation
-  permission
-  host
-}
-    `,
-  { fragmentName: "AclFields" },
-) as unknown as TypedDocumentString<AclFieldsFragment, unknown>;
 export const RecordHeaderFieldsFragmentDoc = new TypedDocumentString(
   `
     fragment RecordHeaderFields on RecordHeader {
@@ -1219,21 +1173,6 @@ export const SchemaSubjectsDocument = new TypedDocumentString(`
   compatibility
   schema
 }`) as unknown as TypedDocumentString<SchemaSubjectsQuery, SchemaSubjectsQueryVariables>;
-export const AclsDocument = new TypedDocumentString(`
-    query Acls($cluster: String!) {
-  acls(cluster: $cluster) {
-    ...AclFields
-  }
-}
-    fragment AclFields on Acl {
-  principal
-  resourceType
-  resourceName
-  patternType
-  operation
-  permission
-  host
-}`) as unknown as TypedDocumentString<AclsQuery, AclsQueryVariables>;
 export const RecordsDocument = new TypedDocumentString(`
     query Records($query: RecordQuery!) {
   records(query: $query) {

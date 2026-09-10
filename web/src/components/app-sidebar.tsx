@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { GithubIcon } from "@/components/icons";
-import { useAcls, useCluster, useSchemaSubjects } from "@/lib/api/queries";
+import { useCluster, useSchemaSubjects } from "@/lib/api/queries";
 import { RELEASE_URL, REPO_URL, VERSION } from "@/lib/build";
 import { clusterPath, useClusterName } from "@/lib/clusters";
 import { formatCount } from "@/lib/format";
@@ -32,14 +32,12 @@ export function AppSidebar() {
 
   const { data } = useCluster(cluster);
   const { data: subjects } = useSchemaSubjects(cluster);
-  const { data: acls } = useAcls(cluster);
 
   const counts: Record<string, number | undefined> = {
     topics: data?.topicCount,
     groups: data?.consumerGroupCount,
     schemas: subjects?.length,
     nodes: data?.brokerCount,
-    acls: acls?.length,
   };
 
   return (

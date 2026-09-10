@@ -2,7 +2,6 @@ import { Navigate, Route, Routes } from "react-router";
 
 import { AuthGate } from "@/components/auth-gate";
 import { AppLayout } from "@/routes/app-layout";
-import { AclsPage } from "@/routes/acls";
 import { ConsumerGroupPage } from "@/routes/group-detail";
 import { ConsumerGroupsPage } from "@/routes/groups";
 import { HomePage } from "@/routes/home";
@@ -29,7 +28,6 @@ function App() {
           <Route path="groups" element={<ConsumerGroupsPage />} />
           <Route path="groups/:group" element={<ConsumerGroupPage />} />
           <Route path="schemas" element={<SchemasPage />} />
-          <Route path="acls" element={<AclsPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>
         <Route path="*" element={<NotFoundPage />} />
