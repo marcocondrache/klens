@@ -322,7 +322,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
 
         {isError ? (
           <Alert variant="destructive">
-            <AlertDescription>
+            <AlertDescription className="font-mono text-xs break-all">
               {error instanceof Error ? error.message : "Invalid filter."}
             </AlertDescription>
           </Alert>
@@ -348,6 +348,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
           selectedRecord ? `${selectedRecord.partition}-${selectedRecord.offset}` : undefined
         }
         fill
+        error={isError ? "The filter could not be compiled." : undefined}
         emptyState={
           <Empty className="py-10">
             <EmptyHeader>
