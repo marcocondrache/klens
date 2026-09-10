@@ -307,7 +307,7 @@ export function RecordFilterBar({
       >
         <PopoverTrigger
           render={
-            <Button variant="outline" size="sm" className="rounded-full" aria-label="Add filter" />
+            <Button variant="outline" size="sm" aria-label="Add filter" />
           }
         >
           <ListFilterIcon data-icon="inline-start" />
