@@ -64,6 +64,9 @@ jobs:
       - name: Check
         working-directory: web
         run: bunx vp check
+      - name: Test
+        working-directory: web
+        run: bun run test
       - name: Build
         working-directory: web
         run: bun run build
