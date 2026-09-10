@@ -97,7 +97,8 @@ export function appliedFilterCount(fields: FilterFieldDef[], state: FilterState)
 }
 
 function optionLabel(options: FilterOption[], value: string) {
-  return options.find((option) => option.value === value)?.label ?? value;
+  const option = options.find((entry) => entry.value === value);
+  return option?.short ?? option?.label ?? value;
 }
 
 /** Short text shown after the field name on a filter pill. */

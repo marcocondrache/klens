@@ -42,6 +42,7 @@ export function recordFilterFields(topic: Topic): FilterFieldDef[] {
       options: topic.partitions.map((partition) => ({
         value: String(partition.id),
         label: `Partition ${partition.id}`,
+        short: String(partition.id),
         keywords: String(partition.id),
       })),
     },

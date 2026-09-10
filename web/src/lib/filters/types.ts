@@ -4,6 +4,8 @@ import type { LucideIcon } from "lucide-react";
 export type FilterOption = {
   value: string;
   label: string;
+  /** Shorter label for filter pills, where the field name gives the context. */
+  short?: string;
   /** Muted text shown after the label. */
   hint?: string;
   /** Extra text matched by the editor search box. */

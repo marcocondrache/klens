@@ -188,6 +188,9 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
   }
 
   const filterError = filterErrorMessage(error);
+  // A rejected expression is explained inside its own editor, so the banner
+  // only repeats the raw message when nothing else can own it.
+  const expressionRejected = filterError != null && filters.cel != null;
   const hasFilters = appliedFilterCount(fields, filters) > 0 || term.trim() !== "";
 
   return (
@@ -269,7 +272,11 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
 
       {error ? (
         <Alert variant="destructive" className="shrink-0">
-          <AlertDescription>{error.message}</AlertDescription>
+          <AlertDescription>
+            {expressionRejected
+              ? "The filter expression was rejected. Open the Advanced (CEL) filter to fix it."
+              : error.message}
+          </AlertDescription>
         </Alert>
       ) : null}
 
