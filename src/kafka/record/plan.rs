@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, HashMap};
 use crate::kafka::limits::RecordLimits;
 use crate::kafka::record::Record;
 use crate::kafka::record::cursor::RecordCursor;
+use crate::kafka::record::filter::RecordFilter;
 use crate::kafka::record::query::{RecordOrder, RecordQuery};
 use crate::kafka::watermarks::Watermarks;
 
@@ -23,7 +24,7 @@ impl PartitionWindow {
 pub struct FetchPlan {
     pub topic: String,
     pub windows: Vec<PartitionWindow>,
-    pub search: String,
+    pub filter: Option<RecordFilter>,
     pub limit: usize,
     pub order: RecordOrder,
     pub schema_id: Option<i32>,
@@ -37,7 +38,7 @@ impl FetchPlan {
         limit: usize,
         limits: RecordLimits,
     ) -> Self {
-        let searching = !query.search.trim().is_empty();
+        let searching = query.filter.is_some();
         let cursor = query.cursor.as_ref();
 
         Self {
@@ -51,7 +52,7 @@ impl FetchPlan {
                 cursor,
                 limits,
             ),
-            search: query.search.trim().to_ascii_lowercase(),
+            filter: query.filter.clone(),
             limit,
             order: query.order,
             schema_id: query.schema_id,
@@ -572,11 +573,11 @@ mod tests {
     }
 
     #[test]
-    fn build_normalises_the_search_term() {
+    fn build_keeps_the_compiled_filter() {
         let query = RecordQuery {
             topic: "orders".into(),
             partition: None,
-            search: "  OrderId  ".into(),
+            filter: crate::kafka::compile_record_filter(r#"key == "ord_1""#).unwrap(),
             timestamps: crate::kafka::record::query::TimestampRange::UNBOUNDED,
             limit: 5,
             order: RecordOrder::Newest,
@@ -585,7 +586,13 @@ mod tests {
         };
 
         let plan = FetchPlan::build(&query, &[0], &marks(0, 100), 5, limits());
-        assert_eq!(plan.search, "orderid");
+        assert_eq!(
+            plan.filter
+                .as_ref()
+                .map(crate::kafka::record::filter::RecordFilter::source),
+            Some(r#"key == "ord_1""#)
+        );
         assert_eq!(plan.topic, "orders");
+        assert_eq!(plan.windows[0].end - plan.windows[0].start, 40);
     }
 }

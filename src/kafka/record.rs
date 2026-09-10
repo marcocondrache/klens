@@ -1,4 +1,5 @@
 pub mod cursor;
+pub mod filter;
 pub mod plan;
 pub mod query;
 
@@ -48,20 +49,8 @@ impl Record {
         }
     }
 
-    /// `term` is expected to be lowercase already; the fetch plan normalises it
-    /// once rather than per record.
-    pub fn matches(&self, term: &str) -> bool {
-        if term.is_empty() {
-            return true;
-        }
-
-        self.key
-            .as_deref()
-            .is_some_and(|key| key.to_ascii_lowercase().contains(term))
-            || self
-                .value
-                .as_deref()
-                .is_some_and(|value| value.to_ascii_lowercase().contains(term))
+    pub fn matches(&self, filter: Option<&filter::RecordFilter>) -> bool {
+        filter.is_none_or(|filter| filter.matches(self))
     }
 }
 

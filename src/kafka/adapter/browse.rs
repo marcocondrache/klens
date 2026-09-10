@@ -72,7 +72,7 @@ pub async fn consume(
                 }
 
                 let record = record_from_message(&message, decoder, plan).await;
-                if record.matches(&plan.search) {
+                if record.matches(plan.filter.as_ref()) {
                     records.push(record);
                 }
             }
@@ -159,7 +159,12 @@ mod tests {
             .await
             .unwrap()
             .text;
-        assert!(record(Some(value)).matches("orderid"));
+        assert!(
+            crate::kafka::record::filter::compile(r#"valueText.lowerAscii().contains("orderid")"#)
+                .unwrap()
+                .unwrap()
+                .matches(&record(Some(value)))
+        );
     }
 
     #[tokio::test]
@@ -168,6 +173,11 @@ mod tests {
             .await
             .unwrap()
             .text;
-        assert!(!record(Some(value)).matches("orderid"));
+        assert!(
+            !crate::kafka::record::filter::compile(r#"valueText.lowerAscii().contains("orderid")"#)
+                .unwrap()
+                .unwrap()
+                .matches(&record(Some(value)))
+        );
     }
 }

@@ -783,7 +783,7 @@ mod tests {
         RecordQuery {
             topic: "orders.created".into(),
             partition: None,
-            search: String::new(),
+            filter: None,
             timestamps: TimestampRange::default(),
             limit: 50,
             order: RecordOrder::Oldest,

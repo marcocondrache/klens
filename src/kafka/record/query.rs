@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 
 use crate::kafka::error::QueryError;
 use crate::kafka::record::cursor::RecordCursor;
+use crate::kafka::record::filter::RecordFilter;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RecordOrder {
@@ -15,7 +16,7 @@ pub enum RecordOrder {
 pub struct RecordQuery {
     pub topic: String,
     pub partition: Option<i32>,
-    pub search: String,
+    pub filter: Option<RecordFilter>,
     pub timestamps: TimestampRange,
     pub limit: i32,
     pub order: RecordOrder,

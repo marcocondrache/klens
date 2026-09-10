@@ -51,6 +51,14 @@ function preview(value: string | null) {
   return value.replace(/\s+/g, " ").trim();
 }
 
+/** Compile the search box into the backend CEL `filter` field. */
+function containsFilter(term: string): string | null {
+  const trimmed = term.trim();
+  if (!trimmed) return null;
+  const needle = JSON.stringify(trimmed);
+  return `keyText.lowerAscii().contains(${needle}) || valueText.lowerAscii().contains(${needle})`;
+}
+
 const columnHelper = createAppColumnHelper<TopicRecord>();
 
 const columns = columnHelper.columns([
@@ -116,12 +124,13 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
 
   const timestampFrom = fromDatetimeLocalValue(from);
   const timestampTo = fromDatetimeLocalValue(to);
+  const filter = containsFilter(term);
   const { data: subjects = [] } = useSchemaSubjects(cluster);
   const { data, isFetching, hasNextPage, fetchNextPage, isFetchingNextPage } = useRecords({
     cluster,
     topic: topic.name,
     partition: partition === "all" ? null : Number(partition),
-    search: term,
+    filter,
     timestampFrom,
     timestampTo,
     limit: Number(limit),
