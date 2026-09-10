@@ -9,6 +9,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { CommandPalette } from "@/components/command-palette";
 import { useClusters, useTopicRates } from "@/lib/api/queries";
 import { useClusterName } from "@/lib/clusters";
+import { findSearchHotkeyTarget, isTypingTarget } from "@/lib/keyboard";
 
 export function AppLayout() {
   const cluster = useClusterName();
@@ -22,7 +23,21 @@ export function AppLayout() {
       if (event.key === "k" && (event.metaKey || event.ctrlKey)) {
         event.preventDefault();
         setPaletteOpen((open) => !open);
+        return;
       }
+
+      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (isTypingTarget(event.target)) return;
+
+      const search = findSearchHotkeyTarget();
+      if (search) {
+        event.preventDefault();
+        search.focus();
+        return;
+      }
+
+      event.preventDefault();
+      setPaletteOpen(true);
     }
 
     window.addEventListener("keydown", onKeyDown);
