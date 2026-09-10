@@ -93,19 +93,19 @@ export function AppHeader({ onSearch }: { onSearch: () => void }) {
       <div className="ml-auto flex items-center gap-1.5">
         <Button
           variant="outline"
-          size="default"
+          size="sm"
           onClick={onSearch}
-          className="hidden gap-2 text-muted-foreground sm:flex"
+          className="hidden min-w-56 justify-start gap-2 text-muted-foreground sm:flex"
         >
           <SearchIcon />
           <span>Search</span>
-          <Kbd className="ml-2">⌘K</Kbd>
-          <Kbd className="ml-1">/</Kbd>
+          <Kbd className="ml-auto">⌘K</Kbd>
+          <Kbd>/</Kbd>
         </Button>
 
         <Button
           variant="ghost"
-          size="icon"
+          size="icon-sm"
           onClick={onSearch}
           aria-label="Search"
           className="sm:hidden"
