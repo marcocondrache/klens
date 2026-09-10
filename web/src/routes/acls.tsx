@@ -135,7 +135,6 @@ export function AclsPage() {
         }
         loading={isPending}
         defaultSort={{ id: "principal", direction: "asc" }}
-        pageSize={30}
         fill
       />
     </div>
