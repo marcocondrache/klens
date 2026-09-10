@@ -45,6 +45,7 @@ interface DataTableProps<TData extends RowData> {
   canPreviousPage?: boolean;
   onPreviousPage?: () => void;
   onNextPage?: () => void;
+  loadingMore?: boolean;
   fill?: boolean;
 }
 
@@ -65,6 +66,7 @@ export function DataTable<TData extends RowData>({
   canPreviousPage = false,
   onPreviousPage,
   onNextPage,
+  loadingMore = false,
   fill = false,
 }: DataTableProps<TData>) {
   const serverPaging = onNextPage != null;
@@ -241,7 +243,7 @@ export function DataTable<TData extends RowData>({
             <Button
               variant="outline"
               size="icon-xs"
-              disabled={serverPaging ? !hasMore : !table.getCanNextPage()}
+              disabled={serverPaging ? !hasMore || loadingMore : !table.getCanNextPage()}
               onClick={serverPaging ? onNextPage : () => table.nextPage()}
               aria-label="Next page"
             >
