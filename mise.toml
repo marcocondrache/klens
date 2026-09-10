@@ -4,6 +4,45 @@ node = "latest"
 rust = "latest"
 vendir = "0.46.0"
 viteplus = "latest"
+java = "temurin-17"
+"ubi:confluentinc/cli" = { version = "latest", exe = "confluent" }
+
+# `confluent local` runs Kafka + Schema Registry from a Confluent Platform
+# install. `mise run confluent:install` downloads it here.
+[env]
+CONFLUENT_HOME = "{{env.HOME}}/.confluent/confluent-8.3.1"
+_.path = ["{{env.HOME}}/.confluent/confluent-8.3.1/bin"]
+
+[tasks."confluent:install"]
+description = "Download the Confluent Platform archive that `confluent local` runs"
+run = """
+version=8.3.1
+dest="$HOME/.confluent"
+home="$dest/confluent-$version"
+if [ -x "$home/bin/kafka-server-start" ]; then
+  echo "Confluent Platform $version already installed at $home"
+  exit 0
+fi
+mkdir -p "$dest"
+url="https://packages.confluent.io/archive/${version%.*}/confluent-$version.tar.gz"
+echo "Downloading $url"
+curl -fsSL "$url" -o "$dest/confluent-$version.tar.gz"
+tar -xzf "$dest/confluent-$version.tar.gz" -C "$dest"
+rm -f "$dest/confluent-$version.tar.gz"
+echo "Installed Confluent Platform to $home"
+"""
+
+[tasks."kafka:start"]
+description = "Start a local Kafka + Schema Registry with confluent local"
+run = "confluent local services schema-registry start"
+
+[tasks."kafka:stop"]
+description = "Stop the local Confluent Platform services"
+run = "confluent local services stop"
+
+[tasks."kafka:status"]
+description = "Show local Confluent Platform service status"
+run = "confluent local services status"
 
 [tasks.schema]
 description = "Regenerate schema.graphql from the Rust schema"

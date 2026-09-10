@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Idempotent Cloud Agent setup for klens. Dependencies are installed with mise
-# (see mise.toml: rust, node, bun, vendir, viteplus). Docker is the only
-# dependency mise cannot manage, since it is a system daemon rather than a tool.
-# Safe to run repeatedly.
+# Idempotent Cloud Agent setup for klens. All dependencies are installed with
+# mise (see mise.toml: rust, node, bun, vendir, viteplus, java, and the
+# confluent CLI). The confluent CLI runs Kafka + Schema Registry locally via
+# `confluent local`, so no Docker is required. Safe to run repeatedly.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -16,27 +16,17 @@ export PATH="$HOME/.local/bin:$PATH"
 export MISE_YES=1
 mise --version
 
-echo "==> Installing the project toolchain via mise (rust, node, bun, vendir, viteplus)"
+echo "==> Installing the project toolchain via mise"
 mise trust "$REPO_ROOT"
 mise install
 mise ls
 
-# Put the mise-managed tools (and RUSTUP_TOOLCHAIN) on PATH for this script.
+# Put the mise-managed tools and env (CONFLUENT_HOME, RUSTUP_TOOLCHAIN, PATH)
+# in scope for the rest of this script.
 eval "$(mise env -s bash)"
 
-echo "==> Ensuring Docker Engine (system daemon; not managed by mise)"
-if ! command -v docker >/dev/null 2>&1; then
-  curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
-  sudo sh /tmp/get-docker.sh
-  sudo usermod -aG docker "$(id -un)" || true
-fi
-docker --version
-
-echo "==> Starting Docker daemon and pre-pulling infra images (cached in snapshot)"
-sudo service docker start || true
-for _ in $(seq 1 15); do sudo docker info >/dev/null 2>&1 && break; sleep 2; done
-sudo docker pull confluentinc/cp-kafka:8.3.1
-sudo docker pull confluentinc/cp-schema-registry:8.3.1
+echo "==> Downloading the Confluent Platform archive for confluent local"
+mise run confluent:install
 
 echo "==> Building the web UI (bun) and the klens backend (cargo, ui feature)"
 # The `ui` feature embeds static/, so build the web UI first. bun runs the

@@ -1,17 +1,28 @@
 #!/usr/bin/env bash
-# Per-boot startup for klens: bring up the Docker daemon, the Kafka + Schema
-# Registry stack, and ensure a local config.yaml exists. Idempotent.
+# Per-boot startup for klens: start a local Kafka + Schema Registry with
+# `confluent local` and ensure a local config.yaml exists. Idempotent.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 REPO_ROOT="$PWD"
 
-echo "==> Starting Docker daemon"
-sudo service docker start || true
-for _ in $(seq 1 15); do sudo docker info >/dev/null 2>&1 && break; sleep 2; done
+export PATH="$HOME/.local/bin:$PATH"
+eval "$(mise env -s bash)"
 
-echo "==> Bringing up Kafka + Schema Registry"
-bash "$REPO_ROOT/.cursor/kafka-stack.sh"
+# Make sure the Confluent Platform archive is present (no-op if already there).
+mise run confluent:install
+
+echo "==> Starting Kafka + Schema Registry (confluent local)"
+confluent local services schema-registry start
+
+echo "==> Waiting for Schema Registry to respond"
+for _ in $(seq 1 30); do
+  if curl -fsS http://localhost:8081/subjects >/dev/null 2>&1; then
+    echo "Schema Registry is ready."
+    break
+  fi
+  sleep 2
+done
 
 if [ ! -f "$REPO_ROOT/config.yaml" ]; then
   echo "==> Writing default config.yaml (points klens at the local stack)"
