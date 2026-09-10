@@ -73,14 +73,14 @@ function FilterChip({
   return (
     <div
       className={cn(
-        "inline-flex h-8 max-w-64 items-center gap-1 rounded-full border border-dashed border-muted-foreground/45 bg-transparent px-1",
+        "inline-flex h-8 max-w-64 items-center gap-1 rounded-[min(var(--radius-md),12px)] border border-dashed border-muted-foreground/45 bg-transparent px-1",
         active && "border-solid border-border bg-muted/40",
       )}
     >
       <button
         type="button"
         onClick={onClick}
-        className="inline-flex min-w-0 items-center gap-1.5 rounded-full px-2 py-1 text-sm"
+        className="inline-flex min-w-0 items-center gap-1.5 rounded-[min(var(--radius-md),12px)] px-2 py-1 text-sm"
       >
         <span className="shrink-0 text-muted-foreground">{label}</span>
         <span className="min-w-0 truncate font-medium">{value}</span>
@@ -88,7 +88,7 @@ function FilterChip({
       <button
         type="button"
         onClick={onClear}
-        className="inline-flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+        className="inline-flex size-6 shrink-0 items-center justify-center rounded-[min(var(--radius-md),10px)] text-muted-foreground hover:bg-muted hover:text-foreground"
         aria-label={`Clear ${label} filter`}
       >
         <XIcon className="size-3.5" />
