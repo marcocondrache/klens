@@ -17,13 +17,6 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
@@ -352,29 +345,19 @@ export function RecordFilterBar({
           ) : (
             <div className="flex flex-col">
               <div className="flex items-center gap-0 border-b">
-                <DropdownMenu>
-                  <DropdownMenuTrigger
-                    render={
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-9 shrink-0 rounded-none border-r px-2.5 font-medium"
-                      />
-                    }
-                  >
-                    {activeField?.label ?? "Filter"}
-                    <ChevronDownIcon data-icon="inline-end" />
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="min-w-40">
-                    <DropdownMenuGroup>
-                      {fields.map((field) => (
-                        <DropdownMenuItem key={field.key} onClick={() => openField(field.key)}>
-                          {field.label}
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuGroup>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-9 shrink-0 rounded-none border-r px-2.5 font-medium"
+                  onClick={() => {
+                    setFieldQuery("");
+                    setPanel({ view: "fields" });
+                  }}
+                >
+                  {activeField?.label ?? "Filter"}
+                  <ChevronDownIcon data-icon="inline-end" />
+                </Button>
 
                 {activeKey === "search" ? (
                   <Input
