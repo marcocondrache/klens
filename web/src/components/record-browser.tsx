@@ -307,7 +307,8 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
         refreshing={(isFetching && records.length > 0) || isFetchingNextPage}
         pageSize={Number(limit)}
         pageIndex={pageIndex}
-        hasMore={hasMore && !isFetchingNextPage}
+        hasMore={hasMore}
+        loadingMore={isFetchingNextPage}
         canPreviousPage={pageIndex > 0}
         onPreviousPage={() => setPageIndex((current) => Math.max(0, current - 1))}
         onNextPage={() => {
