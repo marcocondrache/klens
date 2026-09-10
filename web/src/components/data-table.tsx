@@ -16,6 +16,8 @@ import {
 import { type AppColumnDef, useAppTable } from "@/lib/table";
 import { cn } from "@/lib/utils";
 
+const DEFAULT_PAGE_SIZE = 1000;
+
 export type { AppColumnDef };
 
 function tablePlaceholder(content: ReactNode) {
@@ -57,7 +59,7 @@ export function DataTable<TData extends RowData>({
   error,
   emptyState,
   defaultSort,
-  pageSize = 25,
+  pageSize = DEFAULT_PAGE_SIZE,
   pageIndex = 0,
   hasMore = false,
   canPreviousPage = false,
