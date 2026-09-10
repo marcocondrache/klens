@@ -24,7 +24,7 @@ type Documents = {
   "\n  fragment ConsumerGroupFields on ConsumerGroup {\n    id\n    state\n    protocol\n    coordinator\n    members {\n      ...ConsumerGroupMemberFields\n    }\n    topics\n    lag\n    offsets {\n      ...GroupOffsetFields\n    }\n  }\n": typeof types.ConsumerGroupFieldsFragmentDoc;
   "\n  fragment ThroughputPointFields on ThroughputPoint {\n    timestamp\n    bytesIn\n    bytesOut\n    messages\n  }\n": typeof types.ThroughputPointFieldsFragmentDoc;
   "\n  fragment TopicRateFields on TopicRate {\n    name\n    messagesPerSec\n    bytesInPerSec\n  }\n": typeof types.TopicRateFieldsFragmentDoc;
-  "\n  fragment ConsumerGroupLagFields on ConsumerGroupLag {\n    id\n    lag\n    offsets {\n      ...GroupOffsetFields\n    }\n  }\n": typeof types.ConsumerGroupLagFieldsFragmentDoc;
+  "\n  fragment ConsumerGroupLagFields on ConsumerGroup {\n    id\n    lag\n    offsets {\n      ...GroupOffsetFields\n    }\n  }\n": typeof types.ConsumerGroupLagFieldsFragmentDoc;
   "\n  fragment SchemaSubjectFields on SchemaSubject {\n    subject\n    id\n    type\n    latestVersion\n    versions\n    compatibility\n    schema\n  }\n": typeof types.SchemaSubjectFieldsFragmentDoc;
   "\n  fragment AclFields on Acl {\n    principal\n    resourceType\n    resourceName\n    patternType\n    operation\n    permission\n    host\n  }\n": typeof types.AclFieldsFragmentDoc;
   "\n  fragment RecordHeaderFields on RecordHeader {\n    key\n    value\n  }\n": typeof types.RecordHeaderFieldsFragmentDoc;
@@ -72,7 +72,7 @@ const documents: Documents = {
     types.ThroughputPointFieldsFragmentDoc,
   "\n  fragment TopicRateFields on TopicRate {\n    name\n    messagesPerSec\n    bytesInPerSec\n  }\n":
     types.TopicRateFieldsFragmentDoc,
-  "\n  fragment ConsumerGroupLagFields on ConsumerGroupLag {\n    id\n    lag\n    offsets {\n      ...GroupOffsetFields\n    }\n  }\n":
+  "\n  fragment ConsumerGroupLagFields on ConsumerGroup {\n    id\n    lag\n    offsets {\n      ...GroupOffsetFields\n    }\n  }\n":
     types.ConsumerGroupLagFieldsFragmentDoc,
   "\n  fragment SchemaSubjectFields on SchemaSubject {\n    subject\n    id\n    type\n    latestVersion\n    versions\n    compatibility\n    schema\n  }\n":
     types.SchemaSubjectFieldsFragmentDoc,
@@ -192,7 +192,7 @@ export function graphql(
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(
-  source: "\n  fragment ConsumerGroupLagFields on ConsumerGroupLag {\n    id\n    lag\n    offsets {\n      ...GroupOffsetFields\n    }\n  }\n",
+  source: "\n  fragment ConsumerGroupLagFields on ConsumerGroup {\n    id\n    lag\n    offsets {\n      ...GroupOffsetFields\n    }\n  }\n",
 ): typeof import("./graphql").ConsumerGroupLagFieldsFragmentDoc;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.

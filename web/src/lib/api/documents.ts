@@ -143,7 +143,7 @@ export const TopicRateFields = graphql(`
 `);
 
 export const ConsumerGroupLagFields = graphql(`
-  fragment ConsumerGroupLagFields on ConsumerGroupLag {
+  fragment ConsumerGroupLagFields on ConsumerGroup {
     id
     lag
     offsets {

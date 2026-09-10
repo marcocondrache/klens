@@ -811,7 +811,7 @@ export const TopicRateFieldsFragmentDoc = new TypedDocumentString(
 ) as unknown as TypedDocumentString<TopicRateFieldsFragment, unknown>;
 export const ConsumerGroupLagFieldsFragmentDoc = new TypedDocumentString(
   `
-    fragment ConsumerGroupLagFields on ConsumerGroupLag {
+    fragment ConsumerGroupLagFields on ConsumerGroup {
   id
   lag
   offsets {
@@ -1273,7 +1273,7 @@ export const ConsumerGroupLagDocument = new TypedDocumentString(`
   lag
   memberId
 }
-fragment ConsumerGroupLagFields on ConsumerGroupLag {
+fragment ConsumerGroupLagFields on ConsumerGroup {
   id
   lag
   offsets {
