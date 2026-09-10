@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ClockIcon } from "lucide-react";
 
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Empty,
   EmptyDescription,
@@ -8,7 +9,6 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import {
   Select,
   SelectContent,
@@ -25,12 +25,16 @@ import {
 } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { DataTable } from "@/components/data-table";
+import { FilterBar } from "@/components/filters/filter-bar";
 import { PayloadView } from "@/components/payload-view";
 import { SchemaPicker } from "@/components/schema-picker";
 import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
 import { useRecords, useSchemaSubjects } from "@/lib/api/queries";
-import { formatBytes, formatRelative, formatTimestamp, fromDatetimeLocalValue } from "@/lib/format";
+import { compileRecordFilters, recordFilterFields } from "@/lib/api/record-filters";
+import { appliedFilterCount, removeFilter, setFilter } from "@/lib/filters/state";
+import type { FilterState, FilterValue } from "@/lib/filters/types";
+import { formatBytes, formatRelative, formatTimestamp } from "@/lib/format";
 import type { RecordOrder, Topic, TopicRecord } from "@/lib/api/types";
 import { createAppColumnHelper } from "@/lib/table";
 import { cn } from "@/lib/utils";
@@ -52,12 +56,10 @@ function preview(value: string | null) {
   return value.replace(/\s+/g, " ").trim();
 }
 
-/** Compile the search box into the backend CEL `filter` field. */
-function containsFilter(term: string): string | null {
-  const trimmed = term.trim();
-  if (!trimmed) return null;
-  const needle = JSON.stringify(trimmed);
-  return `keyText.lowerAscii().contains(${needle}) || valueText.lowerAscii().contains(${needle})`;
+/** The backend rejects malformed CEL; surface it on the expression editor. */
+function filterErrorMessage(error: Error | null) {
+  if (!error) return null;
+  return error.message.includes("invalid filter") ? error.message : null;
 }
 
 const columnHelper = createAppColumnHelper<TopicRecord>();
@@ -112,10 +114,8 @@ const columns = columnHelper.columns([
 ]);
 
 export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topic }) {
-  const [partition, setPartition] = useState<string>("all");
   const [term, setTerm] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const [filters, setFilters] = useState<FilterState>({});
   const [limit, setLimit] = useState("50");
   const [order, setOrder] = useState<RecordOrder>("NEWEST");
   const [pageIndex, setPageIndex] = useState(0);
@@ -123,17 +123,18 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
   const [expanded, setExpanded] = useState(false);
   const [schemaId, setSchemaId] = useState<number | null>(null);
 
-  const timestampFrom = fromDatetimeLocalValue(from);
-  const timestampTo = fromDatetimeLocalValue(to);
-  const filter = containsFilter(term);
+  const fields = useMemo(() => recordFilterFields(topic), [topic]);
+  // Relative time presets resolve to absolute bounds here so the query key
+  // stays stable until the filters themselves change.
+  const compiled = useMemo(() => compileRecordFilters(filters, { search: term }), [filters, term]);
   const { data: subjects = [] } = useSchemaSubjects(cluster);
-  const { data, isFetching, hasNextPage, fetchNextPage, isFetchingNextPage } = useRecords({
+  const { data, error, isFetching, hasNextPage, fetchNextPage, isFetchingNextPage } = useRecords({
     cluster,
     topic: topic.name,
-    partition: partition === "all" ? null : Number(partition),
-    filter,
-    timestampFrom,
-    timestampTo,
+    partition: compiled.partition,
+    filter: compiled.filter,
+    timestampFrom: compiled.timestampFrom,
+    timestampTo: compiled.timestampTo,
     limit: Number(limit),
     order,
     schemaId,
@@ -175,13 +176,19 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
     }
     setPageIndex(nextPageIndex);
   }
-  const partitionItems = [
-    { value: "all", label: "All partitions" },
-    ...topic.partitions.map((part) => ({
-      value: String(part.id),
-      label: `Partition ${part.id}`,
-    })),
-  ];
+
+  function changeFilter(id: string, value: FilterValue) {
+    setFilters((current) => setFilter(current, id, value));
+    resetPages();
+  }
+
+  function dropFilter(id: string) {
+    setFilters((current) => removeFilter(current, id));
+    resetPages();
+  }
+
+  const filterError = filterErrorMessage(error);
+  const hasFilters = appliedFilterCount(fields, filters) > 0 || term.trim() !== "";
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -194,58 +201,6 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
           }}
           placeholder="Search key or value…"
         />
-
-        <InputGroup className="w-auto min-w-[13.5rem]">
-          <InputGroupAddon>
-            <ClockIcon />
-          </InputGroupAddon>
-          <InputGroupInput
-            type="datetime-local"
-            value={from}
-            max={to || undefined}
-            onChange={(event) => {
-              setFrom(event.target.value);
-              resetPages();
-            }}
-            aria-label="From timestamp"
-          />
-        </InputGroup>
-
-        <InputGroup className="w-auto min-w-[13.5rem]">
-          <InputGroupAddon>
-            <span className="text-sm">to</span>
-          </InputGroupAddon>
-          <InputGroupInput
-            type="datetime-local"
-            value={to}
-            min={from || undefined}
-            onChange={(event) => {
-              setTo(event.target.value);
-              resetPages();
-            }}
-            aria-label="To timestamp"
-          />
-        </InputGroup>
-
-        <Select
-          value={partition}
-          items={partitionItems}
-          onValueChange={(value) => {
-            setPartition(String(value));
-            resetPages();
-          }}
-        >
-          <SelectTrigger size="sm" className="w-40">
-            <SelectValue placeholder="Partition" />
-          </SelectTrigger>
-          <SelectContent>
-            {partitionItems.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
 
         <Select
           value={order}
@@ -299,6 +254,25 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
         <span className="ml-auto text-sm text-muted-foreground">{records.length} records</span>
       </div>
 
+      <FilterBar
+        className="shrink-0"
+        fields={fields}
+        state={filters}
+        errors={filterError ? { cel: filterError } : undefined}
+        onChange={changeFilter}
+        onRemove={dropFilter}
+        onClear={() => {
+          setFilters({});
+          resetPages();
+        }}
+      />
+
+      {error ? (
+        <Alert variant="destructive" className="shrink-0">
+          <AlertDescription>{error.message}</AlertDescription>
+        </Alert>
+      ) : null}
+
       <DataTable
         columns={columns}
         data={records}
@@ -327,11 +301,9 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
               </EmptyMedia>
               <EmptyTitle>No records</EmptyTitle>
               <EmptyDescription>
-                {from || to
-                  ? "Nothing in the selected time range."
-                  : term
-                    ? "Nothing matched your search in the scanned offset window."
-                    : "This topic has no records in the selected range."}
+                {hasFilters
+                  ? "Nothing matched the current filters in the scanned offset window."
+                  : "This topic has no records in the selected range."}
               </EmptyDescription>
             </EmptyHeader>
           </Empty>
