@@ -100,6 +100,7 @@ export function AppHeader({ onSearch }: { onSearch: () => void }) {
           <SearchIcon />
           <span>Search</span>
           <Kbd className="ml-2">⌘K</Kbd>
+          <Kbd className="ml-1">/</Kbd>
         </Button>
 
         <Button

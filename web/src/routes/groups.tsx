@@ -1,8 +1,6 @@
 import { useMemo } from "react";
-import { SearchIcon } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router";
 
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import {
   Select,
   SelectContent,
@@ -12,6 +10,7 @@ import {
 } from "@/components/ui/select";
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
+import { SearchField } from "@/components/search-field";
 import { GroupStateBadge, Pill } from "@/components/status";
 import { lagTone } from "@/lib/tone";
 import { useConsumerGroups } from "@/lib/api/queries";
@@ -121,16 +120,11 @@ export function ConsumerGroupsPage() {
       />
 
       <div className="flex flex-wrap items-center gap-3">
-        <InputGroup className="w-full max-w-sm">
-          <InputGroupAddon>
-            <SearchIcon />
-          </InputGroupAddon>
-          <InputGroupInput
-            value={term}
-            onChange={(event) => update("q", event.target.value)}
-            placeholder="Search consumer groups…"
-          />
-        </InputGroup>
+        <SearchField
+          value={term}
+          onChange={(event) => update("q", event.target.value)}
+          placeholder="Search consumer groups…"
+        />
 
         <Select value={state} onValueChange={(value) => update("state", String(value))}>
           <SelectTrigger size="sm" className="w-48">

@@ -1,12 +1,12 @@
 import { useMemo, useState } from "react";
-import { EyeOffIcon, LockIcon, SearchIcon } from "lucide-react";
+import { EyeOffIcon, LockIcon } from "lucide-react";
 
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CopyButton } from "@/components/copy-button";
 import { DataTable } from "@/components/data-table";
+import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
 import type { ConfigEntry } from "@/lib/api/types";
 import { createAppColumnHelper } from "@/lib/table";
@@ -101,16 +101,12 @@ export function ConfigTable({
   return (
     <div className={cn(fill ? "flex min-h-0 flex-1 flex-col gap-3" : "space-y-3")}>
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
-        <InputGroup className="w-full max-w-xs">
-          <InputGroupAddon>
-            <SearchIcon />
-          </InputGroupAddon>
-          <InputGroupInput
-            value={term}
-            onChange={(event) => setTerm(event.target.value)}
-            placeholder="Filter configuration…"
-          />
-        </InputGroup>
+        <SearchField
+          className="max-w-xs"
+          value={term}
+          onChange={(event) => setTerm(event.target.value)}
+          placeholder="Filter configuration…"
+        />
 
         <Label className="flex items-center gap-2 text-sm text-muted-foreground">
           <Switch
