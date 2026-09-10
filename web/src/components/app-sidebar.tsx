@@ -15,7 +15,6 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
-  SidebarSeparator,
   useSidebar,
 } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -123,9 +122,6 @@ export function AppSidebar({ onSearch }: { onSearch: () => void }) {
     nodes: data?.brokerCount,
   };
 
-  const browse = SECTIONS.filter((section) => section.group === "browse");
-  const infra = SECTIONS.filter((section) => section.group === "infra");
-
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader className="gap-1 pt-1">
@@ -142,20 +138,7 @@ export function AppSidebar({ onSearch }: { onSearch: () => void }) {
         <SidebarGroup className="px-2 py-0">
           <SidebarGroupContent>
             <SidebarMenu className="gap-px">
-              {browse.map((section) => (
-                <NavLink
-                  key={section.segment}
-                  label={section.label}
-                  icon={section.icon}
-                  count={counts[section.segment]}
-                  active={pathname.startsWith(clusterPath(cluster, section.segment))}
-                  to={clusterPath(cluster, section.segment)}
-                />
-              ))}
-
-              <SidebarSeparator className="mx-0 my-1 w-full bg-sidebar-border" />
-
-              {infra.map((section) => (
+              {SECTIONS.map((section) => (
                 <NavLink
                   key={section.segment}
                   label={section.label}
