@@ -12,7 +12,7 @@ use tokio::time::timeout;
 use super::factory::ClientFactory;
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{Compression, FetchPlan, Record, RecordHeader, decode_bytes};
-use crate::kafka::registry::decode::{DecodedField, PayloadDecoder, decode_field};
+use crate::kafka::registry::decode::{PayloadDecoder, decode_field};
 
 pub async fn consume(
     factory: &ClientFactory,
@@ -115,8 +115,10 @@ async fn record_from_message(
     let key = decode_field(decoder, message.key(), None)
         .await
         .map(|field| field.text);
-    let value = decode_field(decoder, message.payload(), plan.schema_id).await;
-    let (value, schema_id) = split_decoded(value);
+    let (value, schema_id) = match decode_field(decoder, message.payload(), plan.schema_id).await {
+        Some(decoded) => (Some(decoded.text), decoded.schema_id),
+        None => (None, None),
+    };
 
     Record {
         topic: message.topic().to_owned(),
@@ -129,13 +131,6 @@ async fn record_from_message(
         headers,
         size_bytes: size_bytes as u64,
         compression: Compression::None,
-    }
-}
-
-fn split_decoded(field: Option<DecodedField>) -> (Option<String>, Option<i32>) {
-    match field {
-        Some(decoded) => (Some(decoded.text), decoded.schema_id),
-        None => (None, None),
     }
 }
 
