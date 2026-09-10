@@ -1,29 +1,39 @@
-use futures::stream::{self, BoxStream};
-use juniper::{FieldResult, graphql_subscription};
+use futures::StreamExt;
+use futures::stream::BoxStream;
+use juniper::{FieldError, FieldResult, graphql_subscription};
 
 use super::types::{ConsumerGroup, TopicRate};
 use crate::AppState;
-use crate::environment::SAMPLE_INTERVAL;
+use crate::app::sampler::SamplerMap;
 
 pub struct Subscription;
 
 type TopicRateStream = BoxStream<'static, FieldResult<Vec<TopicRate>>>;
 type ConsumerGroupStream = BoxStream<'static, FieldResult<ConsumerGroup>>;
 
+/// Shared samples must be [`Clone`], which [`FieldError`] is not, so failures
+/// travel as a message and are rebuilt per subscriber.
+type Sample<T> = Result<T, String>;
+
+#[derive(Default)]
+pub(crate) struct Samplers {
+    topic_rates: SamplerMap<String, Sample<Vec<TopicRate>>>,
+    group_lag: SamplerMap<(String, String), Sample<ConsumerGroup>>,
+}
+
 #[graphql_subscription(context = AppState)]
 impl Subscription {
     async fn topic_rates(context: &AppState, cluster: String) -> TopicRateStream {
-        let state = context.clone();
-        Box::pin(stream::unfold(
-            (state, cluster, true),
-            |(state, cluster, first)| async move {
-                if !first {
-                    tokio::time::sleep(*SAMPLE_INTERVAL).await;
-                }
-                let item = sample_topic_rates(&state, &cluster).await;
-                Some((item, (state, cluster, false)))
-            },
-        ))
+        let sampler = context.samplers.topic_rates.attach(cluster.clone(), {
+            let state = context.clone();
+            move || {
+                let state = state.clone();
+                let cluster = cluster.clone();
+                async move { sample_topic_rates(&state, &cluster).await }
+            }
+        });
+
+        Box::pin(sampler.stream().map(reported))
     }
 
     async fn consumer_group_lag(
@@ -31,22 +41,31 @@ impl Subscription {
         cluster: String,
         id: String,
     ) -> ConsumerGroupStream {
-        let state = context.clone();
-        Box::pin(stream::unfold(
-            (state, cluster, id, true),
-            |(state, cluster, id, first)| async move {
-                if !first {
-                    tokio::time::sleep(*SAMPLE_INTERVAL).await;
-                }
-                let item = sample_consumer_group_lag(&state, &cluster, &id).await;
-                Some((item, (state, cluster, id, false)))
-            },
-        ))
+        let key = (cluster.clone(), id.clone());
+        let sampler = context.samplers.group_lag.attach(key, {
+            let state = context.clone();
+            move || {
+                let state = state.clone();
+                let cluster = cluster.clone();
+                let id = id.clone();
+                async move { sample_consumer_group_lag(&state, &cluster, &id).await }
+            }
+        });
+
+        Box::pin(sampler.stream().map(reported))
     }
 }
 
-async fn sample_topic_rates(state: &AppState, cluster: &str) -> FieldResult<Vec<TopicRate>> {
-    let counts = state.query.topic_message_counts(cluster).await?;
+fn reported<T>(sample: Sample<T>) -> FieldResult<T> {
+    sample.map_err(FieldError::from)
+}
+
+async fn sample_topic_rates(state: &AppState, cluster: &str) -> Sample<Vec<TopicRate>> {
+    let counts = state
+        .query
+        .topic_message_counts(cluster)
+        .await
+        .map_err(|error| error.to_string())?;
     state.rates.observe(cluster, counts);
     Ok(state
         .rates
@@ -60,10 +79,14 @@ async fn sample_consumer_group_lag(
     state: &AppState,
     cluster: &str,
     id: &str,
-) -> FieldResult<ConsumerGroup> {
-    Ok(ConsumerGroup::from(
-        state.query.consumer_group(cluster, id).await?,
-    ))
+) -> Sample<ConsumerGroup> {
+    let group = state
+        .query
+        .consumer_group(cluster, id)
+        .await
+        .map_err(|error| error.to_string())?;
+    state.lags.observe(cluster, id, group.lag);
+    Ok(ConsumerGroup::from(group))
 }
 
 #[cfg(test)]
@@ -80,6 +103,7 @@ mod tests {
 
     use super::*;
     use crate::app::graphql::query::Query;
+    use crate::environment::SAMPLE_INTERVAL;
     use crate::kafka::model::{
         ClusterIdentity, CommittedOffset, ConfigEntry, FetchPlan, GroupSnapshot, MetadataSnapshot,
         Record, Watermarks,
@@ -190,6 +214,35 @@ mod tests {
                 .as_f64()
                 .unwrap()
                 > 0.0
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn concurrent_subscribers_sample_once_per_interval() {
+        let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
+            GrowingCluster::new(),
+        ])));
+        let coordinator = Coordinator::new(schema());
+        let request: GraphQLRequest = serde_json::from_str(
+            r#"{ "query": "subscription { topicRates(cluster: \"local\") { name messagesPerSec } }" }"#,
+        )
+        .unwrap();
+
+        let mut first = coordinator.subscribe(&request, &state).await.unwrap();
+        let mut second = coordinator.subscribe(&request, &state).await.unwrap();
+
+        first.next().await.unwrap();
+        second.next().await.unwrap();
+
+        tokio::time::advance(*SAMPLE_INTERVAL + Duration::from_millis(1)).await;
+
+        first.next().await.unwrap();
+        second.next().await.unwrap();
+
+        assert_eq!(
+            state.rates.cluster_history("local").len(),
+            2,
+            "two subscribers over two intervals should record one sample per interval"
         );
     }
 

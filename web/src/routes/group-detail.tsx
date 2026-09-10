@@ -2,12 +2,13 @@ import { ActivityIcon, LayersIcon, NetworkIcon, UsersRoundIcon } from "lucide-re
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Sparkline } from "@/components/charts";
 import { CopyButton } from "@/components/copy-button";
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { Stat, StatGrid } from "@/components/stat";
 import { GroupStateBadge, Pill } from "@/components/status";
-import { useConsumerGroup, useConsumerGroupLag } from "@/lib/api/queries";
+import { useConsumerGroup, useConsumerGroupLag, useGroupLagHistory } from "@/lib/api/queries";
 import { clusterPath, useClusterName } from "@/lib/clusters";
 import { formatCount, formatNumber } from "@/lib/format";
 import type { ConsumerGroupMember, GroupOffset } from "@/lib/api/types";
@@ -72,6 +73,7 @@ export function ConsumerGroupPage() {
 
   const tab = TABS.includes(params.get("tab") ?? "") ? params.get("tab")! : "offsets";
   const { data: group, isPending, isError } = useConsumerGroup(cluster, groupId);
+  const { data: lagHistory = [] } = useGroupLagHistory(cluster, groupId);
   useConsumerGroupLag(cluster, groupId);
 
   function selectTab(value: string) {
@@ -201,11 +203,12 @@ export function ConsumerGroupPage() {
         <Stat
           label="Total lag"
           value={formatCount(group?.lag ?? 0)}
-          hint={formatNumber(group?.lag ?? 0)}
           icon={<ActivityIcon />}
           loading={isPending}
-          accent={Boolean(group && group.lag > 10_000)}
-        />
+          accent
+        >
+          <Sparkline data={lagHistory} />
+        </Stat>
         <Stat
           label="Members"
           value={group?.members.length ?? 0}

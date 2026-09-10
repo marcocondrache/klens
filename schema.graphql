@@ -223,6 +223,7 @@ type Query {
   consumerGroup(cluster: String!, id: String!): ConsumerGroup
   clusterThroughput(cluster: String!): [ThroughputPoint!]!
   topicThroughput(cluster: String!, topic: String!): [ThroughputPoint!]!
+  groupLagHistory(cluster: String!, id: String!): [ThroughputPoint!]!
   schemaSubjects(cluster: String!): [SchemaSubject!]!
   acls(cluster: String!): [Acl!]!
   records(query: RecordQuery!): RecordPage!

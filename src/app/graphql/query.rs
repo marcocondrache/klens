@@ -144,6 +144,19 @@ impl Query {
             .collect()
     }
 
+    async fn group_lag_history(
+        context: &AppState,
+        cluster: String,
+        id: String,
+    ) -> Vec<ThroughputPoint> {
+        context
+            .lags
+            .history(&cluster, &id)
+            .into_iter()
+            .map(ThroughputPoint::from)
+            .collect()
+    }
+
     async fn schema_subjects(
         context: &AppState,
         cluster: String,

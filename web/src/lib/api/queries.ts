@@ -15,6 +15,7 @@ import {
   consumerGroupLagSubscription,
   consumerGroupQuery,
   consumerGroupsQuery,
+  groupLagHistoryQuery,
   recordsQuery,
   schemaSubjectsQuery,
   searchQuery,
@@ -57,6 +58,8 @@ export const keys = {
   topicGroups: (cluster: string, topic: string) =>
     ["cluster", cluster, "topics", topic, "groups"] as const,
   group: (cluster: string, group: string) => ["cluster", cluster, "groups", group] as const,
+  groupLagHistory: (cluster: string, group: string) =>
+    ["cluster", cluster, "groups", group, "lag"] as const,
   subjects: (cluster: string) => ["cluster", cluster, "subjects"] as const,
   acls: (cluster: string) => ["cluster", cluster, "acls"] as const,
   search: (cluster: string, term: string) => ["cluster", cluster, "search", term] as const,
@@ -224,6 +227,19 @@ export function useConsumerGroup(cluster: string, group: string) {
   });
 }
 
+export function useGroupLagHistory(cluster: string, group: string) {
+  return useQuery({
+    queryKey: keys.groupLagHistory(cluster, group),
+    queryFn: async () => {
+      const { groupLagHistory } = await execute(groupLagHistoryQuery, {
+        cluster,
+        id: group,
+      });
+      return groupLagHistory;
+    },
+  });
+}
+
 export function useSchemaSubjects(cluster: string) {
   return useQuery({
     queryKey: keys.subjects(cluster),
@@ -308,6 +324,7 @@ export function useConsumerGroupLag(cluster: string, group: string) {
 
     return subscribe(consumerGroupLagSubscription, { cluster, id: group }, (data) => {
       const lag = data.consumerGroupLag;
+      const timestamp = new Date().toISOString();
       const topics =
         queryClient.getQueryData<ConsumerGroup>(keys.group(cluster, group))?.topics ?? [];
 
@@ -317,6 +334,11 @@ export function useConsumerGroupLag(cluster: string, group: string) {
 
       queryClient.setQueryData(keys.groups(cluster), (groups: ConsumerGroup[] | undefined) =>
         groups?.map((entry) => (entry.id === lag.id ? withLag(entry, lag) : entry)),
+      );
+
+      queryClient.setQueryData(
+        keys.groupLagHistory(cluster, group),
+        (points: ThroughputPoint[] | undefined) => appendThroughput(points, timestamp, lag.lag),
       );
 
       for (const topic of topics) {
