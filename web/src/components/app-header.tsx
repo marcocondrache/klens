@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ClusterSwitcher } from "@/components/cluster-switcher";
 import { ModeToggle } from "@/components/mode-toggle";
 import { UserMenu } from "@/components/user-menu";
 import { useAuth } from "@/hooks/use-auth";
@@ -56,6 +57,9 @@ export function AppHeader({ onSearch }: { onSearch: () => void }) {
   return (
     <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b bg-background/95 px-3 backdrop-blur-md group-has-data-[collapsible=icon]/sidebar-wrapper:px-4">
       <SidebarTrigger className="-ml-1 group-has-data-[collapsible=icon]/sidebar-wrapper:ml-0" />
+      <Separator orientation="vertical" className="mx-1 !h-4 my-auto" />
+
+      <ClusterSwitcher />
 
       {crumbs.length ? <Separator orientation="vertical" className="mx-1 !h-4 my-auto" /> : null}
 

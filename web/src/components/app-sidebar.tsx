@@ -19,14 +19,12 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { ClusterSwitcher } from "@/components/cluster-switcher";
 import { GithubIcon } from "@/components/icons";
 import { useCluster, useSchemaSubjects } from "@/lib/api/queries";
 import { RELEASE_URL, REPO_URL, VERSION } from "@/lib/build";
 import { clusterPath, useClusterName } from "@/lib/clusters";
 import { formatCount } from "@/lib/format";
 import { SECTIONS } from "@/lib/sections";
-import { cn } from "@/lib/utils";
 
 const NAV_BUTTON =
   "h-9 gap-0 rounded-md p-0 text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground data-active:bg-sidebar-accent data-active:font-medium data-active:text-sidebar-foreground data-active:hover:bg-sidebar-accent group-data-[collapsible=icon]:size-9! group-data-[collapsible=icon]:p-0!";
@@ -131,10 +129,11 @@ export function AppSidebar({ onSearch }: { onSearch: () => void }) {
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader className="gap-1 pt-1">
-        <div className="px-2 pt-1 group-data-[collapsible=icon]:px-1">
-          <ClusterSwitcher variant="sidebar" />
+        <div className="flex h-12 items-center gap-2 px-4 group-data-[collapsible=icon]:hidden">
+          <img src="/favicon.svg" alt="" className="size-6" />
+          <span className="text-2xl font-semibold tracking-tight">klens</span>
         </div>
-        <div className="px-2 group-data-[collapsible=icon]:flex group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-1">
+        <div className="px-2 pb-1 group-data-[collapsible=icon]:flex group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-1 group-data-[collapsible=icon]:pt-1">
           <SidebarFind onSearch={onSearch} />
         </div>
       </SidebarHeader>
@@ -171,35 +170,24 @@ export function AppSidebar({ onSearch }: { onSearch: () => void }) {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="gap-0 p-2 group-data-[collapsible=icon]:items-center">
-        <div
-          className={cn(
-            "flex w-full items-center gap-2 rounded-full px-2.5 py-1.5",
-            "group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0",
-          )}
-        >
-          <img
-            src="/favicon.svg"
-            alt=""
-            className="size-5 shrink-0 group-data-[collapsible=icon]:size-4"
-          />
-          <div className="flex min-w-0 flex-1 items-center gap-1.5 group-data-[collapsible=icon]:hidden">
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <a
-                    href={RELEASE_URL}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="min-w-0 truncate text-sm text-sidebar-foreground transition-colors hover:text-foreground"
-                  />
-                }
-              >
-                <span className="numeric font-mono text-xs text-muted-foreground">v{VERSION}</span>
-              </TooltipTrigger>
-              <TooltipContent>GitHub release</TooltipContent>
-            </Tooltip>
-          </div>
+      <SidebarFooter className="px-3 group-data-[collapsible=icon]:hidden">
+        <div className="flex items-center justify-between gap-2">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <a
+                  href={RELEASE_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex min-w-0 items-center text-xs text-muted-foreground transition-colors hover:text-foreground"
+                />
+              }
+            >
+              <span className="numeric truncate font-mono">v{VERSION}</span>
+            </TooltipTrigger>
+            <TooltipContent>GitHub release</TooltipContent>
+          </Tooltip>
+
           <Tooltip>
             <TooltipTrigger
               render={
@@ -207,12 +195,12 @@ export function AppSidebar({ onSearch }: { onSearch: () => void }) {
                   variant="ghost"
                   size="icon-xs"
                   aria-label="Open repository"
-                  className="size-6 rounded-full border border-sidebar-border bg-background text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground group-data-[collapsible=icon]:hidden"
+                  className="text-muted-foreground"
                   render={<a href={REPO_URL} target="_blank" rel="noreferrer" />}
                 />
               }
             >
-              <GithubIcon className="size-3" />
+              <GithubIcon className="size-3.5" />
             </TooltipTrigger>
             <TooltipContent>Repository</TooltipContent>
           </Tooltip>
