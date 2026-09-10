@@ -34,6 +34,10 @@ clusters:
   - name: local
     bootstrap_servers:
       - localhost:9092
+    # confluent local binds Kafka on IPv4 only; force rdkafka to IPv4 so it does
+    # not try (and fail on) the IPv6 ::1 that localhost also resolves to.
+    properties:
+      broker.address.family: v4
     schema_registry:
       url: http://localhost:8081
 YAML
