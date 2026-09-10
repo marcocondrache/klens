@@ -8,14 +8,6 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Sheet,
   SheetContent,
@@ -26,26 +18,14 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { DataTable } from "@/components/data-table";
 import { PayloadView } from "@/components/payload-view";
-import { SchemaPicker } from "@/components/schema-picker";
-import { SearchField } from "@/components/search-field";
+import { RecordFilterBar } from "@/components/record-filter-bar";
 import { Pill } from "@/components/status";
 import { useRecords, useSchemaSubjects } from "@/lib/api/queries";
-import { formatBytes, formatRelative, formatTimestamp, fromDatetimeLocalValue } from "@/lib/format";
-import type { RecordOrder, Topic, TopicRecord } from "@/lib/api/types";
+import { formatBytes, formatRelative, formatTimestamp } from "@/lib/format";
+import type { Topic, TopicRecord } from "@/lib/api/types";
+import { resolveCreatedRange, type RecordFilterState } from "@/lib/record-filters";
 import { createAppColumnHelper } from "@/lib/table";
 import { cn } from "@/lib/utils";
-
-const LIMITS = ["25", "50", "100"] as const;
-
-const ORDER_ITEMS = [
-  { value: "NEWEST", label: "Newest first" },
-  { value: "OLDEST", label: "Oldest first" },
-] as const;
-
-const LIMIT_ITEMS = LIMITS.map((value) => ({
-  value,
-  label: `${value} rows`,
-}));
 
 function preview(value: string | null) {
   if (!value) return "—";
@@ -111,32 +91,36 @@ const columns = columnHelper.columns([
   }),
 ]);
 
+const DEFAULT_FILTERS: RecordFilterState = {
+  created: null,
+  search: "",
+  partition: null,
+  order: null,
+  limit: null,
+  schemaId: null,
+};
+
 export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topic }) {
-  const [partition, setPartition] = useState<string>("all");
-  const [term, setTerm] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [limit, setLimit] = useState("50");
-  const [order, setOrder] = useState<RecordOrder>("NEWEST");
+  const [filters, setFilters] = useState<RecordFilterState>(DEFAULT_FILTERS);
   const [pageIndex, setPageIndex] = useState(0);
   const [selected, setSelected] = useState<TopicRecord | null>(null);
   const [expanded, setExpanded] = useState(false);
-  const [schemaId, setSchemaId] = useState<number | null>(null);
 
-  const timestampFrom = fromDatetimeLocalValue(from);
-  const timestampTo = fromDatetimeLocalValue(to);
-  const filter = containsFilter(term);
+  const createdRange = resolveCreatedRange(filters.created);
+  const filter = containsFilter(filters.search);
+  const limit = filters.limit ?? "50";
+  const order = filters.order ?? "NEWEST";
   const { data: subjects = [] } = useSchemaSubjects(cluster);
   const { data, isFetching, hasNextPage, fetchNextPage, isFetchingNextPage } = useRecords({
     cluster,
     topic: topic.name,
-    partition: partition === "all" ? null : Number(partition),
+    partition: filters.partition == null ? null : Number(filters.partition),
     filter,
-    timestampFrom,
-    timestampTo,
+    timestampFrom: createdRange.from,
+    timestampTo: createdRange.to,
     limit: Number(limit),
     order,
-    schemaId,
+    schemaId: filters.schemaId,
   });
   const pages = data?.pages ?? [];
   const currentPage = pages[pageIndex];
@@ -144,7 +128,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
   const hasCachedNextPage = Boolean(pages[pageIndex + 1]);
   const hasMore = hasCachedNextPage || (pageIndex === pages.length - 1 && Boolean(hasNextPage));
   const showSchemaPicker =
-    schemaId != null ||
+    filters.schemaId != null ||
     pages.some((page) =>
       page.records.some((record) => record.value != null && record.schemaId == null),
     );
@@ -158,13 +142,9 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
               record.partition === selected.partition && record.offset === selected.offset,
           ) ?? selected);
 
-  function resetPages() {
+  function updateFilters(next: RecordFilterState) {
+    setFilters(next);
     setPageIndex(0);
-  }
-
-  function selectSchema(id: number | null) {
-    setSchemaId(id);
-    resetPages();
   }
 
   async function goToNextPage() {
@@ -175,127 +155,18 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
     }
     setPageIndex(nextPageIndex);
   }
-  const partitionItems = [
-    { value: "all", label: "All partitions" },
-    ...topic.partitions.map((part) => ({
-      value: String(part.id),
-      label: `Partition ${part.id}`,
-    })),
-  ];
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex shrink-0 flex-wrap items-center gap-3">
-        <SearchField
-          value={term}
-          onChange={(event) => {
-            setTerm(event.target.value);
-            resetPages();
-          }}
-          placeholder="Search key or value…"
+        <RecordFilterBar
+          value={filters}
+          onChange={updateFilters}
+          partitions={topic.partitions}
+          subjects={subjects}
+          topic={topic.name}
+          showSchema={showSchemaPicker}
         />
-
-        <InputGroup className="w-auto min-w-[13.5rem]">
-          <InputGroupAddon>
-            <ClockIcon />
-          </InputGroupAddon>
-          <InputGroupInput
-            type="datetime-local"
-            value={from}
-            max={to || undefined}
-            onChange={(event) => {
-              setFrom(event.target.value);
-              resetPages();
-            }}
-            aria-label="From timestamp"
-          />
-        </InputGroup>
-
-        <InputGroup className="w-auto min-w-[13.5rem]">
-          <InputGroupAddon>
-            <span className="text-sm">to</span>
-          </InputGroupAddon>
-          <InputGroupInput
-            type="datetime-local"
-            value={to}
-            min={from || undefined}
-            onChange={(event) => {
-              setTo(event.target.value);
-              resetPages();
-            }}
-            aria-label="To timestamp"
-          />
-        </InputGroup>
-
-        <Select
-          value={partition}
-          items={partitionItems}
-          onValueChange={(value) => {
-            setPartition(String(value));
-            resetPages();
-          }}
-        >
-          <SelectTrigger size="sm" className="w-40">
-            <SelectValue placeholder="Partition" />
-          </SelectTrigger>
-          <SelectContent>
-            {partitionItems.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={order}
-          items={ORDER_ITEMS}
-          onValueChange={(value) => {
-            setOrder(value as RecordOrder);
-            resetPages();
-          }}
-        >
-          <SelectTrigger size="sm" className="w-36">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {ORDER_ITEMS.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={limit}
-          items={LIMIT_ITEMS}
-          onValueChange={(value) => {
-            setLimit(String(value));
-            resetPages();
-          }}
-        >
-          <SelectTrigger size="sm" className="w-28">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {LIMIT_ITEMS.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        {showSchemaPicker ? (
-          <SchemaPicker
-            subjects={subjects}
-            topic={topic.name}
-            value={schemaId}
-            onChange={selectSchema}
-          />
-        ) : null}
-
         <span className="ml-auto text-sm text-muted-foreground">{records.length} records</span>
       </div>
 
@@ -327,9 +198,9 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
               </EmptyMedia>
               <EmptyTitle>No records</EmptyTitle>
               <EmptyDescription>
-                {from || to
+                {filters.created
                   ? "Nothing in the selected time range."
-                  : term
+                  : filters.search
                     ? "Nothing matched your search in the scanned offset window."
                     : "This topic has no records in the selected range."}
               </EmptyDescription>
