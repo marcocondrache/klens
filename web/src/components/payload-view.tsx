@@ -19,7 +19,6 @@ export function PayloadView({
   expanded = false,
   onExpandedChange,
   fill = false,
-  actions,
 }: {
   label: string;
   source: string;
@@ -31,7 +30,6 @@ export function PayloadView({
   expanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
   fill?: boolean;
-  actions?: ReactNode;
 }) {
   const json = useMemo(() => isJson(source), [source]);
   const prettySource = useMemo(() => (json ? prettyJson(source) : source), [json, source]);
@@ -54,10 +52,7 @@ export function PayloadView({
       className={cn("flex min-h-0 flex-col gap-2", fill ? "flex-1 overflow-hidden" : "shrink-0")}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <h3 className="text-sm font-medium tracking-wide text-muted-foreground">{label}</h3>
-          {actions}
-        </div>
+        <h3 className="text-sm font-medium tracking-wide text-muted-foreground">{label}</h3>
         <div className="flex items-center gap-1">
           {showPrettyToggle ? (
             <div className="mr-1 flex rounded-lg border p-0.5">
