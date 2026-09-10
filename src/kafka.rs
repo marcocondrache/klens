@@ -30,6 +30,7 @@ pub use model::{
 };
 pub use rates::{RateStore, ThroughputPoint, TopicRate};
 pub use record::cursor::RecordCursor;
+pub use record::filter::{RecordFilter, compile as compile_record_filter};
 pub use session::ClusterSession;
 
 #[cfg(test)]

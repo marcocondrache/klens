@@ -342,7 +342,7 @@ impl ClusterSession for FakeCluster {
                             && record.offset >= window.start
                             && record.offset < window.end
                     })
-                    && record.matches(&plan.search)
+                    && record.matches(plan.filter.as_ref())
             })
             .cloned()
             .collect();

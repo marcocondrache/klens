@@ -410,7 +410,7 @@ pub(super) struct RecordQuery {
     pub cluster: String,
     pub topic: String,
     pub partition: Option<i32>,
-    pub search: String,
+    pub filter: Option<String>,
     pub timestamp_from: Option<DateTime<Utc>>,
     pub timestamp_to: Option<DateTime<Utc>>,
     pub limit: i32,
@@ -428,7 +428,7 @@ impl TryFrom<RecordQuery> for domain::RecordQuery {
         Ok(Self {
             topic: query.topic,
             partition: query.partition,
-            search: query.search,
+            filter: crate::kafka::compile_record_filter(query.filter.as_deref().unwrap_or(""))?,
             timestamps,
             limit: query.limit,
             order: domain::RecordOrder::from(query.order),

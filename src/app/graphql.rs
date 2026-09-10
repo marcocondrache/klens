@@ -253,7 +253,7 @@ mod tests {
                 records(query: {
                     cluster: "local"
                     topic: "orders.created"
-                    search: "ord_1"
+                    filter: "key == \"ord_1\""
                     limit: 10
                     order: OLDEST
                 }) { records { key } hasMore nextCursor }
@@ -291,7 +291,7 @@ mod tests {
                 records(query: {
                     cluster: "local"
                     topic: "orders.created"
-                    search: ""
+                    filter: ""
                     limit: 1
                     order: OLDEST
                     schemaId: 1
@@ -324,7 +324,7 @@ mod tests {
                 records(query: {
                     cluster: "local"
                     topic: "orders.created"
-                    search: ""
+                    filter: ""
                     limit: 5
                     order: OLDEST
                 }) { records { key } hasMore nextCursor }
@@ -349,7 +349,7 @@ mod tests {
                 records(query: {{
                     cluster: "local"
                     topic: "orders.created"
-                    search: ""
+                    filter: ""
                     limit: 5
                     order: OLDEST
                     cursor: "{cursor}"
@@ -379,7 +379,7 @@ mod tests {
                 records(query: {
                     cluster: "local"
                     topic: "orders.created"
-                    search: ""
+                    filter: ""
                     timestampFrom: "2023-11-14T22:13:23Z"
                     timestampTo: "2023-11-14T22:13:25Z"
                     limit: 50
@@ -421,7 +421,7 @@ mod tests {
                 records(query: {
                     cluster: "local"
                     topic: "orders.created"
-                    search: ""
+                    filter: ""
                     timestampFrom: "1970-01-01T00:00:02Z"
                     timestampTo: "1970-01-01T00:00:01Z"
                     limit: 10
@@ -440,6 +440,37 @@ mod tests {
             errors
                 .iter()
                 .any(|error| error.error().message().contains("timestampFrom"))
+        );
+    }
+
+    #[tokio::test]
+    async fn records_reject_invalid_filter() {
+        let state = state();
+        let schema = schema();
+
+        let (_, errors) = execute(
+            r#"{
+                records(query: {
+                    cluster: "local"
+                    topic: "orders.created"
+                    filter: "value.status =="
+                    limit: 10
+                    order: OLDEST
+                }) { records { key } }
+            }"#,
+            None,
+            &schema,
+            &Variables::new(),
+            &state,
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.error().message().contains("invalid filter")),
+            "{errors:?}"
         );
     }
 

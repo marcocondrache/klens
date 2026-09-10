@@ -431,6 +431,13 @@ mod tests {
             .await;
     }
 
+    fn matches_orderid(record: &KafkaRecord) -> bool {
+        crate::kafka::record::filter::compile(r#"valueText.lowerAscii().contains("orderid")"#)
+            .unwrap()
+            .unwrap()
+            .matches(record)
+    }
+
     fn sample_record(key: Option<String>, value: Option<String>) -> KafkaRecord {
         KafkaRecord {
             topic: "orders".into(),
@@ -481,7 +488,7 @@ mod tests {
                 .to_ascii_lowercase()
                 .contains("orderid")
         );
-        assert!(sample_record(None, Some(json)).matches("orderid"));
+        assert!(matches_orderid(&sample_record(None, Some(json))));
     }
 
     #[tokio::test]
@@ -560,7 +567,7 @@ mod tests {
 
         assert_eq!(value["orderId"], "abc");
         assert_eq!(value["amount"], "42");
-        assert!(sample_record(None, Some(json)).matches("orderid"));
+        assert!(matches_orderid(&sample_record(None, Some(json))));
     }
 
     #[tokio::test]

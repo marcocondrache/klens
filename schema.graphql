@@ -91,7 +91,7 @@ input RecordQuery {
   cluster: String!
   topic: String!
   partition: Int
-  search: String!
+  filter: String
   timestampFrom: DateTime
   timestampTo: DateTime
   limit: Int!

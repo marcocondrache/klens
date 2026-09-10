@@ -36,11 +36,11 @@ export type RecordOrder = "NEWEST" | "OLDEST";
 export type RecordQuery = {
   cluster: string;
   cursor: string | null | undefined;
+  filter: string | null | undefined;
   limit: number;
   order: RecordOrder;
   partition: number | null | undefined;
   schemaId: number | null | undefined;
-  search: string;
   timestampFrom: string | null | undefined;
   timestampTo: string | null | undefined;
   topic: string;

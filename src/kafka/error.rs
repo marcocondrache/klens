@@ -38,7 +38,7 @@ pub enum KafkaError {
 }
 
 /// A record query rejected before any Kafka call is made.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum QueryError {
     #[error("limit must be at least 1")]
     LimitTooSmall,
@@ -48,4 +48,7 @@ pub enum QueryError {
 
     #[error("timestampFrom must not be after timestampTo")]
     InvertedTimestampRange,
+
+    #[error("invalid filter: {0}")]
+    InvalidFilter(String),
 }
