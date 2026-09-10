@@ -52,7 +52,7 @@ export function AppLayout() {
 
   return (
     <SidebarProvider className="h-svh">
-      <AppSidebar />
+      <AppSidebar onSearch={() => setPaletteOpen(true)} />
       <SidebarInset className="min-w-0 overflow-hidden">
         <AppHeader onSearch={() => setPaletteOpen(true)} />
         <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-4 md:p-6 md:group-has-data-[collapsible=icon]/sidebar-wrapper:px-8">
