@@ -1,14 +1,15 @@
 import { useMemo, useState } from "react";
+import { format } from "date-fns";
 import {
-  CheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   ListFilterIcon,
   XIcon,
 } from "lucide-react";
+import type { DateRange } from "react-day-picker";
 
-import { DateRangeFilter } from "@/components/date-range-filter";
 import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
 import {
   Command,
   CommandEmpty,
@@ -16,39 +17,40 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
+  CommandSeparator,
 } from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Separator } from "@/components/ui/separator";
-import type { SchemaSubject, RecordOrder } from "@/lib/api/types";
-import {
-  endOfLocalDay,
-  formatDateRangeLabel,
-  startOfLocalDay,
-} from "@/lib/format";
+import type { SchemaSubject } from "@/lib/api/types";
 import {
   CREATED_PRESETS,
   createdLabel,
+  defaultCustomRange,
   type CreatedPresetId,
-  type DateRangeValue,
   type RecordFilterKey,
   type RecordFilterState,
 } from "@/lib/record-filters";
 import { cn } from "@/lib/utils";
 
 const DECODABLE = new Set(["AVRO", "JSON", "PROTOBUF"]);
-
-const ORDER_OPTIONS: Array<{ value: RecordOrder; label: string }> = [
-  { value: "NEWEST", label: "Newest first" },
-  { value: "OLDEST", label: "Oldest first" },
+const ORDER_OPTIONS = [
+  { value: "NEWEST" as const, label: "Newest first" },
+  { value: "OLDEST" as const, label: "Oldest first" },
 ];
-
 const LIMIT_OPTIONS = ["25", "50", "100"] as const;
 
 type Panel =
   | { view: "fields" }
   | { view: "value"; key: RecordFilterKey }
   | { view: "custom-created" };
+
+type Option = {
+  value: string;
+  label: string;
+  checked?: boolean;
+  trailing?: "chevron";
+  onSelect: () => void;
+};
 
 function FilterChip({
   label,
@@ -66,53 +68,77 @@ function FilterChip({
   return (
     <div
       className={cn(
-        "inline-flex h-8 max-w-64 items-center gap-1 rounded-[min(var(--radius-md),12px)] border border-dashed border-muted-foreground/45 bg-transparent px-1",
+        "inline-flex h-8 max-w-64 items-center overflow-hidden rounded-[min(var(--radius-md),12px)] border border-dashed border-muted-foreground/45",
         active && "border-solid border-border bg-muted/40",
       )}
     >
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size="sm"
+        className="h-8 max-w-full min-w-0 gap-1.5 rounded-none px-2.5 font-normal"
         onClick={onClick}
-        className="inline-flex min-w-0 items-center gap-1.5 rounded-[min(var(--radius-md),12px)] px-2 py-1 text-sm"
       >
         <span className="shrink-0 text-muted-foreground">{label}</span>
         <span className="min-w-0 truncate font-medium">{value}</span>
-      </button>
-      <button
+      </Button>
+      <Button
         type="button"
-        onClick={onClear}
-        className="inline-flex size-6 shrink-0 items-center justify-center rounded-[min(var(--radius-md),10px)] text-muted-foreground hover:bg-muted hover:text-foreground"
+        variant="ghost"
+        size="icon-sm"
+        className="size-8 shrink-0 rounded-none"
         aria-label={`Clear ${label} filter`}
+        onClick={onClear}
       >
-        <XIcon className="size-3.5" />
-      </button>
+        <XIcon />
+      </Button>
     </div>
   );
 }
 
-function OptionRow({
+function FilterHeader({
   label,
-  selected,
-  onSelect,
-  trailing,
+  onBack,
+  children,
 }: {
   label: string;
-  selected?: boolean;
-  onSelect: () => void;
-  trailing?: React.ReactNode;
+  onBack: () => void;
+  children: React.ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={cn(
-        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none hover:bg-muted",
-        selected && "bg-muted/60",
-      )}
-    >
-      <span className="min-w-0 flex-1 truncate">{label}</span>
-      {trailing ?? (selected ? <CheckIcon className="size-4 shrink-0" /> : null)}
-    </button>
+    <div className="flex items-center border-b">
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-9 shrink-0 rounded-none border-r px-2.5 font-medium"
+        onClick={onBack}
+      >
+        {label}
+        <ChevronDownIcon data-icon="inline-end" />
+      </Button>
+      <div className="flex min-w-0 flex-1 items-center px-2 text-sm">{children}</div>
+    </div>
+  );
+}
+
+function OptionItems({ options }: { options: Option[] }) {
+  return (
+    <CommandGroup>
+      {options.map((option) => (
+        <CommandItem
+          key={option.value}
+          value={option.value}
+          data-checked={option.checked || undefined}
+          onSelect={option.onSelect}
+        >
+          {option.label}
+          {option.trailing === "chevron" ? (
+            <ChevronRightIcon className="ml-auto size-4 text-muted-foreground opacity-100!" />
+          ) : null}
+        </CommandItem>
+      ))}
+    </CommandGroup>
   );
 }
 
@@ -135,10 +161,14 @@ export function RecordFilterBar({
 }) {
   const [open, setOpen] = useState(false);
   const [panel, setPanel] = useState<Panel>({ view: "fields" });
-  const [fieldQuery, setFieldQuery] = useState("");
   const [searchDraft, setSearchDraft] = useState(value.search);
+  const [customRange, setCustomRange] = useState<DateRange | undefined>(() =>
+    value.created?.kind === "custom"
+      ? { from: value.created.from, to: value.created.to }
+      : defaultCustomRange(),
+  );
 
-  const schemaOptions = useMemo(() => {
+  const schemas = useMemo(() => {
     const preferred = `${topic}-value`;
     const decodable = subjects.filter((subject) => DECODABLE.has(subject.type));
     return {
@@ -156,48 +186,40 @@ export function RecordFilterBar({
       { key: "order", label: "Order" },
       { key: "limit", label: "Limit" },
     ];
-    if (showSchema && schemaOptions.all.length > 0) {
-      items.push({ key: "schemaId", label: "Schema" });
-    }
+    if (showSchema && schemas.all.length > 0) items.push({ key: "schemaId", label: "Schema" });
     return items;
-  }, [schemaOptions.all.length, showSchema]);
+  }, [schemas.all.length, showSchema]);
 
   const activeKey: RecordFilterKey | null =
     panel.view === "fields" ? null : panel.view === "custom-created" ? "created" : panel.key;
-  const activeField = fields.find((field) => field.key === activeKey) ?? null;
+  const activeLabel = fields.find((field) => field.key === activeKey)?.label ?? "Filter";
 
   function patch(partial: Partial<RecordFilterState>) {
     onChange({ ...value, ...partial });
   }
 
   function clear(key: RecordFilterKey) {
-    switch (key) {
-      case "created":
-        patch({ created: null });
-        break;
-      case "search":
-        patch({ search: "" });
-        setSearchDraft("");
-        break;
-      case "partition":
-        patch({ partition: null });
-        break;
-      case "order":
-        patch({ order: null });
-        break;
-      case "limit":
-        patch({ limit: null });
-        break;
-      case "schemaId":
-        patch({ schemaId: null });
-        break;
-    }
+    const empty: RecordFilterState = {
+      created: null,
+      search: "",
+      partition: null,
+      order: null,
+      limit: null,
+      schemaId: null,
+    };
+    if (key === "search") setSearchDraft("");
+    patch({ [key]: empty[key] });
+  }
+
+  function close() {
+    setOpen(false);
+    setPanel({ view: "fields" });
   }
 
   function openField(key: RecordFilterKey) {
     setSearchDraft(value.search);
-    setFieldQuery("");
     if (key === "created" && value.created?.kind === "custom") {
+      setCustomRange({ from: value.created.from, to: value.created.to });
       setPanel({ view: "custom-created" });
     } else {
       setPanel({ view: "value", key });
@@ -205,84 +227,111 @@ export function RecordFilterBar({
     setOpen(true);
   }
 
-  function closePopover() {
-    setOpen(false);
-    setPanel({ view: "fields" });
-    setFieldQuery("");
+  function chooseCreated(id: CreatedPresetId | null) {
+    if (id == null) clear("created");
+    else patch({ created: { kind: "preset", id } });
+    close();
   }
 
-  const visibleFields = fields.filter((field) =>
-    field.label.toLowerCase().includes(fieldQuery.trim().toLowerCase()),
-  );
-
-  function selectCreatedPreset(id: CreatedPresetId | "any") {
-    if (id === "any") {
-      clear("created");
-      closePopover();
-      return;
+  const chips = useMemo(() => {
+    const next: Array<{ key: RecordFilterKey; label: string; display: string }> = [];
+    if (value.created) next.push({ key: "created", label: "Created", display: createdLabel(value.created) });
+    if (value.search.trim()) next.push({ key: "search", label: "Search", display: value.search.trim() });
+    if (value.partition != null) {
+      next.push({ key: "partition", label: "Partition", display: value.partition });
     }
-    patch({ created: { kind: "preset", id } });
-    closePopover();
-  }
-
-  function applyCustomCreated(range: DateRangeValue) {
-    patch({
-      created: {
-        kind: "custom",
-        from: range.from,
-        to: range.to,
-      },
-    });
-    closePopover();
-  }
-
-  function applySearch() {
-    const next = searchDraft.trim();
-    patch({ search: next });
-    if (!next) clear("search");
-    closePopover();
-  }
-
-  const chips: Array<{ key: RecordFilterKey; label: string; display: string }> = [];
-  if (value.created) {
-    chips.push({ key: "created", label: "Created", display: createdLabel(value.created) });
-  }
-  if (value.search.trim()) {
-    chips.push({ key: "search", label: "Search", display: value.search.trim() });
-  }
-  if (value.partition != null) {
-    chips.push({ key: "partition", label: "Partition", display: value.partition });
-  }
-  if (value.order) {
-    chips.push({
-      key: "order",
-      label: "Order",
-      display: ORDER_OPTIONS.find((item) => item.value === value.order)?.label ?? value.order,
-    });
-  }
-  if (value.limit) {
-    chips.push({ key: "limit", label: "Limit", display: `${value.limit} rows` });
-  }
-  if (value.schemaId != null) {
-    const subject = schemaOptions.all.find((item) => item.id === value.schemaId);
-    chips.push({
-      key: "schemaId",
-      label: "Schema",
-      display: subject?.subject ?? String(value.schemaId),
-    });
-  }
-
-  const headerPreview = (() => {
-    if (activeKey === "created") {
-      if (panel.view === "custom-created") {
-        const custom = value.created?.kind === "custom" ? value.created : null;
-        if (custom) return formatDateRangeLabel(custom.from, custom.to);
-        return "Custom range";
-      }
-      return "Filter to…";
+    if (value.order) {
+      next.push({
+        key: "order",
+        label: "Order",
+        display: ORDER_OPTIONS.find((item) => item.value === value.order)?.label ?? value.order,
+      });
     }
-    if (activeKey === "search") return undefined;
-    return "Filter to…";
+    if (value.limit) next.push({ key: "limit", label: "Limit", display: `${value.limit} rows` });
+    if (value.schemaId != null) {
+      next.push({
+        key: "schemaId",
+        label: "Schema",
+        display: schemas.all.find((item) => item.id === value.schemaId)?.subject ?? String(value.schemaId),
+      });
+    }
+    return next;
+  }, [schemas.all, value]);
+
+  const valueOptions: Option[] = (() => {
+    switch (activeKey) {
+      case "created":
+        return [
+          {
+            value: "any date",
+            label: "Any Date",
+            checked: value.created == null,
+            onSelect: () => chooseCreated(null),
+          },
+          ...CREATED_PRESETS.map((preset) => ({
+            value: preset.label,
+            label: preset.label,
+            checked: value.created?.kind === "preset" && value.created.id === preset.id,
+            onSelect: () => chooseCreated(preset.id),
+          })),
+        ];
+      case "search":
+        return [
+          {
+            value: "apply search",
+            label: "Apply search",
+            onSelect: () => {
+              const next = searchDraft.trim();
+              patch({ search: next });
+              if (!next) clear("search");
+              close();
+            },
+          },
+        ];
+      case "partition":
+        return [
+          {
+            value: "all partitions",
+            label: "All partitions",
+            checked: value.partition == null,
+            onSelect: () => {
+              clear("partition");
+              close();
+            },
+          },
+          ...partitions.map((part) => ({
+            value: `partition ${part.id}`,
+            label: `Partition ${part.id}`,
+            checked: value.partition === String(part.id),
+            onSelect: () => {
+              patch({ partition: String(part.id) });
+              close();
+            },
+          })),
+        ];
+      case "order":
+        return ORDER_OPTIONS.map((option) => ({
+          value: option.label,
+          label: option.label,
+          checked: (value.order ?? "NEWEST") === option.value,
+          onSelect: () => {
+            patch({ order: option.value === "NEWEST" ? null : option.value });
+            close();
+          },
+        }));
+      case "limit":
+        return LIMIT_OPTIONS.map((limit) => ({
+          value: `${limit} rows`,
+          label: `${limit} rows`,
+          checked: (value.limit ?? "50") === limit,
+          onSelect: () => {
+            patch({ limit: limit === "50" ? null : limit });
+            close();
+          },
+        }));
+      default:
+        return [];
+    }
   })();
 
   return (
@@ -291,259 +340,171 @@ export function RecordFilterBar({
         open={open}
         onOpenChange={(next) => {
           setOpen(next);
-          if (!next) {
-            setPanel({ view: "fields" });
-            setFieldQuery("");
-          }
-          if (next) setSearchDraft(value.search);
+          if (!next) setPanel({ view: "fields" });
+          else setSearchDraft(value.search);
         }}
       >
-        <PopoverTrigger
-          render={
-            <Button variant="outline" size="sm" aria-label="Add filter" />
-          }
-        >
+        <PopoverTrigger render={<Button variant="outline" size="sm" aria-label="Add filter" />}>
           <ListFilterIcon data-icon="inline-start" />
           Add Filter
         </PopoverTrigger>
         <PopoverContent
           align="start"
-          side="bottom"
-          className={cn(
-            "gap-0 overflow-hidden p-0",
-            panel.view === "custom-created" ? "w-[22rem]" : "w-72",
-          )}
+          className={cn("gap-0 overflow-hidden p-0", panel.view === "custom-created" && "w-auto")}
         >
           {panel.view === "fields" ? (
-            <div className="flex flex-col">
-              <div className="border-b p-1">
-                <Input
-                  value={fieldQuery}
-                  onChange={(event) => setFieldQuery(event.target.value)}
-                  placeholder="Filter by…"
-                  className="h-8 border-0 bg-transparent shadow-none focus-visible:ring-0 dark:bg-transparent"
-                  autoFocus
+            <Command>
+              <CommandInput placeholder="Filter by…" />
+              <CommandList>
+                <CommandEmpty>No matching filters.</CommandEmpty>
+                <OptionItems
+                  options={fields.map((field) => ({
+                    value: field.label,
+                    label: field.label,
+                    trailing: "chevron",
+                    onSelect: () => openField(field.key),
+                  }))}
                 />
-              </div>
-              <div className="flex flex-col gap-0.5 p-1">
-                {visibleFields.length === 0 ? (
-                  <p className="px-2 py-6 text-center text-sm text-muted-foreground">
-                    No matching filters.
-                  </p>
-                ) : (
-                  visibleFields.map((field) => (
-                    <OptionRow
-                      key={field.key}
-                      label={field.label}
-                      onSelect={() => openField(field.key)}
-                      trailing={<ChevronRightIcon className="size-4 text-muted-foreground" />}
-                    />
-                  ))
-                )}
+              </CommandList>
+            </Command>
+          ) : panel.view === "custom-created" ? (
+            <div className="flex flex-col">
+              <FilterHeader label={activeLabel} onBack={() => setPanel({ view: "fields" })}>
+                {customRange?.from
+                  ? customRange.to
+                    ? `${format(customRange.from, "LLL d")} – ${format(customRange.to, "LLL d")}`
+                    : format(customRange.from, "LLL d")
+                  : "Pick a range"}
+              </FilterHeader>
+              <Calendar
+                mode="range"
+                selected={customRange}
+                onSelect={setCustomRange}
+                defaultMonth={customRange?.from}
+                className="bg-transparent"
+              />
+              <div className="border-t p-2">
+                <Button
+                  size="sm"
+                  className="w-full"
+                  disabled={!customRange?.from || !customRange.to}
+                  onClick={() => {
+                    if (!customRange?.from || !customRange.to) return;
+                    patch({
+                      created: { kind: "custom", from: customRange.from, to: customRange.to },
+                    });
+                    close();
+                  }}
+                >
+                  Apply
+                </Button>
               </div>
             </div>
           ) : (
-            <div className="flex flex-col">
-              <div className="flex items-center gap-0 border-b">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-9 shrink-0 rounded-none border-r px-2.5 font-medium"
-                  onClick={() => {
-                    setFieldQuery("");
-                    setPanel({ view: "fields" });
-                  }}
-                >
-                  {activeField?.label ?? "Filter"}
-                  <ChevronDownIcon data-icon="inline-end" />
-                </Button>
-
+            <Command>
+              <FilterHeader label={activeLabel} onBack={() => setPanel({ view: "fields" })}>
                 {activeKey === "search" ? (
                   <Input
                     data-search-hotkey
                     value={searchDraft}
                     onChange={(event) => setSearchDraft(event.target.value)}
                     onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        applySearch();
-                      }
+                      if (event.key !== "Enter") return;
+                      event.preventDefault();
+                      const next = searchDraft.trim();
+                      patch({ search: next });
+                      if (!next) clear("search");
+                      close();
                     }}
                     placeholder="Filter to…"
-                    className="h-9 rounded-none border-0 bg-transparent shadow-none focus-visible:ring-0 dark:bg-transparent"
+                    className="h-8 border-0 bg-transparent shadow-none focus-visible:ring-0 dark:bg-transparent"
                     autoFocus
                   />
                 ) : (
-                  <div className="flex h-9 min-w-0 flex-1 items-center px-2.5 text-sm text-muted-foreground">
-                    <span className="truncate">{headerPreview}</span>
-                  </div>
+                  <span className="text-muted-foreground">Filter to…</span>
                 )}
-              </div>
-
-              {panel.view === "custom-created" ? (
-                <DateRangeFilter
-                  value={
-                    value.created?.kind === "custom"
-                      ? { from: value.created.from, to: value.created.to }
-                      : {
-                          from: startOfLocalDay(new Date()),
-                          to: endOfLocalDay(new Date()),
-                        }
-                  }
-                  onApply={applyCustomCreated}
-                />
-              ) : activeKey === "created" ? (
-                <div className="flex flex-col gap-0.5 p-1">
-                  <OptionRow
-                    label="Any Date"
-                    selected={value.created == null}
-                    onSelect={() => selectCreatedPreset("any")}
-                  />
-                  {CREATED_PRESETS.map((preset) => (
-                    <OptionRow
-                      key={preset.id}
-                      label={preset.label}
-                      selected={
-                        value.created?.kind === "preset" && value.created.id === preset.id
-                      }
-                      onSelect={() => selectCreatedPreset(preset.id)}
+              </FilterHeader>
+              <CommandList>
+                <CommandEmpty>No results.</CommandEmpty>
+                {activeKey === "schemaId" ? (
+                  <>
+                    <OptionItems
+                      options={[
+                        {
+                          value: "raw no schema",
+                          label: "Raw",
+                          checked: value.schemaId == null,
+                          onSelect: () => {
+                            clear("schemaId");
+                            close();
+                          },
+                        },
+                      ]}
                     />
-                  ))}
-                  <Separator className="my-1" />
-                  <OptionRow
-                    label="Custom Date Range"
-                    selected={value.created?.kind === "custom"}
-                    onSelect={() => setPanel({ view: "custom-created" })}
-                    trailing={<ChevronRightIcon className="size-4 text-muted-foreground" />}
-                  />
-                </div>
-              ) : activeKey === "search" ? (
-                <div className="flex flex-col gap-2 p-2">
-                  <p className="px-1 text-xs text-muted-foreground">
-                    Match text in record keys or values.
-                  </p>
-                  <Button size="sm" onClick={applySearch}>
-                    Apply search
-                  </Button>
-                </div>
-              ) : activeKey === "partition" ? (
-                <div className="flex max-h-72 flex-col gap-0.5 overflow-y-auto p-1">
-                  <OptionRow
-                    label="All partitions"
-                    selected={value.partition == null}
-                    onSelect={() => {
-                      clear("partition");
-                      closePopover();
-                    }}
-                  />
-                  {partitions.map((part) => (
-                    <OptionRow
-                      key={part.id}
-                      label={`Partition ${part.id}`}
-                      selected={value.partition === String(part.id)}
-                      onSelect={() => {
-                        patch({ partition: String(part.id) });
-                        closePopover();
-                      }}
-                    />
-                  ))}
-                </div>
-              ) : activeKey === "order" ? (
-                <div className="flex flex-col gap-0.5 p-1">
-                  {ORDER_OPTIONS.map((option) => (
-                    <OptionRow
-                      key={option.value}
-                      label={option.label}
-                      selected={(value.order ?? "NEWEST") === option.value}
-                      onSelect={() => {
-                        patch({
-                          order: option.value === "NEWEST" ? null : option.value,
-                        });
-                        closePopover();
-                      }}
-                    />
-                  ))}
-                </div>
-              ) : activeKey === "limit" ? (
-                <div className="flex flex-col gap-0.5 p-1">
-                  {LIMIT_OPTIONS.map((limit) => (
-                    <OptionRow
-                      key={limit}
-                      label={`${limit} rows`}
-                      selected={(value.limit ?? "50") === limit}
-                      onSelect={() => {
-                        patch({ limit: limit === "50" ? null : limit });
-                        closePopover();
-                      }}
-                    />
-                  ))}
-                </div>
-              ) : activeKey === "schemaId" ? (
-                <Command>
-                  <CommandInput placeholder="Search subjects…" />
-                  <CommandList>
-                    <CommandEmpty>No matching subjects.</CommandEmpty>
-                    <CommandGroup>
-                      <CommandItem
-                        value="raw no schema"
-                        data-checked={value.schemaId == null || undefined}
-                        onSelect={() => {
-                          clear("schemaId");
-                          closePopover();
-                        }}
-                      >
-                        Raw
-                      </CommandItem>
-                    </CommandGroup>
-                    {schemaOptions.pinned.length > 0 ? (
+                    {schemas.pinned.length > 0 ? (
                       <CommandGroup heading="Suggested">
-                        {schemaOptions.pinned.map((subject) => (
+                        {schemas.pinned.map((subject) => (
                           <CommandItem
                             key={subject.subject}
-                            value={`${subject.subject} ${subject.type} ${subject.id}`}
+                            value={`${subject.subject} ${subject.type}`}
                             data-checked={subject.id === value.schemaId || undefined}
                             onSelect={() => {
                               patch({ schemaId: subject.id });
-                              closePopover();
+                              close();
                             }}
                           >
-                            <span className="min-w-0 flex-1 truncate font-mono text-sm">
-                              {subject.subject}
-                            </span>
-                            <span className="shrink-0 text-xs text-muted-foreground">
-                              {subject.type} · v{subject.latestVersion}
-                            </span>
+                            <span className="truncate font-mono text-sm">{subject.subject}</span>
                           </CommandItem>
                         ))}
                       </CommandGroup>
                     ) : null}
-                    {schemaOptions.rest.length > 0 ? (
-                      <CommandGroup heading={schemaOptions.pinned.length > 0 ? "All" : undefined}>
-                        {schemaOptions.rest.map((subject) => (
+                    {schemas.rest.length > 0 ? (
+                      <CommandGroup heading={schemas.pinned.length > 0 ? "All" : undefined}>
+                        {schemas.rest.map((subject) => (
                           <CommandItem
                             key={subject.subject}
-                            value={`${subject.subject} ${subject.type} ${subject.id}`}
+                            value={`${subject.subject} ${subject.type}`}
                             data-checked={subject.id === value.schemaId || undefined}
                             onSelect={() => {
                               patch({ schemaId: subject.id });
-                              closePopover();
+                              close();
                             }}
                           >
-                            <span className="min-w-0 flex-1 truncate font-mono text-sm">
-                              {subject.subject}
-                            </span>
-                            <span className="shrink-0 text-xs text-muted-foreground">
-                              {subject.type} · v{subject.latestVersion}
-                            </span>
+                            <span className="truncate font-mono text-sm">{subject.subject}</span>
                           </CommandItem>
                         ))}
                       </CommandGroup>
                     ) : null}
-                  </CommandList>
-                </Command>
-              ) : null}
-            </div>
+                  </>
+                ) : (
+                  <>
+                    <OptionItems options={valueOptions} />
+                    {activeKey === "created" ? (
+                      <>
+                        <CommandSeparator />
+                        <OptionItems
+                          options={[
+                            {
+                              value: "custom date range",
+                              label: "Custom Date Range",
+                              trailing: "chevron",
+                              onSelect: () => {
+                                setCustomRange(
+                                  value.created?.kind === "custom"
+                                    ? { from: value.created.from, to: value.created.to }
+                                    : defaultCustomRange(),
+                                );
+                                setPanel({ view: "custom-created" });
+                              },
+                            },
+                          ]}
+                        />
+                      </>
+                    ) : null}
+                  </>
+                )}
+              </CommandList>
+            </Command>
           )}
         </PopoverContent>
       </Popover>
@@ -559,7 +520,6 @@ export function RecordFilterBar({
         />
       ))}
 
-      {/* Keep a hidden hotkey target when search isn't open */}
       {!open || activeKey !== "search" ? (
         <input
           data-search-hotkey

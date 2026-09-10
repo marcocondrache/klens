@@ -79,64 +79,6 @@ export function fromDatetimeLocalValue(value: string) {
   return Number.isFinite(date.getTime()) ? date.toISOString() : null;
 }
 
-/** Local `YYYY-MM-DDTHH:mm` for `<input type="datetime-local">` / filter editors. */
-export function toDatetimeLocalValue(value: Date | string | number) {
-  const date = value instanceof Date ? value : new Date(value);
-  if (!Number.isFinite(date.getTime())) return "";
-
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-export function startOfLocalDay(date: Date) {
-  const next = new Date(date);
-  next.setHours(0, 0, 0, 0);
-  return next;
-}
-
-export function endOfLocalDay(date: Date) {
-  const next = new Date(date);
-  next.setHours(23, 59, 59, 999);
-  return next;
-}
-
-export function startOfLocalMonth(date: Date) {
-  return startOfLocalDay(new Date(date.getFullYear(), date.getMonth(), 1));
-}
-
-export function formatDateShort(value: Date | string | number) {
-  return new Date(value).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
-export function formatTimeShort(value: Date | string | number) {
-  return new Date(value).toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-export function formatDateRangeLabel(from: Date, to: Date) {
-  const sameDay =
-    from.getFullYear() === to.getFullYear() &&
-    from.getMonth() === to.getMonth() &&
-    from.getDate() === to.getDate();
-
-  if (sameDay) {
-    return `${formatDateShort(from)} ${formatTimeShort(from)} – ${formatTimeShort(to)}`;
-  }
-
-  return `${formatDateShort(from)} – ${formatDateShort(to)}`;
-}
-
-export function localTimezoneLabel() {
-  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  return `Local (${timeZone})`;
-}
-
 export function formatTimestamp(value: string | number) {
   return new Date(value).toLocaleString("en-GB", {
     year: "numeric",

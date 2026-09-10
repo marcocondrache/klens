@@ -1,14 +1,12 @@
-import {
-  formatDateRangeLabel,
-  startOfLocalMonth,
-} from "@/lib/format";
+import { format, startOfDay, startOfMonth, subHours } from "date-fns";
+
 import type { RecordOrder } from "@/lib/api/types";
+
+export type CreatedPresetId = "1h" | "24h" | "7d" | "30d" | "month";
 
 export type CreatedFilter =
   | { kind: "preset"; id: CreatedPresetId }
   | { kind: "custom"; from: Date; to: Date };
-
-export type CreatedPresetId = "1h" | "24h" | "7d" | "30d" | "month";
 
 export type RecordFilterState = {
   created: CreatedFilter | null;
@@ -29,22 +27,6 @@ export const CREATED_PRESETS: Array<{ id: CreatedPresetId; label: string }> = [
   { id: "month", label: "This Month" },
 ];
 
-export type DateRangeValue = {
-  from: Date;
-  to: Date;
-};
-
-export function createdPresetRange(id: CreatedPresetId, now = new Date()): DateRangeValue {
-  const to = new Date(now);
-  if (id === "month") {
-    return { from: startOfLocalMonth(now), to };
-  }
-
-  const hours = id === "1h" ? 1 : id === "24h" ? 24 : id === "7d" ? 24 * 7 : 24 * 30;
-  const from = new Date(now.getTime() - hours * 3_600_000);
-  return { from, to };
-}
-
 export function resolveCreatedRange(
   created: CreatedFilter | null,
   now = new Date(),
@@ -53,13 +35,26 @@ export function resolveCreatedRange(
   if (created.kind === "custom") {
     return { from: created.from.toISOString(), to: created.to.toISOString() };
   }
-  const range = createdPresetRange(created.id, now);
-  return { from: range.from.toISOString(), to: range.to.toISOString() };
+
+  const to = now;
+  const from =
+    created.id === "month"
+      ? startOfMonth(now)
+      : subHours(
+          now,
+          created.id === "1h" ? 1 : created.id === "24h" ? 24 : created.id === "7d" ? 24 * 7 : 24 * 30,
+        );
+
+  return { from: from.toISOString(), to: to.toISOString() };
 }
 
 export function createdLabel(created: CreatedFilter) {
   if (created.kind === "preset") {
     return CREATED_PRESETS.find((preset) => preset.id === created.id)?.label ?? created.id;
   }
-  return formatDateRangeLabel(created.from, created.to);
+  return `${format(created.from, "LLL d, y")} – ${format(created.to, "LLL d, y")}`;
+}
+
+export function defaultCustomRange(now = new Date()) {
+  return { from: startOfDay(now), to: now };
 }
