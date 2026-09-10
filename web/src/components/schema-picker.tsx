@@ -54,7 +54,7 @@ export function SchemaPicker({
         render={
           <Button
             variant="outline"
-            size="xs"
+            size="sm"
             className="max-w-64 min-w-0 gap-1 font-normal"
             aria-label="Decode value with schema"
           />
