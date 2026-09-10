@@ -27,7 +27,7 @@ type Documents = {
   "\n  fragment SchemaSubjectFields on SchemaSubject {\n    subject\n    id\n    type\n    latestVersion\n    versions\n    compatibility\n    schema\n  }\n": typeof types.SchemaSubjectFieldsFragmentDoc;
   "\n  fragment AclFields on Acl {\n    principal\n    resourceType\n    resourceName\n    patternType\n    operation\n    permission\n    host\n  }\n": typeof types.AclFieldsFragmentDoc;
   "\n  fragment RecordHeaderFields on RecordHeader {\n    key\n    value\n  }\n": typeof types.RecordHeaderFieldsFragmentDoc;
-  "\n  fragment TopicRecordFields on TopicRecord {\n    topic\n    partition\n    offset\n    timestamp\n    key\n    value\n    headers {\n      ...RecordHeaderFields\n    }\n    sizeBytes\n    compression\n  }\n": typeof types.TopicRecordFieldsFragmentDoc;
+  "\n  fragment TopicRecordFields on TopicRecord {\n    topic\n    partition\n    offset\n    timestamp\n    key\n    value\n    keySchemaId\n    valueSchemaId\n    headers {\n      ...RecordHeaderFields\n    }\n    sizeBytes\n    compression\n  }\n": typeof types.TopicRecordFieldsFragmentDoc;
   "\n  fragment SearchResultFields on SearchResult {\n    kind\n    id\n    label\n    detail\n  }\n": typeof types.SearchResultFieldsFragmentDoc;
   "\n  query Clusters {\n    clusters {\n      ...ClusterFields\n    }\n  }\n": typeof types.ClustersDocument;
   "\n  query Cluster($name: String!) {\n    cluster(name: $name) {\n      ...ClusterFields\n    }\n  }\n": typeof types.ClusterDocument;
@@ -76,7 +76,7 @@ const documents: Documents = {
     types.AclFieldsFragmentDoc,
   "\n  fragment RecordHeaderFields on RecordHeader {\n    key\n    value\n  }\n":
     types.RecordHeaderFieldsFragmentDoc,
-  "\n  fragment TopicRecordFields on TopicRecord {\n    topic\n    partition\n    offset\n    timestamp\n    key\n    value\n    headers {\n      ...RecordHeaderFields\n    }\n    sizeBytes\n    compression\n  }\n":
+  "\n  fragment TopicRecordFields on TopicRecord {\n    topic\n    partition\n    offset\n    timestamp\n    key\n    value\n    keySchemaId\n    valueSchemaId\n    headers {\n      ...RecordHeaderFields\n    }\n    sizeBytes\n    compression\n  }\n":
     types.TopicRecordFieldsFragmentDoc,
   "\n  fragment SearchResultFields on SearchResult {\n    kind\n    id\n    label\n    detail\n  }\n":
     types.SearchResultFieldsFragmentDoc,
@@ -204,7 +204,7 @@ export function graphql(
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(
-  source: "\n  fragment TopicRecordFields on TopicRecord {\n    topic\n    partition\n    offset\n    timestamp\n    key\n    value\n    headers {\n      ...RecordHeaderFields\n    }\n    sizeBytes\n    compression\n  }\n",
+  source: "\n  fragment TopicRecordFields on TopicRecord {\n    topic\n    partition\n    offset\n    timestamp\n    key\n    value\n    keySchemaId\n    valueSchemaId\n    headers {\n      ...RecordHeaderFields\n    }\n    sizeBytes\n    compression\n  }\n",
 ): typeof import("./graphql").TopicRecordFieldsFragmentDoc;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.

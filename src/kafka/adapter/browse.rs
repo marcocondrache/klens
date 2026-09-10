@@ -12,7 +12,7 @@ use tokio::time::timeout;
 use super::factory::ClientFactory;
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{Compression, FetchPlan, Record, RecordHeader, decode_bytes};
-use crate::kafka::registry::decode::{PayloadDecoder, decode_field};
+use crate::kafka::registry::decode::{DecodedField, PayloadDecoder, decode_field};
 
 pub async fn consume(
     factory: &ClientFactory,
@@ -71,7 +71,7 @@ pub async fn consume(
                     remaining.remove(&partition);
                 }
 
-                let record = record_from_message(&message, decoder).await;
+                let record = record_from_message(&message, decoder, plan).await;
                 if record.matches(&plan.search) {
                     records.push(record);
                 }
@@ -87,6 +87,7 @@ pub async fn consume(
 async fn record_from_message(
     message: &rdkafka::message::BorrowedMessage<'_>,
     decoder: Option<&PayloadDecoder>,
+    plan: &FetchPlan,
 ) -> Record {
     let headers = message
         .headers()
@@ -111,23 +112,36 @@ async fn record_from_message(
     let size_bytes = message.key().map(|key| key.len()).unwrap_or(0)
         + message.payload().map(|payload| payload.len()).unwrap_or(0);
 
+    let key = decode_field(decoder, message.key(), plan.key_schema_id).await;
+    let value = decode_field(decoder, message.payload(), plan.value_schema_id).await;
+    let (key, key_schema_id) = split_decoded(key);
+    let (value, value_schema_id) = split_decoded(value);
+
     Record {
         topic: message.topic().to_owned(),
         partition: message.partition(),
         offset: message.offset(),
         timestamp,
-        key: decode_field(decoder, message.key()).await,
-        value: decode_field(decoder, message.payload()).await,
+        key,
+        value,
+        key_schema_id,
+        value_schema_id,
         headers,
         size_bytes: size_bytes as u64,
         compression: Compression::None,
     }
 }
 
+fn split_decoded(field: Option<DecodedField>) -> (Option<String>, Option<i32>) {
+    match field {
+        Some(decoded) => (Some(decoded.text), decoded.schema_id),
+        None => (None, None),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kafka::registry::decode::decode_field;
 
     fn record(value: Option<String>) -> Record {
         Record {
@@ -137,6 +151,8 @@ mod tests {
             timestamp: 0,
             key: None,
             value,
+            key_schema_id: None,
+            value_schema_id: None,
             headers: Vec::new(),
             size_bytes: 0,
             compression: Compression::None,
@@ -145,15 +161,19 @@ mod tests {
 
     #[tokio::test]
     async fn search_matches_decoded_json_fields() {
-        let value = decode_field(None, Some(br#"{"orderId":"abc"}"#))
+        let value = decode_field(None, Some(br#"{"orderId":"abc"}"#), None)
             .await
-            .unwrap();
+            .unwrap()
+            .text;
         assert!(record(Some(value)).matches("orderid"));
     }
 
     #[tokio::test]
     async fn search_does_not_match_unrelated_payloads() {
-        let value = decode_field(None, Some(b"binary-looking")).await.unwrap();
+        let value = decode_field(None, Some(b"binary-looking"), None)
+            .await
+            .unwrap()
+            .text;
         assert!(!record(Some(value)).matches("orderid"));
     }
 }

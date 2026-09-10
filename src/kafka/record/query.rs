@@ -20,6 +20,8 @@ pub struct RecordQuery {
     pub limit: i32,
     pub order: RecordOrder,
     pub cursor: Option<RecordCursor>,
+    pub key_schema_id: Option<i32>,
+    pub value_schema_id: Option<i32>,
 }
 
 /// UTC bounds for a record browse. Either side may be unbounded.

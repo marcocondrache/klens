@@ -26,8 +26,9 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { DataTable } from "@/components/data-table";
 import { PayloadView } from "@/components/payload-view";
+import { SchemaPicker } from "@/components/schema-picker";
 import { Pill } from "@/components/status";
-import { useRecords } from "@/lib/api/queries";
+import { useRecords, useSchemaSubjects } from "@/lib/api/queries";
 import { formatBytes, formatRelative, formatTimestamp, fromDatetimeLocalValue } from "@/lib/format";
 import type { RecordOrder, Topic, TopicRecord } from "@/lib/api/types";
 import { createAppColumnHelper } from "@/lib/table";
@@ -111,9 +112,12 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
   const [pageIndex, setPageIndex] = useState(0);
   const [selected, setSelected] = useState<TopicRecord | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const [keySchemaId, setKeySchemaId] = useState<number | null>(null);
+  const [valueSchemaId, setValueSchemaId] = useState<number | null>(null);
 
   const timestampFrom = fromDatetimeLocalValue(from);
   const timestampTo = fromDatetimeLocalValue(to);
+  const { data: subjects = [] } = useSchemaSubjects(cluster);
   const { data, isFetching, hasNextPage, fetchNextPage, isFetchingNextPage } = useRecords({
     cluster,
     topic: topic.name,
@@ -123,15 +127,36 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
     timestampTo,
     limit: Number(limit),
     order,
+    keySchemaId,
+    valueSchemaId,
   });
   const pages = data?.pages ?? [];
   const currentPage = pages[pageIndex];
   const records = currentPage?.records ?? [];
   const hasCachedNextPage = Boolean(pages[pageIndex + 1]);
   const hasMore = hasCachedNextPage || (pageIndex === pages.length - 1 && Boolean(hasNextPage));
+  const selectedRecord =
+    selected == null
+      ? null
+      : (pages
+          .flatMap((page) => page.records)
+          .find(
+            (record) =>
+              record.partition === selected.partition && record.offset === selected.offset,
+          ) ?? selected);
 
   function resetPages() {
     setPageIndex(0);
+  }
+
+  function selectKeySchema(id: number | null) {
+    setKeySchemaId(id);
+    resetPages();
+  }
+
+  function selectValueSchema(id: number | null) {
+    setValueSchemaId(id);
+    resetPages();
   }
 
   async function goToNextPage() {
@@ -277,7 +302,9 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
           void goToNextPage();
         }}
         onRowClick={setSelected}
-        selectedKey={selected ? `${selected.partition}-${selected.offset}` : undefined}
+        selectedKey={
+          selectedRecord ? `${selectedRecord.partition}-${selectedRecord.offset}` : undefined
+        }
         fill
         emptyState={
           <Empty className="py-10">
@@ -299,7 +326,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
       />
 
       <Sheet
-        open={selected !== null}
+        open={selectedRecord !== null}
         onOpenChange={(open) => {
           if (!open) {
             setSelected(null);
@@ -316,50 +343,73 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
               : "data-[side=right]:sm:max-w-2xl",
           )}
         >
-          {selected ? (
+          {selectedRecord ? (
             <>
               <SheetHeader className="border-b">
                 <SheetTitle className="font-mono text-sm">
-                  {topic.name}[{selected.partition}]@{selected.offset}
+                  {topic.name}[{selectedRecord.partition}]@{selectedRecord.offset}
                 </SheetTitle>
                 <SheetDescription>
-                  {formatTimestamp(selected.timestamp)} · {formatBytes(selected.sizeBytes)} ·{" "}
-                  {selected.compression.toLowerCase()}
+                  {formatTimestamp(selectedRecord.timestamp)} ·{" "}
+                  {formatBytes(selectedRecord.sizeBytes)} ·{" "}
+                  {selectedRecord.compression.toLowerCase()}
                 </SheetDescription>
               </SheetHeader>
 
               <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-hidden p-4">
                 <PayloadView
-                  key={`key-${selected.partition}-${selected.offset}`}
+                  key={`key-${selectedRecord.partition}-${selectedRecord.offset}`}
                   label="Key"
-                  source={selected.key ?? "null"}
+                  source={selectedRecord.key ?? "null"}
                   copyLabel="Copy key"
-                  showCopy={Boolean(selected.key)}
+                  showCopy={Boolean(selectedRecord.key)}
+                  actions={
+                    selectedRecord.key != null && selectedRecord.keySchemaId == null ? (
+                      <SchemaPicker
+                        subjects={subjects}
+                        topic={topic.name}
+                        field="key"
+                        value={keySchemaId}
+                        onChange={selectKeySchema}
+                      />
+                    ) : null
+                  }
                 />
 
                 <PayloadView
-                  key={`value-${selected.partition}-${selected.offset}`}
+                  key={`value-${selectedRecord.partition}-${selectedRecord.offset}`}
                   label="Value"
-                  source={selected.value ?? "null"}
-                  filename={`${topic.name}-${selected.partition}-${selected.offset}.json`}
+                  source={selectedRecord.value ?? "null"}
+                  filename={`${topic.name}-${selectedRecord.partition}-${selectedRecord.offset}.json`}
                   copyLabel="Copy value"
-                  showCopy={Boolean(selected.value)}
+                  showCopy={Boolean(selectedRecord.value)}
                   showDownload
                   showExpand
                   expanded={expanded}
                   onExpandedChange={setExpanded}
                   fill
+                  actions={
+                    selectedRecord.value != null && selectedRecord.valueSchemaId == null ? (
+                      <SchemaPicker
+                        subjects={subjects}
+                        topic={topic.name}
+                        field="value"
+                        value={valueSchemaId}
+                        onChange={selectValueSchema}
+                      />
+                    ) : null
+                  }
                 />
 
                 <section className="shrink-0 space-y-2">
                   <h3 className="text-sm font-medium tracking-wide text-muted-foreground">
                     Headers
                   </h3>
-                  {selected.headers.length === 0 ? (
+                  {selectedRecord.headers.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No headers.</p>
                   ) : (
                     <div className="divide-y overflow-hidden rounded-lg border">
-                      {selected.headers.map((header) => (
+                      {selectedRecord.headers.map((header) => (
                         <div
                           key={header.key}
                           className="flex items-start justify-between gap-3 px-3 py-2"
@@ -379,14 +429,14 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                     Metadata
                   </h3>
                   <div className="grid grid-cols-2 gap-2 text-xs">
-                    <Meta label="Partition" value={String(selected.partition)} />
-                    <Meta label="Offset" value={String(selected.offset)} />
-                    <Meta label="Timestamp" value={formatTimestamp(selected.timestamp)} />
-                    <Meta label="Age" value={formatRelative(selected.timestamp)} />
-                    <Meta label="Size" value={formatBytes(selected.sizeBytes)} />
+                    <Meta label="Partition" value={String(selectedRecord.partition)} />
+                    <Meta label="Offset" value={String(selectedRecord.offset)} />
+                    <Meta label="Timestamp" value={formatTimestamp(selectedRecord.timestamp)} />
+                    <Meta label="Age" value={formatRelative(selectedRecord.timestamp)} />
+                    <Meta label="Size" value={formatBytes(selectedRecord.sizeBytes)} />
                     <Meta
                       label="Compression"
-                      value={<Pill>{selected.compression.toLowerCase()}</Pill>}
+                      value={<Pill>{selectedRecord.compression.toLowerCase()}</Pill>}
                     />
                   </div>
                 </section>

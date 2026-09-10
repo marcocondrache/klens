@@ -386,6 +386,8 @@ pub(super) struct TopicRecord {
     pub timestamp: DateTime<Utc>,
     pub key: Option<String>,
     pub value: Option<String>,
+    pub key_schema_id: Option<i32>,
+    pub value_schema_id: Option<i32>,
     pub headers: Vec<RecordHeader>,
     pub size_bytes: f64,
     pub compression: Compression,
@@ -415,6 +417,8 @@ pub(super) struct RecordQuery {
     pub limit: i32,
     pub order: RecordOrder,
     pub cursor: Option<String>,
+    pub key_schema_id: Option<i32>,
+    pub value_schema_id: Option<i32>,
 }
 
 impl TryFrom<RecordQuery> for domain::RecordQuery {
@@ -434,6 +438,8 @@ impl TryFrom<RecordQuery> for domain::RecordQuery {
                 None | Some("") => None,
                 Some(cursor) => Some(crate::kafka::RecordCursor::parse(cursor)?),
             },
+            key_schema_id: query.key_schema_id,
+            value_schema_id: query.value_schema_id,
         })
     }
 }
@@ -456,6 +462,8 @@ impl From<domain::Record> for TopicRecord {
             timestamp: domain::unix_datetime(record.timestamp),
             key: record.key,
             value: record.value,
+            key_schema_id: record.key_schema_id,
+            value_schema_id: record.value_schema_id,
             headers: record.headers.into_iter().map(RecordHeader::from).collect(),
             size_bytes: record.size_bytes as f64,
             compression: Compression::from(record.compression),
@@ -658,5 +666,30 @@ impl From<domain::SearchKind> for SearchResultKind {
             domain::SearchKind::Node => Self::Node,
             domain::SearchKind::Subject => Self::Subject,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn topic_record_exposes_wire_schema_ids() {
+        let record = domain::Record {
+            topic: "orders".into(),
+            partition: 0,
+            offset: 1,
+            timestamp: 0,
+            key: Some("k".into()),
+            value: Some("{}".into()),
+            key_schema_id: None,
+            value_schema_id: Some(12),
+            headers: Vec::new(),
+            size_bytes: 2,
+            compression: domain::Compression::None,
+        };
+        let mapped = TopicRecord::from(record);
+        assert_eq!(mapped.key_schema_id, None);
+        assert_eq!(mapped.value_schema_id, Some(12));
     }
 }

@@ -25,6 +25,8 @@ pub struct Record {
     pub timestamp: i64,
     pub key: Option<String>,
     pub value: Option<String>,
+    pub key_schema_id: Option<i32>,
+    pub value_schema_id: Option<i32>,
     pub headers: Vec<RecordHeader>,
     pub size_bytes: u64,
     pub compression: Compression,

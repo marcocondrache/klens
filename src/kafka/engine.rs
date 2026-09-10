@@ -788,6 +788,8 @@ mod tests {
             limit: 50,
             order: RecordOrder::Oldest,
             cursor: None,
+            key_schema_id: None,
+            value_schema_id: None,
         }
     }
 
@@ -799,6 +801,8 @@ mod tests {
             timestamp,
             key: Some(format!("p{partition}-{offset}")),
             value: None,
+            key_schema_id: None,
+            value_schema_id: None,
             headers: Vec::new(),
             size_bytes: 0,
             compression: crate::kafka::record::Compression::None,

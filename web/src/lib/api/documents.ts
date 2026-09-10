@@ -181,6 +181,8 @@ export const TopicRecordFields = graphql(`
     timestamp
     key
     value
+    keySchemaId
+    valueSchemaId
     headers {
       ...RecordHeaderFields
     }
