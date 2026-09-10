@@ -1,8 +1,6 @@
 import { useMemo } from "react";
-import { SearchIcon } from "lucide-react";
 import { useSearchParams } from "react-router";
 
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import {
   Select,
   SelectContent,
@@ -12,6 +10,7 @@ import {
 } from "@/components/ui/select";
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
+import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
 import { useAcls } from "@/lib/api/queries";
 import { useClusterName } from "@/lib/clusters";
@@ -101,16 +100,11 @@ export function AclsPage() {
       <PageHeader title="ACLs" description={`${rows.length} access control entries`} />
 
       <div className="flex flex-wrap items-center gap-3">
-        <InputGroup className="w-full max-w-sm">
-          <InputGroupAddon>
-            <SearchIcon />
-          </InputGroupAddon>
-          <InputGroupInput
-            value={term}
-            onChange={(event) => update("q", event.target.value)}
-            placeholder="Search principals and resources…"
-          />
-        </InputGroup>
+        <SearchField
+          value={term}
+          onChange={(event) => update("q", event.target.value)}
+          placeholder="Search principals and resources…"
+        />
 
         <Select value={resource} onValueChange={(value) => update("resource", String(value))}>
           <SelectTrigger size="sm" className="w-48">

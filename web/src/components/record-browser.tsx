@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ClockIcon, SearchIcon } from "lucide-react";
+import { ClockIcon } from "lucide-react";
 
 import {
   Empty,
@@ -27,6 +27,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { DataTable } from "@/components/data-table";
 import { PayloadView } from "@/components/payload-view";
 import { SchemaPicker } from "@/components/schema-picker";
+import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
 import { useRecords, useSchemaSubjects } from "@/lib/api/queries";
 import { formatBytes, formatRelative, formatTimestamp, fromDatetimeLocalValue } from "@/lib/format";
@@ -185,19 +186,14 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex shrink-0 flex-wrap items-center gap-3">
-        <InputGroup className="w-full max-w-sm">
-          <InputGroupAddon>
-            <SearchIcon />
-          </InputGroupAddon>
-          <InputGroupInput
-            value={term}
-            onChange={(event) => {
-              setTerm(event.target.value);
-              resetPages();
-            }}
-            placeholder="Search key or value…"
-          />
-        </InputGroup>
+        <SearchField
+          value={term}
+          onChange={(event) => {
+            setTerm(event.target.value);
+            resetPages();
+          }}
+          placeholder="Search key or value…"
+        />
 
         <InputGroup className="w-auto min-w-[13.5rem]">
           <InputGroupAddon>

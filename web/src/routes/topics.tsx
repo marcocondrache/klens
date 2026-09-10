@@ -1,8 +1,7 @@
 import { useMemo, type ReactNode } from "react";
-import { AlertTriangleIcon, SearchIcon } from "lucide-react";
+import { AlertTriangleIcon } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router";
 
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -14,6 +13,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
+import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
 import { useTopics } from "@/lib/api/queries";
 import { clusterPath, useClusterName } from "@/lib/clusters";
@@ -156,16 +156,11 @@ export function TopicsPage() {
       <PageHeader title="Topics" description={`${rows.length} of ${topics.length} topics`} />
 
       <div className="flex flex-wrap items-center gap-3">
-        <InputGroup className="w-full max-w-sm">
-          <InputGroupAddon>
-            <SearchIcon />
-          </InputGroupAddon>
-          <InputGroupInput
-            value={term}
-            onChange={(event) => update("q", event.target.value)}
-            placeholder="Search topics…"
-          />
-        </InputGroup>
+        <SearchField
+          value={term}
+          onChange={(event) => update("q", event.target.value)}
+          placeholder="Search topics…"
+        />
 
         <Select value={policy} onValueChange={(value) => update("policy", String(value))}>
           <SelectTrigger size="sm" className="w-40">

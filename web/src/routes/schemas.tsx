@@ -1,8 +1,6 @@
 import { useMemo, useState } from "react";
-import { SearchIcon } from "lucide-react";
 import { useSearchParams } from "react-router";
 
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import {
   Sheet,
   SheetContent,
@@ -14,6 +12,7 @@ import { CopyButton } from "@/components/copy-button";
 import { DataTable } from "@/components/data-table";
 import { JsonBlock } from "@/components/json-block";
 import { PageHeader } from "@/components/page-header";
+import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
 import { useSchemaSubjects } from "@/lib/api/queries";
 import { useClusterName } from "@/lib/clusters";
@@ -75,24 +74,20 @@ export function SchemasPage() {
     <div className="flex min-h-0 flex-1 flex-col gap-5">
       <PageHeader title="Schema registry" description={`${rows.length} subjects registered`} />
 
-      <InputGroup className="w-full max-w-sm shrink-0">
-        <InputGroupAddon>
-          <SearchIcon />
-        </InputGroupAddon>
-        <InputGroupInput
-          value={term}
-          onChange={(event) => {
-            const next = new URLSearchParams(params);
-            if (event.target.value) {
-              next.set("q", event.target.value);
-            } else {
-              next.delete("q");
-            }
-            setParams(next, { replace: true });
-          }}
-          placeholder="Search subjects…"
-        />
-      </InputGroup>
+      <SearchField
+        className="shrink-0"
+        value={term}
+        onChange={(event) => {
+          const next = new URLSearchParams(params);
+          if (event.target.value) {
+            next.set("q", event.target.value);
+          } else {
+            next.delete("q");
+          }
+          setParams(next, { replace: true });
+        }}
+        placeholder="Search subjects…"
+      />
 
       <DataTable
         columns={columns}

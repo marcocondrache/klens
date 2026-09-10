@@ -20,7 +20,7 @@ export function NotFoundPage() {
         </EmptyMedia>
         <EmptyTitle>Page not found</EmptyTitle>
         <EmptyDescription>
-          That route does not exist in klens. Try the topics list or search with ⌘K.
+          That route does not exist in klens. Try the topics list or search with ⌘K or /.
         </EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
