@@ -45,7 +45,6 @@ run = "vp run build"
 
 [tasks."kafka:up"]
 description = "Start local Redpanda (Kafka API :9092, Schema Registry :8081; needs Docker/Podman)"
-# Console defaults to :8080 and would collide with klens; park it on :8082.
 run = """
 rpk container start \
   --kafka-ports 9092 \

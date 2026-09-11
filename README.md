@@ -32,13 +32,12 @@ mise run kafka:up
 ```
 
 That exposes Kafka on `localhost:9092` and Schema Registry on
-`http://localhost:8081`, matching the example config. Redpanda Console is on
-`http://localhost:8082` so it does not collide with klens on `:8080`.
+`http://localhost:8081`, matching the example config.
 
 ```sh
-mise run kafka:status   # broker ports and health
-mise run kafka:down     # stop
-mise run kafka:purge    # stop and wipe container data
+mise run kafka:status
+mise run kafka:down
+mise run kafka:purge
 ```
 
 ## Authentication
