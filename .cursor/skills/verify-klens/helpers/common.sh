@@ -1,11 +1,10 @@
-# Shared paths and defaults for verify-klens helpers.
 # shellcheck shell=bash
 
 set -euo pipefail
 
 helpers_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 skill_dir="$(cd "$helpers_dir/.." && pwd)"
-repo_root="$(cd "$skill_dir/../.." && pwd)"
+repo_root="$(cd "$skill_dir/../../.." && pwd)"
 
 : "${KLENS_VERIFY_RUN_DIR:="$skill_dir/run"}"
 : "${KLENS_VERIFY_PORT:=18080}"

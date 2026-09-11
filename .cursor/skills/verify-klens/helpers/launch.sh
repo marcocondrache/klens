@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Build klens with the embedded UI, write an isolated config, seed Kafka, start the process.
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
@@ -67,7 +66,7 @@ echo "ARTIFACT_DIR=$ARTIFACT_DIR" >>"$env_file"
 echo "launch: pid $(cat "$pid_file") url $url"
 
 for _ in $(seq 1 40); do
-  if curl -sS -o /dev/null -w '%{http_code}' "$url/health" | grep -qx 204; then
+  if curl -sS -o /dev/null -w '%{http_code}' "$url/health" 2>/dev/null | grep -qx 204; then
     echo "launch: ready (GET /health 204)"
     echo "$run_id"
     exit 0

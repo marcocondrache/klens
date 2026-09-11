@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Read-only check that the verify instance is ours and healthy.
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"

@@ -1,0 +1,71 @@
+- text: klens Cluster
+- list:
+  - listitem:
+    - link "Topics":
+      - /url: /cluster/local/topics
+    - text: "1"
+  - listitem:
+    - link "Consumer Groups":
+      - /url: /cluster/local/groups
+    - text: "0"
+  - listitem:
+    - link "Schema Registry":
+      - /url: /cluster/local/schemas
+  - listitem:
+    - link "Brokers":
+      - /url: /cluster/local/nodes
+    - text: "1"
+- link "v0.1.0":
+  - /url: https://github.com/marcocondrache/klens/releases/tag/v0.1.0
+- link "Open repository":
+  - /url: https://github.com/marcocondrache/klens
+- button "Toggle Sidebar"
+- main:
+  - button "Toggle Sidebar"
+  - separator
+  - button "local"
+  - separator
+  - navigation "breadcrumb":
+    - list:
+      - listitem:
+        - link "Topics" [disabled]
+  - button "Search ⌘K /"
+  - button "Refresh"
+  - button "Toggle theme"
+  - heading "Topics" [level=1]
+  - paragraph: 1 of 1 topics
+  - group:
+    - group
+    - textbox "Search topics…"
+    - group: /
+  - combobox: all
+  - switch "Show internal"
+  - text: Show internal
+  - table:
+    - rowgroup:
+      - row "Topic Parts RF Messages Size Msg/s Bytes in Retention Policy Groups":
+        - columnheader "Topic"
+        - columnheader "Parts"
+        - columnheader "RF"
+        - columnheader "Messages"
+        - columnheader "Size"
+        - columnheader "Msg/s"
+        - columnheader "Bytes in"
+        - columnheader "Retention"
+        - columnheader "Policy"
+        - columnheader "Groups"
+    - rowgroup:
+      - row "klens-verify-topics 1 1 1 — — — 7d delete —":
+        - cell "klens-verify-topics"
+        - cell "1"
+        - cell "1"
+        - cell "1"
+        - cell "—"
+        - cell "—"
+        - cell "—"
+        - cell "7d"
+        - cell "delete"
+        - cell "—"
+- heading "Search klens" [level=2]
+- paragraph: Jump to a topic, consumer group, broker, schema or section
+- region "Notifications alt+T"

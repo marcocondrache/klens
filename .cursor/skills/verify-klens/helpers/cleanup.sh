@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Stop the klens PID this run started. Leave artifacts on disk.
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
