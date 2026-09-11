@@ -1,6 +1,7 @@
 [tools]
 bun = "latest"
 node = "latest"
+rpk = "26.2.2"
 rust = "latest"
 vendir = "0.46.0"
 viteplus = "latest"
@@ -41,3 +42,24 @@ description = "Build the web UI into static/"
 dir = "web"
 depends = ["web:install", "web:codegen"]
 run = "vp run build"
+
+[tasks."kafka:up"]
+description = "Start local Redpanda (Kafka API :9092, Schema Registry :8081; needs Docker/Podman)"
+run = """
+rpk container start \
+  --kafka-ports 9092 \
+  --schema-registry-ports 8081 \
+  --console-port 8082
+"""
+
+[tasks."kafka:down"]
+description = "Stop the local Redpanda container cluster"
+run = "rpk container stop"
+
+[tasks."kafka:status"]
+description = "Show local Redpanda container status"
+run = "rpk container status"
+
+[tasks."kafka:purge"]
+description = "Stop and remove the local Redpanda container cluster and its data"
+run = "rpk container purge"
