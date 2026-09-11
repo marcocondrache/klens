@@ -10,10 +10,6 @@ viteplus = "latest"
 description = "Regenerate schema.graphql from the Rust schema"
 run = "cargo xtask schema"
 
-[tasks.seed]
-description = "Create sample Kafka topics and produce JSON messages for local UI testing"
-run = "cargo xtask seed"
-
 [tasks.vendor]
 description = "Sync vendored third-party files declared in vendir.yml"
 run = "vendir sync"
@@ -67,3 +63,7 @@ run = "rpk container status"
 [tasks."kafka:purge"]
 description = "Stop and remove the local Redpanda container cluster and its data"
 run = "rpk container purge"
+
+[tasks."kafka:seed"]
+description = "Create sample Kafka topics and produce JSON messages for local UI testing"
+run = "cargo xtask seed"
