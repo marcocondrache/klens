@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::time::Instant;
 
 use futures::future::join_all;
 use indexmap::IndexMap;
@@ -13,14 +14,20 @@ use crate::kafka::error::KafkaError;
 use crate::kafka::group::{ConsumerGroup, GroupSnapshot};
 use crate::kafka::limits::RecordLimits;
 use crate::kafka::record::RecordPage;
-use crate::kafka::record::plan::{FetchPlan, apply_timestamp_bounds};
+use crate::kafka::record::cursor::RecordCursor;
+use crate::kafka::record::plan::{FetchPlan, PartitionWindow, apply_timestamp_bounds, page_cursor};
 use crate::kafka::record::query::RecordQuery;
+use crate::kafka::record::Record;
 use crate::kafka::registry::SchemaSubject;
 use crate::kafka::search::{SearchHit, search_catalog};
 use crate::kafka::session::ClusterSession;
 use crate::kafka::topic::{Topic, groups_for_topic};
 use crate::kafka::topic_config::ConfigEntry;
 use crate::kafka::watermarks::Watermarks;
+
+/// Cap on successive search windows in one GraphQL request so a 1-in-N filter
+/// on a huge topic cannot open unbounded consumers.
+const MAX_FILTER_PASSES: usize = 64;
 
 /// Answers GraphQL catalog and browse queries from [`ClusterSession`]s.
 pub struct QueryEngine<S: ?Sized> {
@@ -312,20 +319,11 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
 
         let watermarks = Self::window_watermarks(session, &query, &partitions).await?;
 
-        let plan = FetchPlan::build(&query, &partitions, &watermarks, limit, self.limits);
-        let records = session.records(&plan).await?;
-        let next_cursor = crate::kafka::record::plan::next_cursor(
-            plan.order,
-            &plan.windows,
-            &watermarks,
-            &records,
-            plan.limit,
-        );
-        Ok(RecordPage {
-            records,
-            has_more: next_cursor.is_some(),
-            next_cursor: next_cursor.map(|cursor| cursor.encode()),
-        })
+        if query.filter.is_some() {
+            fill_filtered_page(session, &query, &partitions, &watermarks, limit, self.limits).await
+        } else {
+            fetch_one_page(session, &query, &partitions, &watermarks, limit, self.limits).await
+        }
     }
 
     async fn resolve_partitions(
@@ -399,6 +397,109 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
     pub async fn schema_subjects(&self, cluster: &str) -> Result<Vec<SchemaSubject>, KafkaError> {
         self.session(cluster)?.schema_subjects().await
     }
+}
+
+async fn fetch_one_page<S: ClusterSession + ?Sized>(
+    session: &S,
+    query: &RecordQuery,
+    partitions: &[i32],
+    watermarks: &HashMap<i32, Watermarks>,
+    limit: usize,
+    limits: RecordLimits,
+) -> Result<RecordPage, KafkaError> {
+    let plan = FetchPlan::build(query, partitions, watermarks, limit, limits);
+    let records = session.records(&plan).await?;
+    let next = crate::kafka::record::plan::next_cursor(
+        plan.order,
+        &plan.windows,
+        watermarks,
+        &records,
+        plan.limit,
+    );
+    Ok(RecordPage {
+        has_more: next.is_some(),
+        next_cursor: next.map(|cursor| cursor.encode()),
+        records,
+    })
+}
+
+async fn fill_filtered_page<S: ClusterSession + ?Sized>(
+    session: &S,
+    query: &RecordQuery,
+    partitions: &[i32],
+    watermarks: &HashMap<i32, Watermarks>,
+    limit: usize,
+    limits: RecordLimits,
+) -> Result<RecordPage, KafkaError> {
+    let started = Instant::now();
+    let budget = session.consume_timeout();
+    let mut collected: Vec<Record> = Vec::new();
+    let mut resume = query.cursor.clone();
+    let mut last_windows: Vec<PartitionWindow> = Vec::new();
+    let mut last_kept: Vec<Record> = Vec::new();
+
+    for _ in 0..MAX_FILTER_PASSES {
+        if started.elapsed() >= budget {
+            break;
+        }
+
+        let plan = FetchPlan::build(
+            &pass_query(query, resume.clone()),
+            partitions,
+            watermarks,
+            limit,
+            limits,
+        );
+        if plan.windows.is_empty() {
+            last_windows.clear();
+            last_kept.clear();
+            break;
+        }
+
+        let batch = session.records(&plan).await?;
+        last_windows = plan.windows.clone();
+
+        let remaining = limit - collected.len();
+        let kept: Vec<Record> = batch.into_iter().take(remaining).collect();
+        last_kept = kept.clone();
+        collected.extend(kept);
+
+        let page_filled = collected.len() >= limit;
+        let next = page_cursor(
+            plan.order,
+            &last_windows,
+            watermarks,
+            &last_kept,
+            page_filled,
+        );
+
+        if page_filled {
+            resume = next;
+            break;
+        }
+        if next.is_none() {
+            resume = None;
+            break;
+        }
+        if next == resume {
+            break;
+        }
+        resume = next;
+    }
+
+    collected.sort_by(|left, right| left.cmp_for_order(right, query.order));
+
+    Ok(RecordPage {
+        has_more: resume.is_some(),
+        next_cursor: resume.map(|cursor| cursor.encode()),
+        records: collected,
+    })
+}
+
+fn pass_query(query: &RecordQuery, resume: Option<RecordCursor>) -> RecordQuery {
+    let mut pass = query.clone();
+    pass.cursor = resume;
+    pass
 }
 
 #[cfg(test)]
@@ -933,7 +1034,7 @@ mod tests {
         query.filter = crate::kafka::compile_record_filter(r#"keyText.lowerAscii().contains("hit-")"#)
             .unwrap();
 
-        let page = engine.records("local", query).await.unwrap();
+        let page = engine.records("local", query.clone()).await.unwrap();
         assert_eq!(
             page.records.len(),
             10,
@@ -964,6 +1065,21 @@ mod tests {
                 Some("hit-120"),
             ]
         );
+
+        query.cursor = Some(
+            crate::kafka::RecordCursor::parse(page.next_cursor.as_deref().unwrap()).unwrap(),
+        );
+        let page_two = engine.records("local", query).await.unwrap();
+        let page_two_keys: Vec<_> = page_two
+            .records
+            .iter()
+            .map(|record| record.key.as_deref())
+            .collect();
+        assert_eq!(
+            page_two_keys,
+            vec![Some("hit-80"), Some("hit-40"), Some("hit-0")]
+        );
+        assert!(!page_two.has_more);
     }
 
     #[tokio::test]
