@@ -29,8 +29,12 @@ else
 fi
 
 if [[ -f "$kafka_flag" ]]; then
-  if command -v "$RPK" >/dev/null; then
-    echo "cleanup: stopping rpk container cluster this run started"
+  started_with="$(cat "$kafka_flag")"
+  if [[ "$started_with" == "mise" ]] && command -v mise >/dev/null; then
+    echo "cleanup: mise kafka:down for the broker this run started"
+    (cd "$repo_root" && mise kafka:down) || true
+  elif command -v "$RPK" >/dev/null; then
+    echo "cleanup: rpk container stop for the broker this run started"
     "$RPK" container stop || true
   fi
 fi

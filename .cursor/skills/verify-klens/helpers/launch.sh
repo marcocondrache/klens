@@ -41,14 +41,17 @@ EOF
 if port_open 127.0.0.1 9092; then
   echo "launch: kafka already listening on 127.0.0.1:9092"
   rm -f "$kafka_flag"
-else
-  if ! command -v "$RPK" >/dev/null; then
-    echo "launch: port 9092 is closed and rpk is not on PATH. Start a broker or install rpk (mise.toml kafka:up)." >&2
-    exit 1
-  fi
+elif command -v mise >/dev/null && [[ -f "$repo_root/mise.toml" ]]; then
+  echo "launch: starting redpanda via mise kafka:up"
+  (cd "$repo_root" && mise kafka:up)
+  echo mise >"$kafka_flag"
+elif command -v "$RPK" >/dev/null; then
   echo "launch: starting redpanda via rpk container start"
   "$RPK" container start --kafka-ports 9092 --schema-registry-ports 8081 --console-port 8083
-  echo 1 >"$kafka_flag"
+  echo rpk >"$kafka_flag"
+else
+  echo "launch: port 9092 is closed. Run .cursor/environment/bootstrap.sh start or install rpk (mise.toml kafka:up)." >&2
+  exit 1
 fi
 
 "$RPK" topic create "$KLENS_VERIFY_TOPIC" -p 1 -r 1 -X "brokers=$KLENS_VERIFY_BROKERS" >/dev/null 2>&1 || true

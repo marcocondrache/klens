@@ -21,11 +21,13 @@ What that does:
 
 1. Builds `web/` into `static/`, then `cargo build --locked --features ui`.
 2. Writes an isolated config (`bind: 127.0.0.1:18080`, cluster `local` at `127.0.0.1:9092`).
-3. Starts Redpanda with `rpk container start` only when port 9092 is closed.
+3. Starts Redpanda only when port 9092 is closed. Prefers `mise kafka:up` (same task `.cursor/environment/bootstrap.sh start` runs after Docker). Falls back to `rpk container start` with the ports in `mise.toml`.
 4. Creates topic `klens-verify-topics` and produces one record (`verify-1` / `hello-from-verify-klens`).
 5. Starts `target/debug/klens` with `KLENS_CONFIG_PATH` pointing at that config.
 
 Ready when `GET /health` returns 204 and `GET /` returns HTML titled `klens`. The process log line is `listening`.
+
+This checkout's Cursor environment install is `mise install`, `mise run web:codegen`, and `cargo fetch --locked`. Its start is Docker, then `mise kafka:up`. Verify still builds and binds its own klens process.
 
 Overrides, all optional:
 
