@@ -22,7 +22,13 @@ docker run --rm -p 8080:8080 \
   ghcr.io/marcocondrache/klens:latest
 ```
 
-[compose.yaml](compose.yaml) starts a local Kafka broker, Schema Registry, and builds klens from this repository.
+For a local Kafka broker and Schema Registry (Redpanda via `rpk`; needs Docker or Podman):
+
+```sh
+mise run kafka:up
+```
+
+Point [config/clusters.example.yaml](config/clusters.example.yaml) at `localhost:9092` and `http://localhost:8081`. Stop with `mise run kafka:down`; wipe a half-started or stuck cluster with `mise run kafka:purge`, then `mise run kafka:up` again.
 
 ## Authentication
 
