@@ -1,3 +1,4 @@
+use anyhow::Result;
 use clap::{Parser, Subcommand};
 use xshell::Shell;
 
@@ -14,11 +15,15 @@ struct Cli {
 enum Command {
     #[command(about = "Regenerate schema.graphql from the Rust schema")]
     Schema,
+    #[command(about = "Create sample Kafka topics and produce JSON messages for local UI testing")]
+    Seed(tasks::seed::SeedArgs),
 }
 
-fn main() -> xshell::Result<()> {
+fn main() -> Result<()> {
     let sh = Shell::new()?;
     match Cli::parse().command {
-        Command::Schema => tasks::schema::run(&sh),
+        Command::Schema => tasks::schema::run(&sh)?,
+        Command::Seed(args) => tasks::seed::run(args)?,
     }
+    Ok(())
 }

@@ -10,6 +10,10 @@ viteplus = "latest"
 description = "Regenerate schema.graphql from the Rust schema"
 run = "cargo xtask schema"
 
+[tasks.seed]
+description = "Create sample Kafka topics and produce JSON messages for local UI testing"
+run = "cargo xtask seed"
+
 [tasks.vendor]
 description = "Sync vendored third-party files declared in vendir.yml"
 run = "vendir sync"

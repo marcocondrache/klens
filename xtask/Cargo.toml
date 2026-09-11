@@ -5,6 +5,12 @@ edition = "2024"
 publish = false
 
 [dependencies]
+anyhow = "1"
 clap = { version = "4", features = ["derive"] }
+futures = "0.3"
 klens = { path = ".." }
+rand = "0.9"
+rdkafka = { version = "0.39", features = ["ssl-vendored", "libz-static"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 xshell = "0.2"
