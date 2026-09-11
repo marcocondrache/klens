@@ -29,6 +29,12 @@ import {
 import type { Topic } from "@/lib/api/types";
 import { createAppColumnHelper } from "@/lib/table";
 
+const POLICY_ITEMS = [
+  { value: "all", label: "All policies" },
+  { value: "delete", label: "delete" },
+  { value: "compact", label: "compact" },
+] as const;
+
 function emptyMetric(value: number, display: ReactNode) {
   if (value === 0) {
     return <span className="text-muted-foreground">—</span>;
@@ -162,14 +168,20 @@ export function TopicsPage() {
           placeholder="Search topics…"
         />
 
-        <Select value={policy} onValueChange={(value) => update("policy", String(value))}>
+        <Select
+          value={policy}
+          items={POLICY_ITEMS}
+          onValueChange={(value) => update("policy", String(value))}
+        >
           <SelectTrigger size="sm" className="w-40">
             <SelectValue placeholder="Cleanup policy" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All policies</SelectItem>
-            <SelectItem value="delete">delete</SelectItem>
-            <SelectItem value="compact">compact</SelectItem>
+            {POLICY_ITEMS.map((item) => (
+              <SelectItem key={item.value} value={item.value}>
+                {item.label}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
 
