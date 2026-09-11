@@ -903,6 +903,70 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn filtered_records_fill_the_requested_limit() {
+        let mut records = Vec::new();
+        for offset in 0..500 {
+            let key = if offset % 40 == 0 {
+                format!("hit-{offset}")
+            } else {
+                format!("miss-{offset}")
+            };
+            records.push(Record {
+                topic: "orders.created".into(),
+                partition: 0,
+                offset,
+                timestamp: offset,
+                key: Some(key),
+                value: None,
+                schema_id: None,
+                headers: Vec::new(),
+                size_bytes: 0,
+                compression: crate::kafka::record::Compression::None,
+            });
+        }
+
+        let engine =
+            QueryEngine::from_sessions(vec![FakeCluster::local().with_orders_records(records)]);
+        let mut query = browse_query();
+        query.limit = 10;
+        query.order = RecordOrder::Newest;
+        query.filter = crate::kafka::compile_record_filter(r#"keyText.lowerAscii().contains("hit-")"#)
+            .unwrap();
+
+        let page = engine.records("local", query).await.unwrap();
+        assert_eq!(
+            page.records.len(),
+            10,
+            "filter must keep scanning until the page limit is filled; got {:?}",
+            page.records
+                .iter()
+                .map(|record| record.key.as_deref())
+                .collect::<Vec<_>>()
+        );
+        assert!(page.has_more);
+        let keys: Vec<_> = page
+            .records
+            .iter()
+            .map(|record| record.key.as_deref())
+            .collect();
+        assert_eq!(
+            keys,
+            vec![
+                Some("hit-480"),
+                Some("hit-440"),
+                Some("hit-400"),
+                Some("hit-360"),
+                Some("hit-320"),
+                Some("hit-280"),
+                Some("hit-240"),
+                Some("hit-200"),
+                Some("hit-160"),
+                Some("hit-120"),
+            ]
+        );
+    }
+
+    #[tokio::test]
     async fn records_timestamp_from_after_the_log_is_empty() {
         let engine = QueryEngine::from_sessions(vec![FakeCluster::local()]);
         let mut query = browse_query();
