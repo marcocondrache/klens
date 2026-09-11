@@ -1,0 +1,23 @@
+---
+description: pstack per-role model choices (overrides skill defaults)
+alwaysApply: true
+---
+# pstack model configuration. One line per role. Delete a line to fall back to the skill default.
+# `inherit-parent` or `auto` as a value: the role runs on the parent chat model (omit Task `model`). Alias entries in a panel list still count toward its fan-out.
+feature, refactoring: cursor-grok-4.6-xhigh-fast
+bug-fix: cursor-grok-4.6-xhigh-fast
+perf-issue: cursor-grok-4.6-xhigh-fast
+hillclimb: cursor-grok-4.6-xhigh-fast
+judgment and prose: cursor-grok-4.6-xhigh-fast
+hardest tasks: cursor-grok-4.6-xhigh-fast
+how explorer: cursor-grok-4.6-xhigh-fast
+how explainer: cursor-grok-4.6-xhigh-fast
+why investigators: cursor-grok-4.6-xhigh-fast
+why synthesizer: cursor-grok-4.6-xhigh-fast
+reflect tooling: gpt-5.6-sol-max
+reflect judgment, divergent, synthesizer: cursor-grok-4.6-xhigh-fast
+arena runners: cursor-grok-4.6-xhigh-fast, gpt-5.6-sol-max, claude-opus-5-thinking-xhigh
+arena cross-judge pool: cursor-grok-4.6-xhigh-fast, gpt-5.6-sol-max, claude-opus-5-thinking-xhigh
+swarm workers: cursor-grok-4.6-xhigh-fast
+architect runners: cursor-grok-4.6-xhigh-fast, gpt-5.6-sol-max, claude-opus-5-thinking-xhigh
+interrogate reviewers: cursor-grok-4.6-xhigh-fast, gpt-5.6-sol-max, claude-opus-5-thinking-xhigh
