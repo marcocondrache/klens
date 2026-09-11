@@ -1,7 +1,3 @@
-//! Seed a Kafka cluster with sample topics and JSON messages for local UI testing.
-//!
-//! This stays in xtask so the klens service remains read-only.
-
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -20,7 +16,6 @@ use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
 use serde_json::{Value, json};
 
-/// Sensible defaults for local compose (single broker, plaintext).
 const DEFAULT_TOPICS: usize = 12;
 const DEFAULT_MESSAGES: usize = 500;
 const DEFAULT_PARTITIONS: i32 = 3;
@@ -28,7 +23,6 @@ const DEFAULT_REPLICATION: i32 = 1;
 const DEFAULT_BATCH_SIZE: usize = 256;
 const DEFAULT_PREFIX: &str = "demo";
 
-/// Realistic topic name stems used before falling back to numbered names.
 const TOPIC_CATALOG: &[&str] = &[
     "orders.created",
     "orders.updated",
@@ -137,7 +131,6 @@ async fn run_async(args: SeedArgs) -> Result<()> {
 
     let mut client = KafkaClusterConfig::from(&cluster).into_client_config();
     client.set("client.id", format!("klens-{}-seed", cluster.name.trim()));
-    // Prefer throughput for bulk seeding; linger a little so batches fill.
     client.set("acks", "1");
     client.set("linger.ms", "5");
     client.set("compression.type", "lz4");
@@ -583,7 +576,6 @@ fn build_payload(topic: &str, index: usize, base_ts: i64, rng: &mut StdRng) -> G
         };
     }
 
-    // Generic fallback for numbered extra topics.
     let key = format!("msg_{:08}", index + 1);
     GeneratedMessage {
         key: key.clone(),

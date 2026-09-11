@@ -24,22 +24,6 @@ docker run --rm -p 8080:8080 \
 
 [compose.yaml](compose.yaml) starts a local Kafka broker, Schema Registry, and builds klens from this repository.
 
-## Local seed data
-
-After Kafka is up (for example via `compose.yaml`), fill the cluster with sample topics and
-JSON messages for UI testing:
-
-```sh
-# copy config/clusters.example.yaml to config.yaml first
-mise run seed
-# or with explicit scale / reproducibility:
-mise run seed -- --topics 20 --messages 1000 --seed 42
-mise run seed -- --bootstrap localhost:9092 --dry-run
-```
-
-`cargo xtask seed --help` lists all flags. The command creates missing topics and produces
-messages; it does not change the read-only klens service API.
-
 ## Authentication
 
 By default the UI and GraphQL API are open to anyone who can reach the process.
