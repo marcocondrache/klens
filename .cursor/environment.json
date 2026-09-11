@@ -1,0 +1,7 @@
+{
+  "install": "mise install && .cursor/environment/bootstrap.sh",
+  "build": {
+    "dockerfile": "environment/Dockerfile",
+    "context": ".."
+  }
+}
