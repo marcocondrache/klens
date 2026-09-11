@@ -44,12 +44,12 @@ depends = ["web:install", "web:codegen"]
 run = "vp run build"
 
 [tasks."kafka:up"]
-description = "Start local Redpanda (Kafka API :9092, Schema Registry :8081; needs Docker/Podman)"
+description = "Start local Redpanda (Kafka :9092, Schema Registry :8081; needs Docker/Podman)"
 run = """
 rpk container start \
   --kafka-ports 9092 \
   --schema-registry-ports 8081 \
-  --console-port 8082
+  --console-port 8083
 """
 
 [tasks."kafka:down"]
