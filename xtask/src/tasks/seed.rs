@@ -136,10 +136,7 @@ async fn run_async(args: SeedArgs) -> Result<()> {
     }
 
     let mut client = KafkaClusterConfig::from(&cluster).into_client_config();
-    client.set(
-        "client.id",
-        format!("klens-{}-seed", cluster.name.trim()),
-    );
+    client.set("client.id", format!("klens-{}-seed", cluster.name.trim()));
     // Prefer throughput for bulk seeding; linger a little so batches fill.
     client.set("acks", "1");
     client.set("linger.ms", "5");
@@ -149,9 +146,7 @@ async fn run_async(args: SeedArgs) -> Result<()> {
     let admin: AdminClient<DefaultClientContext> = client
         .create()
         .context("failed to create Kafka admin client")?;
-    let producer: FutureProducer = client
-        .create()
-        .context("failed to create Kafka producer")?;
+    let producer: FutureProducer = client.create().context("failed to create Kafka producer")?;
 
     create_topics(
         &admin,
