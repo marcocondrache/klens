@@ -1,0 +1,58 @@
+- text: klens Cluster
+- list:
+  - listitem:
+    - link "Topics":
+      - /url: /cluster/local/topics
+    - text: "1"
+  - listitem:
+    - link "Consumer Groups":
+      - /url: /cluster/local/groups
+    - text: "0"
+  - listitem:
+    - link "Schema Registry":
+      - /url: /cluster/local/schemas
+    - text: "0"
+  - listitem:
+    - link "Brokers":
+      - /url: /cluster/local/nodes
+    - text: "1"
+- link "v0.1.0":
+  - /url: https://github.com/marcocondrache/klens/releases/tag/v0.1.0
+- link "Open repository":
+  - /url: https://github.com/marcocondrache/klens
+- button "Toggle Sidebar"
+- main:
+  - button "Toggle Sidebar"
+  - separator
+  - button "local"
+  - separator
+  - navigation "breadcrumb":
+    - list:
+      - listitem:
+        - link "Topics":
+          - /url: /cluster/local/topics
+      - listitem:
+        - link "klens-verify-topics" [disabled]
+  - button "Search ⌘K /"
+  - button "Refresh"
+  - button "Toggle theme"
+  - heading "klens-verify-topics Copy topic name" [level=1]:
+    - text: klens-verify-topics
+    - button "Copy topic name"
+  - paragraph: Partitions
+  - paragraph: replication factor —
+  - paragraph: Messages
+  - paragraph: "0"
+  - paragraph: Size
+  - paragraph: sum of all replicas
+  - paragraph: Produce rate
+  - application
+  - tablist:
+    - tab "Data" [selected]
+    - tab "Partitions 0"
+    - tab "Consumer groups 0"
+    - tab "Configuration"
+  - tabpanel "Data"
+- heading "Search klens" [level=2]
+- paragraph: Jump to a topic, consumer group, broker, schema or section
+- region "Notifications alt+T"
