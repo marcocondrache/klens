@@ -25,8 +25,6 @@ use crate::kafka::topic::{Topic, groups_for_topic};
 use crate::kafka::topic_config::ConfigEntry;
 use crate::kafka::watermarks::Watermarks;
 
-/// Cap on successive search windows in one GraphQL request so a 1-in-N filter
-/// on a huge topic cannot open unbounded consumers.
 const MAX_FILTER_PASSES: usize = 64;
 
 /// Answers GraphQL catalog and browse queries from [`ClusterSession`]s.

@@ -196,9 +196,6 @@ pub fn next_cursor(
 ///
 /// `windows` and `last_kept` are the **final** `session.records` pass only.
 /// `page_filled` is whether the **merged** page reached `limit`.
-///
-/// Never pass the concatenated page records here: a hit from an earlier pass
-/// can pull a partition cursor backward and replay rows on the next page.
 pub fn page_cursor(
     order: RecordOrder,
     windows: &[PartitionWindow],
@@ -215,8 +212,6 @@ pub fn page_cursor(
     )
 }
 
-/// Drive [`next_cursor`]'s `records.len() >= limit` branch without adding a
-/// `filled` parameter (existing unit tests keep their signature).
 fn cursor_limit(page_filled: bool, last_kept: usize) -> usize {
     if page_filled {
         last_kept
