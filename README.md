@@ -22,7 +22,24 @@ docker run --rm -p 8080:8080 \
   ghcr.io/marcocondrache/klens:latest
 ```
 
-[compose.yaml](compose.yaml) starts a local Kafka broker, Schema Registry, and builds klens from this repository.
+## Local Kafka
+
+For development, start a local Kafka-compatible broker and Confluent-compatible
+Schema Registry with Redpanda (`rpk` via mise). Docker or Podman is required.
+
+```sh
+mise run kafka:up
+```
+
+That exposes Kafka on `localhost:9092` and Schema Registry on
+`http://localhost:8081`, matching the example config. Redpanda Console is on
+`http://localhost:8082` so it does not collide with klens on `:8080`.
+
+```sh
+mise run kafka:status   # broker ports and health
+mise run kafka:down     # stop
+mise run kafka:purge    # stop and wipe container data
+```
 
 ## Authentication
 

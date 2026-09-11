@@ -1,6 +1,7 @@
 # klens service configuration.
 #
 # Copy this file to config.yaml and adjust it for your environment.
+# For a local broker + Schema Registry: `mise run kafka:up` (Redpanda via rpk).
 #
 # Values may reference environment variables, so secrets can stay out of this
 # file: ${VAR}, $VAR, ${VAR:-default}. Use $$ for a literal dollar sign.
