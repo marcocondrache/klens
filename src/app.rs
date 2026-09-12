@@ -4,8 +4,9 @@ use std::time::Duration;
 use crate::environment::{CONFIG_POLL_INTERVAL, OVERVIEW_BUDGET, SUBJECT_POLL_INTERVAL};
 use crate::kafka::model::SchemaSubject;
 use crate::kafka::{
-    CatalogCache, CatalogHealth, CatalogPoller, ClusterIdentity, ClusterOverview, ClusterSession,
-    ClusterSnapshot, LagStore, QueryEngine, RateStore, SubjectCache,
+    CatalogCache, CatalogHealth, CatalogPoller, CatalogRevision, ClusterIdentity, ClusterOverview,
+    ClusterSession, ClusterSnapshot, ConfigEntry, ConsumerGroup, KafkaError, LagStore, QueryEngine,
+    RateStore, RecordPage, RecordQuery, SearchHit, SubjectCache, ThroughputPoint, TopicRate,
 };
 use axum::Router;
 use axum::middleware;
@@ -119,10 +120,21 @@ impl AppState {
         }
     }
 
+    pub(crate) fn require_cluster(&self, name: &str) -> Result<(), KafkaError> {
+        self.query.session(name).map(|_| ())
+    }
+
+    pub(crate) fn catalog_updates(
+        &self,
+        cluster: &str,
+    ) -> tokio::sync::watch::Receiver<Option<CatalogRevision>> {
+        self.catalog.subscribe_updates(cluster)
+    }
+
     pub(crate) async fn catalog_snapshot(
         &self,
         cluster: &str,
-    ) -> Result<Arc<ClusterSnapshot>, crate::kafka::KafkaError> {
+    ) -> Result<Arc<ClusterSnapshot>, KafkaError> {
         if let Some(snapshot) = self.catalog.snapshot(cluster) {
             return Ok(snapshot);
         }
@@ -135,14 +147,87 @@ impl AppState {
     pub(crate) async fn subject_snapshot(
         &self,
         cluster: &str,
-    ) -> Result<Arc<Vec<SchemaSubject>>, crate::kafka::KafkaError> {
+    ) -> Result<Arc<Vec<SchemaSubject>>, KafkaError> {
         if let Some(subjects) = self.subjects.snapshot(cluster) {
             return Ok(subjects);
         }
 
-        let subjects = Arc::new(self.query.schema_subjects(cluster).await?);
+        let subjects = Arc::new(self.live_schema_subjects(cluster).await?);
         self.subjects.seed(cluster, Arc::clone(&subjects));
         Ok(subjects)
+    }
+
+    pub(crate) async fn catalog_search(
+        &self,
+        cluster: &str,
+        term: &str,
+    ) -> Result<Vec<SearchHit>, KafkaError> {
+        let snapshot = self.catalog_snapshot(cluster).await?;
+        let subjects = self.subject_snapshot(cluster).await.unwrap_or_default();
+        Ok(snapshot.search(term, subjects.as_ref()))
+    }
+
+    pub(crate) async fn live_records(
+        &self,
+        cluster: &str,
+        query: RecordQuery,
+    ) -> Result<RecordPage, KafkaError> {
+        self.query.records(cluster, query).await
+    }
+
+    pub(crate) async fn live_topic_configs(
+        &self,
+        cluster: &str,
+        name: &str,
+    ) -> Result<Vec<ConfigEntry>, KafkaError> {
+        self.query.topic_configs(cluster, name).await
+    }
+
+    pub(crate) async fn live_broker_configs(
+        &self,
+        cluster: &str,
+        id: i32,
+    ) -> Result<Vec<ConfigEntry>, KafkaError> {
+        self.query.broker_configs(cluster, id).await
+    }
+
+    pub(crate) async fn live_schema_subjects(
+        &self,
+        cluster: &str,
+    ) -> Result<Vec<SchemaSubject>, KafkaError> {
+        self.query.schema_subjects(cluster).await
+    }
+
+    pub(crate) async fn live_consumer_group(
+        &self,
+        cluster: &str,
+        id: &str,
+    ) -> Result<ConsumerGroup, KafkaError> {
+        self.query.consumer_group(cluster, id).await
+    }
+
+    pub(crate) fn series_topic_rate(&self, cluster: &str, topic: &str) -> Option<TopicRate> {
+        self.rates.topic_rate(cluster, topic)
+    }
+
+    pub(crate) fn series_topic_rates(&self, cluster: &str) -> Vec<TopicRate> {
+        self.rates.topic_rates(cluster)
+    }
+
+    pub(crate) fn series_cluster_history(&self, cluster: &str) -> Vec<ThroughputPoint> {
+        self.rates.cluster_history(cluster)
+    }
+
+    pub(crate) fn series_topic_history(&self, cluster: &str, topic: &str) -> Vec<ThroughputPoint> {
+        self.rates.topic_history(cluster, topic)
+    }
+
+    pub(crate) fn series_group_lag_history(&self, cluster: &str, id: &str) -> Vec<ThroughputPoint> {
+        self.lags.history(cluster, id)
+    }
+
+    pub(crate) fn series_observe_group_lag(&self, cluster: &str, id: &str, lag: i64) {
+        self.lags.observe(cluster, id, lag);
     }
 
     pub(crate) async fn cluster_overviews(&self) -> Vec<ClusterOverview> {

@@ -39,8 +39,7 @@ impl Query {
         id: i32,
     ) -> FieldResult<Vec<ConfigEntry>> {
         Ok(context
-            .query
-            .broker_configs(&cluster, id)
+            .live_broker_configs(&cluster, id)
             .await?
             .into_iter()
             .map(ConfigEntry::from)
@@ -62,7 +61,7 @@ impl Query {
     }
 
     async fn catalog_health(context: &AppState, cluster: String) -> FieldResult<CatalogHealth> {
-        let _ = context.query.session(&cluster)?;
+        context.require_cluster(&cluster)?;
         Ok(CatalogHealth::from(context.catalog_health(&cluster)))
     }
 
@@ -85,8 +84,7 @@ impl Query {
         name: String,
     ) -> FieldResult<Vec<ConfigEntry>> {
         Ok(context
-            .query
-            .topic_configs(&cluster, &name)
+            .live_topic_configs(&cluster, &name)
             .await?
             .into_iter()
             .map(ConfigEntry::from)
@@ -117,8 +115,7 @@ impl Query {
 
     async fn cluster_throughput(context: &AppState, cluster: String) -> Vec<ThroughputPoint> {
         context
-            .rates
-            .cluster_history(&cluster)
+            .series_cluster_history(&cluster)
             .into_iter()
             .map(ThroughputPoint::from)
             .collect()
@@ -130,8 +127,7 @@ impl Query {
         topic: String,
     ) -> Vec<ThroughputPoint> {
         context
-            .rates
-            .topic_history(&cluster, &topic)
+            .series_topic_history(&cluster, &topic)
             .into_iter()
             .map(ThroughputPoint::from)
             .collect()
@@ -143,8 +139,7 @@ impl Query {
         id: String,
     ) -> Vec<ThroughputPoint> {
         context
-            .lags
-            .history(&cluster, &id)
+            .series_group_lag_history(&cluster, &id)
             .into_iter()
             .map(ThroughputPoint::from)
             .collect()
@@ -169,7 +164,7 @@ impl Query {
             .try_into()
             .map_err(crate::kafka::KafkaError::InvalidQuery)?;
         Ok(RecordPage::from(
-            context.query.records(&cluster, query).await?,
+            context.live_records(&cluster, query).await?,
         ))
     }
 
@@ -178,10 +173,9 @@ impl Query {
         cluster: String,
         term: String,
     ) -> FieldResult<Vec<SearchResult>> {
-        let snapshot = context.catalog_snapshot(&cluster).await?;
-        let subjects = context.subject_snapshot(&cluster).await.unwrap_or_default();
-        Ok(snapshot
-            .search(&term, subjects.as_ref())
+        Ok(context
+            .catalog_search(&cluster, &term)
+            .await?
             .into_iter()
             .map(SearchResult::from)
             .collect())
@@ -197,7 +191,7 @@ fn map_topics(context: &AppState, cluster: &str, topics: &[crate::kafka::Topic])
 }
 
 fn map_topic(context: &AppState, cluster: &str, topic: crate::kafka::Topic) -> Topic {
-    let rate = context.rates.topic_rate(cluster, &topic.name);
+    let rate = context.series_topic_rate(cluster, &topic.name);
     Topic::from_domain(topic, rate.as_ref())
 }
 
