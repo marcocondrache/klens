@@ -1,3 +1,9 @@
+//! Live Kafka facade.
+//!
+//! [`QueryEngine`] looks up a [`ClusterSession`], assembles a
+//! [`ClusterSnapshot`] via `catalog_from`, and serves records, configs, a
+//! single consumer group, and schema subjects.
+
 use std::collections::HashMap;
 
 use futures::future::join_all;
