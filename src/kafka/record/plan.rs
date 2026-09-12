@@ -192,6 +192,34 @@ pub fn next_cursor(
     }
 }
 
+/// Page cursor after a filtered fill loop.
+///
+/// `windows` and `last_kept` are the **final** `session.records` pass only.
+/// `page_filled` is whether the **merged** page reached `limit`.
+pub fn page_cursor(
+    order: RecordOrder,
+    windows: &[PartitionWindow],
+    watermarks: &HashMap<i32, Watermarks>,
+    last_kept: &[Record],
+    page_filled: bool,
+) -> Option<RecordCursor> {
+    next_cursor(
+        order,
+        windows,
+        watermarks,
+        last_kept,
+        cursor_limit(page_filled, last_kept.len()),
+    )
+}
+
+fn cursor_limit(page_filled: bool, last_kept: usize) -> usize {
+    if page_filled {
+        last_kept
+    } else {
+        last_kept.saturating_add(1)
+    }
+}
+
 /// A missing `from` offset means nothing was written at or after that time, so
 /// the partition collapses to empty.
 pub fn apply_timestamp_bounds(
@@ -594,5 +622,41 @@ mod tests {
         );
         assert_eq!(plan.topic, "orders");
         assert_eq!(plan.windows[0].end - plan.windows[0].start, 40);
+    }
+
+    #[test]
+    fn page_cursor_uses_last_kept_when_the_merged_page_is_full() {
+        let watermarks = marks(0, 500);
+        let windows = vec![PartitionWindow {
+            partition: 0,
+            start: 100,
+            end: 180,
+        }];
+        let last_kept = vec![record(0, 160), record(0, 120)];
+
+        let cursor =
+            page_cursor(RecordOrder::Newest, &windows, &watermarks, &last_kept, true).unwrap();
+        assert_eq!(cursor.offsets[&0], 120);
+    }
+
+    #[test]
+    fn page_cursor_advances_past_the_window_when_still_underfilled() {
+        let watermarks = marks(0, 500);
+        let windows = vec![PartitionWindow {
+            partition: 0,
+            start: 420,
+            end: 500,
+        }];
+        let last_kept = vec![record(0, 480), record(0, 440)];
+
+        let cursor = page_cursor(
+            RecordOrder::Newest,
+            &windows,
+            &watermarks,
+            &last_kept,
+            false,
+        )
+        .unwrap();
+        assert_eq!(cursor.offsets[&0], 420);
     }
 }
