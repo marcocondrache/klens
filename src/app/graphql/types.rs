@@ -1,7 +1,11 @@
-use chrono::{DateTime, Utc};
-use juniper::{GraphQLEnum, GraphQLInputObject, GraphQLObject};
+use std::sync::Arc;
 
+use chrono::{DateTime, Utc};
+use juniper::{GraphQLEnum, GraphQLInputObject, GraphQLObject, graphql_object};
+
+use crate::AppState;
 use crate::config::SecurityProtocol as ConfigSecurityProtocol;
+use crate::kafka::ClusterSnapshot;
 use crate::kafka::model as domain;
 
 /// Generate a `From` between two enums whose variants have the same names.
@@ -140,11 +144,37 @@ pub(super) enum CleanupPolicy {
     CompactDelete,
 }
 
-#[derive(GraphQLObject)]
 pub(super) struct ClusterCatalog {
-    pub updated_at: DateTime<Utc>,
-    pub topics: Vec<Topic>,
-    pub consumer_groups: Vec<ConsumerGroup>,
+    pub snapshot: Arc<ClusterSnapshot>,
+    pub cluster: String,
+}
+
+#[graphql_object(context = AppState)]
+impl ClusterCatalog {
+    fn updated_at(&self) -> DateTime<Utc> {
+        self.snapshot.updated_at
+    }
+
+    fn topics(&self, context: &AppState) -> Vec<Topic> {
+        self.snapshot
+            .topics
+            .iter()
+            .enumerate()
+            .map(|(index, topic)| {
+                Topic::from_snapshot(
+                    Arc::clone(&self.snapshot),
+                    index,
+                    context.series_topic_rate(&self.cluster, &topic.name),
+                )
+            })
+            .collect()
+    }
+
+    fn consumer_groups(&self) -> Vec<ConsumerGroup> {
+        (0..self.snapshot.groups.len())
+            .map(|index| ConsumerGroup::from_snapshot(Arc::clone(&self.snapshot), index))
+            .collect()
+    }
 }
 
 #[derive(GraphQLObject)]
@@ -191,64 +221,96 @@ impl From<crate::kafka::CatalogRevision> for CatalogUpdated {
     }
 }
 
-#[derive(GraphQLObject)]
 pub(super) struct Topic {
-    pub name: String,
-    pub internal: bool,
-    pub partitions: Vec<Partition>,
-    pub partition_count: i32,
-    pub replication_factor: i32,
-    pub message_count: f64,
-    pub size_bytes: f64,
-    pub cleanup_policy: CleanupPolicy,
-    pub retention_ms: f64,
-    pub consumer_groups: Vec<String>,
-    pub bytes_in_per_sec: f64,
-    pub messages_per_sec: f64,
-    pub under_replicated: bool,
+    snapshot: Arc<ClusterSnapshot>,
+    index: usize,
+    rate: Option<crate::kafka::TopicRate>,
 }
 
 impl Topic {
-    pub(super) fn from_domain(
-        topic: domain::Topic,
-        rate: Option<&crate::kafka::TopicRate>,
+    pub(super) fn from_snapshot(
+        snapshot: Arc<ClusterSnapshot>,
+        index: usize,
+        rate: Option<crate::kafka::TopicRate>,
     ) -> Self {
-        let mut graph = Self::from(topic);
-        if let Some(rate) = rate {
-            graph.bytes_in_per_sec = rate.bytes_in_per_sec;
-            graph.messages_per_sec = rate.messages_per_sec;
-        }
-        graph
-    }
-}
-
-impl From<domain::Topic> for Topic {
-    fn from(topic: domain::Topic) -> Self {
         Self {
-            name: topic.name,
-            internal: topic.internal,
-            partition_count: topic.partitions.len() as i32,
-            partitions: topic.partitions.into_iter().map(Partition::from).collect(),
-            replication_factor: topic.replication_factor,
-            message_count: topic.message_count as f64,
-            size_bytes: 0.0,
-            cleanup_policy: CleanupPolicy::from(topic.cleanup_policy),
-            retention_ms: topic.retention_ms as f64,
-            consumer_groups: topic.consumer_groups,
-            bytes_in_per_sec: 0.0,
-            messages_per_sec: 0.0,
-            under_replicated: topic.under_replicated,
+            snapshot,
+            index,
+            rate,
         }
+    }
+
+    fn domain(&self) -> &domain::Topic {
+        &self.snapshot.topics[self.index]
     }
 }
 
-impl From<domain::Partition> for Partition {
-    fn from(partition: domain::Partition) -> Self {
+#[graphql_object(context = AppState)]
+impl Topic {
+    fn name(&self) -> &str {
+        &self.domain().name
+    }
+
+    fn internal(&self) -> bool {
+        self.domain().internal
+    }
+
+    fn partitions(&self) -> Vec<Partition> {
+        self.domain()
+            .partitions
+            .iter()
+            .map(Partition::from)
+            .collect()
+    }
+
+    fn partition_count(&self) -> i32 {
+        self.domain().partitions.len() as i32
+    }
+
+    fn replication_factor(&self) -> i32 {
+        self.domain().replication_factor
+    }
+
+    fn message_count(&self) -> f64 {
+        self.domain().message_count as f64
+    }
+
+    fn size_bytes(&self) -> f64 {
+        0.0
+    }
+
+    fn cleanup_policy(&self) -> CleanupPolicy {
+        CleanupPolicy::from(self.domain().cleanup_policy)
+    }
+
+    fn retention_ms(&self) -> f64 {
+        self.domain().retention_ms as f64
+    }
+
+    fn consumer_groups(&self) -> &[String] {
+        &self.domain().consumer_groups
+    }
+
+    fn bytes_in_per_sec(&self) -> f64 {
+        self.rate.as_ref().map_or(0.0, |rate| rate.bytes_in_per_sec)
+    }
+
+    fn messages_per_sec(&self) -> f64 {
+        self.rate.as_ref().map_or(0.0, |rate| rate.messages_per_sec)
+    }
+
+    fn under_replicated(&self) -> bool {
+        self.domain().under_replicated
+    }
+}
+
+impl From<&domain::Partition> for Partition {
+    fn from(partition: &domain::Partition) -> Self {
         Self {
             id: partition.id,
             leader: partition.leader,
-            replicas: partition.replicas,
-            isr: partition.isr,
+            replicas: partition.replicas.clone(),
+            isr: partition.isr.clone(),
             low_watermark: partition.low_watermark as f64,
             high_watermark: partition.high_watermark as f64,
             size_bytes: 0.0,
@@ -334,37 +396,92 @@ pub(super) struct GroupOffset {
     pub member_id: Option<String>,
 }
 
-#[derive(GraphQLObject, Clone)]
+#[derive(Clone)]
 pub(super) struct ConsumerGroup {
-    pub id: String,
-    pub state: ConsumerGroupState,
-    pub protocol: String,
-    pub coordinator: i32,
-    pub members: Vec<ConsumerGroupMember>,
-    pub member_count: i32,
-    pub topics: Vec<String>,
-    pub lag: f64,
-    pub offsets: Vec<GroupOffset>,
-    pub assigned_partition_count: i32,
+    source: GroupSource,
+}
+
+#[derive(Clone)]
+enum GroupSource {
+    Snapshot {
+        snapshot: Arc<ClusterSnapshot>,
+        index: usize,
+    },
+    Live(domain::ConsumerGroup),
+}
+
+impl ConsumerGroup {
+    pub(super) fn from_snapshot(snapshot: Arc<ClusterSnapshot>, index: usize) -> Self {
+        Self {
+            source: GroupSource::Snapshot { snapshot, index },
+        }
+    }
+
+    fn domain(&self) -> &domain::ConsumerGroup {
+        match &self.source {
+            GroupSource::Snapshot { snapshot, index } => &snapshot.groups[*index],
+            GroupSource::Live(group) => group,
+        }
+    }
+}
+
+#[graphql_object(context = AppState)]
+impl ConsumerGroup {
+    fn id(&self) -> &str {
+        &self.domain().id
+    }
+
+    fn state(&self) -> ConsumerGroupState {
+        ConsumerGroupState::from(self.domain().state)
+    }
+
+    fn protocol(&self) -> &str {
+        &self.domain().protocol
+    }
+
+    fn coordinator(&self) -> i32 {
+        self.domain().coordinator
+    }
+
+    fn members(&self) -> Vec<ConsumerGroupMember> {
+        self.domain()
+            .members
+            .iter()
+            .cloned()
+            .map(ConsumerGroupMember::from)
+            .collect()
+    }
+
+    fn member_count(&self) -> i32 {
+        self.domain().members.len() as i32
+    }
+
+    fn topics(&self) -> &[String] {
+        &self.domain().topics
+    }
+
+    fn lag(&self) -> f64 {
+        self.domain().lag as f64
+    }
+
+    fn offsets(&self) -> Vec<GroupOffset> {
+        self.domain()
+            .offsets
+            .iter()
+            .cloned()
+            .map(GroupOffset::from)
+            .collect()
+    }
+
+    fn assigned_partition_count(&self) -> i32 {
+        self.domain().offsets.len() as i32
+    }
 }
 
 impl From<domain::ConsumerGroup> for ConsumerGroup {
     fn from(group: domain::ConsumerGroup) -> Self {
         Self {
-            id: group.id,
-            state: ConsumerGroupState::from(group.state),
-            protocol: group.protocol,
-            coordinator: group.coordinator,
-            member_count: group.members.len() as i32,
-            members: group
-                .members
-                .into_iter()
-                .map(ConsumerGroupMember::from)
-                .collect(),
-            topics: group.topics,
-            lag: group.lag as f64,
-            assigned_partition_count: group.offsets.len() as i32,
-            offsets: group.offsets.into_iter().map(GroupOffset::from).collect(),
+            source: GroupSource::Live(group),
         }
     }
 }

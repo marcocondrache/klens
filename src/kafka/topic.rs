@@ -107,10 +107,15 @@ impl Topic {
             .sum();
         let under_replicated = partitions.iter().any(Partition::under_replicated);
         Self {
+            name: self.name.clone(),
+            internal: self.internal,
             partitions,
+            replication_factor: self.replication_factor,
             message_count,
+            cleanup_policy: self.cleanup_policy,
+            retention_ms: self.retention_ms,
+            consumer_groups: self.consumer_groups.clone(),
             under_replicated,
-            ..self.clone()
         }
     }
 

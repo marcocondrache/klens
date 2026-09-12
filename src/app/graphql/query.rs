@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use juniper::graphql_object;
 
 use super::types::{
@@ -56,11 +58,7 @@ impl Query {
         cluster: String,
     ) -> Result<ClusterCatalog, KafkaError> {
         let snapshot = context.catalog_snapshot(&cluster).await?;
-        Ok(ClusterCatalog {
-            updated_at: snapshot.updated_at,
-            topics: map_topics(context, &cluster, &snapshot.topics),
-            consumer_groups: map_groups(&snapshot.groups),
-        })
+        Ok(ClusterCatalog { snapshot, cluster })
     }
 
     async fn catalog_health(
@@ -76,12 +74,15 @@ impl Query {
         cluster: String,
         name: String,
     ) -> Result<Option<Topic>, KafkaError> {
-        Ok(context
-            .catalog_snapshot(&cluster)
-            .await?
-            .topic(&name)
-            .cloned()
-            .map(|topic| map_topic(context, &cluster, topic)))
+        let snapshot = context.catalog_snapshot(&cluster).await?;
+        Ok(snapshot
+            .topics
+            .iter()
+            .position(|topic| topic.name == name)
+            .map(|index| {
+                let rate = context.series_topic_rate(&cluster, &snapshot.topics[index].name);
+                Topic::from_snapshot(snapshot, index, rate)
+            }))
     }
 
     async fn topic_configs(
@@ -103,7 +104,17 @@ impl Query {
         topic: Option<String>,
     ) -> Result<Vec<ConsumerGroup>, KafkaError> {
         let snapshot = context.catalog_snapshot(&cluster).await?;
-        Ok(map_groups(&snapshot.groups_for_topic(topic.as_deref())))
+        Ok(snapshot
+            .groups
+            .iter()
+            .enumerate()
+            .filter(|(_, group)| {
+                topic
+                    .as_deref()
+                    .is_none_or(|name| group.topics.iter().any(|topic| topic == name))
+            })
+            .map(|(index, _)| ConsumerGroup::from_snapshot(Arc::clone(&snapshot), index))
+            .collect())
     }
 
     async fn consumer_group(
@@ -111,12 +122,12 @@ impl Query {
         cluster: String,
         id: String,
     ) -> Result<Option<ConsumerGroup>, KafkaError> {
-        Ok(context
-            .catalog_snapshot(&cluster)
-            .await?
-            .group(&id)
-            .cloned()
-            .map(ConsumerGroup::from))
+        let snapshot = context.catalog_snapshot(&cluster).await?;
+        Ok(snapshot
+            .groups
+            .iter()
+            .position(|group| group.id == id)
+            .map(|index| ConsumerGroup::from_snapshot(snapshot, index)))
     }
 
     async fn topic_throughput(
@@ -175,21 +186,4 @@ impl Query {
             schema_registry_error: search.schema_registry_error,
         })
     }
-}
-
-fn map_topics(context: &AppState, cluster: &str, topics: &[crate::kafka::Topic]) -> Vec<Topic> {
-    topics
-        .iter()
-        .cloned()
-        .map(|topic| map_topic(context, cluster, topic))
-        .collect()
-}
-
-fn map_topic(context: &AppState, cluster: &str, topic: crate::kafka::Topic) -> Topic {
-    let rate = context.series_topic_rate(cluster, &topic.name);
-    Topic::from_domain(topic, rate.as_ref())
-}
-
-fn map_groups(groups: &[crate::kafka::ConsumerGroup]) -> Vec<ConsumerGroup> {
-    groups.iter().cloned().map(ConsumerGroup::from).collect()
 }
