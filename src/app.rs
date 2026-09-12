@@ -1,10 +1,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::environment::OVERVIEW_BUDGET;
+use crate::environment::{OVERVIEW_BUDGET, SUBJECT_POLL_INTERVAL};
+use crate::kafka::model::SchemaSubject;
 use crate::kafka::{
     CatalogCache, CatalogPoller, ClusterIdentity, ClusterOverview, ClusterSession, ClusterSnapshot,
-    LagStore, QueryEngine, RateStore,
+    LagStore, QueryEngine, RateStore, SubjectCache,
 };
 use axum::Router;
 use axum::middleware;
@@ -24,6 +25,7 @@ use graphql::Samplers;
 pub struct AppState {
     pub(crate) query: Arc<QueryEngine<dyn ClusterSession>>,
     pub(crate) catalog: CatalogCache,
+    pub(crate) subjects: SubjectCache,
     pub(crate) rates: RateStore,
     pub(crate) lags: LagStore,
     pub(crate) samplers: Arc<Samplers>,
@@ -44,6 +46,7 @@ impl AppState {
         Self {
             query,
             catalog: CatalogCache::new(),
+            subjects: SubjectCache::new(),
             rates: RateStore::new(),
             lags: LagStore::new(),
             samplers: Arc::new(Samplers::default()),
@@ -55,9 +58,11 @@ impl AppState {
     pub fn with_catalog_poller(self, interval: Duration) -> Self {
         let poller = CatalogPoller::start(
             self.catalog.clone(),
+            self.subjects.clone(),
             Arc::clone(&self.query),
             self.rates.clone(),
             interval,
+            *SUBJECT_POLL_INTERVAL,
         );
         Self {
             _poller: Some(Arc::new(poller)),
@@ -76,6 +81,19 @@ impl AppState {
         let snapshot = Arc::new(self.query.catalog(cluster).await?);
         self.catalog.seed(cluster, Arc::clone(&snapshot));
         Ok(snapshot)
+    }
+
+    pub(crate) async fn subject_snapshot(
+        &self,
+        cluster: &str,
+    ) -> Result<Arc<Vec<SchemaSubject>>, crate::kafka::KafkaError> {
+        if let Some(subjects) = self.subjects.snapshot(cluster) {
+            return Ok(subjects);
+        }
+
+        let subjects = Arc::new(self.query.schema_subjects(cluster).await?);
+        self.subjects.seed(cluster, Arc::clone(&subjects));
+        Ok(subjects)
     }
 
     pub(crate) async fn cluster_overviews(&self) -> Vec<ClusterOverview> {
