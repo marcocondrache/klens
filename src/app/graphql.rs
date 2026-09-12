@@ -975,7 +975,6 @@ mod tests {
         let (value, errors) = execute(
             r#"{
                 catalogHealth(cluster: "local") {
-                    cluster
                     lastError
                     lastPollDurationMs
                     topicCount
@@ -995,7 +994,6 @@ mod tests {
             serde_json::to_value(value).unwrap(),
             serde_json::json!({
                 "catalogHealth": {
-                    "cluster": "local",
                     "lastError": "broker down",
                     "lastPollDurationMs": 18.0,
                     "topicCount": 1,
@@ -1005,7 +1003,7 @@ mod tests {
         );
 
         let (_, missing) = execute(
-            r#"{ catalogHealth(cluster: "ghost") { cluster } }"#,
+            r#"{ catalogHealth(cluster: "ghost") { lastError } }"#,
             None,
             &schema,
             &Variables::new(),
