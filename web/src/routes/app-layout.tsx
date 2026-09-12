@@ -7,13 +7,14 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppHeader } from "@/components/app-header";
 import { AppSidebar } from "@/components/app-sidebar";
 import { CommandPalette } from "@/components/command-palette";
-import { useClusters } from "@/lib/api/queries";
+import { useCatalogUpdated, useClusters } from "@/lib/api/queries";
 import { useClusterName } from "@/lib/clusters";
 import { findSearchHotkeyTarget, isTypingTarget } from "@/lib/keyboard";
 
 export function AppLayout() {
   const cluster = useClusterName();
   const { data: clusters, isPending } = useClusters();
+  useCatalogUpdated(cluster);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const current = clusters?.find((entry) => entry.name === cluster);
 

@@ -1,10 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::future::Future;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use chrono::{DateTime, Utc};
-use tokio::sync::Notify;
+use tokio::sync::{Notify, watch};
 use tokio::task::JoinHandle;
 
 use crate::config::SecurityProtocol;
@@ -92,6 +92,27 @@ impl ClusterSnapshot {
             && self.overview == other.overview
     }
 
+    pub fn roster_eq(&self, other: &Self) -> bool {
+        self.topic_names() == other.topic_names()
+            && self.group_ids() == other.group_ids()
+            && self.broker_ids() == other.broker_ids()
+    }
+
+    fn topic_names(&self) -> BTreeSet<&str> {
+        self.topics
+            .iter()
+            .map(|topic| topic.name.as_str())
+            .collect()
+    }
+
+    fn group_ids(&self) -> BTreeSet<&str> {
+        self.groups.iter().map(|group| group.id.as_str()).collect()
+    }
+
+    fn broker_ids(&self) -> BTreeSet<i32> {
+        self.brokers.iter().map(|broker| broker.id).collect()
+    }
+
     pub fn groups_for_topic(&self, topic: Option<&str>) -> Vec<ConsumerGroup> {
         match topic {
             Some(topic) => self
@@ -125,10 +146,31 @@ pub struct CatalogHealth {
     pub subject_count: i32,
 }
 
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CatalogRevision {
+    pub cluster: String,
+    pub updated_at: DateTime<Utc>,
+    pub generation: u64,
+}
+
+#[derive(Clone)]
 pub struct CatalogCache {
     inner: Arc<RwLock<HashMap<String, Arc<ClusterSnapshot>>>>,
     polls: Arc<RwLock<HashMap<String, PollLane>>>,
+    generations: Arc<RwLock<HashMap<String, u64>>>,
+    updates: watch::Sender<Option<CatalogRevision>>,
+}
+
+impl Default for CatalogCache {
+    fn default() -> Self {
+        let (updates, _) = watch::channel(None);
+        Self {
+            inner: Arc::new(RwLock::new(HashMap::new())),
+            polls: Arc::new(RwLock::new(HashMap::new())),
+            generations: Arc::new(RwLock::new(HashMap::new())),
+            updates,
+        }
+    }
 }
 
 impl CatalogCache {
@@ -161,10 +203,17 @@ impl CatalogCache {
     }
 
     pub fn store(&self, cluster: impl Into<String>, snapshot: impl Into<Arc<ClusterSnapshot>>) {
-        self.inner
-            .write()
-            .expect("catalog cache lock")
-            .insert(cluster.into(), snapshot.into());
+        let cluster = cluster.into();
+        let snapshot = snapshot.into();
+        let mut inner = self.inner.write().expect("catalog cache lock");
+        let roster_changed = inner
+            .get(&cluster)
+            .is_none_or(|previous| !previous.roster_eq(&snapshot));
+        inner.insert(cluster.clone(), Arc::clone(&snapshot));
+        drop(inner);
+        if roster_changed {
+            self.publish_revision(&cluster, &snapshot);
+        }
     }
 
     pub fn seed(
@@ -177,8 +226,37 @@ impl CatalogCache {
         if inner.contains_key(&cluster) {
             return false;
         }
-        inner.insert(cluster, snapshot.into());
+        let snapshot = snapshot.into();
+        inner.insert(cluster.clone(), Arc::clone(&snapshot));
+        drop(inner);
+        self.publish_revision(&cluster, &snapshot);
         true
+    }
+
+    pub fn subscribe_updates(&self) -> watch::Receiver<Option<CatalogRevision>> {
+        self.updates.subscribe()
+    }
+
+    pub fn generation(&self, cluster: &str) -> Option<u64> {
+        self.generations
+            .read()
+            .expect("catalog cache lock")
+            .get(cluster)
+            .copied()
+    }
+
+    fn publish_revision(&self, cluster: &str, snapshot: &ClusterSnapshot) {
+        let generation = {
+            let mut generations = self.generations.write().expect("catalog cache lock");
+            let slot = generations.entry(cluster.to_owned()).or_insert(0);
+            *slot += 1;
+            *slot
+        };
+        let _ = self.updates.send(Some(CatalogRevision {
+            cluster: cluster.to_owned(),
+            updated_at: snapshot.updated_at,
+            generation,
+        }));
     }
 
     pub fn invalidate(&self, cluster: &str) {
@@ -657,6 +735,37 @@ mod tests {
         cache.record_poll("local", Duration::from_millis(4), None);
         assert_eq!(cache.poll_lane("local").last_error, None);
         assert_eq!(cache.poll_lane("local").last_poll_duration_ms, Some(4));
+    }
+
+    #[test]
+    fn store_notifies_only_when_the_roster_changes() {
+        let cache = CatalogCache::new();
+        let mut updates = cache.subscribe_updates();
+        let _ = updates.borrow_and_update();
+
+        cache.store(
+            "local",
+            ClusterSnapshot::from_topics(vec![test_topic("orders")]),
+        );
+        assert_eq!(cache.generation("local"), Some(1));
+        assert!(updates.has_changed().unwrap());
+        assert_eq!(updates.borrow_and_update().as_ref().unwrap().generation, 1);
+
+        let mut louder = test_topic("orders");
+        louder.message_count = 40;
+        cache.store("local", ClusterSnapshot::from_topics(vec![louder]));
+        assert_eq!(cache.generation("local"), Some(1));
+        assert!(!updates.has_changed().unwrap());
+
+        cache.store(
+            "local",
+            ClusterSnapshot::from_topics(vec![test_topic("orders"), test_topic("payments")]),
+        );
+        assert_eq!(cache.generation("local"), Some(2));
+        assert!(updates.has_changed().unwrap());
+        let revision = updates.borrow_and_update().clone().unwrap();
+        assert_eq!(revision.cluster, "local");
+        assert_eq!(revision.generation, 2);
     }
 
     #[test]

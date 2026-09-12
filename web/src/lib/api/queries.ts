@@ -9,6 +9,7 @@ import {
   brokerQuery,
   brokersQuery,
   catalogHealthQuery,
+  catalogUpdatedSubscription,
   clusterQuery,
   clustersQuery,
   clusterThroughputQuery,
@@ -304,6 +305,36 @@ export function useSearch(cluster: string, term: string) {
 }
 
 const RATE_HISTORY = 60;
+
+export function useCatalogUpdated(cluster: string) {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!cluster) {
+      return;
+    }
+
+    return subscribe(catalogUpdatedSubscription, { cluster }, () => {
+      void queryClient.invalidateQueries({ queryKey: keys.clusters() });
+      void queryClient.invalidateQueries({ queryKey: keys.cluster(cluster), exact: true });
+      void queryClient.invalidateQueries({ queryKey: keys.topics(cluster), exact: true });
+      void queryClient.invalidateQueries({ queryKey: keys.groups(cluster), exact: true });
+      void queryClient.invalidateQueries({ queryKey: keys.brokers(cluster), exact: true });
+      void queryClient.invalidateQueries({ queryKey: keys.catalogHealth(cluster) });
+      void queryClient.invalidateQueries({
+        predicate: (query) => {
+          const key = query.queryKey;
+          return (
+            key[0] === "cluster" &&
+            key[1] === cluster &&
+            (key[2] === "topics" || key[2] === "groups" || key[2] === "brokers") &&
+            key.length === 4
+          );
+        },
+      });
+    });
+  }, [cluster, queryClient]);
+}
 
 export function useTopicRates(cluster: string) {
   const queryClient = useQueryClient();

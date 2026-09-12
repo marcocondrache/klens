@@ -406,3 +406,13 @@ export const consumerGroupLagSubscription = graphql(`
     }
   }
 `);
+
+export const catalogUpdatedSubscription = graphql(`
+  subscription CatalogUpdated($cluster: String!) {
+    catalogUpdated(cluster: $cluster) {
+      cluster
+      updatedAt
+      generation
+    }
+  }
+`);
