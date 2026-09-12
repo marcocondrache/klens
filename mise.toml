@@ -6,6 +6,9 @@ rust = "latest"
 vendir = "0.46.0"
 viteplus = "latest"
 
+"cargo:cargo-machete" = "latest"
+"cargo:cargo-nextest" = "latest"
+
 [tasks.schema]
 description = "Regenerate schema.graphql from the Rust schema"
 run = "cargo xtask schema"
