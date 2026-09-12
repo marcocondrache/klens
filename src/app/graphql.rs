@@ -537,6 +537,8 @@ mod tests {
         let (value, errors) = execute(
             r#"{
                 topics(cluster: "local") { name messageCount consumerGroups }
+                topic(cluster: "local", name: "from-cache") { name messageCount consumerGroups }
+                missing: topic(cluster: "local", name: "orders.created") { name }
                 clusterCatalog(cluster: "local") { topics { name } }
             }"#,
             None,
@@ -556,8 +558,50 @@ mod tests {
                     "messageCount": 3.0,
                     "consumerGroups": ["cached-group"]
                 }],
+                "topic": {
+                    "name": "from-cache",
+                    "messageCount": 3.0,
+                    "consumerGroups": ["cached-group"]
+                },
+                "missing": null,
                 "clusterCatalog": { "topics": [{ "name": "from-cache" }] }
             })
+        );
+    }
+
+    #[tokio::test]
+    async fn topic_query_seeds_the_catalog_on_a_cold_cache() {
+        let state = state();
+        let schema = schema();
+
+        let (value, errors) = execute(
+            r#"{
+                topic(cluster: "local", name: "orders.created") { name messageCount consumerGroups }
+                missing: topic(cluster: "local", name: "ghost") { name }
+            }"#,
+            None,
+            &schema,
+            &Variables::new(),
+            &state,
+        )
+        .await
+        .unwrap();
+
+        assert!(errors.is_empty());
+        assert_eq!(
+            serde_json::to_value(value).unwrap(),
+            serde_json::json!({
+                "topic": {
+                    "name": "orders.created",
+                    "messageCount": 16.0,
+                    "consumerGroups": ["order-processor"]
+                },
+                "missing": null
+            })
+        );
+        assert_eq!(
+            state.catalog.topic("local", "orders.created").unwrap().name,
+            "orders.created"
         );
     }
 
@@ -709,7 +753,10 @@ mod tests {
 
         let schema = schema();
         let (value, errors) = execute(
-            r#"{ topics(cluster: "local") { name messagesPerSec } }"#,
+            r#"{
+                topics(cluster: "local") { name messagesPerSec }
+                topic(cluster: "local", name: "orders.created") { name messagesPerSec }
+            }"#,
             None,
             &schema,
             &Variables::new(),
@@ -719,8 +766,13 @@ mod tests {
         .unwrap();
 
         assert!(errors.is_empty());
+        let body = serde_json::to_value(value).unwrap();
         assert_eq!(
-            serde_json::to_value(value).unwrap()["topics"][0],
+            body["topics"][0],
+            serde_json::json!({ "name": "orders.created", "messagesPerSec": 10.0 })
+        );
+        assert_eq!(
+            body["topic"],
             serde_json::json!({ "name": "orders.created", "messagesPerSec": 10.0 })
         );
     }
