@@ -2,7 +2,7 @@
 //!
 //! [`ClusterSnapshot`] is the assembled catalog. [`CatalogCache`] and
 //! [`SubjectCache`] hold the last good poll. [`CatalogPoller`] refreshes them.
-//! [`crate::kafka::QueryEngine::catalog_from`] builds a snapshot. This module
+//! [`crate::kafka::QueryEngine::assemble_catalog`] builds a snapshot. This module
 //! does not.
 
 mod cache;

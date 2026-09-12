@@ -10,7 +10,7 @@
 //! - Assembled types live in `topic`, `broker`, `cluster`, `group`
 //!   (`ConsumerGroup`), `search`, and `record`. `model` re-exports them.
 //! - `catalog` stores and polls the product snapshot ([`ClusterSnapshot`],
-//!   [`CatalogPoller`]). [`QueryEngine`] builds that snapshot (`catalog_from`)
+//!   [`CatalogPoller`]). [`QueryEngine`] builds that snapshot (`assemble_catalog`)
 //!   and serves live records, configs, one group, and subjects. `rates`,
 //!   `lag`, and `series` are time series.
 

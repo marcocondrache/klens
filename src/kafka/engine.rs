@@ -1,7 +1,7 @@
 //! Live Kafka facade.
 //!
 //! [`QueryEngine`] looks up a [`ClusterSession`], assembles a
-//! [`ClusterSnapshot`] via `catalog_from`, and serves records, configs, a
+//! [`ClusterSnapshot`] via `assemble_catalog`, and serves records, configs, a
 //! single consumer group, and schema subjects.
 
 use std::collections::HashMap;
@@ -97,10 +97,10 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
     }
 
     pub async fn catalog(&self, cluster: &str) -> Result<ClusterSnapshot, KafkaError> {
-        Ok(self.catalog_from(cluster, None, true).await?.snapshot)
+        Ok(self.assemble_catalog(cluster, None, true).await?.snapshot)
     }
 
-    pub async fn catalog_from(
+    pub async fn assemble_catalog(
         &self,
         cluster: &str,
         reuse: Option<&CatalogReuse>,
