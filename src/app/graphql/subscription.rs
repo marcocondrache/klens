@@ -61,12 +61,6 @@ fn reported<T>(sample: Sample<T>) -> FieldResult<T> {
 }
 
 async fn sample_topic_rates(state: &AppState, cluster: &str) -> Sample<Vec<TopicRate>> {
-    let counts = state
-        .query
-        .topic_message_counts(cluster)
-        .await
-        .map_err(|error| error.to_string())?;
-    state.rates.observe(cluster, counts);
     Ok(state
         .rates
         .topic_rates(cluster)
@@ -186,17 +180,34 @@ mod tests {
         RootNode::new(Query, EmptyMutation::<AppState>::new(), Subscription)
     }
 
+    async fn wait_until(mut predicate: impl FnMut() -> bool) {
+        for _ in 0..200 {
+            if predicate() {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+        panic!("condition not met");
+    }
+
+    fn topic_rates_request() -> GraphQLRequest {
+        serde_json::from_str(
+            r#"{ "query": "subscription { topicRates(cluster: \"local\") { name messagesPerSec } }" }"#,
+        )
+        .unwrap()
+    }
+
     #[tokio::test(start_paused = true)]
     async fn topic_rates_subscription_emits_watermark_delta() {
         let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
             GrowingCluster::new(),
-        ])));
-        let coordinator = Coordinator::new(schema());
-        let request: GraphQLRequest = serde_json::from_str(
-            r#"{ "query": "subscription { topicRates(cluster: \"local\") { name messagesPerSec } }" }"#,
-        )
-        .unwrap();
+        ])))
+        .with_catalog_poller(Duration::from_secs(1));
+        wait_until(|| state.catalog.snapshot("local").is_some()).await;
+        wait_until(|| !state.rates.topic_rates("local").is_empty()).await;
 
+        let coordinator = Coordinator::new(schema());
+        let request = topic_rates_request();
         let mut stream = coordinator.subscribe(&request, &state).await.unwrap();
 
         let first = stream.next().await.unwrap();
@@ -204,7 +215,19 @@ mod tests {
         assert_eq!(first["data"]["topicRates"][0]["name"], "orders.created");
         assert_eq!(first["data"]["topicRates"][0]["messagesPerSec"], 0.0);
 
-        tokio::time::advance(*SAMPLE_INTERVAL + Duration::from_millis(1)).await;
+        tokio::time::advance(Duration::from_secs(1) + Duration::from_millis(1)).await;
+        wait_until(|| state.rates.cluster_history("local").len() >= 2).await;
+        assert!(
+            state
+                .rates
+                .topic_rate("local", "orders.created")
+                .unwrap()
+                .messages_per_sec
+                > 0.0
+        );
+
+        tokio::time::advance(*SAMPLE_INTERVAL - Duration::from_secs(1) + Duration::from_millis(1))
+            .await;
 
         let second = stream.next().await.unwrap();
         let second = serde_json::to_value(second).unwrap();
@@ -218,32 +241,55 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn concurrent_subscribers_sample_once_per_interval() {
+    async fn concurrent_subscribers_do_not_observe_rates() {
         let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
             GrowingCluster::new(),
-        ])));
-        let coordinator = Coordinator::new(schema());
-        let request: GraphQLRequest = serde_json::from_str(
-            r#"{ "query": "subscription { topicRates(cluster: \"local\") { name messagesPerSec } }" }"#,
-        )
-        .unwrap();
+        ])))
+        .with_catalog_poller(Duration::from_secs(1));
+        wait_until(|| !state.rates.topic_rates("local").is_empty()).await;
 
+        let coordinator = Coordinator::new(schema());
+        let request = topic_rates_request();
         let mut first = coordinator.subscribe(&request, &state).await.unwrap();
         let mut second = coordinator.subscribe(&request, &state).await.unwrap();
 
         first.next().await.unwrap();
         second.next().await.unwrap();
+        let after_first = state.rates.cluster_history("local").len();
 
-        tokio::time::advance(*SAMPLE_INTERVAL + Duration::from_millis(1)).await;
+        tokio::time::advance(Duration::from_secs(1) + Duration::from_millis(1)).await;
+        wait_until(|| state.rates.cluster_history("local").len() > after_first).await;
+        tokio::time::advance(*SAMPLE_INTERVAL - Duration::from_secs(1) + Duration::from_millis(1))
+            .await;
 
         first.next().await.unwrap();
         second.next().await.unwrap();
 
-        assert_eq!(
-            state.rates.cluster_history("local").len(),
-            2,
-            "two subscribers over two intervals should record one sample per interval"
+        assert!(
+            state.rates.cluster_history("local").len() < 4,
+            "two subscribers must share poller samples, not observe on each WS tick"
         );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn topic_rates_subscription_does_not_list_offsets() {
+        let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
+            GrowingCluster::new(),
+        ])));
+        let coordinator = Coordinator::new(schema());
+        let request = topic_rates_request();
+        let mut stream = coordinator.subscribe(&request, &state).await.unwrap();
+
+        let first = stream.next().await.unwrap();
+        let first = serde_json::to_value(first).unwrap();
+        assert_eq!(first["data"]["topicRates"], serde_json::json!([]));
+
+        tokio::time::advance(*SAMPLE_INTERVAL + Duration::from_millis(1)).await;
+        let second = stream.next().await.unwrap();
+        let second = serde_json::to_value(second).unwrap();
+        assert_eq!(second["data"]["topicRates"], serde_json::json!([]));
+        assert!(state.rates.cluster_history("local").is_empty());
+        assert!(state.catalog.snapshot("local").is_none());
     }
 
     #[tokio::test(start_paused = true)]
