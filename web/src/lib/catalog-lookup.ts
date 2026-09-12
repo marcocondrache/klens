@@ -1,3 +1,5 @@
+import { graphqlErrorMessage } from "@/lib/graphql-error";
+
 export function catalogLookupMessage(args: {
   isPending: boolean;
   isError: boolean;
@@ -7,7 +9,7 @@ export function catalogLookupMessage(args: {
   failed: string;
 }): string | undefined {
   if (args.isError) {
-    return args.error instanceof Error ? args.error.message : args.failed;
+    return graphqlErrorMessage(args.error, args.failed);
   }
   if (!args.isPending && args.data == null) {
     return args.missing;
