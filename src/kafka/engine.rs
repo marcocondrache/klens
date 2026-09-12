@@ -3,10 +3,9 @@ use std::time::Instant;
 
 use futures::future::join_all;
 use indexmap::IndexMap;
-use tokio::time::timeout;
 
 use crate::config::Config;
-use crate::environment::{OFFSET_FETCH_BATCH, OVERVIEW_BUDGET};
+use crate::environment::OFFSET_FETCH_BATCH;
 use crate::kafka::adapter::ClusterHandle;
 use crate::kafka::broker::Broker;
 use crate::kafka::catalog::{CatalogAssemble, CatalogReuse, ClusterSnapshot};
@@ -21,7 +20,6 @@ use crate::kafka::record::cursor::RecordCursor;
 use crate::kafka::record::plan::{FetchPlan, PartitionWindow, apply_timestamp_bounds, page_cursor};
 use crate::kafka::record::query::RecordQuery;
 use crate::kafka::registry::SchemaSubject;
-use crate::kafka::search::{SearchHit, search_catalog};
 use crate::kafka::session::ClusterSession;
 use crate::kafka::topic::{Topic, groups_for_topic};
 use crate::kafka::topic_config::ConfigEntry;
@@ -29,7 +27,7 @@ use crate::kafka::watermarks::Watermarks;
 
 const MAX_FILTER_PASSES: usize = 64;
 
-/// Answers GraphQL catalog and browse queries from [`ClusterSession`]s.
+/// Assembles the catalog snapshot and serves live Kafka I/O from [`ClusterSession`]s.
 pub struct QueryEngine<S: ?Sized> {
     registry: IndexMap<String, Box<S>>,
     limits: RecordLimits,
@@ -79,61 +77,6 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
             .get(name)
             .map(Box::as_ref)
             .ok_or_else(|| KafkaError::UnknownCluster(name.to_owned()))
-    }
-
-    pub async fn clusters(&self) -> Vec<ClusterOverview> {
-        join_all(
-            self.registry
-                .values()
-                .map(|session| Self::overview_for(session.as_ref())),
-        )
-        .await
-    }
-
-    pub async fn overview(&self, cluster: &str) -> Result<ClusterOverview, KafkaError> {
-        Ok(Self::overview_for(self.session(cluster)?).await)
-    }
-
-    async fn overview_for(session: &S) -> ClusterOverview {
-        match timeout(*OVERVIEW_BUDGET, Self::load_overview(session)).await {
-            Ok(overview) => overview,
-            Err(_) => {
-                tracing::warn!(cluster = %session.identity().name, "cluster overview timed out");
-                ClusterOverview::offline(session.identity().clone())
-            }
-        }
-    }
-
-    async fn load_overview(session: &S) -> ClusterOverview {
-        let metadata = session.metadata();
-        let groups = session.consumer_groups();
-        match tokio::join!(metadata, groups) {
-            (Ok(meta), groups) => {
-                let group_count = groups.map(|groups| groups.len() as i32).unwrap_or(0);
-                ClusterOverview::assemble(session.identity().clone(), &meta, group_count)
-            }
-            (Err(error), _) => {
-                tracing::warn!(cluster = %session.identity().name, %error, "cluster metadata failed");
-                ClusterOverview::offline(session.identity().clone())
-            }
-        }
-    }
-
-    pub async fn brokers(&self, cluster: &str) -> Result<Vec<Broker>, KafkaError> {
-        Ok(Broker::assemble_all(
-            &self.session(cluster)?.metadata().await?,
-        ))
-    }
-
-    pub async fn broker(&self, cluster: &str, id: i32) -> Result<Broker, KafkaError> {
-        self.brokers(cluster)
-            .await?
-            .into_iter()
-            .find(|broker| broker.id == id)
-            .ok_or_else(|| KafkaError::UnknownBroker {
-                cluster: cluster.to_owned(),
-                id,
-            })
     }
 
     pub async fn broker_configs(
@@ -253,63 +196,6 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
         })
     }
 
-    pub async fn topics(&self, cluster: &str) -> Result<Vec<Topic>, KafkaError> {
-        let session = self.session(cluster)?;
-        let meta = session.metadata().await?;
-        let names = meta.topic_names();
-        let (configs, groups, watermarks) = Self::load_topics_state(session, &names).await;
-
-        Ok(meta
-            .topics
-            .iter()
-            .map(|topic| {
-                Topic::assemble(
-                    topic,
-                    watermarks.get(&topic.name).unwrap_or(&HashMap::new()),
-                    configs.get(&topic.name).map(Vec::as_slice),
-                    groups_for_topic(&topic.name, &groups),
-                )
-            })
-            .collect())
-    }
-
-    pub async fn topic(&self, cluster: &str, name: &str) -> Result<Topic, KafkaError> {
-        let session = self.session(cluster)?;
-        let meta = session.metadata().await?;
-        let topic = meta.topic(name).ok_or_else(|| KafkaError::UnknownTopic {
-            cluster: cluster.to_owned(),
-            topic: name.to_owned(),
-        })?;
-        let (configs, groups, watermarks) = Self::load_topics_state(session, &[name]).await;
-
-        Ok(Topic::assemble(
-            topic,
-            watermarks.get(name).unwrap_or(&HashMap::new()),
-            configs.get(&topic.name).map(Vec::as_slice),
-            groups_for_topic(name, &groups),
-        ))
-    }
-
-    async fn load_topics_state(
-        session: &S,
-        topics: &[&str],
-    ) -> (
-        HashMap<String, Vec<ConfigEntry>>,
-        Vec<GroupSnapshot>,
-        HashMap<String, HashMap<i32, Watermarks>>,
-    ) {
-        let (configs, groups, watermarks) = tokio::join!(
-            session.topics_configs(topics),
-            session.consumer_groups(),
-            session.watermarks_many(topics),
-        );
-        (
-            configs.unwrap_or_default(),
-            groups.unwrap_or_default(),
-            watermarks,
-        )
-    }
-
     pub async fn topic_configs(
         &self,
         cluster: &str,
@@ -387,24 +273,6 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
         let names = GroupSnapshot::consumed_topic_names(groups);
         let topics: Vec<&str> = names.iter().map(String::as_str).collect();
         ends_from_watermarks(&session.watermarks_many(&topics).await)
-    }
-
-    pub async fn topic_message_counts(
-        &self,
-        cluster: &str,
-    ) -> Result<HashMap<String, u64>, KafkaError> {
-        let session = self.session(cluster)?;
-        let meta = session.metadata().await?;
-        let names = meta.topic_names();
-        let watermarks = session.watermarks_many(&names).await;
-
-        Ok(watermarks
-            .into_iter()
-            .map(|(name, marks)| {
-                let messages = marks.values().map(Watermarks::messages).sum::<u64>();
-                (name, messages)
-            })
-            .collect())
     }
 
     pub async fn records(
@@ -495,20 +363,6 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
 
         apply_timestamp_bounds(&mut watermarks, from_offsets.as_ref(), to_offsets.as_ref());
         Ok(watermarks)
-    }
-
-    pub async fn search(&self, cluster: &str, term: &str) -> Result<Vec<SearchHit>, KafkaError> {
-        let session = self.session(cluster)?;
-        let meta = session.metadata().await?;
-        let groups = session.consumer_groups().await.unwrap_or_default();
-        let subjects = session.schema_subjects().await.unwrap_or_default();
-        Ok(search_catalog(
-            term,
-            &meta.topics,
-            &meta.brokers,
-            &groups,
-            &subjects,
-        ))
     }
 
     pub async fn schema_subjects(&self, cluster: &str) -> Result<Vec<SchemaSubject>, KafkaError> {
@@ -690,8 +544,8 @@ mod tests {
     use crate::config::{ClusterConfig, Config};
     use crate::kafka::error::KafkaError;
     use crate::kafka::model::{
-        ClusterHealth, ClusterIdentity, CommittedOffset, ConfigEntry, FetchPlan, MetadataSnapshot,
-        Record, RecordOrder, RecordQuery, TimestampRange, Watermarks, unix_datetime,
+        ClusterIdentity, CommittedOffset, ConfigEntry, FetchPlan, MetadataSnapshot, Record,
+        RecordOrder, RecordQuery, TimestampRange, Watermarks, unix_datetime,
     };
     use crate::kafka::testing::FakeCluster;
 
@@ -885,41 +739,26 @@ mod tests {
         assert_eq!(engine.names(), vec!["b", "a"]);
     }
 
-    #[tokio::test]
-    async fn cluster_list_keeps_config_order() {
+    #[test]
+    fn identities_keep_config_order() {
         let engine = QueryEngine::from_sessions(vec![
             FakeCluster::named("prod"),
             FakeCluster::named("staging"),
         ]);
 
         let names: Vec<_> = engine
-            .clusters()
-            .await
+            .identities()
             .into_iter()
-            .map(|cluster| cluster.identity.name.clone())
+            .map(|identity| identity.name)
             .collect();
 
         assert_eq!(names, vec!["prod", "staging"]);
     }
 
     #[tokio::test]
-    async fn cluster_list_does_not_fetch_committed_offsets() {
-        let probe = Probe::new(FakeCluster::local(), Duration::ZERO);
-        let engine = QueryEngine::from_sessions(vec![probe.clone()]);
-
-        let overviews = engine.clusters().await;
-        assert_eq!(overviews[0].consumer_group_count, 1);
-        assert_eq!(probe.group_lists.load(Ordering::SeqCst), 1);
-        assert_eq!(probe.committed.load(Ordering::SeqCst), 0);
-
-        engine.consumer_groups("local", None).await.unwrap();
-        assert_eq!(probe.committed.load(Ordering::SeqCst), 1);
-    }
-
-    #[tokio::test]
-    async fn topics_include_partition_watermarks() {
+    async fn catalog_includes_partition_watermarks() {
         let engine = QueryEngine::from_sessions(vec![FakeCluster::local()]);
-        let topics = engine.topics("local").await.unwrap();
+        let topics = engine.catalog("local").await.unwrap().topics;
         assert_eq!(topics.len(), 1);
         assert_eq!(topics[0].name, "orders.created");
         assert_eq!(topics[0].message_count, 16);
@@ -928,9 +767,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn topic_message_counts_sum_high_watermarks() {
+    async fn catalog_message_counts_sum_high_watermarks() {
         let engine = QueryEngine::from_sessions(vec![FakeCluster::local()]);
-        let counts = engine.topic_message_counts("local").await.unwrap();
+        let counts = engine.catalog("local").await.unwrap().message_counts();
         assert_eq!(counts.get("orders.created"), Some(&16));
     }
 
@@ -1009,13 +848,13 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn topics_fetch_watermarks_in_parallel() {
+    async fn catalog_fetches_watermarks_in_parallel() {
         let cluster = FakeCluster::local().extra_topic("payments.captured", 1, 4);
         let probe = Probe::with_watermark_delay(cluster, Duration::from_secs(1));
         let engine = QueryEngine::from_sessions(vec![probe]);
 
         let started = tokio::time::Instant::now();
-        let mut topics = engine.topics("local").await.unwrap();
+        let mut topics = engine.catalog("local").await.unwrap().topics;
         topics.sort_by(|left, right| left.name.cmp(&right.name));
 
         assert_eq!(started.elapsed(), Duration::from_secs(1));
@@ -1026,19 +865,6 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![("orders.created", 16), ("payments.captured", 4)]
         );
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn cluster_list_marks_slow_cluster_offline_without_blocking_others() {
-        let slow = Probe::new(FakeCluster::named("slow"), Duration::from_secs(60));
-        let fast = FakeCluster::named("fast");
-        let engine = QueryEngine::from_sessions(vec![slow, Probe::new(fast, Duration::ZERO)]);
-
-        let overviews = engine.clusters().await;
-        assert_eq!(overviews[0].identity.name, "slow");
-        assert_eq!(overviews[0].health, ClusterHealth::Offline);
-        assert_eq!(overviews[1].identity.name, "fast");
-        assert_eq!(overviews[1].health, ClusterHealth::Healthy);
     }
 
     #[tokio::test]
@@ -1059,9 +885,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn search_includes_schema_subjects() {
+    async fn catalog_search_includes_schema_subjects() {
         let engine = QueryEngine::from_sessions(vec![FakeCluster::local()]);
-        let hits = engine.search("local", "order").await.unwrap();
+        let snapshot = engine.catalog("local").await.unwrap();
+        let subjects = engine.schema_subjects("local").await.unwrap();
+        let hits = snapshot.search("order", &subjects);
 
         assert!(
             hits.iter()
@@ -1071,17 +899,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn topics_and_counts_call_watermarks_many_once() {
+    async fn catalog_calls_watermarks_many_once() {
         let session = CountingMany::new(FakeCluster::local());
         let engine = QueryEngine::from_sessions(vec![session.clone()]);
 
-        let topics = engine.topics("local").await.unwrap();
+        let snapshot = engine.catalog("local").await.unwrap();
         assert_eq!(session.many.load(Ordering::SeqCst), 1);
-        assert_eq!(topics[0].message_count, 16);
-
-        let counts = engine.topic_message_counts("local").await.unwrap();
-        assert_eq!(session.many.load(Ordering::SeqCst), 2);
-        assert_eq!(counts.get("orders.created"), Some(&16));
+        assert_eq!(snapshot.topics[0].message_count, 16);
+        assert_eq!(snapshot.message_counts().get("orders.created"), Some(&16));
     }
 
     #[derive(Clone)]
@@ -1169,16 +994,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn catalog_matches_separate_topic_and_group_assembles() {
+    async fn catalog_assembles_topics_groups_brokers_and_overview() {
         let engine = QueryEngine::from_sessions(vec![FakeCluster::local()]);
         let snapshot = engine.catalog("local").await.unwrap();
-        let topics = engine.topics("local").await.unwrap();
-        let groups = engine.consumer_groups("local", None).await.unwrap();
 
-        assert_eq!(snapshot.topics, topics);
-        assert_eq!(snapshot.groups, groups);
-        assert_eq!(snapshot.brokers, engine.brokers("local").await.unwrap());
-        assert_eq!(snapshot.overview, engine.overview("local").await.unwrap());
+        assert_eq!(snapshot.topics[0].name, "orders.created");
+        assert_eq!(snapshot.topics[0].message_count, 16);
+        assert_eq!(snapshot.groups[0].id, "order-processor");
+        assert_eq!(snapshot.brokers[0].id, 1);
+        assert_eq!(snapshot.overview.identity.name, "local");
+        assert_eq!(snapshot.overview.topic_count, 1);
+        assert_eq!(snapshot.overview.consumer_group_count, 1);
     }
 
     #[tokio::test]
