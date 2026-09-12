@@ -198,7 +198,6 @@ type Partition {
   isr: [Int!]!
   lowWatermark: Float!
   highWatermark: Float!
-  sizeBytes: Float!
 }
 
 type Query {
@@ -273,7 +272,6 @@ type Topic {
   partitionCount: Int!
   replicationFactor: Int!
   messageCount: Float!
-  sizeBytes: Float!
   cleanupPolicy: CleanupPolicy!
   retentionMs: Float!
   consumerGroups: [String!]!

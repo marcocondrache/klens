@@ -81,7 +81,6 @@ export type PartitionFieldsFragment = {
   isr: Array<number>;
   lowWatermark: number;
   highWatermark: number;
-  sizeBytes: number;
 };
 
 export type TopicFieldsFragment = {
@@ -90,7 +89,6 @@ export type TopicFieldsFragment = {
   partitionCount: number;
   replicationFactor: number;
   messageCount: number;
-  sizeBytes: number;
   cleanupPolicy: CleanupPolicy;
   retentionMs: number;
   consumerGroups: Array<string>;
@@ -104,7 +102,6 @@ export type TopicFieldsFragment = {
     isr: Array<number>;
     lowWatermark: number;
     highWatermark: number;
-    sizeBytes: number;
   }>;
 };
 
@@ -114,7 +111,6 @@ export type TopicListFieldsFragment = {
   partitionCount: number;
   replicationFactor: number;
   messageCount: number;
-  sizeBytes: number;
   cleanupPolicy: CleanupPolicy;
   retentionMs: number;
   consumerGroups: Array<string>;
@@ -365,7 +361,6 @@ export type TopicsQuery = {
       partitionCount: number;
       replicationFactor: number;
       messageCount: number;
-      sizeBytes: number;
       cleanupPolicy: CleanupPolicy;
       retentionMs: number;
       consumerGroups: Array<string>;
@@ -388,7 +383,6 @@ export type TopicQuery = {
     partitionCount: number;
     replicationFactor: number;
     messageCount: number;
-    sizeBytes: number;
     cleanupPolicy: CleanupPolicy;
     retentionMs: number;
     consumerGroups: Array<string>;
@@ -402,7 +396,6 @@ export type TopicQuery = {
       isr: Array<number>;
       lowWatermark: number;
       highWatermark: number;
-      sizeBytes: number;
     }>;
   } | null;
 };
@@ -683,7 +676,6 @@ export const PartitionFieldsFragmentDoc = new TypedDocumentString(
   isr
   lowWatermark
   highWatermark
-  sizeBytes
 }
     `,
   { fragmentName: "PartitionFields" },
@@ -699,7 +691,6 @@ export const TopicFieldsFragmentDoc = new TypedDocumentString(
   partitionCount
   replicationFactor
   messageCount
-  sizeBytes
   cleanupPolicy
   retentionMs
   consumerGroups
@@ -714,7 +705,6 @@ export const TopicFieldsFragmentDoc = new TypedDocumentString(
   isr
   lowWatermark
   highWatermark
-  sizeBytes
 }`,
   { fragmentName: "TopicFields" },
 ) as unknown as TypedDocumentString<TopicFieldsFragment, unknown>;
@@ -726,7 +716,6 @@ export const TopicListFieldsFragmentDoc = new TypedDocumentString(
   partitionCount
   replicationFactor
   messageCount
-  sizeBytes
   cleanupPolicy
   retentionMs
   consumerGroups
@@ -1054,7 +1043,6 @@ export const TopicsDocument = new TypedDocumentString(`
   partitionCount
   replicationFactor
   messageCount
-  sizeBytes
   cleanupPolicy
   retentionMs
   consumerGroups
@@ -1075,7 +1063,6 @@ export const TopicDocument = new TypedDocumentString(`
   isr
   lowWatermark
   highWatermark
-  sizeBytes
 }
 fragment TopicFields on Topic {
   name
@@ -1086,7 +1073,6 @@ fragment TopicFields on Topic {
   partitionCount
   replicationFactor
   messageCount
-  sizeBytes
   cleanupPolicy
   retentionMs
   consumerGroups
