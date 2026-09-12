@@ -1,5 +1,7 @@
 import { ActivityIcon, LayersIcon, NetworkIcon, UsersRoundIcon } from "lucide-react";
-import { Link, useNavigate, useParams, useSearchParams } from "@/lib/navigation";
+import { useNavigate, useSearch } from "@tanstack/react-router";
+
+import { Link, useNavigate as useHrefNavigate, useParams } from "@/lib/navigation";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sparkline } from "@/components/charts";
@@ -16,8 +18,6 @@ import { clusterPath, useClusterName } from "@/lib/clusters";
 import { formatCount, formatNumber } from "@/lib/format";
 import type { ConsumerGroupMember, GroupOffset } from "@/lib/api/types";
 import { createAppColumnHelper } from "@/lib/table";
-
-const TABS = ["offsets", "members"];
 
 const offsetColumnHelper = createAppColumnHelper<GroupOffset>();
 const memberColumnHelper = createAppColumnHelper<ConsumerGroupMember>();
@@ -69,24 +69,31 @@ const memberColumns = memberColumnHelper.columns([
 
 export function ConsumerGroupPage() {
   const cluster = useClusterName();
-  const navigate = useNavigate();
+  const hrefNavigate = useHrefNavigate();
+  const navigate = useNavigate({ from: "/cluster/$cluster/groups/$group" });
   const { group: groupParam } = useParams<{ group: string }>();
   const groupId = decodeURIComponent(groupParam ?? "");
-  const [params, setParams] = useSearchParams();
-
-  const tab = TABS.includes(params.get("tab") ?? "") ? params.get("tab")! : "offsets";
+  const { tab: tabParam } = useSearch({ from: "/cluster/$cluster/groups/$group" });
+  const tab = tabParam ?? "offsets";
   const { data: group, isPending, isError, error } = useConsumerGroup(cluster, groupId);
   const { data: lagHistory = [] } = useGroupLagHistory(cluster, groupId);
   useConsumerGroupLag(cluster, groupId);
 
   function selectTab(value: string) {
-    const next = new URLSearchParams(params);
-    if (value === "offsets") {
-      next.delete("tab");
-    } else {
-      next.set("tab", value);
-    }
-    setParams(next, { replace: true });
+    void navigate({
+      to: ".",
+      search: (prev) => {
+        const next = { ...prev };
+        if (value === "members") {
+          next.tab = "members";
+        } else {
+          delete next.tab;
+        }
+        return next;
+      },
+      replace: true,
+      resetScroll: false,
+    });
   }
 
   const lookup = catalogLookupMessage({
@@ -264,7 +271,7 @@ export function ConsumerGroupPage() {
             loading={isPending}
             pageSize={25}
             defaultSort={{ id: "lag", direction: "desc" }}
-            onRowClick={(offset) => navigate(clusterPath(cluster, "topics", offset.topic))}
+            onRowClick={(offset) => hrefNavigate(clusterPath(cluster, "topics", offset.topic))}
             fill
           />
         </TabsContent>
