@@ -28,6 +28,7 @@ pub struct FakeCluster {
     records: Vec<Record>,
     subjects: Vec<SchemaSubject>,
     metadata_error: Option<String>,
+    subjects_error: Option<String>,
     metadata_delay: Duration,
 }
 
@@ -173,6 +174,7 @@ impl FakeCluster {
             records,
             subjects,
             metadata_error: None,
+            subjects_error: None,
             metadata_delay: Duration::ZERO,
         }
     }
@@ -190,6 +192,11 @@ impl FakeCluster {
 
     pub fn with_metadata_delay(mut self, delay: Duration) -> Self {
         self.metadata_delay = delay;
+        self
+    }
+
+    pub fn with_subjects_error(mut self, message: impl Into<String>) -> Self {
+        self.subjects_error = Some(message.into());
         self
     }
 
@@ -374,6 +381,12 @@ impl ClusterSession for FakeCluster {
     }
 
     async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
+        if let Some(message) = &self.subjects_error {
+            return Err(KafkaError::SchemaRegistry {
+                cluster: self.identity.name.clone(),
+                message: message.clone(),
+            });
+        }
         Ok(self.subjects.clone())
     }
 }

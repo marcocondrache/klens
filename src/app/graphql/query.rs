@@ -150,10 +150,10 @@ impl Query {
         cluster: String,
     ) -> FieldResult<Vec<SchemaSubject>> {
         Ok(context
-            .query
-            .schema_subjects(&cluster)
+            .subject_snapshot(&cluster)
             .await?
-            .into_iter()
+            .iter()
+            .cloned()
             .map(SchemaSubject::from)
             .collect())
     }
@@ -174,13 +174,9 @@ impl Query {
         term: String,
     ) -> FieldResult<Vec<SearchResult>> {
         let snapshot = context.catalog_snapshot(&cluster).await?;
-        let subjects = context
-            .query
-            .schema_subjects(&cluster)
-            .await
-            .unwrap_or_default();
+        let subjects = context.subject_snapshot(&cluster).await.unwrap_or_default();
         Ok(snapshot
-            .search(&term, &subjects)
+            .search(&term, subjects.as_ref())
             .into_iter()
             .map(SearchResult::from)
             .collect())
