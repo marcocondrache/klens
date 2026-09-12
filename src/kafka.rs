@@ -25,8 +25,8 @@ mod testing;
 
 pub use adapter::KafkaClusterConfig;
 pub use catalog::{
-    CatalogAssemble, CatalogCache, CatalogHealth, CatalogPoller, CatalogReuse, CatalogRevision,
-    ClusterSnapshot, PollLane, SubjectCache,
+    CatalogAssemble, CatalogCache, CatalogHealth, CatalogPoller, CatalogPollerIntervals,
+    CatalogPollerIo, CatalogReuse, CatalogRevision, ClusterSnapshot, PollLane, SubjectCache,
 };
 pub use engine::QueryEngine;
 pub use error::{KafkaError, QueryError};
