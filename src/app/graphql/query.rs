@@ -113,14 +113,6 @@ impl Query {
             .map(ConsumerGroup::from))
     }
 
-    async fn cluster_throughput(context: &AppState, cluster: String) -> Vec<ThroughputPoint> {
-        context
-            .series_cluster_history(&cluster)
-            .into_iter()
-            .map(ThroughputPoint::from)
-            .collect()
-    }
-
     async fn topic_throughput(
         context: &AppState,
         cluster: String,

@@ -74,14 +74,6 @@ export function useTopicRates(cluster: string) {
             appendThroughput(points, timestamp, rate.messagesPerSec),
         );
       }
-
-      queryClient.setQueryData(keys.throughput(cluster), (points: ThroughputPoint[] | undefined) =>
-        appendThroughput(
-          points,
-          timestamp,
-          data.topicRates.reduce((total, rate) => total + rate.messagesPerSec, 0),
-        ),
-      );
     });
   }, [cluster, queryClient]);
 }
