@@ -92,9 +92,6 @@ pub(super) struct Broker {
     pub controller: bool,
     pub partition_count: i32,
     pub leader_count: i32,
-    pub log_dir_size_bytes: f64,
-    pub bytes_in_per_sec: f64,
-    pub bytes_out_per_sec: f64,
 }
 
 impl From<domain::Broker> for Broker {
@@ -107,9 +104,6 @@ impl From<domain::Broker> for Broker {
             controller: broker.controller,
             partition_count: broker.partition_count,
             leader_count: broker.leader_count,
-            log_dir_size_bytes: 0.0,
-            bytes_in_per_sec: 0.0,
-            bytes_out_per_sec: 0.0,
         }
     }
 }
@@ -122,7 +116,6 @@ pub(super) struct Partition {
     pub isr: Vec<i32>,
     pub low_watermark: f64,
     pub high_watermark: f64,
-    pub size_bytes: f64,
 }
 
 #[derive(GraphQLEnum, Clone, Copy)]
@@ -191,7 +184,6 @@ pub(super) struct Topic {
     pub partition_count: i32,
     pub replication_factor: i32,
     pub message_count: f64,
-    pub size_bytes: f64,
     pub cleanup_policy: CleanupPolicy,
     pub retention_ms: f64,
     pub consumer_groups: Vec<String>,
@@ -223,7 +215,6 @@ impl From<domain::Topic> for Topic {
             partitions: topic.partitions.into_iter().map(Partition::from).collect(),
             replication_factor: topic.replication_factor,
             message_count: topic.message_count as f64,
-            size_bytes: 0.0,
             cleanup_policy: CleanupPolicy::from(topic.cleanup_policy),
             retention_ms: topic.retention_ms as f64,
             consumer_groups: topic.consumer_groups,
@@ -243,7 +234,6 @@ impl From<domain::Partition> for Partition {
             isr: partition.isr,
             low_watermark: partition.low_watermark as f64,
             high_watermark: partition.high_watermark as f64,
-            size_bytes: 0.0,
         }
     }
 }
@@ -266,7 +256,6 @@ pub(super) struct ConfigEntry {
     pub source: ConfigSource,
     pub read_only: bool,
     pub sensitive: bool,
-    pub documentation: Option<String>,
 }
 
 impl From<domain::ConfigEntry> for ConfigEntry {
@@ -277,7 +266,6 @@ impl From<domain::ConfigEntry> for ConfigEntry {
             source: ConfigSource::from(entry.source),
             read_only: entry.read_only,
             sensitive: entry.sensitive,
-            documentation: None,
         }
     }
 }

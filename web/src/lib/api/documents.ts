@@ -27,9 +27,6 @@ export const BrokerFields = graphql(`
     controller
     partitionCount
     leaderCount
-    logDirSizeBytes
-    bytesInPerSec
-    bytesOutPerSec
   }
 `);
 
@@ -41,7 +38,6 @@ export const PartitionFields = graphql(`
     isr
     lowWatermark
     highWatermark
-    sizeBytes
   }
 `);
 
@@ -55,7 +51,6 @@ export const TopicFields = graphql(`
     partitionCount
     replicationFactor
     messageCount
-    sizeBytes
     cleanupPolicy
     retentionMs
     consumerGroups
@@ -72,7 +67,6 @@ export const TopicListFields = graphql(`
     partitionCount
     replicationFactor
     messageCount
-    sizeBytes
     cleanupPolicy
     retentionMs
     consumerGroups
@@ -89,7 +83,6 @@ export const ConfigEntryFields = graphql(`
     source
     readOnly
     sensitive
-    documentation
   }
 `);
 
