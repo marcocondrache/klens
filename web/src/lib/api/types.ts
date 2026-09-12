@@ -7,6 +7,7 @@ export type {
   ConfigEntryFieldsFragment as ConfigEntry,
   ConfigSource,
   ConsumerGroupFieldsFragment as ConsumerGroup,
+  GroupListFieldsFragment as GroupList,
   ConsumerGroupMemberFieldsFragment as ConsumerGroupMember,
   ConsumerGroupState,
   GroupOffsetFieldsFragment as GroupOffset,
@@ -22,6 +23,7 @@ export type {
   SecurityProtocol,
   ThroughputPointFieldsFragment as ThroughputPoint,
   TopicFieldsFragment as Topic,
+  TopicListFieldsFragment as TopicList,
   TopicRateFieldsFragment as TopicRate,
   TopicRecordFieldsFragment as TopicRecord,
 } from "@/graphql/graphql";

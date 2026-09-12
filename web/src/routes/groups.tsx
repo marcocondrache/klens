@@ -13,13 +13,14 @@ import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
 import { GroupStateBadge, Pill } from "@/components/status";
 import { lagTone } from "@/lib/tone";
+import { useNow } from "@/hooks/use-now";
 import { useConsumerGroups } from "@/lib/api/queries";
 import { clusterPath, useClusterName } from "@/lib/clusters";
 import { formatCount, formatEnumLabel, formatNumber, formatRelative } from "@/lib/format";
-import type { ConsumerGroup, ConsumerGroupState } from "@/lib/api/types";
+import type { ConsumerGroupState, GroupList } from "@/lib/api/types";
 import { createAppColumnHelper } from "@/lib/table";
 
-const EMPTY_GROUPS: ConsumerGroup[] = [];
+const EMPTY_GROUPS: GroupList[] = [];
 
 const STATES: ConsumerGroupState[] = [
   "STABLE",
@@ -29,7 +30,7 @@ const STATES: ConsumerGroupState[] = [
   "DEAD",
 ];
 
-const columnHelper = createAppColumnHelper<ConsumerGroup>();
+const columnHelper = createAppColumnHelper<GroupList>();
 
 const columns = columnHelper.columns([
   columnHelper.accessor("id", {
@@ -40,7 +41,7 @@ const columns = columnHelper.columns([
     header: "State",
     cell: ({ getValue }) => <GroupStateBadge state={getValue()} />,
   }),
-  columnHelper.accessor((group) => group.members.length, {
+  columnHelper.accessor("memberCount", {
     id: "members",
     header: "Members",
     meta: { align: "right" },
@@ -60,7 +61,7 @@ const columns = columnHelper.columns([
       </span>
     ),
   }),
-  columnHelper.accessor((group) => group.offsets.length, {
+  columnHelper.accessor("assignedPartitionCount", {
     id: "partitions",
     header: "Assigned",
     meta: { align: "right" },
@@ -91,6 +92,7 @@ export function ConsumerGroupsPage() {
   const state = params.get("state") ?? "all";
 
   const { data, isPending, isError, error } = useConsumerGroups(cluster);
+  const now = useNow();
   const groups = data?.groups ?? EMPTY_GROUPS;
   const updatedAt = data?.updatedAt;
 
@@ -121,7 +123,7 @@ export function ConsumerGroupsPage() {
       <PageHeader
         title="Consumer groups"
         description={`${rows.length} groups · ${formatCount(totalLag)} messages of lag${
-          updatedAt ? ` · Updated ${formatRelative(updatedAt)}` : ""
+          updatedAt ? ` · Updated ${formatRelative(updatedAt, now)}` : ""
         }`}
       />
 

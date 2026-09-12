@@ -5,6 +5,7 @@ import { CopyButton } from "@/components/copy-button";
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { Pill } from "@/components/status";
+import { useNow } from "@/hooks/use-now";
 import { useBrokers, useCatalogHealth, useCluster } from "@/lib/api/queries";
 import { clusterPath, useClusterName } from "@/lib/clusters";
 import { formatBytes, formatNumber, formatRate, formatRelative } from "@/lib/format";
@@ -95,6 +96,7 @@ export function NodesPage() {
   const { data: brokers = [], isPending, isError, error } = useBrokers(cluster);
   const { data: info } = useCluster(cluster);
   const { data: health } = useCatalogHealth(cluster);
+  const now = useNow();
   const updatedAt = health?.updatedAt;
 
   return (
@@ -102,7 +104,7 @@ export function NodesPage() {
       <PageHeader
         title="Brokers"
         description={`${brokers.length} brokers · Kafka ${info?.version ?? "—"}${
-          updatedAt ? ` · Updated ${formatRelative(updatedAt)}` : ""
+          updatedAt ? ` · Updated ${formatRelative(updatedAt, now)}` : ""
         }`}
       />
 
