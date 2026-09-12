@@ -51,7 +51,6 @@ pub(super) struct Cluster {
     pub cluster_id: String,
     pub bootstrap_servers: Vec<String>,
     pub security_protocol: SecurityProtocol,
-    pub version: String,
     pub status: ClusterStatus,
     pub broker_count: i32,
     pub topic_count: i32,
@@ -60,9 +59,6 @@ pub(super) struct Cluster {
     pub under_replicated_partitions: i32,
     pub offline_partitions: i32,
     pub message_count: f64,
-    pub size_bytes: f64,
-    pub bytes_in_per_sec: f64,
-    pub bytes_out_per_sec: f64,
 }
 
 impl From<domain::ClusterOverview> for Cluster {
@@ -73,7 +69,6 @@ impl From<domain::ClusterOverview> for Cluster {
             cluster_id: overview.cluster_id,
             bootstrap_servers: overview.identity.bootstrap_servers,
             security_protocol: SecurityProtocol::from(overview.identity.security_protocol),
-            version: String::new(),
             status: ClusterStatus::from(overview.health),
             broker_count: overview.broker_count,
             topic_count: overview.topic_count,
@@ -82,9 +77,6 @@ impl From<domain::ClusterOverview> for Cluster {
             under_replicated_partitions: overview.under_replicated_partitions,
             offline_partitions: overview.offline_partitions,
             message_count: overview.message_count as f64,
-            size_bytes: 0.0,
-            bytes_in_per_sec: 0.0,
-            bytes_out_per_sec: 0.0,
         }
     }
 }

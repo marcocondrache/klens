@@ -188,7 +188,7 @@ async fn fills_cluster_identity_from_config() {
     assert_eq!(
         gql(
             &state(),
-            r#"{ cluster(name: "local") { label securityProtocol status version clusterId } }"#
+            r#"{ cluster(name: "local") { label securityProtocol status clusterId } }"#
         )
         .await,
         serde_json::json!({
@@ -196,7 +196,6 @@ async fn fills_cluster_identity_from_config() {
                 "label": "local",
                 "securityProtocol": "PLAINTEXT",
                 "status": "HEALTHY",
-                "version": "",
                 "clusterId": "test-cluster"
             }
         })

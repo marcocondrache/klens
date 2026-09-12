@@ -21,7 +21,7 @@ Preconditions:
 - Doctor reports `local` `HEALTHY` with a non-zero broker count.
 - Start from `/`.
 
-- **Open catalog.** Click sidebar `Brokers`. URL is `/cluster/local/nodes`. Heading is `Brokers`. The description includes `brokers` and a Kafka version or `—`.
+- **Open catalog.** Click sidebar `Brokers`. URL is `/cluster/local/nodes`. Heading is `Brokers`. The description includes `brokers`, plus a catalog freshness caption when the poller has run.
 - **See controller.** One row shows badge `controller`. The Host column includes `127.0.0.1:9092` on the default verify broker.
 - **Open node.** Click that row. URL is `/cluster/local/nodes/<id>` and the heading contains the broker id.
 - **Proof.** Screenshot the catalog with the controller badge. Save `POST /graphql` `brokers(cluster: "local") { id host port controller }`. The body has `controller: true` on one broker.
