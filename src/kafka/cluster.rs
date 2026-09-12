@@ -83,7 +83,6 @@ impl ClusterOverview {
         }
     }
 
-    /// Placeholder used when a cluster cannot be reached within its budget.
     pub fn offline(identity: ClusterIdentity) -> Self {
         Self {
             identity,

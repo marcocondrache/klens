@@ -6,7 +6,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use chrono::{DateTime, Utc};
 use tokio::task::JoinHandle;
 
+use crate::config::SecurityProtocol;
 use crate::kafka::QueryEngine;
+use crate::kafka::broker::Broker;
+use crate::kafka::cluster::{ClusterIdentity, ClusterOverview};
 use crate::kafka::error::KafkaError;
 use crate::kafka::group::ConsumerGroup;
 use crate::kafka::rates::RateStore;
@@ -18,6 +21,8 @@ pub struct ClusterSnapshot {
     pub updated_at: DateTime<Utc>,
     pub topics: Vec<Topic>,
     pub groups: Vec<ConsumerGroup>,
+    pub brokers: Vec<Broker>,
+    pub overview: ClusterOverview,
 }
 
 impl ClusterSnapshot {
@@ -30,10 +35,26 @@ impl ClusterSnapshot {
     }
 
     pub fn from_catalog(topics: Vec<Topic>, groups: Vec<ConsumerGroup>) -> Self {
+        Self::assemble(
+            topics,
+            groups,
+            Vec::new(),
+            ClusterOverview::offline(empty_identity()),
+        )
+    }
+
+    pub fn assemble(
+        topics: Vec<Topic>,
+        groups: Vec<ConsumerGroup>,
+        brokers: Vec<Broker>,
+        overview: ClusterOverview,
+    ) -> Self {
         Self {
             updated_at: wall_clock(),
             topics,
             groups,
+            brokers,
+            overview,
         }
     }
 
@@ -43,6 +64,10 @@ impl ClusterSnapshot {
 
     pub fn group(&self, id: &str) -> Option<&ConsumerGroup> {
         self.groups.iter().find(|group| group.id == id)
+    }
+
+    pub fn broker(&self, id: i32) -> Option<&Broker> {
+        self.brokers.iter().find(|broker| broker.id == id)
     }
 
     pub fn message_counts(&self) -> HashMap<String, u64> {
@@ -89,6 +114,10 @@ impl CatalogCache {
 
     pub fn group(&self, cluster: &str, id: &str) -> Option<ConsumerGroup> {
         self.snapshot(cluster)?.group(id).cloned()
+    }
+
+    pub fn broker(&self, cluster: &str, id: i32) -> Option<Broker> {
+        self.snapshot(cluster)?.broker(id).cloned()
     }
 
     pub fn updated_at(&self, cluster: &str) -> Option<DateTime<Utc>> {
@@ -192,6 +221,14 @@ impl CatalogPoller {
     }
 }
 
+fn empty_identity() -> ClusterIdentity {
+    ClusterIdentity {
+        name: String::new(),
+        bootstrap_servers: Vec::new(),
+        security_protocol: SecurityProtocol::Plaintext,
+    }
+}
+
 fn wall_clock() -> DateTime<Utc> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -205,6 +242,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
+    use crate::kafka::cluster::ClusterHealth;
     use crate::kafka::group::{ConsumerGroup, GroupState};
     use crate::kafka::testing::FakeCluster;
     use crate::kafka::topic_config::CleanupPolicy;
@@ -309,6 +347,32 @@ mod tests {
             snapshot.message_counts(),
             HashMap::from([("orders".into(), 0), ("payments".into(), 0)])
         );
+        assert!(snapshot.broker(1).is_none());
+        assert_eq!(snapshot.overview.health, ClusterHealth::Offline);
+    }
+
+    #[test]
+    fn snapshot_looks_up_brokers_by_id() {
+        let snapshot = ClusterSnapshot::assemble(
+            Vec::new(),
+            Vec::new(),
+            vec![Broker {
+                id: 3,
+                host: "broker-c".into(),
+                port: 9092,
+                rack: None,
+                controller: false,
+                partition_count: 2,
+                leader_count: 1,
+            }],
+            ClusterOverview::offline(ClusterIdentity {
+                name: "local".into(),
+                bootstrap_servers: vec!["localhost:9092".into()],
+                security_protocol: crate::config::SecurityProtocol::Plaintext,
+            }),
+        );
+        assert_eq!(snapshot.broker(3).unwrap().host, "broker-c");
+        assert!(snapshot.broker(1).is_none());
     }
 
     #[test]
@@ -321,6 +385,31 @@ mod tests {
         assert_eq!(cache.group("local", "cached").unwrap().lag, 4);
         assert!(cache.group("local", "missing").is_none());
         assert!(cache.group("other", "cached").is_none());
+    }
+
+    #[test]
+    fn cache_broker_lookup_is_by_id() {
+        let cache = CatalogCache::new();
+        cache.store(
+            "local",
+            ClusterSnapshot::assemble(
+                Vec::new(),
+                Vec::new(),
+                vec![Broker {
+                    id: 7,
+                    host: "cached-broker".into(),
+                    port: 9093,
+                    rack: None,
+                    controller: false,
+                    partition_count: 4,
+                    leader_count: 2,
+                }],
+                ClusterOverview::offline(empty_identity()),
+            ),
+        );
+        assert_eq!(cache.broker("local", 7).unwrap().host, "cached-broker");
+        assert!(cache.broker("local", 1).is_none());
+        assert!(cache.broker("other", 7).is_none());
     }
 
     #[tokio::test(start_paused = true)]
@@ -457,6 +546,14 @@ mod tests {
         assert_eq!(snapshot.groups[0].id, "order-processor");
         assert_eq!(snapshot.groups[0].lag, 5);
         assert_eq!(snapshot.groups[0].topics, vec!["orders.created"]);
+        assert_eq!(snapshot.brokers[0].id, 1);
+        assert_eq!(snapshot.brokers[0].partition_count, 2);
+        assert_eq!(snapshot.brokers[0].leader_count, 2);
+        assert_eq!(snapshot.overview.cluster_id, "test-cluster");
+        assert_eq!(snapshot.overview.health, ClusterHealth::Healthy);
+        assert_eq!(snapshot.overview.broker_count, 1);
+        assert_eq!(snapshot.overview.topic_count, 1);
+        assert_eq!(snapshot.overview.consumer_group_count, 1);
         assert!(snapshot.updated_at >= DateTime::<Utc>::UNIX_EPOCH);
         assert_eq!(
             rates
