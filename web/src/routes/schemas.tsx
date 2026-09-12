@@ -18,6 +18,7 @@ import { useNow } from "@/hooks/use-now";
 import { useCatalogHealth, useSchemaSubjects } from "@/lib/api/catalog";
 import { useClusterName } from "@/lib/clusters";
 import { catalogHealthCaption } from "@/lib/catalog-health";
+import { prettyJson } from "@/lib/format";
 import type { SchemaSubject } from "@/lib/api/types";
 import { createAppColumnHelper } from "@/lib/table";
 
@@ -78,6 +79,7 @@ export function SchemasPage() {
     if (!needle) return subjects;
     return subjects.filter((subject) => subject.subject.toLowerCase().includes(needle));
   }, [subjects, term]);
+  const schemaText = selected ? prettyJson(selected.schema) : "";
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
@@ -130,9 +132,9 @@ export function SchemasPage() {
                   <h3 className="text-sm font-medium tracking-wide text-muted-foreground">
                     Schema
                   </h3>
-                  <CopyButton value={selected.schema} label="Copy schema" />
+                  <CopyButton value={schemaText} label="Copy schema" />
                 </div>
-                <JsonBlock source={selected.schema} />
+                <JsonBlock source={schemaText} />
 
                 <div className="space-y-2">
                   <h3 className="text-sm font-medium tracking-wide text-muted-foreground">

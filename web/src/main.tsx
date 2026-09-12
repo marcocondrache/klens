@@ -7,7 +7,10 @@ import { BrowserRouter } from "react-router";
 import App from "./App";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { installJsonHighlightTheme } from "@/lib/json-highlight";
 import "./index.css";
+
+installJsonHighlightTheme();
 
 const queryClient = new QueryClient({
   defaultOptions: {
