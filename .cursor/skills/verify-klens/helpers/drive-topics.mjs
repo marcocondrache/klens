@@ -91,7 +91,7 @@ try {
 
   const topicsJson = await graphql(
     base,
-    'query { topics(cluster: "local") { name internal messageCount } }',
+    'query { clusterCatalog(cluster: "local") { topics { name internal messageCount } } }',
   );
   await writeFile(join(artifactDir, "topics.json"), `${topicsJson}\n`);
   if (!topicsJson.includes(topic)) {

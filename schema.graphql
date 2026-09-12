@@ -215,7 +215,6 @@ type Query {
   brokers(cluster: String!): [Broker!]!
   broker(cluster: String!, id: Int!): Broker
   brokerConfigs(cluster: String!, id: Int!): [ConfigEntry!]!
-  topics(cluster: String!): [Topic!]!
   clusterCatalog(cluster: String!): ClusterCatalog!
   catalogHealth(cluster: String!): CatalogHealth!
   topic(cluster: String!, name: String!): Topic

@@ -90,7 +90,7 @@ GraphQL the UI uses (corroborate, do not substitute for the UI path):
 ```sh
 curl -sS -X POST "$KLENS_VERIFY_URL/graphql" \
   -H 'content-type: application/json' \
-  -d '{"query":"query { topics(cluster: \"local\") { name internal messageCount } }"}'
+  -d '{"query":"query { clusterCatalog(cluster: \"local\") { topics { name internal messageCount } } }"}'
 ```
 
 ## Evidence
