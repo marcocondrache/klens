@@ -12,7 +12,6 @@ use crate::environment::MAX_SAMPLE_GAP;
 pub struct TopicRate {
     pub name: String,
     pub messages_per_sec: f64,
-    pub bytes_in_per_sec: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -116,13 +115,15 @@ impl ClusterSamples {
                 TopicRate {
                     name: name.clone(),
                     messages_per_sec,
-                    bytes_in_per_sec: 0.0,
                 },
             );
 
             self.topic_history.push(
                 name,
-                ThroughputPoint::messages(current.unix_ms, messages_per_sec),
+                ThroughputPoint {
+                    timestamp: current.unix_ms,
+                    messages: messages_per_sec,
+                },
             );
         }
 
@@ -130,10 +131,10 @@ impl ClusterSamples {
             .retain(|topic| current.counts.contains_key(topic));
         self.rates = rates;
 
-        self.cluster_history.push(ThroughputPoint::messages(
-            current.unix_ms,
-            round_rate(cluster_messages),
-        ));
+        self.cluster_history.push(ThroughputPoint {
+            timestamp: current.unix_ms,
+            messages: round_rate(cluster_messages),
+        });
     }
 }
 
@@ -183,7 +184,6 @@ mod tests {
             vec![TopicRate {
                 name: "orders".into(),
                 messages_per_sec: 0.0,
-                bytes_in_per_sec: 0.0,
             }]
         );
     }

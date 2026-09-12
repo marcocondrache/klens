@@ -187,7 +187,6 @@ pub(super) struct Topic {
     pub cleanup_policy: CleanupPolicy,
     pub retention_ms: f64,
     pub consumer_groups: Vec<String>,
-    pub bytes_in_per_sec: f64,
     pub messages_per_sec: f64,
     pub under_replicated: bool,
 }
@@ -199,7 +198,6 @@ impl Topic {
     ) -> Self {
         let mut graph = Self::from(topic);
         if let Some(rate) = rate {
-            graph.bytes_in_per_sec = rate.bytes_in_per_sec;
             graph.messages_per_sec = rate.messages_per_sec;
         }
         graph
@@ -218,7 +216,6 @@ impl From<domain::Topic> for Topic {
             cleanup_policy: CleanupPolicy::from(topic.cleanup_policy),
             retention_ms: topic.retention_ms as f64,
             consumer_groups: topic.consumer_groups,
-            bytes_in_per_sec: 0.0,
             messages_per_sec: 0.0,
             under_replicated: topic.under_replicated,
         }
@@ -515,8 +512,6 @@ from_same_variants!(domain::Compression => Compression { None, Gzip, Snappy, Lz4
 #[derive(GraphQLObject)]
 pub(super) struct ThroughputPoint {
     pub timestamp: DateTime<Utc>,
-    pub bytes_in: f64,
-    pub bytes_out: f64,
     pub messages: f64,
 }
 
@@ -524,8 +519,6 @@ impl From<crate::kafka::ThroughputPoint> for ThroughputPoint {
     fn from(point: crate::kafka::ThroughputPoint) -> Self {
         Self {
             timestamp: domain::unix_datetime(point.timestamp as i64),
-            bytes_in: point.bytes_in,
-            bytes_out: point.bytes_out,
             messages: point.messages,
         }
     }
@@ -535,7 +528,6 @@ impl From<crate::kafka::ThroughputPoint> for ThroughputPoint {
 pub(super) struct TopicRate {
     pub name: String,
     pub messages_per_sec: f64,
-    pub bytes_in_per_sec: f64,
 }
 
 impl From<crate::kafka::TopicRate> for TopicRate {
@@ -543,7 +535,6 @@ impl From<crate::kafka::TopicRate> for TopicRate {
         Self {
             name: rate.name,
             messages_per_sec: rate.messages_per_sec,
-            bytes_in_per_sec: rate.bytes_in_per_sec,
         }
     }
 }

@@ -26,7 +26,13 @@ impl LagStore {
         clusters
             .entry(cluster.to_owned())
             .or_insert_with(|| SeriesMap::bounded(MAX_GROUPS))
-            .push(group, ThroughputPoint::messages(unix_ms, lag.max(0) as f64));
+            .push(
+                group,
+                ThroughputPoint {
+                    timestamp: unix_ms,
+                    messages: lag.max(0) as f64,
+                },
+            );
     }
 
     pub fn history(&self, cluster: &str, group: &str) -> Vec<ThroughputPoint> {

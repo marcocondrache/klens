@@ -54,7 +54,6 @@ export const TopicFields = graphql(`
     cleanupPolicy
     retentionMs
     consumerGroups
-    bytesInPerSec
     messagesPerSec
     underReplicated
   }
@@ -70,7 +69,6 @@ export const TopicListFields = graphql(`
     cleanupPolicy
     retentionMs
     consumerGroups
-    bytesInPerSec
     messagesPerSec
     underReplicated
   }
@@ -150,8 +148,6 @@ export const GroupListFields = graphql(`
 export const ThroughputPointFields = graphql(`
   fragment ThroughputPointFields on ThroughputPoint {
     timestamp
-    bytesIn
-    bytesOut
     messages
   }
 `);
@@ -160,7 +156,6 @@ export const TopicRateFields = graphql(`
   fragment TopicRateFields on TopicRate {
     name
     messagesPerSec
-    bytesInPerSec
   }
 `);
 

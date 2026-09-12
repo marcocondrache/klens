@@ -22,7 +22,6 @@ import {
   formatCleanupPolicy,
   formatDuration,
   formatNumber,
-  formatRate,
   formatRelative,
   formatThroughput,
   isCompactCleanup,
@@ -90,12 +89,6 @@ const columns = columnHelper.columns([
     header: "Msg/s",
     meta: { align: "right" },
     cell: ({ getValue }) => emptyMetric(getValue(), formatThroughput(getValue())),
-  }),
-  columnHelper.accessor("bytesInPerSec", {
-    id: "in",
-    header: "Bytes in",
-    meta: { align: "right" },
-    cell: ({ getValue }) => emptyMetric(getValue(), formatRate(getValue())),
   }),
   columnHelper.accessor("retentionMs", {
     id: "retention",

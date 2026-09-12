@@ -259,8 +259,6 @@ type Subscription {
 
 type ThroughputPoint {
   timestamp: DateTime!
-  bytesIn: Float!
-  bytesOut: Float!
   messages: Float!
 }
 
@@ -274,7 +272,6 @@ type Topic {
   cleanupPolicy: CleanupPolicy!
   retentionMs: Float!
   consumerGroups: [String!]!
-  bytesInPerSec: Float!
   messagesPerSec: Float!
   underReplicated: Boolean!
 }
@@ -282,7 +279,6 @@ type Topic {
 type TopicRate {
   name: String!
   messagesPerSec: Float!
-  bytesInPerSec: Float!
 }
 
 type TopicRecord {
