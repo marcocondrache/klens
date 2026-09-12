@@ -940,6 +940,43 @@ async fn catalog_health_reads_cached_counts_and_poll_error() {
 }
 
 #[tokio::test]
+async fn catalog_health_reports_a_failed_poll() {
+    let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
+        FakeCluster::named("down").unreachable(),
+    ])))
+    .with_catalog_poller(Duration::from_secs(60));
+
+    for _ in 0..200 {
+        if state.catalog_health("down").last_error.is_some() {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert!(
+        state.catalog_health("down").last_error.is_some(),
+        "poller never recorded last_error"
+    );
+
+    let schema = schema();
+    let (value, errors) = execute(
+        r#"{ catalogHealth(cluster: "down") { lastError } }"#,
+        None,
+        &schema,
+        &Variables::new(),
+        &state,
+    )
+    .await
+    .unwrap();
+
+    assert!(errors.is_empty());
+    let last_error = serde_json::to_value(value).unwrap()["catalogHealth"]["lastError"]
+        .as_str()
+        .expect("lastError")
+        .to_owned();
+    assert!(last_error.contains("broker down"), "lastError={last_error}");
+}
+
+#[tokio::test]
 async fn topic_query_seeds_the_catalog_on_a_cold_cache() {
     let state = state();
     let schema = schema();

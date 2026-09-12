@@ -7,7 +7,7 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppHeader } from "@/components/app-header";
 import { AppSidebar } from "@/components/app-sidebar";
 import { CommandPalette } from "@/components/command-palette";
-import { useClusters } from "@/lib/api/catalog";
+import { useCatalogHealth, useClusters } from "@/lib/api/catalog";
 import { useCatalogUpdated } from "@/lib/api/subscriptions";
 import { useClusterName } from "@/lib/clusters";
 import { findSearchHotkeyTarget, isTypingTarget } from "@/lib/keyboard";
@@ -15,6 +15,7 @@ import { findSearchHotkeyTarget, isTypingTarget } from "@/lib/keyboard";
 export function AppLayout() {
   const cluster = useClusterName();
   const { data: clusters, isPending } = useClusters();
+  const { data: health } = useCatalogHealth(cluster);
   useCatalogUpdated(cluster);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const current = clusters?.find((entry) => entry.name === cluster);
@@ -62,9 +63,15 @@ export function AppLayout() {
               <TriangleAlertIcon />
               <AlertTitle>Cluster unreachable</AlertTitle>
               <AlertDescription>
-                Metadata for {current.label} could not be fetched. Catalog pages stay empty until
-                the brokers respond.
+                {health?.lastError ??
+                  `Metadata for ${current.label} could not be fetched. Catalog pages stay empty until the brokers respond.`}
               </AlertDescription>
+            </Alert>
+          ) : health?.lastError ? (
+            <Alert variant="destructive">
+              <TriangleAlertIcon />
+              <AlertTitle>Catalog update failed</AlertTitle>
+              <AlertDescription>{health.lastError}</AlertDescription>
             </Alert>
           ) : null}
           <Outlet />
