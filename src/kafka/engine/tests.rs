@@ -1,18 +1,14 @@
 use super::*;
 use std::ops::Bound;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
-
-use async_trait::async_trait;
 
 use crate::config::{ClusterConfig, Config};
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
-    ClusterIdentity, CommittedOffset, ConfigEntry, FetchPlan, MetadataSnapshot, Record,
-    RecordOrder, RecordQuery, TimestampRange, Watermarks, unix_datetime,
+    ConfigEntry, Record, RecordOrder, RecordQuery, TimestampRange, unix_datetime,
 };
-use crate::kafka::testing::FakeCluster;
+use crate::kafka::testing::{CountingSession, FakeCluster};
 
 fn cluster_config(name: &str) -> ClusterConfig {
     ClusterConfig {
@@ -21,170 +17,6 @@ fn cluster_config(name: &str) -> ClusterConfig {
         security: None,
         schema_registry: None,
         properties: HashMap::new(),
-    }
-}
-
-#[derive(Clone)]
-struct Probe {
-    inner: FakeCluster,
-    delay: Duration,
-    watermark_delay: Duration,
-    group_lists: Arc<AtomicUsize>,
-    committed: Arc<AtomicUsize>,
-}
-
-impl Probe {
-    fn new(inner: FakeCluster, delay: Duration) -> Self {
-        Self {
-            inner,
-            delay,
-            watermark_delay: Duration::ZERO,
-            group_lists: Arc::new(AtomicUsize::new(0)),
-            committed: Arc::new(AtomicUsize::new(0)),
-        }
-    }
-
-    fn with_watermark_delay(inner: FakeCluster, delay: Duration) -> Self {
-        Self {
-            inner,
-            delay: Duration::ZERO,
-            watermark_delay: delay,
-            group_lists: Arc::new(AtomicUsize::new(0)),
-            committed: Arc::new(AtomicUsize::new(0)),
-        }
-    }
-}
-
-#[async_trait]
-impl ClusterSession for Probe {
-    fn identity(&self) -> &ClusterIdentity {
-        self.inner.identity()
-    }
-
-    async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError> {
-        if !self.delay.is_zero() {
-            tokio::time::sleep(self.delay).await;
-        }
-        self.inner.metadata().await
-    }
-
-    async fn watermarks(&self, topic: &str) -> Result<HashMap<i32, Watermarks>, KafkaError> {
-        if !self.watermark_delay.is_zero() {
-            tokio::time::sleep(self.watermark_delay).await;
-        }
-        self.inner.watermarks(topic).await
-    }
-
-    async fn offsets_for_times(
-        &self,
-        topic: &str,
-        partitions: &[i32],
-        timestamp: i64,
-    ) -> Result<HashMap<i32, Option<i64>>, KafkaError> {
-        self.inner
-            .offsets_for_times(topic, partitions, timestamp)
-            .await
-    }
-
-    async fn topics_configs(
-        &self,
-        topics: &[&str],
-    ) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError> {
-        self.inner.topics_configs(topics).await
-    }
-
-    async fn broker_configs(&self, broker_id: i32) -> Result<Vec<ConfigEntry>, KafkaError> {
-        self.inner.broker_configs(broker_id).await
-    }
-
-    async fn consumer_groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
-        self.group_lists.fetch_add(1, Ordering::SeqCst);
-        if !self.delay.is_zero() {
-            tokio::time::sleep(self.delay).await;
-        }
-        self.inner.consumer_groups().await
-    }
-
-    async fn committed_offsets(
-        &self,
-        group_id: &str,
-        partitions: &[(String, i32)],
-    ) -> Result<Vec<CommittedOffset>, KafkaError> {
-        self.committed.fetch_add(1, Ordering::SeqCst);
-        self.inner.committed_offsets(group_id, partitions).await
-    }
-
-    async fn records(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError> {
-        self.inner.records(plan).await
-    }
-}
-
-#[derive(Clone)]
-struct CountingMany {
-    inner: FakeCluster,
-    many: Arc<AtomicUsize>,
-}
-
-impl CountingMany {
-    fn new(inner: FakeCluster) -> Self {
-        Self {
-            inner,
-            many: Arc::new(AtomicUsize::new(0)),
-        }
-    }
-}
-
-#[async_trait]
-impl ClusterSession for CountingMany {
-    fn identity(&self) -> &ClusterIdentity {
-        self.inner.identity()
-    }
-
-    async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError> {
-        self.inner.metadata().await
-    }
-
-    async fn watermarks_many(&self, topics: &[&str]) -> HashMap<String, HashMap<i32, Watermarks>> {
-        self.many.fetch_add(1, Ordering::SeqCst);
-        self.inner.watermarks_many(topics).await
-    }
-
-    async fn offsets_for_times(
-        &self,
-        topic: &str,
-        partitions: &[i32],
-        timestamp: i64,
-    ) -> Result<HashMap<i32, Option<i64>>, KafkaError> {
-        self.inner
-            .offsets_for_times(topic, partitions, timestamp)
-            .await
-    }
-
-    async fn topics_configs(
-        &self,
-        topics: &[&str],
-    ) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError> {
-        self.inner.topics_configs(topics).await
-    }
-
-    async fn broker_configs(&self, broker_id: i32) -> Result<Vec<ConfigEntry>, KafkaError> {
-        self.inner.broker_configs(broker_id).await
-    }
-
-    async fn consumer_groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
-        self.inner.consumer_groups().await
-    }
-
-    async fn committed_offsets(
-        &self,
-        group_id: &str,
-        partitions: &[(String, i32)],
-    ) -> Result<Vec<CommittedOffset>, KafkaError> {
-        self.inner.committed_offsets(group_id, partitions).await
-    }
-
-    async fn records(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError> {
-        self.inner.records(plan).await
     }
 }
 
@@ -256,22 +88,23 @@ async fn consumer_group_hydrates_only_the_requested_group() {
     let cluster = FakeCluster::local()
         .extra_topic("payments.captured", 1, 4)
         .extra_group(payments);
-    let probe = Probe::new(cluster, Duration::ZERO);
-    let engine = QueryEngine::from_sessions(vec![probe.clone()]);
+    let session = CountingSession::new(cluster);
+    let engine = QueryEngine::from_sessions(vec![session.clone()]);
 
     let group = engine
         .consumer_group("local", "order-processor")
         .await
         .unwrap();
     assert_eq!(group.id, "order-processor");
-    assert_eq!(probe.committed.load(Ordering::SeqCst), 1);
+    assert_eq!(session.calls.committed_offsets(), 1);
 }
 
 #[tokio::test(start_paused = true)]
 async fn catalog_fetches_watermarks_in_parallel() {
-    let cluster = FakeCluster::local().extra_topic("payments.captured", 1, 4);
-    let probe = Probe::with_watermark_delay(cluster, Duration::from_secs(1));
-    let engine = QueryEngine::from_sessions(vec![probe]);
+    let cluster = FakeCluster::local()
+        .extra_topic("payments.captured", 1, 4)
+        .with_watermark_delay(Duration::from_secs(1));
+    let engine = QueryEngine::from_sessions(vec![cluster]);
 
     let started = tokio::time::Instant::now();
     let mut topics = engine.catalog("local").await.unwrap().topics;
@@ -298,8 +131,8 @@ async fn schema_subjects_come_from_the_cluster_session() {
 
 #[tokio::test]
 async fn schema_subjects_default_to_empty_when_session_does_not_override() {
-    let probe = Probe::new(FakeCluster::local(), Duration::ZERO);
-    let engine = QueryEngine::from_sessions(vec![probe.clone()]);
+    let session = CountingSession::new(FakeCluster::local());
+    let engine = QueryEngine::from_sessions(vec![session]);
 
     assert!(engine.schema_subjects("local").await.unwrap().is_empty());
 }
@@ -320,94 +153,13 @@ async fn catalog_search_includes_schema_subjects() {
 
 #[tokio::test]
 async fn catalog_calls_watermarks_many_once() {
-    let session = CountingMany::new(FakeCluster::local());
+    let session = CountingSession::new(FakeCluster::local());
     let engine = QueryEngine::from_sessions(vec![session.clone()]);
 
     let snapshot = engine.catalog("local").await.unwrap();
-    assert_eq!(session.many.load(Ordering::SeqCst), 1);
+    assert_eq!(session.calls.watermarks_many(), 1);
     assert_eq!(snapshot.topics[0].message_count, 16);
     assert_eq!(snapshot.message_counts().get("orders.created"), Some(&16));
-}
-
-#[derive(Clone)]
-struct CatalogIo {
-    inner: FakeCluster,
-    metadata: Arc<AtomicUsize>,
-    groups: Arc<AtomicUsize>,
-    watermarks: Arc<AtomicUsize>,
-    configs: Arc<AtomicUsize>,
-    committed: Arc<AtomicUsize>,
-}
-
-impl CatalogIo {
-    fn new(inner: FakeCluster) -> Self {
-        Self {
-            inner,
-            metadata: Arc::new(AtomicUsize::new(0)),
-            groups: Arc::new(AtomicUsize::new(0)),
-            watermarks: Arc::new(AtomicUsize::new(0)),
-            configs: Arc::new(AtomicUsize::new(0)),
-            committed: Arc::new(AtomicUsize::new(0)),
-        }
-    }
-}
-
-#[async_trait]
-impl ClusterSession for CatalogIo {
-    fn identity(&self) -> &ClusterIdentity {
-        self.inner.identity()
-    }
-
-    async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError> {
-        self.metadata.fetch_add(1, Ordering::SeqCst);
-        self.inner.metadata().await
-    }
-
-    async fn watermarks_many(&self, topics: &[&str]) -> HashMap<String, HashMap<i32, Watermarks>> {
-        self.watermarks.fetch_add(1, Ordering::SeqCst);
-        self.inner.watermarks_many(topics).await
-    }
-
-    async fn offsets_for_times(
-        &self,
-        topic: &str,
-        partitions: &[i32],
-        timestamp: i64,
-    ) -> Result<HashMap<i32, Option<i64>>, KafkaError> {
-        self.inner
-            .offsets_for_times(topic, partitions, timestamp)
-            .await
-    }
-
-    async fn topics_configs(
-        &self,
-        topics: &[&str],
-    ) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError> {
-        self.configs.fetch_add(1, Ordering::SeqCst);
-        self.inner.topics_configs(topics).await
-    }
-
-    async fn broker_configs(&self, broker_id: i32) -> Result<Vec<ConfigEntry>, KafkaError> {
-        self.inner.broker_configs(broker_id).await
-    }
-
-    async fn consumer_groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
-        self.groups.fetch_add(1, Ordering::SeqCst);
-        self.inner.consumer_groups().await
-    }
-
-    async fn committed_offsets(
-        &self,
-        group_id: &str,
-        partitions: &[(String, i32)],
-    ) -> Result<Vec<CommittedOffset>, KafkaError> {
-        self.committed.fetch_add(1, Ordering::SeqCst);
-        self.inner.committed_offsets(group_id, partitions).await
-    }
-
-    async fn records(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError> {
-        self.inner.records(plan).await
-    }
 }
 
 #[tokio::test]
@@ -426,7 +178,7 @@ async fn catalog_assembles_topics_groups_brokers_and_overview() {
 
 #[tokio::test]
 async fn catalog_fetches_shared_inputs_once() {
-    let session = CatalogIo::new(FakeCluster::local());
+    let session = CountingSession::new(FakeCluster::local());
     let engine = QueryEngine::from_sessions(vec![session.clone()]);
     let snapshot = engine.catalog("local").await.unwrap();
 
@@ -434,21 +186,21 @@ async fn catalog_fetches_shared_inputs_once() {
     assert_eq!(snapshot.topics[0].message_count, 16);
     assert_eq!(snapshot.groups[0].id, "order-processor");
     assert_eq!(snapshot.groups[0].lag, 5);
-    assert_eq!(session.metadata.load(Ordering::SeqCst), 1);
-    assert_eq!(session.groups.load(Ordering::SeqCst), 1);
-    assert_eq!(session.watermarks.load(Ordering::SeqCst), 1);
-    assert_eq!(session.configs.load(Ordering::SeqCst), 1);
-    assert_eq!(session.committed.load(Ordering::SeqCst), 1);
+    assert_eq!(session.calls.metadata(), 1);
+    assert_eq!(session.calls.consumer_groups(), 1);
+    assert_eq!(session.calls.watermarks_many(), 1);
+    assert_eq!(session.calls.topics_configs(), 1);
+    assert_eq!(session.calls.committed_offsets(), 1);
 }
 
 #[tokio::test]
 async fn assemble_catalog_skips_config_fetch_when_disabled() {
-    let session = CatalogIo::new(FakeCluster::local());
+    let session = CountingSession::new(FakeCluster::local());
     let engine = QueryEngine::from_sessions(vec![session.clone()]);
     let first = engine.assemble_catalog("local", None, true).await.unwrap();
     assert!(first.fetched_configs);
     assert!(!first.reused_topology);
-    assert_eq!(session.configs.load(Ordering::SeqCst), 1);
+    assert_eq!(session.calls.topics_configs(), 1);
 
     let reuse = CatalogReuse {
         metadata_hash: first.metadata_hash,
@@ -461,14 +213,14 @@ async fn assemble_catalog_skips_config_fetch_when_disabled() {
         .unwrap();
     assert!(!second.fetched_configs);
     assert!(second.reused_topology);
-    assert_eq!(session.configs.load(Ordering::SeqCst), 1);
-    assert_eq!(session.watermarks.load(Ordering::SeqCst), 2);
+    assert_eq!(session.calls.topics_configs(), 1);
+    assert_eq!(session.calls.watermarks_many(), 2);
     assert!(second.snapshot.body_eq(&first.snapshot));
 }
 
 #[tokio::test]
 async fn assemble_catalog_keeps_reused_configs_when_fetch_fails() {
-    let session = CatalogIo::new(FakeCluster::local().with_configs_error("no configs"));
+    let session = CountingSession::new(FakeCluster::local().with_configs_error("no configs"));
     let engine = QueryEngine::from_sessions(vec![session.clone()]);
     let good = QueryEngine::from_sessions(vec![FakeCluster::local()])
         .assemble_catalog("local", None, true)
@@ -485,7 +237,7 @@ async fn assemble_catalog_keeps_reused_configs_when_fetch_fails() {
         .unwrap();
     assert!(!assembled.fetched_configs);
     assert_eq!(assembled.configs, good.configs);
-    assert_eq!(session.configs.load(Ordering::SeqCst), 1);
+    assert_eq!(session.calls.topics_configs(), 1);
 }
 
 #[tokio::test]

@@ -92,12 +92,9 @@ async fn sample_consumer_group_lag(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicI64, Ordering};
     use std::time::Duration;
 
-    use async_trait::async_trait;
     use futures::StreamExt;
     use juniper::{EmptyMutation, RootNode, SubscriptionCoordinator, http::GraphQLRequest};
     use juniper_subscriptions::Coordinator;
@@ -105,82 +102,13 @@ mod tests {
     use super::*;
     use crate::app::graphql::query::Query;
     use crate::environment::SAMPLE_INTERVAL;
-    use crate::kafka::model::{
-        ClusterIdentity, CommittedOffset, ConfigEntry, FetchPlan, GroupSnapshot, MetadataSnapshot,
-        Record, Watermarks,
-    };
-    use crate::kafka::{ClusterSession, FakeCluster, KafkaError, QueryEngine};
+    use crate::kafka::model::CleanupPolicy;
+    use crate::kafka::{FakeCluster, QueryEngine, Topic};
 
-    struct GrowingCluster {
-        inner: FakeCluster,
-        extra: AtomicI64,
-    }
-
-    impl GrowingCluster {
-        fn new() -> Self {
-            Self {
-                inner: FakeCluster::local(),
-                extra: AtomicI64::new(0),
-            }
-        }
-    }
-
-    #[async_trait]
-    impl ClusterSession for GrowingCluster {
-        fn identity(&self) -> &ClusterIdentity {
-            self.inner.identity()
-        }
-
-        async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError> {
-            self.inner.metadata().await
-        }
-
-        async fn watermarks(&self, topic: &str) -> Result<HashMap<i32, Watermarks>, KafkaError> {
-            let extra = self.extra.fetch_add(10, Ordering::SeqCst);
-            let mut marks = self.inner.watermarks(topic).await?;
-            if let Some(partition) = marks.get_mut(&0) {
-                partition.high += extra;
-            }
-            Ok(marks)
-        }
-
-        async fn offsets_for_times(
-            &self,
-            topic: &str,
-            partitions: &[i32],
-            timestamp: i64,
-        ) -> Result<HashMap<i32, Option<i64>>, KafkaError> {
-            self.inner
-                .offsets_for_times(topic, partitions, timestamp)
-                .await
-        }
-
-        async fn topics_configs(
-            &self,
-            topics: &[&str],
-        ) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError> {
-            self.inner.topics_configs(topics).await
-        }
-
-        async fn broker_configs(&self, broker_id: i32) -> Result<Vec<ConfigEntry>, KafkaError> {
-            self.inner.broker_configs(broker_id).await
-        }
-
-        async fn consumer_groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
-            self.inner.consumer_groups().await
-        }
-
-        async fn committed_offsets(
-            &self,
-            group_id: &str,
-            partitions: &[(String, i32)],
-        ) -> Result<Vec<CommittedOffset>, KafkaError> {
-            self.inner.committed_offsets(group_id, partitions).await
-        }
-
-        async fn records(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError> {
-            self.inner.records(plan).await
-        }
+    /// The high watermark of `orders.created` partition 0 climbs by a further 10
+    /// on every read, so rate and lag samples grow between subscription ticks.
+    fn growing_cluster() -> FakeCluster {
+        FakeCluster::local().with_growing_watermarks(10)
     }
 
     fn schema() -> RootNode<Query, EmptyMutation<AppState>, Subscription> {
@@ -241,13 +169,13 @@ mod tests {
         );
 
         let mut roster = (*first).clone();
-        roster.topics.push(crate::kafka::Topic {
+        roster.topics.push(Topic {
             name: "payments.settled".into(),
             internal: false,
             partitions: Vec::new(),
             replication_factor: 1,
             message_count: 0,
-            cleanup_policy: crate::kafka::model::CleanupPolicy::Delete,
+            cleanup_policy: CleanupPolicy::Delete,
             retention_ms: 0,
             consumer_groups: Vec::new(),
             under_replicated: false,
@@ -263,9 +191,9 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn topic_rates_subscription_emits_watermark_delta() {
-        let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
-            GrowingCluster::new(),
-        ])))
+        let state = AppState::new(Arc::new(QueryEngine::from_sessions(
+            vec![growing_cluster()],
+        )))
         .with_catalog_poller(Duration::from_secs(1));
         wait_until(|| state.catalog.snapshot("local").is_some()).await;
         wait_until(|| !state.rates.topic_rates("local").is_empty()).await;
@@ -306,9 +234,9 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn concurrent_subscribers_do_not_observe_rates() {
-        let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
-            GrowingCluster::new(),
-        ])))
+        let state = AppState::new(Arc::new(QueryEngine::from_sessions(
+            vec![growing_cluster()],
+        )))
         .with_catalog_poller(Duration::from_secs(1));
         wait_until(|| !state.rates.topic_rates("local").is_empty()).await;
 
@@ -337,9 +265,9 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn topic_rates_subscription_does_not_list_offsets() {
-        let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
-            GrowingCluster::new(),
-        ])));
+        let state = AppState::new(Arc::new(QueryEngine::from_sessions(
+            vec![growing_cluster()],
+        )));
         let coordinator = Coordinator::new(schema());
         let request = topic_rates_request();
         let mut stream = coordinator.subscribe(&request, &state).await.unwrap();
@@ -358,9 +286,9 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn consumer_group_lag_subscription_emits_updated_lag() {
-        let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
-            GrowingCluster::new(),
-        ])));
+        let state = AppState::new(Arc::new(QueryEngine::from_sessions(
+            vec![growing_cluster()],
+        )));
         let coordinator = Coordinator::new(schema());
         let request: GraphQLRequest = serde_json::from_str(
             r#"{ "query": "subscription { consumerGroupLag(cluster: \"local\", id: \"order-processor\") { id lag offsets { partition lag endOffset } } }" }"#,
@@ -389,9 +317,9 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn consumer_group_lag_stays_live_when_the_catalog_snapshot_is_stale() {
-        let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
-            GrowingCluster::new(),
-        ])));
+        let state = AppState::new(Arc::new(QueryEngine::from_sessions(
+            vec![growing_cluster()],
+        )));
         let snapshot = state.query.catalog("local").await.unwrap();
         let seeded = snapshot.group("order-processor").unwrap().lag;
         state.catalog.seed("local", snapshot);
