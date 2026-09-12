@@ -6,7 +6,7 @@ import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { Pill } from "@/components/status";
 import { useNow } from "@/hooks/use-now";
-import { useBrokers, useCatalogHealth, useCluster } from "@/lib/api/queries";
+import { useBrokers, useCatalogHealth, useCluster } from "@/lib/api/catalog";
 import { clusterPath, useClusterName } from "@/lib/clusters";
 import { formatBytes, formatNumber, formatRate, formatRelative } from "@/lib/format";
 import type { Broker } from "@/lib/api/types";

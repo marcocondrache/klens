@@ -14,7 +14,7 @@ import {
   CommandShortcut,
 } from "@/components/ui/command";
 import { StatusDot } from "@/components/status";
-import { useClusters, useSearch } from "@/lib/api/queries";
+import { useClusters, useSearch } from "@/lib/api/catalog";
 import { clusterPath, useClusterName } from "@/lib/clusters";
 import { SECTIONS, findSection } from "@/lib/sections";
 import type { ClusterStatus } from "@/lib/api/types";

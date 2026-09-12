@@ -14,7 +14,7 @@ import { SearchField } from "@/components/search-field";
 import { GroupStateBadge, Pill } from "@/components/status";
 import { lagTone } from "@/lib/tone";
 import { useNow } from "@/hooks/use-now";
-import { useConsumerGroups } from "@/lib/api/queries";
+import { useConsumerGroups } from "@/lib/api/catalog";
 import { clusterPath, useClusterName } from "@/lib/clusters";
 import { formatCount, formatEnumLabel, formatNumber, formatRelative } from "@/lib/format";
 import type { ConsumerGroupState, GroupList } from "@/lib/api/types";

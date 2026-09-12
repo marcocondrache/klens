@@ -9,7 +9,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { PageLoading } from "@/components/page-loading";
-import { useClusters } from "@/lib/api/queries";
+import { useClusters } from "@/lib/api/catalog";
 
 export function HomePage() {
   const { data: clusters, isPending, isError } = useClusters();
