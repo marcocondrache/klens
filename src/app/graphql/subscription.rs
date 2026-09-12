@@ -396,4 +396,45 @@ mod tests {
             "expected lag to grow after high watermarks advance (first={first_lag}, second={second_lag})"
         );
     }
+
+    #[tokio::test(start_paused = true)]
+    async fn consumer_group_lag_stays_live_when_the_catalog_snapshot_is_stale() {
+        let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
+            GrowingCluster::new(),
+        ])));
+        let snapshot = state.query.catalog("local").await.unwrap();
+        let seeded = snapshot.group("order-processor").unwrap().lag;
+        state.catalog.seed("local", snapshot);
+
+        let coordinator = Coordinator::new(schema());
+        let request: GraphQLRequest = serde_json::from_str(
+            r#"{ "query": "subscription { consumerGroupLag(cluster: \"local\", id: \"order-processor\") { id lag } }" }"#,
+        )
+        .unwrap();
+        let mut stream = coordinator.subscribe(&request, &state).await.unwrap();
+
+        let first = stream.next().await.unwrap();
+        let first = serde_json::to_value(first).unwrap();
+        let first_lag = first["data"]["consumerGroupLag"]["lag"].as_f64().unwrap();
+
+        tokio::time::advance(*SAMPLE_INTERVAL + Duration::from_millis(1)).await;
+        let second = stream.next().await.unwrap();
+        let second = serde_json::to_value(second).unwrap();
+        let second_lag = second["data"]["consumerGroupLag"]["lag"].as_f64().unwrap();
+
+        assert!(
+            second_lag > first_lag,
+            "subscription must keep sampling Kafka (first={first_lag}, second={second_lag})"
+        );
+        assert_eq!(
+            state
+                .catalog
+                .snapshot("local")
+                .unwrap()
+                .group("order-processor")
+                .unwrap()
+                .lag,
+            seeded
+        );
+    }
 }
