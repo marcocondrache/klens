@@ -26,12 +26,6 @@ impl MetadataSnapshot {
             .collect()
     }
 
-    pub fn topic_partitions(&self, name: &str) -> Vec<i32> {
-        self.topic(name)
-            .map(TopicMetadata::partition_ids)
-            .unwrap_or_default()
-    }
-
     pub fn topic_partition_pairs<S: AsRef<str>>(&self, names: &[S]) -> Vec<(String, i32)> {
         names
             .iter()
@@ -143,10 +137,8 @@ mod tests {
     }
 
     #[test]
-    fn topic_partitions_returns_ids_and_skips_unknown() {
+    fn topic_partition_pairs_skips_unknown_topics() {
         let meta = snapshot();
-        assert_eq!(meta.topic_partitions("orders.created"), vec![0, 2]);
-        assert_eq!(meta.topic_partitions("missing"), Vec::<i32>::new());
         assert_eq!(
             meta.topic("orders.created").unwrap().partition_ids(),
             vec![0, 2]
@@ -155,6 +147,7 @@ mod tests {
             meta.topic_partition_pairs(&["missing", "orders.created"]),
             vec![("orders.created".into(), 0), ("orders.created".into(), 2),]
         );
+        assert!(meta.topic("missing").is_none());
     }
 
     #[test]
