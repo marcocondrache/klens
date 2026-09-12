@@ -7,7 +7,6 @@ export const ClusterFields = graphql(`
     clusterId
     bootstrapServers
     securityProtocol
-    version
     status
     brokerCount
     topicCount
@@ -16,9 +15,6 @@ export const ClusterFields = graphql(`
     underReplicatedPartitions
     offlinePartitions
     messageCount
-    sizeBytes
-    bytesInPerSec
-    bytesOutPerSec
   }
 `);
 

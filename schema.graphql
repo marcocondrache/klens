@@ -135,7 +135,6 @@ type Cluster {
   clusterId: String!
   bootstrapServers: [String!]!
   securityProtocol: SecurityProtocol!
-  version: String!
   status: ClusterStatus!
   brokerCount: Int!
   topicCount: Int!
@@ -144,9 +143,6 @@ type Cluster {
   underReplicatedPartitions: Int!
   offlinePartitions: Int!
   messageCount: Float!
-  sizeBytes: Float!
-  bytesInPerSec: Float!
-  bytesOutPerSec: Float!
 }
 
 type ClusterCatalog {
