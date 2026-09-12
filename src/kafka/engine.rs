@@ -13,11 +13,11 @@ use crate::kafka::cluster::ClusterOverview;
 use crate::kafka::error::KafkaError;
 use crate::kafka::group::{ConsumerGroup, GroupSnapshot};
 use crate::kafka::limits::RecordLimits;
+use crate::kafka::record::Record;
 use crate::kafka::record::RecordPage;
 use crate::kafka::record::cursor::RecordCursor;
 use crate::kafka::record::plan::{FetchPlan, PartitionWindow, apply_timestamp_bounds, page_cursor};
 use crate::kafka::record::query::RecordQuery;
-use crate::kafka::record::Record;
 use crate::kafka::registry::SchemaSubject;
 use crate::kafka::search::{SearchHit, search_catalog};
 use crate::kafka::session::ClusterSession;
@@ -318,9 +318,25 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
         let watermarks = Self::window_watermarks(session, &query, &partitions).await?;
 
         if query.filter.is_some() {
-            fill_filtered_page(session, &query, &partitions, &watermarks, limit, self.limits).await
+            fill_filtered_page(
+                session,
+                &query,
+                &partitions,
+                &watermarks,
+                limit,
+                self.limits,
+            )
+            .await
         } else {
-            fetch_one_page(session, &query, &partitions, &watermarks, limit, self.limits).await
+            fetch_one_page(
+                session,
+                &query,
+                &partitions,
+                &watermarks,
+                limit,
+                self.limits,
+            )
+            .await
         }
     }
 
@@ -1029,8 +1045,9 @@ mod tests {
         let mut query = browse_query();
         query.limit = 10;
         query.order = RecordOrder::Newest;
-        query.filter = crate::kafka::compile_record_filter(r#"keyText.lowerAscii().contains("hit-")"#)
-            .unwrap();
+        query.filter =
+            crate::kafka::compile_record_filter(r#"keyText.lowerAscii().contains("hit-")"#)
+                .unwrap();
 
         let page = engine.records("local", query.clone()).await.unwrap();
         assert_eq!(
@@ -1064,9 +1081,8 @@ mod tests {
             ]
         );
 
-        query.cursor = Some(
-            crate::kafka::RecordCursor::parse(page.next_cursor.as_deref().unwrap()).unwrap(),
-        );
+        query.cursor =
+            Some(crate::kafka::RecordCursor::parse(page.next_cursor.as_deref().unwrap()).unwrap());
         let page_two = engine.records("local", query).await.unwrap();
         let page_two_keys: Vec<_> = page_two
             .records

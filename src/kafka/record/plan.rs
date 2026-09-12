@@ -634,14 +634,8 @@ mod tests {
         }];
         let last_kept = vec![record(0, 160), record(0, 120)];
 
-        let cursor = page_cursor(
-            RecordOrder::Newest,
-            &windows,
-            &watermarks,
-            &last_kept,
-            true,
-        )
-        .unwrap();
+        let cursor =
+            page_cursor(RecordOrder::Newest, &windows, &watermarks, &last_kept, true).unwrap();
         assert_eq!(cursor.offsets[&0], 120);
     }
 
