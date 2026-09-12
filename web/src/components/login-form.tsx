@@ -1,5 +1,5 @@
 import { CircleAlertIcon } from "lucide-react";
-import { useSearchParams } from "@/lib/navigation";
+import { useSearch } from "@tanstack/react-router";
 
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -7,8 +7,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 export function LoginForm({ className, ...props }: React.ComponentProps<"div">) {
-  const [params] = useSearchParams();
-  const error = params.get("error");
+  const { error } = useSearch({ from: "/login" });
 
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>

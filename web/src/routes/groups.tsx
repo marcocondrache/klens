@@ -1,5 +1,7 @@
 import { useMemo } from "react";
-import { useNavigate, useSearchParams } from "@/lib/navigation";
+import { useNavigate, useSearch } from "@tanstack/react-router";
+
+import { useNavigate as useHrefNavigate } from "@/lib/navigation";
 
 import {
   Select,
@@ -85,25 +87,32 @@ const columns = columnHelper.columns([
 
 export function ConsumerGroupsPage() {
   const cluster = useClusterName();
-  const navigate = useNavigate();
-  const [params, setParams] = useSearchParams();
-
-  const term = params.get("q") ?? "";
-  const state = params.get("state") ?? "all";
+  const hrefNavigate = useHrefNavigate();
+  const navigate = useNavigate({ from: "/cluster/$cluster/groups" });
+  const { q: term = "", state = "all" } = useSearch({ from: "/cluster/$cluster/groups" });
 
   const { data, isPending, isError, error } = useConsumerGroups(cluster);
   const now = useNow();
   const groups = data?.groups ?? EMPTY_GROUPS;
   const updatedAt = data?.updatedAt;
 
-  function update(key: string, value: string | null) {
-    const next = new URLSearchParams(params);
-    if (value === null || value === "" || value === "all") {
-      next.delete(key);
-    } else {
-      next.set(key, value);
-    }
-    setParams(next, { replace: true });
+  function update(key: "q" | "state", value: string | null) {
+    void navigate({
+      to: ".",
+      search: (prev) => {
+        const next = { ...prev };
+        if (value === null || value === "" || value === "all") {
+          delete next[key];
+        } else if (key === "q") {
+          next.q = value;
+        } else if (STATES.includes(value as (typeof STATES)[number])) {
+          next.state = value as (typeof STATES)[number];
+        }
+        return next;
+      },
+      replace: true,
+      resetScroll: false,
+    });
   }
 
   const rows = useMemo(() => {
@@ -162,7 +171,7 @@ export function ConsumerGroupsPage() {
             : undefined
         }
         defaultSort={{ id: "lag", direction: "desc" }}
-        onRowClick={(group) => navigate(clusterPath(cluster, "groups", group.id))}
+        onRowClick={(group) => hrefNavigate(clusterPath(cluster, "groups", group.id))}
         fill
       />
     </div>

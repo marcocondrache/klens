@@ -1,6 +1,12 @@
 import { createRootRoute, createRoute, createRouter, redirect } from "@tanstack/react-router";
 
 import App from "@/App";
+import {
+  parseGroupsSearch,
+  parseLoginSearch,
+  parseSchemasSearch,
+  parseTopicsSearch,
+} from "@/lib/route-search";
 import { AppLayout } from "@/routes/app-layout";
 import { ConsumerGroupPage } from "@/routes/group-detail";
 import { ConsumerGroupsPage } from "@/routes/groups";
@@ -52,6 +58,7 @@ const indexRoute = createRoute({
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/login",
+  validateSearch: parseLoginSearch,
   component: LoginPage,
 });
 
@@ -73,6 +80,7 @@ const clusterIndexRoute = createRoute({
 const topicsRoute = createRoute({
   getParentRoute: () => clusterRoute,
   path: "topics",
+  validateSearch: parseTopicsSearch,
   component: TopicsPage,
 });
 
@@ -85,6 +93,7 @@ const topicRoute = createRoute({
 const groupsRoute = createRoute({
   getParentRoute: () => clusterRoute,
   path: "groups",
+  validateSearch: parseGroupsSearch,
   component: ConsumerGroupsPage,
 });
 
@@ -97,6 +106,7 @@ const groupRoute = createRoute({
 const schemasRoute = createRoute({
   getParentRoute: () => clusterRoute,
   path: "schemas",
+  validateSearch: parseSchemasSearch,
   component: SchemasPage,
 });
 
