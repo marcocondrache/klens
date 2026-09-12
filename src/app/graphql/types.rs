@@ -4,6 +4,24 @@ use juniper::{GraphQLEnum, GraphQLInputObject, GraphQLObject};
 use crate::config::SecurityProtocol as ConfigSecurityProtocol;
 use crate::kafka::model as domain;
 
+/// Generate a `From` between two enums whose variants have the same names.
+///
+/// The variants are listed rather than inferred so the generated `match` stays
+/// exhaustive: a new variant on the source enum fails to compile until it is
+/// added here. Enums whose variant names differ (`ConfigSource`) stay
+/// hand-written.
+macro_rules! from_same_variants {
+    ($src:ty => $dst:ty { $($variant:ident),+ $(,)? }) => {
+        impl From<$src> for $dst {
+            fn from(value: $src) -> Self {
+                match value {
+                    $( <$src>::$variant => Self::$variant, )+
+                }
+            }
+        }
+    };
+}
+
 #[derive(GraphQLEnum, Clone, Copy)]
 pub(super) enum ClusterStatus {
     Healthy,
@@ -19,16 +37,12 @@ pub(super) enum SecurityProtocol {
     SaslSsl,
 }
 
-impl From<ConfigSecurityProtocol> for SecurityProtocol {
-    fn from(value: ConfigSecurityProtocol) -> Self {
-        match value {
-            ConfigSecurityProtocol::Plaintext => Self::Plaintext,
-            ConfigSecurityProtocol::Ssl => Self::Ssl,
-            ConfigSecurityProtocol::SaslPlaintext => Self::SaslPlaintext,
-            ConfigSecurityProtocol::SaslSsl => Self::SaslSsl,
-        }
-    }
-}
+from_same_variants!(ConfigSecurityProtocol => SecurityProtocol {
+    Plaintext,
+    Ssl,
+    SaslPlaintext,
+    SaslSsl,
+});
 
 #[derive(GraphQLObject)]
 pub(super) struct Cluster {
@@ -75,15 +89,7 @@ impl From<domain::ClusterOverview> for Cluster {
     }
 }
 
-impl From<domain::ClusterHealth> for ClusterStatus {
-    fn from(health: domain::ClusterHealth) -> Self {
-        match health {
-            domain::ClusterHealth::Healthy => Self::Healthy,
-            domain::ClusterHealth::Degraded => Self::Degraded,
-            domain::ClusterHealth::Offline => Self::Offline,
-        }
-    }
-}
+from_same_variants!(domain::ClusterHealth => ClusterStatus { Healthy, Degraded, Offline });
 
 #[derive(GraphQLObject)]
 pub(super) struct Broker {
@@ -250,15 +256,7 @@ impl From<domain::Partition> for Partition {
     }
 }
 
-impl From<domain::CleanupPolicy> for CleanupPolicy {
-    fn from(policy: domain::CleanupPolicy) -> Self {
-        match policy {
-            domain::CleanupPolicy::Delete => Self::Delete,
-            domain::CleanupPolicy::Compact => Self::Compact,
-            domain::CleanupPolicy::CompactDelete => Self::CompactDelete,
-        }
-    }
-}
+from_same_variants!(domain::CleanupPolicy => CleanupPolicy { Delete, Compact, CompactDelete });
 
 #[derive(GraphQLEnum, Clone, Copy)]
 #[allow(clippy::enum_variant_names)]
@@ -371,17 +369,13 @@ impl From<domain::ConsumerGroup> for ConsumerGroup {
     }
 }
 
-impl From<domain::GroupState> for ConsumerGroupState {
-    fn from(state: domain::GroupState) -> Self {
-        match state {
-            domain::GroupState::Stable => Self::Stable,
-            domain::GroupState::Empty => Self::Empty,
-            domain::GroupState::PreparingRebalance => Self::PreparingRebalance,
-            domain::GroupState::CompletingRebalance => Self::CompletingRebalance,
-            domain::GroupState::Dead => Self::Dead,
-        }
-    }
-}
+from_same_variants!(domain::GroupState => ConsumerGroupState {
+    Stable,
+    Empty,
+    PreparingRebalance,
+    CompletingRebalance,
+    Dead,
+});
 
 impl From<domain::GroupMember> for ConsumerGroupMember {
     fn from(member: domain::GroupMember) -> Self {
@@ -498,14 +492,7 @@ impl TryFrom<RecordQuery> for domain::RecordQuery {
     }
 }
 
-impl From<RecordOrder> for domain::RecordOrder {
-    fn from(order: RecordOrder) -> Self {
-        match order {
-            RecordOrder::Newest => Self::Newest,
-            RecordOrder::Oldest => Self::Oldest,
-        }
-    }
-}
+from_same_variants!(RecordOrder => domain::RecordOrder { Newest, Oldest });
 
 impl From<domain::Record> for TopicRecord {
     fn from(record: domain::Record) -> Self {
@@ -543,17 +530,7 @@ impl From<domain::RecordHeader> for RecordHeader {
     }
 }
 
-impl From<domain::Compression> for Compression {
-    fn from(compression: domain::Compression) -> Self {
-        match compression {
-            domain::Compression::None => Self::None,
-            domain::Compression::Gzip => Self::Gzip,
-            domain::Compression::Snappy => Self::Snappy,
-            domain::Compression::Lz4 => Self::Lz4,
-            domain::Compression::Zstd => Self::Zstd,
-        }
-    }
-}
+from_same_variants!(domain::Compression => Compression { None, Gzip, Snappy, Lz4, Zstd });
 
 #[derive(GraphQLObject)]
 pub(super) struct ThroughputPoint {
@@ -598,15 +575,7 @@ pub(super) enum SchemaType {
     Protobuf,
 }
 
-impl From<domain::SchemaType> for SchemaType {
-    fn from(schema_type: domain::SchemaType) -> Self {
-        match schema_type {
-            domain::SchemaType::Avro => Self::Avro,
-            domain::SchemaType::Json => Self::Json,
-            domain::SchemaType::Protobuf => Self::Protobuf,
-        }
-    }
-}
+from_same_variants!(domain::SchemaType => SchemaType { Avro, Json, Protobuf });
 
 #[derive(GraphQLEnum, Clone, Copy)]
 pub(super) enum SchemaCompatibility {
@@ -616,16 +585,12 @@ pub(super) enum SchemaCompatibility {
     None,
 }
 
-impl From<domain::SchemaCompatibility> for SchemaCompatibility {
-    fn from(compatibility: domain::SchemaCompatibility) -> Self {
-        match compatibility {
-            domain::SchemaCompatibility::Backward => Self::Backward,
-            domain::SchemaCompatibility::Forward => Self::Forward,
-            domain::SchemaCompatibility::Full => Self::Full,
-            domain::SchemaCompatibility::None => Self::None,
-        }
-    }
-}
+from_same_variants!(domain::SchemaCompatibility => SchemaCompatibility {
+    Backward,
+    Forward,
+    Full,
+    None,
+});
 
 #[derive(GraphQLObject)]
 pub(super) struct SchemaSubject {
@@ -686,16 +651,7 @@ pub(super) struct SearchResults {
     pub schema_registry_error: Option<String>,
 }
 
-impl From<domain::SearchKind> for SearchResultKind {
-    fn from(kind: domain::SearchKind) -> Self {
-        match kind {
-            domain::SearchKind::Topic => Self::Topic,
-            domain::SearchKind::Group => Self::Group,
-            domain::SearchKind::Node => Self::Node,
-            domain::SearchKind::Subject => Self::Subject,
-        }
-    }
-}
+from_same_variants!(domain::SearchKind => SearchResultKind { Topic, Group, Node, Subject });
 
 #[cfg(test)]
 mod tests {
