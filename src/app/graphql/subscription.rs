@@ -12,8 +12,6 @@ type TopicRateStream = BoxStream<'static, FieldResult<Vec<TopicRate>>>;
 type ConsumerGroupStream = BoxStream<'static, FieldResult<ConsumerGroup>>;
 type CatalogUpdatedStream = BoxStream<'static, FieldResult<CatalogUpdated>>;
 
-/// Shared samples must be [`Clone`], which [`FieldError`] is not, so failures
-/// travel as a message and are rebuilt per subscriber.
 type Sample<T> = Result<T, String>;
 
 #[derive(Default)]
