@@ -14,7 +14,7 @@ import * as types from "./graphql";
  */
 type Documents = {
   "\n  fragment ClusterFields on Cluster {\n    name\n    label\n    clusterId\n    bootstrapServers\n    securityProtocol\n    status\n    brokerCount\n    topicCount\n    partitionCount\n    consumerGroupCount\n    underReplicatedPartitions\n    offlinePartitions\n    messageCount\n  }\n": typeof types.ClusterFieldsFragmentDoc;
-  "\n  fragment BrokerFields on Broker {\n    id\n    host\n    port\n    rack\n    controller\n    partitionCount\n    leaderCount\n    logDirSizeBytes\n    bytesInPerSec\n    bytesOutPerSec\n  }\n": typeof types.BrokerFieldsFragmentDoc;
+  "\n  fragment BrokerFields on Broker {\n    id\n    host\n    port\n    rack\n    controller\n    partitionCount\n    leaderCount\n  }\n": typeof types.BrokerFieldsFragmentDoc;
   "\n  fragment PartitionFields on Partition {\n    id\n    leader\n    replicas\n    isr\n    lowWatermark\n    highWatermark\n    sizeBytes\n  }\n": typeof types.PartitionFieldsFragmentDoc;
   "\n  fragment TopicFields on Topic {\n    name\n    internal\n    partitions {\n      ...PartitionFields\n    }\n    partitionCount\n    replicationFactor\n    messageCount\n    sizeBytes\n    cleanupPolicy\n    retentionMs\n    consumerGroups\n    bytesInPerSec\n    messagesPerSec\n    underReplicated\n  }\n": typeof types.TopicFieldsFragmentDoc;
   "\n  fragment TopicListFields on Topic {\n    name\n    internal\n    partitionCount\n    replicationFactor\n    messageCount\n    sizeBytes\n    cleanupPolicy\n    retentionMs\n    consumerGroups\n    bytesInPerSec\n    messagesPerSec\n    underReplicated\n  }\n": typeof types.TopicListFieldsFragmentDoc;
@@ -55,7 +55,7 @@ type Documents = {
 const documents: Documents = {
   "\n  fragment ClusterFields on Cluster {\n    name\n    label\n    clusterId\n    bootstrapServers\n    securityProtocol\n    status\n    brokerCount\n    topicCount\n    partitionCount\n    consumerGroupCount\n    underReplicatedPartitions\n    offlinePartitions\n    messageCount\n  }\n":
     types.ClusterFieldsFragmentDoc,
-  "\n  fragment BrokerFields on Broker {\n    id\n    host\n    port\n    rack\n    controller\n    partitionCount\n    leaderCount\n    logDirSizeBytes\n    bytesInPerSec\n    bytesOutPerSec\n  }\n":
+  "\n  fragment BrokerFields on Broker {\n    id\n    host\n    port\n    rack\n    controller\n    partitionCount\n    leaderCount\n  }\n":
     types.BrokerFieldsFragmentDoc,
   "\n  fragment PartitionFields on Partition {\n    id\n    leader\n    replicas\n    isr\n    lowWatermark\n    highWatermark\n    sizeBytes\n  }\n":
     types.PartitionFieldsFragmentDoc,
@@ -141,7 +141,7 @@ export function graphql(
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(
-  source: "\n  fragment BrokerFields on Broker {\n    id\n    host\n    port\n    rack\n    controller\n    partitionCount\n    leaderCount\n    logDirSizeBytes\n    bytesInPerSec\n    bytesOutPerSec\n  }\n",
+  source: "\n  fragment BrokerFields on Broker {\n    id\n    host\n    port\n    rack\n    controller\n    partitionCount\n    leaderCount\n  }\n",
 ): typeof import("./graphql").BrokerFieldsFragmentDoc;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.

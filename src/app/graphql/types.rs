@@ -92,9 +92,6 @@ pub(super) struct Broker {
     pub controller: bool,
     pub partition_count: i32,
     pub leader_count: i32,
-    pub log_dir_size_bytes: f64,
-    pub bytes_in_per_sec: f64,
-    pub bytes_out_per_sec: f64,
 }
 
 impl From<domain::Broker> for Broker {
@@ -107,9 +104,6 @@ impl From<domain::Broker> for Broker {
             controller: broker.controller,
             partition_count: broker.partition_count,
             leader_count: broker.leader_count,
-            log_dir_size_bytes: 0.0,
-            bytes_in_per_sec: 0.0,
-            bytes_out_per_sec: 0.0,
         }
     }
 }
