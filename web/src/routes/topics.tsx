@@ -1,6 +1,8 @@
 import { useMemo, type ReactNode } from "react";
 import { AlertTriangleIcon } from "lucide-react";
-import { useNavigate, useSearchParams } from "@/lib/navigation";
+import { useNavigate, useSearch } from "@tanstack/react-router";
+
+import { useNavigate as useHrefNavigate } from "@/lib/navigation";
 
 import { Label } from "@/components/ui/label";
 import {
@@ -116,26 +118,39 @@ const columns = columnHelper.columns([
 
 export function TopicsPage() {
   const cluster = useClusterName();
-  const navigate = useNavigate();
-  const [params, setParams] = useSearchParams();
-
-  const term = params.get("q") ?? "";
-  const showInternal = params.get("internal") === "1";
-  const policy = params.get("policy") ?? "all";
+  const hrefNavigate = useHrefNavigate();
+  const navigate = useNavigate({ from: "/cluster/$cluster/topics" });
+  const {
+    q: term = "",
+    internal,
+    policy = "all",
+  } = useSearch({ from: "/cluster/$cluster/topics" });
+  const showInternal = internal === "1";
 
   const { data, isPending, isError, error } = useTopics(cluster);
   const now = useNow();
   const topics = data?.topics ?? EMPTY_TOPICS;
   const updatedAt = data?.updatedAt;
 
-  function update(key: string, value: string | null) {
-    const next = new URLSearchParams(params);
-    if (value === null || value === "" || value === "all") {
-      next.delete(key);
-    } else {
-      next.set(key, value);
-    }
-    setParams(next, { replace: true });
+  function update(key: "q" | "internal" | "policy", value: string | null) {
+    void navigate({
+      to: ".",
+      search: (prev) => {
+        const next = { ...prev };
+        if (value === null || value === "" || value === "all") {
+          delete next[key];
+        } else if (key === "internal") {
+          next.internal = "1";
+        } else if (key === "policy") {
+          if (value === "delete" || value === "compact") next.policy = value;
+        } else {
+          next.q = value;
+        }
+        return next;
+      },
+      replace: true,
+      resetScroll: false,
+    });
   }
 
   const rows = useMemo(() => {
@@ -202,7 +217,7 @@ export function TopicsPage() {
           isError ? (error instanceof Error ? error.message : "Failed to load topics.") : undefined
         }
         defaultSort={{ id: "name", direction: "asc" }}
-        onRowClick={(topic) => navigate(clusterPath(cluster, "topics", topic.name))}
+        onRowClick={(topic) => hrefNavigate(clusterPath(cluster, "topics", topic.name))}
         fill
       />
     </div>
