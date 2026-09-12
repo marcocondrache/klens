@@ -107,9 +107,6 @@ type Broker {
   controller: Boolean!
   partitionCount: Int!
   leaderCount: Int!
-  logDirSizeBytes: Float!
-  bytesInPerSec: Float!
-  bytesOutPerSec: Float!
 }
 
 type CatalogHealth {

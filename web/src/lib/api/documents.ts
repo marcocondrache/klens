@@ -27,9 +27,6 @@ export const BrokerFields = graphql(`
     controller
     partitionCount
     leaderCount
-    logDirSizeBytes
-    bytesInPerSec
-    bytesOutPerSec
   }
 `);
 

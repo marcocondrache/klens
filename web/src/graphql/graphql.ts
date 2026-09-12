@@ -72,9 +72,6 @@ export type BrokerFieldsFragment = {
   controller: boolean;
   partitionCount: number;
   leaderCount: number;
-  logDirSizeBytes: number;
-  bytesInPerSec: number;
-  bytesOutPerSec: number;
 };
 
 export type PartitionFieldsFragment = {
@@ -319,9 +316,6 @@ export type BrokersQuery = {
     controller: boolean;
     partitionCount: number;
     leaderCount: number;
-    logDirSizeBytes: number;
-    bytesInPerSec: number;
-    bytesOutPerSec: number;
   }>;
 };
 
@@ -339,9 +333,6 @@ export type BrokerQuery = {
     controller: boolean;
     partitionCount: number;
     leaderCount: number;
-    logDirSizeBytes: number;
-    bytesInPerSec: number;
-    bytesOutPerSec: number;
   } | null;
 };
 
@@ -679,9 +670,6 @@ export const BrokerFieldsFragmentDoc = new TypedDocumentString(
   controller
   partitionCount
   leaderCount
-  logDirSizeBytes
-  bytesInPerSec
-  bytesOutPerSec
 }
     `,
   { fragmentName: "BrokerFields" },
@@ -1021,9 +1009,6 @@ export const BrokersDocument = new TypedDocumentString(`
   controller
   partitionCount
   leaderCount
-  logDirSizeBytes
-  bytesInPerSec
-  bytesOutPerSec
 }`) as unknown as TypedDocumentString<BrokersQuery, BrokersQueryVariables>;
 export const BrokerDocument = new TypedDocumentString(`
     query Broker($cluster: String!, $id: Int!) {
@@ -1039,9 +1024,6 @@ export const BrokerDocument = new TypedDocumentString(`
   controller
   partitionCount
   leaderCount
-  logDirSizeBytes
-  bytesInPerSec
-  bytesOutPerSec
 }`) as unknown as TypedDocumentString<BrokerQuery, BrokerQueryVariables>;
 export const BrokerConfigsDocument = new TypedDocumentString(`
     query BrokerConfigs($cluster: String!, $id: Int!) {
