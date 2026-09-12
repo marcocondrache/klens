@@ -24,8 +24,14 @@ pub enum KafkaError {
     #[error("invalid record query: {0}")]
     InvalidQuery(#[from] QueryError),
 
+    #[error("kafka request timed out")]
+    Timeout,
+
     #[error("kafka admin request failed: {0}")]
     Admin(String),
+
+    #[error("failed to describe broker {id} configs: {message}")]
+    BrokerConfigs { id: i32, message: String },
 
     #[error("schema registry request failed for cluster '{cluster}': {message}")]
     SchemaRegistry { cluster: String, message: String },
@@ -51,4 +57,26 @@ pub enum QueryError {
 
     #[error("invalid filter: {0}")]
     InvalidFilter(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn timeout_display_is_not_an_admin_prefix() {
+        assert_eq!(KafkaError::Timeout.to_string(), "kafka request timed out");
+    }
+
+    #[test]
+    fn broker_configs_display_names_the_broker() {
+        let error = KafkaError::BrokerConfigs {
+            id: 3,
+            message: "Broker: Not authorized".into(),
+        };
+        assert_eq!(
+            error.to_string(),
+            "failed to describe broker 3 configs: Broker: Not authorized"
+        );
+    }
 }
