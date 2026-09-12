@@ -45,7 +45,9 @@ export function CommandPalette({
   const [term, setTerm] = useState("");
 
   const { data: clusters = [] } = useClusters();
-  const { data: results = [], isFetching } = useSearch(cluster, term);
+  const { data: search, isFetching, isError, error } = useSearch(cluster, term);
+  const results = search?.hits ?? [];
+  const registryError = search?.schemaRegistryError;
 
   function changeOpen(next: boolean) {
     if (!next) setTerm("");
@@ -77,7 +79,15 @@ export function CommandPalette({
           placeholder="Search topics, groups, brokers and schemas…"
         />
         <CommandList className="max-h-[min(24rem,50vh)]">
-          {term && !isFetching && results.length === 0 ? (
+          {term && isError ? (
+            <CommandEmpty>{error instanceof Error ? error.message : "Search failed."}</CommandEmpty>
+          ) : null}
+
+          {term && registryError ? (
+            <p className="px-2 py-1.5 text-sm text-destructive">{registryError}</p>
+          ) : null}
+
+          {term && !isFetching && !isError && results.length === 0 && !registryError ? (
             <CommandEmpty>No matches in {cluster}.</CommandEmpty>
           ) : null}
 

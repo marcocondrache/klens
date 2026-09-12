@@ -2,7 +2,7 @@ use juniper::{FieldResult, graphql_object};
 
 use super::types::{
     Broker, CatalogHealth, Cluster, ClusterCatalog, ConfigEntry, ConsumerGroup, RecordPage,
-    RecordQuery, SchemaSubject, SearchResult, ThroughputPoint, Topic,
+    RecordQuery, SchemaSubject, SearchResult, SearchResults, ThroughputPoint, Topic,
 };
 use crate::AppState;
 
@@ -159,13 +159,12 @@ impl Query {
         context: &AppState,
         cluster: String,
         term: String,
-    ) -> FieldResult<Vec<SearchResult>> {
-        Ok(context
-            .catalog_search(&cluster, &term)
-            .await?
-            .into_iter()
-            .map(SearchResult::from)
-            .collect())
+    ) -> FieldResult<SearchResults> {
+        let search = context.catalog_search(&cluster, &term).await?;
+        Ok(SearchResults {
+            hits: search.hits.into_iter().map(SearchResult::from).collect(),
+            schema_registry_error: search.schema_registry_error,
+        })
     }
 }
 

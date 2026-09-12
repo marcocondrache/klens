@@ -601,7 +601,10 @@ export type SearchQueryVariables = Exact<{
 }>;
 
 export type SearchQuery = {
-  search: Array<{ kind: SearchResultKind; id: string; label: string; detail: string }>;
+  search: {
+    schemaRegistryError: string | null;
+    hits: Array<{ kind: SearchResultKind; id: string; label: string; detail: string }>;
+  };
 };
 
 export type TopicRatesSubscriptionVariables = Exact<{
@@ -1320,7 +1323,10 @@ fragment TopicRecordFields on TopicRecord {
 export const SearchDocument = new TypedDocumentString(`
     query Search($cluster: String!, $term: String!) {
   search(cluster: $cluster, term: $term) {
-    ...SearchResultFields
+    hits {
+      ...SearchResultFields
+    }
+    schemaRegistryError
   }
 }
     fragment SearchResultFields on SearchResult {

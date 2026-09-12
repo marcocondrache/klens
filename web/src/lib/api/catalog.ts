@@ -177,10 +177,13 @@ export function useSearch(cluster: string, term: string) {
     queryKey: keys.search(cluster, term),
     queryFn: async () => {
       const { search } = await execute(searchQuery, { cluster, term });
-      return search.map((result) => ({
-        ...result,
-        href: searchHref(cluster, result),
-      }));
+      return {
+        hits: search.hits.map((result) => ({
+          ...result,
+          href: searchHref(cluster, result),
+        })),
+        schemaRegistryError: search.schemaRegistryError,
+      };
     },
     enabled: term.trim().length > 0,
   });
