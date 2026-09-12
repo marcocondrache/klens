@@ -1,3 +1,8 @@
+//! Raw broker group state and the assembled product type.
+//!
+//! [`GroupSnapshot`] is what the broker reports. [`ConsumerGroup`] joins
+//! watermarks so each offset has lag.
+
 use std::collections::HashMap;
 
 /// Raw consumer group state as reported by the broker, before end offsets are
