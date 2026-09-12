@@ -23,6 +23,7 @@ import {
   formatDuration,
   formatNumber,
   formatRate,
+  formatRelative,
   formatThroughput,
   isCompactCleanup,
 } from "@/lib/format";
@@ -34,6 +35,8 @@ const POLICY_ITEMS = [
   { value: "delete", label: "delete" },
   { value: "compact", label: "compact" },
 ] as const;
+
+const EMPTY_TOPICS: Topic[] = [];
 
 function emptyMetric(value: number, display: ReactNode) {
   if (value === 0) {
@@ -133,7 +136,9 @@ export function TopicsPage() {
   const showInternal = params.get("internal") === "1";
   const policy = params.get("policy") ?? "all";
 
-  const { data: topics = [], isPending, isError, error } = useTopics(cluster);
+  const { data, isPending, isError, error } = useTopics(cluster);
+  const topics = data?.topics ?? EMPTY_TOPICS
+  const updatedAt = data?.updatedAt;
 
   function update(key: string, value: string | null) {
     const next = new URLSearchParams(params);
@@ -159,7 +164,12 @@ export function TopicsPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
-      <PageHeader title="Topics" description={`${rows.length} of ${topics.length} topics`} />
+      <PageHeader
+        title="Topics"
+        description={`${rows.length} of ${topics.length} topics${
+          updatedAt ? ` · Updated ${formatRelative(updatedAt)}` : ""
+        }`}
+      />
 
       <div className="flex flex-wrap items-center gap-3">
         <SearchField

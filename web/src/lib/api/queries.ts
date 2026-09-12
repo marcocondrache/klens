@@ -146,12 +146,20 @@ export function useBrokerConfigs(cluster: string, id: number) {
   });
 }
 
+export type TopicsCache = {
+  topics: Topic[];
+  updatedAt: string;
+};
+
 export function useTopics(cluster: string) {
   return useQuery({
     queryKey: keys.topics(cluster),
     queryFn: async () => {
-      const { topics } = await execute(topicsQuery, { cluster });
-      return topics;
+      const { clusterCatalog } = await execute(topicsQuery, { cluster });
+      return {
+        topics: clusterCatalog.topics,
+        updatedAt: clusterCatalog.updatedAt,
+      } satisfies TopicsCache;
     },
   });
 }
@@ -276,8 +284,13 @@ export function useTopicRates(cluster: string) {
       const rates = new Map(data.topicRates.map((rate) => [rate.name, rate]));
       const timestamp = new Date().toISOString();
 
-      queryClient.setQueryData(keys.topics(cluster), (topics: Topic[] | undefined) =>
-        topics?.map((topic) => withRate(topic, rates.get(topic.name))),
+      queryClient.setQueryData(keys.topics(cluster), (current: TopicsCache | undefined) =>
+        current
+          ? {
+              ...current,
+              topics: current.topics.map((topic) => withRate(topic, rates.get(topic.name))),
+            }
+          : current,
       );
 
       for (const rate of data.topicRates) {

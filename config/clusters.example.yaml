@@ -7,6 +7,10 @@
 bind: 0.0.0.0:8080
 log_level: info
 
+# Seconds between background topic-catalog polls for each cluster (default 5).
+# GraphQL topics/clusterCatalog read the last snapshot instead of hitting Kafka.
+# catalog_poll_interval_secs: 5
+
 clusters:
   - name: local
     bootstrap_servers:

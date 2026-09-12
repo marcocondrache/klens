@@ -34,6 +34,8 @@ pub enum ConfigError {
     InvalidCluster { cluster: String, reason: String },
     #[error("invalid authentication configuration: {reason}")]
     InvalidAuth { reason: String },
+    #[error("invalid configuration: {reason}")]
+    Invalid { reason: String },
 }
 
 impl ConfigError {
@@ -46,6 +48,12 @@ impl ConfigError {
 
     pub(crate) fn invalid_auth(reason: impl Into<String>) -> Self {
         Self::InvalidAuth {
+            reason: reason.into(),
+        }
+    }
+
+    pub(crate) fn invalid(reason: impl Into<String>) -> Self {
+        Self::Invalid {
             reason: reason.into(),
         }
     }
@@ -62,6 +70,13 @@ pub struct Config {
     pub clusters: Vec<ClusterConfig>,
     #[serde(default)]
     pub auth: Option<AuthConfig>,
+    /// Seconds between background topic-catalog polls for each cluster.
+    #[serde(default = "default_catalog_poll_interval_secs")]
+    pub catalog_poll_interval_secs: u64,
+}
+
+fn default_catalog_poll_interval_secs() -> u64 {
+    5
 }
 
 fn default_log_level() -> String {
@@ -104,7 +119,17 @@ impl Config {
         Ok(config)
     }
 
+    pub fn catalog_poll_interval(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(self.catalog_poll_interval_secs)
+    }
+
     pub fn validate(&self) -> Result<(), ConfigError> {
+        if self.catalog_poll_interval_secs < 1 {
+            return Err(ConfigError::invalid(
+                "catalog_poll_interval_secs must be at least 1",
+            ));
+        }
+
         if let Some(auth) = &self.auth {
             auth.oidc.validate()?;
         }
@@ -406,7 +431,46 @@ mod tests {
         assert_eq!(config.bind, "0.0.0.0:8080".parse().unwrap());
         assert_eq!(config.log_level, "info");
         assert_eq!(config.auth, None);
+        assert_eq!(config.catalog_poll_interval_secs, 5);
+        assert_eq!(
+            config.catalog_poll_interval(),
+            std::time::Duration::from_secs(5)
+        );
         config.validate().unwrap();
+    }
+
+    #[test]
+    fn parses_catalog_poll_interval() {
+        let config = parse_config(
+            "
+            bind: 127.0.0.1:8080
+            catalog_poll_interval_secs: 15
+            clusters: []
+            ",
+        )
+        .unwrap();
+
+        assert_eq!(config.catalog_poll_interval_secs, 15);
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn rejects_zero_catalog_poll_interval() {
+        let config = parse_config(
+            "
+            bind: 127.0.0.1:8080
+            catalog_poll_interval_secs: 0
+            clusters: []
+            ",
+        )
+        .unwrap();
+
+        let error = config.validate().unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("catalog_poll_interval_secs must be at least 1")
+        );
     }
 
     #[test]
