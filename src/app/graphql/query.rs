@@ -78,14 +78,12 @@ impl Query {
         cluster: String,
         name: String,
     ) -> FieldResult<Option<Topic>> {
-        match context.query.topic(&cluster, &name).await {
-            Ok(topic) => {
-                let rate = context.rates.topic_rate(&cluster, &topic.name);
-                Ok(Some(Topic::from_domain(topic, rate.as_ref())))
-            }
-            Err(crate::kafka::KafkaError::UnknownTopic { .. }) => Ok(None),
-            Err(error) => Err(error.into()),
-        }
+        Ok(context
+            .catalog_snapshot(&cluster)
+            .await?
+            .topic(&name)
+            .cloned()
+            .map(|topic| map_topic(context, &cluster, topic)))
     }
 
     async fn topic_configs(
@@ -200,11 +198,13 @@ impl Query {
 fn map_topics(context: &AppState, cluster: &str, topics: Vec<crate::kafka::Topic>) -> Vec<Topic> {
     topics
         .into_iter()
-        .map(|topic| {
-            let rate = context.rates.topic_rate(cluster, &topic.name);
-            Topic::from_domain(topic, rate.as_ref())
-        })
+        .map(|topic| map_topic(context, cluster, topic))
         .collect()
+}
+
+fn map_topic(context: &AppState, cluster: &str, topic: crate::kafka::Topic) -> Topic {
+    let rate = context.rates.topic_rate(cluster, &topic.name);
+    Topic::from_domain(topic, rate.as_ref())
 }
 
 fn map_groups(groups: Vec<crate::kafka::ConsumerGroup>) -> Vec<ConsumerGroup> {
