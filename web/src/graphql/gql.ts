@@ -16,16 +16,16 @@ type Documents = {
   "\n  fragment ClusterFields on Cluster {\n    name\n    label\n    clusterId\n    bootstrapServers\n    securityProtocol\n    status\n    brokerCount\n    topicCount\n    partitionCount\n    consumerGroupCount\n    underReplicatedPartitions\n    offlinePartitions\n    messageCount\n  }\n": typeof types.ClusterFieldsFragmentDoc;
   "\n  fragment BrokerFields on Broker {\n    id\n    host\n    port\n    rack\n    controller\n    partitionCount\n    leaderCount\n  }\n": typeof types.BrokerFieldsFragmentDoc;
   "\n  fragment PartitionFields on Partition {\n    id\n    leader\n    replicas\n    isr\n    lowWatermark\n    highWatermark\n  }\n": typeof types.PartitionFieldsFragmentDoc;
-  "\n  fragment TopicFields on Topic {\n    name\n    internal\n    partitions {\n      ...PartitionFields\n    }\n    partitionCount\n    replicationFactor\n    messageCount\n    cleanupPolicy\n    retentionMs\n    consumerGroups\n    bytesInPerSec\n    messagesPerSec\n    underReplicated\n  }\n": typeof types.TopicFieldsFragmentDoc;
-  "\n  fragment TopicListFields on Topic {\n    name\n    internal\n    partitionCount\n    replicationFactor\n    messageCount\n    cleanupPolicy\n    retentionMs\n    consumerGroups\n    bytesInPerSec\n    messagesPerSec\n    underReplicated\n  }\n": typeof types.TopicListFieldsFragmentDoc;
+  "\n  fragment TopicFields on Topic {\n    name\n    internal\n    partitions {\n      ...PartitionFields\n    }\n    partitionCount\n    replicationFactor\n    messageCount\n    cleanupPolicy\n    retentionMs\n    consumerGroups\n    messagesPerSec\n    underReplicated\n  }\n": typeof types.TopicFieldsFragmentDoc;
+  "\n  fragment TopicListFields on Topic {\n    name\n    internal\n    partitionCount\n    replicationFactor\n    messageCount\n    cleanupPolicy\n    retentionMs\n    consumerGroups\n    messagesPerSec\n    underReplicated\n  }\n": typeof types.TopicListFieldsFragmentDoc;
   "\n  fragment ConfigEntryFields on ConfigEntry {\n    name\n    value\n    source\n    readOnly\n    sensitive\n  }\n": typeof types.ConfigEntryFieldsFragmentDoc;
   "\n  fragment MemberAssignmentFields on MemberAssignment {\n    topic\n    partitions\n  }\n": typeof types.MemberAssignmentFieldsFragmentDoc;
   "\n  fragment ConsumerGroupMemberFields on ConsumerGroupMember {\n    id\n    clientId\n    host\n    assignments {\n      ...MemberAssignmentFields\n    }\n  }\n": typeof types.ConsumerGroupMemberFieldsFragmentDoc;
   "\n  fragment GroupOffsetFields on GroupOffset {\n    topic\n    partition\n    currentOffset\n    endOffset\n    lag\n    memberId\n  }\n": typeof types.GroupOffsetFieldsFragmentDoc;
   "\n  fragment ConsumerGroupFields on ConsumerGroup {\n    id\n    state\n    protocol\n    coordinator\n    members {\n      ...ConsumerGroupMemberFields\n    }\n    memberCount\n    topics\n    lag\n    offsets {\n      ...GroupOffsetFields\n    }\n    assignedPartitionCount\n  }\n": typeof types.ConsumerGroupFieldsFragmentDoc;
   "\n  fragment GroupListFields on ConsumerGroup {\n    id\n    state\n    protocol\n    coordinator\n    memberCount\n    topics\n    lag\n    assignedPartitionCount\n  }\n": typeof types.GroupListFieldsFragmentDoc;
-  "\n  fragment ThroughputPointFields on ThroughputPoint {\n    timestamp\n    bytesIn\n    bytesOut\n    messages\n  }\n": typeof types.ThroughputPointFieldsFragmentDoc;
-  "\n  fragment TopicRateFields on TopicRate {\n    name\n    messagesPerSec\n    bytesInPerSec\n  }\n": typeof types.TopicRateFieldsFragmentDoc;
+  "\n  fragment ThroughputPointFields on ThroughputPoint {\n    timestamp\n    messages\n  }\n": typeof types.ThroughputPointFieldsFragmentDoc;
+  "\n  fragment TopicRateFields on TopicRate {\n    name\n    messagesPerSec\n  }\n": typeof types.TopicRateFieldsFragmentDoc;
   "\n  fragment ConsumerGroupLagFields on ConsumerGroup {\n    id\n    lag\n    offsets {\n      ...GroupOffsetFields\n    }\n  }\n": typeof types.ConsumerGroupLagFieldsFragmentDoc;
   "\n  fragment SchemaSubjectFields on SchemaSubject {\n    subject\n    id\n    type\n    latestVersion\n    versions\n    compatibility\n    schema\n  }\n": typeof types.SchemaSubjectFieldsFragmentDoc;
   "\n  fragment RecordHeaderFields on RecordHeader {\n    key\n    value\n  }\n": typeof types.RecordHeaderFieldsFragmentDoc;
@@ -59,9 +59,9 @@ const documents: Documents = {
     types.BrokerFieldsFragmentDoc,
   "\n  fragment PartitionFields on Partition {\n    id\n    leader\n    replicas\n    isr\n    lowWatermark\n    highWatermark\n  }\n":
     types.PartitionFieldsFragmentDoc,
-  "\n  fragment TopicFields on Topic {\n    name\n    internal\n    partitions {\n      ...PartitionFields\n    }\n    partitionCount\n    replicationFactor\n    messageCount\n    cleanupPolicy\n    retentionMs\n    consumerGroups\n    bytesInPerSec\n    messagesPerSec\n    underReplicated\n  }\n":
+  "\n  fragment TopicFields on Topic {\n    name\n    internal\n    partitions {\n      ...PartitionFields\n    }\n    partitionCount\n    replicationFactor\n    messageCount\n    cleanupPolicy\n    retentionMs\n    consumerGroups\n    messagesPerSec\n    underReplicated\n  }\n":
     types.TopicFieldsFragmentDoc,
-  "\n  fragment TopicListFields on Topic {\n    name\n    internal\n    partitionCount\n    replicationFactor\n    messageCount\n    cleanupPolicy\n    retentionMs\n    consumerGroups\n    bytesInPerSec\n    messagesPerSec\n    underReplicated\n  }\n":
+  "\n  fragment TopicListFields on Topic {\n    name\n    internal\n    partitionCount\n    replicationFactor\n    messageCount\n    cleanupPolicy\n    retentionMs\n    consumerGroups\n    messagesPerSec\n    underReplicated\n  }\n":
     types.TopicListFieldsFragmentDoc,
   "\n  fragment ConfigEntryFields on ConfigEntry {\n    name\n    value\n    source\n    readOnly\n    sensitive\n  }\n":
     types.ConfigEntryFieldsFragmentDoc,
@@ -75,9 +75,9 @@ const documents: Documents = {
     types.ConsumerGroupFieldsFragmentDoc,
   "\n  fragment GroupListFields on ConsumerGroup {\n    id\n    state\n    protocol\n    coordinator\n    memberCount\n    topics\n    lag\n    assignedPartitionCount\n  }\n":
     types.GroupListFieldsFragmentDoc,
-  "\n  fragment ThroughputPointFields on ThroughputPoint {\n    timestamp\n    bytesIn\n    bytesOut\n    messages\n  }\n":
+  "\n  fragment ThroughputPointFields on ThroughputPoint {\n    timestamp\n    messages\n  }\n":
     types.ThroughputPointFieldsFragmentDoc,
-  "\n  fragment TopicRateFields on TopicRate {\n    name\n    messagesPerSec\n    bytesInPerSec\n  }\n":
+  "\n  fragment TopicRateFields on TopicRate {\n    name\n    messagesPerSec\n  }\n":
     types.TopicRateFieldsFragmentDoc,
   "\n  fragment ConsumerGroupLagFields on ConsumerGroup {\n    id\n    lag\n    offsets {\n      ...GroupOffsetFields\n    }\n  }\n":
     types.ConsumerGroupLagFieldsFragmentDoc,
@@ -153,13 +153,13 @@ export function graphql(
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(
-  source: "\n  fragment TopicFields on Topic {\n    name\n    internal\n    partitions {\n      ...PartitionFields\n    }\n    partitionCount\n    replicationFactor\n    messageCount\n    cleanupPolicy\n    retentionMs\n    consumerGroups\n    bytesInPerSec\n    messagesPerSec\n    underReplicated\n  }\n",
+  source: "\n  fragment TopicFields on Topic {\n    name\n    internal\n    partitions {\n      ...PartitionFields\n    }\n    partitionCount\n    replicationFactor\n    messageCount\n    cleanupPolicy\n    retentionMs\n    consumerGroups\n    messagesPerSec\n    underReplicated\n  }\n",
 ): typeof import("./graphql").TopicFieldsFragmentDoc;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(
-  source: "\n  fragment TopicListFields on Topic {\n    name\n    internal\n    partitionCount\n    replicationFactor\n    messageCount\n    cleanupPolicy\n    retentionMs\n    consumerGroups\n    bytesInPerSec\n    messagesPerSec\n    underReplicated\n  }\n",
+  source: "\n  fragment TopicListFields on Topic {\n    name\n    internal\n    partitionCount\n    replicationFactor\n    messageCount\n    cleanupPolicy\n    retentionMs\n    consumerGroups\n    messagesPerSec\n    underReplicated\n  }\n",
 ): typeof import("./graphql").TopicListFieldsFragmentDoc;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
@@ -201,13 +201,13 @@ export function graphql(
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(
-  source: "\n  fragment ThroughputPointFields on ThroughputPoint {\n    timestamp\n    bytesIn\n    bytesOut\n    messages\n  }\n",
+  source: "\n  fragment ThroughputPointFields on ThroughputPoint {\n    timestamp\n    messages\n  }\n",
 ): typeof import("./graphql").ThroughputPointFieldsFragmentDoc;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(
-  source: "\n  fragment TopicRateFields on TopicRate {\n    name\n    messagesPerSec\n    bytesInPerSec\n  }\n",
+  source: "\n  fragment TopicRateFields on TopicRate {\n    name\n    messagesPerSec\n  }\n",
 ): typeof import("./graphql").TopicRateFieldsFragmentDoc;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.

@@ -92,7 +92,6 @@ export type TopicFieldsFragment = {
   cleanupPolicy: CleanupPolicy;
   retentionMs: number;
   consumerGroups: Array<string>;
-  bytesInPerSec: number;
   messagesPerSec: number;
   underReplicated: boolean;
   partitions: Array<{
@@ -114,7 +113,6 @@ export type TopicListFieldsFragment = {
   cleanupPolicy: CleanupPolicy;
   retentionMs: number;
   consumerGroups: Array<string>;
-  bytesInPerSec: number;
   messagesPerSec: number;
   underReplicated: boolean;
 };
@@ -181,18 +179,9 @@ export type GroupListFieldsFragment = {
   assignedPartitionCount: number;
 };
 
-export type ThroughputPointFieldsFragment = {
-  timestamp: string;
-  bytesIn: number;
-  bytesOut: number;
-  messages: number;
-};
+export type ThroughputPointFieldsFragment = { timestamp: string; messages: number };
 
-export type TopicRateFieldsFragment = {
-  name: string;
-  messagesPerSec: number;
-  bytesInPerSec: number;
-};
+export type TopicRateFieldsFragment = { name: string; messagesPerSec: number };
 
 export type ConsumerGroupLagFieldsFragment = {
   id: string;
@@ -362,7 +351,6 @@ export type TopicsQuery = {
       cleanupPolicy: CleanupPolicy;
       retentionMs: number;
       consumerGroups: Array<string>;
-      bytesInPerSec: number;
       messagesPerSec: number;
       underReplicated: boolean;
     }>;
@@ -384,7 +372,6 @@ export type TopicQuery = {
     cleanupPolicy: CleanupPolicy;
     retentionMs: number;
     consumerGroups: Array<string>;
-    bytesInPerSec: number;
     messagesPerSec: number;
     underReplicated: boolean;
     partitions: Array<{
@@ -503,12 +490,7 @@ export type TopicThroughputQueryVariables = Exact<{
 }>;
 
 export type TopicThroughputQuery = {
-  topicThroughput: Array<{
-    timestamp: string;
-    bytesIn: number;
-    bytesOut: number;
-    messages: number;
-  }>;
+  topicThroughput: Array<{ timestamp: string; messages: number }>;
 };
 
 export type GroupLagHistoryQueryVariables = Exact<{
@@ -517,12 +499,7 @@ export type GroupLagHistoryQueryVariables = Exact<{
 }>;
 
 export type GroupLagHistoryQuery = {
-  groupLagHistory: Array<{
-    timestamp: string;
-    bytesIn: number;
-    bytesOut: number;
-    messages: number;
-  }>;
+  groupLagHistory: Array<{ timestamp: string; messages: number }>;
 };
 
 export type SchemaSubjectsQueryVariables = Exact<{
@@ -581,7 +558,7 @@ export type TopicRatesSubscriptionVariables = Exact<{
 }>;
 
 export type TopicRatesSubscription = {
-  topicRates: Array<{ name: string; messagesPerSec: number; bytesInPerSec: number }>;
+  topicRates: Array<{ name: string; messagesPerSec: number }>;
 };
 
 export type ConsumerGroupLagSubscriptionVariables = Exact<{
@@ -691,7 +668,6 @@ export const TopicFieldsFragmentDoc = new TypedDocumentString(
   cleanupPolicy
   retentionMs
   consumerGroups
-  bytesInPerSec
   messagesPerSec
   underReplicated
 }
@@ -716,7 +692,6 @@ export const TopicListFieldsFragmentDoc = new TypedDocumentString(
   cleanupPolicy
   retentionMs
   consumerGroups
-  bytesInPerSec
   messagesPerSec
   underReplicated
 }
@@ -832,8 +807,6 @@ export const ThroughputPointFieldsFragmentDoc = new TypedDocumentString(
   `
     fragment ThroughputPointFields on ThroughputPoint {
   timestamp
-  bytesIn
-  bytesOut
   messages
 }
     `,
@@ -844,7 +817,6 @@ export const TopicRateFieldsFragmentDoc = new TypedDocumentString(
     fragment TopicRateFields on TopicRate {
   name
   messagesPerSec
-  bytesInPerSec
 }
     `,
   { fragmentName: "TopicRateFields" },
@@ -1041,7 +1013,6 @@ export const TopicsDocument = new TypedDocumentString(`
   cleanupPolicy
   retentionMs
   consumerGroups
-  bytesInPerSec
   messagesPerSec
   underReplicated
 }`) as unknown as TypedDocumentString<TopicsQuery, TopicsQueryVariables>;
@@ -1071,7 +1042,6 @@ fragment TopicFields on Topic {
   cleanupPolicy
   retentionMs
   consumerGroups
-  bytesInPerSec
   messagesPerSec
   underReplicated
 }`) as unknown as TypedDocumentString<TopicQuery, TopicQueryVariables>;
@@ -1199,8 +1169,6 @@ export const TopicThroughputDocument = new TypedDocumentString(`
 }
     fragment ThroughputPointFields on ThroughputPoint {
   timestamp
-  bytesIn
-  bytesOut
   messages
 }`) as unknown as TypedDocumentString<TopicThroughputQuery, TopicThroughputQueryVariables>;
 export const GroupLagHistoryDocument = new TypedDocumentString(`
@@ -1211,8 +1179,6 @@ export const GroupLagHistoryDocument = new TypedDocumentString(`
 }
     fragment ThroughputPointFields on ThroughputPoint {
   timestamp
-  bytesIn
-  bytesOut
   messages
 }`) as unknown as TypedDocumentString<GroupLagHistoryQuery, GroupLagHistoryQueryVariables>;
 export const SchemaSubjectsDocument = new TypedDocumentString(`
@@ -1282,7 +1248,6 @@ export const TopicRatesDocument = new TypedDocumentString(`
     fragment TopicRateFields on TopicRate {
   name
   messagesPerSec
-  bytesInPerSec
 }`) as unknown as TypedDocumentString<TopicRatesSubscription, TopicRatesSubscriptionVariables>;
 export const ConsumerGroupLagDocument = new TypedDocumentString(`
     subscription ConsumerGroupLag($cluster: String!, $id: String!) {

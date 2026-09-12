@@ -28,10 +28,6 @@ export function formatBytes(value: number, digits = 1) {
   return `${scaled.toFixed(exponent === 0 ? 0 : digits)} ${BYTE_UNITS[exponent]}`;
 }
 
-export function formatRate(bytesPerSecond: number) {
-  return `${formatBytes(bytesPerSecond)}/s`;
-}
-
 export function formatCount(value: number, digits = 1) {
   if (Math.abs(value) < 1000) return String(value);
 

@@ -6,20 +6,7 @@ use crate::environment::HISTORY_LEN;
 #[derive(Debug, Clone, PartialEq)]
 pub struct ThroughputPoint {
     pub timestamp: f64,
-    pub bytes_in: f64,
-    pub bytes_out: f64,
     pub messages: f64,
-}
-
-impl ThroughputPoint {
-    pub fn messages(timestamp: f64, messages: f64) -> Self {
-        Self {
-            timestamp,
-            bytes_in: 0.0,
-            bytes_out: 0.0,
-            messages,
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -117,7 +104,10 @@ mod tests {
     fn series_keeps_the_most_recent_window() {
         let mut series = Series::default();
         for index in 0..=*HISTORY_LEN {
-            series.push(ThroughputPoint::messages(index as f64, index as f64));
+            series.push(ThroughputPoint {
+                timestamp: index as f64,
+                messages: index as f64,
+            });
         }
 
         let points = series.to_vec();
@@ -135,8 +125,20 @@ mod tests {
     #[test]
     fn keys_hold_independent_series() {
         let mut map = SeriesMap::default();
-        map.push("orders", ThroughputPoint::messages(1_000.0, 10.0));
-        map.push("payments", ThroughputPoint::messages(1_000.0, 20.0));
+        map.push(
+            "orders",
+            ThroughputPoint {
+                timestamp: 1_000.0,
+                messages: 10.0,
+            },
+        );
+        map.push(
+            "payments",
+            ThroughputPoint {
+                timestamp: 1_000.0,
+                messages: 20.0,
+            },
+        );
 
         assert_eq!(map.history("orders")[0].messages, 10.0);
         assert_eq!(map.history("payments")[0].messages, 20.0);
@@ -145,8 +147,20 @@ mod tests {
     #[test]
     fn retain_drops_keys_that_are_no_longer_live() {
         let mut map = SeriesMap::default();
-        map.push("orders", ThroughputPoint::messages(1_000.0, 10.0));
-        map.push("payments", ThroughputPoint::messages(1_000.0, 20.0));
+        map.push(
+            "orders",
+            ThroughputPoint {
+                timestamp: 1_000.0,
+                messages: 10.0,
+            },
+        );
+        map.push(
+            "payments",
+            ThroughputPoint {
+                timestamp: 1_000.0,
+                messages: 20.0,
+            },
+        );
 
         map.retain(|key| key == "orders");
 
@@ -157,11 +171,35 @@ mod tests {
     #[test]
     fn bounded_map_evicts_the_least_recently_sampled_series() {
         let mut map = SeriesMap::bounded(2);
-        map.push("orders", ThroughputPoint::messages(1_000.0, 1.0));
-        map.push("payments", ThroughputPoint::messages(2_000.0, 2.0));
-        map.push("orders", ThroughputPoint::messages(3_000.0, 3.0));
+        map.push(
+            "orders",
+            ThroughputPoint {
+                timestamp: 1_000.0,
+                messages: 1.0,
+            },
+        );
+        map.push(
+            "payments",
+            ThroughputPoint {
+                timestamp: 2_000.0,
+                messages: 2.0,
+            },
+        );
+        map.push(
+            "orders",
+            ThroughputPoint {
+                timestamp: 3_000.0,
+                messages: 3.0,
+            },
+        );
 
-        map.push("shipments", ThroughputPoint::messages(4_000.0, 4.0));
+        map.push(
+            "shipments",
+            ThroughputPoint {
+                timestamp: 4_000.0,
+                messages: 4.0,
+            },
+        );
 
         assert!(map.history("payments").is_empty());
         assert_eq!(map.history("orders").len(), 2);
@@ -171,8 +209,20 @@ mod tests {
     #[test]
     fn resampling_an_existing_key_does_not_evict() {
         let mut map = SeriesMap::bounded(1);
-        map.push("orders", ThroughputPoint::messages(1_000.0, 1.0));
-        map.push("orders", ThroughputPoint::messages(2_000.0, 2.0));
+        map.push(
+            "orders",
+            ThroughputPoint {
+                timestamp: 1_000.0,
+                messages: 1.0,
+            },
+        );
+        map.push(
+            "orders",
+            ThroughputPoint {
+                timestamp: 2_000.0,
+                messages: 2.0,
+            },
+        );
 
         assert_eq!(map.history("orders").len(), 2);
     }
