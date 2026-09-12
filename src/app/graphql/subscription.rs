@@ -12,8 +12,6 @@ type TopicRateStream = BoxStream<'static, FieldResult<Vec<TopicRate>>>;
 type ConsumerGroupStream = BoxStream<'static, FieldResult<ConsumerGroup>>;
 type CatalogUpdatedStream = BoxStream<'static, FieldResult<CatalogUpdated>>;
 
-/// Shared samples must be [`Clone`], which [`FieldError`] is not, so failures
-/// travel as a message and are rebuilt per subscriber.
 type Sample<T> = Result<T, String>;
 
 #[derive(Default)]
@@ -57,7 +55,7 @@ impl Subscription {
     }
 
     async fn catalog_updated(context: &AppState, cluster: String) -> CatalogUpdatedStream {
-        let mut updates = context.catalog.subscribe_updates(&cluster);
+        let mut updates = context.catalog_updates(&cluster);
         let _ = updates.borrow_and_update();
 
         Box::pin(stream::unfold(
@@ -83,8 +81,7 @@ fn reported<T>(sample: Sample<T>) -> FieldResult<T> {
 
 async fn sample_topic_rates(state: &AppState, cluster: &str) -> Sample<Vec<TopicRate>> {
     Ok(state
-        .rates
-        .topic_rates(cluster)
+        .series_topic_rates(cluster)
         .into_iter()
         .map(TopicRate::from)
         .collect())
@@ -96,11 +93,10 @@ async fn sample_consumer_group_lag(
     id: &str,
 ) -> Sample<ConsumerGroup> {
     let group = state
-        .query
-        .consumer_group(cluster, id)
+        .live_consumer_group(cluster, id)
         .await
         .map_err(|error| error.to_string())?;
-    state.lags.observe(cluster, id, group.lag);
+    state.series_observe_group_lag(cluster, id, group.lag);
     Ok(ConsumerGroup::from(group))
 }
 
