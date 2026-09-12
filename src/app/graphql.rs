@@ -561,6 +561,99 @@ mod tests {
         );
     }
 
+    fn cached_group(id: &str, topic: &str, lag: i64) -> crate::kafka::ConsumerGroup {
+        crate::kafka::ConsumerGroup {
+            id: id.into(),
+            state: crate::kafka::model::GroupState::Stable,
+            protocol: "range".into(),
+            coordinator: 1,
+            members: vec![crate::kafka::model::GroupMember {
+                id: "member-1".into(),
+                client_id: "client".into(),
+                host: "127.0.0.1".into(),
+                assignments: vec![crate::kafka::model::MemberAssignment {
+                    topic: topic.into(),
+                    partitions: vec![0],
+                }],
+            }],
+            topics: vec![topic.into()],
+            lag,
+            offsets: vec![crate::kafka::model::GroupOffset {
+                topic: topic.into(),
+                partition: 0,
+                current_offset: 1,
+                end_offset: 1 + lag,
+                lag,
+                member_id: Some("member-1".into()),
+            }],
+        }
+    }
+
+    #[tokio::test]
+    async fn groups_and_catalog_read_the_in_memory_snapshot() {
+        let state = state();
+        state.catalog.store(
+            "local",
+            crate::kafka::ClusterSnapshot::from_catalog(
+                Vec::new(),
+                vec![
+                    cached_group("from-cache", "orders", 9),
+                    cached_group("other", "payments", 2),
+                ],
+            ),
+        );
+
+        let schema = schema();
+        let (value, errors) = execute(
+            r#"{
+                consumerGroups(cluster: "local") { id lag topics }
+                matching: consumerGroups(cluster: "local", topic: "orders") { id }
+                none: consumerGroups(cluster: "local", topic: "missing") { id }
+                consumerGroup(cluster: "local", id: "from-cache") {
+                    id
+                    state
+                    protocol
+                    coordinator
+                    lag
+                    members { id clientId host }
+                    offsets { topic partition lag memberId }
+                }
+                missing: consumerGroup(cluster: "local", id: "ghost") { id }
+                clusterCatalog(cluster: "local") { consumerGroups { id } }
+            }"#,
+            None,
+            &schema,
+            &Variables::new(),
+            &state,
+        )
+        .await
+        .unwrap();
+
+        assert!(errors.is_empty());
+        assert_eq!(
+            serde_json::to_value(value).unwrap(),
+            serde_json::json!({
+                "consumerGroups": [
+                    { "id": "from-cache", "lag": 9.0, "topics": ["orders"] },
+                    { "id": "other", "lag": 2.0, "topics": ["payments"] }
+                ],
+                "matching": [{ "id": "from-cache" }],
+                "none": [],
+                "consumerGroup": {
+                    "id": "from-cache",
+                    "state": "STABLE",
+                    "protocol": "range",
+                    "coordinator": 1,
+                    "lag": 9.0,
+                    "members": [{ "id": "member-1", "clientId": "client", "host": "127.0.0.1" }],
+                    "offsets": [{ "topic": "orders", "partition": 0, "lag": 9.0, "memberId": "member-1" }]
+                },
+                "missing": null,
+                "clusterCatalog": { "consumerGroups": [{ "id": "from-cache" }, { "id": "other" }] }
+            })
+        );
+    }
+
     #[tokio::test]
     async fn cluster_catalog_exposes_updated_at_after_fallback() {
         let state = state();
@@ -590,6 +683,10 @@ mod tests {
         assert_eq!(
             state.catalog.topic("local", "orders.created").unwrap().name,
             "orders.created"
+        );
+        assert_eq!(
+            state.catalog.group("local", "order-processor").unwrap().id,
+            "order-processor"
         );
     }
 

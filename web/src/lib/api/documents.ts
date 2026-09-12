@@ -272,6 +272,17 @@ export const consumerGroupsQuery = graphql(`
   }
 `);
 
+export const groupsCatalogQuery = graphql(`
+  query GroupsCatalog($cluster: String!) {
+    clusterCatalog(cluster: $cluster) {
+      updatedAt
+      consumerGroups {
+        ...ConsumerGroupFields
+      }
+    }
+  }
+`);
+
 export const consumerGroupQuery = graphql(`
   query ConsumerGroup($cluster: String!, $id: String!) {
     consumerGroup(cluster: $cluster, id: $id) {

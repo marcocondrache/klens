@@ -13,7 +13,7 @@ import { Stat, StatGrid } from "@/components/stat";
 import { GroupStateBadge, Pill } from "@/components/status";
 import { lagTone } from "@/lib/tone";
 import {
-  useConsumerGroups,
+  useTopicConsumerGroups,
   useTopic,
   useTopicConfigs,
   useTopicThroughput,
@@ -122,7 +122,7 @@ export function TopicPage() {
     tab === "config",
   );
   const { data: throughput = [] } = useTopicThroughput(cluster, topicName);
-  const { data: groups = [], isPending: groupsPending } = useConsumerGroups(
+  const { data: groups = [], isPending: groupsPending } = useTopicConsumerGroups(
     cluster,
     topicName,
     tab === "groups",
