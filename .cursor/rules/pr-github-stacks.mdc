@@ -1,0 +1,36 @@
+---
+description: Dependent PRs use GitHub native stacked pull requests via gh stack
+alwaysApply: true
+---
+
+# Stacked pull requests
+
+When splitting work into **dependent** PRs (a "stack"), use **GitHub native stacked pull requests** — not ad-hoc base-branch targeting, Graphite/spr/gt, or a single mega-PR.
+
+## Workflow
+
+Prefer the `gh stack` extension (`gh extension install github/gh-stack`; needs `gh` ≥ 2.90):
+
+1. `gh stack init` — first layer off trunk (usually `main`)
+2. Commit on the current layer; `gh stack add <branch>` (or `gh stack add -Am "..."`) for the next layer
+3. `gh stack submit` — push and open/link PRs so each targets the layer below
+4. `gh stack view` / `gh stack push` as needed; let GitHub rebase/retarget after merges
+
+Keep each layer a focused, reviewable diff. Merge **bottom-up** (or merge a mid/top PR to land everything below it). Same-repo only; cross-fork stacks are unsupported.
+
+## Do / don't
+
+```text
+# ✅ GOOD
+gh stack init
+# …commits on layer 1…
+gh stack add feat/consumers-drawer
+# …commits on layer 2…
+gh stack submit
+
+# ❌ BAD — manual "stack" without GitHub stacks
+gh pr create --base feat/layer-1   # sibling branch, no stack link
+# ❌ BAD — one huge PR, or Graphite/gt/spr when native stacks apply
+```
+
+PR title/body rules still apply per layer (`pr-conventional-commits`).
