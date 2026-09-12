@@ -15,7 +15,7 @@ import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
 import { useNow } from "@/hooks/use-now";
-import { useCatalogHealth, useSchemaSubjects } from "@/lib/api/queries";
+import { useCatalogHealth, useSchemaSubjects } from "@/lib/api/catalog";
 import { useClusterName } from "@/lib/clusters";
 import { formatRelative } from "@/lib/format";
 import type { SchemaSubject } from "@/lib/api/types";

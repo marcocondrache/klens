@@ -16,7 +16,7 @@ import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
 import { useNow } from "@/hooks/use-now";
-import { useTopics } from "@/lib/api/queries";
+import { useTopics } from "@/lib/api/catalog";
 import { clusterPath, useClusterName } from "@/lib/clusters";
 import {
   formatBytes,

@@ -12,13 +12,9 @@ import { Sparkline } from "@/components/charts";
 import { Stat, StatGrid } from "@/components/stat";
 import { GroupStateBadge, Pill } from "@/components/status";
 import { lagTone } from "@/lib/tone";
-import {
-  useTopicConsumerGroups,
-  useTopic,
-  useTopicConfigs,
-  useTopicRates,
-  useTopicThroughput,
-} from "@/lib/api/queries";
+import { useTopic, useTopicConsumerGroups } from "@/lib/api/catalog";
+import { useTopicConfigs, useTopicThroughput } from "@/lib/api/live";
+import { useTopicRates } from "@/lib/api/subscriptions";
 import { clusterPath, useClusterName } from "@/lib/clusters";
 import {
   formatBytes,

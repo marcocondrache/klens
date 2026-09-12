@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { StatusDot } from "@/components/status";
 import { useClusterName } from "@/lib/clusters";
-import { useClusters } from "@/lib/api/queries";
+import { useClusters } from "@/lib/api/catalog";
 import { findSection } from "@/lib/sections";
 import type { ClusterStatus } from "@/lib/api/types";
 
