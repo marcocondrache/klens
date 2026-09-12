@@ -23,6 +23,11 @@ pub use auth::AuthState;
 
 use graphql::Samplers;
 
+pub(crate) struct CatalogSearch {
+    pub hits: Vec<SearchHit>,
+    pub schema_registry_error: Option<String>,
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub(crate) query: Arc<QueryEngine<dyn ClusterSession>>,
@@ -182,10 +187,23 @@ impl AppState {
         &self,
         cluster: &str,
         term: &str,
-    ) -> Result<Vec<SearchHit>, KafkaError> {
+    ) -> Result<CatalogSearch, KafkaError> {
         let snapshot = self.catalog_snapshot(cluster).await?;
-        let subjects = self.subject_snapshot(cluster).await.unwrap_or_default();
-        Ok(snapshot.search(term, subjects.as_ref()))
+        let (subjects, schema_registry_error) = match self.subject_snapshot(cluster).await {
+            Ok(subjects) => (subjects, None),
+            Err(error) => {
+                tracing::warn!(
+                    cluster,
+                    %error,
+                    "schema registry unavailable during search"
+                );
+                (Arc::new(Vec::new()), Some(error.to_string()))
+            }
+        };
+        Ok(CatalogSearch {
+            hits: snapshot.search(term, subjects.as_ref()),
+            schema_registry_error,
+        })
     }
 
     pub(crate) async fn live_records(

@@ -224,7 +224,7 @@ type Query {
   groupLagHistory(cluster: String!, id: String!): [ThroughputPoint!]!
   schemaSubjects(cluster: String!): [SchemaSubject!]!
   records(query: RecordQuery!): RecordPage!
-  search(cluster: String!, term: String!): [SearchResult!]!
+  search(cluster: String!, term: String!): SearchResults!
 }
 
 type RecordHeader {
@@ -253,6 +253,11 @@ type SearchResult {
   id: String!
   label: String!
   detail: String!
+}
+
+type SearchResults {
+  hits: [SearchResult!]!
+  schemaRegistryError: String
 }
 
 type Subscription {
