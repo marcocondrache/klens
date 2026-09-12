@@ -113,7 +113,6 @@ type Broker {
 }
 
 type CatalogHealth {
-  cluster: String!
   updatedAt: DateTime
   subjectsUpdatedAt: DateTime
   lastError: String
