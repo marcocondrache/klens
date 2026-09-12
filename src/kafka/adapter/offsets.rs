@@ -36,6 +36,15 @@ pub fn list_offsets<S: AsRef<str>>(
         .collect())
 }
 
+pub fn partition_time_offsets(
+    listed: HashMap<(String, i32), Option<i64>>,
+) -> HashMap<i32, Option<i64>> {
+    listed
+        .into_iter()
+        .map(|((_, partition), offset)| (partition, offset))
+        .collect()
+}
+
 /// Partitions missing a high offset are dropped, and inverted pairs are
 /// skipped rather than reported as negative message counts.
 pub fn merge_watermark_offsets(
@@ -62,6 +71,19 @@ pub fn merge_watermark_offsets(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn partition_time_offsets_keeps_only_what_the_broker_returned() {
+        let listed = HashMap::from([
+            (("orders".into(), 0), Some(12)),
+            (("orders".into(), 2), None),
+        ]);
+
+        let offsets = partition_time_offsets(listed);
+        assert_eq!(offsets.get(&0), Some(&Some(12)));
+        assert_eq!(offsets.get(&2), Some(&None));
+        assert!(!offsets.contains_key(&1));
+    }
 
     #[test]
     fn merge_watermark_offsets_keeps_empty_skips_inverted_and_partial() {

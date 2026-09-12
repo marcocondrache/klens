@@ -22,8 +22,8 @@ use rdkafka::topic_partition_list::Offset;
 
 use crate::config::ClusterConfig;
 use crate::environment::{
-    ADMIN_TIMEOUT, BLOCKING_SLACK, CONSUME_TIMEOUT, INTERNAL_GROUP_PREFIX, METADATA_TIMEOUT,
-    METADATA_TTL, WATERMARK_TIMEOUT,
+    ADMIN_TIMEOUT, CONSUME_TIMEOUT, INTERNAL_GROUP_PREFIX, METADATA_TIMEOUT, METADATA_TTL,
+    WATERMARK_TIMEOUT,
 };
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
@@ -38,7 +38,7 @@ use crate::kafka::watermarks::Watermarks;
 
 use blocking::{into_kafka_error, run_blocking, snapshot_cache};
 use factory::ClientFactory;
-use offsets::{list_offsets, merge_watermark_offsets};
+use offsets::{list_offsets, merge_watermark_offsets, partition_time_offsets};
 
 use crate::kafka::registry::client::SchemaRegistryClient;
 use crate::kafka::registry::decode::PayloadDecoder;
@@ -116,7 +116,7 @@ impl ClusterHandle {
         admin: Arc<AdminClient<DefaultClientContext>>,
         timeout: Duration,
     ) -> Result<MetadataSnapshot, KafkaError> {
-        run_blocking(timeout + timeout + *BLOCKING_SLACK, move || {
+        run_blocking(timeout + timeout, move || {
             let client = admin.inner();
             let metadata = client.fetch_metadata(None, timeout)?;
             let cluster_id = client.fetch_cluster_id(timeout);
@@ -129,7 +129,7 @@ impl ClusterHandle {
         admin: Arc<AdminClient<DefaultClientContext>>,
         timeout: Duration,
     ) -> Result<Vec<GroupSnapshot>, KafkaError> {
-        run_blocking(timeout + *BLOCKING_SLACK, move || {
+        run_blocking(timeout, move || {
             let list = admin.inner().fetch_group_list(None, timeout)?;
             Ok(list
                 .groups()
@@ -147,7 +147,7 @@ impl ClusterHandle {
         id: &str,
     ) -> Result<Option<GroupSnapshot>, KafkaError> {
         let id = id.to_owned();
-        run_blocking(timeout + *BLOCKING_SLACK, move || {
+        run_blocking(timeout, move || {
             let list = admin.inner().fetch_group_list(Some(&id), timeout)?;
             Ok(list
                 .groups()
@@ -193,7 +193,7 @@ impl ClusterSession for ClusterHandle {
         let group_id = self.offsets_group_id();
         let timeout = self.timeouts.watermark;
 
-        run_blocking(timeout + timeout + *BLOCKING_SLACK, move || {
+        run_blocking(timeout + timeout, move || {
             let consumer = factory.offset_consumer(&group_id)?;
             let beginning = list_offsets(&consumer, &partitions, Offset::Beginning, timeout)?;
             let end = list_offsets(&consumer, &partitions, Offset::End, timeout)?;
@@ -219,25 +219,14 @@ impl ClusterSession for ClusterHandle {
         let partitions = partitions.to_vec();
         let timeout = self.timeouts.watermark;
 
-        run_blocking(timeout + *BLOCKING_SLACK, move || {
+        run_blocking(timeout, move || {
             let consumer = factory.offset_consumer(&group_id)?;
             let pairs: Vec<(&str, i32)> = partitions
                 .iter()
                 .map(|partition| (topic.as_str(), *partition))
                 .collect();
             let listed = list_offsets(&consumer, &pairs, Offset::Offset(timestamp), timeout)?;
-
-            let mut out: HashMap<i32, Option<i64>> = partitions
-                .iter()
-                .copied()
-                .map(|partition| (partition, None))
-                .collect();
-            out.extend(
-                listed
-                    .into_iter()
-                    .map(|((_, partition), offset)| (partition, offset)),
-            );
-            Ok(out)
+            Ok(partition_time_offsets(listed))
         })
         .await
     }
@@ -327,7 +316,7 @@ impl ClusterSession for ClusterHandle {
         let partitions = partitions.to_vec();
         let timeout = self.timeouts.admin;
 
-        run_blocking(timeout + *BLOCKING_SLACK, move || {
+        run_blocking(timeout, move || {
             use rdkafka::consumer::Consumer;
             use rdkafka::topic_partition_list::TopicPartitionList;
 
