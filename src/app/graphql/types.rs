@@ -116,7 +116,6 @@ pub(super) struct Partition {
     pub isr: Vec<i32>,
     pub low_watermark: f64,
     pub high_watermark: f64,
-    pub size_bytes: f64,
 }
 
 #[derive(GraphQLEnum, Clone, Copy)]
@@ -185,7 +184,6 @@ pub(super) struct Topic {
     pub partition_count: i32,
     pub replication_factor: i32,
     pub message_count: f64,
-    pub size_bytes: f64,
     pub cleanup_policy: CleanupPolicy,
     pub retention_ms: f64,
     pub consumer_groups: Vec<String>,
@@ -217,7 +215,6 @@ impl From<domain::Topic> for Topic {
             partitions: topic.partitions.into_iter().map(Partition::from).collect(),
             replication_factor: topic.replication_factor,
             message_count: topic.message_count as f64,
-            size_bytes: 0.0,
             cleanup_policy: CleanupPolicy::from(topic.cleanup_policy),
             retention_ms: topic.retention_ms as f64,
             consumer_groups: topic.consumer_groups,
@@ -237,7 +234,6 @@ impl From<domain::Partition> for Partition {
             isr: partition.isr,
             low_watermark: partition.low_watermark as f64,
             high_watermark: partition.high_watermark as f64,
-            size_bytes: 0.0,
         }
     }
 }

@@ -19,7 +19,6 @@ import { useNow } from "@/hooks/use-now";
 import { useTopics } from "@/lib/api/catalog";
 import { clusterPath, useClusterName } from "@/lib/clusters";
 import {
-  formatBytes,
   formatCleanupPolicy,
   formatDuration,
   formatNumber,
@@ -85,12 +84,6 @@ const columns = columnHelper.columns([
     header: "Messages",
     meta: { align: "right" },
     cell: ({ getValue }) => emptyMetric(getValue(), formatNumber(getValue())),
-  }),
-  columnHelper.accessor("sizeBytes", {
-    id: "size",
-    header: "Size",
-    meta: { align: "right" },
-    cell: ({ getValue }) => emptyMetric(getValue(), formatBytes(getValue())),
   }),
   columnHelper.accessor("messagesPerSec", {
     id: "rate",

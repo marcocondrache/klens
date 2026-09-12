@@ -38,7 +38,6 @@ export const PartitionFields = graphql(`
     isr
     lowWatermark
     highWatermark
-    sizeBytes
   }
 `);
 
@@ -52,7 +51,6 @@ export const TopicFields = graphql(`
     partitionCount
     replicationFactor
     messageCount
-    sizeBytes
     cleanupPolicy
     retentionMs
     consumerGroups
@@ -69,7 +67,6 @@ export const TopicListFields = graphql(`
     partitionCount
     replicationFactor
     messageCount
-    sizeBytes
     cleanupPolicy
     retentionMs
     consumerGroups
