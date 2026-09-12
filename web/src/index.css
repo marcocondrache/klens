@@ -190,3 +190,16 @@
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
 }
+
+.json-block pre.th-code {
+  overflow: visible;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  font: inherit;
+}
+
+.json-block-wrap pre.th-code {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
