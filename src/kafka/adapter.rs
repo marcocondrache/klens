@@ -1,3 +1,8 @@
+//! rdkafka [`super::session::ClusterSession`] implementation.
+//!
+//! `ClusterHandle` is the live session. Blocking librdkafka calls run through
+//! [`blocking`].
+
 mod blocking;
 mod browse;
 mod client_config;

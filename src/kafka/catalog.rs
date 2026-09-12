@@ -1,3 +1,10 @@
+//! Product snapshot cache and poller.
+//!
+//! [`ClusterSnapshot`] is the assembled catalog. [`CatalogCache`] and
+//! [`SubjectCache`] hold the last good poll. [`CatalogPoller`] refreshes them.
+//! [`crate::kafka::QueryEngine::catalog_from`] builds a snapshot. This module
+//! does not.
+
 use std::collections::{BTreeSet, HashMap};
 use std::future::Future;
 use std::sync::{Arc, RwLock};
