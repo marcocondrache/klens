@@ -1,3 +1,10 @@
+//! Schema Registry types, HTTP client, and payload decode.
+//!
+//! [`SchemaSubject`] and [`RegisteredSchema`] are the domain types. `client`
+//! is the HTTP port ([`client::SchemaRegistryClient`]). `decode` turns a
+//! Confluent-framed payload into text. `protobuf` is the protobuf path
+//! inside decode.
+
 pub mod client;
 pub mod decode;
 pub mod protobuf;
