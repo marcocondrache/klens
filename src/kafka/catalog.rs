@@ -17,6 +17,7 @@ use crate::kafka::registry::SchemaSubject;
 use crate::kafka::search::{SearchHit, search_snapshot};
 use crate::kafka::session::ClusterSession;
 use crate::kafka::topic::Topic;
+use crate::kafka::topic_config::ConfigEntry;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClusterSnapshot {
@@ -81,6 +82,13 @@ impl ClusterSnapshot {
 
     pub fn search(&self, term: &str, subjects: &[SchemaSubject]) -> Vec<SearchHit> {
         search_snapshot(term, &self.topics, &self.brokers, &self.groups, subjects)
+    }
+
+    pub fn body_eq(&self, other: &Self) -> bool {
+        self.topics == other.topics
+            && self.groups == other.groups
+            && self.brokers == other.brokers
+            && self.overview == other.overview
     }
 
     pub fn groups_for_topic(&self, topic: Option<&str>) -> Vec<ConsumerGroup> {
@@ -192,6 +200,22 @@ impl SubjectCache {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct CatalogReuse {
+    pub metadata_hash: u64,
+    pub configs: HashMap<String, Vec<ConfigEntry>>,
+    pub snapshot: Option<Arc<ClusterSnapshot>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CatalogAssemble {
+    pub snapshot: ClusterSnapshot,
+    pub metadata_hash: u64,
+    pub configs: HashMap<String, Vec<ConfigEntry>>,
+    pub fetched_configs: bool,
+    pub reused_topology: bool,
+}
+
 /// Background catalog and subject tasks per configured cluster. Dropping the
 /// poller aborts them.
 pub struct CatalogPoller {
@@ -214,34 +238,66 @@ impl CatalogPoller {
         rates: RateStore,
         catalog_interval: Duration,
         subject_interval: Duration,
+        config_interval: Duration,
     ) -> Self {
         let clusters: Vec<String> = engine.names().into_iter().map(str::to_owned).collect();
         tracing::info!(
             clusters = ?clusters,
             catalog_interval_secs = catalog_interval.as_secs(),
             subject_interval_secs = subject_interval.as_secs(),
+            config_interval_secs = config_interval.as_secs(),
             "starting catalog poller"
         );
         let catalog_engine = Arc::clone(&engine);
         let catalog_rates = rates;
-        let catalog_tasks = Self::spawn_loop(
-            clusters.clone(),
-            catalog_interval,
-            "catalog",
-            move |cluster| {
+        let catalog_tasks: Vec<JoinHandle<()>> = clusters
+            .iter()
+            .cloned()
+            .map(|cluster| {
                 let engine = Arc::clone(&catalog_engine);
                 let rates = catalog_rates.clone();
-                async move {
-                    let snapshot = engine.catalog(&cluster).await?;
-                    rates.observe(&cluster, snapshot.message_counts());
-                    Ok(snapshot)
-                }
-            },
-            {
-                let catalog = catalog.clone();
-                move |cluster, snapshot| catalog.store(cluster, snapshot)
-            },
-        );
+                let cache = catalog.clone();
+                tokio::spawn(async move {
+                    let mut reuse = CatalogReuse::default();
+                    let mut last_config_fetch = None;
+                    loop {
+                        let fetch_configs = reuse.configs.is_empty()
+                            || last_config_fetch.is_none_or(|fetched_at| {
+                                tokio::time::Instant::now()
+                                    .saturating_duration_since(fetched_at)
+                                    >= config_interval
+                            });
+                        match engine
+                            .catalog_from(&cluster, Some(&reuse), fetch_configs)
+                            .await
+                        {
+                            Ok(assembled) => {
+                                if assembled.fetched_configs {
+                                    last_config_fetch = Some(tokio::time::Instant::now());
+                                }
+                                rates.observe(&cluster, assembled.snapshot.message_counts());
+                                let changed = reuse.snapshot.as_ref().is_none_or(|prev| {
+                                    !prev.body_eq(&assembled.snapshot)
+                                });
+                                reuse.metadata_hash = assembled.metadata_hash;
+                                reuse.configs = assembled.configs;
+                                if changed {
+                                    let snapshot = Arc::new(assembled.snapshot);
+                                    cache.store(cluster.clone(), Arc::clone(&snapshot));
+                                    reuse.snapshot = Some(snapshot);
+                                    tracing::debug!(cluster = %cluster, lane = "catalog", "poll updated");
+                                }
+                            }
+                            Err(error) => {
+                                tracing::warn!(cluster = %cluster, lane = "catalog", %error, "poll failed");
+                            }
+                        }
+
+                        tokio::time::sleep(catalog_interval).await;
+                    }
+                })
+            })
+            .collect();
         let subject_tasks = Self::spawn_loop(
             clusters,
             subject_interval,
@@ -650,6 +706,7 @@ mod tests {
             rates.clone(),
             Duration::from_secs(60),
             Duration::from_secs(60),
+            Duration::from_secs(60),
         );
 
         wait_until(|| cache.snapshot("local").is_some() && subjects.snapshot("local").is_some())
@@ -694,6 +751,7 @@ mod tests {
             rates.clone(),
             Duration::from_secs(5),
             Duration::from_secs(60),
+            Duration::from_secs(60),
         );
 
         wait_until(|| !rates.topic_rates("local").is_empty()).await;
@@ -708,6 +766,30 @@ mod tests {
                 .messages_per_sec,
             0.0
         );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn unchanged_catalog_poll_keeps_the_same_arc() {
+        let engine = Arc::new(QueryEngine::from_sessions(vec![FakeCluster::local()]));
+        let cache = CatalogCache::new();
+        let rates = RateStore::new();
+        let _poller = CatalogPoller::start(
+            cache.clone(),
+            SubjectCache::new(),
+            engine,
+            rates.clone(),
+            Duration::from_secs(5),
+            Duration::from_secs(60),
+            Duration::from_secs(60),
+        );
+
+        wait_until(|| cache.snapshot("local").is_some()).await;
+        let first = cache.snapshot("local").unwrap();
+
+        tokio::time::advance(Duration::from_secs(5) + Duration::from_millis(1)).await;
+        wait_until(|| rates.cluster_history("local").len() >= 2).await;
+        let second = cache.snapshot("local").unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
     }
 
     #[test]
@@ -740,6 +822,7 @@ mod tests {
             RateStore::new(),
             Duration::from_secs(60),
             Duration::from_secs(60),
+            Duration::from_secs(60),
         );
 
         wait_until(|| cache.snapshot("local").is_some()).await;
@@ -766,6 +849,7 @@ mod tests {
             subjects.clone(),
             engine,
             RateStore::new(),
+            Duration::from_secs(60),
             Duration::from_secs(60),
             Duration::from_secs(60),
         );
