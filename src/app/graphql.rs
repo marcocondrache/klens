@@ -69,6 +69,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
+    use crate::kafka::model::{SchemaCompatibility, SchemaSubject, SchemaType};
     use crate::kafka::{
         Broker, ClusterHealth, ClusterIdentity, ClusterOverview, ClusterSnapshot, FakeCluster,
         QueryEngine,
@@ -149,6 +150,18 @@ mod tests {
             under_replicated_partitions: 1,
             offline_partitions: 0,
             message_count: 0,
+        }
+    }
+
+    fn cached_subject(subject: &str) -> SchemaSubject {
+        SchemaSubject {
+            subject: subject.into(),
+            id: 9,
+            schema_type: SchemaType::Avro,
+            latest_version: 3,
+            versions: vec![3],
+            compatibility: SchemaCompatibility::Backward,
+            schema: "{\"cached\":true}".into(),
         }
     }
 
@@ -328,6 +341,150 @@ mod tests {
                 ]
             })
         );
+    }
+
+    #[tokio::test]
+    async fn schema_subjects_read_the_subject_cache() {
+        let state = state();
+        state
+            .subjects
+            .store("local", vec![cached_subject("payments.cached-value")]);
+
+        let schema = schema();
+        let (value, errors) = execute(
+            r#"{ schemaSubjects(cluster: "local") { subject id type latestVersion schema } }"#,
+            None,
+            &schema,
+            &Variables::new(),
+            &state,
+        )
+        .await
+        .unwrap();
+
+        assert!(errors.is_empty());
+        assert_eq!(
+            serde_json::to_value(value).unwrap(),
+            serde_json::json!({
+                "schemaSubjects": [{
+                    "subject": "payments.cached-value",
+                    "id": 9,
+                    "type": "AVRO",
+                    "latestVersion": 3,
+                    "schema": "{\"cached\":true}"
+                }]
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn search_reads_subjects_from_the_subject_cache() {
+        let state = state();
+        state.catalog.store(
+            "local",
+            ClusterSnapshot::assemble(
+                vec![crate::kafka::Topic {
+                    name: "payments.cached".into(),
+                    internal: false,
+                    partitions: Vec::new(),
+                    replication_factor: 1,
+                    message_count: 0,
+                    cleanup_policy: crate::kafka::model::CleanupPolicy::Delete,
+                    retention_ms: 0,
+                    consumer_groups: Vec::new(),
+                    under_replicated: false,
+                }],
+                vec![cached_group("cached-processor", "payments.cached", 1)],
+                vec![cached_broker(9, "cached-host")],
+                cached_overview("local"),
+            ),
+        );
+        state
+            .subjects
+            .store("local", vec![cached_subject("payments.cached-value")]);
+
+        let schema = schema();
+        let (value, errors) = execute(
+            r#"{
+                cached: search(cluster: "local", term: "cached") { kind id }
+                order: search(cluster: "local", term: "order") { kind id }
+            }"#,
+            None,
+            &schema,
+            &Variables::new(),
+            &state,
+        )
+        .await
+        .unwrap();
+
+        assert!(errors.is_empty());
+        assert_eq!(
+            serde_json::to_value(value).unwrap(),
+            serde_json::json!({
+                "cached": [
+                    { "kind": "TOPIC", "id": "payments.cached" },
+                    { "kind": "GROUP", "id": "cached-processor" },
+                    { "kind": "NODE", "id": "9" },
+                    { "kind": "SUBJECT", "id": "payments.cached-value" }
+                ],
+                "order": []
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn search_survives_a_failed_subject_seed() {
+        let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
+            FakeCluster::local().with_subjects_error("registry down"),
+        ])));
+        state.catalog.store(
+            "local",
+            ClusterSnapshot::assemble(
+                vec![crate::kafka::Topic {
+                    name: "payments.cached".into(),
+                    internal: false,
+                    partitions: Vec::new(),
+                    replication_factor: 1,
+                    message_count: 0,
+                    cleanup_policy: crate::kafka::model::CleanupPolicy::Delete,
+                    retention_ms: 0,
+                    consumer_groups: Vec::new(),
+                    under_replicated: false,
+                }],
+                Vec::new(),
+                Vec::new(),
+                cached_overview("local"),
+            ),
+        );
+
+        let schema = schema();
+        let (value, errors) = execute(
+            r#"{ search(cluster: "local", term: "cached") { kind id } }"#,
+            None,
+            &schema,
+            &Variables::new(),
+            &state,
+        )
+        .await
+        .unwrap();
+
+        assert!(errors.is_empty());
+        assert_eq!(
+            serde_json::to_value(value).unwrap(),
+            serde_json::json!({
+                "search": [{ "kind": "TOPIC", "id": "payments.cached" }]
+            })
+        );
+
+        let (_, subject_errors) = execute(
+            r#"{ schemaSubjects(cluster: "local") { subject } }"#,
+            None,
+            &schema,
+            &Variables::new(),
+            &state,
+        )
+        .await
+        .unwrap();
+        assert!(!subject_errors.is_empty());
     }
 
     #[tokio::test]
