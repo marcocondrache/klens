@@ -214,10 +214,6 @@ impl AppState {
         self.rates.topic_rates(cluster)
     }
 
-    pub(crate) fn series_cluster_history(&self, cluster: &str) -> Vec<ThroughputPoint> {
-        self.rates.cluster_history(cluster)
-    }
-
     pub(crate) fn series_topic_history(&self, cluster: &str, topic: &str) -> Vec<ThroughputPoint> {
         self.rates.topic_history(cluster, topic)
     }
