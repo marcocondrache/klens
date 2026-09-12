@@ -7,7 +7,7 @@ import { ConfigTable } from "@/components/config-table";
 import { CopyButton } from "@/components/copy-button";
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
-import { RecordBrowser } from "@/components/record-browser";
+import { RecordBrowser } from "@/components/records/record-browser";
 import { Sparkline } from "@/components/charts";
 import { Stat, StatGrid } from "@/components/stat";
 import { GroupStateBadge, Pill } from "@/components/status";
