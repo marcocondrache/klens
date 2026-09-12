@@ -138,6 +138,7 @@ pub(super) enum CleanupPolicy {
 pub(super) struct ClusterCatalog {
     pub updated_at: DateTime<Utc>,
     pub topics: Vec<Topic>,
+    pub consumer_groups: Vec<ConsumerGroup>,
 }
 
 #[derive(GraphQLObject)]

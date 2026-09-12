@@ -8,6 +8,7 @@ use tokio::task::JoinHandle;
 
 use crate::kafka::QueryEngine;
 use crate::kafka::error::KafkaError;
+use crate::kafka::group::ConsumerGroup;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::topic::Topic;
 
@@ -15,18 +16,44 @@ use crate::kafka::topic::Topic;
 pub struct ClusterSnapshot {
     pub updated_at: DateTime<Utc>,
     pub topics: Vec<Topic>,
+    pub groups: Vec<ConsumerGroup>,
 }
 
 impl ClusterSnapshot {
     pub fn from_topics(topics: Vec<Topic>) -> Self {
+        Self::from_catalog(topics, Vec::new())
+    }
+
+    pub fn from_groups(groups: Vec<ConsumerGroup>) -> Self {
+        Self::from_catalog(Vec::new(), groups)
+    }
+
+    pub fn from_catalog(topics: Vec<Topic>, groups: Vec<ConsumerGroup>) -> Self {
         Self {
             updated_at: wall_clock(),
             topics,
+            groups,
         }
     }
 
     pub fn topic(&self, name: &str) -> Option<&Topic> {
         self.topics.iter().find(|topic| topic.name == name)
+    }
+
+    pub fn group(&self, id: &str) -> Option<&ConsumerGroup> {
+        self.groups.iter().find(|group| group.id == id)
+    }
+
+    pub fn groups_for_topic(&self, topic: Option<&str>) -> Vec<ConsumerGroup> {
+        match topic {
+            Some(topic) => self
+                .groups
+                .iter()
+                .filter(|group| group.topics.iter().any(|name| name == topic))
+                .cloned()
+                .collect(),
+            None => self.groups.clone(),
+        }
     }
 }
 
@@ -50,6 +77,10 @@ impl CatalogCache {
 
     pub fn topic(&self, cluster: &str, name: &str) -> Option<Topic> {
         self.snapshot(cluster)?.topic(name).cloned()
+    }
+
+    pub fn group(&self, cluster: &str, id: &str) -> Option<ConsumerGroup> {
+        self.snapshot(cluster)?.group(id).cloned()
     }
 
     pub fn updated_at(&self, cluster: &str) -> Option<DateTime<Utc>> {
@@ -101,7 +132,13 @@ impl CatalogPoller {
         );
         Self::start_with(cache, clusters, interval, move |cluster| {
             let engine = Arc::clone(&engine);
-            async move { engine.topics(&cluster).await }
+            async move {
+                let (topics, groups) = tokio::try_join!(
+                    engine.topics(&cluster),
+                    engine.consumer_groups(&cluster, None),
+                )?;
+                Ok(ClusterSnapshot::from_catalog(topics, groups))
+            }
         })
     }
 
@@ -113,7 +150,7 @@ impl CatalogPoller {
     ) -> Self
     where
         F: Fn(String) -> Fut + Send + Sync + Clone + 'static,
-        Fut: Future<Output = Result<Vec<Topic>, KafkaError>> + Send + 'static,
+        Fut: Future<Output = Result<ClusterSnapshot, KafkaError>> + Send + 'static,
     {
         let tasks = clusters
             .into_iter()
@@ -124,8 +161,8 @@ impl CatalogPoller {
                 tokio::spawn(async move {
                     loop {
                         match fetch(cluster.clone()).await {
-                            Ok(topics) => {
-                                cache.store(cluster.clone(), ClusterSnapshot::from_topics(topics));
+                            Ok(snapshot) => {
+                                cache.store(cluster.clone(), snapshot);
                                 tracing::debug!(cluster = %cluster, "catalog snapshot updated");
                             }
                             Err(error) => {
@@ -156,8 +193,22 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
+    use crate::kafka::group::{ConsumerGroup, GroupState};
     use crate::kafka::testing::FakeCluster;
     use crate::kafka::topic_config::CleanupPolicy;
+
+    fn test_group(id: &str) -> ConsumerGroup {
+        ConsumerGroup {
+            id: id.to_owned(),
+            state: GroupState::Stable,
+            protocol: "range".into(),
+            coordinator: 1,
+            members: Vec::new(),
+            topics: vec!["orders".into()],
+            lag: 4,
+            offsets: Vec::new(),
+        }
+    }
 
     fn test_topic(name: &str) -> Topic {
         Topic {
@@ -214,11 +265,33 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_topic_lookup_is_by_name() {
-        let snapshot =
-            ClusterSnapshot::from_topics(vec![test_topic("orders"), test_topic("payments")]);
+    fn snapshot_looks_up_topics_and_groups_by_name() {
+        let snapshot = ClusterSnapshot::from_catalog(
+            vec![test_topic("orders"), test_topic("payments")],
+            vec![test_group("orders-app"), test_group("payments-app")],
+        );
         assert_eq!(snapshot.topic("payments").unwrap().name, "payments");
         assert!(snapshot.topic("missing").is_none());
+        assert_eq!(snapshot.group("payments-app").unwrap().id, "payments-app");
+        assert!(snapshot.group("missing").is_none());
+        assert_eq!(
+            snapshot.groups_for_topic(Some("orders"))[0].id,
+            "orders-app"
+        );
+        assert!(snapshot.groups_for_topic(Some("missing")).is_empty());
+        assert_eq!(snapshot.groups_for_topic(None).len(), 2);
+    }
+
+    #[test]
+    fn cache_group_lookup_is_by_id() {
+        let cache = CatalogCache::new();
+        cache.store(
+            "local",
+            ClusterSnapshot::from_groups(vec![test_group("cached")]),
+        );
+        assert_eq!(cache.group("local", "cached").unwrap().lag, 4);
+        assert!(cache.group("local", "missing").is_none());
+        assert!(cache.group("other", "cached").is_none());
     }
 
     #[tokio::test(start_paused = true)]
@@ -232,7 +305,7 @@ mod tests {
             Duration::from_secs(5),
             move |_| {
                 counter.fetch_add(1, Ordering::SeqCst);
-                async { Ok(Vec::new()) }
+                async { Ok(ClusterSnapshot::from_topics(Vec::new())) }
             },
         );
 
@@ -255,7 +328,7 @@ mod tests {
         let cache = CatalogCache::new();
         cache.store(
             "local",
-            ClusterSnapshot::from_topics(vec![test_topic("kept")]),
+            ClusterSnapshot::from_catalog(vec![test_topic("kept")], vec![test_group("kept-group")]),
         );
         let counter = Arc::clone(&polls);
         let _poller = CatalogPoller::start_with(
@@ -270,6 +343,7 @@ mod tests {
 
         wait_until(|| polls.load(Ordering::SeqCst) >= 1).await;
         assert_eq!(cache.topic("local", "kept").unwrap().name, "kept");
+        assert_eq!(cache.group("local", "kept-group").unwrap().id, "kept-group");
     }
 
     #[tokio::test(start_paused = true)]
@@ -283,7 +357,7 @@ mod tests {
                 if cluster == "bad" {
                     Err(KafkaError::Admin("broker down".into()))
                 } else {
-                    Ok(vec![test_topic("ok")])
+                    Ok(ClusterSnapshot::from_topics(vec![test_topic("ok")]))
                 }
             },
         );
@@ -304,7 +378,7 @@ mod tests {
                 if cluster == "slow" {
                     tokio::time::sleep(Duration::from_secs(30)).await;
                 }
-                Ok(vec![test_topic(&cluster)])
+                Ok(ClusterSnapshot::from_topics(vec![test_topic(&cluster)]))
             },
         );
 
@@ -325,7 +399,7 @@ mod tests {
         let poller =
             CatalogPoller::start_with(cache, ["local"], Duration::from_secs(5), move |_| {
                 counter.fetch_add(1, Ordering::SeqCst);
-                async { Ok(Vec::new()) }
+                async { Ok(ClusterSnapshot::from_topics(Vec::new())) }
             });
 
         wait_until(|| polls.load(Ordering::SeqCst) >= 1).await;
@@ -336,7 +410,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn start_polls_query_engine_topics() {
+    async fn start_polls_query_engine_topics_and_groups() {
         let engine = Arc::new(QueryEngine::from_sessions(vec![FakeCluster::local()]));
         let cache = CatalogCache::new();
         let _poller = CatalogPoller::start(cache.clone(), engine, Duration::from_secs(60));
@@ -345,6 +419,9 @@ mod tests {
         let snapshot = cache.snapshot("local").unwrap();
         assert_eq!(snapshot.topics[0].name, "orders.created");
         assert_eq!(snapshot.topics[0].message_count, 16);
+        assert_eq!(snapshot.groups[0].id, "order-processor");
+        assert_eq!(snapshot.groups[0].lag, 5);
+        assert_eq!(snapshot.groups[0].topics, vec!["orders.created"]);
         assert!(snapshot.updated_at >= DateTime::<Utc>::UNIX_EPOCH);
     }
 }

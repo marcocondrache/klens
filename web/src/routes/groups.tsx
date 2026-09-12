@@ -15,9 +15,11 @@ import { GroupStateBadge, Pill } from "@/components/status";
 import { lagTone } from "@/lib/tone";
 import { useConsumerGroups } from "@/lib/api/queries";
 import { clusterPath, useClusterName } from "@/lib/clusters";
-import { formatCount, formatEnumLabel, formatNumber } from "@/lib/format";
+import { formatCount, formatEnumLabel, formatNumber, formatRelative } from "@/lib/format";
 import type { ConsumerGroup, ConsumerGroupState } from "@/lib/api/types";
 import { createAppColumnHelper } from "@/lib/table";
+
+const EMPTY_GROUPS: ConsumerGroup[] = [];
 
 const STATES: ConsumerGroupState[] = [
   "STABLE",
@@ -88,7 +90,9 @@ export function ConsumerGroupsPage() {
   const term = params.get("q") ?? "";
   const state = params.get("state") ?? "all";
 
-  const { data: groups = [], isPending, isError, error } = useConsumerGroups(cluster);
+  const { data, isPending, isError, error } = useConsumerGroups(cluster);
+  const groups = data?.groups ?? EMPTY_GROUPS;
+  const updatedAt = data?.updatedAt;
 
   function update(key: string, value: string | null) {
     const next = new URLSearchParams(params);
@@ -116,7 +120,9 @@ export function ConsumerGroupsPage() {
     <div className="flex min-h-0 flex-1 flex-col gap-5">
       <PageHeader
         title="Consumer groups"
-        description={`${rows.length} groups · ${formatCount(totalLag)} messages of lag`}
+        description={`${rows.length} groups · ${formatCount(totalLag)} messages of lag${
+          updatedAt ? ` · Updated ${formatRelative(updatedAt)}` : ""
+        }`}
       />
 
       <div className="flex flex-wrap items-center gap-3">

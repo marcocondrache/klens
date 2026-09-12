@@ -24,8 +24,9 @@ docker run --rm -p 8080:8080 \
 
 [compose.yaml](compose.yaml) starts a local Kafka broker, Schema Registry, and builds klens from this repository.
 
-The topics page reads a background catalog snapshot. Override the poll interval
-with `KLENS_CATALOG_POLL_INTERVAL` (seconds, default 5, minimum 1).
+The topics and consumer groups pages read a background catalog snapshot.
+Override the poll interval with `KLENS_CATALOG_POLL_INTERVAL` (seconds,
+default 5, minimum 1).
 
 ## Authentication
 
