@@ -48,9 +48,3 @@ impl RecordLimits {
         (limit.saturating_mul(multiplier)).max(self.min_window) as i64
     }
 }
-
-impl Default for RecordLimits {
-    fn default() -> Self {
-        Self::from_env()
-    }
-}
