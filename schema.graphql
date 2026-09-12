@@ -132,6 +132,11 @@ type Cluster {
   bytesOutPerSec: Float!
 }
 
+type ClusterCatalog {
+  updatedAt: DateTime!
+  topics: [Topic!]!
+}
+
 type ConfigEntry {
   name: String!
   value: String
@@ -190,6 +195,7 @@ type Query {
   broker(cluster: String!, id: Int!): Broker
   brokerConfigs(cluster: String!, id: Int!): [ConfigEntry!]!
   topics(cluster: String!): [Topic!]!
+  clusterCatalog(cluster: String!): ClusterCatalog!
   topic(cluster: String!, name: String!): Topic
   topicConfigs(cluster: String!, name: String!): [ConfigEntry!]!
   consumerGroups(cluster: String!, topic: String): [ConsumerGroup!]!

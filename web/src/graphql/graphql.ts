@@ -332,28 +332,31 @@ export type TopicsQueryVariables = Exact<{
 }>;
 
 export type TopicsQuery = {
-  topics: Array<{
-    name: string;
-    internal: boolean;
-    replicationFactor: number;
-    messageCount: number;
-    sizeBytes: number;
-    cleanupPolicy: CleanupPolicy;
-    retentionMs: number;
-    consumerGroups: Array<string>;
-    bytesInPerSec: number;
-    messagesPerSec: number;
-    underReplicated: boolean;
-    partitions: Array<{
-      id: number;
-      leader: number;
-      replicas: Array<number>;
-      isr: Array<number>;
-      lowWatermark: number;
-      highWatermark: number;
+  clusterCatalog: {
+    updatedAt: string;
+    topics: Array<{
+      name: string;
+      internal: boolean;
+      replicationFactor: number;
+      messageCount: number;
       sizeBytes: number;
+      cleanupPolicy: CleanupPolicy;
+      retentionMs: number;
+      consumerGroups: Array<string>;
+      bytesInPerSec: number;
+      messagesPerSec: number;
+      underReplicated: boolean;
+      partitions: Array<{
+        id: number;
+        leader: number;
+        replicas: Array<number>;
+        isr: Array<number>;
+        lowWatermark: number;
+        highWatermark: number;
+        sizeBytes: number;
+      }>;
     }>;
-  }>;
+  };
 };
 
 export type TopicQueryVariables = Exact<{
@@ -968,8 +971,11 @@ export const BrokerConfigsDocument = new TypedDocumentString(`
 }`) as unknown as TypedDocumentString<BrokerConfigsQuery, BrokerConfigsQueryVariables>;
 export const TopicsDocument = new TypedDocumentString(`
     query Topics($cluster: String!) {
-  topics(cluster: $cluster) {
-    ...TopicFields
+  clusterCatalog(cluster: $cluster) {
+    updatedAt
+    topics {
+      ...TopicFields
+    }
   }
 }
     fragment PartitionFields on Partition {

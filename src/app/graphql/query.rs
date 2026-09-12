@@ -1,8 +1,8 @@
 use juniper::{FieldResult, graphql_object};
 
 use super::types::{
-    Broker, Cluster, ConfigEntry, ConsumerGroup, RecordPage, RecordQuery, SchemaSubject,
-    SearchResult, ThroughputPoint, Topic,
+    Broker, Cluster, ClusterCatalog, ConfigEntry, ConsumerGroup, RecordPage, RecordQuery,
+    SchemaSubject, SearchResult, ThroughputPoint, Topic,
 };
 use crate::AppState;
 
@@ -57,14 +57,19 @@ impl Query {
     }
 
     async fn topics(context: &AppState, cluster: String) -> FieldResult<Vec<Topic>> {
-        let topics = context.query.topics(&cluster).await?;
-        Ok(topics
-            .into_iter()
-            .map(|topic| {
-                let rate = context.rates.topic_rate(&cluster, &topic.name);
-                Topic::from_domain(topic, rate.as_ref())
-            })
-            .collect())
+        Ok(map_topics(
+            context,
+            &cluster,
+            context.topic_snapshot(&cluster).await?.topics,
+        ))
+    }
+
+    async fn cluster_catalog(context: &AppState, cluster: String) -> FieldResult<ClusterCatalog> {
+        let snapshot = context.topic_snapshot(&cluster).await?;
+        Ok(ClusterCatalog {
+            updated_at: snapshot.updated_at,
+            topics: map_topics(context, &cluster, snapshot.topics),
+        })
     }
 
     async fn topic(
@@ -193,4 +198,14 @@ impl Query {
             .map(SearchResult::from)
             .collect())
     }
+}
+
+fn map_topics(context: &AppState, cluster: &str, topics: Vec<crate::kafka::Topic>) -> Vec<Topic> {
+    topics
+        .into_iter()
+        .map(|topic| {
+            let rate = context.rates.topic_rate(cluster, &topic.name);
+            Topic::from_domain(topic, rate.as_ref())
+        })
+        .collect()
 }
