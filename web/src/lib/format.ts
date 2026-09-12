@@ -119,10 +119,6 @@ export function formatRelative(value: string | number, now = Date.now()) {
   return "just now";
 }
 
-export function formatPercent(value: number, digits = 1) {
-  return `${(value * 100).toFixed(digits)}%`;
-}
-
 export function prettyJson(raw: string) {
   try {
     return JSON.stringify(JSON.parse(raw), null, 2);

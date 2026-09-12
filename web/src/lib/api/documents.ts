@@ -339,14 +339,6 @@ export const consumerGroupQuery = graphql(`
   }
 `);
 
-export const clusterThroughputQuery = graphql(`
-  query ClusterThroughput($cluster: String!) {
-    clusterThroughput(cluster: $cluster) {
-      ...ThroughputPointFields
-    }
-  }
-`);
-
 export const topicThroughputQuery = graphql(`
   query TopicThroughput($cluster: String!, $topic: String!) {
     topicThroughput(cluster: $cluster, topic: $topic) {
