@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { AlertTriangleIcon, DatabaseIcon, GaugeIcon, NetworkIcon } from "lucide-react";
-import { useNavigate, useParams, useSearchParams } from "react-router";
+import { useNavigate, useParams, useSearchParams } from "@/lib/navigation";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConfigTable } from "@/components/config-table";

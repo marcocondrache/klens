@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useSearchParams } from "react-router";
+import { useSearchParams } from "@/lib/navigation";
 
 import {
   Sheet,

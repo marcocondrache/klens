@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { FileJsonIcon, HardDriveIcon, LayersIcon, ServerIcon, UsersRoundIcon } from "lucide-react";
-import { useLocation, useNavigate } from "react-router";
+import { useLocation, useNavigate } from "@/lib/navigation";
 
 import {
   Command,

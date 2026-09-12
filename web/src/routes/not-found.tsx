@@ -1,5 +1,5 @@
 import { CompassIcon } from "lucide-react";
-import { Link } from "react-router";
+import { Link } from "@/lib/navigation";
 
 import { Button } from "@/components/ui/button";
 import {
