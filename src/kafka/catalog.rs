@@ -13,6 +13,8 @@ use crate::kafka::cluster::{ClusterIdentity, ClusterOverview};
 use crate::kafka::error::KafkaError;
 use crate::kafka::group::ConsumerGroup;
 use crate::kafka::rates::RateStore;
+use crate::kafka::registry::SchemaSubject;
+use crate::kafka::search::{SearchHit, search_snapshot};
 use crate::kafka::session::ClusterSession;
 use crate::kafka::topic::Topic;
 
@@ -75,6 +77,10 @@ impl ClusterSnapshot {
             .iter()
             .map(|topic| (topic.name.clone(), topic.message_count))
             .collect()
+    }
+
+    pub fn search(&self, term: &str, subjects: &[SchemaSubject]) -> Vec<SearchHit> {
+        search_snapshot(term, &self.topics, &self.brokers, &self.groups, subjects)
     }
 
     pub fn groups_for_topic(&self, topic: Option<&str>) -> Vec<ConsumerGroup> {

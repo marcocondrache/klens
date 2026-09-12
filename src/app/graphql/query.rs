@@ -173,10 +173,14 @@ impl Query {
         cluster: String,
         term: String,
     ) -> FieldResult<Vec<SearchResult>> {
-        Ok(context
+        let snapshot = context.catalog_snapshot(&cluster).await?;
+        let subjects = context
             .query
-            .search(&cluster, &term)
-            .await?
+            .schema_subjects(&cluster)
+            .await
+            .unwrap_or_default();
+        Ok(snapshot
+            .search(&term, &subjects)
             .into_iter()
             .map(SearchResult::from)
             .collect())
