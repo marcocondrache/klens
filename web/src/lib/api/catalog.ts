@@ -120,7 +120,7 @@ export function useTopic(cluster: string, topic: string) {
     queryKey: keys.topic(cluster, topic),
     queryFn: async () => {
       const { topic: data } = await execute(topicQuery, { cluster, name: topic });
-      return required(data, `unknown topic '${topic}' in cluster '${cluster}'`);
+      return data ?? null;
     },
   });
 }
@@ -157,7 +157,7 @@ export function useConsumerGroup(cluster: string, group: string) {
     queryKey: keys.group(cluster, group),
     queryFn: async () => {
       const { consumerGroup } = await execute(consumerGroupQuery, { cluster, id: group });
-      return required(consumerGroup, `unknown consumer group '${group}' in cluster '${cluster}'`);
+      return consumerGroup ?? null;
     },
   });
 }

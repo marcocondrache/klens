@@ -975,6 +975,54 @@ async fn topic_query_seeds_the_catalog_on_a_cold_cache() {
     );
 }
 
+#[tokio::test]
+async fn topic_and_group_report_a_failed_catalog_seed() {
+    let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
+        FakeCluster::named("down").unreachable(),
+    ])));
+    let schema = schema();
+
+    let (topic_value, topic_errors) = execute(
+        r#"{ topic(cluster: "down", name: "orders.created") { name } }"#,
+        None,
+        &schema,
+        &Variables::new(),
+        &state,
+    )
+    .await
+    .unwrap();
+    assert!(
+        topic_errors
+            .iter()
+            .any(|error| error.error().message().contains("broker down")),
+        "{topic_errors:?}"
+    );
+    assert_eq!(
+        serde_json::to_value(topic_value).unwrap()["topic"],
+        serde_json::Value::Null
+    );
+
+    let (group_value, group_errors) = execute(
+        r#"{ consumerGroup(cluster: "down", id: "order-processor") { id } }"#,
+        None,
+        &schema,
+        &Variables::new(),
+        &state,
+    )
+    .await
+    .unwrap();
+    assert!(
+        group_errors
+            .iter()
+            .any(|error| error.error().message().contains("broker down")),
+        "{group_errors:?}"
+    );
+    assert_eq!(
+        serde_json::to_value(group_value).unwrap()["consumerGroup"],
+        serde_json::Value::Null
+    );
+}
+
 fn cached_group(id: &str, topic: &str, lag: i64) -> crate::kafka::ConsumerGroup {
     crate::kafka::ConsumerGroup {
         id: id.into(),

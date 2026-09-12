@@ -13,6 +13,7 @@ import { Stat, StatGrid } from "@/components/stat";
 import { GroupStateBadge, Pill } from "@/components/status";
 import { lagTone } from "@/lib/tone";
 import { useTopic, useTopicConsumerGroups } from "@/lib/api/catalog";
+import { catalogLookupMessage } from "@/lib/catalog-lookup";
 import { useTopicConfigs, useTopicThroughput } from "@/lib/api/live";
 import { useTopicRates } from "@/lib/api/subscriptions";
 import { clusterPath, useClusterName } from "@/lib/clusters";
@@ -112,7 +113,7 @@ export function TopicPage() {
 
   const tab = TABS.includes(params.get("tab") ?? "") ? params.get("tab")! : "data";
 
-  const { data: topic, isPending, isError } = useTopic(cluster, topicName);
+  const { data: topic, isPending, isError, error } = useTopic(cluster, topicName);
   useTopicRates(cluster);
   const { data: configs = [], isPending: configsPending } = useTopicConfigs(
     cluster,
@@ -142,14 +143,16 @@ export function TopicPage() {
     setParams(next, { replace: true });
   }
 
-  if (isError) {
-    return (
-      <PageHeader
-        title={topicName}
-        mono
-        description="This topic does not exist in the selected cluster."
-      />
-    );
+  const lookup = catalogLookupMessage({
+    isPending,
+    isError,
+    error,
+    data: topic,
+    missing: "This topic does not exist in the selected cluster.",
+    failed: "Failed to load this topic.",
+  });
+  if (lookup) {
+    return <PageHeader title={topicName} mono description={lookup} />;
   }
 
   const groupColumns = groupColumnHelper.columns([
