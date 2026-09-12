@@ -15,15 +15,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use moka::future::Cache;
 use rdkafka::admin::{AdminClient, AdminOptions, OwnedResourceSpecifier, ResourceSpecifier};
 use rdkafka::client::DefaultClientContext;
 use rdkafka::topic_partition_list::Offset;
 
 use crate::config::ClusterConfig;
 use crate::environment::{
-    ADMIN_TIMEOUT, CONSUME_TIMEOUT, INTERNAL_GROUP_PREFIX, METADATA_TIMEOUT, METADATA_TTL,
-    WATERMARK_TIMEOUT,
+    ADMIN_TIMEOUT, CONSUME_TIMEOUT, INTERNAL_GROUP_PREFIX, METADATA_TIMEOUT, WATERMARK_TIMEOUT,
 };
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
@@ -36,7 +34,7 @@ use crate::kafka::session::ClusterSession;
 use crate::kafka::topic_config::ConfigEntry;
 use crate::kafka::watermarks::Watermarks;
 
-use blocking::{into_kafka_error, run_blocking, snapshot_cache};
+use blocking::run_blocking;
 use factory::ClientFactory;
 use offsets::{list_offsets, merge_watermark_offsets, partition_time_offsets};
 
@@ -68,7 +66,6 @@ pub(crate) struct ClusterHandle {
     identity: ClusterIdentity,
     factory: ClientFactory,
     admin: Arc<AdminClient<DefaultClientContext>>,
-    metadata: Cache<(), MetadataSnapshot>,
     schema_registry: Option<PayloadDecoder>,
     timeouts: Timeouts,
 }
@@ -98,7 +95,6 @@ impl ClusterHandle {
             identity,
             factory,
             admin,
-            metadata: snapshot_cache(*METADATA_TTL),
             schema_registry,
             timeouts: Timeouts::default(),
         })
@@ -171,23 +167,17 @@ impl ClusterSession for ClusterHandle {
     }
 
     async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError> {
-        self.metadata
-            .try_get_with(
-                (),
-                Self::fetch_metadata(Arc::clone(&self.admin), self.timeouts.metadata),
-            )
-            .await
-            .map_err(into_kafka_error)
+        Self::fetch_metadata(Arc::clone(&self.admin), self.timeouts.metadata).await
     }
 
-    async fn watermarks_many(&self, topics: &[&str]) -> HashMap<String, HashMap<i32, Watermarks>> {
-        let Ok(meta) = self.metadata().await else {
-            return HashMap::new();
-        };
-        let partitions = meta.topic_partition_pairs(topics);
+    async fn watermarks_many(
+        &self,
+        partitions: &[(String, i32)],
+    ) -> HashMap<String, HashMap<i32, Watermarks>> {
         if partitions.is_empty() {
             return HashMap::new();
         }
+        let partitions = partitions.to_vec();
 
         let factory = self.factory.clone();
         let group_id = self.offsets_group_id();
