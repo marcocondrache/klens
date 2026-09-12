@@ -1,6 +1,6 @@
-import { useMemo } from "react";
+import { Fragment, useMemo } from "react";
 
-import { highlightJsonHtml } from "@/lib/json-highlight";
+import { tokenizeJson } from "@/lib/json-highlight";
 import { cn } from "@/lib/utils";
 
 export function JsonBlock({
@@ -12,16 +12,27 @@ export function JsonBlock({
   className?: string;
   wrap?: boolean;
 }) {
-  const html = useMemo(() => highlightJsonHtml(source), [source]);
+  const tokens = useMemo(() => tokenizeJson(source), [source]);
 
   return (
-    <div
+    <pre
       className={cn(
         "json-block overflow-auto rounded-lg border bg-muted/30 p-3 font-mono text-sm leading-relaxed",
-        wrap && "json-block-wrap",
+        wrap && "whitespace-pre-wrap break-words",
         className,
       )}
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    >
+      <code>
+        {tokens.map((token, index) =>
+          token.className ? (
+            <span key={index} className={`th-token th-${token.className}`}>
+              {token.value}
+            </span>
+          ) : (
+            <Fragment key={index}>{token.value}</Fragment>
+          ),
+        )}
+      </code>
+    </pre>
   );
 }

@@ -12,6 +12,10 @@ const themeCss = createThemeCss({
   darkSelector: ".dark",
 });
 
+export function tokenizeJson(source: string) {
+  return jsonHighlighter.tokenize(source, { lang: "json" }).tokens;
+}
+
 export function highlightJsonHtml(source: string) {
   return jsonHighlighter.highlightToHtml(source, { lang: "json" });
 }
