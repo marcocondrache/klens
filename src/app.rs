@@ -59,17 +59,13 @@ impl AppState {
     pub(crate) async fn catalog_snapshot(
         &self,
         cluster: &str,
-    ) -> Result<ClusterSnapshot, crate::kafka::KafkaError> {
+    ) -> Result<Arc<ClusterSnapshot>, crate::kafka::KafkaError> {
         if let Some(snapshot) = self.catalog.snapshot(cluster) {
             return Ok(snapshot);
         }
 
-        let (topics, groups) = tokio::try_join!(
-            self.query.topics(cluster),
-            self.query.consumer_groups(cluster, None),
-        )?;
-        let snapshot = ClusterSnapshot::from_catalog(topics, groups);
-        self.catalog.seed(cluster, snapshot.clone());
+        let snapshot = Arc::new(self.query.catalog(cluster).await?);
+        self.catalog.seed(cluster, Arc::clone(&snapshot));
         Ok(snapshot)
     }
 }
