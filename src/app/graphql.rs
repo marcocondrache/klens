@@ -555,7 +555,7 @@ mod tests {
         let (value, errors) = execute(
             r#"{
                 brokers(cluster: "local") { id host }
-                topics(cluster: "local") { name messageCount consumerGroups }
+                clusterCatalog(cluster: "local") { topics { name messageCount consumerGroups } }
                 consumerGroups(cluster: "local") { id lag }
             }"#,
             None,
@@ -571,11 +571,11 @@ mod tests {
             serde_json::to_value(value).unwrap(),
             serde_json::json!({
                 "brokers": [{ "id": 1, "host": "localhost" }],
-                "topics": [{
+                "clusterCatalog": { "topics": [{
                     "name": "orders.created",
                     "messageCount": 16.0,
                     "consumerGroups": ["order-processor"]
-                }],
+                }] },
                 "consumerGroups": [{ "id": "order-processor", "lag": 5.0 }]
             })
         );
@@ -890,7 +890,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn topics_and_catalog_read_the_in_memory_snapshot() {
+    async fn topic_and_catalog_read_the_in_memory_snapshot() {
         let state = state();
         state.catalog.store(
             "local",
@@ -910,7 +910,6 @@ mod tests {
         let schema = schema();
         let (value, errors) = execute(
             r#"{
-                topics(cluster: "local") { name messageCount consumerGroups partitionCount }
                 topic(cluster: "local", name: "from-cache") { name messageCount consumerGroups partitionCount }
                 missing: topic(cluster: "local", name: "orders.created") { name }
                 clusterCatalog(cluster: "local") { topics { name } }
@@ -927,12 +926,6 @@ mod tests {
         assert_eq!(
             serde_json::to_value(value).unwrap(),
             serde_json::json!({
-                "topics": [{
-                    "name": "from-cache",
-                    "messageCount": 3.0,
-                    "consumerGroups": ["cached-group"],
-                    "partitionCount": 0
-                }],
                 "topic": {
                     "name": "from-cache",
                     "messageCount": 3.0,
@@ -1198,7 +1191,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn topics_query_uses_stored_produce_rates() {
+    async fn catalog_topics_use_stored_produce_rates() {
         let state = state();
         let start = tokio::time::Instant::now();
         state.rates.observe_at(
@@ -1217,7 +1210,7 @@ mod tests {
         let schema = schema();
         let (value, errors) = execute(
             r#"{
-                topics(cluster: "local") { name messagesPerSec }
+                clusterCatalog(cluster: "local") { topics { name messagesPerSec } }
                 topic(cluster: "local", name: "orders.created") { name messagesPerSec }
             }"#,
             None,
@@ -1231,7 +1224,7 @@ mod tests {
         assert!(errors.is_empty());
         let body = serde_json::to_value(value).unwrap();
         assert_eq!(
-            body["topics"][0],
+            body["clusterCatalog"]["topics"][0],
             serde_json::json!({ "name": "orders.created", "messagesPerSec": 10.0 })
         );
         assert_eq!(
