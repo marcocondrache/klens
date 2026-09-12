@@ -6,9 +6,10 @@ use apache_avro::reader::datum::GenericDatumReader;
 use moka::future::Cache;
 
 use super::client::SchemaRegistryClient;
-use super::protobuf::ProtobufCodec;
+use super::protobuf::{ProtobufCodec, ProtobufError};
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{RegisteredSchema, SchemaType, decode_bytes};
+use thiserror::Error;
 
 const CONFLUENT_MAGIC: u8 = 0;
 
@@ -107,18 +108,18 @@ impl PayloadDecoder {
         match self.decode_frame(frame).await {
             Ok(json) => json,
             Err(error) => {
-                match error.kind {
-                    DecodeKind::Missing => {
+                match &error {
+                    DecodeError::Missing(message) => {
                         tracing::debug!(
                             schema_id = frame.schema_id,
-                            error = %error.message,
+                            error = %message,
                             "skipping schema registry payload decode"
                         );
                     }
-                    DecodeKind::Failed => {
+                    DecodeError::Failed(message) => {
                         tracing::warn!(
                             schema_id = frame.schema_id,
-                            error = %error.message,
+                            error = %message,
                             "failed to decode schema registry payload"
                         );
                     }
@@ -148,31 +149,27 @@ fn schema_id_cache() -> Cache<i32, Arc<CachedSchema>> {
     Cache::builder().max_capacity(10_000).build()
 }
 
-#[derive(Clone)]
-struct DecodeError {
-    kind: DecodeKind,
-    message: String,
-}
-
-#[derive(Clone, Copy)]
-enum DecodeKind {
-    Missing,
-    Failed,
+#[derive(Clone, Debug, PartialEq, Eq, Error)]
+enum DecodeError {
+    #[error("{0}")]
+    Missing(String),
+    #[error("{0}")]
+    Failed(String),
 }
 
 impl DecodeError {
     fn missing(message: impl Into<String>) -> Self {
-        Self {
-            kind: DecodeKind::Missing,
-            message: message.into(),
-        }
+        Self::Missing(message.into())
     }
 
     fn failed(message: impl Into<String>) -> Self {
-        Self {
-            kind: DecodeKind::Failed,
-            message: message.into(),
-        }
+        Self::Failed(message.into())
+    }
+}
+
+impl From<ProtobufError> for DecodeError {
+    fn from(error: ProtobufError) -> Self {
+        Self::Failed(error.to_string())
     }
 }
 
@@ -216,8 +213,7 @@ impl PayloadDecoder {
             }
             SchemaType::Protobuf => {
                 let dependencies = self.collect_named_references(&registered).await?;
-                let codec = ProtobufCodec::compile(&registered.schema, &dependencies)
-                    .map_err(DecodeError::failed)?;
+                let codec = ProtobufCodec::compile(&registered.schema, &dependencies)?;
                 Ok(CachedSchema::Protobuf(codec))
             }
         }
@@ -317,7 +313,7 @@ fn protobuf_payload(
     } else {
         codec.decode_raw(payload)
     };
-    decoded.map_err(DecodeError::failed)
+    decoded.map_err(DecodeError::from)
 }
 
 fn registry_error(error: KafkaError) -> DecodeError {
@@ -454,6 +450,22 @@ mod tests {
     }
 
     #[test]
+    fn decode_error_variants_display_their_message() {
+        assert_eq!(
+            DecodeError::missing("schema id not found in registry").to_string(),
+            "schema id not found in registry"
+        );
+        assert_eq!(
+            DecodeError::from(ProtobufError::TruncatedIndex).to_string(),
+            "truncated protobuf message index"
+        );
+        assert_eq!(
+            DecodeError::from(ProtobufError::EmptyIndexPath),
+            DecodeError::failed("protobuf message index path is empty")
+        );
+    }
+
+    #[test]
     fn parses_confluent_frame() {
         let bytes = frame(12, b"datum");
         let parsed = ConfluentFrame::parse(&bytes).unwrap();
@@ -541,6 +553,14 @@ mod tests {
             decoder(&server.uri()).decode(&framed).await,
             decode_bytes(&framed)
         );
+        let parsed = ConfluentFrame::parse(&framed).unwrap();
+        assert_eq!(
+            decoder(&server.uri())
+                .decode_frame(parsed)
+                .await
+                .unwrap_err(),
+            DecodeError::missing("schema id not found in registry")
+        );
     }
 
     #[tokio::test]
@@ -590,6 +610,21 @@ mod tests {
         assert_eq!(
             decoder(&server.uri()).decode(&framed).await,
             decode_bytes(&framed)
+        );
+    }
+
+    #[tokio::test]
+    async fn truncated_protobuf_index_is_a_typed_decode_error() {
+        let server = MockServer::start().await;
+        mock_schema(&server, 3, "PROTOBUF", ORDER_PROTO).await;
+        let framed = frame(3, &[]);
+        let parsed = ConfluentFrame::parse(&framed).unwrap();
+        assert_eq!(
+            decoder(&server.uri())
+                .decode_frame(parsed)
+                .await
+                .unwrap_err(),
+            DecodeError::failed("truncated protobuf message index")
         );
     }
 
