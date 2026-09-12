@@ -49,7 +49,12 @@ impl AppState {
     }
 
     pub fn with_catalog_poller(self, interval: Duration) -> Self {
-        let poller = CatalogPoller::start(self.catalog.clone(), Arc::clone(&self.query), interval);
+        let poller = CatalogPoller::start(
+            self.catalog.clone(),
+            Arc::clone(&self.query),
+            self.rates.clone(),
+            interval,
+        );
         Self {
             _poller: Some(Arc::new(poller)),
             ..self

@@ -9,6 +9,7 @@ use tokio::task::JoinHandle;
 use crate::kafka::QueryEngine;
 use crate::kafka::error::KafkaError;
 use crate::kafka::group::ConsumerGroup;
+use crate::kafka::rates::RateStore;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::topic::Topic;
 
@@ -42,6 +43,13 @@ impl ClusterSnapshot {
 
     pub fn group(&self, id: &str) -> Option<&ConsumerGroup> {
         self.groups.iter().find(|group| group.id == id)
+    }
+
+    pub fn message_counts(&self) -> HashMap<String, u64> {
+        self.topics
+            .iter()
+            .map(|topic| (topic.name.clone(), topic.message_count))
+            .collect()
     }
 
     pub fn groups_for_topic(&self, topic: Option<&str>) -> Vec<ConsumerGroup> {
@@ -126,6 +134,7 @@ impl CatalogPoller {
     pub fn start(
         cache: CatalogCache,
         engine: Arc<QueryEngine<dyn ClusterSession>>,
+        rates: RateStore,
         interval: Duration,
     ) -> Self {
         let clusters: Vec<String> = engine.names().into_iter().map(str::to_owned).collect();
@@ -136,7 +145,12 @@ impl CatalogPoller {
         );
         Self::start_with(cache, clusters, interval, move |cluster| {
             let engine = Arc::clone(&engine);
-            async move { engine.catalog(&cluster).await }
+            let rates = rates.clone();
+            async move {
+                let snapshot = engine.catalog(&cluster).await?;
+                rates.observe(&cluster, snapshot.message_counts());
+                Ok(snapshot)
+            }
         })
     }
 
@@ -291,6 +305,10 @@ mod tests {
         );
         assert!(snapshot.groups_for_topic(Some("missing")).is_empty());
         assert_eq!(snapshot.groups_for_topic(None).len(), 2);
+        assert_eq!(
+            snapshot.message_counts(),
+            HashMap::from([("orders".into(), 0), ("payments".into(), 0)])
+        );
     }
 
     #[test]
@@ -424,7 +442,13 @@ mod tests {
     async fn start_polls_query_engine_catalog() {
         let engine = Arc::new(QueryEngine::from_sessions(vec![FakeCluster::local()]));
         let cache = CatalogCache::new();
-        let _poller = CatalogPoller::start(cache.clone(), engine, Duration::from_secs(60));
+        let rates = RateStore::new();
+        let _poller = CatalogPoller::start(
+            cache.clone(),
+            engine,
+            rates.clone(),
+            Duration::from_secs(60),
+        );
 
         wait_until(|| cache.snapshot("local").is_some()).await;
         let snapshot = cache.snapshot("local").unwrap();
@@ -434,5 +458,34 @@ mod tests {
         assert_eq!(snapshot.groups[0].lag, 5);
         assert_eq!(snapshot.groups[0].topics, vec!["orders.created"]);
         assert!(snapshot.updated_at >= DateTime::<Utc>::UNIX_EPOCH);
+        assert_eq!(
+            rates
+                .topic_rate("local", "orders.created")
+                .unwrap()
+                .messages_per_sec,
+            0.0
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn poller_observes_rate_store_from_catalog_counts() {
+        let engine = Arc::new(QueryEngine::from_sessions(vec![FakeCluster::local()]));
+        let cache = CatalogCache::new();
+        let rates = RateStore::new();
+        let _poller =
+            CatalogPoller::start(cache.clone(), engine, rates.clone(), Duration::from_secs(5));
+
+        wait_until(|| !rates.topic_rates("local").is_empty()).await;
+        assert_eq!(rates.cluster_history("local").len(), 1);
+
+        tokio::time::advance(Duration::from_secs(5) + Duration::from_millis(1)).await;
+        wait_until(|| rates.cluster_history("local").len() >= 2).await;
+        assert_eq!(
+            rates
+                .topic_rate("local", "orders.created")
+                .unwrap()
+                .messages_per_sec,
+            0.0
+        );
     }
 }
