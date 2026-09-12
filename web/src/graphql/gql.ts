@@ -51,6 +51,7 @@ type Documents = {
   "\n  query Search($cluster: String!, $term: String!) {\n    search(cluster: $cluster, term: $term) {\n      ...SearchResultFields\n    }\n  }\n": typeof types.SearchDocument;
   "\n  subscription TopicRates($cluster: String!) {\n    topicRates(cluster: $cluster) {\n      ...TopicRateFields\n    }\n  }\n": typeof types.TopicRatesDocument;
   "\n  subscription ConsumerGroupLag($cluster: String!, $id: String!) {\n    consumerGroupLag(cluster: $cluster, id: $id) {\n      ...ConsumerGroupLagFields\n    }\n  }\n": typeof types.ConsumerGroupLagDocument;
+  "\n  subscription CatalogUpdated($cluster: String!) {\n    catalogUpdated(cluster: $cluster) {\n      cluster\n      updatedAt\n      generation\n    }\n  }\n": typeof types.CatalogUpdatedDocument;
 };
 const documents: Documents = {
   "\n  fragment ClusterFields on Cluster {\n    name\n    label\n    clusterId\n    bootstrapServers\n    securityProtocol\n    version\n    status\n    brokerCount\n    topicCount\n    partitionCount\n    consumerGroupCount\n    underReplicatedPartitions\n    offlinePartitions\n    messageCount\n    sizeBytes\n    bytesInPerSec\n    bytesOutPerSec\n  }\n":
@@ -129,6 +130,8 @@ const documents: Documents = {
     types.TopicRatesDocument,
   "\n  subscription ConsumerGroupLag($cluster: String!, $id: String!) {\n    consumerGroupLag(cluster: $cluster, id: $id) {\n      ...ConsumerGroupLagFields\n    }\n  }\n":
     types.ConsumerGroupLagDocument,
+  "\n  subscription CatalogUpdated($cluster: String!) {\n    catalogUpdated(cluster: $cluster) {\n      cluster\n      updatedAt\n      generation\n    }\n  }\n":
+    types.CatalogUpdatedDocument,
 };
 
 /**
@@ -359,6 +362,12 @@ export function graphql(
 export function graphql(
   source: "\n  subscription ConsumerGroupLag($cluster: String!, $id: String!) {\n    consumerGroupLag(cluster: $cluster, id: $id) {\n      ...ConsumerGroupLagFields\n    }\n  }\n",
 ): typeof import("./graphql").ConsumerGroupLagDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(
+  source: "\n  subscription CatalogUpdated($cluster: String!) {\n    catalogUpdated(cluster: $cluster) {\n      cluster\n      updatedAt\n      generation\n    }\n  }\n",
+): typeof import("./graphql").CatalogUpdatedDocument;
 
 export function graphql(source: string) {
   return (documents as any)[source] ?? {};

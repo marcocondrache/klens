@@ -886,6 +886,7 @@ mod tests {
         assert!(sdl.contains("partitionCount: Int!"));
         assert!(sdl.contains("memberCount: Int!"));
         assert!(sdl.contains("assignedPartitionCount: Int!"));
+        assert!(sdl.contains("catalogUpdated(cluster: String!): CatalogUpdated!"));
     }
 
     #[tokio::test]

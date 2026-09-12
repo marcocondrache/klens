@@ -645,6 +645,14 @@ export type ConsumerGroupLagSubscription = {
   };
 };
 
+export type CatalogUpdatedSubscriptionVariables = Exact<{
+  cluster: string;
+}>;
+
+export type CatalogUpdatedSubscription = {
+  catalogUpdated: { cluster: string; updatedAt: string; generation: number };
+};
+
 export class TypedDocumentString<TResult, TVariables>
   extends String
   implements DocumentTypeDecoration<TResult, TVariables>
@@ -1380,4 +1388,16 @@ fragment ConsumerGroupLagFields on ConsumerGroup {
 }`) as unknown as TypedDocumentString<
   ConsumerGroupLagSubscription,
   ConsumerGroupLagSubscriptionVariables
+>;
+export const CatalogUpdatedDocument = new TypedDocumentString(`
+    subscription CatalogUpdated($cluster: String!) {
+  catalogUpdated(cluster: $cluster) {
+    cluster
+    updatedAt
+    generation
+  }
+}
+    `) as unknown as TypedDocumentString<
+  CatalogUpdatedSubscription,
+  CatalogUpdatedSubscriptionVariables
 >;
