@@ -2,9 +2,11 @@ import { createRootRoute, createRoute, createRouter, redirect } from "@tanstack/
 
 import App from "@/App";
 import {
+  parseGroupDetailSearch,
   parseGroupsSearch,
   parseLoginSearch,
   parseSchemasSearch,
+  parseTopicDetailSearch,
   parseTopicsSearch,
 } from "@/lib/route-search";
 import { AppLayout } from "@/routes/app-layout";
@@ -87,6 +89,7 @@ const topicsRoute = createRoute({
 const topicRoute = createRoute({
   getParentRoute: () => clusterRoute,
   path: "topics/$topic",
+  validateSearch: parseTopicDetailSearch,
   component: TopicPage,
 });
 
@@ -100,6 +103,7 @@ const groupsRoute = createRoute({
 const groupRoute = createRoute({
   getParentRoute: () => clusterRoute,
   path: "groups/$group",
+  validateSearch: parseGroupDetailSearch,
   component: ConsumerGroupPage,
 });
 
