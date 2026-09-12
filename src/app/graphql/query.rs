@@ -46,11 +46,6 @@ impl Query {
             .collect())
     }
 
-    async fn topics(context: &AppState, cluster: String) -> FieldResult<Vec<Topic>> {
-        let snapshot = context.catalog_snapshot(&cluster).await?;
-        Ok(map_topics(context, &cluster, &snapshot.topics))
-    }
-
     async fn cluster_catalog(context: &AppState, cluster: String) -> FieldResult<ClusterCatalog> {
         let snapshot = context.catalog_snapshot(&cluster).await?;
         Ok(ClusterCatalog {
