@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useSearchParams } from "@/lib/navigation";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 
 import {
   Sheet,
@@ -61,10 +61,9 @@ const columns = columnHelper.columns([
 
 export function SchemasPage() {
   const cluster = useClusterName();
-  const [params, setParams] = useSearchParams();
+  const navigate = useNavigate({ from: "/cluster/$cluster/schemas" });
+  const { q: term = "" } = useSearch({ from: "/cluster/$cluster/schemas" });
   const [selected, setSelected] = useState<SchemaSubject | null>(null);
-
-  const term = params.get("q") ?? "";
   const { data: subjects = [], isPending, isError, error } = useSchemaSubjects(cluster);
   const { data: health } = useCatalogHealth(cluster);
   const now = useNow();
@@ -92,13 +91,13 @@ export function SchemasPage() {
         className="shrink-0"
         value={term}
         onChange={(event) => {
-          const next = new URLSearchParams(params);
-          if (event.target.value) {
-            next.set("q", event.target.value);
-          } else {
-            next.delete("q");
-          }
-          setParams(next, { replace: true });
+          const value = event.target.value;
+          void navigate({
+            to: ".",
+            search: value ? { q: value } : {},
+            replace: true,
+            resetScroll: false,
+          });
         }}
         placeholder="Search subjects…"
       />
