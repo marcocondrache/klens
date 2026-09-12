@@ -4,9 +4,10 @@ use std::time::Duration;
 use crate::environment::{CONFIG_POLL_INTERVAL, OVERVIEW_BUDGET, SUBJECT_POLL_INTERVAL};
 use crate::kafka::model::SchemaSubject;
 use crate::kafka::{
-    CatalogCache, CatalogHealth, CatalogPoller, CatalogRevision, ClusterIdentity, ClusterOverview,
-    ClusterSession, ClusterSnapshot, ConfigEntry, ConsumerGroup, KafkaError, LagStore, QueryEngine,
-    RateStore, RecordPage, RecordQuery, SearchHit, SubjectCache, ThroughputPoint, TopicRate,
+    CatalogCache, CatalogHealth, CatalogPoller, CatalogPollerIntervals, CatalogPollerIo,
+    CatalogRevision, ClusterIdentity, ClusterOverview, ClusterSession, ClusterSnapshot,
+    ConfigEntry, ConsumerGroup, KafkaError, LagStore, QueryEngine, RateStore, RecordPage,
+    RecordQuery, SearchHit, SubjectCache, ThroughputPoint, TopicRate,
 };
 use axum::Router;
 use axum::middleware;
@@ -57,14 +58,34 @@ impl AppState {
     }
 
     pub fn with_catalog_poller(self, interval: Duration) -> Self {
+        let query = Arc::clone(&self.query);
+        let catalog_query = Arc::clone(&query);
+        let subject_query = Arc::clone(&query);
+        let rates = self.rates.clone();
         let poller = CatalogPoller::start(
             self.catalog.clone(),
             self.subjects.clone(),
-            Arc::clone(&self.query),
-            self.rates.clone(),
-            interval,
-            *SUBJECT_POLL_INTERVAL,
-            *CONFIG_POLL_INTERVAL,
+            query.names().into_iter().map(str::to_owned),
+            CatalogPollerIntervals {
+                catalog: interval,
+                subjects: *SUBJECT_POLL_INTERVAL,
+                configs: *CONFIG_POLL_INTERVAL,
+            },
+            CatalogPollerIo {
+                fetch_catalog: move |cluster: String, reuse, fetch_configs| {
+                    let query = Arc::clone(&catalog_query);
+                    async move {
+                        query
+                            .catalog_from(&cluster, Some(&reuse), fetch_configs)
+                            .await
+                    }
+                },
+                observe: move |cluster: &str, counts| rates.observe(cluster, counts),
+                fetch_subjects: move |cluster: String| {
+                    let query = Arc::clone(&subject_query);
+                    async move { query.schema_subjects(&cluster).await }
+                },
+            },
         );
         Self {
             _poller: Some(Arc::new(poller)),
@@ -267,4 +288,51 @@ pub fn router(state: AppState) -> Router {
         .merge(health::router())
         .with_state(state)
         .fallback(crate::server::web::serve)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kafka::FakeCluster;
+
+    async fn wait_until(predicate: impl Fn() -> bool) {
+        for _ in 0..200 {
+            if predicate() {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+        panic!("condition not met");
+    }
+
+    #[tokio::test]
+    async fn catalog_poller_fills_caches_and_observes_rates() {
+        let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
+            FakeCluster::local(),
+        ])))
+        .with_catalog_poller(Duration::from_secs(60));
+
+        wait_until(|| {
+            state.catalog.snapshot("local").is_some()
+                && state.subjects.snapshot("local").is_some()
+                && state.series_topic_rate("local", "orders.created").is_some()
+        })
+        .await;
+
+        assert_eq!(
+            state.catalog.snapshot("local").unwrap().topics[0].name,
+            "orders.created"
+        );
+        assert_eq!(
+            state
+                .series_topic_rate("local", "orders.created")
+                .unwrap()
+                .messages_per_sec,
+            0.0
+        );
+        assert_eq!(
+            state.subjects.snapshot("local").unwrap()[0].subject,
+            "orders.created-value"
+        );
+    }
 }
