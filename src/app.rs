@@ -56,11 +56,6 @@ impl AppState {
         }
     }
 
-    /// Topics-page snapshot: cache hit, or one direct fetch that seeds the cache.
-    ///
-    /// Fallback keeps the first request correct before the poller finishes and
-    /// keeps unit tests that never start a poller working. After a successful
-    /// poll, resolvers stay off the Kafka path.
     pub(crate) async fn topic_snapshot(
         &self,
         cluster: &str,

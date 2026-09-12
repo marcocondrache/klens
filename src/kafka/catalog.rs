@@ -11,11 +11,6 @@ use crate::kafka::error::KafkaError;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::topic::Topic;
 
-/// Last successful catalog poll for one cluster.
-///
-/// This pass stores the topics-page payload (topic list, partitions, counts,
-/// and the consumer-group names attached to each topic). Other resolver data
-/// can be added here as those pages move onto the cache.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClusterSnapshot {
     pub updated_at: DateTime<Utc>,
@@ -35,7 +30,6 @@ impl ClusterSnapshot {
     }
 }
 
-/// In-memory per-cluster snapshots. Cheap to clone; all copies share the map.
 #[derive(Clone, Default)]
 pub struct CatalogCache {
     inner: Arc<RwLock<HashMap<String, ClusterSnapshot>>>,
@@ -62,7 +56,6 @@ impl CatalogCache {
         self.snapshot(cluster).map(|snapshot| snapshot.updated_at)
     }
 
-    /// Replace the snapshot for `cluster`. Used by the background poller.
     pub fn store(&self, cluster: impl Into<String>, snapshot: ClusterSnapshot) {
         self.inner
             .write()
@@ -70,10 +63,6 @@ impl CatalogCache {
             .insert(cluster.into(), snapshot);
     }
 
-    /// Write only when this cluster has no snapshot yet.
-    ///
-    /// GraphQL fallback uses this so a racing poller win is not overwritten
-    /// by a slightly older direct fetch.
     pub fn seed(&self, cluster: impl Into<String>, snapshot: ClusterSnapshot) -> bool {
         let mut inner = self.inner.write().expect("catalog cache lock");
         let cluster = cluster.into();

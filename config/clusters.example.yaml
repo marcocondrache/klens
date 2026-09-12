@@ -7,9 +7,6 @@
 bind: 0.0.0.0:8080
 log_level: info
 
-# Topic catalog poll interval is KLENS_CATALOG_POLL_INTERVAL (seconds, default 5,
-# minimum 1). GraphQL topics/clusterCatalog read the last snapshot.
-
 clusters:
   - name: local
     bootstrap_servers:
