@@ -380,9 +380,9 @@ pub struct CatalogPollerIntervals {
     pub configs: Duration,
 }
 
-pub struct CatalogPollerIo<FC, FO, FS> {
+pub struct CatalogPollerIo<FC, Observe, FS> {
     pub fetch_catalog: FC,
-    pub observe: FO,
+    pub observe: Observe,
     pub fetch_subjects: FS,
 }
 
@@ -402,17 +402,17 @@ impl Drop for CatalogPoller {
 }
 
 impl CatalogPoller {
-    pub fn start<FC, FCFut, FO, FS, FSFut>(
+    pub fn start<FC, FCFut, Observe, FS, FSFut>(
         catalog: CatalogCache,
         subjects: SubjectCache,
         clusters: impl IntoIterator<Item = impl Into<String>>,
         intervals: CatalogPollerIntervals,
-        io: CatalogPollerIo<FC, FO, FS>,
+        io: CatalogPollerIo<FC, Observe, FS>,
     ) -> Self
     where
         FC: Fn(String, CatalogReuse, bool) -> FCFut + Send + Sync + Clone + 'static,
         FCFut: Future<Output = Result<CatalogAssemble, KafkaError>> + Send + 'static,
-        FO: Fn(&str, HashMap<String, u64>) + Send + Sync + Clone + 'static,
+        Observe: Fn(&str, HashMap<String, u64>) + Send + Sync + Clone + 'static,
         FS: Fn(String) -> FSFut + Send + Sync + Clone + 'static,
         FSFut: Future<Output = Result<Vec<SchemaSubject>, KafkaError>> + Send + 'static,
     {
