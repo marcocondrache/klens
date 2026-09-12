@@ -1,11 +1,15 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::environment::OVERVIEW_BUDGET;
 use crate::kafka::{
-    CatalogCache, CatalogPoller, ClusterSession, ClusterSnapshot, LagStore, QueryEngine, RateStore,
+    CatalogCache, CatalogPoller, ClusterIdentity, ClusterOverview, ClusterSession, ClusterSnapshot,
+    LagStore, QueryEngine, RateStore,
 };
 use axum::Router;
 use axum::middleware;
+use futures::future::join_all;
+use tokio::time::timeout;
 
 mod auth;
 mod graphql;
@@ -72,6 +76,32 @@ impl AppState {
         let snapshot = Arc::new(self.query.catalog(cluster).await?);
         self.catalog.seed(cluster, Arc::clone(&snapshot));
         Ok(snapshot)
+    }
+
+    pub(crate) async fn cluster_overviews(&self) -> Vec<ClusterOverview> {
+        let identities = self.query.identities();
+        join_all(
+            identities
+                .iter()
+                .map(|identity| self.overview_or_offline(identity)),
+        )
+        .await
+    }
+
+    pub(crate) async fn cluster_overview(&self, name: &str) -> Option<ClusterOverview> {
+        let identity = self.query.session(name).ok()?.identity().clone();
+        Some(self.overview_or_offline(&identity).await)
+    }
+
+    async fn overview_or_offline(&self, identity: &ClusterIdentity) -> ClusterOverview {
+        if let Some(snapshot) = self.catalog.snapshot(&identity.name) {
+            return snapshot.overview.clone();
+        }
+
+        match timeout(*OVERVIEW_BUDGET, self.catalog_snapshot(&identity.name)).await {
+            Ok(Ok(snapshot)) => snapshot.overview.clone(),
+            Ok(Err(_)) | Err(_) => ClusterOverview::offline(identity.clone()),
+        }
     }
 }
 

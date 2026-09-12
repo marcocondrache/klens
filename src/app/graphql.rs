@@ -66,7 +66,13 @@ async fn graphql_ws(
 
 #[cfg(test)]
 mod tests {
-    use crate::kafka::{FakeCluster, QueryEngine};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use crate::kafka::{
+        Broker, ClusterHealth, ClusterIdentity, ClusterOverview, ClusterSnapshot, FakeCluster,
+        QueryEngine,
+    };
     use juniper::{Variables, execute};
 
     use super::*;
@@ -127,6 +133,37 @@ mod tests {
         );
     }
 
+    fn cached_overview(name: &str) -> ClusterOverview {
+        ClusterOverview {
+            identity: ClusterIdentity {
+                name: name.into(),
+                bootstrap_servers: vec!["cached:9092".into()],
+                security_protocol: crate::config::SecurityProtocol::Plaintext,
+            },
+            cluster_id: "from-cache".into(),
+            health: ClusterHealth::Degraded,
+            broker_count: 3,
+            topic_count: 7,
+            partition_count: 11,
+            consumer_group_count: 2,
+            under_replicated_partitions: 1,
+            offline_partitions: 0,
+            message_count: 0,
+        }
+    }
+
+    fn cached_broker(id: i32, host: &str) -> Broker {
+        Broker {
+            id,
+            host: host.into(),
+            port: 9093,
+            rack: None,
+            controller: false,
+            partition_count: 4,
+            leader_count: 2,
+        }
+    }
+
     #[tokio::test]
     async fn returns_none_for_unknown_cluster() {
         let state = state();
@@ -175,6 +212,127 @@ mod tests {
                     "version": "",
                     "clusterId": "test-cluster"
                 }
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn clusters_and_brokers_read_the_in_memory_snapshot() {
+        let state = state();
+        state.catalog.store(
+            "local",
+            ClusterSnapshot::assemble(
+                Vec::new(),
+                Vec::new(),
+                vec![cached_broker(9, "cached-broker")],
+                cached_overview("local"),
+            ),
+        );
+
+        let schema = schema();
+        let (value, errors) = execute(
+            r#"{
+                clusters { name bootstrapServers status topicCount clusterId }
+                cluster(name: "local") { name bootstrapServers status topicCount clusterId }
+                brokers(cluster: "local") { id host port partitionCount leaderCount }
+                broker(cluster: "local", id: 9) { id host }
+                missing: broker(cluster: "local", id: 1) { id }
+            }"#,
+            None,
+            &schema,
+            &Variables::new(),
+            &state,
+        )
+        .await
+        .unwrap();
+
+        assert!(errors.is_empty());
+        assert_eq!(
+            serde_json::to_value(value).unwrap(),
+            serde_json::json!({
+                "clusters": [{
+                    "name": "local",
+                    "bootstrapServers": ["cached:9092"],
+                    "status": "DEGRADED",
+                    "topicCount": 7,
+                    "clusterId": "from-cache"
+                }],
+                "cluster": {
+                    "name": "local",
+                    "bootstrapServers": ["cached:9092"],
+                    "status": "DEGRADED",
+                    "topicCount": 7,
+                    "clusterId": "from-cache"
+                },
+                "brokers": [{
+                    "id": 9,
+                    "host": "cached-broker",
+                    "port": 9093,
+                    "partitionCount": 4,
+                    "leaderCount": 2
+                }],
+                "broker": { "id": 9, "host": "cached-broker" },
+                "missing": null
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn clusters_mark_a_failed_seed_offline() {
+        let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
+            FakeCluster::named("down").unreachable(),
+            FakeCluster::local(),
+        ])));
+        let schema = schema();
+
+        let (value, errors) = execute(
+            r#"{ clusters { name status topicCount } }"#,
+            None,
+            &schema,
+            &Variables::new(),
+            &state,
+        )
+        .await
+        .unwrap();
+
+        assert!(errors.is_empty());
+        assert_eq!(
+            serde_json::to_value(value).unwrap(),
+            serde_json::json!({
+                "clusters": [
+                    { "name": "down", "status": "OFFLINE", "topicCount": 0 },
+                    { "name": "local", "status": "HEALTHY", "topicCount": 1 }
+                ]
+            })
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn clusters_mark_a_slow_seed_offline_without_blocking_others() {
+        let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
+            FakeCluster::named("slow").with_metadata_delay(Duration::from_secs(60)),
+            FakeCluster::named("fast"),
+        ])));
+        let schema = schema();
+
+        let (value, errors) = execute(
+            r#"{ clusters { name status } }"#,
+            None,
+            &schema,
+            &Variables::new(),
+            &state,
+        )
+        .await
+        .unwrap();
+
+        assert!(errors.is_empty());
+        assert_eq!(
+            serde_json::to_value(value).unwrap(),
+            serde_json::json!({
+                "clusters": [
+                    { "name": "slow", "status": "OFFLINE" },
+                    { "name": "fast", "status": "HEALTHY" }
+                ]
             })
         );
     }
@@ -706,6 +864,8 @@ mod tests {
         assert!(std::sync::Arc::ptr_eq(&first, &second));
         assert_eq!(first.topics[0].name, "orders.created");
         assert_eq!(first.groups[0].id, "order-processor");
+        assert_eq!(first.brokers[0].id, 1);
+        assert_eq!(first.overview.cluster_id, "test-cluster");
     }
 
     #[tokio::test]

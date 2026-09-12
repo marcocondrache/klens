@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::time::Duration;
 
 use async_trait::async_trait;
 
@@ -26,6 +27,8 @@ pub struct FakeCluster {
     groups: Vec<GroupSnapshot>,
     records: Vec<Record>,
     subjects: Vec<SchemaSubject>,
+    metadata_error: Option<String>,
+    metadata_delay: Duration,
 }
 
 impl FakeCluster {
@@ -169,6 +172,8 @@ impl FakeCluster {
             groups,
             records,
             subjects,
+            metadata_error: None,
+            metadata_delay: Duration::ZERO,
         }
     }
 
@@ -176,6 +181,16 @@ impl FakeCluster {
         let mut cluster = Self::local();
         cluster.identity.name = name.to_owned();
         cluster
+    }
+
+    pub fn unreachable(mut self) -> Self {
+        self.metadata_error = Some("broker down".into());
+        self
+    }
+
+    pub fn with_metadata_delay(mut self, delay: Duration) -> Self {
+        self.metadata_delay = delay;
+        self
     }
 
     pub fn extra_topic(&self, name: &str, partitions: i32, high: i64) -> Self {
@@ -260,6 +275,12 @@ impl ClusterSession for FakeCluster {
     }
 
     async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError> {
+        if !self.metadata_delay.is_zero() {
+            tokio::time::sleep(self.metadata_delay).await;
+        }
+        if let Some(message) = &self.metadata_error {
+            return Err(KafkaError::Admin(message.clone()));
+        }
         Ok(self.metadata.clone())
     }
 
