@@ -9,7 +9,7 @@ import { useNow } from "@/hooks/use-now";
 import { useBrokers, useCatalogHealth } from "@/lib/api/catalog";
 import { clusterPath, useClusterName } from "@/lib/clusters";
 import { catalogHealthCaption } from "@/lib/catalog-health";
-import { formatBytes, formatNumber, formatRate } from "@/lib/format";
+import { formatNumber } from "@/lib/format";
 import type { Broker } from "@/lib/api/types";
 import { createAppColumnHelper } from "@/lib/table";
 
@@ -70,24 +70,6 @@ const columns = columnHelper.columns([
     header: "Leaders",
     meta: { align: "right" },
     cell: ({ getValue }) => formatNumber(getValue()),
-  }),
-  columnHelper.accessor("logDirSizeBytes", {
-    id: "disk",
-    header: "Log size",
-    meta: { align: "right" },
-    cell: ({ getValue }) => formatBytes(getValue()),
-  }),
-  columnHelper.accessor("bytesInPerSec", {
-    id: "in",
-    header: "Bytes in",
-    meta: { align: "right" },
-    cell: ({ getValue }) => formatRate(getValue()),
-  }),
-  columnHelper.accessor("bytesOutPerSec", {
-    id: "out",
-    header: "Bytes out",
-    meta: { align: "right" },
-    cell: ({ getValue }) => formatRate(getValue()),
   }),
 ]);
 

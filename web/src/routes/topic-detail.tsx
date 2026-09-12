@@ -18,7 +18,6 @@ import { useTopicConfigs, useTopicThroughput } from "@/lib/api/live";
 import { useTopicRates } from "@/lib/api/subscriptions";
 import { clusterPath, useClusterName } from "@/lib/clusters";
 import {
-  formatBytes,
   formatCleanupPolicy,
   formatCount,
   formatDuration,
@@ -95,12 +94,6 @@ const partitionColumns = partitionColumnHelper.columns([
     header: "Messages",
     meta: { align: "right" },
     cell: ({ getValue }) => formatNumber(getValue()),
-  }),
-  partitionColumnHelper.accessor("sizeBytes", {
-    id: "size",
-    header: "Size",
-    meta: { align: "right" },
-    cell: ({ getValue }) => formatBytes(getValue()),
   }),
 ]);
 
@@ -234,13 +227,6 @@ export function TopicPage() {
           label="Messages"
           value={formatCount(topic?.messageCount ?? 0)}
           hint={formatNumber(topic?.messageCount ?? 0)}
-          icon={<DatabaseIcon />}
-          loading={isPending}
-        />
-        <Stat
-          label="Size"
-          value={formatBytes(topic?.sizeBytes ?? 0)}
-          hint="sum of all replicas"
           icon={<DatabaseIcon />}
           loading={isPending}
         />

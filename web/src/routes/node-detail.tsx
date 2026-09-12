@@ -1,10 +1,4 @@
-import {
-  ArrowDownRightIcon,
-  ArrowUpRightIcon,
-  CrownIcon,
-  DatabaseIcon,
-  NetworkIcon,
-} from "lucide-react";
+import { CrownIcon, NetworkIcon } from "lucide-react";
 import { useParams } from "react-router";
 
 import { ConfigTable } from "@/components/config-table";
@@ -15,7 +9,7 @@ import { Stat, StatGrid } from "@/components/stat";
 import { useBroker } from "@/lib/api/catalog";
 import { useBrokerConfigs } from "@/lib/api/live";
 import { useClusterName } from "@/lib/clusters";
-import { formatBytes, formatNumber, formatRate } from "@/lib/format";
+import { formatNumber } from "@/lib/format";
 
 export function NodePage() {
   const cluster = useClusterName();
@@ -60,25 +54,6 @@ export function NodePage() {
           value={formatNumber(broker?.partitionCount ?? 0)}
           hint={`${formatNumber(broker?.leaderCount ?? 0)} as leader`}
           icon={<NetworkIcon />}
-          loading={isPending}
-        />
-        <Stat
-          label="Log size"
-          value={formatBytes(broker?.logDirSizeBytes ?? 0)}
-          hint="across all log dirs"
-          icon={<DatabaseIcon />}
-          loading={isPending}
-        />
-        <Stat
-          label="Bytes in"
-          value={formatRate(broker?.bytesInPerSec ?? 0)}
-          icon={<ArrowUpRightIcon />}
-          loading={isPending}
-        />
-        <Stat
-          label="Bytes out"
-          value={formatRate(broker?.bytesOutPerSec ?? 0)}
-          icon={<ArrowDownRightIcon />}
           loading={isPending}
         />
       </StatGrid>

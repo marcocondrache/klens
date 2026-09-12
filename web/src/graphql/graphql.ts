@@ -72,9 +72,6 @@ export type BrokerFieldsFragment = {
   controller: boolean;
   partitionCount: number;
   leaderCount: number;
-  logDirSizeBytes: number;
-  bytesInPerSec: number;
-  bytesOutPerSec: number;
 };
 
 export type PartitionFieldsFragment = {
@@ -84,7 +81,6 @@ export type PartitionFieldsFragment = {
   isr: Array<number>;
   lowWatermark: number;
   highWatermark: number;
-  sizeBytes: number;
 };
 
 export type TopicFieldsFragment = {
@@ -93,7 +89,6 @@ export type TopicFieldsFragment = {
   partitionCount: number;
   replicationFactor: number;
   messageCount: number;
-  sizeBytes: number;
   cleanupPolicy: CleanupPolicy;
   retentionMs: number;
   consumerGroups: Array<string>;
@@ -107,7 +102,6 @@ export type TopicFieldsFragment = {
     isr: Array<number>;
     lowWatermark: number;
     highWatermark: number;
-    sizeBytes: number;
   }>;
 };
 
@@ -117,7 +111,6 @@ export type TopicListFieldsFragment = {
   partitionCount: number;
   replicationFactor: number;
   messageCount: number;
-  sizeBytes: number;
   cleanupPolicy: CleanupPolicy;
   retentionMs: number;
   consumerGroups: Array<string>;
@@ -132,7 +125,6 @@ export type ConfigEntryFieldsFragment = {
   source: ConfigSource;
   readOnly: boolean;
   sensitive: boolean;
-  documentation: string | null;
 };
 
 export type MemberAssignmentFieldsFragment = { topic: string; partitions: Array<number> };
@@ -319,9 +311,6 @@ export type BrokersQuery = {
     controller: boolean;
     partitionCount: number;
     leaderCount: number;
-    logDirSizeBytes: number;
-    bytesInPerSec: number;
-    bytesOutPerSec: number;
   }>;
 };
 
@@ -339,9 +328,6 @@ export type BrokerQuery = {
     controller: boolean;
     partitionCount: number;
     leaderCount: number;
-    logDirSizeBytes: number;
-    bytesInPerSec: number;
-    bytesOutPerSec: number;
   } | null;
 };
 
@@ -357,7 +343,6 @@ export type BrokerConfigsQuery = {
     source: ConfigSource;
     readOnly: boolean;
     sensitive: boolean;
-    documentation: string | null;
   }>;
 };
 
@@ -374,7 +359,6 @@ export type TopicsQuery = {
       partitionCount: number;
       replicationFactor: number;
       messageCount: number;
-      sizeBytes: number;
       cleanupPolicy: CleanupPolicy;
       retentionMs: number;
       consumerGroups: Array<string>;
@@ -397,7 +381,6 @@ export type TopicQuery = {
     partitionCount: number;
     replicationFactor: number;
     messageCount: number;
-    sizeBytes: number;
     cleanupPolicy: CleanupPolicy;
     retentionMs: number;
     consumerGroups: Array<string>;
@@ -411,7 +394,6 @@ export type TopicQuery = {
       isr: Array<number>;
       lowWatermark: number;
       highWatermark: number;
-      sizeBytes: number;
     }>;
   } | null;
 };
@@ -428,7 +410,6 @@ export type TopicConfigsQuery = {
     source: ConfigSource;
     readOnly: boolean;
     sensitive: boolean;
-    documentation: string | null;
   }>;
 };
 
@@ -679,9 +660,6 @@ export const BrokerFieldsFragmentDoc = new TypedDocumentString(
   controller
   partitionCount
   leaderCount
-  logDirSizeBytes
-  bytesInPerSec
-  bytesOutPerSec
 }
     `,
   { fragmentName: "BrokerFields" },
@@ -695,7 +673,6 @@ export const PartitionFieldsFragmentDoc = new TypedDocumentString(
   isr
   lowWatermark
   highWatermark
-  sizeBytes
 }
     `,
   { fragmentName: "PartitionFields" },
@@ -711,7 +688,6 @@ export const TopicFieldsFragmentDoc = new TypedDocumentString(
   partitionCount
   replicationFactor
   messageCount
-  sizeBytes
   cleanupPolicy
   retentionMs
   consumerGroups
@@ -726,7 +702,6 @@ export const TopicFieldsFragmentDoc = new TypedDocumentString(
   isr
   lowWatermark
   highWatermark
-  sizeBytes
 }`,
   { fragmentName: "TopicFields" },
 ) as unknown as TypedDocumentString<TopicFieldsFragment, unknown>;
@@ -738,7 +713,6 @@ export const TopicListFieldsFragmentDoc = new TypedDocumentString(
   partitionCount
   replicationFactor
   messageCount
-  sizeBytes
   cleanupPolicy
   retentionMs
   consumerGroups
@@ -757,7 +731,6 @@ export const ConfigEntryFieldsFragmentDoc = new TypedDocumentString(
   source
   readOnly
   sensitive
-  documentation
 }
     `,
   { fragmentName: "ConfigEntryFields" },
@@ -1021,9 +994,6 @@ export const BrokersDocument = new TypedDocumentString(`
   controller
   partitionCount
   leaderCount
-  logDirSizeBytes
-  bytesInPerSec
-  bytesOutPerSec
 }`) as unknown as TypedDocumentString<BrokersQuery, BrokersQueryVariables>;
 export const BrokerDocument = new TypedDocumentString(`
     query Broker($cluster: String!, $id: Int!) {
@@ -1039,9 +1009,6 @@ export const BrokerDocument = new TypedDocumentString(`
   controller
   partitionCount
   leaderCount
-  logDirSizeBytes
-  bytesInPerSec
-  bytesOutPerSec
 }`) as unknown as TypedDocumentString<BrokerQuery, BrokerQueryVariables>;
 export const BrokerConfigsDocument = new TypedDocumentString(`
     query BrokerConfigs($cluster: String!, $id: Int!) {
@@ -1055,7 +1022,6 @@ export const BrokerConfigsDocument = new TypedDocumentString(`
   source
   readOnly
   sensitive
-  documentation
 }`) as unknown as TypedDocumentString<BrokerConfigsQuery, BrokerConfigsQueryVariables>;
 export const TopicsDocument = new TypedDocumentString(`
     query Topics($cluster: String!) {
@@ -1072,7 +1038,6 @@ export const TopicsDocument = new TypedDocumentString(`
   partitionCount
   replicationFactor
   messageCount
-  sizeBytes
   cleanupPolicy
   retentionMs
   consumerGroups
@@ -1093,7 +1058,6 @@ export const TopicDocument = new TypedDocumentString(`
   isr
   lowWatermark
   highWatermark
-  sizeBytes
 }
 fragment TopicFields on Topic {
   name
@@ -1104,7 +1068,6 @@ fragment TopicFields on Topic {
   partitionCount
   replicationFactor
   messageCount
-  sizeBytes
   cleanupPolicy
   retentionMs
   consumerGroups
@@ -1124,7 +1087,6 @@ export const TopicConfigsDocument = new TypedDocumentString(`
   source
   readOnly
   sensitive
-  documentation
 }`) as unknown as TypedDocumentString<TopicConfigsQuery, TopicConfigsQueryVariables>;
 export const ConsumerGroupsDocument = new TypedDocumentString(`
     query ConsumerGroups($cluster: String!, $topic: String) {

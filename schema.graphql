@@ -107,9 +107,6 @@ type Broker {
   controller: Boolean!
   partitionCount: Int!
   leaderCount: Int!
-  logDirSizeBytes: Float!
-  bytesInPerSec: Float!
-  bytesOutPerSec: Float!
 }
 
 type CatalogHealth {
@@ -157,7 +154,6 @@ type ConfigEntry {
   source: ConfigSource!
   readOnly: Boolean!
   sensitive: Boolean!
-  documentation: String
 }
 
 type ConsumerGroup {
@@ -201,7 +197,6 @@ type Partition {
   isr: [Int!]!
   lowWatermark: Float!
   highWatermark: Float!
-  sizeBytes: Float!
 }
 
 type Query {
@@ -276,7 +271,6 @@ type Topic {
   partitionCount: Int!
   replicationFactor: Int!
   messageCount: Float!
-  sizeBytes: Float!
   cleanupPolicy: CleanupPolicy!
   retentionMs: Float!
   consumerGroups: [String!]!
