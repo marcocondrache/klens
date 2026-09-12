@@ -528,19 +528,6 @@ export type ConsumerGroupQuery = {
   } | null;
 };
 
-export type ClusterThroughputQueryVariables = Exact<{
-  cluster: string;
-}>;
-
-export type ClusterThroughputQuery = {
-  clusterThroughput: Array<{
-    timestamp: string;
-    bytesIn: number;
-    bytesOut: number;
-    messages: number;
-  }>;
-};
-
 export type TopicThroughputQueryVariables = Exact<{
   cluster: string;
   topic: string;
@@ -1263,18 +1250,6 @@ fragment ConsumerGroupFields on ConsumerGroup {
   }
   assignedPartitionCount
 }`) as unknown as TypedDocumentString<ConsumerGroupQuery, ConsumerGroupQueryVariables>;
-export const ClusterThroughputDocument = new TypedDocumentString(`
-    query ClusterThroughput($cluster: String!) {
-  clusterThroughput(cluster: $cluster) {
-    ...ThroughputPointFields
-  }
-}
-    fragment ThroughputPointFields on ThroughputPoint {
-  timestamp
-  bytesIn
-  bytesOut
-  messages
-}`) as unknown as TypedDocumentString<ClusterThroughputQuery, ClusterThroughputQueryVariables>;
 export const TopicThroughputDocument = new TypedDocumentString(`
     query TopicThroughput($cluster: String!, $topic: String!) {
   topicThroughput(cluster: $cluster, topic: $topic) {

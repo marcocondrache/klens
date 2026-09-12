@@ -43,7 +43,6 @@ type Documents = {
   "\n  query ConsumerGroups($cluster: String!, $topic: String) {\n    consumerGroups(cluster: $cluster, topic: $topic) {\n      ...ConsumerGroupFields\n    }\n  }\n": typeof types.ConsumerGroupsDocument;
   "\n  query GroupsCatalog($cluster: String!) {\n    clusterCatalog(cluster: $cluster) {\n      updatedAt\n      consumerGroups {\n        ...GroupListFields\n      }\n    }\n  }\n": typeof types.GroupsCatalogDocument;
   "\n  query ConsumerGroup($cluster: String!, $id: String!) {\n    consumerGroup(cluster: $cluster, id: $id) {\n      ...ConsumerGroupFields\n    }\n  }\n": typeof types.ConsumerGroupDocument;
-  "\n  query ClusterThroughput($cluster: String!) {\n    clusterThroughput(cluster: $cluster) {\n      ...ThroughputPointFields\n    }\n  }\n": typeof types.ClusterThroughputDocument;
   "\n  query TopicThroughput($cluster: String!, $topic: String!) {\n    topicThroughput(cluster: $cluster, topic: $topic) {\n      ...ThroughputPointFields\n    }\n  }\n": typeof types.TopicThroughputDocument;
   "\n  query GroupLagHistory($cluster: String!, $id: String!) {\n    groupLagHistory(cluster: $cluster, id: $id) {\n      ...ThroughputPointFields\n    }\n  }\n": typeof types.GroupLagHistoryDocument;
   "\n  query SchemaSubjects($cluster: String!) {\n    schemaSubjects(cluster: $cluster) {\n      ...SchemaSubjectFields\n    }\n  }\n": typeof types.SchemaSubjectsDocument;
@@ -114,8 +113,6 @@ const documents: Documents = {
     types.GroupsCatalogDocument,
   "\n  query ConsumerGroup($cluster: String!, $id: String!) {\n    consumerGroup(cluster: $cluster, id: $id) {\n      ...ConsumerGroupFields\n    }\n  }\n":
     types.ConsumerGroupDocument,
-  "\n  query ClusterThroughput($cluster: String!) {\n    clusterThroughput(cluster: $cluster) {\n      ...ThroughputPointFields\n    }\n  }\n":
-    types.ClusterThroughputDocument,
   "\n  query TopicThroughput($cluster: String!, $topic: String!) {\n    topicThroughput(cluster: $cluster, topic: $topic) {\n      ...ThroughputPointFields\n    }\n  }\n":
     types.TopicThroughputDocument,
   "\n  query GroupLagHistory($cluster: String!, $id: String!) {\n    groupLagHistory(cluster: $cluster, id: $id) {\n      ...ThroughputPointFields\n    }\n  }\n":
@@ -314,12 +311,6 @@ export function graphql(
 export function graphql(
   source: "\n  query ConsumerGroup($cluster: String!, $id: String!) {\n    consumerGroup(cluster: $cluster, id: $id) {\n      ...ConsumerGroupFields\n    }\n  }\n",
 ): typeof import("./graphql").ConsumerGroupDocument;
-/**
- * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
- */
-export function graphql(
-  source: "\n  query ClusterThroughput($cluster: String!) {\n    clusterThroughput(cluster: $cluster) {\n      ...ThroughputPointFields\n    }\n  }\n",
-): typeof import("./graphql").ClusterThroughputDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
