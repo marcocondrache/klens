@@ -1,5 +1,6 @@
 mod adapter;
 mod broker;
+mod catalog;
 mod cluster;
 mod engine;
 mod error;
@@ -23,6 +24,7 @@ mod series;
 mod testing;
 
 pub use adapter::KafkaClusterConfig;
+pub use catalog::{CatalogCache, CatalogPoller, ClusterSnapshot};
 pub use engine::QueryEngine;
 pub use error::{KafkaError, QueryError};
 pub use lag::LagStore;

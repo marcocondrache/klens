@@ -11,8 +11,9 @@ async fn main() -> anyhow::Result<()> {
     let _telemetry =
         klens::telemetry::Telemetry::init(&config.log_level, env!("CARGO_CRATE_NAME"))?;
 
-    let engine =
-        QueryEngine::from_config(&config).context("failed to initialize kafka query engine")?;
+    let engine = Arc::new(
+        QueryEngine::from_config(&config).context("failed to initialize kafka query engine")?,
+    );
 
     tracing::info!(clusters = ?engine.names(), "configured kafka clusters");
 
@@ -24,9 +25,8 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("oidc authentication enabled");
     }
 
-    klens::serve(
-        router(AppState::with_auth(Arc::new(engine), auth)),
-        config.bind,
-    )
-    .await
+    let state = AppState::with_auth(engine, auth)
+        .with_catalog_poller(*klens::environment::CATALOG_POLL_INTERVAL);
+
+    klens::serve(router(state), config.bind).await
 }

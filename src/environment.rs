@@ -137,6 +137,24 @@ pub static MAX_RECORD_LIMIT: LazyLock<usize> =
 pub static SAMPLE_INTERVAL: LazyLock<Duration> =
     lazy_env_parse!(duration, "KLENS_SAMPLE_INTERVAL", Duration::from_secs(2));
 
+/// How often each cluster's topic catalog is refreshed (default: 5 seconds).
+///
+/// Override with `KLENS_CATALOG_POLL_INTERVAL` (seconds). Values below 1
+/// second fall back to the default.
+pub static CATALOG_POLL_INTERVAL: LazyLock<Duration> = LazyLock::new(|| {
+    parse_catalog_poll_interval(std::env::var("KLENS_CATALOG_POLL_INTERVAL").ok())
+});
+
+const DEFAULT_CATALOG_POLL_INTERVAL: Duration = Duration::from_secs(5);
+const MIN_CATALOG_POLL_INTERVAL: Duration = Duration::from_secs(1);
+
+fn parse_catalog_poll_interval(raw: Option<String>) -> Duration {
+    raw.and_then(|value| value.parse::<u64>().ok())
+        .map(Duration::from_secs)
+        .filter(|interval| *interval >= MIN_CATALOG_POLL_INTERVAL)
+        .unwrap_or(DEFAULT_CATALOG_POLL_INTERVAL)
+}
+
 /// Ignore a previous watermark snapshot older than this when computing a
 /// produce rate (default: 15 seconds).
 ///
@@ -175,3 +193,36 @@ pub const STATIC_ASSET_CACHE_CONTROL: &str = "public, max-age=31536000, immutabl
 
 /// Cache-Control for `index.html` so clients pick up new asset hashes.
 pub const INDEX_CACHE_CONTROL: &str = "no-cache";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn catalog_poll_interval_defaults_when_unset_or_invalid() {
+        assert_eq!(
+            parse_catalog_poll_interval(None),
+            DEFAULT_CATALOG_POLL_INTERVAL
+        );
+        assert_eq!(
+            parse_catalog_poll_interval(Some("not-a-number".into())),
+            DEFAULT_CATALOG_POLL_INTERVAL
+        );
+        assert_eq!(
+            parse_catalog_poll_interval(Some("0".into())),
+            DEFAULT_CATALOG_POLL_INTERVAL
+        );
+    }
+
+    #[test]
+    fn catalog_poll_interval_accepts_values_at_or_above_one_second() {
+        assert_eq!(
+            parse_catalog_poll_interval(Some("1".into())),
+            MIN_CATALOG_POLL_INTERVAL
+        );
+        assert_eq!(
+            parse_catalog_poll_interval(Some("15".into())),
+            Duration::from_secs(15)
+        );
+    }
+}

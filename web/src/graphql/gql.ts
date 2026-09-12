@@ -34,7 +34,7 @@ type Documents = {
   "\n  query Brokers($cluster: String!) {\n    brokers(cluster: $cluster) {\n      ...BrokerFields\n    }\n  }\n": typeof types.BrokersDocument;
   "\n  query Broker($cluster: String!, $id: Int!) {\n    broker(cluster: $cluster, id: $id) {\n      ...BrokerFields\n    }\n  }\n": typeof types.BrokerDocument;
   "\n  query BrokerConfigs($cluster: String!, $id: Int!) {\n    brokerConfigs(cluster: $cluster, id: $id) {\n      ...ConfigEntryFields\n    }\n  }\n": typeof types.BrokerConfigsDocument;
-  "\n  query Topics($cluster: String!) {\n    topics(cluster: $cluster) {\n      ...TopicFields\n    }\n  }\n": typeof types.TopicsDocument;
+  "\n  query Topics($cluster: String!) {\n    clusterCatalog(cluster: $cluster) {\n      updatedAt\n      topics {\n        ...TopicFields\n      }\n    }\n  }\n": typeof types.TopicsDocument;
   "\n  query Topic($cluster: String!, $name: String!) {\n    topic(cluster: $cluster, name: $name) {\n      ...TopicFields\n    }\n  }\n": typeof types.TopicDocument;
   "\n  query TopicConfigs($cluster: String!, $name: String!) {\n    topicConfigs(cluster: $cluster, name: $name) {\n      ...ConfigEntryFields\n    }\n  }\n": typeof types.TopicConfigsDocument;
   "\n  query ConsumerGroups($cluster: String!, $topic: String) {\n    consumerGroups(cluster: $cluster, topic: $topic) {\n      ...ConsumerGroupFields\n    }\n  }\n": typeof types.ConsumerGroupsDocument;
@@ -91,7 +91,7 @@ const documents: Documents = {
     types.BrokerDocument,
   "\n  query BrokerConfigs($cluster: String!, $id: Int!) {\n    brokerConfigs(cluster: $cluster, id: $id) {\n      ...ConfigEntryFields\n    }\n  }\n":
     types.BrokerConfigsDocument,
-  "\n  query Topics($cluster: String!) {\n    topics(cluster: $cluster) {\n      ...TopicFields\n    }\n  }\n":
+  "\n  query Topics($cluster: String!) {\n    clusterCatalog(cluster: $cluster) {\n      updatedAt\n      topics {\n        ...TopicFields\n      }\n    }\n  }\n":
     types.TopicsDocument,
   "\n  query Topic($cluster: String!, $name: String!) {\n    topic(cluster: $cluster, name: $name) {\n      ...TopicFields\n    }\n  }\n":
     types.TopicDocument,
@@ -249,7 +249,7 @@ export function graphql(
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(
-  source: "\n  query Topics($cluster: String!) {\n    topics(cluster: $cluster) {\n      ...TopicFields\n    }\n  }\n",
+  source: "\n  query Topics($cluster: String!) {\n    clusterCatalog(cluster: $cluster) {\n      updatedAt\n      topics {\n        ...TopicFields\n      }\n    }\n  }\n",
 ): typeof import("./graphql").TopicsDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.

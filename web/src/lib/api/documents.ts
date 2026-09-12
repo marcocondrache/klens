@@ -239,8 +239,11 @@ export const brokerConfigsQuery = graphql(`
 
 export const topicsQuery = graphql(`
   query Topics($cluster: String!) {
-    topics(cluster: $cluster) {
-      ...TopicFields
+    clusterCatalog(cluster: $cluster) {
+      updatedAt
+      topics {
+        ...TopicFields
+      }
     }
   }
 `);

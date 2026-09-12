@@ -511,6 +511,86 @@ mod tests {
         assert!(sdl.contains("topicRates(cluster: String!): [TopicRate!]!"));
         assert!(sdl.contains("consumerGroupLag(cluster: String!, id: String!): ConsumerGroup!"));
         assert!(sdl.contains("schemaId: Int"));
+        assert!(sdl.contains("type ClusterCatalog"));
+        assert!(sdl.contains("clusterCatalog(cluster: String!): ClusterCatalog!"));
+    }
+
+    #[tokio::test]
+    async fn topics_and_catalog_read_the_in_memory_snapshot() {
+        let state = state();
+        state.catalog.store(
+            "local",
+            crate::kafka::ClusterSnapshot::from_topics(vec![crate::kafka::Topic {
+                name: "from-cache".into(),
+                internal: false,
+                partitions: Vec::new(),
+                replication_factor: 1,
+                message_count: 3,
+                cleanup_policy: crate::kafka::model::CleanupPolicy::Delete,
+                retention_ms: 0,
+                consumer_groups: vec!["cached-group".into()],
+                under_replicated: false,
+            }]),
+        );
+
+        let schema = schema();
+        let (value, errors) = execute(
+            r#"{
+                topics(cluster: "local") { name messageCount consumerGroups }
+                clusterCatalog(cluster: "local") { topics { name } }
+            }"#,
+            None,
+            &schema,
+            &Variables::new(),
+            &state,
+        )
+        .await
+        .unwrap();
+
+        assert!(errors.is_empty());
+        assert_eq!(
+            serde_json::to_value(value).unwrap(),
+            serde_json::json!({
+                "topics": [{
+                    "name": "from-cache",
+                    "messageCount": 3.0,
+                    "consumerGroups": ["cached-group"]
+                }],
+                "clusterCatalog": { "topics": [{ "name": "from-cache" }] }
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn cluster_catalog_exposes_updated_at_after_fallback() {
+        let state = state();
+        let schema = schema();
+
+        let (value, errors) = execute(
+            r#"{ clusterCatalog(cluster: "local") { updatedAt topics { name } } }"#,
+            None,
+            &schema,
+            &Variables::new(),
+            &state,
+        )
+        .await
+        .unwrap();
+
+        assert!(errors.is_empty());
+        let body = serde_json::to_value(value).unwrap();
+        assert_eq!(
+            body["clusterCatalog"]["topics"][0]["name"],
+            "orders.created"
+        );
+        assert!(
+            body["clusterCatalog"]["updatedAt"]
+                .as_str()
+                .is_some_and(|timestamp| !timestamp.is_empty())
+        );
+        assert_eq!(
+            state.catalog.topic("local", "orders.created").unwrap().name,
+            "orders.created"
+        );
     }
 
     #[tokio::test]

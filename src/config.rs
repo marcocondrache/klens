@@ -410,6 +410,24 @@ mod tests {
     }
 
     #[test]
+    fn rejects_catalog_poll_interval_yaml() {
+        let error = parse_config(
+            "
+            bind: 127.0.0.1:8080
+            catalog_poll_interval_secs: 15
+            clusters: []
+            ",
+        )
+        .unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("unknown field `catalog_poll_interval_secs`")
+        );
+    }
+
+    #[test]
     fn parses_bind_and_log_level() {
         let config = parse_config(
             "
