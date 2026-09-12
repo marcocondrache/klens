@@ -21,14 +21,22 @@ use crate::kafka::session::ClusterSession;
 use crate::kafka::testing::FakeCluster;
 use crate::kafka::topic_config::CleanupPolicy;
 
+/// Intervals long enough that no lane polls a second time on its own. Tests
+/// shorten the one lane they are driving with `..idle_intervals()`.
+fn idle_intervals() -> CatalogPollerIntervals {
+    CatalogPollerIntervals {
+        catalog: Duration::from_secs(60),
+        subjects: Duration::from_secs(60),
+        configs: Duration::from_secs(60),
+    }
+}
+
 fn start_from_engine(
     catalog: CatalogCache,
     subjects: SubjectCache,
     engine: Arc<QueryEngine<dyn ClusterSession>>,
     rates: RateStore,
-    catalog_interval: Duration,
-    subject_interval: Duration,
-    config_interval: Duration,
+    intervals: CatalogPollerIntervals,
 ) -> CatalogPoller {
     let clusters: Vec<String> = engine.names().into_iter().map(str::to_owned).collect();
     let catalog_engine = Arc::clone(&engine);
@@ -36,11 +44,7 @@ fn start_from_engine(
         catalog,
         subjects,
         clusters,
-        CatalogPollerIntervals {
-            catalog: catalog_interval,
-            subjects: subject_interval,
-            configs: config_interval,
-        },
+        intervals,
         CatalogPollerIo {
             fetch_catalog: move |cluster: String, reuse, fetch_configs| {
                 let engine = Arc::clone(&catalog_engine);
@@ -388,9 +392,7 @@ async fn invalidate_then_kick_stores_the_catalog_again() {
         SubjectCache::new(),
         engine,
         RateStore::new(),
-        Duration::from_secs(60),
-        Duration::from_secs(60),
-        Duration::from_secs(60),
+        idle_intervals(),
     );
 
     wait_until(|| cache.snapshot("local").is_some()).await;
@@ -502,9 +504,7 @@ async fn start_polls_query_engine_catalog() {
         subjects.clone(),
         engine,
         rates.clone(),
-        Duration::from_secs(60),
-        Duration::from_secs(60),
-        Duration::from_secs(60),
+        idle_intervals(),
     );
 
     wait_until(|| cache.snapshot("local").is_some() && subjects.snapshot("local").is_some()).await;
@@ -546,9 +546,10 @@ async fn poller_observes_rate_store_from_catalog_counts() {
         SubjectCache::new(),
         engine,
         rates.clone(),
-        Duration::from_secs(5),
-        Duration::from_secs(60),
-        Duration::from_secs(60),
+        CatalogPollerIntervals {
+            catalog: Duration::from_secs(5),
+            ..idle_intervals()
+        },
     );
 
     wait_until(|| !rates.topic_rates("local").is_empty()).await;
@@ -575,9 +576,10 @@ async fn unchanged_catalog_poll_keeps_the_same_arc() {
         SubjectCache::new(),
         engine,
         rates.clone(),
-        Duration::from_secs(5),
-        Duration::from_secs(60),
-        Duration::from_secs(60),
+        CatalogPollerIntervals {
+            catalog: Duration::from_secs(5),
+            ..idle_intervals()
+        },
     );
 
     wait_until(|| cache.snapshot("local").is_some()).await;
@@ -621,9 +623,7 @@ async fn failed_subject_poll_keeps_catalog_and_previous_subjects() {
         subjects.clone(),
         engine,
         RateStore::new(),
-        Duration::from_secs(60),
-        Duration::from_secs(60),
-        Duration::from_secs(60),
+        idle_intervals(),
     );
 
     wait_until(|| cache.snapshot("local").is_some()).await;
@@ -650,9 +650,7 @@ async fn failed_catalog_poll_still_fills_subjects() {
         subjects.clone(),
         engine,
         RateStore::new(),
-        Duration::from_secs(60),
-        Duration::from_secs(60),
-        Duration::from_secs(60),
+        idle_intervals(),
     );
 
     wait_until(|| subjects.snapshot("local").is_some()).await;
