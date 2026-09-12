@@ -1,4 +1,4 @@
-import { useParams } from "react-router";
+import { useParams } from "@/lib/navigation";
 
 export const DEFAULT_CLUSTER = "local";
 

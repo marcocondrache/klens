@@ -1,5 +1,5 @@
 import { CrownIcon, NetworkIcon } from "lucide-react";
-import { useParams } from "react-router";
+import { useParams } from "@/lib/navigation";
 
 import { ConfigTable } from "@/components/config-table";
 import { CopyButton } from "@/components/copy-button";

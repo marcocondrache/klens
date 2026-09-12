@@ -1,5 +1,5 @@
 import { ServerOffIcon } from "lucide-react";
-import { Navigate } from "react-router";
+import { Navigate } from "@/lib/navigation";
 
 import {
   Empty,

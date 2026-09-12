@@ -1,4 +1,4 @@
-import { Link, useLocation } from "react-router";
+import { Link, useLocation } from "@/lib/navigation";
 
 import { Button } from "@/components/ui/button";
 import {

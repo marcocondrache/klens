@@ -1,6 +1,6 @@
 import { Fragment } from "react";
 import { RefreshCwIcon, SearchIcon } from "lucide-react";
-import { Link, useLocation } from "react-router";
+import { Link, useLocation } from "@/lib/navigation";
 import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 

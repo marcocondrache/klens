@@ -1,6 +1,6 @@
 import { useMemo, type ReactNode } from "react";
 import { AlertTriangleIcon } from "lucide-react";
-import { useNavigate, useSearchParams } from "react-router";
+import { useNavigate, useSearchParams } from "@/lib/navigation";
 
 import { Label } from "@/components/ui/label";
 import {

@@ -1,5 +1,5 @@
 import { ActivityIcon, LayersIcon, NetworkIcon, UsersRoundIcon } from "lucide-react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router";
+import { Link, useNavigate, useParams, useSearchParams } from "@/lib/navigation";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sparkline } from "@/components/charts";

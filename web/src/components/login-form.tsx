@@ -1,5 +1,5 @@
 import { CircleAlertIcon } from "lucide-react";
-import { useSearchParams } from "react-router";
+import { useSearchParams } from "@/lib/navigation";
 
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
