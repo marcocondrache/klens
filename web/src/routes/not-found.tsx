@@ -10,6 +10,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
+import { formatModK } from "@/lib/keyboard";
 
 export function NotFoundPage() {
   return (
@@ -20,7 +21,8 @@ export function NotFoundPage() {
         </EmptyMedia>
         <EmptyTitle>Page not found</EmptyTitle>
         <EmptyDescription>
-          That route does not exist in klens. Try the topics list or search with ⌘K or /.
+          That route does not exist in klens. Try the topics list or search with {formatModK()} or
+          /.
         </EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
