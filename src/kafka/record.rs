@@ -1,3 +1,10 @@
+//! Decoded records and the browse pipeline.
+//!
+//! [`Record`] and [`RecordPage`] are the page the UI shows. `query` holds the
+//! browse request ([`query::RecordQuery`]). `plan` turns that into partition
+//! windows. `page` fetches those windows. [`cursor::RecordCursor`] resumes.
+//! [`filter::RecordFilter`] is the CEL predicate.
+
 pub mod cursor;
 pub mod filter;
 pub mod page;
