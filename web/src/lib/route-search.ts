@@ -17,6 +17,14 @@ export type LoginSearch = {
   error?: string;
 };
 
+export type TopicDetailSearch = {
+  tab?: "partitions" | "groups" | "config";
+};
+
+export type GroupDetailSearch = {
+  tab?: "members";
+};
+
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value !== "" ? value : undefined;
 }
@@ -56,4 +64,16 @@ export function parseSchemasSearch(search: Record<string, unknown>): SchemasSear
 export function parseLoginSearch(search: Record<string, unknown>): LoginSearch {
   const error = optionalString(search.error);
   return error ? { error } : {};
+}
+
+export function parseTopicDetailSearch(search: Record<string, unknown>): TopicDetailSearch {
+  const tab = search.tab;
+  if (tab === "partitions" || tab === "groups" || tab === "config") {
+    return { tab };
+  }
+  return {};
+}
+
+export function parseGroupDetailSearch(search: Record<string, unknown>): GroupDetailSearch {
+  return search.tab === "members" ? { tab: "members" } : {};
 }

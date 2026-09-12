@@ -1,6 +1,8 @@
 import { useMemo } from "react";
 import { AlertTriangleIcon, DatabaseIcon, GaugeIcon, NetworkIcon } from "lucide-react";
-import { useNavigate, useParams, useSearchParams } from "@/lib/navigation";
+import { useNavigate, useSearch } from "@tanstack/react-router";
+
+import { useNavigate as useHrefNavigate, useParams } from "@/lib/navigation";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConfigTable } from "@/components/config-table";
@@ -27,8 +29,6 @@ import {
 } from "@/lib/format";
 import type { ConsumerGroup, Partition } from "@/lib/api/types";
 import { createAppColumnHelper } from "@/lib/table";
-
-const TABS = ["data", "partitions", "groups", "config"];
 
 const partitionColumnHelper = createAppColumnHelper<Partition>();
 const groupColumnHelper = createAppColumnHelper<ConsumerGroup>();
@@ -99,12 +99,12 @@ const partitionColumns = partitionColumnHelper.columns([
 
 export function TopicPage() {
   const cluster = useClusterName();
-  const navigate = useNavigate();
+  const hrefNavigate = useHrefNavigate();
+  const navigate = useNavigate({ from: "/cluster/$cluster/topics/$topic" });
   const { topic: topicParam } = useParams<{ topic: string }>();
   const topicName = decodeURIComponent(topicParam ?? "");
-  const [params, setParams] = useSearchParams();
-
-  const tab = TABS.includes(params.get("tab") ?? "") ? params.get("tab")! : "data";
+  const { tab: tabParam } = useSearch({ from: "/cluster/$cluster/topics/$topic" });
+  const tab = tabParam ?? "data";
 
   const { data: topic, isPending, isError, error } = useTopic(cluster, topicName);
   useTopicRates(cluster);
@@ -127,13 +127,20 @@ export function TopicPage() {
   const groupCount = topic?.consumerGroups.length ?? consuming.length;
 
   function selectTab(value: string) {
-    const next = new URLSearchParams(params);
-    if (value === "data") {
-      next.delete("tab");
-    } else {
-      next.set("tab", value);
-    }
-    setParams(next, { replace: true });
+    void navigate({
+      to: ".",
+      search: (prev) => {
+        const next = { ...prev };
+        if (value === "partitions" || value === "groups" || value === "config") {
+          next.tab = value;
+        } else {
+          delete next.tab;
+        }
+        return next;
+      },
+      replace: true,
+      resetScroll: false,
+    });
   }
 
   const lookup = catalogLookupMessage({
@@ -283,7 +290,7 @@ export function TopicPage() {
             data={consuming}
             getRowId={(group) => group.id}
             loading={groupsPending}
-            onRowClick={(group) => navigate(clusterPath(cluster, "groups", group.id))}
+            onRowClick={(group) => hrefNavigate(clusterPath(cluster, "groups", group.id))}
             emptyState={
               <p className="py-10 text-center text-sm text-muted-foreground">
                 No consumer group is subscribed to this topic.
