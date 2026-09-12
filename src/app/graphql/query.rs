@@ -1,10 +1,11 @@
-use juniper::{FieldResult, graphql_object};
+use juniper::graphql_object;
 
 use super::types::{
     Broker, CatalogHealth, Cluster, ClusterCatalog, ConfigEntry, ConsumerGroup, RecordPage,
     RecordQuery, SchemaSubject, SearchResult, SearchResults, ThroughputPoint, Topic,
 };
 use crate::AppState;
+use crate::kafka::KafkaError;
 
 pub struct Query;
 
@@ -23,12 +24,16 @@ impl Query {
         context.cluster_overview(&name).await.map(Cluster::from)
     }
 
-    async fn brokers(context: &AppState, cluster: String) -> FieldResult<Vec<Broker>> {
+    async fn brokers(context: &AppState, cluster: String) -> Result<Vec<Broker>, KafkaError> {
         let snapshot = context.catalog_snapshot(&cluster).await?;
         Ok(snapshot.brokers.iter().cloned().map(Broker::from).collect())
     }
 
-    async fn broker(context: &AppState, cluster: String, id: i32) -> FieldResult<Option<Broker>> {
+    async fn broker(
+        context: &AppState,
+        cluster: String,
+        id: i32,
+    ) -> Result<Option<Broker>, KafkaError> {
         let snapshot = context.catalog_snapshot(&cluster).await?;
         Ok(snapshot.broker(id).cloned().map(Broker::from))
     }
@@ -37,7 +42,7 @@ impl Query {
         context: &AppState,
         cluster: String,
         id: i32,
-    ) -> FieldResult<Vec<ConfigEntry>> {
+    ) -> Result<Vec<ConfigEntry>, KafkaError> {
         Ok(context
             .live_broker_configs(&cluster, id)
             .await?
@@ -46,7 +51,10 @@ impl Query {
             .collect())
     }
 
-    async fn cluster_catalog(context: &AppState, cluster: String) -> FieldResult<ClusterCatalog> {
+    async fn cluster_catalog(
+        context: &AppState,
+        cluster: String,
+    ) -> Result<ClusterCatalog, KafkaError> {
         let snapshot = context.catalog_snapshot(&cluster).await?;
         Ok(ClusterCatalog {
             updated_at: snapshot.updated_at,
@@ -55,7 +63,10 @@ impl Query {
         })
     }
 
-    async fn catalog_health(context: &AppState, cluster: String) -> FieldResult<CatalogHealth> {
+    async fn catalog_health(
+        context: &AppState,
+        cluster: String,
+    ) -> Result<CatalogHealth, KafkaError> {
         context.require_cluster(&cluster)?;
         Ok(CatalogHealth::from(context.catalog_health(&cluster)))
     }
@@ -64,7 +75,7 @@ impl Query {
         context: &AppState,
         cluster: String,
         name: String,
-    ) -> FieldResult<Option<Topic>> {
+    ) -> Result<Option<Topic>, KafkaError> {
         Ok(context
             .catalog_snapshot(&cluster)
             .await?
@@ -77,7 +88,7 @@ impl Query {
         context: &AppState,
         cluster: String,
         name: String,
-    ) -> FieldResult<Vec<ConfigEntry>> {
+    ) -> Result<Vec<ConfigEntry>, KafkaError> {
         Ok(context
             .live_topic_configs(&cluster, &name)
             .await?
@@ -90,7 +101,7 @@ impl Query {
         context: &AppState,
         cluster: String,
         topic: Option<String>,
-    ) -> FieldResult<Vec<ConsumerGroup>> {
+    ) -> Result<Vec<ConsumerGroup>, KafkaError> {
         let snapshot = context.catalog_snapshot(&cluster).await?;
         Ok(map_groups(&snapshot.groups_for_topic(topic.as_deref())))
     }
@@ -99,7 +110,7 @@ impl Query {
         context: &AppState,
         cluster: String,
         id: String,
-    ) -> FieldResult<Option<ConsumerGroup>> {
+    ) -> Result<Option<ConsumerGroup>, KafkaError> {
         Ok(context
             .catalog_snapshot(&cluster)
             .await?
@@ -135,7 +146,7 @@ impl Query {
     async fn schema_subjects(
         context: &AppState,
         cluster: String,
-    ) -> FieldResult<Vec<SchemaSubject>> {
+    ) -> Result<Vec<SchemaSubject>, KafkaError> {
         Ok(context
             .subject_snapshot(&cluster)
             .await?
@@ -145,11 +156,9 @@ impl Query {
             .collect())
     }
 
-    async fn records(context: &AppState, query: RecordQuery) -> FieldResult<RecordPage> {
+    async fn records(context: &AppState, query: RecordQuery) -> Result<RecordPage, KafkaError> {
         let cluster = query.cluster.clone();
-        let query = query
-            .try_into()
-            .map_err(crate::kafka::KafkaError::InvalidQuery)?;
+        let query = query.try_into()?;
         Ok(RecordPage::from(
             context.live_records(&cluster, query).await?,
         ))
@@ -159,7 +168,7 @@ impl Query {
         context: &AppState,
         cluster: String,
         term: String,
-    ) -> FieldResult<SearchResults> {
+    ) -> Result<SearchResults, KafkaError> {
         let search = context.catalog_search(&cluster, &term).await?;
         Ok(SearchResults {
             hits: search.hits.into_iter().map(SearchResult::from).collect(),

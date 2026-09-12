@@ -1,3 +1,5 @@
+import { graphqlErrorMessage } from "@/lib/graphql-error";
+
 export function queryErrorMessage(
   isError: boolean,
   error: unknown,
@@ -6,5 +8,5 @@ export function queryErrorMessage(
   if (!isError) {
     return undefined;
   }
-  return error instanceof Error ? error.message : fallback;
+  return graphqlErrorMessage(error, fallback);
 }

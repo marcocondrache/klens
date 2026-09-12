@@ -43,6 +43,25 @@ pub enum KafkaError {
     Join(#[from] tokio::task::JoinError),
 }
 
+impl KafkaError {
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::UnknownCluster(_) => "UNKNOWN_CLUSTER",
+            Self::UnknownTopic { .. } => "UNKNOWN_TOPIC",
+            Self::UnknownBroker { .. } => "UNKNOWN_BROKER",
+            Self::UnknownGroup { .. } => "UNKNOWN_GROUP",
+            Self::UnknownPartition { .. } => "UNKNOWN_PARTITION",
+            Self::InvalidQuery(query) => query.code(),
+            Self::Timeout => "TIMEOUT",
+            Self::Admin(_) => "ADMIN",
+            Self::BrokerConfigs { .. } => "BROKER_CONFIGS",
+            Self::SchemaRegistry { .. } => "SCHEMA_REGISTRY",
+            Self::Client(_) => "CLIENT",
+            Self::Join(_) => "JOIN",
+        }
+    }
+}
+
 /// A record query rejected before any Kafka call is made.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum QueryError {
@@ -57,6 +76,17 @@ pub enum QueryError {
 
     #[error("invalid filter: {0}")]
     InvalidFilter(String),
+}
+
+impl QueryError {
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::LimitTooSmall => "LIMIT_TOO_SMALL",
+            Self::InvalidCursor => "INVALID_CURSOR",
+            Self::InvertedTimestampRange => "INVERTED_TIMESTAMP_RANGE",
+            Self::InvalidFilter(_) => "INVALID_FILTER",
+        }
+    }
 }
 
 #[cfg(test)]
@@ -78,5 +108,74 @@ mod tests {
             error.to_string(),
             "failed to describe broker 3 configs: Broker: Not authorized"
         );
+    }
+
+    #[test]
+    fn error_codes_are_the_variant_names() {
+        assert_eq!(
+            KafkaError::UnknownCluster("ghost".into()).code(),
+            "UNKNOWN_CLUSTER"
+        );
+        assert_eq!(
+            KafkaError::UnknownTopic {
+                cluster: "local".into(),
+                topic: "missing".into(),
+            }
+            .code(),
+            "UNKNOWN_TOPIC"
+        );
+        assert_eq!(
+            KafkaError::UnknownBroker {
+                cluster: "local".into(),
+                id: 9,
+            }
+            .code(),
+            "UNKNOWN_BROKER"
+        );
+        assert_eq!(
+            KafkaError::UnknownGroup {
+                cluster: "local".into(),
+                id: "ghost".into(),
+            }
+            .code(),
+            "UNKNOWN_GROUP"
+        );
+        assert_eq!(
+            KafkaError::UnknownPartition {
+                cluster: "local".into(),
+                topic: "orders".into(),
+                partition: 3,
+            }
+            .code(),
+            "UNKNOWN_PARTITION"
+        );
+        assert_eq!(
+            KafkaError::InvalidQuery(QueryError::InvertedTimestampRange).code(),
+            "INVERTED_TIMESTAMP_RANGE"
+        );
+        assert_eq!(
+            KafkaError::InvalidQuery(QueryError::InvalidFilter("value.status ==".into())).code(),
+            "INVALID_FILTER"
+        );
+        assert_eq!(KafkaError::Timeout.code(), "TIMEOUT");
+        assert_eq!(KafkaError::Admin("broker down".into()).code(), "ADMIN");
+        assert_eq!(
+            KafkaError::BrokerConfigs {
+                id: 1,
+                message: "denied".into(),
+            }
+            .code(),
+            "BROKER_CONFIGS"
+        );
+        assert_eq!(
+            KafkaError::SchemaRegistry {
+                cluster: "local".into(),
+                message: "404".into(),
+            }
+            .code(),
+            "SCHEMA_REGISTRY"
+        );
+        assert_eq!(QueryError::LimitTooSmall.code(), "LIMIT_TOO_SMALL");
+        assert_eq!(QueryError::InvalidCursor.code(), "INVALID_CURSOR");
     }
 }

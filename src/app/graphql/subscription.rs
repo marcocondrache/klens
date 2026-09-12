@@ -1,5 +1,5 @@
 use futures::stream::{self, BoxStream};
-use juniper::{FieldResult, graphql_subscription};
+use juniper::{FieldResult, IntoFieldError, graphql_subscription};
 
 use super::types::{CatalogUpdated, ConsumerGroup, TopicRate};
 use crate::AppState;
@@ -85,7 +85,10 @@ async fn sample_consumer_group_lag(
     cluster: &str,
     id: &str,
 ) -> FieldResult<ConsumerGroup> {
-    let group = state.live_consumer_group(cluster, id).await?;
+    let group = state
+        .live_consumer_group(cluster, id)
+        .await
+        .map_err(IntoFieldError::into_field_error)?;
     state.series_observe_group_lag(cluster, id, group.lag);
     Ok(ConsumerGroup::from(group))
 }
@@ -370,17 +373,14 @@ mod tests {
 
         let first = stream.next().await.unwrap();
         let first = serde_json::to_value(first).unwrap();
-        let messages = first["errors"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|error| error["message"].as_str().unwrap().to_owned())
-            .collect::<Vec<_>>();
+        let errors = first["errors"].as_array().unwrap();
         assert!(
-            messages.iter().any(
-                |message| message.contains("unknown consumer group 'ghost' in cluster 'local'")
-            ),
-            "errors={messages:?}"
+            errors.iter().any(|error| {
+                error["message"].as_str()
+                    == Some("unknown consumer group 'ghost' in cluster 'local'")
+                    && error["extensions"]["code"].as_str() == Some("UNKNOWN_GROUP")
+            }),
+            "errors={errors:?}"
         );
         assert!(first["data"]["consumerGroupLag"].is_null());
     }

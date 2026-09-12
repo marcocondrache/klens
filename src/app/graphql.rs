@@ -14,6 +14,7 @@ use juniper_graphql_ws::ConnectionConfig;
 
 use crate::AppState;
 
+mod error;
 mod query;
 mod subscription;
 mod types;
