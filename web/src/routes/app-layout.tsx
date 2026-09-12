@@ -7,7 +7,8 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppHeader } from "@/components/app-header";
 import { AppSidebar } from "@/components/app-sidebar";
 import { CommandPalette } from "@/components/command-palette";
-import { useCatalogUpdated, useClusters } from "@/lib/api/queries";
+import { useClusters } from "@/lib/api/catalog";
+import { useCatalogUpdated } from "@/lib/api/subscriptions";
 import { useClusterName } from "@/lib/clusters";
 import { findSearchHotkeyTarget, isTypingTarget } from "@/lib/keyboard";
 

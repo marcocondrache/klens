@@ -12,7 +12,8 @@ import { CopyButton } from "@/components/copy-button";
 import { PageHeader } from "@/components/page-header";
 import { Pill } from "@/components/status";
 import { Stat, StatGrid } from "@/components/stat";
-import { useBroker, useBrokerConfigs } from "@/lib/api/queries";
+import { useBroker } from "@/lib/api/catalog";
+import { useBrokerConfigs } from "@/lib/api/live";
 import { useClusterName } from "@/lib/clusters";
 import { formatBytes, formatNumber, formatRate } from "@/lib/format";
 
