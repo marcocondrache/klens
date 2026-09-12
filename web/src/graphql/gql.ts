@@ -47,7 +47,7 @@ type Documents = {
   "\n  query GroupLagHistory($cluster: String!, $id: String!) {\n    groupLagHistory(cluster: $cluster, id: $id) {\n      ...ThroughputPointFields\n    }\n  }\n": typeof types.GroupLagHistoryDocument;
   "\n  query SchemaSubjects($cluster: String!) {\n    schemaSubjects(cluster: $cluster) {\n      ...SchemaSubjectFields\n    }\n  }\n": typeof types.SchemaSubjectsDocument;
   "\n  query Records($query: RecordQuery!) {\n    records(query: $query) {\n      records {\n        ...TopicRecordFields\n      }\n      hasMore\n      nextCursor\n    }\n  }\n": typeof types.RecordsDocument;
-  "\n  query Search($cluster: String!, $term: String!) {\n    search(cluster: $cluster, term: $term) {\n      ...SearchResultFields\n    }\n  }\n": typeof types.SearchDocument;
+  "\n  query Search($cluster: String!, $term: String!) {\n    search(cluster: $cluster, term: $term) {\n      hits {\n        ...SearchResultFields\n      }\n      schemaRegistryError\n    }\n  }\n": typeof types.SearchDocument;
   "\n  subscription TopicRates($cluster: String!) {\n    topicRates(cluster: $cluster) {\n      ...TopicRateFields\n    }\n  }\n": typeof types.TopicRatesDocument;
   "\n  subscription ConsumerGroupLag($cluster: String!, $id: String!) {\n    consumerGroupLag(cluster: $cluster, id: $id) {\n      ...ConsumerGroupLagFields\n    }\n  }\n": typeof types.ConsumerGroupLagDocument;
   "\n  subscription CatalogUpdated($cluster: String!) {\n    catalogUpdated(cluster: $cluster) {\n      cluster\n      updatedAt\n      generation\n    }\n  }\n": typeof types.CatalogUpdatedDocument;
@@ -121,7 +121,7 @@ const documents: Documents = {
     types.SchemaSubjectsDocument,
   "\n  query Records($query: RecordQuery!) {\n    records(query: $query) {\n      records {\n        ...TopicRecordFields\n      }\n      hasMore\n      nextCursor\n    }\n  }\n":
     types.RecordsDocument,
-  "\n  query Search($cluster: String!, $term: String!) {\n    search(cluster: $cluster, term: $term) {\n      ...SearchResultFields\n    }\n  }\n":
+  "\n  query Search($cluster: String!, $term: String!) {\n    search(cluster: $cluster, term: $term) {\n      hits {\n        ...SearchResultFields\n      }\n      schemaRegistryError\n    }\n  }\n":
     types.SearchDocument,
   "\n  subscription TopicRates($cluster: String!) {\n    topicRates(cluster: $cluster) {\n      ...TopicRateFields\n    }\n  }\n":
     types.TopicRatesDocument,
@@ -339,7 +339,7 @@ export function graphql(
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(
-  source: "\n  query Search($cluster: String!, $term: String!) {\n    search(cluster: $cluster, term: $term) {\n      ...SearchResultFields\n    }\n  }\n",
+  source: "\n  query Search($cluster: String!, $term: String!) {\n    search(cluster: $cluster, term: $term) {\n      hits {\n        ...SearchResultFields\n      }\n      schemaRegistryError\n    }\n  }\n",
 ): typeof import("./graphql").SearchDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.

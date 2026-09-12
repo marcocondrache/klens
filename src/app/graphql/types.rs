@@ -680,6 +680,12 @@ impl From<domain::SearchHit> for SearchResult {
     }
 }
 
+#[derive(GraphQLObject)]
+pub(super) struct SearchResults {
+    pub hits: Vec<SearchResult>,
+    pub schema_registry_error: Option<String>,
+}
+
 impl From<domain::SearchKind> for SearchResultKind {
     fn from(kind: domain::SearchKind) -> Self {
         match kind {

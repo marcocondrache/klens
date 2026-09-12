@@ -378,7 +378,10 @@ export const recordsQuery = graphql(`
 export const searchQuery = graphql(`
   query Search($cluster: String!, $term: String!) {
     search(cluster: $cluster, term: $term) {
-      ...SearchResultFields
+      hits {
+        ...SearchResultFields
+      }
+      schemaRegistryError
     }
   }
 `);

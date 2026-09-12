@@ -248,8 +248,8 @@ async fn search_reads_topics_groups_and_nodes_from_the_snapshot() {
     let schema = schema();
     let (value, errors) = execute(
         r#"{
-                cached: search(cluster: "local", term: "cached") { kind id }
-                order: search(cluster: "local", term: "order") { kind id }
+                cached: search(cluster: "local", term: "cached") { hits { kind id } schemaRegistryError }
+                order: search(cluster: "local", term: "order") { hits { kind id } schemaRegistryError }
             }"#,
         None,
         &schema,
@@ -263,14 +263,20 @@ async fn search_reads_topics_groups_and_nodes_from_the_snapshot() {
     assert_eq!(
         serde_json::to_value(value).unwrap(),
         serde_json::json!({
-            "cached": [
-                { "kind": "TOPIC", "id": "payments.cached" },
-                { "kind": "GROUP", "id": "cached-processor" },
-                { "kind": "NODE", "id": "9" }
-            ],
-            "order": [
-                { "kind": "SUBJECT", "id": "orders.created-value" }
-            ]
+            "cached": {
+                "hits": [
+                    { "kind": "TOPIC", "id": "payments.cached" },
+                    { "kind": "GROUP", "id": "cached-processor" },
+                    { "kind": "NODE", "id": "9" }
+                ],
+                "schemaRegistryError": null
+            },
+            "order": {
+                "hits": [
+                    { "kind": "SUBJECT", "id": "orders.created-value" }
+                ],
+                "schemaRegistryError": null
+            }
         })
     );
 }
@@ -337,8 +343,8 @@ async fn search_reads_subjects_from_the_subject_cache() {
     let schema = schema();
     let (value, errors) = execute(
         r#"{
-                cached: search(cluster: "local", term: "cached") { kind id }
-                order: search(cluster: "local", term: "order") { kind id }
+                cached: search(cluster: "local", term: "cached") { hits { kind id } schemaRegistryError }
+                order: search(cluster: "local", term: "order") { hits { kind id } schemaRegistryError }
             }"#,
         None,
         &schema,
@@ -352,19 +358,25 @@ async fn search_reads_subjects_from_the_subject_cache() {
     assert_eq!(
         serde_json::to_value(value).unwrap(),
         serde_json::json!({
-            "cached": [
-                { "kind": "TOPIC", "id": "payments.cached" },
-                { "kind": "GROUP", "id": "cached-processor" },
-                { "kind": "NODE", "id": "9" },
-                { "kind": "SUBJECT", "id": "payments.cached-value" }
-            ],
-            "order": []
+            "cached": {
+                "hits": [
+                    { "kind": "TOPIC", "id": "payments.cached" },
+                    { "kind": "GROUP", "id": "cached-processor" },
+                    { "kind": "NODE", "id": "9" },
+                    { "kind": "SUBJECT", "id": "payments.cached-value" }
+                ],
+                "schemaRegistryError": null
+            },
+            "order": {
+                "hits": [],
+                "schemaRegistryError": null
+            }
         })
     );
 }
 
 #[tokio::test]
-async fn search_survives_a_failed_subject_seed() {
+async fn search_reports_a_failed_subject_seed() {
     let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
         FakeCluster::local().with_subjects_error("registry down"),
     ])));
@@ -390,7 +402,7 @@ async fn search_survives_a_failed_subject_seed() {
 
     let schema = schema();
     let (value, errors) = execute(
-        r#"{ search(cluster: "local", term: "cached") { kind id } }"#,
+        r#"{ search(cluster: "local", term: "cached") { hits { kind id } schemaRegistryError } }"#,
         None,
         &schema,
         &Variables::new(),
@@ -403,7 +415,10 @@ async fn search_survives_a_failed_subject_seed() {
     assert_eq!(
         serde_json::to_value(value).unwrap(),
         serde_json::json!({
-            "search": [{ "kind": "TOPIC", "id": "payments.cached" }]
+            "search": {
+                "hits": [{ "kind": "TOPIC", "id": "payments.cached" }],
+                "schemaRegistryError": "schema registry request failed for cluster 'local': registry down"
+            }
         })
     );
 
@@ -559,7 +574,7 @@ async fn browses_and_searches_records() {
                     limit: 10
                     order: OLDEST
                 }) { records { key } hasMore nextCursor }
-                search(cluster: "local", term: "order") { kind id }
+                search(cluster: "local", term: "order") { hits { kind id } schemaRegistryError }
             }"#,
         None,
         &schema,
@@ -574,11 +589,14 @@ async fn browses_and_searches_records() {
         serde_json::to_value(value).unwrap(),
         serde_json::json!({
             "records": { "records": [{ "key": "ord_1" }], "hasMore": false, "nextCursor": null },
-            "search": [
-                { "kind": "TOPIC", "id": "orders.created" },
-                { "kind": "GROUP", "id": "order-processor" },
-                { "kind": "SUBJECT", "id": "orders.created-value" }
-            ]
+            "search": {
+                "hits": [
+                    { "kind": "TOPIC", "id": "orders.created" },
+                    { "kind": "GROUP", "id": "order-processor" },
+                    { "kind": "SUBJECT", "id": "orders.created-value" }
+                ],
+                "schemaRegistryError": null
+            }
         })
     );
 }
@@ -819,6 +837,8 @@ async fn schema_includes_topic_rate_subscription() {
     assert!(sdl.contains("memberCount: Int!"));
     assert!(sdl.contains("assignedPartitionCount: Int!"));
     assert!(sdl.contains("catalogUpdated(cluster: String!): CatalogUpdated!"));
+    assert!(sdl.contains("type SearchResults"));
+    assert!(sdl.contains("search(cluster: String!, term: String!): SearchResults!"));
 }
 
 #[tokio::test]
