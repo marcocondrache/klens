@@ -31,6 +31,7 @@ import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
 import { useSchemaSubjects } from "@/lib/api/catalog";
 import { useRecords } from "@/lib/api/live";
+import { queryErrorMessage } from "@/lib/query-error";
 import { formatBytes, formatRelative, formatTimestamp, fromDatetimeLocalValue } from "@/lib/format";
 import type { RecordOrder, Topic, TopicRecord } from "@/lib/api/types";
 import { createAppColumnHelper } from "@/lib/table";
@@ -127,17 +128,18 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
   const timestampTo = fromDatetimeLocalValue(to);
   const filter = containsFilter(term);
   const { data: subjects = [] } = useSchemaSubjects(cluster);
-  const { data, isFetching, hasNextPage, fetchNextPage, isFetchingNextPage } = useRecords({
-    cluster,
-    topic: topic.name,
-    partition: partition === "all" ? null : Number(partition),
-    filter,
-    timestampFrom,
-    timestampTo,
-    limit: Number(limit),
-    order,
-    schemaId,
-  });
+  const { data, isFetching, isError, error, hasNextPage, fetchNextPage, isFetchingNextPage } =
+    useRecords({
+      cluster,
+      topic: topic.name,
+      partition: partition === "all" ? null : Number(partition),
+      filter,
+      timestampFrom,
+      timestampTo,
+      limit: Number(limit),
+      order,
+      schemaId,
+    });
   const pages = data?.pages ?? [];
   const currentPage = pages[pageIndex];
   const records = currentPage?.records ?? [];
@@ -319,6 +321,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
           selectedRecord ? `${selectedRecord.partition}-${selectedRecord.offset}` : undefined
         }
         fill
+        error={queryErrorMessage(isError, error, "Failed to load records.")}
         emptyState={
           <Empty className="py-10">
             <EmptyHeader>
