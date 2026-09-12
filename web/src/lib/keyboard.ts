@@ -19,3 +19,12 @@ export function findSearchHotkeyTarget(): HTMLInputElement | null {
 
   return null;
 }
+
+/** Palette chord label. Matches the `metaKey || ctrlKey` listener in AppLayout. */
+export function formatModK(): string {
+  return appleHotkeyPlatform() ? "⌘K" : "Ctrl+K";
+}
+
+function appleHotkeyPlatform(): boolean {
+  return typeof navigator !== "undefined" && /Mac|iPhone|iPod|iPad/.test(navigator.userAgent);
+}

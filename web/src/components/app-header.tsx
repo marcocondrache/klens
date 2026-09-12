@@ -22,6 +22,7 @@ import { ModeToggle } from "@/components/mode-toggle";
 import { UserMenu } from "@/components/user-menu";
 import { useAuth } from "@/hooks/use-auth";
 import { clusterPath, useClusterName } from "@/lib/clusters";
+import { formatModK } from "@/lib/keyboard";
 import { findSection } from "@/lib/sections";
 
 interface Crumb {
@@ -99,7 +100,7 @@ export function AppHeader({ onSearch }: { onSearch: () => void }) {
         >
           <SearchIcon />
           <span>Search</span>
-          <Kbd className="ml-auto">⌘K</Kbd>
+          <Kbd className="ml-auto">{formatModK()}</Kbd>
           <Kbd>/</Kbd>
         </Button>
 
