@@ -71,6 +71,17 @@ impl AppState {
         }
     }
 
+    pub fn kick_catalog(&self, cluster: &str) {
+        if let Some(poller) = &self._poller {
+            poller.kick(cluster);
+        }
+    }
+
+    pub fn invalidate_catalog(&self, cluster: &str) {
+        self.catalog.invalidate(cluster);
+        self.subjects.invalidate(cluster);
+    }
+
     pub(crate) async fn catalog_snapshot(
         &self,
         cluster: &str,
