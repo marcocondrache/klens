@@ -1,3 +1,5 @@
+import { GraphQLError } from "@/lib/graphql-error";
+
 import type { TypedDocumentString } from "./graphql";
 
 export async function execute<TResult, TVariables>(
@@ -26,15 +28,20 @@ export async function execute<TResult, TVariables>(
 
   const payload = (await response.json()) as {
     data?: TResult;
-    errors?: Array<{ message: string }>;
+    errors?: Array<{ message: string; extensions?: { code?: string } }>;
   };
 
   if (!response.ok) {
-    throw new Error(payload.errors?.[0]?.message ?? "Network response was not ok");
+    const first = payload.errors?.[0];
+    throw new GraphQLError(
+      first?.message ?? "Network response was not ok",
+      first?.extensions?.code,
+    );
   }
 
   if (payload.errors?.length) {
-    throw new Error(payload.errors[0]?.message ?? "GraphQL request failed");
+    const first = payload.errors[0];
+    throw new GraphQLError(first?.message ?? "GraphQL request failed", first?.extensions?.code);
   }
 
   if (payload.data === undefined) {

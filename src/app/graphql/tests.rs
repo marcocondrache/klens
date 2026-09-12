@@ -9,7 +9,7 @@ use crate::kafka::{
     Broker, ClusterHealth, ClusterIdentity, ClusterOverview, ClusterSnapshot, ConsumerGroup,
     FakeCluster, QueryEngine, Topic,
 };
-use juniper::{Variables, execute};
+use juniper::{Variables, execute, graphql_value};
 
 use super::*;
 
@@ -45,6 +45,21 @@ async fn gql(state: &AppState, query: &str) -> serde_json::Value {
 /// Execute `query` and return only its error messages.
 async fn gql_errors(state: &AppState, query: &str) -> Vec<String> {
     gql_partial(state, query).await.1
+}
+
+async fn gql_field_errors(state: &AppState, query: &str) -> Vec<(String, juniper::Value)> {
+    let (_, errors) = execute(query, None, &schema(), &Variables::new(), state)
+        .await
+        .unwrap();
+    errors
+        .iter()
+        .map(|error| {
+            (
+                error.error().message().to_owned(),
+                error.error().extensions().clone(),
+            )
+        })
+        .collect()
 }
 
 fn cached_overview(name: &str) -> ClusterOverview {
@@ -601,7 +616,7 @@ async fn records_honor_timestamp_bounds() {
 
 #[tokio::test]
 async fn records_reject_inverted_timestamp_range() {
-    let errors = gql_errors(
+    let errors = gql_field_errors(
         &state(),
         r#"{
                 records(query: {
@@ -618,14 +633,17 @@ async fn records_reject_inverted_timestamp_range() {
     .await;
 
     assert!(
-        errors.iter().any(|error| error.contains("timestampFrom")),
+        errors.iter().any(|(message, extensions)| {
+            message.contains("timestampFrom")
+                && *extensions == graphql_value!({ "code": "INVERTED_TIMESTAMP_RANGE" })
+        }),
         "{errors:?}"
     );
 }
 
 #[tokio::test]
 async fn records_reject_invalid_filter() {
-    let errors = gql_errors(
+    let errors = gql_field_errors(
         &state(),
         r#"{
                 records(query: {
@@ -640,7 +658,10 @@ async fn records_reject_invalid_filter() {
     .await;
 
     assert!(
-        errors.iter().any(|error| error.contains("invalid filter")),
+        errors.iter().any(|(message, extensions)| {
+            message.contains("invalid filter")
+                && *extensions == graphql_value!({ "code": "INVALID_FILTER" })
+        }),
         "{errors:?}"
     );
 }
@@ -832,28 +853,24 @@ async fn topic_and_group_report_a_failed_catalog_seed() {
         FakeCluster::named("down").unreachable(),
     ])));
 
-    let (topic_data, topic_errors) = gql_partial(
-        &state,
-        r#"{ topic(cluster: "down", name: "orders.created") { name } }"#,
-    )
-    .await;
+    let topic_query = r#"{ topic(cluster: "down", name: "orders.created") { name } }"#;
+    let (topic_data, _) = gql_partial(&state, topic_query).await;
+    let topic_errors = gql_field_errors(&state, topic_query).await;
     assert!(
-        topic_errors
-            .iter()
-            .any(|error| error.contains("broker down")),
+        topic_errors.iter().any(|(message, extensions)| {
+            message.contains("broker down") && *extensions == graphql_value!({ "code": "ADMIN" })
+        }),
         "{topic_errors:?}"
     );
     assert_eq!(topic_data["topic"], serde_json::Value::Null);
 
-    let (group_data, group_errors) = gql_partial(
-        &state,
-        r#"{ consumerGroup(cluster: "down", id: "order-processor") { id } }"#,
-    )
-    .await;
+    let group_query = r#"{ consumerGroup(cluster: "down", id: "order-processor") { id } }"#;
+    let (group_data, _) = gql_partial(&state, group_query).await;
+    let group_errors = gql_field_errors(&state, group_query).await;
     assert!(
-        group_errors
-            .iter()
-            .any(|error| error.contains("broker down")),
+        group_errors.iter().any(|(message, extensions)| {
+            message.contains("broker down") && *extensions == graphql_value!({ "code": "ADMIN" })
+        }),
         "{group_errors:?}"
     );
     assert_eq!(group_data["consumerGroup"], serde_json::Value::Null);
