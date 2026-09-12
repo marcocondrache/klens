@@ -57,19 +57,16 @@ impl Query {
     }
 
     async fn topics(context: &AppState, cluster: String) -> FieldResult<Vec<Topic>> {
-        Ok(map_topics(
-            context,
-            &cluster,
-            context.catalog_snapshot(&cluster).await?.topics,
-        ))
+        let snapshot = context.catalog_snapshot(&cluster).await?;
+        Ok(map_topics(context, &cluster, &snapshot.topics))
     }
 
     async fn cluster_catalog(context: &AppState, cluster: String) -> FieldResult<ClusterCatalog> {
         let snapshot = context.catalog_snapshot(&cluster).await?;
         Ok(ClusterCatalog {
             updated_at: snapshot.updated_at,
-            topics: map_topics(context, &cluster, snapshot.topics),
-            consumer_groups: map_groups(snapshot.groups),
+            topics: map_topics(context, &cluster, &snapshot.topics),
+            consumer_groups: map_groups(&snapshot.groups),
         })
     }
 
@@ -106,7 +103,7 @@ impl Query {
         topic: Option<String>,
     ) -> FieldResult<Vec<ConsumerGroup>> {
         let snapshot = context.catalog_snapshot(&cluster).await?;
-        Ok(map_groups(snapshot.groups_for_topic(topic.as_deref())))
+        Ok(map_groups(&snapshot.groups_for_topic(topic.as_deref())))
     }
 
     async fn consumer_group(
@@ -195,9 +192,10 @@ impl Query {
     }
 }
 
-fn map_topics(context: &AppState, cluster: &str, topics: Vec<crate::kafka::Topic>) -> Vec<Topic> {
+fn map_topics(context: &AppState, cluster: &str, topics: &[crate::kafka::Topic]) -> Vec<Topic> {
     topics
-        .into_iter()
+        .iter()
+        .cloned()
         .map(|topic| map_topic(context, cluster, topic))
         .collect()
 }
@@ -207,6 +205,6 @@ fn map_topic(context: &AppState, cluster: &str, topic: crate::kafka::Topic) -> T
     Topic::from_domain(topic, rate.as_ref())
 }
 
-fn map_groups(groups: Vec<crate::kafka::ConsumerGroup>) -> Vec<ConsumerGroup> {
-    groups.into_iter().map(ConsumerGroup::from).collect()
+fn map_groups(groups: &[crate::kafka::ConsumerGroup]) -> Vec<ConsumerGroup> {
+    groups.iter().cloned().map(ConsumerGroup::from).collect()
 }

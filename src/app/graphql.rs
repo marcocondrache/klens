@@ -699,6 +699,16 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn catalog_snapshot_returns_the_same_arc() {
+        let state = state();
+        let first = state.catalog_snapshot("local").await.unwrap();
+        let second = state.catalog_snapshot("local").await.unwrap();
+        assert!(std::sync::Arc::ptr_eq(&first, &second));
+        assert_eq!(first.topics[0].name, "orders.created");
+        assert_eq!(first.groups[0].id, "order-processor");
+    }
+
+    #[tokio::test]
     async fn cluster_catalog_exposes_updated_at_after_fallback() {
         let state = state();
         let schema = schema();
