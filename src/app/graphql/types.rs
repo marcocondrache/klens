@@ -142,6 +142,35 @@ pub(super) struct ClusterCatalog {
 }
 
 #[derive(GraphQLObject)]
+pub(super) struct CatalogHealth {
+    pub cluster: String,
+    pub updated_at: Option<DateTime<Utc>>,
+    pub subjects_updated_at: Option<DateTime<Utc>>,
+    pub last_error: Option<String>,
+    pub last_poll_duration_ms: Option<f64>,
+    pub topic_count: i32,
+    pub group_count: i32,
+    pub broker_count: i32,
+    pub subject_count: i32,
+}
+
+impl From<crate::kafka::CatalogHealth> for CatalogHealth {
+    fn from(health: crate::kafka::CatalogHealth) -> Self {
+        Self {
+            cluster: health.cluster,
+            updated_at: health.updated_at,
+            subjects_updated_at: health.subjects_updated_at,
+            last_error: health.last_error,
+            last_poll_duration_ms: health.last_poll_duration_ms.map(|ms| ms as f64),
+            topic_count: health.topic_count,
+            group_count: health.group_count,
+            broker_count: health.broker_count,
+            subject_count: health.subject_count,
+        }
+    }
+}
+
+#[derive(GraphQLObject)]
 pub(super) struct Topic {
     pub name: String,
     pub internal: bool,

@@ -1,8 +1,8 @@
 use juniper::{FieldResult, graphql_object};
 
 use super::types::{
-    Broker, Cluster, ClusterCatalog, ConfigEntry, ConsumerGroup, RecordPage, RecordQuery,
-    SchemaSubject, SearchResult, ThroughputPoint, Topic,
+    Broker, CatalogHealth, Cluster, ClusterCatalog, ConfigEntry, ConsumerGroup, RecordPage,
+    RecordQuery, SchemaSubject, SearchResult, ThroughputPoint, Topic,
 };
 use crate::AppState;
 
@@ -59,6 +59,11 @@ impl Query {
             topics: map_topics(context, &cluster, &snapshot.topics),
             consumer_groups: map_groups(&snapshot.groups),
         })
+    }
+
+    async fn catalog_health(context: &AppState, cluster: String) -> FieldResult<CatalogHealth> {
+        let _ = context.query.session(&cluster)?;
+        Ok(CatalogHealth::from(context.catalog_health(&cluster)))
     }
 
     async fn topic(

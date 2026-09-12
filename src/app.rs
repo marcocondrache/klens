@@ -4,8 +4,8 @@ use std::time::Duration;
 use crate::environment::{CONFIG_POLL_INTERVAL, OVERVIEW_BUDGET, SUBJECT_POLL_INTERVAL};
 use crate::kafka::model::SchemaSubject;
 use crate::kafka::{
-    CatalogCache, CatalogPoller, ClusterIdentity, ClusterOverview, ClusterSession, ClusterSnapshot,
-    LagStore, QueryEngine, RateStore, SubjectCache,
+    CatalogCache, CatalogHealth, CatalogPoller, ClusterIdentity, ClusterOverview, ClusterSession,
+    ClusterSnapshot, LagStore, QueryEngine, RateStore, SubjectCache,
 };
 use axum::Router;
 use axum::middleware;
@@ -82,6 +82,43 @@ impl AppState {
         self.subjects.invalidate(cluster);
     }
 
+    pub(crate) fn is_ready(&self) -> bool {
+        self.query
+            .names()
+            .into_iter()
+            .all(|name| self.catalog.snapshot(name).is_some())
+    }
+
+    pub(crate) fn catalog_health(&self, cluster: &str) -> CatalogHealth {
+        let snapshot = self.catalog.snapshot(cluster);
+        let subjects = self.subjects.snapshot(cluster);
+        let catalog = self.catalog.poll_lane(cluster);
+        let subjects_lane = self.subjects.poll_lane(cluster);
+        CatalogHealth {
+            cluster: cluster.to_owned(),
+            updated_at: snapshot.as_ref().map(|snapshot| snapshot.updated_at),
+            subjects_updated_at: subjects_lane.updated_at,
+            last_error: catalog.last_error,
+            last_poll_duration_ms: catalog.last_poll_duration_ms,
+            topic_count: snapshot
+                .as_ref()
+                .map(|snapshot| snapshot.topics.len() as i32)
+                .unwrap_or(0),
+            group_count: snapshot
+                .as_ref()
+                .map(|snapshot| snapshot.groups.len() as i32)
+                .unwrap_or(0),
+            broker_count: snapshot
+                .as_ref()
+                .map(|snapshot| snapshot.brokers.len() as i32)
+                .unwrap_or(0),
+            subject_count: subjects
+                .as_ref()
+                .map(|subjects| subjects.len() as i32)
+                .unwrap_or(0),
+        }
+    }
+
     pub(crate) async fn catalog_snapshot(
         &self,
         cluster: &str,
@@ -146,7 +183,7 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .merge(graphql)
         .merge(auth::router())
-        .with_state(state)
         .merge(health::router())
+        .with_state(state)
         .fallback(crate::server::web::serve)
 }
