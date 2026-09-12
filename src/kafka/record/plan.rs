@@ -220,8 +220,6 @@ fn cursor_limit(page_filled: bool, last_kept: usize) -> usize {
     }
 }
 
-/// A missing `from` offset means nothing was written at or after that time, so
-/// the partition collapses to empty.
 pub fn apply_timestamp_bounds(
     watermarks: &mut HashMap<i32, Watermarks>,
     from_offsets: Option<&HashMap<i32, Option<i64>>>,
@@ -229,9 +227,10 @@ pub fn apply_timestamp_bounds(
 ) {
     for (partition, marks) in watermarks {
         if let Some(from_offsets) = from_offsets {
-            match from_offsets.get(partition).copied().flatten() {
-                Some(offset) => marks.low = marks.low.max(offset),
-                None => marks.low = marks.high,
+            match from_offsets.get(partition) {
+                Some(Some(offset)) => marks.low = marks.low.max(*offset),
+                Some(None) => marks.low = marks.high,
+                None => {}
             }
         }
 
@@ -573,7 +572,7 @@ mod tests {
     }
 
     #[test]
-    fn missing_from_offset_empties_the_partition() {
+    fn invalid_from_offset_empties_the_partition() {
         let mut watermarks = marks(10, 40);
         let from = HashMap::from([(0, None)]);
 
@@ -582,7 +581,16 @@ mod tests {
     }
 
     #[test]
-    fn missing_to_offset_keeps_the_high_watermark() {
+    fn omitted_from_offset_keeps_the_watermark() {
+        let mut watermarks = marks(10, 40);
+        let from = HashMap::from([(1, Some(25))]);
+
+        apply_timestamp_bounds(&mut watermarks, Some(&from), None);
+        assert_eq!(watermarks[&0], Watermarks { low: 10, high: 40 });
+    }
+
+    #[test]
+    fn invalid_to_offset_keeps_the_high_watermark() {
         let mut watermarks = marks(10, 40);
         let to = HashMap::from([(0, None)]);
 
