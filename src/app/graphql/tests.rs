@@ -1,10 +1,13 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::kafka::model::{SchemaCompatibility, SchemaSubject, SchemaType};
+use crate::kafka::model::{
+    CleanupPolicy, GroupMember, GroupOffset, GroupState, MemberAssignment, SchemaCompatibility,
+    SchemaSubject, SchemaType,
+};
 use crate::kafka::{
-    Broker, ClusterHealth, ClusterIdentity, ClusterOverview, ClusterSnapshot, FakeCluster,
-    QueryEngine,
+    Broker, ClusterHealth, ClusterIdentity, ClusterOverview, ClusterSnapshot, ConsumerGroup,
+    FakeCluster, QueryEngine, Topic,
 };
 use juniper::{Variables, execute};
 
@@ -16,54 +19,32 @@ fn state() -> AppState {
     ])))
 }
 
-#[tokio::test]
-async fn resolves_cluster_list() {
-    let state = state();
-    let schema = schema();
+/// Execute `query` against a fresh schema and return the response data plus the
+/// messages of any GraphQL errors.
+async fn gql_partial(state: &AppState, query: &str) -> (serde_json::Value, Vec<String>) {
+    let (value, errors) = execute(query, None, &schema(), &Variables::new(), state)
+        .await
+        .unwrap();
 
-    let (value, errors) = execute(
-        "{ clusters { name bootstrapServers } }",
-        None,
-        &schema,
-        &Variables::new(),
-        &state,
-    )
-    .await
-    .unwrap();
-
-    assert!(errors.is_empty());
-    assert_eq!(
-        serde_json::to_value(value).unwrap(),
-        serde_json::json!({
-            "clusters": [
-                { "name": "local", "bootstrapServers": ["localhost:9092"] }
-            ]
-        })
-    );
+    let messages = errors
+        .iter()
+        .map(|error| error.error().message().to_owned())
+        .collect();
+    (serde_json::to_value(value).unwrap(), messages)
 }
 
-#[tokio::test]
-async fn resolves_cluster_by_name() {
-    let state = state();
-    let schema = schema();
+/// Execute `query` and return its data, failing the test if the query produced
+/// any GraphQL error.
+async fn gql(state: &AppState, query: &str) -> serde_json::Value {
+    let (data, errors) = gql_partial(state, query).await;
 
-    let (value, errors) = execute(
-        r#"{ cluster(name: "local") { name bootstrapServers } }"#,
-        None,
-        &schema,
-        &Variables::new(),
-        &state,
-    )
-    .await
-    .unwrap();
+    assert!(errors.is_empty(), "{errors:?}");
+    data
+}
 
-    assert!(errors.is_empty());
-    assert_eq!(
-        serde_json::to_value(value).unwrap(),
-        serde_json::json!({
-            "cluster": { "name": "local", "bootstrapServers": ["localhost:9092"] }
-        })
-    );
+/// Execute `query` and return only its error messages.
+async fn gql_errors(state: &AppState, query: &str) -> Vec<String> {
+    gql_partial(state, query).await.1
 }
 
 fn cached_overview(name: &str) -> ClusterOverview {
@@ -109,46 +90,92 @@ fn cached_broker(id: i32, host: &str) -> Broker {
     }
 }
 
+/// A topic with no partitions, for tests that only care about roster shape.
+/// Override the fields under test with `..cached_topic(name)`.
+fn cached_topic(name: &str) -> Topic {
+    Topic {
+        name: name.into(),
+        internal: false,
+        partitions: Vec::new(),
+        replication_factor: 1,
+        message_count: 0,
+        cleanup_policy: CleanupPolicy::Delete,
+        retention_ms: 0,
+        consumer_groups: Vec::new(),
+        under_replicated: false,
+    }
+}
+
+fn cached_group(id: &str, topic: &str, lag: i64) -> ConsumerGroup {
+    ConsumerGroup {
+        id: id.into(),
+        state: GroupState::Stable,
+        protocol: "range".into(),
+        coordinator: 1,
+        members: vec![GroupMember {
+            id: "member-1".into(),
+            client_id: "client".into(),
+            host: "127.0.0.1".into(),
+            assignments: vec![MemberAssignment {
+                topic: topic.into(),
+                partitions: vec![0],
+            }],
+        }],
+        topics: vec![topic.into()],
+        lag,
+        offsets: vec![GroupOffset {
+            topic: topic.into(),
+            partition: 0,
+            current_offset: 1,
+            end_offset: 1 + lag,
+            lag,
+            member_id: Some("member-1".into()),
+        }],
+    }
+}
+
+#[tokio::test]
+async fn resolves_cluster_list() {
+    assert_eq!(
+        gql(&state(), "{ clusters { name bootstrapServers } }").await,
+        serde_json::json!({
+            "clusters": [
+                { "name": "local", "bootstrapServers": ["localhost:9092"] }
+            ]
+        })
+    );
+}
+
+#[tokio::test]
+async fn resolves_cluster_by_name() {
+    assert_eq!(
+        gql(
+            &state(),
+            r#"{ cluster(name: "local") { name bootstrapServers } }"#
+        )
+        .await,
+        serde_json::json!({
+            "cluster": { "name": "local", "bootstrapServers": ["localhost:9092"] }
+        })
+    );
+}
+
 #[tokio::test]
 async fn returns_none_for_unknown_cluster() {
-    let state = state();
-    let schema = schema();
-
-    let (value, errors) = execute(
-        r#"{ cluster(name: "missing") { name } }"#,
-        None,
-        &schema,
-        &Variables::new(),
-        &state,
-    )
-    .await
-    .unwrap();
-
-    assert!(errors.is_empty());
     assert_eq!(
-        serde_json::to_value(value).unwrap(),
+        gql(&state(), r#"{ cluster(name: "missing") { name } }"#).await,
         serde_json::json!({ "cluster": serde_json::Value::Null })
     );
 }
 
 #[tokio::test]
 async fn fills_cluster_identity_from_config() {
-    let state = state();
-    let schema = schema();
-
-    let (value, errors) = execute(
-        "{ cluster(name: \"local\") { label securityProtocol status version clusterId } }",
-        None,
-        &schema,
-        &Variables::new(),
-        &state,
-    )
-    .await
-    .unwrap();
-
-    assert!(errors.is_empty());
     assert_eq!(
-        serde_json::to_value(value).unwrap(),
+        gql(
+            &state(),
+            r#"{ cluster(name: "local") { label securityProtocol status version clusterId } }"#
+        )
+        .await,
         serde_json::json!({
             "cluster": {
                 "label": "local",
@@ -174,26 +201,18 @@ async fn clusters_and_brokers_read_the_in_memory_snapshot() {
         ),
     );
 
-    let schema = schema();
-    let (value, errors) = execute(
-        r#"{
+    assert_eq!(
+        gql(
+            &state,
+            r#"{
                 clusters { name bootstrapServers status topicCount clusterId }
                 cluster(name: "local") { name bootstrapServers status topicCount clusterId }
                 brokers(cluster: "local") { id host port partitionCount leaderCount }
                 broker(cluster: "local", id: 9) { id host }
                 missing: broker(cluster: "local", id: 1) { id }
-            }"#,
-        None,
-        &schema,
-        &Variables::new(),
-        &state,
-    )
-    .await
-    .unwrap();
-
-    assert!(errors.is_empty());
-    assert_eq!(
-        serde_json::to_value(value).unwrap(),
+            }"#
+        )
+        .await,
         serde_json::json!({
             "clusters": [{
                 "name": "local",
@@ -228,40 +247,22 @@ async fn search_reads_topics_groups_and_nodes_from_the_snapshot() {
     state.catalog.store(
         "local",
         ClusterSnapshot::assemble(
-            vec![crate::kafka::Topic {
-                name: "payments.cached".into(),
-                internal: false,
-                partitions: Vec::new(),
-                replication_factor: 1,
-                message_count: 0,
-                cleanup_policy: crate::kafka::model::CleanupPolicy::Delete,
-                retention_ms: 0,
-                consumer_groups: Vec::new(),
-                under_replicated: false,
-            }],
+            vec![cached_topic("payments.cached")],
             vec![cached_group("cached-processor", "payments.cached", 1)],
             vec![cached_broker(9, "cached-host")],
             cached_overview("local"),
         ),
     );
 
-    let schema = schema();
-    let (value, errors) = execute(
-        r#"{
+    assert_eq!(
+        gql(
+            &state,
+            r#"{
                 cached: search(cluster: "local", term: "cached") { hits { kind id } schemaRegistryError }
                 order: search(cluster: "local", term: "order") { hits { kind id } schemaRegistryError }
-            }"#,
-        None,
-        &schema,
-        &Variables::new(),
-        &state,
-    )
-    .await
-    .unwrap();
-
-    assert!(errors.is_empty());
-    assert_eq!(
-        serde_json::to_value(value).unwrap(),
+            }"#
+        )
+        .await,
         serde_json::json!({
             "cached": {
                 "hits": [
@@ -288,20 +289,12 @@ async fn schema_subjects_read_the_subject_cache() {
         .subjects
         .store("local", vec![cached_subject("payments.cached-value")]);
 
-    let schema = schema();
-    let (value, errors) = execute(
-        r#"{ schemaSubjects(cluster: "local") { subject id type latestVersion schema } }"#,
-        None,
-        &schema,
-        &Variables::new(),
-        &state,
-    )
-    .await
-    .unwrap();
-
-    assert!(errors.is_empty());
     assert_eq!(
-        serde_json::to_value(value).unwrap(),
+        gql(
+            &state,
+            r#"{ schemaSubjects(cluster: "local") { subject id type latestVersion schema } }"#
+        )
+        .await,
         serde_json::json!({
             "schemaSubjects": [{
                 "subject": "payments.cached-value",
@@ -320,17 +313,7 @@ async fn search_reads_subjects_from_the_subject_cache() {
     state.catalog.store(
         "local",
         ClusterSnapshot::assemble(
-            vec![crate::kafka::Topic {
-                name: "payments.cached".into(),
-                internal: false,
-                partitions: Vec::new(),
-                replication_factor: 1,
-                message_count: 0,
-                cleanup_policy: crate::kafka::model::CleanupPolicy::Delete,
-                retention_ms: 0,
-                consumer_groups: Vec::new(),
-                under_replicated: false,
-            }],
+            vec![cached_topic("payments.cached")],
             vec![cached_group("cached-processor", "payments.cached", 1)],
             vec![cached_broker(9, "cached-host")],
             cached_overview("local"),
@@ -340,23 +323,15 @@ async fn search_reads_subjects_from_the_subject_cache() {
         .subjects
         .store("local", vec![cached_subject("payments.cached-value")]);
 
-    let schema = schema();
-    let (value, errors) = execute(
-        r#"{
+    assert_eq!(
+        gql(
+            &state,
+            r#"{
                 cached: search(cluster: "local", term: "cached") { hits { kind id } schemaRegistryError }
                 order: search(cluster: "local", term: "order") { hits { kind id } schemaRegistryError }
-            }"#,
-        None,
-        &schema,
-        &Variables::new(),
-        &state,
-    )
-    .await
-    .unwrap();
-
-    assert!(errors.is_empty());
-    assert_eq!(
-        serde_json::to_value(value).unwrap(),
+            }"#
+        )
+        .await,
         serde_json::json!({
             "cached": {
                 "hits": [
@@ -383,37 +358,19 @@ async fn search_reports_a_failed_subject_seed() {
     state.catalog.store(
         "local",
         ClusterSnapshot::assemble(
-            vec![crate::kafka::Topic {
-                name: "payments.cached".into(),
-                internal: false,
-                partitions: Vec::new(),
-                replication_factor: 1,
-                message_count: 0,
-                cleanup_policy: crate::kafka::model::CleanupPolicy::Delete,
-                retention_ms: 0,
-                consumer_groups: Vec::new(),
-                under_replicated: false,
-            }],
+            vec![cached_topic("payments.cached")],
             Vec::new(),
             Vec::new(),
             cached_overview("local"),
         ),
     );
 
-    let schema = schema();
-    let (value, errors) = execute(
-        r#"{ search(cluster: "local", term: "cached") { hits { kind id } schemaRegistryError } }"#,
-        None,
-        &schema,
-        &Variables::new(),
-        &state,
-    )
-    .await
-    .unwrap();
-
-    assert!(errors.is_empty());
     assert_eq!(
-        serde_json::to_value(value).unwrap(),
+        gql(
+            &state,
+            r#"{ search(cluster: "local", term: "cached") { hits { kind id } schemaRegistryError } }"#
+        )
+        .await,
         serde_json::json!({
             "search": {
                 "hits": [{ "kind": "TOPIC", "id": "payments.cached" }],
@@ -422,16 +379,14 @@ async fn search_reports_a_failed_subject_seed() {
         })
     );
 
-    let (_, subject_errors) = execute(
-        r#"{ schemaSubjects(cluster: "local") { subject } }"#,
-        None,
-        &schema,
-        &Variables::new(),
-        &state,
-    )
-    .await
-    .unwrap();
-    assert!(!subject_errors.is_empty());
+    assert!(
+        !gql_errors(
+            &state,
+            r#"{ schemaSubjects(cluster: "local") { subject } }"#
+        )
+        .await
+        .is_empty()
+    );
 }
 
 #[tokio::test]
@@ -440,21 +395,9 @@ async fn clusters_mark_a_failed_seed_offline() {
         FakeCluster::named("down").unreachable(),
         FakeCluster::local(),
     ])));
-    let schema = schema();
 
-    let (value, errors) = execute(
-        r#"{ clusters { name status topicCount } }"#,
-        None,
-        &schema,
-        &Variables::new(),
-        &state,
-    )
-    .await
-    .unwrap();
-
-    assert!(errors.is_empty());
     assert_eq!(
-        serde_json::to_value(value).unwrap(),
+        gql(&state, r#"{ clusters { name status topicCount } }"#).await,
         serde_json::json!({
             "clusters": [
                 { "name": "down", "status": "OFFLINE", "topicCount": 0 },
@@ -470,21 +413,9 @@ async fn clusters_mark_a_slow_seed_offline_without_blocking_others() {
         FakeCluster::named("slow").with_metadata_delay(Duration::from_secs(60)),
         FakeCluster::named("fast"),
     ])));
-    let schema = schema();
 
-    let (value, errors) = execute(
-        r#"{ clusters { name status } }"#,
-        None,
-        &schema,
-        &Variables::new(),
-        &state,
-    )
-    .await
-    .unwrap();
-
-    assert!(errors.is_empty());
     assert_eq!(
-        serde_json::to_value(value).unwrap(),
+        gql(&state, r#"{ clusters { name status } }"#).await,
         serde_json::json!({
             "clusters": [
                 { "name": "slow", "status": "OFFLINE" },
@@ -496,26 +427,16 @@ async fn clusters_mark_a_slow_seed_offline_without_blocking_others() {
 
 #[tokio::test]
 async fn resolves_catalog_from_the_query_engine() {
-    let state = state();
-    let schema = schema();
-
-    let (value, errors) = execute(
-        r#"{
+    assert_eq!(
+        gql(
+            &state(),
+            r#"{
                 brokers(cluster: "local") { id host }
                 clusterCatalog(cluster: "local") { topics { name messageCount consumerGroups } }
                 consumerGroups(cluster: "local") { id lag }
-            }"#,
-        None,
-        &schema,
-        &Variables::new(),
-        &state,
-    )
-    .await
-    .unwrap();
-
-    assert!(errors.is_empty());
-    assert_eq!(
-        serde_json::to_value(value).unwrap(),
+            }"#
+        )
+        .await,
         serde_json::json!({
             "brokers": [{ "id": 1, "host": "localhost" }],
             "clusterCatalog": { "topics": [{
@@ -530,22 +451,12 @@ async fn resolves_catalog_from_the_query_engine() {
 
 #[tokio::test]
 async fn resolves_schema_subjects_from_the_query_engine() {
-    let state = state();
-    let schema = schema();
-
-    let (value, errors) = execute(
-            r#"{ schemaSubjects(cluster: "local") { subject id type latestVersion versions compatibility schema } }"#,
-            None,
-            &schema,
-            &Variables::new(),
-            &state,
-        )
-        .await
-        .unwrap();
-
-    assert!(errors.is_empty());
     assert_eq!(
-        serde_json::to_value(value).unwrap(),
+        gql(
+            &state(),
+            r#"{ schemaSubjects(cluster: "local") { subject id type latestVersion versions compatibility schema } }"#
+        )
+        .await,
         serde_json::json!({
             "schemaSubjects": [{
                 "subject": "orders.created-value",
@@ -562,11 +473,10 @@ async fn resolves_schema_subjects_from_the_query_engine() {
 
 #[tokio::test]
 async fn browses_and_searches_records() {
-    let state = state();
-    let schema = schema();
-
-    let (value, errors) = execute(
-        r#"{
+    assert_eq!(
+        gql(
+            &state(),
+            r#"{
                 records(query: {
                     cluster: "local"
                     topic: "orders.created"
@@ -575,18 +485,9 @@ async fn browses_and_searches_records() {
                     order: OLDEST
                 }) { records { key } hasMore nextCursor }
                 search(cluster: "local", term: "order") { hits { kind id } schemaRegistryError }
-            }"#,
-        None,
-        &schema,
-        &Variables::new(),
-        &state,
-    )
-    .await
-    .unwrap();
-
-    assert!(errors.is_empty());
-    assert_eq!(
-        serde_json::to_value(value).unwrap(),
+            }"#
+        )
+        .await,
         serde_json::json!({
             "records": { "records": [{ "key": "ord_1" }], "hasMore": false, "nextCursor": null },
             "search": {
@@ -603,11 +504,10 @@ async fn browses_and_searches_records() {
 
 #[tokio::test]
 async fn records_accept_schema_overrides_and_expose_wire_ids() {
-    let state = state();
-    let schema = schema();
-
-    let (value, errors) = execute(
-        r#"{
+    assert_eq!(
+        gql(
+            &state(),
+            r#"{
                 records(query: {
                     cluster: "local"
                     topic: "orders.created"
@@ -616,18 +516,9 @@ async fn records_accept_schema_overrides_and_expose_wire_ids() {
                     order: OLDEST
                     schemaId: 1
                 }) { records { schemaId } }
-            }"#,
-        None,
-        &schema,
-        &Variables::new(),
-        &state,
-    )
-    .await
-    .unwrap();
-
-    assert!(errors.is_empty());
-    assert_eq!(
-        serde_json::to_value(value).unwrap(),
+            }"#
+        )
+        .await,
         serde_json::json!({
             "records": { "records": [{ "schemaId": null }] }
         })
@@ -637,9 +528,9 @@ async fn records_accept_schema_overrides_and_expose_wire_ids() {
 #[tokio::test]
 async fn pages_through_records() {
     let state = state();
-    let schema = schema();
 
-    let (value, errors) = execute(
+    let page = gql(
+        &state,
         r#"{
                 records(query: {
                     cluster: "local"
@@ -649,21 +540,15 @@ async fn pages_through_records() {
                     order: OLDEST
                 }) { records { key } hasMore nextCursor }
             }"#,
-        None,
-        &schema,
-        &Variables::new(),
-        &state,
     )
-    .await
-    .unwrap();
+    .await;
 
-    assert!(errors.is_empty());
-    let page = serde_json::to_value(value).unwrap();
     assert_eq!(page["records"]["hasMore"], true);
     assert_eq!(page["records"]["records"].as_array().unwrap().len(), 5);
     let cursor = page["records"]["nextCursor"].as_str().unwrap();
 
-    let (value, errors) = execute(
+    let next = gql(
+        &state,
         &format!(
             r#"{{
                 records(query: {{
@@ -676,26 +561,18 @@ async fn pages_through_records() {
                 }}) {{ records {{ key }} hasMore nextCursor }}
             }}"#
         ),
-        None,
-        &schema,
-        &Variables::new(),
-        &state,
     )
-    .await
-    .unwrap();
+    .await;
 
-    assert!(errors.is_empty());
-    let next = serde_json::to_value(value).unwrap();
     assert!(!next["records"]["records"].as_array().unwrap().is_empty());
 }
 
 #[tokio::test]
 async fn records_honor_timestamp_bounds() {
-    let state = state();
-    let schema = schema();
-
-    let (value, errors) = execute(
-        r#"{
+    assert_eq!(
+        gql(
+            &state(),
+            r#"{
                 records(query: {
                     cluster: "local"
                     topic: "orders.created"
@@ -705,18 +582,9 @@ async fn records_honor_timestamp_bounds() {
                     limit: 50
                     order: OLDEST
                 }) { records { key timestamp } hasMore nextCursor }
-            }"#,
-        None,
-        &schema,
-        &Variables::new(),
-        &state,
-    )
-    .await
-    .unwrap();
-
-    assert!(errors.is_empty());
-    assert_eq!(
-        serde_json::to_value(value).unwrap(),
+            }"#
+        )
+        .await,
         serde_json::json!({
             "records": {
                 "records": [
@@ -733,10 +601,8 @@ async fn records_honor_timestamp_bounds() {
 
 #[tokio::test]
 async fn records_reject_inverted_timestamp_range() {
-    let state = state();
-    let schema = schema();
-
-    let (_, errors) = execute(
+    let errors = gql_errors(
+        &state(),
         r#"{
                 records(query: {
                     cluster: "local"
@@ -748,27 +614,19 @@ async fn records_reject_inverted_timestamp_range() {
                     order: OLDEST
                 }) { records { key } }
             }"#,
-        None,
-        &schema,
-        &Variables::new(),
-        &state,
     )
-    .await
-    .unwrap();
+    .await;
 
     assert!(
-        errors
-            .iter()
-            .any(|error| error.error().message().contains("timestampFrom"))
+        errors.iter().any(|error| error.contains("timestampFrom")),
+        "{errors:?}"
     );
 }
 
 #[tokio::test]
 async fn records_reject_invalid_filter() {
-    let state = state();
-    let schema = schema();
-
-    let (_, errors) = execute(
+    let errors = gql_errors(
+        &state(),
         r#"{
                 records(query: {
                     cluster: "local"
@@ -778,43 +636,26 @@ async fn records_reject_invalid_filter() {
                     order: OLDEST
                 }) { records { key } }
             }"#,
-        None,
-        &schema,
-        &Variables::new(),
-        &state,
     )
-    .await
-    .unwrap();
+    .await;
 
     assert!(
-        errors
-            .iter()
-            .any(|error| error.error().message().contains("invalid filter")),
+        errors.iter().any(|error| error.contains("invalid filter")),
         "{errors:?}"
     );
 }
 
 #[tokio::test]
 async fn consumer_groups_can_filter_by_topic() {
-    let state = state();
-    let schema = schema();
-
-    let (value, errors) = execute(
-        r#"{
+    assert_eq!(
+        gql(
+            &state(),
+            r#"{
                 matching: consumerGroups(cluster: "local", topic: "orders.created") { id }
                 none: consumerGroups(cluster: "local", topic: "missing") { id }
-            }"#,
-        None,
-        &schema,
-        &Variables::new(),
-        &state,
-    )
-    .await
-    .unwrap();
-
-    assert!(errors.is_empty());
-    assert_eq!(
-        serde_json::to_value(value).unwrap(),
+            }"#
+        )
+        .await,
         serde_json::json!({
             "matching": [{ "id": "order-processor" }],
             "none": []
@@ -846,37 +687,23 @@ async fn topic_and_catalog_read_the_in_memory_snapshot() {
     let state = state();
     state.catalog.store(
         "local",
-        crate::kafka::ClusterSnapshot::from_topics(vec![crate::kafka::Topic {
-            name: "from-cache".into(),
-            internal: false,
-            partitions: Vec::new(),
-            replication_factor: 1,
+        ClusterSnapshot::from_topics(vec![Topic {
             message_count: 3,
-            cleanup_policy: crate::kafka::model::CleanupPolicy::Delete,
-            retention_ms: 0,
             consumer_groups: vec!["cached-group".into()],
-            under_replicated: false,
+            ..cached_topic("from-cache")
         }]),
     );
 
-    let schema = schema();
-    let (value, errors) = execute(
+    assert_eq!(
+        gql(
+            &state,
             r#"{
                 topic(cluster: "local", name: "from-cache") { name messageCount consumerGroups partitionCount }
                 missing: topic(cluster: "local", name: "orders.created") { name }
                 clusterCatalog(cluster: "local") { topics { name } }
-            }"#,
-            None,
-            &schema,
-            &Variables::new(),
-            &state,
+            }"#
         )
-        .await
-        .unwrap();
-
-    assert!(errors.is_empty());
-    assert_eq!(
-        serde_json::to_value(value).unwrap(),
+        .await,
         serde_json::json!({
             "topic": {
                 "name": "from-cache",
@@ -895,16 +722,9 @@ async fn catalog_health_reads_cached_counts_and_poll_error() {
     let state = state();
     state.catalog.store(
         "local",
-        crate::kafka::ClusterSnapshot::from_topics(vec![crate::kafka::Topic {
-            name: "from-cache".into(),
-            internal: false,
-            partitions: Vec::new(),
-            replication_factor: 1,
+        ClusterSnapshot::from_topics(vec![Topic {
             message_count: 3,
-            cleanup_policy: crate::kafka::model::CleanupPolicy::Delete,
-            retention_ms: 0,
-            consumer_groups: Vec::new(),
-            under_replicated: false,
+            ..cached_topic("from-cache")
         }]),
     );
     state
@@ -912,31 +732,23 @@ async fn catalog_health_reads_cached_counts_and_poll_error() {
         .store("local", vec![cached_subject("kept-value")]);
     state.catalog.record_poll(
         "local",
-        std::time::Duration::from_millis(18),
+        Duration::from_millis(18),
         Some("broker down".into()),
     );
 
-    let schema = schema();
-    let (value, errors) = execute(
-        r#"{
+    assert_eq!(
+        gql(
+            &state,
+            r#"{
                 catalogHealth(cluster: "local") {
                     lastError
                     lastPollDurationMs
                     topicCount
                     subjectCount
                 }
-            }"#,
-        None,
-        &schema,
-        &Variables::new(),
-        &state,
-    )
-    .await
-    .unwrap();
-
-    assert!(errors.is_empty());
-    assert_eq!(
-        serde_json::to_value(value).unwrap(),
+            }"#
+        )
+        .await,
         serde_json::json!({
             "catalogHealth": {
                 "lastError": "broker down",
@@ -947,16 +759,14 @@ async fn catalog_health_reads_cached_counts_and_poll_error() {
         })
     );
 
-    let (_, missing) = execute(
-        r#"{ catalogHealth(cluster: "ghost") { lastError } }"#,
-        None,
-        &schema,
-        &Variables::new(),
-        &state,
-    )
-    .await
-    .unwrap();
-    assert!(!missing.is_empty());
+    assert!(
+        !gql_errors(
+            &state,
+            r#"{ catalogHealth(cluster: "ghost") { lastError } }"#
+        )
+        .await
+        .is_empty()
+    );
 }
 
 #[tokio::test]
@@ -977,19 +787,11 @@ async fn catalog_health_reports_a_failed_poll() {
         "poller never recorded last_error"
     );
 
-    let schema = schema();
-    let (value, errors) = execute(
-        r#"{ catalogHealth(cluster: "down") { lastError } }"#,
-        None,
-        &schema,
-        &Variables::new(),
+    let last_error = gql(
         &state,
+        r#"{ catalogHealth(cluster: "down") { lastError } }"#,
     )
-    .await
-    .unwrap();
-
-    assert!(errors.is_empty());
-    let last_error = serde_json::to_value(value).unwrap()["catalogHealth"]["lastError"]
+    .await["catalogHealth"]["lastError"]
         .as_str()
         .expect("lastError")
         .to_owned();
@@ -999,24 +801,16 @@ async fn catalog_health_reports_a_failed_poll() {
 #[tokio::test]
 async fn topic_query_seeds_the_catalog_on_a_cold_cache() {
     let state = state();
-    let schema = schema();
 
-    let (value, errors) = execute(
-        r#"{
+    assert_eq!(
+        gql(
+            &state,
+            r#"{
                 topic(cluster: "local", name: "orders.created") { name messageCount consumerGroups }
                 missing: topic(cluster: "local", name: "ghost") { name }
-            }"#,
-        None,
-        &schema,
-        &Variables::new(),
-        &state,
-    )
-    .await
-    .unwrap();
-
-    assert!(errors.is_empty());
-    assert_eq!(
-        serde_json::to_value(value).unwrap(),
+            }"#
+        )
+        .await,
         serde_json::json!({
             "topic": {
                 "name": "orders.created",
@@ -1037,75 +831,32 @@ async fn topic_and_group_report_a_failed_catalog_seed() {
     let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
         FakeCluster::named("down").unreachable(),
     ])));
-    let schema = schema();
 
-    let (topic_value, topic_errors) = execute(
-        r#"{ topic(cluster: "down", name: "orders.created") { name } }"#,
-        None,
-        &schema,
-        &Variables::new(),
+    let (topic_data, topic_errors) = gql_partial(
         &state,
+        r#"{ topic(cluster: "down", name: "orders.created") { name } }"#,
     )
-    .await
-    .unwrap();
+    .await;
     assert!(
         topic_errors
             .iter()
-            .any(|error| error.error().message().contains("broker down")),
+            .any(|error| error.contains("broker down")),
         "{topic_errors:?}"
     );
-    assert_eq!(
-        serde_json::to_value(topic_value).unwrap()["topic"],
-        serde_json::Value::Null
-    );
+    assert_eq!(topic_data["topic"], serde_json::Value::Null);
 
-    let (group_value, group_errors) = execute(
-        r#"{ consumerGroup(cluster: "down", id: "order-processor") { id } }"#,
-        None,
-        &schema,
-        &Variables::new(),
+    let (group_data, group_errors) = gql_partial(
         &state,
+        r#"{ consumerGroup(cluster: "down", id: "order-processor") { id } }"#,
     )
-    .await
-    .unwrap();
+    .await;
     assert!(
         group_errors
             .iter()
-            .any(|error| error.error().message().contains("broker down")),
+            .any(|error| error.contains("broker down")),
         "{group_errors:?}"
     );
-    assert_eq!(
-        serde_json::to_value(group_value).unwrap()["consumerGroup"],
-        serde_json::Value::Null
-    );
-}
-
-fn cached_group(id: &str, topic: &str, lag: i64) -> crate::kafka::ConsumerGroup {
-    crate::kafka::ConsumerGroup {
-        id: id.into(),
-        state: crate::kafka::model::GroupState::Stable,
-        protocol: "range".into(),
-        coordinator: 1,
-        members: vec![crate::kafka::model::GroupMember {
-            id: "member-1".into(),
-            client_id: "client".into(),
-            host: "127.0.0.1".into(),
-            assignments: vec![crate::kafka::model::MemberAssignment {
-                topic: topic.into(),
-                partitions: vec![0],
-            }],
-        }],
-        topics: vec![topic.into()],
-        lag,
-        offsets: vec![crate::kafka::model::GroupOffset {
-            topic: topic.into(),
-            partition: 0,
-            current_offset: 1,
-            end_offset: 1 + lag,
-            lag,
-            member_id: Some("member-1".into()),
-        }],
-    }
+    assert_eq!(group_data["consumerGroup"], serde_json::Value::Null);
 }
 
 #[tokio::test]
@@ -1113,7 +864,7 @@ async fn groups_and_catalog_read_the_in_memory_snapshot() {
     let state = state();
     state.catalog.store(
         "local",
-        crate::kafka::ClusterSnapshot::from_catalog(
+        ClusterSnapshot::from_catalog(
             Vec::new(),
             vec![
                 cached_group("from-cache", "orders", 9),
@@ -1122,9 +873,10 @@ async fn groups_and_catalog_read_the_in_memory_snapshot() {
         ),
     );
 
-    let schema = schema();
-    let (value, errors) = execute(
-        r#"{
+    assert_eq!(
+        gql(
+            &state,
+            r#"{
                 consumerGroups(cluster: "local") { id lag topics }
                 matching: consumerGroups(cluster: "local", topic: "orders") { id }
                 none: consumerGroups(cluster: "local", topic: "missing") { id }
@@ -1141,18 +893,9 @@ async fn groups_and_catalog_read_the_in_memory_snapshot() {
                 }
                 missing: consumerGroup(cluster: "local", id: "ghost") { id }
                 clusterCatalog(cluster: "local") { consumerGroups { id } }
-            }"#,
-        None,
-        &schema,
-        &Variables::new(),
-        &state,
-    )
-    .await
-    .unwrap();
-
-    assert!(errors.is_empty());
-    assert_eq!(
-        serde_json::to_value(value).unwrap(),
+            }"#
+        )
+        .await,
         serde_json::json!({
             "consumerGroups": [
                 { "id": "from-cache", "lag": 9.0, "topics": ["orders"] },
@@ -1182,7 +925,7 @@ async fn catalog_snapshot_returns_the_same_arc() {
     let state = state();
     let first = state.catalog_snapshot("local").await.unwrap();
     let second = state.catalog_snapshot("local").await.unwrap();
-    assert!(std::sync::Arc::ptr_eq(&first, &second));
+    assert!(Arc::ptr_eq(&first, &second));
     assert_eq!(first.topics[0].name, "orders.created");
     assert_eq!(first.groups[0].id, "order-processor");
     assert_eq!(first.brokers[0].id, 1);
@@ -1192,20 +935,13 @@ async fn catalog_snapshot_returns_the_same_arc() {
 #[tokio::test]
 async fn cluster_catalog_exposes_updated_at_after_fallback() {
     let state = state();
-    let schema = schema();
 
-    let (value, errors) = execute(
-        r#"{ clusterCatalog(cluster: "local") { updatedAt topics { name } } }"#,
-        None,
-        &schema,
-        &Variables::new(),
+    let body = gql(
         &state,
+        r#"{ clusterCatalog(cluster: "local") { updatedAt topics { name } } }"#,
     )
-    .await
-    .unwrap();
+    .await;
 
-    assert!(errors.is_empty());
-    let body = serde_json::to_value(value).unwrap();
     assert_eq!(
         body["clusterCatalog"]["topics"][0]["name"],
         "orders.created"
@@ -1238,26 +974,19 @@ async fn catalog_topics_use_stored_produce_rates() {
     state.rates.observe_at(
         "local",
         [("orders.created".to_owned(), 30)].into_iter().collect(),
-        start + std::time::Duration::from_secs(2),
+        start + Duration::from_secs(2),
         3_000.0,
     );
 
-    let schema = schema();
-    let (value, errors) = execute(
+    let body = gql(
+        &state,
         r#"{
                 clusterCatalog(cluster: "local") { topics { name messagesPerSec } }
                 topic(cluster: "local", name: "orders.created") { name messagesPerSec }
             }"#,
-        None,
-        &schema,
-        &Variables::new(),
-        &state,
     )
-    .await
-    .unwrap();
+    .await;
 
-    assert!(errors.is_empty());
-    let body = serde_json::to_value(value).unwrap();
     assert_eq!(
         body["clusterCatalog"]["topics"][0],
         serde_json::json!({ "name": "orders.created", "messagesPerSec": 10.0 })
