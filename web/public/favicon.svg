@@ -1,9 +1,24 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-label="klens">
-  <g stroke="#F97316" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M8 22V14a6 6 0 0 1 6-6h8"/>
-    <path d="M42 8h8a6 6 0 0 1 6 6v8"/>
-    <path d="M56 42v8a6 6 0 0 1-6 6h-8"/>
-    <path d="M22 56h-8a6 6 0 0 1-6-6v-8"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" role="img" aria-label="klens">
+  <defs>
+    <linearGradient id="klens-glass" x1="6" y1="4" x2="27" y2="29" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FBBF24" />
+      <stop offset="0.55" stop-color="#FF8B2E" />
+      <stop offset="1" stop-color="#E04F00" />
+    </linearGradient>
+  </defs>
+  <circle cx="16" cy="16" r="14.5" fill="#9A3000" />
+  <circle cx="16" cy="16" r="12" fill="url(#klens-glass)" />
+  <path
+    d="M7.6 9.9a11 11 0 0 1 8.4-4"
+    stroke="#FFF7ED"
+    stroke-opacity="0.45"
+    stroke-width="1.7"
+    stroke-linecap="round"
+    fill="none"
+  />
+  <g stroke="#FFF7ED" stroke-width="3.1" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M11.5 9.5v13" />
+    <path d="M11.5 16l9-6.5" />
+    <path d="M11.5 16l9 6.5" />
   </g>
-  <circle cx="32" cy="32" r="6.5" fill="#F97316"/>
 </svg>

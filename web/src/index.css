@@ -63,6 +63,68 @@
   }
 }
 
+@keyframes aurora-drift-1 {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(4%, 6%) scale(1.12);
+  }
+}
+
+@keyframes aurora-drift-2 {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(-6%, -4%) scale(1.08);
+  }
+}
+
+@keyframes stream-flow {
+  to {
+    stroke-dashoffset: -200;
+  }
+}
+
+@keyframes glow-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@utility animate-aurora-1 {
+  animation: aurora-drift-1 22s ease-in-out infinite;
+}
+
+@utility animate-aurora-2 {
+  animation: aurora-drift-2 26s ease-in-out infinite;
+}
+
+@utility animate-stream-flow {
+  animation: stream-flow 7s linear infinite;
+}
+
+@utility animate-glow-pulse {
+  animation: glow-pulse 3.4s ease-in-out infinite;
+}
+
+@keyframes spin-slow {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@utility animate-spin-slow {
+  animation: spin-slow 7s linear infinite;
+}
+
 :root {
   --radius: 0.625rem;
 

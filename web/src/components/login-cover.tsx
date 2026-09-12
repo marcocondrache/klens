@@ -1,82 +1,126 @@
-export function LoginCover() {
+/** Full-bleed animated backdrop for the login screen. Purely decorative. */
+export function LoginBackdrop() {
   return (
-    <div className="relative hidden overflow-hidden bg-[#120d09] lg:block" aria-hidden>
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_90%_70%_at_75%_35%,oklch(0.55_0.18_48/0.5),transparent_68%),radial-gradient(ellipse_50%_45%_at_10%_85%,oklch(0.45_0.12_30/0.35),transparent_60%),radial-gradient(ellipse_40%_35%_at_90%_95%,oklch(0.5_0.1_80/0.28),transparent_55%)]" />
-      <div className="absolute inset-0 bg-[linear-gradient(to_right,rgb(255_255_255/0.035)_1px,transparent_1px),linear-gradient(to_bottom,rgb(255_255_255/0.035)_1px,transparent_1px)] bg-size-[3.5rem_3.5rem] mask-[radial-gradient(ellipse_at_center,black_20%,transparent_75%)]" />
+    <div
+      className="pointer-events-none fixed inset-0 -z-10 overflow-hidden bg-[#0d0906]"
+      aria-hidden
+    >
+      <div
+        className="motion-safe:animate-aurora-1 absolute top-[-25%] left-[-15%] size-[75%] rounded-full bg-[radial-gradient(circle,oklch(0.58_0.19_48/0.65),transparent_70%)] blur-3xl"
+        style={{ willChange: "transform" }}
+      />
+      <div
+        className="motion-safe:animate-aurora-2 absolute right-[-20%] bottom-[-30%] size-[80%] rounded-full bg-[radial-gradient(circle,oklch(0.62_0.16_60/0.5),transparent_70%)] blur-3xl"
+        style={{ willChange: "transform" }}
+      />
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_65%_55%_at_50%_0%,oklch(0.5_0.1_30/0.35),transparent_65%)]" />
+
+      <div className="absolute inset-0 bg-[linear-gradient(to_right,rgb(255_255_255/0.035)_1px,transparent_1px),linear-gradient(to_bottom,rgb(255_255_255/0.035)_1px,transparent_1px)] bg-size-[3.5rem_3.5rem] mask-[radial-gradient(ellipse_75%_60%_at_50%_35%,black_15%,transparent_75%)]" />
 
       <svg
-        className="absolute inset-0 size-full"
-        viewBox="0 0 800 1000"
+        className="absolute inset-0 size-full opacity-80"
+        viewBox="0 0 1200 800"
         preserveAspectRatio="xMidYMid slice"
         fill="none"
       >
         <path
-          d="M-40 220C140 180 280 320 430 300C580 280 690 140 860 170"
+          d="M-60 180C220 120 380 300 620 260C860 220 1000 60 1260 110"
           stroke="url(#klens-stream-1)"
-          strokeWidth="1.25"
+          strokeWidth="1.5"
+          strokeDasharray="4 14"
+          className="motion-safe:animate-stream-flow"
         />
         <path
-          d="M-40 340C160 390 300 250 470 270C640 290 720 430 860 400"
+          d="M-60 330C260 400 460 220 700 250C940 280 1040 460 1260 410"
           stroke="url(#klens-stream-2)"
-          strokeWidth="1.25"
+          strokeWidth="1.5"
+          strokeDasharray="3 16"
+          className="motion-safe:animate-stream-flow"
+          style={{ animationDelay: "-2.5s" }}
         />
         <path
-          d="M-40 470C180 430 310 560 490 530C670 500 740 360 860 390"
+          d="M-60 520C240 460 420 620 680 580C940 540 1060 360 1260 400"
           stroke="url(#klens-stream-1)"
-          strokeWidth="1.25"
+          strokeWidth="1.5"
+          strokeDasharray="4 14"
+          className="motion-safe:animate-stream-flow"
+          style={{ animationDelay: "-4.5s" }}
         />
         <path
-          d="M-40 610C150 670 320 540 500 560C680 580 750 710 860 680"
+          d="M-60 680C260 740 480 600 720 630C960 660 1080 760 1260 700"
           stroke="url(#klens-stream-2)"
-          strokeWidth="1.25"
+          strokeWidth="1.5"
+          strokeDasharray="3 16"
+          className="motion-safe:animate-stream-flow"
+          style={{ animationDelay: "-1s" }}
         />
-        <circle cx="268" cy="308" r="3.5" fill="#FFF7ED" fillOpacity="0.9" />
-        <circle cx="268" cy="308" r="10" fill="#FF8B2E" fillOpacity="0.28" />
-        <circle cx="512" cy="278" r="2.5" fill="#FBBF24" fillOpacity="0.85" />
-        <circle cx="188" cy="448" r="2.5" fill="#FFF7ED" fillOpacity="0.7" />
-        <circle cx="428" cy="538" r="3" fill="#FBBF24" fillOpacity="0.8" />
-        <circle cx="428" cy="538" r="9" fill="#FBBF24" fillOpacity="0.18" />
+
+        <circle
+          cx="620"
+          cy="262"
+          r="4"
+          fill="#FFF7ED"
+          fillOpacity="0.9"
+          className="motion-safe:animate-glow-pulse"
+        />
+        <circle cx="620" cy="262" r="12" fill="#FF8B2E" fillOpacity="0.22" />
+        <circle
+          cx="940"
+          cy="278"
+          r="3"
+          fill="#FBBF24"
+          fillOpacity="0.85"
+          className="motion-safe:animate-glow-pulse"
+          style={{ animationDelay: "-1.6s" }}
+        />
+        <circle
+          cx="360"
+          cy="440"
+          r="3"
+          fill="#FFF7ED"
+          fillOpacity="0.7"
+          className="motion-safe:animate-glow-pulse"
+          style={{ animationDelay: "-2.4s" }}
+        />
+        <circle
+          cx="680"
+          cy="582"
+          r="3.5"
+          fill="#FBBF24"
+          fillOpacity="0.8"
+          className="motion-safe:animate-glow-pulse"
+        />
+        <circle cx="680" cy="582" r="10" fill="#FBBF24" fillOpacity="0.16" />
+
         <defs>
           <linearGradient
             id="klens-stream-1"
             x1="0"
             y1="0"
-            x2="800"
+            x2="1200"
             y2="0"
             gradientUnits="userSpaceOnUse"
           >
             <stop offset="0" stopColor="#FF8B2E" stopOpacity="0" />
-            <stop offset="0.45" stopColor="#FF8B2E" stopOpacity="0.7" />
+            <stop offset="0.45" stopColor="#FF8B2E" stopOpacity="0.75" />
             <stop offset="1" stopColor="#FBBF24" stopOpacity="0" />
           </linearGradient>
           <linearGradient
             id="klens-stream-2"
             x1="0"
             y1="0"
-            x2="800"
+            x2="1200"
             y2="0"
             gradientUnits="userSpaceOnUse"
           >
             <stop offset="0" stopColor="#FBBF24" stopOpacity="0" />
-            <stop offset="0.5" stopColor="#E04F00" stopOpacity="0.45" />
+            <stop offset="0.5" stopColor="#E04F00" stopOpacity="0.5" />
             <stop offset="1" stopColor="#E04F00" stopOpacity="0" />
           </linearGradient>
         </defs>
       </svg>
 
-      <img
-        src="/favicon.svg"
-        alt=""
-        className="absolute top-[42%] left-1/2 w-[min(22rem,46%)] -translate-x-[42%] -translate-y-1/2 opacity-90 drop-shadow-[0_0_80px_oklch(0.55_0.18_48/0.55)]"
-      />
-
-      <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-[#120d09] via-[#120d09]/70 to-transparent p-10 pt-24">
-        <p className="text-xl font-semibold tracking-tight text-white">A lens for Kafka</p>
-        <p className="mt-1.5 max-w-md text-sm leading-relaxed text-white/55">
-          Open a cluster and look through the topics and the messages on them, the groups consuming
-          them, the brokers, and the schemas.
-        </p>
-      </div>
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_70%_55%_at_50%_50%,transparent_40%,#0d0906_95%)]" />
     </div>
   );
 }

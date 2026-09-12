@@ -14,7 +14,7 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
     <div className={cn("flex flex-col gap-6", className)} {...props}>
       <PageHeader
         title="Sign in"
-        description="Continue with your identity provider to use klens."
+        description="Continue with your identity provider to access your clusters."
       />
       {error ? (
         <Alert variant="destructive">
@@ -23,7 +23,10 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
           <AlertDescription>Try again, or check the identity provider.</AlertDescription>
         </Alert>
       ) : null}
-      <Button className="w-full" render={<a href="/auth/login" />}>
+      <Button
+        className="w-full shadow-[0_0_0_0_var(--brand)] transition-shadow duration-300 hover:shadow-[0_0_28px_-2px_var(--brand)]"
+        render={<a href="/auth/login" />}
+      >
         Continue with SSO
       </Button>
     </div>
