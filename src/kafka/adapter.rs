@@ -65,8 +65,6 @@ pub(crate) struct ClusterHandle {
     factory: ClientFactory,
     admin: Arc<AdminClient<DefaultClientContext>>,
     metadata: Cache<(), MetadataSnapshot>,
-    groups: Cache<(), Vec<GroupSnapshot>>,
-    subjects: Cache<(), Vec<SchemaSubject>>,
     schema_registry: Option<PayloadDecoder>,
     timeouts: Timeouts,
 }
@@ -97,8 +95,6 @@ impl ClusterHandle {
             factory,
             admin,
             metadata: snapshot_cache(*METADATA_TTL),
-            groups: snapshot_cache(*METADATA_TTL),
-            subjects: snapshot_cache(*METADATA_TTL),
             schema_registry,
             timeouts: Timeouts::default(),
         })
@@ -300,13 +296,7 @@ impl ClusterSession for ClusterHandle {
     }
 
     async fn consumer_groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
-        self.groups
-            .try_get_with(
-                (),
-                Self::fetch_group_list(Arc::clone(&self.admin), self.timeouts.admin),
-            )
-            .await
-            .map_err(into_kafka_error)
+        Self::fetch_group_list(Arc::clone(&self.admin), self.timeouts.admin).await
     }
 
     async fn consumer_group(&self, id: &str) -> Result<GroupSnapshot, KafkaError> {
@@ -373,9 +363,6 @@ impl ClusterSession for ClusterHandle {
             return Ok(Vec::new());
         };
 
-        self.subjects
-            .try_get_with((), async move { decoder.client().subjects().await })
-            .await
-            .map_err(into_kafka_error)
+        decoder.client().subjects().await
     }
 }
