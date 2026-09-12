@@ -17,7 +17,7 @@ import { Pill } from "@/components/status";
 import { useNow } from "@/hooks/use-now";
 import { useCatalogHealth, useSchemaSubjects } from "@/lib/api/catalog";
 import { useClusterName } from "@/lib/clusters";
-import { formatRelative } from "@/lib/format";
+import { catalogHealthCaption } from "@/lib/catalog-health";
 import type { SchemaSubject } from "@/lib/api/types";
 import { createAppColumnHelper } from "@/lib/table";
 
@@ -67,7 +67,11 @@ export function SchemasPage() {
   const { data: subjects = [], isPending, isError, error } = useSchemaSubjects(cluster);
   const { data: health } = useCatalogHealth(cluster);
   const now = useNow();
-  const updatedAt = health?.subjectsUpdatedAt;
+  const caption = catalogHealthCaption({
+    updatedAt: health?.subjectsUpdatedAt,
+    lastError: health?.lastError,
+    now,
+  });
 
   const rows = useMemo(() => {
     const needle = term.trim().toLowerCase();
@@ -79,9 +83,7 @@ export function SchemasPage() {
     <div className="flex min-h-0 flex-1 flex-col gap-5">
       <PageHeader
         title="Schema registry"
-        description={`${rows.length} subjects registered${
-          updatedAt ? ` · Updated ${formatRelative(updatedAt, now)}` : ""
-        }`}
+        description={`${rows.length} subjects registered${caption ? ` · ${caption}` : ""}`}
       />
 
       <SearchField

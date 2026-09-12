@@ -8,7 +8,8 @@ import { Pill } from "@/components/status";
 import { useNow } from "@/hooks/use-now";
 import { useBrokers, useCatalogHealth, useCluster } from "@/lib/api/catalog";
 import { clusterPath, useClusterName } from "@/lib/clusters";
-import { formatBytes, formatNumber, formatRate, formatRelative } from "@/lib/format";
+import { catalogHealthCaption } from "@/lib/catalog-health";
+import { formatBytes, formatNumber, formatRate } from "@/lib/format";
 import type { Broker } from "@/lib/api/types";
 import { createAppColumnHelper } from "@/lib/table";
 
@@ -97,14 +98,18 @@ export function NodesPage() {
   const { data: info } = useCluster(cluster);
   const { data: health } = useCatalogHealth(cluster);
   const now = useNow();
-  const updatedAt = health?.updatedAt;
+  const caption = catalogHealthCaption({
+    updatedAt: health?.updatedAt,
+    lastError: health?.lastError,
+    now,
+  });
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
       <PageHeader
         title="Brokers"
         description={`${brokers.length} brokers · Kafka ${info?.version ?? "—"}${
-          updatedAt ? ` · Updated ${formatRelative(updatedAt, now)}` : ""
+          caption ? ` · ${caption}` : ""
         }`}
       />
 
