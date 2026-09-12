@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/page-header";
 import { Stat, StatGrid } from "@/components/stat";
 import { GroupStateBadge, Pill } from "@/components/status";
 import { useConsumerGroup } from "@/lib/api/catalog";
+import { catalogLookupMessage } from "@/lib/catalog-lookup";
 import { useGroupLagHistory } from "@/lib/api/live";
 import { useConsumerGroupLag } from "@/lib/api/subscriptions";
 import { clusterPath, useClusterName } from "@/lib/clusters";
@@ -74,7 +75,7 @@ export function ConsumerGroupPage() {
   const [params, setParams] = useSearchParams();
 
   const tab = TABS.includes(params.get("tab") ?? "") ? params.get("tab")! : "offsets";
-  const { data: group, isPending, isError } = useConsumerGroup(cluster, groupId);
+  const { data: group, isPending, isError, error } = useConsumerGroup(cluster, groupId);
   const { data: lagHistory = [] } = useGroupLagHistory(cluster, groupId);
   useConsumerGroupLag(cluster, groupId);
 
@@ -88,14 +89,16 @@ export function ConsumerGroupPage() {
     setParams(next, { replace: true });
   }
 
-  if (isError) {
-    return (
-      <PageHeader
-        title={groupId}
-        mono
-        description="This consumer group does not exist in the selected cluster."
-      />
-    );
+  const lookup = catalogLookupMessage({
+    isPending,
+    isError,
+    error,
+    data: group,
+    missing: "This consumer group does not exist in the selected cluster.",
+    failed: "Failed to load this consumer group.",
+  });
+  if (lookup) {
+    return <PageHeader title={groupId} mono description={lookup} />;
   }
 
   const maxLag = Math.max(1, ...(group?.offsets ?? []).map((offset) => offset.lag));
