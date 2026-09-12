@@ -65,7 +65,7 @@ pub static SOCKET_CONNECTION_SETUP_TIMEOUT_MS: LazyLock<u32> =
 pub static API_VERSION_REQUEST_TIMEOUT_MS: LazyLock<u32> =
     lazy_env_parse!("KLENS_API_VERSION_REQUEST_TIMEOUT_MS", u32, 10_000);
 
-/// How long cluster metadata and group lists stay cached (default: 3 seconds).
+/// How long cluster metadata stays cached (default: 3 seconds).
 ///
 /// Override with `KLENS_METADATA_TTL` (seconds).
 pub static METADATA_TTL: LazyLock<Duration> =
