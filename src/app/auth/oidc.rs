@@ -16,22 +16,9 @@ type DiscoveredClient = CoreClient<
     EndpointMaybeSet,
     EndpointMaybeSet,
 >;
-use thiserror::Error;
 
 use super::SessionUser;
 use crate::config::OidcConfig;
-
-#[derive(Debug, Error)]
-pub(crate) enum OidcError {
-    #[error("oidc token exchange failed: {0}")]
-    TokenExchange(String),
-    #[error("oidc provider did not return an ID token")]
-    MissingIdToken,
-    #[error("oidc ID token is invalid: {0}")]
-    InvalidIdToken(String),
-    #[error("oidc ID token has expired")]
-    ExpiredToken,
-}
 
 #[async_trait]
 pub(crate) trait OidcFlow: Send + Sync {
@@ -47,7 +34,7 @@ pub(crate) trait OidcFlow: Send + Sync {
         code: String,
         pkce_verifier: PkceCodeVerifier,
         nonce: Nonce,
-    ) -> Result<SessionUser, OidcError>;
+    ) -> anyhow::Result<SessionUser>;
 }
 
 pub(crate) struct Oidc {
@@ -125,39 +112,41 @@ impl OidcFlow for Oidc {
         code: String,
         pkce_verifier: PkceCodeVerifier,
         nonce: Nonce,
-    ) -> Result<SessionUser, OidcError> {
+    ) -> anyhow::Result<SessionUser> {
         let token_response = self
             .client
             .exchange_code(AuthorizationCode::new(code))
-            .map_err(|error| OidcError::TokenExchange(error.to_string()))?
+            .map_err(|error| anyhow!("oidc token exchange failed: {error}"))?
             .set_pkce_verifier(pkce_verifier)
             .request_async(&self.http)
             .await
-            .map_err(|error| OidcError::TokenExchange(error.to_string()))?;
+            .map_err(|error| anyhow!("oidc token exchange failed: {error}"))?;
 
-        let id_token = token_response.id_token().ok_or(OidcError::MissingIdToken)?;
+        let id_token = token_response
+            .id_token()
+            .ok_or_else(|| anyhow!("oidc provider did not return an ID token"))?;
         let verifier = self.client.id_token_verifier();
         let claims = id_token
             .claims(&verifier, &nonce)
-            .map_err(|error| OidcError::InvalidIdToken(error.to_string()))?;
+            .map_err(|error| anyhow!("oidc ID token is invalid: {error}"))?;
 
         if let Some(expected_hash) = claims.access_token_hash() {
             let signing_alg = id_token
                 .signing_alg()
-                .map_err(|error| OidcError::InvalidIdToken(error.to_string()))?;
+                .map_err(|error| anyhow!("oidc ID token is invalid: {error}"))?;
             let signing_key = id_token
                 .signing_key(&verifier)
-                .map_err(|error| OidcError::InvalidIdToken(error.to_string()))?;
+                .map_err(|error| anyhow!("oidc ID token is invalid: {error}"))?;
             let actual_hash = AccessTokenHash::from_token(
                 token_response.access_token(),
                 signing_alg,
                 signing_key,
             )
-            .map_err(|error| OidcError::InvalidIdToken(error.to_string()))?;
+            .map_err(|error| anyhow!("oidc ID token is invalid: {error}"))?;
 
             if actual_hash != *expected_hash {
-                return Err(OidcError::InvalidIdToken(
-                    "access token hash mismatch".into(),
+                return Err(anyhow!(
+                    "oidc ID token is invalid: access token hash mismatch"
                 ));
             }
         }
@@ -168,7 +157,7 @@ impl OidcFlow for Oidc {
             .timestamp()
             .min(now + *crate::environment::MAX_SESSION_SECS);
         if exp <= now {
-            return Err(OidcError::ExpiredToken);
+            return Err(anyhow!("oidc ID token has expired"));
         }
 
         let name = claims.name().and_then(|localized| {
@@ -209,11 +198,9 @@ impl OidcFlow for FakeOidc {
         code: String,
         _pkce_verifier: PkceCodeVerifier,
         _nonce: Nonce,
-    ) -> Result<SessionUser, OidcError> {
+    ) -> anyhow::Result<SessionUser> {
         if code != "test-code" {
-            return Err(OidcError::TokenExchange(
-                "invalid authorization code".into(),
-            ));
+            return Err(anyhow!("invalid authorization code"));
         }
 
         Ok(SessionUser {
@@ -222,5 +209,38 @@ impl OidcFlow for FakeOidc {
             name: Some("Test User".into()),
             exp: super::unix_now() + 3600,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn unused_pkce() -> PkceCodeVerifier {
+        PkceCodeVerifier::new("verifier".into())
+    }
+
+    fn unused_nonce() -> Nonce {
+        Nonce::new("nonce".into())
+    }
+
+    #[tokio::test]
+    async fn fake_oidc_rejects_a_bad_code_with_a_literal() {
+        let error = FakeOidc
+            .authenticate("nope".into(), unused_pkce(), unused_nonce())
+            .await
+            .unwrap_err();
+        assert_eq!(error.to_string(), "invalid authorization code");
+    }
+
+    #[tokio::test]
+    async fn fake_oidc_accepts_the_test_code() {
+        let user = FakeOidc
+            .authenticate("test-code".into(), unused_pkce(), unused_nonce())
+            .await
+            .unwrap();
+        assert_eq!(user.sub, "user-1");
+        assert_eq!(user.email.as_deref(), Some("user@example.com"));
+        assert_eq!(user.name.as_deref(), Some("Test User"));
     }
 }

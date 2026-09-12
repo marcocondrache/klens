@@ -618,4 +618,48 @@ mod tests {
         let graphql = send(router, request).await;
         assert_eq!(graphql.status(), StatusCode::OK);
     }
+
+    #[tokio::test]
+    async fn callback_rejects_a_bad_authorization_code() {
+        let router = app(AuthState::enabled_for_tests());
+
+        let login = send(
+            router.clone(),
+            Request::builder()
+                .uri("/auth/login")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        let location = login
+            .headers()
+            .get(header::LOCATION)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let state = url::Url::parse(&location)
+            .unwrap()
+            .query_pairs()
+            .find(|(key, _)| key == "state")
+            .map(|(_, value)| value.into_owned())
+            .unwrap();
+        let cookies = cookie_header(&login);
+
+        let callback = send(
+            router,
+            Request::builder()
+                .uri(format!("/auth/callback?code=wrong&state={state}"))
+                .header(header::COOKIE, cookies)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+
+        assert!(callback.status().is_redirection());
+        assert_eq!(
+            callback.headers().get(header::LOCATION).unwrap(),
+            "/login?error=auth"
+        );
+    }
 }
