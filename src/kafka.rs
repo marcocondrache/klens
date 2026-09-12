@@ -1,24 +1,43 @@
+//! Kafka I/O, assembled domain types, the catalog snapshot, and live record reads.
+//!
+//! Open these first.
+//!
+//! - [`ClusterSession`] is the per-cluster I/O port. `adapter` is the rdkafka
+//!   impl (`ClusterHandle`). `registry` is Schema Registry. `testing` is the
+//!   in-memory session.
+//! - Raw broker snapshots live in `metadata`, `group` (`GroupSnapshot`),
+//!   `watermarks`, and `topic_config`.
+//! - Assembled types live in `topic`, `broker`, `cluster`, `group`
+//!   (`ConsumerGroup`), `search`, and `record`. `model` re-exports them.
+//! - `catalog` stores and polls the product snapshot ([`ClusterSnapshot`],
+//!   [`CatalogPoller`]). [`QueryEngine`] builds that snapshot (`catalog_from`)
+//!   and serves live records, configs, one group, and subjects. `rates`,
+//!   `lag`, and `series` are time series.
+
 mod adapter;
-mod broker;
-mod catalog;
-mod cluster;
-mod engine;
-mod error;
-mod group;
-mod limits;
-mod metadata;
-mod record;
 mod registry;
-mod search;
 mod session;
-mod topic;
+
+mod metadata;
 mod topic_config;
 mod watermarks;
 
+mod broker;
+mod cluster;
+mod group;
+mod limits;
+mod record;
+mod search;
+mod topic;
+
+mod catalog;
+mod engine;
 mod lag;
-pub(crate) mod model;
 mod rates;
 mod series;
+
+mod error;
+pub(crate) mod model;
 
 #[cfg(test)]
 mod testing;
