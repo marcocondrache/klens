@@ -12,7 +12,6 @@ import {
   catalogUpdatedSubscription,
   clusterQuery,
   clustersQuery,
-  clusterThroughputQuery,
   consumerGroupLagSubscription,
   consumerGroupQuery,
   consumerGroupsQuery,
@@ -106,16 +105,6 @@ export function useCluster(cluster: string) {
     queryFn: async () => {
       const { cluster: data } = await execute(clusterQuery, { name: cluster });
       return required(data, `unknown cluster '${cluster}'`);
-    },
-  });
-}
-
-export function useClusterThroughput(cluster: string) {
-  return useQuery({
-    queryKey: keys.throughput(cluster),
-    queryFn: async () => {
-      const { clusterThroughput } = await execute(clusterThroughputQuery, { cluster });
-      return clusterThroughput;
     },
   });
 }
