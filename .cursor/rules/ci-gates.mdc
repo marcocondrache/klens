@@ -1,0 +1,52 @@
+---
+description: Run the six CI jobs locally before marking a PR ready
+alwaysApply: true
+---
+
+# CI gates
+
+Commands match `.github/workflows/ci.yaml`. PR titles stay in `pr-conventional-commits`.
+
+## style
+
+```sh
+cargo fmt --all --check
+typos
+```
+
+## clippy
+
+```sh
+cargo clippy --all -- -D warnings
+```
+
+## web
+
+From `web/`:
+
+```sh
+bun install --frozen-lockfile
+bunx vp check
+bun run build
+```
+
+## test
+
+```sh
+cargo build --verbose
+cargo nextest run --verbose --no-tests=pass
+```
+
+## docs
+
+```sh
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items
+```
+
+## machete
+
+```sh
+cargo machete
+```
+
+UI or GraphQL changes: `.cursor/skills/verify-klens/SKILL.md`.
