@@ -1,6 +1,5 @@
-use futures::StreamExt;
 use futures::stream::{self, BoxStream};
-use juniper::{FieldError, FieldResult, graphql_subscription};
+use juniper::{FieldResult, graphql_subscription};
 
 use super::types::{CatalogUpdated, ConsumerGroup, TopicRate};
 use crate::AppState;
@@ -12,12 +11,10 @@ type TopicRateStream = BoxStream<'static, FieldResult<Vec<TopicRate>>>;
 type ConsumerGroupStream = BoxStream<'static, FieldResult<ConsumerGroup>>;
 type CatalogUpdatedStream = BoxStream<'static, FieldResult<CatalogUpdated>>;
 
-type Sample<T> = Result<T, String>;
-
 #[derive(Default)]
 pub(crate) struct Samplers {
-    topic_rates: SamplerMap<String, Sample<Vec<TopicRate>>>,
-    group_lag: SamplerMap<(String, String), Sample<ConsumerGroup>>,
+    topic_rates: SamplerMap<String, FieldResult<Vec<TopicRate>>>,
+    group_lag: SamplerMap<(String, String), FieldResult<ConsumerGroup>>,
 }
 
 #[graphql_subscription(context = AppState)]
@@ -32,7 +29,7 @@ impl Subscription {
             }
         });
 
-        Box::pin(sampler.stream().map(reported))
+        Box::pin(sampler.stream())
     }
 
     async fn consumer_group_lag(
@@ -51,7 +48,7 @@ impl Subscription {
             }
         });
 
-        Box::pin(sampler.stream().map(reported))
+        Box::pin(sampler.stream())
     }
 
     async fn catalog_updated(context: &AppState, cluster: String) -> CatalogUpdatedStream {
@@ -75,11 +72,7 @@ impl Subscription {
     }
 }
 
-fn reported<T>(sample: Sample<T>) -> FieldResult<T> {
-    sample.map_err(FieldError::from)
-}
-
-async fn sample_topic_rates(state: &AppState, cluster: &str) -> Sample<Vec<TopicRate>> {
+async fn sample_topic_rates(state: &AppState, cluster: &str) -> FieldResult<Vec<TopicRate>> {
     Ok(state
         .series_topic_rates(cluster)
         .into_iter()
@@ -91,11 +84,8 @@ async fn sample_consumer_group_lag(
     state: &AppState,
     cluster: &str,
     id: &str,
-) -> Sample<ConsumerGroup> {
-    let group = state
-        .live_consumer_group(cluster, id)
-        .await
-        .map_err(|error| error.to_string())?;
+) -> FieldResult<ConsumerGroup> {
+    let group = state.live_consumer_group(cluster, id).await?;
     state.series_observe_group_lag(cluster, id, group.lag);
     Ok(ConsumerGroup::from(group))
 }
@@ -436,5 +426,34 @@ mod tests {
                 .lag,
             seeded
         );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn consumer_group_lag_subscription_reports_unknown_group() {
+        let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
+            FakeCluster::local(),
+        ])));
+        let coordinator = Coordinator::new(schema());
+        let request: GraphQLRequest = serde_json::from_str(
+            r#"{ "query": "subscription { consumerGroupLag(cluster: \"local\", id: \"ghost\") { id lag } }" }"#,
+        )
+        .unwrap();
+        let mut stream = coordinator.subscribe(&request, &state).await.unwrap();
+
+        let first = stream.next().await.unwrap();
+        let first = serde_json::to_value(first).unwrap();
+        let messages = first["errors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|error| error["message"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>();
+        assert!(
+            messages.iter().any(
+                |message| message.contains("unknown consumer group 'ghost' in cluster 'local'")
+            ),
+            "errors={messages:?}"
+        );
+        assert!(first["data"]["consumerGroupLag"].is_null());
     }
 }
