@@ -1,5 +1,8 @@
-//! Flat view over the Kafka domain types, so callers outside `kafka` can
-//! reach the whole domain through one path.
+//! Flat re-export of Kafka domain types for the rest of the crate.
+//!
+//! The `kafka` module root re-exports the product subset. This barrel also
+//! has raw snapshots ([`GroupSnapshot`], [`MetadataSnapshot`]) and
+//! [`FetchPlan`], which `session` and `engine` use.
 
 pub use crate::kafka::broker::Broker;
 pub use crate::kafka::cluster::{ClusterHealth, ClusterIdentity, ClusterOverview};
