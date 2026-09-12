@@ -5,12 +5,6 @@ use moka::future::Cache;
 
 use crate::kafka::error::KafkaError;
 
-/// Runs a synchronous librdkafka call on the blocking pool under a deadline.
-///
-/// `limit` should exceed the Kafka request timeout by
-/// [`BLOCKING_SLACK`](crate::environment::BLOCKING_SLACK), so a
-/// slow broker trips its own timeout and reports a real error rather than
-/// being cut short here.
 pub async fn run_blocking<T, F>(limit: Duration, work: F) -> Result<T, KafkaError>
 where
     T: Send + 'static,
@@ -18,12 +12,10 @@ where
 {
     tokio::time::timeout(limit, tokio::task::spawn_blocking(work))
         .await
-        .map_err(|_| KafkaError::Admin("kafka request timed out".into()))?
+        .map_err(|_| KafkaError::Timeout)?
         .map_err(KafkaError::from)?
 }
 
-/// A one-slot TTL cache. Concurrent misses coalesce into a single fetch and
-/// errors are not cached.
 pub fn snapshot_cache<V>(ttl: Duration) -> Cache<(), V>
 where
     V: Clone + Send + Sync + 'static,
@@ -157,6 +149,20 @@ mod tests {
         })
         .await;
 
-        assert!(matches!(result, Err(KafkaError::Admin(_))));
+        let error = result.unwrap_err();
+        assert!(matches!(error, KafkaError::Timeout));
+        assert_eq!(error.to_string(), "kafka request timed out");
+    }
+
+    #[test]
+    fn into_kafka_error_keeps_a_shared_error_as_admin() {
+        let shared = Arc::new(KafkaError::Timeout);
+        let first = into_kafka_error(Arc::clone(&shared));
+        let unwrapped = into_kafka_error(shared);
+
+        assert!(
+            matches!(first, KafkaError::Admin(message) if message == "kafka request timed out")
+        );
+        assert!(matches!(unwrapped, KafkaError::Timeout));
     }
 }

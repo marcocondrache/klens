@@ -40,7 +40,6 @@ use crate::kafka::registry::decode::PayloadDecoder;
 
 pub use client_config::KafkaClusterConfig;
 
-/// Per-call deadlines, defaulted from [`crate::environment`].
 #[derive(Clone, Copy)]
 struct Timeouts {
     metadata: Duration,
@@ -104,7 +103,6 @@ impl ClusterHandle {
         AdminOptions::new().operation_timeout(Some(self.timeouts.admin))
     }
 
-    /// Consumer group used for this cluster's `ListOffsets` probes.
     fn offsets_group_id(&self) -> String {
         format!("{INTERNAL_GROUP_PREFIX}list-offsets.{}", self.identity.name)
     }
@@ -224,7 +222,6 @@ impl ClusterSession for ClusterHandle {
                 .collect();
             let listed = list_offsets(&consumer, &pairs, Offset::Offset(timestamp), timeout)?;
 
-            // Every requested partition gets an entry; the broker may omit some.
             let mut out: HashMap<i32, Option<i64>> = partitions
                 .iter()
                 .copied()
@@ -290,7 +287,10 @@ impl ClusterSession for ClusterHandle {
                 .into_iter()
                 .map(ConfigEntry::from)
                 .collect()),
-            Some(Err(error)) => Err(KafkaError::Admin(error.to_string())),
+            Some(Err(error)) => Err(KafkaError::BrokerConfigs {
+                id: broker_id,
+                message: error.to_string(),
+            }),
             None => Ok(Vec::new()),
         }
     }
