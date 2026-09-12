@@ -137,7 +137,8 @@ pub static MAX_RECORD_LIMIT: LazyLock<usize> =
 pub static SAMPLE_INTERVAL: LazyLock<Duration> =
     lazy_env_parse!(duration, "KLENS_SAMPLE_INTERVAL", Duration::from_secs(2));
 
-/// How often each cluster's topic catalog is refreshed (default: 5 seconds).
+/// How often each cluster's topic and consumer-group catalog is refreshed
+/// (default: 5 seconds).
 ///
 /// Override with `KLENS_CATALOG_POLL_INTERVAL` (seconds). Values below 1
 /// second fall back to the default.

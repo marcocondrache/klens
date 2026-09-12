@@ -435,6 +435,38 @@ export type ConsumerGroupsQuery = {
   }>;
 };
 
+export type GroupsCatalogQueryVariables = Exact<{
+  cluster: string;
+}>;
+
+export type GroupsCatalogQuery = {
+  clusterCatalog: {
+    updatedAt: string;
+    consumerGroups: Array<{
+      id: string;
+      state: ConsumerGroupState;
+      protocol: string;
+      coordinator: number;
+      topics: Array<string>;
+      lag: number;
+      members: Array<{
+        id: string;
+        clientId: string;
+        host: string;
+        assignments: Array<{ topic: string; partitions: Array<number> }>;
+      }>;
+      offsets: Array<{
+        topic: string;
+        partition: number;
+        currentOffset: number;
+        endOffset: number;
+        lag: number;
+        memberId: string | null;
+      }>;
+    }>;
+  };
+};
+
 export type ConsumerGroupQueryVariables = Exact<{
   cluster: string;
   id: string;
@@ -1088,6 +1120,49 @@ fragment ConsumerGroupFields on ConsumerGroup {
     ...GroupOffsetFields
   }
 }`) as unknown as TypedDocumentString<ConsumerGroupsQuery, ConsumerGroupsQueryVariables>;
+export const GroupsCatalogDocument = new TypedDocumentString(`
+    query GroupsCatalog($cluster: String!) {
+  clusterCatalog(cluster: $cluster) {
+    updatedAt
+    consumerGroups {
+      ...ConsumerGroupFields
+    }
+  }
+}
+    fragment MemberAssignmentFields on MemberAssignment {
+  topic
+  partitions
+}
+fragment ConsumerGroupMemberFields on ConsumerGroupMember {
+  id
+  clientId
+  host
+  assignments {
+    ...MemberAssignmentFields
+  }
+}
+fragment GroupOffsetFields on GroupOffset {
+  topic
+  partition
+  currentOffset
+  endOffset
+  lag
+  memberId
+}
+fragment ConsumerGroupFields on ConsumerGroup {
+  id
+  state
+  protocol
+  coordinator
+  members {
+    ...ConsumerGroupMemberFields
+  }
+  topics
+  lag
+  offsets {
+    ...GroupOffsetFields
+  }
+}`) as unknown as TypedDocumentString<GroupsCatalogQuery, GroupsCatalogQueryVariables>;
 export const ConsumerGroupDocument = new TypedDocumentString(`
     query ConsumerGroup($cluster: String!, $id: String!) {
   consumerGroup(cluster: $cluster, id: $id) {

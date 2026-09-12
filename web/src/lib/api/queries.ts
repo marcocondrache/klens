@@ -14,6 +14,7 @@ import {
   consumerGroupLagSubscription,
   consumerGroupQuery,
   consumerGroupsQuery,
+  groupsCatalogQuery,
   groupLagHistoryQuery,
   recordsQuery,
   schemaSubjectsQuery,
@@ -209,13 +210,31 @@ export function useRecords(query: RecordsFilter) {
   });
 }
 
-export function useConsumerGroups(cluster: string, topic?: string, enabled = true) {
+export type GroupsCache = {
+  groups: ConsumerGroup[];
+  updatedAt: string;
+};
+
+export function useConsumerGroups(cluster: string) {
   return useQuery({
-    queryKey: topic ? keys.topicGroups(cluster, topic) : keys.groups(cluster),
+    queryKey: keys.groups(cluster),
+    queryFn: async () => {
+      const { clusterCatalog } = await execute(groupsCatalogQuery, { cluster });
+      return {
+        groups: clusterCatalog.consumerGroups,
+        updatedAt: clusterCatalog.updatedAt,
+      } satisfies GroupsCache;
+    },
+  });
+}
+
+export function useTopicConsumerGroups(cluster: string, topic: string, enabled = true) {
+  return useQuery({
+    queryKey: keys.topicGroups(cluster, topic),
     queryFn: async () => {
       const { consumerGroups } = await execute(consumerGroupsQuery, {
         cluster,
-        topic: topic ?? null,
+        topic,
       });
       return consumerGroups;
     },
@@ -333,8 +352,15 @@ export function useConsumerGroupLag(cluster: string, group: string) {
         existing ? withLag(existing, lag) : existing,
       );
 
-      queryClient.setQueryData(keys.groups(cluster), (groups: ConsumerGroup[] | undefined) =>
-        groups?.map((entry) => (entry.id === lag.id ? withLag(entry, lag) : entry)),
+      queryClient.setQueryData(keys.groups(cluster), (current: GroupsCache | undefined) =>
+        current
+          ? {
+              ...current,
+              groups: current.groups.map((entry) =>
+                entry.id === lag.id ? withLag(entry, lag) : entry,
+              ),
+            }
+          : current,
       );
 
       queryClient.setQueryData(

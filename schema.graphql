@@ -135,6 +135,7 @@ type Cluster {
 type ClusterCatalog {
   updatedAt: DateTime!
   topics: [Topic!]!
+  consumerGroups: [ConsumerGroup!]!
 }
 
 type ConfigEntry {

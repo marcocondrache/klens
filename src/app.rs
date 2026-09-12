@@ -56,7 +56,7 @@ impl AppState {
         }
     }
 
-    pub(crate) async fn topic_snapshot(
+    pub(crate) async fn catalog_snapshot(
         &self,
         cluster: &str,
     ) -> Result<ClusterSnapshot, crate::kafka::KafkaError> {
@@ -64,7 +64,11 @@ impl AppState {
             return Ok(snapshot);
         }
 
-        let snapshot = ClusterSnapshot::from_topics(self.query.topics(cluster).await?);
+        let (topics, groups) = tokio::try_join!(
+            self.query.topics(cluster),
+            self.query.consumer_groups(cluster, None),
+        )?;
+        let snapshot = ClusterSnapshot::from_catalog(topics, groups);
         self.catalog.seed(cluster, snapshot.clone());
         Ok(snapshot)
     }

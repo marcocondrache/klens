@@ -60,15 +60,16 @@ impl Query {
         Ok(map_topics(
             context,
             &cluster,
-            context.topic_snapshot(&cluster).await?.topics,
+            context.catalog_snapshot(&cluster).await?.topics,
         ))
     }
 
     async fn cluster_catalog(context: &AppState, cluster: String) -> FieldResult<ClusterCatalog> {
-        let snapshot = context.topic_snapshot(&cluster).await?;
+        let snapshot = context.catalog_snapshot(&cluster).await?;
         Ok(ClusterCatalog {
             updated_at: snapshot.updated_at,
             topics: map_topics(context, &cluster, snapshot.topics),
+            consumer_groups: map_groups(snapshot.groups),
         })
     }
 
@@ -106,13 +107,8 @@ impl Query {
         cluster: String,
         topic: Option<String>,
     ) -> FieldResult<Vec<ConsumerGroup>> {
-        Ok(context
-            .query
-            .consumer_groups(&cluster, topic.as_deref())
-            .await?
-            .into_iter()
-            .map(ConsumerGroup::from)
-            .collect())
+        let snapshot = context.catalog_snapshot(&cluster).await?;
+        Ok(map_groups(snapshot.groups_for_topic(topic.as_deref())))
     }
 
     async fn consumer_group(
@@ -120,11 +116,12 @@ impl Query {
         cluster: String,
         id: String,
     ) -> FieldResult<Option<ConsumerGroup>> {
-        match context.query.consumer_group(&cluster, &id).await {
-            Ok(group) => Ok(Some(ConsumerGroup::from(group))),
-            Err(crate::kafka::KafkaError::UnknownGroup { .. }) => Ok(None),
-            Err(error) => Err(error.into()),
-        }
+        Ok(context
+            .catalog_snapshot(&cluster)
+            .await?
+            .group(&id)
+            .cloned()
+            .map(ConsumerGroup::from))
     }
 
     async fn cluster_throughput(context: &AppState, cluster: String) -> Vec<ThroughputPoint> {
@@ -208,4 +205,8 @@ fn map_topics(context: &AppState, cluster: &str, topics: Vec<crate::kafka::Topic
             Topic::from_domain(topic, rate.as_ref())
         })
         .collect()
+}
+
+fn map_groups(groups: Vec<crate::kafka::ConsumerGroup>) -> Vec<ConsumerGroup> {
+    groups.into_iter().map(ConsumerGroup::from).collect()
 }
