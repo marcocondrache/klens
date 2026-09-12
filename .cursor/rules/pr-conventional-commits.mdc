@@ -1,0 +1,27 @@
+---
+description: PR titles, bodies, and squash messages use conventional commits plus unslop
+alwaysApply: true
+---
+
+# Pull request copy
+
+When creating or updating a PR:
+
+1. **Title** — Conventional Commits: `type(scope): description` (scope optional). Prefer `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`. Sentence case after the colon; no trailing period.
+2. **Body** — Short and concrete: what changed and why. Skip filler Summary/Test plan theater unless the change needs a real checklist. Before finalizing, read and apply the `unslop` skill so the prose has no AI tells.
+3. **Squash merge message** — Same title and body as the PR (not the branch commit history).
+
+```text
+# ✅ GOOD
+feat(consumers): pause lag poll while the drawer is open
+
+Stop the consumers query while the detail drawer is open so the
+table does not keep refreshing under the panel.
+
+# ❌ BAD
+Update consumers page
+
+## Summary
+- Improved the overall user experience by enhancing polling behavior
+- Ensured a more seamless interaction when viewing details
+```
