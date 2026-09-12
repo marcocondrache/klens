@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { TriangleAlertIcon } from "lucide-react";
-import { Navigate, Outlet } from "@/lib/navigation";
+import { Navigate, Outlet } from "@tanstack/react-router";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
@@ -49,7 +49,7 @@ export function AppLayout() {
   const known = clusters?.some((entry) => entry.name === cluster);
 
   if (!isPending && clusters && clusters.length > 0 && !known) {
-    return <Navigate to={`/cluster/${clusters[0].name}`} replace />;
+    return <Navigate to="/cluster/$cluster" params={{ cluster: clusters[0].name }} replace />;
   }
 
   return (

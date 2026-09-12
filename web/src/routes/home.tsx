@@ -1,5 +1,5 @@
 import { ServerOffIcon } from "lucide-react";
-import { Navigate } from "@/lib/navigation";
+import { Navigate } from "@tanstack/react-router";
 
 import {
   Empty,
@@ -26,7 +26,7 @@ export function HomePage() {
   }
 
   if (name) {
-    return <Navigate to={`/cluster/${name}/topics`} replace />;
+    return <Navigate to="/cluster/$cluster/topics" params={{ cluster: name }} replace />;
   }
 
   return (

@@ -1,5 +1,5 @@
 import { ChevronDownIcon } from "lucide-react";
-import { useLocation, useNavigate } from "@/lib/navigation";
+import { useNavigate } from "@tanstack/react-router";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -13,7 +13,7 @@ import {
 import { StatusDot } from "@/components/status";
 import { useClusterName } from "@/lib/clusters";
 import { useClusters } from "@/lib/api/catalog";
-import { findSection } from "@/lib/sections";
+import { clusterSectionTo, useActiveSection } from "@/lib/sections";
 import type { ClusterStatus } from "@/lib/api/types";
 
 const STATUS_TONE: Record<ClusterStatus, "ok" | "warn" | "error"> = {
@@ -26,14 +26,15 @@ export function ClusterSwitcher() {
   const active = useClusterName();
   const { data: clusters = [] } = useClusters();
   const navigate = useNavigate();
-  const location = useLocation();
+  const section = useActiveSection();
 
   const current = clusters.find((cluster) => cluster.name === active);
 
   function switchTo(name: string) {
-    const [, , , segment] = location.pathname.split("/");
-    const section = findSection(segment);
-    navigate(section ? `/cluster/${name}/${section.segment}` : `/cluster/${name}`);
+    void navigate({
+      to: section ? clusterSectionTo(section.segment) : "/cluster/$cluster",
+      params: { cluster: name },
+    });
   }
 
   return (

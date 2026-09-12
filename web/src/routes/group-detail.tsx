@@ -1,7 +1,5 @@
 import { ActivityIcon, LayersIcon, NetworkIcon, UsersRoundIcon } from "lucide-react";
-import { useNavigate, useSearch } from "@tanstack/react-router";
-
-import { Link, useNavigate as useHrefNavigate, useParams } from "@/lib/navigation";
+import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sparkline } from "@/components/charts";
@@ -14,7 +12,7 @@ import { useConsumerGroup } from "@/lib/api/catalog";
 import { catalogLookupMessage } from "@/lib/catalog-lookup";
 import { useGroupLagHistory } from "@/lib/api/live";
 import { useConsumerGroupLag } from "@/lib/api/subscriptions";
-import { clusterPath, useClusterName } from "@/lib/clusters";
+import { useClusterName } from "@/lib/clusters";
 import { formatCount, formatNumber } from "@/lib/format";
 import type { ConsumerGroupMember, GroupOffset } from "@/lib/api/types";
 import { createAppColumnHelper } from "@/lib/table";
@@ -69,10 +67,8 @@ const memberColumns = memberColumnHelper.columns([
 
 export function ConsumerGroupPage() {
   const cluster = useClusterName();
-  const hrefNavigate = useHrefNavigate();
   const navigate = useNavigate({ from: "/cluster/$cluster/groups/$group" });
-  const { group: groupParam } = useParams<{ group: string }>();
-  const groupId = decodeURIComponent(groupParam ?? "");
+  const { group: groupId } = useParams({ from: "/cluster/$cluster/groups/$group" });
   const { tab: tabParam } = useSearch({ from: "/cluster/$cluster/groups/$group" });
   const tab = tabParam ?? "offsets";
   const { data: group, isPending, isError, error } = useConsumerGroup(cluster, groupId);
@@ -118,7 +114,8 @@ export function ConsumerGroupPage() {
       header: "Topic",
       cell: ({ getValue }) => (
         <Link
-          to={clusterPath(cluster, "topics", getValue())}
+          to="/cluster/$cluster/topics/$topic"
+          params={{ cluster, topic: getValue() }}
           className="font-mono text-sm hover:text-brand hover:underline"
           onClick={(event) => event.stopPropagation()}
         >
@@ -271,7 +268,12 @@ export function ConsumerGroupPage() {
             loading={isPending}
             pageSize={25}
             defaultSort={{ id: "lag", direction: "desc" }}
-            onRowClick={(offset) => hrefNavigate(clusterPath(cluster, "topics", offset.topic))}
+            onRowClick={(offset) => {
+              void navigate({
+                to: "/cluster/$cluster/topics/$topic",
+                params: { cluster, topic: offset.topic },
+              });
+            }}
             fill
           />
         </TabsContent>

@@ -1,4 +1,4 @@
-import { Link, useLocation } from "@/lib/navigation";
+import { Link, useMatchRoute } from "@tanstack/react-router";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -19,16 +19,16 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { GithubIcon } from "@/components/icons";
 import { useCluster, useSchemaSubjects } from "@/lib/api/catalog";
 import { RELEASE_URL, REPO_URL, VERSION } from "@/lib/build";
-import { clusterPath, useClusterName } from "@/lib/clusters";
+import { useClusterName } from "@/lib/clusters";
 import { formatCount } from "@/lib/format";
-import { SECTIONS } from "@/lib/sections";
+import { SECTIONS, clusterSectionTo } from "@/lib/sections";
 
 const ACTIVE_MARKER =
   "relative data-active:before:absolute data-active:before:inset-y-1.5 data-active:before:-left-3 data-active:before:w-0.5 data-active:before:rounded-r-full data-active:before:bg-sidebar-primary";
 
 export function AppSidebar() {
   const cluster = useClusterName();
-  const { pathname } = useLocation();
+  const matchRoute = useMatchRoute();
 
   const { data } = useCluster(cluster);
   const { data: subjects } = useSchemaSubjects(cluster);
@@ -57,10 +57,16 @@ export function AppSidebar() {
               {SECTIONS.map((section) => (
                 <SidebarMenuItem key={section.segment}>
                   <SidebarMenuButton
-                    isActive={pathname.startsWith(clusterPath(cluster, section.segment))}
+                    isActive={Boolean(
+                      matchRoute({
+                        to: clusterSectionTo(section.segment),
+                        params: { cluster },
+                        fuzzy: true,
+                      }),
+                    )}
                     tooltip={section.label}
                     className={ACTIVE_MARKER}
-                    render={<Link to={clusterPath(cluster, section.segment)} />}
+                    render={<Link to={clusterSectionTo(section.segment)} params={{ cluster }} />}
                   >
                     <section.icon />
                     <span>{section.label}</span>

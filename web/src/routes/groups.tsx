@@ -1,8 +1,6 @@
 import { useMemo } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 
-import { useNavigate as useHrefNavigate } from "@/lib/navigation";
-
 import {
   Select,
   SelectContent,
@@ -17,7 +15,7 @@ import { GroupStateBadge, Pill } from "@/components/status";
 import { lagTone } from "@/lib/tone";
 import { useNow } from "@/hooks/use-now";
 import { useConsumerGroups } from "@/lib/api/catalog";
-import { clusterPath, useClusterName } from "@/lib/clusters";
+import { useClusterName } from "@/lib/clusters";
 import { formatCount, formatEnumLabel, formatNumber, formatRelative } from "@/lib/format";
 import type { ConsumerGroupState, GroupList } from "@/lib/api/types";
 import { createAppColumnHelper } from "@/lib/table";
@@ -87,7 +85,6 @@ const columns = columnHelper.columns([
 
 export function ConsumerGroupsPage() {
   const cluster = useClusterName();
-  const hrefNavigate = useHrefNavigate();
   const navigate = useNavigate({ from: "/cluster/$cluster/groups" });
   const { q: term = "", state = "all" } = useSearch({ from: "/cluster/$cluster/groups" });
 
@@ -171,7 +168,12 @@ export function ConsumerGroupsPage() {
             : undefined
         }
         defaultSort={{ id: "lag", direction: "desc" }}
-        onRowClick={(group) => hrefNavigate(clusterPath(cluster, "groups", group.id))}
+        onRowClick={(group) => {
+          void navigate({
+            to: "/cluster/$cluster/groups/$group",
+            params: { cluster, group: group.id },
+          });
+        }}
         fill
       />
     </div>
