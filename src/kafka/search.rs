@@ -22,8 +22,6 @@ pub struct SearchHit {
     pub detail: String,
 }
 
-/// Kinds are searched in a fixed order, so the cap favours topics over
-/// groups, brokers and subjects.
 pub fn search_catalog(
     term: &str,
     topics: &[TopicMetadata],
