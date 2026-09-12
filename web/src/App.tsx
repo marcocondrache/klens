@@ -1,5 +1,6 @@
+import { Outlet } from "@tanstack/react-router";
+
 import { AuthGate } from "@/components/auth-gate";
-import { Outlet } from "@/lib/navigation";
 
 function App() {
   return (

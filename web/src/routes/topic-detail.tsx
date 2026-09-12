@@ -1,8 +1,6 @@
 import { useMemo } from "react";
 import { AlertTriangleIcon, DatabaseIcon, GaugeIcon, NetworkIcon } from "lucide-react";
-import { useNavigate, useSearch } from "@tanstack/react-router";
-
-import { useNavigate as useHrefNavigate, useParams } from "@/lib/navigation";
+import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConfigTable } from "@/components/config-table";
@@ -18,7 +16,7 @@ import { useTopic, useTopicConsumerGroups } from "@/lib/api/catalog";
 import { catalogLookupMessage } from "@/lib/catalog-lookup";
 import { useTopicConfigs, useTopicThroughput } from "@/lib/api/live";
 import { useTopicRates } from "@/lib/api/subscriptions";
-import { clusterPath, useClusterName } from "@/lib/clusters";
+import { useClusterName } from "@/lib/clusters";
 import {
   formatCleanupPolicy,
   formatCount,
@@ -99,10 +97,8 @@ const partitionColumns = partitionColumnHelper.columns([
 
 export function TopicPage() {
   const cluster = useClusterName();
-  const hrefNavigate = useHrefNavigate();
   const navigate = useNavigate({ from: "/cluster/$cluster/topics/$topic" });
-  const { topic: topicParam } = useParams<{ topic: string }>();
-  const topicName = decodeURIComponent(topicParam ?? "");
+  const { topic: topicName } = useParams({ from: "/cluster/$cluster/topics/$topic" });
   const { tab: tabParam } = useSearch({ from: "/cluster/$cluster/topics/$topic" });
   const tab = tabParam ?? "data";
 
@@ -290,7 +286,12 @@ export function TopicPage() {
             data={consuming}
             getRowId={(group) => group.id}
             loading={groupsPending}
-            onRowClick={(group) => hrefNavigate(clusterPath(cluster, "groups", group.id))}
+            onRowClick={(group) => {
+              void navigate({
+                to: "/cluster/$cluster/groups/$group",
+                params: { cluster, group: group.id },
+              });
+            }}
             emptyState={
               <p className="py-10 text-center text-sm text-muted-foreground">
                 No consumer group is subscribed to this topic.
