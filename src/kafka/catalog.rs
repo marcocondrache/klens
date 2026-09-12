@@ -4,6 +4,7 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use chrono::{DateTime, Utc};
+use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 
 use crate::config::SecurityProtocol;
@@ -158,6 +159,13 @@ impl CatalogCache {
         inner.insert(cluster, snapshot.into());
         true
     }
+
+    pub fn invalidate(&self, cluster: &str) {
+        self.inner
+            .write()
+            .expect("catalog cache lock")
+            .remove(cluster);
+    }
 }
 
 #[derive(Clone, Default)]
@@ -198,6 +206,13 @@ impl SubjectCache {
         inner.insert(cluster, subjects.into());
         true
     }
+
+    pub fn invalidate(&self, cluster: &str) {
+        self.inner
+            .write()
+            .expect("subject cache lock")
+            .remove(cluster);
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -220,6 +235,7 @@ pub struct CatalogAssemble {
 /// poller aborts them.
 pub struct CatalogPoller {
     tasks: Vec<JoinHandle<()>>,
+    kicks: HashMap<String, Arc<Notify>>,
 }
 
 impl Drop for CatalogPoller {
@@ -248,6 +264,11 @@ impl CatalogPoller {
             config_interval_secs = config_interval.as_secs(),
             "starting catalog poller"
         );
+        let kicks: HashMap<String, Arc<Notify>> = clusters
+            .iter()
+            .cloned()
+            .map(|cluster| (cluster, Arc::new(Notify::new())))
+            .collect();
         let catalog_engine = Arc::clone(&engine);
         let catalog_rates = rates;
         let catalog_tasks: Vec<JoinHandle<()>> = clusters
@@ -257,6 +278,7 @@ impl CatalogPoller {
                 let engine = Arc::clone(&catalog_engine);
                 let rates = catalog_rates.clone();
                 let cache = catalog.clone();
+                let kick = Arc::clone(kicks.get(&cluster).expect("catalog kick"));
                 tokio::spawn(async move {
                     let mut reuse = CatalogReuse::default();
                     let mut last_config_fetch = None;
@@ -279,9 +301,10 @@ impl CatalogPoller {
                                 let changed = reuse.snapshot.as_ref().is_none_or(|prev| {
                                     !prev.body_eq(&assembled.snapshot)
                                 });
+                                let missing = cache.snapshot(&cluster).is_none();
                                 reuse.metadata_hash = assembled.metadata_hash;
                                 reuse.configs = assembled.configs;
-                                if changed {
+                                if changed || missing {
                                     let snapshot = Arc::new(assembled.snapshot);
                                     cache.store(cluster.clone(), Arc::clone(&snapshot));
                                     reuse.snapshot = Some(snapshot);
@@ -293,7 +316,7 @@ impl CatalogPoller {
                             }
                         }
 
-                        tokio::time::sleep(catalog_interval).await;
+                        wait_for_kick_or_interval(catalog_interval, &kick).await;
                     }
                 })
             })
@@ -307,10 +330,12 @@ impl CatalogPoller {
                 async move { engine.schema_subjects(&cluster).await }
             },
             move |cluster, list| subjects.store(cluster, list),
+            &kicks,
         );
 
         Self {
             tasks: catalog_tasks.into_iter().chain(subject_tasks).collect(),
+            kicks,
         }
     }
 
@@ -324,6 +349,12 @@ impl CatalogPoller {
         F: Fn(String) -> Fut + Send + Sync + Clone + 'static,
         Fut: Future<Output = Result<ClusterSnapshot, KafkaError>> + Send + 'static,
     {
+        let clusters: Vec<String> = clusters.into_iter().map(Into::into).collect();
+        let kicks: HashMap<String, Arc<Notify>> = clusters
+            .iter()
+            .cloned()
+            .map(|cluster| (cluster, Arc::new(Notify::new())))
+            .collect();
         Self {
             tasks: Self::spawn_loop(
                 clusters,
@@ -331,7 +362,15 @@ impl CatalogPoller {
                 "catalog",
                 fetch,
                 move |cluster, snapshot| cache.store(cluster, snapshot),
+                &kicks,
             ),
+            kicks,
+        }
+    }
+
+    pub fn kick(&self, cluster: &str) {
+        if let Some(notify) = self.kicks.get(cluster) {
+            notify.notify_waiters();
         }
     }
 
@@ -341,6 +380,7 @@ impl CatalogPoller {
         lane: &'static str,
         fetch: F,
         persist: P,
+        kicks: &HashMap<String, Arc<Notify>>,
     ) -> Vec<JoinHandle<()>>
     where
         T: Send + 'static,
@@ -354,6 +394,10 @@ impl CatalogPoller {
             .map(|cluster| {
                 let fetch = fetch.clone();
                 let persist = persist.clone();
+                let kick = kicks
+                    .get(&cluster)
+                    .cloned()
+                    .unwrap_or_else(|| Arc::new(Notify::new()));
                 tokio::spawn(async move {
                     loop {
                         match fetch(cluster.clone()).await {
@@ -366,7 +410,7 @@ impl CatalogPoller {
                             }
                         }
 
-                        tokio::time::sleep(interval).await;
+                        wait_for_kick_or_interval(interval, &kick).await;
                     }
                 })
             })
@@ -379,6 +423,13 @@ fn empty_identity() -> ClusterIdentity {
         name: String::new(),
         bootstrap_servers: Vec::new(),
         security_protocol: SecurityProtocol::Plaintext,
+    }
+}
+
+async fn wait_for_kick_or_interval(interval: Duration, kick: &Notify) {
+    tokio::select! {
+        _ = tokio::time::sleep(interval) => {}
+        _ = kick.notified() => {}
     }
 }
 
@@ -478,6 +529,10 @@ mod tests {
         assert_eq!(other.topic("staging", "seeded").unwrap().name, "seeded");
         assert!(other.updated_at("staging").is_some());
         assert!(other.snapshot("missing").is_none());
+
+        cache.invalidate("local");
+        assert!(cache.snapshot("local").is_none());
+        cache.invalidate("missing");
     }
 
     #[test]
@@ -604,6 +659,52 @@ mod tests {
         tokio::time::advance(Duration::from_secs(1) + Duration::from_millis(1)).await;
         wait_until(|| polls.load(Ordering::SeqCst) >= 2).await;
         assert_eq!(polls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn kick_runs_a_poll_before_the_interval() {
+        let polls = Arc::new(AtomicUsize::new(0));
+        let cache = CatalogCache::new();
+        let counter = Arc::clone(&polls);
+        let poller =
+            CatalogPoller::start_with(cache, ["local"], Duration::from_secs(60), move |_| {
+                counter.fetch_add(1, Ordering::SeqCst);
+                async { Ok(ClusterSnapshot::from_topics(Vec::new())) }
+            });
+
+        wait_until(|| polls.load(Ordering::SeqCst) >= 1).await;
+        assert_eq!(polls.load(Ordering::SeqCst), 1);
+
+        poller.kick("local");
+        wait_until(|| polls.load(Ordering::SeqCst) >= 2).await;
+        assert_eq!(polls.load(Ordering::SeqCst), 2);
+        poller.kick("missing");
+    }
+
+    #[tokio::test]
+    async fn invalidate_then_kick_stores_the_catalog_again() {
+        let engine = Arc::new(QueryEngine::from_sessions(vec![FakeCluster::local()]));
+        let cache = CatalogCache::new();
+        let poller = CatalogPoller::start(
+            cache.clone(),
+            SubjectCache::new(),
+            engine,
+            RateStore::new(),
+            Duration::from_secs(60),
+            Duration::from_secs(60),
+            Duration::from_secs(60),
+        );
+
+        wait_until(|| cache.snapshot("local").is_some()).await;
+        let first = cache.snapshot("local").unwrap();
+        cache.invalidate("local");
+        assert!(cache.snapshot("local").is_none());
+
+        poller.kick("local");
+        wait_until(|| cache.snapshot("local").is_some()).await;
+        let second = cache.snapshot("local").unwrap();
+        assert!(!Arc::ptr_eq(&first, &second));
+        assert!(second.body_eq(&first));
     }
 
     #[tokio::test(start_paused = true)]
@@ -805,6 +906,9 @@ mod tests {
         assert!(other.seed("staging", vec![test_subject("seeded")]));
         assert_eq!(other.snapshot("staging").unwrap()[0].subject, "seeded");
         assert!(other.snapshot("missing").is_none());
+
+        cache.invalidate("local");
+        assert!(cache.snapshot("local").is_none());
     }
 
     #[tokio::test]
