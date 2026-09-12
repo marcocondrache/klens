@@ -330,7 +330,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                 {from || to
                   ? "Nothing in the selected time range."
                   : term
-                    ? "Nothing matched your search in the scanned offset window."
+                    ? "Nothing matched your search in the scanned offsets."
                     : "This topic has no records in the selected range."}
               </EmptyDescription>
             </EmptyHeader>
