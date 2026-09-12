@@ -215,24 +215,6 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
             .map(|mut configs| configs.remove(name).unwrap_or_default())
     }
 
-    pub async fn consumer_groups(
-        &self,
-        cluster: &str,
-        topic: Option<&str>,
-    ) -> Result<Vec<ConsumerGroup>, KafkaError> {
-        let session = self.session(cluster)?;
-        let mut snapshots = session.consumer_groups().await?;
-        if let Some(topic) = topic {
-            snapshots.retain(|group| group.consumes_topic(topic));
-        }
-        Self::hydrate_committed_offsets(session, &mut snapshots).await;
-        let ends = Self::end_offsets(session, &snapshots).await;
-        Ok(snapshots
-            .iter()
-            .map(|group| ConsumerGroup::assemble(group, &ends))
-            .collect())
-    }
-
     async fn hydrate_committed_offsets(session: &S, groups: &mut [GroupSnapshot]) {
         for chunk in groups.chunks_mut(*OFFSET_FETCH_BATCH) {
             let fetches = chunk.iter().enumerate().filter_map(|(offset, group)| {
@@ -771,48 +753,6 @@ mod tests {
         let engine = QueryEngine::from_sessions(vec![FakeCluster::local()]);
         let counts = engine.catalog("local").await.unwrap().message_counts();
         assert_eq!(counts.get("orders.created"), Some(&16));
-    }
-
-    #[tokio::test]
-    async fn consumer_groups_topic_filter_skips_unrelated_offset_fetches() {
-        let payments = GroupSnapshot {
-            id: "payments-processor".into(),
-            state: crate::kafka::group::GroupState::Stable,
-            protocol: "range".into(),
-            coordinator: 1,
-            members: vec![crate::kafka::group::GroupMember {
-                id: "m-pay".into(),
-                client_id: "payments".into(),
-                host: "127.0.0.1".into(),
-                assignments: vec![crate::kafka::group::MemberAssignment {
-                    topic: "payments.captured".into(),
-                    partitions: vec![0],
-                }],
-            }],
-            committed: Vec::new(),
-        };
-        let cluster = FakeCluster::local()
-            .extra_topic("payments.captured", 1, 4)
-            .extra_group(payments);
-        let probe = Probe::new(cluster, Duration::ZERO);
-        let engine = QueryEngine::from_sessions(vec![probe.clone()]);
-
-        let filtered = engine
-            .consumer_groups("local", Some("orders.created"))
-            .await
-            .unwrap();
-        assert_eq!(
-            filtered
-                .iter()
-                .map(|group| group.id.as_str())
-                .collect::<Vec<_>>(),
-            vec!["order-processor"]
-        );
-        assert_eq!(probe.committed.load(Ordering::SeqCst), 1);
-
-        let all = engine.consumer_groups("local", None).await.unwrap();
-        assert_eq!(all.len(), 2);
-        assert_eq!(probe.committed.load(Ordering::SeqCst), 3);
     }
 
     #[tokio::test]
