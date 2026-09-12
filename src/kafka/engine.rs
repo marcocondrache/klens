@@ -112,9 +112,9 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
         let mut groups = session.consumer_groups().await?;
         let metadata_hash = metadata_lane_hash(&meta, &groups);
         let watermark_names = catalog_watermark_names(&names, &groups);
-        let watermark_refs: Vec<&str> = watermark_names.iter().map(String::as_str).collect();
+        let watermark_partitions = meta.topic_partition_pairs(&watermark_names);
 
-        let watermarks_fut = session.watermarks_many(&watermark_refs);
+        let watermarks_fut = session.watermarks_many(&watermark_partitions);
         let hydrate = Self::hydrate_committed_offsets(session, &mut groups);
         let (configs, fetched_configs, watermarks) = if fetch_configs {
             let configs_fut = session.topics_configs(&names);
@@ -254,9 +254,7 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
     }
 
     async fn end_offsets(session: &S, groups: &[GroupSnapshot]) -> HashMap<(String, i32), i64> {
-        let names = GroupSnapshot::consumed_topic_names(groups);
-        let topics: Vec<&str> = names.iter().map(String::as_str).collect();
-        ends_from_watermarks(&session.watermarks_many(&topics).await)
+        ends_from_watermarks(&session.watermarks_many(&group_end_partitions(groups)).await)
     }
 
     pub async fn records(
@@ -325,8 +323,15 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
         query: &RecordQuery,
         partitions: &[i32],
     ) -> Result<HashMap<i32, Watermarks>, KafkaError> {
-        let mut watermarks = session.watermarks(&query.topic).await?;
-        watermarks.retain(|partition, _| partitions.contains(partition));
+        let pairs: Vec<(String, i32)> = partitions
+            .iter()
+            .map(|partition| (query.topic.clone(), *partition))
+            .collect();
+        let mut watermarks = session
+            .watermarks_many(&pairs)
+            .await
+            .remove(&query.topic)
+            .unwrap_or_default();
 
         let start = query.timestamps.start_seek();
         let end = query.timestamps.end_seek();
@@ -390,6 +395,22 @@ fn metadata_lane_hash(meta: &MetadataSnapshot, groups: &[GroupSnapshot]) -> u64 
         }
     }
     hasher.finish()
+}
+
+fn group_end_partitions(groups: &[GroupSnapshot]) -> Vec<(String, i32)> {
+    let mut partitions = Vec::new();
+    for group in groups {
+        partitions.extend(group.assigned_partitions());
+        partitions.extend(
+            group
+                .committed
+                .iter()
+                .map(|offset| (offset.topic.clone(), offset.partition)),
+        );
+    }
+    partitions.sort();
+    partitions.dedup();
+    partitions
 }
 
 fn catalog_watermark_names(topic_names: &[&str], groups: &[GroupSnapshot]) -> Vec<String> {

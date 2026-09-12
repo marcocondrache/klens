@@ -1,13 +1,18 @@
 use super::*;
 use std::ops::Bound;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+use async_trait::async_trait;
 
 use crate::config::{ClusterConfig, Config};
 use crate::kafka::error::KafkaError;
+use crate::kafka::group::GroupSnapshot;
 use crate::kafka::model::{
-    ConfigEntry, Record, RecordOrder, RecordQuery, TimestampRange, unix_datetime,
+    ClusterIdentity, CommittedOffset, ConfigEntry, FetchPlan, MetadataSnapshot, Record,
+    RecordOrder, RecordQuery, TimestampRange, Watermarks, unix_datetime,
 };
+use crate::kafka::session::ClusterSession;
 use crate::kafka::testing::{CountingSession, FakeCluster};
 
 fn cluster_config(name: &str) -> ClusterConfig {
@@ -514,4 +519,180 @@ async fn records_reject_timestamp_from_after_to() {
 
     let error = engine.records("local", query).await.unwrap_err();
     assert!(error.to_string().contains("timestampFrom"));
+}
+
+#[derive(Clone)]
+struct SharedFake {
+    identity: ClusterIdentity,
+    inner: Arc<Mutex<FakeCluster>>,
+}
+
+impl SharedFake {
+    fn new(inner: FakeCluster) -> Self {
+        Self {
+            identity: inner.identity().clone(),
+            inner: Arc::new(Mutex::new(inner)),
+        }
+    }
+
+    fn snapshot(&self) -> FakeCluster {
+        self.inner.lock().expect("fake cluster").clone()
+    }
+
+    fn add_partition(&self, topic: &str, id: i32, watermarks: Watermarks) {
+        self.inner
+            .lock()
+            .expect("fake cluster")
+            .add_partition(topic, id, watermarks);
+    }
+
+    fn drop_partition(&self, topic: &str, id: i32) {
+        self.inner
+            .lock()
+            .expect("fake cluster")
+            .drop_partition(topic, id);
+    }
+}
+
+#[async_trait]
+impl ClusterSession for SharedFake {
+    fn identity(&self) -> &ClusterIdentity {
+        &self.identity
+    }
+
+    async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError> {
+        self.snapshot().metadata().await
+    }
+
+    async fn watermarks(&self, topic: &str) -> Result<HashMap<i32, Watermarks>, KafkaError> {
+        self.snapshot().watermarks(topic).await
+    }
+
+    async fn offsets_for_times(
+        &self,
+        topic: &str,
+        partitions: &[i32],
+        timestamp: i64,
+    ) -> Result<HashMap<i32, Option<i64>>, KafkaError> {
+        self.snapshot()
+            .offsets_for_times(topic, partitions, timestamp)
+            .await
+    }
+
+    async fn topics_configs(
+        &self,
+        topics: &[&str],
+    ) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError> {
+        self.snapshot().topics_configs(topics).await
+    }
+
+    async fn broker_configs(&self, broker_id: i32) -> Result<Vec<ConfigEntry>, KafkaError> {
+        self.snapshot().broker_configs(broker_id).await
+    }
+
+    async fn consumer_groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
+        self.snapshot().consumer_groups().await
+    }
+
+    async fn committed_offsets(
+        &self,
+        group_id: &str,
+        partitions: &[(String, i32)],
+    ) -> Result<Vec<CommittedOffset>, KafkaError> {
+        self.snapshot()
+            .committed_offsets(group_id, partitions)
+            .await
+    }
+
+    async fn records(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError> {
+        self.snapshot().records(plan).await
+    }
+}
+
+#[tokio::test]
+async fn watermarks_many_sees_topology_change_without_a_ttl() {
+    let mut cluster = FakeCluster::local();
+    let first_meta = cluster.metadata().await.unwrap();
+    let first = cluster
+        .watermarks_many(&first_meta.topic_partition_pairs(&["orders.created"]))
+        .await;
+    assert_eq!(
+        first.get("orders.created"),
+        Some(&HashMap::from([
+            (0, Watermarks { low: 0, high: 8 }),
+            (1, Watermarks { low: 0, high: 8 }),
+        ]))
+    );
+
+    cluster.add_partition("orders.created", 2, Watermarks { low: 1, high: 4 });
+    cluster.drop_partition("orders.created", 1);
+
+    let second_meta = cluster.metadata().await.unwrap();
+    let second = cluster
+        .watermarks_many(&second_meta.topic_partition_pairs(&["orders.created"]))
+        .await;
+    assert_eq!(
+        second.get("orders.created"),
+        Some(&HashMap::from([
+            (0, Watermarks { low: 0, high: 8 }),
+            (2, Watermarks { low: 1, high: 4 }),
+        ]))
+    );
+}
+
+#[tokio::test]
+async fn assemble_catalog_picks_up_partition_churn() {
+    let cluster = SharedFake::new(FakeCluster::local());
+    let engine = QueryEngine::from_sessions(vec![cluster.clone()]);
+
+    let first = engine.catalog("local").await.unwrap();
+    assert_eq!(
+        first.topics[0]
+            .partitions
+            .iter()
+            .map(|partition| (
+                partition.id,
+                partition.low_watermark,
+                partition.high_watermark
+            ))
+            .collect::<Vec<_>>(),
+        vec![(0, 0, 8), (1, 0, 8)]
+    );
+
+    cluster.add_partition("orders.created", 2, Watermarks { low: 1, high: 4 });
+    cluster.drop_partition("orders.created", 1);
+
+    let second = engine.catalog("local").await.unwrap();
+    assert_eq!(
+        second.topics[0]
+            .partitions
+            .iter()
+            .map(|partition| (
+                partition.id,
+                partition.low_watermark,
+                partition.high_watermark
+            ))
+            .collect::<Vec<_>>(),
+        vec![(0, 0, 8), (2, 1, 4)]
+    );
+}
+
+#[tokio::test]
+async fn watermarks_many_does_not_fetch_metadata() {
+    let session = CountingSession::new(FakeCluster::local());
+    let meta = session.metadata().await.unwrap();
+    assert_eq!(session.calls.metadata(), 1);
+
+    let marks = session
+        .watermarks_many(&meta.topic_partition_pairs(&["orders.created"]))
+        .await;
+
+    assert_eq!(session.calls.metadata(), 1);
+    assert_eq!(
+        marks.get("orders.created"),
+        Some(&HashMap::from([
+            (0, Watermarks { low: 0, high: 8 }),
+            (1, Watermarks { low: 0, high: 8 }),
+        ]))
+    );
 }

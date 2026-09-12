@@ -23,21 +23,39 @@ pub trait ClusterSession: Send + Sync + 'static {
     async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError>;
 
     async fn watermarks(&self, topic: &str) -> Result<HashMap<i32, Watermarks>, KafkaError> {
+        let partitions = self.metadata().await?.topic_partition_pairs(&[topic]);
         Ok(self
-            .watermarks_many(&[topic])
+            .watermarks_many(&partitions)
             .await
             .remove(topic)
             .unwrap_or_default())
     }
 
-    /// Low/high watermarks for many topics in one sweep.
+    /// Low and high watermarks for the given partitions in one sweep.
     ///
-    /// The default joins per-topic [`watermarks`](Self::watermarks) calls.
-    /// Live clusters override this with batched `ListOffsets`.
-    async fn watermarks_many(&self, topics: &[&str]) -> HashMap<String, HashMap<i32, Watermarks>> {
+    /// The caller supplies partitions from a metadata snapshot it already
+    /// has. This method does not refetch cluster metadata.
+    ///
+    /// The default groups those partitions by topic and calls
+    /// [`watermarks`](Self::watermarks). Live clusters override this with
+    /// batched `ListOffsets`.
+    async fn watermarks_many(
+        &self,
+        partitions: &[(String, i32)],
+    ) -> HashMap<String, HashMap<i32, Watermarks>> {
+        let mut topics: Vec<String> = partitions.iter().map(|(topic, _)| topic.clone()).collect();
+        topics.sort();
+        topics.dedup();
         join_all(topics.iter().map(|name| async move {
-            let watermarks = self.watermarks(name).await.unwrap_or_default();
-            ((*name).to_owned(), watermarks)
+            let marks = self.watermarks(name).await.unwrap_or_default();
+            let wanted: HashMap<i32, Watermarks> = partitions
+                .iter()
+                .filter(|(topic, _)| topic == name)
+                .filter_map(|(_, partition)| {
+                    marks.get(partition).copied().map(|mark| (*partition, mark))
+                })
+                .collect();
+            (name.clone(), wanted)
         }))
         .await
         .into_iter()
