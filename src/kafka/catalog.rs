@@ -105,9 +105,30 @@ impl ClusterSnapshot {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PollLane {
+    pub updated_at: Option<DateTime<Utc>>,
+    pub last_error: Option<String>,
+    pub last_poll_duration_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CatalogHealth {
+    pub cluster: String,
+    pub updated_at: Option<DateTime<Utc>>,
+    pub subjects_updated_at: Option<DateTime<Utc>>,
+    pub last_error: Option<String>,
+    pub last_poll_duration_ms: Option<u64>,
+    pub topic_count: i32,
+    pub group_count: i32,
+    pub broker_count: i32,
+    pub subject_count: i32,
+}
+
 #[derive(Clone, Default)]
 pub struct CatalogCache {
     inner: Arc<RwLock<HashMap<String, Arc<ClusterSnapshot>>>>,
+    polls: Arc<RwLock<HashMap<String, PollLane>>>,
 }
 
 impl CatalogCache {
@@ -166,11 +187,28 @@ impl CatalogCache {
             .expect("catalog cache lock")
             .remove(cluster);
     }
+
+    pub fn record_poll(&self, cluster: &str, duration: Duration, error: Option<String>) {
+        record_poll_lane(&self.polls, "catalog cache lock", cluster, duration, error);
+    }
+
+    pub fn poll_lane(&self, cluster: &str) -> PollLane {
+        let mut lane = self
+            .polls
+            .read()
+            .expect("catalog cache lock")
+            .get(cluster)
+            .cloned()
+            .unwrap_or_default();
+        lane.updated_at = self.updated_at(cluster);
+        lane
+    }
 }
 
 #[derive(Clone, Default)]
 pub struct SubjectCache {
     inner: Arc<RwLock<HashMap<String, Arc<Vec<SchemaSubject>>>>>,
+    polls: Arc<RwLock<HashMap<String, PollLane>>>,
 }
 
 impl SubjectCache {
@@ -187,10 +225,12 @@ impl SubjectCache {
     }
 
     pub fn store(&self, cluster: impl Into<String>, subjects: impl Into<Arc<Vec<SchemaSubject>>>) {
+        let cluster = cluster.into();
         self.inner
             .write()
             .expect("subject cache lock")
-            .insert(cluster.into(), subjects.into());
+            .insert(cluster.clone(), subjects.into());
+        touch_updated_at(&self.polls, "subject cache lock", &cluster);
     }
 
     pub fn seed(
@@ -203,7 +243,9 @@ impl SubjectCache {
         if inner.contains_key(&cluster) {
             return false;
         }
-        inner.insert(cluster, subjects.into());
+        inner.insert(cluster.clone(), subjects.into());
+        drop(inner);
+        touch_updated_at(&self.polls, "subject cache lock", &cluster);
         true
     }
 
@@ -212,6 +254,19 @@ impl SubjectCache {
             .write()
             .expect("subject cache lock")
             .remove(cluster);
+    }
+
+    pub fn record_poll(&self, cluster: &str, duration: Duration, error: Option<String>) {
+        record_poll_lane(&self.polls, "subject cache lock", cluster, duration, error);
+    }
+
+    pub fn poll_lane(&self, cluster: &str) -> PollLane {
+        self.polls
+            .read()
+            .expect("subject cache lock")
+            .get(cluster)
+            .cloned()
+            .unwrap_or_default()
     }
 }
 
@@ -289,6 +344,7 @@ impl CatalogPoller {
                                     .saturating_duration_since(fetched_at)
                                     >= config_interval
                             });
+                        let started = tokio::time::Instant::now();
                         match engine
                             .catalog_from(&cluster, Some(&reuse), fetch_configs)
                             .await
@@ -310,8 +366,14 @@ impl CatalogPoller {
                                     reuse.snapshot = Some(snapshot);
                                     tracing::debug!(cluster = %cluster, lane = "catalog", "poll updated");
                                 }
+                                cache.record_poll(&cluster, started.elapsed(), None);
                             }
                             Err(error) => {
+                                cache.record_poll(
+                                    &cluster,
+                                    started.elapsed(),
+                                    Some(error.to_string()),
+                                );
                                 tracing::warn!(cluster = %cluster, lane = "catalog", %error, "poll failed");
                             }
                         }
@@ -321,13 +383,24 @@ impl CatalogPoller {
                 })
             })
             .collect();
+        let subject_record = subjects.clone();
         let subject_tasks = Self::spawn_loop(
             clusters,
             subject_interval,
             "subjects",
             move |cluster| {
                 let engine = Arc::clone(&engine);
-                async move { engine.schema_subjects(&cluster).await }
+                let subjects = subject_record.clone();
+                async move {
+                    let started = tokio::time::Instant::now();
+                    let result = engine.schema_subjects(&cluster).await;
+                    subjects.record_poll(
+                        &cluster,
+                        started.elapsed(),
+                        result.as_ref().err().map(ToString::to_string),
+                    );
+                    result
+                }
             },
             move |cluster, list| subjects.store(cluster, list),
             None,
@@ -355,12 +428,26 @@ impl CatalogPoller {
             .cloned()
             .map(|cluster| (cluster, Arc::new(Notify::new())))
             .collect();
+        let record = cache.clone();
         Self {
             tasks: Self::spawn_loop(
                 clusters,
                 interval,
                 "catalog",
-                fetch,
+                move |cluster| {
+                    let fetch = fetch.clone();
+                    let record = record.clone();
+                    async move {
+                        let started = tokio::time::Instant::now();
+                        let result = fetch(cluster.clone()).await;
+                        record.record_poll(
+                            &cluster,
+                            started.elapsed(),
+                            result.as_ref().err().map(ToString::to_string),
+                        );
+                        result
+                    }
+                },
                 move |cluster, snapshot| cache.store(cluster, snapshot),
                 Some(&kicks),
             ),
@@ -424,6 +511,32 @@ fn empty_identity() -> ClusterIdentity {
         bootstrap_servers: Vec::new(),
         security_protocol: SecurityProtocol::Plaintext,
     }
+}
+
+fn record_poll_lane(
+    polls: &Arc<RwLock<HashMap<String, PollLane>>>,
+    lock: &'static str,
+    cluster: &str,
+    duration: Duration,
+    error: Option<String>,
+) {
+    let mut polls = polls.write().expect(lock);
+    let lane = polls.entry(cluster.to_owned()).or_default();
+    lane.last_poll_duration_ms = Some(duration.as_millis() as u64);
+    lane.last_error = error;
+}
+
+fn touch_updated_at(
+    polls: &Arc<RwLock<HashMap<String, PollLane>>>,
+    lock: &'static str,
+    cluster: &str,
+) {
+    polls
+        .write()
+        .expect(lock)
+        .entry(cluster.to_owned())
+        .or_default()
+        .updated_at = Some(wall_clock());
 }
 
 async fn wait_for_kick_or_interval(interval: Duration, kick: &Notify) {
@@ -533,6 +646,17 @@ mod tests {
         cache.invalidate("local");
         assert!(cache.snapshot("local").is_none());
         cache.invalidate("missing");
+    }
+
+    #[test]
+    fn record_poll_keeps_last_error_until_a_success() {
+        let cache = CatalogCache::new();
+        cache.record_poll("local", Duration::from_millis(9), Some("down".into()));
+        assert_eq!(cache.poll_lane("local").last_error.as_deref(), Some("down"));
+        assert_eq!(cache.poll_lane("local").last_poll_duration_ms, Some(9));
+        cache.record_poll("local", Duration::from_millis(4), None);
+        assert_eq!(cache.poll_lane("local").last_error, None);
+        assert_eq!(cache.poll_lane("local").last_poll_duration_ms, Some(4));
     }
 
     #[test]
@@ -935,6 +1059,7 @@ mod tests {
 
         cache.invalidate("local");
         assert!(cache.snapshot("local").is_none());
+        assert!(cache.poll_lane("local").updated_at.is_some());
     }
 
     #[tokio::test]

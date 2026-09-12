@@ -881,6 +881,8 @@ mod tests {
         assert!(sdl.contains("schemaId: Int"));
         assert!(sdl.contains("type ClusterCatalog"));
         assert!(sdl.contains("clusterCatalog(cluster: String!): ClusterCatalog!"));
+        assert!(sdl.contains("type CatalogHealth"));
+        assert!(sdl.contains("catalogHealth(cluster: String!): CatalogHealth!"));
     }
 
     #[tokio::test]
@@ -935,6 +937,77 @@ mod tests {
                 "clusterCatalog": { "topics": [{ "name": "from-cache" }] }
             })
         );
+    }
+
+    #[tokio::test]
+    async fn catalog_health_reads_cached_counts_and_poll_error() {
+        let state = state();
+        state.catalog.store(
+            "local",
+            crate::kafka::ClusterSnapshot::from_topics(vec![crate::kafka::Topic {
+                name: "from-cache".into(),
+                internal: false,
+                partitions: Vec::new(),
+                replication_factor: 1,
+                message_count: 3,
+                cleanup_policy: crate::kafka::model::CleanupPolicy::Delete,
+                retention_ms: 0,
+                consumer_groups: Vec::new(),
+                under_replicated: false,
+            }]),
+        );
+        state
+            .subjects
+            .store("local", vec![cached_subject("kept-value")]);
+        state.catalog.record_poll(
+            "local",
+            std::time::Duration::from_millis(18),
+            Some("broker down".into()),
+        );
+
+        let schema = schema();
+        let (value, errors) = execute(
+            r#"{
+                catalogHealth(cluster: "local") {
+                    cluster
+                    lastError
+                    lastPollDurationMs
+                    topicCount
+                    subjectCount
+                }
+            }"#,
+            None,
+            &schema,
+            &Variables::new(),
+            &state,
+        )
+        .await
+        .unwrap();
+
+        assert!(errors.is_empty());
+        assert_eq!(
+            serde_json::to_value(value).unwrap(),
+            serde_json::json!({
+                "catalogHealth": {
+                    "cluster": "local",
+                    "lastError": "broker down",
+                    "lastPollDurationMs": 18.0,
+                    "topicCount": 1,
+                    "subjectCount": 1
+                }
+            })
+        );
+
+        let (_, missing) = execute(
+            r#"{ catalogHealth(cluster: "ghost") { cluster } }"#,
+            None,
+            &schema,
+            &Variables::new(),
+            &state,
+        )
+        .await
+        .unwrap();
+        assert!(!missing.is_empty());
     }
 
     #[tokio::test]

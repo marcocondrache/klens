@@ -8,6 +8,7 @@ import {
   brokerConfigsQuery,
   brokerQuery,
   brokersQuery,
+  catalogHealthQuery,
   clusterQuery,
   clustersQuery,
   clusterThroughputQuery,
@@ -61,6 +62,7 @@ export const keys = {
   groupLagHistory: (cluster: string, group: string) =>
     ["cluster", cluster, "groups", group, "lag"] as const,
   subjects: (cluster: string) => ["cluster", cluster, "subjects"] as const,
+  catalogHealth: (cluster: string) => ["cluster", cluster, "catalogHealth"] as const,
   search: (cluster: string, term: string) => ["cluster", cluster, "search", term] as const,
 };
 
@@ -111,6 +113,16 @@ export function useClusterThroughput(cluster: string) {
     queryFn: async () => {
       const { clusterThroughput } = await execute(clusterThroughputQuery, { cluster });
       return clusterThroughput;
+    },
+  });
+}
+
+export function useCatalogHealth(cluster: string) {
+  return useQuery({
+    queryKey: keys.catalogHealth(cluster),
+    queryFn: async () => {
+      const { catalogHealth } = await execute(catalogHealthQuery, { cluster });
+      return catalogHealth;
     },
   });
 }

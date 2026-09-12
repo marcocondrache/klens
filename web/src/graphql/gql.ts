@@ -31,6 +31,7 @@ type Documents = {
   "\n  fragment SearchResultFields on SearchResult {\n    kind\n    id\n    label\n    detail\n  }\n": typeof types.SearchResultFieldsFragmentDoc;
   "\n  query Clusters {\n    clusters {\n      ...ClusterFields\n    }\n  }\n": typeof types.ClustersDocument;
   "\n  query Cluster($name: String!) {\n    cluster(name: $name) {\n      ...ClusterFields\n    }\n  }\n": typeof types.ClusterDocument;
+  "\n  query CatalogHealth($cluster: String!) {\n    catalogHealth(cluster: $cluster) {\n      updatedAt\n      subjectsUpdatedAt\n      lastError\n      lastPollDurationMs\n      topicCount\n      groupCount\n      brokerCount\n      subjectCount\n    }\n  }\n": typeof types.CatalogHealthDocument;
   "\n  query Brokers($cluster: String!) {\n    brokers(cluster: $cluster) {\n      ...BrokerFields\n    }\n  }\n": typeof types.BrokersDocument;
   "\n  query Broker($cluster: String!, $id: Int!) {\n    broker(cluster: $cluster, id: $id) {\n      ...BrokerFields\n    }\n  }\n": typeof types.BrokerDocument;
   "\n  query BrokerConfigs($cluster: String!, $id: Int!) {\n    brokerConfigs(cluster: $cluster, id: $id) {\n      ...ConfigEntryFields\n    }\n  }\n": typeof types.BrokerConfigsDocument;
@@ -86,6 +87,8 @@ const documents: Documents = {
     types.ClustersDocument,
   "\n  query Cluster($name: String!) {\n    cluster(name: $name) {\n      ...ClusterFields\n    }\n  }\n":
     types.ClusterDocument,
+  "\n  query CatalogHealth($cluster: String!) {\n    catalogHealth(cluster: $cluster) {\n      updatedAt\n      subjectsUpdatedAt\n      lastError\n      lastPollDurationMs\n      topicCount\n      groupCount\n      brokerCount\n      subjectCount\n    }\n  }\n":
+    types.CatalogHealthDocument,
   "\n  query Brokers($cluster: String!) {\n    brokers(cluster: $cluster) {\n      ...BrokerFields\n    }\n  }\n":
     types.BrokersDocument,
   "\n  query Broker($cluster: String!, $id: Int!) {\n    broker(cluster: $cluster, id: $id) {\n      ...BrokerFields\n    }\n  }\n":
@@ -230,6 +233,12 @@ export function graphql(
 export function graphql(
   source: "\n  query Cluster($name: String!) {\n    cluster(name: $name) {\n      ...ClusterFields\n    }\n  }\n",
 ): typeof import("./graphql").ClusterDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(
+  source: "\n  query CatalogHealth($cluster: String!) {\n    catalogHealth(cluster: $cluster) {\n      updatedAt\n      subjectsUpdatedAt\n      lastError\n      lastPollDurationMs\n      topicCount\n      groupCount\n      brokerCount\n      subjectCount\n    }\n  }\n",
+): typeof import("./graphql").CatalogHealthDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */

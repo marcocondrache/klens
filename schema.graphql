@@ -112,6 +112,18 @@ type Broker {
   bytesOutPerSec: Float!
 }
 
+type CatalogHealth {
+  cluster: String!
+  updatedAt: DateTime
+  subjectsUpdatedAt: DateTime
+  lastError: String
+  lastPollDurationMs: Float
+  topicCount: Int!
+  groupCount: Int!
+  brokerCount: Int!
+  subjectCount: Int!
+}
+
 type Cluster {
   name: String!
   label: String!
@@ -197,6 +209,7 @@ type Query {
   brokerConfigs(cluster: String!, id: Int!): [ConfigEntry!]!
   topics(cluster: String!): [Topic!]!
   clusterCatalog(cluster: String!): ClusterCatalog!
+  catalogHealth(cluster: String!): CatalogHealth!
   topic(cluster: String!, name: String!): Topic
   topicConfigs(cluster: String!, name: String!): [ConfigEntry!]!
   consumerGroups(cluster: String!, topic: String): [ConsumerGroup!]!

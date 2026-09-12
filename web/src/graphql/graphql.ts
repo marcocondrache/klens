@@ -272,6 +272,23 @@ export type ClusterQuery = {
   } | null;
 };
 
+export type CatalogHealthQueryVariables = Exact<{
+  cluster: string;
+}>;
+
+export type CatalogHealthQuery = {
+  catalogHealth: {
+    updatedAt: string | null;
+    subjectsUpdatedAt: string | null;
+    lastError: string | null;
+    lastPollDurationMs: number | null;
+    topicCount: number;
+    groupCount: number;
+    brokerCount: number;
+    subjectCount: number;
+  };
+};
+
 export type BrokersQueryVariables = Exact<{
   cluster: string;
 }>;
@@ -951,6 +968,20 @@ export const ClusterDocument = new TypedDocumentString(`
   bytesInPerSec
   bytesOutPerSec
 }`) as unknown as TypedDocumentString<ClusterQuery, ClusterQueryVariables>;
+export const CatalogHealthDocument = new TypedDocumentString(`
+    query CatalogHealth($cluster: String!) {
+  catalogHealth(cluster: $cluster) {
+    updatedAt
+    subjectsUpdatedAt
+    lastError
+    lastPollDurationMs
+    topicCount
+    groupCount
+    brokerCount
+    subjectCount
+  }
+}
+    `) as unknown as TypedDocumentString<CatalogHealthQuery, CatalogHealthQueryVariables>;
 export const BrokersDocument = new TypedDocumentString(`
     query Brokers($cluster: String!) {
   brokers(cluster: $cluster) {

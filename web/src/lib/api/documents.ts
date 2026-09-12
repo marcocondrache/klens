@@ -213,6 +213,21 @@ export const clusterQuery = graphql(`
   }
 `);
 
+export const catalogHealthQuery = graphql(`
+  query CatalogHealth($cluster: String!) {
+    catalogHealth(cluster: $cluster) {
+      updatedAt
+      subjectsUpdatedAt
+      lastError
+      lastPollDurationMs
+      topicCount
+      groupCount
+      brokerCount
+      subjectCount
+    }
+  }
+`);
+
 export const brokersQuery = graphql(`
   query Brokers($cluster: String!) {
     brokers(cluster: $cluster) {
