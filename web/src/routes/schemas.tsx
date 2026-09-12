@@ -14,6 +14,7 @@ import { JsonBlock } from "@/components/json-block";
 import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
+import { useNow } from "@/hooks/use-now";
 import { useCatalogHealth, useSchemaSubjects } from "@/lib/api/queries";
 import { useClusterName } from "@/lib/clusters";
 import { formatRelative } from "@/lib/format";
@@ -65,6 +66,7 @@ export function SchemasPage() {
   const term = params.get("q") ?? "";
   const { data: subjects = [], isPending, isError, error } = useSchemaSubjects(cluster);
   const { data: health } = useCatalogHealth(cluster);
+  const now = useNow();
   const updatedAt = health?.subjectsUpdatedAt;
 
   const rows = useMemo(() => {
@@ -78,7 +80,7 @@ export function SchemasPage() {
       <PageHeader
         title="Schema registry"
         description={`${rows.length} subjects registered${
-          updatedAt ? ` · Updated ${formatRelative(updatedAt)}` : ""
+          updatedAt ? ` · Updated ${formatRelative(updatedAt, now)}` : ""
         }`}
       />
 

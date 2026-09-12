@@ -16,12 +16,14 @@ type Documents = {
   "\n  fragment ClusterFields on Cluster {\n    name\n    label\n    clusterId\n    bootstrapServers\n    securityProtocol\n    version\n    status\n    brokerCount\n    topicCount\n    partitionCount\n    consumerGroupCount\n    underReplicatedPartitions\n    offlinePartitions\n    messageCount\n    sizeBytes\n    bytesInPerSec\n    bytesOutPerSec\n  }\n": typeof types.ClusterFieldsFragmentDoc;
   "\n  fragment BrokerFields on Broker {\n    id\n    host\n    port\n    rack\n    controller\n    partitionCount\n    leaderCount\n    logDirSizeBytes\n    bytesInPerSec\n    bytesOutPerSec\n  }\n": typeof types.BrokerFieldsFragmentDoc;
   "\n  fragment PartitionFields on Partition {\n    id\n    leader\n    replicas\n    isr\n    lowWatermark\n    highWatermark\n    sizeBytes\n  }\n": typeof types.PartitionFieldsFragmentDoc;
-  "\n  fragment TopicFields on Topic {\n    name\n    internal\n    partitions {\n      ...PartitionFields\n    }\n    replicationFactor\n    messageCount\n    sizeBytes\n    cleanupPolicy\n    retentionMs\n    consumerGroups\n    bytesInPerSec\n    messagesPerSec\n    underReplicated\n  }\n": typeof types.TopicFieldsFragmentDoc;
+  "\n  fragment TopicFields on Topic {\n    name\n    internal\n    partitions {\n      ...PartitionFields\n    }\n    partitionCount\n    replicationFactor\n    messageCount\n    sizeBytes\n    cleanupPolicy\n    retentionMs\n    consumerGroups\n    bytesInPerSec\n    messagesPerSec\n    underReplicated\n  }\n": typeof types.TopicFieldsFragmentDoc;
+  "\n  fragment TopicListFields on Topic {\n    name\n    internal\n    partitionCount\n    replicationFactor\n    messageCount\n    sizeBytes\n    cleanupPolicy\n    retentionMs\n    consumerGroups\n    bytesInPerSec\n    messagesPerSec\n    underReplicated\n  }\n": typeof types.TopicListFieldsFragmentDoc;
   "\n  fragment ConfigEntryFields on ConfigEntry {\n    name\n    value\n    source\n    readOnly\n    sensitive\n    documentation\n  }\n": typeof types.ConfigEntryFieldsFragmentDoc;
   "\n  fragment MemberAssignmentFields on MemberAssignment {\n    topic\n    partitions\n  }\n": typeof types.MemberAssignmentFieldsFragmentDoc;
   "\n  fragment ConsumerGroupMemberFields on ConsumerGroupMember {\n    id\n    clientId\n    host\n    assignments {\n      ...MemberAssignmentFields\n    }\n  }\n": typeof types.ConsumerGroupMemberFieldsFragmentDoc;
   "\n  fragment GroupOffsetFields on GroupOffset {\n    topic\n    partition\n    currentOffset\n    endOffset\n    lag\n    memberId\n  }\n": typeof types.GroupOffsetFieldsFragmentDoc;
-  "\n  fragment ConsumerGroupFields on ConsumerGroup {\n    id\n    state\n    protocol\n    coordinator\n    members {\n      ...ConsumerGroupMemberFields\n    }\n    topics\n    lag\n    offsets {\n      ...GroupOffsetFields\n    }\n  }\n": typeof types.ConsumerGroupFieldsFragmentDoc;
+  "\n  fragment ConsumerGroupFields on ConsumerGroup {\n    id\n    state\n    protocol\n    coordinator\n    members {\n      ...ConsumerGroupMemberFields\n    }\n    memberCount\n    topics\n    lag\n    offsets {\n      ...GroupOffsetFields\n    }\n    assignedPartitionCount\n  }\n": typeof types.ConsumerGroupFieldsFragmentDoc;
+  "\n  fragment GroupListFields on ConsumerGroup {\n    id\n    state\n    protocol\n    coordinator\n    memberCount\n    topics\n    lag\n    assignedPartitionCount\n  }\n": typeof types.GroupListFieldsFragmentDoc;
   "\n  fragment ThroughputPointFields on ThroughputPoint {\n    timestamp\n    bytesIn\n    bytesOut\n    messages\n  }\n": typeof types.ThroughputPointFieldsFragmentDoc;
   "\n  fragment TopicRateFields on TopicRate {\n    name\n    messagesPerSec\n    bytesInPerSec\n  }\n": typeof types.TopicRateFieldsFragmentDoc;
   "\n  fragment ConsumerGroupLagFields on ConsumerGroup {\n    id\n    lag\n    offsets {\n      ...GroupOffsetFields\n    }\n  }\n": typeof types.ConsumerGroupLagFieldsFragmentDoc;
@@ -35,11 +37,11 @@ type Documents = {
   "\n  query Brokers($cluster: String!) {\n    brokers(cluster: $cluster) {\n      ...BrokerFields\n    }\n  }\n": typeof types.BrokersDocument;
   "\n  query Broker($cluster: String!, $id: Int!) {\n    broker(cluster: $cluster, id: $id) {\n      ...BrokerFields\n    }\n  }\n": typeof types.BrokerDocument;
   "\n  query BrokerConfigs($cluster: String!, $id: Int!) {\n    brokerConfigs(cluster: $cluster, id: $id) {\n      ...ConfigEntryFields\n    }\n  }\n": typeof types.BrokerConfigsDocument;
-  "\n  query Topics($cluster: String!) {\n    clusterCatalog(cluster: $cluster) {\n      updatedAt\n      topics {\n        ...TopicFields\n      }\n    }\n  }\n": typeof types.TopicsDocument;
+  "\n  query Topics($cluster: String!) {\n    clusterCatalog(cluster: $cluster) {\n      updatedAt\n      topics {\n        ...TopicListFields\n      }\n    }\n  }\n": typeof types.TopicsDocument;
   "\n  query Topic($cluster: String!, $name: String!) {\n    topic(cluster: $cluster, name: $name) {\n      ...TopicFields\n    }\n  }\n": typeof types.TopicDocument;
   "\n  query TopicConfigs($cluster: String!, $name: String!) {\n    topicConfigs(cluster: $cluster, name: $name) {\n      ...ConfigEntryFields\n    }\n  }\n": typeof types.TopicConfigsDocument;
   "\n  query ConsumerGroups($cluster: String!, $topic: String) {\n    consumerGroups(cluster: $cluster, topic: $topic) {\n      ...ConsumerGroupFields\n    }\n  }\n": typeof types.ConsumerGroupsDocument;
-  "\n  query GroupsCatalog($cluster: String!) {\n    clusterCatalog(cluster: $cluster) {\n      updatedAt\n      consumerGroups {\n        ...ConsumerGroupFields\n      }\n    }\n  }\n": typeof types.GroupsCatalogDocument;
+  "\n  query GroupsCatalog($cluster: String!) {\n    clusterCatalog(cluster: $cluster) {\n      updatedAt\n      consumerGroups {\n        ...GroupListFields\n      }\n    }\n  }\n": typeof types.GroupsCatalogDocument;
   "\n  query ConsumerGroup($cluster: String!, $id: String!) {\n    consumerGroup(cluster: $cluster, id: $id) {\n      ...ConsumerGroupFields\n    }\n  }\n": typeof types.ConsumerGroupDocument;
   "\n  query ClusterThroughput($cluster: String!) {\n    clusterThroughput(cluster: $cluster) {\n      ...ThroughputPointFields\n    }\n  }\n": typeof types.ClusterThroughputDocument;
   "\n  query TopicThroughput($cluster: String!, $topic: String!) {\n    topicThroughput(cluster: $cluster, topic: $topic) {\n      ...ThroughputPointFields\n    }\n  }\n": typeof types.TopicThroughputDocument;
@@ -57,8 +59,10 @@ const documents: Documents = {
     types.BrokerFieldsFragmentDoc,
   "\n  fragment PartitionFields on Partition {\n    id\n    leader\n    replicas\n    isr\n    lowWatermark\n    highWatermark\n    sizeBytes\n  }\n":
     types.PartitionFieldsFragmentDoc,
-  "\n  fragment TopicFields on Topic {\n    name\n    internal\n    partitions {\n      ...PartitionFields\n    }\n    replicationFactor\n    messageCount\n    sizeBytes\n    cleanupPolicy\n    retentionMs\n    consumerGroups\n    bytesInPerSec\n    messagesPerSec\n    underReplicated\n  }\n":
+  "\n  fragment TopicFields on Topic {\n    name\n    internal\n    partitions {\n      ...PartitionFields\n    }\n    partitionCount\n    replicationFactor\n    messageCount\n    sizeBytes\n    cleanupPolicy\n    retentionMs\n    consumerGroups\n    bytesInPerSec\n    messagesPerSec\n    underReplicated\n  }\n":
     types.TopicFieldsFragmentDoc,
+  "\n  fragment TopicListFields on Topic {\n    name\n    internal\n    partitionCount\n    replicationFactor\n    messageCount\n    sizeBytes\n    cleanupPolicy\n    retentionMs\n    consumerGroups\n    bytesInPerSec\n    messagesPerSec\n    underReplicated\n  }\n":
+    types.TopicListFieldsFragmentDoc,
   "\n  fragment ConfigEntryFields on ConfigEntry {\n    name\n    value\n    source\n    readOnly\n    sensitive\n    documentation\n  }\n":
     types.ConfigEntryFieldsFragmentDoc,
   "\n  fragment MemberAssignmentFields on MemberAssignment {\n    topic\n    partitions\n  }\n":
@@ -67,8 +71,10 @@ const documents: Documents = {
     types.ConsumerGroupMemberFieldsFragmentDoc,
   "\n  fragment GroupOffsetFields on GroupOffset {\n    topic\n    partition\n    currentOffset\n    endOffset\n    lag\n    memberId\n  }\n":
     types.GroupOffsetFieldsFragmentDoc,
-  "\n  fragment ConsumerGroupFields on ConsumerGroup {\n    id\n    state\n    protocol\n    coordinator\n    members {\n      ...ConsumerGroupMemberFields\n    }\n    topics\n    lag\n    offsets {\n      ...GroupOffsetFields\n    }\n  }\n":
+  "\n  fragment ConsumerGroupFields on ConsumerGroup {\n    id\n    state\n    protocol\n    coordinator\n    members {\n      ...ConsumerGroupMemberFields\n    }\n    memberCount\n    topics\n    lag\n    offsets {\n      ...GroupOffsetFields\n    }\n    assignedPartitionCount\n  }\n":
     types.ConsumerGroupFieldsFragmentDoc,
+  "\n  fragment GroupListFields on ConsumerGroup {\n    id\n    state\n    protocol\n    coordinator\n    memberCount\n    topics\n    lag\n    assignedPartitionCount\n  }\n":
+    types.GroupListFieldsFragmentDoc,
   "\n  fragment ThroughputPointFields on ThroughputPoint {\n    timestamp\n    bytesIn\n    bytesOut\n    messages\n  }\n":
     types.ThroughputPointFieldsFragmentDoc,
   "\n  fragment TopicRateFields on TopicRate {\n    name\n    messagesPerSec\n    bytesInPerSec\n  }\n":
@@ -95,7 +101,7 @@ const documents: Documents = {
     types.BrokerDocument,
   "\n  query BrokerConfigs($cluster: String!, $id: Int!) {\n    brokerConfigs(cluster: $cluster, id: $id) {\n      ...ConfigEntryFields\n    }\n  }\n":
     types.BrokerConfigsDocument,
-  "\n  query Topics($cluster: String!) {\n    clusterCatalog(cluster: $cluster) {\n      updatedAt\n      topics {\n        ...TopicFields\n      }\n    }\n  }\n":
+  "\n  query Topics($cluster: String!) {\n    clusterCatalog(cluster: $cluster) {\n      updatedAt\n      topics {\n        ...TopicListFields\n      }\n    }\n  }\n":
     types.TopicsDocument,
   "\n  query Topic($cluster: String!, $name: String!) {\n    topic(cluster: $cluster, name: $name) {\n      ...TopicFields\n    }\n  }\n":
     types.TopicDocument,
@@ -103,7 +109,7 @@ const documents: Documents = {
     types.TopicConfigsDocument,
   "\n  query ConsumerGroups($cluster: String!, $topic: String) {\n    consumerGroups(cluster: $cluster, topic: $topic) {\n      ...ConsumerGroupFields\n    }\n  }\n":
     types.ConsumerGroupsDocument,
-  "\n  query GroupsCatalog($cluster: String!) {\n    clusterCatalog(cluster: $cluster) {\n      updatedAt\n      consumerGroups {\n        ...ConsumerGroupFields\n      }\n    }\n  }\n":
+  "\n  query GroupsCatalog($cluster: String!) {\n    clusterCatalog(cluster: $cluster) {\n      updatedAt\n      consumerGroups {\n        ...GroupListFields\n      }\n    }\n  }\n":
     types.GroupsCatalogDocument,
   "\n  query ConsumerGroup($cluster: String!, $id: String!) {\n    consumerGroup(cluster: $cluster, id: $id) {\n      ...ConsumerGroupFields\n    }\n  }\n":
     types.ConsumerGroupDocument,
@@ -147,8 +153,14 @@ export function graphql(
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(
-  source: "\n  fragment TopicFields on Topic {\n    name\n    internal\n    partitions {\n      ...PartitionFields\n    }\n    replicationFactor\n    messageCount\n    sizeBytes\n    cleanupPolicy\n    retentionMs\n    consumerGroups\n    bytesInPerSec\n    messagesPerSec\n    underReplicated\n  }\n",
+  source: "\n  fragment TopicFields on Topic {\n    name\n    internal\n    partitions {\n      ...PartitionFields\n    }\n    partitionCount\n    replicationFactor\n    messageCount\n    sizeBytes\n    cleanupPolicy\n    retentionMs\n    consumerGroups\n    bytesInPerSec\n    messagesPerSec\n    underReplicated\n  }\n",
 ): typeof import("./graphql").TopicFieldsFragmentDoc;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(
+  source: "\n  fragment TopicListFields on Topic {\n    name\n    internal\n    partitionCount\n    replicationFactor\n    messageCount\n    sizeBytes\n    cleanupPolicy\n    retentionMs\n    consumerGroups\n    bytesInPerSec\n    messagesPerSec\n    underReplicated\n  }\n",
+): typeof import("./graphql").TopicListFieldsFragmentDoc;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
@@ -177,8 +189,14 @@ export function graphql(
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(
-  source: "\n  fragment ConsumerGroupFields on ConsumerGroup {\n    id\n    state\n    protocol\n    coordinator\n    members {\n      ...ConsumerGroupMemberFields\n    }\n    topics\n    lag\n    offsets {\n      ...GroupOffsetFields\n    }\n  }\n",
+  source: "\n  fragment ConsumerGroupFields on ConsumerGroup {\n    id\n    state\n    protocol\n    coordinator\n    members {\n      ...ConsumerGroupMemberFields\n    }\n    memberCount\n    topics\n    lag\n    offsets {\n      ...GroupOffsetFields\n    }\n    assignedPartitionCount\n  }\n",
 ): typeof import("./graphql").ConsumerGroupFieldsFragmentDoc;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(
+  source: "\n  fragment GroupListFields on ConsumerGroup {\n    id\n    state\n    protocol\n    coordinator\n    memberCount\n    topics\n    lag\n    assignedPartitionCount\n  }\n",
+): typeof import("./graphql").GroupListFieldsFragmentDoc;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
@@ -261,7 +279,7 @@ export function graphql(
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(
-  source: "\n  query Topics($cluster: String!) {\n    clusterCatalog(cluster: $cluster) {\n      updatedAt\n      topics {\n        ...TopicFields\n      }\n    }\n  }\n",
+  source: "\n  query Topics($cluster: String!) {\n    clusterCatalog(cluster: $cluster) {\n      updatedAt\n      topics {\n        ...TopicListFields\n      }\n    }\n  }\n",
 ): typeof import("./graphql").TopicsDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
@@ -285,7 +303,7 @@ export function graphql(
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(
-  source: "\n  query GroupsCatalog($cluster: String!) {\n    clusterCatalog(cluster: $cluster) {\n      updatedAt\n      consumerGroups {\n        ...ConsumerGroupFields\n      }\n    }\n  }\n",
+  source: "\n  query GroupsCatalog($cluster: String!) {\n    clusterCatalog(cluster: $cluster) {\n      updatedAt\n      consumerGroups {\n        ...GroupListFields\n      }\n    }\n  }\n",
 ): typeof import("./graphql").GroupsCatalogDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.

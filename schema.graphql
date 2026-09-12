@@ -165,9 +165,11 @@ type ConsumerGroup {
   protocol: String!
   coordinator: Int!
   members: [ConsumerGroupMember!]!
+  memberCount: Int!
   topics: [String!]!
   lag: Float!
   offsets: [GroupOffset!]!
+  assignedPartitionCount: Int!
 }
 
 type ConsumerGroupMember {
@@ -266,6 +268,7 @@ type Topic {
   name: String!
   internal: Boolean!
   partitions: [Partition!]!
+  partitionCount: Int!
   replicationFactor: Int!
   messageCount: Float!
   sizeBytes: Float!

@@ -94,6 +94,7 @@ export type PartitionFieldsFragment = {
 export type TopicFieldsFragment = {
   name: string;
   internal: boolean;
+  partitionCount: number;
   replicationFactor: number;
   messageCount: number;
   sizeBytes: number;
@@ -112,6 +113,21 @@ export type TopicFieldsFragment = {
     highWatermark: number;
     sizeBytes: number;
   }>;
+};
+
+export type TopicListFieldsFragment = {
+  name: string;
+  internal: boolean;
+  partitionCount: number;
+  replicationFactor: number;
+  messageCount: number;
+  sizeBytes: number;
+  cleanupPolicy: CleanupPolicy;
+  retentionMs: number;
+  consumerGroups: Array<string>;
+  bytesInPerSec: number;
+  messagesPerSec: number;
+  underReplicated: boolean;
 };
 
 export type ConfigEntryFieldsFragment = {
@@ -146,8 +162,10 @@ export type ConsumerGroupFieldsFragment = {
   state: ConsumerGroupState;
   protocol: string;
   coordinator: number;
+  memberCount: number;
   topics: Array<string>;
   lag: number;
+  assignedPartitionCount: number;
   members: Array<{
     id: string;
     clientId: string;
@@ -162,6 +180,17 @@ export type ConsumerGroupFieldsFragment = {
     lag: number;
     memberId: string | null;
   }>;
+};
+
+export type GroupListFieldsFragment = {
+  id: string;
+  state: ConsumerGroupState;
+  protocol: string;
+  coordinator: number;
+  memberCount: number;
+  topics: Array<string>;
+  lag: number;
+  assignedPartitionCount: number;
 };
 
 export type ThroughputPointFieldsFragment = {
@@ -354,6 +383,7 @@ export type TopicsQuery = {
     topics: Array<{
       name: string;
       internal: boolean;
+      partitionCount: number;
       replicationFactor: number;
       messageCount: number;
       sizeBytes: number;
@@ -363,15 +393,6 @@ export type TopicsQuery = {
       bytesInPerSec: number;
       messagesPerSec: number;
       underReplicated: boolean;
-      partitions: Array<{
-        id: number;
-        leader: number;
-        replicas: Array<number>;
-        isr: Array<number>;
-        lowWatermark: number;
-        highWatermark: number;
-        sizeBytes: number;
-      }>;
     }>;
   };
 };
@@ -385,6 +406,7 @@ export type TopicQuery = {
   topic: {
     name: string;
     internal: boolean;
+    partitionCount: number;
     replicationFactor: number;
     messageCount: number;
     sizeBytes: number;
@@ -433,8 +455,10 @@ export type ConsumerGroupsQuery = {
     state: ConsumerGroupState;
     protocol: string;
     coordinator: number;
+    memberCount: number;
     topics: Array<string>;
     lag: number;
+    assignedPartitionCount: number;
     members: Array<{
       id: string;
       clientId: string;
@@ -464,22 +488,10 @@ export type GroupsCatalogQuery = {
       state: ConsumerGroupState;
       protocol: string;
       coordinator: number;
+      memberCount: number;
       topics: Array<string>;
       lag: number;
-      members: Array<{
-        id: string;
-        clientId: string;
-        host: string;
-        assignments: Array<{ topic: string; partitions: Array<number> }>;
-      }>;
-      offsets: Array<{
-        topic: string;
-        partition: number;
-        currentOffset: number;
-        endOffset: number;
-        lag: number;
-        memberId: string | null;
-      }>;
+      assignedPartitionCount: number;
     }>;
   };
 };
@@ -495,8 +507,10 @@ export type ConsumerGroupQuery = {
     state: ConsumerGroupState;
     protocol: string;
     coordinator: number;
+    memberCount: number;
     topics: Array<string>;
     lag: number;
+    assignedPartitionCount: number;
     members: Array<{
       id: string;
       clientId: string;
@@ -712,6 +726,7 @@ export const TopicFieldsFragmentDoc = new TypedDocumentString(
   partitions {
     ...PartitionFields
   }
+  partitionCount
   replicationFactor
   messageCount
   sizeBytes
@@ -733,6 +748,25 @@ export const TopicFieldsFragmentDoc = new TypedDocumentString(
 }`,
   { fragmentName: "TopicFields" },
 ) as unknown as TypedDocumentString<TopicFieldsFragment, unknown>;
+export const TopicListFieldsFragmentDoc = new TypedDocumentString(
+  `
+    fragment TopicListFields on Topic {
+  name
+  internal
+  partitionCount
+  replicationFactor
+  messageCount
+  sizeBytes
+  cleanupPolicy
+  retentionMs
+  consumerGroups
+  bytesInPerSec
+  messagesPerSec
+  underReplicated
+}
+    `,
+  { fragmentName: "TopicListFields" },
+) as unknown as TypedDocumentString<TopicListFieldsFragment, unknown>;
 export const ConfigEntryFieldsFragmentDoc = new TypedDocumentString(
   `
     fragment ConfigEntryFields on ConfigEntry {
@@ -794,11 +828,13 @@ export const ConsumerGroupFieldsFragmentDoc = new TypedDocumentString(
   members {
     ...ConsumerGroupMemberFields
   }
+  memberCount
   topics
   lag
   offsets {
     ...GroupOffsetFields
   }
+  assignedPartitionCount
 }
     fragment MemberAssignmentFields on MemberAssignment {
   topic
@@ -822,6 +858,21 @@ fragment GroupOffsetFields on GroupOffset {
 }`,
   { fragmentName: "ConsumerGroupFields" },
 ) as unknown as TypedDocumentString<ConsumerGroupFieldsFragment, unknown>;
+export const GroupListFieldsFragmentDoc = new TypedDocumentString(
+  `
+    fragment GroupListFields on ConsumerGroup {
+  id
+  state
+  protocol
+  coordinator
+  memberCount
+  topics
+  lag
+  assignedPartitionCount
+}
+    `,
+  { fragmentName: "GroupListFields" },
+) as unknown as TypedDocumentString<GroupListFieldsFragment, unknown>;
 export const ThroughputPointFieldsFragmentDoc = new TypedDocumentString(
   `
     fragment ThroughputPointFields on ThroughputPoint {
@@ -1037,25 +1088,14 @@ export const TopicsDocument = new TypedDocumentString(`
   clusterCatalog(cluster: $cluster) {
     updatedAt
     topics {
-      ...TopicFields
+      ...TopicListFields
     }
   }
 }
-    fragment PartitionFields on Partition {
-  id
-  leader
-  replicas
-  isr
-  lowWatermark
-  highWatermark
-  sizeBytes
-}
-fragment TopicFields on Topic {
+    fragment TopicListFields on Topic {
   name
   internal
-  partitions {
-    ...PartitionFields
-  }
+  partitionCount
   replicationFactor
   messageCount
   sizeBytes
@@ -1087,6 +1127,7 @@ fragment TopicFields on Topic {
   partitions {
     ...PartitionFields
   }
+  partitionCount
   replicationFactor
   messageCount
   sizeBytes
@@ -1145,54 +1186,32 @@ fragment ConsumerGroupFields on ConsumerGroup {
   members {
     ...ConsumerGroupMemberFields
   }
+  memberCount
   topics
   lag
   offsets {
     ...GroupOffsetFields
   }
+  assignedPartitionCount
 }`) as unknown as TypedDocumentString<ConsumerGroupsQuery, ConsumerGroupsQueryVariables>;
 export const GroupsCatalogDocument = new TypedDocumentString(`
     query GroupsCatalog($cluster: String!) {
   clusterCatalog(cluster: $cluster) {
     updatedAt
     consumerGroups {
-      ...ConsumerGroupFields
+      ...GroupListFields
     }
   }
 }
-    fragment MemberAssignmentFields on MemberAssignment {
-  topic
-  partitions
-}
-fragment ConsumerGroupMemberFields on ConsumerGroupMember {
-  id
-  clientId
-  host
-  assignments {
-    ...MemberAssignmentFields
-  }
-}
-fragment GroupOffsetFields on GroupOffset {
-  topic
-  partition
-  currentOffset
-  endOffset
-  lag
-  memberId
-}
-fragment ConsumerGroupFields on ConsumerGroup {
+    fragment GroupListFields on ConsumerGroup {
   id
   state
   protocol
   coordinator
-  members {
-    ...ConsumerGroupMemberFields
-  }
+  memberCount
   topics
   lag
-  offsets {
-    ...GroupOffsetFields
-  }
+  assignedPartitionCount
 }`) as unknown as TypedDocumentString<GroupsCatalogQuery, GroupsCatalogQueryVariables>;
 export const ConsumerGroupDocument = new TypedDocumentString(`
     query ConsumerGroup($cluster: String!, $id: String!) {
@@ -1228,11 +1247,13 @@ fragment ConsumerGroupFields on ConsumerGroup {
   members {
     ...ConsumerGroupMemberFields
   }
+  memberCount
   topics
   lag
   offsets {
     ...GroupOffsetFields
   }
+  assignedPartitionCount
 }`) as unknown as TypedDocumentString<ConsumerGroupQuery, ConsumerGroupQueryVariables>;
 export const ClusterThroughputDocument = new TypedDocumentString(`
     query ClusterThroughput($cluster: String!) {

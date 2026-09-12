@@ -33,7 +33,9 @@ import type {
   RecordQuery,
   SearchResult,
   ThroughputPoint,
+  GroupList,
   Topic,
+  TopicList,
   TopicRate,
 } from "./types";
 
@@ -160,7 +162,7 @@ export function useBrokerConfigs(cluster: string, id: number) {
 }
 
 export type TopicsCache = {
-  topics: Topic[];
+  topics: TopicList[];
   updatedAt: string;
 };
 
@@ -223,7 +225,7 @@ export function useRecords(query: RecordsFilter) {
 }
 
 export type GroupsCache = {
-  groups: ConsumerGroup[];
+  groups: GroupList[];
   updatedAt: string;
 };
 
@@ -369,7 +371,7 @@ export function useConsumerGroupLag(cluster: string, group: string) {
           ? {
               ...current,
               groups: current.groups.map((entry) =>
-                entry.id === lag.id ? withLag(entry, lag) : entry,
+                entry.id === lag.id ? { ...entry, lag: lag.lag } : entry,
               ),
             }
           : current,
@@ -402,7 +404,10 @@ function withLag(
   };
 }
 
-function withRate(topic: Topic, rate: TopicRate | undefined): Topic {
+function withRate<T extends { messagesPerSec: number; bytesInPerSec: number }>(
+  topic: T,
+  rate: TopicRate | undefined,
+): T {
   if (!rate) {
     return topic;
   }

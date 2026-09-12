@@ -175,6 +175,7 @@ pub(super) struct Topic {
     pub name: String,
     pub internal: bool,
     pub partitions: Vec<Partition>,
+    pub partition_count: i32,
     pub replication_factor: i32,
     pub message_count: f64,
     pub size_bytes: f64,
@@ -205,6 +206,7 @@ impl From<domain::Topic> for Topic {
         Self {
             name: topic.name,
             internal: topic.internal,
+            partition_count: topic.partitions.len() as i32,
             partitions: topic.partitions.into_iter().map(Partition::from).collect(),
             replication_factor: topic.replication_factor,
             message_count: topic.message_count as f64,
@@ -326,9 +328,11 @@ pub(super) struct ConsumerGroup {
     pub protocol: String,
     pub coordinator: i32,
     pub members: Vec<ConsumerGroupMember>,
+    pub member_count: i32,
     pub topics: Vec<String>,
     pub lag: f64,
     pub offsets: Vec<GroupOffset>,
+    pub assigned_partition_count: i32,
 }
 
 impl From<domain::ConsumerGroup> for ConsumerGroup {
@@ -338,6 +342,7 @@ impl From<domain::ConsumerGroup> for ConsumerGroup {
             state: ConsumerGroupState::from(group.state),
             protocol: group.protocol,
             coordinator: group.coordinator,
+            member_count: group.members.len() as i32,
             members: group
                 .members
                 .into_iter()
@@ -345,6 +350,7 @@ impl From<domain::ConsumerGroup> for ConsumerGroup {
                 .collect(),
             topics: group.topics,
             lag: group.lag as f64,
+            assigned_partition_count: group.offsets.len() as i32,
             offsets: group.offsets.into_iter().map(GroupOffset::from).collect(),
         }
     }

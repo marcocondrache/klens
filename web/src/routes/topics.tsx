@@ -15,6 +15,7 @@ import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
+import { useNow } from "@/hooks/use-now";
 import { useTopics } from "@/lib/api/queries";
 import { clusterPath, useClusterName } from "@/lib/clusters";
 import {
@@ -27,7 +28,7 @@ import {
   formatThroughput,
   isCompactCleanup,
 } from "@/lib/format";
-import type { Topic } from "@/lib/api/types";
+import type { TopicList } from "@/lib/api/types";
 import { createAppColumnHelper } from "@/lib/table";
 
 const POLICY_ITEMS = [
@@ -36,7 +37,7 @@ const POLICY_ITEMS = [
   { value: "compact", label: "compact" },
 ] as const;
 
-const EMPTY_TOPICS: Topic[] = [];
+const EMPTY_TOPICS: TopicList[] = [];
 
 function emptyMetric(value: number, display: ReactNode) {
   if (value === 0) {
@@ -46,7 +47,7 @@ function emptyMetric(value: number, display: ReactNode) {
   return display;
 }
 
-const columnHelper = createAppColumnHelper<Topic>();
+const columnHelper = createAppColumnHelper<TopicList>();
 
 const columns = columnHelper.columns([
   columnHelper.accessor("name", {
@@ -68,7 +69,7 @@ const columns = columnHelper.columns([
       );
     },
   }),
-  columnHelper.accessor((topic) => topic.partitions.length, {
+  columnHelper.accessor("partitionCount", {
     id: "partitions",
     header: "Parts",
     meta: { align: "right" },
@@ -137,6 +138,7 @@ export function TopicsPage() {
   const policy = params.get("policy") ?? "all";
 
   const { data, isPending, isError, error } = useTopics(cluster);
+  const now = useNow();
   const topics = data?.topics ?? EMPTY_TOPICS;
   const updatedAt = data?.updatedAt;
 
@@ -167,7 +169,7 @@ export function TopicsPage() {
       <PageHeader
         title="Topics"
         description={`${rows.length} of ${topics.length} topics${
-          updatedAt ? ` · Updated ${formatRelative(updatedAt)}` : ""
+          updatedAt ? ` · Updated ${formatRelative(updatedAt, now)}` : ""
         }`}
       />
 

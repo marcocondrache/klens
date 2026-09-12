@@ -98,8 +98,8 @@ export function formatTime(value: string | number) {
   });
 }
 
-export function formatRelative(value: string | number) {
-  const delta = Date.now() - new Date(value).getTime();
+export function formatRelative(value: string | number, now = Date.now()) {
+  const delta = now - new Date(value).getTime();
   const absolute = Math.abs(delta);
   const suffix = delta >= 0 ? "ago" : "from now";
 
