@@ -62,4 +62,4 @@ pub use series::ThroughputPoint;
 pub use session::ClusterSession;
 
 #[cfg(test)]
-pub use testing::FakeCluster;
+pub use testing::{CountingSession, FakeCluster};

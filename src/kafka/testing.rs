@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -31,6 +33,16 @@ pub struct FakeCluster {
     subjects_error: Option<String>,
     configs_error: Option<String>,
     metadata_delay: Duration,
+    watermark_delay: Duration,
+    watermark_growth: Option<Arc<WatermarkGrowth>>,
+}
+
+/// Grows the high watermark of partition 0 by `step` more on every read, so a
+/// rate or lag test sees the log advance without producing records.
+#[derive(Debug)]
+struct WatermarkGrowth {
+    step: i64,
+    grown: AtomicI64,
 }
 
 impl FakeCluster {
@@ -178,6 +190,8 @@ impl FakeCluster {
             subjects_error: None,
             configs_error: None,
             metadata_delay: Duration::ZERO,
+            watermark_delay: Duration::ZERO,
+            watermark_growth: None,
         }
     }
 
@@ -194,6 +208,24 @@ impl FakeCluster {
 
     pub fn with_metadata_delay(mut self, delay: Duration) -> Self {
         self.metadata_delay = delay;
+        self
+    }
+
+    /// Delays every per-topic watermark read. The trait's `watermarks_many`
+    /// default fans these out, so a batched read of N topics still costs one
+    /// delay rather than N.
+    pub fn with_watermark_delay(mut self, delay: Duration) -> Self {
+        self.watermark_delay = delay;
+        self
+    }
+
+    /// Advances the high watermark of partition 0 by a further `step` on every
+    /// read. The first read is unchanged, so the first rate sample is still 0.
+    pub fn with_growing_watermarks(mut self, step: i64) -> Self {
+        self.watermark_growth = Some(Arc::new(WatermarkGrowth {
+            step,
+            grown: AtomicI64::new(0),
+        }));
         self
     }
 
@@ -308,7 +340,17 @@ impl ClusterSession for FakeCluster {
     }
 
     async fn watermarks(&self, topic: &str) -> Result<HashMap<i32, Watermarks>, KafkaError> {
-        Ok(self.watermarks.get(topic).cloned().unwrap_or_default())
+        if !self.watermark_delay.is_zero() {
+            tokio::time::sleep(self.watermark_delay).await;
+        }
+
+        let mut marks = self.watermarks.get(topic).cloned().unwrap_or_default();
+        if let Some(growth) = &self.watermark_growth
+            && let Some(partition) = marks.get_mut(&0)
+        {
+            partition.high += growth.grown.fetch_add(growth.step, Ordering::SeqCst);
+        }
+        Ok(marks)
     }
 
     async fn offsets_for_times(
@@ -407,5 +449,116 @@ impl ClusterSession for FakeCluster {
             });
         }
         Ok(self.subjects.clone())
+    }
+}
+
+/// How many times the engine or poller called each [`ClusterSession`] method.
+#[derive(Debug, Default)]
+pub struct SessionCalls {
+    metadata: AtomicUsize,
+    watermarks_many: AtomicUsize,
+    consumer_groups: AtomicUsize,
+    topics_configs: AtomicUsize,
+    committed_offsets: AtomicUsize,
+}
+
+impl SessionCalls {
+    pub fn metadata(&self) -> usize {
+        self.metadata.load(Ordering::SeqCst)
+    }
+
+    pub fn watermarks_many(&self) -> usize {
+        self.watermarks_many.load(Ordering::SeqCst)
+    }
+
+    pub fn consumer_groups(&self) -> usize {
+        self.consumer_groups.load(Ordering::SeqCst)
+    }
+
+    pub fn topics_configs(&self) -> usize {
+        self.topics_configs.load(Ordering::SeqCst)
+    }
+
+    pub fn committed_offsets(&self) -> usize {
+        self.committed_offsets.load(Ordering::SeqCst)
+    }
+}
+
+/// A [`FakeCluster`] that records the calls made to it, for tests that assert
+/// how much I/O a code path does rather than what it returns.
+///
+/// Clones share one set of counters, so a test can hand the engine a clone and
+/// still read the counts. `schema_subjects` is deliberately left to the trait
+/// default so the "session does not override it" path stays covered.
+#[derive(Debug, Clone)]
+pub struct CountingSession {
+    inner: FakeCluster,
+    pub calls: Arc<SessionCalls>,
+}
+
+impl CountingSession {
+    pub fn new(inner: FakeCluster) -> Self {
+        Self {
+            inner,
+            calls: Arc::new(SessionCalls::default()),
+        }
+    }
+}
+
+#[async_trait]
+impl ClusterSession for CountingSession {
+    fn identity(&self) -> &ClusterIdentity {
+        self.inner.identity()
+    }
+
+    async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError> {
+        self.calls.metadata.fetch_add(1, Ordering::SeqCst);
+        self.inner.metadata().await
+    }
+
+    async fn watermarks_many(&self, topics: &[&str]) -> HashMap<String, HashMap<i32, Watermarks>> {
+        self.calls.watermarks_many.fetch_add(1, Ordering::SeqCst);
+        self.inner.watermarks_many(topics).await
+    }
+
+    async fn offsets_for_times(
+        &self,
+        topic: &str,
+        partitions: &[i32],
+        timestamp: i64,
+    ) -> Result<HashMap<i32, Option<i64>>, KafkaError> {
+        self.inner
+            .offsets_for_times(topic, partitions, timestamp)
+            .await
+    }
+
+    async fn topics_configs(
+        &self,
+        topics: &[&str],
+    ) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError> {
+        self.calls.topics_configs.fetch_add(1, Ordering::SeqCst);
+        self.inner.topics_configs(topics).await
+    }
+
+    async fn broker_configs(&self, broker_id: i32) -> Result<Vec<ConfigEntry>, KafkaError> {
+        self.inner.broker_configs(broker_id).await
+    }
+
+    async fn consumer_groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
+        self.calls.consumer_groups.fetch_add(1, Ordering::SeqCst);
+        self.inner.consumer_groups().await
+    }
+
+    async fn committed_offsets(
+        &self,
+        group_id: &str,
+        partitions: &[(String, i32)],
+    ) -> Result<Vec<CommittedOffset>, KafkaError> {
+        self.calls.committed_offsets.fetch_add(1, Ordering::SeqCst);
+        self.inner.committed_offsets(group_id, partitions).await
+    }
+
+    async fn records(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError> {
+        self.inner.records(plan).await
     }
 }
