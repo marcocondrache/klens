@@ -330,7 +330,7 @@ impl CatalogPoller {
                 async move { engine.schema_subjects(&cluster).await }
             },
             move |cluster, list| subjects.store(cluster, list),
-            &kicks,
+            None,
         );
 
         Self {
@@ -362,7 +362,7 @@ impl CatalogPoller {
                 "catalog",
                 fetch,
                 move |cluster, snapshot| cache.store(cluster, snapshot),
-                &kicks,
+                Some(&kicks),
             ),
             kicks,
         }
@@ -370,7 +370,7 @@ impl CatalogPoller {
 
     pub fn kick(&self, cluster: &str) {
         if let Some(notify) = self.kicks.get(cluster) {
-            notify.notify_waiters();
+            notify.notify_one();
         }
     }
 
@@ -380,7 +380,7 @@ impl CatalogPoller {
         lane: &'static str,
         fetch: F,
         persist: P,
-        kicks: &HashMap<String, Arc<Notify>>,
+        kicks: Option<&HashMap<String, Arc<Notify>>>,
     ) -> Vec<JoinHandle<()>>
     where
         T: Send + 'static,
@@ -394,10 +394,7 @@ impl CatalogPoller {
             .map(|cluster| {
                 let fetch = fetch.clone();
                 let persist = persist.clone();
-                let kick = kicks
-                    .get(&cluster)
-                    .cloned()
-                    .unwrap_or_else(|| Arc::new(Notify::new()));
+                let kick = kicks.and_then(|kicks| kicks.get(&cluster)).cloned();
                 tokio::spawn(async move {
                     loop {
                         match fetch(cluster.clone()).await {
@@ -410,7 +407,10 @@ impl CatalogPoller {
                             }
                         }
 
-                        wait_for_kick_or_interval(interval, &kick).await;
+                        match &kick {
+                            Some(kick) => wait_for_kick_or_interval(interval, kick).await,
+                            None => tokio::time::sleep(interval).await,
+                        }
                     }
                 })
             })
@@ -679,6 +679,32 @@ mod tests {
         wait_until(|| polls.load(Ordering::SeqCst) >= 2).await;
         assert_eq!(polls.load(Ordering::SeqCst), 2);
         poller.kick("missing");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn kick_during_fetch_runs_again_when_it_finishes() {
+        let polls = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&polls);
+        let poller = CatalogPoller::start_with(
+            CatalogCache::new(),
+            ["local"],
+            Duration::from_secs(60),
+            move |_| {
+                let n = counter.fetch_add(1, Ordering::SeqCst);
+                async move {
+                    if n == 0 {
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                    }
+                    Ok(ClusterSnapshot::from_topics(Vec::new()))
+                }
+            },
+        );
+
+        tokio::task::yield_now().await;
+        poller.kick("local");
+        tokio::time::advance(Duration::from_secs(5) + Duration::from_millis(1)).await;
+        wait_until(|| polls.load(Ordering::SeqCst) >= 2).await;
+        assert_eq!(polls.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test]
