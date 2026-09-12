@@ -1,5 +1,6 @@
 pub mod cursor;
 pub mod filter;
+pub mod page;
 pub mod plan;
 pub mod query;
 
