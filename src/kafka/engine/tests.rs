@@ -442,10 +442,10 @@ async fn catalog_fetches_shared_inputs_once() {
 }
 
 #[tokio::test]
-async fn catalog_from_skips_config_fetch_when_disabled() {
+async fn assemble_catalog_skips_config_fetch_when_disabled() {
     let session = CatalogIo::new(FakeCluster::local());
     let engine = QueryEngine::from_sessions(vec![session.clone()]);
-    let first = engine.catalog_from("local", None, true).await.unwrap();
+    let first = engine.assemble_catalog("local", None, true).await.unwrap();
     assert!(first.fetched_configs);
     assert!(!first.reused_topology);
     assert_eq!(session.configs.load(Ordering::SeqCst), 1);
@@ -456,7 +456,7 @@ async fn catalog_from_skips_config_fetch_when_disabled() {
         snapshot: Some(Arc::new(first.snapshot.clone())),
     };
     let second = engine
-        .catalog_from("local", Some(&reuse), false)
+        .assemble_catalog("local", Some(&reuse), false)
         .await
         .unwrap();
     assert!(!second.fetched_configs);
@@ -467,11 +467,11 @@ async fn catalog_from_skips_config_fetch_when_disabled() {
 }
 
 #[tokio::test]
-async fn catalog_from_keeps_reused_configs_when_fetch_fails() {
+async fn assemble_catalog_keeps_reused_configs_when_fetch_fails() {
     let session = CatalogIo::new(FakeCluster::local().with_configs_error("no configs"));
     let engine = QueryEngine::from_sessions(vec![session.clone()]);
     let good = QueryEngine::from_sessions(vec![FakeCluster::local()])
-        .catalog_from("local", None, true)
+        .assemble_catalog("local", None, true)
         .await
         .unwrap();
     let reuse = CatalogReuse {
@@ -480,7 +480,7 @@ async fn catalog_from_keeps_reused_configs_when_fetch_fails() {
         snapshot: None,
     };
     let assembled = engine
-        .catalog_from("local", Some(&reuse), true)
+        .assemble_catalog("local", Some(&reuse), true)
         .await
         .unwrap();
     assert!(!assembled.fetched_configs);
@@ -489,16 +489,16 @@ async fn catalog_from_keeps_reused_configs_when_fetch_fails() {
 }
 
 #[tokio::test]
-async fn catalog_from_reuses_topology_only_when_hash_matches() {
+async fn assemble_catalog_reuses_topology_only_when_hash_matches() {
     let engine = QueryEngine::from_sessions(vec![FakeCluster::local()]);
-    let first = engine.catalog_from("local", None, true).await.unwrap();
+    let first = engine.assemble_catalog("local", None, true).await.unwrap();
     let reuse = CatalogReuse {
         metadata_hash: first.metadata_hash,
         configs: first.configs.clone(),
         snapshot: Some(Arc::new(first.snapshot.clone())),
     };
     let second = engine
-        .catalog_from("local", Some(&reuse), false)
+        .assemble_catalog("local", Some(&reuse), false)
         .await
         .unwrap();
     assert!(second.reused_topology);
@@ -510,16 +510,16 @@ async fn catalog_from_reuses_topology_only_when_hash_matches() {
         snapshot: Some(Arc::new(first.snapshot.clone())),
     };
     let third = engine
-        .catalog_from("local", Some(&miss), false)
+        .assemble_catalog("local", Some(&miss), false)
         .await
         .unwrap();
     assert!(!third.reused_topology);
 }
 
 #[tokio::test]
-async fn catalog_from_applies_new_configs_when_topology_is_reused() {
+async fn assemble_catalog_applies_new_configs_when_topology_is_reused() {
     let first = QueryEngine::from_sessions(vec![FakeCluster::local()])
-        .catalog_from("local", None, true)
+        .assemble_catalog("local", None, true)
         .await
         .unwrap();
     assert_eq!(first.snapshot.topics[0].retention_ms, 604_800_000);
@@ -548,7 +548,7 @@ async fn catalog_from_applies_new_configs_when_topology_is_reused() {
             },
         ],
     )])
-    .catalog_from("local", Some(&reuse), true)
+    .assemble_catalog("local", Some(&reuse), true)
     .await
     .unwrap();
 
