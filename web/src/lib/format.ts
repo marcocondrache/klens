@@ -90,14 +90,6 @@ export function formatTimestamp(value: string | number) {
   });
 }
 
-export function formatTime(value: string | number) {
-  return new Date(value).toLocaleTimeString("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
-
 export function formatRelative(value: string | number, now = Date.now()) {
   const delta = now - new Date(value).getTime();
   const absolute = Math.abs(delta);
