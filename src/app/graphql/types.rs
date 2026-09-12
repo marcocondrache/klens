@@ -256,7 +256,6 @@ pub(super) struct ConfigEntry {
     pub source: ConfigSource,
     pub read_only: bool,
     pub sensitive: bool,
-    pub documentation: Option<String>,
 }
 
 impl From<domain::ConfigEntry> for ConfigEntry {
@@ -267,7 +266,6 @@ impl From<domain::ConfigEntry> for ConfigEntry {
             source: ConfigSource::from(entry.source),
             read_only: entry.read_only,
             sensitive: entry.sensitive,
-            documentation: None,
         }
     }
 }

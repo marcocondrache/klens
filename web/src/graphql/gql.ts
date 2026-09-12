@@ -18,7 +18,7 @@ type Documents = {
   "\n  fragment PartitionFields on Partition {\n    id\n    leader\n    replicas\n    isr\n    lowWatermark\n    highWatermark\n  }\n": typeof types.PartitionFieldsFragmentDoc;
   "\n  fragment TopicFields on Topic {\n    name\n    internal\n    partitions {\n      ...PartitionFields\n    }\n    partitionCount\n    replicationFactor\n    messageCount\n    cleanupPolicy\n    retentionMs\n    consumerGroups\n    bytesInPerSec\n    messagesPerSec\n    underReplicated\n  }\n": typeof types.TopicFieldsFragmentDoc;
   "\n  fragment TopicListFields on Topic {\n    name\n    internal\n    partitionCount\n    replicationFactor\n    messageCount\n    cleanupPolicy\n    retentionMs\n    consumerGroups\n    bytesInPerSec\n    messagesPerSec\n    underReplicated\n  }\n": typeof types.TopicListFieldsFragmentDoc;
-  "\n  fragment ConfigEntryFields on ConfigEntry {\n    name\n    value\n    source\n    readOnly\n    sensitive\n    documentation\n  }\n": typeof types.ConfigEntryFieldsFragmentDoc;
+  "\n  fragment ConfigEntryFields on ConfigEntry {\n    name\n    value\n    source\n    readOnly\n    sensitive\n  }\n": typeof types.ConfigEntryFieldsFragmentDoc;
   "\n  fragment MemberAssignmentFields on MemberAssignment {\n    topic\n    partitions\n  }\n": typeof types.MemberAssignmentFieldsFragmentDoc;
   "\n  fragment ConsumerGroupMemberFields on ConsumerGroupMember {\n    id\n    clientId\n    host\n    assignments {\n      ...MemberAssignmentFields\n    }\n  }\n": typeof types.ConsumerGroupMemberFieldsFragmentDoc;
   "\n  fragment GroupOffsetFields on GroupOffset {\n    topic\n    partition\n    currentOffset\n    endOffset\n    lag\n    memberId\n  }\n": typeof types.GroupOffsetFieldsFragmentDoc;
@@ -63,7 +63,7 @@ const documents: Documents = {
     types.TopicFieldsFragmentDoc,
   "\n  fragment TopicListFields on Topic {\n    name\n    internal\n    partitionCount\n    replicationFactor\n    messageCount\n    cleanupPolicy\n    retentionMs\n    consumerGroups\n    bytesInPerSec\n    messagesPerSec\n    underReplicated\n  }\n":
     types.TopicListFieldsFragmentDoc,
-  "\n  fragment ConfigEntryFields on ConfigEntry {\n    name\n    value\n    source\n    readOnly\n    sensitive\n    documentation\n  }\n":
+  "\n  fragment ConfigEntryFields on ConfigEntry {\n    name\n    value\n    source\n    readOnly\n    sensitive\n  }\n":
     types.ConfigEntryFieldsFragmentDoc,
   "\n  fragment MemberAssignmentFields on MemberAssignment {\n    topic\n    partitions\n  }\n":
     types.MemberAssignmentFieldsFragmentDoc,
@@ -165,7 +165,7 @@ export function graphql(
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(
-  source: "\n  fragment ConfigEntryFields on ConfigEntry {\n    name\n    value\n    source\n    readOnly\n    sensitive\n    documentation\n  }\n",
+  source: "\n  fragment ConfigEntryFields on ConfigEntry {\n    name\n    value\n    source\n    readOnly\n    sensitive\n  }\n",
 ): typeof import("./graphql").ConfigEntryFieldsFragmentDoc;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.

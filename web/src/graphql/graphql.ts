@@ -125,7 +125,6 @@ export type ConfigEntryFieldsFragment = {
   source: ConfigSource;
   readOnly: boolean;
   sensitive: boolean;
-  documentation: string | null;
 };
 
 export type MemberAssignmentFieldsFragment = { topic: string; partitions: Array<number> };
@@ -344,7 +343,6 @@ export type BrokerConfigsQuery = {
     source: ConfigSource;
     readOnly: boolean;
     sensitive: boolean;
-    documentation: string | null;
   }>;
 };
 
@@ -412,7 +410,6 @@ export type TopicConfigsQuery = {
     source: ConfigSource;
     readOnly: boolean;
     sensitive: boolean;
-    documentation: string | null;
   }>;
 };
 
@@ -734,7 +731,6 @@ export const ConfigEntryFieldsFragmentDoc = new TypedDocumentString(
   source
   readOnly
   sensitive
-  documentation
 }
     `,
   { fragmentName: "ConfigEntryFields" },
@@ -1026,7 +1022,6 @@ export const BrokerConfigsDocument = new TypedDocumentString(`
   source
   readOnly
   sensitive
-  documentation
 }`) as unknown as TypedDocumentString<BrokerConfigsQuery, BrokerConfigsQueryVariables>;
 export const TopicsDocument = new TypedDocumentString(`
     query Topics($cluster: String!) {
@@ -1092,7 +1087,6 @@ export const TopicConfigsDocument = new TypedDocumentString(`
   source
   readOnly
   sensitive
-  documentation
 }`) as unknown as TypedDocumentString<TopicConfigsQuery, TopicConfigsQueryVariables>;
 export const ConsumerGroupsDocument = new TypedDocumentString(`
     query ConsumerGroups($cluster: String!, $topic: String) {

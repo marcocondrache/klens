@@ -83,7 +83,6 @@ export const ConfigEntryFields = graphql(`
     source
     readOnly
     sensitive
-    documentation
   }
 `);
 

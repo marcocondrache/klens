@@ -154,7 +154,6 @@ type ConfigEntry {
   source: ConfigSource!
   readOnly: Boolean!
   sensitive: Boolean!
-  documentation: String
 }
 
 type ConsumerGroup {
