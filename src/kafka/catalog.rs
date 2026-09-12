@@ -158,17 +158,16 @@ pub struct CatalogCache {
     inner: Arc<RwLock<HashMap<String, Arc<ClusterSnapshot>>>>,
     polls: Arc<RwLock<HashMap<String, PollLane>>>,
     generations: Arc<RwLock<HashMap<String, u64>>>,
-    updates: watch::Sender<Option<CatalogRevision>>,
+    updates: Arc<RwLock<HashMap<String, watch::Sender<Option<CatalogRevision>>>>>,
 }
 
 impl Default for CatalogCache {
     fn default() -> Self {
-        let (updates, _) = watch::channel(None);
         Self {
             inner: Arc::new(RwLock::new(HashMap::new())),
             polls: Arc::new(RwLock::new(HashMap::new())),
             generations: Arc::new(RwLock::new(HashMap::new())),
-            updates,
+            updates: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }
@@ -233,8 +232,15 @@ impl CatalogCache {
         true
     }
 
-    pub fn subscribe_updates(&self) -> watch::Receiver<Option<CatalogRevision>> {
-        self.updates.subscribe()
+    pub fn subscribe_updates(&self, cluster: &str) -> watch::Receiver<Option<CatalogRevision>> {
+        let mut updates = self.updates.write().expect("catalog cache lock");
+        updates
+            .entry(cluster.to_owned())
+            .or_insert_with(|| {
+                let (sender, _) = watch::channel(None);
+                sender
+            })
+            .subscribe()
     }
 
     pub fn generation(&self, cluster: &str) -> Option<u64> {
@@ -252,11 +258,18 @@ impl CatalogCache {
             *slot += 1;
             *slot
         };
-        let _ = self.updates.send(Some(CatalogRevision {
+        let revision = CatalogRevision {
             cluster: cluster.to_owned(),
             updated_at: snapshot.updated_at,
             generation,
-        }));
+        };
+        let mut updates = self.updates.write().expect("catalog cache lock");
+        if let Some(sender) = updates.get(cluster) {
+            let _ = sender.send(Some(revision));
+            return;
+        }
+        let (sender, _) = watch::channel(Some(revision));
+        updates.insert(cluster.to_owned(), sender);
     }
 
     pub fn invalidate(&self, cluster: &str) {
@@ -740,7 +753,7 @@ mod tests {
     #[test]
     fn store_notifies_only_when_the_roster_changes() {
         let cache = CatalogCache::new();
-        let mut updates = cache.subscribe_updates();
+        let mut updates = cache.subscribe_updates("local");
         let _ = updates.borrow_and_update();
 
         cache.store(
@@ -766,6 +779,27 @@ mod tests {
         let revision = updates.borrow_and_update().clone().unwrap();
         assert_eq!(revision.cluster, "local");
         assert_eq!(revision.generation, 2);
+    }
+
+    #[test]
+    fn store_notifies_each_cluster_on_its_own_watch() {
+        let cache = CatalogCache::new();
+        let mut local = cache.subscribe_updates("local");
+        let mut other = cache.subscribe_updates("other");
+        let _ = local.borrow_and_update();
+        let _ = other.borrow_and_update();
+
+        cache.store(
+            "local",
+            ClusterSnapshot::from_topics(vec![test_topic("orders")]),
+        );
+        cache.store(
+            "other",
+            ClusterSnapshot::from_topics(vec![test_topic("payments")]),
+        );
+
+        assert_eq!(local.borrow_and_update().as_ref().unwrap().cluster, "local");
+        assert_eq!(other.borrow_and_update().as_ref().unwrap().cluster, "other");
     }
 
     #[test]

@@ -57,7 +57,7 @@ impl Subscription {
     }
 
     async fn catalog_updated(context: &AppState, cluster: String) -> CatalogUpdatedStream {
-        let mut updates = context.catalog.subscribe_updates();
+        let mut updates = context.catalog.subscribe_updates(&cluster);
         let _ = updates.borrow_and_update();
 
         Box::pin(stream::unfold(
