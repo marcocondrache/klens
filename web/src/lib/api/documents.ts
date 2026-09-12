@@ -56,6 +56,24 @@ export const TopicFields = graphql(`
     partitions {
       ...PartitionFields
     }
+    partitionCount
+    replicationFactor
+    messageCount
+    sizeBytes
+    cleanupPolicy
+    retentionMs
+    consumerGroups
+    bytesInPerSec
+    messagesPerSec
+    underReplicated
+  }
+`);
+
+export const TopicListFields = graphql(`
+  fragment TopicListFields on Topic {
+    name
+    internal
+    partitionCount
     replicationFactor
     messageCount
     sizeBytes
@@ -117,11 +135,26 @@ export const ConsumerGroupFields = graphql(`
     members {
       ...ConsumerGroupMemberFields
     }
+    memberCount
     topics
     lag
     offsets {
       ...GroupOffsetFields
     }
+    assignedPartitionCount
+  }
+`);
+
+export const GroupListFields = graphql(`
+  fragment GroupListFields on ConsumerGroup {
+    id
+    state
+    protocol
+    coordinator
+    memberCount
+    topics
+    lag
+    assignedPartitionCount
   }
 `);
 
@@ -257,7 +290,7 @@ export const topicsQuery = graphql(`
     clusterCatalog(cluster: $cluster) {
       updatedAt
       topics {
-        ...TopicFields
+        ...TopicListFields
       }
     }
   }
@@ -292,7 +325,7 @@ export const groupsCatalogQuery = graphql(`
     clusterCatalog(cluster: $cluster) {
       updatedAt
       consumerGroups {
-        ...ConsumerGroupFields
+        ...GroupListFields
       }
     }
   }

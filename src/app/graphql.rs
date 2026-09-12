@@ -883,6 +883,9 @@ mod tests {
         assert!(sdl.contains("clusterCatalog(cluster: String!): ClusterCatalog!"));
         assert!(sdl.contains("type CatalogHealth"));
         assert!(sdl.contains("catalogHealth(cluster: String!): CatalogHealth!"));
+        assert!(sdl.contains("partitionCount: Int!"));
+        assert!(sdl.contains("memberCount: Int!"));
+        assert!(sdl.contains("assignedPartitionCount: Int!"));
     }
 
     #[tokio::test]
@@ -906,8 +909,8 @@ mod tests {
         let schema = schema();
         let (value, errors) = execute(
             r#"{
-                topics(cluster: "local") { name messageCount consumerGroups }
-                topic(cluster: "local", name: "from-cache") { name messageCount consumerGroups }
+                topics(cluster: "local") { name messageCount consumerGroups partitionCount }
+                topic(cluster: "local", name: "from-cache") { name messageCount consumerGroups partitionCount }
                 missing: topic(cluster: "local", name: "orders.created") { name }
                 clusterCatalog(cluster: "local") { topics { name } }
             }"#,
@@ -926,12 +929,14 @@ mod tests {
                 "topics": [{
                     "name": "from-cache",
                     "messageCount": 3.0,
-                    "consumerGroups": ["cached-group"]
+                    "consumerGroups": ["cached-group"],
+                    "partitionCount": 0
                 }],
                 "topic": {
                     "name": "from-cache",
                     "messageCount": 3.0,
-                    "consumerGroups": ["cached-group"]
+                    "consumerGroups": ["cached-group"],
+                    "partitionCount": 0
                 },
                 "missing": null,
                 "clusterCatalog": { "topics": [{ "name": "from-cache" }] }
@@ -1100,6 +1105,8 @@ mod tests {
                     protocol
                     coordinator
                     lag
+                    memberCount
+                    assignedPartitionCount
                     members { id clientId host }
                     offsets { topic partition lag memberId }
                 }
@@ -1130,6 +1137,8 @@ mod tests {
                     "protocol": "range",
                     "coordinator": 1,
                     "lag": 9.0,
+                    "memberCount": 1,
+                    "assignedPartitionCount": 1,
                     "members": [{ "id": "member-1", "clientId": "client", "host": "127.0.0.1" }],
                     "offsets": [{ "topic": "orders", "partition": 0, "lag": 9.0, "memberId": "member-1" }]
                 },

@@ -16,6 +16,7 @@ import {
   useTopicConsumerGroups,
   useTopic,
   useTopicConfigs,
+  useTopicRates,
   useTopicThroughput,
 } from "@/lib/api/queries";
 import { clusterPath, useClusterName } from "@/lib/clusters";
@@ -116,6 +117,7 @@ export function TopicPage() {
   const tab = TABS.includes(params.get("tab") ?? "") ? params.get("tab")! : "data";
 
   const { data: topic, isPending, isError } = useTopic(cluster, topicName);
+  useTopicRates(cluster);
   const { data: configs = [], isPending: configsPending } = useTopicConfigs(
     cluster,
     topicName,
