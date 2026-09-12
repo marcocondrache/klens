@@ -1,0 +1,18 @@
+---
+description: A Rust module lives in its named file beside its directory, never in mod.rs
+alwaysApply: true
+---
+
+# Named modules, not mod.rs
+
+A module lives in its named file beside its directory. Never add `mod.rs`.
+
+```
+src/kafka/catalog.rs
+src/kafka/catalog/snapshot.rs
+```
+
+```
+# ❌ BAD
+src/kafka/catalog/mod.rs
+```
