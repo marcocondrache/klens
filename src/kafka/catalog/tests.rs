@@ -46,7 +46,7 @@ fn start_from_engine(
                 let engine = Arc::clone(&catalog_engine);
                 async move {
                     engine
-                        .catalog_from(&cluster, Some(&reuse), fetch_configs)
+                        .assemble_catalog(&cluster, Some(&reuse), fetch_configs)
                         .await
                 }
             },

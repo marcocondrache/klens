@@ -76,7 +76,7 @@ impl AppState {
                     let query = Arc::clone(&catalog_query);
                     async move {
                         query
-                            .catalog_from(&cluster, Some(&reuse), fetch_configs)
+                            .assemble_catalog(&cluster, Some(&reuse), fetch_configs)
                             .await
                     }
                 },
