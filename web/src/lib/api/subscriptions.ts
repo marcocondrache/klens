@@ -134,10 +134,7 @@ function withLag(
   };
 }
 
-function withRate<T extends { messagesPerSec: number; bytesInPerSec: number }>(
-  topic: T,
-  rate: TopicRate | undefined,
-): T {
+function withRate<T extends { messagesPerSec: number }>(topic: T, rate: TopicRate | undefined): T {
   if (!rate) {
     return topic;
   }
@@ -145,7 +142,6 @@ function withRate<T extends { messagesPerSec: number; bytesInPerSec: number }>(
   return {
     ...topic,
     messagesPerSec: rate.messagesPerSec,
-    bytesInPerSec: rate.bytesInPerSec,
   };
 }
 
@@ -154,5 +150,5 @@ function appendThroughput(
   timestamp: string,
   messages: number,
 ): ThroughputPoint[] {
-  return [...(points ?? []), { timestamp, bytesIn: 0, bytesOut: 0, messages }].slice(-RATE_HISTORY);
+  return [...(points ?? []), { timestamp, messages }].slice(-RATE_HISTORY);
 }
