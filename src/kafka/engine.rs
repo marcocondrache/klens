@@ -718,7 +718,6 @@ mod tests {
             log_level: "info".into(),
             clusters: vec![cluster_config("b"), cluster_config("a")],
             auth: None,
-            catalog_poll_interval_secs: 5,
         })
         .unwrap();
 

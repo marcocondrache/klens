@@ -7,9 +7,8 @@
 bind: 0.0.0.0:8080
 log_level: info
 
-# Seconds between background topic-catalog polls for each cluster (default 5).
-# GraphQL topics/clusterCatalog read the last snapshot instead of hitting Kafka.
-# catalog_poll_interval_secs: 5
+# Topic catalog poll interval is KLENS_CATALOG_POLL_INTERVAL (seconds, default 5,
+# minimum 1). GraphQL topics/clusterCatalog read the last snapshot.
 
 clusters:
   - name: local

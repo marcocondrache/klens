@@ -137,7 +137,7 @@ export function TopicsPage() {
   const policy = params.get("policy") ?? "all";
 
   const { data, isPending, isError, error } = useTopics(cluster);
-  const topics = data?.topics ?? EMPTY_TOPICS
+  const topics = data?.topics ?? EMPTY_TOPICS;
   const updatedAt = data?.updatedAt;
 
   function update(key: string, value: string | null) {

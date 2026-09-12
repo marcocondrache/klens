@@ -25,8 +25,8 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("oidc authentication enabled");
     }
 
-    let state =
-        AppState::with_auth(engine, auth).with_catalog_poller(config.catalog_poll_interval());
+    let state = AppState::with_auth(engine, auth)
+        .with_catalog_poller(*klens::environment::CATALOG_POLL_INTERVAL);
 
     klens::serve(router(state), config.bind).await
 }
