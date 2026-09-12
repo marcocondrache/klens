@@ -54,7 +54,6 @@ export type ClusterFieldsFragment = {
   clusterId: string;
   bootstrapServers: Array<string>;
   securityProtocol: SecurityProtocol;
-  version: string;
   status: ClusterStatus;
   brokerCount: number;
   topicCount: number;
@@ -63,9 +62,6 @@ export type ClusterFieldsFragment = {
   underReplicatedPartitions: number;
   offlinePartitions: number;
   messageCount: number;
-  sizeBytes: number;
-  bytesInPerSec: number;
-  bytesOutPerSec: number;
 };
 
 export type BrokerFieldsFragment = {
@@ -260,7 +256,6 @@ export type ClustersQuery = {
     clusterId: string;
     bootstrapServers: Array<string>;
     securityProtocol: SecurityProtocol;
-    version: string;
     status: ClusterStatus;
     brokerCount: number;
     topicCount: number;
@@ -269,9 +264,6 @@ export type ClustersQuery = {
     underReplicatedPartitions: number;
     offlinePartitions: number;
     messageCount: number;
-    sizeBytes: number;
-    bytesInPerSec: number;
-    bytesOutPerSec: number;
   }>;
 };
 
@@ -286,7 +278,6 @@ export type ClusterQuery = {
     clusterId: string;
     bootstrapServers: Array<string>;
     securityProtocol: SecurityProtocol;
-    version: string;
     status: ClusterStatus;
     brokerCount: number;
     topicCount: number;
@@ -295,9 +286,6 @@ export type ClusterQuery = {
     underReplicatedPartitions: number;
     offlinePartitions: number;
     messageCount: number;
-    sizeBytes: number;
-    bytesInPerSec: number;
-    bytesOutPerSec: number;
   } | null;
 };
 
@@ -669,7 +657,6 @@ export const ClusterFieldsFragmentDoc = new TypedDocumentString(
   clusterId
   bootstrapServers
   securityProtocol
-  version
   status
   brokerCount
   topicCount
@@ -678,9 +665,6 @@ export const ClusterFieldsFragmentDoc = new TypedDocumentString(
   underReplicatedPartitions
   offlinePartitions
   messageCount
-  sizeBytes
-  bytesInPerSec
-  bytesOutPerSec
 }
     `,
   { fragmentName: "ClusterFields" },
@@ -979,7 +963,6 @@ export const ClustersDocument = new TypedDocumentString(`
   clusterId
   bootstrapServers
   securityProtocol
-  version
   status
   brokerCount
   topicCount
@@ -988,9 +971,6 @@ export const ClustersDocument = new TypedDocumentString(`
   underReplicatedPartitions
   offlinePartitions
   messageCount
-  sizeBytes
-  bytesInPerSec
-  bytesOutPerSec
 }`) as unknown as TypedDocumentString<ClustersQuery, ClustersQueryVariables>;
 export const ClusterDocument = new TypedDocumentString(`
     query Cluster($name: String!) {
@@ -1004,7 +984,6 @@ export const ClusterDocument = new TypedDocumentString(`
   clusterId
   bootstrapServers
   securityProtocol
-  version
   status
   brokerCount
   topicCount
@@ -1013,9 +992,6 @@ export const ClusterDocument = new TypedDocumentString(`
   underReplicatedPartitions
   offlinePartitions
   messageCount
-  sizeBytes
-  bytesInPerSec
-  bytesOutPerSec
 }`) as unknown as TypedDocumentString<ClusterQuery, ClusterQueryVariables>;
 export const CatalogHealthDocument = new TypedDocumentString(`
     query CatalogHealth($cluster: String!) {

@@ -13,7 +13,7 @@ import * as types from "./graphql";
  * Learn more about it here: https://the-guild.dev/graphql/codegen/plugins/presets/preset-client#reducing-bundle-size
  */
 type Documents = {
-  "\n  fragment ClusterFields on Cluster {\n    name\n    label\n    clusterId\n    bootstrapServers\n    securityProtocol\n    version\n    status\n    brokerCount\n    topicCount\n    partitionCount\n    consumerGroupCount\n    underReplicatedPartitions\n    offlinePartitions\n    messageCount\n    sizeBytes\n    bytesInPerSec\n    bytesOutPerSec\n  }\n": typeof types.ClusterFieldsFragmentDoc;
+  "\n  fragment ClusterFields on Cluster {\n    name\n    label\n    clusterId\n    bootstrapServers\n    securityProtocol\n    status\n    brokerCount\n    topicCount\n    partitionCount\n    consumerGroupCount\n    underReplicatedPartitions\n    offlinePartitions\n    messageCount\n  }\n": typeof types.ClusterFieldsFragmentDoc;
   "\n  fragment BrokerFields on Broker {\n    id\n    host\n    port\n    rack\n    controller\n    partitionCount\n    leaderCount\n    logDirSizeBytes\n    bytesInPerSec\n    bytesOutPerSec\n  }\n": typeof types.BrokerFieldsFragmentDoc;
   "\n  fragment PartitionFields on Partition {\n    id\n    leader\n    replicas\n    isr\n    lowWatermark\n    highWatermark\n    sizeBytes\n  }\n": typeof types.PartitionFieldsFragmentDoc;
   "\n  fragment TopicFields on Topic {\n    name\n    internal\n    partitions {\n      ...PartitionFields\n    }\n    partitionCount\n    replicationFactor\n    messageCount\n    sizeBytes\n    cleanupPolicy\n    retentionMs\n    consumerGroups\n    bytesInPerSec\n    messagesPerSec\n    underReplicated\n  }\n": typeof types.TopicFieldsFragmentDoc;
@@ -53,7 +53,7 @@ type Documents = {
   "\n  subscription CatalogUpdated($cluster: String!) {\n    catalogUpdated(cluster: $cluster) {\n      cluster\n      updatedAt\n      generation\n    }\n  }\n": typeof types.CatalogUpdatedDocument;
 };
 const documents: Documents = {
-  "\n  fragment ClusterFields on Cluster {\n    name\n    label\n    clusterId\n    bootstrapServers\n    securityProtocol\n    version\n    status\n    brokerCount\n    topicCount\n    partitionCount\n    consumerGroupCount\n    underReplicatedPartitions\n    offlinePartitions\n    messageCount\n    sizeBytes\n    bytesInPerSec\n    bytesOutPerSec\n  }\n":
+  "\n  fragment ClusterFields on Cluster {\n    name\n    label\n    clusterId\n    bootstrapServers\n    securityProtocol\n    status\n    brokerCount\n    topicCount\n    partitionCount\n    consumerGroupCount\n    underReplicatedPartitions\n    offlinePartitions\n    messageCount\n  }\n":
     types.ClusterFieldsFragmentDoc,
   "\n  fragment BrokerFields on Broker {\n    id\n    host\n    port\n    rack\n    controller\n    partitionCount\n    leaderCount\n    logDirSizeBytes\n    bytesInPerSec\n    bytesOutPerSec\n  }\n":
     types.BrokerFieldsFragmentDoc,
@@ -135,7 +135,7 @@ const documents: Documents = {
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(
-  source: "\n  fragment ClusterFields on Cluster {\n    name\n    label\n    clusterId\n    bootstrapServers\n    securityProtocol\n    version\n    status\n    brokerCount\n    topicCount\n    partitionCount\n    consumerGroupCount\n    underReplicatedPartitions\n    offlinePartitions\n    messageCount\n    sizeBytes\n    bytesInPerSec\n    bytesOutPerSec\n  }\n",
+  source: "\n  fragment ClusterFields on Cluster {\n    name\n    label\n    clusterId\n    bootstrapServers\n    securityProtocol\n    status\n    brokerCount\n    topicCount\n    partitionCount\n    consumerGroupCount\n    underReplicatedPartitions\n    offlinePartitions\n    messageCount\n  }\n",
 ): typeof import("./graphql").ClusterFieldsFragmentDoc;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.

@@ -6,7 +6,7 @@ import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { Pill } from "@/components/status";
 import { useNow } from "@/hooks/use-now";
-import { useBrokers, useCatalogHealth, useCluster } from "@/lib/api/catalog";
+import { useBrokers, useCatalogHealth } from "@/lib/api/catalog";
 import { clusterPath, useClusterName } from "@/lib/clusters";
 import { catalogHealthCaption } from "@/lib/catalog-health";
 import { formatBytes, formatNumber, formatRate } from "@/lib/format";
@@ -95,7 +95,6 @@ export function NodesPage() {
   const cluster = useClusterName();
   const navigate = useNavigate();
   const { data: brokers = [], isPending, isError, error } = useBrokers(cluster);
-  const { data: info } = useCluster(cluster);
   const { data: health } = useCatalogHealth(cluster);
   const now = useNow();
   const caption = catalogHealthCaption({
@@ -108,9 +107,7 @@ export function NodesPage() {
     <div className="flex min-h-0 flex-1 flex-col gap-5">
       <PageHeader
         title="Brokers"
-        description={`${brokers.length} brokers · Kafka ${info?.version ?? "—"}${
-          caption ? ` · ${caption}` : ""
-        }`}
+        description={`${brokers.length} brokers${caption ? ` · ${caption}` : ""}`}
       />
 
       <DataTable
