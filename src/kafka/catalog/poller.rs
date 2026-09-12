@@ -35,10 +35,10 @@ pub struct CatalogPollerIntervals {
     pub configs: Duration,
 }
 
-pub struct CatalogPollerIo<FC, Observe, FS> {
-    pub fetch_catalog: FC,
+pub struct CatalogPollerIo<FetchCatalog, Observe, FetchSubjects> {
+    pub fetch_catalog: FetchCatalog,
     pub observe: Observe,
-    pub fetch_subjects: FS,
+    pub fetch_subjects: FetchSubjects,
 }
 
 /// Background catalog and subject tasks per configured cluster. Dropping the
@@ -57,19 +57,20 @@ impl Drop for CatalogPoller {
 }
 
 impl CatalogPoller {
-    pub fn start<FC, FCFut, Observe, FS, FSFut>(
+    pub fn start<FetchCatalog, FetchCatalogFut, Observe, FetchSubjects, FetchSubjectsFut>(
         catalog: CatalogCache,
         subjects: SubjectCache,
         clusters: impl IntoIterator<Item = impl Into<String>>,
         intervals: CatalogPollerIntervals,
-        io: CatalogPollerIo<FC, Observe, FS>,
+        io: CatalogPollerIo<FetchCatalog, Observe, FetchSubjects>,
     ) -> Self
     where
-        FC: Fn(String, CatalogReuse, bool) -> FCFut + Send + Sync + Clone + 'static,
-        FCFut: Future<Output = Result<CatalogAssemble, KafkaError>> + Send + 'static,
+        FetchCatalog:
+            Fn(String, CatalogReuse, bool) -> FetchCatalogFut + Send + Sync + Clone + 'static,
+        FetchCatalogFut: Future<Output = Result<CatalogAssemble, KafkaError>> + Send + 'static,
         Observe: Fn(&str, HashMap<String, u64>) + Send + Sync + Clone + 'static,
-        FS: Fn(String) -> FSFut + Send + Sync + Clone + 'static,
-        FSFut: Future<Output = Result<Vec<SchemaSubject>, KafkaError>> + Send + 'static,
+        FetchSubjects: Fn(String) -> FetchSubjectsFut + Send + Sync + Clone + 'static,
+        FetchSubjectsFut: Future<Output = Result<Vec<SchemaSubject>, KafkaError>> + Send + 'static,
     {
         let CatalogPollerIntervals {
             catalog: catalog_interval,
