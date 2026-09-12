@@ -321,6 +321,42 @@ impl FakeCluster {
         self.records = records;
         self
     }
+
+    pub fn add_partition(&mut self, topic: &str, id: i32, watermarks: Watermarks) {
+        if let Some(meta) = self
+            .metadata
+            .topics
+            .iter_mut()
+            .find(|topic_meta| topic_meta.name == topic)
+        {
+            if !meta.partitions.iter().any(|partition| partition.id == id) {
+                meta.partitions.push(PartitionMetadata {
+                    id,
+                    leader: 1,
+                    replicas: vec![1],
+                    isr: vec![1],
+                });
+            }
+        }
+        self.watermarks
+            .entry(topic.to_owned())
+            .or_default()
+            .insert(id, watermarks);
+    }
+
+    pub fn drop_partition(&mut self, topic: &str, id: i32) {
+        if let Some(meta) = self
+            .metadata
+            .topics
+            .iter_mut()
+            .find(|topic_meta| topic_meta.name == topic)
+        {
+            meta.partitions.retain(|partition| partition.id != id);
+        }
+        if let Some(marks) = self.watermarks.get_mut(topic) {
+            marks.remove(&id);
+        }
+    }
 }
 
 #[async_trait]
@@ -516,9 +552,12 @@ impl ClusterSession for CountingSession {
         self.inner.metadata().await
     }
 
-    async fn watermarks_many(&self, topics: &[&str]) -> HashMap<String, HashMap<i32, Watermarks>> {
+    async fn watermarks_many(
+        &self,
+        partitions: &[(String, i32)],
+    ) -> HashMap<String, HashMap<i32, Watermarks>> {
         self.calls.watermarks_many.fetch_add(1, Ordering::SeqCst);
-        self.inner.watermarks_many(topics).await
+        self.inner.watermarks_many(partitions).await
     }
 
     async fn offsets_for_times(
