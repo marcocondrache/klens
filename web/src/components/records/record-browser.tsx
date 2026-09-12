@@ -53,7 +53,6 @@ function preview(value: string | null) {
   return value.replace(/\s+/g, " ").trim();
 }
 
-/** Compile the search box into the backend CEL `filter` field. */
 function containsFilter(term: string): string | null {
   const trimmed = term.trim();
   if (!trimmed) return null;
