@@ -40,6 +40,8 @@ mod error;
 pub(crate) mod model;
 
 #[cfg(test)]
+mod clone_cost;
+#[cfg(test)]
 mod testing;
 
 pub use adapter::KafkaClusterConfig;
