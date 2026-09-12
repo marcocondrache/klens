@@ -1,6 +1,6 @@
 import { Fragment } from "react";
 import { RefreshCwIcon, SearchIcon } from "lucide-react";
-import { Link, useLocation } from "@/lib/navigation";
+import { Link, useParams } from "@tanstack/react-router";
 import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 
@@ -21,26 +21,28 @@ import { ClusterSwitcher } from "@/components/cluster-switcher";
 import { ModeToggle } from "@/components/mode-toggle";
 import { UserMenu } from "@/components/user-menu";
 import { useAuth } from "@/hooks/use-auth";
-import { clusterPath, useClusterName } from "@/lib/clusters";
+import { useClusterName } from "@/lib/clusters";
 import { formatModK } from "@/lib/keyboard";
-import { findSection } from "@/lib/sections";
+import { clusterSectionTo, useActiveSection } from "@/lib/sections";
 
 interface Crumb {
   label: string;
-  href?: string;
+  section?: ReturnType<typeof clusterSectionTo>;
   icon?: typeof SearchIcon;
   mono?: boolean;
 }
 
 export function AppHeader({ onSearch }: { onSearch: () => void }) {
   const cluster = useClusterName();
-  const { pathname } = useLocation();
+  const detail = useParams({
+    strict: false,
+    shouldThrow: false,
+    select: (params) => params?.topic ?? params?.group ?? params?.id,
+  });
   const queryClient = useQueryClient();
   const fetching = useIsFetching() > 0;
   const { data: auth } = useAuth();
-
-  const [, , , segment, detail] = pathname.split("/");
-  const section = findSection(segment);
+  const section = useActiveSection();
 
   const crumbs: Crumb[] = [];
 
@@ -48,12 +50,12 @@ export function AppHeader({ onSearch }: { onSearch: () => void }) {
     crumbs.push({
       label: section.label,
       icon: section.icon,
-      href: detail ? clusterPath(cluster, section.segment) : undefined,
+      section: detail ? clusterSectionTo(section.segment) : undefined,
     });
   }
 
   if (detail) {
-    crumbs.push({ label: decodeURIComponent(detail), mono: true });
+    crumbs.push({ label: detail, mono: true });
   }
 
   return (
@@ -74,12 +76,15 @@ export function AppHeader({ onSearch }: { onSearch: () => void }) {
               <Fragment key={`${crumb.label}-${index}`}>
                 <BreadcrumbItem className="min-w-0 gap-1.5">
                   {crumb.icon ? <crumb.icon className="size-3.5 shrink-0" /> : null}
-                  {last || !crumb.href ? (
+                  {last || !crumb.section ? (
                     <BreadcrumbPage className={cn("truncate", crumb.mono && "font-mono text-sm")}>
                       {crumb.label}
                     </BreadcrumbPage>
                   ) : (
-                    <BreadcrumbLink render={<Link to={crumb.href} />} className="truncate">
+                    <BreadcrumbLink
+                      render={<Link to={crumb.section} params={{ cluster }} />}
+                      className="truncate"
+                    >
                       {crumb.label}
                     </BreadcrumbLink>
                   )}

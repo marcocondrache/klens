@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Navigate, useLocation } from "@/lib/navigation";
+import { Navigate, useLocation } from "@tanstack/react-router";
 
 import { PageLoading } from "@/components/page-loading";
 import { useAuth } from "@/hooks/use-auth";

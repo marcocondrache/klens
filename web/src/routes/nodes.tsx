@@ -1,5 +1,5 @@
 import { CrownIcon } from "lucide-react";
-import { useNavigate } from "@/lib/navigation";
+import { useNavigate } from "@tanstack/react-router";
 
 import { CopyButton } from "@/components/copy-button";
 import { DataTable } from "@/components/data-table";
@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/page-header";
 import { Pill } from "@/components/status";
 import { useNow } from "@/hooks/use-now";
 import { useBrokers, useCatalogHealth } from "@/lib/api/catalog";
-import { clusterPath, useClusterName } from "@/lib/clusters";
+import { useClusterName } from "@/lib/clusters";
 import { catalogHealthCaption } from "@/lib/catalog-health";
 import { formatNumber } from "@/lib/format";
 import type { Broker } from "@/lib/api/types";
@@ -101,7 +101,12 @@ export function NodesPage() {
           isError ? (error instanceof Error ? error.message : "Failed to load brokers.") : undefined
         }
         defaultSort={{ id: "id", direction: "asc" }}
-        onRowClick={(broker) => navigate(clusterPath(cluster, "nodes", String(broker.id)))}
+        onRowClick={(broker) => {
+          void navigate({
+            to: "/cluster/$cluster/nodes/$id",
+            params: { cluster, id: String(broker.id) },
+          });
+        }}
         fill
       />
     </div>

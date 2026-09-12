@@ -75,7 +75,7 @@ const clusterIndexRoute = createRoute({
   getParentRoute: () => clusterRoute,
   path: "/",
   beforeLoad: ({ params }) => {
-    throw redirect({ href: `/cluster/${params.cluster}/topics` });
+    throw redirect({ to: "/cluster/$cluster/topics", params });
   },
 });
 

@@ -1,3 +1,4 @@
+import { useMatchRoute } from "@tanstack/react-router";
 import {
   FileJsonIcon,
   HardDriveIcon,
@@ -6,8 +7,10 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+export type ClusterSection = "topics" | "groups" | "schemas" | "nodes";
+
 export interface Section {
-  segment: string;
+  segment: ClusterSection;
   label: string;
   icon: LucideIcon;
 }
@@ -19,6 +22,22 @@ export const SECTIONS: Section[] = [
   { segment: "nodes", label: "Brokers", icon: HardDriveIcon },
 ];
 
-export function findSection(segment: string | undefined) {
-  return SECTIONS.find((section) => section.segment === segment);
+export function clusterSectionTo(section: ClusterSection) {
+  switch (section) {
+    case "topics":
+      return "/cluster/$cluster/topics" as const;
+    case "groups":
+      return "/cluster/$cluster/groups" as const;
+    case "schemas":
+      return "/cluster/$cluster/schemas" as const;
+    case "nodes":
+      return "/cluster/$cluster/nodes" as const;
+  }
+}
+
+export function useActiveSection() {
+  const matchRoute = useMatchRoute();
+  return SECTIONS.find((section) =>
+    matchRoute({ to: clusterSectionTo(section.segment), fuzzy: true }),
+  );
 }

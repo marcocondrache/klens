@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { FileJsonIcon, HardDriveIcon, LayersIcon, ServerIcon, UsersRoundIcon } from "lucide-react";
-import { useLocation, useNavigate } from "@/lib/navigation";
+import { useNavigate } from "@tanstack/react-router";
 
 import {
   Command,
@@ -15,8 +15,8 @@ import {
 } from "@/components/ui/command";
 import { StatusDot } from "@/components/status";
 import { useClusters, useSearch } from "@/lib/api/catalog";
-import { clusterPath, useClusterName } from "@/lib/clusters";
-import { SECTIONS, findSection } from "@/lib/sections";
+import { useClusterName } from "@/lib/clusters";
+import { SECTIONS, clusterSectionTo, useActiveSection } from "@/lib/sections";
 import type { ClusterStatus } from "@/lib/api/types";
 
 const RESULT_ICON = {
@@ -41,8 +41,12 @@ export function CommandPalette({
 }) {
   const cluster = useClusterName();
   const navigate = useNavigate();
-  const location = useLocation();
+  const section = useActiveSection();
   const [term, setTerm] = useState("");
+
+  function goHref(href: string) {
+    void navigate({ href });
+  }
 
   const { data: clusters = [] } = useClusters();
   const { data: search, isFetching, isError, error } = useSearch(cluster, term);
@@ -99,7 +103,7 @@ export function CommandPalette({
                   <CommandItem
                     key={result.href}
                     value={result.href}
-                    onSelect={() => run(() => navigate(result.href))}
+                    onSelect={() => run(() => goHref(result.href))}
                     className="min-w-0"
                   >
                     <Icon className="text-muted-foreground" />
@@ -124,7 +128,7 @@ export function CommandPalette({
                 <CommandItem
                   key={result.href}
                   value={result.href}
-                  onSelect={() => run(() => navigate(result.href))}
+                  onSelect={() => run(() => goHref(result.href))}
                   className="min-w-0"
                 >
                   <UsersRoundIcon className="text-muted-foreground" />
@@ -145,7 +149,7 @@ export function CommandPalette({
                 <CommandItem
                   key={result.href}
                   value={result.href}
-                  onSelect={() => run(() => navigate(result.href))}
+                  onSelect={() => run(() => goHref(result.href))}
                   className="min-w-0"
                 >
                   <HardDriveIcon className="text-muted-foreground" />
@@ -164,7 +168,7 @@ export function CommandPalette({
                 <CommandItem
                   key={result.href}
                   value={result.href}
-                  onSelect={() => run(() => navigate(result.href))}
+                  onSelect={() => run(() => goHref(result.href))}
                   className="min-w-0"
                 >
                   <FileJsonIcon className="text-muted-foreground" />
@@ -186,7 +190,14 @@ export function CommandPalette({
               <CommandItem
                 key={section.segment}
                 value={`nav:${section.label}`}
-                onSelect={() => run(() => navigate(clusterPath(cluster, section.segment)))}
+                onSelect={() =>
+                  run(() => {
+                    void navigate({
+                      to: clusterSectionTo(section.segment),
+                      params: { cluster },
+                    });
+                  })
+                }
               >
                 <section.icon className="text-muted-foreground" />
                 <span>{section.label}</span>
@@ -202,12 +213,10 @@ export function CommandPalette({
                 className="min-w-0"
                 onSelect={() =>
                   run(() => {
-                    const section = findSection(location.pathname.split("/")[3]);
-                    navigate(
-                      section
-                        ? `/cluster/${entry.name}/${section.segment}`
-                        : `/cluster/${entry.name}`,
-                    );
+                    void navigate({
+                      to: section ? clusterSectionTo(section.segment) : "/cluster/$cluster",
+                      params: { cluster: entry.name },
+                    });
                   })
                 }
               >

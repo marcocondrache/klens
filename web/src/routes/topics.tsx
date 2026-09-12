@@ -2,8 +2,6 @@ import { useMemo, type ReactNode } from "react";
 import { AlertTriangleIcon } from "lucide-react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 
-import { useNavigate as useHrefNavigate } from "@/lib/navigation";
-
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -19,7 +17,7 @@ import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
 import { useNow } from "@/hooks/use-now";
 import { useTopics } from "@/lib/api/catalog";
-import { clusterPath, useClusterName } from "@/lib/clusters";
+import { useClusterName } from "@/lib/clusters";
 import {
   formatCleanupPolicy,
   formatDuration,
@@ -118,7 +116,6 @@ const columns = columnHelper.columns([
 
 export function TopicsPage() {
   const cluster = useClusterName();
-  const hrefNavigate = useHrefNavigate();
   const navigate = useNavigate({ from: "/cluster/$cluster/topics" });
   const {
     q: term = "",
@@ -217,7 +214,12 @@ export function TopicsPage() {
           isError ? (error instanceof Error ? error.message : "Failed to load topics.") : undefined
         }
         defaultSort={{ id: "name", direction: "asc" }}
-        onRowClick={(topic) => hrefNavigate(clusterPath(cluster, "topics", topic.name))}
+        onRowClick={(topic) => {
+          void navigate({
+            to: "/cluster/$cluster/topics/$topic",
+            params: { cluster, topic: topic.name },
+          });
+        }}
         fill
       />
     </div>

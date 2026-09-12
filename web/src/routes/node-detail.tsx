@@ -1,5 +1,5 @@
 import { CrownIcon, NetworkIcon } from "lucide-react";
-import { useParams } from "@/lib/navigation";
+import { useParams } from "@tanstack/react-router";
 
 import { ConfigTable } from "@/components/config-table";
 import { CopyButton } from "@/components/copy-button";
@@ -13,7 +13,7 @@ import { formatNumber } from "@/lib/format";
 
 export function NodePage() {
   const cluster = useClusterName();
-  const { id } = useParams<{ id: string }>();
+  const { id } = useParams({ from: "/cluster/$cluster/nodes/$id" });
   const brokerId = Number(id);
 
   const { data: broker, isPending } = useBroker(cluster, brokerId);
