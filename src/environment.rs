@@ -160,8 +160,20 @@ pub static SUBJECT_POLL_INTERVAL: LazyLock<Duration> = LazyLock::new(|| {
     )
 });
 
+/// How often topic configs are refreshed inside the catalog poll (default: 30 seconds).
+///
+/// Override with `KLENS_CONFIG_POLL_INTERVAL` (seconds). Values below 1
+/// second fall back to the default.
+pub static CONFIG_POLL_INTERVAL: LazyLock<Duration> = LazyLock::new(|| {
+    parse_poll_interval(
+        std::env::var("KLENS_CONFIG_POLL_INTERVAL").ok(),
+        DEFAULT_CONFIG_POLL_INTERVAL,
+    )
+});
+
 const DEFAULT_CATALOG_POLL_INTERVAL: Duration = Duration::from_secs(5);
 const DEFAULT_SUBJECT_POLL_INTERVAL: Duration = Duration::from_secs(15);
+const DEFAULT_CONFIG_POLL_INTERVAL: Duration = Duration::from_secs(30);
 const MIN_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
 fn parse_poll_interval(raw: Option<String>, default: Duration) -> Duration {
@@ -251,6 +263,18 @@ mod tests {
         assert_eq!(
             parse_poll_interval(Some("0".into()), DEFAULT_SUBJECT_POLL_INTERVAL),
             DEFAULT_SUBJECT_POLL_INTERVAL
+        );
+    }
+
+    #[test]
+    fn config_poll_interval_defaults_when_unset_or_invalid() {
+        assert_eq!(
+            parse_poll_interval(None, DEFAULT_CONFIG_POLL_INTERVAL),
+            DEFAULT_CONFIG_POLL_INTERVAL
+        );
+        assert_eq!(
+            parse_poll_interval(Some("0".into()), DEFAULT_CONFIG_POLL_INTERVAL),
+            DEFAULT_CONFIG_POLL_INTERVAL
         );
     }
 }

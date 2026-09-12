@@ -78,6 +78,53 @@ impl Topic {
             under_replicated,
         }
     }
+
+    pub fn with_watermarks(&self, watermarks: &HashMap<i32, Watermarks>) -> Self {
+        let partitions: Vec<Partition> = self
+            .partitions
+            .iter()
+            .map(|partition| {
+                let marks = watermarks
+                    .get(&partition.id)
+                    .copied()
+                    .unwrap_or(Watermarks {
+                        low: partition.low_watermark,
+                        high: partition.high_watermark,
+                    });
+                Partition {
+                    id: partition.id,
+                    leader: partition.leader,
+                    replicas: partition.replicas.clone(),
+                    isr: partition.isr.clone(),
+                    low_watermark: marks.low,
+                    high_watermark: marks.high,
+                }
+            })
+            .collect();
+        let message_count = partitions
+            .iter()
+            .map(|partition| partition.available() as u64)
+            .sum();
+        let under_replicated = partitions.iter().any(Partition::under_replicated);
+        Self {
+            partitions,
+            message_count,
+            under_replicated,
+            ..self.clone()
+        }
+    }
+
+    pub fn with_config(&self, config: Option<&[ConfigEntry]>) -> Self {
+        let Some(entries) = config else {
+            return self.clone();
+        };
+        let (cleanup_policy, retention_ms) = topic_config_values(Some(entries));
+        Self {
+            cleanup_policy,
+            retention_ms,
+            ..self.clone()
+        }
+    }
 }
 
 pub fn groups_for_topic(topic: &str, groups: &[GroupSnapshot]) -> Vec<String> {
@@ -184,6 +231,30 @@ mod tests {
         assert!(topic.under_replicated, "partition 1 has a shrunken isr");
         assert_eq!(topic.cleanup_policy, CleanupPolicy::Compact);
         assert_eq!(topic.consumer_groups, vec!["g1"]);
+
+        let patched = topic.with_watermarks(&HashMap::from([
+            (0, Watermarks { low: 0, high: 20 }),
+            (1, Watermarks { low: 4, high: 9 }),
+        ]));
+        assert_eq!(patched.message_count, 25);
+        assert_eq!(patched.cleanup_policy, CleanupPolicy::Compact);
+        assert_eq!(patched.consumer_groups, vec!["g1"]);
+        assert_eq!(patched.partitions[0].high_watermark, 20);
+
+        let compact_delete = [ConfigEntry {
+            name: "cleanup.policy".into(),
+            value: Some("compact,delete".into()),
+            source: crate::kafka::topic_config::ConfigSource::DynamicTopic,
+            read_only: false,
+            sensitive: false,
+        }];
+        let retargeted = patched.with_config(Some(&compact_delete));
+        assert_eq!(retargeted.cleanup_policy, CleanupPolicy::CompactDelete);
+        assert_eq!(retargeted.message_count, 25);
+        assert_eq!(
+            patched.with_config(None).cleanup_policy,
+            CleanupPolicy::Compact
+        );
     }
 
     #[test]

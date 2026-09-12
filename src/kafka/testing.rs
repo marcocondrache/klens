@@ -29,6 +29,7 @@ pub struct FakeCluster {
     subjects: Vec<SchemaSubject>,
     metadata_error: Option<String>,
     subjects_error: Option<String>,
+    configs_error: Option<String>,
     metadata_delay: Duration,
 }
 
@@ -175,6 +176,7 @@ impl FakeCluster {
             subjects,
             metadata_error: None,
             subjects_error: None,
+            configs_error: None,
             metadata_delay: Duration::ZERO,
         }
     }
@@ -197,6 +199,20 @@ impl FakeCluster {
 
     pub fn with_subjects_error(mut self, message: impl Into<String>) -> Self {
         self.subjects_error = Some(message.into());
+        self
+    }
+
+    pub fn with_configs_error(mut self, message: impl Into<String>) -> Self {
+        self.configs_error = Some(message.into());
+        self
+    }
+
+    pub fn with_topic_configs(
+        mut self,
+        topic: impl Into<String>,
+        configs: Vec<ConfigEntry>,
+    ) -> Self {
+        self.topic_configs.insert(topic.into(), configs);
         self
     }
 
@@ -323,6 +339,9 @@ impl ClusterSession for FakeCluster {
         &self,
         topics: &[&str],
     ) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError> {
+        if let Some(message) = &self.configs_error {
+            return Err(KafkaError::Admin(message.clone()));
+        }
         Ok(topics
             .iter()
             .filter_map(|topic| {

@@ -9,11 +9,12 @@ use crate::config::Config;
 use crate::environment::{OFFSET_FETCH_BATCH, OVERVIEW_BUDGET};
 use crate::kafka::adapter::ClusterHandle;
 use crate::kafka::broker::Broker;
-use crate::kafka::catalog::ClusterSnapshot;
+use crate::kafka::catalog::{CatalogAssemble, CatalogReuse, ClusterSnapshot};
 use crate::kafka::cluster::{ClusterIdentity, ClusterOverview};
 use crate::kafka::error::KafkaError;
 use crate::kafka::group::{ConsumerGroup, GroupSnapshot};
 use crate::kafka::limits::RecordLimits;
+use crate::kafka::metadata::MetadataSnapshot;
 use crate::kafka::record::Record;
 use crate::kafka::record::RecordPage;
 use crate::kafka::record::cursor::RecordCursor;
@@ -151,19 +152,77 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
     }
 
     pub async fn catalog(&self, cluster: &str) -> Result<ClusterSnapshot, KafkaError> {
+        Ok(self.catalog_from(cluster, None, true).await?.snapshot)
+    }
+
+    pub async fn catalog_from(
+        &self,
+        cluster: &str,
+        reuse: Option<&CatalogReuse>,
+        fetch_configs: bool,
+    ) -> Result<CatalogAssemble, KafkaError> {
         let session = self.session(cluster)?;
         let meta = session.metadata().await?;
         let names = meta.topic_names();
         let mut groups = session.consumer_groups().await?;
+        let metadata_hash = metadata_lane_hash(&meta, &groups);
         let watermark_names = catalog_watermark_names(&names, &groups);
         let watermark_refs: Vec<&str> = watermark_names.iter().map(String::as_str).collect();
 
-        let configs = session.topics_configs(&names);
-        let watermarks = session.watermarks_many(&watermark_refs);
+        let watermarks_fut = session.watermarks_many(&watermark_refs);
         let hydrate = Self::hydrate_committed_offsets(session, &mut groups);
-        let (configs, watermarks, ()) = tokio::join!(configs, watermarks, hydrate);
-        let configs = configs.unwrap_or_default();
+        let (configs, fetched_configs, watermarks) = if fetch_configs {
+            let configs_fut = session.topics_configs(&names);
+            let (configs, watermarks, ()) = tokio::join!(configs_fut, watermarks_fut, hydrate);
+            match configs {
+                Ok(configs) => (configs, true, watermarks),
+                Err(_) => (
+                    reuse.map(|lane| lane.configs.clone()).unwrap_or_default(),
+                    false,
+                    watermarks,
+                ),
+            }
+        } else {
+            let (watermarks, ()) = tokio::join!(watermarks_fut, hydrate);
+            (
+                reuse.map(|lane| lane.configs.clone()).unwrap_or_default(),
+                false,
+                watermarks,
+            )
+        };
         let ends = ends_from_watermarks(&watermarks);
+
+        if let Some(previous) = reuse.and_then(|lane| {
+            (lane.metadata_hash == metadata_hash)
+                .then_some(lane.snapshot.as_ref())
+                .flatten()
+        }) {
+            let topics = previous
+                .topics
+                .iter()
+                .map(|topic| {
+                    topic
+                        .with_watermarks(watermarks.get(&topic.name).unwrap_or(&HashMap::new()))
+                        .with_config(configs.get(&topic.name).map(Vec::as_slice))
+                })
+                .collect();
+            let groups = groups
+                .iter()
+                .map(|group| ConsumerGroup::assemble(group, &ends))
+                .collect();
+            return Ok(CatalogAssemble {
+                snapshot: ClusterSnapshot::assemble(
+                    topics,
+                    groups,
+                    previous.brokers.clone(),
+                    previous.overview.clone(),
+                ),
+                metadata_hash,
+                configs,
+                fetched_configs,
+                reused_topology: true,
+            });
+        }
 
         let topics = meta
             .topics
@@ -185,7 +244,13 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
         let brokers = Broker::assemble_all(&meta);
         let overview = ClusterOverview::assemble(session.identity().clone(), &meta, group_count);
 
-        Ok(ClusterSnapshot::assemble(topics, groups, brokers, overview))
+        Ok(CatalogAssemble {
+            snapshot: ClusterSnapshot::assemble(topics, groups, brokers, overview),
+            metadata_hash,
+            configs,
+            fetched_configs,
+            reused_topology: false,
+        })
     }
 
     pub async fn topics(&self, cluster: &str) -> Result<Vec<Topic>, KafkaError> {
@@ -552,6 +617,44 @@ fn pass_query(query: &RecordQuery, resume: Option<RecordCursor>) -> RecordQuery 
     let mut pass = query.clone();
     pass.cursor = resume;
     pass
+}
+
+fn metadata_lane_hash(meta: &MetadataSnapshot, groups: &[GroupSnapshot]) -> u64 {
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    meta.cluster_id.hash(&mut hasher);
+    for broker in &meta.brokers {
+        broker.id.hash(&mut hasher);
+        broker.host.hash(&mut hasher);
+        broker.port.hash(&mut hasher);
+    }
+    for topic in &meta.topics {
+        topic.name.hash(&mut hasher);
+        topic.internal.hash(&mut hasher);
+        for partition in &topic.partitions {
+            partition.id.hash(&mut hasher);
+            partition.leader.hash(&mut hasher);
+            partition.replicas.hash(&mut hasher);
+            partition.isr.hash(&mut hasher);
+        }
+    }
+    for group in groups {
+        group.id.hash(&mut hasher);
+        std::mem::discriminant(&group.state).hash(&mut hasher);
+        group.protocol.hash(&mut hasher);
+        group.coordinator.hash(&mut hasher);
+        for member in &group.members {
+            member.id.hash(&mut hasher);
+            member.client_id.hash(&mut hasher);
+            member.host.hash(&mut hasher);
+            for assignment in &member.assignments {
+                assignment.topic.hash(&mut hasher);
+                assignment.partitions.hash(&mut hasher);
+            }
+        }
+    }
+    hasher.finish()
 }
 
 fn catalog_watermark_names(topic_names: &[&str], groups: &[GroupSnapshot]) -> Vec<String> {
@@ -1093,6 +1196,127 @@ mod tests {
         assert_eq!(session.watermarks.load(Ordering::SeqCst), 1);
         assert_eq!(session.configs.load(Ordering::SeqCst), 1);
         assert_eq!(session.committed.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn catalog_from_skips_config_fetch_when_disabled() {
+        let session = CatalogIo::new(FakeCluster::local());
+        let engine = QueryEngine::from_sessions(vec![session.clone()]);
+        let first = engine.catalog_from("local", None, true).await.unwrap();
+        assert!(first.fetched_configs);
+        assert!(!first.reused_topology);
+        assert_eq!(session.configs.load(Ordering::SeqCst), 1);
+
+        let reuse = CatalogReuse {
+            metadata_hash: first.metadata_hash,
+            configs: first.configs.clone(),
+            snapshot: Some(Arc::new(first.snapshot.clone())),
+        };
+        let second = engine
+            .catalog_from("local", Some(&reuse), false)
+            .await
+            .unwrap();
+        assert!(!second.fetched_configs);
+        assert!(second.reused_topology);
+        assert_eq!(session.configs.load(Ordering::SeqCst), 1);
+        assert_eq!(session.watermarks.load(Ordering::SeqCst), 2);
+        assert!(second.snapshot.body_eq(&first.snapshot));
+    }
+
+    #[tokio::test]
+    async fn catalog_from_keeps_reused_configs_when_fetch_fails() {
+        let session = CatalogIo::new(FakeCluster::local().with_configs_error("no configs"));
+        let engine = QueryEngine::from_sessions(vec![session.clone()]);
+        let good = QueryEngine::from_sessions(vec![FakeCluster::local()])
+            .catalog_from("local", None, true)
+            .await
+            .unwrap();
+        let reuse = CatalogReuse {
+            metadata_hash: 0,
+            configs: good.configs.clone(),
+            snapshot: None,
+        };
+        let assembled = engine
+            .catalog_from("local", Some(&reuse), true)
+            .await
+            .unwrap();
+        assert!(!assembled.fetched_configs);
+        assert_eq!(assembled.configs, good.configs);
+        assert_eq!(session.configs.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn catalog_from_reuses_topology_only_when_hash_matches() {
+        let engine = QueryEngine::from_sessions(vec![FakeCluster::local()]);
+        let first = engine.catalog_from("local", None, true).await.unwrap();
+        let reuse = CatalogReuse {
+            metadata_hash: first.metadata_hash,
+            configs: first.configs.clone(),
+            snapshot: Some(Arc::new(first.snapshot.clone())),
+        };
+        let second = engine
+            .catalog_from("local", Some(&reuse), false)
+            .await
+            .unwrap();
+        assert!(second.reused_topology);
+        assert_eq!(second.snapshot.brokers, first.snapshot.brokers);
+
+        let miss = CatalogReuse {
+            metadata_hash: first.metadata_hash.wrapping_add(1),
+            configs: first.configs.clone(),
+            snapshot: Some(Arc::new(first.snapshot.clone())),
+        };
+        let third = engine
+            .catalog_from("local", Some(&miss), false)
+            .await
+            .unwrap();
+        assert!(!third.reused_topology);
+    }
+
+    #[tokio::test]
+    async fn catalog_from_applies_new_configs_when_topology_is_reused() {
+        let first = QueryEngine::from_sessions(vec![FakeCluster::local()])
+            .catalog_from("local", None, true)
+            .await
+            .unwrap();
+        assert_eq!(first.snapshot.topics[0].retention_ms, 604_800_000);
+
+        let reuse = CatalogReuse {
+            metadata_hash: first.metadata_hash,
+            configs: first.configs.clone(),
+            snapshot: Some(Arc::new(first.snapshot.clone())),
+        };
+        let second = QueryEngine::from_sessions(vec![FakeCluster::local().with_topic_configs(
+            "orders.created",
+            vec![
+                ConfigEntry {
+                    name: "cleanup.policy".into(),
+                    value: Some("compact".into()),
+                    source: crate::kafka::model::ConfigSource::Default,
+                    read_only: false,
+                    sensitive: false,
+                },
+                ConfigEntry {
+                    name: "retention.ms".into(),
+                    value: Some("1000".into()),
+                    source: crate::kafka::model::ConfigSource::Default,
+                    read_only: false,
+                    sensitive: false,
+                },
+            ],
+        )])
+        .catalog_from("local", Some(&reuse), true)
+        .await
+        .unwrap();
+
+        assert!(second.reused_topology);
+        assert!(second.fetched_configs);
+        assert_eq!(
+            second.snapshot.topics[0].cleanup_policy,
+            crate::kafka::model::CleanupPolicy::Compact
+        );
+        assert_eq!(second.snapshot.topics[0].retention_ms, 1000);
+        assert_eq!(second.snapshot.brokers, first.snapshot.brokers);
     }
 
     #[tokio::test]

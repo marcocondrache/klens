@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::environment::{OVERVIEW_BUDGET, SUBJECT_POLL_INTERVAL};
+use crate::environment::{CONFIG_POLL_INTERVAL, OVERVIEW_BUDGET, SUBJECT_POLL_INTERVAL};
 use crate::kafka::model::SchemaSubject;
 use crate::kafka::{
     CatalogCache, CatalogPoller, ClusterIdentity, ClusterOverview, ClusterSession, ClusterSnapshot,
@@ -63,6 +63,7 @@ impl AppState {
             self.rates.clone(),
             interval,
             *SUBJECT_POLL_INTERVAL,
+            *CONFIG_POLL_INTERVAL,
         );
         Self {
             _poller: Some(Arc::new(poller)),
