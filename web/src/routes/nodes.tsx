@@ -1,5 +1,5 @@
 import { CrownIcon } from "lucide-react";
-import { useNavigate } from "react-router";
+import { useNavigate } from "@/lib/navigation";
 
 import { CopyButton } from "@/components/copy-button";
 import { DataTable } from "@/components/data-table";

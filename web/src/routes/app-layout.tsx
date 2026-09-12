@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { TriangleAlertIcon } from "lucide-react";
-import { Navigate, Outlet } from "react-router";
+import { Navigate, Outlet } from "@/lib/navigation";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
