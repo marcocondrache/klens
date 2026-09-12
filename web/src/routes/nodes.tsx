@@ -5,9 +5,9 @@ import { CopyButton } from "@/components/copy-button";
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { Pill } from "@/components/status";
-import { useBrokers, useCluster } from "@/lib/api/queries";
+import { useBrokers, useCatalogHealth, useCluster } from "@/lib/api/queries";
 import { clusterPath, useClusterName } from "@/lib/clusters";
-import { formatBytes, formatNumber, formatRate } from "@/lib/format";
+import { formatBytes, formatNumber, formatRate, formatRelative } from "@/lib/format";
 import type { Broker } from "@/lib/api/types";
 import { createAppColumnHelper } from "@/lib/table";
 
@@ -94,12 +94,16 @@ export function NodesPage() {
   const navigate = useNavigate();
   const { data: brokers = [], isPending, isError, error } = useBrokers(cluster);
   const { data: info } = useCluster(cluster);
+  const { data: health } = useCatalogHealth(cluster);
+  const updatedAt = health?.updatedAt;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
       <PageHeader
         title="Brokers"
-        description={`${brokers.length} brokers · Kafka ${info?.version ?? "—"}`}
+        description={`${brokers.length} brokers · Kafka ${info?.version ?? "—"}${
+          updatedAt ? ` · Updated ${formatRelative(updatedAt)}` : ""
+        }`}
       />
 
       <DataTable

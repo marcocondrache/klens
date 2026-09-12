@@ -14,8 +14,9 @@ import { JsonBlock } from "@/components/json-block";
 import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
-import { useSchemaSubjects } from "@/lib/api/queries";
+import { useCatalogHealth, useSchemaSubjects } from "@/lib/api/queries";
 import { useClusterName } from "@/lib/clusters";
+import { formatRelative } from "@/lib/format";
 import type { SchemaSubject } from "@/lib/api/types";
 import { createAppColumnHelper } from "@/lib/table";
 
@@ -63,6 +64,8 @@ export function SchemasPage() {
 
   const term = params.get("q") ?? "";
   const { data: subjects = [], isPending, isError, error } = useSchemaSubjects(cluster);
+  const { data: health } = useCatalogHealth(cluster);
+  const updatedAt = health?.subjectsUpdatedAt;
 
   const rows = useMemo(() => {
     const needle = term.trim().toLowerCase();
@@ -72,7 +75,12 @@ export function SchemasPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
-      <PageHeader title="Schema registry" description={`${rows.length} subjects registered`} />
+      <PageHeader
+        title="Schema registry"
+        description={`${rows.length} subjects registered${
+          updatedAt ? ` · Updated ${formatRelative(updatedAt)}` : ""
+        }`}
+      />
 
       <SearchField
         className="shrink-0"

@@ -404,6 +404,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn ready_stays_public_when_oidc_enabled() {
+        let response = send(
+            app(AuthState::enabled_for_tests()),
+            Request::builder()
+                .uri("/ready")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
     async fn graphql_is_open_when_oidc_disabled() {
         let response = send(app(AuthState::disabled()), graphql_request()).await;
         assert_eq!(response.status(), StatusCode::OK);
