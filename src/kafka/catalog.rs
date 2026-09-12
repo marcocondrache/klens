@@ -59,7 +59,7 @@ impl ClusterSnapshot {
 
 #[derive(Clone, Default)]
 pub struct CatalogCache {
-    inner: Arc<RwLock<HashMap<String, ClusterSnapshot>>>,
+    inner: Arc<RwLock<HashMap<String, Arc<ClusterSnapshot>>>>,
 }
 
 impl CatalogCache {
@@ -67,7 +67,7 @@ impl CatalogCache {
         Self::default()
     }
 
-    pub fn snapshot(&self, cluster: &str) -> Option<ClusterSnapshot> {
+    pub fn snapshot(&self, cluster: &str) -> Option<Arc<ClusterSnapshot>> {
         self.inner
             .read()
             .expect("catalog cache lock")
@@ -87,20 +87,24 @@ impl CatalogCache {
         self.snapshot(cluster).map(|snapshot| snapshot.updated_at)
     }
 
-    pub fn store(&self, cluster: impl Into<String>, snapshot: ClusterSnapshot) {
+    pub fn store(&self, cluster: impl Into<String>, snapshot: impl Into<Arc<ClusterSnapshot>>) {
         self.inner
             .write()
             .expect("catalog cache lock")
-            .insert(cluster.into(), snapshot);
+            .insert(cluster.into(), snapshot.into());
     }
 
-    pub fn seed(&self, cluster: impl Into<String>, snapshot: ClusterSnapshot) -> bool {
+    pub fn seed(
+        &self,
+        cluster: impl Into<String>,
+        snapshot: impl Into<Arc<ClusterSnapshot>>,
+    ) -> bool {
         let mut inner = self.inner.write().expect("catalog cache lock");
         let cluster = cluster.into();
         if inner.contains_key(&cluster) {
             return false;
         }
-        inner.insert(cluster, snapshot);
+        inner.insert(cluster, snapshot.into());
         true
     }
 }
@@ -132,13 +136,7 @@ impl CatalogPoller {
         );
         Self::start_with(cache, clusters, interval, move |cluster| {
             let engine = Arc::clone(&engine);
-            async move {
-                let (topics, groups) = tokio::try_join!(
-                    engine.topics(&cluster),
-                    engine.consumer_groups(&cluster, None),
-                )?;
-                Ok(ClusterSnapshot::from_catalog(topics, groups))
-            }
+            async move { engine.catalog(&cluster).await }
         })
     }
 
@@ -262,6 +260,19 @@ mod tests {
         assert_eq!(other.topic("staging", "seeded").unwrap().name, "seeded");
         assert!(other.updated_at("staging").is_some());
         assert!(other.snapshot("missing").is_none());
+    }
+
+    #[test]
+    fn snapshot_reads_share_one_arc() {
+        let cache = CatalogCache::new();
+        cache.store(
+            "local",
+            ClusterSnapshot::from_topics(vec![test_topic("orders")]),
+        );
+        let first = cache.snapshot("local").unwrap();
+        let second = cache.snapshot("local").unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
+        assert_eq!(first.topic("orders").unwrap().name, "orders");
     }
 
     #[test]
@@ -410,7 +421,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn start_polls_query_engine_topics_and_groups() {
+    async fn start_polls_query_engine_catalog() {
         let engine = Arc::new(QueryEngine::from_sessions(vec![FakeCluster::local()]));
         let cache = CatalogCache::new();
         let _poller = CatalogPoller::start(cache.clone(), engine, Duration::from_secs(60));
