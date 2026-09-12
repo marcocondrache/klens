@@ -278,6 +278,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn search_reads_topics_groups_and_nodes_from_the_snapshot() {
+        let state = state();
+        state.catalog.store(
+            "local",
+            ClusterSnapshot::assemble(
+                vec![crate::kafka::Topic {
+                    name: "payments.cached".into(),
+                    internal: false,
+                    partitions: Vec::new(),
+                    replication_factor: 1,
+                    message_count: 0,
+                    cleanup_policy: crate::kafka::model::CleanupPolicy::Delete,
+                    retention_ms: 0,
+                    consumer_groups: Vec::new(),
+                    under_replicated: false,
+                }],
+                vec![cached_group("cached-processor", "payments.cached", 1)],
+                vec![cached_broker(9, "cached-host")],
+                cached_overview("local"),
+            ),
+        );
+
+        let schema = schema();
+        let (value, errors) = execute(
+            r#"{
+                cached: search(cluster: "local", term: "cached") { kind id }
+                order: search(cluster: "local", term: "order") { kind id }
+            }"#,
+            None,
+            &schema,
+            &Variables::new(),
+            &state,
+        )
+        .await
+        .unwrap();
+
+        assert!(errors.is_empty());
+        assert_eq!(
+            serde_json::to_value(value).unwrap(),
+            serde_json::json!({
+                "cached": [
+                    { "kind": "TOPIC", "id": "payments.cached" },
+                    { "kind": "GROUP", "id": "cached-processor" },
+                    { "kind": "NODE", "id": "9" }
+                ],
+                "order": [
+                    { "kind": "SUBJECT", "id": "orders.created-value" }
+                ]
+            })
+        );
+    }
+
+    #[tokio::test]
     async fn clusters_mark_a_failed_seed_offline() {
         let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
             FakeCluster::named("down").unreachable(),
