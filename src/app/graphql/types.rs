@@ -170,6 +170,23 @@ impl From<crate::kafka::CatalogHealth> for CatalogHealth {
     }
 }
 
+#[derive(GraphQLObject, Clone)]
+pub(super) struct CatalogUpdated {
+    pub cluster: String,
+    pub updated_at: DateTime<Utc>,
+    pub generation: i32,
+}
+
+impl From<crate::kafka::CatalogRevision> for CatalogUpdated {
+    fn from(revision: crate::kafka::CatalogRevision) -> Self {
+        Self {
+            cluster: revision.cluster,
+            updated_at: revision.updated_at,
+            generation: revision.generation as i32,
+        }
+    }
+}
+
 #[derive(GraphQLObject)]
 pub(super) struct Topic {
     pub name: String,

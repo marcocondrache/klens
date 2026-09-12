@@ -124,6 +124,12 @@ type CatalogHealth {
   subjectCount: Int!
 }
 
+type CatalogUpdated {
+  cluster: String!
+  updatedAt: DateTime!
+  generation: Int!
+}
+
 type Cluster {
   name: String!
   label: String!
@@ -255,6 +261,7 @@ type SearchResult {
 type Subscription {
   topicRates(cluster: String!): [TopicRate!]!
   consumerGroupLag(cluster: String!, id: String!): ConsumerGroup!
+  catalogUpdated(cluster: String!): CatalogUpdated!
 }
 
 type ThroughputPoint {

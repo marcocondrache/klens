@@ -1,8 +1,8 @@
 use futures::StreamExt;
-use futures::stream::BoxStream;
+use futures::stream::{self, BoxStream};
 use juniper::{FieldError, FieldResult, graphql_subscription};
 
-use super::types::{ConsumerGroup, TopicRate};
+use super::types::{CatalogUpdated, ConsumerGroup, TopicRate};
 use crate::AppState;
 use crate::app::sampler::SamplerMap;
 
@@ -10,6 +10,7 @@ pub struct Subscription;
 
 type TopicRateStream = BoxStream<'static, FieldResult<Vec<TopicRate>>>;
 type ConsumerGroupStream = BoxStream<'static, FieldResult<ConsumerGroup>>;
+type CatalogUpdatedStream = BoxStream<'static, FieldResult<CatalogUpdated>>;
 
 /// Shared samples must be [`Clone`], which [`FieldError`] is not, so failures
 /// travel as a message and are rebuilt per subscriber.
@@ -53,6 +54,26 @@ impl Subscription {
         });
 
         Box::pin(sampler.stream().map(reported))
+    }
+
+    async fn catalog_updated(context: &AppState, cluster: String) -> CatalogUpdatedStream {
+        let mut updates = context.catalog.subscribe_updates(&cluster);
+        let _ = updates.borrow_and_update();
+
+        Box::pin(stream::unfold(
+            (updates, cluster),
+            |(mut updates, cluster)| async move {
+                loop {
+                    updates.changed().await.ok()?;
+                    let Some(revision) = updates.borrow_and_update().clone() else {
+                        continue;
+                    };
+                    if revision.cluster == cluster {
+                        return Some((Ok(CatalogUpdated::from(revision)), (updates, cluster)));
+                    }
+                }
+            },
+        ))
     }
 }
 
@@ -190,11 +211,68 @@ mod tests {
         panic!("condition not met");
     }
 
+    fn catalog_updated_request() -> GraphQLRequest {
+        serde_json::from_str(
+            r#"{ "query": "subscription { catalogUpdated(cluster: \"local\") { cluster generation } }" }"#,
+        )
+        .unwrap()
+    }
+
     fn topic_rates_request() -> GraphQLRequest {
         serde_json::from_str(
             r#"{ "query": "subscription { topicRates(cluster: \"local\") { name messagesPerSec } }" }"#,
         )
         .unwrap()
+    }
+
+    #[tokio::test]
+    async fn catalog_updated_subscription_skips_watermark_only_stores() {
+        let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
+            FakeCluster::local(),
+        ])));
+        let coordinator = Coordinator::new(schema());
+        let request = catalog_updated_request();
+        let mut stream = coordinator.subscribe(&request, &state).await.unwrap();
+
+        let first = state.catalog_snapshot("local").await.unwrap();
+        tokio::task::yield_now().await;
+        let first_event = tokio::time::timeout(Duration::from_millis(50), stream.next())
+            .await
+            .expect("first roster store notifies")
+            .unwrap();
+        let first_event = serde_json::to_value(first_event).unwrap();
+        assert_eq!(first_event["data"]["catalogUpdated"]["cluster"], "local");
+        assert_eq!(first_event["data"]["catalogUpdated"]["generation"], 1);
+
+        let mut louder = (*first).clone();
+        louder.topics[0].message_count += 10;
+        louder.updated_at = first.updated_at;
+        state.catalog.store("local", louder);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), stream.next())
+                .await
+                .is_err()
+        );
+
+        let mut roster = (*first).clone();
+        roster.topics.push(crate::kafka::Topic {
+            name: "payments.settled".into(),
+            internal: false,
+            partitions: Vec::new(),
+            replication_factor: 1,
+            message_count: 0,
+            cleanup_policy: crate::kafka::model::CleanupPolicy::Delete,
+            retention_ms: 0,
+            consumer_groups: Vec::new(),
+            under_replicated: false,
+        });
+        state.catalog.store("local", roster);
+        let second = tokio::time::timeout(Duration::from_millis(50), stream.next())
+            .await
+            .expect("roster change notifies")
+            .unwrap();
+        let second = serde_json::to_value(second).unwrap();
+        assert_eq!(second["data"]["catalogUpdated"]["generation"], 2);
     }
 
     #[tokio::test(start_paused = true)]
