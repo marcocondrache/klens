@@ -143,7 +143,6 @@ pub(super) struct ClusterCatalog {
 
 #[derive(GraphQLObject)]
 pub(super) struct CatalogHealth {
-    pub cluster: String,
     pub updated_at: Option<DateTime<Utc>>,
     pub subjects_updated_at: Option<DateTime<Utc>>,
     pub last_error: Option<String>,
@@ -157,7 +156,6 @@ pub(super) struct CatalogHealth {
 impl From<crate::kafka::CatalogHealth> for CatalogHealth {
     fn from(health: crate::kafka::CatalogHealth) -> Self {
         Self {
-            cluster: health.cluster,
             updated_at: health.updated_at,
             subjects_updated_at: health.subjects_updated_at,
             last_error: health.last_error,
