@@ -150,7 +150,6 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
         session.broker_configs(id).await
     }
 
-    /// One metadata, group list, watermark, config, and offset pass.
     pub async fn catalog(&self, cluster: &str) -> Result<ClusterSnapshot, KafkaError> {
         let session = self.session(cluster)?;
         let meta = session.metadata().await?;
