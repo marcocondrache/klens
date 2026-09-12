@@ -44,10 +44,11 @@ pub trait ClusterSession: Send + Sync + 'static {
         .collect()
     }
 
-    /// Earliest offset at or after `timestamp` (unix ms) for each partition.
+    /// Earliest offset at or after `timestamp` (unix ms) for each answered
+    /// partition.
     ///
-    /// `None` means the broker has no message at or after that time (the Kafka
-    /// `ListOffsets` invalid offset).
+    /// `None` is Kafka's invalid offset (nothing at or after that time). A
+    /// missing key means the broker omitted that partition.
     async fn offsets_for_times(
         &self,
         topic: &str,
