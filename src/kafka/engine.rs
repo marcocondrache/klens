@@ -10,7 +10,7 @@ use crate::environment::{OFFSET_FETCH_BATCH, OVERVIEW_BUDGET};
 use crate::kafka::adapter::ClusterHandle;
 use crate::kafka::broker::Broker;
 use crate::kafka::catalog::ClusterSnapshot;
-use crate::kafka::cluster::ClusterOverview;
+use crate::kafka::cluster::{ClusterIdentity, ClusterOverview};
 use crate::kafka::error::KafkaError;
 use crate::kafka::group::{ConsumerGroup, GroupSnapshot};
 use crate::kafka::limits::RecordLimits;
@@ -64,6 +64,13 @@ impl QueryEngine<dyn ClusterSession> {
 impl<S: ClusterSession + ?Sized> QueryEngine<S> {
     pub fn names(&self) -> Vec<&str> {
         self.registry.keys().map(String::as_str).collect()
+    }
+
+    pub fn identities(&self) -> Vec<ClusterIdentity> {
+        self.registry
+            .values()
+            .map(|session| session.identity().clone())
+            .collect()
     }
 
     pub fn session(&self, name: &str) -> Result<&S, KafkaError> {
@@ -171,12 +178,15 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
                 )
             })
             .collect();
+        let group_count = groups.len() as i32;
         let groups = groups
             .iter()
             .map(|group| ConsumerGroup::assemble(group, &ends))
             .collect();
+        let brokers = Broker::assemble_all(&meta);
+        let overview = ClusterOverview::assemble(session.identity().clone(), &meta, group_count);
 
-        Ok(ClusterSnapshot::from_catalog(topics, groups))
+        Ok(ClusterSnapshot::assemble(topics, groups, brokers, overview))
     }
 
     pub async fn topics(&self, cluster: &str) -> Result<Vec<Topic>, KafkaError> {
@@ -1065,6 +1075,8 @@ mod tests {
 
         assert_eq!(snapshot.topics, topics);
         assert_eq!(snapshot.groups, groups);
+        assert_eq!(snapshot.brokers, engine.brokers("local").await.unwrap());
+        assert_eq!(snapshot.overview, engine.overview("local").await.unwrap());
     }
 
     #[tokio::test]

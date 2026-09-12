@@ -12,8 +12,7 @@ pub struct Query;
 impl Query {
     async fn clusters(context: &AppState) -> Vec<Cluster> {
         context
-            .query
-            .clusters()
+            .cluster_overviews()
             .await
             .into_iter()
             .map(Cluster::from)
@@ -21,25 +20,17 @@ impl Query {
     }
 
     async fn cluster(context: &AppState, name: String) -> Option<Cluster> {
-        context.query.overview(&name).await.ok().map(Cluster::from)
+        context.cluster_overview(&name).await.map(Cluster::from)
     }
 
     async fn brokers(context: &AppState, cluster: String) -> FieldResult<Vec<Broker>> {
-        Ok(context
-            .query
-            .brokers(&cluster)
-            .await?
-            .into_iter()
-            .map(Broker::from)
-            .collect())
+        let snapshot = context.catalog_snapshot(&cluster).await?;
+        Ok(snapshot.brokers.iter().cloned().map(Broker::from).collect())
     }
 
     async fn broker(context: &AppState, cluster: String, id: i32) -> FieldResult<Option<Broker>> {
-        match context.query.broker(&cluster, id).await {
-            Ok(broker) => Ok(Some(Broker::from(broker))),
-            Err(crate::kafka::KafkaError::UnknownBroker { .. }) => Ok(None),
-            Err(error) => Err(error.into()),
-        }
+        let snapshot = context.catalog_snapshot(&cluster).await?;
+        Ok(snapshot.broker(id).cloned().map(Broker::from))
     }
 
     async fn broker_configs(
