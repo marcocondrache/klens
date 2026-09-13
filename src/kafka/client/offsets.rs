@@ -1,39 +1,24 @@
 use std::collections::HashMap;
-use std::time::Duration;
 
-use rdkafka::consumer::Consumer;
-use rdkafka::topic_partition_list::{Offset, TopicPartitionList};
+use rdkafka::admin::ListOffsetsResultInfo;
+use rdkafka::topic_partition_list::Offset;
 
-use crate::kafka::error::KafkaError;
 use crate::kafka::watermarks::Watermarks;
 
-/// `timestamp` selects what to look up: [`Offset::Beginning`],
-/// [`Offset::End`], or [`Offset::Offset`] with a unix-millis value to resolve a
-/// time. `None` in the result means the broker returned Kafka's invalid-offset
-/// sentinel for that partition.
-pub fn list_offsets<S: AsRef<str>>(
-    consumer: &impl Consumer,
-    partitions: &[(S, i32)],
-    timestamp: Offset,
-    timeout: Duration,
-) -> Result<HashMap<(String, i32), Option<i64>>, KafkaError> {
-    let mut tpl = TopicPartitionList::new();
-    for (topic, partition) in partitions {
-        tpl.add_partition_offset(topic.as_ref(), *partition, timestamp)?;
-    }
-
-    let listed = consumer.offsets_for_times(tpl, timeout)?;
-    Ok(listed
-        .elements()
+/// `None` means the broker returned Kafka's invalid-offset sentinel.
+pub fn from_list_infos(
+    infos: impl IntoIterator<Item = ListOffsetsResultInfo>,
+) -> HashMap<(String, i32), Option<i64>> {
+    infos
         .into_iter()
-        .map(|element| {
-            let offset = match element.offset() {
+        .map(|info| {
+            let offset = match info.offset {
                 Offset::Offset(offset) if offset >= 0 => Some(offset),
                 _ => None,
             };
-            ((element.topic().to_owned(), element.partition()), offset)
+            ((info.topic, info.partition), offset)
         })
-        .collect())
+        .collect()
 }
 
 pub fn partition_time_offsets(
@@ -71,6 +56,33 @@ pub fn merge_watermark_offsets(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn from_list_infos_keeps_concrete_offsets() {
+        let listed = from_list_infos([
+            ListOffsetsResultInfo {
+                topic: "orders".into(),
+                partition: 0,
+                offset: Offset::Offset(12),
+                timestamp: -1,
+            },
+            ListOffsetsResultInfo {
+                topic: "orders".into(),
+                partition: 1,
+                offset: Offset::Invalid,
+                timestamp: -1,
+            },
+            ListOffsetsResultInfo {
+                topic: "orders".into(),
+                partition: 2,
+                offset: Offset::End,
+                timestamp: -1,
+            },
+        ]);
+        assert_eq!(listed.get(&("orders".into(), 0)), Some(&Some(12)));
+        assert_eq!(listed.get(&("orders".into(), 1)), Some(&None));
+        assert_eq!(listed.get(&("orders".into(), 2)), Some(&None));
+    }
 
     #[test]
     fn partition_time_offsets_keeps_only_what_the_broker_returned() {

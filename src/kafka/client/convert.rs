@@ -2,10 +2,15 @@
 
 use kafka_protocol::messages::consumer_protocol_assignment::ConsumerProtocolAssignment;
 use kafka_protocol::protocol::Decodable;
-use rdkafka::admin::ConfigSource as RdConfigSource;
+use rdkafka::admin::{
+    ConfigSource as RdConfigSource, ConsumerGroupDescription, ConsumerGroupState,
+};
 use rdkafka::metadata::Metadata;
+use rdkafka::topic_partition_list::{Offset, TopicPartitionList};
 
-use crate::kafka::group::{GroupMember, GroupSnapshot, GroupState, MemberAssignment};
+use crate::kafka::group::{
+    CommittedOffset, GroupMember, GroupSnapshot, GroupState, MemberAssignment,
+};
 use crate::kafka::metadata::{
     BrokerMetadata, MetadataSnapshot, PartitionMetadata, TopicMetadata, is_internal_topic,
 };
@@ -72,6 +77,70 @@ impl GroupSnapshot {
             committed: Vec::new(),
         }
     }
+
+    pub(super) fn from_description(description: ConsumerGroupDescription) -> Self {
+        Self {
+            id: description.group_id,
+            state: GroupState::from(description.state),
+            protocol: description.assignor,
+            coordinator: description.coordinator.map(|node| node.id).unwrap_or(0),
+            members: description
+                .members
+                .into_iter()
+                .map(|member| GroupMember {
+                    id: member.id,
+                    client_id: member.client_id,
+                    host: member.host.trim_start_matches('/').to_owned(),
+                    assignments: assignments_from_tpl(&member.assignment),
+                })
+                .collect(),
+            committed: Vec::new(),
+        }
+    }
+}
+
+impl From<ConsumerGroupState> for GroupState {
+    fn from(state: ConsumerGroupState) -> Self {
+        match state {
+            ConsumerGroupState::Stable => Self::Stable,
+            ConsumerGroupState::PreparingRebalance => Self::PreparingRebalance,
+            ConsumerGroupState::CompletingRebalance => Self::CompletingRebalance,
+            ConsumerGroupState::Dead => Self::Dead,
+            ConsumerGroupState::Empty | ConsumerGroupState::Unknown => Self::Empty,
+        }
+    }
+}
+
+pub(super) fn committed_from_tpl(tpl: &TopicPartitionList) -> Vec<CommittedOffset> {
+    tpl.elements()
+        .into_iter()
+        .filter_map(|element| match element.offset() {
+            Offset::Offset(offset) => Some(CommittedOffset {
+                topic: element.topic().to_owned(),
+                partition: element.partition(),
+                offset,
+            }),
+            _ => None,
+        })
+        .collect()
+}
+
+fn assignments_from_tpl(tpl: &TopicPartitionList) -> Vec<MemberAssignment> {
+    let mut assignments: Vec<MemberAssignment> = Vec::new();
+    for element in tpl.elements() {
+        if let Some(existing) = assignments
+            .iter_mut()
+            .find(|assignment| assignment.topic == element.topic())
+        {
+            existing.partitions.push(element.partition());
+        } else {
+            assignments.push(MemberAssignment {
+                topic: element.topic().to_owned(),
+                partitions: vec![element.partition()],
+            });
+        }
+    }
+    assignments
 }
 
 /// Decodes the version-prefixed `ConsumerProtocolAssignment` blob a member
@@ -171,5 +240,35 @@ mod tests {
     fn member_assignments_ignores_empty_and_truncated_blobs() {
         assert!(member_assignments(&[]).is_empty());
         assert!(member_assignments(&[0, 0, 0]).is_empty());
+    }
+
+    #[test]
+    fn committed_from_tpl_keeps_only_concrete_offsets() {
+        let mut tpl = TopicPartitionList::new();
+        tpl.add_partition_offset("orders", 0, Offset::Offset(12))
+            .unwrap();
+        tpl.add_partition_offset("orders", 1, Offset::Invalid)
+            .unwrap();
+        tpl.add_partition_offset("orders", 2, Offset::Beginning)
+            .unwrap();
+        tpl.add_partition_offset("orders", 3, Offset::End).unwrap();
+        tpl.add_partition_offset("payments", 0, Offset::Offset(0))
+            .unwrap();
+
+        assert_eq!(
+            committed_from_tpl(&tpl),
+            vec![
+                CommittedOffset {
+                    topic: "orders".into(),
+                    partition: 0,
+                    offset: 12,
+                },
+                CommittedOffset {
+                    topic: "payments".into(),
+                    partition: 0,
+                    offset: 0,
+                },
+            ]
+        );
     }
 }

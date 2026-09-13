@@ -7,25 +7,26 @@ mod blocking;
 mod browse;
 mod client_config;
 mod convert;
-mod group_offsets;
 mod offsets;
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use rdkafka::admin::{AdminClient, AdminOptions, OwnedResourceSpecifier, ResourceSpecifier};
+use rdkafka::admin::{
+    AdminClient, AdminOptions, ConsumerGroupState, OwnedResourceSpecifier, ResourceSpecifier,
+};
 use rdkafka::client::DefaultClientContext;
 use rdkafka::config::ClientConfig;
-use rdkafka::consumer::{BaseConsumer, StreamConsumer};
-use rdkafka::topic_partition_list::Offset;
+use rdkafka::consumer::StreamConsumer;
+use rdkafka::topic_partition_list::{Offset, TopicPartitionList};
 
 use crate::config::ClusterConfig;
 use crate::environment::{
-    ADMIN_TIMEOUT, BROWSE_GROUP_PREFIX, CLIENT_ID_PREFIX, CONSUME_TIMEOUT, INTERNAL_GROUP_PREFIX,
-    METADATA_TIMEOUT, WATERMARK_TIMEOUT,
+    ADMIN_TIMEOUT, BROWSE_GROUP_PREFIX, CLIENT_ID_PREFIX, CONSUME_TIMEOUT, METADATA_TIMEOUT,
+    WATERMARK_TIMEOUT,
 };
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
@@ -41,8 +42,8 @@ use crate::kafka::topic_config::ConfigEntry;
 use crate::kafka::watermarks::Watermarks;
 
 use blocking::run_blocking;
-use group_offsets::NativeQueue;
-use offsets::{list_offsets, merge_watermark_offsets, partition_time_offsets};
+use convert::committed_from_tpl;
+use offsets::{from_list_infos, merge_watermark_offsets, partition_time_offsets};
 
 pub use client_config::KafkaClusterConfig;
 
@@ -71,10 +72,6 @@ pub struct KafkaClient {
     timeouts: Timeouts,
     base: ClientConfig,
     admin: Arc<AdminClient<DefaultClientContext>>,
-    /// Shared ListConsumerGroupOffsets result queue. One poller at a time.
-    offset_queue: Arc<Mutex<NativeQueue>>,
-    /// Reused for ListOffsets (watermarks and offsets-for-times).
-    log: Arc<BaseConsumer>,
     schema_registry: Option<PayloadDecoder>,
 }
 
@@ -91,8 +88,6 @@ impl KafkaClient {
         let identity = ClusterIdentity::from(config);
         let base = KafkaClusterConfig::from(config).into_client_config();
         let admin: AdminClient<DefaultClientContext> = base.create()?;
-        let offset_queue = NativeQueue::new(admin.inner().native_ptr())?;
-        let log = log_consumer(&base, &identity.name)?;
         let schema_registry = config
             .schema_registry
             .as_ref()
@@ -106,8 +101,6 @@ impl KafkaClient {
             timeouts: Timeouts::default(),
             base,
             admin: Arc::new(admin),
-            offset_queue: Arc::new(Mutex::new(offset_queue)),
-            log: Arc::new(log),
             schema_registry,
         })
     }
@@ -148,6 +141,33 @@ impl KafkaClient {
     }
 
     pub async fn group(&self, id: &str) -> Result<GroupSnapshot, KafkaError> {
+        match self.describe_group(id).await {
+            Ok(snapshot) => Ok(snapshot),
+            Err(KafkaError::UnknownGroup { .. }) => self.group_from_list(id).await,
+            Err(error) => Err(error),
+        }
+    }
+
+    async fn describe_group(&self, id: &str) -> Result<GroupSnapshot, KafkaError> {
+        let results = self
+            .admin
+            .describe_consumer_groups(&[id], &self.admin_options())
+            .await?;
+        let description = results
+            .into_iter()
+            .find_map(Result::ok)
+            .filter(|description| {
+                description.state != ConsumerGroupState::Dead
+                    && !is_internal_group(&description.group_id)
+            })
+            .ok_or_else(|| KafkaError::UnknownGroup {
+                cluster: self.identity.name.clone(),
+                id: id.to_owned(),
+            })?;
+        Ok(GroupSnapshot::from_description(description))
+    }
+
+    async fn group_from_list(&self, id: &str) -> Result<GroupSnapshot, KafkaError> {
         let admin = Arc::clone(&self.admin);
         let timeout = self.timeouts.admin;
         let requested = id.to_owned();
@@ -173,14 +193,19 @@ impl KafkaClient {
         group_id: &str,
         partitions: &[(String, i32)],
     ) -> Result<Vec<CommittedOffset>, KafkaError> {
-        group_offsets::list(
-            &self.admin,
-            &self.offset_queue,
-            group_id,
-            partitions,
-            self.timeouts.admin,
-        )
-        .await
+        if partitions.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let listed = self
+            .admin
+            .list_consumer_group_offsets(
+                group_id,
+                Some(&topic_partitions(partitions, None)?),
+                &self.admin_options(),
+            )
+            .await?;
+        Ok(committed_from_tpl(&listed))
     }
 
     /// Low and high watermarks. Does not refetch cluster metadata.
@@ -192,15 +217,11 @@ impl KafkaClient {
             return Ok(HashMap::new());
         }
 
-        let log = Arc::clone(&self.log);
-        let partitions = partitions.to_vec();
-        let timeout = self.timeouts.watermark;
-        run_blocking(timeout + timeout, move || {
-            let beginning = list_offsets(&*log, &partitions, Offset::Beginning, timeout)?;
-            let end = list_offsets(&*log, &partitions, Offset::End, timeout)?;
-            Ok(merge_watermark_offsets(&beginning, &end))
-        })
-        .await
+        let opts = self.list_offset_options();
+        let beginning =
+            list_partition_offsets(&self.admin, &opts, partitions, Offset::Beginning).await?;
+        let end = list_partition_offsets(&self.admin, &opts, partitions, Offset::End).await?;
+        Ok(merge_watermark_offsets(&beginning, &end))
     }
 
     pub async fn offsets_for_times(
@@ -213,19 +234,18 @@ impl KafkaClient {
             return Ok(HashMap::new());
         }
 
-        let log = Arc::clone(&self.log);
-        let topic = topic.to_owned();
-        let partitions = partitions.to_vec();
-        let timeout = self.timeouts.watermark;
-        run_blocking(timeout, move || {
-            let pairs: Vec<(&str, i32)> = partitions
-                .iter()
-                .map(|partition| (topic.as_str(), *partition))
-                .collect();
-            let listed = list_offsets(&*log, &pairs, Offset::Offset(timestamp), timeout)?;
-            Ok(partition_time_offsets(listed))
-        })
-        .await
+        let pairs: Vec<(String, i32)> = partitions
+            .iter()
+            .map(|partition| (topic.to_owned(), *partition))
+            .collect();
+        let listed = list_partition_offsets(
+            &self.admin,
+            &self.list_offset_options(),
+            &pairs,
+            Offset::Offset(timestamp),
+        )
+        .await?;
+        Ok(partition_time_offsets(listed))
     }
 
     pub async fn topic_configs(
@@ -310,7 +330,13 @@ impl KafkaClient {
     }
 
     fn admin_options(&self) -> AdminOptions {
-        AdminOptions::new().operation_timeout(Some(self.timeouts.admin))
+        AdminOptions::new()
+            .request_timeout(Some(self.timeouts.admin))
+            .operation_timeout(Some(self.timeouts.admin))
+    }
+
+    fn list_offset_options(&self) -> AdminOptions {
+        AdminOptions::new().request_timeout(Some(self.timeouts.watermark))
     }
 
     fn browser(&self) -> Result<StreamConsumer, KafkaError> {
@@ -391,9 +417,31 @@ impl ClusterSession for KafkaClient {
     }
 }
 
-fn log_consumer(base: &ClientConfig, cluster: &str) -> Result<BaseConsumer, KafkaError> {
-    let group_id = format!("{INTERNAL_GROUP_PREFIX}list-offsets.{cluster}");
-    Ok(consumer_config(base, cluster, &group_id, "offsets", false).create()?)
+async fn list_partition_offsets(
+    admin: &AdminClient<DefaultClientContext>,
+    opts: &AdminOptions,
+    partitions: &[(String, i32)],
+    query: Offset,
+) -> Result<HashMap<(String, i32), Option<i64>>, KafkaError> {
+    let infos = admin
+        .list_offsets(&topic_partitions(partitions, Some(query))?, opts)
+        .await?;
+    Ok(from_list_infos(infos))
+}
+
+fn topic_partitions(
+    partitions: &[(String, i32)],
+    offset: Option<Offset>,
+) -> Result<TopicPartitionList, KafkaError> {
+    let mut tpl = TopicPartitionList::new();
+    for (topic, partition) in partitions {
+        if let Some(offset) = offset {
+            tpl.add_partition_offset(topic, *partition, offset)?;
+        } else {
+            tpl.add_partition(topic, *partition);
+        }
+    }
+    Ok(tpl)
 }
 
 fn consumer_config(
@@ -430,6 +478,7 @@ fn browse_group_id(cluster: &str) -> String {
 mod tests {
     use super::*;
     use rdkafka::config::ClientConfig;
+    use rdkafka::consumer::{BaseConsumer, CommitMode, Consumer};
     use rdkafka::mocking::MockCluster;
     use rdkafka::producer::{FutureProducer, FutureRecord};
 
@@ -447,31 +496,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn empty_partitions_skip_kafka() {
+        let mock = MockCluster::new(1).expect("mock cluster");
+        let client = kafka_client(&mock.bootstrap_servers());
+        let offsets = client.committed_offsets("unused", &[]).await.unwrap();
+        assert!(offsets.is_empty());
+        assert!(client.watermarks(&[]).await.unwrap().is_empty());
+        assert!(
+            client
+                .offsets_for_times("orders", &[], 0)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
     async fn client_reads_metadata_watermarks_and_records() {
         let mock = MockCluster::new(1).expect("mock cluster");
         mock.create_topic("orders", 1, 1).expect("topic");
         let bootstrap = mock.bootstrap_servers();
+        produce(&bootstrap, "orders").await;
 
-        let producer: FutureProducer = ClientConfig::new()
-            .set("bootstrap.servers", &bootstrap)
-            .create()
-            .expect("producer");
-        producer
-            .send(
-                FutureRecord::to("orders").payload("hello").key("k"),
-                Duration::from_secs(5),
-            )
-            .await
-            .expect("produce");
-
-        let client = KafkaClient::connect(&ClusterConfig {
-            name: "test".into(),
-            bootstrap_servers: vec![bootstrap],
-            security: None,
-            schema_registry: None,
-            properties: HashMap::new(),
-        })
-        .expect("client");
+        let client = kafka_client(&bootstrap);
 
         let meta = client.metadata().await.expect("metadata");
         assert!(
@@ -504,5 +551,96 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].offset, 0);
         assert_eq!(records[0].value.as_deref(), Some("hello"));
+    }
+
+    #[tokio::test]
+    async fn lists_committed_offsets_on_a_mock_cluster() {
+        let mock = MockCluster::new(1).expect("mock cluster");
+        mock.create_topic("orders", 1, 1).expect("topic");
+
+        let bootstrap = mock.bootstrap_servers();
+        produce(&bootstrap, "orders").await;
+        commit(&bootstrap, "orders-group", "orders", 1);
+
+        let client = kafka_client(&bootstrap);
+        let offsets = client
+            .committed_offsets("orders-group", &[("orders".into(), 0)])
+            .await
+            .expect("offset fetch");
+
+        assert_eq!(
+            offsets,
+            vec![CommittedOffset {
+                topic: "orders".into(),
+                partition: 0,
+                offset: 1,
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn eight_groups_share_one_client() {
+        let mock = MockCluster::new(1).expect("mock cluster");
+        mock.create_topic("orders", 1, 1).expect("topic");
+        let bootstrap = mock.bootstrap_servers();
+        produce(&bootstrap, "orders").await;
+
+        for index in 0..8 {
+            commit(&bootstrap, &format!("g{index}"), "orders", 1);
+        }
+
+        let client = Arc::new(kafka_client(&bootstrap));
+        let fetches = (0..8).map(|index| {
+            let client = Arc::clone(&client);
+            async move {
+                client
+                    .committed_offsets(&format!("g{index}"), &[("orders".into(), 0)])
+                    .await
+            }
+        });
+        let results = futures::future::join_all(fetches).await;
+        assert_eq!(results.len(), 8);
+        for result in results {
+            assert_eq!(result.expect("offset fetch")[0].offset, 1);
+        }
+    }
+
+    fn kafka_client(bootstrap: &str) -> KafkaClient {
+        KafkaClient::connect(&ClusterConfig {
+            name: "test".into(),
+            bootstrap_servers: vec![bootstrap.to_owned()],
+            security: None,
+            schema_registry: None,
+            properties: HashMap::new(),
+        })
+        .expect("kafka client")
+    }
+
+    async fn produce(bootstrap: &str, topic: &str) {
+        let producer: FutureProducer = ClientConfig::new()
+            .set("bootstrap.servers", bootstrap)
+            .create()
+            .expect("producer");
+        producer
+            .send(
+                FutureRecord::to(topic).payload("hello").key("k"),
+                Duration::from_secs(5),
+            )
+            .await
+            .expect("produce");
+    }
+
+    fn commit(bootstrap: &str, group: &str, topic: &str, offset: i64) {
+        let consumer: BaseConsumer = ClientConfig::new()
+            .set("bootstrap.servers", bootstrap)
+            .set("group.id", group)
+            .set("enable.auto.commit", "false")
+            .create()
+            .expect("consumer");
+        let mut tpl = TopicPartitionList::new();
+        tpl.add_partition_offset(topic, 0, Offset::Offset(offset))
+            .expect("offset");
+        consumer.assign(&tpl).expect("assign");
+        consumer.commit(&tpl, CommitMode::Sync).expect("commit");
     }
 }
