@@ -1,0 +1,48 @@
+@layer components {
+  .json-block {
+    --th-token: var(--foreground);
+    --th-property: var(--brand);
+    --th-string: var(--chart-3);
+    --th-number: var(--chart-2);
+    --th-literal: var(--chart-4);
+    --th-comment: var(--muted-foreground);
+  }
+
+  .json-block .th-token {
+    color: var(--th-token);
+  }
+
+  .json-block .th-property {
+    color: var(--th-property);
+  }
+
+  .json-block .th-string {
+    color: var(--th-string);
+  }
+
+  .json-block .th-number {
+    color: var(--th-number);
+  }
+
+  .json-block .th-literal {
+    color: var(--th-literal);
+  }
+
+  .json-block .th-comment {
+    color: var(--th-comment);
+  }
+
+  .json-block pre.th-code {
+    margin: 0;
+    padding: 0;
+    overflow: visible;
+    background: transparent;
+    color: var(--th-token);
+  }
+
+  .json-block-wrap pre.th-code,
+  .json-block-wrap pre.th-code > code {
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+  }
+}

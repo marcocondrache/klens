@@ -6,11 +6,9 @@ import { RouterProvider } from "@tanstack/react-router";
 
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { installJsonHighlightTheme } from "@/lib/json-highlight";
 import { router } from "@/router";
-import "./index.css";
-
-installJsonHighlightTheme();
+import "./styles/global.css";
+import "./styles/highlighting.css";
 
 const queryClient = new QueryClient({
   defaultOptions: {
