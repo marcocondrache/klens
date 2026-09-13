@@ -11,9 +11,9 @@ use indexmap::IndexMap;
 
 use crate::config::Config;
 use crate::environment::OFFSET_FETCH_BATCH;
-use crate::kafka::adapter::ClusterHandle;
 use crate::kafka::broker::Broker;
 use crate::kafka::catalog::{CatalogAssemble, CatalogReuse, ClusterSnapshot};
+use crate::kafka::client::KafkaClient;
 use crate::kafka::cluster::{ClusterIdentity, ClusterOverview};
 use crate::kafka::error::KafkaError;
 use crate::kafka::group::{ConsumerGroup, GroupSnapshot};
@@ -41,7 +41,7 @@ impl QueryEngine<dyn ClusterSession> {
             config
                 .clusters
                 .iter()
-                .map(ClusterHandle::from_config)
+                .map(KafkaClient::connect)
                 .collect::<Result<Vec<_>, _>>()?,
         ))
     }
@@ -109,16 +109,17 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
         let session = self.session(cluster)?;
         let meta = session.metadata().await?;
         let names = meta.topic_names();
-        let mut groups = session.consumer_groups().await?;
+        let mut groups = session.groups().await?;
         let metadata_hash = metadata_lane_hash(&meta, &groups);
         let watermark_names = catalog_watermark_names(&names, &groups);
         let watermark_partitions = meta.topic_partition_pairs(&watermark_names);
 
-        let watermarks_fut = session.watermarks_many(&watermark_partitions);
+        let watermarks_fut = session.watermarks(&watermark_partitions);
         let hydrate = Self::hydrate_committed_offsets(session, &mut groups);
         let (configs, fetched_configs, watermarks) = if fetch_configs {
-            let configs_fut = session.topics_configs(&names);
+            let configs_fut = session.topic_configs(&names);
             let (configs, watermarks, ()) = tokio::join!(configs_fut, watermarks_fut, hydrate);
+            let watermarks = watermarks.unwrap_or_default();
             match configs {
                 Ok(configs) => (configs, true, watermarks),
                 Err(_) => (
@@ -132,7 +133,7 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
             (
                 reuse.map(|lane| lane.configs.clone()).unwrap_or_default(),
                 false,
-                watermarks,
+                watermarks.unwrap_or_default(),
             )
         };
         let ends = ends_from_watermarks(&watermarks);
@@ -212,7 +213,7 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
         }
 
         session
-            .topics_configs(&[name])
+            .topic_configs(&[name])
             .await
             .map(|mut configs| configs.remove(name).unwrap_or_default())
     }
@@ -247,14 +248,19 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
         id: &str,
     ) -> Result<ConsumerGroup, KafkaError> {
         let session = self.session(cluster)?;
-        let mut snapshot = session.consumer_group(id).await?;
+        let mut snapshot = session.group(id).await?;
         Self::hydrate_committed_offsets(session, std::slice::from_mut(&mut snapshot)).await;
         let ends = Self::end_offsets(session, std::slice::from_ref(&snapshot)).await;
         Ok(ConsumerGroup::assemble(&snapshot, &ends))
     }
 
     async fn end_offsets(session: &S, groups: &[GroupSnapshot]) -> HashMap<(String, i32), i64> {
-        ends_from_watermarks(&session.watermarks_many(&group_end_partitions(groups)).await)
+        ends_from_watermarks(
+            &session
+                .watermarks(&group_end_partitions(groups))
+                .await
+                .unwrap_or_default(),
+        )
     }
 
     pub async fn records(
@@ -315,8 +321,8 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
             .map(|partition| (query.topic.clone(), *partition))
             .collect();
         let mut watermarks = session
-            .watermarks_many(&pairs)
-            .await
+            .watermarks(&pairs)
+            .await?
             .remove(&query.topic)
             .unwrap_or_default();
 
