@@ -3,11 +3,14 @@
 //! `ClusterHandle` is the live session. Blocking librdkafka calls run through
 //! [`blocking`].
 
+mod admin;
 mod blocking;
 mod browse;
 mod client_config;
 mod convert;
+mod deadline;
 mod factory;
+mod group_offsets;
 mod offsets;
 
 use std::collections::HashMap;
@@ -34,7 +37,9 @@ use crate::kafka::session::ClusterSession;
 use crate::kafka::topic_config::ConfigEntry;
 use crate::kafka::watermarks::Watermarks;
 
+use admin::AdminPlane;
 use blocking::run_blocking;
+use deadline::Deadline;
 use factory::ClientFactory;
 use offsets::{list_offsets, merge_watermark_offsets, partition_time_offsets};
 
@@ -65,7 +70,7 @@ impl Default for Timeouts {
 pub(crate) struct ClusterHandle {
     identity: ClusterIdentity,
     factory: ClientFactory,
-    admin: Arc<AdminClient<DefaultClientContext>>,
+    admin: AdminPlane,
     schema_registry: Option<PayloadDecoder>,
     timeouts: Timeouts,
 }
@@ -82,7 +87,7 @@ impl ClusterHandle {
     pub(crate) fn from_config(config: &ClusterConfig) -> Result<Self, KafkaError> {
         let identity = ClusterIdentity::from(config);
         let factory = ClientFactory::new(config);
-        let admin = Arc::new(factory.admin()?);
+        let admin = AdminPlane::new(factory.admin()?)?;
         let schema_registry = config
             .schema_registry
             .as_ref()
@@ -167,7 +172,7 @@ impl ClusterSession for ClusterHandle {
     }
 
     async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError> {
-        Self::fetch_metadata(Arc::clone(&self.admin), self.timeouts.metadata).await
+        Self::fetch_metadata(self.admin.client(), self.timeouts.metadata).await
     }
 
     async fn watermarks_many(
@@ -236,6 +241,7 @@ impl ClusterSession for ClusterHandle {
             .collect();
         let results = self
             .admin
+            .client()
             .describe_configs(&specs, &self.admin_options())
             .await?;
 
@@ -262,6 +268,7 @@ impl ClusterSession for ClusterHandle {
         let spec = ResourceSpecifier::Broker(broker_id);
         let results = self
             .admin
+            .client()
             .describe_configs(&[spec], &self.admin_options())
             .await?;
 
@@ -280,11 +287,11 @@ impl ClusterSession for ClusterHandle {
     }
 
     async fn consumer_groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
-        Self::fetch_group_list(Arc::clone(&self.admin), self.timeouts.admin).await
+        Self::fetch_group_list(self.admin.client(), self.timeouts.admin).await
     }
 
     async fn consumer_group(&self, id: &str) -> Result<GroupSnapshot, KafkaError> {
-        Self::fetch_group(Arc::clone(&self.admin), self.timeouts.admin, id)
+        Self::fetch_group(self.admin.client(), self.timeouts.admin, id)
             .await?
             .ok_or_else(|| KafkaError::UnknownGroup {
                 cluster: self.identity.name.clone(),
@@ -297,39 +304,9 @@ impl ClusterSession for ClusterHandle {
         group_id: &str,
         partitions: &[(String, i32)],
     ) -> Result<Vec<CommittedOffset>, KafkaError> {
-        if partitions.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let factory = self.factory.clone();
-        let group_id = group_id.to_owned();
-        let partitions = partitions.to_vec();
-        let timeout = self.timeouts.admin;
-
-        run_blocking(timeout, move || {
-            use rdkafka::consumer::Consumer;
-            use rdkafka::topic_partition_list::TopicPartitionList;
-
-            let consumer = factory.offset_consumer(&group_id)?;
-            let mut tpl = TopicPartitionList::new();
-            for (topic, partition) in &partitions {
-                tpl.add_partition(topic, *partition);
-            }
-
-            let committed = consumer.committed_offsets(tpl, timeout)?;
-            let mut offsets = Vec::new();
-            for element in committed.elements() {
-                if let Offset::Offset(offset) = element.offset() {
-                    offsets.push(CommittedOffset {
-                        topic: element.topic().to_owned(),
-                        partition: element.partition(),
-                        offset,
-                    });
-                }
-            }
-            Ok(offsets)
-        })
-        .await
+        self.admin
+            .group_offsets(group_id, partitions, Deadline::from(self.timeouts.admin))
+            .await
     }
 
     async fn records(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError> {
