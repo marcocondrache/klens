@@ -1,5 +1,4 @@
 use std::collections::{BTreeSet, HashMap};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::{DateTime, Utc};
 
@@ -10,6 +9,7 @@ use crate::kafka::group::ConsumerGroup;
 use crate::kafka::registry::SchemaSubject;
 use crate::kafka::search::{SearchHit, search_snapshot};
 use crate::kafka::topic::Topic;
+use crate::utils::utc_now;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClusterSnapshot {
@@ -45,7 +45,7 @@ impl ClusterSnapshot {
         overview: ClusterOverview,
     ) -> Self {
         Self {
-            updated_at: wall_clock(),
+            updated_at: utc_now(),
             topics,
             groups,
             brokers,
@@ -123,12 +123,4 @@ pub(crate) fn empty_identity() -> ClusterIdentity {
         bootstrap_servers: Vec::new(),
         security_protocol: SecurityProtocol::Plaintext,
     }
-}
-
-pub(crate) fn wall_clock() -> DateTime<Utc> {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    DateTime::<Utc>::from_timestamp(now.as_secs() as i64, now.subsec_nanos())
-        .unwrap_or(DateTime::<Utc>::UNIX_EPOCH)
 }

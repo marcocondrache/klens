@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-use super::series::{SeriesMap, ThroughputPoint, unix_ms_now};
+use super::series::{SeriesMap, ThroughputPoint};
+use crate::utils::unix_timestamp_millis;
 
 const MAX_GROUPS: usize = 1_024;
 
@@ -18,7 +19,7 @@ impl LagStore {
     }
 
     pub fn observe(&self, cluster: &str, group: &str, lag: i64) {
-        self.observe_at(cluster, group, lag, unix_ms_now());
+        self.observe_at(cluster, group, lag, unix_timestamp_millis());
     }
 
     pub fn observe_at(&self, cluster: &str, group: &str, lag: i64, unix_ms: f64) {

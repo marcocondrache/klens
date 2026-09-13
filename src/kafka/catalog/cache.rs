@@ -9,8 +9,9 @@ use crate::kafka::broker::Broker;
 use crate::kafka::group::ConsumerGroup;
 use crate::kafka::registry::SchemaSubject;
 use crate::kafka::topic::Topic;
+use crate::utils::utc_now;
 
-use super::snapshot::{ClusterSnapshot, wall_clock};
+use super::snapshot::ClusterSnapshot;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PollLane {
@@ -270,5 +271,5 @@ fn touch_updated_at(
         .expect(lock)
         .entry(cluster.to_owned())
         .or_default()
-        .updated_at = Some(wall_clock());
+        .updated_at = Some(utc_now());
 }

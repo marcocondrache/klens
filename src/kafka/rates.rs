@@ -4,8 +4,9 @@ use std::time::Duration;
 
 use tokio::time::Instant;
 
-use super::series::{Series, SeriesMap, ThroughputPoint, unix_ms_now};
+use super::series::{Series, SeriesMap, ThroughputPoint};
 use crate::environment::MAX_SAMPLE_GAP;
+use crate::utils::unix_timestamp_millis;
 
 /// Produce rate for one topic, derived from high-watermark deltas.
 #[derive(Debug, Clone, PartialEq)]
@@ -42,7 +43,7 @@ impl RateStore {
     }
 
     pub fn observe(&self, cluster: &str, counts: HashMap<String, u64>) {
-        self.observe_at(cluster, counts, Instant::now(), unix_ms_now());
+        self.observe_at(cluster, counts, Instant::now(), unix_timestamp_millis());
     }
 
     pub fn observe_at(
