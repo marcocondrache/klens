@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::time::Instant;
+use std::ops::Range;
 
 use rdkafka::Message;
 use rdkafka::consumer::{Consumer, StreamConsumer};
@@ -7,11 +7,12 @@ use rdkafka::error::KafkaError as RdKafkaError;
 use rdkafka::message::{Headers, Timestamp};
 use rdkafka::topic_partition_list::Offset;
 use rdkafka::topic_partition_list::TopicPartitionList;
-use tokio::time::timeout;
+use tokio::time::{Instant, timeout_at};
 
 use super::factory::ClientFactory;
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{Compression, FetchPlan, Record, RecordHeader, decode_bytes};
+use crate::kafka::record::batch::RecordBatch;
 use crate::kafka::registry::decode::{PayloadDecoder, decode_field};
 
 pub async fn consume(
@@ -19,6 +20,20 @@ pub async fn consume(
     plan: &FetchPlan,
     budget: std::time::Duration,
     decoder: Option<&PayloadDecoder>,
+) -> Result<Vec<Record>, KafkaError> {
+    // A partial window cannot safely advance an offset-only cursor, especially
+    // when browsing newest first. Include decoding in the same deadline.
+    let deadline = Instant::now() + budget;
+    timeout_at(deadline, consume_windows(factory, plan, decoder, deadline))
+        .await
+        .map_err(|_| KafkaError::Timeout)?
+}
+
+async fn consume_windows(
+    factory: &ClientFactory,
+    plan: &FetchPlan,
+    decoder: Option<&PayloadDecoder>,
+    deadline: Instant,
 ) -> Result<Vec<Record>, KafkaError> {
     if plan.windows.is_empty() || plan.limit == 0 {
         return Ok(Vec::new());
@@ -40,35 +55,37 @@ pub async fn consume(
 
     consumer.assign(&tpl)?;
 
-    let deadline = Instant::now() + budget;
-    let mut remaining: HashMap<i32, i64> = plan
-        .windows
-        .iter()
-        .filter(|window| !window.is_empty())
-        .map(|window| (window.partition, window.end))
-        .collect();
-    let mut records = Vec::new();
+    let mut scan = WindowScan::new(plan);
+    let mut records = RecordBatch::new(plan.limit, plan.order);
 
-    while !remaining.is_empty() {
-        let leftover = deadline.saturating_duration_since(Instant::now());
-        if leftover.is_zero() {
-            break;
+    while !scan.remaining.is_empty() {
+        // Buffered messages and cached decoding may never yield to the timer.
+        if Instant::now() >= deadline {
+            return Err(KafkaError::Timeout);
         }
-
-        match timeout(leftover, consumer.recv()).await {
-            Err(_) => break,
-            Ok(Err(RdKafkaError::PartitionEOF(partition))) => {
-                remaining.remove(&partition);
+        match consumer.recv().await {
+            Err(RdKafkaError::PartitionEOF(partition)) => {
+                scan.remaining.remove(&partition);
+                let mut completed = TopicPartitionList::new();
+                completed.add_partition(&plan.topic, partition);
+                consumer.pause(&completed)?;
             }
-            Ok(Err(error)) => return Err(error.into()),
-            Ok(Ok(message)) => {
+            Err(error) => return Err(error.into()),
+            Ok(message) => {
                 let partition = message.partition();
-                let offset = message.offset();
-                if remaining
-                    .get(&partition)
-                    .is_some_and(|end| offset + 1 >= *end)
-                {
-                    remaining.remove(&partition);
+                // Pausing prevents more fetches; the scan also rejects messages
+                // already queued for a completed partition.
+                if !scan.remaining.contains_key(&partition) {
+                    continue;
+                }
+                let accepted = scan.accept(partition, message.offset());
+                if !scan.remaining.contains_key(&partition) {
+                    let mut completed = TopicPartitionList::new();
+                    completed.add_partition(&plan.topic, partition);
+                    consumer.pause(&completed)?;
+                }
+                if !accepted {
+                    continue;
                 }
 
                 let record = record_from_message(&message, decoder, plan).await;
@@ -79,9 +96,39 @@ pub async fn consume(
         }
     }
 
-    records.sort_by(|left, right| left.cmp_for_order(right, plan.order));
-    records.truncate(plan.limit);
-    Ok(records)
+    if Instant::now() >= deadline {
+        return Err(KafkaError::Timeout);
+    }
+    Ok(records.into_records())
+}
+
+/// Active half-open offset ranges. Kafka can jump over offsets in compacted logs.
+struct WindowScan {
+    remaining: HashMap<i32, Range<i64>>,
+}
+
+impl WindowScan {
+    fn new(plan: &FetchPlan) -> Self {
+        Self {
+            remaining: plan
+                .windows
+                .iter()
+                .filter(|window| !window.is_empty())
+                .map(|window| (window.partition, window.start..window.end))
+                .collect(),
+        }
+    }
+
+    fn accept(&mut self, partition: i32, offset: i64) -> bool {
+        let Some(window) = self.remaining.get(&partition) else {
+            return false;
+        };
+        let accepted = window.contains(&offset);
+        if offset >= window.end - 1 {
+            self.remaining.remove(&partition);
+        }
+        accepted
+    }
 }
 
 async fn record_from_message(
@@ -112,10 +159,12 @@ async fn record_from_message(
     let size_bytes = message.key().map(|key| key.len()).unwrap_or(0)
         + message.payload().map(|payload| payload.len()).unwrap_or(0);
 
-    let key = decode_field(decoder, message.key(), None)
-        .await
-        .map(|field| field.text);
-    let (value, schema_id) = match decode_field(decoder, message.payload(), plan.schema_id).await {
+    let (key, value) = tokio::join!(
+        decode_field(decoder, message.key(), None),
+        decode_field(decoder, message.payload(), plan.schema_id),
+    );
+    let key = key.map(|field| field.text);
+    let (value, schema_id) = match value {
         Some(decoded) => (Some(decoded.text), decoded.schema_id),
         None => (None, None),
     };
@@ -131,5 +180,39 @@ async fn record_from_message(
         headers,
         size_bytes: size_bytes as u64,
         compression: Compression::None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scan_enforces_half_open_windows_across_interleaved_partitions() {
+        let mut scan = WindowScan {
+            remaining: HashMap::from([(0, 10..12), (1, 20..23)]),
+        };
+
+        assert!(!scan.accept(0, 9));
+        assert!(scan.accept(0, 10));
+        assert!(scan.accept(1, 20));
+        assert!(scan.accept(0, 11));
+        assert!(!scan.remaining.contains_key(&0));
+        assert!(!scan.accept(0, 12));
+        assert!(!scan.accept(0, 13));
+        assert!(scan.accept(1, 22));
+        assert!(scan.remaining.is_empty());
+    }
+
+    #[test]
+    fn compacted_gap_completes_window_without_accepting_outside_record() {
+        let mut scan = WindowScan {
+            remaining: HashMap::from([(0, 10..20)]),
+        };
+
+        assert!(!scan.accept(1, 10));
+        assert!(scan.accept(0, 12));
+        assert!(!scan.accept(0, 25));
+        assert!(scan.remaining.is_empty());
     }
 }

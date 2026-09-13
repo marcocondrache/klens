@@ -12,6 +12,7 @@ use crate::kafka::group::{
     CommittedOffset, GroupMember, GroupSnapshot, GroupState, MemberAssignment,
 };
 use crate::kafka::metadata::{BrokerMetadata, MetadataSnapshot, PartitionMetadata, TopicMetadata};
+use crate::kafka::record::batch::RecordBatch;
 use crate::kafka::record::plan::FetchPlan;
 use crate::kafka::record::{Compression, Record, RecordHeader};
 use crate::kafka::registry::{SchemaCompatibility, SchemaSubject, SchemaType};
@@ -457,24 +458,19 @@ impl ClusterSession for FakeCluster {
     }
 
     async fn records(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError> {
-        let mut records: Vec<Record> = self
-            .records
-            .iter()
-            .filter(|record| {
-                record.topic == plan.topic
-                    && plan.windows.iter().any(|window| {
-                        window.partition == record.partition
-                            && record.offset >= window.start
-                            && record.offset < window.end
-                    })
-                    && record.matches(plan.filter.as_ref())
-            })
-            .cloned()
-            .collect();
-
-        records.sort_by(|left, right| left.cmp_for_order(right, plan.order));
-        records.truncate(plan.limit);
-        Ok(records)
+        let mut batch = RecordBatch::new(plan.limit, plan.order);
+        for record in self.records.iter().filter(|record| {
+            record.topic == plan.topic
+                && plan.windows.iter().any(|window| {
+                    window.partition == record.partition
+                        && record.offset >= window.start
+                        && record.offset < window.end
+                })
+                && record.matches(plan.filter.as_ref())
+        }) {
+            batch.push(record.clone());
+        }
+        Ok(batch.into_records())
     }
 
     async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
