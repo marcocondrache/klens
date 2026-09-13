@@ -2,9 +2,9 @@
 //!
 //! Open these first.
 //!
-//! - [`ClusterSession`] is the per-cluster I/O port. `adapter` is the rdkafka
-//!   impl (`ClusterHandle`). `registry` is Schema Registry. `testing` is the
-//!   in-memory session.
+//! - [`ClusterSession`] is the per-cluster I/O port. `client` is the rdkafka
+//!   wrapper ([`KafkaClient`]). `registry` is Schema Registry. `testing` is
+//!   the in-memory session.
 //! - Raw broker snapshots live in `metadata`, `group` (`GroupSnapshot`),
 //!   `watermarks`, and `topic_config`.
 //! - Assembled types live in `topic`, `broker`, `cluster`, `group`
@@ -14,7 +14,7 @@
 //!   and serves live records, configs, one group, and subjects. `rates`,
 //!   `lag`, and `series` are time series.
 
-mod adapter;
+mod client;
 mod registry;
 mod session;
 
@@ -42,11 +42,11 @@ pub(crate) mod model;
 #[cfg(test)]
 mod testing;
 
-pub use adapter::KafkaClusterConfig;
 pub use catalog::{
     CatalogAssemble, CatalogCache, CatalogHealth, CatalogPoller, CatalogPollerIntervals,
     CatalogPollerIo, CatalogReuse, CatalogRevision, ClusterSnapshot, PollLane, SubjectCache,
 };
+pub use client::{KafkaClient, KafkaClusterConfig};
 pub use engine::QueryEngine;
 pub use error::{KafkaError, QueryError};
 pub use lag::LagStore;

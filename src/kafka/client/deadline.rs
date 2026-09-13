@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use crate::kafka::error::KafkaError;
 
-/// Absolute budget for one adapter operation.
+/// Absolute budget for one client operation.
 ///
 /// Lock wait, `run_blocking`, the librdkafka call, and decode all consult
 /// [`remaining`](Self::remaining). They do not each get a fresh duration.

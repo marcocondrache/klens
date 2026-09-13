@@ -179,7 +179,7 @@ fn map_rdkafka(code: RDKafkaErrorCode) -> KafkaError {
 
 pub(super) struct NativeQueue(*mut bindings::rd_kafka_queue_t);
 
-// SAFETY: `AdminPlane` only lends the queue to one `spawn_blocking` at a
+// SAFETY: `KafkaClient` only lends the queue to one `spawn_blocking` at a
 // time through a mutex. librdkafka documents `rd_kafka_queue_t` as usable
 // from the thread that polls it.
 unsafe impl Send for NativeQueue {}
@@ -315,14 +315,19 @@ impl Drop for NativeEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rdkafka::admin::AdminClient;
+    use rdkafka::client::DefaultClientContext;
     use rdkafka::config::ClientConfig;
     use rdkafka::consumer::{BaseConsumer, CommitMode, Consumer};
     use rdkafka::mocking::MockCluster;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
     use rdkafka::producer::{FutureProducer, FutureRecord};
 
-    use super::super::admin::AdminPlane;
+    use crate::config::ClusterConfig;
+    use crate::kafka::client::KafkaClient;
 
     #[test]
     fn committed_from_raw_keeps_only_concrete_offsets() {
@@ -376,22 +381,26 @@ mod tests {
     #[tokio::test]
     async fn empty_partitions_skip_kafka() {
         let mock = MockCluster::new(1).expect("mock cluster");
-        let admin = admin_plane(&mock.bootstrap_servers());
-        let offsets = admin
-            .group_offsets("unused", &[], Deadline::from(Duration::from_secs(1)))
-            .await
-            .unwrap();
+        let client = kafka_client(&mock.bootstrap_servers());
+        let offsets = client.committed_offsets("unused", &[]).await.unwrap();
         assert!(offsets.is_empty());
     }
 
     #[tokio::test]
     async fn expired_deadline_is_timeout() {
         let mock = MockCluster::new(1).expect("mock cluster");
-        let admin = admin_plane(&mock.bootstrap_servers());
+        let admin: Arc<AdminClient<DefaultClientContext>> = Arc::new(
+            ClientConfig::new()
+                .set("bootstrap.servers", mock.bootstrap_servers())
+                .create()
+                .expect("admin"),
+        );
+        let queue = Arc::new(Mutex::new(
+            NativeQueue::new(admin.inner().native_ptr()).expect("queue"),
+        ));
         let deadline = Deadline::from(Duration::from_millis(1));
         tokio::time::sleep(Duration::from_millis(2)).await;
-        let error = admin
-            .group_offsets("unused", &[("orders".into(), 0)], deadline)
+        let error = list(&admin, &queue, "unused", &[("orders".into(), 0)], deadline)
             .await
             .unwrap_err();
         assert!(matches!(error, KafkaError::Timeout));
@@ -406,13 +415,9 @@ mod tests {
         produce(&bootstrap, "orders").await;
         commit(&bootstrap, "orders-group", "orders", 1);
 
-        let admin = admin_plane(&bootstrap);
-        let offsets = admin
-            .group_offsets(
-                "orders-group",
-                &[("orders".into(), 0)],
-                Deadline::from(Duration::from_secs(5)),
-            )
+        let client = kafka_client(&bootstrap);
+        let offsets = client
+            .committed_offsets("orders-group", &[("orders".into(), 0)])
             .await
             .expect("offset fetch");
 
@@ -427,7 +432,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn eight_groups_share_one_admin_client() {
+    async fn eight_groups_share_one_client() {
         let mock = MockCluster::new(1).expect("mock cluster");
         mock.create_topic("orders", 1, 1).expect("topic");
         let bootstrap = mock.bootstrap_servers();
@@ -437,16 +442,12 @@ mod tests {
             commit(&bootstrap, &format!("g{index}"), "orders", 1);
         }
 
-        let admin = Arc::new(admin_plane(&bootstrap));
+        let client = Arc::new(kafka_client(&bootstrap));
         let fetches = (0..8).map(|index| {
-            let admin = Arc::clone(&admin);
+            let client = Arc::clone(&client);
             async move {
-                admin
-                    .group_offsets(
-                        &format!("g{index}"),
-                        &[("orders".into(), 0)],
-                        Deadline::from(Duration::from_secs(5)),
-                    )
+                client
+                    .committed_offsets(&format!("g{index}"), &[("orders".into(), 0)])
                     .await
             }
         });
@@ -457,14 +458,15 @@ mod tests {
         }
     }
 
-    fn admin_plane(bootstrap: &str) -> AdminPlane {
-        AdminPlane::new(
-            ClientConfig::new()
-                .set("bootstrap.servers", bootstrap)
-                .create()
-                .expect("admin client"),
-        )
-        .expect("admin plane")
+    fn kafka_client(bootstrap: &str) -> KafkaClient {
+        KafkaClient::connect(&ClusterConfig {
+            name: "test".into(),
+            bootstrap_servers: vec![bootstrap.to_owned()],
+            security: None,
+            schema_registry: None,
+            properties: HashMap::new(),
+        })
+        .expect("kafka client")
     }
 
     async fn produce(bootstrap: &str, topic: &str) {

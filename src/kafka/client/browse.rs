@@ -9,14 +9,13 @@ use rdkafka::topic_partition_list::Offset;
 use rdkafka::topic_partition_list::TopicPartitionList;
 use tokio::time::{Instant, timeout_at};
 
-use super::factory::ClientFactory;
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{Compression, FetchPlan, Record, RecordHeader, decode_bytes};
 use crate::kafka::record::batch::RecordBatch;
 use crate::kafka::registry::decode::{PayloadDecoder, decode_field};
 
 pub async fn consume(
-    factory: &ClientFactory,
+    consumer: StreamConsumer,
     plan: &FetchPlan,
     budget: std::time::Duration,
     decoder: Option<&PayloadDecoder>,
@@ -24,13 +23,13 @@ pub async fn consume(
     // A partial window cannot safely advance an offset-only cursor, especially
     // when browsing newest first. Include decoding in the same deadline.
     let deadline = Instant::now() + budget;
-    timeout_at(deadline, consume_windows(factory, plan, decoder, deadline))
+    timeout_at(deadline, consume_windows(consumer, plan, decoder, deadline))
         .await
         .map_err(|_| KafkaError::Timeout)?
 }
 
 async fn consume_windows(
-    factory: &ClientFactory,
+    consumer: StreamConsumer,
     plan: &FetchPlan,
     decoder: Option<&PayloadDecoder>,
     deadline: Instant,
@@ -39,7 +38,6 @@ async fn consume_windows(
         return Ok(Vec::new());
     }
 
-    let consumer: StreamConsumer = factory.browser()?;
     let mut tpl = TopicPartitionList::new();
 
     for window in &plan.windows {

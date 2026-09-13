@@ -1,13 +1,12 @@
 //! Per-cluster Kafka I/O port.
 //!
-//! The query engine talks only to [`ClusterSession`]. The production impl is
-//! `ClusterHandle` in [`super::adapter`].
+//! The query engine talks only to [`ClusterSession`]. Production is
+//! [`super::client::KafkaClient`]. Tests use [`super::testing::FakeCluster`].
 
 use std::collections::HashMap;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use futures::future::join_all;
 
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
@@ -15,52 +14,21 @@ use crate::kafka::model::{
     Record, SchemaSubject, Watermarks,
 };
 
-/// Per-cluster Kafka I/O. The query engine talks only to this port.
+/// Per-cluster Kafka I/O. Matches [`super::client::KafkaClient`].
 #[async_trait]
 pub trait ClusterSession: Send + Sync + 'static {
     fn identity(&self) -> &ClusterIdentity;
 
     async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError>;
 
-    async fn watermarks(&self, topic: &str) -> Result<HashMap<i32, Watermarks>, KafkaError> {
-        let partitions = self.metadata().await?.topic_partition_pairs(&[topic]);
-        Ok(self
-            .watermarks_many(&partitions)
-            .await
-            .remove(topic)
-            .unwrap_or_default())
-    }
-
-    /// Low and high watermarks for the given partitions in one sweep.
+    /// Low and high watermarks for the given partitions.
     ///
     /// The caller supplies partitions from a metadata snapshot it already
     /// has. This method does not refetch cluster metadata.
-    ///
-    /// The default groups those partitions by topic and calls
-    /// [`watermarks`](Self::watermarks). Live clusters override this with
-    /// batched `ListOffsets`.
-    async fn watermarks_many(
+    async fn watermarks(
         &self,
         partitions: &[(String, i32)],
-    ) -> HashMap<String, HashMap<i32, Watermarks>> {
-        let mut topics: Vec<String> = partitions.iter().map(|(topic, _)| topic.clone()).collect();
-        topics.sort();
-        topics.dedup();
-        join_all(topics.iter().map(|name| async move {
-            let marks = self.watermarks(name).await.unwrap_or_default();
-            let wanted: HashMap<i32, Watermarks> = partitions
-                .iter()
-                .filter(|(topic, _)| topic == name)
-                .filter_map(|(_, partition)| {
-                    marks.get(partition).copied().map(|mark| (*partition, mark))
-                })
-                .collect();
-            (name.clone(), wanted)
-        }))
-        .await
-        .into_iter()
-        .collect()
-    }
+    ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError>;
 
     /// Earliest offset at or after `timestamp` (unix ms) for each answered
     /// partition.
@@ -74,21 +42,21 @@ pub trait ClusterSession: Send + Sync + 'static {
         timestamp: i64,
     ) -> Result<HashMap<i32, Option<i64>>, KafkaError>;
 
-    async fn topics_configs(
+    async fn topic_configs(
         &self,
         topics: &[&str],
     ) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError>;
 
     async fn broker_configs(&self, broker_id: i32) -> Result<Vec<ConfigEntry>, KafkaError>;
 
-    async fn consumer_groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError>;
+    async fn groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError>;
 
     /// Snapshot for one consumer group.
     ///
-    /// The default scans [`consumer_groups`](Self::consumer_groups). Live
-    /// clusters override this with a single-group broker fetch.
-    async fn consumer_group(&self, id: &str) -> Result<GroupSnapshot, KafkaError> {
-        self.consumer_groups()
+    /// The default scans [`groups`](Self::groups). Live clusters override
+    /// this with a single-group broker fetch.
+    async fn group(&self, id: &str) -> Result<GroupSnapshot, KafkaError> {
+        self.groups()
             .await?
             .into_iter()
             .find(|group| group.id == id)
