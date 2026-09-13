@@ -1,8 +1,16 @@
+import { createFileRoute } from "@tanstack/react-router";
+
 import { LoginCover } from "@/components/login-cover";
 import { LoginForm } from "@/components/login-form";
 import { ModeToggle } from "@/components/mode-toggle";
+import { parseLoginSearch } from "@/lib/route-search";
 
-export function LoginPage() {
+export const Route = createFileRoute("/login")({
+  validateSearch: parseLoginSearch,
+  component: LoginPage,
+});
+
+function LoginPage() {
   return (
     <div className="grid min-h-svh lg:grid-cols-2">
       <div className="flex flex-col gap-4 p-6 md:p-10">

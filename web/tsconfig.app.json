@@ -25,6 +25,7 @@
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true,
+    "strictNullChecks": true,
 
     "plugins": [
       {

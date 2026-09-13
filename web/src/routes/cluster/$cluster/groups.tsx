@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useNavigate, useSearch } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 
 import {
   Select,
@@ -18,7 +18,13 @@ import { useConsumerGroups } from "@/lib/api/catalog";
 import { useClusterName } from "@/lib/clusters";
 import { formatCount, formatEnumLabel, formatNumber, formatRelative } from "@/lib/format";
 import type { ConsumerGroupState, GroupList } from "@/lib/api/types";
+import { parseGroupsSearch } from "@/lib/route-search";
 import { createAppColumnHelper } from "@/lib/table";
+
+export const Route = createFileRoute("/cluster/$cluster/groups")({
+  validateSearch: parseGroupsSearch,
+  component: ConsumerGroupsPage,
+});
 
 const EMPTY_GROUPS: GroupList[] = [];
 
@@ -83,10 +89,10 @@ const columns = columnHelper.columns([
   }),
 ]);
 
-export function ConsumerGroupsPage() {
+function ConsumerGroupsPage() {
   const cluster = useClusterName();
-  const navigate = useNavigate({ from: "/cluster/$cluster/groups" });
-  const { q: term = "", state = "all" } = useSearch({ from: "/cluster/$cluster/groups" });
+  const navigate = Route.useNavigate();
+  const { q: term = "", state = "all" } = Route.useSearch();
 
   const { data, isPending, isError, error } = useConsumerGroups(cluster);
   const now = useNow();
