@@ -1,5 +1,5 @@
 import { CrownIcon, NetworkIcon } from "lucide-react";
-import { useParams } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 
 import { ConfigTable } from "@/components/config-table";
 import { CopyButton } from "@/components/copy-button";
@@ -11,9 +11,13 @@ import { useBrokerConfigs } from "@/lib/api/live";
 import { useClusterName } from "@/lib/clusters";
 import { formatNumber } from "@/lib/format";
 
-export function NodePage() {
+export const Route = createFileRoute("/cluster/$cluster/nodes_/$id")({
+  component: NodePage,
+});
+
+function NodePage() {
   const cluster = useClusterName();
-  const { id } = useParams({ from: "/cluster/$cluster/nodes/$id" });
+  const { id } = Route.useParams();
   const brokerId = Number(id);
 
   const { data: broker, isPending } = useBroker(cluster, brokerId);

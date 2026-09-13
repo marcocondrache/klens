@@ -77,3 +77,28 @@ export function parseTopicDetailSearch(search: Record<string, unknown>): TopicDe
 export function parseGroupDetailSearch(search: Record<string, unknown>): GroupDetailSearch {
   return search.tab === "members" ? { tab: "members" } : {};
 }
+
+export function parseSearch(searchStr: string): Record<string, string> {
+  const query = searchStr.startsWith("?") ? searchStr.slice(1) : searchStr;
+  const params = new URLSearchParams(query);
+  const out: Record<string, string> = {};
+  params.forEach((value, key) => {
+    out[key] = value;
+  });
+  return out;
+}
+
+export function stringifySearch(search: Record<string, unknown>): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(search)) {
+    if (typeof value === "string") {
+      if (value !== "") params.set(key, value);
+      continue;
+    }
+    if (typeof value === "number" || typeof value === "boolean") {
+      params.set(key, String(value));
+    }
+  }
+  const qs = params.toString();
+  return qs ? `?${qs}` : "";
+}

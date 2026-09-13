@@ -1,5 +1,5 @@
 import { ServerOffIcon } from "lucide-react";
-import { Navigate } from "@tanstack/react-router";
+import { Navigate, createFileRoute } from "@tanstack/react-router";
 
 import {
   Empty,
@@ -11,7 +11,11 @@ import {
 import { PageLoading } from "@/components/page-loading";
 import { useClusters } from "@/lib/api/catalog";
 
-export function HomePage() {
+export const Route = createFileRoute("/")({
+  component: HomePage,
+});
+
+function HomePage() {
   const { data: clusters, isPending, isError } = useClusters();
   const name = clusters?.[0]?.name;
 

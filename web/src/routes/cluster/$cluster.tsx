@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { TriangleAlertIcon } from "lucide-react";
-import { Navigate, Outlet } from "@tanstack/react-router";
+import { Navigate, Outlet, createFileRoute } from "@tanstack/react-router";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
@@ -11,8 +11,14 @@ import { useCatalogHealth, useClusters } from "@/lib/api/catalog";
 import { useCatalogUpdated } from "@/lib/api/subscriptions";
 import { useClusterName } from "@/lib/clusters";
 import { findSearchHotkeyTarget, isTypingTarget } from "@/lib/keyboard";
+import { NotFoundPage } from "@/routes/-not-found";
 
-export function AppLayout() {
+export const Route = createFileRoute("/cluster/$cluster")({
+  component: AppLayout,
+  notFoundComponent: NotFoundPage,
+});
+
+function AppLayout() {
   const cluster = useClusterName();
   const { data: clusters, isPending } = useClusters();
   const { data: health } = useCatalogHealth(cluster);

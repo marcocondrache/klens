@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useNavigate, useSearch } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 
 import {
   Sheet,
@@ -20,7 +20,13 @@ import { useClusterName } from "@/lib/clusters";
 import { catalogHealthCaption } from "@/lib/catalog-health";
 import { prettyJson } from "@/lib/format";
 import type { SchemaSubject } from "@/lib/api/types";
+import { parseSchemasSearch } from "@/lib/route-search";
 import { createAppColumnHelper } from "@/lib/table";
+
+export const Route = createFileRoute("/cluster/$cluster/schemas")({
+  validateSearch: parseSchemasSearch,
+  component: SchemasPage,
+});
 
 const columnHelper = createAppColumnHelper<SchemaSubject>();
 
@@ -59,10 +65,10 @@ const columns = columnHelper.columns([
   }),
 ]);
 
-export function SchemasPage() {
+function SchemasPage() {
   const cluster = useClusterName();
-  const navigate = useNavigate({ from: "/cluster/$cluster/schemas" });
-  const { q: term = "" } = useSearch({ from: "/cluster/$cluster/schemas" });
+  const navigate = Route.useNavigate();
+  const { q: term = "" } = Route.useSearch();
   const [selected, setSelected] = useState<SchemaSubject | null>(null);
   const { data: subjects = [], isPending, isError, error } = useSchemaSubjects(cluster);
   const { data: health } = useCatalogHealth(cluster);
