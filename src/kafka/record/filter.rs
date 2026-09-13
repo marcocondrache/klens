@@ -4,10 +4,10 @@ use std::sync::Arc;
 
 use cel::extractors::This;
 use cel::{Context, Program, Timestamp, Value};
-use chrono::{DateTime, Utc};
 
 use crate::kafka::error::QueryError;
 use crate::kafka::record::{Compression, Record};
+use crate::utils::datetime_from_unix_millis;
 
 /// Reject expressions larger than this so a browse request cannot carry an
 /// arbitrarily large program.
@@ -115,9 +115,7 @@ fn header_map(record: &Record) -> BTreeMap<&str, &str> {
 }
 
 fn record_timestamp(millis: i64) -> chrono::DateTime<chrono::FixedOffset> {
-    DateTime::<Utc>::from_timestamp_millis(millis)
-        .unwrap_or(DateTime::<Utc>::UNIX_EPOCH)
-        .fixed_offset()
+    datetime_from_unix_millis(millis).fixed_offset()
 }
 
 fn compression_name(compression: Compression) -> &'static str {

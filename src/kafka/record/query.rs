@@ -111,15 +111,15 @@ fn timestamp_seek(bound: Bound<DateTime<Utc>>, is_end: bool) -> Option<i64> {
     }
 }
 
-pub(crate) fn unix_datetime(ms: i64) -> DateTime<Utc> {
-    DateTime::from_timestamp_millis(ms).unwrap_or(DateTime::UNIX_EPOCH)
-}
-
 #[cfg(test)]
 mod tests {
     use std::ops::{Bound, RangeBounds};
 
     use super::*;
+
+    fn unix_datetime(ms: i64) -> DateTime<Utc> {
+        crate::utils::datetime_from_unix_millis(ms)
+    }
 
     #[test]
     fn rejects_from_after_to() {

@@ -3,6 +3,7 @@ use juniper::{GraphQLEnum, GraphQLInputObject, GraphQLObject};
 
 use crate::config::SecurityProtocol as ConfigSecurityProtocol;
 use crate::kafka::model as domain;
+use crate::utils::datetime_from_unix_millis;
 
 /// Generate a `From` between two enums whose variants have the same names.
 ///
@@ -477,7 +478,7 @@ impl From<domain::Record> for TopicRecord {
             topic: record.topic,
             partition: record.partition,
             offset: record.offset as f64,
-            timestamp: domain::unix_datetime(record.timestamp),
+            timestamp: datetime_from_unix_millis(record.timestamp),
             key: record.key,
             value: record.value,
             schema_id: record.schema_id,
@@ -518,7 +519,7 @@ pub(super) struct ThroughputPoint {
 impl From<crate::kafka::ThroughputPoint> for ThroughputPoint {
     fn from(point: crate::kafka::ThroughputPoint) -> Self {
         Self {
-            timestamp: domain::unix_datetime(point.timestamp as i64),
+            timestamp: datetime_from_unix_millis(point.timestamp as i64),
             messages: point.messages,
         }
     }
