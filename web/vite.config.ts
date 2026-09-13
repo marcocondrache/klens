@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "path";
 import babel from "@rolldown/plugin-babel";
+import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import tailwindcss from "@tailwindcss/vite";
 import react, { reactCompilerPreset } from "@vitejs/plugin-react";
 import { defineConfig, lazyPlugins } from "vite-plus";
@@ -15,9 +16,16 @@ function appVersion() {
 }
 
 export default defineConfig({
-  fmt: {},
+  fmt: {
+    ignorePatterns: ["src/routeTree.gen.ts"],
+  },
   lint: {
-    ignorePatterns: ["src/graphql/gql.ts", "src/graphql/graphql.ts", "src/graphql/index.ts"],
+    ignorePatterns: [
+      "src/graphql/gql.ts",
+      "src/graphql/graphql.ts",
+      "src/graphql/index.ts",
+      "src/routeTree.gen.ts",
+    ],
     plugins: ["react", "typescript", "oxc"],
     rules: {
       "react/rules-of-hooks": "error",
@@ -40,7 +48,16 @@ export default defineConfig({
       },
     ],
   },
-  plugins: lazyPlugins(() => [react(), babel({ presets: [reactCompilerPreset()] }), tailwindcss()]),
+  plugins: lazyPlugins(() => [
+    tanstackRouter({
+      target: "react",
+      autoCodeSplitting: false,
+      quoteStyle: "double",
+    }),
+    react(),
+    babel({ presets: [reactCompilerPreset()] }),
+    tailwindcss(),
+  ]),
   define: {
     __APP_VERSION__: JSON.stringify(appVersion()),
   },

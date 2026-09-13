@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { AlertTriangleIcon, DatabaseIcon, GaugeIcon, NetworkIcon } from "lucide-react";
-import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConfigTable } from "@/components/config-table";
@@ -26,7 +26,13 @@ import {
   isCompactCleanup,
 } from "@/lib/format";
 import type { ConsumerGroup, Partition } from "@/lib/api/types";
+import { parseTopicDetailSearch } from "@/lib/route-search";
 import { createAppColumnHelper } from "@/lib/table";
+
+export const Route = createFileRoute("/cluster/$cluster/topics_/$topic")({
+  validateSearch: parseTopicDetailSearch,
+  component: TopicPage,
+});
 
 const partitionColumnHelper = createAppColumnHelper<Partition>();
 const groupColumnHelper = createAppColumnHelper<ConsumerGroup>();
@@ -95,11 +101,11 @@ const partitionColumns = partitionColumnHelper.columns([
   }),
 ]);
 
-export function TopicPage() {
+function TopicPage() {
   const cluster = useClusterName();
-  const navigate = useNavigate({ from: "/cluster/$cluster/topics/$topic" });
-  const { topic: topicName } = useParams({ from: "/cluster/$cluster/topics/$topic" });
-  const { tab: tabParam } = useSearch({ from: "/cluster/$cluster/topics/$topic" });
+  const navigate = Route.useNavigate();
+  const { topic: topicName } = Route.useParams();
+  const { tab: tabParam } = Route.useSearch();
   const tab = tabParam ?? "data";
 
   const { data: topic, isPending, isError, error } = useTopic(cluster, topicName);

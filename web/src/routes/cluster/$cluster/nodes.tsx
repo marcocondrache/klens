@@ -1,5 +1,5 @@
 import { CrownIcon } from "lucide-react";
-import { useNavigate } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 
 import { CopyButton } from "@/components/copy-button";
 import { DataTable } from "@/components/data-table";
@@ -12,6 +12,10 @@ import { catalogHealthCaption } from "@/lib/catalog-health";
 import { formatNumber } from "@/lib/format";
 import type { Broker } from "@/lib/api/types";
 import { createAppColumnHelper } from "@/lib/table";
+
+export const Route = createFileRoute("/cluster/$cluster/nodes")({
+  component: NodesPage,
+});
 
 const columnHelper = createAppColumnHelper<Broker>();
 
@@ -73,9 +77,9 @@ const columns = columnHelper.columns([
   }),
 ]);
 
-export function NodesPage() {
+function NodesPage() {
   const cluster = useClusterName();
-  const navigate = useNavigate();
+  const navigate = Route.useNavigate();
   const { data: brokers = [], isPending, isError, error } = useBrokers(cluster);
   const { data: health } = useCatalogHealth(cluster);
   const now = useNow();

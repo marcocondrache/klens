@@ -74,7 +74,7 @@ If you drive by hand, use these handles from this repo. Prefer them over coordin
 
 | Control | Handle |
 |---|---|
-| Home redirect | `/` → `/cluster/<name>/topics` when a cluster exists (`web/src/routes/home.tsx`) |
+| Home redirect | `/` → `/cluster/<name>/topics` when a cluster exists (`web/src/routes/index.tsx`) |
 | Topics page | `/cluster/local/topics`, heading `Topics` |
 | Topic search | `input[data-search-hotkey]` placeholder `Search topics…` |
 | Internal topics | label `Show internal` |

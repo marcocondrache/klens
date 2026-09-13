@@ -1,5 +1,5 @@
 import { ActivityIcon, LayersIcon, NetworkIcon, UsersRoundIcon } from "lucide-react";
-import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { Link, createFileRoute } from "@tanstack/react-router";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sparkline } from "@/components/charts";
@@ -15,7 +15,13 @@ import { useConsumerGroupLag } from "@/lib/api/subscriptions";
 import { useClusterName } from "@/lib/clusters";
 import { formatCount, formatNumber } from "@/lib/format";
 import type { ConsumerGroupMember, GroupOffset } from "@/lib/api/types";
+import { parseGroupDetailSearch } from "@/lib/route-search";
 import { createAppColumnHelper } from "@/lib/table";
+
+export const Route = createFileRoute("/cluster/$cluster/groups_/$group")({
+  validateSearch: parseGroupDetailSearch,
+  component: ConsumerGroupPage,
+});
 
 const offsetColumnHelper = createAppColumnHelper<GroupOffset>();
 const memberColumnHelper = createAppColumnHelper<ConsumerGroupMember>();
@@ -65,11 +71,11 @@ const memberColumns = memberColumnHelper.columns([
   ),
 ]);
 
-export function ConsumerGroupPage() {
+function ConsumerGroupPage() {
   const cluster = useClusterName();
-  const navigate = useNavigate({ from: "/cluster/$cluster/groups/$group" });
-  const { group: groupId } = useParams({ from: "/cluster/$cluster/groups/$group" });
-  const { tab: tabParam } = useSearch({ from: "/cluster/$cluster/groups/$group" });
+  const navigate = Route.useNavigate();
+  const { group: groupId } = Route.useParams();
+  const { tab: tabParam } = Route.useSearch();
   const tab = tabParam ?? "offsets";
   const { data: group, isPending, isError, error } = useConsumerGroup(cluster, groupId);
   const { data: lagHistory = [] } = useGroupLagHistory(cluster, groupId);

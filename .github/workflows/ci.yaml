@@ -64,6 +64,9 @@ jobs:
       - name: Check
         working-directory: web
         run: bunx vp check
+      - name: Router contract
+        working-directory: web
+        run: bun run test:router
       - name: Build
         working-directory: web
         run: bun run build

@@ -1,6 +1,6 @@
 import { useMemo, type ReactNode } from "react";
 import { AlertTriangleIcon } from "lucide-react";
-import { useNavigate, useSearch } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 
 import { Label } from "@/components/ui/label";
 import {
@@ -27,7 +27,13 @@ import {
   isCompactCleanup,
 } from "@/lib/format";
 import type { TopicList } from "@/lib/api/types";
+import { parseTopicsSearch } from "@/lib/route-search";
 import { createAppColumnHelper } from "@/lib/table";
+
+export const Route = createFileRoute("/cluster/$cluster/topics")({
+  validateSearch: parseTopicsSearch,
+  component: TopicsPage,
+});
 
 const POLICY_ITEMS = [
   { value: "all", label: "All policies" },
@@ -114,14 +120,10 @@ const columns = columnHelper.columns([
   }),
 ]);
 
-export function TopicsPage() {
+function TopicsPage() {
   const cluster = useClusterName();
-  const navigate = useNavigate({ from: "/cluster/$cluster/topics" });
-  const {
-    q: term = "",
-    internal,
-    policy = "all",
-  } = useSearch({ from: "/cluster/$cluster/topics" });
+  const navigate = Route.useNavigate();
+  const { q: term = "", internal, policy = "all" } = Route.useSearch();
   const showInternal = internal === "1";
 
   const { data, isPending, isError, error } = useTopics(cluster);
