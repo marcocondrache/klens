@@ -1,5 +1,4 @@
 use std::collections::{HashMap, VecDeque};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::environment::HISTORY_LEN;
 
@@ -87,13 +86,6 @@ impl SeriesMap {
             self.series.remove(&key);
         }
     }
-}
-
-pub fn unix_ms_now() -> f64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as f64)
-        .unwrap_or(0.0)
 }
 
 #[cfg(test)]

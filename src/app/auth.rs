@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::extract::{FromRef, Query, State};
 use axum::http::StatusCode;
@@ -17,6 +16,7 @@ use crate::config::AuthConfig;
 use crate::environment::{
     COOKIE_KEY_MIN_LEN, LOGIN_COOKIE, LOGIN_MAX_AGE_SECS, SESSION_COOKIE, SESSION_COOKIE_KEY_PREFIX,
 };
+use crate::utils::unix_timestamp_secs;
 
 mod oidc;
 
@@ -94,7 +94,7 @@ impl AuthState {
     fn session_from_jar(&self, jar: &PrivateCookieJar) -> Option<SessionUser> {
         let cookie = jar.get(SESSION_COOKIE)?;
         let user: SessionUser = serde_json::from_str(cookie.value()).ok()?;
-        if user.exp <= unix_now() {
+        if user.exp <= unix_timestamp_secs() {
             return None;
         }
         Some(user)
@@ -244,7 +244,7 @@ async fn callback(
 
     tracing::info!(sub = %user.sub, "oidc login succeeded");
 
-    let ttl = (user.exp - unix_now()).max(0);
+    let ttl = (user.exp - unix_timestamp_secs()).max(0);
     let jar = jar
         .remove(removal_cookie(LOGIN_COOKIE, state.auth.cookie_secure()))
         .add(build_cookie(
@@ -309,13 +309,6 @@ fn derive_cookie_key(issuer: &str, client_secret: &str) -> Key {
         material.resize(COOKIE_KEY_MIN_LEN, 0);
     }
     Key::derive_from(&material)
-}
-
-pub(crate) fn unix_now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64
 }
 
 #[cfg(test)]
@@ -440,7 +433,7 @@ mod tests {
             sub: "user-1".into(),
             email: Some("user@example.com".into()),
             name: Some("Test User".into()),
-            exp: unix_now() + 3600,
+            exp: unix_timestamp_secs() + 3600,
         };
         let cookie = auth.session_cookie_header(&user);
 

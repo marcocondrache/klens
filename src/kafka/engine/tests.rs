@@ -10,10 +10,11 @@ use crate::kafka::error::KafkaError;
 use crate::kafka::group::GroupSnapshot;
 use crate::kafka::model::{
     ClusterIdentity, CommittedOffset, ConfigEntry, FetchPlan, MetadataSnapshot, Record,
-    RecordOrder, RecordQuery, TimestampRange, Watermarks, unix_datetime,
+    RecordOrder, RecordQuery, TimestampRange, Watermarks,
 };
 use crate::kafka::session::ClusterSession;
 use crate::kafka::testing::{CountingSession, FakeCluster};
+use crate::utils::datetime_from_unix_millis as unix_datetime;
 
 fn cluster_config(name: &str) -> ClusterConfig {
     ClusterConfig {

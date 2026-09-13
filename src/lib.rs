@@ -5,6 +5,7 @@ pub mod kafka;
 mod r#macro;
 pub mod server;
 pub mod telemetry;
+mod utils;
 
 pub use app::{AppState, AuthState, router, schema};
 pub use config::{

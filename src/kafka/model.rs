@@ -12,7 +12,6 @@ pub use crate::kafka::group::{
 };
 pub use crate::kafka::metadata::MetadataSnapshot;
 pub use crate::kafka::record::plan::FetchPlan;
-pub(crate) use crate::kafka::record::query::unix_datetime;
 pub use crate::kafka::record::query::{RecordOrder, RecordQuery, TimestampRange};
 pub use crate::kafka::record::{Compression, Record, RecordHeader, RecordPage, decode_bytes};
 pub use crate::kafka::registry::{

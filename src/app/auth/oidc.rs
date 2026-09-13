@@ -19,6 +19,7 @@ type DiscoveredClient = CoreClient<
 
 use super::SessionUser;
 use crate::config::OidcConfig;
+use crate::utils::unix_timestamp_secs;
 
 #[async_trait]
 pub(crate) trait OidcFlow: Send + Sync {
@@ -151,7 +152,7 @@ impl OidcFlow for Oidc {
             }
         }
 
-        let now = super::unix_now();
+        let now = unix_timestamp_secs();
         let exp = claims
             .expiration()
             .timestamp()
@@ -207,7 +208,7 @@ impl OidcFlow for FakeOidc {
             sub: "user-1".into(),
             email: Some("user@example.com".into()),
             name: Some("Test User".into()),
-            exp: super::unix_now() + 3600,
+            exp: unix_timestamp_secs() + 3600,
         })
     }
 }
