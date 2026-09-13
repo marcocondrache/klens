@@ -396,13 +396,11 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                 />
 
                 <section className="shrink-0 space-y-2">
-                  <h3 className="text-sm font-medium tracking-wide text-muted-foreground">
-                    Headers
-                  </h3>
+                  <h3 className="text-sm font-medium text-muted-foreground">Headers</h3>
                   {selectedRecord.headers.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No headers.</p>
                   ) : (
-                    <div className="divide-y overflow-hidden rounded-lg border">
+                    <div className="divide-y overflow-hidden border">
                       {selectedRecord.headers.map((header) => (
                         <div
                           key={header.key}
@@ -419,9 +417,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                 </section>
 
                 <section className="shrink-0 space-y-2">
-                  <h3 className="text-sm font-medium tracking-wide text-muted-foreground">
-                    Metadata
-                  </h3>
+                  <h3 className="text-sm font-medium text-muted-foreground">Metadata</h3>
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <Meta label="Partition" value={String(selectedRecord.partition)} />
                     <Meta label="Offset" value={String(selectedRecord.offset)} />
@@ -445,8 +441,8 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
 
 function Meta({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="rounded-lg border bg-muted/20 px-3 py-2">
-      <p className="text-sm tracking-wide text-muted-foreground">{label}</p>
+    <div className="border bg-muted/20 px-3 py-2">
+      <p className="text-sm text-muted-foreground">{label}</p>
       <p className="numeric mt-0.5 font-mono text-sm">{value}</p>
     </div>
   );

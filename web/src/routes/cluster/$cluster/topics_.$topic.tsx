@@ -73,7 +73,7 @@ const partitionColumns = partitionColumnHelper.columns([
       <span
         className={
           row.original.isr.length < row.original.replicas.length
-            ? "numeric font-mono text-amber-500"
+            ? "numeric font-mono text-warn"
             : "numeric font-mono"
         }
       >
