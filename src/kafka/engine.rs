@@ -20,7 +20,7 @@ use crate::kafka::group::{ConsumerGroup, GroupSnapshot};
 use crate::kafka::limits::RecordLimits;
 use crate::kafka::metadata::MetadataSnapshot;
 use crate::kafka::record::RecordPage;
-use crate::kafka::record::page::{fetch_one_page, fill_filtered_page};
+use crate::kafka::record::page::fetch_page;
 use crate::kafka::record::plan::apply_timestamp_bounds;
 use crate::kafka::record::query::RecordQuery;
 use crate::kafka::registry::SchemaSubject;
@@ -263,34 +263,21 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
         query: RecordQuery,
     ) -> Result<RecordPage, KafkaError> {
         let session = self.session(cluster)?;
-        let partitions = self.resolve_partitions(cluster, session, &query).await?;
-
         let limit = self.limits.clamp_limit(query.limit)?;
         query.timestamps.validate()?;
 
+        let partitions = self.resolve_partitions(cluster, session, &query).await?;
         let watermarks = Self::window_watermarks(session, &query, &partitions).await?;
 
-        if query.filter.is_some() {
-            fill_filtered_page(
-                session,
-                &query,
-                &partitions,
-                &watermarks,
-                limit,
-                self.limits,
-            )
-            .await
-        } else {
-            fetch_one_page(
-                session,
-                &query,
-                &partitions,
-                &watermarks,
-                limit,
-                self.limits,
-            )
-            .await
-        }
+        fetch_page(
+            session,
+            &query,
+            &partitions,
+            &watermarks,
+            limit,
+            self.limits,
+        )
+        .await
     }
 
     async fn resolve_partitions(

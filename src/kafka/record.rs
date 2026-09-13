@@ -5,6 +5,7 @@
 //! windows. `page` fetches those windows. [`cursor::RecordCursor`] resumes.
 //! [`filter::RecordFilter`] is the CEL predicate.
 
+pub(crate) mod batch;
 pub mod cursor;
 pub mod filter;
 pub mod page;
