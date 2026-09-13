@@ -158,10 +158,10 @@ function ConsumerGroupPage() {
               <span
                 className={
                   lag === 0
-                    ? "block h-full bg-emerald-500/70"
+                    ? "block h-full bg-ok/70"
                     : lag > maxLag / 2
-                      ? "block h-full bg-rose-500/70"
-                      : "block h-full bg-amber-500/70"
+                      ? "block h-full bg-destructive/70"
+                      : "block h-full bg-warn/70"
                 }
                 style={{
                   width: `${Math.max(lag === 0 ? 0 : 4, (lag / maxLag) * 100)}%`,

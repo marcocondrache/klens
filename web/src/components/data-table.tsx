@@ -5,14 +5,7 @@ import type { RowData } from "@tanstack/react-table";
 import { Button } from "@/components/ui/button";
 import { RefreshBar } from "@/components/refresh-bar";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { type AppColumnDef, useAppTable } from "@/lib/table";
 import { cn } from "@/lib/utils";
 
@@ -106,111 +99,116 @@ export function DataTable<TData extends RowData>({
   const showPager = serverPaging ? canPreviousPage || hasMore : pageCount > 1;
 
   return (
-    <div className={cn(fill ? "flex min-h-0 flex-1 flex-col gap-3" : "space-y-3")}>
+    <div className={cn(fill ? "flex min-h-0 flex-1 flex-col gap-3" : "flex flex-col gap-3")}>
       <div
         className={cn(
-          "relative overflow-hidden rounded-xl border bg-card",
+          "relative overflow-hidden bg-card ring-1 ring-foreground/10",
           fill && "flex min-h-0 flex-col",
         )}
       >
         {refreshing ? <RefreshBar className="absolute inset-x-0 top-0 z-20" /> : null}
-        <Table containerClassName={cn(fill && "min-h-0 flex-1 overflow-auto")}>
-          <TableHeader className={cn(fill && "[&_tr]:border-b-0!")}>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id} className="hover:bg-transparent">
-                {headerGroup.headers.map((header) => {
-                  const meta = header.column.columnDef.meta;
-                  const sorted = header.column.getIsSorted();
+        <div
+          data-slot="table-container"
+          className={cn("relative w-full overflow-x-auto", fill && "min-h-0 flex-1 overflow-auto")}
+        >
+          <table data-slot="table" className="w-full caption-bottom text-xs">
+            <TableHeader className={cn(fill && "[&_tr]:border-b-0!")}>
+              {table.getHeaderGroups().map((headerGroup) => (
+                <TableRow key={headerGroup.id} className="hover:bg-transparent">
+                  {headerGroup.headers.map((header) => {
+                    const meta = header.column.columnDef.meta;
+                    const sorted = header.column.getIsSorted();
+
+                    return (
+                      <TableHead
+                        key={header.id}
+                        className={cn(
+                          "h-10 bg-muted/40 text-muted-foreground",
+                          fill &&
+                            "sticky top-0 z-10 bg-card bg-linear-to-b from-muted/40 to-muted/40 shadow-[inset_0_-1px_0_0_var(--color-border)]",
+                          meta?.align === "right" && "text-right",
+                          header.column.getCanSort() &&
+                            "cursor-pointer select-none hover:text-foreground",
+                          meta?.headerClassName,
+                        )}
+                        onClick={header.column.getToggleSortingHandler()}
+                      >
+                        {header.isPlaceholder ? null : (
+                          <span
+                            className={cn(
+                              "inline-flex items-center gap-1",
+                              meta?.align === "right" && "flex-row-reverse",
+                            )}
+                          >
+                            <table.FlexRender header={header} />
+                            {sorted === "asc" ? (
+                              <ArrowUpIcon className="size-3" />
+                            ) : sorted === "desc" ? (
+                              <ArrowDownIcon className="size-3" />
+                            ) : null}
+                          </span>
+                        )}
+                      </TableHead>
+                    );
+                  })}
+                </TableRow>
+              ))}
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                Array.from({ length: 6 }, (_, index) => (
+                  <TableRow key={index} className="hover:bg-transparent">
+                    {columns.map((_, columnIndex) => (
+                      <TableCell key={columnIndex} className="py-2.5">
+                        <Skeleton className="h-4 w-full max-w-32" />
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))
+              ) : rows.length === 0 ? (
+                <TableRow className="hover:bg-transparent">
+                  <TableCell colSpan={columns.length} className="p-0">
+                    {tablePlaceholder(error ?? emptyState ?? "No results.")}
+                  </TableCell>
+                </TableRow>
+              ) : (
+                rows.map((row, index) => {
+                  const selected = selectedKey === row.id;
 
                   return (
-                    <TableHead
-                      key={header.id}
+                    <TableRow
+                      key={row.id}
+                      data-state={selected ? "selected" : undefined}
+                      onClick={onRowClick ? () => onRowClick(row.original) : undefined}
                       className={cn(
-                        "h-10 bg-muted/40 text-sm font-medium tracking-wide text-muted-foreground",
-                        fill &&
-                          "sticky top-0 z-10 bg-card bg-linear-to-b from-muted/40 to-muted/40 shadow-[inset_0_-1px_0_0_var(--color-border)]",
-                        meta?.align === "right" && "text-right",
-                        header.column.getCanSort() &&
-                          "cursor-pointer select-none hover:text-foreground",
-                        meta?.headerClassName,
+                        "border-border",
+                        index % 2 === 1 && !selected && "bg-muted/35",
+                        onRowClick && "cursor-pointer",
                       )}
-                      onClick={header.column.getToggleSortingHandler()}
                     >
-                      {header.isPlaceholder ? null : (
-                        <span
-                          className={cn(
-                            "inline-flex items-center gap-1",
-                            meta?.align === "right" && "flex-row-reverse",
-                          )}
-                        >
-                          <table.FlexRender header={header} />
-                          {sorted === "asc" ? (
-                            <ArrowUpIcon className="size-3" />
-                          ) : sorted === "desc" ? (
-                            <ArrowDownIcon className="size-3" />
-                          ) : null}
-                        </span>
-                      )}
-                    </TableHead>
+                      {row.getAllCells().map((cell) => {
+                        const meta = cell.column.columnDef.meta;
+
+                        return (
+                          <TableCell
+                            key={cell.id}
+                            className={cn(
+                              "py-2.5",
+                              meta?.align === "right" && "text-right numeric",
+                              meta?.className,
+                            )}
+                          >
+                            <table.FlexRender cell={cell} />
+                          </TableCell>
+                        );
+                      })}
+                    </TableRow>
                   );
-                })}
-              </TableRow>
-            ))}
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              Array.from({ length: 6 }, (_, index) => (
-                <TableRow key={index} className="hover:bg-transparent">
-                  {columns.map((_, columnIndex) => (
-                    <TableCell key={columnIndex} className="py-2.5">
-                      <Skeleton className="h-4 w-full max-w-32" />
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
-            ) : rows.length === 0 ? (
-              <TableRow className="hover:bg-transparent">
-                <TableCell colSpan={columns.length} className="p-0">
-                  {tablePlaceholder(error ?? emptyState ?? "No results.")}
-                </TableCell>
-              </TableRow>
-            ) : (
-              rows.map((row, index) => {
-                const selected = selectedKey === row.id;
-
-                return (
-                  <TableRow
-                    key={row.id}
-                    data-state={selected ? "selected" : undefined}
-                    onClick={onRowClick ? () => onRowClick(row.original) : undefined}
-                    className={cn(
-                      "border-border",
-                      index % 2 === 1 && !selected && "bg-muted/35",
-                      onRowClick && "cursor-pointer",
-                    )}
-                  >
-                    {row.getAllCells().map((cell) => {
-                      const meta = cell.column.columnDef.meta;
-
-                      return (
-                        <TableCell
-                          key={cell.id}
-                          className={cn(
-                            "py-2.5 text-sm",
-                            meta?.align === "right" && "text-right numeric",
-                            meta?.className,
-                          )}
-                        >
-                          <table.FlexRender cell={cell} />
-                        </TableCell>
-                      );
-                    })}
-                  </TableRow>
-                );
-              })
-            )}
-          </TableBody>
-        </Table>
+                })
+              )}
+            </TableBody>
+          </table>
+        </div>
       </div>
 
       {showPager ? (

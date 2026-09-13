@@ -29,8 +29,8 @@ export function Stat({
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-xl border bg-card p-4",
-        accent && "border-brand/25",
+        "relative overflow-hidden bg-card p-4 ring-1 ring-foreground/10",
+        accent && "ring-brand/25",
       )}
     >
       {accent ? (
@@ -39,7 +39,7 @@ export function Stat({
 
       <div className="relative flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-1.5">
-          <p className="text-sm font-medium tracking-wide text-muted-foreground">{label}</p>
+          <p className="text-sm font-medium text-muted-foreground">{label}</p>
           {loading ? (
             <Skeleton className="h-8 w-24" />
           ) : (
@@ -53,7 +53,7 @@ export function Stat({
         {icon ? (
           <span
             className={cn(
-              "flex size-8 shrink-0 items-center justify-center rounded-lg border bg-muted/50 text-muted-foreground [&_svg]:size-4",
+              "flex size-8 shrink-0 items-center justify-center border bg-muted/50 text-muted-foreground [&_svg]:size-4",
               accent && "border-brand/25 bg-brand/10 text-brand",
             )}
           >
