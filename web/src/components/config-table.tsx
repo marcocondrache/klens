@@ -1,16 +1,17 @@
 import { useMemo, useState } from "react";
 import { EyeOffIcon, LockIcon } from "lucide-react";
+import { createColumnHelper } from "@tanstack/react-table";
 
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CopyButton } from "@/components/copy-button";
-import { DataTable } from "@/components/data-table";
+import { DataTableColumnHeader } from "@/components/data-table/column-header";
+import { DataTable } from "@/components/data-table/data-table";
+import { type DataTableFeatures } from "@/components/data-table/features";
 import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
 import type { ConfigEntry } from "@/lib/api/types";
-import { createAppColumnHelper } from "@/lib/table";
-import { cn } from "@/lib/utils";
 
 const SOURCE_LABEL: Record<ConfigEntry["source"], string> = {
   DYNAMIC_TOPIC_CONFIG: "topic override",
@@ -19,11 +20,12 @@ const SOURCE_LABEL: Record<ConfigEntry["source"], string> = {
   DEFAULT_CONFIG: "default",
 };
 
-const columnHelper = createAppColumnHelper<ConfigEntry>();
+const columnHelper = createColumnHelper<DataTableFeatures, ConfigEntry>();
 
 const columns = columnHelper.columns([
   columnHelper.accessor("name", {
-    header: "Key",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Key" />,
+    meta: { label: "Key" },
     cell: ({ row }) => {
       const entry = row.original;
 
@@ -40,10 +42,9 @@ const columns = columnHelper.columns([
       );
     },
   }),
-  columnHelper.display({
-    id: "value",
-    header: "Value",
-    meta: { className: "whitespace-normal" },
+  columnHelper.accessor("value", {
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Value" />,
+    meta: { className: "whitespace-normal", label: "Value" },
     cell: ({ row }) => {
       const entry = row.original;
 
@@ -63,8 +64,10 @@ const columns = columnHelper.columns([
     },
   }),
   columnHelper.accessor("source", {
-    header: "Source",
-    meta: { align: "right" },
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Source" className="justify-end" />
+    ),
+    meta: { align: "right", label: "Source" },
     cell: ({ getValue }) => (
       <Pill tone={getValue() === "DEFAULT_CONFIG" ? "idle" : "brand"}>
         {SOURCE_LABEL[getValue()]}
@@ -99,34 +102,33 @@ export function ConfigTable({
   }, [entries, term, onlyOverrides]);
 
   return (
-    <div className={cn(fill ? "flex min-h-0 flex-1 flex-col gap-3" : "space-y-3")}>
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
-        <SearchField
-          className="max-w-xs"
-          value={term}
-          onChange={(event) => setTerm(event.target.value)}
-          placeholder="Filter configuration…"
-        />
-
-        <Label className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Switch
-            size="sm"
-            checked={onlyOverrides}
-            onCheckedChange={(checked) => setOnlyOverrides(checked)}
+    <DataTable
+      columns={columns}
+      data={rows}
+      getRowId={(entry) => entry.name}
+      toolbar={
+        <>
+          <SearchField
+            className="max-w-xs"
+            value={term}
+            onChange={(event) => setTerm(event.target.value)}
+            placeholder="Filter configuration…"
           />
-          Overrides only
-        </Label>
-      </div>
 
-      <DataTable
-        columns={columns}
-        data={rows}
-        getRowId={(entry) => entry.name}
-        loading={loading}
-        pageSize={50}
-        defaultSort={{ id: "name", direction: "asc" }}
-        fill={fill}
-      />
-    </div>
+          <Label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Switch
+              size="sm"
+              checked={onlyOverrides}
+              onCheckedChange={(checked) => setOnlyOverrides(checked)}
+            />
+            Overrides only
+          </Label>
+        </>
+      }
+      loading={loading}
+      pageSize={50}
+      defaultSort={{ id: "name", direction: "asc" }}
+      fill={fill}
+    />
   );
 }
