@@ -15,8 +15,10 @@ import { cn } from "@/lib/utils";
 
 import { type DataTableFeatures } from "./features";
 
-interface DataTableColumnHeaderProps<TData extends RowData, TValue>
-  extends HTMLAttributes<HTMLDivElement> {
+interface DataTableColumnHeaderProps<
+  TData extends RowData,
+  TValue,
+> extends HTMLAttributes<HTMLDivElement> {
   column: Column<DataTableFeatures, TData, TValue>;
   title: string;
 }
