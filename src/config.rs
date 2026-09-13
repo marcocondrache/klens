@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::env::VarError;
 use std::net::SocketAddr;
@@ -7,8 +8,6 @@ use serde::Deserialize;
 use thiserror::Error;
 
 use crate::environment;
-
-mod expand;
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -89,10 +88,12 @@ impl Config {
             source,
         })?;
 
-        let expanded = expand::expand(&raw).map_err(|source| ConfigError::Expand {
-            path: path.to_owned(),
-            source,
-        })?;
+        let expanded = shellexpand::env_with_context(&raw, |name| std::env::var(name).map(Some))
+            .map(Cow::into_owned)
+            .map_err(|source| ConfigError::Expand {
+                path: path.to_owned(),
+                source,
+            })?;
 
         let config: Self =
             serde_yaml_ng::from_str(&expanded).map_err(|source| ConfigError::Parse {
@@ -877,7 +878,7 @@ mod tests {
 
     fn load_yaml(yaml: &str, vars: &[(&str, &str)]) -> Result<Config, ConfigError> {
         let vars: HashMap<&str, &str> = vars.iter().copied().collect();
-        let expanded = expand::expand_with(yaml, |name| match vars.get(name) {
+        let expanded = shellexpand::env_with_context(yaml, |name| match vars.get(name) {
             Some(value) => Ok(Some(*value)),
             None => Err(std::env::VarError::NotPresent),
         })
