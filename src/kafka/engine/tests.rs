@@ -522,6 +522,35 @@ async fn records_reject_timestamp_from_after_to() {
     assert!(error.to_string().contains("timestampFrom"));
 }
 
+#[tokio::test]
+async fn invalid_record_queries_are_rejected_before_metadata_calls() {
+    let session = CountingSession::new(FakeCluster::local());
+    let engine = QueryEngine::from_sessions(vec![session.clone()]);
+
+    for limit in [0, -1] {
+        let mut query = browse_query();
+        query.limit = limit;
+
+        let error = engine.records("local", query).await.unwrap_err();
+
+        assert_eq!(error.code(), "LIMIT_TOO_SMALL");
+        assert_eq!(session.calls.metadata(), 0);
+        assert_eq!(session.calls.watermarks_many(), 0);
+    }
+
+    let mut query = browse_query();
+    query.timestamps = TimestampRange::from_bounds((
+        Bound::Included(unix_datetime(2)),
+        Bound::Included(unix_datetime(1)),
+    ));
+
+    let error = engine.records("local", query).await.unwrap_err();
+
+    assert_eq!(error.code(), "INVERTED_TIMESTAMP_RANGE");
+    assert_eq!(session.calls.metadata(), 0);
+    assert_eq!(session.calls.watermarks_many(), 0);
+}
+
 #[derive(Clone)]
 struct SharedFake {
     identity: ClusterIdentity,

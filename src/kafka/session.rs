@@ -104,6 +104,9 @@ pub trait ClusterSession: Send + Sync + 'static {
         partitions: &[(String, i32)],
     ) -> Result<Vec<CommittedOffset>, KafkaError>;
 
+    /// Fully scan the plan's half-open windows, then return at most `limit`
+    /// matching records sorted by `order`. An incomplete scan must return an
+    /// error, not a partial batch: pagination advances past underfilled windows.
     async fn records(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError>;
 
     async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
