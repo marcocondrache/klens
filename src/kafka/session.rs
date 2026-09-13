@@ -1,7 +1,7 @@
 //! Per-cluster Kafka I/O port.
 //!
 //! The query engine talks only to [`ClusterSession`]. Production is
-//! [`super::client::KafkaClient`]. Tests use [`super::testing::FakeCluster`].
+//! [`super::client::KafkaClient`]. Tests use an in-memory session.
 
 use std::collections::HashMap;
 use std::time::Duration;
