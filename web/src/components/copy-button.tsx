@@ -42,7 +42,7 @@ export function CopyButton({
           />
         }
       >
-        {copied ? <CheckIcon className="text-emerald-500" /> : <CopyIcon />}
+        {copied ? <CheckIcon className="text-ok" /> : <CopyIcon />}
       </TooltipTrigger>
       <TooltipContent>{copied ? "Copied" : label}</TooltipContent>
     </Tooltip>

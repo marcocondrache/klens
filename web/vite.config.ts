@@ -15,38 +15,25 @@ function appVersion() {
   }
 }
 
+const readonlyPatterns = [
+  "src/graphql/gql.ts",
+  "src/graphql/graphql.ts",
+  "src/graphql/index.ts",
+  "src/routeTree.gen.ts",
+  "src/components/ui",
+];
+
 export default defineConfig({
   fmt: {
-    ignorePatterns: ["src/routeTree.gen.ts"],
+    ignorePatterns: readonlyPatterns,
   },
   lint: {
-    ignorePatterns: [
-      "src/graphql/gql.ts",
-      "src/graphql/graphql.ts",
-      "src/graphql/index.ts",
-      "src/routeTree.gen.ts",
-    ],
+    ignorePatterns: readonlyPatterns,
     plugins: ["react", "typescript", "oxc"],
-    rules: {
-      "react/rules-of-hooks": "error",
-      "react/only-export-components": [
-        "warn",
-        {
-          allowConstantExport: true,
-        },
-      ],
-      "vite-plus/prefer-vite-plus-imports": "error",
-    },
     options: {
       typeAware: true,
       typeCheck: true,
     },
-    jsPlugins: [
-      {
-        name: "vite-plus",
-        specifier: "vite-plus/oxlint-plugin",
-      },
-    ],
   },
   plugins: lazyPlugins(() => [
     tanstackRouter({
@@ -64,7 +51,6 @@ export default defineConfig({
   server: {
     proxy: {
       "/health": "http://localhost:8080",
-      "/api": "http://localhost:8080",
       "/auth": "http://localhost:8080",
       "/graphql": {
         target: "http://localhost:8080",

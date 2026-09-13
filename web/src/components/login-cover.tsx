@@ -1,8 +1,25 @@
 export function LoginCover() {
   return (
-    <div className="relative hidden overflow-hidden bg-[#120d09] lg:block" aria-hidden>
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_90%_70%_at_75%_35%,oklch(0.55_0.18_48/0.5),transparent_68%),radial-gradient(ellipse_50%_45%_at_10%_85%,oklch(0.45_0.12_30/0.35),transparent_60%),radial-gradient(ellipse_40%_35%_at_90%_95%,oklch(0.5_0.1_80/0.28),transparent_55%)]" />
-      <div className="absolute inset-0 bg-[linear-gradient(to_right,rgb(255_255_255/0.035)_1px,transparent_1px),linear-gradient(to_bottom,rgb(255_255_255/0.035)_1px,transparent_1px)] bg-size-[3.5rem_3.5rem] mask-[radial-gradient(ellipse_at_center,black_20%,transparent_75%)]" />
+    <div className="relative hidden overflow-hidden bg-background lg:block" aria-hidden>
+      <div
+        className="absolute inset-0"
+        style={{
+          backgroundImage: [
+            "radial-gradient(ellipse 90% 70% at 75% 35%, color-mix(in oklab, var(--brand) 50%, transparent), transparent 68%)",
+            "radial-gradient(ellipse 50% 45% at 10% 85%, color-mix(in oklab, var(--primary) 35%, transparent), transparent 60%)",
+            "radial-gradient(ellipse 40% 35% at 90% 95%, color-mix(in oklab, var(--brand) 28%, transparent), transparent 55%)",
+          ].join(", "),
+        }}
+      />
+      <div
+        className="absolute inset-0 bg-size-[3.5rem_3.5rem] mask-[radial-gradient(ellipse_at_center,black_20%,transparent_75%)]"
+        style={{
+          backgroundImage: [
+            "linear-gradient(to right, color-mix(in oklab, var(--foreground) 4%, transparent) 1px, transparent 1px)",
+            "linear-gradient(to bottom, color-mix(in oklab, var(--foreground) 4%, transparent) 1px, transparent 1px)",
+          ].join(", "),
+        }}
+      />
 
       <svg
         className="absolute inset-0 size-full"
@@ -30,12 +47,12 @@ export function LoginCover() {
           stroke="url(#klens-stream-2)"
           strokeWidth="1.25"
         />
-        <circle cx="268" cy="308" r="3.5" fill="#FFF7ED" fillOpacity="0.9" />
-        <circle cx="268" cy="308" r="10" fill="#FF8B2E" fillOpacity="0.28" />
-        <circle cx="512" cy="278" r="2.5" fill="#FBBF24" fillOpacity="0.85" />
-        <circle cx="188" cy="448" r="2.5" fill="#FFF7ED" fillOpacity="0.7" />
-        <circle cx="428" cy="538" r="3" fill="#FBBF24" fillOpacity="0.8" />
-        <circle cx="428" cy="538" r="9" fill="#FBBF24" fillOpacity="0.18" />
+        <circle cx="268" cy="308" r="3.5" fill="var(--brand-foreground)" fillOpacity="0.9" />
+        <circle cx="268" cy="308" r="10" fill="var(--brand)" fillOpacity="0.28" />
+        <circle cx="512" cy="278" r="2.5" fill="var(--primary)" fillOpacity="0.85" />
+        <circle cx="188" cy="448" r="2.5" fill="var(--brand-foreground)" fillOpacity="0.7" />
+        <circle cx="428" cy="538" r="3" fill="var(--primary)" fillOpacity="0.8" />
+        <circle cx="428" cy="538" r="9" fill="var(--primary)" fillOpacity="0.18" />
         <defs>
           <linearGradient
             id="klens-stream-1"
@@ -45,9 +62,9 @@ export function LoginCover() {
             y2="0"
             gradientUnits="userSpaceOnUse"
           >
-            <stop offset="0" stopColor="#FF8B2E" stopOpacity="0" />
-            <stop offset="0.45" stopColor="#FF8B2E" stopOpacity="0.7" />
-            <stop offset="1" stopColor="#FBBF24" stopOpacity="0" />
+            <stop offset="0" stopColor="var(--brand)" stopOpacity="0" />
+            <stop offset="0.45" stopColor="var(--brand)" stopOpacity="0.7" />
+            <stop offset="1" stopColor="var(--primary)" stopOpacity="0" />
           </linearGradient>
           <linearGradient
             id="klens-stream-2"
@@ -57,9 +74,9 @@ export function LoginCover() {
             y2="0"
             gradientUnits="userSpaceOnUse"
           >
-            <stop offset="0" stopColor="#FBBF24" stopOpacity="0" />
-            <stop offset="0.5" stopColor="#E04F00" stopOpacity="0.45" />
-            <stop offset="1" stopColor="#E04F00" stopOpacity="0" />
+            <stop offset="0" stopColor="var(--primary)" stopOpacity="0" />
+            <stop offset="0.5" stopColor="var(--brand)" stopOpacity="0.45" />
+            <stop offset="1" stopColor="var(--brand)" stopOpacity="0" />
           </linearGradient>
         </defs>
       </svg>
@@ -67,12 +84,15 @@ export function LoginCover() {
       <img
         src="/favicon.svg"
         alt=""
-        className="absolute top-[42%] left-1/2 w-[min(22rem,46%)] -translate-x-[42%] -translate-y-1/2 opacity-90 drop-shadow-[0_0_80px_oklch(0.55_0.18_48/0.55)]"
+        className="absolute top-[42%] left-1/2 w-[min(22rem,46%)] -translate-x-[42%] -translate-y-1/2 opacity-90"
+        style={{
+          filter: "drop-shadow(0 0 80px color-mix(in oklab, var(--brand) 55%, transparent))",
+        }}
       />
 
-      <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-[#120d09] via-[#120d09]/70 to-transparent p-10 pt-24">
-        <p className="text-xl font-semibold tracking-tight text-white">A lens for Kafka</p>
-        <p className="mt-1.5 max-w-md text-sm leading-relaxed text-white/55">
+      <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-background via-background/70 to-transparent p-10 pt-24">
+        <p className="text-xl font-semibold tracking-tight text-foreground">A lens for Kafka</p>
+        <p className="mt-1.5 max-w-md text-sm leading-relaxed text-muted-foreground">
           Open a cluster and look through the topics and the messages on them, the groups consuming
           them, the brokers, and the schemas.
         </p>
