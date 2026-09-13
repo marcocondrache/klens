@@ -212,9 +212,8 @@ impl FakeCluster {
         self
     }
 
-    /// Delays every per-topic watermark read. The trait's `watermarks_many`
-    /// default fans these out, so a batched read of N topics still costs one
-    /// delay rather than N.
+    /// Delays every watermark read. One call covers every requested
+    /// partition, so a batched read of N topics still costs one delay.
     pub fn with_watermark_delay(mut self, delay: Duration) -> Self {
         self.watermark_delay = delay;
         self
@@ -376,18 +375,37 @@ impl ClusterSession for FakeCluster {
         Ok(self.metadata.clone())
     }
 
-    async fn watermarks(&self, topic: &str) -> Result<HashMap<i32, Watermarks>, KafkaError> {
+    async fn watermarks(
+        &self,
+        partitions: &[(String, i32)],
+    ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError> {
         if !self.watermark_delay.is_zero() {
             tokio::time::sleep(self.watermark_delay).await;
         }
 
-        let mut marks = self.watermarks.get(topic).cloned().unwrap_or_default();
-        if let Some(growth) = &self.watermark_growth
-            && let Some(partition) = marks.get_mut(&0)
-        {
-            partition.high += growth.grown.fetch_add(growth.step, Ordering::SeqCst);
-        }
-        Ok(marks)
+        let mut topics: Vec<&str> = partitions.iter().map(|(topic, _)| topic.as_str()).collect();
+        topics.sort_unstable();
+        topics.dedup();
+
+        Ok(topics
+            .into_iter()
+            .map(|name| {
+                let mut marks = self.watermarks.get(name).cloned().unwrap_or_default();
+                if let Some(growth) = &self.watermark_growth
+                    && let Some(partition) = marks.get_mut(&0)
+                {
+                    partition.high += growth.grown.fetch_add(growth.step, Ordering::SeqCst);
+                }
+                let wanted: HashMap<i32, Watermarks> = partitions
+                    .iter()
+                    .filter(|(topic, _)| topic == name)
+                    .filter_map(|(_, partition)| {
+                        marks.get(partition).copied().map(|mark| (*partition, mark))
+                    })
+                    .collect();
+                (name.to_owned(), wanted)
+            })
+            .collect())
     }
 
     async fn offsets_for_times(
@@ -414,7 +432,7 @@ impl ClusterSession for FakeCluster {
             .collect())
     }
 
-    async fn topics_configs(
+    async fn topic_configs(
         &self,
         topics: &[&str],
     ) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError> {
@@ -440,7 +458,7 @@ impl ClusterSession for FakeCluster {
             .unwrap_or_default())
     }
 
-    async fn consumer_groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
+    async fn groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
         Ok(self.groups.clone())
     }
 
@@ -488,9 +506,9 @@ impl ClusterSession for FakeCluster {
 #[derive(Debug, Default)]
 pub struct SessionCalls {
     metadata: AtomicUsize,
-    watermarks_many: AtomicUsize,
-    consumer_groups: AtomicUsize,
-    topics_configs: AtomicUsize,
+    watermarks: AtomicUsize,
+    groups: AtomicUsize,
+    topic_configs: AtomicUsize,
     committed_offsets: AtomicUsize,
 }
 
@@ -499,16 +517,16 @@ impl SessionCalls {
         self.metadata.load(Ordering::SeqCst)
     }
 
-    pub fn watermarks_many(&self) -> usize {
-        self.watermarks_many.load(Ordering::SeqCst)
+    pub fn watermarks(&self) -> usize {
+        self.watermarks.load(Ordering::SeqCst)
     }
 
-    pub fn consumer_groups(&self) -> usize {
-        self.consumer_groups.load(Ordering::SeqCst)
+    pub fn groups(&self) -> usize {
+        self.groups.load(Ordering::SeqCst)
     }
 
-    pub fn topics_configs(&self) -> usize {
-        self.topics_configs.load(Ordering::SeqCst)
+    pub fn topic_configs(&self) -> usize {
+        self.topic_configs.load(Ordering::SeqCst)
     }
 
     pub fn committed_offsets(&self) -> usize {
@@ -548,12 +566,12 @@ impl ClusterSession for CountingSession {
         self.inner.metadata().await
     }
 
-    async fn watermarks_many(
+    async fn watermarks(
         &self,
         partitions: &[(String, i32)],
-    ) -> HashMap<String, HashMap<i32, Watermarks>> {
-        self.calls.watermarks_many.fetch_add(1, Ordering::SeqCst);
-        self.inner.watermarks_many(partitions).await
+    ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError> {
+        self.calls.watermarks.fetch_add(1, Ordering::SeqCst);
+        self.inner.watermarks(partitions).await
     }
 
     async fn offsets_for_times(
@@ -567,21 +585,21 @@ impl ClusterSession for CountingSession {
             .await
     }
 
-    async fn topics_configs(
+    async fn topic_configs(
         &self,
         topics: &[&str],
     ) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError> {
-        self.calls.topics_configs.fetch_add(1, Ordering::SeqCst);
-        self.inner.topics_configs(topics).await
+        self.calls.topic_configs.fetch_add(1, Ordering::SeqCst);
+        self.inner.topic_configs(topics).await
     }
 
     async fn broker_configs(&self, broker_id: i32) -> Result<Vec<ConfigEntry>, KafkaError> {
         self.inner.broker_configs(broker_id).await
     }
 
-    async fn consumer_groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
-        self.calls.consumer_groups.fetch_add(1, Ordering::SeqCst);
-        self.inner.consumer_groups().await
+    async fn groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
+        self.calls.groups.fetch_add(1, Ordering::SeqCst);
+        self.inner.groups().await
     }
 
     async fn committed_offsets(

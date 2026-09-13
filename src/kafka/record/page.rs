@@ -138,7 +138,14 @@ mod tests {
             unimplemented!()
         }
 
-        async fn topics_configs(
+        async fn watermarks(
+            &self,
+            _partitions: &[(String, i32)],
+        ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError> {
+            unimplemented!("page fetching must not request watermarks")
+        }
+
+        async fn topic_configs(
             &self,
             _topics: &[&str],
         ) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError> {
@@ -149,7 +156,7 @@ mod tests {
             unimplemented!()
         }
 
-        async fn consumer_groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
+        async fn groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
             unimplemented!()
         }
 
