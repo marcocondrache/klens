@@ -1,17 +1,21 @@
 import { useMemo, type ReactNode } from "react";
 import { AlertTriangleIcon } from "lucide-react";
 import { createFileRoute } from "@tanstack/react-router";
+import { createColumnHelper } from "@tanstack/react-table";
 
 import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { DataTable } from "@/components/data-table";
+import { DataTableColumnHeader } from "@/components/data-table/column-header";
+import { DataTable } from "@/components/data-table/data-table";
+import { type DataTableFeatures } from "@/components/data-table/features";
 import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
@@ -28,7 +32,6 @@ import {
 } from "@/lib/format";
 import type { TopicList } from "@/lib/api/types";
 import { parseTopicsSearch } from "@/lib/route-search";
-import { createAppColumnHelper } from "@/lib/table";
 
 export const Route = createFileRoute("/cluster/$cluster/topics")({
   validateSearch: parseTopicsSearch,
@@ -51,11 +54,12 @@ function emptyMetric(value: number, display: ReactNode) {
   return display;
 }
 
-const columnHelper = createAppColumnHelper<TopicList>();
+const columnHelper = createColumnHelper<DataTableFeatures, TopicList>();
 
 const columns = columnHelper.columns([
   columnHelper.accessor("name", {
-    header: "Topic",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Topic" />,
+    meta: { label: "Topic" },
     cell: ({ row }) => {
       const topic = row.original;
 
@@ -75,37 +79,49 @@ const columns = columnHelper.columns([
   }),
   columnHelper.accessor("partitionCount", {
     id: "partitions",
-    header: "Parts",
-    meta: { align: "right" },
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Parts" className="justify-end" />
+    ),
+    meta: { align: "right", label: "Parts" },
     cell: ({ getValue }) => getValue(),
   }),
   columnHelper.accessor("replicationFactor", {
     id: "replication",
-    header: "RF",
-    meta: { align: "right" },
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="RF" className="justify-end" />
+    ),
+    meta: { align: "right", label: "RF" },
   }),
   columnHelper.accessor("messageCount", {
     id: "messages",
-    header: "Messages",
-    meta: { align: "right" },
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Messages" className="justify-end" />
+    ),
+    meta: { align: "right", label: "Messages" },
     cell: ({ getValue }) => emptyMetric(getValue(), formatNumber(getValue())),
   }),
   columnHelper.accessor("messagesPerSec", {
     id: "rate",
-    header: "Msg/s",
-    meta: { align: "right" },
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Msg/s" className="justify-end" />
+    ),
+    meta: { align: "right", label: "Msg/s" },
     cell: ({ getValue }) => emptyMetric(getValue(), formatThroughput(getValue())),
   }),
   columnHelper.accessor("retentionMs", {
     id: "retention",
-    header: "Retention",
-    meta: { align: "right" },
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Retention" className="justify-end" />
+    ),
+    meta: { align: "right", label: "Retention" },
     cell: ({ getValue }) => <span>{formatDuration(getValue())}</span>,
   }),
   columnHelper.accessor("cleanupPolicy", {
     id: "policy",
-    header: "Policy",
-    meta: { align: "right" },
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Policy" className="justify-end" />
+    ),
+    meta: { align: "right", label: "Policy" },
     cell: ({ getValue }) => (
       <Pill tone={isCompactCleanup(getValue()) ? "brand" : "idle"}>
         {formatCleanupPolicy(getValue())}
@@ -114,8 +130,10 @@ const columns = columnHelper.columns([
   }),
   columnHelper.accessor((topic) => topic.consumerGroups.length, {
     id: "groups",
-    header: "Groups",
-    meta: { align: "right" },
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Groups" className="justify-end" />
+    ),
+    meta: { align: "right", label: "Groups" },
     cell: ({ getValue }) => emptyMetric(getValue(), getValue()),
   }),
 ]);
@@ -173,44 +191,47 @@ function TopicsPage() {
         }`}
       />
 
-      <div className="flex flex-wrap items-center gap-3">
-        <SearchField
-          value={term}
-          onChange={(event) => update("q", event.target.value)}
-          placeholder="Search topics…"
-        />
-
-        <Select
-          value={policy}
-          items={POLICY_ITEMS}
-          onValueChange={(value) => update("policy", String(value))}
-        >
-          <SelectTrigger size="sm" className="w-40">
-            <SelectValue placeholder="Cleanup policy" />
-          </SelectTrigger>
-          <SelectContent>
-            {POLICY_ITEMS.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Label className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Switch
-            size="sm"
-            checked={showInternal}
-            onCheckedChange={(checked) => update("internal", checked ? "1" : null)}
-          />
-          Show internal
-        </Label>
-      </div>
-
       <DataTable
         columns={columns}
         data={rows}
         getRowId={(topic) => topic.name}
+        toolbar={
+          <>
+            <SearchField
+              value={term}
+              onChange={(event) => update("q", event.target.value)}
+              placeholder="Search topics…"
+            />
+
+            <Select
+              value={policy}
+              items={POLICY_ITEMS}
+              onValueChange={(value) => update("policy", String(value))}
+            >
+              <SelectTrigger size="sm" className="w-40">
+                <SelectValue placeholder="Cleanup policy" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {POLICY_ITEMS.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+
+            <Label className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Switch
+                size="sm"
+                checked={showInternal}
+                onCheckedChange={(checked) => update("internal", checked ? "1" : null)}
+              />
+              Show internal
+            </Label>
+          </>
+        }
         loading={isPending}
         error={
           isError ? (error instanceof Error ? error.message : "Failed to load topics.") : undefined

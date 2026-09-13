@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ClockIcon } from "lucide-react";
+import { createColumnHelper } from "@tanstack/react-table";
 
 import {
   Empty,
@@ -12,6 +13,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/in
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -24,7 +26,9 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { DataTable } from "@/components/data-table";
+import { DataTableColumnHeader } from "@/components/data-table/column-header";
+import { DataTable } from "@/components/data-table/data-table";
+import { type DataTableFeatures } from "@/components/data-table/features";
 import { PayloadView } from "@/components/payload-view";
 import { SchemaPicker } from "@/components/schema-picker";
 import { SearchField } from "@/components/search-field";
@@ -34,7 +38,6 @@ import { useRecords } from "@/lib/api/live";
 import { queryErrorMessage } from "@/lib/query-error";
 import { formatBytes, formatRelative, formatTimestamp, fromDatetimeLocalValue } from "@/lib/format";
 import type { RecordOrder, Topic, TopicRecord } from "@/lib/api/types";
-import { createAppColumnHelper } from "@/lib/table";
 import { cn } from "@/lib/utils";
 
 const LIMITS = ["25", "50", "100"] as const;
@@ -61,31 +64,37 @@ function containsFilter(term: string): string | null {
   return `keyText.lowerAscii().contains(${needle}) || valueText.lowerAscii().contains(${needle})`;
 }
 
-const columnHelper = createAppColumnHelper<TopicRecord>();
+const columnHelper = createColumnHelper<DataTableFeatures, TopicRecord>();
 
 const columns = columnHelper.columns([
   columnHelper.accessor("partition", {
-    header: "Part",
-    meta: { align: "right", headerClassName: "w-16" },
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Part" className="justify-end" />
+    ),
+    meta: { align: "right", headerClassName: "w-16", label: "Part" },
     cell: ({ getValue }) => <span className="numeric font-mono">{getValue()}</span>,
   }),
   columnHelper.accessor("offset", {
-    header: "Offset",
-    meta: { align: "right", headerClassName: "w-28" },
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Offset" className="justify-end" />
+    ),
+    meta: { align: "right", headerClassName: "w-28", label: "Offset" },
     cell: ({ getValue }) => <span className="numeric font-mono">{getValue()}</span>,
   }),
   columnHelper.accessor((record) => record.key ?? "", {
     id: "key",
-    header: "Key",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Key" />,
+    meta: { label: "Key" },
     cell: ({ row }) => (
       <span className="block max-w-48 truncate font-mono text-sm text-brand">
         {row.original.key ?? "null"}
       </span>
     ),
   }),
-  columnHelper.display({
+  columnHelper.accessor((record) => record.value ?? "", {
     id: "value",
-    header: "Value",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Value" />,
+    meta: { label: "Value" },
     cell: ({ row }) => (
       <span className="block max-w-md truncate font-mono text-sm text-muted-foreground lg:max-w-2xl">
         {preview(row.original.value)}
@@ -94,13 +103,18 @@ const columns = columnHelper.columns([
   }),
   columnHelper.accessor("sizeBytes", {
     id: "size",
-    header: "Size",
-    meta: { align: "right" },
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Size" className="justify-end" />
+    ),
+    meta: { align: "right", label: "Size" },
     cell: ({ getValue }) => <span className="numeric">{formatBytes(getValue())}</span>,
   }),
   columnHelper.accessor("timestamp", {
-    header: "Timestamp",
-    meta: { align: "right" },
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Timestamp" className="justify-end" />
+    ),
+    meta: { align: "right", label: "Timestamp" },
+    sortFn: "datetime",
     cell: ({ getValue }) => (
       <Tooltip>
         <TooltipTrigger render={<span className="numeric cursor-default whitespace-nowrap" />}>
@@ -187,123 +201,128 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <div className="flex shrink-0 flex-wrap items-center gap-3">
-        <SearchField
-          value={term}
-          onChange={(event) => {
-            setTerm(event.target.value);
-            resetPages();
-          }}
-          placeholder="Search key or value…"
-        />
-
-        <InputGroup className="w-auto min-w-[13.5rem]">
-          <InputGroupAddon>
-            <ClockIcon />
-          </InputGroupAddon>
-          <InputGroupInput
-            type="datetime-local"
-            value={from}
-            max={to || undefined}
-            onChange={(event) => {
-              setFrom(event.target.value);
-              resetPages();
-            }}
-            aria-label="From timestamp"
-          />
-        </InputGroup>
-
-        <InputGroup className="w-auto min-w-[13.5rem]">
-          <InputGroupAddon>
-            <span className="text-sm">to</span>
-          </InputGroupAddon>
-          <InputGroupInput
-            type="datetime-local"
-            value={to}
-            min={from || undefined}
-            onChange={(event) => {
-              setTo(event.target.value);
-              resetPages();
-            }}
-            aria-label="To timestamp"
-          />
-        </InputGroup>
-
-        <Select
-          value={partition}
-          items={partitionItems}
-          onValueChange={(value) => {
-            setPartition(String(value));
-            resetPages();
-          }}
-        >
-          <SelectTrigger size="sm" className="w-40">
-            <SelectValue placeholder="Partition" />
-          </SelectTrigger>
-          <SelectContent>
-            {partitionItems.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={order}
-          items={ORDER_ITEMS}
-          onValueChange={(value) => {
-            setOrder(value as RecordOrder);
-            resetPages();
-          }}
-        >
-          <SelectTrigger size="sm" className="w-36">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {ORDER_ITEMS.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={limit}
-          items={LIMIT_ITEMS}
-          onValueChange={(value) => {
-            setLimit(String(value));
-            resetPages();
-          }}
-        >
-          <SelectTrigger size="sm" className="w-28">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {LIMIT_ITEMS.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        {showSchemaPicker ? (
-          <SchemaPicker
-            subjects={subjects}
-            topic={topic.name}
-            value={schemaId}
-            onChange={selectSchema}
-          />
-        ) : null}
-
-        <span className="ml-auto text-sm text-muted-foreground">{records.length} records</span>
-      </div>
-
       <DataTable
         columns={columns}
         data={records}
+        toolbar={
+          <>
+            <SearchField
+              value={term}
+              onChange={(event) => {
+                setTerm(event.target.value);
+                resetPages();
+              }}
+              placeholder="Search key or value…"
+            />
+
+            <InputGroup className="w-auto min-w-[13.5rem]">
+              <InputGroupAddon>
+                <ClockIcon />
+              </InputGroupAddon>
+              <InputGroupInput
+                type="datetime-local"
+                value={from}
+                max={to || undefined}
+                onChange={(event) => {
+                  setFrom(event.target.value);
+                  resetPages();
+                }}
+                aria-label="From timestamp"
+              />
+            </InputGroup>
+
+            <InputGroup className="w-auto min-w-[13.5rem]">
+              <InputGroupAddon>
+                <span className="text-sm">to</span>
+              </InputGroupAddon>
+              <InputGroupInput
+                type="datetime-local"
+                value={to}
+                min={from || undefined}
+                onChange={(event) => {
+                  setTo(event.target.value);
+                  resetPages();
+                }}
+                aria-label="To timestamp"
+              />
+            </InputGroup>
+
+            <Select
+              value={partition}
+              items={partitionItems}
+              onValueChange={(value) => {
+                setPartition(String(value));
+                resetPages();
+              }}
+            >
+              <SelectTrigger size="sm" className="w-40">
+                <SelectValue placeholder="Partition" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {partitionItems.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+
+            <Select
+              value={order}
+              items={ORDER_ITEMS}
+              onValueChange={(value) => {
+                setOrder(value as RecordOrder);
+                resetPages();
+              }}
+            >
+              <SelectTrigger size="sm" className="w-36">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {ORDER_ITEMS.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+
+            <Select
+              value={limit}
+              items={LIMIT_ITEMS}
+              onValueChange={(value) => {
+                setLimit(String(value));
+                resetPages();
+              }}
+            >
+              <SelectTrigger size="sm" className="w-28">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {LIMIT_ITEMS.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+
+            {showSchemaPicker ? (
+              <SchemaPicker
+                subjects={subjects}
+                topic={topic.name}
+                value={schemaId}
+                onChange={selectSchema}
+              />
+            ) : null}
+          </>
+        }
         getRowId={(record) => `${record.partition}-${record.offset}`}
         loading={isFetching && records.length === 0 && !isFetchingNextPage}
         refreshing={(isFetching && records.length > 0) || isFetchingNextPage}

@@ -1,11 +1,14 @@
 import { useMemo } from "react";
 import { AlertTriangleIcon, DatabaseIcon, GaugeIcon, NetworkIcon } from "lucide-react";
 import { createFileRoute } from "@tanstack/react-router";
+import { createColumnHelper } from "@tanstack/react-table";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConfigTable } from "@/components/config-table";
 import { CopyButton } from "@/components/copy-button";
-import { DataTable } from "@/components/data-table";
+import { DataTableColumnHeader } from "@/components/data-table/column-header";
+import { DataTable } from "@/components/data-table/data-table";
+import { type DataTableFeatures } from "@/components/data-table/features";
 import { PageHeader } from "@/components/page-header";
 import { RecordBrowser } from "@/components/records/record-browser";
 import { Sparkline } from "@/components/charts";
@@ -27,30 +30,33 @@ import {
 } from "@/lib/format";
 import type { ConsumerGroup, Partition } from "@/lib/api/types";
 import { parseTopicDetailSearch } from "@/lib/route-search";
-import { createAppColumnHelper } from "@/lib/table";
 
 export const Route = createFileRoute("/cluster/$cluster/topics_/$topic")({
   validateSearch: parseTopicDetailSearch,
   component: TopicPage,
 });
 
-const partitionColumnHelper = createAppColumnHelper<Partition>();
-const groupColumnHelper = createAppColumnHelper<ConsumerGroup>();
+const partitionColumnHelper = createColumnHelper<DataTableFeatures, Partition>();
+const groupColumnHelper = createColumnHelper<DataTableFeatures, ConsumerGroup>();
 
 const partitionColumns = partitionColumnHelper.columns([
   partitionColumnHelper.accessor("id", {
-    header: "Partition",
-    meta: { align: "right" },
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Partition" className="justify-end" />
+    ),
+    meta: { align: "right", label: "Partition" },
     cell: ({ getValue }) => <span className="numeric font-mono">{getValue()}</span>,
   }),
   partitionColumnHelper.accessor("leader", {
-    header: "Leader",
-    meta: { align: "right" },
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Leader" className="justify-end" />
+    ),
+    meta: { align: "right", label: "Leader" },
     cell: ({ getValue }) => <span className="numeric font-mono">{getValue()}</span>,
   }),
-  partitionColumnHelper.display({
-    id: "replicas",
-    header: "Replicas",
+  partitionColumnHelper.accessor("replicas", {
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Replicas" />,
+    meta: { label: "Replicas" },
     cell: ({ row }) => (
       <span className="flex flex-wrap gap-1">
         {row.original.replicas.map((replica) => (
@@ -67,8 +73,10 @@ const partitionColumns = partitionColumnHelper.columns([
   }),
   partitionColumnHelper.accessor((partition) => partition.isr.length, {
     id: "isr",
-    header: "In sync",
-    meta: { align: "right" },
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="In sync" className="justify-end" />
+    ),
+    meta: { align: "right", label: "In sync" },
     cell: ({ row }) => (
       <span
         className={
@@ -83,20 +91,26 @@ const partitionColumns = partitionColumnHelper.columns([
   }),
   partitionColumnHelper.accessor("lowWatermark", {
     id: "low",
-    header: "Low offset",
-    meta: { align: "right" },
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Low offset" className="justify-end" />
+    ),
+    meta: { align: "right", label: "Low offset" },
     cell: ({ getValue }) => formatNumber(getValue()),
   }),
   partitionColumnHelper.accessor("highWatermark", {
     id: "high",
-    header: "High offset",
-    meta: { align: "right" },
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="High offset" className="justify-end" />
+    ),
+    meta: { align: "right", label: "High offset" },
     cell: ({ getValue }) => formatNumber(getValue()),
   }),
   partitionColumnHelper.accessor((partition) => partition.highWatermark - partition.lowWatermark, {
     id: "messages",
-    header: "Messages",
-    meta: { align: "right" },
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Messages" className="justify-end" />
+    ),
+    meta: { align: "right", label: "Messages" },
     cell: ({ getValue }) => formatNumber(getValue()),
   }),
 ]);
@@ -159,17 +173,21 @@ function TopicPage() {
 
   const groupColumns = groupColumnHelper.columns([
     groupColumnHelper.accessor("id", {
-      header: "Group",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Group" />,
+      meta: { label: "Group" },
       cell: ({ getValue }) => <span className="font-mono text-sm">{getValue()}</span>,
     }),
     groupColumnHelper.accessor("state", {
-      header: "State",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="State" />,
+      meta: { label: "State" },
       cell: ({ getValue }) => <GroupStateBadge state={getValue()} />,
     }),
     groupColumnHelper.accessor((group) => group.members.length, {
       id: "members",
-      header: "Members",
-      meta: { align: "right" },
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Members" className="justify-end" />
+      ),
+      meta: { align: "right", label: "Members" },
       cell: ({ getValue }) => getValue(),
     }),
     groupColumnHelper.accessor(
@@ -179,8 +197,14 @@ function TopicPage() {
           .reduce((sum, offset) => sum + offset.lag, 0),
       {
         id: "lag",
-        header: "Lag on this topic",
-        meta: { align: "right" },
+        header: ({ column }) => (
+          <DataTableColumnHeader
+            column={column}
+            title="Lag on this topic"
+            className="justify-end"
+          />
+        ),
+        meta: { align: "right", label: "Lag on this topic" },
         cell: ({ getValue }) => (
           <Pill tone={lagTone(getValue())} className="numeric font-mono">
             {formatNumber(getValue())}

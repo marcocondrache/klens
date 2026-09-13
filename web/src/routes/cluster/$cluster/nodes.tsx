@@ -1,8 +1,11 @@
 import { CrownIcon } from "lucide-react";
 import { createFileRoute } from "@tanstack/react-router";
+import { createColumnHelper } from "@tanstack/react-table";
 
 import { CopyButton } from "@/components/copy-button";
-import { DataTable } from "@/components/data-table";
+import { DataTableColumnHeader } from "@/components/data-table/column-header";
+import { DataTable } from "@/components/data-table/data-table";
+import { type DataTableFeatures } from "@/components/data-table/features";
 import { PageHeader } from "@/components/page-header";
 import { Pill } from "@/components/status";
 import { useNow } from "@/hooks/use-now";
@@ -11,17 +14,17 @@ import { useClusterName } from "@/lib/clusters";
 import { catalogHealthCaption } from "@/lib/catalog-health";
 import { formatNumber } from "@/lib/format";
 import type { Broker } from "@/lib/api/types";
-import { createAppColumnHelper } from "@/lib/table";
 
 export const Route = createFileRoute("/cluster/$cluster/nodes")({
   component: NodesPage,
 });
 
-const columnHelper = createAppColumnHelper<Broker>();
+const columnHelper = createColumnHelper<DataTableFeatures, Broker>();
 
 const columns = columnHelper.columns([
   columnHelper.accessor("id", {
-    header: "ID",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="ID" />,
+    meta: { label: "ID" },
     cell: ({ row }) => {
       const broker = row.original;
 
@@ -39,7 +42,8 @@ const columns = columnHelper.columns([
     },
   }),
   columnHelper.accessor("host", {
-    header: "Host",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Host" />,
+    meta: { label: "Host" },
     cell: ({ row }) => {
       const broker = row.original;
 
@@ -55,7 +59,8 @@ const columns = columnHelper.columns([
   }),
   columnHelper.accessor((broker) => broker.rack ?? "", {
     id: "rack",
-    header: "Rack",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Rack" />,
+    meta: { label: "Rack" },
     cell: ({ row }) =>
       row.original.rack ? (
         <span className="font-mono text-sm">{row.original.rack}</span>
@@ -65,14 +70,18 @@ const columns = columnHelper.columns([
   }),
   columnHelper.accessor("partitionCount", {
     id: "partitions",
-    header: "Partitions",
-    meta: { align: "right" },
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Partitions" className="justify-end" />
+    ),
+    meta: { align: "right", label: "Partitions" },
     cell: ({ getValue }) => formatNumber(getValue()),
   }),
   columnHelper.accessor("leaderCount", {
     id: "leaders",
-    header: "Leaders",
-    meta: { align: "right" },
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Leaders" className="justify-end" />
+    ),
+    meta: { align: "right", label: "Leaders" },
     cell: ({ getValue }) => formatNumber(getValue()),
   }),
 ]);
