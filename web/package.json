@@ -9,8 +9,7 @@
     "codegen": "graphql-codegen --config codegen.ts",
     "codegen:watch": "graphql-codegen --config codegen.ts --watch",
     "lint": "vp lint",
-    "preview": "vp preview",
-    "test:router": "bun --define __APP_VERSION__='\"0.0.0\"' router.contract.test.ts"
+    "preview": "vp preview"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",

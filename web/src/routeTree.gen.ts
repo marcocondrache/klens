@@ -8,155 +8,155 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
-import { Route as rootRouteImport } from "./routes/__root"
-import { Route as IndexRouteImport } from "./routes/index"
-import { Route as LoginRouteImport } from "./routes/login"
-import { Route as ClusterClusterRouteImport } from "./routes/cluster/$cluster"
-import { Route as ClusterClusterIndexRouteImport } from "./routes/cluster/$cluster/index"
-import { Route as ClusterClusterGroupsRouteImport } from "./routes/cluster/$cluster/groups"
-import { Route as ClusterClusterNodesRouteImport } from "./routes/cluster/$cluster/nodes"
-import { Route as ClusterClusterSchemasRouteImport } from "./routes/cluster/$cluster/schemas"
-import { Route as ClusterClusterTopicsRouteImport } from "./routes/cluster/$cluster/topics"
-import { Route as ClusterClusterGroupsGroupRouteImport } from "./routes/cluster/$cluster/groups_.$group"
-import { Route as ClusterClusterNodesIdRouteImport } from "./routes/cluster/$cluster/nodes_.$id"
-import { Route as ClusterClusterTopicsTopicRouteImport } from "./routes/cluster/$cluster/topics_.$topic"
+import { Route as rootRouteImport } from './routes/__root'
+import { Route as IndexRouteImport } from './routes/index'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as ClusterClusterRouteImport } from './routes/cluster/$cluster'
+import { Route as ClusterClusterIndexRouteImport } from './routes/cluster/$cluster/index'
+import { Route as ClusterClusterGroupsRouteImport } from './routes/cluster/$cluster/groups'
+import { Route as ClusterClusterNodesRouteImport } from './routes/cluster/$cluster/nodes'
+import { Route as ClusterClusterSchemasRouteImport } from './routes/cluster/$cluster/schemas'
+import { Route as ClusterClusterTopicsRouteImport } from './routes/cluster/$cluster/topics'
+import { Route as ClusterClusterGroupsGroupRouteImport } from './routes/cluster/$cluster/groups_.$group'
+import { Route as ClusterClusterNodesIdRouteImport } from './routes/cluster/$cluster/nodes_.$id'
+import { Route as ClusterClusterTopicsTopicRouteImport } from './routes/cluster/$cluster/topics_.$topic'
 
 const IndexRoute = IndexRouteImport.update({
-  id: "/",
-  path: "/",
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
-  id: "/login",
-  path: "/login",
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ClusterClusterRoute = ClusterClusterRouteImport.update({
-  id: "/cluster/$cluster",
-  path: "/cluster/$cluster",
+  id: '/cluster/$cluster',
+  path: '/cluster/$cluster',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ClusterClusterIndexRoute = ClusterClusterIndexRouteImport.update({
-  id: "/",
-  path: "/",
+  id: '/',
+  path: '/',
   getParentRoute: () => ClusterClusterRoute,
 } as any)
 const ClusterClusterGroupsRoute = ClusterClusterGroupsRouteImport.update({
-  id: "/groups",
-  path: "/groups",
+  id: '/groups',
+  path: '/groups',
   getParentRoute: () => ClusterClusterRoute,
 } as any)
 const ClusterClusterNodesRoute = ClusterClusterNodesRouteImport.update({
-  id: "/nodes",
-  path: "/nodes",
+  id: '/nodes',
+  path: '/nodes',
   getParentRoute: () => ClusterClusterRoute,
 } as any)
 const ClusterClusterSchemasRoute = ClusterClusterSchemasRouteImport.update({
-  id: "/schemas",
-  path: "/schemas",
+  id: '/schemas',
+  path: '/schemas',
   getParentRoute: () => ClusterClusterRoute,
 } as any)
 const ClusterClusterTopicsRoute = ClusterClusterTopicsRouteImport.update({
-  id: "/topics",
-  path: "/topics",
+  id: '/topics',
+  path: '/topics',
   getParentRoute: () => ClusterClusterRoute,
 } as any)
 const ClusterClusterGroupsGroupRoute =
   ClusterClusterGroupsGroupRouteImport.update({
-    id: "/groups_/$group",
-    path: "/groups/$group",
+    id: '/groups_/$group',
+    path: '/groups/$group',
     getParentRoute: () => ClusterClusterRoute,
   } as any)
 const ClusterClusterNodesIdRoute = ClusterClusterNodesIdRouteImport.update({
-  id: "/nodes_/$id",
-  path: "/nodes/$id",
+  id: '/nodes_/$id',
+  path: '/nodes/$id',
   getParentRoute: () => ClusterClusterRoute,
 } as any)
 const ClusterClusterTopicsTopicRoute =
   ClusterClusterTopicsTopicRouteImport.update({
-    id: "/topics_/$topic",
-    path: "/topics/$topic",
+    id: '/topics_/$topic',
+    path: '/topics/$topic',
     getParentRoute: () => ClusterClusterRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
-  "/": typeof IndexRoute
-  "/login": typeof LoginRoute
-  "/cluster/$cluster": typeof ClusterClusterRouteWithChildren
-  "/cluster/$cluster/groups": typeof ClusterClusterGroupsRoute
-  "/cluster/$cluster/nodes": typeof ClusterClusterNodesRoute
-  "/cluster/$cluster/schemas": typeof ClusterClusterSchemasRoute
-  "/cluster/$cluster/topics": typeof ClusterClusterTopicsRoute
-  "/cluster/$cluster/": typeof ClusterClusterIndexRoute
-  "/cluster/$cluster/groups/$group": typeof ClusterClusterGroupsGroupRoute
-  "/cluster/$cluster/nodes/$id": typeof ClusterClusterNodesIdRoute
-  "/cluster/$cluster/topics/$topic": typeof ClusterClusterTopicsTopicRoute
+  '/': typeof IndexRoute
+  '/login': typeof LoginRoute
+  '/cluster/$cluster': typeof ClusterClusterRouteWithChildren
+  '/cluster/$cluster/groups': typeof ClusterClusterGroupsRoute
+  '/cluster/$cluster/nodes': typeof ClusterClusterNodesRoute
+  '/cluster/$cluster/schemas': typeof ClusterClusterSchemasRoute
+  '/cluster/$cluster/topics': typeof ClusterClusterTopicsRoute
+  '/cluster/$cluster/': typeof ClusterClusterIndexRoute
+  '/cluster/$cluster/groups/$group': typeof ClusterClusterGroupsGroupRoute
+  '/cluster/$cluster/nodes/$id': typeof ClusterClusterNodesIdRoute
+  '/cluster/$cluster/topics/$topic': typeof ClusterClusterTopicsTopicRoute
 }
 export interface FileRoutesByTo {
-  "/": typeof IndexRoute
-  "/login": typeof LoginRoute
-  "/cluster/$cluster/groups": typeof ClusterClusterGroupsRoute
-  "/cluster/$cluster/nodes": typeof ClusterClusterNodesRoute
-  "/cluster/$cluster/schemas": typeof ClusterClusterSchemasRoute
-  "/cluster/$cluster/topics": typeof ClusterClusterTopicsRoute
-  "/cluster/$cluster": typeof ClusterClusterIndexRoute
-  "/cluster/$cluster/groups/$group": typeof ClusterClusterGroupsGroupRoute
-  "/cluster/$cluster/nodes/$id": typeof ClusterClusterNodesIdRoute
-  "/cluster/$cluster/topics/$topic": typeof ClusterClusterTopicsTopicRoute
+  '/': typeof IndexRoute
+  '/login': typeof LoginRoute
+  '/cluster/$cluster/groups': typeof ClusterClusterGroupsRoute
+  '/cluster/$cluster/nodes': typeof ClusterClusterNodesRoute
+  '/cluster/$cluster/schemas': typeof ClusterClusterSchemasRoute
+  '/cluster/$cluster/topics': typeof ClusterClusterTopicsRoute
+  '/cluster/$cluster': typeof ClusterClusterIndexRoute
+  '/cluster/$cluster/groups/$group': typeof ClusterClusterGroupsGroupRoute
+  '/cluster/$cluster/nodes/$id': typeof ClusterClusterNodesIdRoute
+  '/cluster/$cluster/topics/$topic': typeof ClusterClusterTopicsTopicRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  "/": typeof IndexRoute
-  "/login": typeof LoginRoute
-  "/cluster/$cluster": typeof ClusterClusterRouteWithChildren
-  "/cluster/$cluster/groups": typeof ClusterClusterGroupsRoute
-  "/cluster/$cluster/nodes": typeof ClusterClusterNodesRoute
-  "/cluster/$cluster/schemas": typeof ClusterClusterSchemasRoute
-  "/cluster/$cluster/topics": typeof ClusterClusterTopicsRoute
-  "/cluster/$cluster/": typeof ClusterClusterIndexRoute
-  "/cluster/$cluster/groups_/$group": typeof ClusterClusterGroupsGroupRoute
-  "/cluster/$cluster/nodes_/$id": typeof ClusterClusterNodesIdRoute
-  "/cluster/$cluster/topics_/$topic": typeof ClusterClusterTopicsTopicRoute
+  '/': typeof IndexRoute
+  '/login': typeof LoginRoute
+  '/cluster/$cluster': typeof ClusterClusterRouteWithChildren
+  '/cluster/$cluster/groups': typeof ClusterClusterGroupsRoute
+  '/cluster/$cluster/nodes': typeof ClusterClusterNodesRoute
+  '/cluster/$cluster/schemas': typeof ClusterClusterSchemasRoute
+  '/cluster/$cluster/topics': typeof ClusterClusterTopicsRoute
+  '/cluster/$cluster/': typeof ClusterClusterIndexRoute
+  '/cluster/$cluster/groups_/$group': typeof ClusterClusterGroupsGroupRoute
+  '/cluster/$cluster/nodes_/$id': typeof ClusterClusterNodesIdRoute
+  '/cluster/$cluster/topics_/$topic': typeof ClusterClusterTopicsTopicRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    | "/"
-    | "/login"
-    | "/cluster/$cluster"
-    | "/cluster/$cluster/groups"
-    | "/cluster/$cluster/nodes"
-    | "/cluster/$cluster/schemas"
-    | "/cluster/$cluster/topics"
-    | "/cluster/$cluster/"
-    | "/cluster/$cluster/groups/$group"
-    | "/cluster/$cluster/nodes/$id"
-    | "/cluster/$cluster/topics/$topic"
+    | '/'
+    | '/login'
+    | '/cluster/$cluster'
+    | '/cluster/$cluster/groups'
+    | '/cluster/$cluster/nodes'
+    | '/cluster/$cluster/schemas'
+    | '/cluster/$cluster/topics'
+    | '/cluster/$cluster/'
+    | '/cluster/$cluster/groups/$group'
+    | '/cluster/$cluster/nodes/$id'
+    | '/cluster/$cluster/topics/$topic'
   fileRoutesByTo: FileRoutesByTo
   to:
-    | "/"
-    | "/login"
-    | "/cluster/$cluster/groups"
-    | "/cluster/$cluster/nodes"
-    | "/cluster/$cluster/schemas"
-    | "/cluster/$cluster/topics"
-    | "/cluster/$cluster"
-    | "/cluster/$cluster/groups/$group"
-    | "/cluster/$cluster/nodes/$id"
-    | "/cluster/$cluster/topics/$topic"
+    | '/'
+    | '/login'
+    | '/cluster/$cluster/groups'
+    | '/cluster/$cluster/nodes'
+    | '/cluster/$cluster/schemas'
+    | '/cluster/$cluster/topics'
+    | '/cluster/$cluster'
+    | '/cluster/$cluster/groups/$group'
+    | '/cluster/$cluster/nodes/$id'
+    | '/cluster/$cluster/topics/$topic'
   id:
-    | "__root__"
-    | "/"
-    | "/login"
-    | "/cluster/$cluster"
-    | "/cluster/$cluster/groups"
-    | "/cluster/$cluster/nodes"
-    | "/cluster/$cluster/schemas"
-    | "/cluster/$cluster/topics"
-    | "/cluster/$cluster/"
-    | "/cluster/$cluster/groups_/$group"
-    | "/cluster/$cluster/nodes_/$id"
-    | "/cluster/$cluster/topics_/$topic"
+    | '__root__'
+    | '/'
+    | '/login'
+    | '/cluster/$cluster'
+    | '/cluster/$cluster/groups'
+    | '/cluster/$cluster/nodes'
+    | '/cluster/$cluster/schemas'
+    | '/cluster/$cluster/topics'
+    | '/cluster/$cluster/'
+    | '/cluster/$cluster/groups_/$group'
+    | '/cluster/$cluster/nodes_/$id'
+    | '/cluster/$cluster/topics_/$topic'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -165,82 +165,82 @@ export interface RootRouteChildren {
   ClusterClusterRoute: typeof ClusterClusterRouteWithChildren
 }
 
-declare module "@tanstack/react-router" {
+declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    "/": {
-      id: "/"
-      path: "/"
-      fullPath: "/"
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    "/login": {
-      id: "/login"
-      path: "/login"
-      fullPath: "/login"
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    "/cluster/$cluster": {
-      id: "/cluster/$cluster"
-      path: "/cluster/$cluster"
-      fullPath: "/cluster/$cluster"
+    '/cluster/$cluster': {
+      id: '/cluster/$cluster'
+      path: '/cluster/$cluster'
+      fullPath: '/cluster/$cluster'
       preLoaderRoute: typeof ClusterClusterRouteImport
       parentRoute: typeof rootRouteImport
     }
-    "/cluster/$cluster/": {
-      id: "/cluster/$cluster/"
-      path: "/"
-      fullPath: "/cluster/$cluster/"
+    '/cluster/$cluster/': {
+      id: '/cluster/$cluster/'
+      path: '/'
+      fullPath: '/cluster/$cluster/'
       preLoaderRoute: typeof ClusterClusterIndexRouteImport
       parentRoute: typeof ClusterClusterRoute
     }
-    "/cluster/$cluster/groups": {
-      id: "/cluster/$cluster/groups"
-      path: "/groups"
-      fullPath: "/cluster/$cluster/groups"
+    '/cluster/$cluster/groups': {
+      id: '/cluster/$cluster/groups'
+      path: '/groups'
+      fullPath: '/cluster/$cluster/groups'
       preLoaderRoute: typeof ClusterClusterGroupsRouteImport
       parentRoute: typeof ClusterClusterRoute
     }
-    "/cluster/$cluster/nodes": {
-      id: "/cluster/$cluster/nodes"
-      path: "/nodes"
-      fullPath: "/cluster/$cluster/nodes"
+    '/cluster/$cluster/nodes': {
+      id: '/cluster/$cluster/nodes'
+      path: '/nodes'
+      fullPath: '/cluster/$cluster/nodes'
       preLoaderRoute: typeof ClusterClusterNodesRouteImport
       parentRoute: typeof ClusterClusterRoute
     }
-    "/cluster/$cluster/schemas": {
-      id: "/cluster/$cluster/schemas"
-      path: "/schemas"
-      fullPath: "/cluster/$cluster/schemas"
+    '/cluster/$cluster/schemas': {
+      id: '/cluster/$cluster/schemas'
+      path: '/schemas'
+      fullPath: '/cluster/$cluster/schemas'
       preLoaderRoute: typeof ClusterClusterSchemasRouteImport
       parentRoute: typeof ClusterClusterRoute
     }
-    "/cluster/$cluster/topics": {
-      id: "/cluster/$cluster/topics"
-      path: "/topics"
-      fullPath: "/cluster/$cluster/topics"
+    '/cluster/$cluster/topics': {
+      id: '/cluster/$cluster/topics'
+      path: '/topics'
+      fullPath: '/cluster/$cluster/topics'
       preLoaderRoute: typeof ClusterClusterTopicsRouteImport
       parentRoute: typeof ClusterClusterRoute
     }
-    "/cluster/$cluster/groups_/$group": {
-      id: "/cluster/$cluster/groups_/$group"
-      path: "/groups/$group"
-      fullPath: "/cluster/$cluster/groups/$group"
+    '/cluster/$cluster/groups_/$group': {
+      id: '/cluster/$cluster/groups_/$group'
+      path: '/groups/$group'
+      fullPath: '/cluster/$cluster/groups/$group'
       preLoaderRoute: typeof ClusterClusterGroupsGroupRouteImport
       parentRoute: typeof ClusterClusterRoute
     }
-    "/cluster/$cluster/nodes_/$id": {
-      id: "/cluster/$cluster/nodes_/$id"
-      path: "/nodes/$id"
-      fullPath: "/cluster/$cluster/nodes/$id"
+    '/cluster/$cluster/nodes_/$id': {
+      id: '/cluster/$cluster/nodes_/$id'
+      path: '/nodes/$id'
+      fullPath: '/cluster/$cluster/nodes/$id'
       preLoaderRoute: typeof ClusterClusterNodesIdRouteImport
       parentRoute: typeof ClusterClusterRoute
     }
-    "/cluster/$cluster/topics_/$topic": {
-      id: "/cluster/$cluster/topics_/$topic"
-      path: "/topics/$topic"
-      fullPath: "/cluster/$cluster/topics/$topic"
+    '/cluster/$cluster/topics_/$topic': {
+      id: '/cluster/$cluster/topics_/$topic'
+      path: '/topics/$topic'
+      fullPath: '/cluster/$cluster/topics/$topic'
       preLoaderRoute: typeof ClusterClusterTopicsTopicRouteImport
       parentRoute: typeof ClusterClusterRoute
     }

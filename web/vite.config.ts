@@ -51,7 +51,7 @@ export default defineConfig({
   plugins: lazyPlugins(() => [
     tanstackRouter({
       target: "react",
-      autoCodeSplitting: false,
+      autoCodeSplitting: true,
       quoteStyle: "double",
     }),
     react(),
