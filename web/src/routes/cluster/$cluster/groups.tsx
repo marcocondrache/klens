@@ -1,14 +1,18 @@
 import { useMemo } from "react";
 import { createFileRoute } from "@tanstack/react-router";
+import { createColumnHelper } from "@tanstack/react-table";
 
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { DataTable } from "@/components/data-table";
+import { DataTableColumnHeader } from "@/components/data-table/column-header";
+import { DataTable } from "@/components/data-table/data-table";
+import { type DataTableFeatures } from "@/components/data-table/features";
 import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
 import { GroupStateBadge, Pill } from "@/components/status";
@@ -19,7 +23,6 @@ import { useClusterName } from "@/lib/clusters";
 import { formatCount, formatEnumLabel, formatNumber, formatRelative } from "@/lib/format";
 import type { ConsumerGroupState, GroupList } from "@/lib/api/types";
 import { parseGroupsSearch } from "@/lib/route-search";
-import { createAppColumnHelper } from "@/lib/table";
 
 export const Route = createFileRoute("/cluster/$cluster/groups")({
   validateSearch: parseGroupsSearch,
@@ -36,26 +39,36 @@ const STATES: ConsumerGroupState[] = [
   "DEAD",
 ];
 
-const columnHelper = createAppColumnHelper<GroupList>();
+const STATE_ITEMS = [
+  { value: "all", label: "All states" },
+  ...STATES.map((value) => ({ value, label: formatEnumLabel(value) })),
+];
+
+const columnHelper = createColumnHelper<DataTableFeatures, GroupList>();
 
 const columns = columnHelper.columns([
   columnHelper.accessor("id", {
-    header: "Group",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Group" />,
+    meta: { label: "Group" },
     cell: ({ getValue }) => <span className="font-mono text-sm">{getValue()}</span>,
   }),
   columnHelper.accessor("state", {
-    header: "State",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="State" />,
+    meta: { label: "State" },
     cell: ({ getValue }) => <GroupStateBadge state={getValue()} />,
   }),
   columnHelper.accessor("memberCount", {
     id: "members",
-    header: "Members",
-    meta: { align: "right" },
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Members" className="justify-end" />
+    ),
+    meta: { align: "right", label: "Members" },
     cell: ({ getValue }) => getValue(),
   }),
   columnHelper.accessor((group) => group.topics.length, {
     id: "topics",
-    header: "Topics",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Topics" />,
+    meta: { label: "Topics" },
     cell: ({ row }) => (
       <span className="flex flex-wrap gap-1">
         {row.original.topics.slice(0, 2).map((topic) => (
@@ -69,13 +82,17 @@ const columns = columnHelper.columns([
   }),
   columnHelper.accessor("assignedPartitionCount", {
     id: "partitions",
-    header: "Assigned",
-    meta: { align: "right" },
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Assigned" className="justify-end" />
+    ),
+    meta: { align: "right", label: "Assigned" },
     cell: ({ getValue }) => getValue(),
   }),
   columnHelper.accessor("lag", {
-    header: "Lag",
-    meta: { align: "right" },
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Lag" className="justify-end" />
+    ),
+    meta: { align: "right", label: "Lag" },
     cell: ({ getValue }) => (
       <Pill tone={lagTone(getValue())} className="numeric font-mono">
         {formatNumber(getValue())}
@@ -83,8 +100,10 @@ const columns = columnHelper.columns([
     ),
   }),
   columnHelper.accessor("coordinator", {
-    header: "Coordinator",
-    meta: { align: "right" },
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Coordinator" className="justify-end" />
+    ),
+    meta: { align: "right", label: "Coordinator" },
     cell: ({ getValue }) => <span className="numeric font-mono">broker {getValue()}</span>,
   }),
 ]);
@@ -139,32 +158,38 @@ function ConsumerGroupsPage() {
         }`}
       />
 
-      <div className="flex flex-wrap items-center gap-3">
-        <SearchField
-          value={term}
-          onChange={(event) => update("q", event.target.value)}
-          placeholder="Search consumer groups…"
-        />
-
-        <Select value={state} onValueChange={(value) => update("state", String(value))}>
-          <SelectTrigger size="sm" className="w-48">
-            <SelectValue placeholder="State" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All states</SelectItem>
-            {STATES.map((value) => (
-              <SelectItem key={value} value={value}>
-                {formatEnumLabel(value)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
       <DataTable
         columns={columns}
         data={rows}
         getRowId={(group) => group.id}
+        toolbar={
+          <>
+            <SearchField
+              value={term}
+              onChange={(event) => update("q", event.target.value)}
+              placeholder="Search consumer groups…"
+            />
+
+            <Select
+              value={state}
+              items={STATE_ITEMS}
+              onValueChange={(value) => update("state", String(value))}
+            >
+              <SelectTrigger size="sm" className="w-48">
+                <SelectValue placeholder="State" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {STATE_ITEMS.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </>
+        }
         loading={isPending}
         error={
           isError

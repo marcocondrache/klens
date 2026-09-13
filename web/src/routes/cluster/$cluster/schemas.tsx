@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
+import { createColumnHelper } from "@tanstack/react-table";
 
 import {
   Sheet,
@@ -9,7 +10,9 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { CopyButton } from "@/components/copy-button";
-import { DataTable } from "@/components/data-table";
+import { DataTableColumnHeader } from "@/components/data-table/column-header";
+import { DataTable } from "@/components/data-table/data-table";
+import { type DataTableFeatures } from "@/components/data-table/features";
 import { JsonBlock } from "@/components/json-block";
 import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
@@ -21,44 +24,53 @@ import { catalogHealthCaption } from "@/lib/catalog-health";
 import { prettyJson } from "@/lib/format";
 import type { SchemaSubject } from "@/lib/api/types";
 import { parseSchemasSearch } from "@/lib/route-search";
-import { createAppColumnHelper } from "@/lib/table";
 
 export const Route = createFileRoute("/cluster/$cluster/schemas")({
   validateSearch: parseSchemasSearch,
   component: SchemasPage,
 });
 
-const columnHelper = createAppColumnHelper<SchemaSubject>();
+const columnHelper = createColumnHelper<DataTableFeatures, SchemaSubject>();
 
 const columns = columnHelper.columns([
   columnHelper.accessor("subject", {
-    header: "Subject",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Subject" />,
+    meta: { label: "Subject" },
     cell: ({ getValue }) => <span className="font-mono text-sm">{getValue()}</span>,
   }),
   columnHelper.accessor("id", {
-    header: "ID",
-    meta: { align: "right" },
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="ID" className="justify-end" />
+    ),
+    meta: { align: "right", label: "ID" },
     cell: ({ getValue }) => <span className="numeric font-mono">{getValue()}</span>,
   }),
   columnHelper.accessor("type", {
-    header: "Type",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,
+    meta: { label: "Type" },
     cell: ({ getValue }) => <Pill tone="brand">{getValue()}</Pill>,
   }),
   columnHelper.accessor("latestVersion", {
     id: "version",
-    header: "Latest version",
-    meta: { align: "right" },
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Latest version" className="justify-end" />
+    ),
+    meta: { align: "right", label: "Latest version" },
     cell: ({ getValue }) => <span className="numeric font-mono">v{getValue()}</span>,
   }),
   columnHelper.accessor((subject) => subject.versions.length, {
     id: "versions",
-    header: "Versions",
-    meta: { align: "right" },
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Versions" className="justify-end" />
+    ),
+    meta: { align: "right", label: "Versions" },
     cell: ({ getValue }) => getValue(),
   }),
   columnHelper.accessor("compatibility", {
-    header: "Compatibility",
-    meta: { align: "right" },
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Compatibility" className="justify-end" />
+    ),
+    meta: { align: "right", label: "Compatibility" },
     cell: ({ getValue }) => (
       <Pill tone={getValue() === "NONE" ? "warn" : "idle"}>{getValue()}</Pill>
     ),
@@ -93,25 +105,26 @@ function SchemasPage() {
         description={`${rows.length} subjects registered${caption ? ` · ${caption}` : ""}`}
       />
 
-      <SearchField
-        className="shrink-0"
-        value={term}
-        onChange={(event) => {
-          const value = event.target.value;
-          void navigate({
-            to: ".",
-            search: value ? { q: value } : {},
-            replace: true,
-            resetScroll: false,
-          });
-        }}
-        placeholder="Search subjects…"
-      />
-
       <DataTable
         columns={columns}
         data={rows}
         getRowId={(subject) => subject.subject}
+        toolbar={
+          <SearchField
+            className="shrink-0"
+            value={term}
+            onChange={(event) => {
+              const value = event.target.value;
+              void navigate({
+                to: ".",
+                search: value ? { q: value } : {},
+                replace: true,
+                resetScroll: false,
+              });
+            }}
+            placeholder="Search subjects…"
+          />
+        }
         loading={isPending}
         error={
           isError ? (error instanceof Error ? error.message : "Failed to load schemas.") : undefined

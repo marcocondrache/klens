@@ -1,10 +1,13 @@
 import { ActivityIcon, LayersIcon, NetworkIcon, UsersRoundIcon } from "lucide-react";
 import { Link, createFileRoute } from "@tanstack/react-router";
+import { createColumnHelper } from "@tanstack/react-table";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sparkline } from "@/components/charts";
 import { CopyButton } from "@/components/copy-button";
-import { DataTable } from "@/components/data-table";
+import { DataTableColumnHeader } from "@/components/data-table/column-header";
+import { DataTable } from "@/components/data-table/data-table";
+import { type DataTableFeatures } from "@/components/data-table/features";
 import { PageHeader } from "@/components/page-header";
 import { Stat, StatGrid } from "@/components/stat";
 import { GroupStateBadge, Pill } from "@/components/status";
@@ -16,24 +19,24 @@ import { useClusterName } from "@/lib/clusters";
 import { formatCount, formatNumber } from "@/lib/format";
 import type { ConsumerGroupMember, GroupOffset } from "@/lib/api/types";
 import { parseGroupDetailSearch } from "@/lib/route-search";
-import { createAppColumnHelper } from "@/lib/table";
 
 export const Route = createFileRoute("/cluster/$cluster/groups_/$group")({
   validateSearch: parseGroupDetailSearch,
   component: ConsumerGroupPage,
 });
 
-const offsetColumnHelper = createAppColumnHelper<GroupOffset>();
-const memberColumnHelper = createAppColumnHelper<ConsumerGroupMember>();
+const offsetColumnHelper = createColumnHelper<DataTableFeatures, GroupOffset>();
+const memberColumnHelper = createColumnHelper<DataTableFeatures, ConsumerGroupMember>();
 
 const memberColumns = memberColumnHelper.columns([
   memberColumnHelper.accessor("clientId", {
-    header: "Client ID",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Client ID" />,
+    meta: { label: "Client ID" },
     cell: ({ getValue }) => <span className="font-mono text-sm">{getValue()}</span>,
   }),
-  memberColumnHelper.display({
-    id: "id",
-    header: "Member ID",
+  memberColumnHelper.accessor("id", {
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Member ID" />,
+    meta: { label: "Member ID" },
     cell: ({ row }) => (
       <span className="flex items-center gap-1">
         <span className="max-w-72 truncate font-mono text-sm">{row.original.id}</span>
@@ -42,12 +45,13 @@ const memberColumns = memberColumnHelper.columns([
     ),
   }),
   memberColumnHelper.accessor("host", {
-    header: "Host",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Host" />,
+    meta: { label: "Host" },
     cell: ({ getValue }) => <span className="font-mono text-sm">{getValue()}</span>,
   }),
-  memberColumnHelper.display({
-    id: "assignments",
-    header: "Assignments",
+  memberColumnHelper.accessor("assignments", {
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Assignments" />,
+    meta: { label: "Assignments" },
     cell: ({ row }) => (
       <span className="flex flex-wrap gap-1">
         {row.original.assignments.map((assignment) => (
@@ -64,8 +68,10 @@ const memberColumns = memberColumnHelper.columns([
       member.assignments.reduce((sum, assignment) => sum + assignment.partitions.length, 0),
     {
       id: "partitions",
-      header: "Partitions",
-      meta: { align: "right" },
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Partitions" className="justify-end" />
+      ),
+      meta: { align: "right", label: "Partitions" },
       cell: ({ getValue }) => getValue(),
     },
   ),
@@ -117,7 +123,8 @@ function ConsumerGroupPage() {
 
   const offsetColumns = offsetColumnHelper.columns([
     offsetColumnHelper.accessor("topic", {
-      header: "Topic",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Topic" />,
+      meta: { label: "Topic" },
       cell: ({ getValue }) => (
         <Link
           to="/cluster/$cluster/topics/$topic"
@@ -130,25 +137,33 @@ function ConsumerGroupPage() {
       ),
     }),
     offsetColumnHelper.accessor("partition", {
-      header: "Partition",
-      meta: { align: "right" },
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Partition" className="justify-end" />
+      ),
+      meta: { align: "right", label: "Partition" },
       cell: ({ getValue }) => <span className="numeric font-mono">{getValue()}</span>,
     }),
     offsetColumnHelper.accessor("currentOffset", {
       id: "current",
-      header: "Committed",
-      meta: { align: "right" },
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Committed" className="justify-end" />
+      ),
+      meta: { align: "right", label: "Committed" },
       cell: ({ getValue }) => formatNumber(getValue()),
     }),
     offsetColumnHelper.accessor("endOffset", {
       id: "end",
-      header: "End offset",
-      meta: { align: "right" },
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="End offset" className="justify-end" />
+      ),
+      meta: { align: "right", label: "End offset" },
       cell: ({ getValue }) => formatNumber(getValue()),
     }),
     offsetColumnHelper.accessor("lag", {
-      header: "Lag",
-      meta: { align: "right" },
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Lag" className="justify-end" />
+      ),
+      meta: { align: "right", label: "Lag" },
       cell: ({ getValue }) => {
         const lag = getValue();
 
@@ -175,8 +190,10 @@ function ConsumerGroupPage() {
     }),
     offsetColumnHelper.accessor((offset) => offset.memberId ?? "", {
       id: "member",
-      header: "Member",
-      meta: { align: "right" },
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Member" className="justify-end" />
+      ),
+      meta: { align: "right", label: "Member" },
       cell: ({ row }) =>
         row.original.memberId ? (
           <span className="font-mono text-sm">
