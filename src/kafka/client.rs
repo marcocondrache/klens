@@ -7,7 +7,6 @@ mod blocking;
 mod browse;
 mod client_config;
 mod convert;
-mod deadline;
 mod group_offsets;
 mod offsets;
 
@@ -42,7 +41,6 @@ use crate::kafka::topic_config::ConfigEntry;
 use crate::kafka::watermarks::Watermarks;
 
 use blocking::run_blocking;
-use deadline::Deadline;
 use group_offsets::NativeQueue;
 use offsets::{list_offsets, merge_watermark_offsets, partition_time_offsets};
 
@@ -180,7 +178,7 @@ impl KafkaClient {
             &self.offset_queue,
             group_id,
             partitions,
-            Deadline::from(self.timeouts.admin),
+            self.timeouts.admin,
         )
         .await
     }

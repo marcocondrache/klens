@@ -7,6 +7,9 @@
 use std::ffi::{CStr, CString, c_char};
 use std::slice;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use tokio::time::Instant;
 
 use rdkafka::Offset;
 use rdkafka::admin::AdminClient;
@@ -16,7 +19,6 @@ use rdkafka::error::{IsError, KafkaError as RdKafkaError, RDKafkaErrorCode};
 use rdkafka::topic_partition_list::TopicPartitionList;
 
 use super::blocking::run_blocking;
-use super::deadline::Deadline;
 use crate::kafka::error::KafkaError;
 use crate::kafka::group::CommittedOffset;
 
@@ -25,13 +27,14 @@ pub(super) async fn list(
     queue: &Arc<Mutex<NativeQueue>>,
     group_id: &str,
     partitions: &[(String, i32)],
-    deadline: Deadline,
+    timeout: Duration,
 ) -> Result<Vec<CommittedOffset>, KafkaError> {
     if partitions.is_empty() {
         return Ok(Vec::new());
     }
 
-    let remaining = deadline.remaining()?;
+    let deadline = Instant::now() + timeout;
+    let remaining = remaining(deadline)?;
     let admin = Arc::clone(admin);
     let queue = Arc::clone(queue);
     let group_id = group_id.to_owned();
@@ -50,9 +53,9 @@ fn fetch(
     queue: &NativeQueue,
     group_id: &str,
     partitions: &[(String, i32)],
-    deadline: Deadline,
+    deadline: Instant,
 ) -> Result<Vec<CommittedOffset>, KafkaError> {
-    let timeout_ms = i32::try_from(deadline.remaining()?.as_millis())
+    let timeout_ms = i32::try_from(remaining(deadline)?.as_millis())
         .map_err(|_| KafkaError::Admin("timeout too large".into()))?;
     let group =
         CString::new(group_id).map_err(|_| KafkaError::Admin("group id contains NUL".into()))?;
@@ -175,6 +178,13 @@ fn map_rdkafka(code: RDKafkaErrorCode) -> KafkaError {
         | RDKafkaErrorCode::MessageTimedOut => KafkaError::Timeout,
         _ => KafkaError::Client(RdKafkaError::OffsetFetch(code)),
     }
+}
+
+fn remaining(deadline: Instant) -> Result<Duration, KafkaError> {
+    deadline
+        .checked_duration_since(Instant::now())
+        .filter(|duration| !duration.is_zero())
+        .ok_or(KafkaError::Timeout)
 }
 
 pub(super) struct NativeQueue(*mut bindings::rd_kafka_queue_t);
@@ -325,6 +335,7 @@ mod tests {
     use std::time::Duration;
 
     use rdkafka::producer::{FutureProducer, FutureRecord};
+    use tokio::time::Instant;
 
     use crate::config::ClusterConfig;
     use crate::kafka::client::KafkaClient;
@@ -387,7 +398,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn expired_deadline_is_timeout() {
+    async fn zero_timeout_is_timeout() {
         let mock = MockCluster::new(1).expect("mock cluster");
         let admin: Arc<AdminClient<DefaultClientContext>> = Arc::new(
             ClientConfig::new()
@@ -398,12 +409,23 @@ mod tests {
         let queue = Arc::new(Mutex::new(
             NativeQueue::new(admin.inner().native_ptr()).expect("queue"),
         ));
-        let deadline = Deadline::from(Duration::from_millis(1));
-        tokio::time::sleep(Duration::from_millis(2)).await;
-        let error = list(&admin, &queue, "unused", &[("orders".into(), 0)], deadline)
-            .await
-            .unwrap_err();
+        let error = list(
+            &admin,
+            &queue,
+            "unused",
+            &[("orders".into(), 0)],
+            Duration::ZERO,
+        )
+        .await
+        .unwrap_err();
         assert!(matches!(error, KafkaError::Timeout));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn remaining_is_the_unused_budget() {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        tokio::time::advance(Duration::from_secs(1)).await;
+        assert_eq!(super::remaining(deadline).unwrap(), Duration::from_secs(1));
     }
 
     #[tokio::test]
