@@ -1,22 +1,19 @@
 use std::collections::HashMap;
 
-use rdkafka::admin::ListOffsetsResultInfo;
-use rdkafka::topic_partition_list::Offset;
+use krafka::admin::ListOffsetResult;
 
 use crate::kafka::watermarks::Watermarks;
 
-/// `None` means the broker returned Kafka's invalid-offset sentinel.
-pub fn from_list_infos(
-    infos: impl IntoIterator<Item = ListOffsetsResultInfo>,
+/// `None` means the broker returned Kafka's invalid-offset sentinel, or the
+/// partition's entry carried a per-partition error.
+pub fn from_krafka_offsets(
+    results: impl IntoIterator<Item = ListOffsetResult>,
 ) -> HashMap<(String, i32), Option<i64>> {
-    infos
+    results
         .into_iter()
-        .map(|info| {
-            let offset = match info.offset {
-                Offset::Offset(offset) if offset >= 0 => Some(offset),
-                _ => None,
-            };
-            ((info.topic, info.partition), offset)
+        .map(|result| {
+            let offset = (result.error.is_none() && result.offset >= 0).then_some(result.offset);
+            ((result.topic, result.partition), offset)
         })
         .collect()
 }
@@ -57,32 +54,10 @@ pub fn merge_watermark_offsets(
 mod tests {
     use super::*;
 
-    #[test]
-    fn from_list_infos_keeps_concrete_offsets() {
-        let listed = from_list_infos([
-            ListOffsetsResultInfo {
-                topic: "orders".into(),
-                partition: 0,
-                offset: Offset::Offset(12),
-                timestamp: -1,
-            },
-            ListOffsetsResultInfo {
-                topic: "orders".into(),
-                partition: 1,
-                offset: Offset::Invalid,
-                timestamp: -1,
-            },
-            ListOffsetsResultInfo {
-                topic: "orders".into(),
-                partition: 2,
-                offset: Offset::End,
-                timestamp: -1,
-            },
-        ]);
-        assert_eq!(listed.get(&("orders".into(), 0)), Some(&Some(12)));
-        assert_eq!(listed.get(&("orders".into(), 1)), Some(&None));
-        assert_eq!(listed.get(&("orders".into(), 2)), Some(&None));
-    }
+    // `ListOffsetResult` is `#[non_exhaustive]` in krafka, so it cannot be
+    // built with a struct literal here; `from_krafka_offsets` is covered by
+    // `KafkaClient::watermarks`'s and `offsets_for_times`'s `FakeBroker`
+    // integration tests in `client.rs` instead.
 
     #[test]
     fn partition_time_offsets_keeps_only_what_the_broker_returned() {

@@ -15,6 +15,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use krafka::admin::{AdminClient as KrafkaAdminClient, OffsetSpec};
 use krafka::client::KrafkaClient as KrafkaSharedClient;
 use rdkafka::admin::{
     AdminClient, AdminOptions, ConsumerGroupState, OwnedResourceSpecifier, ResourceSpecifier,
@@ -45,7 +46,8 @@ use crate::kafka::watermarks::Watermarks;
 use blocking::run_blocking;
 use client_config::krafka_auth;
 use convert::committed_from_tpl;
-use offsets::{from_list_infos, merge_watermark_offsets, partition_time_offsets};
+use indexmap::IndexMap;
+use offsets::{from_krafka_offsets, merge_watermark_offsets, partition_time_offsets};
 
 pub use client_config::KafkaClusterConfig;
 
@@ -84,6 +86,7 @@ pub struct KafkaClient {
     admin: Arc<AdminClient<DefaultClientContext>>,
     config: ClusterConfig,
     krafka: tokio::sync::OnceCell<KrafkaSharedClient>,
+    krafka_admin: tokio::sync::OnceCell<KrafkaAdminClient>,
     schema_registry: Option<PayloadDecoder>,
 }
 
@@ -115,6 +118,7 @@ impl KafkaClient {
             admin: Arc::new(admin),
             config: config.clone(),
             krafka: tokio::sync::OnceCell::new(),
+            krafka_admin: tokio::sync::OnceCell::new(),
             schema_registry,
         })
     }
@@ -133,6 +137,19 @@ impl KafkaClient {
                     builder = builder.auth(auth);
                 }
                 Ok(builder.build().await?)
+            })
+            .await
+    }
+
+    /// Krafka admin handle sharing [`krafka_client`](Self::krafka_client)'s pool.
+    async fn krafka_admin(&self) -> Result<&KrafkaAdminClient, KafkaError> {
+        let client = self.krafka_client().await?;
+        self.krafka_admin
+            .get_or_try_init(|| async {
+                Ok(KrafkaAdminClient::builder()
+                    .with_client(client)
+                    .build()
+                    .await?)
             })
             .await
     }
@@ -248,12 +265,24 @@ impl KafkaClient {
             return Ok(HashMap::new());
         }
 
-        let opts = self.list_offset_options();
-        let (beginning, end) = tokio::try_join!(
-            list_partition_offsets(&self.admin, &opts, partitions, Offset::Beginning),
-            list_partition_offsets(&self.admin, &opts, partitions, Offset::End),
-        )?;
-        Ok(merge_watermark_offsets(&beginning, &end))
+        let admin = self.krafka_admin().await?;
+        let grouped = group_partitions_by_topic(partitions);
+        let by_topic = topic_partition_refs(&grouped);
+
+        let deadline = self.timeouts.watermark + self.timeouts.watermark;
+        let (beginning, end) = tokio::time::timeout(deadline, async {
+            tokio::try_join!(
+                admin.list_offsets(&by_topic, OffsetSpec::Earliest),
+                admin.list_offsets(&by_topic, OffsetSpec::Latest),
+            )
+        })
+        .await
+        .map_err(|_| KafkaError::Timeout)??;
+
+        Ok(merge_watermark_offsets(
+            &from_krafka_offsets(beginning),
+            &from_krafka_offsets(end),
+        ))
     }
 
     pub async fn offsets_for_times(
@@ -266,18 +295,15 @@ impl KafkaClient {
             return Ok(HashMap::new());
         }
 
-        let pairs: Vec<(String, i32)> = partitions
-            .iter()
-            .map(|partition| (topic.to_owned(), *partition))
-            .collect();
-        let listed = list_partition_offsets(
-            &self.admin,
-            &self.list_offset_options(),
-            &pairs,
-            Offset::Offset(timestamp),
+        let admin = self.krafka_admin().await?;
+        let by_topic = [(topic, partitions)];
+        let listed = tokio::time::timeout(
+            self.timeouts.watermark,
+            admin.list_offsets(&by_topic, OffsetSpec::Timestamp(timestamp)),
         )
-        .await?;
-        Ok(partition_time_offsets(listed))
+        .await
+        .map_err(|_| KafkaError::Timeout)??;
+        Ok(partition_time_offsets(from_krafka_offsets(listed)))
     }
 
     pub async fn topic_configs(
@@ -361,10 +387,6 @@ impl KafkaClient {
         AdminOptions::new()
             .request_timeout(Some(self.timeouts.admin))
             .operation_timeout(Some(self.timeouts.admin))
-    }
-
-    fn list_offset_options(&self) -> AdminOptions {
-        AdminOptions::new().request_timeout(Some(self.timeouts.watermark))
     }
 
     fn browser(&self) -> Result<StreamConsumer, KafkaError> {
@@ -457,16 +479,24 @@ impl ClusterSession for KafkaClient {
     }
 }
 
-async fn list_partition_offsets(
-    admin: &AdminClient<DefaultClientContext>,
-    opts: &AdminOptions,
-    partitions: &[(String, i32)],
-    query: Offset,
-) -> Result<HashMap<(String, i32), Option<i64>>, KafkaError> {
-    let infos = admin
-        .list_offsets(&topic_partitions(partitions, Some(query))?, opts)
-        .await?;
-    Ok(from_list_infos(infos))
+/// Groups `(topic, partition)` pairs the way [`krafka::admin::AdminClient::list_offsets`]
+/// wants them: one entry per topic, carrying every requested partition.
+fn group_partitions_by_topic(partitions: &[(String, i32)]) -> Vec<(String, Vec<i32>)> {
+    let mut grouped: IndexMap<&str, Vec<i32>> = IndexMap::new();
+    for (topic, partition) in partitions {
+        grouped.entry(topic.as_str()).or_default().push(*partition);
+    }
+    grouped
+        .into_iter()
+        .map(|(topic, ids)| (topic.to_owned(), ids))
+        .collect()
+}
+
+fn topic_partition_refs(grouped: &[(String, Vec<i32>)]) -> Vec<(&str, &[i32])> {
+    grouped
+        .iter()
+        .map(|(topic, ids)| (topic.as_str(), ids.as_slice()))
+        .collect()
 }
 
 fn topic_partitions(
@@ -568,19 +598,45 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn client_reads_watermarks_and_records() {
+    async fn watermarks_reads_low_and_high_offsets_from_broker() {
+        let broker = krafka::testing::FakeBroker::start()
+            .await
+            .expect("fake broker");
+        assert!(broker.create_topic("orders", 1));
+        krafka_produce(&broker.bootstrap_servers(), "orders", 1).await;
+
+        let client = kafka_client(&broker.bootstrap_servers());
+        let marks = client
+            .watermarks(&[("orders".into(), 0)])
+            .await
+            .expect("watermarks");
+        assert_eq!(marks["orders"][&0], Watermarks { low: 0, high: 1 });
+    }
+
+    #[tokio::test]
+    async fn offsets_for_times_reads_the_first_offset_at_or_after_a_timestamp() {
+        let broker = krafka::testing::FakeBroker::start()
+            .await
+            .expect("fake broker");
+        assert!(broker.create_topic("orders", 1));
+        krafka_produce(&broker.bootstrap_servers(), "orders", 3).await;
+
+        let client = kafka_client(&broker.bootstrap_servers());
+        let offsets = client
+            .offsets_for_times("orders", &[0], 0)
+            .await
+            .expect("offsets for times");
+        assert_eq!(offsets.get(&0), Some(&Some(0)));
+    }
+
+    #[tokio::test]
+    async fn client_reads_records() {
         let mock = MockCluster::new(1).expect("mock cluster");
         mock.create_topic("orders", 1, 1).expect("topic");
         let bootstrap = mock.bootstrap_servers();
         produce(&bootstrap, "orders").await;
 
         let client = kafka_client(&bootstrap);
-
-        let marks = client
-            .watermarks(&[("orders".into(), 0)])
-            .await
-            .expect("watermarks");
-        assert_eq!(marks["orders"][&0], Watermarks { low: 0, high: 1 });
 
         let records = client
             .records(&FetchPlan {
@@ -705,6 +761,24 @@ mod tests {
             properties: HashMap::new(),
         })
         .expect("kafka client")
+    }
+
+    /// Produces `count` messages to `topic` via a krafka `Producer`, for
+    /// tests exercising the krafka-backed `KafkaClient` methods against
+    /// `krafka::testing::FakeBroker`.
+    async fn krafka_produce(bootstrap: &str, topic: &str, count: usize) {
+        let producer = krafka::producer::Producer::builder()
+            .bootstrap_servers(bootstrap)
+            .build()
+            .await
+            .expect("krafka producer");
+        for _ in 0..count {
+            let _metadata = producer
+                .send(topic, Some(b"k"), Some(b"hello"))
+                .await
+                .expect("produce");
+        }
+        producer.close().await;
     }
 
     async fn produce(bootstrap: &str, topic: &str) {
