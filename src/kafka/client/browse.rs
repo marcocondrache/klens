@@ -62,7 +62,7 @@ impl Drop for KafkaBrowse<'_> {
         if let Some(consumer) = self.consumer.take() {
             match tokio::runtime::Handle::try_current() {
                 Ok(handle) => {
-                    let _ = handle.spawn_blocking(move || drop(consumer));
+                    drop(handle.spawn_blocking(move || drop(consumer)));
                 }
                 Err(_) => drop(consumer),
             }
