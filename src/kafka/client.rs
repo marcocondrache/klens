@@ -1,8 +1,8 @@
 //! Long-lived broker adapter.
 //!
 //! One [`KafkaClient`] per cluster. Callers use domain types only. Production
-//! [`ClusterSession`] is this type. Metadata and offsets go through krafka.
-//! Other methods still use rdkafka.
+//! [`ClusterSession`] is this type. Metadata, offsets, and record browse go
+//! through krafka. Groups and configs still use rdkafka.
 
 mod blocking;
 mod browse;
@@ -18,17 +18,15 @@ use std::time::Duration;
 use async_trait::async_trait;
 use krafka::admin::{AdminClient as KrafkaAdmin, OffsetSpec, OffsetVisibility};
 use krafka::client::KrafkaClient as KrafkaSharedClient;
+use krafka::consumer::{AutoOffsetReset, Consumer as KrafkaConsumer};
 use rdkafka::admin::{
     AdminClient, AdminOptions, ConsumerGroupState, OwnedResourceSpecifier, ResourceSpecifier,
 };
 use rdkafka::client::DefaultClientContext;
-use rdkafka::config::ClientConfig;
-use rdkafka::consumer::StreamConsumer;
 
 use crate::config::ClusterConfig;
 use crate::environment::{
-    ADMIN_TIMEOUT, BROWSE_GROUP_PREFIX, CLIENT_ID_PREFIX, CONSUME_TIMEOUT, METADATA_TIMEOUT,
-    QUEUED_MIN_MESSAGES, WATERMARK_TIMEOUT,
+    ADMIN_TIMEOUT, CLIENT_ID_PREFIX, CONSUME_TIMEOUT, METADATA_TIMEOUT, WATERMARK_TIMEOUT,
 };
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
@@ -76,7 +74,6 @@ impl Default for Timeouts {
 pub struct KafkaClient {
     identity: ClusterIdentity,
     timeouts: Timeouts,
-    base: ClientConfig,
     admin: Arc<AdminClient<DefaultClientContext>>,
     config: ClusterConfig,
     krafka: tokio::sync::OnceCell<KrafkaSharedClient>,
@@ -107,7 +104,6 @@ impl KafkaClient {
         Ok(Self {
             identity,
             timeouts: Timeouts::default(),
-            base,
             admin: Arc::new(admin),
             config: config.clone(),
             krafka: tokio::sync::OnceCell::new(),
@@ -360,7 +356,7 @@ impl KafkaClient {
         if plan.windows.is_empty() || plan.limit == 0 {
             return Ok(Vec::new());
         }
-        let browse = self.open_browse()?;
+        let browse = self.open_browse().await?;
         let result = browse.fetch(plan).await;
         browse.close().await;
         result
@@ -379,20 +375,16 @@ impl KafkaClient {
             .operation_timeout(Some(self.timeouts.admin))
     }
 
-    fn browser(&self) -> Result<StreamConsumer, KafkaError> {
-        Ok(consumer_config(
-            &self.base,
-            &self.identity.name,
-            &browse_group_id(&self.identity.name),
-            "browse",
-            true,
-        )
-        .create()?)
-    }
-
-    fn open_browse(&self) -> Result<browse::KafkaBrowse<'_>, KafkaError> {
+    async fn open_browse(&self) -> Result<browse::KafkaBrowse<'_>, KafkaError> {
+        let consumer = KrafkaConsumer::builder()
+            .with_client(self.krafka_client().await?)
+            .client_id(browse_client_id(&self.identity.name))
+            .enable_auto_commit(false)
+            .auto_offset_reset(AutoOffsetReset::Earliest)
+            .build()
+            .await?;
         Ok(browse::KafkaBrowse::new(
-            self.browser()?,
+            consumer,
             self.timeouts.consume,
             self.schema_registry.as_ref(),
         ))
@@ -461,7 +453,7 @@ impl ClusterSession for KafkaClient {
     }
 
     async fn open_browse(&self) -> Result<Box<dyn RecordBrowse + '_>, KafkaError> {
-        Ok(Box::new(KafkaClient::open_browse(self)?))
+        Ok(Box::new(KafkaClient::open_browse(self).await?))
     }
 
     async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
@@ -488,33 +480,10 @@ fn list_offset_parts(result: krafka::admin::ListOffsetResult) -> (String, i32, i
     (result.topic, result.partition, result.offset)
 }
 
-fn consumer_config(
-    base: &ClientConfig,
-    cluster: &str,
-    group_id: &str,
-    role: &str,
-    partition_eof: bool,
-) -> ClientConfig {
-    let mut client = base.clone();
-    client.set("client.id", format!("{CLIENT_ID_PREFIX}-{cluster}-{role}"));
-    client.set("group.id", group_id);
-    client.set("enable.auto.commit", "false");
-    client.set("enable.auto.offset.store", "false");
-    client.set("allow.auto.create.topics", "false");
-    client.set("auto.offset.reset", "error");
-    client.set(
-        "enable.partition.eof",
-        if partition_eof { "true" } else { "false" },
-    );
-    client.set("queued.min.messages", QUEUED_MIN_MESSAGES.to_string());
-    client
-}
-
-fn browse_group_id(cluster: &str) -> String {
+fn browse_client_id(cluster: &str) -> String {
     static SEQ: AtomicU64 = AtomicU64::new(1);
     format!(
-        "{BROWSE_GROUP_PREFIX}.{cluster}.{}-{}",
-        std::process::id(),
+        "{CLIENT_ID_PREFIX}-{cluster}-browse-{}",
         SEQ.fetch_add(1, Ordering::Relaxed)
     )
 }
@@ -522,20 +491,18 @@ fn browse_group_id(cluster: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rdkafka::config::ClientConfig;
     use rdkafka::mocking::MockCluster;
-    use rdkafka::producer::{FutureProducer, FutureRecord};
 
     use crate::config::ClusterConfig;
     use crate::kafka::record::plan::PartitionWindow;
     use crate::kafka::record::query::RecordOrder;
 
     #[test]
-    fn browse_group_ids_are_internal_and_unique() {
-        let first = browse_group_id("local");
-        let second = browse_group_id("local");
+    fn browse_client_ids_are_unique() {
+        let first = browse_client_id("local");
+        let second = browse_client_id("local");
 
-        assert!(first.starts_with(&format!("{BROWSE_GROUP_PREFIX}.local.")));
+        assert!(first.starts_with(&format!("{CLIENT_ID_PREFIX}-local-browse-")));
         assert_ne!(first, second);
     }
 
@@ -576,7 +543,7 @@ mod tests {
             .await
             .expect("fake broker");
         assert!(broker.create_topic("orders", 1));
-        produce_krafka(&broker.bootstrap_servers(), "orders").await;
+        produce_krafka(&broker.bootstrap_servers(), "orders", 1).await;
 
         let client = kafka_client(&broker.bootstrap_servers());
         let marks = client
@@ -594,12 +561,13 @@ mod tests {
 
     #[tokio::test]
     async fn client_reads_records() {
-        let mock = MockCluster::new(1).expect("mock cluster");
-        mock.create_topic("orders", 1, 1).expect("topic");
-        let bootstrap = mock.bootstrap_servers();
-        produce(&bootstrap, "orders").await;
+        let broker = krafka::testing::FakeBroker::start()
+            .await
+            .expect("fake broker");
+        assert!(broker.create_topic("orders", 1));
+        produce_krafka(&broker.bootstrap_servers(), "orders", 1).await;
 
-        let client = kafka_client(&bootstrap);
+        let client = kafka_client(&broker.bootstrap_servers());
         let records = client
             .records(&FetchPlan {
                 topic: "orders".into(),
@@ -618,19 +586,36 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].offset, 0);
         assert_eq!(records[0].value.as_deref(), Some("hello"));
+        assert_eq!(records[0].key.as_deref(), Some("k"));
+
+        let past_high = client
+            .records(&FetchPlan {
+                topic: "orders".into(),
+                windows: vec![PartitionWindow {
+                    partition: 0,
+                    start: 5,
+                    end: 10,
+                }],
+                filter: None,
+                limit: 10,
+                order: RecordOrder::Oldest,
+                schema_id: None,
+            })
+            .await
+            .expect("empty past high watermark");
+        assert!(past_high.is_empty());
     }
 
     #[tokio::test]
     async fn browse_handle_serves_multiple_fetches_from_one_consumer() {
-        let mock = MockCluster::new(1).expect("mock cluster");
-        mock.create_topic("orders", 1, 1).expect("topic");
-        let bootstrap = mock.bootstrap_servers();
-        for _ in 0..4 {
-            produce(&bootstrap, "orders").await;
-        }
+        let broker = krafka::testing::FakeBroker::start()
+            .await
+            .expect("fake broker");
+        assert!(broker.create_topic("orders", 1));
+        produce_krafka(&broker.bootstrap_servers(), "orders", 4).await;
 
-        let client = kafka_client(&bootstrap);
-        let browse = client.open_browse().expect("browse handle");
+        let client = kafka_client(&broker.bootstrap_servers());
+        let browse = client.open_browse().await.expect("browse handle");
 
         let window = |start: i64, end: i64| FetchPlan {
             topic: "orders".into(),
@@ -668,7 +653,7 @@ mod tests {
             .await
             .expect("fake broker");
         assert!(broker.create_topic("orders", 1));
-        produce_krafka(&broker.bootstrap_servers(), "orders").await;
+        produce_krafka(&broker.bootstrap_servers(), "orders", 1).await;
 
         let client = kafka_client(&broker.bootstrap_servers());
         commit_krafka(&client, "orders-group", "orders", 1).await;
@@ -693,7 +678,7 @@ mod tests {
             .await
             .expect("fake broker");
         assert!(broker.create_topic("orders", 1));
-        produce_krafka(&broker.bootstrap_servers(), "orders").await;
+        produce_krafka(&broker.bootstrap_servers(), "orders", 1).await;
 
         let client = Arc::new(kafka_client(&broker.bootstrap_servers()));
         for index in 0..8 {
@@ -726,30 +711,18 @@ mod tests {
         .expect("kafka client")
     }
 
-    async fn produce(bootstrap: &str, topic: &str) {
-        let producer: FutureProducer = ClientConfig::new()
-            .set("bootstrap.servers", bootstrap)
-            .create()
-            .expect("producer");
-        producer
-            .send(
-                FutureRecord::to(topic).payload("hello").key("k"),
-                Duration::from_secs(5),
-            )
-            .await
-            .expect("produce");
-    }
-
-    async fn produce_krafka(bootstrap: &str, topic: &str) {
+    async fn produce_krafka(bootstrap: &str, topic: &str, count: usize) {
         let producer = krafka::producer::Producer::builder()
             .bootstrap_servers(bootstrap)
             .build()
             .await
             .expect("producer");
-        let _metadata = producer
-            .send(topic, Some(b"k"), Some(b"hello"))
-            .await
-            .expect("produce");
+        for _ in 0..count {
+            let _metadata = producer
+                .send(topic, Some(b"k"), Some(b"hello"))
+                .await
+                .expect("produce");
+        }
     }
 
     async fn commit_krafka(client: &KafkaClient, group: &str, topic: &str, offset: i64) {

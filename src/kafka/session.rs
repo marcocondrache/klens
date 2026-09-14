@@ -98,10 +98,7 @@ pub trait ClusterSession: Send + Sync + 'static {
 pub trait RecordBrowse: Send + Sync {
     async fn fetch(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError>;
 
-    /// Releases the underlying I/O. The default is a no-op; an
-    /// implementation holding a real consumer must override this to move
-    /// librdkafka's blocking close off the async task instead of letting it
-    /// drop here.
+    /// Releases the underlying I/O. The default is a no-op.
     async fn close(self: Box<Self>) {}
 }
 

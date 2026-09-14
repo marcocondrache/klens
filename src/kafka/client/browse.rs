@@ -3,29 +3,25 @@ use std::ops::Range;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use rdkafka::Message;
-use rdkafka::consumer::{Consumer, StreamConsumer};
-use rdkafka::error::KafkaError as RdKafkaError;
-use rdkafka::message::{Headers, Timestamp};
-use rdkafka::topic_partition_list::Offset;
-use rdkafka::topic_partition_list::TopicPartitionList;
+use krafka::consumer::{Consumer, ConsumerRecord};
 use tokio::time::{Instant, timeout_at};
 
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{Compression, FetchPlan, Record, RecordHeader, decode_bytes};
 use crate::kafka::record::batch::RecordBatch;
+use crate::kafka::record::plan::PartitionWindow;
 use crate::kafka::registry::decode::{PayloadDecoder, decode_field};
 use crate::kafka::session::RecordBrowse;
 
 pub(super) struct KafkaBrowse<'a> {
-    consumer: Option<StreamConsumer>,
+    consumer: Option<Consumer>,
     timeout: Duration,
     decoder: Option<&'a PayloadDecoder>,
 }
 
 impl<'a> KafkaBrowse<'a> {
     pub(super) fn new(
-        consumer: StreamConsumer,
+        consumer: Consumer,
         timeout: Duration,
         decoder: Option<&'a PayloadDecoder>,
     ) -> Self {
@@ -36,7 +32,7 @@ impl<'a> KafkaBrowse<'a> {
         }
     }
 
-    fn consumer(&self) -> &StreamConsumer {
+    fn consumer(&self) -> &Consumer {
         self.consumer
             .as_ref()
             .expect("consumer is taken only when closing")
@@ -53,19 +49,20 @@ impl<'a> KafkaBrowse<'a> {
     }
 
     pub(super) async fn close(mut self) {
-        offload_close(self.consumer.take()).await;
+        if let Some(consumer) = self.consumer.take() {
+            let _ = consumer.close().await;
+        }
     }
 }
 
 impl Drop for KafkaBrowse<'_> {
     fn drop(&mut self) {
-        if let Some(consumer) = self.consumer.take() {
-            match tokio::runtime::Handle::try_current() {
-                Ok(handle) => {
-                    drop(handle.spawn_blocking(move || drop(consumer)));
-                }
-                Err(_) => drop(consumer),
-            }
+        if let Some(consumer) = self.consumer.take()
+            && let Ok(handle) = tokio::runtime::Handle::try_current()
+        {
+            drop(handle.spawn(async move {
+                let _ = consumer.close().await;
+            }));
         }
     }
 }
@@ -81,14 +78,8 @@ impl<'a> RecordBrowse for KafkaBrowse<'a> {
     }
 }
 
-async fn offload_close(consumer: Option<StreamConsumer>) {
-    if let Some(consumer) = consumer {
-        let _ = tokio::task::spawn_blocking(move || drop(consumer)).await;
-    }
-}
-
 async fn consume_windows(
-    consumer: &StreamConsumer,
+    consumer: &Consumer,
     plan: &FetchPlan,
     decoder: Option<&PayloadDecoder>,
     deadline: Instant,
@@ -97,60 +88,56 @@ async fn consume_windows(
         return Ok(Vec::new());
     }
 
-    let mut tpl = TopicPartitionList::new();
-
-    for window in &plan.windows {
-        if window.is_empty() {
-            continue;
-        }
-        tpl.add_partition_offset(&plan.topic, window.partition, Offset::Offset(window.start))?;
-    }
-
-    if tpl.count() == 0 {
+    let windows = clamp_windows(consumer, plan).await?;
+    if windows.is_empty() {
         return Ok(Vec::new());
     }
 
-    consumer.assign(&tpl)?;
+    let partitions: Vec<i32> = windows.iter().map(|window| window.partition).collect();
+    consumer.assign(&plan.topic, partitions.clone()).await?;
     // A reused consumer may still have these partitions paused from a
-    // previous pass over this handle: pausing is tracked per partition, not
+    // previous pass over this handle. Pause is tracked per partition, not
     // reset by `assign`.
-    consumer.resume(&tpl)?;
+    consumer.resume(&plan.topic, &partitions).await;
+    for window in &windows {
+        consumer
+            .seek(&plan.topic, window.partition, window.start)
+            .await?;
+    }
 
-    let mut scan = WindowScan::new(plan);
+    let mut scan = WindowScan::new(&windows);
     let mut records = RecordBatch::new(plan.limit, plan.order);
 
     while !scan.remaining.is_empty() {
-        // Buffered messages and cached decoding may never yield to the timer.
         if Instant::now() >= deadline {
             return Err(KafkaError::Timeout);
         }
-        match consumer.recv().await {
-            Err(RdKafkaError::PartitionEOF(partition)) => {
-                scan.remaining.remove(&partition);
-                let mut completed = TopicPartitionList::new();
-                completed.add_partition(&plan.topic, partition);
-                consumer.pause(&completed)?;
-            }
-            Err(error) => return Err(error.into()),
-            Ok(message) => {
-                let partition = message.partition();
-                if !scan.remaining.contains_key(&partition) {
-                    continue;
-                }
-                let accepted = scan.accept(partition, message.offset());
-                if !scan.remaining.contains_key(&partition) {
-                    let mut completed = TopicPartitionList::new();
-                    completed.add_partition(&plan.topic, partition);
-                    consumer.pause(&completed)?;
-                }
-                if !accepted {
-                    continue;
-                }
+        let budget = deadline.saturating_duration_since(Instant::now());
+        let batch = timeout_at(deadline, consumer.poll(budget))
+            .await
+            .map_err(|_| KafkaError::Timeout)??;
 
-                let record = record_from_message(&message, decoder, plan).await;
-                if record.matches(plan.filter.as_ref()) {
-                    records.push(record);
-                }
+        if batch.is_empty() {
+            complete_idle_partitions(consumer, &plan.topic, &mut scan).await;
+            continue;
+        }
+
+        for message in batch {
+            let partition = message.partition;
+            if !scan.remaining.contains_key(&partition) {
+                continue;
+            }
+            let accepted = scan.accept(partition, message.offset);
+            if !scan.remaining.contains_key(&partition) {
+                consumer.pause(&plan.topic, &[partition]).await;
+            }
+            if !accepted {
+                continue;
+            }
+
+            let record = record_from_message(&message, decoder, plan).await;
+            if record.matches(plan.filter.as_ref()) {
+                records.push(record);
             }
         }
     }
@@ -161,16 +148,59 @@ async fn consume_windows(
     Ok(records.into_records())
 }
 
+async fn clamp_windows(
+    consumer: &Consumer,
+    plan: &FetchPlan,
+) -> Result<Vec<PartitionWindow>, KafkaError> {
+    let mut windows = Vec::new();
+    for window in &plan.windows {
+        if window.is_empty() {
+            continue;
+        }
+        let high = consumer
+            .fetch_end_offset(&plan.topic, window.partition)
+            .await?;
+        let end = window.end.min(high);
+        if window.start >= end {
+            continue;
+        }
+        windows.push(PartitionWindow {
+            partition: window.partition,
+            start: window.start,
+            end,
+        });
+    }
+    Ok(windows)
+}
+
+/// krafka has no PartitionEOF. An empty poll after the consumer has a
+/// watermark means this window has no more records.
+async fn complete_idle_partitions(consumer: &Consumer, topic: &str, scan: &mut WindowScan) {
+    let mut done = Vec::new();
+    for (&partition, window) in &scan.remaining {
+        let Some(position) = consumer.position(topic, partition).await else {
+            continue;
+        };
+        let lag = consumer.current_lag(topic, partition).await;
+        if position >= window.end || lag == Some(0) || lag.is_some() {
+            done.push(partition);
+        }
+    }
+    for partition in done {
+        scan.remaining.remove(&partition);
+        consumer.pause(topic, &[partition]).await;
+    }
+}
+
 /// Active half-open offset ranges. Kafka can jump over offsets in compacted logs.
 struct WindowScan {
     remaining: HashMap<i32, Range<i64>>,
 }
 
 impl WindowScan {
-    fn new(plan: &FetchPlan) -> Self {
+    fn new(windows: &[PartitionWindow]) -> Self {
         Self {
-            remaining: plan
-                .windows
+            remaining: windows
                 .iter()
                 .filter(|window| !window.is_empty())
                 .map(|window| (window.partition, window.start..window.end))
@@ -191,36 +221,26 @@ impl WindowScan {
 }
 
 async fn record_from_message(
-    message: &rdkafka::message::BorrowedMessage<'_>,
+    message: &ConsumerRecord,
     decoder: Option<&PayloadDecoder>,
     plan: &FetchPlan,
 ) -> Record {
     let headers = message
-        .headers()
-        .map(|headers| {
-            (0..headers.count())
-                .filter_map(|index| {
-                    let header = headers.try_get(index)?;
-                    Some(RecordHeader {
-                        key: header.key.to_owned(),
-                        value: header.value.map(decode_bytes).unwrap_or_default(),
-                    })
-                })
-                .collect()
+        .headers
+        .iter()
+        .map(|(key, value)| RecordHeader {
+            key: String::from_utf8_lossy(key).into_owned(),
+            value: value.as_deref().map(decode_bytes).unwrap_or_default(),
         })
-        .unwrap_or_default();
+        .collect();
 
-    let timestamp = match message.timestamp() {
-        Timestamp::NotAvailable => 0,
-        Timestamp::CreateTime(ms) | Timestamp::LogAppendTime(ms) => ms,
-    };
-
-    let size_bytes = message.key().map(|key| key.len()).unwrap_or(0)
-        + message.payload().map(|payload| payload.len()).unwrap_or(0);
+    let timestamp = message.timestamp.max(0);
+    let size_bytes = message.key.as_ref().map(|key| key.len()).unwrap_or(0)
+        + message.value.as_ref().map(|value| value.len()).unwrap_or(0);
 
     let (key, value) = tokio::join!(
-        decode_field(decoder, message.key(), None),
-        decode_field(decoder, message.payload(), plan.schema_id),
+        decode_field(decoder, message.key.as_deref(), None),
+        decode_field(decoder, message.value.as_deref(), plan.schema_id),
     );
     let key = key.map(|field| field.text);
     let (value, schema_id) = match value {
@@ -229,9 +249,9 @@ async fn record_from_message(
     };
 
     Record {
-        topic: message.topic().to_owned(),
-        partition: message.partition(),
-        offset: message.offset(),
+        topic: message.topic.clone(),
+        partition: message.partition,
+        offset: message.offset,
         timestamp,
         key,
         value,
