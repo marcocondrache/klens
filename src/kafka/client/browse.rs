@@ -17,16 +17,8 @@ use crate::kafka::record::batch::RecordBatch;
 use crate::kafka::registry::decode::{PayloadDecoder, decode_field};
 use crate::kafka::session::RecordBrowse;
 
-/// One browse/search operation's consumer.
-///
-/// Every retry pass within a `records` scan calls [`fetch`](Self::fetch) on
-/// the same handle instead of opening a new consumer per pass. [`close`]
-/// moves librdkafka's blocking consumer close off the async task, since
-/// dropping a [`StreamConsumer`] performs that call inline.
-///
-/// [`close`]: Self::close
 pub(super) struct KafkaBrowse<'a> {
-    consumer: StreamConsumer,
+    consumer: Option<StreamConsumer>,
     timeout: Duration,
     decoder: Option<&'a PayloadDecoder>,
 }
@@ -38,19 +30,43 @@ impl<'a> KafkaBrowse<'a> {
         decoder: Option<&'a PayloadDecoder>,
     ) -> Self {
         Self {
-            consumer,
+            consumer: Some(consumer),
             timeout,
             decoder,
         }
     }
 
-    pub(super) async fn fetch(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError> {
-        consume(&self.consumer, plan, self.timeout, self.decoder).await
+    fn consumer(&self) -> &StreamConsumer {
+        self.consumer
+            .as_ref()
+            .expect("consumer is taken only when closing")
     }
 
-    pub(super) async fn close(self) {
-        let Self { consumer, .. } = self;
-        let _ = tokio::task::spawn_blocking(move || drop(consumer)).await;
+    pub(super) async fn fetch(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError> {
+        let deadline = Instant::now() + self.timeout;
+        timeout_at(
+            deadline,
+            consume_windows(self.consumer(), plan, self.decoder, deadline),
+        )
+        .await
+        .map_err(|_| KafkaError::Timeout)?
+    }
+
+    pub(super) async fn close(mut self) {
+        offload_close(self.consumer.take()).await;
+    }
+}
+
+impl Drop for KafkaBrowse<'_> {
+    fn drop(&mut self) {
+        if let Some(consumer) = self.consumer.take() {
+            match tokio::runtime::Handle::try_current() {
+                Ok(handle) => {
+                    drop(handle.spawn_blocking(move || drop(consumer)));
+                }
+                Err(_) => drop(consumer),
+            }
+        }
     }
 }
 
@@ -65,18 +81,10 @@ impl<'a> RecordBrowse for KafkaBrowse<'a> {
     }
 }
 
-async fn consume(
-    consumer: &StreamConsumer,
-    plan: &FetchPlan,
-    budget: Duration,
-    decoder: Option<&PayloadDecoder>,
-) -> Result<Vec<Record>, KafkaError> {
-    // A partial window cannot safely advance an offset-only cursor, especially
-    // when browsing newest first. Include decoding in the same deadline.
-    let deadline = Instant::now() + budget;
-    timeout_at(deadline, consume_windows(consumer, plan, decoder, deadline))
-        .await
-        .map_err(|_| KafkaError::Timeout)?
+async fn offload_close(consumer: Option<StreamConsumer>) {
+    if let Some(consumer) = consumer {
+        let _ = tokio::task::spawn_blocking(move || drop(consumer)).await;
+    }
 }
 
 async fn consume_windows(
@@ -126,8 +134,6 @@ async fn consume_windows(
             Err(error) => return Err(error.into()),
             Ok(message) => {
                 let partition = message.partition();
-                // Pausing prevents more fetches; the scan also rejects messages
-                // already queued for a completed partition.
                 if !scan.remaining.contains_key(&partition) {
                     continue;
                 }

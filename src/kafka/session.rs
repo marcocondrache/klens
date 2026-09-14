@@ -79,12 +79,6 @@ pub trait ClusterSession: Send + Sync + 'static {
 
     /// Opens one browse/search operation shared across every retry pass of a
     /// single scan.
-    ///
-    /// The default wraps [`records`](Self::records) per call, which is fine
-    /// for sessions with no real connection to reuse. A session backed by a
-    /// live consumer should override this so a filtered search reuses one
-    /// consumer across passes instead of opening (and later closing) a new
-    /// one on every attempt.
     async fn open_browse(&self) -> Result<Box<dyn RecordBrowse + '_>, KafkaError> {
         Ok(Box::new(SessionBrowse(self)))
     }
