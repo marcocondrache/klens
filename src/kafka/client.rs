@@ -1,7 +1,8 @@
-//! Long-lived rdkafka wrapper.
+//! Long-lived broker adapter.
 //!
-//! One [`KafkaClient`] per cluster. Callers use domain types only; rdkafka
-//! stays inside this module. Production [`ClusterSession`] is this type.
+//! One [`KafkaClient`] per cluster. Callers use domain types only. Production
+//! [`ClusterSession`] is this type. Metadata already goes through krafka.
+//! Other methods still use rdkafka.
 
 mod blocking;
 mod browse;
@@ -15,6 +16,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use krafka::client::KrafkaClient as KrafkaSharedClient;
 use rdkafka::admin::{
     AdminClient, AdminOptions, ConsumerGroupState, OwnedResourceSpecifier, ResourceSpecifier,
 };
@@ -42,6 +44,7 @@ use crate::kafka::topic_config::ConfigEntry;
 use crate::kafka::watermarks::Watermarks;
 
 use blocking::run_blocking;
+use client_config::krafka_auth;
 use convert::committed_from_tpl;
 use offsets::{from_list_infos, merge_watermark_offsets, partition_time_offsets};
 
@@ -67,11 +70,16 @@ impl Default for Timeouts {
 }
 
 /// Process-lifetime Kafka handle. All broker I/O for a cluster goes through here.
+///
+/// `krafka` connects on first use so tests that still talk to an rdkafka
+/// mock broker do not also need a krafka-reachable listener.
 pub struct KafkaClient {
     identity: ClusterIdentity,
     timeouts: Timeouts,
     base: ClientConfig,
     admin: Arc<AdminClient<DefaultClientContext>>,
+    config: ClusterConfig,
+    krafka: tokio::sync::OnceCell<KrafkaSharedClient>,
     schema_registry: Option<PayloadDecoder>,
 }
 
@@ -101,8 +109,25 @@ impl KafkaClient {
             timeouts: Timeouts::default(),
             base,
             admin: Arc::new(admin),
+            config: config.clone(),
+            krafka: tokio::sync::OnceCell::new(),
             schema_registry,
         })
+    }
+
+    async fn krafka_client(&self) -> Result<&KrafkaSharedClient, KafkaError> {
+        self.krafka
+            .get_or_try_init(|| async {
+                let mut builder =
+                    KrafkaSharedClient::builder(self.config.bootstrap_servers.join(","))
+                        .client_id(format!("{CLIENT_ID_PREFIX}-{}", self.identity.name))
+                        .request_timeout(self.timeouts.admin);
+                if let Some(auth) = krafka_auth(&self.config)? {
+                    builder = builder.auth(auth);
+                }
+                Ok(builder.build().await?)
+            })
+            .await
     }
 
     pub fn identity(&self) -> &ClusterIdentity {
@@ -114,15 +139,13 @@ impl KafkaClient {
     }
 
     pub async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError> {
-        let admin = Arc::clone(&self.admin);
-        let timeout = self.timeouts.metadata;
-        run_blocking(timeout + timeout, move || {
-            let client = admin.inner();
-            let metadata = client.fetch_metadata(None, timeout)?;
-            let cluster_id = client.fetch_cluster_id(timeout);
-            Ok(MetadataSnapshot::from_rdkafka(&metadata, cluster_id))
+        tokio::time::timeout(self.timeouts.metadata + self.timeouts.metadata, async {
+            let cache = self.krafka_client().await?.metadata();
+            cache.refresh().await?;
+            Ok(MetadataSnapshot::from_krafka(cache))
         })
         .await
+        .map_err(|_| KafkaError::Timeout)?
     }
 
     pub async fn groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
@@ -522,20 +545,28 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn client_reads_metadata_watermarks_and_records() {
+    async fn metadata_reads_topics_and_partitions_from_broker() {
+        let broker = krafka::testing::FakeBroker::start()
+            .await
+            .expect("fake broker");
+        assert!(broker.create_topic("orders", 2));
+
+        let client = kafka_client(&broker.bootstrap_servers());
+        let meta = client.metadata().await.expect("metadata");
+
+        let topic = meta.topic("orders").expect("orders topic");
+        assert_eq!(topic.partition_ids(), vec![0, 1]);
+        assert!(!topic.internal);
+    }
+
+    #[tokio::test]
+    async fn client_reads_watermarks_and_records() {
         let mock = MockCluster::new(1).expect("mock cluster");
         mock.create_topic("orders", 1, 1).expect("topic");
         let bootstrap = mock.bootstrap_servers();
         produce(&bootstrap, "orders").await;
 
         let client = kafka_client(&bootstrap);
-
-        let meta = client.metadata().await.expect("metadata");
-        assert!(
-            meta.topics
-                .iter()
-                .any(|topic| topic.name == "orders" && topic.partitions.len() == 1)
-        );
 
         let marks = client
             .watermarks(&[("orders".into(), 0)])

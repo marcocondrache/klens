@@ -2,8 +2,8 @@
 //!
 //! Open these first.
 //!
-//! - [`ClusterSession`] is the per-cluster I/O port. `client` is the rdkafka
-//!   wrapper ([`KafkaClient`]). `registry` is Schema Registry. `testing` is
+//! - [`ClusterSession`] is the per-cluster I/O port. `client` is the broker
+//!   adapter ([`KafkaClient`]). `registry` is Schema Registry. `testing` is
 //!   the in-memory session.
 //! - Raw broker snapshots live in `metadata`, `group` (`GroupSnapshot`),
 //!   `watermarks`, and `topic_config`.
