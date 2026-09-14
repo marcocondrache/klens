@@ -1,13 +1,12 @@
-//! The single place rdkafka and krafka types cross into the Kafka domain model.
+//! The single place krafka types cross into the Kafka domain model.
 
 use kafka_protocol::messages::consumer_protocol_assignment::ConsumerProtocolAssignment;
 use kafka_protocol::protocol::Decodable;
-use krafka::admin::GroupOffsetEntry;
-use krafka::metadata::ClusterMetadata;
-use rdkafka::admin::{
-    ConfigSource as RdConfigSource, ConsumerGroupDescription, ConsumerGroupState,
+use krafka::admin::{
+    ConfigEntry as KrafkaConfigEntry, ConsumerGroupDescription, ConsumerGroupMember,
+    GroupOffsetEntry, TopicPartitionAssignment,
 };
-use rdkafka::topic_partition_list::TopicPartitionList;
+use krafka::metadata::ClusterMetadata;
 
 use crate::kafka::group::{
     CommittedOffset, GroupMember, GroupSnapshot, GroupState, MemberAssignment,
@@ -57,60 +56,45 @@ impl MetadataSnapshot {
 }
 
 impl GroupSnapshot {
-    pub(super) fn from_rdkafka(info: &rdkafka::groups::GroupInfo) -> Self {
-        Self {
-            id: info.name().to_owned(),
-            state: GroupState::parse(info.state()),
-            protocol: info.protocol().to_owned(),
-            coordinator: 0,
-            members: info
-                .members()
-                .iter()
-                .map(|member| GroupMember {
-                    id: member.id().to_owned(),
-                    client_id: member.client_id().to_owned(),
-                    host: member.client_host().trim_start_matches('/').to_owned(),
-                    assignments: member
-                        .assignment()
-                        .map(member_assignments)
-                        .unwrap_or_default(),
-                })
-                .collect(),
-            committed: Vec::new(),
-        }
-    }
-
-    pub(super) fn from_description(description: ConsumerGroupDescription) -> Self {
+    pub(super) fn from_krafka(description: ConsumerGroupDescription) -> Self {
         Self {
             id: description.group_id,
-            state: GroupState::from(description.state),
-            protocol: description.assignor,
-            coordinator: description.coordinator.map(|node| node.id).unwrap_or(0),
+            state: GroupState::parse(&description.state),
+            protocol: description.assignor.unwrap_or_default(),
+            coordinator: 0,
             members: description
                 .members
                 .into_iter()
-                .map(|member| GroupMember {
-                    id: member.id,
-                    client_id: member.client_id,
-                    host: member.host.trim_start_matches('/').to_owned(),
-                    assignments: assignments_from_tpl(&member.assignment),
-                })
+                .map(GroupMember::from_krafka)
                 .collect(),
             committed: Vec::new(),
         }
     }
 }
 
-impl From<ConsumerGroupState> for GroupState {
-    fn from(state: ConsumerGroupState) -> Self {
-        match state {
-            ConsumerGroupState::Stable => Self::Stable,
-            ConsumerGroupState::PreparingRebalance => Self::PreparingRebalance,
-            ConsumerGroupState::CompletingRebalance => Self::CompletingRebalance,
-            ConsumerGroupState::Dead => Self::Dead,
-            ConsumerGroupState::Empty | ConsumerGroupState::Unknown => Self::Empty,
+impl GroupMember {
+    fn from_krafka(member: ConsumerGroupMember) -> Self {
+        Self {
+            id: member.member_id,
+            client_id: member.client_id,
+            host: member.client_host.trim_start_matches('/').to_owned(),
+            assignments: member
+                .assignment
+                .map(assignments_from_krafka)
+                .unwrap_or_default(),
         }
     }
+}
+
+fn assignments_from_krafka(assigned: Vec<TopicPartitionAssignment>) -> Vec<MemberAssignment> {
+    assigned
+        .into_iter()
+        .filter(|assignment| !assignment.topic_name.is_empty())
+        .map(|assignment| MemberAssignment {
+            topic: assignment.topic_name,
+            partitions: assignment.partitions,
+        })
+        .collect()
 }
 
 pub(super) fn committed_from_krafka(entries: Vec<GroupOffsetEntry>) -> Vec<CommittedOffset> {
@@ -126,27 +110,9 @@ pub(super) fn committed_from_krafka(entries: Vec<GroupOffsetEntry>) -> Vec<Commi
         .collect()
 }
 
-fn assignments_from_tpl(tpl: &TopicPartitionList) -> Vec<MemberAssignment> {
-    let mut assignments: Vec<MemberAssignment> = Vec::new();
-    for element in tpl.elements() {
-        if let Some(existing) = assignments
-            .iter_mut()
-            .find(|assignment| assignment.topic == element.topic())
-        {
-            existing.partitions.push(element.partition());
-        } else {
-            assignments.push(MemberAssignment {
-                topic: element.topic().to_owned(),
-                partitions: vec![element.partition()],
-            });
-        }
-    }
-    assignments
-}
-
-/// Decodes the version-prefixed `ConsumerProtocolAssignment` blob a member
-/// publishes. Malformed or truncated blobs yield no assignments rather than
-/// failing the whole group listing.
+/// Decodes the version-prefixed `ConsumerProtocolAssignment` blob a classic
+/// group member publishes. Malformed or truncated blobs yield no assignments
+/// rather than failing the whole group listing.
 pub(super) fn member_assignments(bytes: &[u8]) -> Vec<MemberAssignment> {
     let Some((version_bytes, rest)) = bytes.split_first_chunk() else {
         return Vec::new();
@@ -167,27 +133,26 @@ pub(super) fn member_assignments(bytes: &[u8]) -> Vec<MemberAssignment> {
         .collect()
 }
 
-impl From<rdkafka::admin::ConfigEntry> for ConfigEntry {
-    fn from(entry: rdkafka::admin::ConfigEntry) -> Self {
+impl From<KrafkaConfigEntry> for ConfigEntry {
+    fn from(entry: KrafkaConfigEntry) -> Self {
         Self {
             name: entry.name,
             value: entry.value,
-            source: ConfigSource::from(entry.source),
-            read_only: entry.is_read_only,
+            source: ConfigSource::from_krafka(entry.config_source),
+            read_only: entry.read_only,
             sensitive: entry.is_sensitive,
         }
     }
 }
 
-impl From<RdConfigSource> for ConfigSource {
-    fn from(source: RdConfigSource) -> Self {
+impl ConfigSource {
+    /// Kafka `DescribeConfigs` `config_source` (v1+).
+    fn from_krafka(source: i8) -> Self {
         match source {
-            RdConfigSource::DynamicTopic => Self::DynamicTopic,
-            RdConfigSource::DynamicBroker => Self::DynamicBroker,
-            RdConfigSource::StaticBroker => Self::StaticBroker,
-            RdConfigSource::Unknown
-            | RdConfigSource::DynamicDefaultBroker
-            | RdConfigSource::Default => Self::Default,
+            1 => Self::DynamicTopic,
+            3 => Self::DynamicBroker,
+            5 => Self::StaticBroker,
+            _ => Self::Default,
         }
     }
 }
@@ -241,5 +206,15 @@ mod tests {
     fn member_assignments_ignores_empty_and_truncated_blobs() {
         assert!(member_assignments(&[]).is_empty());
         assert!(member_assignments(&[0, 0, 0]).is_empty());
+    }
+
+    #[test]
+    fn config_source_maps_kafka_describe_codes() {
+        assert_eq!(ConfigSource::from_krafka(1), ConfigSource::DynamicTopic);
+        assert_eq!(ConfigSource::from_krafka(3), ConfigSource::DynamicBroker);
+        assert_eq!(ConfigSource::from_krafka(5), ConfigSource::StaticBroker);
+        assert_eq!(ConfigSource::from_krafka(0), ConfigSource::Default);
+        assert_eq!(ConfigSource::from_krafka(6), ConfigSource::Default);
+        assert_eq!(ConfigSource::from_krafka(-1), ConfigSource::Default);
     }
 }

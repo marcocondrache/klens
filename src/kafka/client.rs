@@ -1,28 +1,25 @@
 //! Long-lived broker adapter.
 //!
 //! One [`KafkaClient`] per cluster. Callers use domain types only. Production
-//! [`ClusterSession`] is this type. Metadata, offsets, and record browse go
-//! through krafka. Groups and configs still use rdkafka.
+//! [`ClusterSession`] is this type. All broker I/O goes through krafka.
 
-mod blocking;
 mod browse;
 mod client_config;
 mod convert;
+mod groups;
 mod offsets;
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use krafka::admin::{AdminClient as KrafkaAdmin, OffsetSpec, OffsetVisibility};
+use krafka::admin::{
+    AdminClient as KrafkaAdmin, ConfigResourceType, DescribeConfigsRequest,
+    DescribeConfigsResource, OffsetSpec, OffsetVisibility,
+};
 use krafka::client::KrafkaClient as KrafkaSharedClient;
 use krafka::consumer::{AutoOffsetReset, Consumer as KrafkaConsumer};
-use rdkafka::admin::{
-    AdminClient, AdminOptions, ConsumerGroupState, OwnedResourceSpecifier, ResourceSpecifier,
-};
-use rdkafka::client::DefaultClientContext;
 
 use crate::config::ClusterConfig;
 use crate::environment::{
@@ -41,12 +38,12 @@ use crate::kafka::session::{ClusterSession, RecordBrowse};
 use crate::kafka::topic_config::ConfigEntry;
 use crate::kafka::watermarks::Watermarks;
 
-use blocking::run_blocking;
-use client_config::krafka_auth;
+use client_config::{KrafkaConnect, krafka_auth};
 use convert::committed_from_krafka;
+use groups::{
+    fill_classic_assignments, group_listing, listed_group_ids, snapshots_from_descriptions,
+};
 use offsets::{from_list_offsets, merge_watermark_offsets, partition_time_offsets};
-
-pub use client_config::KafkaClusterConfig;
 
 #[derive(Clone, Copy)]
 struct Timeouts {
@@ -69,12 +66,12 @@ impl Default for Timeouts {
 
 /// Process-lifetime Kafka handle. All broker I/O for a cluster goes through here.
 ///
-/// `krafka` connects on first use so tests that still talk to an rdkafka
-/// mock broker do not also need a krafka-reachable listener.
+/// `krafka` connects on first use so `connect` can succeed without a live
+/// listener. The first broker call opens the pool.
 pub struct KafkaClient {
     identity: ClusterIdentity,
     timeouts: Timeouts,
-    admin: Arc<AdminClient<DefaultClientContext>>,
+    connect: KrafkaConnect,
     config: ClusterConfig,
     krafka: tokio::sync::OnceCell<KrafkaSharedClient>,
     schema_registry: Option<PayloadDecoder>,
@@ -91,8 +88,8 @@ impl std::fmt::Debug for KafkaClient {
 impl KafkaClient {
     pub fn connect(config: &ClusterConfig) -> Result<Self, KafkaError> {
         let identity = ClusterIdentity::from(config);
-        let base = KafkaClusterConfig::from(config).into_client_config();
-        let admin: AdminClient<DefaultClientContext> = base.create()?;
+        let timeouts = Timeouts::default();
+        let connect = KrafkaConnect::from_cluster(config, timeouts.admin)?;
         let schema_registry = config
             .schema_registry
             .as_ref()
@@ -103,8 +100,8 @@ impl KafkaClient {
 
         Ok(Self {
             identity,
-            timeouts: Timeouts::default(),
-            admin: Arc::new(admin),
+            timeouts,
+            connect,
             config: config.clone(),
             krafka: tokio::sync::OnceCell::new(),
             schema_registry,
@@ -114,10 +111,10 @@ impl KafkaClient {
     async fn krafka_client(&self) -> Result<&KrafkaSharedClient, KafkaError> {
         self.krafka
             .get_or_try_init(|| async {
-                let mut builder =
-                    KrafkaSharedClient::builder(self.config.bootstrap_servers.join(","))
-                        .client_id(format!("{CLIENT_ID_PREFIX}-{}", self.identity.name))
-                        .request_timeout(self.timeouts.admin);
+                let mut builder = KrafkaSharedClient::builder(&self.connect.bootstrap)
+                    .client_id(self.connect.client_id.clone())
+                    .request_timeout(self.connect.request_timeout)
+                    .connect_timeout(self.connect.connect_timeout);
                 if let Some(auth) = krafka_auth(&self.config)? {
                     builder = builder.auth(auth);
                 }
@@ -152,65 +149,50 @@ impl KafkaClient {
     }
 
     pub async fn groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
-        let admin = Arc::clone(&self.admin);
-        let timeout = self.timeouts.admin;
-        run_blocking(timeout, move || {
-            let list = admin.inner().fetch_group_list(None, timeout)?;
-            Ok(list
-                .groups()
-                .iter()
-                .filter(|group| !is_internal_group(group.name()))
-                .map(GroupSnapshot::from_rdkafka)
-                .collect())
+        tokio::time::timeout(self.timeouts.admin, async {
+            let admin = self.krafka_admin().await?;
+            let ids = listed_group_ids(admin.list_consumer_groups(&group_listing()).await?);
+            if ids.is_empty() {
+                return Ok(Vec::new());
+            }
+            let mut snapshots =
+                snapshots_from_descriptions(admin.describe_consumer_groups(ids).await?);
+            fill_classic_assignments(self.krafka_client().await?, &mut snapshots).await?;
+            Ok(snapshots)
         })
         .await
+        .map_err(|_| KafkaError::Timeout)?
     }
 
     pub async fn group(&self, id: &str) -> Result<GroupSnapshot, KafkaError> {
-        match self.describe_group(id).await {
-            Ok(snapshot) => Ok(snapshot),
-            Err(KafkaError::UnknownGroup { .. }) => self.group_from_list(id).await,
-            Err(error) => Err(error),
-        }
-    }
-
-    async fn describe_group(&self, id: &str) -> Result<GroupSnapshot, KafkaError> {
-        let results = self
-            .admin
-            .describe_consumer_groups(&[id], &self.admin_options())
-            .await?;
-        let description = results
-            .into_iter()
-            .find_map(Result::ok)
-            .filter(|description| {
-                description.state != ConsumerGroupState::Dead
-                    && !is_internal_group(&description.group_id)
-            })
-            .ok_or_else(|| KafkaError::UnknownGroup {
+        if is_internal_group(id) {
+            return Err(KafkaError::UnknownGroup {
                 cluster: self.identity.name.clone(),
                 id: id.to_owned(),
-            })?;
-        Ok(GroupSnapshot::from_description(description))
-    }
-
-    async fn group_from_list(&self, id: &str) -> Result<GroupSnapshot, KafkaError> {
-        let admin = Arc::clone(&self.admin);
-        let timeout = self.timeouts.admin;
-        let requested = id.to_owned();
-        run_blocking(timeout, move || {
-            let list = admin.inner().fetch_group_list(Some(&requested), timeout)?;
-            Ok(list
-                .groups()
-                .iter()
-                .filter(|group| !is_internal_group(group.name()))
-                .find(|group| group.name() == requested)
-                .map(GroupSnapshot::from_rdkafka))
+            });
+        }
+        tokio::time::timeout(self.timeouts.admin, async {
+            let described = self
+                .krafka_admin()
+                .await?
+                .describe_consumer_groups(vec![id.to_owned()])
+                .await?;
+            let mut snapshots = snapshots_from_descriptions(described);
+            let Some(mut snapshot) = snapshots.drain(..).find(|snapshot| snapshot.id == id) else {
+                return Err(KafkaError::UnknownGroup {
+                    cluster: self.identity.name.clone(),
+                    id: id.to_owned(),
+                });
+            };
+            fill_classic_assignments(
+                self.krafka_client().await?,
+                std::slice::from_mut(&mut snapshot),
+            )
+            .await?;
+            Ok(snapshot)
         })
-        .await?
-        .ok_or_else(|| KafkaError::UnknownGroup {
-            cluster: self.identity.name.clone(),
-            id: id.to_owned(),
-        })
+        .await
+        .map_err(|_| KafkaError::Timeout)?
     }
 
     /// Committed offsets for a group we are not a member of.
@@ -300,29 +282,37 @@ impl KafkaClient {
             return Ok(HashMap::new());
         }
 
-        let specs: Vec<ResourceSpecifier<'_>> = topics
-            .iter()
-            .copied()
-            .map(ResourceSpecifier::Topic)
-            .collect();
-        let results = self
-            .admin
-            .describe_configs(&specs, &self.admin_options())
-            .await?;
+        let request = DescribeConfigsRequest {
+            resources: topics
+                .iter()
+                .map(|topic| DescribeConfigsResource {
+                    resource_type: ConfigResourceType::Topic,
+                    resource_name: (*topic).to_owned(),
+                    config_names: None,
+                })
+                .collect(),
+            include_synonyms: false,
+            include_documentation: false,
+        };
+        let results = tokio::time::timeout(self.timeouts.admin, async {
+            self.krafka_admin()
+                .await?
+                .describe_configs_per_resource(request)
+                .await
+                .map_err(KafkaError::from)
+        })
+        .await
+        .map_err(|_| KafkaError::Timeout)??;
 
         let mut out = HashMap::new();
         for result in results {
-            let Ok(resource) = result else {
+            if !result.error_code.is_ok() {
                 continue;
-            };
-            if let OwnedResourceSpecifier::Topic(name) = resource.specifier {
+            }
+            if result.resource_type == ConfigResourceType::Topic {
                 out.insert(
-                    name,
-                    resource
-                        .entries
-                        .into_iter()
-                        .map(ConfigEntry::from)
-                        .collect(),
+                    result.resource_name,
+                    result.configs.into_iter().map(ConfigEntry::from).collect(),
                 );
             }
         }
@@ -330,21 +320,25 @@ impl KafkaClient {
     }
 
     pub async fn broker_configs(&self, broker_id: i32) -> Result<Vec<ConfigEntry>, KafkaError> {
-        let spec = ResourceSpecifier::Broker(broker_id);
-        let results = self
-            .admin
-            .describe_configs(&[spec], &self.admin_options())
-            .await?;
+        let results = tokio::time::timeout(self.timeouts.admin, async {
+            self.krafka_admin()
+                .await?
+                .describe_configs_per_resource(DescribeConfigsRequest::for_broker(broker_id))
+                .await
+                .map_err(KafkaError::from)
+        })
+        .await
+        .map_err(|_| KafkaError::Timeout)??;
 
         match results.into_iter().next() {
-            Some(Ok(resource)) => Ok(resource
-                .entries
-                .into_iter()
-                .map(ConfigEntry::from)
-                .collect()),
-            Some(Err(error)) => Err(KafkaError::BrokerConfigs {
+            Some(result) if result.error_code.is_ok() => {
+                Ok(result.configs.into_iter().map(ConfigEntry::from).collect())
+            }
+            Some(result) => Err(KafkaError::BrokerConfigs {
                 id: broker_id,
-                message: error.to_string(),
+                message: result
+                    .error
+                    .unwrap_or_else(|| format!("{:?}", result.error_code)),
             }),
             None => Ok(Vec::new()),
         }
@@ -367,12 +361,6 @@ impl KafkaClient {
             return Ok(Vec::new());
         };
         decoder.client().subjects().await
-    }
-
-    fn admin_options(&self) -> AdminOptions {
-        AdminOptions::new()
-            .request_timeout(Some(self.timeouts.admin))
-            .operation_timeout(Some(self.timeouts.admin))
     }
 
     async fn open_browse(&self) -> Result<browse::KafkaBrowse<'_>, KafkaError> {
@@ -491,7 +479,7 @@ fn browse_client_id(cluster: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rdkafka::mocking::MockCluster;
+    use std::sync::Arc;
 
     use crate::config::ClusterConfig;
     use crate::kafka::record::plan::PartitionWindow;
@@ -508,8 +496,7 @@ mod tests {
 
     #[tokio::test]
     async fn empty_partitions_skip_kafka() {
-        let mock = MockCluster::new(1).expect("mock cluster");
-        let client = kafka_client(&mock.bootstrap_servers());
+        let client = kafka_client("127.0.0.1:1");
         let offsets = client.committed_offsets("unused", &[]).await.unwrap();
         assert!(offsets.is_empty());
         assert!(client.watermarks(&[]).await.unwrap().is_empty());
