@@ -15,11 +15,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use krafka::admin::{AdminClient as KrafkaAdminClient, OffsetSpec, OffsetVisibility};
-use krafka::client::KrafkaClient as KrafkaSharedClient;
-use rdkafka::admin::{
-    AdminClient, AdminOptions, ConsumerGroupState, OwnedResourceSpecifier, ResourceSpecifier,
+use krafka::admin::{
+    AdminClient as KrafkaAdminClient, ConfigResourceType, DescribeConfigsRequest,
+    DescribeConfigsResource, OffsetSpec, OffsetVisibility,
 };
+use krafka::client::KrafkaClient as KrafkaSharedClient;
+use rdkafka::admin::{AdminClient, AdminOptions, ConsumerGroupState};
 use rdkafka::client::DefaultClientContext;
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::StreamConsumer;
@@ -318,51 +319,59 @@ impl KafkaClient {
             return Ok(HashMap::new());
         }
 
-        let specs: Vec<ResourceSpecifier<'_>> = topics
-            .iter()
-            .copied()
-            .map(ResourceSpecifier::Topic)
-            .collect();
-        let results = self
-            .admin
-            .describe_configs(&specs, &self.admin_options())
-            .await?;
+        let admin = self.krafka_admin().await?;
+        let request = DescribeConfigsRequest {
+            resources: topics
+                .iter()
+                .map(|topic| DescribeConfigsResource {
+                    resource_type: ConfigResourceType::Topic,
+                    resource_name: (*topic).to_owned(),
+                    config_names: None,
+                })
+                .collect(),
+            include_synonyms: false,
+            include_documentation: false,
+        };
+        let results = tokio::time::timeout(
+            self.timeouts.admin,
+            admin.describe_configs_per_resource(request),
+        )
+        .await
+        .map_err(|_| KafkaError::Timeout)??;
 
-        let mut out = HashMap::new();
-        for result in results {
-            let Ok(resource) = result else {
-                continue;
-            };
-            if let OwnedResourceSpecifier::Topic(name) = resource.specifier {
-                out.insert(
-                    name,
-                    resource
-                        .entries
-                        .into_iter()
-                        .map(ConfigEntry::from)
-                        .collect(),
-                );
-            }
-        }
-        Ok(out)
+        Ok(results
+            .into_iter()
+            .filter(|resource| resource.error.is_none())
+            .map(|resource| {
+                let entries = resource
+                    .configs
+                    .into_iter()
+                    .map(ConfigEntry::from)
+                    .collect();
+                (resource.resource_name, entries)
+            })
+            .collect())
     }
 
     pub async fn broker_configs(&self, broker_id: i32) -> Result<Vec<ConfigEntry>, KafkaError> {
-        let spec = ResourceSpecifier::Broker(broker_id);
-        let results = self
-            .admin
-            .describe_configs(&[spec], &self.admin_options())
-            .await?;
+        let admin = self.krafka_admin().await?;
+        let request = DescribeConfigsRequest::for_broker(broker_id);
+        let mut results = tokio::time::timeout(
+            self.timeouts.admin,
+            admin.describe_configs_per_resource(request),
+        )
+        .await
+        .map_err(|_| KafkaError::Timeout)??;
 
-        match results.into_iter().next() {
-            Some(Ok(resource)) => Ok(resource
-                .entries
+        match results.pop() {
+            Some(resource) if resource.error.is_none() => Ok(resource
+                .configs
                 .into_iter()
                 .map(ConfigEntry::from)
                 .collect()),
-            Some(Err(error)) => Err(KafkaError::BrokerConfigs {
+            Some(resource) => Err(KafkaError::BrokerConfigs {
                 id: broker_id,
-                message: error.to_string(),
+                message: resource.error.unwrap_or_default(),
             }),
             None => Ok(Vec::new()),
         }

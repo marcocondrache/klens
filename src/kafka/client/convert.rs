@@ -3,9 +3,7 @@
 use kafka_protocol::messages::consumer_protocol_assignment::ConsumerProtocolAssignment;
 use kafka_protocol::protocol::Decodable;
 use krafka::metadata::ClusterMetadata;
-use rdkafka::admin::{
-    ConfigSource as RdConfigSource, ConsumerGroupDescription, ConsumerGroupState,
-};
+use rdkafka::admin::{ConsumerGroupDescription, ConsumerGroupState};
 use rdkafka::topic_partition_list::TopicPartitionList;
 
 use crate::kafka::group::{
@@ -172,34 +170,50 @@ pub(super) fn member_assignments(bytes: &[u8]) -> Vec<MemberAssignment> {
         .collect()
 }
 
-impl From<rdkafka::admin::ConfigEntry> for ConfigEntry {
-    fn from(entry: rdkafka::admin::ConfigEntry) -> Self {
+impl From<krafka::admin::ConfigEntry> for ConfigEntry {
+    fn from(entry: krafka::admin::ConfigEntry) -> Self {
         Self {
             name: entry.name,
             value: entry.value,
-            source: ConfigSource::from(entry.source),
-            read_only: entry.is_read_only,
+            source: config_source_from_krafka(entry.config_source),
+            read_only: entry.read_only,
             sensitive: entry.is_sensitive,
         }
     }
 }
 
-impl From<RdConfigSource> for ConfigSource {
-    fn from(source: RdConfigSource) -> Self {
-        match source {
-            RdConfigSource::DynamicTopic => Self::DynamicTopic,
-            RdConfigSource::DynamicBroker => Self::DynamicBroker,
-            RdConfigSource::StaticBroker => Self::StaticBroker,
-            RdConfigSource::Unknown
-            | RdConfigSource::DynamicDefaultBroker
-            | RdConfigSource::Default => Self::Default,
-        }
+/// Maps `DescribeConfigs`'s wire `config_source` byte (Kafka protocol,
+/// `ConfigSource`, API versions 1+) onto the domain enum.
+///
+/// Values agree across client implementations (librdkafka, Sarama,
+/// confluent-kafka-python): `1` topic, `2` broker, `4` static broker.
+/// Everything else — `0` unknown, `3` dynamic-default-broker, `5` explicit
+/// default, and any value a newer broker might add — folds into `Default`,
+/// matching what this mapping already did for the rdkafka equivalents it
+/// replaces.
+fn config_source_from_krafka(source: i8) -> ConfigSource {
+    match source {
+        1 => ConfigSource::DynamicTopic,
+        2 => ConfigSource::DynamicBroker,
+        4 => ConfigSource::StaticBroker,
+        _ => ConfigSource::Default,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn config_source_from_krafka_matches_known_wire_codes() {
+        assert_eq!(config_source_from_krafka(1), ConfigSource::DynamicTopic);
+        assert_eq!(config_source_from_krafka(2), ConfigSource::DynamicBroker);
+        assert_eq!(config_source_from_krafka(4), ConfigSource::StaticBroker);
+        assert_eq!(config_source_from_krafka(0), ConfigSource::Default);
+        assert_eq!(config_source_from_krafka(3), ConfigSource::Default);
+        assert_eq!(config_source_from_krafka(5), ConfigSource::Default);
+        assert_eq!(config_source_from_krafka(99), ConfigSource::Default);
+    }
 
     fn encode_assignment(assignment: ConsumerProtocolAssignment) -> Vec<u8> {
         use kafka_protocol::protocol::Encodable;
