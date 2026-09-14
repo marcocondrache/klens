@@ -107,9 +107,8 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
         fetch_configs: bool,
     ) -> Result<CatalogAssemble, KafkaError> {
         let session = self.session(cluster)?;
-        let meta = session.metadata().await?;
+        let (meta, mut groups) = tokio::try_join!(session.metadata(), session.groups())?;
         let names = meta.topic_names();
-        let mut groups = session.groups().await?;
         let metadata_hash = metadata_lane_hash(&meta, &groups);
         let watermark_names = catalog_watermark_names(&names, &groups);
         let watermark_partitions = meta.topic_partition_pairs(&watermark_names);
