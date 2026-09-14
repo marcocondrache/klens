@@ -1,0 +1,90 @@
+- text: klens Cluster
+- list:
+  - listitem:
+    - link "Topics":
+      - /url: /cluster/local/topics
+    - text: "3"
+  - listitem:
+    - link "Consumer Groups":
+      - /url: /cluster/local/groups
+    - text: "0"
+  - listitem:
+    - link "Schema Registry":
+      - /url: /cluster/local/schemas
+    - text: "0"
+  - listitem:
+    - link "Brokers":
+      - /url: /cluster/local/nodes
+    - text: "1"
+- link "v0.1.0":
+  - /url: https://github.com/marcocondrache/klens/releases/tag/v0.1.0
+- link "Open repository":
+  - /url: https://github.com/marcocondrache/klens
+- button "Toggle Sidebar"
+- main:
+  - button "Toggle Sidebar"
+  - separator
+  - button "local"
+  - separator
+  - navigation "breadcrumb":
+    - list:
+      - listitem:
+        - link "Topics":
+          - /url: /cluster/local/topics
+      - listitem:
+        - link "klens-verify-topics" [disabled]
+  - button "Search Ctrl+K /"
+  - button "Refresh"
+  - button "Toggle theme"
+  - heading "klens-verify-topics Copy topic name" [level=1]:
+    - text: klens-verify-topics
+    - button "Copy topic name"
+  - text: delete RF 1
+  - paragraph: retention 7d · 0 consumer groups
+  - paragraph: Partitions
+  - paragraph: "1"
+  - paragraph: replication factor 1
+  - paragraph: Messages
+  - paragraph: "1"
+  - paragraph: "1"
+  - paragraph: Produce rate
+  - paragraph: 0/s
+  - application
+  - tablist:
+    - tab "Data" [selected]
+    - tab "Partitions 1"
+    - tab "Consumer groups 0"
+    - tab "Configuration"
+  - tabpanel "Data":
+    - group:
+      - group
+      - textbox "Search key or value…": no-such-payload
+      - group: /
+    - group:
+      - group
+      - textbox "From timestamp"
+    - group:
+      - group: to
+      - textbox "To timestamp"
+    - combobox: All partitions
+    - combobox: Newest first
+    - combobox: 50 rows
+    - button "View"
+    - table:
+      - rowgroup:
+        - row "Part Offset Key Value Size Timestamp":
+          - columnheader "Part"
+          - columnheader "Offset"
+          - columnheader "Key"
+          - columnheader "Value"
+          - columnheader "Size"
+          - columnheader "Timestamp"
+      - rowgroup:
+        - row "No records Nothing matched your search in the scanned offsets.":
+          - cell "No records Nothing matched your search in the scanned offsets."
+    - text: 0 of 0 row(s) selected. Page 1
+    - button "Go to previous page" [disabled]
+    - button "Go to next page" [disabled]
+- heading "Search klens" [level=2]
+- paragraph: Jump to a topic, consumer group, broker, schema or section
+- region "Notifications alt+T"

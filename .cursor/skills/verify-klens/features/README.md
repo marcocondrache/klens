@@ -41,5 +41,6 @@ Each feature file starts with an H1 and one paragraph. It then uses exactly four
 - [Topics](./topics.md) covers the default landing catalog, search, internal-topic toggle, and opening a topic.
 - [Topic records](./topic-records.md) covers the topic page Data tab and record payload.
 - [Consumer groups](./consumer-groups.md) covers the groups catalog and a group row.
+- [Schema registry](./schema-registry.md) covers the subject catalog and the subject sheet.
 - [Brokers](./brokers.md) covers the broker list and the controller badge.
 - [Command palette](./command-palette.md) covers search from the header button, `/`, and `Meta+K`.

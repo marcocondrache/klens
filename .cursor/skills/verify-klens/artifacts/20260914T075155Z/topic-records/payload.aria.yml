@@ -1,0 +1,28 @@
+- region "Notifications alt+T"
+- dialog "klens-verify-topics[0]@0":
+  - heading "klens-verify-topics[0]@0" [level=2]
+  - paragraph: 14 Sept 2026, 07:52:38 · 31 B · none
+  - heading "Key" [level=3]
+  - button "Copy key"
+  - code: verify-1
+  - heading "Value" [level=3]
+  - button "Copy value"
+  - button "Download value"
+  - button "Expand value"
+  - code: hello-from-verify-klens
+  - heading "Headers" [level=3]
+  - paragraph: No headers.
+  - heading "Metadata" [level=3]
+  - paragraph: Partition
+  - paragraph: "0"
+  - paragraph: Offset
+  - paragraph: "0"
+  - paragraph: Timestamp
+  - paragraph: 14 Sept 2026, 07:52:38
+  - paragraph: Age
+  - paragraph: 3m ago
+  - paragraph: Size
+  - paragraph: 31 B
+  - paragraph: Compression
+  - paragraph: none
+  - button "Close"
