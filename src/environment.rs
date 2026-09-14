@@ -50,9 +50,6 @@ pub const CLIENT_ID_PREFIX: &str = "klens";
 /// Prefix for consumer groups created by klens itself.
 pub const INTERNAL_GROUP_PREFIX: &str = "klens.internal.";
 
-/// Consumer group prefix used by the topic browser.
-pub const BROWSE_GROUP_PREFIX: &str = "klens.internal.browse";
-
 /// rdkafka `socket.connection.setup.timeout.ms` (default: 10 seconds).
 ///
 /// Override with `KLENS_SOCKET_CONNECTION_SETUP_TIMEOUT_MS`.
@@ -64,12 +61,6 @@ pub static SOCKET_CONNECTION_SETUP_TIMEOUT_MS: LazyLock<u32> =
 /// Override with `KLENS_API_VERSION_REQUEST_TIMEOUT_MS`.
 pub static API_VERSION_REQUEST_TIMEOUT_MS: LazyLock<u32> =
     lazy_env_parse!("KLENS_API_VERSION_REQUEST_TIMEOUT_MS", u32, 10_000);
-
-/// rdkafka `queued.min.messages` for the topic browser (default: 2,000).
-///
-/// Override with `KLENS_QUEUED_MIN_MESSAGES`.
-pub static QUEUED_MIN_MESSAGES: LazyLock<u32> =
-    lazy_env_parse!("KLENS_QUEUED_MIN_MESSAGES", u32, 2_000);
 
 /// Timeout for Kafka metadata requests (default: 5 seconds).
 ///
