@@ -217,5 +217,4 @@ mod tests {
         assert_eq!(ConfigSource::from_krafka(6), ConfigSource::Default);
         assert_eq!(ConfigSource::from_krafka(-1), ConfigSource::Default);
     }
-
 }
