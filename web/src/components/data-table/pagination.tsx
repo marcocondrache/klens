@@ -18,7 +18,8 @@ import {
 
 import { type DataTableFeatures } from "./features";
 
-const PAGE_SIZES = [10, 20, 25, 30, 40, 50];
+export const PAGE_SIZES = [25, 50, 100, 200, 500];
+export const DEFAULT_PAGE_SIZE = 100;
 
 interface DataTablePaginationProps<TData extends RowData> {
   table: ReactTable<DataTableFeatures, TData>;
