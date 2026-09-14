@@ -35,7 +35,6 @@ krafka = "0.23"
 moka = { version = "0.12", features = ["future"] }
 mime_guess = { version = "2", optional = true }
 openidconnect = "4.0.1"
-rdkafka = { git = "https://github.com/marcocondrache/rust-rdkafka", rev = "2040923ffe309fab71750c9a727e3922fb229f39", features = ["ssl-vendored", "libz-static"] }
 rust-embed = { version = "8", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

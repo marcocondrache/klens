@@ -25,7 +25,9 @@ clusters:
     #     client_key: /path/to/client.key
     #     insecure_skip_verify: false
 
-    # Extra librdkafka properties, applied on top of the settings above.
+    # Extra Kafka client properties. Known keys: request.timeout.ms,
+    # socket.connection.setup.timeout.ms, api.version.request.timeout.ms,
+    # bootstrap.servers, client.id.
     # properties:
     #   request.timeout.ms: "10000"
 
