@@ -2,11 +2,12 @@
 
 use kafka_protocol::messages::consumer_protocol_assignment::ConsumerProtocolAssignment;
 use kafka_protocol::protocol::Decodable;
+use krafka::admin::GroupOffsetEntry;
 use krafka::metadata::ClusterMetadata;
 use rdkafka::admin::{
     ConfigSource as RdConfigSource, ConsumerGroupDescription, ConsumerGroupState,
 };
-use rdkafka::topic_partition_list::{Offset, TopicPartitionList};
+use rdkafka::topic_partition_list::TopicPartitionList;
 
 use crate::kafka::group::{
     CommittedOffset, GroupMember, GroupSnapshot, GroupState, MemberAssignment,
@@ -112,16 +113,15 @@ impl From<ConsumerGroupState> for GroupState {
     }
 }
 
-pub(super) fn committed_from_tpl(tpl: &TopicPartitionList) -> Vec<CommittedOffset> {
-    tpl.elements()
+pub(super) fn committed_from_krafka(entries: Vec<GroupOffsetEntry>) -> Vec<CommittedOffset> {
+    entries
         .into_iter()
-        .filter_map(|element| match element.offset() {
-            Offset::Offset(offset) => Some(CommittedOffset {
-                topic: element.topic().to_owned(),
-                partition: element.partition(),
-                offset,
-            }),
-            _ => None,
+        .filter_map(|entry| {
+            (entry.committed_offset >= 0).then_some(CommittedOffset {
+                topic: entry.topic,
+                partition: entry.partition,
+                offset: entry.committed_offset,
+            })
         })
         .collect()
 }
@@ -241,35 +241,5 @@ mod tests {
     fn member_assignments_ignores_empty_and_truncated_blobs() {
         assert!(member_assignments(&[]).is_empty());
         assert!(member_assignments(&[0, 0, 0]).is_empty());
-    }
-
-    #[test]
-    fn committed_from_tpl_keeps_only_concrete_offsets() {
-        let mut tpl = TopicPartitionList::new();
-        tpl.add_partition_offset("orders", 0, Offset::Offset(12))
-            .unwrap();
-        tpl.add_partition_offset("orders", 1, Offset::Invalid)
-            .unwrap();
-        tpl.add_partition_offset("orders", 2, Offset::Beginning)
-            .unwrap();
-        tpl.add_partition_offset("orders", 3, Offset::End).unwrap();
-        tpl.add_partition_offset("payments", 0, Offset::Offset(0))
-            .unwrap();
-
-        assert_eq!(
-            committed_from_tpl(&tpl),
-            vec![
-                CommittedOffset {
-                    topic: "orders".into(),
-                    partition: 0,
-                    offset: 12,
-                },
-                CommittedOffset {
-                    topic: "payments".into(),
-                    partition: 0,
-                    offset: 0,
-                },
-            ]
-        );
     }
 }
