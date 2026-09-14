@@ -1,22 +1,18 @@
 use std::collections::HashMap;
 
-use rdkafka::admin::ListOffsetsResultInfo;
-use rdkafka::topic_partition_list::Offset;
-
 use crate::kafka::watermarks::Watermarks;
 
 /// `None` means the broker returned Kafka's invalid-offset sentinel.
-pub fn from_list_infos(
-    infos: impl IntoIterator<Item = ListOffsetsResultInfo>,
+pub fn from_list_offsets(
+    results: impl IntoIterator<Item = (String, i32, i64)>,
 ) -> HashMap<(String, i32), Option<i64>> {
-    infos
+    results
         .into_iter()
-        .map(|info| {
-            let offset = match info.offset {
-                Offset::Offset(offset) if offset >= 0 => Some(offset),
-                _ => None,
-            };
-            ((info.topic, info.partition), offset)
+        .map(|(topic, partition, offset)| {
+            (
+                (topic, partition),
+                if offset >= 0 { Some(offset) } else { None },
+            )
         })
         .collect()
 }
@@ -58,26 +54,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn from_list_infos_keeps_concrete_offsets() {
-        let listed = from_list_infos([
-            ListOffsetsResultInfo {
-                topic: "orders".into(),
-                partition: 0,
-                offset: Offset::Offset(12),
-                timestamp: -1,
-            },
-            ListOffsetsResultInfo {
-                topic: "orders".into(),
-                partition: 1,
-                offset: Offset::Invalid,
-                timestamp: -1,
-            },
-            ListOffsetsResultInfo {
-                topic: "orders".into(),
-                partition: 2,
-                offset: Offset::End,
-                timestamp: -1,
-            },
+    fn from_list_offsets_keeps_concrete_offsets() {
+        let listed = from_list_offsets([
+            ("orders".into(), 0, 12),
+            ("orders".into(), 1, -1),
+            ("orders".into(), 2, -2),
         ]);
         assert_eq!(listed.get(&("orders".into(), 0)), Some(&Some(12)));
         assert_eq!(listed.get(&("orders".into(), 1)), Some(&None));
