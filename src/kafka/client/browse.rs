@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::ops::Range;
+use std::time::Duration;
 
+use async_trait::async_trait;
 use rdkafka::Message;
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::error::KafkaError as RdKafkaError;
@@ -13,11 +15,60 @@ use crate::kafka::error::KafkaError;
 use crate::kafka::model::{Compression, FetchPlan, Record, RecordHeader, decode_bytes};
 use crate::kafka::record::batch::RecordBatch;
 use crate::kafka::registry::decode::{PayloadDecoder, decode_field};
+use crate::kafka::session::RecordBrowse;
 
-pub async fn consume(
+/// One browse/search operation's consumer.
+///
+/// Every retry pass within a `records` scan calls [`fetch`](Self::fetch) on
+/// the same handle instead of opening a new consumer per pass. [`close`]
+/// moves librdkafka's blocking consumer close off the async task, since
+/// dropping a [`StreamConsumer`] performs that call inline.
+///
+/// [`close`]: Self::close
+pub(super) struct KafkaBrowse<'a> {
     consumer: StreamConsumer,
+    timeout: Duration,
+    decoder: Option<&'a PayloadDecoder>,
+}
+
+impl<'a> KafkaBrowse<'a> {
+    pub(super) fn new(
+        consumer: StreamConsumer,
+        timeout: Duration,
+        decoder: Option<&'a PayloadDecoder>,
+    ) -> Self {
+        Self {
+            consumer,
+            timeout,
+            decoder,
+        }
+    }
+
+    pub(super) async fn fetch(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError> {
+        consume(&self.consumer, plan, self.timeout, self.decoder).await
+    }
+
+    pub(super) async fn close(self) {
+        let Self { consumer, .. } = self;
+        let _ = tokio::task::spawn_blocking(move || drop(consumer)).await;
+    }
+}
+
+#[async_trait]
+impl<'a> RecordBrowse for KafkaBrowse<'a> {
+    async fn fetch(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError> {
+        KafkaBrowse::fetch(self, plan).await
+    }
+
+    async fn close(self: Box<Self>) {
+        KafkaBrowse::close(*self).await
+    }
+}
+
+async fn consume(
+    consumer: &StreamConsumer,
     plan: &FetchPlan,
-    budget: std::time::Duration,
+    budget: Duration,
     decoder: Option<&PayloadDecoder>,
 ) -> Result<Vec<Record>, KafkaError> {
     // A partial window cannot safely advance an offset-only cursor, especially
@@ -29,7 +80,7 @@ pub async fn consume(
 }
 
 async fn consume_windows(
-    consumer: StreamConsumer,
+    consumer: &StreamConsumer,
     plan: &FetchPlan,
     decoder: Option<&PayloadDecoder>,
     deadline: Instant,
@@ -52,6 +103,10 @@ async fn consume_windows(
     }
 
     consumer.assign(&tpl)?;
+    // A reused consumer may still have these partitions paused from a
+    // previous pass over this handle: pausing is tracked per partition, not
+    // reset by `assign`.
+    consumer.resume(&tpl)?;
 
     let mut scan = WindowScan::new(plan);
     let mut records = RecordBatch::new(plan.limit, plan.order);
