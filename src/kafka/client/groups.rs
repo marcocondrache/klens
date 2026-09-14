@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use krafka::admin::{ConsumerGroupDescription, GroupListing};
+use krafka::admin::ConsumerGroupDescription;
 use krafka::client::KrafkaClient as KrafkaSharedClient;
 use krafka::protocol::{
     ApiKey, DescribeGroupsRequest, DescribeGroupsResponse, FindCoordinatorRequest,
@@ -34,10 +34,6 @@ pub(super) fn listed_group_ids(
         .map(|group| group.group_id)
         .filter(|id| !is_internal_group(id))
         .collect()
-}
-
-pub(super) fn group_listing() -> GroupListing {
-    GroupListing::all()
 }
 
 /// krafka's admin wrapper drops classic `member_assignment` bytes. Fetch them

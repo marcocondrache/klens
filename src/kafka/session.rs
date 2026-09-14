@@ -77,36 +77,11 @@ pub trait ClusterSession: Send + Sync + 'static {
     /// error, not a partial batch: pagination advances past underfilled windows.
     async fn records(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError>;
 
-    /// Opens one browse/search operation shared across every retry pass of a
-    /// single scan.
-    async fn open_browse(&self) -> Result<Box<dyn RecordBrowse + '_>, KafkaError> {
-        Ok(Box::new(SessionBrowse(self)))
-    }
-
     async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
         Ok(Vec::new())
     }
 
     fn consume_timeout(&self) -> Duration {
         *crate::environment::CONSUME_TIMEOUT
-    }
-}
-
-/// One browse/search operation's Kafka I/O, as opened by
-/// [`ClusterSession::open_browse`].
-#[async_trait]
-pub trait RecordBrowse: Send + Sync {
-    async fn fetch(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError>;
-
-    /// Releases the underlying I/O. The default is a no-op.
-    async fn close(self: Box<Self>) {}
-}
-
-struct SessionBrowse<'a, S: ?Sized>(&'a S);
-
-#[async_trait]
-impl<'a, S: ClusterSession + ?Sized> RecordBrowse for SessionBrowse<'a, S> {
-    async fn fetch(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError> {
-        self.0.records(plan).await
     }
 }
