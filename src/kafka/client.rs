@@ -74,6 +74,7 @@ pub struct KafkaClient {
     connect: KrafkaConnect,
     config: ClusterConfig,
     krafka: tokio::sync::OnceCell<KrafkaSharedClient>,
+    admin: tokio::sync::OnceCell<KrafkaAdmin>,
     schema_registry: Option<PayloadDecoder>,
 }
 
@@ -104,6 +105,7 @@ impl KafkaClient {
             connect,
             config: config.clone(),
             krafka: tokio::sync::OnceCell::new(),
+            admin: tokio::sync::OnceCell::new(),
             schema_registry,
         })
     }
@@ -123,11 +125,15 @@ impl KafkaClient {
             .await
     }
 
-    async fn krafka_admin(&self) -> Result<KrafkaAdmin, KafkaError> {
-        Ok(KrafkaAdmin::builder()
-            .with_client(self.krafka_client().await?)
-            .build()
-            .await?)
+    async fn krafka_admin(&self) -> Result<&KrafkaAdmin, KafkaError> {
+        self.admin
+            .get_or_try_init(|| async {
+                Ok(KrafkaAdmin::builder()
+                    .with_client(self.krafka_client().await?)
+                    .build()
+                    .await?)
+            })
+            .await
     }
 
     pub fn identity(&self) -> &ClusterIdentity {
@@ -479,11 +485,40 @@ fn browse_client_id(cluster: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
+    use std::io;
+    use std::sync::{Arc, Mutex};
 
     use crate::config::ClusterConfig;
     use crate::kafka::record::plan::PartitionWindow;
     use crate::kafka::record::query::RecordOrder;
+
+    #[derive(Clone, Default)]
+    struct LogBuf(Arc<Mutex<Vec<u8>>>);
+
+    impl io::Write for LogBuf {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.0.lock().expect("log buf").extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for LogBuf {
+        type Writer = Self;
+
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    impl LogBuf {
+        fn as_string(&self) -> String {
+            String::from_utf8_lossy(&self.0.lock().expect("log buf")).into_owned()
+        }
+    }
 
     #[test]
     fn browse_client_ids_are_unique() {
@@ -492,6 +527,40 @@ mod tests {
 
         assert!(first.starts_with(&format!("{CLIENT_ID_PREFIX}-local-browse-")));
         assert_ne!(first, second);
+    }
+
+    #[tokio::test]
+    async fn admin_calls_do_not_warn_about_missing_close() {
+        let logs = LogBuf::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(logs.clone())
+            .with_max_level(tracing::Level::WARN)
+            .with_target(true)
+            .without_time()
+            .finish();
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        let broker = krafka::testing::FakeBroker::start()
+            .await
+            .expect("fake broker");
+        assert!(broker.create_topic("orders", 1));
+        produce_krafka(&broker.bootstrap_servers(), "orders", 1).await;
+
+        let client = kafka_client(&broker.bootstrap_servers());
+        client
+            .watermarks(&[("orders".into(), 0)])
+            .await
+            .expect("watermarks");
+        client
+            .watermarks(&[("orders".into(), 0)])
+            .await
+            .expect("second watermarks");
+
+        let text = logs.as_string();
+        assert!(
+            !text.contains("AdminClient dropped without close"),
+            "admin close warn: {text}"
+        );
     }
 
     #[tokio::test]
