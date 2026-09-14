@@ -22,7 +22,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { features, type DataTableFeatures } from "./features";
-import { DataTablePagination } from "./pagination";
+import { DataTablePagination, DEFAULT_PAGE_SIZE } from "./pagination";
 import { DataTableViewOptions } from "./view-options";
 
 interface DataTableProps<TData extends RowData> {
@@ -67,7 +67,7 @@ export function DataTable<TData extends RowData>({
   error,
   emptyState,
   defaultSort,
-  pageSize = 10,
+  pageSize = DEFAULT_PAGE_SIZE,
   pageIndex = 0,
   hasMore = false,
   canPreviousPage = false,
