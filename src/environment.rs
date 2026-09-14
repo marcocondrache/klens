@@ -56,12 +56,6 @@ pub const INTERNAL_GROUP_PREFIX: &str = "klens.internal.";
 pub static SOCKET_CONNECTION_SETUP_TIMEOUT_MS: LazyLock<u32> =
     lazy_env_parse!("KLENS_SOCKET_CONNECTION_SETUP_TIMEOUT_MS", u32, 10_000);
 
-/// Timeout for Kafka metadata requests (default: 5 seconds).
-///
-/// Override with `KLENS_METADATA_TIMEOUT` (seconds).
-pub static METADATA_TIMEOUT: LazyLock<Duration> =
-    lazy_env_parse!(duration, "KLENS_METADATA_TIMEOUT", Duration::from_secs(5));
-
 /// Timeout for Schema Registry HTTP requests (default: 5 seconds).
 ///
 /// Override with `KLENS_SCHEMA_REGISTRY_TIMEOUT` (seconds).
@@ -71,17 +65,12 @@ pub static SCHEMA_REGISTRY_TIMEOUT: LazyLock<Duration> = lazy_env_parse!(
     Duration::from_secs(5)
 );
 
-/// Timeout for watermark fetches (default: 3 seconds).
+/// Default per-request Kafka timeout (default: 10 seconds).
+/// Cluster `properties.request_timeout_ms` takes precedence.
 ///
-/// Override with `KLENS_WATERMARK_TIMEOUT` (seconds).
-pub static WATERMARK_TIMEOUT: LazyLock<Duration> =
-    lazy_env_parse!(duration, "KLENS_WATERMARK_TIMEOUT", Duration::from_secs(3));
-
-/// Timeout for admin and offset-fetch calls (default: 10 seconds).
-///
-/// Override with `KLENS_ADMIN_TIMEOUT` (seconds).
-pub static ADMIN_TIMEOUT: LazyLock<Duration> =
-    lazy_env_parse!(duration, "KLENS_ADMIN_TIMEOUT", Duration::from_secs(10));
+/// Override with `KLENS_REQUEST_TIMEOUT` (seconds).
+pub static REQUEST_TIMEOUT: LazyLock<Duration> =
+    lazy_env_parse!(duration, "KLENS_REQUEST_TIMEOUT", Duration::from_secs(10));
 
 /// Timeout for topic-browser consume loops (default: 5 seconds).
 ///
