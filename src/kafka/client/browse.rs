@@ -18,7 +18,7 @@ use crate::kafka::registry::decode::{PayloadDecoder, decode_field};
 use crate::kafka::session::RecordBrowse;
 
 pub(super) struct KafkaBrowse<'a> {
-    consumer: StreamConsumer,
+    consumer: Option<StreamConsumer>,
     timeout: Duration,
     decoder: Option<&'a PayloadDecoder>,
 }
@@ -30,19 +30,43 @@ impl<'a> KafkaBrowse<'a> {
         decoder: Option<&'a PayloadDecoder>,
     ) -> Self {
         Self {
-            consumer,
+            consumer: Some(consumer),
             timeout,
             decoder,
         }
     }
 
-    pub(super) async fn fetch(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError> {
-        consume(&self.consumer, plan, self.timeout, self.decoder).await
+    fn consumer(&self) -> &StreamConsumer {
+        self.consumer
+            .as_ref()
+            .expect("consumer is taken only when closing")
     }
 
-    pub(super) async fn close(self) {
-        let Self { consumer, .. } = self;
-        let _ = tokio::task::spawn_blocking(move || drop(consumer)).await;
+    pub(super) async fn fetch(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError> {
+        let deadline = Instant::now() + self.timeout;
+        timeout_at(
+            deadline,
+            consume_windows(self.consumer(), plan, self.decoder, deadline),
+        )
+        .await
+        .map_err(|_| KafkaError::Timeout)?
+    }
+
+    pub(super) async fn close(mut self) {
+        offload_close(self.consumer.take()).await;
+    }
+}
+
+impl Drop for KafkaBrowse<'_> {
+    fn drop(&mut self) {
+        if let Some(consumer) = self.consumer.take() {
+            match tokio::runtime::Handle::try_current() {
+                Ok(handle) => {
+                    let _ = handle.spawn_blocking(move || drop(consumer));
+                }
+                Err(_) => drop(consumer),
+            }
+        }
     }
 }
 
@@ -57,16 +81,10 @@ impl<'a> RecordBrowse for KafkaBrowse<'a> {
     }
 }
 
-async fn consume(
-    consumer: &StreamConsumer,
-    plan: &FetchPlan,
-    budget: Duration,
-    decoder: Option<&PayloadDecoder>,
-) -> Result<Vec<Record>, KafkaError> {
-    let deadline = Instant::now() + budget;
-    timeout_at(deadline, consume_windows(consumer, plan, decoder, deadline))
-        .await
-        .map_err(|_| KafkaError::Timeout)?
+async fn offload_close(consumer: Option<StreamConsumer>) {
+    if let Some(consumer) = consumer {
+        let _ = tokio::task::spawn_blocking(move || drop(consumer)).await;
+    }
 }
 
 async fn consume_windows(

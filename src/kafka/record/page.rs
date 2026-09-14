@@ -30,37 +30,32 @@ pub async fn fetch_page<S: ClusterSession + ?Sized>(
         1
     };
 
-    let outcome: Result<(), KafkaError> = async {
-        for _ in 0..max_passes {
-            let remaining = limit - records.len();
-            let mut plan = FetchPlan::build(&pass, partitions, watermarks, limit, limits);
-            if plan.windows.is_empty() {
-                pass.cursor = None;
-                break;
-            }
-            plan.limit = remaining;
-            let batch = timeout_at(deadline, browse.fetch(&plan))
-                .await
-                .map_err(|_| KafkaError::Timeout)??;
-            if Instant::now() > deadline {
-                return Err(KafkaError::Timeout);
-            }
-            let filled = batch.len() >= remaining;
-            let next = next_cursor(plan.order, &plan.windows, watermarks, &batch, remaining);
-            records.extend(batch);
-
-            let stalled = next == pass.cursor;
-            pass.cursor = next;
-            if filled || pass.cursor.is_none() || stalled || Instant::now() >= deadline {
-                break;
-            }
+    for _ in 0..max_passes {
+        let remaining = limit - records.len();
+        let mut plan = FetchPlan::build(&pass, partitions, watermarks, limit, limits);
+        if plan.windows.is_empty() {
+            pass.cursor = None;
+            break;
         }
-        Ok(())
+        plan.limit = remaining;
+        let batch = timeout_at(deadline, browse.fetch(&plan))
+            .await
+            .map_err(|_| KafkaError::Timeout)??;
+        if Instant::now() > deadline {
+            return Err(KafkaError::Timeout);
+        }
+        let filled = batch.len() >= remaining;
+        let next = next_cursor(plan.order, &plan.windows, watermarks, &batch, remaining);
+        records.extend(batch);
+
+        let stalled = next == pass.cursor;
+        pass.cursor = next;
+        if filled || pass.cursor.is_none() || stalled || Instant::now() >= deadline {
+            break;
+        }
     }
-    .await;
 
     browse.close().await;
-    outcome?;
 
     records.sort_by(|left, right| left.cmp_for_order(right, query.order));
     Ok(RecordPage {
