@@ -22,21 +22,33 @@ fn cluster_config(name: &str) -> ClusterConfig {
         bootstrap_servers: vec!["localhost:9092".to_owned()],
         security: None,
         schema_registry: None,
-        properties: HashMap::new(),
+        properties: Default::default(),
     }
 }
 
-#[test]
-fn from_config_keeps_cluster_order() {
-    let engine = QueryEngine::from_config(&Config {
+#[tokio::test]
+async fn from_config_connects_all_clusters_and_keeps_config_order() {
+    use krafka::protocol::ApiKey;
+    use krafka::testing::FakeBroker;
+
+    let first = FakeBroker::start().await.unwrap();
+    let second = FakeBroker::start().await.unwrap();
+    let mut b = cluster_config("b");
+    b.bootstrap_servers = vec![first.bootstrap_servers()];
+    let mut a = cluster_config("a");
+    a.bootstrap_servers = vec![second.bootstrap_servers()];
+
+    let config = Config {
         bind: "127.0.0.1:8080".parse().unwrap(),
         log_level: "info".into(),
-        clusters: vec![cluster_config("b"), cluster_config("a")],
+        clusters: vec![b, a],
         auth: None,
-    })
-    .unwrap();
+    };
+    let engine = QueryEngine::from_config(&config).await.unwrap();
 
     assert_eq!(engine.names(), vec!["b", "a"]);
+    assert!(first.request_count(ApiKey::Metadata) > 0);
+    assert!(second.request_count(ApiKey::Metadata) > 0);
 }
 
 #[test]
@@ -53,6 +65,20 @@ fn identities_keep_config_order() {
         .collect();
 
     assert_eq!(names, vec!["prod", "staging"]);
+}
+
+#[tokio::test]
+async fn from_config_returns_connection_errors() {
+    let mut cluster = cluster_config("invalid");
+    cluster.bootstrap_servers.clear();
+    let result = QueryEngine::from_config(&Config {
+        bind: "127.0.0.1:8080".parse().unwrap(),
+        log_level: "info".into(),
+        clusters: vec![cluster],
+        auth: None,
+    })
+    .await;
+    assert!(matches!(result, Err(KafkaError::Krafka(_))));
 }
 
 #[tokio::test]

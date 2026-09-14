@@ -1,66 +1,7 @@
-use std::time::Duration;
-
 use krafka::auth::{AuthConfig, TlsConfig as KrafkaTlsConfig};
 
 use crate::config::{ClusterConfig, SaslMechanism, SecurityConfig, SecurityProtocol, TlsConfig};
-use crate::environment::{CLIENT_ID_PREFIX, SOCKET_CONNECTION_SETUP_TIMEOUT_MS};
 use crate::kafka::error::KafkaError;
-
-/// Connection settings krafka needs from a cluster YAML node.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct KrafkaConnect {
-    pub bootstrap: String,
-    pub client_id: String,
-    pub request_timeout: Duration,
-    pub connect_timeout: Duration,
-}
-
-impl KrafkaConnect {
-    pub(super) fn from_cluster(
-        cluster: &ClusterConfig,
-        request_timeout: Duration,
-    ) -> Result<Self, KafkaError> {
-        let mut connect = Self {
-            bootstrap: cluster.bootstrap_servers.join(","),
-            client_id: format!("{CLIENT_ID_PREFIX}-{}", cluster.name),
-            request_timeout,
-            connect_timeout: Duration::from_millis(u64::from(*SOCKET_CONNECTION_SETUP_TIMEOUT_MS)),
-        };
-
-        for (key, value) in &cluster.properties {
-            match key.as_str() {
-                "bootstrap.servers" => connect.bootstrap = value.clone(),
-                "client.id" => connect.client_id = value.clone(),
-                "request.timeout.ms" | "api.version.request.timeout.ms" => {
-                    connect.request_timeout = duration_ms(key, value)?;
-                }
-                "socket.connection.setup.timeout.ms" => {
-                    connect.connect_timeout = duration_ms(key, value)?;
-                }
-                _ => {
-                    return Err(KafkaError::Admin(format!(
-                        "cluster '{}' sets unknown Kafka property '{key}'",
-                        cluster.name
-                    )));
-                }
-            }
-        }
-
-        if connect.request_timeout < connect.connect_timeout {
-            connect.request_timeout = connect.connect_timeout;
-        }
-        Ok(connect)
-    }
-}
-
-fn duration_ms(key: &str, value: &str) -> Result<Duration, KafkaError> {
-    let millis = value.parse::<u64>().map_err(|_| {
-        KafkaError::Admin(format!(
-            "cluster property '{key}' is not a millisecond count"
-        ))
-    })?;
-    Ok(Duration::from_millis(millis))
-}
 
 /// `None` is plaintext. A SASL protocol with no `sasl` block is an error.
 pub(super) fn krafka_auth(cluster: &ClusterConfig) -> Result<Option<AuthConfig>, KafkaError> {
@@ -132,88 +73,37 @@ fn krafka_tls(tls: Option<&TlsConfig>) -> KrafkaTlsConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::Config;
 
     fn cluster(yaml: &str) -> ClusterConfig {
         serde_yaml_ng::from_str(yaml).unwrap()
     }
 
-    #[test]
-    fn connect_settings_use_bootstrap_and_timeouts() {
-        let cluster = cluster(
-            "
-            name: local
-            bootstrap_servers:
-              - broker-1:9092
-              - broker-2:9092
-            properties:
-              request.timeout.ms: '10000'
-            ",
-        );
-
-        let connect = KrafkaConnect::from_cluster(&cluster, Duration::from_secs(8)).unwrap();
-        assert_eq!(connect.bootstrap, "broker-1:9092,broker-2:9092");
-        assert_eq!(connect.client_id, "klens-local");
-        assert_eq!(connect.request_timeout, Duration::from_millis(10_000));
-        assert_eq!(connect.connect_timeout, Duration::from_secs(10));
-    }
-
-    #[test]
-    fn properties_override_connection_timeouts() {
-        let cluster = cluster(
+    #[tokio::test]
+    async fn properties_configure_the_shared_transport() {
+        let broker = krafka::testing::FakeBroker::start().await.unwrap();
+        let mut cluster = cluster(
             "
             name: local
             bootstrap_servers:
               - localhost:9092
             properties:
-              socket.connection.setup.timeout.ms: '30000'
+              client_id: custom-client
+              request_timeout_ms: 8000
+              connect_timeout_ms: 30000
             ",
         );
 
-        let connect = KrafkaConnect::from_cluster(&cluster, Duration::from_secs(8)).unwrap();
-        assert_eq!(connect.connect_timeout, Duration::from_secs(30));
-        assert_eq!(connect.request_timeout, Duration::from_secs(30));
-    }
-
-    #[test]
-    fn unknown_properties_are_rejected() {
-        let cluster = cluster(
-            "
-            name: local
-            bootstrap_servers:
-              - localhost:9092
-            properties:
-              queued.min.messages: '2000'
-            ",
+        cluster.bootstrap_servers = vec![broker.bootstrap_servers()];
+        // Building succeeds only if request_timeout is raised to the connect timeout.
+        let client = super::super::KafkaClient::new(&cluster).await.unwrap();
+        assert!(
+            broker
+                .requests()
+                .iter()
+                .all(|request| request.client_id.as_deref() == Some("custom-client"))
         );
-
-        let error = KrafkaConnect::from_cluster(&cluster, Duration::from_secs(8)).unwrap_err();
-        assert!(matches!(error, KafkaError::Admin(_)));
-    }
-
-    #[test]
-    fn from_config_keeps_cluster_order() {
-        let config: Config = serde_yaml_ng::from_str(
-            "
-            bind: 127.0.0.1:8080
-            clusters:
-              - name: local
-                bootstrap_servers:
-                  - localhost:9092
-              - name: staging
-                bootstrap_servers:
-                  - staging:9092
-            ",
-        )
-        .unwrap();
-
-        let derived: Vec<_> = config
-            .clusters
-            .iter()
-            .map(|cluster| KrafkaConnect::from_cluster(cluster, Duration::from_secs(10)).unwrap())
-            .collect();
-        assert_eq!(derived[0].client_id, "klens-local");
-        assert_eq!(derived[1].client_id, "klens-staging");
+        client.admin.close().await;
+        client.krafka.pool().close_all().await;
     }
 
     #[test]

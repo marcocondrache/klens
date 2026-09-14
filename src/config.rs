@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::env::VarError;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -219,7 +219,16 @@ pub struct ClusterConfig {
     #[serde(default)]
     pub schema_registry: Option<SchemaRegistryConfig>,
     #[serde(default)]
-    pub properties: HashMap<String, String>,
+    pub properties: KafkaProperties,
+}
+
+/// Supported Kafka transport overrides. Timeout values are in milliseconds.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct KafkaProperties {
+    pub client_id: Option<String>,
+    pub request_timeout_ms: Option<u64>,
+    pub connect_timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -375,6 +384,7 @@ pub struct TlsConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     fn parse_cluster(yaml: &str) -> Result<ClusterConfig, serde_yaml_ng::Error> {
         serde_yaml_ng::from_str(yaml)
@@ -483,7 +493,7 @@ mod tests {
         assert_eq!(config.bootstrap_servers, vec!["localhost:9092"]);
         assert_eq!(config.security, None);
         assert_eq!(config.schema_registry, None);
-        assert!(config.properties.is_empty());
+        assert_eq!(config.properties, KafkaProperties::default());
     }
 
     #[test]
@@ -523,7 +533,7 @@ mod tests {
                 client_key: /etc/client.key
                 insecure_skip_verify: true
             properties:
-              request.timeout.ms: '10000'
+              request_timeout_ms: 10000
             ",
         )
         .unwrap();
@@ -532,13 +542,7 @@ mod tests {
         assert_eq!(security.protocol, SecurityProtocol::SaslSsl);
         assert_eq!(security.sasl.unwrap().mechanism, SaslMechanism::ScramSha512);
         assert_eq!(security.tls.unwrap().ca_cert, Some("/etc/ca.pem".into()));
-        assert_eq!(
-            config
-                .properties
-                .get("request.timeout.ms")
-                .map(String::as_str),
-            Some("10000")
-        );
+        assert_eq!(config.properties.request_timeout_ms, Some(10000));
     }
 
     #[test]
@@ -554,6 +558,64 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn parses_typed_kafka_properties() {
+        let config = parse_cluster(
+            "
+            name: local
+            bootstrap_servers: [localhost:9092]
+            properties:
+              client_id: browser
+              request_timeout_ms: 8000
+              connect_timeout_ms: 30000
+            ",
+        )
+        .unwrap();
+        assert_eq!(
+            config.properties,
+            KafkaProperties {
+                client_id: Some("browser".into()),
+                request_timeout_ms: Some(8000),
+                connect_timeout_ms: Some(30000),
+            }
+        );
+    }
+
+    #[test]
+    fn kafka_properties_reject_duplicate_timeouts() {
+        assert!(
+            serde_yaml_ng::from_str::<KafkaProperties>(
+                "request_timeout_ms: 5000\nrequest_timeout_ms: 6000",
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn kafka_properties_reject_unknown_keys_and_invalid_types() {
+        for yaml in [
+            "queued.min.messages: 2000",
+            "request_timeout_ms: -1",
+            "request_timeout_ms: 1.5",
+            "request_timeout_ms: true",
+            "request_timeout_ms: '5000'",
+            "request_timeout_ms: 18446744073709551616",
+            "connect_timeout_ms: invalid",
+            "request.timeout.ms: 5000",
+            "api.version.request.timeout.ms: 5000",
+            "socket.connection.setup.timeout.ms: 5000",
+            "client.id: browser",
+            "bootstrap.servers: [localhost:9092]",
+            "bootstrap.servers: localhost:9092",
+            "bootstrap_servers: localhost:9092",
+        ] {
+            assert!(
+                serde_yaml_ng::from_str::<KafkaProperties>(yaml).is_err(),
+                "accepted invalid properties: {yaml}"
+            );
+        }
     }
 
     #[test]
@@ -608,7 +670,7 @@ mod tests {
             bootstrap_servers: vec!["localhost:9092".to_owned()],
             security: None,
             schema_registry: None,
-            properties: HashMap::new(),
+            properties: KafkaProperties::default(),
         };
 
         config.validate().unwrap();
