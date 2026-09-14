@@ -347,9 +347,6 @@ impl KafkaClient {
         .create()?)
     }
 
-    /// Opens one browse/search operation. Reuse the returned handle across
-    /// every retry pass of a single scan instead of calling this per pass:
-    /// each call creates a new consumer.
     fn open_browse(&self) -> Result<browse::KafkaBrowse<'_>, KafkaError> {
         Ok(browse::KafkaBrowse::new(
             self.browser()?,
@@ -591,8 +588,6 @@ mod tests {
             schema_id: None,
         };
 
-        // A search retries multiple times against the same handle before it
-        // is closed; each pass must still see fresh offsets.
         let first = browse.fetch(&window(0, 2)).await.expect("first pass");
         let second = browse.fetch(&window(2, 4)).await.expect("second pass");
         browse.close().await;
