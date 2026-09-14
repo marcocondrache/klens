@@ -17,14 +17,6 @@ use crate::kafka::record::batch::RecordBatch;
 use crate::kafka::registry::decode::{PayloadDecoder, decode_field};
 use crate::kafka::session::RecordBrowse;
 
-/// One browse/search operation's consumer.
-///
-/// Every retry pass within a `records` scan calls [`fetch`](Self::fetch) on
-/// the same handle instead of opening a new consumer per pass. [`close`]
-/// moves librdkafka's blocking consumer close off the async task, since
-/// dropping a [`StreamConsumer`] performs that call inline.
-///
-/// [`close`]: Self::close
 pub(super) struct KafkaBrowse<'a> {
     consumer: StreamConsumer,
     timeout: Duration,
@@ -71,8 +63,6 @@ async fn consume(
     budget: Duration,
     decoder: Option<&PayloadDecoder>,
 ) -> Result<Vec<Record>, KafkaError> {
-    // A partial window cannot safely advance an offset-only cursor, especially
-    // when browsing newest first. Include decoding in the same deadline.
     let deadline = Instant::now() + budget;
     timeout_at(deadline, consume_windows(consumer, plan, decoder, deadline))
         .await
@@ -126,8 +116,6 @@ async fn consume_windows(
             Err(error) => return Err(error.into()),
             Ok(message) => {
                 let partition = message.partition();
-                // Pausing prevents more fetches; the scan also rejects messages
-                // already queued for a completed partition.
                 if !scan.remaining.contains_key(&partition) {
                     continue;
                 }

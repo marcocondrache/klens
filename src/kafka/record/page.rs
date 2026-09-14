@@ -21,8 +21,6 @@ pub async fn fetch_page<S: ClusterSession + ?Sized>(
     limits: RecordLimits,
 ) -> Result<RecordPage, KafkaError> {
     let deadline = Instant::now() + session.consume_timeout();
-    // One consumer serves every retry pass below; opening it once keeps a
-    // filtered search from tearing a consumer down and recreating it per pass.
     let browse = session.open_browse().await?;
     let mut records = Vec::with_capacity(limit);
     let mut pass = query.clone();
@@ -40,8 +38,6 @@ pub async fn fetch_page<S: ClusterSession + ?Sized>(
                 pass.cursor = None;
                 break;
             }
-            // Keep the scan window wide for sparse filters, but retain only the
-            // records still needed by this page.
             plan.limit = remaining;
             let batch = timeout_at(deadline, browse.fetch(&plan))
                 .await
@@ -218,7 +214,6 @@ mod tests {
         let plans = session.plans.lock().unwrap();
         assert_eq!(plans.len(), 2);
         assert_eq!(plans[0].limit, 2);
-        // The first pass already returned a match, but the second scan is incomplete.
         assert_eq!(plans[1].limit, 1);
         assert_eq!(plans[1].windows[0].start, 4);
     }
