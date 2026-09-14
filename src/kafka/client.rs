@@ -37,7 +37,7 @@ use crate::kafka::record::plan::FetchPlan;
 use crate::kafka::registry::SchemaSubject;
 use crate::kafka::registry::client::SchemaRegistryClient;
 use crate::kafka::registry::decode::PayloadDecoder;
-use crate::kafka::session::ClusterSession;
+use crate::kafka::session::{ClusterSession, RecordBrowse};
 use crate::kafka::topic_config::ConfigEntry;
 use crate::kafka::watermarks::Watermarks;
 
@@ -313,14 +313,10 @@ impl KafkaClient {
         if plan.windows.is_empty() || plan.limit == 0 {
             return Ok(Vec::new());
         }
-        let consumer = self.browser()?;
-        browse::consume(
-            consumer,
-            plan,
-            self.timeouts.consume,
-            self.schema_registry.as_ref(),
-        )
-        .await
+        let browse = self.open_browse()?;
+        let result = browse.fetch(plan).await;
+        browse.close().await;
+        result
     }
 
     pub async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
@@ -349,6 +345,17 @@ impl KafkaClient {
             true,
         )
         .create()?)
+    }
+
+    /// Opens one browse/search operation. Reuse the returned handle across
+    /// every retry pass of a single scan instead of calling this per pass:
+    /// each call creates a new consumer.
+    fn open_browse(&self) -> Result<browse::KafkaBrowse<'_>, KafkaError> {
+        Ok(browse::KafkaBrowse::new(
+            self.browser()?,
+            self.timeouts.consume,
+            self.schema_registry.as_ref(),
+        ))
     }
 }
 
@@ -411,6 +418,10 @@ impl ClusterSession for KafkaClient {
 
     async fn records(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError> {
         KafkaClient::records(self, plan).await
+    }
+
+    async fn open_browse(&self) -> Result<Box<dyn RecordBrowse + '_>, KafkaError> {
+        Ok(Box::new(KafkaClient::open_browse(self)?))
     }
 
     async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
@@ -553,6 +564,50 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].offset, 0);
         assert_eq!(records[0].value.as_deref(), Some("hello"));
+    }
+
+    #[tokio::test]
+    async fn browse_handle_serves_multiple_fetches_from_one_consumer() {
+        let mock = MockCluster::new(1).expect("mock cluster");
+        mock.create_topic("orders", 1, 1).expect("topic");
+        let bootstrap = mock.bootstrap_servers();
+        for _ in 0..4 {
+            produce(&bootstrap, "orders").await;
+        }
+
+        let client = kafka_client(&bootstrap);
+        let browse = client.open_browse().expect("browse handle");
+
+        let window = |start: i64, end: i64| FetchPlan {
+            topic: "orders".into(),
+            windows: vec![PartitionWindow {
+                partition: 0,
+                start,
+                end,
+            }],
+            filter: None,
+            limit: 10,
+            order: RecordOrder::Oldest,
+            schema_id: None,
+        };
+
+        // A search retries multiple times against the same handle before it
+        // is closed; each pass must still see fresh offsets.
+        let first = browse.fetch(&window(0, 2)).await.expect("first pass");
+        let second = browse.fetch(&window(2, 4)).await.expect("second pass");
+        browse.close().await;
+
+        assert_eq!(
+            first.iter().map(|record| record.offset).collect::<Vec<_>>(),
+            vec![0, 1]
+        );
+        assert_eq!(
+            second
+                .iter()
+                .map(|record| record.offset)
+                .collect::<Vec<_>>(),
+            vec![2, 3]
+        );
     }
 
     #[tokio::test]
