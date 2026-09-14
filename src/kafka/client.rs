@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use krafka::admin::{AdminClient as KrafkaAdminClient, OffsetSpec};
+use krafka::admin::{AdminClient as KrafkaAdminClient, OffsetSpec, OffsetVisibility};
 use krafka::client::KrafkaClient as KrafkaSharedClient;
 use rdkafka::admin::{
     AdminClient, AdminOptions, ConsumerGroupState, OwnedResourceSpecifier, ResourceSpecifier,
@@ -23,7 +23,6 @@ use rdkafka::admin::{
 use rdkafka::client::DefaultClientContext;
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::StreamConsumer;
-use rdkafka::topic_partition_list::{Offset, TopicPartitionList};
 
 use crate::config::ClusterConfig;
 use crate::environment::{
@@ -45,7 +44,7 @@ use crate::kafka::watermarks::Watermarks;
 
 use blocking::run_blocking;
 use client_config::krafka_auth;
-use convert::committed_from_tpl;
+use convert::committed_from_krafka;
 use indexmap::IndexMap;
 use offsets::{from_krafka_offsets, merge_watermark_offsets, partition_time_offsets};
 
@@ -245,15 +244,20 @@ impl KafkaClient {
             return Ok(Vec::new());
         }
 
-        let listed = self
-            .admin
-            .list_consumer_group_offsets(
+        let admin = self.krafka_admin().await?;
+        let grouped = group_partitions_by_topic(partitions);
+        let by_topic = topic_partition_refs(&grouped);
+        let listed = tokio::time::timeout(
+            self.timeouts.admin,
+            admin.describe_consumer_group_offsets(
                 group_id,
-                Some(&topic_partitions(partitions, None)?),
-                &self.admin_options(),
-            )
-            .await?;
-        Ok(committed_from_tpl(&listed))
+                Some(&by_topic),
+                OffsetVisibility::StableOnly,
+            ),
+        )
+        .await
+        .map_err(|_| KafkaError::Timeout)??;
+        Ok(committed_from_krafka(listed))
     }
 
     /// Low and high watermarks. Does not refetch cluster metadata.
@@ -499,21 +503,6 @@ fn topic_partition_refs(grouped: &[(String, Vec<i32>)]) -> Vec<(&str, &[i32])> {
         .collect()
 }
 
-fn topic_partitions(
-    partitions: &[(String, i32)],
-    offset: Option<Offset>,
-) -> Result<TopicPartitionList, KafkaError> {
-    let mut tpl = TopicPartitionList::new();
-    for (topic, partition) in partitions {
-        if let Some(offset) = offset {
-            tpl.add_partition_offset(topic, *partition, offset)?;
-        } else {
-            tpl.add_partition(topic, *partition);
-        }
-    }
-    Ok(tpl)
-}
-
 fn consumer_config(
     base: &ClientConfig,
     cluster: &str,
@@ -549,7 +538,6 @@ fn browse_group_id(cluster: &str) -> String {
 mod tests {
     use super::*;
     use rdkafka::config::ClientConfig;
-    use rdkafka::consumer::{BaseConsumer, CommitMode, Consumer};
     use rdkafka::mocking::MockCluster;
     use rdkafka::producer::{FutureProducer, FutureRecord};
 
@@ -701,15 +689,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn lists_committed_offsets_on_a_mock_cluster() {
-        let mock = MockCluster::new(1).expect("mock cluster");
-        mock.create_topic("orders", 1, 1).expect("topic");
+    async fn lists_committed_offsets_from_broker() {
+        let broker = krafka::testing::FakeBroker::start()
+            .await
+            .expect("fake broker");
+        assert!(broker.create_topic("orders", 1));
+        krafka_produce(&broker.bootstrap_servers(), "orders", 1).await;
+        krafka_commit(&broker.bootstrap_servers(), "orders-group", "orders", 1).await;
 
-        let bootstrap = mock.bootstrap_servers();
-        produce(&bootstrap, "orders").await;
-        commit(&bootstrap, "orders-group", "orders", 1);
-
-        let client = kafka_client(&bootstrap);
+        let client = kafka_client(&broker.bootstrap_servers());
         let offsets = client
             .committed_offsets("orders-group", &[("orders".into(), 0)])
             .await
@@ -727,16 +715,23 @@ mod tests {
 
     #[tokio::test]
     async fn eight_groups_share_one_client() {
-        let mock = MockCluster::new(1).expect("mock cluster");
-        mock.create_topic("orders", 1, 1).expect("topic");
-        let bootstrap = mock.bootstrap_servers();
-        produce(&bootstrap, "orders").await;
+        let broker = krafka::testing::FakeBroker::start()
+            .await
+            .expect("fake broker");
+        assert!(broker.create_topic("orders", 1));
+        krafka_produce(&broker.bootstrap_servers(), "orders", 1).await;
 
         for index in 0..8 {
-            commit(&bootstrap, &format!("g{index}"), "orders", 1);
+            krafka_commit(
+                &broker.bootstrap_servers(),
+                &format!("g{index}"),
+                "orders",
+                1,
+            )
+            .await;
         }
 
-        let client = Arc::new(kafka_client(&bootstrap));
+        let client = Arc::new(kafka_client(&broker.bootstrap_servers()));
         let fetches = (0..8).map(|index| {
             let client = Arc::clone(&client);
             async move {
@@ -795,17 +790,30 @@ mod tests {
             .expect("produce");
     }
 
-    fn commit(bootstrap: &str, group: &str, topic: &str, offset: i64) {
-        let consumer: BaseConsumer = ClientConfig::new()
-            .set("bootstrap.servers", bootstrap)
-            .set("group.id", group)
-            .set("enable.auto.commit", "false")
-            .create()
-            .expect("consumer");
-        let mut tpl = TopicPartitionList::new();
-        tpl.add_partition_offset(topic, 0, Offset::Offset(offset))
-            .expect("offset");
-        consumer.assign(&tpl).expect("assign");
-        consumer.commit(&tpl, CommitMode::Sync).expect("commit");
+    /// Joins `group` on `topic`'s only partition and commits `offset` for
+    /// it, for tests reading that commit back through
+    /// `KafkaClient::committed_offsets`.
+    async fn krafka_commit(bootstrap: &str, group: &str, topic: &str, offset: i64) {
+        let consumer = krafka::consumer::Consumer::builder()
+            .bootstrap_servers(bootstrap)
+            .group_id(group)
+            .enable_auto_commit(false)
+            .auto_offset_reset(krafka::consumer::AutoOffsetReset::Earliest)
+            .build()
+            .await
+            .expect("krafka consumer");
+        consumer.subscribe(&[topic]).await.expect("subscribe");
+        // The first poll drives the join/sync rebalance to completion, so
+        // the commit below lands on a partition this member actually owns.
+        // `Earliest` above means the already-published record is waiting,
+        // so this returns as soon as the rebalance does rather than
+        // blocking for the full timeout.
+        let _records = consumer
+            .poll(Duration::from_secs(10))
+            .await
+            .expect("poll for assignment");
+        consumer.seek(topic, 0, offset).await.expect("seek");
+        consumer.commit().await.expect("commit");
+        consumer.close().await.expect("close");
     }
 }
