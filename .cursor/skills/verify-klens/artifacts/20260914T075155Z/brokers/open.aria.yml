@@ -1,0 +1,127 @@
+- text: klens Cluster
+- list:
+  - listitem:
+    - link "Topics":
+      - /url: /cluster/local/topics
+    - text: "3"
+  - listitem:
+    - link "Consumer Groups":
+      - /url: /cluster/local/groups
+    - text: "0"
+  - listitem:
+    - link "Schema Registry":
+      - /url: /cluster/local/schemas
+    - text: "0"
+  - listitem:
+    - link "Brokers":
+      - /url: /cluster/local/nodes
+    - text: "1"
+- link "v0.1.0":
+  - /url: https://github.com/marcocondrache/klens/releases/tag/v0.1.0
+- link "Open repository":
+  - /url: https://github.com/marcocondrache/klens
+- button "Toggle Sidebar"
+- main:
+  - button "Toggle Sidebar"
+  - separator
+  - button "local"
+  - separator
+  - navigation "breadcrumb":
+    - list:
+      - listitem:
+        - link "Brokers":
+          - /url: /cluster/local/nodes
+      - listitem:
+        - link "0" [disabled]
+  - button "Search Ctrl+K /"
+  - button "Refresh"
+  - button "Toggle theme"
+  - heading "Broker 0" [level=1]
+  - paragraph:
+    - text: 127.0.0.1:9092
+    - button "Copy address"
+  - paragraph: Partitions
+  - paragraph: "5"
+  - paragraph: 5 as leader
+  - group:
+    - group
+    - textbox "Filter configuration…"
+    - group: /
+  - switch "Overrides only"
+  - text: Overrides only
+  - button "View"
+  - table:
+    - rowgroup:
+      - row "Key Value Source":
+        - columnheader "Key":
+          - button "Key"
+        - columnheader "Value":
+          - button "Value"
+        - columnheader "Source":
+          - button "Source"
+    - rowgroup:
+      - row "advertised.listeners internal://172.24.1.2:9092,external://127.0.0.1:9092 Copy value static":
+        - cell "advertised.listeners"
+        - cell "internal://172.24.1.2:9092,external://127.0.0.1:9092 Copy value":
+          - text: internal://172.24.1.2:9092,external://127.0.0.1:9092
+          - button "Copy value"
+        - cell "static"
+      - row "auto.create.topics.enable true Copy value static":
+        - cell "auto.create.topics.enable"
+        - cell "true Copy value":
+          - text: "true"
+          - button "Copy value"
+        - cell "static"
+      - row "default.replication.factor 1 Copy value default":
+        - cell "default.replication.factor"
+        - cell "1 Copy value":
+          - text: "1"
+          - button "Copy value"
+        - cell "default"
+      - row "listeners internal://0.0.0.0:9092,external://172.24.1.2:19092 Copy value static":
+        - cell "listeners"
+        - cell "internal://0.0.0.0:9092,external://172.24.1.2:19092 Copy value":
+          - text: internal://0.0.0.0:9092,external://172.24.1.2:19092
+          - button "Copy value"
+        - cell "static"
+      - row "log.dirs /var/lib/redpanda/data Copy value static":
+        - cell "log.dirs"
+        - cell "/var/lib/redpanda/data Copy value":
+          - text: /var/lib/redpanda/data
+          - button "Copy value"
+        - cell "static"
+      - row "log.retention.bytes 18446744073709551615 Copy value default":
+        - cell "log.retention.bytes"
+        - cell "18446744073709551615 Copy value":
+          - text: "18446744073709551615"
+          - button "Copy value"
+        - cell "default"
+      - row "log.retention.ms 604800000 Copy value default":
+        - cell "log.retention.ms"
+        - cell "604800000 Copy value":
+          - text: "604800000"
+          - button "Copy value"
+        - cell "default"
+      - row "log.segment.bytes 134217728 Copy value default":
+        - cell "log.segment.bytes"
+        - cell "134217728 Copy value":
+          - text: "134217728"
+          - button "Copy value"
+        - cell "default"
+      - row "num.partitions 1 Copy value default":
+        - cell "num.partitions"
+        - cell "1 Copy value":
+          - text: "1"
+          - button "Copy value"
+        - cell "default"
+  - text: 0 of 9 row(s) selected.
+  - paragraph: Rows per page
+  - combobox: "50"
+  - text: Page 1 of 1
+  - button "Go to first page" [disabled]
+  - button "Go to previous page" [disabled]
+  - button "Go to next page" [disabled]
+  - button "Go to last page" [disabled]
+- heading "Search klens" [level=2]
+- paragraph: Jump to a topic, consumer group, broker, schema or section
+- region "Notifications alt+T"
