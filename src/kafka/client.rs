@@ -4,7 +4,7 @@
 //! [`ClusterSession`] is this type. All broker I/O goes through krafka.
 
 mod browse;
-mod client_config;
+mod config;
 mod convert;
 mod groups;
 mod offsets;
@@ -17,11 +17,13 @@ use krafka::admin::{
     AdminClient as KrafkaAdmin, ConfigResourceType, DescribeConfigsRequest,
     DescribeConfigsResource, GroupListing, OffsetSpec, OffsetVisibility,
 };
-use krafka::auth::AuthConfig;
 use krafka::client::KrafkaClient as KrafkaSharedClient;
 
 use crate::config::ClusterConfig;
-use crate::environment::{ADMIN_TIMEOUT, CONSUME_TIMEOUT, METADATA_TIMEOUT, WATERMARK_TIMEOUT};
+use crate::environment::{
+    ADMIN_TIMEOUT, CLIENT_ID_PREFIX, CONSUME_TIMEOUT, METADATA_TIMEOUT,
+    SOCKET_CONNECTION_SETUP_TIMEOUT_MS, WATERMARK_TIMEOUT,
+};
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
 use crate::kafka::group::{CommittedOffset, GroupSnapshot, is_internal_group};
@@ -35,9 +37,9 @@ use crate::kafka::session::ClusterSession;
 use crate::kafka::topic_config::ConfigEntry;
 use crate::kafka::watermarks::Watermarks;
 
-use client_config::{KrafkaConnect, krafka_auth};
+use config::krafka_auth;
 use convert::committed_from_krafka;
-use groups::{fill_classic_assignments, listed_group_ids, snapshots_from_descriptions};
+use groups::{fill_classic_assignments, snapshots_from_descriptions};
 use offsets::{from_list_offsets, merge_watermark_offsets, partition_time_offsets};
 
 #[derive(Clone, Copy)]
@@ -61,15 +63,12 @@ impl Default for Timeouts {
 
 /// Process-lifetime Kafka handle. All broker I/O for a cluster goes through here.
 ///
-/// `krafka` connects on first use so `connect` can succeed without a live
-/// listener. The first broker call opens the pool.
+/// Construction connects the shared transport and creates its admin client.
 pub struct KafkaClient {
     identity: ClusterIdentity,
     timeouts: Timeouts,
-    connect: KrafkaConnect,
-    auth: Option<AuthConfig>,
-    krafka: tokio::sync::OnceCell<KrafkaSharedClient>,
-    admin: tokio::sync::OnceCell<KrafkaAdmin>,
+    krafka: KrafkaSharedClient,
+    admin: KrafkaAdmin,
     schema_registry: Option<PayloadDecoder>,
 }
 
@@ -82,10 +81,9 @@ impl std::fmt::Debug for KafkaClient {
 }
 
 impl KafkaClient {
-    pub fn connect(config: &ClusterConfig) -> Result<Self, KafkaError> {
+    pub async fn new(config: &ClusterConfig) -> Result<Self, KafkaError> {
         let identity = ClusterIdentity::from(config);
         let timeouts = Timeouts::default();
-        let connect = KrafkaConnect::from_cluster(config, timeouts.admin)?;
         let schema_registry = config
             .schema_registry
             .as_ref()
@@ -94,41 +92,40 @@ impl KafkaClient {
             })
             .transpose()?;
 
+        let properties = &config.properties;
+        let connect_timeout = Duration::from_millis(
+            properties
+                .connect_timeout_ms
+                .unwrap_or(u64::from(*SOCKET_CONNECTION_SETUP_TIMEOUT_MS)),
+        );
+        let request_timeout = properties
+            .request_timeout_ms
+            .map(Duration::from_millis)
+            .unwrap_or(timeouts.admin);
+        let client_id = properties
+            .client_id
+            .clone()
+            .unwrap_or_else(|| format!("{CLIENT_ID_PREFIX}-{}", config.name));
+
+        let mut builder = KrafkaSharedClient::builder(config.bootstrap_servers.join(","))
+            .client_id(client_id)
+            .request_timeout(request_timeout.max(connect_timeout))
+            .connect_timeout(connect_timeout);
+
+        if let Some(auth) = krafka_auth(config)? {
+            builder = builder.auth(auth);
+        }
+
+        let krafka = builder.build().await?;
+        let admin = KrafkaAdmin::builder().with_client(&krafka).build().await?;
+
         Ok(Self {
             identity,
             timeouts,
-            connect,
-            auth: krafka_auth(config)?,
-            krafka: tokio::sync::OnceCell::new(),
-            admin: tokio::sync::OnceCell::new(),
+            krafka,
+            admin,
             schema_registry,
         })
-    }
-
-    async fn krafka_client(&self) -> Result<&KrafkaSharedClient, KafkaError> {
-        self.krafka
-            .get_or_try_init(|| async {
-                let mut builder = KrafkaSharedClient::builder(&self.connect.bootstrap)
-                    .client_id(self.connect.client_id.clone())
-                    .request_timeout(self.connect.request_timeout)
-                    .connect_timeout(self.connect.connect_timeout);
-                if let Some(auth) = &self.auth {
-                    builder = builder.auth(auth.clone());
-                }
-                Ok(builder.build().await?)
-            })
-            .await
-    }
-
-    async fn krafka_admin(&self) -> Result<&KrafkaAdmin, KafkaError> {
-        self.admin
-            .get_or_try_init(|| async {
-                Ok(KrafkaAdmin::builder()
-                    .with_client(self.krafka_client().await?)
-                    .build()
-                    .await?)
-            })
-            .await
     }
 
     pub fn identity(&self) -> &ClusterIdentity {
@@ -141,7 +138,7 @@ impl KafkaClient {
 
     pub async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError> {
         tokio::time::timeout(self.timeouts.metadata + self.timeouts.metadata, async {
-            let cache = self.krafka_client().await?.metadata();
+            let cache = self.krafka.metadata();
             cache.refresh().await?;
             Ok(MetadataSnapshot::from_krafka(cache))
         })
@@ -151,14 +148,23 @@ impl KafkaClient {
 
     pub async fn groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
         tokio::time::timeout(self.timeouts.admin, async {
-            let admin = self.krafka_admin().await?;
-            let ids = listed_group_ids(admin.list_consumer_groups(&GroupListing::all()).await?);
+            let listed = self
+                .admin
+                .list_consumer_groups(&GroupListing::all())
+                .await?;
+
+            let ids: Vec<String> = listed
+                .into_iter()
+                .map(|group| group.group_id)
+                .filter(|id| !is_internal_group(id))
+                .collect();
+
             if ids.is_empty() {
                 return Ok(Vec::new());
             }
             let mut snapshots =
-                snapshots_from_descriptions(admin.describe_consumer_groups(ids).await?);
-            fill_classic_assignments(self.krafka_client().await?, &mut snapshots).await?;
+                snapshots_from_descriptions(self.admin.describe_consumer_groups(ids).await?);
+            fill_classic_assignments(&self.krafka, &mut snapshots).await?;
             Ok(snapshots)
         })
         .await
@@ -174,8 +180,7 @@ impl KafkaClient {
         }
         tokio::time::timeout(self.timeouts.admin, async {
             let described = self
-                .krafka_admin()
-                .await?
+                .admin
                 .describe_consumer_groups(vec![id.to_owned()])
                 .await?;
             let mut snapshots = snapshots_from_descriptions(described);
@@ -185,11 +190,7 @@ impl KafkaClient {
                     id: id.to_owned(),
                 });
             };
-            fill_classic_assignments(
-                self.krafka_client().await?,
-                std::slice::from_mut(&mut snapshot),
-            )
-            .await?;
+            fill_classic_assignments(&self.krafka, std::slice::from_mut(&mut snapshot)).await?;
             Ok(snapshot)
         })
         .await
@@ -209,8 +210,7 @@ impl KafkaClient {
         let topics = partitions_by_topic(partitions);
         let query = list_offset_query(&topics);
         let listed = tokio::time::timeout(self.timeouts.admin, async {
-            self.krafka_admin()
-                .await?
+            self.admin
                 .describe_consumer_group_offsets(
                     group_id,
                     Some(&query),
@@ -236,10 +236,9 @@ impl KafkaClient {
         let topics = partitions_by_topic(partitions);
         let query = list_offset_query(&topics);
         let (beginning, end) = tokio::time::timeout(self.timeouts.watermark, async {
-            let admin = self.krafka_admin().await?;
             tokio::try_join!(
-                admin.list_offsets(&query, OffsetSpec::Earliest),
-                admin.list_offsets(&query, OffsetSpec::Latest),
+                self.admin.list_offsets(&query, OffsetSpec::Earliest),
+                self.admin.list_offsets(&query, OffsetSpec::Latest),
             )
             .map_err(KafkaError::from)
         })
@@ -262,8 +261,7 @@ impl KafkaClient {
         }
 
         let listed = tokio::time::timeout(self.timeouts.watermark, async {
-            self.krafka_admin()
-                .await?
+            self.admin
                 .list_offsets(&[(topic, partitions)], OffsetSpec::Timestamp(timestamp))
                 .await
                 .map_err(KafkaError::from)
@@ -296,8 +294,7 @@ impl KafkaClient {
             include_documentation: false,
         };
         let results = tokio::time::timeout(self.timeouts.admin, async {
-            self.krafka_admin()
-                .await?
+            self.admin
                 .describe_configs_per_resource(request)
                 .await
                 .map_err(KafkaError::from)
@@ -322,8 +319,7 @@ impl KafkaClient {
 
     pub async fn broker_configs(&self, broker_id: i32) -> Result<Vec<ConfigEntry>, KafkaError> {
         let results = tokio::time::timeout(self.timeouts.admin, async {
-            self.krafka_admin()
-                .await?
+            self.admin
                 .describe_configs_per_resource(DescribeConfigsRequest::for_broker(broker_id))
                 .await
                 .map_err(KafkaError::from)
@@ -352,15 +348,10 @@ impl KafkaClient {
             return Ok(Vec::new());
         }
         let deadline = tokio::time::Instant::now() + self.timeouts.consume;
-        tokio::time::timeout_at(deadline, async {
-            browse::fetch(
-                self.krafka_client().await?,
-                plan,
-                self.schema_registry.as_ref(),
-                deadline,
-            )
-            .await
-        })
+        tokio::time::timeout_at(
+            deadline,
+            browse::fetch(&self.krafka, plan, self.schema_registry.as_ref(), deadline),
+        )
         .await
         .map_err(|_| KafkaError::Timeout)?
     }
@@ -513,7 +504,7 @@ mod tests {
         assert!(broker.create_topic("orders", 1));
         produce_krafka(&broker.bootstrap_servers(), "orders", 1).await;
 
-        let client = kafka_client(&broker.bootstrap_servers());
+        let client = kafka_client(&broker.bootstrap_servers()).await;
         client
             .watermarks(&[("orders".into(), 0)])
             .await
@@ -532,7 +523,9 @@ mod tests {
 
     #[tokio::test]
     async fn empty_partitions_skip_kafka() {
-        let client = kafka_client("127.0.0.1:1");
+        let broker = krafka::testing::FakeBroker::start().await.unwrap();
+        let client = kafka_client(&broker.bootstrap_servers()).await;
+        broker.clear_requests();
         let offsets = client.committed_offsets("unused", &[]).await.unwrap();
         assert!(offsets.is_empty());
         assert!(client.watermarks(&[]).await.unwrap().is_empty());
@@ -543,6 +536,7 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+        assert!(broker.requests().is_empty());
     }
 
     #[tokio::test]
@@ -552,7 +546,7 @@ mod tests {
             .expect("fake broker");
         assert!(broker.create_topic("orders", 2));
 
-        let client = kafka_client(&broker.bootstrap_servers());
+        let client = kafka_client(&broker.bootstrap_servers()).await;
         let meta = client.metadata().await.expect("metadata");
 
         let topic = meta.topic("orders").expect("orders topic");
@@ -568,7 +562,7 @@ mod tests {
         assert!(broker.create_topic("orders", 1));
         produce_krafka(&broker.bootstrap_servers(), "orders", 1).await;
 
-        let client = kafka_client(&broker.bootstrap_servers());
+        let client = kafka_client(&broker.bootstrap_servers()).await;
         let marks = client
             .watermarks(&[("orders".into(), 0)])
             .await
@@ -590,7 +584,7 @@ mod tests {
         assert!(broker.create_topic("orders", 1));
         produce_krafka(&broker.bootstrap_servers(), "orders", 1).await;
 
-        let client = kafka_client(&broker.bootstrap_servers());
+        let client = kafka_client(&broker.bootstrap_servers()).await;
         let records = client
             .records(&FetchPlan {
                 topic: "orders".into(),
@@ -637,7 +631,7 @@ mod tests {
         assert!(broker.create_topic("orders", 1));
         produce_krafka(&broker.bootstrap_servers(), "orders", 4).await;
 
-        let client = kafka_client(&broker.bootstrap_servers());
+        let client = kafka_client(&broker.bootstrap_servers()).await;
 
         let window = |start: i64, end: i64| FetchPlan {
             topic: "orders".into(),
@@ -697,7 +691,7 @@ mod tests {
         let broker = krafka::testing::FakeBroker::start().await.unwrap();
         assert!(broker.create_topic("orders", 1));
         produce_krafka(&broker.bootstrap_servers(), "orders", 550).await;
-        let client = kafka_client(&broker.bootstrap_servers());
+        let client = kafka_client(&broker.bootstrap_servers()).await;
         let records = client
             .records(&FetchPlan {
                 topic: "orders".into(),
@@ -723,12 +717,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn record_deadline_includes_initial_connection() {
+    async fn record_deadline_bounds_broker_io() {
         let broker = krafka::testing::FakeBroker::start().await.unwrap();
-        broker.on(krafka::protocol::ApiKey::Metadata, |_| {
+        assert!(broker.create_topic("orders", 1));
+        let mut client = kafka_client(&broker.bootstrap_servers()).await;
+        broker.on(krafka::protocol::ApiKey::ListOffsets, |_| {
             krafka::testing::Control::Silence
         });
-        let mut client = kafka_client(&broker.bootstrap_servers());
         client.timeouts.consume = Duration::from_millis(50);
         let error = tokio::time::timeout(
             Duration::from_secs(1),
@@ -746,7 +741,7 @@ mod tests {
             }),
         )
         .await
-        .expect("connection must honor the scan deadline")
+        .expect("broker I/O must honor the scan deadline")
         .unwrap_err();
         assert!(matches!(error, KafkaError::Timeout));
     }
@@ -759,7 +754,7 @@ mod tests {
         assert!(broker.create_topic("orders", 1));
         produce_krafka(&broker.bootstrap_servers(), "orders", 1).await;
 
-        let client = kafka_client(&broker.bootstrap_servers());
+        let client = kafka_client(&broker.bootstrap_servers()).await;
         commit_krafka(&client, "orders-group", "orders", 1).await;
         let offsets = client
             .committed_offsets("orders-group", &[("orders".into(), 0)])
@@ -784,7 +779,7 @@ mod tests {
         assert!(broker.create_topic("orders", 1));
         produce_krafka(&broker.bootstrap_servers(), "orders", 1).await;
 
-        let client = Arc::new(kafka_client(&broker.bootstrap_servers()));
+        let client = Arc::new(kafka_client(&broker.bootstrap_servers()).await);
         for index in 0..8 {
             commit_krafka(&client, &format!("g{index}"), "orders", 1).await;
         }
@@ -804,14 +799,15 @@ mod tests {
         }
     }
 
-    fn kafka_client(bootstrap: &str) -> KafkaClient {
-        KafkaClient::connect(&ClusterConfig {
+    async fn kafka_client(bootstrap: &str) -> KafkaClient {
+        KafkaClient::new(&ClusterConfig {
             name: "test".into(),
             bootstrap_servers: vec![bootstrap.to_owned()],
             security: None,
             schema_registry: None,
-            properties: HashMap::new(),
+            properties: Default::default(),
         })
+        .await
         .expect("kafka client")
     }
 
@@ -831,9 +827,7 @@ mod tests {
 
     async fn commit_krafka(client: &KafkaClient, group: &str, topic: &str, offset: i64) {
         client
-            .krafka_admin()
-            .await
-            .expect("admin")
+            .admin
             .alter_consumer_group_offsets(group, &[(topic, &[(0, offset)])])
             .await
             .expect("commit");

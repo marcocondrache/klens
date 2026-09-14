@@ -26,16 +26,6 @@ pub(super) fn snapshots_from_descriptions(
         .collect()
 }
 
-pub(super) fn listed_group_ids(
-    listed: impl IntoIterator<Item = krafka::admin::ConsumerGroupListing>,
-) -> Vec<String> {
-    listed
-        .into_iter()
-        .map(|group| group.group_id)
-        .filter(|id| !is_internal_group(id))
-        .collect()
-}
-
 /// krafka's admin wrapper drops classic `member_assignment` bytes. Fetch them
 /// with DescribeGroups and decode the consumer-protocol blob.
 pub(super) async fn fill_classic_assignments(

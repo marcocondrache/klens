@@ -12,7 +12,9 @@ async fn main() -> anyhow::Result<()> {
         klens::telemetry::Telemetry::init(&config.log_level, env!("CARGO_CRATE_NAME"))?;
 
     let engine = Arc::new(
-        QueryEngine::from_config(&config).context("failed to initialize kafka query engine")?,
+        QueryEngine::from_config(&config)
+            .await
+            .context("failed to initialize kafka query engine")?,
     );
 
     tracing::info!(clusters = ?engine.names(), "configured kafka clusters");
