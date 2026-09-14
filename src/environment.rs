@@ -65,6 +65,16 @@ pub static SOCKET_CONNECTION_SETUP_TIMEOUT_MS: LazyLock<u32> =
 pub static API_VERSION_REQUEST_TIMEOUT_MS: LazyLock<u32> =
     lazy_env_parse!("KLENS_API_VERSION_REQUEST_TIMEOUT_MS", u32, 10_000);
 
+/// rdkafka `queued.min.messages` for the topic browser (default: 2,000).
+///
+/// librdkafka's own default (100,000) is sized for continuous consumption.
+/// A browse or search page fetches at most a few hundred records, so a
+/// much smaller local queue avoids buffering messages the query never uses.
+///
+/// Override with `KLENS_QUEUED_MIN_MESSAGES`.
+pub static QUEUED_MIN_MESSAGES: LazyLock<u32> =
+    lazy_env_parse!("KLENS_QUEUED_MIN_MESSAGES", u32, 2_000);
+
 /// Timeout for Kafka metadata requests (default: 5 seconds).
 ///
 /// Override with `KLENS_METADATA_TIMEOUT` (seconds).

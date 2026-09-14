@@ -26,7 +26,7 @@ use rdkafka::topic_partition_list::{Offset, TopicPartitionList};
 use crate::config::ClusterConfig;
 use crate::environment::{
     ADMIN_TIMEOUT, BROWSE_GROUP_PREFIX, CLIENT_ID_PREFIX, CONSUME_TIMEOUT, METADATA_TIMEOUT,
-    WATERMARK_TIMEOUT,
+    QUEUED_MIN_MESSAGES, WATERMARK_TIMEOUT,
 };
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
@@ -463,6 +463,7 @@ fn consumer_config(
         "enable.partition.eof",
         if partition_eof { "true" } else { "false" },
     );
+    client.set("queued.min.messages", QUEUED_MIN_MESSAGES.to_string());
     client
 }
 
