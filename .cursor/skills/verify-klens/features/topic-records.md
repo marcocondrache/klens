@@ -26,7 +26,7 @@ Preconditions:
 - **Open topic.** Click `klens-verify-topics`. Heading contains `klens-verify-topics`. Tab `Data` is selected.
 - **See record.** The records table includes key `verify-1`. Wait for that cell, not the stats skeleton.
 - **Open payload.** Click the `verify-1` row. A sheet titled `klens-verify-topics[0]@<offset>` appears. The Value block contains `hello-from-verify-klens`.
-- **Filter.** Close the sheet. Type `verify-1` into `Search key or value…`. The row remains. Replace the query with `no-such-payload`. Empty title `No records` appears with `Nothing matched your search in the scanned offset window.`
+- **Filter.** Close the sheet. Type `verify-1` into `Search key or value…`. The row remains. Replace the query with `no-such-payload`. Empty title `No records` appears with `Nothing matched your search in the scanned offsets.`
 - **Proof.** Screenshot the populated Data tab and the open sheet. Save `POST /graphql` `records` for cluster `local` topic `klens-verify-topics` and confirm key `verify-1`.
 
 ## Gotchas

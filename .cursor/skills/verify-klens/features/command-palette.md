@@ -35,7 +35,7 @@ Preconditions:
 
 ## Gotchas
 
-- `/` on Topics, Groups, or Schemas focuses the page search field (`findSearchHotkeyTarget` in `web/src/lib/keyboard.ts`). Use `Control+K` or the header button when you need the palette on those pages.
+- `/` focuses the first visible `data-search-hotkey` field instead of the palette. That includes Topics, Groups, Schemas, the topic Data tab (`Search key or value…`), and Configuration (`Filter configuration…`). Use `Control+K` or the header button when you need the palette on those pages. See `findSearchHotkeyTarget` in `web/src/lib/keyboard.ts`.
 - The dialog title is `Search klens` and is visually hidden (`sr-only`). Query it by accessible name, not by visible text.
 - Results wait on GraphQL `search`. Wait for the topic row, not a fixed debounce sleep.
 - A query with no hits shows `No matches in local.`

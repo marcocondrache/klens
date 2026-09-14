@@ -82,6 +82,8 @@ If you drive by hand, use these handles from this repo. Prefer them over coordin
 | Command palette | button `Search`, or `Meta+K` / `/` when not typing; dialog title `Search klens` |
 | Topic row | table cell with the topic name; click opens `/cluster/local/topics/<name>` |
 | Topic tabs | `Data`, `Partitions`, `Consumer groups`, `Configuration` |
+| Schema Registry page | `/cluster/local/schemas`, heading `Schema registry` |
+| Schema search | `input[data-search-hotkey]` placeholder `Search subjects…` |
 | Offline cluster | alert `Cluster unreachable` |
 | Auth off | `/login` redirects to `/`; no `Continue with SSO` |
 
