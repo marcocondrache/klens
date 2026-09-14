@@ -10,21 +10,18 @@ mod groups;
 mod offsets;
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
 use krafka::admin::{
     AdminClient as KrafkaAdmin, ConfigResourceType, DescribeConfigsRequest,
-    DescribeConfigsResource, OffsetSpec, OffsetVisibility,
+    DescribeConfigsResource, GroupListing, OffsetSpec, OffsetVisibility,
 };
+use krafka::auth::AuthConfig;
 use krafka::client::KrafkaClient as KrafkaSharedClient;
-use krafka::consumer::{AutoOffsetReset, Consumer as KrafkaConsumer};
 
 use crate::config::ClusterConfig;
-use crate::environment::{
-    ADMIN_TIMEOUT, CLIENT_ID_PREFIX, CONSUME_TIMEOUT, METADATA_TIMEOUT, WATERMARK_TIMEOUT,
-};
+use crate::environment::{ADMIN_TIMEOUT, CONSUME_TIMEOUT, METADATA_TIMEOUT, WATERMARK_TIMEOUT};
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
 use crate::kafka::group::{CommittedOffset, GroupSnapshot, is_internal_group};
@@ -34,15 +31,13 @@ use crate::kafka::record::plan::FetchPlan;
 use crate::kafka::registry::SchemaSubject;
 use crate::kafka::registry::client::SchemaRegistryClient;
 use crate::kafka::registry::decode::PayloadDecoder;
-use crate::kafka::session::{ClusterSession, RecordBrowse};
+use crate::kafka::session::ClusterSession;
 use crate::kafka::topic_config::ConfigEntry;
 use crate::kafka::watermarks::Watermarks;
 
 use client_config::{KrafkaConnect, krafka_auth};
 use convert::committed_from_krafka;
-use groups::{
-    fill_classic_assignments, group_listing, listed_group_ids, snapshots_from_descriptions,
-};
+use groups::{fill_classic_assignments, listed_group_ids, snapshots_from_descriptions};
 use offsets::{from_list_offsets, merge_watermark_offsets, partition_time_offsets};
 
 #[derive(Clone, Copy)]
@@ -72,7 +67,7 @@ pub struct KafkaClient {
     identity: ClusterIdentity,
     timeouts: Timeouts,
     connect: KrafkaConnect,
-    config: ClusterConfig,
+    auth: Option<AuthConfig>,
     krafka: tokio::sync::OnceCell<KrafkaSharedClient>,
     admin: tokio::sync::OnceCell<KrafkaAdmin>,
     schema_registry: Option<PayloadDecoder>,
@@ -103,7 +98,7 @@ impl KafkaClient {
             identity,
             timeouts,
             connect,
-            config: config.clone(),
+            auth: krafka_auth(config)?,
             krafka: tokio::sync::OnceCell::new(),
             admin: tokio::sync::OnceCell::new(),
             schema_registry,
@@ -117,8 +112,8 @@ impl KafkaClient {
                     .client_id(self.connect.client_id.clone())
                     .request_timeout(self.connect.request_timeout)
                     .connect_timeout(self.connect.connect_timeout);
-                if let Some(auth) = krafka_auth(&self.config)? {
-                    builder = builder.auth(auth);
+                if let Some(auth) = &self.auth {
+                    builder = builder.auth(auth.clone());
                 }
                 Ok(builder.build().await?)
             })
@@ -157,7 +152,7 @@ impl KafkaClient {
     pub async fn groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
         tokio::time::timeout(self.timeouts.admin, async {
             let admin = self.krafka_admin().await?;
-            let ids = listed_group_ids(admin.list_consumer_groups(&group_listing()).await?);
+            let ids = listed_group_ids(admin.list_consumer_groups(&GroupListing::all()).await?);
             if ids.is_empty() {
                 return Ok(Vec::new());
             }
@@ -356,32 +351,25 @@ impl KafkaClient {
         if plan.windows.is_empty() || plan.limit == 0 {
             return Ok(Vec::new());
         }
-        let browse = self.open_browse().await?;
-        let result = browse.fetch(plan).await;
-        browse.close().await;
-        result
+        let deadline = tokio::time::Instant::now() + self.timeouts.consume;
+        tokio::time::timeout_at(deadline, async {
+            browse::fetch(
+                self.krafka_client().await?,
+                plan,
+                self.schema_registry.as_ref(),
+                deadline,
+            )
+            .await
+        })
+        .await
+        .map_err(|_| KafkaError::Timeout)?
     }
 
     pub async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
-        let Some(decoder) = self.schema_registry.clone() else {
+        let Some(decoder) = &self.schema_registry else {
             return Ok(Vec::new());
         };
         decoder.client().subjects().await
-    }
-
-    async fn open_browse(&self) -> Result<browse::KafkaBrowse<'_>, KafkaError> {
-        let consumer = KrafkaConsumer::builder()
-            .with_client(self.krafka_client().await?)
-            .client_id(browse_client_id(&self.identity.name))
-            .enable_auto_commit(false)
-            .auto_offset_reset(AutoOffsetReset::Earliest)
-            .build()
-            .await?;
-        Ok(browse::KafkaBrowse::new(
-            consumer,
-            self.timeouts.consume,
-            self.schema_registry.as_ref(),
-        ))
     }
 }
 
@@ -446,10 +434,6 @@ impl ClusterSession for KafkaClient {
         KafkaClient::records(self, plan).await
     }
 
-    async fn open_browse(&self) -> Result<Box<dyn RecordBrowse + '_>, KafkaError> {
-        Ok(Box::new(KafkaClient::open_browse(self).await?))
-    }
-
     async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
         KafkaClient::schema_subjects(self).await
     }
@@ -472,14 +456,6 @@ fn list_offset_query(topics: &HashMap<String, Vec<i32>>) -> Vec<(&str, &[i32])> 
 
 fn list_offset_parts(result: krafka::admin::ListOffsetResult) -> (String, i32, i64) {
     (result.topic, result.partition, result.offset)
-}
-
-fn browse_client_id(cluster: &str) -> String {
-    static SEQ: AtomicU64 = AtomicU64::new(1);
-    format!(
-        "{CLIENT_ID_PREFIX}-{cluster}-browse-{}",
-        SEQ.fetch_add(1, Ordering::Relaxed)
-    )
 }
 
 #[cfg(test)]
@@ -518,15 +494,6 @@ mod tests {
         fn as_string(&self) -> String {
             String::from_utf8_lossy(&self.0.lock().expect("log buf")).into_owned()
         }
-    }
-
-    #[test]
-    fn browse_client_ids_are_unique() {
-        let first = browse_client_id("local");
-        let second = browse_client_id("local");
-
-        assert!(first.starts_with(&format!("{CLIENT_ID_PREFIX}-local-browse-")));
-        assert_ne!(first, second);
     }
 
     #[tokio::test]
@@ -663,7 +630,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn browse_handle_serves_multiple_fetches_from_one_consumer() {
+    async fn consecutive_scans_share_transport_without_sharing_positions() {
         let broker = krafka::testing::FakeBroker::start()
             .await
             .expect("fake broker");
@@ -671,7 +638,6 @@ mod tests {
         produce_krafka(&broker.bootstrap_servers(), "orders", 4).await;
 
         let client = kafka_client(&broker.bootstrap_servers());
-        let browse = client.open_browse().await.expect("browse handle");
 
         let window = |start: i64, end: i64| FetchPlan {
             topic: "orders".into(),
@@ -686,10 +652,33 @@ mod tests {
             schema_id: None,
         };
 
-        let first = browse.fetch(&window(0, 2)).await.expect("first pass");
-        let second = browse.fetch(&window(2, 4)).await.expect("second pass");
-        browse.close().await;
+        let first = client.records(&window(2, 4)).await.expect("first pass");
+        let second = client.records(&window(0, 2)).await.expect("second pass");
 
+        assert_eq!(
+            first.iter().map(|record| record.offset).collect::<Vec<_>>(),
+            vec![2, 3]
+        );
+        assert_eq!(
+            second
+                .iter()
+                .map(|record| record.offset)
+                .collect::<Vec<_>>(),
+            vec![0, 1]
+        );
+        // Each scan only clamps its high watermark: initial_offsets avoids
+        // looking up a reset position that would immediately be overwritten.
+        assert_eq!(
+            broker.request_count(krafka::protocol::ApiKey::ListOffsets),
+            2
+        );
+        assert_eq!(broker.request_count(krafka::protocol::ApiKey::JoinGroup), 0);
+
+        let first_plan = window(0, 2);
+        let second_plan = window(2, 4);
+        let (first, second) =
+            tokio::try_join!(client.records(&first_plan), client.records(&second_plan),)
+                .expect("independent concurrent scans");
         assert_eq!(
             first.iter().map(|record| record.offset).collect::<Vec<_>>(),
             vec![0, 1]
@@ -701,6 +690,65 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![2, 3]
         );
+    }
+
+    #[tokio::test]
+    async fn scan_drains_prefetched_records_before_completing() {
+        let broker = krafka::testing::FakeBroker::start().await.unwrap();
+        assert!(broker.create_topic("orders", 1));
+        produce_krafka(&broker.bootstrap_servers(), "orders", 550).await;
+        let client = kafka_client(&broker.bootstrap_servers());
+        let records = client
+            .records(&FetchPlan {
+                topic: "orders".into(),
+                windows: vec![PartitionWindow {
+                    partition: 0,
+                    start: 0,
+                    end: 550,
+                }],
+                filter: None,
+                limit: 550,
+                order: RecordOrder::Oldest,
+                schema_id: None,
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            records
+                .iter()
+                .map(|record| record.offset)
+                .collect::<Vec<_>>(),
+            (0..550).collect::<Vec<_>>()
+        );
+    }
+
+    #[tokio::test]
+    async fn record_deadline_includes_initial_connection() {
+        let broker = krafka::testing::FakeBroker::start().await.unwrap();
+        broker.on(krafka::protocol::ApiKey::Metadata, |_| {
+            krafka::testing::Control::Silence
+        });
+        let mut client = kafka_client(&broker.bootstrap_servers());
+        client.timeouts.consume = Duration::from_millis(50);
+        let error = tokio::time::timeout(
+            Duration::from_secs(1),
+            client.records(&FetchPlan {
+                topic: "orders".into(),
+                windows: vec![PartitionWindow {
+                    partition: 0,
+                    start: 0,
+                    end: 1,
+                }],
+                filter: None,
+                limit: 1,
+                order: RecordOrder::Oldest,
+                schema_id: None,
+            }),
+        )
+        .await
+        .expect("connection must honor the scan deadline")
+        .unwrap_err();
+        assert!(matches!(error, KafkaError::Timeout));
     }
 
     #[tokio::test]
@@ -767,7 +815,7 @@ mod tests {
         .expect("kafka client")
     }
 
-    async fn produce_krafka(bootstrap: &str, topic: &str, count: usize) {
+    pub(super) async fn produce_krafka(bootstrap: &str, topic: &str, count: usize) {
         let producer = krafka::producer::Producer::builder()
             .bootstrap_servers(bootstrap)
             .build()

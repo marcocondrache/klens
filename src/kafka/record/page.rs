@@ -21,7 +21,6 @@ pub async fn fetch_page<S: ClusterSession + ?Sized>(
     limits: RecordLimits,
 ) -> Result<RecordPage, KafkaError> {
     let deadline = Instant::now() + session.consume_timeout();
-    let browse = session.open_browse().await?;
     let mut records = Vec::with_capacity(limit);
     let mut pass = query.clone();
     let max_passes = if query.filter.is_some() {
@@ -38,7 +37,7 @@ pub async fn fetch_page<S: ClusterSession + ?Sized>(
             break;
         }
         plan.limit = remaining;
-        let batch = timeout_at(deadline, browse.fetch(&plan))
+        let batch = timeout_at(deadline, session.records(&plan))
             .await
             .map_err(|_| KafkaError::Timeout)??;
         if Instant::now() > deadline {
@@ -54,8 +53,6 @@ pub async fn fetch_page<S: ClusterSession + ?Sized>(
             break;
         }
     }
-
-    browse.close().await;
 
     records.sort_by(|left, right| left.cmp_for_order(right, query.order));
     Ok(RecordPage {
