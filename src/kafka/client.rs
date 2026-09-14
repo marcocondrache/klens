@@ -218,9 +218,10 @@ impl KafkaClient {
         }
 
         let opts = self.list_offset_options();
-        let beginning =
-            list_partition_offsets(&self.admin, &opts, partitions, Offset::Beginning).await?;
-        let end = list_partition_offsets(&self.admin, &opts, partitions, Offset::End).await?;
+        let (beginning, end) = tokio::try_join!(
+            list_partition_offsets(&self.admin, &opts, partitions, Offset::Beginning),
+            list_partition_offsets(&self.admin, &opts, partitions, Offset::End),
+        )?;
         Ok(merge_watermark_offsets(&beginning, &end))
     }
 
