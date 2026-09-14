@@ -2,79 +2,56 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::time::Duration;
 
-use async_trait::async_trait;
-use krafka::consumer::{Consumer, ConsumerRecord};
-use tokio::time::{Instant, timeout_at};
+use krafka::client::KrafkaClient;
+use krafka::consumer::{AutoOffsetReset, Consumer, ConsumerRecord};
+use tokio::time::Instant;
 
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{Compression, FetchPlan, Record, RecordHeader, decode_bytes};
 use crate::kafka::record::batch::RecordBatch;
 use crate::kafka::record::plan::PartitionWindow;
 use crate::kafka::registry::decode::{PayloadDecoder, decode_field};
-use crate::kafka::session::RecordBrowse;
 
-pub(super) struct KafkaBrowse<'a> {
-    consumer: Option<Consumer>,
-    timeout: Duration,
-    decoder: Option<&'a PayloadDecoder>,
-}
-
-impl<'a> KafkaBrowse<'a> {
-    pub(super) fn new(
-        consumer: Consumer,
-        timeout: Duration,
-        decoder: Option<&'a PayloadDecoder>,
-    ) -> Self {
-        Self {
-            consumer: Some(consumer),
-            timeout,
-            decoder,
-        }
-    }
-
-    fn consumer(&self) -> &Consumer {
-        self.consumer
-            .as_ref()
-            .expect("consumer is taken only when closing")
-    }
-
-    pub(super) async fn fetch(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError> {
-        let deadline = Instant::now() + self.timeout;
-        timeout_at(
-            deadline,
-            consume_windows(self.consumer(), plan, self.decoder, deadline),
+pub(super) async fn fetch(
+    client: &KrafkaClient,
+    plan: &FetchPlan,
+    decoder: Option<&PayloadDecoder>,
+    deadline: Instant,
+) -> Result<Vec<Record>, KafkaError> {
+    // Only scan state is new: connections and metadata belong to the cluster.
+    // Starting at the plan's offsets avoids reset lookups followed by seeks.
+    let consumer = Consumer::builder()
+        .with_client(client)
+        .enable_auto_commit(false)
+        .auto_offset_reset(AutoOffsetReset::Earliest)
+        .initial_offsets(
+            plan.windows
+                .iter()
+                .map(|window| ((plan.topic.clone(), window.partition), window.start))
+                .collect(),
         )
-        .await
-        .map_err(|_| KafkaError::Timeout)?
-    }
-
-    pub(super) async fn close(mut self) {
-        if let Some(consumer) = self.consumer.take() {
-            let _ = consumer.close().await;
-        }
-    }
+        .build()
+        .await?;
+    let mut guard = CloseOnDrop(Some(consumer));
+    let consumer = guard.0.as_ref().expect("consumer is open");
+    let result = consume_windows(consumer, plan, decoder, deadline).await;
+    let _ = consumer.close().await;
+    guard.0.take();
+    result
 }
 
-impl Drop for KafkaBrowse<'_> {
+/// Also close on cancellation; the consumer borrows the cluster's pool.
+struct CloseOnDrop(Option<Consumer>);
+
+impl Drop for CloseOnDrop {
     fn drop(&mut self) {
-        if let Some(consumer) = self.consumer.take()
+        if let Some(consumer) = self.0.take()
             && let Ok(handle) = tokio::runtime::Handle::try_current()
         {
             drop(handle.spawn(async move {
                 let _ = consumer.close().await;
             }));
         }
-    }
-}
-
-#[async_trait]
-impl<'a> RecordBrowse for KafkaBrowse<'a> {
-    async fn fetch(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError> {
-        KafkaBrowse::fetch(self, plan).await
-    }
-
-    async fn close(self: Box<Self>) {
-        KafkaBrowse::close(*self).await
     }
 }
 
@@ -93,17 +70,12 @@ async fn consume_windows(
         return Ok(Vec::new());
     }
 
-    let partitions: Vec<i32> = windows.iter().map(|window| window.partition).collect();
-    consumer.assign(&plan.topic, partitions.clone()).await?;
-    // A reused consumer may still have these partitions paused from a
-    // previous pass over this handle. Pause is tracked per partition, not
-    // reset by `assign`.
-    consumer.resume(&plan.topic, &partitions).await;
-    for window in &windows {
-        consumer
-            .seek(&plan.topic, window.partition, window.start)
-            .await?;
-    }
+    consumer
+        .assign(
+            &plan.topic,
+            windows.iter().map(|window| window.partition).collect(),
+        )
+        .await?;
 
     let mut scan = WindowScan::new(&windows);
     let mut records = RecordBatch::new(plan.limit, plan.order);
@@ -112,10 +84,11 @@ async fn consume_windows(
         if Instant::now() >= deadline {
             return Err(KafkaError::Timeout);
         }
-        let budget = deadline.saturating_duration_since(Instant::now());
-        let batch = timeout_at(deadline, consumer.poll(budget))
-            .await
-            .map_err(|_| KafkaError::Timeout)??;
+        // Leave time to inspect positions after empty polls (e.g. compacted batches).
+        let budget = deadline
+            .saturating_duration_since(Instant::now())
+            .min(Duration::from_millis(100));
+        let batch = consumer.poll(budget).await?;
 
         if batch.is_empty() {
             complete_idle_partitions(consumer, &plan.topic, &mut scan).await;
@@ -123,6 +96,9 @@ async fn consume_windows(
         }
 
         for message in batch {
+            if Instant::now() >= deadline {
+                return Err(KafkaError::Timeout);
+            }
             let partition = message.partition;
             if !scan.remaining.contains_key(&partition) {
                 continue;
@@ -173,8 +149,7 @@ async fn clamp_windows(
     Ok(windows)
 }
 
-/// krafka has no PartitionEOF. An empty poll after the consumer has a
-/// watermark means this window has no more records.
+/// An empty poll alone is not EOF: it can also follow a retriable broker error.
 async fn complete_idle_partitions(consumer: &Consumer, topic: &str, scan: &mut WindowScan) {
     let mut done = Vec::new();
     for (&partition, window) in &scan.remaining {
@@ -182,7 +157,7 @@ async fn complete_idle_partitions(consumer: &Consumer, topic: &str, scan: &mut W
             continue;
         };
         let lag = consumer.current_lag(topic, partition).await;
-        if position >= window.end || lag == Some(0) || lag.is_some() {
+        if position >= window.end || lag == Some(0) {
             done.push(partition);
         }
     }
@@ -265,6 +240,38 @@ async fn record_from_message(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn known_positive_lag_does_not_complete_a_window() {
+        let broker = krafka::testing::FakeBroker::start().await.unwrap();
+        assert!(broker.create_topic("orders", 1));
+        super::super::tests::produce_krafka(&broker.bootstrap_servers(), "orders", 2).await;
+        let consumer = Consumer::builder()
+            .bootstrap_servers(broker.bootstrap_servers())
+            .enable_auto_commit(false)
+            .auto_offset_reset(AutoOffsetReset::Earliest)
+            .max_poll_records(1)
+            .build()
+            .await
+            .unwrap();
+        consumer.assign("orders", vec![0]).await.unwrap();
+        assert_eq!(
+            consumer.poll(Duration::from_secs(1)).await.unwrap().len(),
+            1
+        );
+        let mut scan = WindowScan {
+            remaining: HashMap::from([(0, 0..2)]),
+        };
+        complete_idle_partitions(&consumer, "orders", &mut scan).await;
+        assert!(scan.remaining.contains_key(&0));
+        assert_eq!(
+            consumer.poll(Duration::from_secs(1)).await.unwrap().len(),
+            1
+        );
+        complete_idle_partitions(&consumer, "orders", &mut scan).await;
+        assert!(scan.remaining.is_empty());
+        consumer.close().await.unwrap();
+    }
 
     #[test]
     fn scan_enforces_half_open_windows_across_interleaved_partitions() {
