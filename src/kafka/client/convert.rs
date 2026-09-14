@@ -1,11 +1,11 @@
-//! The single place rdkafka types cross into the Kafka domain model.
+//! The single place rdkafka and krafka types cross into the Kafka domain model.
 
 use kafka_protocol::messages::consumer_protocol_assignment::ConsumerProtocolAssignment;
 use kafka_protocol::protocol::Decodable;
+use krafka::metadata::ClusterMetadata;
 use rdkafka::admin::{
     ConfigSource as RdConfigSource, ConsumerGroupDescription, ConsumerGroupState,
 };
-use rdkafka::metadata::Metadata;
 use rdkafka::topic_partition_list::{Offset, TopicPartitionList};
 
 use crate::kafka::group::{
@@ -17,36 +17,37 @@ use crate::kafka::metadata::{
 use crate::kafka::topic_config::{ConfigEntry, ConfigSource};
 
 impl MetadataSnapshot {
-    pub(super) fn from_rdkafka(metadata: &Metadata, cluster_id: Option<String>) -> Self {
+    pub(super) fn from_krafka(cache: &ClusterMetadata) -> Self {
         Self {
-            cluster_id,
-            brokers: metadata
+            cluster_id: cache.cluster_id(),
+            brokers: cache
                 .brokers()
-                .iter()
+                .into_iter()
                 .map(|broker| BrokerMetadata {
                     id: broker.id(),
                     host: broker.host().to_owned(),
                     port: broker.port(),
                 })
                 .collect(),
-            topics: metadata
+            topics: cache
                 .topics()
-                .iter()
+                .into_iter()
                 .map(|topic| {
-                    let name = topic.name().to_owned();
+                    let mut partitions: Vec<PartitionMetadata> = topic
+                        .partitions
+                        .into_values()
+                        .map(|partition| PartitionMetadata {
+                            id: partition.partition,
+                            leader: partition.leader,
+                            replicas: partition.replicas,
+                            isr: partition.isr,
+                        })
+                        .collect();
+                    partitions.sort_unstable_by_key(|partition| partition.id);
                     TopicMetadata {
-                        internal: is_internal_topic(&name),
-                        name,
-                        partitions: topic
-                            .partitions()
-                            .iter()
-                            .map(|partition| PartitionMetadata {
-                                id: partition.id(),
-                                leader: partition.leader(),
-                                replicas: partition.replicas().to_vec(),
-                                isr: partition.isr().to_vec(),
-                            })
-                            .collect(),
+                        internal: topic.is_internal || is_internal_topic(&topic.name),
+                        name: topic.name,
+                        partitions,
                     }
                 })
                 .collect(),
