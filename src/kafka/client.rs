@@ -11,7 +11,6 @@ mod offsets;
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -22,13 +21,10 @@ use krafka::admin::{
 use krafka::client::KrafkaClient as KrafkaSharedClient;
 use rdkafka::admin::{AdminClient, AdminOptions, ConsumerGroupState};
 use rdkafka::client::DefaultClientContext;
-use rdkafka::config::ClientConfig;
-use rdkafka::consumer::StreamConsumer;
 
 use crate::config::ClusterConfig;
 use crate::environment::{
-    ADMIN_TIMEOUT, BROWSE_GROUP_PREFIX, CLIENT_ID_PREFIX, CONSUME_TIMEOUT, METADATA_TIMEOUT,
-    QUEUED_MIN_MESSAGES, WATERMARK_TIMEOUT,
+    ADMIN_TIMEOUT, CLIENT_ID_PREFIX, CONSUME_TIMEOUT, METADATA_TIMEOUT, WATERMARK_TIMEOUT,
 };
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
@@ -82,7 +78,6 @@ impl Default for Timeouts {
 pub struct KafkaClient {
     identity: ClusterIdentity,
     timeouts: Timeouts,
-    base: ClientConfig,
     admin: Arc<AdminClient<DefaultClientContext>>,
     config: ClusterConfig,
     krafka: tokio::sync::OnceCell<KrafkaSharedClient>,
@@ -114,7 +109,6 @@ impl KafkaClient {
         Ok(Self {
             identity,
             timeouts: Timeouts::default(),
-            base,
             admin: Arc::new(admin),
             config: config.clone(),
             krafka: tokio::sync::OnceCell::new(),
@@ -383,7 +377,7 @@ impl KafkaClient {
         if plan.windows.is_empty() || plan.limit == 0 {
             return Ok(Vec::new());
         }
-        let browse = self.open_browse()?;
+        let browse = self.open_browse().await?;
         let result = browse.fetch(plan).await;
         browse.close().await;
         result
@@ -402,22 +396,23 @@ impl KafkaClient {
             .operation_timeout(Some(self.timeouts.admin))
     }
 
-    fn browser(&self) -> Result<StreamConsumer, KafkaError> {
-        Ok(consumer_config(
-            &self.base,
-            &self.identity.name,
-            &browse_group_id(&self.identity.name),
-            "browse",
-            true,
-        )
-        .create()?)
+    /// A group-less consumer for `assign`+`seek`+`poll` browsing, sharing
+    /// the krafka pool other migrated methods use.
+    async fn browser(&self) -> Result<krafka::consumer::Consumer, KafkaError> {
+        let client = self.krafka_client().await?;
+        Ok(krafka::consumer::Consumer::builder()
+            .with_client(client)
+            .client_id(format!("{CLIENT_ID_PREFIX}-{}-browse", self.identity.name))
+            .enable_auto_commit(false)
+            .build()
+            .await?)
     }
 
-    fn open_browse(&self) -> Result<browse::KafkaBrowse<'_>, KafkaError> {
+    async fn open_browse(&self) -> Result<browse::KafkaBrowse, KafkaError> {
         Ok(browse::KafkaBrowse::new(
-            self.browser()?,
+            self.browser().await?,
             self.timeouts.consume,
-            self.schema_registry.as_ref(),
+            self.schema_registry.clone(),
         ))
     }
 }
@@ -484,7 +479,7 @@ impl ClusterSession for KafkaClient {
     }
 
     async fn open_browse(&self) -> Result<Box<dyn RecordBrowse + '_>, KafkaError> {
-        Ok(Box::new(KafkaClient::open_browse(self)?))
+        Ok(Box::new(KafkaClient::open_browse(self).await?))
     }
 
     async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
@@ -512,56 +507,14 @@ fn topic_partition_refs(grouped: &[(String, Vec<i32>)]) -> Vec<(&str, &[i32])> {
         .collect()
 }
 
-fn consumer_config(
-    base: &ClientConfig,
-    cluster: &str,
-    group_id: &str,
-    role: &str,
-    partition_eof: bool,
-) -> ClientConfig {
-    let mut client = base.clone();
-    client.set("client.id", format!("{CLIENT_ID_PREFIX}-{cluster}-{role}"));
-    client.set("group.id", group_id);
-    client.set("enable.auto.commit", "false");
-    client.set("enable.auto.offset.store", "false");
-    client.set("allow.auto.create.topics", "false");
-    client.set("auto.offset.reset", "error");
-    client.set(
-        "enable.partition.eof",
-        if partition_eof { "true" } else { "false" },
-    );
-    client.set("queued.min.messages", QUEUED_MIN_MESSAGES.to_string());
-    client
-}
-
-fn browse_group_id(cluster: &str) -> String {
-    static SEQ: AtomicU64 = AtomicU64::new(1);
-    format!(
-        "{BROWSE_GROUP_PREFIX}.{cluster}.{}-{}",
-        std::process::id(),
-        SEQ.fetch_add(1, Ordering::Relaxed)
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rdkafka::config::ClientConfig;
     use rdkafka::mocking::MockCluster;
-    use rdkafka::producer::{FutureProducer, FutureRecord};
 
     use crate::config::ClusterConfig;
     use crate::kafka::record::plan::PartitionWindow;
     use crate::kafka::record::query::RecordOrder;
-
-    #[test]
-    fn browse_group_ids_are_internal_and_unique() {
-        let first = browse_group_id("local");
-        let second = browse_group_id("local");
-
-        assert!(first.starts_with(&format!("{BROWSE_GROUP_PREFIX}.local.")));
-        assert_ne!(first, second);
-    }
 
     #[tokio::test]
     async fn empty_partitions_skip_kafka() {
@@ -628,12 +581,13 @@ mod tests {
 
     #[tokio::test]
     async fn client_reads_records() {
-        let mock = MockCluster::new(1).expect("mock cluster");
-        mock.create_topic("orders", 1, 1).expect("topic");
-        let bootstrap = mock.bootstrap_servers();
-        produce(&bootstrap, "orders").await;
+        let broker = krafka::testing::FakeBroker::start()
+            .await
+            .expect("fake broker");
+        assert!(broker.create_topic("orders", 1));
+        krafka_produce(&broker.bootstrap_servers(), "orders", 1).await;
 
-        let client = kafka_client(&bootstrap);
+        let client = kafka_client(&broker.bootstrap_servers());
 
         let records = client
             .records(&FetchPlan {
@@ -657,15 +611,14 @@ mod tests {
 
     #[tokio::test]
     async fn browse_handle_serves_multiple_fetches_from_one_consumer() {
-        let mock = MockCluster::new(1).expect("mock cluster");
-        mock.create_topic("orders", 1, 1).expect("topic");
-        let bootstrap = mock.bootstrap_servers();
-        for _ in 0..4 {
-            produce(&bootstrap, "orders").await;
-        }
+        let broker = krafka::testing::FakeBroker::start()
+            .await
+            .expect("fake broker");
+        assert!(broker.create_topic("orders", 1));
+        krafka_produce(&broker.bootstrap_servers(), "orders", 4).await;
 
-        let client = kafka_client(&bootstrap);
-        let browse = client.open_browse().expect("browse handle");
+        let client = kafka_client(&broker.bootstrap_servers());
+        let browse = client.open_browse().await.expect("browse handle");
 
         let window = |start: i64, end: i64| FetchPlan {
             topic: "orders".into(),
@@ -783,20 +736,6 @@ mod tests {
                 .expect("produce");
         }
         producer.close().await;
-    }
-
-    async fn produce(bootstrap: &str, topic: &str) {
-        let producer: FutureProducer = ClientConfig::new()
-            .set("bootstrap.servers", bootstrap)
-            .create()
-            .expect("producer");
-        producer
-            .send(
-                FutureRecord::to(topic).payload("hello").key("k"),
-                Duration::from_secs(5),
-            )
-            .await
-            .expect("produce");
     }
 
     /// Joins `group` on `topic`'s only partition and commits `offset` for
