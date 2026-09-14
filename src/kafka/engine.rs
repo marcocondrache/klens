@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use futures::future::join_all;
+use futures::future::{join_all, try_join_all};
 use indexmap::IndexMap;
 
 use crate::config::Config;
@@ -36,13 +36,9 @@ pub struct QueryEngine<S: ?Sized> {
 }
 
 impl QueryEngine<dyn ClusterSession> {
-    pub fn from_config(config: &Config) -> Result<Self, KafkaError> {
+    pub async fn from_config(config: &Config) -> Result<Self, KafkaError> {
         Ok(Self::from_sessions(
-            config
-                .clusters
-                .iter()
-                .map(KafkaClient::connect)
-                .collect::<Result<Vec<_>, _>>()?,
+            try_join_all(config.clusters.iter().map(KafkaClient::new)).await?,
         ))
     }
 

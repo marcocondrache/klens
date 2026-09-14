@@ -25,11 +25,12 @@ clusters:
     #     client_key: /path/to/client.key
     #     insecure_skip_verify: false
 
-    # Extra Kafka client properties. Known keys: request.timeout.ms,
-    # socket.connection.setup.timeout.ms, api.version.request.timeout.ms,
-    # bootstrap.servers, client.id.
+    # Optional Kafka transport overrides. Timeouts are unsigned millisecond numbers.
+    # request_timeout_ms is raised to connect_timeout_ms if smaller.
     # properties:
-    #   request.timeout.ms: "10000"
+    #   client_id: klens-local
+    #   request_timeout_ms: 10000
+    #   connect_timeout_ms: 10000
 
     # Optional Confluent-compatible Schema Registry. When omitted, the Schemas
     # page is empty for this cluster.
