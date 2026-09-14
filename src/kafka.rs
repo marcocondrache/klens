@@ -46,7 +46,7 @@ pub use catalog::{
     CatalogAssemble, CatalogCache, CatalogHealth, CatalogPoller, CatalogPollerIntervals,
     CatalogPollerIo, CatalogReuse, CatalogRevision, ClusterSnapshot, PollLane, SubjectCache,
 };
-pub use client::{KafkaClient, KafkaClusterConfig};
+pub use client::KafkaClient;
 pub use engine::QueryEngine;
 pub use error::{KafkaError, QueryError};
 pub use lag::LagStore;

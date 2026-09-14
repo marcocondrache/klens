@@ -37,13 +37,7 @@ pub enum KafkaError {
     SchemaRegistry { cluster: String, message: String },
 
     #[error(transparent)]
-    Client(#[from] rdkafka::error::KafkaError),
-
-    #[error(transparent)]
     Krafka(#[from] krafka::error::KrafkaError),
-
-    #[error("background kafka task failed: {0}")]
-    Join(#[from] tokio::task::JoinError),
 }
 
 impl KafkaError {
@@ -59,9 +53,7 @@ impl KafkaError {
             Self::Admin(_) => "ADMIN",
             Self::BrokerConfigs { .. } => "BROKER_CONFIGS",
             Self::SchemaRegistry { .. } => "SCHEMA_REGISTRY",
-            Self::Client(_) => "CLIENT",
             Self::Krafka(_) => "CLIENT",
-            Self::Join(_) => "JOIN",
         }
     }
 }

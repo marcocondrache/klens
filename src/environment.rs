@@ -44,23 +44,17 @@ pub const SESSION_COOKIE_KEY_PREFIX: &str = "klens-session-v1";
 /// Minimum material length accepted by `cookie::Key::derive_from`.
 pub const COOKIE_KEY_MIN_LEN: usize = 32;
 
-/// Prefix for rdkafka `client.id` values (`klens-<cluster>[-<role>]`).
+/// Prefix for Kafka `client.id` values (`klens-<cluster>[-<role>]`).
 pub const CLIENT_ID_PREFIX: &str = "klens";
 
 /// Prefix for consumer groups created by klens itself.
 pub const INTERNAL_GROUP_PREFIX: &str = "klens.internal.";
 
-/// rdkafka `socket.connection.setup.timeout.ms` (default: 10 seconds).
+/// TCP connect timeout for the Kafka client (default: 10 seconds).
 ///
 /// Override with `KLENS_SOCKET_CONNECTION_SETUP_TIMEOUT_MS`.
 pub static SOCKET_CONNECTION_SETUP_TIMEOUT_MS: LazyLock<u32> =
     lazy_env_parse!("KLENS_SOCKET_CONNECTION_SETUP_TIMEOUT_MS", u32, 10_000);
-
-/// rdkafka `api.version.request.timeout.ms` (default: 10 seconds).
-///
-/// Override with `KLENS_API_VERSION_REQUEST_TIMEOUT_MS`.
-pub static API_VERSION_REQUEST_TIMEOUT_MS: LazyLock<u32> =
-    lazy_env_parse!("KLENS_API_VERSION_REQUEST_TIMEOUT_MS", u32, 10_000);
 
 /// Timeout for Kafka metadata requests (default: 5 seconds).
 ///
@@ -94,14 +88,6 @@ pub static ADMIN_TIMEOUT: LazyLock<Duration> =
 /// Override with `KLENS_CONSUME_TIMEOUT` (seconds).
 pub static CONSUME_TIMEOUT: LazyLock<Duration> =
     lazy_env_parse!(duration, "KLENS_CONSUME_TIMEOUT", Duration::from_secs(5));
-
-/// Extra time granted to `spawn_blocking` Kafka calls beyond the request
-/// timeout, so a slow broker does not also trip the Tokio join budget
-/// (default: 2 seconds).
-///
-/// Override with `KLENS_BLOCKING_SLACK` (seconds).
-pub static BLOCKING_SLACK: LazyLock<Duration> =
-    lazy_env_parse!(duration, "KLENS_BLOCKING_SLACK", Duration::from_secs(2));
 
 /// Overall budget for assembling a cluster overview (default: 20 seconds).
 ///
