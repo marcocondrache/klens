@@ -55,6 +55,10 @@ rpk container start \
   --console-port 8002
 """
 
+[tasks."kafka:topics"]
+description = "Create random topics on the local broker so the UI has something to show"
+run = "cargo xtask topics"
+
 [tasks."kafka:down"]
 description = "Stop the local Redpanda container cluster"
 run = "rpk container stop"

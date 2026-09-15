@@ -86,7 +86,7 @@ jobs:
       - name: Build
         run: cargo build --verbose
       - name: Run tests
-        run: cargo nextest run --verbose --no-tests=pass
+        run: cargo nextest run --verbose --no-tests=pass --workspace
 
   docs:
     runs-on: ubuntu-latest
