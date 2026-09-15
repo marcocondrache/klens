@@ -304,6 +304,7 @@ pub fn router(state: AppState) -> Router {
         state.clone(),
         auth::require_session,
     ));
+    let auth_layer = state.auth.layer();
 
     Router::new()
         .merge(graphql)
@@ -311,6 +312,7 @@ pub fn router(state: AppState) -> Router {
         .merge(health::router())
         .with_state(state)
         .fallback(crate::server::web::serve)
+        .layer(auth_layer)
 }
 
 #[cfg(test)]

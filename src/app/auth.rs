@@ -1,28 +1,36 @@
 use std::sync::Arc;
 
-use axum::extract::{FromRef, Query, State};
+use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use axum_extra::extract::cookie::{Cookie, Key, PrivateCookieJar, SameSite};
-use cookie::time::Duration;
-use openidconnect::{CsrfToken, Nonce, PkceCodeChallenge, PkceCodeVerifier};
+use axum_login::AuthManagerLayerBuilder;
+use openidconnect::{CsrfToken, Nonce, PkceCodeChallenge};
 use serde::{Deserialize, Serialize};
+use tower_sessions::cookie::time::Duration;
+use tower_sessions::cookie::{Key, SameSite};
+use tower_sessions::service::SignedCookie;
+use tower_sessions::{Expiry, MemoryStore, SessionManagerLayer};
 
 use crate::AppState;
 use crate::config::AuthConfig;
-use crate::environment::{
-    COOKIE_KEY_MIN_LEN, LOGIN_COOKIE, LOGIN_MAX_AGE_SECS, SESSION_COOKIE, SESSION_COOKIE_KEY_PREFIX,
-};
+use crate::environment::{LOGIN_MAX_AGE_SECS, SESSION_COOKIE, SESSION_COOKIE_KEY_PREFIX};
 use crate::utils::unix_timestamp_secs;
 
 pub(crate) mod access;
+mod backend;
 mod oidc;
 
 use access::{AccessPolicy, EffectiveAccess, Identity};
+use backend::{AuthBackend, OidcCredentials};
 use oidc::{Oidc, OidcFlow};
+
+const LOGIN_PENDING_KEY: &str = "klens.login_pending";
+
+type AuthSession = axum_login::AuthSession<AuthBackend>;
+type SessionLayer = SessionManagerLayer<MemoryStore, SignedCookie>;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub(crate) struct SessionUser {
@@ -32,30 +40,54 @@ pub(crate) struct SessionUser {
     pub exp: i64,
     #[serde(default)]
     pub groups: Vec<String>,
+    #[serde(skip)]
+    auth_hash: Vec<u8>,
+}
+
+impl SessionUser {
+    pub(crate) fn new(
+        sub: impl Into<String>,
+        email: Option<String>,
+        name: Option<String>,
+        groups: Vec<String>,
+        exp: i64,
+    ) -> Self {
+        let mut user = Self {
+            sub: sub.into(),
+            email,
+            name,
+            groups,
+            exp,
+            auth_hash: Vec::new(),
+        };
+        user.refresh_auth_hash();
+        user
+    }
+
+    fn refresh_auth_hash(&mut self) {
+        self.auth_hash = format!(
+            "{SESSION_COOKIE_KEY_PREFIX}|{}|{}|{}",
+            self.sub,
+            self.exp,
+            self.groups.join("\0")
+        )
+        .into_bytes();
+    }
 }
 
 #[derive(Clone)]
 pub struct AuthState {
-    inner: Inner,
-    key: Key,
+    backend: AuthBackend,
     policy: AccessPolicy,
-}
-
-#[derive(Clone)]
-enum Inner {
-    Disabled,
-    Enabled {
-        flow: Arc<dyn OidcFlow>,
-        cookie_secure: bool,
-    },
+    session_layer: SessionLayer,
 }
 
 impl AuthState {
     pub fn disabled() -> Self {
         Self {
-            inner: Inner::Disabled,
-            key: Key::generate(),
+            backend: AuthBackend::disabled(),
             policy: AccessPolicy::disabled(),
+            session_layer: session_layer(false),
         }
     }
 
@@ -76,40 +108,24 @@ impl AuthState {
         policy: AccessPolicy,
     ) -> Self {
         Self {
-            inner: Inner::Enabled {
-                flow,
-                cookie_secure: oidc.cookie_secure(),
-            },
-            key: derive_cookie_key(&oidc.issuer, &oidc.client_secret),
+            backend: AuthBackend::enabled(flow),
             policy,
+            session_layer: session_layer(oidc.cookie_secure()),
         }
     }
 
     pub fn is_enabled(&self) -> bool {
-        matches!(self.inner, Inner::Enabled { .. })
+        self.backend.is_enabled()
     }
 
     fn flow(&self) -> Option<&dyn OidcFlow> {
-        match &self.inner {
-            Inner::Enabled { flow, .. } => Some(flow.as_ref()),
-            Inner::Disabled => None,
-        }
+        self.backend.flow()
     }
 
-    fn cookie_secure(&self) -> bool {
-        match &self.inner {
-            Inner::Enabled { cookie_secure, .. } => *cookie_secure,
-            Inner::Disabled => false,
-        }
-    }
-
-    fn session_from_jar(&self, jar: &PrivateCookieJar) -> Option<SessionUser> {
-        let cookie = jar.get(SESSION_COOKIE)?;
-        let user: SessionUser = serde_json::from_str(cookie.value()).ok()?;
-        if user.exp <= unix_timestamp_secs() {
-            return None;
-        }
-        Some(user)
+    pub(crate) fn layer(
+        &self,
+    ) -> axum_login::AuthManagerLayer<AuthBackend, MemoryStore, SignedCookie> {
+        AuthManagerLayerBuilder::new(self.backend.clone(), self.session_layer.clone()).build()
     }
 
     fn access_from_user(&self, user: &SessionUser) -> Option<EffectiveAccess> {
@@ -118,41 +134,44 @@ impl AuthState {
         })
     }
 
-    fn access_from_jar(&self, jar: &PrivateCookieJar) -> Option<EffectiveAccess> {
+    fn access_from_session(&self, session: &AuthSession) -> Option<EffectiveAccess> {
         if !self.is_enabled() {
             return Some(EffectiveAccess::Unrestricted);
         }
-        let user = self.session_from_jar(jar)?;
-        self.access_from_user(&user)
-    }
-}
-
-impl FromRef<AppState> for Key {
-    fn from_ref(state: &AppState) -> Self {
-        state.auth.key.clone()
+        let user = session.user.as_ref()?;
+        self.access_from_user(user)
     }
 }
 
 pub fn router() -> Router<AppState> {
-    Router::new()
+    let router = Router::new()
         .route("/auth/me", get(me))
         .route("/auth/login", get(login))
         .route("/auth/callback", get(callback))
-        .route("/auth/logout", post(logout))
+        .route("/auth/logout", post(logout));
+
+    #[cfg(test)]
+    let router = router.route("/auth/impersonate", post(impersonate));
+
+    router
 }
 
 pub async fn require_session(
     State(state): State<AppState>,
-    jar: PrivateCookieJar,
+    auth_session: AuthSession,
     request: axum::extract::Request,
     next: Next,
 ) -> Response {
-    if let Some(access) = state.auth.access_from_jar(&jar) {
+    if let Some(access) = state.auth.access_from_session(&auth_session) {
         let mut request = request;
         request.extensions_mut().insert(access);
         return next.run(request).await;
     }
 
+    unauthorized()
+}
+
+fn unauthorized() -> Response {
     (
         StatusCode::UNAUTHORIZED,
         Json(serde_json::json!({ "error": "unauthorized" })),
@@ -196,8 +215,8 @@ impl AuthUserResponse {
     }
 }
 
-async fn me(State(state): State<AppState>, jar: PrivateCookieJar) -> impl IntoResponse {
-    let user = state.auth.session_from_jar(&jar).and_then(|user| {
+async fn me(State(state): State<AppState>, auth_session: AuthSession) -> impl IntoResponse {
+    let user = auth_session.user.clone().and_then(|user| {
         let access = state.auth.access_from_user(&user)?;
         Some(AuthUserResponse::from_session(user, &access))
     });
@@ -207,7 +226,7 @@ async fn me(State(state): State<AppState>, jar: PrivateCookieJar) -> impl IntoRe
     })
 }
 
-async fn login(State(state): State<AppState>, jar: PrivateCookieJar) -> Response {
+async fn login(State(state): State<AppState>, auth_session: AuthSession) -> Response {
     let Some(flow) = state.auth.flow() else {
         return StatusCode::NOT_FOUND.into_response();
     };
@@ -223,14 +242,22 @@ async fn login(State(state): State<AppState>, jar: PrivateCookieJar) -> Response
         pkce_verifier: pkce_verifier.secret().to_owned(),
     };
 
-    let jar = jar.add(build_cookie(
-        LOGIN_COOKIE,
-        serde_json::to_string(&pending).expect("login pending json"),
-        *LOGIN_MAX_AGE_SECS,
-        state.auth.cookie_secure(),
-    ));
+    auth_session
+        .session
+        .set_expiry(Some(Expiry::OnInactivity(Duration::seconds(
+            *LOGIN_MAX_AGE_SECS,
+        ))));
 
-    (jar, Redirect::to(authorize_url.as_str())).into_response()
+    if let Err(error) = auth_session
+        .session
+        .insert(LOGIN_PENDING_KEY, pending)
+        .await
+    {
+        tracing::error!(%error, "failed to store oidc login state");
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+
+    Redirect::to(authorize_url.as_str()).into_response()
 }
 
 #[derive(Debug, Deserialize)]
@@ -242,76 +269,98 @@ struct CallbackQuery {
 
 async fn callback(
     State(state): State<AppState>,
-    jar: PrivateCookieJar,
+    mut auth_session: AuthSession,
     Query(query): Query<CallbackQuery>,
 ) -> Response {
-    let Some(flow) = state.auth.flow() else {
+    if state.auth.flow().is_none() {
         return StatusCode::NOT_FOUND.into_response();
-    };
-
-    if query.error.is_some() {
-        return login_error(jar, state.auth.cookie_secure(), LoginFail::Auth).into_response();
     }
 
-    let Some(pending) = login_pending(&jar) else {
-        tracing::warn!("oidc callback missing login state");
-        return login_error(jar, state.auth.cookie_secure(), LoginFail::Auth).into_response();
+    if query.error.is_some() {
+        return login_error(&mut auth_session, LoginFail::Auth).await;
+    }
+
+    let pending = match auth_session
+        .session
+        .get::<LoginPending>(LOGIN_PENDING_KEY)
+        .await
+    {
+        Ok(Some(pending)) => pending,
+        Ok(None) => {
+            tracing::warn!("oidc callback missing login state");
+            return login_error(&mut auth_session, LoginFail::Auth).await;
+        }
+        Err(error) => {
+            tracing::error!(%error, "failed to read oidc login state");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
     };
 
     let Some(state_param) = query.state.as_deref() else {
-        return login_error(jar, state.auth.cookie_secure(), LoginFail::Auth).into_response();
+        return login_error(&mut auth_session, LoginFail::Auth).await;
     };
 
     if pending.state != state_param {
         tracing::warn!("oidc callback rejected: state mismatch");
-        return login_error(jar, state.auth.cookie_secure(), LoginFail::Auth).into_response();
+        return login_error(&mut auth_session, LoginFail::Auth).await;
     }
 
     let Some(code) = query.code else {
-        return login_error(jar, state.auth.cookie_secure(), LoginFail::Auth).into_response();
+        return login_error(&mut auth_session, LoginFail::Auth).await;
     };
 
-    let user = match flow
-        .authenticate(
+    let user = match auth_session
+        .authenticate(OidcCredentials {
             code,
-            PkceCodeVerifier::new(pending.pkce_verifier),
-            Nonce::new(pending.nonce),
-        )
+            pkce_verifier: pending.pkce_verifier,
+            nonce: pending.nonce,
+        })
         .await
     {
-        Ok(user) => user,
+        Ok(Some(user)) => user,
+        Ok(None) => return login_error(&mut auth_session, LoginFail::Auth).await,
         Err(error) => {
-            tracing::warn!(%error, "oidc callback failed");
-            return login_error(jar, state.auth.cookie_secure(), LoginFail::Auth).into_response();
+            tracing::error!(%error, "oidc authenticate failed");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
 
     if state.auth.access_from_user(&user).is_none() {
         tracing::info!(sub = %user.sub, "oidc login refused: no matching role");
-        return login_error(jar, state.auth.cookie_secure(), LoginFail::Forbidden).into_response();
+        return login_error(&mut auth_session, LoginFail::Forbidden).await;
+    }
+
+    if let Err(error) = auth_session
+        .session
+        .remove::<LoginPending>(LOGIN_PENDING_KEY)
+        .await
+    {
+        tracing::error!(%error, "failed to clear oidc login state");
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+
+    let ttl = (user.exp - unix_timestamp_secs()).max(1);
+    auth_session
+        .session
+        .set_expiry(Some(Expiry::OnInactivity(Duration::seconds(ttl))));
+
+    auth_session.backend.remember(user.clone());
+
+    if let Err(error) = auth_session.login(&user).await {
+        tracing::error!(%error, "failed to establish session");
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
 
     tracing::info!(sub = %user.sub, "oidc login succeeded");
-
-    let ttl = (user.exp - unix_timestamp_secs()).max(0);
-    let jar = jar
-        .remove(removal_cookie(LOGIN_COOKIE, state.auth.cookie_secure()))
-        .add(build_cookie(
-            SESSION_COOKIE,
-            serde_json::to_string(&user).expect("session json"),
-            ttl,
-            state.auth.cookie_secure(),
-        ));
-
-    (jar, Redirect::to("/")).into_response()
+    Redirect::to("/").into_response()
 }
 
-async fn logout(State(state): State<AppState>, jar: PrivateCookieJar) -> impl IntoResponse {
-    let secure = state.auth.cookie_secure();
-    let jar = jar
-        .remove(removal_cookie(SESSION_COOKIE, secure))
-        .remove(removal_cookie(LOGIN_COOKIE, secure));
-    (jar, StatusCode::NO_CONTENT)
+async fn logout(mut auth_session: AuthSession) -> impl IntoResponse {
+    if let Err(error) = auth_session.logout().await {
+        tracing::error!(%error, "failed to log out");
+        return StatusCode::INTERNAL_SERVER_ERROR;
+    }
+    StatusCode::NO_CONTENT
 }
 
 enum LoginFail {
@@ -319,16 +368,31 @@ enum LoginFail {
     Forbidden,
 }
 
-fn login_error(jar: PrivateCookieJar, secure: bool, fail: LoginFail) -> impl IntoResponse {
+async fn login_error(auth_session: &mut AuthSession, fail: LoginFail) -> Response {
+    if let Err(error) = auth_session.logout().await {
+        tracing::error!(%error, "failed to clear session after login error");
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
     let location = match fail {
         LoginFail::Auth => "/login?error=auth",
         LoginFail::Forbidden => "/login?error=forbidden",
     };
-    (
-        jar.remove(removal_cookie(LOGIN_COOKIE, secure))
-            .remove(removal_cookie(SESSION_COOKIE, secure)),
-        Redirect::to(location),
-    )
+    Redirect::to(location).into_response()
+}
+
+#[cfg(test)]
+async fn impersonate(
+    State(state): State<AppState>,
+    mut auth_session: AuthSession,
+    Json(mut user): Json<SessionUser>,
+) -> Response {
+    user.refresh_auth_hash();
+    state.auth.backend.remember(user.clone());
+    if let Err(error) = auth_session.login(&user).await {
+        tracing::error!(%error, "failed to impersonate");
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+    StatusCode::NO_CONTENT.into_response()
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -338,36 +402,15 @@ struct LoginPending {
     pkce_verifier: String,
 }
 
-fn login_pending(jar: &PrivateCookieJar) -> Option<LoginPending> {
-    let cookie = jar.get(LOGIN_COOKIE)?;
-    serde_json::from_str(cookie.value()).ok()
-}
-
-fn build_cookie(
-    name: &'static str,
-    value: String,
-    max_age_secs: i64,
-    secure: bool,
-) -> Cookie<'static> {
-    Cookie::build((name, value))
-        .http_only(true)
-        .same_site(SameSite::Lax)
-        .path("/")
-        .secure(secure)
-        .max_age(Duration::seconds(max_age_secs.max(0)))
-        .build()
-}
-
-fn removal_cookie(name: &'static str, secure: bool) -> Cookie<'static> {
-    Cookie::build(name).path("/").secure(secure).build()
-}
-
-fn derive_cookie_key(issuer: &str, client_secret: &str) -> Key {
-    let mut material = format!("{SESSION_COOKIE_KEY_PREFIX}|{issuer}|{client_secret}").into_bytes();
-    if material.len() < COOKIE_KEY_MIN_LEN {
-        material.resize(COOKIE_KEY_MIN_LEN, 0);
-    }
-    Key::derive_from(&material)
+fn session_layer(secure: bool) -> SessionLayer {
+    SessionManagerLayer::new(MemoryStore::default())
+        .with_name(SESSION_COOKIE)
+        .with_http_only(true)
+        // Lax so the IdP redirect back to /auth/callback still sends the session.
+        .with_same_site(SameSite::Lax)
+        .with_secure(secure)
+        .with_path("/")
+        .with_signed(Key::generate())
 }
 
 #[cfg(test)]
@@ -388,23 +431,10 @@ mod tests {
 
         pub(crate) fn enabled_for_tests_with(flow: FakeOidc, policy: AccessPolicy) -> Self {
             Self {
-                inner: Inner::Enabled {
-                    flow: Arc::new(flow),
-                    cookie_secure: false,
-                },
-                key: Key::derive_from(b"klens-test-session-cookie-key-32b!!"),
+                backend: AuthBackend::enabled(Arc::new(flow)),
                 policy,
+                session_layer: session_layer(false),
             }
-        }
-
-        fn session_cookie_header(&self, user: &SessionUser) -> String {
-            let mut jar = cookie::CookieJar::new();
-            jar.private_mut(&self.key).add(Cookie::new(
-                SESSION_COOKIE,
-                serde_json::to_string(user).expect("session json"),
-            ));
-            let cookie = jar.get(SESSION_COOKIE).expect("session cookie");
-            format!("{SESSION_COOKIE}={}", cookie.value())
         }
     }
 
@@ -444,6 +474,26 @@ mod tests {
             })
             .collect::<Vec<_>>()
             .join("; ")
+    }
+
+    async fn impersonate_cookie(router: &axum::Router, user: &SessionUser) -> String {
+        let response = send(
+            router.clone(),
+            Request::builder()
+                .method("POST")
+                .uri("/auth/impersonate")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(user).expect("user json")))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        let cookies = cookie_header(&response);
+        assert!(
+            cookies.contains(SESSION_COOKIE),
+            "impersonate must set {SESSION_COOKIE}: {cookies}"
+        );
+        cookies
     }
 
     #[tokio::test]
@@ -492,22 +542,22 @@ mod tests {
 
     #[tokio::test]
     async fn graphql_allows_valid_session() {
-        let auth = AuthState::enabled_for_tests();
-        let user = SessionUser {
-            sub: "user-1".into(),
-            email: Some("user@example.com".into()),
-            name: Some("Test User".into()),
-            groups: vec![],
-            exp: unix_timestamp_secs() + 3600,
-        };
-        let cookie = auth.session_cookie_header(&user);
+        let router = app(AuthState::enabled_for_tests());
+        let user = SessionUser::new(
+            "user-1",
+            Some("user@example.com".into()),
+            Some("Test User".into()),
+            vec![],
+            unix_timestamp_secs() + 3600,
+        );
+        let cookie = impersonate_cookie(&router, &user).await;
 
         let mut request = graphql_request();
         request
             .headers_mut()
             .insert(header::COOKIE, cookie.parse().unwrap());
 
-        let response = send(app(auth), request).await;
+        let response = send(router, request).await;
         assert_eq!(response.status(), StatusCode::OK);
     }
 
@@ -580,7 +630,7 @@ mod tests {
             .to_str()
             .unwrap();
         assert!(location.starts_with("https://idp.example/authorize"));
-        assert!(cookie_header(&response).contains(LOGIN_COOKIE));
+        assert!(cookie_header(&response).contains(SESSION_COOKIE));
     }
 
     #[tokio::test]
@@ -743,7 +793,10 @@ mod tests {
         }))
     }
 
-    async fn login_and_callback(auth: AuthState, code: &str) -> axum::http::Response<Body> {
+    async fn login_and_callback(
+        auth: AuthState,
+        code: &str,
+    ) -> (axum::Router, axum::http::Response<Body>) {
         let router = app(auth);
         let login = send(
             router.clone(),
@@ -767,20 +820,21 @@ mod tests {
             .map(|(_, value)| value.into_owned())
             .unwrap();
         let cookies = cookie_header(&login);
-        send(
-            router,
+        let callback = send(
+            router.clone(),
             Request::builder()
                 .uri(format!("/auth/callback?code={code}&state={state}"))
                 .header(header::COOKIE, cookies)
                 .body(Body::empty())
                 .unwrap(),
         )
-        .await
+        .await;
+        (router, callback)
     }
 
     #[tokio::test]
     async fn callback_refuses_an_unmatched_group() {
-        let callback = login_and_callback(
+        let (router, callback) = login_and_callback(
             AuthState::enabled_for_tests_with(
                 FakeOidc {
                     groups: vec!["other".into()],
@@ -796,23 +850,32 @@ mod tests {
             callback.headers().get(header::LOCATION).unwrap(),
             "/login?error=forbidden"
         );
-        assert!(!cookie_header(&callback).contains(SESSION_COOKIE));
+
+        let mut request = graphql_request();
+        if let Ok(cookies) = cookie_header(&callback).parse() {
+            request.headers_mut().insert(header::COOKIE, cookies);
+        }
+        let graphql = send(router, request).await;
+        assert_eq!(graphql.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
     async fn me_reports_bound_role() {
-        let auth = AuthState::enabled_for_tests_with(FakeOidc::default(), bound_viewers());
-        let user = SessionUser {
-            sub: "user-1".into(),
-            email: Some("user@example.com".into()),
-            name: Some("Test User".into()),
-            groups: vec!["klens-viewers".into()],
-            exp: unix_timestamp_secs() + 3600,
-        };
-        let cookie = auth.session_cookie_header(&user);
+        let router = app(AuthState::enabled_for_tests_with(
+            FakeOidc::default(),
+            bound_viewers(),
+        ));
+        let user = SessionUser::new(
+            "user-1",
+            Some("user@example.com".into()),
+            Some("Test User".into()),
+            vec!["klens-viewers".into()],
+            unix_timestamp_secs() + 3600,
+        );
+        let cookie = impersonate_cookie(&router, &user).await;
 
         let response = send(
-            app(auth),
+            router,
             Request::builder()
                 .uri("/auth/me")
                 .header(header::COOKIE, cookie)
@@ -831,36 +894,36 @@ mod tests {
 
     #[tokio::test]
     async fn graphql_rejects_a_session_without_a_matching_role() {
-        let auth = AuthState::enabled_for_tests_with(FakeOidc::default(), bound_admins());
-        let user = SessionUser {
-            sub: "user-1".into(),
-            email: None,
-            name: None,
-            groups: vec![],
-            exp: unix_timestamp_secs() + 3600,
-        };
-        let cookie = auth.session_cookie_header(&user);
+        let router = app(AuthState::enabled_for_tests_with(
+            FakeOidc::default(),
+            bound_admins(),
+        ));
+        let user = SessionUser::new("user-1", None, None, vec![], unix_timestamp_secs() + 3600);
+        let cookie = impersonate_cookie(&router, &user).await;
 
         let mut request = graphql_request();
         request
             .headers_mut()
             .insert(header::COOKIE, cookie.parse().unwrap());
 
-        let response = send(app(auth), request).await;
+        let response = send(router, request).await;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
     async fn graphql_forbids_records_for_a_viewer() {
-        let auth = AuthState::enabled_for_tests_with(FakeOidc::default(), bound_viewers());
-        let user = SessionUser {
-            sub: "user-1".into(),
-            email: None,
-            name: None,
-            groups: vec!["klens-viewers".into()],
-            exp: unix_timestamp_secs() + 3600,
-        };
-        let cookie = auth.session_cookie_header(&user);
+        let router = app(AuthState::enabled_for_tests_with(
+            FakeOidc::default(),
+            bound_viewers(),
+        ));
+        let user = SessionUser::new(
+            "user-1",
+            None,
+            None,
+            vec!["klens-viewers".into()],
+            unix_timestamp_secs() + 3600,
+        );
+        let cookie = impersonate_cookie(&router, &user).await;
 
         let request = Request::builder()
             .method("POST")
@@ -872,7 +935,7 @@ mod tests {
             ))
             .unwrap();
 
-        let response = send(app(auth), request).await;
+        let response = send(router, request).await;
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();

@@ -19,13 +19,10 @@ pub static LOG_LEVEL: LazyLock<String> =
 /// OIDC scopes requested when the config does not set `auth.oidc.scopes`.
 pub const DEFAULT_OIDC_SCOPES: &[&str] = &["openid", "email", "profile"];
 
-/// Private cookie that holds the authenticated session.
+/// Signed session cookie name used by axum-login / tower-sessions.
 pub const SESSION_COOKIE: &str = "klens_session";
 
-/// Private cookie that holds PKCE/CSRF state during the OIDC redirect.
-pub const LOGIN_COOKIE: &str = "klens_login";
-
-/// How long the login cookie is valid (default: 10 minutes).
+/// How long OIDC PKCE/CSRF state stays in the session (default: 10 minutes).
 ///
 /// Override with `KLENS_LOGIN_MAX_AGE_SECS`.
 pub static LOGIN_MAX_AGE_SECS: LazyLock<i64> =
@@ -38,11 +35,8 @@ pub static LOGIN_MAX_AGE_SECS: LazyLock<i64> =
 pub static MAX_SESSION_SECS: LazyLock<i64> =
     lazy_env_parse!("KLENS_MAX_SESSION_SECS", i64, 12 * 60 * 60);
 
-/// Versioned context mixed into the private-cookie key derivation.
+/// Versioned prefix mixed into the session auth hash.
 pub const SESSION_COOKIE_KEY_PREFIX: &str = "klens-session-v1";
-
-/// Minimum material length accepted by `cookie::Key::derive_from`.
-pub const COOKIE_KEY_MIN_LEN: usize = 32;
 
 /// Prefix for Kafka `client.id` values (`klens-<cluster>[-<role>]`).
 pub const CLIENT_ID_PREFIX: &str = "klens";
