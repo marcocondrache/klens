@@ -52,7 +52,7 @@ run = """
 rpk container start \
   --kafka-ports 9092 \
   --schema-registry-ports 8081 \
-  --console-port 8083
+  --console-port 8002
 """
 
 [tasks."kafka:down"]
