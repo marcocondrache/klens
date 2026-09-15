@@ -24,6 +24,7 @@ import { catalogHealthCaption } from "@/lib/catalog-health";
 import { prettyJson } from "@/lib/format";
 import type { SchemaSubject } from "@/lib/api/types";
 import { parseSchemasSearch } from "@/lib/route-search";
+import { useAccess } from "@/hooks/use-access";
 
 export const Route = createFileRoute("/cluster/$cluster/schemas")({
   validateSearch: parseSchemasSearch,
@@ -82,6 +83,8 @@ function SchemasPage() {
   const navigate = Route.useNavigate();
   const { q: term = "" } = Route.useSearch();
   const [selected, setSelected] = useState<SchemaSubject | null>(null);
+  const { can } = useAccess();
+  const canSchemaText = can(cluster, "schemaText");
   const { data: subjects = [], isPending, isError, error } = useSchemaSubjects(cluster);
   const { data: health } = useCatalogHealth(cluster);
   const now = useNow();
@@ -148,9 +151,15 @@ function SchemasPage() {
               <div className="flex-1 space-y-4 overflow-y-auto p-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-medium text-muted-foreground">Schema</h3>
-                  <CopyButton value={schemaText} label="Copy schema" />
+                  {canSchemaText ? <CopyButton value={schemaText} label="Copy schema" /> : null}
                 </div>
-                <JsonBlock source={schemaText} />
+                {canSchemaText ? (
+                  <JsonBlock source={schemaText} />
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Schema text is not available for your role.
+                  </p>
+                )}
 
                 <div className="space-y-2">
                   <h3 className="text-sm font-medium text-muted-foreground">Versions</h3>

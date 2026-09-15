@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 
 export function LoginForm({ className, ...props }: React.ComponentProps<"div">) {
   const { error } = useSearch({ from: "/login" });
+  const forbidden = error === "forbidden";
 
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
@@ -18,8 +19,12 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
       {error ? (
         <Alert variant="destructive">
           <CircleAlertIcon />
-          <AlertTitle>Sign-in failed</AlertTitle>
-          <AlertDescription>Try again, or check the identity provider.</AlertDescription>
+          <AlertTitle>{forbidden ? "Access denied" : "Sign-in failed"}</AlertTitle>
+          <AlertDescription>
+            {forbidden
+              ? "Your account is not assigned a klens role."
+              : "Try again, or check the identity provider."}
+          </AlertDescription>
         </Alert>
       ) : null}
       <Button className="w-full" render={<a href="/auth/login" />}>

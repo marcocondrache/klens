@@ -8,6 +8,7 @@ import { Pill } from "@/components/status";
 import { Stat, StatGrid } from "@/components/stat";
 import { useBroker } from "@/lib/api/catalog";
 import { useBrokerConfigs } from "@/lib/api/live";
+import { useAccess } from "@/hooks/use-access";
 import { useClusterName } from "@/lib/clusters";
 import { formatNumber } from "@/lib/format";
 
@@ -20,8 +21,14 @@ function NodePage() {
   const { id } = Route.useParams();
   const brokerId = Number(id);
 
+  const { can } = useAccess();
+  const canConfigs = can(cluster, "configs");
   const { data: broker, isPending } = useBroker(cluster, brokerId);
-  const { data: configs = [], isPending: configsPending } = useBrokerConfigs(cluster, brokerId);
+  const { data: configs = [], isPending: configsPending } = useBrokerConfigs(
+    cluster,
+    brokerId,
+    canConfigs,
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
@@ -62,7 +69,13 @@ function NodePage() {
         />
       </StatGrid>
 
-      <ConfigTable entries={configs} loading={configsPending} fill />
+      {canConfigs ? (
+        <ConfigTable entries={configs} loading={configsPending} fill />
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          Live broker configuration is not available for your role.
+        </p>
+      )}
     </div>
   );
 }

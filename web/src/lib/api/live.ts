@@ -14,24 +14,25 @@ import { keys, type RecordsFilter } from "./keys";
 
 export type { RecordsFilter };
 
-export function useAcls(cluster: string) {
+export function useAcls(cluster: string, enabled = true) {
   return useQuery({
     queryKey: keys.acls(cluster),
     queryFn: async () => {
       const { acls } = await execute(aclsQuery, { cluster });
       return acls;
     },
+    enabled,
   });
 }
 
-export function useBrokerConfigs(cluster: string, id: number) {
+export function useBrokerConfigs(cluster: string, id: number, enabled = true) {
   return useQuery({
     queryKey: keys.brokerConfigs(cluster, id),
     queryFn: async () => {
       const { brokerConfigs } = await execute(brokerConfigsQuery, { cluster, id });
       return brokerConfigs;
     },
-    enabled: Number.isFinite(id),
+    enabled: enabled && Number.isFinite(id),
   });
 }
 
@@ -56,7 +57,7 @@ export function useTopicThroughput(cluster: string, topic: string) {
   });
 }
 
-export function useRecords(query: RecordsFilter) {
+export function useRecords(query: RecordsFilter, enabled = true) {
   return useInfiniteQuery({
     queryKey: keys.records(query),
     queryFn: async ({ pageParam }) => {
@@ -67,6 +68,7 @@ export function useRecords(query: RecordsFilter) {
     },
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor,
+    enabled,
   });
 }
 

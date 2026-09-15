@@ -30,6 +30,7 @@ import {
 } from "@/lib/format";
 import type { ConsumerGroup, Partition } from "@/lib/api/types";
 import { parseTopicDetailSearch } from "@/lib/route-search";
+import { useAccess } from "@/hooks/use-access";
 
 export const Route = createFileRoute("/cluster/$cluster/topics_/$topic")({
   validateSearch: parseTopicDetailSearch,
@@ -120,14 +121,21 @@ function TopicPage() {
   const navigate = Route.useNavigate();
   const { topic: topicName } = Route.useParams();
   const { tab: tabParam } = Route.useSearch();
-  const tab = tabParam ?? "data";
+  const { can } = useAccess();
+  const canRecords = can(cluster, "records");
+  const canConfigs = can(cluster, "configs");
+  const requested = tabParam ?? (canRecords ? "data" : "partitions");
+  const tab =
+    (requested === "data" && !canRecords) || (requested === "config" && !canConfigs)
+      ? "partitions"
+      : requested;
 
   const { data: topic, isPending, isError, error } = useTopic(cluster, topicName);
   useTopicRates(cluster);
   const { data: configs = [], isPending: configsPending } = useTopicConfigs(
     cluster,
     topicName,
-    tab === "config",
+    tab === "config" && canConfigs,
   );
   const { data: throughput = [] } = useTopicThroughput(cluster, topicName);
   const { data: groups = [], isPending: groupsPending } = useTopicConsumerGroups(
@@ -280,7 +288,7 @@ function TopicPage() {
         className="min-h-0 flex-1"
       >
         <TabsList variant="line" className="shrink-0">
-          <TabsTrigger value="data">Data</TabsTrigger>
+          {canRecords ? <TabsTrigger value="data">Data</TabsTrigger> : null}
           <TabsTrigger value="partitions">
             Partitions
             <span className="numeric ml-1.5 text-muted-foreground">
@@ -291,12 +299,14 @@ function TopicPage() {
             Consumer groups
             <span className="numeric ml-1.5 text-muted-foreground">{groupCount}</span>
           </TabsTrigger>
-          <TabsTrigger value="config">Configuration</TabsTrigger>
+          {canConfigs ? <TabsTrigger value="config">Configuration</TabsTrigger> : null}
         </TabsList>
 
-        <TabsContent value="data" className="mt-4 flex min-h-0 flex-col">
-          {topic ? <RecordBrowser cluster={cluster} topic={topic} /> : null}
-        </TabsContent>
+        {canRecords ? (
+          <TabsContent value="data" className="mt-4 flex min-h-0 flex-col">
+            {topic ? <RecordBrowser cluster={cluster} topic={topic} /> : null}
+          </TabsContent>
+        ) : null}
 
         <TabsContent value="partitions" className="mt-4 flex min-h-0 flex-col">
           <DataTable
@@ -331,9 +341,11 @@ function TopicPage() {
           />
         </TabsContent>
 
-        <TabsContent value="config" className="mt-4 flex min-h-0 flex-col">
-          <ConfigTable entries={configs} loading={configsPending} fill />
-        </TabsContent>
+        {canConfigs ? (
+          <TabsContent value="config" className="mt-4 flex min-h-0 flex-col">
+            <ConfigTable entries={configs} loading={configsPending} fill />
+          </TabsContent>
+        ) : null}
       </Tabs>
     </div>
   );
