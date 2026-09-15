@@ -78,6 +78,7 @@ export function useCatalogHealth(cluster: string) {
       const { catalogHealth } = await execute(catalogHealthQuery, { cluster });
       return catalogHealth;
     },
+    refetchInterval: (query) => (query.state.data?.subjectsUpdatedAt == null ? 2000 : false),
   });
 }
 
