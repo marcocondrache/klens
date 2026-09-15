@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use krafka::admin::{
-    AdminClient as KrafkaAdmin, ConfigResourceType, DescribeConfigsRequest,
+    AclFilter, AdminClient as KrafkaAdmin, ConfigResourceType, DescribeConfigsRequest,
     DescribeConfigsResource, GroupListing, OffsetSpec, OffsetVisibility,
 };
 use krafka::client::KrafkaClient as KrafkaSharedClient;
@@ -23,6 +23,7 @@ use crate::config::ClusterConfig;
 use crate::environment::{
     CLIENT_ID_PREFIX, CONSUME_TIMEOUT, REQUEST_TIMEOUT, SOCKET_CONNECTION_SETUP_TIMEOUT_MS,
 };
+use crate::kafka::acl::AclListing;
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
 use crate::kafka::group::{CommittedOffset, GroupSnapshot, is_internal_group};
@@ -313,6 +314,13 @@ impl ClusterSession for KafkaClient {
             return Ok(Vec::new());
         };
         decoder.client().subjects().await
+    }
+
+    async fn acls(&self) -> Result<AclListing, KafkaError> {
+        AclListing::from_admin_result(
+            &self.identity.name,
+            self.admin.describe_acls(AclFilter::all()).await,
+        )
     }
 }
 

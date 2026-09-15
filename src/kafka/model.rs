@@ -4,6 +4,9 @@
 //! has raw snapshots ([`GroupSnapshot`], [`MetadataSnapshot`]) and
 //! [`FetchPlan`], which `session` and `engine` use.
 
+pub use crate::kafka::acl::{
+    Acl, AclListing, AclOperation, AclPatternType, AclPermission, AclResourceType,
+};
 pub use crate::kafka::broker::Broker;
 pub use crate::kafka::cluster::{ClusterHealth, ClusterIdentity, ClusterOverview};
 pub use crate::kafka::group::{

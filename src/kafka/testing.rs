@@ -9,6 +9,9 @@ use krafka::testing::FakeBroker;
 use tokio::sync::OnceCell;
 
 use crate::config::SecurityProtocol;
+use crate::kafka::acl::{
+    Acl, AclListing, AclOperation, AclPatternType, AclPermission, AclResourceType,
+};
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
 use crate::kafka::group::{
@@ -38,9 +41,11 @@ struct Inner {
     groups: Mutex<Vec<GroupSnapshot>>,
     records: Mutex<Vec<Record>>,
     subjects: Mutex<Vec<SchemaSubject>>,
+    acls: Mutex<AclListing>,
     metadata_error: Mutex<Option<String>>,
     subjects_error: Mutex<Option<String>>,
     configs_error: Mutex<Option<String>>,
+    acls_error: Mutex<Option<String>>,
     serve_subjects: Mutex<bool>,
     metadata_delay: Mutex<Duration>,
     watermark_delay: Mutex<Duration>,
@@ -202,9 +207,11 @@ impl FakeCluster {
                 groups: Mutex::new(groups),
                 records: Mutex::new(records),
                 subjects: Mutex::new(subjects),
+                acls: Mutex::new(AclListing::Enabled(local_acls())),
                 metadata_error: Mutex::new(None),
                 subjects_error: Mutex::new(None),
                 configs_error: Mutex::new(None),
+                acls_error: Mutex::new(None),
                 serve_subjects: Mutex::new(true),
                 metadata_delay: Mutex::new(Duration::ZERO),
                 watermark_delay: Mutex::new(Duration::ZERO),
@@ -276,6 +283,24 @@ impl FakeCluster {
 
     pub fn with_configs_error(self, message: impl Into<String>) -> Self {
         *self.inner.configs_error.lock().expect("configs error") = Some(message.into());
+        self
+    }
+
+    /// Store an enabled listing. Replaces the default seed.
+    pub fn with_acls(self, bindings: Vec<Acl>) -> Self {
+        *self.inner.acls.lock().expect("acls") = AclListing::Enabled(bindings);
+        self
+    }
+
+    /// Store [`AclListing::Disabled`]. GraphQL then returns authorizer DISABLED.
+    pub fn with_security_disabled(self) -> Self {
+        *self.inner.acls.lock().expect("acls") = AclListing::Disabled;
+        self
+    }
+
+    /// Fail `acls()` with [`KafkaError::Admin`].
+    pub fn with_acls_error(self, message: impl Into<String>) -> Self {
+        *self.inner.acls_error.lock().expect("acls error") = Some(message.into());
         self
     }
 
@@ -689,6 +714,14 @@ impl ClusterSession for FakeCluster {
         }
         Ok(self.inner.subjects.lock().expect("subjects").clone())
     }
+
+    async fn acls(&self) -> Result<AclListing, KafkaError> {
+        self.inner.calls.acls.fetch_add(1, Ordering::SeqCst);
+        if let Some(message) = &*self.inner.acls_error.lock().expect("acls error") {
+            return Err(KafkaError::Admin(message.clone()));
+        }
+        Ok(self.inner.acls.lock().expect("acls").clone())
+    }
 }
 
 /// How many times the engine or poller called each [`ClusterSession`] method.
@@ -699,6 +732,7 @@ pub struct SessionCalls {
     groups: AtomicUsize,
     topic_configs: AtomicUsize,
     committed_offsets: AtomicUsize,
+    acls: AtomicUsize,
 }
 
 impl SessionCalls {
@@ -721,4 +755,40 @@ impl SessionCalls {
     pub fn committed_offsets(&self) -> usize {
         self.committed_offsets.load(Ordering::SeqCst)
     }
+
+    pub fn acls(&self) -> usize {
+        self.acls.load(Ordering::SeqCst)
+    }
+}
+
+fn local_acls() -> Vec<Acl> {
+    vec![
+        Acl {
+            resource_type: AclResourceType::Topic,
+            resource_name: "orders.created".into(),
+            pattern_type: AclPatternType::Literal,
+            principal: "User:alice".into(),
+            host: "*".into(),
+            operation: AclOperation::Read,
+            permission: AclPermission::Allow,
+        },
+        Acl {
+            resource_type: AclResourceType::Topic,
+            resource_name: "orders.".into(),
+            pattern_type: AclPatternType::Prefixed,
+            principal: "User:eve".into(),
+            host: "10.0.0.1".into(),
+            operation: AclOperation::Write,
+            permission: AclPermission::Deny,
+        },
+        Acl {
+            resource_type: AclResourceType::Group,
+            resource_name: "order-processor".into(),
+            pattern_type: AclPatternType::Literal,
+            principal: "User:order-processor".into(),
+            host: "*".into(),
+            operation: AclOperation::Read,
+            permission: AclPermission::Allow,
+        },
+    ]
 }

@@ -10,8 +10,8 @@ use async_trait::async_trait;
 
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
-    ClusterIdentity, CommittedOffset, ConfigEntry, FetchPlan, GroupSnapshot, MetadataSnapshot,
-    Record, SchemaSubject, Watermarks,
+    AclListing, ClusterIdentity, CommittedOffset, ConfigEntry, FetchPlan, GroupSnapshot,
+    MetadataSnapshot, Record, SchemaSubject, Watermarks,
 };
 
 /// Per-cluster Kafka I/O. Matches [`super::client::KafkaClient`].
@@ -79,6 +79,14 @@ pub trait ClusterSession: Send + Sync + 'static {
 
     async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
         Ok(Vec::new())
+    }
+
+    /// All ACL bindings the broker will describe, or authorizer-off.
+    ///
+    /// Default is an enabled empty list (session has no ACL source).
+    /// Production always uses `AclFilter::all()`; this method takes no filter.
+    async fn acls(&self) -> Result<AclListing, KafkaError> {
+        Ok(AclListing::Enabled(Vec::new()))
     }
 
     fn consume_timeout(&self) -> Duration {
