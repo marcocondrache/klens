@@ -24,6 +24,10 @@ export const SECTIONS: Section[] = [
   { segment: "acls", label: "ACLs", icon: ShieldIcon },
 ];
 
+export function visibleSections(canAcls: boolean): Section[] {
+  return canAcls ? SECTIONS : SECTIONS.filter((section) => section.segment !== "acls");
+}
+
 export function clusterSectionTo(section: ClusterSection) {
   switch (section) {
     case "topics":

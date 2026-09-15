@@ -44,8 +44,32 @@ auth:
     redirect_uri: http://localhost:8080/auth/callback
 ```
 
-Register `redirect_uri` with the identity provider. Any authenticated user has
-the same access as an open deployment.
+Register `redirect_uri` with the identity provider. Without `roles`, any
+authenticated user has the same access as an open deployment.
+
+To map IdP groups to `admin` or `viewer`, add `roles`. Unmatched users cannot
+sign in. Admins can read records, live broker/topic configs, schema text, and
+ACL bindings on their clusters. Viewers see the catalog only. Omit `clusters` on a binding
+to allow every configured cluster.
+
+```yaml
+auth:
+  oidc:
+    issuer: https://keycloak.example.com/realms/klens
+    client_id: klens
+    client_secret: "..."
+    redirect_uri: http://localhost:8080/auth/callback
+  roles:
+    # claim: groups
+    bindings:
+      - groups: [klens-admins]
+        role: admin
+      - groups: [klens-viewers]
+        role: viewer
+      - groups: [payments-viewers]
+        role: viewer
+        clusters: [payments]
+```
 
 ## Schema Registry
 

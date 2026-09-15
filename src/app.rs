@@ -15,7 +15,7 @@ use axum::middleware;
 use futures::future::join_all;
 use tokio::time::timeout;
 
-mod auth;
+pub(crate) mod auth;
 mod graphql;
 mod health;
 mod sampler;
