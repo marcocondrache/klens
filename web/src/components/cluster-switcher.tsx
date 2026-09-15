@@ -11,24 +11,16 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { StatusDot } from "@/components/status";
-import { useClusterName } from "@/lib/clusters";
-import { useClusters } from "@/lib/api/catalog";
+import { catalogTone, useClusterName } from "@/lib/clusters";
+import { useCatalogHealth, useClusters } from "@/lib/api/catalog";
 import { clusterSectionTo, useActiveSection } from "@/lib/sections";
-import type { ClusterStatus } from "@/lib/api/types";
-
-const STATUS_TONE: Record<ClusterStatus, "ok" | "warn" | "error"> = {
-  HEALTHY: "ok",
-  DEGRADED: "warn",
-  OFFLINE: "error",
-};
 
 export function ClusterSwitcher() {
   const active = useClusterName();
   const { data: clusters = [] } = useClusters();
+  const { data: health } = useCatalogHealth(active);
   const navigate = useNavigate();
   const section = useActiveSection();
-
-  const current = clusters.find((cluster) => cluster.name === active);
 
   function switchTo(name: string) {
     void navigate({
@@ -42,18 +34,18 @@ export function ClusterSwitcher() {
       <DropdownMenuTrigger
         render={<Button variant="outline" size="sm" className="max-w-64 font-medium" />}
       >
-        <StatusDot tone={current ? STATUS_TONE[current.status] : "idle"} />
-        <span className="truncate">{current?.label ?? active}</span>
+        <StatusDot tone={catalogTone(health)} />
+        <span className="truncate">{active}</span>
         <ChevronDownIcon className="opacity-60" />
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="start" className="w-64">
         <DropdownMenuRadioGroup value={active} onValueChange={switchTo}>
           <DropdownMenuLabel className="text-xs text-muted-foreground">Clusters</DropdownMenuLabel>
-          {clusters.map((cluster) => (
-            <DropdownMenuRadioItem key={cluster.name} value={cluster.name}>
-              <StatusDot tone={STATUS_TONE[cluster.status]} />
-              <span className="flex-1 truncate">{cluster.label}</span>
+          {clusters.map((name) => (
+            <DropdownMenuRadioItem key={name} value={name}>
+              <StatusDot tone={name === active ? catalogTone(health) : "idle"} />
+              <span className="flex-1 truncate">{name}</span>
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>

@@ -5,6 +5,16 @@ export function useClusterName() {
   return cluster;
 }
 
+export function catalogTone(health?: {
+  updatedAt: string | null;
+  lastError: string | null;
+}): "ok" | "warn" | "error" | "idle" {
+  if (health?.lastError && health.updatedAt == null) return "error";
+  if (health?.lastError) return "warn";
+  if (health?.updatedAt) return "ok";
+  return "idle";
+}
+
 /** String href for catalog search hits. Encodes each tail segment. */
 export function clusterPath(cluster: string, ...segments: string[]) {
   const tail = segments.filter(Boolean).map(encodeURIComponent).join("/");

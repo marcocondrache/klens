@@ -17,12 +17,12 @@ import {
 } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { GithubIcon } from "@/components/icons";
-import { useCluster, useSchemaSubjects } from "@/lib/api/catalog";
+import { useCatalogHealth } from "@/lib/api/catalog";
 import { RELEASE_URL, REPO_URL, VERSION } from "@/lib/build";
 import { useClusterName } from "@/lib/clusters";
 import { formatCount } from "@/lib/format";
 import { useAccess } from "@/hooks/use-access";
-import { clusterSectionTo, visibleSections } from "@/lib/sections";
+import { clusterSectionTo, visibleSections, type ClusterSection } from "@/lib/sections";
 
 const ACTIVE_MARKER =
   "relative data-active:before:absolute data-active:before:inset-y-1.5 data-active:before:-left-3 data-active:before:w-0.5 data-active:before:rounded-r-full data-active:before:bg-sidebar-primary";
@@ -33,14 +33,14 @@ export function AppSidebar() {
   const { can } = useAccess();
   const sections = visibleSections(can(cluster, "acls"));
 
-  const { data } = useCluster(cluster);
-  const { data: subjects } = useSchemaSubjects(cluster);
+  const { data: health } = useCatalogHealth(cluster);
 
-  const counts: Record<string, number | undefined> = {
-    topics: data?.topicCount,
-    groups: data?.consumerGroupCount,
-    schemas: subjects?.length,
-    nodes: data?.brokerCount,
+  const counts: Record<ClusterSection, number | undefined> = {
+    topics: health?.updatedAt == null ? undefined : health.topicCount,
+    groups: health?.updatedAt == null ? undefined : health.groupCount,
+    schemas: health?.subjectsUpdatedAt == null ? undefined : health.subjectCount,
+    nodes: health?.updatedAt == null ? undefined : health.brokerCount,
+    acls: undefined,
   };
 
   return (

@@ -195,60 +195,32 @@ fn cached_group(id: &str, topic: &str, lag: i64) -> ConsumerGroup {
 }
 
 #[tokio::test]
-async fn resolves_cluster_list() {
+async fn resolves_cluster_names_from_config() {
     assert_eq!(
-        gql(&state(), "{ clusters { name bootstrapServers } }").await,
-        serde_json::json!({
-            "clusters": [
-                { "name": "local", "bootstrapServers": ["localhost:9092"] }
-            ]
-        })
+        gql(&state(), "{ clusters }").await,
+        serde_json::json!({ "clusters": ["local"] })
     );
 }
 
 #[tokio::test]
-async fn resolves_cluster_by_name() {
+async fn clusters_lists_visible_names_without_touching_kafka() {
+    let down = FakeCluster::named("down").unreachable();
+    let local = FakeCluster::local();
+    let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
+        down.clone(),
+        local.clone(),
+    ])));
+
     assert_eq!(
-        gql(
-            &state(),
-            r#"{ cluster(name: "local") { name bootstrapServers } }"#
-        )
-        .await,
-        serde_json::json!({
-            "cluster": { "name": "local", "bootstrapServers": ["localhost:9092"] }
-        })
+        gql(&state, "{ clusters }").await,
+        serde_json::json!({ "clusters": ["down", "local"] })
     );
+    assert_eq!(down.calls().metadata(), 0);
+    assert_eq!(local.calls().metadata(), 0);
 }
 
 #[tokio::test]
-async fn returns_none_for_unknown_cluster() {
-    assert_eq!(
-        gql(&state(), r#"{ cluster(name: "missing") { name } }"#).await,
-        serde_json::json!({ "cluster": serde_json::Value::Null })
-    );
-}
-
-#[tokio::test]
-async fn fills_cluster_identity_from_config() {
-    assert_eq!(
-        gql(
-            &state(),
-            r#"{ cluster(name: "local") { label securityProtocol status clusterId } }"#
-        )
-        .await,
-        serde_json::json!({
-            "cluster": {
-                "label": "local",
-                "securityProtocol": "PLAINTEXT",
-                "status": "HEALTHY",
-                "clusterId": "test-cluster"
-            }
-        })
-    );
-}
-
-#[tokio::test]
-async fn clusters_and_brokers_read_the_in_memory_snapshot() {
+async fn brokers_read_the_in_memory_snapshot() {
     let state = state();
     state.catalog.store(
         "local",
@@ -264,8 +236,6 @@ async fn clusters_and_brokers_read_the_in_memory_snapshot() {
         gql(
             &state,
             r#"{
-                clusters { name bootstrapServers status topicCount clusterId }
-                cluster(name: "local") { name bootstrapServers status topicCount clusterId }
                 brokers(cluster: "local") { id host port partitionCount leaderCount }
                 broker(cluster: "local", id: 9) { id host }
                 missing: broker(cluster: "local", id: 1) { id }
@@ -273,20 +243,6 @@ async fn clusters_and_brokers_read_the_in_memory_snapshot() {
         )
         .await,
         serde_json::json!({
-            "clusters": [{
-                "name": "local",
-                "bootstrapServers": ["cached:9092"],
-                "status": "DEGRADED",
-                "topicCount": 7,
-                "clusterId": "from-cache"
-            }],
-            "cluster": {
-                "name": "local",
-                "bootstrapServers": ["cached:9092"],
-                "status": "DEGRADED",
-                "topicCount": 7,
-                "clusterId": "from-cache"
-            },
             "brokers": [{
                 "id": 9,
                 "host": "cached-broker",
@@ -445,42 +401,6 @@ async fn search_reports_a_failed_subject_seed() {
         )
         .await
         .is_empty()
-    );
-}
-
-#[tokio::test]
-async fn clusters_mark_a_failed_seed_offline() {
-    let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
-        FakeCluster::named("down").unreachable(),
-        FakeCluster::local(),
-    ])));
-
-    assert_eq!(
-        gql(&state, r#"{ clusters { name status topicCount } }"#).await,
-        serde_json::json!({
-            "clusters": [
-                { "name": "down", "status": "OFFLINE", "topicCount": 0 },
-                { "name": "local", "status": "HEALTHY", "topicCount": 1 }
-            ]
-        })
-    );
-}
-
-#[tokio::test(start_paused = true)]
-async fn clusters_mark_a_slow_seed_offline_without_blocking_others() {
-    let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
-        FakeCluster::named("slow").with_metadata_delay(Duration::from_secs(60)),
-        FakeCluster::named("fast"),
-    ])));
-
-    assert_eq!(
-        gql(&state, r#"{ clusters { name status } }"#).await,
-        serde_json::json!({
-            "clusters": [
-                { "name": "slow", "status": "OFFLINE" },
-                { "name": "fast", "status": "HEALTHY" }
-            ]
-        })
     );
 }
 
@@ -739,6 +659,8 @@ async fn schema_includes_topic_rate_subscription() {
     assert!(sdl.contains("clusterCatalog(cluster: String!): ClusterCatalog!"));
     assert!(sdl.contains("type CatalogHealth"));
     assert!(sdl.contains("catalogHealth(cluster: String!): CatalogHealth!"));
+    assert!(sdl.contains("clusters: [String!]!"));
+    assert!(!sdl.contains("cluster(name: String!): Cluster"));
     assert!(sdl.contains("partitionCount: Int!"));
     assert!(sdl.contains("memberCount: Int!"));
     assert!(sdl.contains("assignedPartitionCount: Int!"));
@@ -1250,18 +1172,14 @@ async fn hidden_cluster_matches_an_unknown_cluster() {
     let body = gql_on(
         &context,
         r#"{
-            clusters { name }
-            visible: cluster(name: "payments") { name }
-            hidden: cluster(name: "local") { name }
+            clusters
         }"#,
     )
     .await;
     assert_eq!(
         body,
         serde_json::json!({
-            "clusters": [{ "name": "payments" }],
-            "visible": { "name": "payments" },
-            "hidden": null
+            "clusters": ["payments"]
         })
     );
 
