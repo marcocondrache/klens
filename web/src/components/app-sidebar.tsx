@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { GithubIcon } from "@/components/icons";
-import { useCatalogHealth, useCluster } from "@/lib/api/catalog";
+import { useCatalogHealth } from "@/lib/api/catalog";
 import { RELEASE_URL, REPO_URL, VERSION } from "@/lib/build";
 import { useClusterName } from "@/lib/clusters";
 import { formatCount } from "@/lib/format";
@@ -33,14 +33,13 @@ export function AppSidebar() {
   const { can } = useAccess();
   const sections = visibleSections(can(cluster, "acls"));
 
-  const { data } = useCluster(cluster);
   const { data: health } = useCatalogHealth(cluster);
 
   const counts: Record<ClusterSection, number | undefined> = {
-    topics: data?.topicCount,
-    groups: data?.consumerGroupCount,
+    topics: health?.updatedAt == null ? undefined : health.topicCount,
+    groups: health?.updatedAt == null ? undefined : health.groupCount,
     schemas: health?.subjectsUpdatedAt == null ? undefined : health.subjectCount,
-    nodes: data?.brokerCount,
+    nodes: health?.updatedAt == null ? undefined : health.brokerCount,
     acls: undefined,
   };
 

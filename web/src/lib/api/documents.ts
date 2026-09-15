@@ -234,14 +234,6 @@ export const clustersQuery = graphql(`
   }
 `);
 
-export const clusterQuery = graphql(`
-  query Cluster($name: String!) {
-    cluster(name: $name) {
-      ...ClusterFields
-    }
-  }
-`);
-
 export const catalogHealthQuery = graphql(`
   query CatalogHealth($cluster: String!) {
     catalogHealth(cluster: $cluster) {

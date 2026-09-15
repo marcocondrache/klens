@@ -149,13 +149,6 @@ export type ClustersQueryVariables = Exact<{ [key: string]: never; }>;
 
 export type ClustersQuery = { clusters: Array<{ name: string, label: string, clusterId: string, bootstrapServers: Array<string>, securityProtocol: SecurityProtocol, status: ClusterStatus, brokerCount: number, topicCount: number, partitionCount: number, consumerGroupCount: number, underReplicatedPartitions: number, offlinePartitions: number, messageCount: number }> };
 
-export type ClusterQueryVariables = Exact<{
-  name: string;
-}>;
-
-
-export type ClusterQuery = { cluster: { name: string, label: string, clusterId: string, bootstrapServers: Array<string>, securityProtocol: SecurityProtocol, status: ClusterStatus, brokerCount: number, topicCount: number, partitionCount: number, consumerGroupCount: number, underReplicatedPartitions: number, offlinePartitions: number, messageCount: number } | null };
-
 export type CatalogHealthQueryVariables = Exact<{
   cluster: string;
 }>;
@@ -584,27 +577,6 @@ export const ClustersDocument = new TypedDocumentString(`
   offlinePartitions
   messageCount
 }`) as unknown as TypedDocumentString<ClustersQuery, ClustersQueryVariables>;
-export const ClusterDocument = new TypedDocumentString(`
-    query Cluster($name: String!) {
-  cluster(name: $name) {
-    ...ClusterFields
-  }
-}
-    fragment ClusterFields on Cluster {
-  name
-  label
-  clusterId
-  bootstrapServers
-  securityProtocol
-  status
-  brokerCount
-  topicCount
-  partitionCount
-  consumerGroupCount
-  underReplicatedPartitions
-  offlinePartitions
-  messageCount
-}`) as unknown as TypedDocumentString<ClusterQuery, ClusterQueryVariables>;
 export const CatalogHealthDocument = new TypedDocumentString(`
     query CatalogHealth($cluster: String!) {
   catalogHealth(cluster: $cluster) {

@@ -35,7 +35,6 @@ type Documents = {
     "\n  fragment TopicRecordFields on TopicRecord {\n    topic\n    partition\n    offset\n    timestamp\n    key\n    value\n    schemaId\n    headers {\n      ...RecordHeaderFields\n    }\n    sizeBytes\n    compression\n  }\n": typeof types.TopicRecordFieldsFragmentDoc,
     "\n  fragment SearchResultFields on SearchResult {\n    kind\n    id\n    label\n    detail\n  }\n": typeof types.SearchResultFieldsFragmentDoc,
     "\n  query Clusters {\n    clusters {\n      ...ClusterFields\n    }\n  }\n": typeof types.ClustersDocument,
-    "\n  query Cluster($name: String!) {\n    cluster(name: $name) {\n      ...ClusterFields\n    }\n  }\n": typeof types.ClusterDocument,
     "\n  query CatalogHealth($cluster: String!) {\n    catalogHealth(cluster: $cluster) {\n      updatedAt\n      subjectsUpdatedAt\n      lastError\n      lastPollDurationMs\n      topicCount\n      groupCount\n      brokerCount\n      subjectCount\n    }\n  }\n": typeof types.CatalogHealthDocument,
     "\n  query Brokers($cluster: String!) {\n    brokers(cluster: $cluster) {\n      ...BrokerFields\n    }\n  }\n": typeof types.BrokersDocument,
     "\n  query Broker($cluster: String!, $id: Int!) {\n    broker(cluster: $cluster, id: $id) {\n      ...BrokerFields\n    }\n  }\n": typeof types.BrokerDocument,
@@ -77,7 +76,6 @@ const documents: Documents = {
     "\n  fragment TopicRecordFields on TopicRecord {\n    topic\n    partition\n    offset\n    timestamp\n    key\n    value\n    schemaId\n    headers {\n      ...RecordHeaderFields\n    }\n    sizeBytes\n    compression\n  }\n": types.TopicRecordFieldsFragmentDoc,
     "\n  fragment SearchResultFields on SearchResult {\n    kind\n    id\n    label\n    detail\n  }\n": types.SearchResultFieldsFragmentDoc,
     "\n  query Clusters {\n    clusters {\n      ...ClusterFields\n    }\n  }\n": types.ClustersDocument,
-    "\n  query Cluster($name: String!) {\n    cluster(name: $name) {\n      ...ClusterFields\n    }\n  }\n": types.ClusterDocument,
     "\n  query CatalogHealth($cluster: String!) {\n    catalogHealth(cluster: $cluster) {\n      updatedAt\n      subjectsUpdatedAt\n      lastError\n      lastPollDurationMs\n      topicCount\n      groupCount\n      brokerCount\n      subjectCount\n    }\n  }\n": types.CatalogHealthDocument,
     "\n  query Brokers($cluster: String!) {\n    brokers(cluster: $cluster) {\n      ...BrokerFields\n    }\n  }\n": types.BrokersDocument,
     "\n  query Broker($cluster: String!, $id: Int!) {\n    broker(cluster: $cluster, id: $id) {\n      ...BrokerFields\n    }\n  }\n": types.BrokerDocument,
@@ -179,10 +177,6 @@ export function graphql(source: "\n  fragment SearchResultFields on SearchResult
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(source: "\n  query Clusters {\n    clusters {\n      ...ClusterFields\n    }\n  }\n"): typeof import('./graphql').ClustersDocument;
-/**
- * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
- */
-export function graphql(source: "\n  query Cluster($name: String!) {\n    cluster(name: $name) {\n      ...ClusterFields\n    }\n  }\n"): typeof import('./graphql').ClusterDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
