@@ -16,7 +16,7 @@ use super::snapshot::empty_identity;
 use crate::kafka::cluster::ClusterHealth;
 use crate::kafka::group::{ConsumerGroup, GroupState};
 use crate::kafka::rates::RateStore;
-use crate::kafka::registry::{SchemaCompatibility, SchemaSubject, SchemaType};
+use crate::kafka::registry::{SchemaCompatibility, SchemaSubject};
 use crate::kafka::session::ClusterSession;
 use crate::kafka::testing::FakeCluster;
 use crate::kafka::topic_config::CleanupPolicy;
@@ -80,15 +80,7 @@ fn test_group(id: &str) -> ConsumerGroup {
 }
 
 fn test_subject(name: &str) -> SchemaSubject {
-    SchemaSubject {
-        subject: name.to_owned(),
-        id: 1,
-        schema_type: SchemaType::Avro,
-        latest_version: 1,
-        versions: vec![1],
-        compatibility: SchemaCompatibility::Backward,
-        schema: "{}".into(),
-    }
+    SchemaSubject::from_versions(name, vec![1], SchemaCompatibility::Backward).unwrap()
 }
 
 fn test_topic(name: &str) -> Topic {

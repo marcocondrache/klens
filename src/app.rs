@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use crate::environment::{CONFIG_POLL_INTERVAL, SUBJECT_POLL_INTERVAL};
 use crate::kafka::model::AclListing;
-use crate::kafka::model::SchemaSubject;
+use crate::kafka::model::{SchemaSubject, SubjectSchema};
 use crate::kafka::{
     CatalogCache, CatalogHealth, CatalogPoller, CatalogPollerIntervals, CatalogPollerIo,
     CatalogRevision, ClusterSession, ClusterSnapshot, ConfigEntry, ConsumerGroup, KafkaError,
@@ -234,6 +234,14 @@ impl AppState {
         cluster: &str,
     ) -> Result<Vec<SchemaSubject>, KafkaError> {
         self.query.schema_subjects(cluster).await
+    }
+
+    pub(crate) async fn live_subject_schema(
+        &self,
+        cluster: &str,
+        subject: &str,
+    ) -> Result<SubjectSchema, KafkaError> {
+        self.query.subject_schema(cluster, subject).await
     }
 
     pub(crate) async fn live_acls(&self, cluster: &str) -> Result<AclListing, KafkaError> {

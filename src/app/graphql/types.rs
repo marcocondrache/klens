@@ -619,25 +619,40 @@ impl From<domain::AclListing> for AclListing {
 #[derive(GraphQLObject)]
 pub(super) struct SchemaSubject {
     pub subject: String,
-    pub id: i32,
-    #[graphql(name = "type")]
-    pub schema_type: SchemaType,
     pub latest_version: i32,
     pub versions: Vec<i32>,
     pub compatibility: SchemaCompatibility,
-    pub schema: String,
 }
 
 impl From<domain::SchemaSubject> for SchemaSubject {
     fn from(subject: domain::SchemaSubject) -> Self {
         Self {
             subject: subject.subject,
-            id: subject.id,
-            schema_type: SchemaType::from(subject.schema_type),
             latest_version: subject.latest_version,
             versions: subject.versions,
             compatibility: SchemaCompatibility::from(subject.compatibility),
-            schema: subject.schema,
+        }
+    }
+}
+
+#[derive(GraphQLObject)]
+pub(super) struct SubjectSchema {
+    pub subject: String,
+    pub id: i32,
+    pub version: i32,
+    #[graphql(name = "type")]
+    pub schema_type: SchemaType,
+    pub schema: String,
+}
+
+impl From<domain::SubjectSchema> for SubjectSchema {
+    fn from(schema: domain::SubjectSchema) -> Self {
+        Self {
+            subject: schema.subject,
+            id: schema.id,
+            version: schema.version,
+            schema_type: SchemaType::from(schema.schema_type),
+            schema: schema.schema,
         }
     }
 }

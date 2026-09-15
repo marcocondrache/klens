@@ -1,7 +1,6 @@
 //! Schema Registry types, HTTP client, and payload decode.
 //!
-//! [`SchemaSubject`] and [`RegisteredSchema`] are the domain types. `client`
-//! is the HTTP port ([`client::SchemaRegistryClient`]). `decode` turns a
+//! `client` is the HTTP port ([`client::SchemaRegistryClient`]). `decode` turns a
 //! Confluent-framed payload into text. `protobuf` is the protobuf path
 //! inside decode.
 
@@ -77,11 +76,63 @@ impl std::fmt::Display for SchemaCompatibility {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SchemaSubject {
     pub subject: String,
-    pub id: i32,
-    pub schema_type: SchemaType,
     pub latest_version: i32,
     pub versions: Vec<i32>,
     pub compatibility: SchemaCompatibility,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EmptyVersionHistory;
+
+impl std::fmt::Display for EmptyVersionHistory {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("subject has no versions")
+    }
+}
+
+impl std::error::Error for EmptyVersionHistory {}
+
+struct VersionHistory {
+    versions: Vec<i32>,
+}
+
+impl VersionHistory {
+    fn from_versions(mut versions: Vec<i32>) -> Result<Self, EmptyVersionHistory> {
+        versions.sort_unstable();
+        versions.dedup();
+        if versions.is_empty() {
+            return Err(EmptyVersionHistory);
+        }
+        Ok(Self { versions })
+    }
+
+    fn latest(&self) -> i32 {
+        *self.versions.last().expect("non-empty version history")
+    }
+}
+
+impl SchemaSubject {
+    pub fn from_versions(
+        subject: impl Into<String>,
+        versions: Vec<i32>,
+        compatibility: SchemaCompatibility,
+    ) -> Result<Self, EmptyVersionHistory> {
+        let history = VersionHistory::from_versions(versions)?;
+        Ok(Self {
+            subject: subject.into(),
+            latest_version: history.latest(),
+            versions: history.versions,
+            compatibility,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubjectSchema {
+    pub subject: String,
+    pub id: i32,
+    pub version: i32,
+    pub schema_type: SchemaType,
     pub schema: String,
 }
 
@@ -98,4 +149,30 @@ pub struct RegisteredSchema {
     pub schema_type: SchemaType,
     pub schema: String,
     pub references: Vec<SchemaReference>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn from_versions_sorts_dedups_and_takes_max() {
+        let subject = SchemaSubject::from_versions(
+            "orders-value",
+            vec![2, 1, 2, 4],
+            SchemaCompatibility::Full,
+        )
+        .unwrap();
+        assert_eq!(subject.latest_version, 4);
+        assert_eq!(subject.versions, vec![1, 2, 4]);
+        assert_eq!(subject.compatibility, SchemaCompatibility::Full);
+    }
+
+    #[test]
+    fn from_versions_rejects_empty() {
+        assert_eq!(
+            SchemaSubject::from_versions("empty", Vec::new(), SchemaCompatibility::None),
+            Err(EmptyVersionHistory)
+        );
+    }
 }

@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use crate::kafka::model::{
     CleanupPolicy, GroupMember, GroupOffset, GroupState, MemberAssignment, SchemaCompatibility,
-    SchemaSubject, SchemaType,
+    SchemaSubject,
 };
 use crate::kafka::{
     Broker, ClusterHealth, ClusterIdentity, ClusterOverview, ClusterSnapshot, ConsumerGroup,
@@ -127,15 +127,7 @@ fn cached_overview(name: &str) -> ClusterOverview {
 }
 
 fn cached_subject(subject: &str) -> SchemaSubject {
-    SchemaSubject {
-        subject: subject.into(),
-        id: 9,
-        schema_type: SchemaType::Avro,
-        latest_version: 3,
-        versions: vec![3],
-        compatibility: SchemaCompatibility::Backward,
-        schema: "{\"cached\":true}".into(),
-    }
+    SchemaSubject::from_versions(subject, vec![3], SchemaCompatibility::Backward).unwrap()
 }
 
 fn cached_broker(id: i32, host: &str) -> Broker {
@@ -307,16 +299,15 @@ async fn schema_subjects_read_the_subject_cache() {
     assert_eq!(
         gql(
             &state,
-            r#"{ schemaSubjects(cluster: "local") { subject id type latestVersion schema } }"#
+            r#"{ schemaSubjects(cluster: "local") { subject latestVersion versions compatibility } }"#
         )
         .await,
         serde_json::json!({
             "schemaSubjects": [{
                 "subject": "payments.cached-value",
-                "id": 9,
-                "type": "AVRO",
                 "latestVersion": 3,
-                "schema": "{\"cached\":true}"
+                "versions": [3],
+                "compatibility": "BACKWARD"
             }]
         })
     );
@@ -433,18 +424,15 @@ async fn resolves_schema_subjects_from_the_query_engine() {
     assert_eq!(
         gql(
             &state(),
-            r#"{ schemaSubjects(cluster: "local") { subject id type latestVersion versions compatibility schema } }"#
+            r#"{ schemaSubjects(cluster: "local") { subject latestVersion versions compatibility } }"#
         )
         .await,
         serde_json::json!({
             "schemaSubjects": [{
                 "subject": "orders.created-value",
-                "id": 1,
-                "type": "AVRO",
                 "latestVersion": 2,
                 "versions": [1, 2],
-                "compatibility": "BACKWARD",
-                "schema": "{\"type\":\"record\",\"name\":\"Order\",\"fields\":[{\"name\":\"orderId\",\"type\":\"string\"}]}"
+                "compatibility": "BACKWARD"
             }]
         })
     );
@@ -667,6 +655,8 @@ async fn schema_includes_topic_rate_subscription() {
     assert!(sdl.contains("catalogUpdated(cluster: String!): CatalogUpdated!"));
     assert!(sdl.contains("type SearchResults"));
     assert!(sdl.contains("search(cluster: String!, term: String!): SearchResults!"));
+    assert!(sdl.contains("subjectSchema(cluster: String!, subject: String!): SubjectSchema!"));
+    assert!(sdl.contains("type SubjectSchema"));
 }
 
 #[tokio::test]
@@ -1142,21 +1132,74 @@ async fn viewer_cannot_read_records_or_live_configs() {
 }
 
 #[tokio::test]
-async fn viewer_sees_subject_names_without_schema_text() {
-    let state = state();
+async fn viewer_lists_subjects_and_cannot_read_schema_text() {
+    let cluster = FakeCluster::local();
+    let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![cluster.clone()])));
+    let context = ctx_with(&state, viewer(ClusterScope::All));
+
     let body = gql_on(
-        &ctx_with(&state, viewer(ClusterScope::All)),
-        r#"{ schemaSubjects(cluster: "local") { subject schema } }"#,
+        &context,
+        r#"{ schemaSubjects(cluster: "local") { subject latestVersion versions compatibility } }"#,
     )
     .await;
-
     assert_eq!(
         body,
         serde_json::json!({
             "schemaSubjects": [{
                 "subject": "orders.created-value",
-                "schema": ""
+                "latestVersion": 2,
+                "versions": [1, 2],
+                "compatibility": "BACKWARD"
             }]
+        })
+    );
+
+    let errors = gql_field_errors_on(
+        &context,
+        r#"{ subjectSchema(cluster: "local", subject: "orders.created-value") { schema } }"#,
+    )
+    .await;
+    assert!(
+        errors.iter().any(|(message, extensions)| {
+            message == "forbidden" && *extensions == graphql_value!({ "code": "FORBIDDEN" })
+        }),
+        "{errors:?}"
+    );
+    assert_eq!(cluster.calls().subject_schema(), 0);
+}
+
+#[tokio::test]
+async fn subject_schema_unknown_subject_is_a_field_error() {
+    let errors = gql_field_errors(
+        &state(),
+        r#"{ subjectSchema(cluster: "local", subject: "ghost-value") { schema } }"#,
+    )
+    .await;
+    assert!(
+        errors.iter().any(|(message, extensions)| {
+            message.contains("ghost-value")
+                && *extensions == graphql_value!({ "code": "SCHEMA_REGISTRY" })
+        }),
+        "{errors:?}"
+    );
+}
+
+#[tokio::test]
+async fn subject_schema_returns_the_live_body() {
+    assert_eq!(
+        gql(
+            &state(),
+            r#"{ subjectSchema(cluster: "local", subject: "orders.created-value") { subject id version type schema } }"#
+        )
+        .await,
+        serde_json::json!({
+            "subjectSchema": {
+                "subject": "orders.created-value",
+                "id": 1,
+                "version": 2,
+                "type": "AVRO",
+                "schema": "{\"type\":\"record\",\"name\":\"Order\",\"fields\":[{\"name\":\"orderId\",\"type\":\"string\"}]}"
+            }
         })
     );
 }

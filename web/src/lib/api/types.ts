@@ -14,6 +14,7 @@ export type {
   RecordOrder,
   RecordQuery,
   SchemaSubjectFieldsFragment as SchemaSubject,
+  SubjectSchemaFieldsFragment as SubjectSchema,
   ThroughputPointFieldsFragment as ThroughputPoint,
   TopicFieldsFragment as Topic,
   TopicListFieldsFragment as TopicList,

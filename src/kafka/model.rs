@@ -19,6 +19,7 @@ pub use crate::kafka::record::query::{RecordOrder, RecordQuery, TimestampRange};
 pub use crate::kafka::record::{Compression, Record, RecordHeader, RecordPage, decode_bytes};
 pub use crate::kafka::registry::{
     RegisteredSchema, SchemaCompatibility, SchemaReference, SchemaSubject, SchemaType,
+    SubjectSchema,
 };
 pub use crate::kafka::search::{SearchHit, SearchKind};
 pub use crate::kafka::topic::{Partition, Topic};

@@ -7,6 +7,7 @@ import {
   brokerConfigsQuery,
   groupLagHistoryQuery,
   recordsQuery,
+  subjectSchemaQuery,
   topicConfigsQuery,
   topicThroughputQuery,
 } from "./documents";
@@ -44,6 +45,20 @@ export function useTopicConfigs(cluster: string, topic: string, enabled = true) 
       return topicConfigs;
     },
     enabled,
+  });
+}
+
+export function useSubjectSchema(cluster: string, subject: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: keys.subjectSchema(cluster, subject ?? ""),
+    queryFn: async () => {
+      const { subjectSchema } = await execute(subjectSchemaQuery, {
+        cluster,
+        subject: subject ?? "",
+      });
+      return subjectSchema;
+    },
+    enabled: enabled && Boolean(subject),
   });
 }
 

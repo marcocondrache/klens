@@ -19,11 +19,13 @@ import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
 import { useNow } from "@/hooks/use-now";
 import { useCatalogHealth, useSchemaSubjects } from "@/lib/api/catalog";
+import { useSubjectSchema } from "@/lib/api/live";
 import { useClusterName } from "@/lib/clusters";
 import { catalogHealthCaption } from "@/lib/catalog-health";
 import { prettyJson } from "@/lib/format";
 import type { SchemaSubject } from "@/lib/api/types";
 import { parseSchemasSearch } from "@/lib/route-search";
+import { queryErrorMessage } from "@/lib/query-error";
 import { useAccess } from "@/hooks/use-access";
 
 export const Route = createFileRoute("/cluster/$cluster/schemas")({
@@ -38,18 +40,6 @@ const columns = columnHelper.columns([
     header: ({ column }) => <DataTableColumnHeader column={column} title="Subject" />,
     meta: { label: "Subject" },
     cell: ({ getValue }) => <span className="font-mono text-sm">{getValue()}</span>,
-  }),
-  columnHelper.accessor("id", {
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="ID" className="justify-end" />
-    ),
-    meta: { align: "right", label: "ID" },
-    cell: ({ getValue }) => <span className="numeric font-mono">{getValue()}</span>,
-  }),
-  columnHelper.accessor("type", {
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,
-    meta: { label: "Type" },
-    cell: ({ getValue }) => <Pill tone="brand">{getValue()}</Pill>,
   }),
   columnHelper.accessor("latestVersion", {
     id: "version",
@@ -87,6 +77,12 @@ function SchemasPage() {
   const canSchemaText = can(cluster, "schemaText");
   const { data: subjects = [], isPending, isError, error } = useSchemaSubjects(cluster);
   const { data: health } = useCatalogHealth(cluster);
+  const {
+    data: liveSchema,
+    isPending: schemaPending,
+    isError: schemaError,
+    error: schemaLoadError,
+  } = useSubjectSchema(cluster, selected?.subject, canSchemaText && selected !== null);
   const now = useNow();
   const caption = catalogHealthCaption({
     updatedAt: health?.subjectsUpdatedAt,
@@ -99,7 +95,7 @@ function SchemasPage() {
     if (!needle) return subjects;
     return subjects.filter((subject) => subject.subject.toLowerCase().includes(needle));
   }, [subjects, term]);
-  const schemaText = selected ? prettyJson(selected.schema) : "";
+  const schemaText = liveSchema ? prettyJson(liveSchema.schema) : "";
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
@@ -144,17 +140,27 @@ function SchemasPage() {
               <SheetHeader className="border-b">
                 <SheetTitle className="font-mono text-sm">{selected.subject}</SheetTitle>
                 <SheetDescription>
-                  {selected.type} · version {selected.latestVersion} · {selected.compatibility}
+                  version {selected.latestVersion} · {selected.compatibility}
                 </SheetDescription>
               </SheetHeader>
 
               <div className="flex-1 space-y-4 overflow-y-auto p-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-medium text-muted-foreground">Schema</h3>
-                  {canSchemaText ? <CopyButton value={schemaText} label="Copy schema" /> : null}
+                  {canSchemaText && liveSchema ? (
+                    <CopyButton value={schemaText} label="Copy schema" />
+                  ) : null}
                 </div>
                 {canSchemaText ? (
-                  <JsonBlock source={schemaText} />
+                  schemaPending ? (
+                    <p className="text-sm text-muted-foreground">Loading schema…</p>
+                  ) : schemaError ? (
+                    <p className="text-sm text-muted-foreground">
+                      {queryErrorMessage(true, schemaLoadError, "Failed to load schema.")}
+                    </p>
+                  ) : (
+                    <JsonBlock source={schemaText} />
+                  )
                 ) : (
                   <p className="text-sm text-muted-foreground">
                     Schema text is not available for your role.

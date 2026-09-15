@@ -236,6 +236,7 @@ type Query {
   topicThroughput(cluster: String!, topic: String!): [ThroughputPoint!]!
   groupLagHistory(cluster: String!, id: String!): [ThroughputPoint!]!
   schemaSubjects(cluster: String!): [SchemaSubject!]!
+  subjectSchema(cluster: String!, subject: String!): SubjectSchema!
   acls(cluster: String!): AclListing!
   records(query: RecordQuery!): RecordPage!
   search(cluster: String!, term: String!): SearchResults!
@@ -254,12 +255,9 @@ type RecordPage {
 
 type SchemaSubject {
   subject: String!
-  id: Int!
-  type: SchemaType!
   latestVersion: Int!
   versions: [Int!]!
   compatibility: SchemaCompatibility!
-  schema: String!
 }
 
 type SearchResult {
@@ -272,6 +270,14 @@ type SearchResult {
 type SearchResults {
   hits: [SearchResult!]!
   schemaRegistryError: String
+}
+
+type SubjectSchema {
+  subject: String!
+  id: Int!
+  version: Int!
+  type: SchemaType!
+  schema: String!
 }
 
 type Subscription {

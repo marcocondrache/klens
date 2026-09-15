@@ -4,7 +4,7 @@ use super::context::GraphQlContext;
 use super::error::GqlError;
 use super::types::{
     AclListing, Broker, CatalogHealth, ClusterCatalog, ConfigEntry, ConsumerGroup, RecordPage,
-    RecordQuery, SchemaSubject, SearchResult, SearchResults, ThroughputPoint, Topic,
+    RecordQuery, SchemaSubject, SearchResult, SearchResults, SubjectSchema, ThroughputPoint, Topic,
 };
 use crate::app::auth::access::Privilege;
 use crate::kafka::KafkaError;
@@ -162,20 +162,24 @@ impl Query {
         cluster: String,
     ) -> Result<Vec<SchemaSubject>, KafkaError> {
         context.allow_cluster(&cluster)?;
-        let redact = !context.access.allows(Privilege::SchemaText, &cluster);
         Ok(context
             .subject_snapshot(&cluster)
             .await?
             .iter()
             .cloned()
-            .map(|subject| {
-                let mut mapped = SchemaSubject::from(subject);
-                if redact {
-                    mapped.schema.clear();
-                }
-                mapped
-            })
+            .map(SchemaSubject::from)
             .collect())
+    }
+
+    async fn subject_schema(
+        context: &GraphQlContext,
+        cluster: String,
+        subject: String,
+    ) -> Result<SubjectSchema, GqlError> {
+        context.allow_privilege(Privilege::SchemaText, &cluster)?;
+        Ok(SubjectSchema::from(
+            context.live_subject_schema(&cluster, &subject).await?,
+        ))
     }
 
     async fn acls(context: &GraphQlContext, cluster: String) -> Result<AclListing, GqlError> {

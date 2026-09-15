@@ -121,7 +121,9 @@ export type TopicRateFieldsFragment = { name: string, messagesPerSec: number };
 
 export type ConsumerGroupLagFieldsFragment = { id: string, lag: number, offsets: Array<{ topic: string, partition: number, currentOffset: number, endOffset: number, lag: number, memberId: string | null }> };
 
-export type SchemaSubjectFieldsFragment = { subject: string, id: number, type: SchemaType, latestVersion: number, versions: Array<number>, compatibility: SchemaCompatibility, schema: string };
+export type SchemaSubjectFieldsFragment = { subject: string, latestVersion: number, versions: Array<number>, compatibility: SchemaCompatibility };
+
+export type SubjectSchemaFieldsFragment = { subject: string, id: number, version: number, type: SchemaType, schema: string };
 
 export type AclFieldsFragment = { resourceType: AclResourceType, resourceName: string, patternType: AclPatternType, principal: string, host: string, operation: AclOperation, permission: AclPermission };
 
@@ -233,7 +235,15 @@ export type SchemaSubjectsQueryVariables = Exact<{
 }>;
 
 
-export type SchemaSubjectsQuery = { schemaSubjects: Array<{ subject: string, id: number, type: SchemaType, latestVersion: number, versions: Array<number>, compatibility: SchemaCompatibility, schema: string }> };
+export type SchemaSubjectsQuery = { schemaSubjects: Array<{ subject: string, latestVersion: number, versions: Array<number>, compatibility: SchemaCompatibility }> };
+
+export type SubjectSchemaQueryVariables = Exact<{
+  cluster: string;
+  subject: string;
+}>;
+
+
+export type SubjectSchemaQuery = { subjectSchema: { subject: string, id: number, version: number, type: SchemaType, schema: string } };
 
 export type AclsQueryVariables = Exact<{
   cluster: string;
@@ -474,14 +484,20 @@ export const ConsumerGroupLagFieldsFragmentDoc = new TypedDocumentString(`
 export const SchemaSubjectFieldsFragmentDoc = new TypedDocumentString(`
     fragment SchemaSubjectFields on SchemaSubject {
   subject
-  id
-  type
   latestVersion
   versions
   compatibility
-  schema
 }
     `, {"fragmentName":"SchemaSubjectFields"}) as unknown as TypedDocumentString<SchemaSubjectFieldsFragment, unknown>;
+export const SubjectSchemaFieldsFragmentDoc = new TypedDocumentString(`
+    fragment SubjectSchemaFields on SubjectSchema {
+  subject
+  id
+  version
+  type
+  schema
+}
+    `, {"fragmentName":"SubjectSchemaFields"}) as unknown as TypedDocumentString<SubjectSchemaFieldsFragment, unknown>;
 export const AclFieldsFragmentDoc = new TypedDocumentString(`
     fragment AclFields on Acl {
   resourceType
@@ -782,13 +798,23 @@ export const SchemaSubjectsDocument = new TypedDocumentString(`
 }
     fragment SchemaSubjectFields on SchemaSubject {
   subject
-  id
-  type
   latestVersion
   versions
   compatibility
-  schema
 }`) as unknown as TypedDocumentString<SchemaSubjectsQuery, SchemaSubjectsQueryVariables>;
+export const SubjectSchemaDocument = new TypedDocumentString(`
+    query SubjectSchema($cluster: String!, $subject: String!) {
+  subjectSchema(cluster: $cluster, subject: $subject) {
+    ...SubjectSchemaFields
+  }
+}
+    fragment SubjectSchemaFields on SubjectSchema {
+  subject
+  id
+  version
+  type
+  schema
+}`) as unknown as TypedDocumentString<SubjectSchemaQuery, SubjectSchemaQueryVariables>;
 export const AclsDocument = new TypedDocumentString(`
     query Acls($cluster: String!) {
   acls(cluster: $cluster) {

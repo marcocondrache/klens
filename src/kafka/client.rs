@@ -30,9 +30,9 @@ use crate::kafka::group::{CommittedOffset, GroupSnapshot, is_internal_group};
 use crate::kafka::metadata::MetadataSnapshot;
 use crate::kafka::record::Record;
 use crate::kafka::record::plan::FetchPlan;
-use crate::kafka::registry::SchemaSubject;
 use crate::kafka::registry::client::SchemaRegistryClient;
 use crate::kafka::registry::decode::PayloadDecoder;
+use crate::kafka::registry::{SchemaSubject, SubjectSchema};
 use crate::kafka::session::ClusterSession;
 use crate::kafka::topic_config::ConfigEntry;
 use crate::kafka::watermarks::Watermarks;
@@ -314,6 +314,16 @@ impl ClusterSession for KafkaClient {
             return Ok(Vec::new());
         };
         decoder.client().subjects().await
+    }
+
+    async fn subject_schema(&self, name: &str) -> Result<SubjectSchema, KafkaError> {
+        let Some(decoder) = &self.schema_registry else {
+            return Err(KafkaError::SchemaRegistry {
+                cluster: self.identity.name.clone(),
+                message: "schema registry is not configured".into(),
+            });
+        };
+        decoder.client().subject_schema(name).await
     }
 
     async fn acls(&self) -> Result<AclListing, KafkaError> {
