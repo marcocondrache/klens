@@ -3,6 +3,43 @@ schema {
   subscription: Subscription
 }
 
+enum AclAuthorizer {
+  ENABLED
+  DISABLED
+}
+
+enum AclOperation {
+  ALL
+  READ
+  WRITE
+  CREATE
+  DELETE
+  ALTER
+  DESCRIBE
+  CLUSTER_ACTION
+  DESCRIBE_CONFIGS
+  ALTER_CONFIGS
+  IDEMPOTENT_WRITE
+}
+
+enum AclPatternType {
+  LITERAL
+  PREFIXED
+}
+
+enum AclPermission {
+  ALLOW
+  DENY
+}
+
+enum AclResourceType {
+  TOPIC
+  GROUP
+  CLUSTER
+  TRANSACTIONAL_ID
+  DELEGATION_TOKEN
+}
+
 enum CleanupPolicy {
   DELETE
   COMPACT
@@ -98,6 +135,21 @@ input RecordQuery {
   [2]: https://docs.rs/chrono/latest/chrono/struct.DateTime.html
 """
 scalar DateTime
+
+type Acl {
+  resourceType: AclResourceType!
+  resourceName: String!
+  patternType: AclPatternType!
+  principal: String!
+  host: String!
+  operation: AclOperation!
+  permission: AclPermission!
+}
+
+type AclListing {
+  authorizer: AclAuthorizer!
+  bindings: [Acl!]!
+}
 
 type Broker {
   id: Int!
@@ -214,6 +266,7 @@ type Query {
   topicThroughput(cluster: String!, topic: String!): [ThroughputPoint!]!
   groupLagHistory(cluster: String!, id: String!): [ThroughputPoint!]!
   schemaSubjects(cluster: String!): [SchemaSubject!]!
+  acls(cluster: String!): AclListing!
   records(query: RecordQuery!): RecordPage!
   search(cluster: String!, term: String!): SearchResults!
 }

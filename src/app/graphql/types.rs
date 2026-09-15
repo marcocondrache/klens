@@ -564,6 +564,120 @@ from_same_variants!(domain::SchemaCompatibility => SchemaCompatibility {
     None,
 });
 
+#[derive(GraphQLEnum, Clone, Copy)]
+pub(super) enum AclAuthorizer {
+    Enabled,
+    Disabled,
+}
+
+#[derive(GraphQLEnum, Clone, Copy)]
+pub(super) enum AclResourceType {
+    Topic,
+    Group,
+    Cluster,
+    TransactionalId,
+    DelegationToken,
+}
+
+from_same_variants!(domain::AclResourceType => AclResourceType {
+    Topic,
+    Group,
+    Cluster,
+    TransactionalId,
+    DelegationToken,
+});
+
+#[derive(GraphQLEnum, Clone, Copy)]
+pub(super) enum AclPatternType {
+    Literal,
+    Prefixed,
+}
+
+from_same_variants!(domain::AclPatternType => AclPatternType { Literal, Prefixed });
+
+#[derive(GraphQLEnum, Clone, Copy)]
+pub(super) enum AclOperation {
+    All,
+    Read,
+    Write,
+    Create,
+    Delete,
+    Alter,
+    Describe,
+    ClusterAction,
+    DescribeConfigs,
+    AlterConfigs,
+    IdempotentWrite,
+}
+
+from_same_variants!(domain::AclOperation => AclOperation {
+    All,
+    Read,
+    Write,
+    Create,
+    Delete,
+    Alter,
+    Describe,
+    ClusterAction,
+    DescribeConfigs,
+    AlterConfigs,
+    IdempotentWrite,
+});
+
+#[derive(GraphQLEnum, Clone, Copy)]
+pub(super) enum AclPermission {
+    Allow,
+    Deny,
+}
+
+from_same_variants!(domain::AclPermission => AclPermission { Allow, Deny });
+
+#[derive(GraphQLObject)]
+pub(super) struct Acl {
+    pub resource_type: AclResourceType,
+    pub resource_name: String,
+    pub pattern_type: AclPatternType,
+    pub principal: String,
+    pub host: String,
+    pub operation: AclOperation,
+    pub permission: AclPermission,
+}
+
+impl From<domain::Acl> for Acl {
+    fn from(acl: domain::Acl) -> Self {
+        Self {
+            resource_type: AclResourceType::from(acl.resource_type),
+            resource_name: acl.resource_name,
+            pattern_type: AclPatternType::from(acl.pattern_type),
+            principal: acl.principal,
+            host: acl.host,
+            operation: AclOperation::from(acl.operation),
+            permission: AclPermission::from(acl.permission),
+        }
+    }
+}
+
+#[derive(GraphQLObject)]
+pub(super) struct AclListing {
+    pub authorizer: AclAuthorizer,
+    pub bindings: Vec<Acl>,
+}
+
+impl From<domain::AclListing> for AclListing {
+    fn from(listing: domain::AclListing) -> Self {
+        match listing {
+            domain::AclListing::Enabled(rows) => Self {
+                authorizer: AclAuthorizer::Enabled,
+                bindings: rows.into_iter().map(Acl::from).collect(),
+            },
+            domain::AclListing::Disabled => Self {
+                authorizer: AclAuthorizer::Disabled,
+                bindings: Vec::new(),
+            },
+        }
+    }
+}
+
 #[derive(GraphQLObject)]
 pub(super) struct SchemaSubject {
     pub subject: String,
