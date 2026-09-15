@@ -21,7 +21,8 @@ import { useCluster, useSchemaSubjects } from "@/lib/api/catalog";
 import { RELEASE_URL, REPO_URL, VERSION } from "@/lib/build";
 import { useClusterName } from "@/lib/clusters";
 import { formatCount } from "@/lib/format";
-import { SECTIONS, clusterSectionTo } from "@/lib/sections";
+import { useAccess } from "@/hooks/use-access";
+import { clusterSectionTo, visibleSections } from "@/lib/sections";
 
 const ACTIVE_MARKER =
   "relative data-active:before:absolute data-active:before:inset-y-1.5 data-active:before:-left-3 data-active:before:w-0.5 data-active:before:rounded-r-full data-active:before:bg-sidebar-primary";
@@ -29,6 +30,8 @@ const ACTIVE_MARKER =
 export function AppSidebar() {
   const cluster = useClusterName();
   const matchRoute = useMatchRoute();
+  const { can } = useAccess();
+  const sections = visibleSections(can(cluster, "acls"));
 
   const { data } = useCluster(cluster);
   const { data: subjects } = useSchemaSubjects(cluster);
@@ -54,7 +57,7 @@ export function AppSidebar() {
           <SidebarGroupLabel>Cluster</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu className="gap-2">
-              {SECTIONS.map((section) => (
+              {sections.map((section) => (
                 <SidebarMenuItem key={section.segment}>
                   <SidebarMenuButton
                     isActive={Boolean(

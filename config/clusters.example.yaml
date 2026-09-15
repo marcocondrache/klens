@@ -44,8 +44,9 @@ clusters:
 #
 # Register redirect_uri with the identity provider. Without roles, any
 # authenticated user has the same access as an open deployment. With roles,
-# unmatched users cannot sign in. Admins can read records, live configs, and
-# schema text. Viewers see the catalog only. Omit clusters to allow every
+# unmatched users cannot sign in. Admins can read records, live configs,
+# schema text, and ACL bindings. Viewers see the catalog only. Omit clusters
+# to allow every
 # configured cluster.
 #
 # auth:

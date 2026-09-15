@@ -48,8 +48,8 @@ Register `redirect_uri` with the identity provider. Without `roles`, any
 authenticated user has the same access as an open deployment.
 
 To map IdP groups to `admin` or `viewer`, add `roles`. Unmatched users cannot
-sign in. Admins can read records, live broker/topic configs, and schema text
-on their clusters. Viewers see the catalog only. Omit `clusters` on a binding
+sign in. Admins can read records, live broker/topic configs, schema text, and
+ACL bindings on their clusters. Viewers see the catalog only. Omit `clusters` on a binding
 to allow every configured cluster.
 
 ```yaml

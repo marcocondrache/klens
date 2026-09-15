@@ -1294,7 +1294,8 @@ async fn hidden_cluster_matches_an_unknown_cluster() {
         "{forbidden:?}"
     );
 
-    let hidden_acls = gql_field_errors_on(&context, r#"{ acls(cluster: "local") { authorizer } }"#).await;
+    let hidden_acls =
+        gql_field_errors_on(&context, r#"{ acls(cluster: "local") { authorizer } }"#).await;
     assert!(
         hidden_acls.iter().any(|(_, extensions)| {
             *extensions == graphql_value!({ "code": "UNKNOWN_CLUSTER" })

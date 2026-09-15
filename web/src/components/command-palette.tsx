@@ -16,7 +16,8 @@ import {
 import { StatusDot } from "@/components/status";
 import { useClusters, useSearch } from "@/lib/api/catalog";
 import { useClusterName } from "@/lib/clusters";
-import { SECTIONS, clusterSectionTo, useActiveSection } from "@/lib/sections";
+import { useAccess } from "@/hooks/use-access";
+import { clusterSectionTo, useActiveSection, visibleSections } from "@/lib/sections";
 import type { ClusterStatus } from "@/lib/api/types";
 
 const RESULT_ICON = {
@@ -42,6 +43,8 @@ export function CommandPalette({
   const cluster = useClusterName();
   const navigate = useNavigate();
   const section = useActiveSection();
+  const { can } = useAccess();
+  const sections = visibleSections(can(cluster, "acls"));
   const [term, setTerm] = useState("");
 
   function goHref(href: string) {
@@ -186,7 +189,7 @@ export function CommandPalette({
           {results.length ? <CommandSeparator /> : null}
 
           <CommandGroup heading="Go to">
-            {SECTIONS.map((section) => (
+            {sections.map((section) => (
               <CommandItem
                 key={section.segment}
                 value={`nav:${section.label}`}

@@ -1,6 +1,6 @@
 export type AuthRole = "admin" | "viewer";
 
-export type AccessPrivilege = "records" | "configs" | "schemaText";
+export type AccessPrivilege = "records" | "configs" | "schemaText" | "acls";
 
 export type AuthUser = {
   sub: string;
@@ -74,6 +74,7 @@ export function canAccess(
     case "records":
     case "configs":
     case "schemaText":
+    case "acls":
       return false;
   }
 }
