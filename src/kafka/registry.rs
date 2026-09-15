@@ -1,9 +1,8 @@
 //! Schema Registry types, HTTP client, and payload decode.
 //!
-//! [`SchemaSubject`] is catalog metadata. [`SubjectSchema`] is the live
-//! payload. [`RegisteredSchema`] is decode-only. `client` is the HTTP port
-//! ([`client::SchemaRegistryClient`]). `decode` turns a Confluent-framed
-//! payload into text. `protobuf` is the protobuf path inside decode.
+//! `client` is the HTTP port ([`client::SchemaRegistryClient`]). `decode` turns a
+//! Confluent-framed payload into text. `protobuf` is the protobuf path
+//! inside decode.
 
 pub mod client;
 pub mod decode;
