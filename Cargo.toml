@@ -22,8 +22,8 @@ anyhow = "1"
 async-trait = "0.1"
 indexmap = "2"
 axum = { version = "0.8", features = ["http2", "ws"] }
-axum-extra = { version = "0.12.6", features = ["cookie-private"] }
-cookie = { version = "0.18.2", features = ["key-expansion", "private"] }
+axum-login = "0.18"
+tower-sessions = { version = "0.14", features = ["memory-store", "signed"] }
 futures = "0.3"
 cel = { version = "0.14", features = ["json"] }
 chrono = { version = "0.4", default-features = false, features = ["std"] }

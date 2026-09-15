@@ -171,13 +171,13 @@ impl OidcFlow for Oidc {
                 .map(|name| name.as_str().to_owned())
         });
 
-        Ok(SessionUser {
-            sub: claims.subject().to_string(),
-            email: claims.email().map(|email| email.to_string()),
+        Ok(SessionUser::new(
+            claims.subject().to_string(),
+            claims.email().map(|email| email.to_string()),
             name,
-            groups: groups_from_id_token(&id_token.to_string(), &self.groups_claim)?,
+            groups_from_id_token(&id_token.to_string(), &self.groups_claim)?,
             exp,
-        })
+        ))
     }
 }
 
@@ -227,13 +227,13 @@ impl OidcFlow for FakeOidc {
             return Err(anyhow!("invalid authorization code"));
         }
 
-        Ok(SessionUser {
-            sub: "user-1".into(),
-            email: Some("user@example.com".into()),
-            name: Some("Test User".into()),
-            groups: self.groups.clone(),
-            exp: unix_timestamp_secs() + 3600,
-        })
+        Ok(SessionUser::new(
+            "user-1",
+            Some("user@example.com".into()),
+            Some("Test User".into()),
+            self.groups.clone(),
+            unix_timestamp_secs() + 3600,
+        ))
     }
 }
 
