@@ -1,4 +1,7 @@
 export type {
+  AclFieldsFragment as Acl,
+  AclAuthorizer,
+  AclResourceType,
   BrokerFieldsFragment as Broker,
   CleanupPolicy,
   ClusterStatus,

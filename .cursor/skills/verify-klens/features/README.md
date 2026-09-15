@@ -43,4 +43,5 @@ Each feature file starts with an H1 and one paragraph. It then uses exactly four
 - [Consumer groups](./consumer-groups.md) covers the groups catalog and a group row.
 - [Schema registry](./schema-registry.md) covers the subject catalog and the subject sheet.
 - [Brokers](./brokers.md) covers the broker list and the controller badge.
+- [ACLs](./acls.md) covers the live ACL list and the authorizer-off empty state.
 - [Command palette](./command-palette.md) covers search from the header button, `/`, and `Meta+K`.

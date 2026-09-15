@@ -1012,3 +1012,105 @@ async fn catalog_topics_use_stored_produce_rates() {
         serde_json::json!({ "name": "orders.created", "messagesPerSec": 10.0 })
     );
 }
+
+#[tokio::test]
+async fn resolves_acls_from_the_session() {
+    assert_eq!(
+        gql(
+            &state(),
+            r#"{ acls(cluster: "local") {
+                authorizer
+                bindings {
+                    resourceType
+                    resourceName
+                    patternType
+                    principal
+                    host
+                    operation
+                    permission
+                }
+            } }"#
+        )
+        .await,
+        serde_json::json!({
+            "acls": {
+                "authorizer": "ENABLED",
+                "bindings": [
+                    {
+                        "resourceType": "TOPIC",
+                        "resourceName": "orders.created",
+                        "patternType": "LITERAL",
+                        "principal": "User:alice",
+                        "host": "*",
+                        "operation": "READ",
+                        "permission": "ALLOW"
+                    },
+                    {
+                        "resourceType": "TOPIC",
+                        "resourceName": "orders.",
+                        "patternType": "PREFIXED",
+                        "principal": "User:eve",
+                        "host": "10.0.0.1",
+                        "operation": "WRITE",
+                        "permission": "DENY"
+                    },
+                    {
+                        "resourceType": "GROUP",
+                        "resourceName": "order-processor",
+                        "patternType": "LITERAL",
+                        "principal": "User:order-processor",
+                        "host": "*",
+                        "operation": "READ",
+                        "permission": "ALLOW"
+                    }
+                ]
+            }
+        })
+    );
+}
+
+#[tokio::test]
+async fn disabled_authorizer_is_acl_data() {
+    let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
+        FakeCluster::local().with_security_disabled(),
+    ])));
+    let (data, errors) = gql_partial(
+        &state,
+        r#"{ acls(cluster: "local") { authorizer bindings { principal } } }"#,
+    )
+    .await;
+    assert!(errors.is_empty(), "{errors:?}");
+    assert_eq!(
+        data,
+        serde_json::json!({
+            "acls": { "authorizer": "DISABLED", "bindings": [] }
+        })
+    );
+}
+
+#[tokio::test]
+async fn acls_unknown_cluster_is_a_field_error() {
+    let errors = gql_field_errors(&state(), r#"{ acls(cluster: "ghost") { authorizer } }"#).await;
+    assert!(
+        errors.iter().any(|(message, extensions)| {
+            message == "unknown cluster 'ghost'"
+                && *extensions == graphql_value!({ "code": "UNKNOWN_CLUSTER" })
+        }),
+        "{errors:?}"
+    );
+}
+
+#[tokio::test]
+async fn acls_admin_failure_is_a_field_error() {
+    let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
+        FakeCluster::local().with_acls_error("describe failed"),
+    ])));
+    let errors = gql_field_errors(&state, r#"{ acls(cluster: "local") { authorizer } }"#).await;
+    assert!(
+        errors.iter().any(|(message, extensions)| {
+            message.contains("describe failed")
+                && *extensions == graphql_value!({ "code": "ADMIN" })
+        }),
+        "{errors:?}"
+    );
+}

@@ -1,8 +1,8 @@
 use juniper::graphql_object;
 
 use super::types::{
-    Broker, CatalogHealth, Cluster, ClusterCatalog, ConfigEntry, ConsumerGroup, RecordPage,
-    RecordQuery, SchemaSubject, SearchResult, SearchResults, ThroughputPoint, Topic,
+    AclListing, Broker, CatalogHealth, Cluster, ClusterCatalog, ConfigEntry, ConsumerGroup,
+    RecordPage, RecordQuery, SchemaSubject, SearchResult, SearchResults, ThroughputPoint, Topic,
 };
 use crate::AppState;
 use crate::kafka::KafkaError;
@@ -154,6 +154,10 @@ impl Query {
             .cloned()
             .map(SchemaSubject::from)
             .collect())
+    }
+
+    async fn acls(context: &AppState, cluster: String) -> Result<AclListing, KafkaError> {
+        Ok(AclListing::from(context.live_acls(&cluster).await?))
     }
 
     async fn records(context: &AppState, query: RecordQuery) -> Result<RecordPage, KafkaError> {

@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from "./routes/index"
 import { Route as LoginRouteImport } from "./routes/login"
 import { Route as ClusterClusterRouteImport } from "./routes/cluster/$cluster"
 import { Route as ClusterClusterIndexRouteImport } from "./routes/cluster/$cluster/index"
+import { Route as ClusterClusterAclsRouteImport } from "./routes/cluster/$cluster/acls"
 import { Route as ClusterClusterGroupsRouteImport } from "./routes/cluster/$cluster/groups"
 import { Route as ClusterClusterNodesRouteImport } from "./routes/cluster/$cluster/nodes"
 import { Route as ClusterClusterSchemasRouteImport } from "./routes/cluster/$cluster/schemas"
@@ -39,6 +40,11 @@ const ClusterClusterRoute = ClusterClusterRouteImport.update({
 const ClusterClusterIndexRoute = ClusterClusterIndexRouteImport.update({
   id: "/",
   path: "/",
+  getParentRoute: () => ClusterClusterRoute,
+} as any)
+const ClusterClusterAclsRoute = ClusterClusterAclsRouteImport.update({
+  id: "/acls",
+  path: "/acls",
   getParentRoute: () => ClusterClusterRoute,
 } as any)
 const ClusterClusterGroupsRoute = ClusterClusterGroupsRouteImport.update({
@@ -83,6 +89,7 @@ export interface FileRoutesByFullPath {
   "/": typeof IndexRoute
   "/login": typeof LoginRoute
   "/cluster/$cluster": typeof ClusterClusterRouteWithChildren
+  "/cluster/$cluster/acls": typeof ClusterClusterAclsRoute
   "/cluster/$cluster/groups": typeof ClusterClusterGroupsRoute
   "/cluster/$cluster/nodes": typeof ClusterClusterNodesRoute
   "/cluster/$cluster/schemas": typeof ClusterClusterSchemasRoute
@@ -95,6 +102,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   "/": typeof IndexRoute
   "/login": typeof LoginRoute
+  "/cluster/$cluster/acls": typeof ClusterClusterAclsRoute
   "/cluster/$cluster/groups": typeof ClusterClusterGroupsRoute
   "/cluster/$cluster/nodes": typeof ClusterClusterNodesRoute
   "/cluster/$cluster/schemas": typeof ClusterClusterSchemasRoute
@@ -109,6 +117,7 @@ export interface FileRoutesById {
   "/": typeof IndexRoute
   "/login": typeof LoginRoute
   "/cluster/$cluster": typeof ClusterClusterRouteWithChildren
+  "/cluster/$cluster/acls": typeof ClusterClusterAclsRoute
   "/cluster/$cluster/groups": typeof ClusterClusterGroupsRoute
   "/cluster/$cluster/nodes": typeof ClusterClusterNodesRoute
   "/cluster/$cluster/schemas": typeof ClusterClusterSchemasRoute
@@ -124,6 +133,7 @@ export interface FileRouteTypes {
     | "/"
     | "/login"
     | "/cluster/$cluster"
+    | "/cluster/$cluster/acls"
     | "/cluster/$cluster/groups"
     | "/cluster/$cluster/nodes"
     | "/cluster/$cluster/schemas"
@@ -136,6 +146,7 @@ export interface FileRouteTypes {
   to:
     | "/"
     | "/login"
+    | "/cluster/$cluster/acls"
     | "/cluster/$cluster/groups"
     | "/cluster/$cluster/nodes"
     | "/cluster/$cluster/schemas"
@@ -149,6 +160,7 @@ export interface FileRouteTypes {
     | "/"
     | "/login"
     | "/cluster/$cluster"
+    | "/cluster/$cluster/acls"
     | "/cluster/$cluster/groups"
     | "/cluster/$cluster/nodes"
     | "/cluster/$cluster/schemas"
@@ -193,6 +205,13 @@ declare module "@tanstack/react-router" {
       path: "/"
       fullPath: "/cluster/$cluster/"
       preLoaderRoute: typeof ClusterClusterIndexRouteImport
+      parentRoute: typeof ClusterClusterRoute
+    }
+    "/cluster/$cluster/acls": {
+      id: "/cluster/$cluster/acls"
+      path: "/acls"
+      fullPath: "/cluster/$cluster/acls"
+      preLoaderRoute: typeof ClusterClusterAclsRouteImport
       parentRoute: typeof ClusterClusterRoute
     }
     "/cluster/$cluster/groups": {
@@ -248,6 +267,7 @@ declare module "@tanstack/react-router" {
 }
 
 interface ClusterClusterRouteChildren {
+  ClusterClusterAclsRoute: typeof ClusterClusterAclsRoute
   ClusterClusterGroupsRoute: typeof ClusterClusterGroupsRoute
   ClusterClusterNodesRoute: typeof ClusterClusterNodesRoute
   ClusterClusterSchemasRoute: typeof ClusterClusterSchemasRoute
@@ -259,6 +279,7 @@ interface ClusterClusterRouteChildren {
 }
 
 const ClusterClusterRouteChildren: ClusterClusterRouteChildren = {
+  ClusterClusterAclsRoute: ClusterClusterAclsRoute,
   ClusterClusterGroupsRoute: ClusterClusterGroupsRoute,
   ClusterClusterNodesRoute: ClusterClusterNodesRoute,
   ClusterClusterSchemasRoute: ClusterClusterSchemasRoute,

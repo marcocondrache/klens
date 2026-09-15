@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::environment::{CONFIG_POLL_INTERVAL, OVERVIEW_BUDGET, SUBJECT_POLL_INTERVAL};
+use crate::kafka::model::AclListing;
 use crate::kafka::model::SchemaSubject;
 use crate::kafka::{
     CatalogCache, CatalogHealth, CatalogPoller, CatalogPollerIntervals, CatalogPollerIo,
@@ -237,6 +238,10 @@ impl AppState {
         self.query.schema_subjects(cluster).await
     }
 
+    pub(crate) async fn live_acls(&self, cluster: &str) -> Result<AclListing, KafkaError> {
+        self.query.session(cluster)?.acls().await
+    }
+
     pub(crate) async fn live_consumer_group(
         &self,
         cluster: &str,
@@ -352,5 +357,21 @@ mod tests {
             state.subjects.snapshot("local").unwrap()[0].subject,
             "orders.created-value"
         );
+    }
+
+    #[tokio::test]
+    async fn catalog_poller_does_not_describe_acls() {
+        let session = FakeCluster::local();
+        let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![session.clone()])))
+            .with_catalog_poller(Duration::from_secs(60));
+
+        wait_until(|| state.catalog.snapshot("local").is_some() && session.calls().metadata() > 0)
+            .await;
+
+        assert!(
+            session.calls().metadata() > 0,
+            "poller never called metadata"
+        );
+        assert_eq!(session.calls().acls(), 0);
     }
 }

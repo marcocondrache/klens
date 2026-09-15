@@ -181,6 +181,18 @@ export const SchemaSubjectFields = graphql(`
   }
 `);
 
+export const AclFields = graphql(`
+  fragment AclFields on Acl {
+    resourceType
+    resourceName
+    patternType
+    principal
+    host
+    operation
+    permission
+  }
+`);
+
 export const RecordHeaderFields = graphql(`
   fragment RecordHeaderFields on RecordHeader {
     key
@@ -343,6 +355,17 @@ export const schemaSubjectsQuery = graphql(`
   query SchemaSubjects($cluster: String!) {
     schemaSubjects(cluster: $cluster) {
       ...SchemaSubjectFields
+    }
+  }
+`);
+
+export const aclsQuery = graphql(`
+  query Acls($cluster: String!) {
+    acls(cluster: $cluster) {
+      authorizer
+      bindings {
+        ...AclFields
+      }
     }
   }
 `);
