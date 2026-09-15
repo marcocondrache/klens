@@ -3,6 +3,7 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { execute } from "@/graphql/execute";
 
 import {
+  aclsQuery,
   brokerConfigsQuery,
   groupLagHistoryQuery,
   recordsQuery,
@@ -12,6 +13,16 @@ import {
 import { keys, type RecordsFilter } from "./keys";
 
 export type { RecordsFilter };
+
+export function useAcls(cluster: string) {
+  return useQuery({
+    queryKey: keys.acls(cluster),
+    queryFn: async () => {
+      const { acls } = await execute(aclsQuery, { cluster });
+      return acls;
+    },
+  });
+}
 
 export function useBrokerConfigs(cluster: string, id: number) {
   return useQuery({

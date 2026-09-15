@@ -3,11 +3,12 @@ import {
   FileJsonIcon,
   HardDriveIcon,
   LayersIcon,
+  ShieldIcon,
   UsersRoundIcon,
   type LucideIcon,
 } from "lucide-react";
 
-export type ClusterSection = "topics" | "groups" | "schemas" | "nodes";
+export type ClusterSection = "topics" | "groups" | "schemas" | "nodes" | "acls";
 
 export interface Section {
   segment: ClusterSection;
@@ -20,6 +21,7 @@ export const SECTIONS: Section[] = [
   { segment: "groups", label: "Consumer Groups", icon: UsersRoundIcon },
   { segment: "schemas", label: "Schema Registry", icon: FileJsonIcon },
   { segment: "nodes", label: "Brokers", icon: HardDriveIcon },
+  { segment: "acls", label: "ACLs", icon: ShieldIcon },
 ];
 
 export function clusterSectionTo(section: ClusterSection) {
@@ -32,6 +34,8 @@ export function clusterSectionTo(section: ClusterSection) {
       return "/cluster/$cluster/schemas" as const;
     case "nodes":
       return "/cluster/$cluster/nodes" as const;
+    case "acls":
+      return "/cluster/$cluster/acls" as const;
   }
 }
 

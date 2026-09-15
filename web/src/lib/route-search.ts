@@ -13,6 +13,21 @@ export type SchemasSearch = {
   q?: string;
 };
 
+export const ACL_RESOURCE_TYPES = [
+  "TOPIC",
+  "GROUP",
+  "CLUSTER",
+  "TRANSACTIONAL_ID",
+  "DELEGATION_TOKEN",
+] as const;
+
+export type AclResourceFilter = (typeof ACL_RESOURCE_TYPES)[number];
+
+export type AclsSearch = {
+  q?: string;
+  resource?: AclResourceFilter;
+};
+
 export type LoginSearch = {
   error?: string;
 };
@@ -59,6 +74,15 @@ export function parseGroupsSearch(search: Record<string, unknown>): GroupsSearch
 export function parseSchemasSearch(search: Record<string, unknown>): SchemasSearch {
   const q = optionalString(search.q);
   return q ? { q } : {};
+}
+
+export function parseAclsSearch(search: Record<string, unknown>): AclsSearch {
+  const q = optionalString(search.q);
+  const resource = ACL_RESOURCE_TYPES.find((value) => value === search.resource);
+  return {
+    ...(q ? { q } : {}),
+    ...(resource ? { resource } : {}),
+  };
 }
 
 export function parseLoginSearch(search: Record<string, unknown>): LoginSearch {

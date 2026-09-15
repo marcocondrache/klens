@@ -24,6 +24,7 @@ export const keys = {
   groupLagHistory: (cluster: string, group: string) =>
     ["cluster", cluster, "groups", group, "lag"] as const,
   subjects: (cluster: string) => ["cluster", cluster, "subjects"] as const,
+  acls: (cluster: string) => ["cluster", cluster, "acls"] as const,
   catalogHealth: (cluster: string) => ["cluster", cluster, "catalogHealth"] as const,
   search: (cluster: string, term: string) => ["cluster", cluster, "search", term] as const,
 };
