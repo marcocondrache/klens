@@ -18,8 +18,10 @@ use crate::environment::{
 };
 use crate::utils::unix_timestamp_secs;
 
+pub(crate) mod access;
 mod oidc;
 
+use access::{AccessPolicy, EffectiveAccess, Identity};
 use oidc::{Oidc, OidcFlow};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -28,12 +30,15 @@ pub(crate) struct SessionUser {
     pub email: Option<String>,
     pub name: Option<String>,
     pub exp: i64,
+    #[serde(default)]
+    pub groups: Vec<String>,
 }
 
 #[derive(Clone)]
 pub struct AuthState {
     inner: Inner,
     key: Key,
+    policy: AccessPolicy,
 }
 
 #[derive(Clone)]
@@ -50,6 +55,7 @@ impl AuthState {
         Self {
             inner: Inner::Disabled,
             key: Key::generate(),
+            policy: AccessPolicy::disabled(),
         }
     }
 
@@ -57,19 +63,25 @@ impl AuthState {
         match auth {
             None => Ok(Self::disabled()),
             Some(config) => {
-                let flow = Oidc::discover(&config.oidc).await?;
-                Ok(Self::enabled(Arc::new(flow), &config.oidc))
+                let policy = AccessPolicy::from_roles(config.roles.as_ref());
+                let flow = Oidc::discover(&config.oidc, policy.groups_claim()).await?;
+                Ok(Self::enabled(Arc::new(flow), &config.oidc, policy))
             }
         }
     }
 
-    fn enabled(flow: Arc<dyn OidcFlow>, oidc: &crate::config::OidcConfig) -> Self {
+    fn enabled(
+        flow: Arc<dyn OidcFlow>,
+        oidc: &crate::config::OidcConfig,
+        policy: AccessPolicy,
+    ) -> Self {
         Self {
             inner: Inner::Enabled {
                 flow,
                 cookie_secure: oidc.cookie_secure(),
             },
             key: derive_cookie_key(&oidc.issuer, &oidc.client_secret),
+            policy,
         }
     }
 
@@ -99,6 +111,20 @@ impl AuthState {
         }
         Some(user)
     }
+
+    fn access_from_user(&self, user: &SessionUser) -> Option<EffectiveAccess> {
+        self.policy.admit(&Identity {
+            groups: &user.groups,
+        })
+    }
+
+    fn access_from_jar(&self, jar: &PrivateCookieJar) -> Option<EffectiveAccess> {
+        if !self.is_enabled() {
+            return Some(EffectiveAccess::Unrestricted);
+        }
+        let user = self.session_from_jar(jar)?;
+        self.access_from_user(&user)
+    }
 }
 
 impl FromRef<AppState> for Key {
@@ -121,7 +147,9 @@ pub async fn require_session(
     request: axum::extract::Request,
     next: Next,
 ) -> Response {
-    if !state.auth.is_enabled() || state.auth.session_from_jar(&jar).is_some() {
+    if let Some(access) = state.auth.access_from_jar(&jar) {
+        let mut request = request;
+        request.extensions_mut().insert(access);
         return next.run(request).await;
     }
 
@@ -143,23 +171,39 @@ struct AuthUserResponse {
     sub: String,
     email: Option<String>,
     name: Option<String>,
+    role: Option<&'static str>,
+    clusters: Option<Vec<String>>,
 }
 
-impl From<SessionUser> for AuthUserResponse {
-    fn from(user: SessionUser) -> Self {
+impl AuthUserResponse {
+    fn from_session(user: SessionUser, access: &EffectiveAccess) -> Self {
+        let role = match access.role() {
+            Some(access::Role::Admin) => Some("admin"),
+            Some(access::Role::Viewer) => Some("viewer"),
+            None => None,
+        };
+        let clusters = match access.clusters() {
+            Some(access::ClusterScope::All) | None => None,
+            Some(access::ClusterScope::Only(names)) => Some(names.iter().cloned().collect()),
+        };
         Self {
             sub: user.sub,
             email: user.email,
             name: user.name,
+            role,
+            clusters,
         }
     }
 }
 
 async fn me(State(state): State<AppState>, jar: PrivateCookieJar) -> impl IntoResponse {
-    let user = state.auth.session_from_jar(&jar);
+    let user = state.auth.session_from_jar(&jar).and_then(|user| {
+        let access = state.auth.access_from_user(&user)?;
+        Some(AuthUserResponse::from_session(user, &access))
+    });
     Json(AuthMeResponse {
         enabled: state.auth.is_enabled(),
-        user: user.map(AuthUserResponse::from),
+        user,
     })
 }
 
@@ -206,25 +250,25 @@ async fn callback(
     };
 
     if query.error.is_some() {
-        return login_error(jar, state.auth.cookie_secure()).into_response();
+        return login_error(jar, state.auth.cookie_secure(), LoginFail::Auth).into_response();
     }
 
     let Some(pending) = login_pending(&jar) else {
         tracing::warn!("oidc callback missing login state");
-        return login_error(jar, state.auth.cookie_secure()).into_response();
+        return login_error(jar, state.auth.cookie_secure(), LoginFail::Auth).into_response();
     };
 
     let Some(state_param) = query.state.as_deref() else {
-        return login_error(jar, state.auth.cookie_secure()).into_response();
+        return login_error(jar, state.auth.cookie_secure(), LoginFail::Auth).into_response();
     };
 
     if pending.state != state_param {
         tracing::warn!("oidc callback rejected: state mismatch");
-        return login_error(jar, state.auth.cookie_secure()).into_response();
+        return login_error(jar, state.auth.cookie_secure(), LoginFail::Auth).into_response();
     }
 
     let Some(code) = query.code else {
-        return login_error(jar, state.auth.cookie_secure()).into_response();
+        return login_error(jar, state.auth.cookie_secure(), LoginFail::Auth).into_response();
     };
 
     let user = match flow
@@ -238,9 +282,14 @@ async fn callback(
         Ok(user) => user,
         Err(error) => {
             tracing::warn!(%error, "oidc callback failed");
-            return login_error(jar, state.auth.cookie_secure()).into_response();
+            return login_error(jar, state.auth.cookie_secure(), LoginFail::Auth).into_response();
         }
     };
+
+    if state.auth.access_from_user(&user).is_none() {
+        tracing::info!(sub = %user.sub, "oidc login refused: no matching role");
+        return login_error(jar, state.auth.cookie_secure(), LoginFail::Forbidden).into_response();
+    }
 
     tracing::info!(sub = %user.sub, "oidc login succeeded");
 
@@ -265,10 +314,20 @@ async fn logout(State(state): State<AppState>, jar: PrivateCookieJar) -> impl In
     (jar, StatusCode::NO_CONTENT)
 }
 
-fn login_error(jar: PrivateCookieJar, secure: bool) -> impl IntoResponse {
+enum LoginFail {
+    Auth,
+    Forbidden,
+}
+
+fn login_error(jar: PrivateCookieJar, secure: bool, fail: LoginFail) -> impl IntoResponse {
+    let location = match fail {
+        LoginFail::Auth => "/login?error=auth",
+        LoginFail::Forbidden => "/login?error=forbidden",
+    };
     (
-        jar.remove(removal_cookie(LOGIN_COOKIE, secure)),
-        Redirect::to("/login?error=auth"),
+        jar.remove(removal_cookie(LOGIN_COOKIE, secure))
+            .remove(removal_cookie(SESSION_COOKIE, secure)),
+        Redirect::to(location),
     )
 }
 
@@ -324,12 +383,17 @@ mod tests {
 
     impl AuthState {
         pub(crate) fn enabled_for_tests() -> Self {
+            Self::enabled_for_tests_with(FakeOidc::default(), AccessPolicy::open())
+        }
+
+        pub(crate) fn enabled_for_tests_with(flow: FakeOidc, policy: AccessPolicy) -> Self {
             Self {
                 inner: Inner::Enabled {
-                    flow: Arc::new(FakeOidc),
+                    flow: Arc::new(flow),
                     cookie_secure: false,
                 },
                 key: Key::derive_from(b"klens-test-session-cookie-key-32b!!"),
+                policy,
             }
         }
 
@@ -433,6 +497,7 @@ mod tests {
             sub: "user-1".into(),
             email: Some("user@example.com".into()),
             name: Some("Test User".into()),
+            groups: vec![],
             exp: unix_timestamp_secs() + 3600,
         };
         let cookie = auth.session_cookie_header(&user);
@@ -654,5 +719,163 @@ mod tests {
             callback.headers().get(header::LOCATION).unwrap(),
             "/login?error=auth"
         );
+    }
+
+    fn bound_admins() -> AccessPolicy {
+        AccessPolicy::from_roles(Some(&crate::config::RolesConfig {
+            claim: "groups".into(),
+            bindings: vec![crate::config::RoleBinding {
+                groups: vec!["klens-admins".into()],
+                role: crate::config::RoleName::Admin,
+                clusters: None,
+            }],
+        }))
+    }
+
+    fn bound_viewers() -> AccessPolicy {
+        AccessPolicy::from_roles(Some(&crate::config::RolesConfig {
+            claim: "groups".into(),
+            bindings: vec![crate::config::RoleBinding {
+                groups: vec!["klens-viewers".into()],
+                role: crate::config::RoleName::Viewer,
+                clusters: None,
+            }],
+        }))
+    }
+
+    async fn login_and_callback(auth: AuthState, code: &str) -> axum::http::Response<Body> {
+        let router = app(auth);
+        let login = send(
+            router.clone(),
+            Request::builder()
+                .uri("/auth/login")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        let location = login
+            .headers()
+            .get(header::LOCATION)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let state = url::Url::parse(&location)
+            .unwrap()
+            .query_pairs()
+            .find(|(key, _)| key == "state")
+            .map(|(_, value)| value.into_owned())
+            .unwrap();
+        let cookies = cookie_header(&login);
+        send(
+            router,
+            Request::builder()
+                .uri(format!("/auth/callback?code={code}&state={state}"))
+                .header(header::COOKIE, cookies)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn callback_refuses_an_unmatched_group() {
+        let callback = login_and_callback(
+            AuthState::enabled_for_tests_with(
+                FakeOidc {
+                    groups: vec!["other".into()],
+                },
+                bound_admins(),
+            ),
+            "test-code",
+        )
+        .await;
+
+        assert!(callback.status().is_redirection());
+        assert_eq!(
+            callback.headers().get(header::LOCATION).unwrap(),
+            "/login?error=forbidden"
+        );
+        assert!(!cookie_header(&callback).contains(SESSION_COOKIE));
+    }
+
+    #[tokio::test]
+    async fn me_reports_bound_role() {
+        let auth = AuthState::enabled_for_tests_with(FakeOidc::default(), bound_viewers());
+        let user = SessionUser {
+            sub: "user-1".into(),
+            email: Some("user@example.com".into()),
+            name: Some("Test User".into()),
+            groups: vec!["klens-viewers".into()],
+            exp: unix_timestamp_secs() + 3600,
+        };
+        let cookie = auth.session_cookie_header(&user);
+
+        let response = send(
+            app(auth),
+            Request::builder()
+                .uri("/auth/me")
+                .header(header::COOKIE, cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["enabled"], true);
+        assert_eq!(json["user"]["role"], "viewer");
+        assert!(json["user"]["clusters"].is_null());
+    }
+
+    #[tokio::test]
+    async fn graphql_rejects_a_session_without_a_matching_role() {
+        let auth = AuthState::enabled_for_tests_with(FakeOidc::default(), bound_admins());
+        let user = SessionUser {
+            sub: "user-1".into(),
+            email: None,
+            name: None,
+            groups: vec![],
+            exp: unix_timestamp_secs() + 3600,
+        };
+        let cookie = auth.session_cookie_header(&user);
+
+        let mut request = graphql_request();
+        request
+            .headers_mut()
+            .insert(header::COOKIE, cookie.parse().unwrap());
+
+        let response = send(app(auth), request).await;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn graphql_forbids_records_for_a_viewer() {
+        let auth = AuthState::enabled_for_tests_with(FakeOidc::default(), bound_viewers());
+        let user = SessionUser {
+            sub: "user-1".into(),
+            email: None,
+            name: None,
+            groups: vec!["klens-viewers".into()],
+            exp: unix_timestamp_secs() + 3600,
+        };
+        let cookie = auth.session_cookie_header(&user);
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/graphql")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::COOKIE, cookie)
+            .body(Body::from(
+                r#"{"query":"{ records(query: { cluster: \"local\", topic: \"orders.created\", filter: \"\", limit: 1, order: OLDEST }) { records { key } } }"}"#,
+            ))
+            .unwrap();
+
+        let response = send(app(auth), request).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["errors"][0]["extensions"]["code"], "FORBIDDEN");
     }
 }

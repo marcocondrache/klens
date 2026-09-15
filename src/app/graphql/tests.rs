@@ -11,7 +11,9 @@ use crate::kafka::{
 };
 use juniper::{Variables, execute, graphql_value};
 
+use super::context::GraphQlContext;
 use super::*;
+use crate::app::auth::access::{ClusterScope, EffectiveAccess, Grant, Role};
 
 fn state() -> AppState {
     AppState::new(Arc::new(QueryEngine::from_sessions(vec![
@@ -19,10 +21,42 @@ fn state() -> AppState {
     ])))
 }
 
+fn two_clusters() -> AppState {
+    AppState::new(Arc::new(QueryEngine::from_sessions(vec![
+        FakeCluster::local(),
+        FakeCluster::named("payments"),
+    ])))
+}
+
+fn ctx(state: &AppState) -> GraphQlContext {
+    GraphQlContext::unrestricted(state.clone())
+}
+
+fn ctx_with(state: &AppState, access: EffectiveAccess) -> GraphQlContext {
+    GraphQlContext {
+        state: state.clone(),
+        access,
+    }
+}
+
+fn viewer(clusters: ClusterScope) -> EffectiveAccess {
+    EffectiveAccess::Restricted(Grant {
+        role: Role::Viewer,
+        clusters,
+    })
+}
+
+fn admin(clusters: ClusterScope) -> EffectiveAccess {
+    EffectiveAccess::Restricted(Grant {
+        role: Role::Admin,
+        clusters,
+    })
+}
+
 /// Execute `query` against a fresh schema and return the response data plus the
 /// messages of any GraphQL errors.
-async fn gql_partial(state: &AppState, query: &str) -> (serde_json::Value, Vec<String>) {
-    let (value, errors) = execute(query, None, &schema(), &Variables::new(), state)
+async fn gql_partial(context: &GraphQlContext, query: &str) -> (serde_json::Value, Vec<String>) {
+    let (value, errors) = execute(query, None, &schema(), &Variables::new(), context)
         .await
         .unwrap();
 
@@ -36,7 +70,11 @@ async fn gql_partial(state: &AppState, query: &str) -> (serde_json::Value, Vec<S
 /// Execute `query` and return its data, failing the test if the query produced
 /// any GraphQL error.
 async fn gql(state: &AppState, query: &str) -> serde_json::Value {
-    let (data, errors) = gql_partial(state, query).await;
+    gql_on(&ctx(state), query).await
+}
+
+async fn gql_on(context: &GraphQlContext, query: &str) -> serde_json::Value {
+    let (data, errors) = gql_partial(context, query).await;
 
     assert!(errors.is_empty(), "{errors:?}");
     data
@@ -44,11 +82,18 @@ async fn gql(state: &AppState, query: &str) -> serde_json::Value {
 
 /// Execute `query` and return only its error messages.
 async fn gql_errors(state: &AppState, query: &str) -> Vec<String> {
-    gql_partial(state, query).await.1
+    gql_partial(&ctx(state), query).await.1
 }
 
 async fn gql_field_errors(state: &AppState, query: &str) -> Vec<(String, juniper::Value)> {
-    let (_, errors) = execute(query, None, &schema(), &Variables::new(), state)
+    gql_field_errors_on(&ctx(state), query).await
+}
+
+async fn gql_field_errors_on(
+    context: &GraphQlContext,
+    query: &str,
+) -> Vec<(String, juniper::Value)> {
+    let (_, errors) = execute(query, None, &schema(), &Variables::new(), context)
         .await
         .unwrap();
     errors
@@ -853,7 +898,7 @@ async fn topic_and_group_report_a_failed_catalog_seed() {
     ])));
 
     let topic_query = r#"{ topic(cluster: "down", name: "orders.created") { name } }"#;
-    let (topic_data, _) = gql_partial(&state, topic_query).await;
+    let (topic_data, _) = gql_partial(&ctx(&state), topic_query).await;
     let topic_errors = gql_field_errors(&state, topic_query).await;
     assert!(
         topic_errors.iter().any(|(message, extensions)| {
@@ -864,7 +909,7 @@ async fn topic_and_group_report_a_failed_catalog_seed() {
     assert_eq!(topic_data["topic"], serde_json::Value::Null);
 
     let group_query = r#"{ consumerGroup(cluster: "down", id: "order-processor") { id } }"#;
-    let (group_data, _) = gql_partial(&state, group_query).await;
+    let (group_data, _) = gql_partial(&ctx(&state), group_query).await;
     let group_errors = gql_field_errors(&state, group_query).await;
     assert!(
         group_errors.iter().any(|(message, extensions)| {
@@ -1075,7 +1120,7 @@ async fn disabled_authorizer_is_acl_data() {
         FakeCluster::local().with_security_disabled(),
     ])));
     let (data, errors) = gql_partial(
-        &state,
+        &ctx(&state),
         r#"{ acls(cluster: "local") { authorizer bindings { principal } } }"#,
     )
     .await;
@@ -1113,4 +1158,189 @@ async fn acls_admin_failure_is_a_field_error() {
         }),
         "{errors:?}"
     );
+}
+
+fn records_query(cluster: &str) -> String {
+    format!(
+        r#"{{
+            records(query: {{
+                cluster: "{cluster}"
+                topic: "orders.created"
+                filter: ""
+                limit: 2
+                order: OLDEST
+            }}) {{ records {{ key }} }}
+        }}"#
+    )
+}
+
+#[tokio::test]
+async fn viewer_cannot_read_records_or_live_configs() {
+    let state = state();
+    let context = ctx_with(&state, viewer(ClusterScope::All));
+
+    let records = gql_field_errors_on(&context, &records_query("local")).await;
+    assert!(
+        records.iter().any(|(message, extensions)| {
+            message == "forbidden" && *extensions == graphql_value!({ "code": "FORBIDDEN" })
+        }),
+        "{records:?}"
+    );
+
+    let configs = gql_field_errors_on(
+        &context,
+        r#"{ topicConfigs(cluster: "local", name: "orders.created") { name } }"#,
+    )
+    .await;
+    assert!(
+        configs
+            .iter()
+            .any(|(_, extensions)| *extensions == graphql_value!({ "code": "FORBIDDEN" })),
+        "{configs:?}"
+    );
+
+    let brokers = gql_field_errors_on(
+        &context,
+        r#"{ brokerConfigs(cluster: "local", id: 1) { name } }"#,
+    )
+    .await;
+    assert!(
+        brokers
+            .iter()
+            .any(|(_, extensions)| *extensions == graphql_value!({ "code": "FORBIDDEN" })),
+        "{brokers:?}"
+    );
+
+    let acls = gql_field_errors_on(&context, r#"{ acls(cluster: "local") { authorizer } }"#).await;
+    assert!(
+        acls.iter()
+            .any(|(_, extensions)| *extensions == graphql_value!({ "code": "FORBIDDEN" })),
+        "{acls:?}"
+    );
+}
+
+#[tokio::test]
+async fn viewer_sees_subject_names_without_schema_text() {
+    let state = state();
+    let body = gql_on(
+        &ctx_with(&state, viewer(ClusterScope::All)),
+        r#"{ schemaSubjects(cluster: "local") { subject schema } }"#,
+    )
+    .await;
+
+    assert_eq!(
+        body,
+        serde_json::json!({
+            "schemaSubjects": [{
+                "subject": "orders.created-value",
+                "schema": ""
+            }]
+        })
+    );
+}
+
+#[tokio::test]
+async fn hidden_cluster_matches_an_unknown_cluster() {
+    let state = two_clusters();
+    let context = ctx_with(
+        &state,
+        viewer(ClusterScope::Only(["payments".into()].into())),
+    );
+
+    let body = gql_on(
+        &context,
+        r#"{
+            clusters { name }
+            visible: cluster(name: "payments") { name }
+            hidden: cluster(name: "local") { name }
+        }"#,
+    )
+    .await;
+    assert_eq!(
+        body,
+        serde_json::json!({
+            "clusters": [{ "name": "payments" }],
+            "visible": { "name": "payments" },
+            "hidden": null
+        })
+    );
+
+    let catalog = gql_field_errors_on(
+        &context,
+        r#"{ clusterCatalog(cluster: "local") { topics { name } } }"#,
+    )
+    .await;
+    assert!(
+        catalog.iter().any(|(message, extensions)| {
+            message.contains("unknown cluster")
+                && *extensions == graphql_value!({ "code": "UNKNOWN_CLUSTER" })
+        }),
+        "{catalog:?}"
+    );
+
+    let records = gql_field_errors_on(&context, &records_query("local")).await;
+    assert!(
+        records.iter().any(|(_, extensions)| {
+            *extensions == graphql_value!({ "code": "UNKNOWN_CLUSTER" })
+        }),
+        "{records:?}"
+    );
+
+    let forbidden = gql_field_errors_on(&context, &records_query("payments")).await;
+    assert!(
+        forbidden
+            .iter()
+            .any(|(_, extensions)| *extensions == graphql_value!({ "code": "FORBIDDEN" })),
+        "{forbidden:?}"
+    );
+
+    let hidden_acls = gql_field_errors_on(&context, r#"{ acls(cluster: "local") { authorizer } }"#).await;
+    assert!(
+        hidden_acls.iter().any(|(_, extensions)| {
+            *extensions == graphql_value!({ "code": "UNKNOWN_CLUSTER" })
+        }),
+        "{hidden_acls:?}"
+    );
+}
+
+#[tokio::test]
+async fn admin_still_reads_records_on_an_allowed_cluster() {
+    let state = two_clusters();
+    let body = gql_on(
+        &ctx_with(
+            &state,
+            admin(ClusterScope::Only(["payments".into()].into())),
+        ),
+        &records_query("payments"),
+    )
+    .await;
+    assert_eq!(
+        body["records"]["records"][0]["key"],
+        serde_json::json!("ord_0")
+    );
+
+    let hidden = gql_field_errors_on(
+        &ctx_with(
+            &state,
+            admin(ClusterScope::Only(["payments".into()].into())),
+        ),
+        &records_query("local"),
+    )
+    .await;
+    assert!(
+        hidden
+            .iter()
+            .any(|(_, extensions)| *extensions == graphql_value!({ "code": "UNKNOWN_CLUSTER" })),
+        "{hidden:?}"
+    );
+
+    let acls = gql_on(
+        &ctx_with(
+            &state,
+            admin(ClusterScope::Only(["payments".into()].into())),
+        ),
+        r#"{ acls(cluster: "payments") { authorizer bindings { principal } } }"#,
+    )
+    .await;
+    assert_eq!(acls["acls"]["authorizer"], "ENABLED");
 }

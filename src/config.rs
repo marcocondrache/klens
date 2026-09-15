@@ -108,6 +108,9 @@ impl Config {
     pub fn validate(&self) -> Result<(), ConfigError> {
         if let Some(auth) = &self.auth {
             auth.oidc.validate()?;
+            if let Some(roles) = &auth.roles {
+                roles.validate()?;
+            }
         }
 
         let mut seen = HashSet::with_capacity(self.clusters.len());
@@ -129,6 +132,69 @@ impl Config {
 #[serde(deny_unknown_fields)]
 pub struct AuthConfig {
     pub oidc: OidcConfig,
+    #[serde(default)]
+    pub roles: Option<RolesConfig>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RolesConfig {
+    #[serde(default = "default_groups_claim")]
+    pub claim: String,
+    pub bindings: Vec<RoleBinding>,
+}
+
+pub fn default_groups_claim() -> String {
+    "groups".to_owned()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RoleBinding {
+    pub groups: Vec<String>,
+    pub role: RoleName,
+    #[serde(default)]
+    pub clusters: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RoleName {
+    Admin,
+    Viewer,
+}
+
+impl RolesConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        let fail = |reason: &str| Err(ConfigError::invalid_auth(reason));
+
+        if self.claim.trim().is_empty() {
+            return fail("roles claim must not be empty");
+        }
+
+        if self.bindings.is_empty() {
+            return fail("roles bindings must not be empty");
+        }
+
+        for binding in &self.bindings {
+            if binding.groups.is_empty() {
+                return fail("roles binding groups must not be empty");
+            }
+            if binding.groups.iter().any(|group| group.trim().is_empty()) {
+                return fail("roles binding groups must not contain empty values");
+            }
+            if let Some(clusters) = &binding.clusters {
+                if clusters.is_empty() {
+                    return fail("roles binding clusters must not be empty when set");
+                }
+                if clusters.iter().any(|cluster| cluster.trim().is_empty()) {
+                    return fail("roles binding clusters must not contain empty values");
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -757,6 +823,68 @@ mod tests {
         assert_eq!(oidc.cookie_secure, None);
         assert!(!oidc.cookie_secure());
         config.validate().unwrap();
+    }
+
+    #[test]
+    fn parses_role_bindings() {
+        let config = parse_config(
+            "
+            bind: 127.0.0.1:8080
+            clusters: []
+            auth:
+              oidc:
+                issuer: https://idp.example
+                client_id: klens
+                client_secret: secret
+                redirect_uri: http://localhost:8080/auth/callback
+              roles:
+                bindings:
+                  - groups: [klens-admins]
+                    role: admin
+                  - groups: [payments-viewers]
+                    role: viewer
+                    clusters: [payments]
+            ",
+        )
+        .unwrap();
+
+        let roles = config.auth.as_ref().unwrap().roles.as_ref().unwrap();
+        assert_eq!(roles.claim, "groups");
+        assert_eq!(roles.bindings.len(), 2);
+        assert_eq!(roles.bindings[0].role, RoleName::Admin);
+        assert_eq!(roles.bindings[0].clusters, None);
+        assert_eq!(roles.bindings[1].role, RoleName::Viewer);
+        assert_eq!(
+            roles.bindings[1].clusters.as_deref(),
+            Some(["payments".to_owned()].as_slice())
+        );
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn rejects_empty_role_bindings() {
+        let config = parse_config(
+            "
+            bind: 127.0.0.1:8080
+            clusters: []
+            auth:
+              oidc:
+                issuer: https://idp.example
+                client_id: klens
+                client_secret: secret
+                redirect_uri: http://localhost:8080/auth/callback
+              roles:
+                bindings: []
+            ",
+        )
+        .unwrap();
+
+        let error = config.validate().unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("roles bindings must not be empty")
+        );
     }
 
     #[test]

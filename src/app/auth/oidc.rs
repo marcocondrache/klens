@@ -18,6 +18,7 @@ type DiscoveredClient = CoreClient<
 >;
 
 use super::SessionUser;
+use super::access::groups_from_json;
 use crate::config::OidcConfig;
 use crate::utils::unix_timestamp_secs;
 
@@ -42,10 +43,11 @@ pub(crate) struct Oidc {
     http: reqwest::Client,
     client: DiscoveredClient,
     scopes: Vec<Scope>,
+    groups_claim: String,
 }
 
 impl Oidc {
-    pub(crate) async fn discover(config: &OidcConfig) -> anyhow::Result<Self> {
+    pub(crate) async fn discover(config: &OidcConfig, groups_claim: &str) -> anyhow::Result<Self> {
         let http = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .build()
@@ -78,6 +80,7 @@ impl Oidc {
                 .into_iter()
                 .map(Scope::new)
                 .collect(),
+            groups_claim: groups_claim.to_owned(),
         })
     }
 }
@@ -172,13 +175,33 @@ impl OidcFlow for Oidc {
             sub: claims.subject().to_string(),
             email: claims.email().map(|email| email.to_string()),
             name,
+            groups: groups_from_id_token(&id_token.to_string(), &self.groups_claim)?,
             exp,
         })
     }
 }
 
+fn groups_from_id_token(id_token: &str, claim: &str) -> anyhow::Result<Vec<String>> {
+    let payload = id_token
+        .split('.')
+        .nth(1)
+        .ok_or_else(|| anyhow!("oidc ID token is invalid"))?;
+    let decoded =
+        base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, payload)
+            .or_else(|_| {
+                base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE, payload)
+            })
+            .map_err(|error| anyhow!("oidc ID token is invalid: {error}"))?;
+    let value: serde_json::Value = serde_json::from_slice(&decoded)
+        .map_err(|error| anyhow!("oidc ID token is invalid: {error}"))?;
+    Ok(groups_from_json(&value, claim))
+}
+
 #[cfg(test)]
-pub(crate) struct FakeOidc;
+#[derive(Clone, Default)]
+pub(crate) struct FakeOidc {
+    pub groups: Vec<String>,
+}
 
 #[cfg(test)]
 #[async_trait]
@@ -208,6 +231,7 @@ impl OidcFlow for FakeOidc {
             sub: "user-1".into(),
             email: Some("user@example.com".into()),
             name: Some("Test User".into()),
+            groups: self.groups.clone(),
             exp: unix_timestamp_secs() + 3600,
         })
     }
@@ -227,7 +251,7 @@ mod tests {
 
     #[tokio::test]
     async fn fake_oidc_rejects_a_bad_code_with_a_literal() {
-        let error = FakeOidc
+        let error = FakeOidc::default()
             .authenticate("nope".into(), unused_pkce(), unused_nonce())
             .await
             .unwrap_err();
@@ -236,12 +260,37 @@ mod tests {
 
     #[tokio::test]
     async fn fake_oidc_accepts_the_test_code() {
-        let user = FakeOidc
+        let user = FakeOidc::default()
             .authenticate("test-code".into(), unused_pkce(), unused_nonce())
             .await
             .unwrap();
         assert_eq!(user.sub, "user-1");
         assert_eq!(user.email.as_deref(), Some("user@example.com"));
         assert_eq!(user.name.as_deref(), Some("Test User"));
+        assert!(user.groups.is_empty());
+    }
+
+    #[tokio::test]
+    async fn fake_oidc_returns_configured_groups() {
+        let user = FakeOidc {
+            groups: vec!["klens-admins".into()],
+        }
+        .authenticate("test-code".into(), unused_pkce(), unused_nonce())
+        .await
+        .unwrap();
+        assert_eq!(user.groups, ["klens-admins"]);
+    }
+
+    #[test]
+    fn groups_from_id_token_reads_the_payload_claim() {
+        let payload = base64::Engine::encode(
+            &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+            br#"{"groups":["ops","platform"]}"#,
+        );
+        let token = format!("header.{payload}.sig");
+        assert_eq!(
+            groups_from_id_token(&token, "groups").unwrap(),
+            ["ops", "platform"]
+        );
     }
 }
