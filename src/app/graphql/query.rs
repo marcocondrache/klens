@@ -3,8 +3,8 @@ use juniper::graphql_object;
 use super::context::GraphQlContext;
 use super::error::GqlError;
 use super::types::{
-    AclListing, Broker, CatalogHealth, Cluster, ClusterCatalog, ConfigEntry, ConsumerGroup,
-    RecordPage, RecordQuery, SchemaSubject, SearchResult, SearchResults, ThroughputPoint, Topic,
+    AclListing, Broker, CatalogHealth, ClusterCatalog, ConfigEntry, ConsumerGroup, RecordPage,
+    RecordQuery, SchemaSubject, SearchResult, SearchResults, ThroughputPoint, Topic,
 };
 use crate::app::auth::access::Privilege;
 use crate::kafka::KafkaError;
@@ -13,21 +13,14 @@ pub struct Query;
 
 #[graphql_object(context = GraphQlContext)]
 impl Query {
-    async fn clusters(context: &GraphQlContext) -> Vec<Cluster> {
+    fn clusters(context: &GraphQlContext) -> Vec<String> {
         context
-            .cluster_overviews()
-            .await
+            .query
+            .names()
             .into_iter()
-            .filter(|overview| context.access.can_see_cluster(&overview.identity.name))
-            .map(Cluster::from)
+            .filter(|name| context.access.can_see_cluster(name))
+            .map(str::to_owned)
             .collect()
-    }
-
-    async fn cluster(context: &GraphQlContext, name: String) -> Option<Cluster> {
-        if !context.access.can_see_cluster(&name) {
-            return None;
-        }
-        context.cluster_overview(&name).await.map(Cluster::from)
     }
 
     async fn brokers(context: &GraphQlContext, cluster: String) -> Result<Vec<Broker>, KafkaError> {

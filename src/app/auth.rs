@@ -454,7 +454,7 @@ mod tests {
             .method("POST")
             .uri("/graphql")
             .header(header::CONTENT_TYPE, "application/json")
-            .body(Body::from(r#"{"query":"{ clusters { name } }"}"#))
+            .body(Body::from(r#"{"query":"{ clusters }"}"#))
             .unwrap()
     }
 

@@ -56,7 +56,8 @@ Read-only. Fail if any check misses:
 - `GET /health` is 204.
 - `GET /auth/me` is `{"enabled":false,"user":null}` (verify configs omit OIDC).
 - `GET /` includes `<title>klens</title>`.
-- `POST /graphql` `query { clusters { name status topicCount } }` returns cluster `local` with status `HEALTHY`.
+- `POST /graphql` `query { clusters }` includes `local`.
+- `POST /graphql` `query { catalogHealth(cluster: "local") { updatedAt lastError } }` has `updatedAt` set and no `lastError`.
 
 If doctor fails, stop driving. Relaunch or fix the unmet check.
 

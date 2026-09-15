@@ -14,23 +14,16 @@ import {
   CommandShortcut,
 } from "@/components/ui/command";
 import { StatusDot } from "@/components/status";
-import { useClusters, useSearch } from "@/lib/api/catalog";
-import { useClusterName } from "@/lib/clusters";
+import { useCatalogHealth, useClusters, useSearch } from "@/lib/api/catalog";
+import { catalogTone, useClusterName } from "@/lib/clusters";
 import { useAccess } from "@/hooks/use-access";
 import { clusterSectionTo, useActiveSection, visibleSections } from "@/lib/sections";
-import type { ClusterStatus } from "@/lib/api/types";
 
 const RESULT_ICON = {
   TOPIC: LayersIcon,
   GROUP: UsersRoundIcon,
   NODE: HardDriveIcon,
   SUBJECT: FileJsonIcon,
-};
-
-const STATUS_TONE: Record<ClusterStatus, "ok" | "warn" | "error"> = {
-  HEALTHY: "ok",
-  DEGRADED: "warn",
-  OFFLINE: "error",
 };
 
 export function CommandPalette({
@@ -52,6 +45,7 @@ export function CommandPalette({
   }
 
   const { data: clusters = [] } = useClusters();
+  const { data: health } = useCatalogHealth(cluster);
   const { data: search, isFetching, isError, error } = useSearch(cluster, term);
   const results = search?.hits ?? [];
   const registryError = search?.schemaRegistryError;
@@ -209,25 +203,24 @@ export function CommandPalette({
           </CommandGroup>
 
           <CommandGroup heading="Switch cluster">
-            {clusters.map((entry) => (
+            {clusters.map((name) => (
               <CommandItem
-                key={entry.name}
-                value={`cluster:${entry.name}`}
+                key={name}
+                value={`cluster:${name}`}
                 className="min-w-0"
                 onSelect={() =>
                   run(() => {
                     void navigate({
                       to: section ? clusterSectionTo(section.segment) : "/cluster/$cluster",
-                      params: { cluster: entry.name },
+                      params: { cluster: name },
                     });
                   })
                 }
               >
                 <ServerIcon className="text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate">{entry.label}</span>
+                <span className="min-w-0 flex-1 truncate">{name}</span>
                 <CommandShortcut className="flex shrink-0 items-center gap-1.5 tracking-normal">
-                  <StatusDot tone={STATUS_TONE[entry.status]} />
-                  {entry.brokerCount} {entry.brokerCount === 1 ? "broker" : "brokers"}
+                  <StatusDot tone={name === cluster ? catalogTone(health) : "idle"} />
                 </CommandShortcut>
               </CommandItem>
             ))}

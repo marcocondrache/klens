@@ -22,8 +22,6 @@ export function useCatalogUpdated(cluster: string) {
     }
 
     return subscribe(catalogUpdatedSubscription, { cluster }, () => {
-      void queryClient.invalidateQueries({ queryKey: keys.clusters() });
-      void queryClient.invalidateQueries({ queryKey: keys.cluster(cluster), exact: true });
       void queryClient.invalidateQueries({ queryKey: keys.topics(cluster), exact: true });
       void queryClient.invalidateQueries({ queryKey: keys.groups(cluster), exact: true });
       void queryClient.invalidateQueries({ queryKey: keys.brokers(cluster), exact: true });

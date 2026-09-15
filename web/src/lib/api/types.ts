@@ -4,7 +4,6 @@ export type {
   AclResourceType,
   BrokerFieldsFragment as Broker,
   CleanupPolicy,
-  ClusterStatus,
   ConfigEntryFieldsFragment as ConfigEntry,
   ConsumerGroupFieldsFragment as ConsumerGroup,
   GroupListFieldsFragment as GroupList,

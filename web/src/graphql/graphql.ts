@@ -41,11 +41,6 @@ export type CleanupPolicy =
   | 'COMPACT_DELETE'
   | 'DELETE';
 
-export type ClusterStatus =
-  | 'DEGRADED'
-  | 'HEALTHY'
-  | 'OFFLINE';
-
 export type Compression =
   | 'GZIP'
   | 'LZ4'
@@ -100,14 +95,6 @@ export type SearchResultKind =
   | 'SUBJECT'
   | 'TOPIC';
 
-export type SecurityProtocol =
-  | 'PLAINTEXT'
-  | 'SASL_PLAINTEXT'
-  | 'SASL_SSL'
-  | 'SSL';
-
-export type ClusterFieldsFragment = { name: string, label: string, clusterId: string, bootstrapServers: Array<string>, securityProtocol: SecurityProtocol, status: ClusterStatus, brokerCount: number, topicCount: number, partitionCount: number, consumerGroupCount: number, underReplicatedPartitions: number, offlinePartitions: number, messageCount: number };
-
 export type BrokerFieldsFragment = { id: number, host: string, port: number, rack: string | null, controller: boolean, partitionCount: number, leaderCount: number };
 
 export type PartitionFieldsFragment = { id: number, leader: number, replicas: Array<number>, isr: Array<number>, lowWatermark: number, highWatermark: number };
@@ -147,14 +134,7 @@ export type SearchResultFieldsFragment = { kind: SearchResultKind, id: string, l
 export type ClustersQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type ClustersQuery = { clusters: Array<{ name: string, label: string, clusterId: string, bootstrapServers: Array<string>, securityProtocol: SecurityProtocol, status: ClusterStatus, brokerCount: number, topicCount: number, partitionCount: number, consumerGroupCount: number, underReplicatedPartitions: number, offlinePartitions: number, messageCount: number }> };
-
-export type ClusterQueryVariables = Exact<{
-  name: string;
-}>;
-
-
-export type ClusterQuery = { cluster: { name: string, label: string, clusterId: string, bootstrapServers: Array<string>, securityProtocol: SecurityProtocol, status: ClusterStatus, brokerCount: number, topicCount: number, partitionCount: number, consumerGroupCount: number, underReplicatedPartitions: number, offlinePartitions: number, messageCount: number } | null };
+export type ClustersQuery = { clusters: Array<string> };
 
 export type CatalogHealthQueryVariables = Exact<{
   cluster: string;
@@ -317,23 +297,6 @@ export class TypedDocumentString<TResult, TVariables>
     return this.value;
   }
 }
-export const ClusterFieldsFragmentDoc = new TypedDocumentString(`
-    fragment ClusterFields on Cluster {
-  name
-  label
-  clusterId
-  bootstrapServers
-  securityProtocol
-  status
-  brokerCount
-  topicCount
-  partitionCount
-  consumerGroupCount
-  underReplicatedPartitions
-  offlinePartitions
-  messageCount
-}
-    `, {"fragmentName":"ClusterFields"}) as unknown as TypedDocumentString<ClusterFieldsFragment, unknown>;
 export const BrokerFieldsFragmentDoc = new TypedDocumentString(`
     fragment BrokerFields on Broker {
   id
@@ -565,46 +528,9 @@ export const SearchResultFieldsFragmentDoc = new TypedDocumentString(`
     `, {"fragmentName":"SearchResultFields"}) as unknown as TypedDocumentString<SearchResultFieldsFragment, unknown>;
 export const ClustersDocument = new TypedDocumentString(`
     query Clusters {
-  clusters {
-    ...ClusterFields
-  }
+  clusters
 }
-    fragment ClusterFields on Cluster {
-  name
-  label
-  clusterId
-  bootstrapServers
-  securityProtocol
-  status
-  brokerCount
-  topicCount
-  partitionCount
-  consumerGroupCount
-  underReplicatedPartitions
-  offlinePartitions
-  messageCount
-}`) as unknown as TypedDocumentString<ClustersQuery, ClustersQueryVariables>;
-export const ClusterDocument = new TypedDocumentString(`
-    query Cluster($name: String!) {
-  cluster(name: $name) {
-    ...ClusterFields
-  }
-}
-    fragment ClusterFields on Cluster {
-  name
-  label
-  clusterId
-  bootstrapServers
-  securityProtocol
-  status
-  brokerCount
-  topicCount
-  partitionCount
-  consumerGroupCount
-  underReplicatedPartitions
-  offlinePartitions
-  messageCount
-}`) as unknown as TypedDocumentString<ClusterQuery, ClusterQueryVariables>;
+    `) as unknown as TypedDocumentString<ClustersQuery, ClustersQueryVariables>;
 export const CatalogHealthDocument = new TypedDocumentString(`
     query CatalogHealth($cluster: String!) {
   catalogHealth(cluster: $cluster) {

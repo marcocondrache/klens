@@ -72,12 +72,6 @@ pub static REQUEST_TIMEOUT: LazyLock<Duration> =
 pub static CONSUME_TIMEOUT: LazyLock<Duration> =
     lazy_env_parse!(duration, "KLENS_CONSUME_TIMEOUT", Duration::from_secs(5));
 
-/// Overall budget for assembling a cluster overview (default: 20 seconds).
-///
-/// Override with `KLENS_OVERVIEW_BUDGET` (seconds).
-pub static OVERVIEW_BUDGET: LazyLock<Duration> =
-    lazy_env_parse!(duration, "KLENS_OVERVIEW_BUDGET", Duration::from_secs(20));
-
 /// Consumer groups whose committed offsets are fetched together (default: 8).
 ///
 /// Override with `KLENS_OFFSET_FETCH_BATCH`.

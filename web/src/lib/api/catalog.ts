@@ -7,7 +7,6 @@ import {
   brokerQuery,
   brokersQuery,
   catalogHealthQuery,
-  clusterQuery,
   clustersQuery,
   consumerGroupQuery,
   consumerGroupsQuery,
@@ -61,22 +60,16 @@ export function useClusters() {
   });
 }
 
-export function useCluster(cluster: string) {
-  return useQuery({
-    queryKey: keys.cluster(cluster),
-    queryFn: async () => {
-      const { cluster: data } = await execute(clusterQuery, { name: cluster });
-      return required(data, `unknown cluster '${cluster}'`);
-    },
-  });
-}
-
 export function useCatalogHealth(cluster: string) {
   return useQuery({
     queryKey: keys.catalogHealth(cluster),
     queryFn: async () => {
       const { catalogHealth } = await execute(catalogHealthQuery, { cluster });
       return catalogHealth;
+    },
+    refetchInterval: (query) => {
+      const health = query.state.data;
+      return health?.updatedAt == null || health.subjectsUpdatedAt == null ? 2000 : false;
     },
   });
 }

@@ -4,7 +4,6 @@ export type RecordsFilter = Omit<RecordQuery, "cursor">;
 
 export const keys = {
   clusters: () => ["clusters"] as const,
-  cluster: (cluster: string) => ["cluster", cluster] as const,
   brokers: (cluster: string) => ["cluster", cluster, "brokers"] as const,
   broker: (cluster: string, id: number) => ["cluster", cluster, "brokers", id] as const,
   brokerConfigs: (cluster: string, id: number) =>
