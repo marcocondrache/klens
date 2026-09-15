@@ -1,23 +1,5 @@
 import { graphql } from "@/graphql/gql";
 
-export const ClusterFields = graphql(`
-  fragment ClusterFields on Cluster {
-    name
-    label
-    clusterId
-    bootstrapServers
-    securityProtocol
-    status
-    brokerCount
-    topicCount
-    partitionCount
-    consumerGroupCount
-    underReplicatedPartitions
-    offlinePartitions
-    messageCount
-  }
-`);
-
 export const BrokerFields = graphql(`
   fragment BrokerFields on Broker {
     id
@@ -228,9 +210,7 @@ export const SearchResultFields = graphql(`
 
 export const clustersQuery = graphql(`
   query Clusters {
-    clusters {
-      ...ClusterFields
-    }
+    clusters
   }
 `);
 

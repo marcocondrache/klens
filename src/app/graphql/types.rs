@@ -1,7 +1,6 @@
 use chrono::{DateTime, Utc};
 use juniper::{GraphQLEnum, GraphQLInputObject, GraphQLObject};
 
-use crate::config::SecurityProtocol as ConfigSecurityProtocol;
 use crate::kafka::model as domain;
 use crate::utils::datetime_from_unix_millis;
 
@@ -22,67 +21,6 @@ macro_rules! from_same_variants {
         }
     };
 }
-
-#[derive(GraphQLEnum, Clone, Copy)]
-pub(super) enum ClusterStatus {
-    Healthy,
-    Degraded,
-    Offline,
-}
-
-#[derive(GraphQLEnum, Clone, Copy)]
-pub(super) enum SecurityProtocol {
-    Plaintext,
-    Ssl,
-    SaslPlaintext,
-    SaslSsl,
-}
-
-from_same_variants!(ConfigSecurityProtocol => SecurityProtocol {
-    Plaintext,
-    Ssl,
-    SaslPlaintext,
-    SaslSsl,
-});
-
-#[derive(GraphQLObject)]
-pub(super) struct Cluster {
-    pub name: String,
-    pub label: String,
-    pub cluster_id: String,
-    pub bootstrap_servers: Vec<String>,
-    pub security_protocol: SecurityProtocol,
-    pub status: ClusterStatus,
-    pub broker_count: i32,
-    pub topic_count: i32,
-    pub partition_count: i32,
-    pub consumer_group_count: i32,
-    pub under_replicated_partitions: i32,
-    pub offline_partitions: i32,
-    pub message_count: f64,
-}
-
-impl From<domain::ClusterOverview> for Cluster {
-    fn from(overview: domain::ClusterOverview) -> Self {
-        Self {
-            name: overview.identity.name.clone(),
-            label: overview.identity.name,
-            cluster_id: overview.cluster_id,
-            bootstrap_servers: overview.identity.bootstrap_servers,
-            security_protocol: SecurityProtocol::from(overview.identity.security_protocol),
-            status: ClusterStatus::from(overview.health),
-            broker_count: overview.broker_count,
-            topic_count: overview.topic_count,
-            partition_count: overview.partition_count,
-            consumer_group_count: overview.consumer_group_count,
-            under_replicated_partitions: overview.under_replicated_partitions,
-            offline_partitions: overview.offline_partitions,
-            message_count: overview.message_count as f64,
-        }
-    }
-}
-
-from_same_variants!(domain::ClusterHealth => ClusterStatus { Healthy, Degraded, Offline });
 
 #[derive(GraphQLObject)]
 pub(super) struct Broker {

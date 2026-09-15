@@ -15,7 +15,6 @@ import * as types from './graphql';
  * Learn more about it here: https://the-guild.dev/graphql/codegen/plugins/presets/preset-client#reducing-bundle-size
  */
 type Documents = {
-    "\n  fragment ClusterFields on Cluster {\n    name\n    label\n    clusterId\n    bootstrapServers\n    securityProtocol\n    status\n    brokerCount\n    topicCount\n    partitionCount\n    consumerGroupCount\n    underReplicatedPartitions\n    offlinePartitions\n    messageCount\n  }\n": typeof types.ClusterFieldsFragmentDoc,
     "\n  fragment BrokerFields on Broker {\n    id\n    host\n    port\n    rack\n    controller\n    partitionCount\n    leaderCount\n  }\n": typeof types.BrokerFieldsFragmentDoc,
     "\n  fragment PartitionFields on Partition {\n    id\n    leader\n    replicas\n    isr\n    lowWatermark\n    highWatermark\n  }\n": typeof types.PartitionFieldsFragmentDoc,
     "\n  fragment TopicFields on Topic {\n    name\n    internal\n    partitions {\n      ...PartitionFields\n    }\n    partitionCount\n    replicationFactor\n    messageCount\n    cleanupPolicy\n    retentionMs\n    consumerGroups\n    messagesPerSec\n    underReplicated\n  }\n": typeof types.TopicFieldsFragmentDoc,
@@ -34,7 +33,7 @@ type Documents = {
     "\n  fragment RecordHeaderFields on RecordHeader {\n    key\n    value\n  }\n": typeof types.RecordHeaderFieldsFragmentDoc,
     "\n  fragment TopicRecordFields on TopicRecord {\n    topic\n    partition\n    offset\n    timestamp\n    key\n    value\n    schemaId\n    headers {\n      ...RecordHeaderFields\n    }\n    sizeBytes\n    compression\n  }\n": typeof types.TopicRecordFieldsFragmentDoc,
     "\n  fragment SearchResultFields on SearchResult {\n    kind\n    id\n    label\n    detail\n  }\n": typeof types.SearchResultFieldsFragmentDoc,
-    "\n  query Clusters {\n    clusters {\n      ...ClusterFields\n    }\n  }\n": typeof types.ClustersDocument,
+    "\n  query Clusters {\n    clusters\n  }\n": typeof types.ClustersDocument,
     "\n  query CatalogHealth($cluster: String!) {\n    catalogHealth(cluster: $cluster) {\n      updatedAt\n      subjectsUpdatedAt\n      lastError\n      lastPollDurationMs\n      topicCount\n      groupCount\n      brokerCount\n      subjectCount\n    }\n  }\n": typeof types.CatalogHealthDocument,
     "\n  query Brokers($cluster: String!) {\n    brokers(cluster: $cluster) {\n      ...BrokerFields\n    }\n  }\n": typeof types.BrokersDocument,
     "\n  query Broker($cluster: String!, $id: Int!) {\n    broker(cluster: $cluster, id: $id) {\n      ...BrokerFields\n    }\n  }\n": typeof types.BrokerDocument,
@@ -56,7 +55,6 @@ type Documents = {
     "\n  subscription CatalogUpdated($cluster: String!) {\n    catalogUpdated(cluster: $cluster) {\n      cluster\n      updatedAt\n      generation\n    }\n  }\n": typeof types.CatalogUpdatedDocument,
 };
 const documents: Documents = {
-    "\n  fragment ClusterFields on Cluster {\n    name\n    label\n    clusterId\n    bootstrapServers\n    securityProtocol\n    status\n    brokerCount\n    topicCount\n    partitionCount\n    consumerGroupCount\n    underReplicatedPartitions\n    offlinePartitions\n    messageCount\n  }\n": types.ClusterFieldsFragmentDoc,
     "\n  fragment BrokerFields on Broker {\n    id\n    host\n    port\n    rack\n    controller\n    partitionCount\n    leaderCount\n  }\n": types.BrokerFieldsFragmentDoc,
     "\n  fragment PartitionFields on Partition {\n    id\n    leader\n    replicas\n    isr\n    lowWatermark\n    highWatermark\n  }\n": types.PartitionFieldsFragmentDoc,
     "\n  fragment TopicFields on Topic {\n    name\n    internal\n    partitions {\n      ...PartitionFields\n    }\n    partitionCount\n    replicationFactor\n    messageCount\n    cleanupPolicy\n    retentionMs\n    consumerGroups\n    messagesPerSec\n    underReplicated\n  }\n": types.TopicFieldsFragmentDoc,
@@ -75,7 +73,7 @@ const documents: Documents = {
     "\n  fragment RecordHeaderFields on RecordHeader {\n    key\n    value\n  }\n": types.RecordHeaderFieldsFragmentDoc,
     "\n  fragment TopicRecordFields on TopicRecord {\n    topic\n    partition\n    offset\n    timestamp\n    key\n    value\n    schemaId\n    headers {\n      ...RecordHeaderFields\n    }\n    sizeBytes\n    compression\n  }\n": types.TopicRecordFieldsFragmentDoc,
     "\n  fragment SearchResultFields on SearchResult {\n    kind\n    id\n    label\n    detail\n  }\n": types.SearchResultFieldsFragmentDoc,
-    "\n  query Clusters {\n    clusters {\n      ...ClusterFields\n    }\n  }\n": types.ClustersDocument,
+    "\n  query Clusters {\n    clusters\n  }\n": types.ClustersDocument,
     "\n  query CatalogHealth($cluster: String!) {\n    catalogHealth(cluster: $cluster) {\n      updatedAt\n      subjectsUpdatedAt\n      lastError\n      lastPollDurationMs\n      topicCount\n      groupCount\n      brokerCount\n      subjectCount\n    }\n  }\n": types.CatalogHealthDocument,
     "\n  query Brokers($cluster: String!) {\n    brokers(cluster: $cluster) {\n      ...BrokerFields\n    }\n  }\n": types.BrokersDocument,
     "\n  query Broker($cluster: String!, $id: Int!) {\n    broker(cluster: $cluster, id: $id) {\n      ...BrokerFields\n    }\n  }\n": types.BrokerDocument,
@@ -97,10 +95,6 @@ const documents: Documents = {
     "\n  subscription CatalogUpdated($cluster: String!) {\n    catalogUpdated(cluster: $cluster) {\n      cluster\n      updatedAt\n      generation\n    }\n  }\n": types.CatalogUpdatedDocument,
 };
 
-/**
- * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
- */
-export function graphql(source: "\n  fragment ClusterFields on Cluster {\n    name\n    label\n    clusterId\n    bootstrapServers\n    securityProtocol\n    status\n    brokerCount\n    topicCount\n    partitionCount\n    consumerGroupCount\n    underReplicatedPartitions\n    offlinePartitions\n    messageCount\n  }\n"): typeof import('./graphql').ClusterFieldsFragmentDoc;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
@@ -176,7 +170,7 @@ export function graphql(source: "\n  fragment SearchResultFields on SearchResult
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  query Clusters {\n    clusters {\n      ...ClusterFields\n    }\n  }\n"): typeof import('./graphql').ClustersDocument;
+export function graphql(source: "\n  query Clusters {\n    clusters\n  }\n"): typeof import('./graphql').ClustersDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */

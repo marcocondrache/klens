@@ -17,14 +17,14 @@ export const Route = createFileRoute("/")({
 
 function HomePage() {
   const { data: clusters, isPending, isError } = useClusters();
-  const name = clusters?.[0]?.name;
+  const name = clusters?.[0];
 
   if (isPending) {
     return (
       <PageLoading
         title="Loading clusters"
-        description="Fetching broker metadata. First contact with Kafka can take a few seconds."
-        slowDescription="Still waiting on brokers. Large or unreachable clusters take longer on first load."
+        description="Reading the configured cluster list."
+        slowDescription="The GraphQL API is not responding."
       />
     );
   }

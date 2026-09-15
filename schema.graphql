@@ -46,12 +46,6 @@ enum CleanupPolicy {
   COMPACT_DELETE
 }
 
-enum ClusterStatus {
-  HEALTHY
-  DEGRADED
-  OFFLINE
-}
-
 enum Compression {
   NONE
   GZIP
@@ -98,13 +92,6 @@ enum SearchResultKind {
   GROUP
   NODE
   SUBJECT
-}
-
-enum SecurityProtocol {
-  PLAINTEXT
-  SSL
-  SASL_PLAINTEXT
-  SASL_SSL
 }
 
 input RecordQuery {
@@ -178,22 +165,6 @@ type CatalogUpdated {
   generation: Int!
 }
 
-type Cluster {
-  name: String!
-  label: String!
-  clusterId: String!
-  bootstrapServers: [String!]!
-  securityProtocol: SecurityProtocol!
-  status: ClusterStatus!
-  brokerCount: Int!
-  topicCount: Int!
-  partitionCount: Int!
-  consumerGroupCount: Int!
-  underReplicatedPartitions: Int!
-  offlinePartitions: Int!
-  messageCount: Float!
-}
-
 type ClusterCatalog {
   updatedAt: DateTime!
   topics: [Topic!]!
@@ -252,8 +223,7 @@ type Partition {
 }
 
 type Query {
-  clusters: [Cluster!]!
-  cluster(name: String!): Cluster
+  clusters: [String!]!
   brokers(cluster: String!): [Broker!]!
   broker(cluster: String!, id: Int!): Broker
   brokerConfigs(cluster: String!, id: Int!): [ConfigEntry!]!

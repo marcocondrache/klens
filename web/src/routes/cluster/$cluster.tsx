@@ -24,7 +24,7 @@ function AppLayout() {
   const { data: health } = useCatalogHealth(cluster);
   useCatalogUpdated(cluster);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const current = clusters?.find((entry) => entry.name === cluster);
+  const known = clusters?.includes(cluster);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -52,10 +52,8 @@ function AppLayout() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  const known = clusters?.some((entry) => entry.name === cluster);
-
   if (!isPending && clusters && clusters.length > 0 && !known) {
-    return <Navigate to="/cluster/$cluster" params={{ cluster: clusters[0].name }} replace />;
+    return <Navigate to="/cluster/$cluster" params={{ cluster: clusters[0] }} replace />;
   }
 
   return (
@@ -64,14 +62,11 @@ function AppLayout() {
       <SidebarInset className="min-w-0 overflow-hidden">
         <AppHeader onSearch={() => setPaletteOpen(true)} />
         <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-4 md:p-6 md:group-has-data-[collapsible=icon]/sidebar-wrapper:px-8">
-          {current?.status === "OFFLINE" ? (
+          {health?.lastError && health.updatedAt == null ? (
             <Alert variant="destructive">
               <TriangleAlertIcon />
               <AlertTitle>Cluster unreachable</AlertTitle>
-              <AlertDescription>
-                {health?.lastError ??
-                  `Metadata for ${current.label} could not be fetched. Catalog pages stay empty until the brokers respond.`}
-              </AlertDescription>
+              <AlertDescription>{health.lastError}</AlertDescription>
             </Alert>
           ) : health?.lastError ? (
             <Alert variant="destructive">

@@ -1,19 +1,17 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::environment::{CONFIG_POLL_INTERVAL, OVERVIEW_BUDGET, SUBJECT_POLL_INTERVAL};
+use crate::environment::{CONFIG_POLL_INTERVAL, SUBJECT_POLL_INTERVAL};
 use crate::kafka::model::AclListing;
 use crate::kafka::model::SchemaSubject;
 use crate::kafka::{
     CatalogCache, CatalogHealth, CatalogPoller, CatalogPollerIntervals, CatalogPollerIo,
-    CatalogRevision, ClusterIdentity, ClusterOverview, ClusterSession, ClusterSnapshot,
-    ConfigEntry, ConsumerGroup, KafkaError, LagStore, QueryEngine, RateStore, RecordPage,
-    RecordQuery, SearchHit, SubjectCache, ThroughputPoint, TopicRate,
+    CatalogRevision, ClusterSession, ClusterSnapshot, ConfigEntry, ConsumerGroup, KafkaError,
+    LagStore, QueryEngine, RateStore, RecordPage, RecordQuery, SearchHit, SubjectCache,
+    ThroughputPoint, TopicRate,
 };
 use axum::Router;
 use axum::middleware;
-use futures::future::join_all;
-use tokio::time::timeout;
 
 pub(crate) mod auth;
 mod graphql;
@@ -268,32 +266,6 @@ impl AppState {
 
     pub(crate) fn series_observe_group_lag(&self, cluster: &str, id: &str, lag: i64) {
         self.lags.observe(cluster, id, lag);
-    }
-
-    pub(crate) async fn cluster_overviews(&self) -> Vec<ClusterOverview> {
-        let identities = self.query.identities();
-        join_all(
-            identities
-                .iter()
-                .map(|identity| self.overview_or_offline(identity)),
-        )
-        .await
-    }
-
-    pub(crate) async fn cluster_overview(&self, name: &str) -> Option<ClusterOverview> {
-        let identity = self.query.session(name).ok()?.identity().clone();
-        Some(self.overview_or_offline(&identity).await)
-    }
-
-    async fn overview_or_offline(&self, identity: &ClusterIdentity) -> ClusterOverview {
-        if let Some(snapshot) = self.catalog.snapshot(&identity.name) {
-            return snapshot.overview.clone();
-        }
-
-        match timeout(*OVERVIEW_BUDGET, self.catalog_snapshot(&identity.name)).await {
-            Ok(Ok(snapshot)) => snapshot.overview.clone(),
-            Ok(Err(_)) | Err(_) => ClusterOverview::offline(identity.clone()),
-        }
     }
 }
 
