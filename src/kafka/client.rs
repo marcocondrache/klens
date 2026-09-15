@@ -112,22 +112,25 @@ impl KafkaClient {
             schema_registry,
         })
     }
+}
 
-    pub fn identity(&self) -> &ClusterIdentity {
+#[async_trait]
+impl ClusterSession for KafkaClient {
+    fn identity(&self) -> &ClusterIdentity {
         &self.identity
     }
 
-    pub fn consume_timeout(&self) -> Duration {
+    fn consume_timeout(&self) -> Duration {
         self.consume_timeout
     }
 
-    pub async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError> {
+    async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError> {
         let cache = self.krafka.metadata();
         cache.refresh().await?;
         Ok(MetadataSnapshot::from_krafka(cache))
     }
 
-    pub async fn groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
+    async fn groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
         let listed = self
             .admin
             .list_consumer_groups(&GroupListing::all())
@@ -146,7 +149,7 @@ impl KafkaClient {
         Ok(snapshots)
     }
 
-    pub async fn group(&self, id: &str) -> Result<GroupSnapshot, KafkaError> {
+    async fn group(&self, id: &str) -> Result<GroupSnapshot, KafkaError> {
         if is_internal_group(id) {
             return Err(KafkaError::UnknownGroup {
                 cluster: self.identity.name.clone(),
@@ -171,7 +174,7 @@ impl KafkaClient {
     }
 
     /// Committed offsets for a group we are not a member of.
-    pub async fn committed_offsets(
+    async fn committed_offsets(
         &self,
         group_id: &str,
         partitions: &[(String, i32)],
@@ -194,7 +197,7 @@ impl KafkaClient {
     }
 
     /// Low and high watermarks. Does not refetch cluster metadata.
-    pub async fn watermarks(
+    async fn watermarks(
         &self,
         partitions: &[(String, i32)],
     ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError> {
@@ -214,7 +217,7 @@ impl KafkaClient {
         ))
     }
 
-    pub async fn offsets_for_times(
+    async fn offsets_for_times(
         &self,
         topic: &str,
         partitions: &[i32],
@@ -233,7 +236,7 @@ impl KafkaClient {
         )))
     }
 
-    pub async fn topic_configs(
+    async fn topic_configs(
         &self,
         topics: &[&str],
     ) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError> {
@@ -270,7 +273,7 @@ impl KafkaClient {
         Ok(out)
     }
 
-    pub async fn broker_configs(&self, broker_id: i32) -> Result<Vec<ConfigEntry>, KafkaError> {
+    async fn broker_configs(&self, broker_id: i32) -> Result<Vec<ConfigEntry>, KafkaError> {
         let results = self
             .admin
             .describe_configs_per_resource(DescribeConfigsRequest::for_broker(broker_id))
@@ -292,7 +295,7 @@ impl KafkaClient {
 
     /// Fully scan the plan's half-open windows. Incomplete scans return
     /// [`KafkaError::Timeout`], not a partial page.
-    pub async fn records(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError> {
+    async fn records(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError> {
         if plan.windows.is_empty() || plan.limit == 0 {
             return Ok(Vec::new());
         }
@@ -305,77 +308,11 @@ impl KafkaClient {
         .map_err(|_| KafkaError::Timeout)?
     }
 
-    pub async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
+    async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
         let Some(decoder) = &self.schema_registry else {
             return Ok(Vec::new());
         };
         decoder.client().subjects().await
-    }
-}
-
-#[async_trait]
-impl ClusterSession for KafkaClient {
-    fn identity(&self) -> &ClusterIdentity {
-        KafkaClient::identity(self)
-    }
-
-    fn consume_timeout(&self) -> Duration {
-        KafkaClient::consume_timeout(self)
-    }
-
-    async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError> {
-        KafkaClient::metadata(self).await
-    }
-
-    async fn watermarks(
-        &self,
-        partitions: &[(String, i32)],
-    ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError> {
-        KafkaClient::watermarks(self, partitions).await
-    }
-
-    async fn offsets_for_times(
-        &self,
-        topic: &str,
-        partitions: &[i32],
-        timestamp: i64,
-    ) -> Result<HashMap<i32, Option<i64>>, KafkaError> {
-        KafkaClient::offsets_for_times(self, topic, partitions, timestamp).await
-    }
-
-    async fn topic_configs(
-        &self,
-        topics: &[&str],
-    ) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError> {
-        KafkaClient::topic_configs(self, topics).await
-    }
-
-    async fn broker_configs(&self, broker_id: i32) -> Result<Vec<ConfigEntry>, KafkaError> {
-        KafkaClient::broker_configs(self, broker_id).await
-    }
-
-    async fn groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
-        KafkaClient::groups(self).await
-    }
-
-    async fn group(&self, id: &str) -> Result<GroupSnapshot, KafkaError> {
-        KafkaClient::group(self, id).await
-    }
-
-    async fn committed_offsets(
-        &self,
-        group_id: &str,
-        partitions: &[(String, i32)],
-    ) -> Result<Vec<CommittedOffset>, KafkaError> {
-        KafkaClient::committed_offsets(self, group_id, partitions).await
-    }
-
-    async fn records(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError> {
-        KafkaClient::records(self, plan).await
-    }
-
-    async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
-        KafkaClient::schema_subjects(self).await
     }
 }
 
