@@ -4,6 +4,38 @@ type Exact<T extends { [key: string]: unknown }> = { [K in keyof T]: T[K] };
 /** Internal type. DO NOT USE DIRECTLY. */
 export type Incremental<T> = T | { [P in keyof T]?: P extends ' $fragmentName' | '__typename' ? T[P] : never };
 import type { DocumentTypeDecoration } from '@graphql-typed-document-node/core';
+export type AclAuthorizer =
+  | 'DISABLED'
+  | 'ENABLED';
+
+export type AclOperation =
+  | 'ALL'
+  | 'ALTER'
+  | 'ALTER_CONFIGS'
+  | 'CLUSTER_ACTION'
+  | 'CREATE'
+  | 'DELETE'
+  | 'DESCRIBE'
+  | 'DESCRIBE_CONFIGS'
+  | 'IDEMPOTENT_WRITE'
+  | 'READ'
+  | 'WRITE';
+
+export type AclPatternType =
+  | 'LITERAL'
+  | 'PREFIXED';
+
+export type AclPermission =
+  | 'ALLOW'
+  | 'DENY';
+
+export type AclResourceType =
+  | 'CLUSTER'
+  | 'DELEGATION_TOKEN'
+  | 'GROUP'
+  | 'TOPIC'
+  | 'TRANSACTIONAL_ID';
+
 export type CleanupPolicy =
   | 'COMPACT'
   | 'COMPACT_DELETE'
@@ -103,6 +135,8 @@ export type TopicRateFieldsFragment = { name: string, messagesPerSec: number };
 export type ConsumerGroupLagFieldsFragment = { id: string, lag: number, offsets: Array<{ topic: string, partition: number, currentOffset: number, endOffset: number, lag: number, memberId: string | null }> };
 
 export type SchemaSubjectFieldsFragment = { subject: string, id: number, type: SchemaType, latestVersion: number, versions: Array<number>, compatibility: SchemaCompatibility, schema: string };
+
+export type AclFieldsFragment = { resourceType: AclResourceType, resourceName: string, patternType: AclPatternType, principal: string, host: string, operation: AclOperation, permission: AclPermission };
 
 export type RecordHeaderFieldsFragment = { key: string, value: string };
 
@@ -220,6 +254,13 @@ export type SchemaSubjectsQueryVariables = Exact<{
 
 
 export type SchemaSubjectsQuery = { schemaSubjects: Array<{ subject: string, id: number, type: SchemaType, latestVersion: number, versions: Array<number>, compatibility: SchemaCompatibility, schema: string }> };
+
+export type AclsQueryVariables = Exact<{
+  cluster: string;
+}>;
+
+
+export type AclsQuery = { acls: { authorizer: AclAuthorizer, bindings: Array<{ resourceType: AclResourceType, resourceName: string, patternType: AclPatternType, principal: string, host: string, operation: AclOperation, permission: AclPermission }> } };
 
 export type RecordsQueryVariables = Exact<{
   query: RecordQuery;
@@ -478,6 +519,17 @@ export const SchemaSubjectFieldsFragmentDoc = new TypedDocumentString(`
   schema
 }
     `, {"fragmentName":"SchemaSubjectFields"}) as unknown as TypedDocumentString<SchemaSubjectFieldsFragment, unknown>;
+export const AclFieldsFragmentDoc = new TypedDocumentString(`
+    fragment AclFields on Acl {
+  resourceType
+  resourceName
+  patternType
+  principal
+  host
+  operation
+  permission
+}
+    `, {"fragmentName":"AclFields"}) as unknown as TypedDocumentString<AclFieldsFragment, unknown>;
 export const RecordHeaderFieldsFragmentDoc = new TypedDocumentString(`
     fragment RecordHeaderFields on RecordHeader {
   key
@@ -811,6 +863,24 @@ export const SchemaSubjectsDocument = new TypedDocumentString(`
   compatibility
   schema
 }`) as unknown as TypedDocumentString<SchemaSubjectsQuery, SchemaSubjectsQueryVariables>;
+export const AclsDocument = new TypedDocumentString(`
+    query Acls($cluster: String!) {
+  acls(cluster: $cluster) {
+    authorizer
+    bindings {
+      ...AclFields
+    }
+  }
+}
+    fragment AclFields on Acl {
+  resourceType
+  resourceName
+  patternType
+  principal
+  host
+  operation
+  permission
+}`) as unknown as TypedDocumentString<AclsQuery, AclsQueryVariables>;
 export const RecordsDocument = new TypedDocumentString(`
     query Records($query: RecordQuery!) {
   records(query: $query) {

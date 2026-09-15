@@ -78,12 +78,14 @@ If you drive by hand, use these handles from this repo. Prefer them over coordin
 | Topics page | `/cluster/local/topics`, heading `Topics` |
 | Topic search | `input[data-search-hotkey]` placeholder `Search topics…` |
 | Internal topics | label `Show internal` |
-| Sidebar | links `Topics`, `Consumer Groups`, `Schema Registry`, `Brokers` |
+| Sidebar | links `Topics`, `Consumer Groups`, `Schema Registry`, `Brokers`, `ACLs` |
 | Command palette | button `Search`, or `Meta+K` / `/` when not typing; dialog title `Search klens` |
 | Topic row | table cell with the topic name; click opens `/cluster/local/topics/<name>` |
 | Topic tabs | `Data`, `Partitions`, `Consumer groups`, `Configuration` |
 | Schema Registry page | `/cluster/local/schemas`, heading `Schema registry` |
 | Schema search | `input[data-search-hotkey]` placeholder `Search subjects…` |
+| ACLs page | `/cluster/local/acls`, heading `ACLs` |
+| ACL search | `input[data-search-hotkey]` placeholder `Search ACLs…` |
 | Offline cluster | alert `Cluster unreachable` |
 | Auth off | `/login` redirects to `/`; no `Continue with SSO` |
 

@@ -22,6 +22,7 @@ mod metadata;
 mod topic_config;
 mod watermarks;
 
+mod acl;
 mod broker;
 mod cluster;
 mod group;
