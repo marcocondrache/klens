@@ -33,7 +33,9 @@ import { PayloadView } from "@/components/payload-view";
 import { SchemaPicker } from "@/components/schema-picker";
 import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
+import { execute } from "@/graphql/execute";
 import { useSchemaSubjects } from "@/lib/api/catalog";
+import { subjectSchemaQuery } from "@/lib/api/documents";
 import { useRecords } from "@/lib/api/live";
 import { useAccess } from "@/hooks/use-access";
 import { queryErrorMessage } from "@/lib/query-error";
@@ -138,6 +140,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
   const [selected, setSelected] = useState<TopicRecord | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [schemaId, setSchemaId] = useState<number | null>(null);
+  const [schemaSubject, setSchemaSubject] = useState<string | null>(null);
 
   const timestampFrom = fromDatetimeLocalValue(from);
   const timestampTo = fromDatetimeLocalValue(to);
@@ -186,6 +189,21 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
   function selectSchema(id: number | null) {
     setSchemaId(id);
     resetPages();
+  }
+
+  async function selectSchemaSubject(subject: string | null) {
+    if (subject == null) {
+      setSchemaSubject(null);
+      selectSchema(null);
+      return;
+    }
+    setSchemaSubject(subject);
+    try {
+      const { subjectSchema } = await execute(subjectSchemaQuery, { cluster, subject });
+      selectSchema(subjectSchema.id);
+    } catch {
+      setSchemaSubject(null);
+    }
   }
 
   async function goToNextPage() {
@@ -322,8 +340,10 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
               <SchemaPicker
                 subjects={subjects}
                 topic={topic.name}
-                value={schemaId}
-                onChange={selectSchema}
+                selectedSubject={schemaSubject}
+                onSelect={(subject) => {
+                  void selectSchemaSubject(subject);
+                }}
               />
             ) : null}
           </>

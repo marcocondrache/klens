@@ -158,6 +158,18 @@ async fn schema_subjects_come_from_the_cluster_session() {
 }
 
 #[tokio::test]
+async fn subject_schema_comes_from_the_cluster_session() {
+    let engine = QueryEngine::from_sessions(vec![FakeCluster::local()]);
+    let schema = engine
+        .subject_schema("local", "orders.created-value")
+        .await
+        .unwrap();
+
+    assert_eq!(schema.id, 1);
+    assert!(!schema.schema.is_empty());
+}
+
+#[tokio::test]
 async fn schema_subjects_default_to_empty_when_session_does_not_override() {
     let session = FakeCluster::local().without_subjects();
     let engine = QueryEngine::from_sessions(vec![session]);

@@ -97,7 +97,7 @@ fn search_hits<'a>(
                 kind: SearchKind::Subject,
                 id: subject.subject.clone(),
                 label: subject.subject.clone(),
-                detail: format!("{} · v{}", subject.schema_type, subject.latest_version),
+                detail: format!("v{} · {}", subject.latest_version, subject.compatibility),
             });
         }
     }
@@ -110,7 +110,7 @@ fn search_hits<'a>(
 mod tests {
     use super::*;
     use crate::kafka::group::GroupState;
-    use crate::kafka::registry::{SchemaCompatibility, SchemaType};
+    use crate::kafka::registry::SchemaCompatibility;
     use crate::kafka::topic::Partition;
     use crate::kafka::topic_config::CleanupPolicy;
 
@@ -165,21 +165,26 @@ mod tests {
         let topics = vec![topic("orders.created")];
         let brokers = vec![broker(7, "broker-a")];
         let groups = vec![group("order-processor")];
-        let subjects = vec![SchemaSubject {
-            subject: "orders.created-value".into(),
-            id: 1,
-            schema_type: SchemaType::Avro,
-            latest_version: 2,
-            versions: vec![1, 2],
-            compatibility: SchemaCompatibility::Backward,
-            schema: "{}".into(),
-        }];
+        let subjects = vec![
+            SchemaSubject::from_versions(
+                "orders.created-value",
+                vec![1, 2],
+                SchemaCompatibility::Backward,
+            )
+            .unwrap(),
+        ];
 
         let hits = search_snapshot("order", &topics, &brokers, &groups, &subjects);
         assert_eq!(hits.len(), 3);
         assert!(hits.iter().any(|hit| hit.kind == SearchKind::Topic));
         assert!(hits.iter().any(|hit| hit.kind == SearchKind::Group));
         assert!(hits.iter().any(|hit| hit.kind == SearchKind::Subject));
+        assert_eq!(
+            hits.iter()
+                .find(|hit| hit.kind == SearchKind::Subject)
+                .map(|hit| hit.detail.as_str()),
+            Some("v2 · BACKWARD")
+        );
 
         let nodes = search_snapshot("broker-a", &topics, &brokers, &groups, &[]);
         assert_eq!(nodes[0].kind, SearchKind::Node);

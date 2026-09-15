@@ -14,37 +14,34 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import type { SchemaSubject } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
-const DECODABLE = new Set(["AVRO", "JSON", "PROTOBUF"]);
-
 export function SchemaPicker({
   subjects,
   topic,
-  value,
-  onChange,
+  selectedSubject,
+  onSelect,
 }: {
   subjects: SchemaSubject[];
   topic: string;
-  value: number | null;
-  onChange: (id: number | null) => void;
+  selectedSubject: string | null;
+  onSelect: (subject: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
   const preferred = `${topic}-value`;
   const options = useMemo(() => {
-    const decodable = subjects.filter((subject) => DECODABLE.has(subject.type));
     return {
-      pinned: decodable.filter((subject) => subject.subject === preferred),
-      rest: decodable.filter((subject) => subject.subject !== preferred),
+      pinned: subjects.filter((subject) => subject.subject === preferred),
+      rest: subjects.filter((subject) => subject.subject !== preferred),
     };
   }, [preferred, subjects]);
   const all = [...options.pinned, ...options.rest];
-  const selected = all.find((subject) => subject.id === value) ?? null;
+  const selected = all.find((subject) => subject.subject === selectedSubject) ?? null;
 
   if (all.length === 0) {
     return null;
   }
 
-  function choose(id: number | null) {
-    onChange(id);
+  function choose(subject: string | null) {
+    onSelect(subject);
     setOpen(false);
   }
 
@@ -64,9 +61,7 @@ export function SchemaPicker({
           {selected ? selected.subject : "Decode with schema…"}
         </span>
         {selected ? (
-          <span className="shrink-0 text-muted-foreground">
-            {selected.type} · v{selected.latestVersion}
-          </span>
+          <span className="shrink-0 text-muted-foreground">v{selected.latestVersion}</span>
         ) : null}
         <ChevronsUpDownIcon className="shrink-0 text-muted-foreground" />
       </PopoverTrigger>
@@ -90,8 +85,8 @@ export function SchemaPicker({
                   <SubjectItem
                     key={subject.subject}
                     subject={subject}
-                    checked={subject.id === value}
-                    onSelect={() => choose(subject.id)}
+                    checked={selectedSubject === subject.subject}
+                    onSelect={() => choose(subject.subject)}
                   />
                 ))}
               </CommandGroup>
@@ -102,8 +97,8 @@ export function SchemaPicker({
                   <SubjectItem
                     key={subject.subject}
                     subject={subject}
-                    checked={subject.id === value}
-                    onSelect={() => choose(subject.id)}
+                    checked={selectedSubject === subject.subject}
+                    onSelect={() => choose(subject.subject)}
                   />
                 ))}
               </CommandGroup>
@@ -126,7 +121,7 @@ function SubjectItem({
 }) {
   return (
     <CommandItem
-      value={`${subject.subject} ${subject.type} ${subject.id}`}
+      value={subject.subject}
       data-checked={checked || undefined}
       onSelect={onSelect}
       className="min-w-0"
@@ -134,9 +129,7 @@ function SubjectItem({
       <span className="min-w-0 flex-1 truncate font-mono text-sm" title={subject.subject}>
         {subject.subject}
       </span>
-      <span className="shrink-0 text-xs text-muted-foreground">
-        {subject.type} · v{subject.latestVersion}
-      </span>
+      <span className="shrink-0 text-xs text-muted-foreground">v{subject.latestVersion}</span>
     </CommandItem>
   );
 }

@@ -21,7 +21,7 @@ use crate::kafka::metadata::{BrokerMetadata, MetadataSnapshot, PartitionMetadata
 use crate::kafka::record::batch::RecordBatch;
 use crate::kafka::record::plan::FetchPlan;
 use crate::kafka::record::{Compression, Record, RecordHeader};
-use crate::kafka::registry::{SchemaCompatibility, SchemaSubject, SchemaType};
+use crate::kafka::registry::{SchemaCompatibility, SchemaSubject, SchemaType, SubjectSchema};
 use crate::kafka::session::ClusterSession;
 use crate::kafka::topic_config::{ConfigEntry, ConfigSource};
 use crate::kafka::watermarks::Watermarks;
@@ -41,6 +41,7 @@ struct Inner {
     groups: Mutex<Vec<GroupSnapshot>>,
     records: Mutex<Vec<Record>>,
     subjects: Mutex<Vec<SchemaSubject>>,
+    subject_schemas: Mutex<HashMap<String, SubjectSchema>>,
     acls: Mutex<AclListing>,
     metadata_error: Mutex<Option<String>>,
     subjects_error: Mutex<Option<String>>,
@@ -184,17 +185,26 @@ impl FakeCluster {
             })
             .collect();
 
-        let subjects = vec![SchemaSubject {
-            subject: "orders.created-value".into(),
-            id: 1,
-            schema_type: SchemaType::Avro,
-            latest_version: 2,
-            versions: vec![1, 2],
-            compatibility: SchemaCompatibility::Backward,
-            schema:
-                r#"{"type":"record","name":"Order","fields":[{"name":"orderId","type":"string"}]}"#
-                    .into(),
-        }];
+        let subjects = vec![
+            SchemaSubject::from_versions(
+                "orders.created-value",
+                vec![1, 2],
+                SchemaCompatibility::Backward,
+            )
+            .expect("seed subject"),
+        ];
+        let subject_schemas = HashMap::from([(
+            "orders.created-value".into(),
+            SubjectSchema {
+                subject: "orders.created-value".into(),
+                id: 1,
+                version: 2,
+                schema_type: SchemaType::Avro,
+                schema:
+                    r#"{"type":"record","name":"Order","fields":[{"name":"orderId","type":"string"}]}"#
+                        .into(),
+            },
+        )]);
 
         Self {
             identity,
@@ -207,6 +217,7 @@ impl FakeCluster {
                 groups: Mutex::new(groups),
                 records: Mutex::new(records),
                 subjects: Mutex::new(subjects),
+                subject_schemas: Mutex::new(subject_schemas),
                 acls: Mutex::new(AclListing::Enabled(local_acls())),
                 metadata_error: Mutex::new(None),
                 subjects_error: Mutex::new(None),
@@ -715,6 +726,29 @@ impl ClusterSession for FakeCluster {
         Ok(self.inner.subjects.lock().expect("subjects").clone())
     }
 
+    async fn subject_schema(&self, name: &str) -> Result<SubjectSchema, KafkaError> {
+        self.inner
+            .calls
+            .subject_schema
+            .fetch_add(1, Ordering::SeqCst);
+        if let Some(message) = &*self.inner.subjects_error.lock().expect("subjects error") {
+            return Err(KafkaError::SchemaRegistry {
+                cluster: self.identity.name.clone(),
+                message: message.clone(),
+            });
+        }
+        self.inner
+            .subject_schemas
+            .lock()
+            .expect("subject schemas")
+            .get(name)
+            .cloned()
+            .ok_or_else(|| KafkaError::SchemaRegistry {
+                cluster: self.identity.name.clone(),
+                message: format!("subject '{name}' not found"),
+            })
+    }
+
     async fn acls(&self) -> Result<AclListing, KafkaError> {
         self.inner.calls.acls.fetch_add(1, Ordering::SeqCst);
         if let Some(message) = &*self.inner.acls_error.lock().expect("acls error") {
@@ -733,6 +767,7 @@ pub struct SessionCalls {
     topic_configs: AtomicUsize,
     committed_offsets: AtomicUsize,
     acls: AtomicUsize,
+    subject_schema: AtomicUsize,
 }
 
 impl SessionCalls {
@@ -758,6 +793,10 @@ impl SessionCalls {
 
     pub fn acls(&self) -> usize {
         self.acls.load(Ordering::SeqCst)
+    }
+
+    pub fn subject_schema(&self) -> usize {
+        self.subject_schema.load(Ordering::SeqCst)
     }
 }
 

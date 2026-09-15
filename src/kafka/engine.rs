@@ -23,7 +23,7 @@ use crate::kafka::record::RecordPage;
 use crate::kafka::record::page::fetch_page;
 use crate::kafka::record::plan::apply_timestamp_bounds;
 use crate::kafka::record::query::RecordQuery;
-use crate::kafka::registry::SchemaSubject;
+use crate::kafka::registry::{SchemaSubject, SubjectSchema};
 use crate::kafka::session::ClusterSession;
 use crate::kafka::topic::{Topic, groups_for_topic};
 use crate::kafka::topic_config::ConfigEntry;
@@ -344,6 +344,14 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
 
     pub async fn schema_subjects(&self, cluster: &str) -> Result<Vec<SchemaSubject>, KafkaError> {
         self.session(cluster)?.schema_subjects().await
+    }
+
+    pub async fn subject_schema(
+        &self,
+        cluster: &str,
+        name: &str,
+    ) -> Result<SubjectSchema, KafkaError> {
+        self.session(cluster)?.subject_schema(name).await
     }
 }
 

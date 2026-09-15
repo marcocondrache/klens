@@ -12,6 +12,7 @@ use crate::environment::SCHEMA_REGISTRY_TIMEOUT;
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
     RegisteredSchema, SchemaCompatibility, SchemaReference, SchemaSubject, SchemaType,
+    SubjectSchema,
 };
 use schema_registry::{Client, Error as RegistryError};
 
@@ -77,11 +78,16 @@ impl SchemaRegistryClient {
             .await
             .map_err(|error| self.fail_error(error))?
             .into_inner();
+        let fallback = self
+            .global_config()
+            .await?
+            .as_ref()
+            .map(compatibility_from_config);
         let mut join = JoinSet::new();
 
         for name in names {
             let client = self.clone();
-            join.spawn(async move { client.load_subject(&name).await });
+            join.spawn(async move { client.load_entry(&name, fallback).await });
         }
 
         let mut subjects = Vec::new();
@@ -91,6 +97,29 @@ impl SchemaRegistryClient {
 
         subjects.sort_by(|left, right| left.subject.cmp(&right.subject));
         Ok(subjects)
+    }
+
+    pub async fn subject_schema(&self, name: &str) -> Result<SubjectSchema, KafkaError> {
+        let latest = self
+            .inner
+            .get_schema_by_version()
+            .subject(name)
+            .version("latest")
+            .send()
+            .await
+            .map_err(|error| self.fail_error(error))?
+            .into_inner();
+        Ok(SubjectSchema {
+            subject: name.to_owned(),
+            id: latest.id.ok_or_else(|| self.fail("schema is missing id"))?,
+            version: latest
+                .version
+                .ok_or_else(|| self.fail("schema is missing version"))?,
+            schema_type: SchemaType::from_registry(latest.schema_type.as_deref()),
+            schema: latest
+                .schema
+                .ok_or_else(|| self.fail("schema is missing schema body"))?,
+        })
     }
 
     pub async fn schema_by_id(&self, id: i32) -> Result<Option<RegisteredSchema>, KafkaError> {
@@ -121,7 +150,11 @@ impl SchemaRegistryClient {
         self.registered_from_schema(id, latest)
     }
 
-    async fn load_subject(&self, name: &str) -> Result<SchemaSubject, KafkaError> {
+    async fn load_entry(
+        &self,
+        name: &str,
+        fallback: Option<SchemaCompatibility>,
+    ) -> Result<SchemaSubject, KafkaError> {
         let versions = self
             .inner
             .list_versions()
@@ -130,42 +163,12 @@ impl SchemaRegistryClient {
             .await
             .map_err(|error| self.fail_error(error))?
             .into_inner();
-        let latest = self
-            .inner
-            .get_schema_by_version()
-            .subject(name)
-            .version("latest")
-            .send()
-            .await
-            .map_err(|error| self.fail_error(error))?
-            .into_inner();
-        let compatibility = self.compatibility(name).await?;
-
-        Ok(SchemaSubject {
-            subject: name.to_owned(),
-            id: latest.id.ok_or_else(|| self.fail("schema is missing id"))?,
-            schema_type: SchemaType::from_registry(latest.schema_type.as_deref()),
-            latest_version: latest
-                .version
-                .ok_or_else(|| self.fail("schema is missing version"))?,
-            versions,
-            compatibility,
-            schema: latest
-                .schema
-                .ok_or_else(|| self.fail("schema is missing schema body"))?,
-        })
-    }
-
-    async fn compatibility(&self, name: &str) -> Result<SchemaCompatibility, KafkaError> {
-        if let Some(config) = self.subject_config(name).await? {
-            return Ok(compatibility_from_config(&config));
-        }
-
-        if let Some(config) = self.global_config().await? {
-            return Ok(compatibility_from_config(&config));
-        }
-
-        Ok(SchemaCompatibility::None)
+        let compatibility = match self.subject_config(name).await? {
+            Some(config) => compatibility_from_config(&config),
+            None => fallback.unwrap_or(SchemaCompatibility::None),
+        };
+        SchemaSubject::from_versions(name.to_owned(), versions, compatibility)
+            .map_err(|error| self.fail(error.to_string()))
     }
 
     async fn subject_config(
@@ -296,34 +299,15 @@ mod tests {
         url.path().to_owned()
     }
 
-    #[allow(clippy::too_many_arguments)]
-    async fn mock_subject(
+    async fn mock_catalog_subject(
         server: &MockServer,
         subject: &str,
-        id: i32,
-        version: i32,
-        schema_type: &str,
-        schema: &str,
         versions: &[i32],
         compatibility: Option<&str>,
     ) {
         Mock::given(method("GET"))
             .and(path(registry_path(&["subjects", subject, "versions"])))
             .respond_with(ResponseTemplate::new(200).set_body_json(versions))
-            .mount(server)
-            .await;
-
-        Mock::given(method("GET"))
-            .and(path(registry_path(&[
-                "subjects", subject, "versions", "latest",
-            ])))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "subject": subject,
-                "id": id,
-                "version": version,
-                "schemaType": schema_type,
-                "schema": schema,
-            })))
             .mount(server)
             .await;
 
@@ -350,6 +334,29 @@ mod tests {
         }
     }
 
+    async fn mock_latest(
+        server: &MockServer,
+        subject: &str,
+        id: i32,
+        version: i32,
+        schema_type: &str,
+        schema: &str,
+    ) {
+        Mock::given(method("GET"))
+            .and(path(registry_path(&[
+                "subjects", subject, "versions", "latest",
+            ])))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "subject": subject,
+                "id": id,
+                "version": version,
+                "schemaType": schema_type,
+                "schema": schema,
+            })))
+            .mount(server)
+            .await;
+    }
+
     #[tokio::test]
     async fn lists_subjects_from_registry() {
         let server = MockServer::start().await;
@@ -360,29 +367,96 @@ mod tests {
             .mount(&server)
             .await;
 
-        mock_subject(
-            &server,
-            "orders-value",
-            12,
-            3,
-            "AVRO",
-            r#"{"type":"string"}"#,
-            &[1, 2, 3],
-            Some("BACKWARD"),
-        )
-        .await;
+        mock_catalog_subject(&server, "orders-value", &[1, 2, 3], Some("BACKWARD")).await;
 
         let client = SchemaRegistryClient::new("local", &config(&server.uri())).unwrap();
         let subjects = client.subjects().await.unwrap();
 
         assert_eq!(subjects.len(), 1);
         assert_eq!(subjects[0].subject, "orders-value");
-        assert_eq!(subjects[0].id, 12);
-        assert_eq!(subjects[0].schema_type, SchemaType::Avro);
         assert_eq!(subjects[0].latest_version, 3);
         assert_eq!(subjects[0].versions, vec![1, 2, 3]);
         assert_eq!(subjects[0].compatibility, SchemaCompatibility::Backward);
-        assert_eq!(subjects[0].schema, r#"{"type":"string"}"#);
+    }
+
+    #[tokio::test]
+    async fn subject_catalog_never_requests_a_schema_body() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/subjects"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(["orders-value"]))
+            .mount(&server)
+            .await;
+
+        mock_catalog_subject(&server, "orders-value", &[1, 2, 3], Some("BACKWARD")).await;
+
+        Mock::given(method("GET"))
+            .and(path("/config"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "compatibilityLevel": "BACKWARD",
+            })))
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path(registry_path(&[
+                "subjects",
+                "orders-value",
+                "versions",
+                "latest",
+            ])))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "subject": "orders-value",
+                "id": 12,
+                "version": 3,
+                "schemaType": "AVRO",
+                "schema": r#"{"type":"string"}"#,
+            })))
+            .expect(0)
+            .mount(&server)
+            .await;
+
+        let client = SchemaRegistryClient::new("local", &config(&server.uri())).unwrap();
+        let subjects = client.subjects().await.unwrap();
+
+        assert_eq!(subjects[0].subject, "orders-value");
+        assert_eq!(subjects[0].latest_version, 3);
+    }
+
+    #[tokio::test]
+    async fn subject_catalog_fetches_global_config_once_for_many_subjects() {
+        let server = MockServer::start().await;
+        let names = ["alpha-value", "beta-value", "gamma-value"];
+
+        Mock::given(method("GET"))
+            .and(path("/subjects"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(names))
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/config"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "compatibilityLevel": "FULL",
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        for name in names {
+            mock_catalog_subject(&server, name, &[1], None).await;
+        }
+
+        let client = SchemaRegistryClient::new("local", &config(&server.uri())).unwrap();
+        let subjects = client.subjects().await.unwrap();
+
+        assert_eq!(subjects.len(), 3);
+        assert!(
+            subjects
+                .iter()
+                .all(|subject| subject.compatibility == SchemaCompatibility::Full)
+        );
     }
 
     #[tokio::test]
@@ -395,7 +469,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        mock_subject(&server, "payments-value", 4, 1, "JSON", "{}", &[1], None).await;
+        mock_catalog_subject(&server, "payments-value", &[1], None).await;
 
         Mock::given(method("GET"))
             .and(path("/config"))
@@ -408,7 +482,6 @@ mod tests {
         let client = SchemaRegistryClient::new("local", &config(&server.uri())).unwrap();
         let subjects = client.subjects().await.unwrap();
 
-        assert_eq!(subjects[0].schema_type, SchemaType::Json);
         assert_eq!(subjects[0].compatibility, SchemaCompatibility::Full);
     }
 
@@ -423,24 +496,38 @@ mod tests {
             .mount(&server)
             .await;
 
-        mock_subject(
-            &server,
-            subject,
-            9,
-            2,
-            "PROTOBUF",
-            "syntax = \"proto3\";",
-            &[1, 2],
-            Some("FORWARD_TRANSITIVE"),
-        )
-        .await;
+        mock_catalog_subject(&server, subject, &[1, 2], Some("FORWARD_TRANSITIVE")).await;
 
         let client = SchemaRegistryClient::new("local", &config(&server.uri())).unwrap();
         let subjects = client.subjects().await.unwrap();
 
         assert_eq!(subjects[0].subject, subject);
-        assert_eq!(subjects[0].schema_type, SchemaType::Protobuf);
+        assert_eq!(subjects[0].latest_version, 2);
         assert_eq!(subjects[0].compatibility, SchemaCompatibility::Forward);
+    }
+
+    #[tokio::test]
+    async fn fetches_subject_schema_from_latest() {
+        let server = MockServer::start().await;
+
+        mock_latest(
+            &server,
+            "orders-value",
+            12,
+            3,
+            "JSON",
+            r#"{"type":"string"}"#,
+        )
+        .await;
+
+        let client = SchemaRegistryClient::new("local", &config(&server.uri())).unwrap();
+        let schema = client.subject_schema("orders-value").await.unwrap();
+
+        assert_eq!(schema.subject, "orders-value");
+        assert_eq!(schema.id, 12);
+        assert_eq!(schema.version, 3);
+        assert_eq!(schema.schema_type, SchemaType::Json);
+        assert_eq!(schema.schema, r#"{"type":"string"}"#);
     }
 
     #[tokio::test]

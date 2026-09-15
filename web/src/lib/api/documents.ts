@@ -154,11 +154,18 @@ export const ConsumerGroupLagFields = graphql(`
 export const SchemaSubjectFields = graphql(`
   fragment SchemaSubjectFields on SchemaSubject {
     subject
-    id
-    type
     latestVersion
     versions
     compatibility
+  }
+`);
+
+export const SubjectSchemaFields = graphql(`
+  fragment SubjectSchemaFields on SubjectSchema {
+    subject
+    id
+    version
+    type
     schema
   }
 `);
@@ -327,6 +334,14 @@ export const schemaSubjectsQuery = graphql(`
   query SchemaSubjects($cluster: String!) {
     schemaSubjects(cluster: $cluster) {
       ...SchemaSubjectFields
+    }
+  }
+`);
+
+export const subjectSchemaQuery = graphql(`
+  query SubjectSchema($cluster: String!, $subject: String!) {
+    subjectSchema(cluster: $cluster, subject: $subject) {
+      ...SubjectSchemaFields
     }
   }
 `);

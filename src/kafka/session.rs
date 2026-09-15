@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
     AclListing, ClusterIdentity, CommittedOffset, ConfigEntry, FetchPlan, GroupSnapshot,
-    MetadataSnapshot, Record, SchemaSubject, Watermarks,
+    MetadataSnapshot, Record, SchemaSubject, SubjectSchema, Watermarks,
 };
 
 /// Per-cluster Kafka I/O. Matches [`super::client::KafkaClient`].
@@ -79,6 +79,13 @@ pub trait ClusterSession: Send + Sync + 'static {
 
     async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
         Ok(Vec::new())
+    }
+
+    async fn subject_schema(&self, name: &str) -> Result<SubjectSchema, KafkaError> {
+        Err(KafkaError::SchemaRegistry {
+            cluster: self.identity().name.clone(),
+            message: format!("subject '{name}' is not available"),
+        })
     }
 
     /// All ACL bindings the broker will describe, or authorizer-off.
