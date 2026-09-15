@@ -69,5 +69,11 @@ export function canAccess(
   if (!user) return false;
   if (user.role == null) return true;
   if (!canAccessCluster(me, cluster)) return false;
-  return user.role === "admin";
+  if (user.role === "admin") return true;
+  switch (privilege) {
+    case "records":
+    case "configs":
+    case "schemaText":
+      return false;
+  }
 }
