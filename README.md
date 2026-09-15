@@ -33,7 +33,9 @@ default 5, minimum 1).
 By default the UI and GraphQL API are open to anyone who can reach the process.
 
 To require a login, add an OIDC provider to `config.yaml`. klens uses the
-authorization code flow with PKCE. `/health` stays public.
+authorization code flow with PKCE. Sessions use
+[axum-login](https://github.com/maxcountryman/axum-login). `/health` stays
+public. A process restart drops in-memory sessions and requires a new login.
 
 ```yaml
 auth:
