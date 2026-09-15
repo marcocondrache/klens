@@ -1,9 +1,12 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use krafka::testing::FakeBroker;
+use tokio::sync::OnceCell;
 
 use crate::config::SecurityProtocol;
 use crate::kafka::cluster::ClusterIdentity;
@@ -20,22 +23,32 @@ use crate::kafka::session::ClusterSession;
 use crate::kafka::topic_config::{ConfigEntry, ConfigSource};
 use crate::kafka::watermarks::Watermarks;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct FakeCluster {
     identity: ClusterIdentity,
-    metadata: MetadataSnapshot,
-    watermarks: HashMap<String, HashMap<i32, Watermarks>>,
-    topic_configs: HashMap<String, Vec<ConfigEntry>>,
-    broker_configs: HashMap<i32, Vec<ConfigEntry>>,
-    groups: Vec<GroupSnapshot>,
-    records: Vec<Record>,
-    subjects: Vec<SchemaSubject>,
-    metadata_error: Option<String>,
-    subjects_error: Option<String>,
-    configs_error: Option<String>,
-    metadata_delay: Duration,
-    watermark_delay: Duration,
-    watermark_growth: Option<Arc<WatermarkGrowth>>,
+    inner: Arc<Inner>,
+}
+
+struct Inner {
+    broker: OnceCell<FakeBroker>,
+    metadata: Mutex<MetadataSnapshot>,
+    watermarks: Mutex<HashMap<String, HashMap<i32, Watermarks>>>,
+    topic_configs: Mutex<HashMap<String, Vec<ConfigEntry>>>,
+    broker_configs: Mutex<HashMap<i32, Vec<ConfigEntry>>>,
+    groups: Mutex<Vec<GroupSnapshot>>,
+    records: Mutex<Vec<Record>>,
+    subjects: Mutex<Vec<SchemaSubject>>,
+    metadata_error: Mutex<Option<String>>,
+    subjects_error: Mutex<Option<String>>,
+    configs_error: Mutex<Option<String>>,
+    serve_subjects: Mutex<bool>,
+    metadata_delay: Mutex<Duration>,
+    watermark_delay: Mutex<Duration>,
+    records_delay: Mutex<Duration>,
+    consume_timeout: Mutex<Option<Duration>>,
+    watermark_growth: Mutex<Option<Arc<WatermarkGrowth>>>,
+    plans: Mutex<Vec<FetchPlan>>,
+    calls: SessionCalls,
 }
 
 /// Grows the high watermark of partition 0 by `step` more on every read, so a
@@ -180,19 +193,27 @@ impl FakeCluster {
 
         Self {
             identity,
-            metadata,
-            watermarks,
-            topic_configs,
-            broker_configs,
-            groups,
-            records,
-            subjects,
-            metadata_error: None,
-            subjects_error: None,
-            configs_error: None,
-            metadata_delay: Duration::ZERO,
-            watermark_delay: Duration::ZERO,
-            watermark_growth: None,
+            inner: Arc::new(Inner {
+                broker: OnceCell::new(),
+                metadata: Mutex::new(metadata),
+                watermarks: Mutex::new(watermarks),
+                topic_configs: Mutex::new(topic_configs),
+                broker_configs: Mutex::new(broker_configs),
+                groups: Mutex::new(groups),
+                records: Mutex::new(records),
+                subjects: Mutex::new(subjects),
+                metadata_error: Mutex::new(None),
+                subjects_error: Mutex::new(None),
+                configs_error: Mutex::new(None),
+                serve_subjects: Mutex::new(true),
+                metadata_delay: Mutex::new(Duration::ZERO),
+                watermark_delay: Mutex::new(Duration::ZERO),
+                records_delay: Mutex::new(Duration::ZERO),
+                consume_timeout: Mutex::new(None),
+                watermark_growth: Mutex::new(None),
+                plans: Mutex::new(Vec::new()),
+                calls: SessionCalls::default(),
+            }),
         }
     }
 
@@ -202,82 +223,107 @@ impl FakeCluster {
         cluster
     }
 
-    pub fn unreachable(mut self) -> Self {
-        self.metadata_error = Some("broker down".into());
+    pub fn unreachable(self) -> Self {
+        *self.inner.metadata_error.lock().expect("metadata error") = Some("broker down".into());
         self
     }
 
-    pub fn with_metadata_delay(mut self, delay: Duration) -> Self {
-        self.metadata_delay = delay;
+    pub fn with_metadata_delay(self, delay: Duration) -> Self {
+        *self.inner.metadata_delay.lock().expect("metadata delay") = delay;
         self
     }
 
     /// Delays every watermark read. One call covers every requested
     /// partition, so a batched read of N topics still costs one delay.
-    pub fn with_watermark_delay(mut self, delay: Duration) -> Self {
-        self.watermark_delay = delay;
+    pub fn with_watermark_delay(self, delay: Duration) -> Self {
+        *self.inner.watermark_delay.lock().expect("watermark delay") = delay;
+        self
+    }
+
+    pub fn with_records_delay(self, delay: Duration) -> Self {
+        *self.inner.records_delay.lock().expect("records delay") = delay;
+        self
+    }
+
+    pub fn with_consume_timeout(self, timeout: Duration) -> Self {
+        *self.inner.consume_timeout.lock().expect("consume timeout") = Some(timeout);
         self
     }
 
     /// Advances the high watermark of partition 0 by a further `step` on every
     /// read. The first read is unchanged, so the first rate sample is still 0.
-    pub fn with_growing_watermarks(mut self, step: i64) -> Self {
-        self.watermark_growth = Some(Arc::new(WatermarkGrowth {
+    pub fn with_growing_watermarks(self, step: i64) -> Self {
+        *self
+            .inner
+            .watermark_growth
+            .lock()
+            .expect("watermark growth") = Some(Arc::new(WatermarkGrowth {
             step,
             grown: AtomicI64::new(0),
         }));
         self
     }
 
-    pub fn with_subjects_error(mut self, message: impl Into<String>) -> Self {
-        self.subjects_error = Some(message.into());
+    pub fn with_subjects_error(self, message: impl Into<String>) -> Self {
+        *self.inner.subjects_error.lock().expect("subjects error") = Some(message.into());
         self
     }
 
-    pub fn with_configs_error(mut self, message: impl Into<String>) -> Self {
-        self.configs_error = Some(message.into());
+    pub fn without_subjects(self) -> Self {
+        *self.inner.serve_subjects.lock().expect("serve subjects") = false;
         self
     }
 
-    pub fn with_topic_configs(
-        mut self,
-        topic: impl Into<String>,
-        configs: Vec<ConfigEntry>,
-    ) -> Self {
-        self.topic_configs.insert(topic.into(), configs);
+    pub fn with_configs_error(self, message: impl Into<String>) -> Self {
+        *self.inner.configs_error.lock().expect("configs error") = Some(message.into());
         self
     }
 
-    pub fn extra_topic(&self, name: &str, partitions: i32, high: i64) -> Self {
-        let mut cluster = self.clone();
-        cluster.metadata.topics.push(TopicMetadata {
-            name: name.to_owned(),
-            internal: false,
-            partitions: (0..partitions)
-                .map(|id| PartitionMetadata {
-                    id,
-                    leader: 1,
-                    replicas: vec![1],
-                    isr: vec![1],
-                })
-                .collect(),
-        });
-        cluster.watermarks.insert(
-            name.to_owned(),
-            (0..partitions)
-                .map(|id| (id, Watermarks { low: 0, high }))
-                .collect(),
-        );
-        cluster
+    pub fn with_topic_configs(self, topic: impl Into<String>, configs: Vec<ConfigEntry>) -> Self {
+        self.inner
+            .topic_configs
+            .lock()
+            .expect("topic configs")
+            .insert(topic.into(), configs);
+        self
     }
 
-    pub fn extra_group(&self, group: GroupSnapshot) -> Self {
-        let mut cluster = self.clone();
-        cluster.groups.push(group);
-        cluster
+    pub fn extra_topic(self, name: &str, partitions: i32, high: i64) -> Self {
+        {
+            let mut metadata = self.inner.metadata.lock().expect("metadata");
+            metadata.topics.push(TopicMetadata {
+                name: name.to_owned(),
+                internal: false,
+                partitions: (0..partitions)
+                    .map(|id| PartitionMetadata {
+                        id,
+                        leader: 1,
+                        replicas: vec![1],
+                        isr: vec![1],
+                    })
+                    .collect(),
+            });
+        }
+        let marks: HashMap<i32, Watermarks> = (0..partitions)
+            .map(|id| (id, Watermarks { low: 0, high }))
+            .collect();
+        self.inner
+            .watermarks
+            .lock()
+            .expect("watermarks")
+            .insert(name.to_owned(), marks.clone());
+        if let Some(broker) = self.inner.broker.get() {
+            seed_topic(broker, name, &marks);
+        }
+        self
     }
 
-    pub fn with_orders_records(mut self, records: Vec<Record>) -> Self {
+    pub fn extra_group(self, group: GroupSnapshot) -> Self {
+        self.inner.groups.lock().expect("groups").push(group);
+        self
+    }
+
+    pub fn with_orders_records(self, records: Vec<Record>) -> Self {
         let mut highs = HashMap::<i32, i64>::new();
         for record in &records {
             let high = highs.entry(record.partition).or_insert(0);
@@ -287,49 +333,58 @@ impl FakeCluster {
         let mut ids: Vec<i32> = highs.keys().copied().collect();
         ids.sort_unstable();
 
-        if let Some(topic) = self
-            .metadata
-            .topics
-            .iter_mut()
-            .find(|topic| topic.name == "orders.created")
         {
-            topic.partitions = ids
-                .iter()
-                .map(|id| PartitionMetadata {
-                    id: *id,
-                    leader: 1,
-                    replicas: vec![1],
-                    isr: vec![1],
-                })
-                .collect();
+            let mut metadata = self.inner.metadata.lock().expect("metadata");
+            if let Some(topic) = metadata
+                .topics
+                .iter_mut()
+                .find(|topic| topic.name == "orders.created")
+            {
+                topic.partitions = ids
+                    .iter()
+                    .map(|id| PartitionMetadata {
+                        id: *id,
+                        leader: 1,
+                        replicas: vec![1],
+                        isr: vec![1],
+                    })
+                    .collect();
+            }
         }
 
-        self.watermarks.insert(
-            "orders.created".into(),
-            ids.into_iter()
-                .map(|id| {
-                    (
-                        id,
-                        Watermarks {
-                            low: 0,
-                            high: highs[&id],
-                        },
-                    )
-                })
-                .collect(),
-        );
-        self.records = records;
+        let marks: HashMap<i32, Watermarks> = ids
+            .into_iter()
+            .map(|id| {
+                (
+                    id,
+                    Watermarks {
+                        low: 0,
+                        high: highs[&id],
+                    },
+                )
+            })
+            .collect();
+        self.inner
+            .watermarks
+            .lock()
+            .expect("watermarks")
+            .insert("orders.created".into(), marks.clone());
+        *self.inner.records.lock().expect("records") = records;
+        if let Some(broker) = self.inner.broker.get() {
+            seed_topic(broker, "orders.created", &marks);
+        }
         self
     }
 
-    pub fn add_partition(&mut self, topic: &str, id: i32, watermarks: Watermarks) {
-        if let Some(meta) = self
-            .metadata
-            .topics
-            .iter_mut()
-            .find(|topic_meta| topic_meta.name == topic)
+    pub fn add_partition(&self, topic: &str, id: i32, watermarks: Watermarks) {
         {
-            if !meta.partitions.iter().any(|partition| partition.id == id) {
+            let mut metadata = self.inner.metadata.lock().expect("metadata");
+            if let Some(meta) = metadata
+                .topics
+                .iter_mut()
+                .find(|topic_meta| topic_meta.name == topic)
+                && !meta.partitions.iter().any(|partition| partition.id == id)
+            {
                 meta.partitions.push(PartitionMetadata {
                     id,
                     leader: 1,
@@ -338,25 +393,105 @@ impl FakeCluster {
                 });
             }
         }
-        self.watermarks
+        self.inner
+            .watermarks
+            .lock()
+            .expect("watermarks")
             .entry(topic.to_owned())
             .or_default()
             .insert(id, watermarks);
+        if let Some(broker) = self.inner.broker.get() {
+            ensure_partition(broker, topic, id);
+            apply_watermark(broker, topic, id, watermarks);
+        }
     }
 
-    pub fn drop_partition(&mut self, topic: &str, id: i32) {
-        if let Some(meta) = self
-            .metadata
-            .topics
-            .iter_mut()
-            .find(|topic_meta| topic_meta.name == topic)
+    pub fn drop_partition(&self, topic: &str, id: i32) {
         {
-            meta.partitions.retain(|partition| partition.id != id);
+            let mut metadata = self.inner.metadata.lock().expect("metadata");
+            if let Some(meta) = metadata
+                .topics
+                .iter_mut()
+                .find(|topic_meta| topic_meta.name == topic)
+            {
+                meta.partitions.retain(|partition| partition.id != id);
+            }
         }
-        if let Some(marks) = self.watermarks.get_mut(topic) {
+        if let Some(marks) = self
+            .inner
+            .watermarks
+            .lock()
+            .expect("watermarks")
+            .get_mut(topic)
+        {
             marks.remove(&id);
         }
     }
+
+    pub fn calls(&self) -> &SessionCalls {
+        &self.inner.calls
+    }
+
+    pub fn recorded_plans(&self) -> Vec<FetchPlan> {
+        self.inner.plans.lock().expect("plans").clone()
+    }
+
+    async fn broker(&self) -> &FakeBroker {
+        self.inner
+            .broker
+            .get_or_init(|| async {
+                let broker = FakeBroker::start().await.expect("fake broker");
+                let watermarks = self.inner.watermarks.lock().expect("watermarks").clone();
+                for (topic, marks) in watermarks {
+                    seed_topic(&broker, &topic, &marks);
+                }
+                broker
+            })
+            .await
+    }
+}
+
+fn seed_topic(broker: &FakeBroker, topic: &str, marks: &HashMap<i32, Watermarks>) {
+    let Some(max_id) = marks.keys().copied().max() else {
+        return;
+    };
+    if !broker.create_topic(topic, max_id + 1) {
+        broker.add_partitions(topic, max_id + 1);
+    }
+    for (&id, &marks) in marks {
+        apply_watermark(broker, topic, id, marks);
+    }
+}
+
+fn ensure_partition(broker: &FakeBroker, topic: &str, partition: i32) {
+    if broker.with_state(|state| state.partition(topic, partition).is_some()) {
+        return;
+    }
+    if broker.with_state(|state| state.topics.contains_key(topic)) {
+        broker.add_partitions(topic, partition + 1);
+    } else {
+        broker.create_topic(topic, partition + 1);
+    }
+}
+
+fn apply_watermark(broker: &FakeBroker, topic: &str, partition: i32, marks: Watermarks) {
+    broker.with_state(|state| {
+        if let Some(partition) = state.partition_mut(topic, partition) {
+            partition.log_start_offset = marks.low;
+            partition.next_offset = marks.high;
+        }
+    });
+}
+
+fn broker_watermarks(broker: &FakeBroker, topic: &str, partition: i32) -> Option<Watermarks> {
+    broker.with_state(|state| {
+        state
+            .partition(topic, partition)
+            .map(|partition| Watermarks {
+                low: partition.log_start_offset,
+                high: partition.next_offset,
+            })
+    })
 }
 
 #[async_trait]
@@ -365,23 +500,44 @@ impl ClusterSession for FakeCluster {
         &self.identity
     }
 
+    fn consume_timeout(&self) -> Duration {
+        self.inner
+            .consume_timeout
+            .lock()
+            .expect("consume timeout")
+            .unwrap_or(*crate::environment::CONSUME_TIMEOUT)
+    }
+
     async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError> {
-        if !self.metadata_delay.is_zero() {
-            tokio::time::sleep(self.metadata_delay).await;
+        self.inner.calls.metadata.fetch_add(1, Ordering::SeqCst);
+        let delay = *self.inner.metadata_delay.lock().expect("metadata delay");
+        if !delay.is_zero() {
+            tokio::time::sleep(delay).await;
         }
-        if let Some(message) = &self.metadata_error {
+        if let Some(message) = &*self.inner.metadata_error.lock().expect("metadata error") {
             return Err(KafkaError::Admin(message.clone()));
         }
-        Ok(self.metadata.clone())
+        Ok(self.inner.metadata.lock().expect("metadata").clone())
     }
 
     async fn watermarks(
         &self,
         partitions: &[(String, i32)],
     ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError> {
-        if !self.watermark_delay.is_zero() {
-            tokio::time::sleep(self.watermark_delay).await;
+        self.inner.calls.watermarks.fetch_add(1, Ordering::SeqCst);
+        let delay = *self.inner.watermark_delay.lock().expect("watermark delay");
+        if !delay.is_zero() {
+            tokio::time::sleep(delay).await;
         }
+
+        let broker = self.broker().await;
+        let growth = self
+            .inner
+            .watermark_growth
+            .lock()
+            .expect("watermark growth")
+            .clone();
+        let stored = self.inner.watermarks.lock().expect("watermarks").clone();
 
         let mut topics: Vec<&str> = partitions.iter().map(|(topic, _)| topic.as_str()).collect();
         topics.sort_unstable();
@@ -390,17 +546,25 @@ impl ClusterSession for FakeCluster {
         Ok(topics
             .into_iter()
             .map(|name| {
-                let mut marks = self.watermarks.get(name).cloned().unwrap_or_default();
-                if let Some(growth) = &self.watermark_growth
-                    && let Some(partition) = marks.get_mut(&0)
-                {
-                    partition.high += growth.grown.fetch_add(growth.step, Ordering::SeqCst);
-                }
                 let wanted: HashMap<i32, Watermarks> = partitions
                     .iter()
                     .filter(|(topic, _)| topic == name)
                     .filter_map(|(_, partition)| {
-                        marks.get(partition).copied().map(|mark| (*partition, mark))
+                        broker_watermarks(broker, name, *partition)
+                            .or_else(|| {
+                                stored
+                                    .get(name)
+                                    .and_then(|marks| marks.get(partition).copied())
+                            })
+                            .map(|mut marks| {
+                                if *partition == 0
+                                    && let Some(growth) = &growth
+                                {
+                                    marks.high +=
+                                        growth.grown.fetch_add(growth.step, Ordering::SeqCst);
+                                }
+                                (*partition, marks)
+                            })
                     })
                     .collect();
                 (name.to_owned(), wanted)
@@ -414,11 +578,11 @@ impl ClusterSession for FakeCluster {
         partitions: &[i32],
         timestamp: i64,
     ) -> Result<HashMap<i32, Option<i64>>, KafkaError> {
+        let records = self.inner.records.lock().expect("records").clone();
         Ok(partitions
             .iter()
             .map(|partition| {
-                let offset = self
-                    .records
+                let offset = records
                     .iter()
                     .filter(|record| {
                         record.topic == topic
@@ -436,13 +600,18 @@ impl ClusterSession for FakeCluster {
         &self,
         topics: &[&str],
     ) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError> {
-        if let Some(message) = &self.configs_error {
+        self.inner
+            .calls
+            .topic_configs
+            .fetch_add(1, Ordering::SeqCst);
+        if let Some(message) = &*self.inner.configs_error.lock().expect("configs error") {
             return Err(KafkaError::Admin(message.clone()));
         }
+        let configs = self.inner.topic_configs.lock().expect("topic configs");
         Ok(topics
             .iter()
             .filter_map(|topic| {
-                self.topic_configs
+                configs
                     .get(*topic)
                     .cloned()
                     .map(|entries| ((*topic).to_owned(), entries))
@@ -452,14 +621,18 @@ impl ClusterSession for FakeCluster {
 
     async fn broker_configs(&self, broker_id: i32) -> Result<Vec<ConfigEntry>, KafkaError> {
         Ok(self
+            .inner
             .broker_configs
+            .lock()
+            .expect("broker configs")
             .get(&broker_id)
             .cloned()
             .unwrap_or_default())
     }
 
     async fn groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
-        Ok(self.groups.clone())
+        self.inner.calls.groups.fetch_add(1, Ordering::SeqCst);
+        Ok(self.inner.groups.lock().expect("groups").clone())
     }
 
     async fn committed_offsets(
@@ -467,8 +640,15 @@ impl ClusterSession for FakeCluster {
         group_id: &str,
         _partitions: &[(String, i32)],
     ) -> Result<Vec<CommittedOffset>, KafkaError> {
+        self.inner
+            .calls
+            .committed_offsets
+            .fetch_add(1, Ordering::SeqCst);
         Ok(self
+            .inner
             .groups
+            .lock()
+            .expect("groups")
             .iter()
             .find(|group| group.id == group_id)
             .map(|group| group.committed.clone())
@@ -476,8 +656,14 @@ impl ClusterSession for FakeCluster {
     }
 
     async fn records(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError> {
+        self.inner.plans.lock().expect("plans").push(plan.clone());
+        let delay = *self.inner.records_delay.lock().expect("records delay");
+        if !delay.is_zero() {
+            tokio::time::sleep(delay).await;
+        }
+        let stored = self.inner.records.lock().expect("records").clone();
         let mut batch = RecordBatch::new(plan.limit, plan.order);
-        for record in self.records.iter().filter(|record| {
+        for record in stored.iter().filter(|record| {
             record.topic == plan.topic
                 && plan.windows.iter().any(|window| {
                     window.partition == record.partition
@@ -492,13 +678,16 @@ impl ClusterSession for FakeCluster {
     }
 
     async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
-        if let Some(message) = &self.subjects_error {
+        if !*self.inner.serve_subjects.lock().expect("serve subjects") {
+            return Ok(Vec::new());
+        }
+        if let Some(message) = &*self.inner.subjects_error.lock().expect("subjects error") {
             return Err(KafkaError::SchemaRegistry {
                 cluster: self.identity.name.clone(),
                 message: message.clone(),
             });
         }
-        Ok(self.subjects.clone())
+        Ok(self.inner.subjects.lock().expect("subjects").clone())
     }
 }
 
@@ -531,87 +720,5 @@ impl SessionCalls {
 
     pub fn committed_offsets(&self) -> usize {
         self.committed_offsets.load(Ordering::SeqCst)
-    }
-}
-
-/// A [`FakeCluster`] that records the calls made to it, for tests that assert
-/// how much I/O a code path does rather than what it returns.
-///
-/// Clones share one set of counters, so a test can hand the engine a clone and
-/// still read the counts. `schema_subjects` is deliberately left to the trait
-/// default so the "session does not override it" path stays covered.
-#[derive(Debug, Clone)]
-pub struct CountingSession {
-    inner: FakeCluster,
-    pub calls: Arc<SessionCalls>,
-}
-
-impl CountingSession {
-    pub fn new(inner: FakeCluster) -> Self {
-        Self {
-            inner,
-            calls: Arc::new(SessionCalls::default()),
-        }
-    }
-}
-
-#[async_trait]
-impl ClusterSession for CountingSession {
-    fn identity(&self) -> &ClusterIdentity {
-        self.inner.identity()
-    }
-
-    async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError> {
-        self.calls.metadata.fetch_add(1, Ordering::SeqCst);
-        self.inner.metadata().await
-    }
-
-    async fn watermarks(
-        &self,
-        partitions: &[(String, i32)],
-    ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError> {
-        self.calls.watermarks.fetch_add(1, Ordering::SeqCst);
-        self.inner.watermarks(partitions).await
-    }
-
-    async fn offsets_for_times(
-        &self,
-        topic: &str,
-        partitions: &[i32],
-        timestamp: i64,
-    ) -> Result<HashMap<i32, Option<i64>>, KafkaError> {
-        self.inner
-            .offsets_for_times(topic, partitions, timestamp)
-            .await
-    }
-
-    async fn topic_configs(
-        &self,
-        topics: &[&str],
-    ) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError> {
-        self.calls.topic_configs.fetch_add(1, Ordering::SeqCst);
-        self.inner.topic_configs(topics).await
-    }
-
-    async fn broker_configs(&self, broker_id: i32) -> Result<Vec<ConfigEntry>, KafkaError> {
-        self.inner.broker_configs(broker_id).await
-    }
-
-    async fn groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
-        self.calls.groups.fetch_add(1, Ordering::SeqCst);
-        self.inner.groups().await
-    }
-
-    async fn committed_offsets(
-        &self,
-        group_id: &str,
-        partitions: &[(String, i32)],
-    ) -> Result<Vec<CommittedOffset>, KafkaError> {
-        self.calls.committed_offsets.fetch_add(1, Ordering::SeqCst);
-        self.inner.committed_offsets(group_id, partitions).await
-    }
-
-    async fn records(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError> {
-        self.inner.records(plan).await
     }
 }

@@ -1,19 +1,16 @@
 use super::*;
 use std::ops::Bound;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
-
-use async_trait::async_trait;
 
 use crate::config::{ClusterConfig, Config};
 use crate::kafka::error::KafkaError;
 use crate::kafka::group::GroupSnapshot;
 use crate::kafka::model::{
-    ClusterIdentity, CommittedOffset, ConfigEntry, FetchPlan, MetadataSnapshot, Record,
-    RecordOrder, RecordQuery, TimestampRange, Watermarks,
+    ConfigEntry, Record, RecordOrder, RecordQuery, TimestampRange, Watermarks,
 };
 use crate::kafka::session::ClusterSession;
-use crate::kafka::testing::{CountingSession, FakeCluster};
+use crate::kafka::testing::FakeCluster;
 use crate::utils::datetime_from_unix_millis as unix_datetime;
 
 fn cluster_config(name: &str) -> ClusterConfig {
@@ -117,10 +114,9 @@ async fn consumer_group_hydrates_only_the_requested_group() {
         }],
         committed: Vec::new(),
     };
-    let cluster = FakeCluster::local()
+    let session = FakeCluster::local()
         .extra_topic("payments.captured", 1, 4)
         .extra_group(payments);
-    let session = CountingSession::new(cluster);
     let engine = QueryEngine::from_sessions(vec![session.clone()]);
 
     let group = engine
@@ -128,7 +124,7 @@ async fn consumer_group_hydrates_only_the_requested_group() {
         .await
         .unwrap();
     assert_eq!(group.id, "order-processor");
-    assert_eq!(session.calls.committed_offsets(), 1);
+    assert_eq!(session.calls().committed_offsets(), 1);
 }
 
 #[tokio::test(start_paused = true)]
@@ -163,7 +159,7 @@ async fn schema_subjects_come_from_the_cluster_session() {
 
 #[tokio::test]
 async fn schema_subjects_default_to_empty_when_session_does_not_override() {
-    let session = CountingSession::new(FakeCluster::local());
+    let session = FakeCluster::local().without_subjects();
     let engine = QueryEngine::from_sessions(vec![session]);
 
     assert!(engine.schema_subjects("local").await.unwrap().is_empty());
@@ -185,11 +181,11 @@ async fn catalog_search_includes_schema_subjects() {
 
 #[tokio::test]
 async fn catalog_calls_watermarks_once() {
-    let session = CountingSession::new(FakeCluster::local());
+    let session = FakeCluster::local();
     let engine = QueryEngine::from_sessions(vec![session.clone()]);
 
     let snapshot = engine.catalog("local").await.unwrap();
-    assert_eq!(session.calls.watermarks(), 1);
+    assert_eq!(session.calls().watermarks(), 1);
     assert_eq!(snapshot.topics[0].message_count, 16);
     assert_eq!(snapshot.message_counts().get("orders.created"), Some(&16));
 }
@@ -210,7 +206,7 @@ async fn catalog_assembles_topics_groups_brokers_and_overview() {
 
 #[tokio::test]
 async fn catalog_fetches_shared_inputs_once() {
-    let session = CountingSession::new(FakeCluster::local());
+    let session = FakeCluster::local();
     let engine = QueryEngine::from_sessions(vec![session.clone()]);
     let snapshot = engine.catalog("local").await.unwrap();
 
@@ -218,21 +214,21 @@ async fn catalog_fetches_shared_inputs_once() {
     assert_eq!(snapshot.topics[0].message_count, 16);
     assert_eq!(snapshot.groups[0].id, "order-processor");
     assert_eq!(snapshot.groups[0].lag, 5);
-    assert_eq!(session.calls.metadata(), 1);
-    assert_eq!(session.calls.groups(), 1);
-    assert_eq!(session.calls.watermarks(), 1);
-    assert_eq!(session.calls.topic_configs(), 1);
-    assert_eq!(session.calls.committed_offsets(), 1);
+    assert_eq!(session.calls().metadata(), 1);
+    assert_eq!(session.calls().groups(), 1);
+    assert_eq!(session.calls().watermarks(), 1);
+    assert_eq!(session.calls().topic_configs(), 1);
+    assert_eq!(session.calls().committed_offsets(), 1);
 }
 
 #[tokio::test]
 async fn assemble_catalog_skips_config_fetch_when_disabled() {
-    let session = CountingSession::new(FakeCluster::local());
+    let session = FakeCluster::local();
     let engine = QueryEngine::from_sessions(vec![session.clone()]);
     let first = engine.assemble_catalog("local", None, true).await.unwrap();
     assert!(first.fetched_configs);
     assert!(!first.reused_topology);
-    assert_eq!(session.calls.topic_configs(), 1);
+    assert_eq!(session.calls().topic_configs(), 1);
 
     let reuse = CatalogReuse {
         metadata_hash: first.metadata_hash,
@@ -245,14 +241,14 @@ async fn assemble_catalog_skips_config_fetch_when_disabled() {
         .unwrap();
     assert!(!second.fetched_configs);
     assert!(second.reused_topology);
-    assert_eq!(session.calls.topic_configs(), 1);
-    assert_eq!(session.calls.watermarks(), 2);
+    assert_eq!(session.calls().topic_configs(), 1);
+    assert_eq!(session.calls().watermarks(), 2);
     assert!(second.snapshot.body_eq(&first.snapshot));
 }
 
 #[tokio::test]
 async fn assemble_catalog_keeps_reused_configs_when_fetch_fails() {
-    let session = CountingSession::new(FakeCluster::local().with_configs_error("no configs"));
+    let session = FakeCluster::local().with_configs_error("no configs");
     let engine = QueryEngine::from_sessions(vec![session.clone()]);
     let good = QueryEngine::from_sessions(vec![FakeCluster::local()])
         .assemble_catalog("local", None, true)
@@ -269,7 +265,7 @@ async fn assemble_catalog_keeps_reused_configs_when_fetch_fails() {
         .unwrap();
     assert!(!assembled.fetched_configs);
     assert_eq!(assembled.configs, good.configs);
-    assert_eq!(session.calls.topic_configs(), 1);
+    assert_eq!(session.calls().topic_configs(), 1);
 }
 
 #[tokio::test]
@@ -550,7 +546,7 @@ async fn records_reject_timestamp_from_after_to() {
 
 #[tokio::test]
 async fn invalid_record_queries_are_rejected_before_metadata_calls() {
-    let session = CountingSession::new(FakeCluster::local());
+    let session = FakeCluster::local();
     let engine = QueryEngine::from_sessions(vec![session.clone()]);
 
     for limit in [0, -1] {
@@ -560,8 +556,8 @@ async fn invalid_record_queries_are_rejected_before_metadata_calls() {
         let error = engine.records("local", query).await.unwrap_err();
 
         assert_eq!(error.code(), "LIMIT_TOO_SMALL");
-        assert_eq!(session.calls.metadata(), 0);
-        assert_eq!(session.calls.watermarks(), 0);
+        assert_eq!(session.calls().metadata(), 0);
+        assert_eq!(session.calls().watermarks(), 0);
     }
 
     let mut query = browse_query();
@@ -573,104 +569,13 @@ async fn invalid_record_queries_are_rejected_before_metadata_calls() {
     let error = engine.records("local", query).await.unwrap_err();
 
     assert_eq!(error.code(), "INVERTED_TIMESTAMP_RANGE");
-    assert_eq!(session.calls.metadata(), 0);
-    assert_eq!(session.calls.watermarks(), 0);
-}
-
-#[derive(Clone)]
-struct SharedFake {
-    identity: ClusterIdentity,
-    inner: Arc<Mutex<FakeCluster>>,
-}
-
-impl SharedFake {
-    fn new(inner: FakeCluster) -> Self {
-        Self {
-            identity: inner.identity().clone(),
-            inner: Arc::new(Mutex::new(inner)),
-        }
-    }
-
-    fn snapshot(&self) -> FakeCluster {
-        self.inner.lock().expect("fake cluster").clone()
-    }
-
-    fn add_partition(&self, topic: &str, id: i32, watermarks: Watermarks) {
-        self.inner
-            .lock()
-            .expect("fake cluster")
-            .add_partition(topic, id, watermarks);
-    }
-
-    fn drop_partition(&self, topic: &str, id: i32) {
-        self.inner
-            .lock()
-            .expect("fake cluster")
-            .drop_partition(topic, id);
-    }
-}
-
-#[async_trait]
-impl ClusterSession for SharedFake {
-    fn identity(&self) -> &ClusterIdentity {
-        &self.identity
-    }
-
-    async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError> {
-        self.snapshot().metadata().await
-    }
-
-    async fn watermarks(
-        &self,
-        partitions: &[(String, i32)],
-    ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError> {
-        self.snapshot().watermarks(partitions).await
-    }
-
-    async fn offsets_for_times(
-        &self,
-        topic: &str,
-        partitions: &[i32],
-        timestamp: i64,
-    ) -> Result<HashMap<i32, Option<i64>>, KafkaError> {
-        self.snapshot()
-            .offsets_for_times(topic, partitions, timestamp)
-            .await
-    }
-
-    async fn topic_configs(
-        &self,
-        topics: &[&str],
-    ) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError> {
-        self.snapshot().topic_configs(topics).await
-    }
-
-    async fn broker_configs(&self, broker_id: i32) -> Result<Vec<ConfigEntry>, KafkaError> {
-        self.snapshot().broker_configs(broker_id).await
-    }
-
-    async fn groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
-        self.snapshot().groups().await
-    }
-
-    async fn committed_offsets(
-        &self,
-        group_id: &str,
-        partitions: &[(String, i32)],
-    ) -> Result<Vec<CommittedOffset>, KafkaError> {
-        self.snapshot()
-            .committed_offsets(group_id, partitions)
-            .await
-    }
-
-    async fn records(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError> {
-        self.snapshot().records(plan).await
-    }
+    assert_eq!(session.calls().metadata(), 0);
+    assert_eq!(session.calls().watermarks(), 0);
 }
 
 #[tokio::test]
 async fn watermarks_sees_topology_change_without_a_ttl() {
-    let mut cluster = FakeCluster::local();
+    let cluster = FakeCluster::local();
     let first_meta = cluster.metadata().await.unwrap();
     let first = cluster
         .watermarks(&first_meta.topic_partition_pairs(&["orders.created"]))
@@ -703,7 +608,7 @@ async fn watermarks_sees_topology_change_without_a_ttl() {
 
 #[tokio::test]
 async fn assemble_catalog_picks_up_partition_churn() {
-    let cluster = SharedFake::new(FakeCluster::local());
+    let cluster = FakeCluster::local();
     let engine = QueryEngine::from_sessions(vec![cluster.clone()]);
 
     let first = engine.catalog("local").await.unwrap();
@@ -740,16 +645,16 @@ async fn assemble_catalog_picks_up_partition_churn() {
 
 #[tokio::test]
 async fn watermarks_does_not_fetch_metadata() {
-    let session = CountingSession::new(FakeCluster::local());
+    let session = FakeCluster::local();
     let meta = session.metadata().await.unwrap();
-    assert_eq!(session.calls.metadata(), 1);
+    assert_eq!(session.calls().metadata(), 1);
 
     let marks = session
         .watermarks(&meta.topic_partition_pairs(&["orders.created"]))
         .await
         .unwrap();
 
-    assert_eq!(session.calls.metadata(), 1);
+    assert_eq!(session.calls().metadata(), 1);
     assert_eq!(
         marks.get("orders.created"),
         Some(&HashMap::from([
