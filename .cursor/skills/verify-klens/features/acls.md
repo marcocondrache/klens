@@ -5,7 +5,7 @@ ACLs is the live binding list. It describes every ACL the broker returns for the
 ## Sub-features
 
 - `acls-land` opens `/cluster/local/acls` with heading `ACLs`.
-- `acls-disabled` shows the authorizer-off empty state on the local verify broker.
+- `acls-empty` shows the empty binding list on the local verify broker.
 - `acls-search` filters bindings from `Search ACLs…` and writes `?q=` on the URL.
 - `acls-resource` filters by resource type and writes `?resource=` on the URL.
 
@@ -23,13 +23,14 @@ Preconditions:
 - Start from `/`.
 
 - **Open list.** Click sidebar `ACLs`. URL is `/cluster/local/acls`. Heading is `ACLs`.
-- **Authorizer off.** Local Redpanda has no authorizer. The table empty state is `Authorization is disabled on this cluster.` The page is not an error. GraphQL `acls(cluster: "local") { authorizer bindings { principal } }` returns `authorizer: DISABLED` and `bindings: []` with no field errors.
+- **Empty list.** Local Redpanda answers DescribeAcls with no rows. The table empty state is `No ACL bindings.` The page is not an error. GraphQL `acls(cluster: "local") { authorizer bindings { principal } }` returns `authorizer: ENABLED` and `bindings: []` with no field errors.
 - **Search and resource.** Those filters stay on the page. They only change visible rows when bindings exist. On this broker they keep the same empty state.
-- **Proof.** Screenshot the page with the `ACLs` heading and the disabled empty state. Save the GraphQL body above. There is no ACL badge in the sidebar and no `/acls/<id>` route.
+- **Proof.** Screenshot the page with the `ACLs` heading and the empty state. Save the GraphQL body above. There is no ACL badge in the sidebar and no `/acls/<id>` route.
 
 ## Gotchas
 
-- Authorizer-off is a pass, not `verified-unreachable`. Quote the empty-state text and the GraphQL `DISABLED` authorizer.
-- A GraphQL field error on `acls` is a failed drive. Do not treat that as the disabled empty state.
+- An empty ENABLED list on the local verify broker is a pass. Quote the empty-state text and the GraphQL authorizer.
+- A broker that returns SECURITY_DISABLED must show `Authorization is disabled on this cluster.` and GraphQL `authorizer: DISABLED`. That path is covered by FakeCluster tests. Do not treat it as `verified-unreachable`.
+- A GraphQL field error on `acls` is a failed drive. Do not treat that as either empty state.
 - The heading, sidebar, and palette label are all `ACLs`.
 - Sidebar `ACLs` has no count badge. The command palette does not search ACL rows.
