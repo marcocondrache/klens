@@ -16,6 +16,7 @@ import { type DataTableFeatures } from "@/components/data-table/features";
 import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
+import { useAccess } from "@/hooks/use-access";
 import { useAcls } from "@/lib/api/live";
 import type { Acl, AclResourceType } from "@/lib/api/types";
 import { useClusterName } from "@/lib/clusters";
@@ -96,7 +97,9 @@ function AclsPage() {
   const cluster = useClusterName();
   const navigate = Route.useNavigate();
   const { q: term = "", resource = "all" } = Route.useSearch();
-  const { data, isPending, isError, error } = useAcls(cluster);
+  const { can } = useAccess();
+  const canAcls = can(cluster, "acls");
+  const { data, isPending, isError, error } = useAcls(cluster, canAcls);
   const disabled = data?.authorizer === "DISABLED";
   const bindings = data?.bindings ?? EMPTY_BINDINGS;
 
@@ -139,6 +142,10 @@ function AclsPage() {
         .includes(needle);
     });
   }, [bindings, resource, term]);
+
+  if (!canAcls) {
+    return <PageHeader title="ACLs" description="ACL bindings are not available for your role." />;
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">

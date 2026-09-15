@@ -13,23 +13,24 @@ use juniper_axum::{extract::JuniperRequest, response::JuniperResponse};
 use juniper_graphql_ws::ConnectionConfig;
 
 use crate::AppState;
+use crate::app::auth::access::EffectiveAccess;
 
+mod context;
 mod error;
 mod query;
 mod subscription;
 mod types;
 
+use context::GraphQlContext;
 use query::Query;
 use subscription::Subscription;
 
 pub(crate) use subscription::Samplers;
 
-impl juniper::Context for AppState {}
-
-pub type Schema = RootNode<Query, EmptyMutation<AppState>, Subscription>;
+pub type Schema = RootNode<Query, EmptyMutation<GraphQlContext>, Subscription>;
 
 pub fn schema() -> Schema {
-    Schema::new(Query, EmptyMutation::<AppState>::new(), Subscription)
+    Schema::new(Query, EmptyMutation::<GraphQlContext>::new(), Subscription)
 }
 
 pub fn router() -> Router<AppState> {
@@ -49,19 +50,23 @@ pub fn router() -> Router<AppState> {
 async fn graphql(
     Extension(schema): Extension<Arc<Schema>>,
     State(state): State<AppState>,
+    Extension(access): Extension<EffectiveAccess>,
     JuniperRequest(request): JuniperRequest,
 ) -> JuniperResponse {
-    JuniperResponse(request.execute(&*schema, &state).await)
+    let context = GraphQlContext { state, access };
+    JuniperResponse(request.execute(&*schema, &context).await)
 }
 
 async fn graphql_ws(
     Extension(schema): Extension<Arc<Schema>>,
     State(state): State<AppState>,
+    Extension(access): Extension<EffectiveAccess>,
     ws: WebSocketUpgrade,
 ) -> Response {
+    let context = GraphQlContext { state, access };
     ws.protocols(["graphql-transport-ws", "graphql-ws"])
         .on_upgrade(move |socket| {
-            subscriptions::serve_ws(socket, schema, ConnectionConfig::new(state))
+            subscriptions::serve_ws(socket, schema, ConnectionConfig::new(context))
         })
 }
 

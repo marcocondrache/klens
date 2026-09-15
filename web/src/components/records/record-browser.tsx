@@ -35,6 +35,7 @@ import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
 import { useSchemaSubjects } from "@/lib/api/catalog";
 import { useRecords } from "@/lib/api/live";
+import { useAccess } from "@/hooks/use-access";
 import { queryErrorMessage } from "@/lib/query-error";
 import { formatBytes, formatRelative, formatTimestamp, fromDatetimeLocalValue } from "@/lib/format";
 import type { RecordOrder, Topic, TopicRecord } from "@/lib/api/types";
@@ -141,19 +142,23 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
   const timestampFrom = fromDatetimeLocalValue(from);
   const timestampTo = fromDatetimeLocalValue(to);
   const filter = containsFilter(term);
+  const { can } = useAccess();
   const { data: subjects = [] } = useSchemaSubjects(cluster);
   const { data, isFetching, isError, error, hasNextPage, fetchNextPage, isFetchingNextPage } =
-    useRecords({
-      cluster,
-      topic: topic.name,
-      partition: partition === "all" ? null : Number(partition),
-      filter,
-      timestampFrom,
-      timestampTo,
-      limit: Number(limit),
-      order,
-      schemaId,
-    });
+    useRecords(
+      {
+        cluster,
+        topic: topic.name,
+        partition: partition === "all" ? null : Number(partition),
+        filter,
+        timestampFrom,
+        timestampTo,
+        limit: Number(limit),
+        order,
+        schemaId,
+      },
+      can(cluster, "records"),
+    );
   const pages = data?.pages ?? [];
   const currentPage = pages[pageIndex];
   const records = currentPage?.records ?? [];

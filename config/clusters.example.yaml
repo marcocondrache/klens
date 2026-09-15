@@ -42,8 +42,12 @@ clusters:
 # Optional OpenID Connect login gate. When omitted, the UI and GraphQL API are
 # open to anyone who can reach the process. /health stays public either way.
 #
-# Register redirect_uri with the identity provider. Any authenticated user has
-# the same access as an open deployment.
+# Register redirect_uri with the identity provider. Without roles, any
+# authenticated user has the same access as an open deployment. With roles,
+# unmatched users cannot sign in. Admins can read records, live configs,
+# schema text, and ACL bindings. Viewers see the catalog only. Omit clusters
+# to allow every
+# configured cluster.
 #
 # auth:
 #   oidc:
@@ -53,3 +57,13 @@ clusters:
 #     redirect_uri: http://localhost:8080/auth/callback
 #     # scopes: [openid, email, profile]
 #     # cookie_secure: false  # default: true when redirect_uri is https
+#   roles:
+#     # claim: groups
+#     bindings:
+#       - groups: [klens-admins]
+#         role: admin
+#       - groups: [klens-viewers]
+#         role: viewer
+#       - groups: [payments-viewers]
+#         role: viewer
+#         clusters: [payments]

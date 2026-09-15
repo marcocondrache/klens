@@ -1,6 +1,7 @@
 use futures::stream::{self, BoxStream};
 use juniper::{FieldResult, IntoFieldError, graphql_subscription};
 
+use super::context::GraphQlContext;
 use super::types::{CatalogUpdated, ConsumerGroup, TopicRate};
 use crate::AppState;
 use crate::app::sampler::SamplerMap;
@@ -17,9 +18,13 @@ pub(crate) struct Samplers {
     group_lag: SamplerMap<(String, String), FieldResult<ConsumerGroup>>,
 }
 
-#[graphql_subscription(context = AppState)]
+#[graphql_subscription(context = GraphQlContext)]
 impl Subscription {
-    async fn topic_rates(context: &AppState, cluster: String) -> TopicRateStream {
+    async fn topic_rates(context: &GraphQlContext, cluster: String) -> TopicRateStream {
+        if let Err(error) = context.allow_cluster(&cluster) {
+            return Box::pin(stream::once(async move { Err(error.into_field_error()) }));
+        }
+
         let sampler = context.samplers.topic_rates.attach(cluster.clone(), {
             let state = context.clone();
             move || {
@@ -33,10 +38,13 @@ impl Subscription {
     }
 
     async fn consumer_group_lag(
-        context: &AppState,
+        context: &GraphQlContext,
         cluster: String,
         id: String,
     ) -> ConsumerGroupStream {
+        if let Err(error) = context.allow_cluster(&cluster) {
+            return Box::pin(stream::once(async move { Err(error.into_field_error()) }));
+        }
         let key = (cluster.clone(), id.clone());
         let sampler = context.samplers.group_lag.attach(key, {
             let state = context.clone();
@@ -51,7 +59,10 @@ impl Subscription {
         Box::pin(sampler.stream())
     }
 
-    async fn catalog_updated(context: &AppState, cluster: String) -> CatalogUpdatedStream {
+    async fn catalog_updated(context: &GraphQlContext, cluster: String) -> CatalogUpdatedStream {
+        if let Err(error) = context.allow_cluster(&cluster) {
+            return Box::pin(stream::once(async move { Err(error.into_field_error()) }));
+        }
         let mut updates = context.catalog_updates(&cluster);
         let _ = updates.borrow_and_update();
 
@@ -103,6 +114,7 @@ mod tests {
     use juniper_subscriptions::Coordinator;
 
     use super::*;
+    use crate::app::graphql::context::GraphQlContext;
     use crate::app::graphql::query::Query;
     use crate::environment::SAMPLE_INTERVAL;
     use crate::kafka::model::CleanupPolicy;
@@ -114,8 +126,12 @@ mod tests {
         FakeCluster::local().with_growing_watermarks(10)
     }
 
-    fn schema() -> RootNode<Query, EmptyMutation<AppState>, Subscription> {
-        RootNode::new(Query, EmptyMutation::<AppState>::new(), Subscription)
+    fn schema() -> RootNode<Query, EmptyMutation<GraphQlContext>, Subscription> {
+        RootNode::new(Query, EmptyMutation::<GraphQlContext>::new(), Subscription)
+    }
+
+    fn ctx(state: &AppState) -> GraphQlContext {
+        GraphQlContext::unrestricted(state.clone())
     }
 
     async fn wait_until(mut predicate: impl FnMut() -> bool) {
@@ -149,7 +165,8 @@ mod tests {
         ])));
         let coordinator = Coordinator::new(schema());
         let request = catalog_updated_request();
-        let mut stream = coordinator.subscribe(&request, &state).await.unwrap();
+        let context = ctx(&state);
+        let mut stream = coordinator.subscribe(&request, &context).await.unwrap();
 
         let first = state.catalog_snapshot("local").await.unwrap();
         tokio::task::yield_now().await;
@@ -203,7 +220,8 @@ mod tests {
 
         let coordinator = Coordinator::new(schema());
         let request = topic_rates_request();
-        let mut stream = coordinator.subscribe(&request, &state).await.unwrap();
+        let context = ctx(&state);
+        let mut stream = coordinator.subscribe(&request, &context).await.unwrap();
 
         let first = stream.next().await.unwrap();
         let first = serde_json::to_value(first).unwrap();
@@ -245,8 +263,9 @@ mod tests {
 
         let coordinator = Coordinator::new(schema());
         let request = topic_rates_request();
-        let mut first = coordinator.subscribe(&request, &state).await.unwrap();
-        let mut second = coordinator.subscribe(&request, &state).await.unwrap();
+        let context = ctx(&state);
+        let mut first = coordinator.subscribe(&request, &context).await.unwrap();
+        let mut second = coordinator.subscribe(&request, &context).await.unwrap();
 
         first.next().await.unwrap();
         second.next().await.unwrap();
@@ -273,7 +292,8 @@ mod tests {
         )));
         let coordinator = Coordinator::new(schema());
         let request = topic_rates_request();
-        let mut stream = coordinator.subscribe(&request, &state).await.unwrap();
+        let context = ctx(&state);
+        let mut stream = coordinator.subscribe(&request, &context).await.unwrap();
 
         let first = stream.next().await.unwrap();
         let first = serde_json::to_value(first).unwrap();
@@ -298,7 +318,8 @@ mod tests {
         )
         .unwrap();
 
-        let mut stream = coordinator.subscribe(&request, &state).await.unwrap();
+        let context = ctx(&state);
+        let mut stream = coordinator.subscribe(&request, &context).await.unwrap();
 
         let first = stream.next().await.unwrap();
         let first = serde_json::to_value(first).unwrap();
@@ -332,7 +353,8 @@ mod tests {
             r#"{ "query": "subscription { consumerGroupLag(cluster: \"local\", id: \"order-processor\") { id lag } }" }"#,
         )
         .unwrap();
-        let mut stream = coordinator.subscribe(&request, &state).await.unwrap();
+        let context = ctx(&state);
+        let mut stream = coordinator.subscribe(&request, &context).await.unwrap();
 
         let first = stream.next().await.unwrap();
         let first = serde_json::to_value(first).unwrap();
@@ -369,7 +391,8 @@ mod tests {
             r#"{ "query": "subscription { consumerGroupLag(cluster: \"local\", id: \"ghost\") { id lag } }" }"#,
         )
         .unwrap();
-        let mut stream = coordinator.subscribe(&request, &state).await.unwrap();
+        let context = ctx(&state);
+        let mut stream = coordinator.subscribe(&request, &context).await.unwrap();
 
         let first = stream.next().await.unwrap();
         let first = serde_json::to_value(first).unwrap();
@@ -383,5 +406,34 @@ mod tests {
             "errors={errors:?}"
         );
         assert!(first["data"]["consumerGroupLag"].is_null());
+    }
+
+    #[tokio::test]
+    async fn topic_rates_hidden_cluster_is_unknown() {
+        use crate::app::auth::access::{ClusterScope, EffectiveAccess, Grant, Role};
+
+        let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
+            FakeCluster::local(),
+        ])));
+        let context = GraphQlContext {
+            state,
+            access: EffectiveAccess::Restricted(Grant {
+                role: Role::Viewer,
+                clusters: ClusterScope::Only(["payments".into()].into()),
+            }),
+        };
+        let coordinator = Coordinator::new(schema());
+        let request = topic_rates_request();
+        let mut stream = coordinator.subscribe(&request, &context).await.unwrap();
+
+        let first = stream.next().await.unwrap();
+        let first = serde_json::to_value(first).unwrap();
+        let errors = first["errors"].as_array().unwrap();
+        assert!(
+            errors
+                .iter()
+                .any(|error| { error["extensions"]["code"].as_str() == Some("UNKNOWN_CLUSTER") }),
+            "errors={errors:?}"
+        );
     }
 }
