@@ -694,21 +694,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "crc"
-version = "3.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5eb8a2a1cd12ab0d987a5d5e825195d372001a4094a0376319d5a0ad71c1ba0d"
-dependencies = [
- "crc-catalog",
-]
-
-[[package]]
-name = "crc-catalog"
-version = "2.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "217698eaf96b4a3f0bc4f3662aaa55bdf913cd54d7204591faa790070c6d0853"
-
-[[package]]
 name = "crc32c"
 version = "0.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1910,20 +1895,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kafka-protocol"
-version = "0.18.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "099d5c2f1b40cd830cbf18ca4d2a0805f2875b811ca18f0372b2433e68fe2dda"
-dependencies = [
- "anyhow",
- "bytes",
- "crc",
- "crc32c",
- "indexmap 2.14.2",
- "uuid",
-]
-
-[[package]]
 name = "klens"
 version = "0.1.0"
 dependencies = [
@@ -1941,7 +1912,6 @@ dependencies = [
  "juniper_axum",
  "juniper_graphql_ws",
  "juniper_subscriptions",
- "kafka-protocol",
  "krafka",
  "mime_guess",
  "moka",
@@ -1972,9 +1942,8 @@ dependencies = [
 
 [[package]]
 name = "krafka"
-version = "0.23.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2447d9d29c5d606ef1c87e5b49534be5aa3b5b84695e780793d1a530595635f4"
+version = "0.24.0"
+source = "git+https://github.com/hupe1980/krafka?rev=776ac3402150289fbcab989d81265af4c7f31eaa#776ac3402150289fbcab989d81265af4c7f31eaa"
 dependencies = [
  "ahash",
  "arc-swap",
@@ -2339,7 +2308,7 @@ version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51e219e79014df21a225b1860a479e2dcd7cbd9130f4defd4bd0e191ea31d67d"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.21.7",
  "chrono",
  "getrandom 0.2.17",
  "http",

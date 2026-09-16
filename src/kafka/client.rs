@@ -39,7 +39,7 @@ use crate::kafka::watermarks::Watermarks;
 
 use config::krafka_auth;
 use convert::committed_from_krafka;
-use groups::{fill_classic_assignments, snapshots_from_descriptions};
+use groups::snapshots_from_descriptions;
 use offsets::{from_list_offsets, merge_watermark_offsets, partition_time_offsets};
 
 /// Process-lifetime Kafka handle. All broker I/O for a cluster goes through here.
@@ -144,10 +144,9 @@ impl ClusterSession for KafkaClient {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
-        let mut snapshots =
-            snapshots_from_descriptions(self.admin.describe_consumer_groups(ids).await?);
-        fill_classic_assignments(&self.krafka, &mut snapshots).await?;
-        Ok(snapshots)
+        Ok(snapshots_from_descriptions(
+            self.admin.describe_consumer_groups(ids).await?,
+        ))
     }
 
     async fn group(&self, id: &str) -> Result<GroupSnapshot, KafkaError> {
@@ -161,17 +160,13 @@ impl ClusterSession for KafkaClient {
             .admin
             .describe_consumer_groups(vec![id.to_owned()])
             .await?;
-        let Some(mut snapshot) = snapshots_from_descriptions(described)
+        snapshots_from_descriptions(described)
             .into_iter()
             .find(|snapshot| snapshot.id == id)
-        else {
-            return Err(KafkaError::UnknownGroup {
+            .ok_or_else(|| KafkaError::UnknownGroup {
                 cluster: self.identity.name.clone(),
                 id: id.to_owned(),
-            });
-        };
-        fill_classic_assignments(&self.krafka, std::slice::from_mut(&mut snapshot)).await?;
-        Ok(snapshot)
+            })
     }
 
     /// Committed offsets for a group we are not a member of.
@@ -350,6 +345,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use crate::config::ClusterConfig;
+    use crate::kafka::group::MemberAssignment;
     use crate::kafka::record::plan::PartitionWindow;
     use crate::kafka::record::query::RecordOrder;
 
@@ -697,6 +693,45 @@ mod tests {
                 offset: 1,
             }]
         );
+    }
+
+    #[tokio::test]
+    async fn describes_classic_group_member_assignments() {
+        let broker = krafka::testing::FakeBroker::start()
+            .await
+            .expect("fake broker");
+        assert!(broker.create_topic("orders", 2));
+
+        let consumer = krafka::consumer::Consumer::builder()
+            .bootstrap_servers(broker.bootstrap_servers())
+            .group_id("orders-group")
+            .request_timeout(Duration::from_secs(2))
+            .connect_timeout(Duration::from_secs(2))
+            .build()
+            .await
+            .expect("consumer");
+        consumer.subscribe(&["orders"]).await.expect("subscribe");
+        assert!(
+            broker
+                .wait_for_requests(
+                    krafka::protocol::ApiKey::SyncGroup,
+                    1,
+                    Duration::from_secs(15)
+                )
+                .await,
+            "the consumer must finish join and sync before describe"
+        );
+
+        let client = kafka_client(&broker.bootstrap_servers()).await;
+        let group = client.group("orders-group").await.expect("describe group");
+        assert_eq!(
+            group.members[0].assignments,
+            vec![MemberAssignment {
+                topic: "orders".into(),
+                partitions: vec![0, 1],
+            }]
+        );
+        consumer.close().await.expect("close consumer");
     }
 
     #[tokio::test]
