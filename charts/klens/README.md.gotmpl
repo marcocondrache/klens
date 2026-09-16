@@ -1,0 +1,44 @@
+{{ template "chart.header" . }}
+
+![Version](https://img.shields.io/static/v1?label=Version&message={{ .Version }}&color=informational&style=flat-square)
+![Type: {{ .Type }}](https://img.shields.io/badge/Type-{{ .Type }}-informational?style=flat-square)
+![AppVersion](https://img.shields.io/static/v1?label=AppVersion&message={{ .AppVersion }}&color=informational&style=flat-square)
+
+{{ template "chart.description" . }}
+
+{{ template "chart.homepageLine" . }}
+
+## Usage
+
+Install from this repository. `config` is the same YAML the process loads in Docker.
+
+```sh
+helm install klens ./charts/klens -n klens --create-namespace -f my-values.yaml
+```
+
+Put Kafka and OIDC credentials in `secret.existingSecret` or `secret.stringData`.
+Reference them in `config` as `${VAR}`. Mount Kafka PEM files with `volumes`
+and `volumeMounts`. Set a Secret `defaultMode` of 0400 on the client key.
+
+`bind` must be a SocketAddr the Service can reach. A loopback address fails render.
+Keep the port in `config.bind` equal to `service.port`.
+
+`/health` is process liveness after listen. `/ready` waits for the first catalog
+snapshot on every configured cluster. `helm test` curls `/health`.
+
+replicaCount greater than 1 is legal. Login sessions stay in process memory
+and do not stick across pods.
+
+There is no `/metrics` route. This chart does not create a ServiceMonitor.
+
+Expose the UI with `ingress` or a Gateway API `httpRoute`. Use a Prefix `/`
+path so SPA routes, `/auth/*`, and the GraphQL WebSocket on `/graphql` reach
+the pod.
+
+{{ template "chart.maintainersSection" . }}
+
+{{ template "chart.sourcesSection" . }}
+
+{{ template "chart.requirementsSection" . }}
+
+{{ template "chart.valuesSection" . }}

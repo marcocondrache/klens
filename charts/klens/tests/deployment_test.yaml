@@ -1,0 +1,111 @@
+suite: deployment
+templates:
+  - deployment.tpl
+  - configmap.tpl
+  - secret.tpl
+tests:
+  - it: defaults the image to repository:appVersion when no digest or tag is set
+    template: deployment.tpl
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: ^ghcr\.io/marcocondrache/klens:\d+\.\d+\.\d+$
+
+  - it: prefers the digest over the tag when set
+    template: deployment.tpl
+    set:
+      image.digest: sha256:deadbeef
+      image.tag: ignored
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/marcocondrache/klens@sha256:deadbeef
+
+  - it: points the process at the mounted config file
+    template: deployment.tpl
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KLENS_CONFIG_PATH
+            value: /config/config.yaml
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: config
+            mountPath: /config
+            readOnly: true
+
+  - it: does not automount the ServiceAccount token
+    template: deployment.tpl
+    asserts:
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+
+  - it: disables service links
+    template: deployment.tpl
+    asserts:
+      - equal:
+          path: spec.template.spec.enableServiceLinks
+          value: false
+
+  - it: probes HTTP health and ready on the http port
+    template: deployment.tpl
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.httpGet.path
+          value: /health
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /health
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /ready
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.port
+          value: http
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 8080
+
+  - it: injects the chart-managed Secret when stringData is set
+    template: deployment.tpl
+    set:
+      secret.stringData:
+        KAFKA_PASSWORD: hunter2
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].envFrom
+          content:
+            secretRef:
+              name: RELEASE-NAME-klens
+
+  - it: prefers existingSecret over inline stringData
+    template: deployment.tpl
+    set:
+      secret.existingSecret: klens-creds
+      secret.stringData:
+        KAFKA_PASSWORD: ignored
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].envFrom
+          content:
+            secretRef:
+              name: klens-creds
+
+  - it: omits checksum/config when an existing ConfigMap is provided
+    template: deployment.tpl
+    set:
+      existingConfigMap: my-config
+    asserts:
+      - notExists:
+          path: spec.template.metadata.annotations["checksum/config"]
+
+  - it: fails render when bind is loopback
+    template: deployment.tpl
+    set:
+      config.bind: 127.0.0.1:8080
+    asserts:
+      - failedTemplate:
+          errorMessage: config.bind must not be a loopback address

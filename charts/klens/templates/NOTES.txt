@@ -1,0 +1,42 @@
+klens {{ .Chart.AppVersion }}
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "klens.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  # then browse http://localhost:{{ .Values.service.port }}
+
+{{- if .Values.ingress.enabled }}
+
+Or via ingress:
+{{- range .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+{{- end }}
+
+{{- if .Values.httpRoute.enabled }}
+
+Or via HTTPRoute hostnames:
+{{- range .Values.httpRoute.hostnames }}
+  https://{{ . }}
+{{- end }}
+{{- end }}
+
+{{- if and (not .Values.existingConfigMap) (eq (len (.Values.config.clusters | default list)) 0) }}
+
+No clusters are defined yet. Add them under `config.clusters`, or set
+`existingConfigMap`. Empty clusters start and become ready immediately.
+{{- end }}
+
+{{- if gt (int .Values.replicaCount) 1 }}
+
+replicaCount is {{ .Values.replicaCount }}. Login sessions are in process
+memory and do not stick across pods.
+{{- end }}
+
+{{- if not .Values.existingConfigMap }}
+{{- $bind := .Values.config.bind | default "" | toString }}
+{{- $port := .Values.service.port | toString }}
+{{- if and $bind (not (hasSuffix (printf ":%s" $port) $bind)) }}
+
+WARNING: config.bind {{ $bind }} does not end with service.port {{ $port }}.
+The Service and probes target service.port. The process listens on config.bind.
+{{- end }}
+{{- end }}

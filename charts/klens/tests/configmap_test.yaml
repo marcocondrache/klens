@@ -1,0 +1,45 @@
+suite: configmap
+templates:
+  - configmap.tpl
+tests:
+  - it: renders the process config file by default
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: ConfigMap
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "bind: 0.0.0.0:8080"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "clusters: \\[\\]"
+
+  - it: renders nothing when an existing ConfigMap is provided
+    set:
+      existingConfigMap: my-config
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders config values through tpl
+    set:
+      config.bind: "0.0.0.0:8080"
+      config.clusters:
+        - name: "{{ .Release.Namespace }}"
+          bootstrap_servers:
+            - kafka.{{ .Release.Namespace }}.svc:9092
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "name: NAMESPACE"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "kafka.NAMESPACE.svc:9092"
+
+  - it: fails render when bind is loopback
+    set:
+      config.bind: 127.0.0.1:8080
+    asserts:
+      - failedTemplate:
+          errorMessage: config.bind must not be a loopback address
