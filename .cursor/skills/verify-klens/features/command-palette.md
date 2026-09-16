@@ -21,21 +21,23 @@ The command palette jumps to a topic, group, broker, schema, or section without 
 
 Preconditions:
 
-- Doctor reports `local` `HEALTHY`.
+- Doctor reports `clusters` includes `local` and `catalogHealth` has `updatedAt` with no `lastError`.
 - Topic `klens-verify-topics` exists.
 - Viewport is at least 640px wide so the labeled `Search` button is shown.
 - Start from `/cluster/local/topics`.
 
-- **Button entry.** Click `Search`. Dialog `Search klens` appears. The input placeholder is `Search topics, groups, brokers and schemas…`.
-- **Keyboard entry.** Close the dialog. Press `Control+K`. The same dialog appears.
+- **Button entry.** Click `Search`. Dialog `Search klens` appears. The input placeholder is `Search topics, groups, brokers and schemas…`. Go to lists `Topics`, `Consumer Groups`, `Schema Registry`, `Brokers`, and `ACLs`. Switch cluster lists `local`.
+- **Keyboard entry.** Close the dialog and wait until it is hidden. Press `Control+K` (or dispatch `keydown` `k` with `ctrlKey` on `window` if Chrome steals the chord). The same dialog appears.
 - **Topic match.** Type `klens-verify-topics`. A Topics group lists `klens-verify-topics`. Choose it. The dialog closes and the URL is `/cluster/local/topics/klens-verify-topics`.
-- **Go to.** Reopen the palette. Choose `Brokers` under Go to. The URL is `/cluster/local/nodes`.
-- **Slash vs search field.** On Topics, press `/`. Focus moves to `Search topics…` and the dialog does not open. That is correct for this page.
-- **Proof.** Screenshot the open dialog with the topic match visible. Save the URL after the topic navigation.
+- **Go to.** Reopen the palette. Choose `ACLs` under Go to. The URL is `/cluster/local/acls`. Reopen and choose `Brokers`. The URL is `/cluster/local/nodes`.
+- **Slash vs search field.** On Brokers (no `data-search-hotkey`), press `/`. The dialog opens. Close it. On Topics, press `/`. Focus moves to `Search topics…` and the dialog does not open.
+- **Proof.** Screenshot the open dialog with the topic match visible. Save the URLs after the topic, ACLs, and Brokers navigations.
 
 ## Gotchas
 
-- `/` focuses the first visible `data-search-hotkey` field instead of the palette. That includes Topics, Groups, Schemas, ACLs, the topic Data tab (`Search key or value…`), and Configuration (`Filter configuration…`). Use `Control+K` or the header button when you need the palette on those pages. See `findSearchHotkeyTarget` in `web/src/lib/keyboard.ts`.
+- `/` focuses the first visible `data-search-hotkey` field instead of the palette. That includes Topics, Groups, Schemas, ACLs, the topic Data tab (`Search key or value…`), topic Configuration, and the broker node `Filter configuration…`. The Brokers list has no hotkey, so `/` opens the dialog there. See `findSearchHotkeyTarget` in `web/src/lib/keyboard.ts`.
+- Google Chrome on Linux may swallow `Control+K` (omnibox). Use the header `Search` button, or dispatch `keydown` on `window` with `key: "k"` and `ctrlKey: true`.
+- Close the dialog and wait until it is hidden before the next open. `Control+K` toggles. A chord while the dialog is still closing closes it again.
 - The dialog title is `Search klens` and is visually hidden (`sr-only`). Query it by accessible name, not by visible text.
 - Results wait on GraphQL `search`. Wait for the topic row, not a fixed debounce sleep.
 - A query with no hits shows `No matches in local.`

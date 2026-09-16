@@ -47,7 +47,7 @@ elif command -v mise >/dev/null && [[ -f "$repo_root/mise.toml" ]]; then
   echo mise >"$kafka_flag"
 elif command -v "$RPK" >/dev/null; then
   echo "launch: starting redpanda via rpk container start"
-  "$RPK" container start --kafka-ports 9092 --schema-registry-ports 8081 --console-port 8083
+  "$RPK" container start --kafka-ports 9092 --schema-registry-ports 8081 --console-port 8002
   echo rpk >"$kafka_flag"
 else
   echo "launch: port 9092 is closed. Run .cursor/environment/bootstrap.sh start or install rpk (mise.toml kafka:up)." >&2

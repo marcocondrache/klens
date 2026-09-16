@@ -69,7 +69,7 @@ Prefer the helper for the feature under test. Topics is the seeded proof path:
 .cursor/skills/verify-klens/helpers/drive-topics.mjs
 ```
 
-That script uses Playwright against `/usr/bin/google-chrome` (override with `CHROME`). It opens the UI, waits for the Topics heading, filters to the seeded topic, opens the topic, and writes evidence.
+That script uses Playwright against `/usr/bin/google-chrome` (override with `CHROME`). It opens the UI, waits for the Topics heading, checks `Rows per page` is `100`, toggles `Show internal`, filters to the seeded topic, opens the topic, and writes evidence.
 
 If you drive by hand, use these handles from this repo. Prefer them over coordinates.
 
@@ -80,14 +80,14 @@ If you drive by hand, use these handles from this repo. Prefer them over coordin
 | Topic search | `input[data-search-hotkey]` placeholder `Search topics…` |
 | Internal topics | label `Show internal` |
 | Sidebar | links `Topics`, `Consumer Groups`, `Schema Registry`, `Brokers`, `ACLs` |
-| Command palette | button `Search`, or `Meta+K` / `/` when not typing; dialog title `Search klens` |
+| Command palette | button `Search`, or `Meta+K` / `Control+K`; `/` opens the dialog only when no `data-search-hotkey` field is visible; dialog title `Search klens` |
+| Catalog alerts | `Cluster unreachable` when `lastError` is set and `updatedAt` is null; `Catalog update failed` when both are set |
 | Topic row | table cell with the topic name; click opens `/cluster/local/topics/<name>` |
 | Topic tabs | `Data`, `Partitions`, `Consumer groups`, `Configuration` |
 | Schema Registry page | `/cluster/local/schemas`, heading `Schema registry` |
 | Schema search | `input[data-search-hotkey]` placeholder `Search subjects…` |
 | ACLs page | `/cluster/local/acls`, heading `ACLs` |
 | ACL search | `input[data-search-hotkey]` placeholder `Search ACLs…` |
-| Offline cluster | alert `Cluster unreachable` |
 | Auth off | `/login` redirects to `/`; no `Continue with SSO` |
 
 GraphQL the UI uses (corroborate, do not substitute for the UI path):
@@ -114,7 +114,7 @@ Proof standards:
 
 - Exercise the real UI route. A 200 from `/graphql` alone is not UI proof.
 - Mocks stop at Kafka and Schema Registry. Do not stub `/graphql` or `/auth/me`.
-- If the cluster is `OFFLINE`, that is a verified-unreachable catalog, not a Topics pass. Record the alert text and stop.
+- If `catalogHealth.lastError` is set and `updatedAt` is null, that is a verified-unreachable catalog (`Cluster unreachable`), not a Topics pass. Record the alert text and stop. `Catalog update failed` (stale `updatedAt` plus a later `lastError`) is also not a catalog pass.
 - Dry-run does not apply. klens always talks to the configured brokers.
 
 ## Cleanup
