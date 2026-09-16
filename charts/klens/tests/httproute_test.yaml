@@ -1,0 +1,24 @@
+suite: httproute
+templates:
+  - httproute.tpl
+tests:
+  - it: renders nothing by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: routes PathPrefix / to the Service port
+    set:
+      httpRoute.enabled: true
+    asserts:
+      - isKind:
+          of: HTTPRoute
+      - equal:
+          path: spec.rules[0].backendRefs[0].port
+          value: 8080
+      - equal:
+          path: spec.rules[0].matches[0].path.type
+          value: PathPrefix
+      - equal:
+          path: spec.rules[0].matches[0].path.value
+          value: /

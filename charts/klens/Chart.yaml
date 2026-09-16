@@ -1,0 +1,20 @@
+apiVersion: v2
+name: klens
+description: Kafka UI for inspecting topics, messages, consumer groups, and schemas
+type: application
+kubeVersion: ">=1.25.0-0"
+version: 0.1.0
+appVersion: "0.51.0"
+home: https://github.com/marcocondrache/klens
+sources:
+  - https://github.com/marcocondrache/klens
+maintainers:
+  - name: marcocondrache
+    url: https://github.com/marcocondrache
+keywords:
+  - kafka
+  - graphql
+  - ui
+  - kubernetes
+annotations:
+  category: Analytics
