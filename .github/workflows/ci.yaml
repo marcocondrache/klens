@@ -105,6 +105,24 @@ jobs:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --no-deps --document-private-items
 
+  helm:
+    name: helm
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      HELM_UNITTEST_VERSION: v1.1.2
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install Helm
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+      - name: Lint the chart
+        run: helm lint charts/klens
+      - name: Run helm unit tests
+        run: |
+          helm plugin install https://github.com/helm-unittest/helm-unittest --version "${HELM_UNITTEST_VERSION}" --verify=false
+          helm unittest charts/klens
+
   machete:
     name: machete
     runs-on: ubuntu-latest
@@ -123,7 +141,7 @@ jobs:
 
   tests_pass:
     name: tests pass
-    needs: [style, clippy, web, test, docs, machete]
+    needs: [style, clippy, web, test, docs, machete, helm]
     if: always()
     runs-on: ubuntu-latest
     steps:
