@@ -19,10 +19,10 @@ Consumer groups lists group ids, state, assigned topics, and lag for the active 
 
 Preconditions:
 
-- Doctor reports `local` `HEALTHY`.
+- Doctor reports `clusters` includes `local` and `catalogHealth` has `updatedAt` with no `lastError`.
 - Start from `/`.
 
-- **Open catalog.** Click sidebar `Consumer Groups`. URL is `/cluster/local/groups`. Heading is `Consumer groups`. The description includes `groups`.
+- **Open catalog.** Click sidebar `Consumer Groups`. URL is `/cluster/local/groups`. Heading is `Consumer groups`. The description includes `groups`. Footer `Rows per page` is `100`.
 - **Search.** If a group id is visible, type a unique prefix into `Search consumer groups…`. The URL contains `q=`. Non-matching ids leave the table.
 - **State filter.** Open the state select and choose `Empty` or `Stable` to match a visible group. The URL contains `state=`.
 - **Open group.** Click a group row. URL becomes `/cluster/local/groups/<id>` and the heading contains that id.
@@ -34,3 +34,4 @@ Preconditions:
 - klens hides its own `klens.internal.` groups. Do not expect browse or list-offsets groups in the UI.
 - Search matches group id, not assigned topic names.
 - The heading is `Consumer groups`. The sidebar label is `Consumer Groups`.
+- The state URL uses the GraphQL enum (`state=EMPTY`), not the select label (`Empty`).

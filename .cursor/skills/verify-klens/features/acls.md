@@ -1,6 +1,6 @@
 # ACLs
 
-ACLs is the live binding list. It describes every ACL the broker returns for the active cluster, or shows a calm empty state when authorization is off.
+ACLs is the live binding list. It describes every ACL the broker returns for the active cluster. Local verify Redpanda answers DescribeAcls with no rows (`authorizer: ENABLED`).
 
 ## Sub-features
 
@@ -19,7 +19,7 @@ ACLs is the live binding list. It describes every ACL the broker returns for the
 
 Preconditions:
 
-- Doctor reports `local` `HEALTHY`.
+- Doctor reports `clusters` includes `local` and `catalogHealth` has `updatedAt` with no `lastError`.
 - Start from `/`.
 
 - **Open list.** Click sidebar `ACLs`. URL is `/cluster/local/acls`. Heading is `ACLs`.

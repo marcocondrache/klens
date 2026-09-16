@@ -19,7 +19,7 @@ Topic records is the Data tab on a topic page. It lists recent records and opens
 
 Preconditions:
 
-- Doctor reports `local` `HEALTHY`.
+- Doctor reports `clusters` includes `local` and `catalogHealth` has `updatedAt` with no `lastError`.
 - Topic `klens-verify-topics` has key `verify-1` and value `hello-from-verify-klens`.
 - Start from `/cluster/local/topics`.
 

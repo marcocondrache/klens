@@ -18,7 +18,7 @@ Brokers lists the cluster's Kafka nodes, marks the controller, and opens a node 
 
 Preconditions:
 
-- Doctor reports `local` `HEALTHY` with a non-zero broker count.
+- Doctor reports `clusters` includes `local` and `catalogHealth` has `updatedAt` with no `lastError`. Confirm `brokerCount` is non-zero yourself.
 - Start from `/`.
 
 - **Open catalog.** Click sidebar `Brokers`. URL is `/cluster/local/nodes`. Heading is `Brokers`. The description includes `brokers`, plus a catalog freshness caption when the poller has run.
@@ -30,4 +30,4 @@ Preconditions:
 
 - The route segment is `nodes`. The UI label is `Brokers`. Do not look for `/cluster/local/brokers`.
 - Copy address is a clipboard control. It is not required for a catalog pass.
-- An `OFFLINE` cluster yields an empty table plus `Cluster unreachable`. That is not a Brokers pass.
+- First-fail catalog (`lastError` set, `updatedAt` null) shows `Cluster unreachable`. A later poll failure with a stale snapshot shows `Catalog update failed`. Neither is a Brokers pass.
