@@ -1,7 +1,5 @@
 //! The single place krafka types cross into the Kafka domain model.
 
-use kafka_protocol::messages::consumer_protocol_assignment::ConsumerProtocolAssignment;
-use kafka_protocol::protocol::Decodable;
 use krafka::admin::{
     ConfigEntry as KrafkaConfigEntry, ConsumerGroupDescription, ConsumerGroupMember,
     GroupOffsetEntry, TopicPartitionAssignment,
@@ -110,29 +108,6 @@ pub(super) fn committed_from_krafka(entries: Vec<GroupOffsetEntry>) -> Vec<Commi
         .collect()
 }
 
-/// Decodes the version-prefixed `ConsumerProtocolAssignment` blob a classic
-/// group member publishes. Malformed or truncated blobs yield no assignments
-/// rather than failing the whole group listing.
-pub(super) fn member_assignments(bytes: &[u8]) -> Vec<MemberAssignment> {
-    let Some((version_bytes, rest)) = bytes.split_first_chunk() else {
-        return Vec::new();
-    };
-    let version = i16::from_be_bytes(*version_bytes);
-    let mut buf = rest;
-    let Ok(assignment) = ConsumerProtocolAssignment::decode(&mut buf, version) else {
-        return Vec::new();
-    };
-
-    assignment
-        .assigned_partitions
-        .into_iter()
-        .map(|assigned| MemberAssignment {
-            topic: assigned.topic.as_str().to_owned(),
-            partitions: assigned.partitions,
-        })
-        .collect()
-}
-
 impl From<KrafkaConfigEntry> for ConfigEntry {
     fn from(entry: KrafkaConfigEntry) -> Self {
         Self {
@@ -160,53 +135,6 @@ impl ConfigSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn encode_assignment(assignment: ConsumerProtocolAssignment) -> Vec<u8> {
-        use kafka_protocol::protocol::Encodable;
-
-        let version = 0i16;
-        let mut buf = Vec::from(version.to_be_bytes());
-        assignment.encode(&mut buf, version).unwrap();
-        buf
-    }
-
-    #[test]
-    fn member_assignments_decodes_version_prefixed_blob() {
-        use kafka_protocol::messages::TopicName;
-        use kafka_protocol::messages::consumer_protocol_assignment::TopicPartition;
-        use kafka_protocol::protocol::StrBytes;
-
-        let bytes = encode_assignment(
-            ConsumerProtocolAssignment::default().with_assigned_partitions(vec![
-                TopicPartition::default()
-                    .with_topic(TopicName(StrBytes::from_static_str("orders.created")))
-                    .with_partitions(vec![0, 2]),
-                TopicPartition::default()
-                    .with_topic(TopicName(StrBytes::from_static_str("payments.captured")))
-                    .with_partitions(vec![1]),
-            ]),
-        );
-
-        assert_eq!(
-            member_assignments(&bytes),
-            vec![
-                MemberAssignment {
-                    topic: "orders.created".into(),
-                    partitions: vec![0, 2],
-                },
-                MemberAssignment {
-                    topic: "payments.captured".into(),
-                    partitions: vec![1],
-                },
-            ]
-        );
-    }
-
-    #[test]
-    fn member_assignments_ignores_empty_and_truncated_blobs() {
-        assert!(member_assignments(&[]).is_empty());
-        assert!(member_assignments(&[0, 0, 0]).is_empty());
-    }
 
     #[test]
     fn config_source_maps_kafka_describe_codes() {
