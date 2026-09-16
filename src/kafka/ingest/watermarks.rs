@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
@@ -16,11 +16,19 @@ use super::runner::LaneSource;
 pub struct WatermarkSource {
     session: Arc<dyn ClusterSession>,
     store: Arc<ClusterStore>,
+    /// When the last tick was emitted, driving the idle heartbeat. The table
+    /// itself commits every poll, so its `sampled_at` can't serve as the
+    /// "last emission" marker.
+    last_tick: Mutex<Option<DateTime<Utc>>>,
 }
 
 impl WatermarkSource {
     pub fn new(session: Arc<dyn ClusterSession>, store: Arc<ClusterStore>) -> Self {
-        Self { session, store }
+        Self {
+            session,
+            store,
+            last_tick: Mutex::new(None),
+        }
     }
 }
 
@@ -71,24 +79,33 @@ impl LaneSource for WatermarkSource {
     }
 
     fn diff(&self, prev: Option<&WatermarkTable>, next: &WatermarkTable) -> Option<WatermarksTick> {
-        let idle = *IDLE_HEARTBEAT;
         let (rates, cluster_rate, moved) = compute_rates(prev, next);
         if !moved {
-            let prev = prev?;
-            let gap = next
-                .sampled_at
-                .signed_duration_since(prev.sampled_at)
-                .to_std()
-                .unwrap_or(Duration::ZERO);
-            if gap < idle {
+            let heartbeat_due =
+                self.last_tick
+                    .lock()
+                    .expect("last tick lock")
+                    .is_none_or(|emitted_at| {
+                        next.sampled_at
+                            .signed_duration_since(emitted_at)
+                            .to_std()
+                            .unwrap_or(Duration::ZERO)
+                            >= *IDLE_HEARTBEAT
+                    });
+            if !heartbeat_due {
                 return None;
             }
         }
+        *self.last_tick.lock().expect("last tick lock") = Some(next.sampled_at);
         Some(WatermarksTick {
             at: next.sampled_at,
             rates,
             cluster_rate,
         })
+    }
+
+    fn commit_unchanged(&self) -> bool {
+        true
     }
 
     fn interval(&self) -> Duration {

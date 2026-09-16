@@ -217,6 +217,89 @@ fn group_row_lag_is_a_join_and_missing_watermarks_are_incomplete() {
 }
 
 #[test]
+fn unfetched_group_offsets_report_no_lag_and_incomplete() {
+    let store = ClusterStore::new(identity());
+    let (meta, groups) = snapshot();
+    let topology = Topology::from_snapshots(meta, groups);
+    let topic = topology.intern_topic("orders");
+    store.topology.commit(Arc::new(topology));
+    store.watermarks.commit(Arc::new(WatermarkTable {
+        sampled_at: utc_now(),
+        marks: HashMap::from([(
+            topic,
+            HashMap::from([
+                (0, Watermarks { low: 2, high: 10 }),
+                (1, Watermarks { low: 0, high: 12 }),
+            ]),
+        )]),
+    }));
+
+    // No offsets committed yet: don't guess "committed = 0" from watermarks.
+    let rows = store.group_rows().unwrap();
+    assert_eq!(rows[0].total_lag, 0);
+    assert!(!rows[0].lag_complete);
+    assert_eq!(rows[0].topic_names, vec!["orders"]);
+
+    let detail = store.group_detail("billing").unwrap();
+    assert!(detail.offsets.is_empty());
+    assert!(!detail.row.lag_complete);
+}
+
+#[test]
+fn committed_only_groups_join_topic_views() {
+    let store = ClusterStore::new(identity());
+    let (mut meta, mut groups) = snapshot();
+    meta.topics.push(TopicMetadata {
+        name: "logs".into(),
+        internal: false,
+        partitions: vec![partition(0, vec![1], vec![1])],
+    });
+    // An Empty group with no member assignments; its only link to "orders"
+    // is a committed offset, which lives in the offsets lane.
+    groups.push(GroupSnapshot {
+        id: "archiver".into(),
+        state: GroupState::Empty,
+        protocol: String::new(),
+        coordinator: 1,
+        members: Vec::new(),
+        committed: Vec::new(),
+    });
+    let topology = Topology::from_snapshots(meta, groups);
+    let archiver = topology.intern_group("archiver");
+    store.topology.commit(Arc::new(topology));
+    store.offsets.commit(Arc::new(OffsetTable {
+        groups: HashMap::from([(
+            archiver,
+            Arc::new(GroupOffsets {
+                sampled_at: utc_now(),
+                committed: vec![CommittedOffset {
+                    topic: "orders".into(),
+                    partition: 0,
+                    offset: 4,
+                }],
+            }),
+        )]),
+    }));
+
+    let rows = store.topic_rows().unwrap();
+    let orders = rows
+        .iter()
+        .find(|row| row.name.as_ref() == "orders")
+        .unwrap();
+    assert_eq!(
+        orders.group_count, 2,
+        "billing (assigned) + archiver (committed only)"
+    );
+
+    let consumers = store.topic_groups("orders").unwrap();
+    assert!(consumers.iter().any(|row| row.id.as_ref() == "archiver"));
+    assert!(consumers.iter().any(|row| row.id.as_ref() == "billing"));
+
+    assert_eq!(store.topic_groups("logs"), Some(Vec::new()));
+    assert!(store.topic_groups("unknown").is_none());
+}
+
+#[test]
 fn topic_groups_projects_lag_on_that_topic() {
     let store = seed_store();
     let rows = store.topic_groups("orders").unwrap();

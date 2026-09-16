@@ -67,6 +67,8 @@ impl ClusterStore {
         let topology = self.topology.load()?;
         let watermarks = self.watermarks.load();
         let configs = self.configs.load();
+        let offsets = self.offsets.load();
+        let topic_groups = merged_topic_groups(&topology, offsets.as_deref());
         Some(
             topology
                 .topics
@@ -77,7 +79,7 @@ impl ClusterStore {
                         topic,
                         watermarks.as_deref(),
                         configs.as_deref(),
-                        topology.topic_groups.get(name).map(Vec::len).unwrap_or(0),
+                        topic_groups.get(name).map(Vec::len).unwrap_or(0),
                         self.series.last_topic_rate(name),
                     )
                 })
@@ -90,12 +92,14 @@ impl ClusterStore {
         let (name, topic) = topology.topics.get_key_value(name)?;
         let watermarks = self.watermarks.load();
         let configs = self.configs.load();
+        let offsets = self.offsets.load();
+        let mut topic_groups = merged_topic_groups(&topology, offsets.as_deref());
         Some(TopicDetail::from_tables(
             name,
             topic,
             watermarks.as_deref(),
             configs.as_deref(),
-            topology.topic_groups.get(name).cloned().unwrap_or_default(),
+            topic_groups.remove(name).unwrap_or_default(),
             self.series.last_topic_rate(name),
         ))
     }
@@ -129,11 +133,18 @@ impl ClusterStore {
         ))
     }
 
+    /// Groups consuming `topic`, whether through a live assignment or a
+    /// committed offset. `None` only when the topic is unknown.
     pub fn topic_groups(&self, topic: &str) -> Option<Vec<TopicGroupRow>> {
         let topology = self.topology.load()?;
-        let members = topology.topic_groups.get(topic)?;
+        if !topology.topics.contains_key(topic) {
+            return None;
+        }
         let offsets = self.offsets.load();
         let watermarks = self.watermarks.load();
+        let members = merged_topic_groups(&topology, offsets.as_deref())
+            .remove(topic)
+            .unwrap_or_default();
         Some(
             members
                 .iter()
@@ -517,6 +528,41 @@ pub struct ClusterHealthView {
     pub subjects: LaneHealth,
 }
 
+/// The topology-lane reverse index only sees live member assignments; groups
+/// whose only link to a topic is a committed offset (idle/Empty groups) live
+/// in the offsets lane. Merge both at read time.
+fn merged_topic_groups(
+    topology: &Topology,
+    offsets: Option<&OffsetTable>,
+) -> HashMap<Arc<str>, Vec<Arc<str>>> {
+    let mut index = topology.topic_groups.clone();
+    let Some(offsets) = offsets else {
+        return index;
+    };
+    let mut dirty = false;
+    for (group_id, group_offsets) in &offsets.groups {
+        if !topology.groups.contains_key(group_id) {
+            continue;
+        }
+        for committed in &group_offsets.committed {
+            let Some((topic, _)) = topology.topics.get_key_value(committed.topic.as_str()) else {
+                continue;
+            };
+            let members = index.entry(Arc::clone(topic)).or_default();
+            if !members.contains(group_id) {
+                members.push(Arc::clone(group_id));
+                dirty = true;
+            }
+        }
+    }
+    if dirty {
+        for members in index.values_mut() {
+            members.sort();
+        }
+    }
+    index
+}
+
 struct LagJoin {
     total_lag: i64,
     lag_complete: bool,
@@ -531,34 +577,17 @@ fn lag_for_group(
     watermarks: Option<&WatermarkTable>,
 ) -> LagJoin {
     let Some(table) = offsets.and_then(|table| table.groups.get(id)) else {
-        let assigned: Vec<(String, i32)> = group.assigned_partitions();
-        let mut views = Vec::new();
-        let mut complete = true;
-        for (topic, partition) in assigned {
-            match watermarks.and_then(|table| table.get(&topic, partition)) {
-                Some(marks) => views.push(GroupOffset {
-                    topic: topic.clone(),
-                    partition,
-                    current_offset: 0,
-                    end_offset: marks.high,
-                    lag: marks.high.max(0),
-                    member_id: group.member_for(&topic, partition).map(ToOwned::to_owned),
-                }),
-                None => complete = false,
-            }
-        }
-        views.sort_by(|left, right| {
-            left.topic
-                .cmp(&right.topic)
-                .then(left.partition.cmp(&right.partition))
-        });
-        let topic_names = unique_topics(&views);
-        let total_lag = views.iter().map(|offset| offset.lag).sum();
+        // Committed offsets for this group haven't been fetched yet. Report
+        // no lag instead of guessing "committed = 0" from watermarks alone,
+        // and mark the join incomplete so callers can tell.
+        let mut topic_names: Vec<String> = group.consumed_topics().map(ToOwned::to_owned).collect();
+        topic_names.sort();
+        topic_names.dedup();
         return LagJoin {
-            total_lag,
-            lag_complete: complete && watermarks.is_some(),
+            total_lag: 0,
+            lag_complete: false,
             topic_names,
-            offsets: views,
+            offsets: Vec::new(),
         };
     };
 

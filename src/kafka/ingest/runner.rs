@@ -23,9 +23,21 @@ pub trait LaneSource: Send + Sync + 'static {
         prev: Option<&Arc<Self::Table>>,
     ) -> impl Future<Output = Result<Self::Table, KafkaError>> + Send;
 
+    /// `None` means no observable change: nothing is published and
+    /// [`after_commit`](Self::after_commit) is skipped. Whether the table is
+    /// still committed depends on [`commit_unchanged`](Self::commit_unchanged).
     fn diff(&self, prev: Option<&Self::Table>, next: &Self::Table) -> Option<Self::Delta>;
 
     fn interval(&self) -> Duration;
+
+    /// Commit the fetched table even when `diff` reports no change.
+    ///
+    /// Lanes whose table carries a freshness signal of its own (for example
+    /// watermark `sampled_at`) should return `true` so successful polls keep
+    /// the table and lane health current without emitting events.
+    fn commit_unchanged(&self) -> bool {
+        false
+    }
 
     fn after_commit(&self, _table: &Arc<Self::Table>, _version: u64, _delta: &Self::Delta) {}
 }
@@ -87,13 +99,19 @@ where
             let prev = lane.load();
             match source.fetch(prev.as_ref()).await {
                 Ok(next) => {
-                    if let Some(delta) = source.diff(prev.as_deref(), &next) {
-                        let next = Arc::new(next);
-                        let version = lane.commit(Arc::clone(&next));
-                        source.after_commit(&next, version, &delta);
-                        if let Some(change) = delta.into() {
-                            store.bus.publish(change);
+                    match source.diff(prev.as_deref(), &next) {
+                        Some(delta) => {
+                            let next = Arc::new(next);
+                            let version = lane.commit(Arc::clone(&next));
+                            source.after_commit(&next, version, &delta);
+                            if let Some(change) = delta.into() {
+                                store.bus.publish(change);
+                            }
                         }
+                        None if source.commit_unchanged() => {
+                            lane.commit(Arc::new(next));
+                        }
+                        None => {}
                     }
                     lane.record_health(started.elapsed(), None);
                 }

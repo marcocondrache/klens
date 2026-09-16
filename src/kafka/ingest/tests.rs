@@ -248,6 +248,33 @@ async fn watermark_rates_use_high_delta() {
 }
 
 #[tokio::test]
+async fn watermark_lane_commits_unchanged_polls_without_ticks() {
+    let cluster = FakeCluster::local();
+    let store = Arc::new(ClusterStore::new(cluster.identity().clone()));
+    let session: Arc<dyn ClusterSession> = Arc::new(cluster);
+    let topology = Topology::from_snapshots(
+        session.metadata().await.unwrap(),
+        session.groups().await.unwrap(),
+    );
+    store.topology.commit(Arc::new(topology));
+    let _task = spawn_lane(
+        WatermarkSource::new(Arc::clone(&session), Arc::clone(&store)),
+        Arc::clone(&store),
+        |store| &store.watermarks,
+    );
+    wait_until(|| store.watermarks.load().is_some()).await;
+    let first_sampled_at = store.watermarks.load().unwrap().sampled_at;
+    let points = store.series.topic_history("orders.created").len();
+
+    // Nothing moved: the poll must still commit (fresh sampled_at, bumped
+    // version) but emit no tick and append no series points.
+    store.watermarks.kick();
+    wait_until(|| store.watermarks.version() >= 2).await;
+    assert!(store.watermarks.load().unwrap().sampled_at > first_sampled_at);
+    assert_eq!(store.series.topic_history("orders.created").len(), points);
+}
+
+#[tokio::test]
 async fn config_and_subject_sources_commit_list_projections() {
     let cluster = FakeCluster::local();
     cluster.set_topic_configs(
