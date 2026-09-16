@@ -1,0 +1,439 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": [],
+  "properties": {
+    "affinity": {
+      "description": "Affinity rules for pod scheduling (templated).",
+      "title": "affinity",
+      "type": "object",
+      "required": []
+    },
+    "config": {
+      "description": "klens config file as a map. The binary validates this YAML, not the chart.",
+      "title": "config",
+      "type": "object",
+      "required": []
+    },
+    "deploymentAnnotations": {
+      "description": "Annotations added to the Deployment.",
+      "title": "deploymentAnnotations",
+      "type": "object",
+      "required": []
+    },
+    "env": {
+      "description": "Extra environment variables as a map (templated).",
+      "title": "env",
+      "type": "object",
+      "required": []
+    },
+    "envFrom": {
+      "description": "Extra envFrom sources (templated).",
+      "title": "envFrom",
+      "type": "array",
+      "items": {
+        "required": []
+      }
+    },
+    "existingConfigMap": {
+      "default": "",
+      "description": "Mount an existing ConfigMap with a `config.yaml` key instead of the inline `config`.",
+      "title": "existingConfigMap",
+      "type": "string"
+    },
+    "extraEnv": {
+      "description": "Extra environment variables as a raw list (templated).",
+      "title": "extraEnv",
+      "type": "array",
+      "items": {
+        "required": []
+      }
+    },
+    "fullnameOverride": {
+      "default": "",
+      "description": "Override the full release name.",
+      "title": "fullnameOverride",
+      "type": "string"
+    },
+    "httpRoute": {
+      "title": "httpRoute",
+      "type": "object",
+      "required": [],
+      "properties": {
+        "additionalRules": {
+          "description": "Custom rules prepended before the default rule (templated).",
+          "title": "additionalRules",
+          "type": "array",
+          "items": {
+            "required": []
+          }
+        },
+        "annotations": {
+          "description": "HTTPRoute annotations.",
+          "title": "annotations",
+          "type": "object",
+          "required": []
+        },
+        "apiVersion": {
+          "default": "",
+          "description": "HTTPRoute apiVersion. Empty defaults to gateway.networking.k8s.io/v1.",
+          "title": "apiVersion",
+          "type": "string"
+        },
+        "enabled": {
+          "default": false,
+          "description": "Expose the UI via a Gateway API HTTPRoute.",
+          "title": "enabled",
+          "type": "boolean"
+        },
+        "filters": {
+          "description": "Filters applied to the default rule.",
+          "title": "filters",
+          "type": "array",
+          "items": {
+            "required": []
+          }
+        },
+        "hostnames": {
+          "description": "Hostnames matched against the Host header (templated).",
+          "title": "hostnames",
+          "type": "array",
+          "items": {
+            "required": []
+          }
+        },
+        "httpsRedirect": {
+          "default": false,
+          "description": "Redirect HTTP to HTTPS (301) instead of routing to the backend.",
+          "title": "httpsRedirect",
+          "type": "boolean"
+        },
+        "kind": {
+          "default": "",
+          "description": "HTTPRoute kind. Empty defaults to HTTPRoute.",
+          "title": "kind",
+          "type": "string"
+        },
+        "labels": {
+          "description": "HTTPRoute labels.",
+          "title": "labels",
+          "type": "object",
+          "required": []
+        },
+        "matches": {
+          "description": "Match conditions for the default rule.",
+          "title": "matches",
+          "type": "array",
+          "items": {
+            "required": []
+          }
+        },
+        "parentRefs": {
+          "description": "Gateways this route attaches to.",
+          "title": "parentRefs",
+          "type": "array",
+          "items": {
+            "required": []
+          }
+        }
+      }
+    },
+    "image": {
+      "title": "image",
+      "type": "object",
+      "required": [],
+      "properties": {
+        "digest": {
+          "default": "",
+          "description": "Pin the image by digest (`sha256:…`). When set, it overrides the tag.",
+          "title": "digest",
+          "type": "string"
+        },
+        "pullPolicy": {
+          "default": "IfNotPresent",
+          "description": "Image pull policy.",
+          "title": "pullPolicy",
+          "type": "string"
+        },
+        "repository": {
+          "default": "ghcr.io/marcocondrache/klens",
+          "description": "Image repository.",
+          "title": "repository",
+          "type": "string"
+        },
+        "tag": {
+          "default": "",
+          "description": "Overrides the image tag. Empty uses the chart appVersion.",
+          "title": "tag",
+          "type": "string"
+        }
+      }
+    },
+    "imagePullSecrets": {
+      "description": "Image pull secrets for private registries.",
+      "title": "imagePullSecrets",
+      "type": "array",
+      "items": {
+        "required": []
+      }
+    },
+    "ingress": {
+      "title": "ingress",
+      "type": "object",
+      "required": [],
+      "properties": {
+        "annotations": {
+          "description": "Ingress annotations.",
+          "title": "annotations",
+          "type": "object",
+          "required": []
+        },
+        "className": {
+          "default": "",
+          "description": "IngressClass name.",
+          "title": "className",
+          "type": "string"
+        },
+        "enabled": {
+          "default": false,
+          "description": "Expose the UI via an Ingress. Use a Prefix `/` path so SPA routes and GraphQL WebSocket reach the pod.",
+          "title": "enabled",
+          "type": "boolean"
+        },
+        "hosts": {
+          "description": "Ingress hosts and their paths.",
+          "title": "hosts",
+          "type": "array",
+          "items": {
+            "required": []
+          }
+        },
+        "tls": {
+          "description": "Ingress TLS configuration.",
+          "title": "tls",
+          "type": "array",
+          "items": {
+            "required": []
+          }
+        }
+      }
+    },
+    "livenessProbe": {
+      "description": "Liveness probe. Targets `/health` after startup succeeds.",
+      "title": "livenessProbe",
+      "type": "object",
+      "required": []
+    },
+    "nameOverride": {
+      "default": "",
+      "description": "Override the chart name used in resource names.",
+      "title": "nameOverride",
+      "type": "string"
+    },
+    "nodeSelector": {
+      "description": "Node selector for pod scheduling (templated).",
+      "title": "nodeSelector",
+      "type": "object",
+      "required": []
+    },
+    "podAnnotations": {
+      "description": "Annotations added to the pod.",
+      "title": "podAnnotations",
+      "type": "object",
+      "required": []
+    },
+    "podLabels": {
+      "description": "Labels added to the pod.",
+      "title": "podLabels",
+      "type": "object",
+      "required": []
+    },
+    "podSecurityContext": {
+      "description": "Pod-level securityContext (non-root uid/gid 65532, RuntimeDefault seccomp).",
+      "title": "podSecurityContext",
+      "type": "object",
+      "required": []
+    },
+    "priorityClassName": {
+      "default": "",
+      "description": "PriorityClass for the pod. Empty uses the cluster default.",
+      "title": "priorityClassName",
+      "type": "string"
+    },
+    "readinessProbe": {
+      "description": "Readiness probe. Targets `/ready` after every configured cluster has a catalog snapshot.",
+      "title": "readinessProbe",
+      "type": "object",
+      "required": []
+    },
+    "replicaCount": {
+      "default": 1,
+      "description": "Replica count. Sessions live in process memory and do not stick across pods.",
+      "title": "replicaCount",
+      "type": "integer"
+    },
+    "resources": {
+      "description": "Pod resource requests and limits.",
+      "title": "resources",
+      "type": "object",
+      "required": []
+    },
+    "secret": {
+      "title": "secret",
+      "type": "object",
+      "required": [],
+      "properties": {
+        "existingSecret": {
+          "default": "",
+          "description": "Existing Secret whose keys are injected as environment variables.",
+          "title": "existingSecret",
+          "type": "string"
+        },
+        "stringData": {
+          "description": "Inline Secret keys. Ignored when `existingSecret` is set.",
+          "title": "stringData",
+          "type": "object",
+          "required": []
+        }
+      }
+    },
+    "securityContext": {
+      "description": "Container securityContext (no privilege escalation, read-only root, drop ALL).",
+      "title": "securityContext",
+      "type": "object",
+      "required": []
+    },
+    "service": {
+      "title": "service",
+      "type": "object",
+      "required": [],
+      "properties": {
+        "annotations": {
+          "description": "Service annotations.",
+          "title": "annotations",
+          "type": "object",
+          "required": []
+        },
+        "port": {
+          "default": 8080,
+          "description": "Service port. Must match the port in `config.bind` when the chart owns the ConfigMap.",
+          "title": "port",
+          "type": "integer"
+        },
+        "type": {
+          "default": "ClusterIP",
+          "description": "Service type.",
+          "title": "type",
+          "type": "string"
+        }
+      }
+    },
+    "serviceAccount": {
+      "title": "serviceAccount",
+      "type": "object",
+      "required": [],
+      "properties": {
+        "annotations": {
+          "description": "Annotations for the ServiceAccount.",
+          "title": "annotations",
+          "type": "object",
+          "required": []
+        },
+        "automount": {
+          "default": false,
+          "description": "Automount the ServiceAccount API token. Off because klens does not call the Kubernetes API.",
+          "title": "automount",
+          "type": "boolean"
+        },
+        "create": {
+          "default": true,
+          "description": "Create a ServiceAccount.",
+          "title": "create",
+          "type": "boolean"
+        },
+        "name": {
+          "default": "",
+          "description": "ServiceAccount name. Empty uses the chart fullname.",
+          "title": "name",
+          "type": "string"
+        }
+      }
+    },
+    "startupProbe": {
+      "description": "Startup probe. Targets `/health` until the process binds.",
+      "title": "startupProbe",
+      "type": "object",
+      "required": []
+    },
+    "terminationGracePeriodSeconds": {
+      "default": 30,
+      "description": "Grace period for a clean shutdown.",
+      "title": "terminationGracePeriodSeconds",
+      "type": "integer"
+    },
+    "tests": {
+      "title": "tests",
+      "type": "object",
+      "required": [],
+      "properties": {
+        "image": {
+          "title": "image",
+          "type": "object",
+          "required": [],
+          "properties": {
+            "pullPolicy": {
+              "default": "IfNotPresent",
+              "description": "`helm test` image pull policy.",
+              "title": "pullPolicy",
+              "type": "string"
+            },
+            "repository": {
+              "default": "mirror.gcr.io/curlimages/curl",
+              "description": "`helm test` connection-pod image. A gcr-mirrored curl so the test never pulls from Docker Hub.",
+              "title": "repository",
+              "type": "string"
+            },
+            "tag": {
+              "default": "8.22.0@sha256:58adaa4e8dca9c988bae2aba4ab3434a0bb2da16bbe3f92dec39ec7785166777",
+              "description": "`helm test` image, pinned as `tag@sha256:digest`.",
+              "title": "tag",
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "tolerations": {
+      "description": "Tolerations for pod scheduling (templated).",
+      "title": "tolerations",
+      "type": "array",
+      "items": {
+        "required": []
+      }
+    },
+    "topologySpreadConstraints": {
+      "description": "Topology spread constraints (templated).",
+      "title": "topologySpreadConstraints",
+      "type": "array",
+      "items": {
+        "required": []
+      }
+    },
+    "volumeMounts": {
+      "description": "Additional volume mounts on the container.",
+      "title": "volumeMounts",
+      "type": "array",
+      "items": {
+        "required": []
+      }
+    },
+    "volumes": {
+      "description": "Additional volumes on the Deployment. Use these for Kafka TLS PEMs. Set Secret `defaultMode` to 0400 so the client key is not group- or world-readable.",
+      "title": "volumes",
+      "type": "array",
+      "items": {
+        "required": []
+      }
+    }
+  }
+}

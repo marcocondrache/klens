@@ -22,7 +22,12 @@ docker run --rm -p 8080:8080 \
   ghcr.io/marcocondrache/klens:latest
 ```
 
-[compose.yaml](compose.yaml) starts a local Kafka broker, Schema Registry, and builds klens from this repository.
+A Helm chart lives in [`charts/klens`](charts/klens). `config` is the same YAML
+the process loads here.
+
+```sh
+helm install klens ./charts/klens -n klens --create-namespace -f my-values.yaml
+```
 
 The topics and consumer groups pages read a background catalog snapshot.
 Override the poll interval with `KLENS_CATALOG_POLL_INTERVAL` (seconds,

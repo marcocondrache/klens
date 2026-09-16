@@ -1,0 +1,202 @@
+# -- Replica count. Sessions live in process memory and do not stick across pods.
+replicaCount: 1
+
+image:
+  # -- Image repository.
+  repository: ghcr.io/marcocondrache/klens
+  # -- Image pull policy.
+  pullPolicy: IfNotPresent
+  # -- Overrides the image tag. Empty uses the chart appVersion.
+  tag: ""
+  # -- Pin the image by digest (`sha256:…`). When set, it overrides the tag.
+  digest: ""
+
+# -- Image pull secrets for private registries.
+imagePullSecrets: []
+# -- Override the chart name used in resource names.
+nameOverride: ""
+# -- Override the full release name.
+fullnameOverride: ""
+
+# -- Mount an existing ConfigMap with a `config.yaml` key instead of the inline `config`.
+existingConfigMap: ""
+
+# -- klens config file as a map. The binary validates this YAML, not the chart.
+config:
+  bind: 0.0.0.0:8080
+  log_level: info
+  clusters: []
+
+# -- Extra environment variables as a map (templated).
+env: {}
+# KLENS_CATALOG_POLL_INTERVAL: "15"
+
+# -- Extra environment variables as a raw list (templated).
+extraEnv: []
+
+# -- Extra envFrom sources (templated).
+envFrom: []
+
+secret:
+  # -- Existing Secret whose keys are injected as environment variables.
+  existingSecret: ""
+  # -- Inline Secret keys. Ignored when `existingSecret` is set.
+  stringData: {}
+  # KAFKA_PASSWORD: hunter2
+  # OIDC_CLIENT_SECRET: s3cret
+
+serviceAccount:
+  # -- Create a ServiceAccount.
+  create: true
+  # -- Automount the ServiceAccount API token. Off because klens does not call the Kubernetes API.
+  automount: false
+  # -- Annotations for the ServiceAccount.
+  annotations: {}
+  # -- ServiceAccount name. Empty uses the chart fullname.
+  name: ""
+
+# -- Annotations added to the Deployment.
+deploymentAnnotations: {}
+
+# -- Annotations added to the pod.
+podAnnotations: {}
+# -- Labels added to the pod.
+podLabels: {}
+
+# -- Pod-level securityContext (non-root uid/gid 65532, RuntimeDefault seccomp).
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+# -- Container securityContext (no privilege escalation, read-only root, drop ALL).
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  # -- Service type.
+  type: ClusterIP
+  # -- Service port. Must match the port in `config.bind` when the chart owns the ConfigMap.
+  port: 8080
+  # -- Service annotations.
+  annotations: {}
+
+ingress:
+  # -- Expose the UI via an Ingress. Use a Prefix `/` path so SPA routes and GraphQL WebSocket reach the pod.
+  enabled: false
+  # -- IngressClass name.
+  className: ""
+  # -- Ingress annotations.
+  annotations: {}
+  # -- Ingress hosts and their paths.
+  hosts:
+    - host: klens.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  # -- Ingress TLS configuration.
+  tls: []
+  # - secretName: klens-tls
+  #   hosts:
+  #     - klens.example.com
+
+httpRoute:
+  # -- Expose the UI via a Gateway API HTTPRoute.
+  enabled: false
+  # -- HTTPRoute apiVersion. Empty defaults to gateway.networking.k8s.io/v1.
+  apiVersion: ""
+  # -- HTTPRoute kind. Empty defaults to HTTPRoute.
+  kind: ""
+  # -- HTTPRoute annotations.
+  annotations: {}
+  # -- HTTPRoute labels.
+  labels: {}
+  # -- Gateways this route attaches to.
+  parentRefs: []
+  # - name: gateway
+  #   namespace: gateway
+  #   sectionName: https
+  # -- Hostnames matched against the Host header (templated).
+  hostnames: []
+  # - klens.example.com
+  # -- Custom rules prepended before the default rule (templated).
+  additionalRules: []
+  # -- Filters applied to the default rule.
+  filters: []
+  # -- Match conditions for the default rule.
+  matches:
+    - path:
+        type: PathPrefix
+        value: /
+  # -- Redirect HTTP to HTTPS (301) instead of routing to the backend.
+  httpsRedirect: false
+
+# -- Pod resource requests and limits.
+resources: {}
+# limits:
+#   memory: 256Mi
+# requests:
+#   cpu: 10m
+#   memory: 64Mi
+
+# -- Startup probe. Targets `/health` until the process binds.
+startupProbe:
+  httpGet:
+    path: /health
+    port: http
+  periodSeconds: 5
+  failureThreshold: 36
+# -- Liveness probe. Targets `/health` after startup succeeds.
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  periodSeconds: 20
+# -- Readiness probe. Targets `/ready` after every configured cluster has a catalog snapshot.
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: http
+  periodSeconds: 10
+
+# -- Additional volumes on the Deployment. Use these for Kafka TLS PEMs. Set Secret `defaultMode` to 0400 so the client key is not group- or world-readable.
+volumes: []
+# - name: kafka-tls
+#   secret:
+#     secretName: kafka-client-tls
+#     defaultMode: 0400
+
+# -- Additional volume mounts on the container.
+volumeMounts: []
+# - name: kafka-tls
+#   mountPath: /tls
+#   readOnly: true
+
+# -- Node selector for pod scheduling (templated).
+nodeSelector: {}
+# -- Tolerations for pod scheduling (templated).
+tolerations: []
+# -- Affinity rules for pod scheduling (templated).
+affinity: {}
+# -- Topology spread constraints (templated).
+topologySpreadConstraints: []
+# -- PriorityClass for the pod. Empty uses the cluster default.
+priorityClassName: ""
+# -- Grace period for a clean shutdown.
+terminationGracePeriodSeconds: 30
+
+tests:
+  image:
+    # -- `helm test` connection-pod image. A gcr-mirrored curl so the test never pulls from Docker Hub.
+    repository: mirror.gcr.io/curlimages/curl
+    # -- `helm test` image, pinned as `tag@sha256:digest`.
+    tag: "8.22.0@sha256:58adaa4e8dca9c988bae2aba4ab3434a0bb2da16bbe3f92dec39ec7785166777"
+    # -- `helm test` image pull policy.
+    pullPolicy: IfNotPresent

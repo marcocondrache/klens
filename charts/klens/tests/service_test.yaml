@@ -1,0 +1,23 @@
+suite: service
+templates:
+  - service.tpl
+tests:
+  - it: exposes the http port
+    asserts:
+      - isKind:
+          of: Service
+      - contains:
+          path: spec.ports
+          content:
+            name: http
+            port: 8080
+            targetPort: http
+            protocol: TCP
+
+  - it: uses the configured service port
+    set:
+      service.port: 9090
+    asserts:
+      - equal:
+          path: spec.ports[0].port
+          value: 9090
