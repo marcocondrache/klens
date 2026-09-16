@@ -120,7 +120,7 @@ jobs:
         run: helm lint charts/klens
       - name: Run helm unit tests
         run: |
-          helm plugin install https://github.com/helm-unittest/helm-unittest --version "${HELM_UNITTEST_VERSION}" --verify=false
+          helm plugin install https://github.com/helm-unittest/helm-unittest --version "${HELM_UNITTEST_VERSION}"
           helm unittest charts/klens
 
   machete:

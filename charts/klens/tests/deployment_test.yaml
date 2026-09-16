@@ -108,4 +108,4 @@ tests:
       config.bind: 127.0.0.1:8080
     asserts:
       - failedTemplate:
-          errorMessage: config.bind must not be a loopback address
+          errorPattern: config.bind must not be a loopback address
