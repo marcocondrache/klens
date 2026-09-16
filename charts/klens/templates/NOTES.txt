@@ -30,13 +30,3 @@ No clusters are defined yet. Add them under `config.clusters`, or set
 replicaCount is {{ .Values.replicaCount }}. Login sessions are in process
 memory and do not stick across pods.
 {{- end }}
-
-{{- if not .Values.existingConfigMap }}
-{{- $bind := .Values.config.bind | default "" | toString }}
-{{- $port := .Values.service.port | toString }}
-{{- if and $bind (not (hasSuffix (printf ":%s" $port) $bind)) }}
-
-WARNING: config.bind {{ $bind }} does not end with service.port {{ $port }}.
-The Service and probes target service.port. The process listens on config.bind.
-{{- end }}
-{{- end }}

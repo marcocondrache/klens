@@ -21,7 +21,7 @@ Reference them in `config` as `${VAR}`. Mount Kafka PEM files with `volumes`
 and `volumeMounts`. Set a Secret `defaultMode` of 0400 on the client key.
 
 `bind` must be a SocketAddr the Service can reach. A loopback address fails render.
-Keep the port in `config.bind` equal to `service.port`.
+A `config.bind` port that does not match `service.port` also fails render.
 
 `/health` is process liveness after listen. `/ready` waits for the first catalog
 snapshot on every configured cluster. `helm test` curls `/health`.

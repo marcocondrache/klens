@@ -109,3 +109,11 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: config.bind must not be a loopback address
+
+  - it: fails render when bind port does not match service.port
+    template: deployment.tpl
+    set:
+      config.bind: 0.0.0.0:9090
+    asserts:
+      - failedTemplate:
+          errorPattern: config.bind port must match service.port

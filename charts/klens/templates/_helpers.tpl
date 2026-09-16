@@ -70,13 +70,21 @@ Digest wins over tag. Tag defaults to appVersion.
 {{- end }}
 
 {{/*
-Loopback bind is a silent Service miss. Fail when the chart owns the file.
+Loopback bind is a silent Service miss. A bind port that does not match
+service.port is the same miss. Fail when the chart owns the file.
 */}}
 {{- define "klens.validateBind" -}}
 {{- if not .Values.existingConfigMap }}
 {{- $bind := .Values.config.bind | default "" | toString }}
+{{- $port := .Values.service.port | toString }}
+{{- if not $bind }}
+{{- fail "config.bind is required when the chart owns the ConfigMap. Use 0.0.0.0 and match service.port." }}
+{{- end }}
 {{- if or (hasPrefix "127.0.0.1:" $bind) (eq $bind "127.0.0.1") (hasPrefix "[::1]:" $bind) (eq $bind "::1") }}
 {{- fail "config.bind must not be a loopback address. The Service cannot reach the process. Use 0.0.0.0." }}
+{{- end }}
+{{- if not (hasSuffix (printf ":%s" $port) $bind) }}
+{{- fail "config.bind port must match service.port so the Service and probes can reach the process." }}
 {{- end }}
 {{- end }}
 {{- end }}
