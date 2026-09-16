@@ -1,16 +1,17 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use apache_avro::Schema;
-use apache_avro::reader::datum::GenericDatumReader;
+use bytes::Bytes;
 use moka::future::Cache;
+use schemreg::{
+    AvroSchemaDecoder, JsonSchemaDecoder, SchemaId, SchemaKey, SchemaRegError,
+    decode_schema_id_header, decode_wire_format, encode_wire_format,
+};
 
-use super::client::SchemaRegistryClient;
+use super::client::{CachedRegistry, SchemaRegistryClient};
 use super::protobuf::{ProtobufCodec, ProtobufError};
-use crate::kafka::model::{RegisteredSchema, SchemaType, decode_bytes};
+use crate::kafka::model::decode_bytes;
 use thiserror::Error;
-
-const CONFLUENT_MAGIC: u8 = 0;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DecodedField {
@@ -18,49 +19,42 @@ pub(crate) struct DecodedField {
     pub schema_id: Option<i32>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ConfluentFrame<'a> {
-    schema_id: i32,
-    payload: &'a [u8],
-    indexed: bool,
+struct Resolved<'a> {
+    key: SchemaKey,
+    framed: Bytes,
+    proto: ProtoInput<'a>,
+    schema_id: Option<i32>,
 }
 
-impl<'a> ConfluentFrame<'a> {
-    fn parse(bytes: &'a [u8]) -> Option<Self> {
-        if bytes.len() < 5 || bytes[0] != CONFLUENT_MAGIC {
-            return None;
-        }
-        Some(Self {
-            schema_id: i32::from_be_bytes(bytes[1..5].try_into().ok()?),
-            payload: &bytes[5..],
-            indexed: true,
-        })
-    }
+enum ProtoInput<'a> {
+    Framed(&'a [u8]),
+    Raw(&'a [u8]),
+    Path {
+        indexes: Vec<i32>,
+        payload: &'a [u8],
+    },
 }
 
-#[derive(Clone)]
 pub(crate) struct PayloadDecoder {
     client: SchemaRegistryClient,
-    cache: Cache<i32, Arc<CachedSchema>>,
+    avro: AvroSchemaDecoder<Arc<CachedRegistry>>,
+    json: JsonSchemaDecoder<Arc<CachedRegistry>>,
+    proto: Cache<SchemaKey, Arc<CachedSchema>>,
 }
 
 enum CachedSchema {
-    Avro(AvroCodec),
-    Json,
     Protobuf(ProtobufCodec),
     Missing,
 }
 
-struct AvroCodec {
-    writer: Schema,
-    dependencies: Vec<Schema>,
-}
-
 impl PayloadDecoder {
     pub(crate) fn new(client: SchemaRegistryClient) -> Self {
+        let cached = client.cached();
         Self {
+            avro: AvroSchemaDecoder::new(Arc::clone(&cached)),
+            json: JsonSchemaDecoder::new(cached),
+            proto: Cache::builder().max_capacity(10_000).build(),
             client,
-            cache: Cache::builder().max_capacity(10_000).build(),
         }
     }
 
@@ -70,31 +64,31 @@ impl PayloadDecoder {
 
     #[cfg(test)]
     pub(crate) async fn decode(&self, bytes: &[u8]) -> String {
-        self.decode_with(bytes, None).await.text
+        self.decode_with(bytes, None, None).await.text
     }
 
-    /// Decode a payload, optionally using `override_id` when the bytes are not
-    /// Confluent-framed. Wire-format schema ids always win over the override.
-    pub(crate) async fn decode_with(&self, bytes: &[u8], override_id: Option<i32>) -> DecodedField {
-        let wire_frame = ConfluentFrame::parse(bytes);
-        let frame = wire_frame.or_else(|| {
-            override_id.map(|schema_id| ConfluentFrame {
-                schema_id,
-                payload: bytes,
-                indexed: false,
-            })
-        });
-
-        DecodedField {
-            text: match frame {
-                Some(frame) => self.decode_or_raw(frame, bytes).await,
-                None => decode_bytes(bytes),
+    /// Decode a payload. Wire framing wins, then a Kafka schema-id header, then
+    /// `override_id` for unframed bytes. Wire and header schema ids are the
+    /// ones exposed on the record; an override is only a decode hint.
+    pub(crate) async fn decode_with(
+        &self,
+        bytes: &[u8],
+        override_id: Option<i32>,
+        header: Option<&[u8]>,
+    ) -> DecodedField {
+        match resolve_frame(bytes, override_id, header) {
+            Some(frame) => DecodedField {
+                text: self.decode_or_raw(&frame, bytes).await,
+                schema_id: frame.schema_id,
             },
-            schema_id: wire_frame.map(|frame| frame.schema_id),
+            None => DecodedField {
+                text: decode_bytes(bytes),
+                schema_id: None,
+            },
         }
     }
 
-    async fn decode_or_raw(&self, frame: ConfluentFrame<'_>, original: &[u8]) -> String {
+    async fn decode_or_raw(&self, frame: &Resolved<'_>, original: &[u8]) -> String {
         match self.decode_frame(frame).await {
             Ok(json) => json,
             Err(error) => {
@@ -124,13 +118,14 @@ pub(crate) async fn decode_field(
     decoder: Option<&PayloadDecoder>,
     bytes: Option<&[u8]>,
     override_id: Option<i32>,
+    header: Option<&[u8]>,
 ) -> Option<DecodedField> {
     match (bytes, decoder) {
         (None, _) => None,
-        (Some(bytes), Some(decoder)) => Some(decoder.decode_with(bytes, override_id).await),
+        (Some(bytes), Some(decoder)) => Some(decoder.decode_with(bytes, override_id, header).await),
         (Some(bytes), None) => Some(DecodedField {
             text: decode_bytes(bytes),
-            schema_id: ConfluentFrame::parse(bytes).map(|frame| frame.schema_id),
+            schema_id: resolve_frame(bytes, None, header).and_then(|frame| frame.schema_id),
         }),
     }
 }
@@ -160,62 +155,58 @@ impl From<ProtobufError> for DecodeError {
 }
 
 impl PayloadDecoder {
-    async fn decode_frame(&self, frame: ConfluentFrame<'_>) -> Result<String, DecodeError> {
-        let cached = self.resolved(frame.schema_id).await?;
+    async fn decode_frame(&self, frame: &Resolved<'_>) -> Result<String, DecodeError> {
+        let schema = match self.client.schema_by_key(frame.key).await {
+            Ok(Some(schema)) => schema,
+            Ok(None) => return Err(DecodeError::missing("schema id not found in registry")),
+            Err(error) => return Err(DecodeError::failed(error)),
+        };
+        match schema.schema_type {
+            schemreg::SchemaType::Json => json_payload(&self.json, frame.framed.clone()).await,
+            schemreg::SchemaType::Avro => avro_payload(&self.avro, frame.framed.clone()).await,
+            schemreg::SchemaType::Protobuf => self.decode_protobuf(&frame.proto, frame.key).await,
+            _ => Err(DecodeError::failed("unsupported schema type")),
+        }
+    }
+
+    async fn decode_protobuf(
+        &self,
+        input: &ProtoInput<'_>,
+        key: SchemaKey,
+    ) -> Result<String, DecodeError> {
+        let cached = self.resolved_proto(key).await?;
         match cached.as_ref() {
             CachedSchema::Missing => Err(DecodeError::missing("schema id not found in registry")),
-            CachedSchema::Json => json_payload(frame.payload),
-            CachedSchema::Avro(codec) => avro_payload(codec, frame.payload),
-            CachedSchema::Protobuf(codec) => if frame.indexed {
-                codec.decode_framed(frame.payload)
-            } else {
-                codec.decode_raw(frame.payload)
+            CachedSchema::Protobuf(codec) => match input {
+                ProtoInput::Framed(payload) => codec.decode_framed(payload),
+                ProtoInput::Raw(payload) => codec.decode_raw(payload),
+                ProtoInput::Path { indexes, payload } => codec.decode_message(indexes, payload),
             }
             .map_err(DecodeError::from),
         }
     }
 
-    async fn resolved(&self, id: i32) -> Result<Arc<CachedSchema>, DecodeError> {
-        self.cache
-            .try_get_with(id, self.load(id))
+    async fn resolved_proto(&self, key: SchemaKey) -> Result<Arc<CachedSchema>, DecodeError> {
+        self.proto
+            .try_get_with(key, self.load_proto(key))
             .await
             .map_err(|error| (*error).clone())
     }
 
-    async fn load(&self, id: i32) -> Result<Arc<CachedSchema>, DecodeError> {
-        let registered = match self.client.schema_by_id(id).await {
+    async fn load_proto(&self, key: SchemaKey) -> Result<Arc<CachedSchema>, DecodeError> {
+        let registered = match self.client.schema_by_key(key).await {
             Ok(Some(schema)) => schema,
             Ok(None) => return Ok(Arc::new(CachedSchema::Missing)),
             Err(error) => return Err(DecodeError::failed(error)),
         };
-        Ok(Arc::new(self.parse_registered(registered).await?))
-    }
-
-    async fn parse_registered(
-        &self,
-        registered: RegisteredSchema,
-    ) -> Result<CachedSchema, DecodeError> {
-        match registered.schema_type {
-            SchemaType::Json => Ok(CachedSchema::Json),
-            SchemaType::Avro => {
-                let dependencies = self.collect_named_references(&registered).await?;
-                let codec = parse_avro(
-                    &registered.schema,
-                    dependencies.iter().map(|(_, schema)| schema.as_str()),
-                )?;
-                Ok(CachedSchema::Avro(codec))
-            }
-            SchemaType::Protobuf => {
-                let dependencies = self.collect_named_references(&registered).await?;
-                let codec = ProtobufCodec::compile(&registered.schema, &dependencies)?;
-                Ok(CachedSchema::Protobuf(codec))
-            }
-        }
+        let dependencies = self.collect_named_references(&registered).await?;
+        let codec = ProtobufCodec::compile(&registered.schema, &dependencies)?;
+        Ok(Arc::new(CachedSchema::Protobuf(codec)))
     }
 
     async fn collect_named_references(
         &self,
-        registered: &RegisteredSchema,
+        registered: &schemreg::Schema,
     ) -> Result<Vec<(String, String)>, DecodeError> {
         let mut bodies = Vec::new();
         let mut pending = registered.references.clone();
@@ -227,49 +218,82 @@ impl PayloadDecoder {
             }
             let fetched = self
                 .client
-                .schema_by_subject_version(&reference.subject, reference.version)
+                .schema_version(&reference.subject, reference.version)
                 .await
                 .map_err(DecodeError::failed)?;
-            pending.extend(fetched.references);
-            bodies.push((reference.name, fetched.schema));
+            pending.extend(fetched.references.iter().cloned());
+            bodies.push((reference.name, fetched.schema.to_string()));
         }
 
         Ok(bodies)
     }
 }
 
-fn parse_avro<'a>(
-    schema: &str,
-    dependencies: impl IntoIterator<Item = &'a str>,
-) -> Result<AvroCodec, DecodeError> {
-    let (writer, dependencies) =
-        Schema::parse_str_with_list(schema, dependencies).map_err(DecodeError::failed)?;
-    Ok(AvroCodec {
-        writer,
-        dependencies,
+fn resolve_frame<'a>(
+    bytes: &'a [u8],
+    override_id: Option<i32>,
+    header: Option<&[u8]>,
+) -> Option<Resolved<'a>> {
+    if let Ok((key, after_prefix)) = decode_wire_format(bytes) {
+        return Some(Resolved {
+            key,
+            framed: Bytes::copy_from_slice(bytes),
+            proto: ProtoInput::Framed(after_prefix),
+            schema_id: schema_id_i32(key),
+        });
+    }
+    if let Some(header) = header
+        && let Ok((key, indexes)) = decode_schema_id_header(header)
+    {
+        return Some(Resolved {
+            key,
+            framed: encode_wire_format(key, bytes),
+            proto: match indexes {
+                Some(indexes) => ProtoInput::Path {
+                    indexes: indexes.into_iter().map(|index| index as i32).collect(),
+                    payload: bytes,
+                },
+                None => ProtoInput::Raw(bytes),
+            },
+            schema_id: schema_id_i32(key),
+        });
+    }
+    let id = override_id.and_then(|id| u32::try_from(id).ok())?;
+    let key = SchemaKey::from(SchemaId::new(id));
+    Some(Resolved {
+        key,
+        framed: encode_wire_format(key, bytes),
+        proto: ProtoInput::Raw(bytes),
+        schema_id: None,
     })
 }
 
-fn avro_payload(codec: &AvroCodec, payload: &[u8]) -> Result<String, DecodeError> {
-    let schemata: Vec<&Schema> = codec
-        .dependencies
-        .iter()
-        .chain(std::iter::once(&codec.writer))
-        .collect();
-    let value = GenericDatumReader::builder(&codec.writer)
-        .writer_schemata(schemata)
-        .map_err(DecodeError::failed)?
-        .build()
-        .map_err(DecodeError::failed)?
-        .read_value(&mut &*payload)
-        .map_err(DecodeError::failed)?;
-    let json = serde_json::Value::try_from(value).map_err(DecodeError::failed)?;
-    serde_json::to_string(&json).map_err(DecodeError::failed)
+fn schema_id_i32(key: SchemaKey) -> Option<i32> {
+    key.as_id().and_then(|id| i32::try_from(id.as_u32()).ok())
 }
 
-fn json_payload(payload: &[u8]) -> Result<String, DecodeError> {
-    let json: serde_json::Value = serde_json::from_slice(payload).map_err(DecodeError::failed)?;
-    serde_json::to_string(&json).map_err(DecodeError::failed)
+async fn avro_payload(
+    decoder: &AvroSchemaDecoder<Arc<CachedRegistry>>,
+    framed: Bytes,
+) -> Result<String, DecodeError> {
+    let value: serde_json::Value = decoder.decode_de(framed).await.map_err(registry_decode)?;
+    serde_json::to_string(&value).map_err(DecodeError::failed)
+}
+
+async fn json_payload(
+    decoder: &JsonSchemaDecoder<Arc<CachedRegistry>>,
+    framed: Bytes,
+) -> Result<String, DecodeError> {
+    let value = decoder.decode(framed).await.map_err(registry_decode)?;
+    serde_json::to_string(&value).map_err(DecodeError::failed)
+}
+
+fn registry_decode(error: SchemaRegError) -> DecodeError {
+    if error.is_not_found() {
+        DecodeError::missing("schema id not found in registry")
+    } else {
+        DecodeError::failed(error)
+    }
 }
 
 #[cfg(test)]
@@ -277,8 +301,10 @@ mod tests {
     use super::*;
     use crate::config::SchemaRegistryConfig;
     use crate::kafka::model::{Compression, Record as KafkaRecord};
+    use apache_avro::Schema;
     use apache_avro::types::{Record, Value};
     use apache_avro::writer::datum::GenericDatumWriter;
+    use schemreg::{VALUE_SCHEMA_ID_HEADER, encode_schema_id_header};
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -350,11 +376,7 @@ mod tests {
     }
 
     fn frame(schema_id: i32, payload: &[u8]) -> Vec<u8> {
-        let mut out = Vec::with_capacity(5 + payload.len());
-        out.push(CONFLUENT_MAGIC);
-        out.extend_from_slice(&schema_id.to_be_bytes());
-        out.extend_from_slice(payload);
-        out
+        encode_wire_format(u32::try_from(schema_id).unwrap(), payload).to_vec()
     }
 
     fn encode_avro(schema: &str, build: impl FnOnce(&Schema, &mut Record<'_>)) -> Vec<u8> {
@@ -420,16 +442,16 @@ mod tests {
     #[test]
     fn parses_confluent_frame() {
         let bytes = frame(12, b"datum");
-        let parsed = ConfluentFrame::parse(&bytes).unwrap();
-        assert_eq!(parsed.schema_id, 12);
-        assert_eq!(parsed.payload, b"datum");
+        let parsed = resolve_frame(&bytes, None, None).unwrap();
+        assert_eq!(parsed.schema_id, Some(12));
+        assert!(matches!(parsed.proto, ProtoInput::Framed(payload) if payload == b"datum"));
     }
 
     #[test]
     fn rejects_short_or_non_magic_frames() {
-        assert!(ConfluentFrame::parse(&[0, 0, 0, 1]).is_none());
-        assert!(ConfluentFrame::parse(b"hello").is_none());
-        assert!(ConfluentFrame::parse(&[]).is_none());
+        assert!(resolve_frame(&[0, 0, 0, 1], None, None).is_none());
+        assert!(resolve_frame(b"hello", None, None).is_none());
+        assert!(resolve_frame(&[], None, None).is_none());
     }
 
     #[tokio::test]
@@ -532,10 +554,10 @@ mod tests {
             decoder(&server.uri()).decode(&framed).await,
             decode_bytes(&framed)
         );
-        let parsed = ConfluentFrame::parse(&framed).unwrap();
+        let parsed = resolve_frame(&framed, None, None).unwrap();
         assert_eq!(
             decoder(&server.uri())
-                .decode_frame(parsed)
+                .decode_frame(&parsed)
                 .await
                 .unwrap_err(),
             DecodeError::missing("schema id not found in registry")
@@ -597,10 +619,10 @@ mod tests {
         let server = MockServer::start().await;
         mock_schema(&server, 3, "PROTOBUF", ORDER_PROTO).await;
         let framed = frame(3, &[]);
-        let parsed = ConfluentFrame::parse(&framed).unwrap();
+        let parsed = resolve_frame(&framed, None, None).unwrap();
         assert_eq!(
             decoder(&server.uri())
-                .decode_frame(parsed)
+                .decode_frame(&parsed)
                 .await
                 .unwrap_err(),
             DecodeError::failed("truncated protobuf message index")
@@ -613,7 +635,9 @@ mod tests {
         mock_schema(&server, 3, "PROTOBUF", ORDER_PROTO).await;
 
         let payload = b"\x0a\x03abc\x10\x2a";
-        let decoded = decoder(&server.uri()).decode_with(payload, Some(3)).await;
+        let decoded = decoder(&server.uri())
+            .decode_with(payload, Some(3), None)
+            .await;
         let value: serde_json::Value = serde_json::from_str(&decoded.text).unwrap();
         assert_eq!(value["orderId"], "abc");
         assert_eq!(value["amount"], "42");
@@ -639,6 +663,7 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/subjects/common.proto/versions/1"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "subject": "common.proto",
                 "id": 4,
                 "version": 1,
                 "schemaType": "PROTOBUF",
@@ -656,16 +681,18 @@ mod tests {
 
     #[tokio::test]
     async fn decode_field_without_decoder_is_lossy_utf8() {
-        let decoded = decode_field(None, Some(b"hello"), None).await.unwrap();
+        let decoded = decode_field(None, Some(b"hello"), None, None)
+            .await
+            .unwrap();
         assert_eq!(decoded.text, "hello");
         assert_eq!(decoded.schema_id, None);
-        assert!(decode_field(None, None, None).await.is_none());
+        assert!(decode_field(None, None, None, None).await.is_none());
     }
 
     #[tokio::test]
     async fn decode_field_without_decoder_exposes_wire_schema_id() {
         let framed = frame(12, b"datum");
-        let decoded = decode_field(None, Some(&framed), None).await.unwrap();
+        let decoded = decode_field(None, Some(&framed), None, None).await.unwrap();
         assert_eq!(decoded.schema_id, Some(12));
         assert_eq!(decoded.text, decode_bytes(&framed));
     }
@@ -679,7 +706,9 @@ mod tests {
             record.put("orderId", "abc".to_owned());
             record.put("amount", 42i64);
         });
-        let decoded = decoder(&server.uri()).decode_with(&payload, Some(12)).await;
+        let decoded = decoder(&server.uri())
+            .decode_with(&payload, Some(12), None)
+            .await;
         let value: serde_json::Value = serde_json::from_str(&decoded.text).unwrap();
 
         assert_eq!(value["orderId"], "abc");
@@ -703,7 +732,9 @@ mod tests {
             record.put("amount", 42i64);
         });
         let framed = frame(12, &payload);
-        let decoded = decoder(&server.uri()).decode_with(&framed, Some(99)).await;
+        let decoded = decoder(&server.uri())
+            .decode_with(&framed, Some(99), None)
+            .await;
         let value: serde_json::Value = serde_json::from_str(&decoded.text).unwrap();
 
         assert_eq!(value["orderId"], "abc");
@@ -715,7 +746,9 @@ mod tests {
         let server = MockServer::start().await;
         mock_schema(&server, 12, "AVRO", ORDER_SCHEMA).await;
         let raw = b"????";
-        let decoded = decoder(&server.uri()).decode_with(raw, Some(12)).await;
+        let decoded = decoder(&server.uri())
+            .decode_with(raw, Some(12), None)
+            .await;
         assert_eq!(decoded.text, decode_bytes(raw));
         assert_eq!(decoded.schema_id, None);
     }
@@ -733,7 +766,9 @@ mod tests {
             .await;
 
         let raw = b"not-json";
-        let decoded = decoder(&server.uri()).decode_with(raw, Some(99)).await;
+        let decoded = decoder(&server.uri())
+            .decode_with(raw, Some(99), None)
+            .await;
         assert_eq!(decoded.text, decode_bytes(raw));
         assert_eq!(decoded.schema_id, None);
     }
@@ -757,6 +792,7 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/subjects/Status/versions/1"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "subject": "Status",
                 "id": 4,
                 "version": 1,
                 "schemaType": "AVRO",
@@ -782,5 +818,29 @@ mod tests {
         let json = decoder(&server.uri()).decode(&frame(20, &payload)).await;
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(value["status"], "OPEN");
+    }
+
+    #[tokio::test]
+    async fn decodes_header_framed_json() {
+        let server = MockServer::start().await;
+        mock_schema(&server, 7, "JSON", r#"{"type":"object"}"#).await;
+
+        let header = encode_schema_id_header(7u32, None);
+        let decoded = decoder(&server.uri())
+            .decode_with(br#"{"ok": true}"#, None, Some(&header))
+            .await;
+        assert_eq!(decoded.text, r#"{"ok":true}"#);
+        assert_eq!(decoded.schema_id, Some(7));
+        assert_eq!(VALUE_SCHEMA_ID_HEADER, "__value_schema_id");
+    }
+
+    #[tokio::test]
+    async fn decode_field_without_decoder_exposes_header_schema_id() {
+        let header = encode_schema_id_header(12u32, None);
+        let decoded = decode_field(None, Some(b"datum"), None, Some(&header))
+            .await
+            .unwrap();
+        assert_eq!(decoded.schema_id, Some(12));
+        assert_eq!(decoded.text, "datum");
     }
 }

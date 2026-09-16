@@ -3,7 +3,6 @@ bun = "latest"
 node = "latest"
 rpk = "26.2.2"
 rust = "latest"
-vendir = "0.46.0"
 viteplus = "latest"
 
 "cargo:cargo-machete" = "latest"
@@ -20,10 +19,6 @@ run = "helm unittest charts/klens"
 [tasks.schema]
 description = "Regenerate schema.graphql from the Rust schema"
 run = "cargo xtask schema"
-
-[tasks.vendor]
-description = "Sync vendored third-party files declared in vendir.yml"
-run = "vendir sync"
 
 [tasks."web:install"]
 description = "Install web dependencies"

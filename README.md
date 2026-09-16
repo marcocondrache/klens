@@ -81,8 +81,9 @@ auth:
 ## Schema Registry
 
 Each cluster can optionally point at a Confluent-compatible Schema Registry.
-When omitted, the Schemas page is empty for that cluster. Framed Avro, JSON, and
-Protobuf payloads decode to JSON when a registry is configured.
+When omitted, the Schemas page is empty for that cluster. Avro, JSON, and
+Protobuf payloads decode to JSON when a registry is configured — Confluent v0
+(schema ID), v1 (schema GUID), and schema IDs in Kafka headers.
 
 ```yaml
 schema_registry:

@@ -84,7 +84,11 @@ impl ProtobufCodec {
         self.decode_message(&[0], payload)
     }
 
-    fn decode_message(&self, indexes: &[i32], payload: &[u8]) -> Result<String, ProtobufError> {
+    pub(crate) fn decode_message(
+        &self,
+        indexes: &[i32],
+        payload: &[u8],
+    ) -> Result<String, ProtobufError> {
         let descriptor = self.message_at(indexes)?;
         let message = DynamicMessage::decode(descriptor, payload)
             .map_err(|error| ProtobufError::Decode(error.to_string()))?;

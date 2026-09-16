@@ -1,9 +1,8 @@
 //! Schema Registry types, HTTP client, and payload decode.
 //!
-//! [`SchemaSubject`] and [`RegisteredSchema`] are the domain types. `client`
-//! is the HTTP port ([`client::SchemaRegistryClient`]). `decode` turns a
-//! Confluent-framed payload into text. `protobuf` is the protobuf path
-//! inside decode.
+//! [`SchemaSubject`] is the catalog row. `client` talks to a
+//! Confluent-compatible registry through schemreg. `decode` turns a framed
+//! payload into text. `protobuf` is the dynamic protobuf path inside decode.
 
 pub mod client;
 pub mod decode;
@@ -85,6 +84,7 @@ pub struct SchemaSubject {
     pub schema: String,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SchemaReference {
     pub name: String,
@@ -92,6 +92,7 @@ pub struct SchemaReference {
     pub version: i32,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegisteredSchema {
     pub id: i32,

@@ -10,6 +10,8 @@ use crate::kafka::error::KafkaError;
 use crate::kafka::model::{Compression, FetchPlan, Record, RecordHeader, decode_bytes};
 use crate::kafka::record::batch::RecordBatch;
 use crate::kafka::record::plan::PartitionWindow;
+use schemreg::{KEY_SCHEMA_ID_HEADER, VALUE_SCHEMA_ID_HEADER};
+
 use crate::kafka::registry::decode::{PayloadDecoder, decode_field};
 
 pub(super) async fn fetch(
@@ -214,8 +216,22 @@ async fn record_from_message(
         + message.value.as_ref().map(|value| value.len()).unwrap_or(0);
 
     let (key, value) = tokio::join!(
-        decode_field(decoder, message.key.as_deref(), None),
-        decode_field(decoder, message.value.as_deref(), plan.schema_id),
+        decode_field(
+            decoder,
+            message.key.as_deref(),
+            None,
+            message
+                .header_value(KEY_SCHEMA_ID_HEADER.as_bytes())
+                .map(|value| value.as_ref()),
+        ),
+        decode_field(
+            decoder,
+            message.value.as_deref(),
+            plan.schema_id,
+            message
+                .header_value(VALUE_SCHEMA_ID_HEADER.as_bytes())
+                .map(|value| value.as_ref()),
+        ),
     );
     let key = key.map(|field| field.text);
     let (value, schema_id) = match value {
