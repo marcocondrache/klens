@@ -2,13 +2,12 @@
 //!
 //! [`Record`] and [`RecordPage`] are the page the UI shows. `query` holds the
 //! browse request ([`query::RecordQuery`]). `plan` turns that into partition
-//! windows. `page` fetches those windows. [`cursor::RecordCursor`] resumes.
-//! [`filter::RecordFilter`] is the CEL predicate.
+//! windows. [`crate::kafka::scan`] fetches those windows. [`cursor::RecordCursor`]
+//! resumes. [`filter::RecordFilter`] is the CEL predicate.
 
 pub(crate) mod batch;
 pub mod cursor;
 pub mod filter;
-pub mod page;
 pub mod plan;
 pub mod query;
 
@@ -68,6 +67,8 @@ pub struct RecordPage {
     pub records: Vec<Record>,
     pub has_more: bool,
     pub next_cursor: Option<String>,
+    pub prev_cursor: Option<String>,
+    pub complete: bool,
 }
 
 /// Best-effort text for bytes that carry no schema.

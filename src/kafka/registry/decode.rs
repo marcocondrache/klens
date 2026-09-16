@@ -1,12 +1,16 @@
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use apache_avro::Schema;
 use apache_avro::reader::datum::GenericDatumReader;
+use futures::StreamExt;
+use moka::Expiry;
 use moka::future::Cache;
 
 use super::client::SchemaRegistryClient;
 use super::protobuf::{ProtobufCodec, ProtobufError};
+use crate::environment::{MISSING_SCHEMA_TTL, SUBJECT_FETCH_CONCURRENCY};
 use crate::kafka::model::{RegisteredSchema, SchemaType, decode_bytes};
 use thiserror::Error;
 
@@ -23,6 +27,14 @@ struct ConfluentFrame<'a> {
     schema_id: i32,
     payload: &'a [u8],
     indexed: bool,
+}
+
+pub(crate) fn is_confluent_framed(bytes: &[u8]) -> bool {
+    ConfluentFrame::parse(bytes).is_some()
+}
+
+pub(crate) fn wire_schema_id(bytes: &[u8]) -> Option<i32> {
+    ConfluentFrame::parse(bytes).map(|frame| frame.schema_id)
 }
 
 impl<'a> ConfluentFrame<'a> {
@@ -56,11 +68,37 @@ struct AvroCodec {
     dependencies: Vec<Schema>,
 }
 
+struct SchemaExpiry;
+
+impl Expiry<i32, Arc<CachedSchema>> for SchemaExpiry {
+    fn expire_after_create(
+        &self,
+        _key: &i32,
+        value: &Arc<CachedSchema>,
+        _created_at: Instant,
+    ) -> Option<Duration> {
+        match value.as_ref() {
+            CachedSchema::Missing => Some(*MISSING_SCHEMA_TTL),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DecodeValue {
+    pub json: Option<serde_json::Value>,
+    pub schema_id: Option<i32>,
+    pub framed: bool,
+}
+
 impl PayloadDecoder {
     pub(crate) fn new(client: SchemaRegistryClient) -> Self {
         Self {
             client,
-            cache: Cache::builder().max_capacity(10_000).build(),
+            cache: Cache::builder()
+                .max_capacity(10_000)
+                .expire_after(SchemaExpiry)
+                .build(),
         }
     }
 
@@ -76,6 +114,17 @@ impl PayloadDecoder {
     /// Decode a payload, optionally using `override_id` when the bytes are not
     /// Confluent-framed. Wire-format schema ids always win over the override.
     pub(crate) async fn decode_with(&self, bytes: &[u8], override_id: Option<i32>) -> DecodedField {
+        let decoded = self.decode_value(bytes, override_id).await;
+        DecodedField {
+            text: match decoded.json {
+                Some(json) => serde_json::to_string(&json).unwrap_or_else(|_| decode_bytes(bytes)),
+                None => decode_bytes(bytes),
+            },
+            schema_id: decoded.schema_id,
+        }
+    }
+
+    pub(crate) async fn decode_value(&self, bytes: &[u8], override_id: Option<i32>) -> DecodeValue {
         let wire_frame = ConfluentFrame::parse(bytes);
         let frame = wire_frame.or_else(|| {
             override_id.map(|schema_id| ConfluentFrame {
@@ -84,19 +133,21 @@ impl PayloadDecoder {
                 indexed: false,
             })
         });
+        let schema_id = wire_frame.map(|frame| frame.schema_id);
+        let Some(frame) = frame else {
+            return DecodeValue {
+                json: None,
+                schema_id,
+                framed: false,
+            };
+        };
 
-        DecodedField {
-            text: match frame {
-                Some(frame) => self.decode_or_raw(frame, bytes).await,
-                None => decode_bytes(bytes),
+        match self.decode_frame_value(frame).await {
+            Ok(json) => DecodeValue {
+                json: Some(json),
+                schema_id,
+                framed: true,
             },
-            schema_id: wire_frame.map(|frame| frame.schema_id),
-        }
-    }
-
-    async fn decode_or_raw(&self, frame: ConfluentFrame<'_>, original: &[u8]) -> String {
-        match self.decode_frame(frame).await {
-            Ok(json) => json,
             Err(error) => {
                 match &error {
                     DecodeError::Missing(message) => {
@@ -114,7 +165,11 @@ impl PayloadDecoder {
                         );
                     }
                 }
-                decode_bytes(original)
+                DecodeValue {
+                    json: None,
+                    schema_id,
+                    framed: true,
+                }
             }
         }
     }
@@ -160,16 +215,24 @@ impl From<ProtobufError> for DecodeError {
 }
 
 impl PayloadDecoder {
+    #[cfg(test)]
     async fn decode_frame(&self, frame: ConfluentFrame<'_>) -> Result<String, DecodeError> {
+        serde_json::to_string(&self.decode_frame_value(frame).await?).map_err(DecodeError::failed)
+    }
+
+    async fn decode_frame_value(
+        &self,
+        frame: ConfluentFrame<'_>,
+    ) -> Result<serde_json::Value, DecodeError> {
         let cached = self.resolved(frame.schema_id).await?;
         match cached.as_ref() {
             CachedSchema::Missing => Err(DecodeError::missing("schema id not found in registry")),
-            CachedSchema::Json => json_payload(frame.payload),
-            CachedSchema::Avro(codec) => avro_payload(codec, frame.payload),
+            CachedSchema::Json => json_value(frame.payload),
+            CachedSchema::Avro(codec) => avro_value(codec, frame.payload),
             CachedSchema::Protobuf(codec) => if frame.indexed {
-                codec.decode_framed(frame.payload)
+                codec.decode_framed_value(frame.payload)
             } else {
-                codec.decode_raw(frame.payload)
+                codec.decode_raw_value(frame.payload)
             }
             .map_err(DecodeError::from),
         }
@@ -221,17 +284,36 @@ impl PayloadDecoder {
         let mut pending = registered.references.clone();
         let mut seen = HashSet::new();
 
-        while let Some(reference) = pending.pop() {
-            if !seen.insert((reference.subject.clone(), reference.version)) {
-                continue;
+        while !pending.is_empty() {
+            let mut wave = Vec::new();
+            while let Some(reference) = pending.pop() {
+                if seen.insert((reference.subject.clone(), reference.version)) {
+                    wave.push(reference);
+                }
             }
-            let fetched = self
-                .client
-                .schema_by_subject_version(&reference.subject, reference.version)
-                .await
-                .map_err(DecodeError::failed)?;
-            pending.extend(fetched.references);
-            bodies.push((reference.name, fetched.schema));
+            if wave.is_empty() {
+                break;
+            }
+
+            let fetched = futures::stream::iter(wave.into_iter().map(|reference| {
+                let client = self.client.clone();
+                async move {
+                    let fetched = client
+                        .schema_by_subject_version(&reference.subject, reference.version)
+                        .await
+                        .map_err(DecodeError::failed)?;
+                    Ok::<_, DecodeError>((reference.name, fetched))
+                }
+            }))
+            .buffer_unordered(*SUBJECT_FETCH_CONCURRENCY)
+            .collect::<Vec<_>>()
+            .await;
+
+            for result in fetched {
+                let (name, schema) = result?;
+                pending.extend(schema.references);
+                bodies.push((name, schema.schema));
+            }
         }
 
         Ok(bodies)
@@ -250,7 +332,7 @@ fn parse_avro<'a>(
     })
 }
 
-fn avro_payload(codec: &AvroCodec, payload: &[u8]) -> Result<String, DecodeError> {
+fn avro_value(codec: &AvroCodec, payload: &[u8]) -> Result<serde_json::Value, DecodeError> {
     let schemata: Vec<&Schema> = codec
         .dependencies
         .iter()
@@ -263,13 +345,11 @@ fn avro_payload(codec: &AvroCodec, payload: &[u8]) -> Result<String, DecodeError
         .map_err(DecodeError::failed)?
         .read_value(&mut &*payload)
         .map_err(DecodeError::failed)?;
-    let json = serde_json::Value::try_from(value).map_err(DecodeError::failed)?;
-    serde_json::to_string(&json).map_err(DecodeError::failed)
+    serde_json::Value::try_from(value).map_err(DecodeError::failed)
 }
 
-fn json_payload(payload: &[u8]) -> Result<String, DecodeError> {
-    let json: serde_json::Value = serde_json::from_slice(payload).map_err(DecodeError::failed)?;
-    serde_json::to_string(&json).map_err(DecodeError::failed)
+fn json_value(payload: &[u8]) -> Result<serde_json::Value, DecodeError> {
+    serde_json::from_slice(payload).map_err(DecodeError::failed)
 }
 
 #[cfg(test)]

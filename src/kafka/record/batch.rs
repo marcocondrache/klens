@@ -21,6 +21,23 @@ impl RecordBatch {
         }
     }
 
+    pub(crate) fn len(&self) -> usize {
+        self.records.len()
+    }
+
+    pub(crate) fn would_keep(&self, timestamp: i64, partition: i32, offset: i64) -> bool {
+        if self.limit == 0 {
+            return false;
+        }
+        if self.records.len() < self.limit {
+            return true;
+        }
+        let Some(worst) = self.records.peek() else {
+            return true;
+        };
+        cmp_meta(timestamp, partition, offset, &worst.record, self.order).is_lt()
+    }
+
     pub(crate) fn push(&mut self, record: Record) {
         if self.limit == 0 {
             return;
@@ -48,6 +65,26 @@ impl RecordBatch {
             .into_iter()
             .map(|entry| entry.record)
             .collect()
+    }
+}
+
+fn cmp_meta(
+    timestamp: i64,
+    partition: i32,
+    offset: i64,
+    other: &Record,
+    order: RecordOrder,
+) -> Ordering {
+    match order {
+        RecordOrder::Newest => timestamp
+            .cmp(&other.timestamp)
+            .reverse()
+            .then(partition.cmp(&other.partition))
+            .then(offset.cmp(&other.offset).reverse()),
+        RecordOrder::Oldest => timestamp
+            .cmp(&other.timestamp)
+            .then(partition.cmp(&other.partition))
+            .then(offset.cmp(&other.offset)),
     }
 }
 

@@ -8,11 +8,14 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 
+use tokio::time::Instant;
+
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
     AclListing, ClusterIdentity, CommittedOffset, ConfigEntry, FetchPlan, GroupSnapshot,
     MetadataSnapshot, Record, SchemaSubject, Watermarks,
 };
+use crate::kafka::scan::ScanSession;
 
 /// Per-cluster Kafka I/O. Matches [`super::client::KafkaClient`].
 #[async_trait]
@@ -76,6 +79,9 @@ pub trait ClusterSession: Send + Sync + 'static {
     /// matching records sorted by `order`. An incomplete scan must return an
     /// error, not a partial batch: pagination advances past underfilled windows.
     async fn records(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError>;
+
+    /// Open a reusable scan consumer for one page request.
+    async fn open_scan(&self, topic: &str, deadline: Instant) -> Result<ScanSession, KafkaError>;
 
     async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
         Ok(Vec::new())

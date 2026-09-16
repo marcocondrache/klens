@@ -63,6 +63,10 @@ impl FetchPlan {
 
 /// Ordering decides which end of the log the window starts from: newest walks
 /// back from the high watermark, oldest forward from the low watermark.
+///
+/// Windows are not clamped against live end offsets. A window whose `end`
+/// exceeds the log is completed by idle-partition resolution (`position` /
+/// `current_lag`) instead of hanging.
 pub fn plan_windows(
     partitions: &[i32],
     watermarks: &HashMap<i32, Watermarks>,

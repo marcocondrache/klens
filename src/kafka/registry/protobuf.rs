@@ -75,20 +75,40 @@ impl ProtobufCodec {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn decode_framed(&self, payload: &[u8]) -> Result<String, ProtobufError> {
+        value_to_string(self.decode_framed_value(payload)?)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn decode_raw(&self, payload: &[u8]) -> Result<String, ProtobufError> {
+        value_to_string(self.decode_raw_value(payload)?)
+    }
+
+    pub(crate) fn decode_framed_value(
+        &self,
+        payload: &[u8],
+    ) -> Result<serde_json::Value, ProtobufError> {
         let (indexes, rest) = parse_indexes(payload)?;
         self.decode_message(&indexes, rest)
     }
 
-    pub(crate) fn decode_raw(&self, payload: &[u8]) -> Result<String, ProtobufError> {
+    pub(crate) fn decode_raw_value(
+        &self,
+        payload: &[u8],
+    ) -> Result<serde_json::Value, ProtobufError> {
         self.decode_message(&[0], payload)
     }
 
-    fn decode_message(&self, indexes: &[i32], payload: &[u8]) -> Result<String, ProtobufError> {
+    fn decode_message(
+        &self,
+        indexes: &[i32],
+        payload: &[u8],
+    ) -> Result<serde_json::Value, ProtobufError> {
         let descriptor = self.message_at(indexes)?;
         let message = DynamicMessage::decode(descriptor, payload)
             .map_err(|error| ProtobufError::Decode(error.to_string()))?;
-        serde_json::to_string(&message).map_err(|error| ProtobufError::Json(error.to_string()))
+        serde_json::to_value(&message).map_err(|error| ProtobufError::Json(error.to_string()))
     }
 
     fn root_file(&self) -> Result<FileDescriptor, ProtobufError> {
@@ -106,6 +126,11 @@ impl ProtobufCodec {
         }
         Ok(current)
     }
+}
+
+#[cfg(test)]
+fn value_to_string(value: serde_json::Value) -> Result<String, ProtobufError> {
+    serde_json::to_string(&value).map_err(|error| ProtobufError::Json(error.to_string()))
 }
 
 fn nth_message(

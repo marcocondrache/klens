@@ -90,6 +90,18 @@ pub static OFFSET_FETCH_CONCURRENCY: LazyLock<usize> = LazyLock::new(|| {
         .unwrap_or(32)
 });
 
+/// Concurrent Schema Registry reference fetches (default: 8).
+///
+/// Override with `KLENS_SUBJECT_FETCH_CONCURRENCY`. Values below 1 fall back
+/// to the default.
+pub static SUBJECT_FETCH_CONCURRENCY: LazyLock<usize> = LazyLock::new(|| {
+    std::env::var("KLENS_SUBJECT_FETCH_CONCURRENCY")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .filter(|value| *value >= 1)
+        .unwrap_or(8)
+});
+
 /// How often the v2 topology lane refreshes metadata and group membership
 /// (default: 10 seconds).
 ///
@@ -196,6 +208,17 @@ pub static IDLE_HEARTBEAT: LazyLock<Duration> = LazyLock::new(|| {
     )
 });
 
+/// How long a missing schema-id cache entry is kept (default: 60 seconds).
+///
+/// Override with `KLENS_MISSING_SCHEMA_TTL` (seconds). Values below 1 second
+/// fall back to the default.
+pub static MISSING_SCHEMA_TTL: LazyLock<Duration> = LazyLock::new(|| {
+    parse_poll_interval(
+        std::env::var("KLENS_MISSING_SCHEMA_TTL").ok(),
+        DEFAULT_MISSING_SCHEMA_TTL,
+    )
+});
+
 /// Maximum records a browse or search query may request (default: 500).
 ///
 /// Override with `KLENS_MAX_RECORD_LIMIT`.
@@ -255,6 +278,7 @@ const DEFAULT_FAST_OFFSET_INTERVAL: Duration = Duration::from_secs(2);
 const DEFAULT_SLOW_OFFSET_INTERVAL: Duration = Duration::from_secs(20);
 const DEFAULT_INTEREST_TTL: Duration = Duration::from_secs(30);
 const DEFAULT_IDLE_HEARTBEAT: Duration = Duration::from_secs(15);
+const DEFAULT_MISSING_SCHEMA_TTL: Duration = Duration::from_secs(60);
 const MIN_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
 fn parse_poll_interval(raw: Option<String>, default: Duration) -> Duration {

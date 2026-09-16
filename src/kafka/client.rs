@@ -33,6 +33,7 @@ use crate::kafka::record::plan::FetchPlan;
 use crate::kafka::registry::SchemaSubject;
 use crate::kafka::registry::client::SchemaRegistryClient;
 use crate::kafka::registry::decode::PayloadDecoder;
+use crate::kafka::scan::ScanSession;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::topic_config::ConfigEntry;
 use crate::kafka::watermarks::Watermarks;
@@ -302,6 +303,14 @@ impl ClusterSession for KafkaClient {
         )
         .await
         .map_err(|_| KafkaError::Timeout)?
+    }
+
+    async fn open_scan(
+        &self,
+        topic: &str,
+        deadline: tokio::time::Instant,
+    ) -> Result<ScanSession, KafkaError> {
+        browse::open_session(&self.krafka, topic, self.schema_registry.clone(), deadline).await
     }
 
     async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {

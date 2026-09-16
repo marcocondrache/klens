@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::ops::Range;
+use std::sync::Arc;
 use std::time::Duration;
 
+use async_trait::async_trait;
 use krafka::client::KrafkaClient;
 use krafka::consumer::{AutoOffsetReset, Consumer, ConsumerRecord};
 use tokio::time::Instant;
@@ -11,6 +13,7 @@ use crate::kafka::model::{Compression, FetchPlan, Record, RecordHeader, decode_b
 use crate::kafka::record::batch::RecordBatch;
 use crate::kafka::record::plan::PartitionWindow;
 use crate::kafka::registry::decode::{PayloadDecoder, decode_field};
+use crate::kafka::scan::{RawRecord, ScanConsumer, ScanSession, decoded_from_bytes};
 
 pub(super) async fn fetch(
     client: &KrafkaClient,
@@ -38,6 +41,103 @@ pub(super) async fn fetch(
     let _ = consumer.close().await;
     guard.0.take();
     result
+}
+
+pub(super) async fn open_session(
+    client: &KrafkaClient,
+    topic: &str,
+    decoder: Option<PayloadDecoder>,
+    deadline: Instant,
+) -> Result<ScanSession, KafkaError> {
+    let consumer = Consumer::builder()
+        .with_client(client)
+        .enable_auto_commit(false)
+        .auto_offset_reset(AutoOffsetReset::Earliest)
+        .build()
+        .await?;
+    Ok(ScanSession::new(
+        Box::new(KrafkaScanConsumer {
+            consumer: Arc::new(consumer),
+            decoder,
+        }),
+        topic.to_owned(),
+        deadline,
+    ))
+}
+
+struct KrafkaScanConsumer {
+    consumer: Arc<Consumer>,
+    decoder: Option<PayloadDecoder>,
+}
+
+#[async_trait]
+impl ScanConsumer for KrafkaScanConsumer {
+    async fn assign(&self, topic: &str, partitions: Vec<i32>) -> Result<(), KafkaError> {
+        self.consumer.assign(topic, partitions).await?;
+        Ok(())
+    }
+
+    async fn seek(&self, topic: &str, partition: i32, offset: i64) -> Result<(), KafkaError> {
+        self.consumer.seek(topic, partition, offset).await?;
+        Ok(())
+    }
+
+    async fn poll(&self, timeout: Duration) -> Result<Vec<RawRecord>, KafkaError> {
+        Ok(self
+            .consumer
+            .poll(timeout)
+            .await?
+            .into_iter()
+            .map(|message| RawRecord {
+                topic: message.topic,
+                partition: message.partition,
+                offset: message.offset,
+                timestamp: message.timestamp,
+                key: message.key.map(|bytes| bytes.to_vec()),
+                value: message.value.map(|bytes| bytes.to_vec()),
+                headers: message
+                    .headers
+                    .into_iter()
+                    .map(|(key, value)| (key.to_vec(), value.map(|bytes| bytes.to_vec())))
+                    .collect(),
+            })
+            .collect())
+    }
+
+    async fn position(&self, topic: &str, partition: i32) -> Option<i64> {
+        self.consumer.position(topic, partition).await
+    }
+
+    async fn current_lag(&self, topic: &str, partition: i32) -> Option<u64> {
+        self.consumer.current_lag(topic, partition).await
+    }
+
+    async fn pause(&self, topic: &str, partitions: &[i32]) {
+        self.consumer.pause(topic, partitions).await;
+    }
+
+    async fn resume(&self, topic: &str, partitions: &[i32]) {
+        self.consumer.resume(topic, partitions).await;
+    }
+
+    async fn decode(
+        &self,
+        bytes: Option<&[u8]>,
+        override_id: Option<i32>,
+    ) -> Option<crate::kafka::scan::DecodedPayload> {
+        match (bytes, self.decoder.as_ref()) {
+            (None, _) => None,
+            (Some(bytes), Some(decoder)) => {
+                let decoded = decoder.decode_value(bytes, override_id).await;
+                decoded_from_bytes(Some(bytes), Some(decoded))
+            }
+            (Some(bytes), None) => decoded_from_bytes(Some(bytes), None),
+        }
+    }
+
+    async fn close(&self) {
+        let _ = self.consumer.close().await;
+    }
 }
 
 /// Also close on cancellation; the consumer borrows the cluster's pool.

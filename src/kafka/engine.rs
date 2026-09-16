@@ -5,6 +5,7 @@
 //! single consumer group, and schema subjects.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use futures::future::{join_all, try_join_all};
 use indexmap::IndexMap;
@@ -20,11 +21,12 @@ use crate::kafka::group::{ConsumerGroup, GroupSnapshot};
 use crate::kafka::limits::RecordLimits;
 use crate::kafka::metadata::MetadataSnapshot;
 use crate::kafka::record::RecordPage;
-use crate::kafka::record::page::fetch_page;
 use crate::kafka::record::plan::apply_timestamp_bounds;
 use crate::kafka::record::query::RecordQuery;
 use crate::kafka::registry::SchemaSubject;
+use crate::kafka::scan::fetch_page;
 use crate::kafka::session::ClusterSession;
+use crate::kafka::store::StoreSet;
 use crate::kafka::topic::{Topic, groups_for_topic};
 use crate::kafka::topic_config::ConfigEntry;
 use crate::kafka::watermarks::Watermarks;
@@ -33,6 +35,7 @@ use crate::kafka::watermarks::Watermarks;
 pub struct QueryEngine<S: ?Sized> {
     registry: IndexMap<String, Box<S>>,
     limits: RecordLimits,
+    stores: Option<Arc<StoreSet>>,
 }
 
 impl QueryEngine<dyn ClusterSession> {
@@ -54,7 +57,13 @@ impl QueryEngine<dyn ClusterSession> {
         Self {
             registry,
             limits: RecordLimits::from_env(),
+            stores: None,
         }
+    }
+
+    pub fn with_stores(mut self, stores: Arc<StoreSet>) -> Self {
+        self.stores = Some(stores);
+        self
     }
 }
 
@@ -287,6 +296,10 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
         session: &S,
         query: &RecordQuery,
     ) -> Result<Vec<i32>, KafkaError> {
+        if let Some(partitions) = self.store_partitions(cluster, &query.topic, query.partition) {
+            return partitions;
+        }
+
         let meta = session.metadata().await?;
         let topic = meta
             .topic(&query.topic)
@@ -304,6 +317,32 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
             Some(id) => Ok(vec![id]),
             None => Ok(topic.partition_ids()),
         }
+    }
+
+    fn store_partitions(
+        &self,
+        cluster: &str,
+        topic: &str,
+        partition: Option<i32>,
+    ) -> Option<Result<Vec<i32>, KafkaError>> {
+        let store = self.stores.as_ref()?.get(cluster)?;
+        let topology = store.topology.load()?;
+        let info = topology.topics.get(topic)?;
+        Some(match partition {
+            Some(id) if info.partitions.iter().all(|partition| partition.id != id) => {
+                Err(KafkaError::UnknownPartition {
+                    cluster: cluster.to_owned(),
+                    topic: topic.to_owned(),
+                    partition: id,
+                })
+            }
+            Some(id) => Ok(vec![id]),
+            None => Ok(info
+                .partitions
+                .iter()
+                .map(|partition| partition.id)
+                .collect()),
+        })
     }
 
     async fn window_watermarks(

@@ -36,6 +36,7 @@ mod engine;
 mod ingest;
 mod lag;
 mod rates;
+mod scan;
 mod series;
 mod store;
 
@@ -62,6 +63,7 @@ pub use model::{
 pub use rates::{RateStore, TopicRate};
 pub use record::cursor::RecordCursor;
 pub use record::filter::{RecordFilter, compile as compile_record_filter};
+pub use scan::ScanSession;
 pub use series::ThroughputPoint;
 pub use session::ClusterSession;
 pub use store::{ClusterStore, StoreSet};

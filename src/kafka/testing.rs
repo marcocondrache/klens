@@ -22,6 +22,7 @@ use crate::kafka::record::batch::RecordBatch;
 use crate::kafka::record::plan::FetchPlan;
 use crate::kafka::record::{Compression, Record, RecordHeader};
 use crate::kafka::registry::{SchemaCompatibility, SchemaSubject, SchemaType};
+use crate::kafka::scan::{DecodedPayload, RawRecord, ScanConsumer, ScanSession};
 use crate::kafka::session::ClusterSession;
 use crate::kafka::topic_config::{ConfigEntry, ConfigSource};
 use crate::kafka::watermarks::Watermarks;
@@ -53,6 +54,7 @@ struct Inner {
     consume_timeout: Mutex<Option<Duration>>,
     watermark_growth: Mutex<Option<Arc<WatermarkGrowth>>>,
     plans: Mutex<Vec<FetchPlan>>,
+    opens: AtomicUsize,
     calls: SessionCalls,
 }
 
@@ -219,6 +221,7 @@ impl FakeCluster {
                 consume_timeout: Mutex::new(None),
                 watermark_growth: Mutex::new(None),
                 plans: Mutex::new(Vec::new()),
+                opens: AtomicUsize::new(0),
                 calls: SessionCalls::default(),
             }),
         }
@@ -558,6 +561,10 @@ impl FakeCluster {
         self.inner.plans.lock().expect("plans").clone()
     }
 
+    pub fn scan_opens(&self) -> usize {
+        self.inner.opens.load(Ordering::SeqCst)
+    }
+
     async fn broker(&self) -> &FakeBroker {
         self.inner
             .broker
@@ -799,6 +806,25 @@ impl ClusterSession for FakeCluster {
         Ok(batch.into_records())
     }
 
+    async fn open_scan(
+        &self,
+        topic: &str,
+        deadline: tokio::time::Instant,
+    ) -> Result<ScanSession, KafkaError> {
+        self.inner.opens.fetch_add(1, Ordering::SeqCst);
+        Ok(ScanSession::new(
+            Box::new(FakeScanConsumer {
+                cluster: self.clone(),
+                topic: topic.to_owned(),
+                windows: Mutex::new(Vec::new()),
+                cursor: Mutex::new(HashMap::new()),
+                slept: Mutex::new(false),
+            }),
+            topic.to_owned(),
+            deadline,
+        ))
+    }
+
     async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
         if !*self.inner.serve_subjects.lock().expect("serve subjects") {
             return Ok(Vec::new());
@@ -818,6 +844,130 @@ impl ClusterSession for FakeCluster {
             return Err(KafkaError::Admin(message.clone()));
         }
         Ok(self.inner.acls.lock().expect("acls").clone())
+    }
+}
+
+struct FakeScanConsumer {
+    cluster: FakeCluster,
+    topic: String,
+    windows: Mutex<Vec<crate::kafka::record::plan::PartitionWindow>>,
+    cursor: Mutex<HashMap<i32, i64>>,
+    slept: Mutex<bool>,
+}
+
+#[async_trait]
+impl ScanConsumer for FakeScanConsumer {
+    async fn assign(&self, _topic: &str, _partitions: Vec<i32>) -> Result<(), KafkaError> {
+        Ok(())
+    }
+
+    async fn seek(&self, _topic: &str, partition: i32, offset: i64) -> Result<(), KafkaError> {
+        self.cursor
+            .lock()
+            .expect("cursor")
+            .insert(partition, offset);
+        Ok(())
+    }
+
+    async fn poll(&self, _timeout: Duration) -> Result<Vec<RawRecord>, KafkaError> {
+        let delay = {
+            let mut slept = self.slept.lock().expect("slept");
+            if *slept {
+                Duration::ZERO
+            } else {
+                *slept = true;
+                *self
+                    .cluster
+                    .inner
+                    .records_delay
+                    .lock()
+                    .expect("records delay")
+            }
+        };
+        if !delay.is_zero() {
+            tokio::time::sleep(delay).await;
+        }
+        let windows = self.windows.lock().expect("windows").clone();
+        let stored = self.cluster.inner.records.lock().expect("records").clone();
+        let mut cursor = self.cursor.lock().expect("cursor");
+        let mut out = Vec::new();
+        for window in &windows {
+            let start = cursor
+                .get(&window.partition)
+                .copied()
+                .unwrap_or(window.start);
+            if start >= window.end {
+                continue;
+            }
+            for record in stored.iter().filter(|record| {
+                record.topic == self.topic
+                    && record.partition == window.partition
+                    && record.offset >= start
+                    && record.offset < window.end
+            }) {
+                out.push(raw_from_record(record));
+            }
+            cursor.insert(window.partition, window.end);
+        }
+        Ok(out)
+    }
+
+    async fn position(&self, _topic: &str, partition: i32) -> Option<i64> {
+        self.cursor.lock().expect("cursor").get(&partition).copied()
+    }
+
+    async fn current_lag(&self, _topic: &str, _partition: i32) -> Option<u64> {
+        None
+    }
+
+    async fn pause(&self, _topic: &str, _partitions: &[i32]) {}
+
+    async fn resume(&self, _topic: &str, _partitions: &[i32]) {}
+
+    async fn decode(
+        &self,
+        bytes: Option<&[u8]>,
+        _override_id: Option<i32>,
+    ) -> Option<DecodedPayload> {
+        bytes.map(|bytes| DecodedPayload::from_raw(bytes.to_vec(), None, false))
+    }
+
+    async fn close(&self) {}
+
+    async fn observe_plan(&self, plan: &FetchPlan) {
+        self.cluster
+            .inner
+            .plans
+            .lock()
+            .expect("plans")
+            .push(plan.clone());
+        *self.windows.lock().expect("windows") = plan.windows.clone();
+        *self.slept.lock().expect("slept") = false;
+        let mut cursor = self.cursor.lock().expect("cursor");
+        for window in &plan.windows {
+            cursor.insert(window.partition, window.start);
+        }
+    }
+}
+
+fn raw_from_record(record: &Record) -> RawRecord {
+    RawRecord {
+        topic: record.topic.clone(),
+        partition: record.partition,
+        offset: record.offset,
+        timestamp: record.timestamp,
+        key: record.key.as_ref().map(|key| key.as_bytes().to_vec()),
+        value: record.value.as_ref().map(|value| value.as_bytes().to_vec()),
+        headers: record
+            .headers
+            .iter()
+            .map(|header| {
+                (
+                    header.key.as_bytes().to_vec(),
+                    Some(header.value.as_bytes().to_vec()),
+                )
+            })
+            .collect(),
     }
 }
 
