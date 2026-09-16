@@ -33,9 +33,11 @@ mod topic;
 
 mod catalog;
 mod engine;
+mod ingest;
 mod lag;
 mod rates;
 mod series;
+mod store;
 
 mod error;
 pub(crate) mod model;
@@ -50,6 +52,7 @@ pub use catalog::{
 pub use client::KafkaClient;
 pub use engine::QueryEngine;
 pub use error::{KafkaError, QueryError};
+pub use ingest::IngestSet;
 pub use lag::LagStore;
 pub use limits::RecordLimits;
 pub use model::{
@@ -61,6 +64,7 @@ pub use record::cursor::RecordCursor;
 pub use record::filter::{RecordFilter, compile as compile_record_filter};
 pub use series::ThroughputPoint;
 pub use session::ClusterSession;
+pub use store::{ClusterStore, StoreSet};
 
 #[cfg(test)]
 pub use testing::FakeCluster;

@@ -78,6 +78,124 @@ pub static CONSUME_TIMEOUT: LazyLock<Duration> =
 pub static OFFSET_FETCH_BATCH: LazyLock<usize> =
     lazy_env_parse!("KLENS_OFFSET_FETCH_BATCH", usize, 8);
 
+/// Concurrent OffsetFetch calls in the v2 offsets lane (default: 32).
+///
+/// Override with `KLENS_OFFSET_FETCH_CONCURRENCY`. Values below 1 fall back
+/// to the default.
+pub static OFFSET_FETCH_CONCURRENCY: LazyLock<usize> = LazyLock::new(|| {
+    std::env::var("KLENS_OFFSET_FETCH_CONCURRENCY")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .filter(|value| *value >= 1)
+        .unwrap_or(32)
+});
+
+/// How often the v2 topology lane refreshes metadata and group membership
+/// (default: 10 seconds).
+///
+/// Override with `KLENS_TOPOLOGY_POLL_INTERVAL` (seconds). Values below 1
+/// second fall back to the default.
+pub static TOPOLOGY_POLL_INTERVAL: LazyLock<Duration> = LazyLock::new(|| {
+    parse_poll_interval(
+        std::env::var("KLENS_TOPOLOGY_POLL_INTERVAL").ok(),
+        DEFAULT_TOPOLOGY_POLL_INTERVAL,
+    )
+});
+
+/// How often the v2 watermark lane refreshes partition bounds (default: 3
+/// seconds).
+///
+/// Override with `KLENS_WATERMARK_POLL_INTERVAL` (seconds). Values below 1
+/// second fall back to the default.
+pub static WATERMARK_POLL_INTERVAL: LazyLock<Duration> = LazyLock::new(|| {
+    parse_poll_interval(
+        std::env::var("KLENS_WATERMARK_POLL_INTERVAL").ok(),
+        DEFAULT_WATERMARK_POLL_INTERVAL,
+    )
+});
+
+/// How often the v2 config lane refreshes topic configs (default: 60 seconds).
+///
+/// Override with `KLENS_CONFIG_LANE_INTERVAL` (seconds). Values below 1
+/// second fall back to the default.
+pub static CONFIG_LANE_INTERVAL: LazyLock<Duration> = LazyLock::new(|| {
+    parse_poll_interval(
+        std::env::var("KLENS_CONFIG_LANE_INTERVAL").ok(),
+        DEFAULT_CONFIG_LANE_INTERVAL,
+    )
+});
+
+/// How often the v2 subjects lane refreshes the list projection (default: 30
+/// seconds).
+///
+/// Override with `KLENS_SUBJECT_LANE_INTERVAL` (seconds). Values below 1
+/// second fall back to the default.
+pub static SUBJECT_LANE_INTERVAL: LazyLock<Duration> = LazyLock::new(|| {
+    parse_poll_interval(
+        std::env::var("KLENS_SUBJECT_LANE_INTERVAL").ok(),
+        DEFAULT_SUBJECT_LANE_INTERVAL,
+    )
+});
+
+/// Offsets-lane scheduler tick (default: 1 second).
+///
+/// Override with `KLENS_OFFSET_TICK_INTERVAL` (seconds). Values below 1
+/// second fall back to the default.
+pub static OFFSET_TICK_INTERVAL: LazyLock<Duration> = LazyLock::new(|| {
+    parse_poll_interval(
+        std::env::var("KLENS_OFFSET_TICK_INTERVAL").ok(),
+        DEFAULT_OFFSET_TICK_INTERVAL,
+    )
+});
+
+/// How often viewed consumer groups refresh committed offsets (default: 2
+/// seconds).
+///
+/// Override with `KLENS_FAST_OFFSET_INTERVAL` (seconds). Values below 1
+/// second fall back to the default.
+pub static FAST_OFFSET_INTERVAL: LazyLock<Duration> = LazyLock::new(|| {
+    parse_poll_interval(
+        std::env::var("KLENS_FAST_OFFSET_INTERVAL").ok(),
+        DEFAULT_FAST_OFFSET_INTERVAL,
+    )
+});
+
+/// How often background consumer groups refresh committed offsets (default:
+/// 20 seconds).
+///
+/// Override with `KLENS_SLOW_OFFSET_INTERVAL` (seconds). Values below 1
+/// second fall back to the default.
+pub static SLOW_OFFSET_INTERVAL: LazyLock<Duration> = LazyLock::new(|| {
+    parse_poll_interval(
+        std::env::var("KLENS_SLOW_OFFSET_INTERVAL").ok(),
+        DEFAULT_SLOW_OFFSET_INTERVAL,
+    )
+});
+
+/// How long a one-shot group query keeps that group in the fast offsets tier
+/// (default: 30 seconds).
+///
+/// Override with `KLENS_INTEREST_TTL` (seconds). Values below 1 second fall
+/// back to the default.
+pub static INTEREST_TTL: LazyLock<Duration> = LazyLock::new(|| {
+    parse_poll_interval(
+        std::env::var("KLENS_INTEREST_TTL").ok(),
+        DEFAULT_INTEREST_TTL,
+    )
+});
+
+/// How often an idle cluster still appends a zero rate point (default: 15
+/// seconds).
+///
+/// Override with `KLENS_IDLE_HEARTBEAT` (seconds). Values below 1 second
+/// fall back to the default.
+pub static IDLE_HEARTBEAT: LazyLock<Duration> = LazyLock::new(|| {
+    parse_poll_interval(
+        std::env::var("KLENS_IDLE_HEARTBEAT").ok(),
+        DEFAULT_IDLE_HEARTBEAT,
+    )
+});
+
 /// Maximum records a browse or search query may request (default: 500).
 ///
 /// Override with `KLENS_MAX_RECORD_LIMIT`.
@@ -128,6 +246,15 @@ pub static CONFIG_POLL_INTERVAL: LazyLock<Duration> = LazyLock::new(|| {
 const DEFAULT_CATALOG_POLL_INTERVAL: Duration = Duration::from_secs(5);
 const DEFAULT_SUBJECT_POLL_INTERVAL: Duration = Duration::from_secs(15);
 const DEFAULT_CONFIG_POLL_INTERVAL: Duration = Duration::from_secs(30);
+const DEFAULT_TOPOLOGY_POLL_INTERVAL: Duration = Duration::from_secs(10);
+const DEFAULT_WATERMARK_POLL_INTERVAL: Duration = Duration::from_secs(3);
+const DEFAULT_CONFIG_LANE_INTERVAL: Duration = Duration::from_secs(60);
+const DEFAULT_SUBJECT_LANE_INTERVAL: Duration = Duration::from_secs(30);
+const DEFAULT_OFFSET_TICK_INTERVAL: Duration = Duration::from_secs(1);
+const DEFAULT_FAST_OFFSET_INTERVAL: Duration = Duration::from_secs(2);
+const DEFAULT_SLOW_OFFSET_INTERVAL: Duration = Duration::from_secs(20);
+const DEFAULT_INTEREST_TTL: Duration = Duration::from_secs(30);
+const DEFAULT_IDLE_HEARTBEAT: Duration = Duration::from_secs(15);
 const MIN_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
 fn parse_poll_interval(raw: Option<String>, default: Duration) -> Duration {
@@ -229,6 +356,38 @@ mod tests {
         assert_eq!(
             parse_poll_interval(Some("0".into()), DEFAULT_CONFIG_POLL_INTERVAL),
             DEFAULT_CONFIG_POLL_INTERVAL
+        );
+    }
+
+    #[test]
+    fn v2_lane_intervals_default_and_reject_subsecond_values() {
+        assert_eq!(
+            parse_poll_interval(None, DEFAULT_TOPOLOGY_POLL_INTERVAL),
+            Duration::from_secs(10)
+        );
+        assert_eq!(
+            parse_poll_interval(None, DEFAULT_WATERMARK_POLL_INTERVAL),
+            Duration::from_secs(3)
+        );
+        assert_eq!(
+            parse_poll_interval(None, DEFAULT_CONFIG_LANE_INTERVAL),
+            Duration::from_secs(60)
+        );
+        assert_eq!(
+            parse_poll_interval(None, DEFAULT_SUBJECT_LANE_INTERVAL),
+            Duration::from_secs(30)
+        );
+        assert_eq!(
+            parse_poll_interval(None, DEFAULT_FAST_OFFSET_INTERVAL),
+            Duration::from_secs(2)
+        );
+        assert_eq!(
+            parse_poll_interval(None, DEFAULT_SLOW_OFFSET_INTERVAL),
+            Duration::from_secs(20)
+        );
+        assert_eq!(
+            parse_poll_interval(Some("0".into()), DEFAULT_IDLE_HEARTBEAT),
+            DEFAULT_IDLE_HEARTBEAT
         );
     }
 }

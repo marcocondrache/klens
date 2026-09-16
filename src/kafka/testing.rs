@@ -348,6 +348,103 @@ impl FakeCluster {
         self
     }
 
+    pub fn add_topic(&self, name: &str, partitions: i32, high: i64) {
+        {
+            let mut metadata = self.inner.metadata.lock().expect("metadata");
+            if metadata.topics.iter().any(|topic| topic.name == name) {
+                return;
+            }
+            metadata.topics.push(TopicMetadata {
+                name: name.to_owned(),
+                internal: false,
+                partitions: (0..partitions)
+                    .map(|id| PartitionMetadata {
+                        id,
+                        leader: 1,
+                        replicas: vec![1],
+                        isr: vec![1],
+                    })
+                    .collect(),
+            });
+        }
+        let marks: HashMap<i32, Watermarks> = (0..partitions)
+            .map(|id| (id, Watermarks { low: 0, high }))
+            .collect();
+        self.inner
+            .watermarks
+            .lock()
+            .expect("watermarks")
+            .insert(name.to_owned(), marks.clone());
+        if let Some(broker) = self.inner.broker.get() {
+            seed_topic(broker, name, &marks);
+        }
+    }
+
+    pub fn remove_topic(&self, name: &str) {
+        self.inner
+            .metadata
+            .lock()
+            .expect("metadata")
+            .topics
+            .retain(|topic| topic.name != name);
+        self.inner
+            .watermarks
+            .lock()
+            .expect("watermarks")
+            .remove(name);
+    }
+
+    pub fn add_group(&self, group: GroupSnapshot) {
+        self.inner.groups.lock().expect("groups").push(group);
+    }
+
+    pub fn remove_group(&self, id: &str) {
+        self.inner
+            .groups
+            .lock()
+            .expect("groups")
+            .retain(|group| group.id != id);
+    }
+
+    pub fn set_committed(&self, group_id: &str, committed: Vec<CommittedOffset>) {
+        if let Some(group) = self
+            .inner
+            .groups
+            .lock()
+            .expect("groups")
+            .iter_mut()
+            .find(|group| group.id == group_id)
+        {
+            group.committed = committed;
+        }
+    }
+
+    pub fn set_watermark(&self, topic: &str, partition: i32, marks: Watermarks) {
+        self.inner
+            .watermarks
+            .lock()
+            .expect("watermarks")
+            .entry(topic.to_owned())
+            .or_default()
+            .insert(partition, marks);
+        if let Some(broker) = self.inner.broker.get() {
+            ensure_partition(broker, topic, partition);
+            apply_watermark(broker, topic, partition, marks);
+        }
+    }
+
+    pub fn set_subjects(&self, subjects: Vec<SchemaSubject>) {
+        *self.inner.subjects.lock().expect("subjects") = subjects;
+    }
+
+    pub fn set_topic_configs(&self, topic: impl Into<String>, configs: Vec<ConfigEntry>) {
+        self.inner
+            .topic_configs
+            .lock()
+            .expect("topic configs")
+            .insert(topic.into(), configs);
+    }
+
     pub fn with_orders_records(self, records: Vec<Record>) -> Self {
         let mut highs = HashMap::<i32, i64>::new();
         for record in &records {
