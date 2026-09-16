@@ -1,9 +1,3 @@
-# Default values for klens.
-#
-# Most strings, lists, and maps below, including `config`, render through Helm
-# `tpl`. You can reference release metadata inside them. `${VAR}` in `config`
-# is for the klens process, not Helm.
-
 # -- Replica count. Sessions live in process memory and do not stick across pods.
 replicaCount: 1
 
@@ -27,12 +21,6 @@ fullnameOverride: ""
 # -- Mount an existing ConfigMap with a `config.yaml` key instead of the inline `config`.
 existingConfigMap: ""
 
-# klens YAML (`bind`, `log_level`, `clusters`, optional `auth`). Rendered into a
-# ConfigMap and mounted at `/config/config.yaml`. This is the same file the
-# process loads in Docker. See `config/clusters.example.yaml`. Put credentials
-# in env and reference them as `${VAR}`. `bind` must be a SocketAddr the Service
-# can reach. A loopback address fails render. Empty `clusters` is legal and immediately ready.
-
 # -- klens config file as a map. The binary validates this YAML, not the chart.
 config:
   bind: 0.0.0.0:8080
@@ -49,8 +37,6 @@ extraEnv: []
 # -- Extra envFrom sources (templated).
 envFrom: []
 
-# Credentials for `${VAR}` expansion in `config`. Prefer an existing Secret.
-# Inline `stringData` creates a chart-managed Secret. Keys become env names.
 secret:
   # -- Existing Secret whose keys are injected as environment variables.
   existingSecret: ""
@@ -121,8 +107,6 @@ ingress:
   #   hosts:
   #     - klens.example.com
 
-# Gateway API HTTPRoute. Named `httpRoute` (not `route`) so it is not an OpenShift Route.
-
 httpRoute:
   # -- Expose the UI via a Gateway API HTTPRoute.
   enabled: false
@@ -161,9 +145,6 @@ resources: {}
 # requests:
 #   cpu: 10m
 #   memory: 64Mi
-
-# Listen is last. Kafka connect and optional OIDC discovery run before bind.
-# The startup probe waits on `/health` so a slow first connect does not trip liveness.
 
 # -- Startup probe. Targets `/health` until the process binds.
 startupProbe:
@@ -210,8 +191,6 @@ topologySpreadConstraints: []
 priorityClassName: ""
 # -- Grace period for a clean shutdown.
 terminationGracePeriodSeconds: 30
-
-# Used only by `helm test`. The hook curls `/health` on the Service. `/ready` needs Kafka.
 
 tests:
   image:

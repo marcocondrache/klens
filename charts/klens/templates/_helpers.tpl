@@ -41,9 +41,6 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
-{{/*
-Digest wins over tag. Tag defaults to appVersion.
-*/}}
 {{- define "klens.image" -}}
 {{- if .Values.image.digest -}}
 {{- printf "%s@%s" .Values.image.repository .Values.image.digest -}}
@@ -69,10 +66,6 @@ Digest wins over tag. Tag defaults to appVersion.
 {{- end -}}
 {{- end }}
 
-{{/*
-Loopback bind is a silent Service miss. A bind port that does not match
-service.port is the same miss. Fail when the chart owns the file.
-*/}}
 {{- define "klens.validateBind" -}}
 {{- if not .Values.existingConfigMap }}
 {{- $bind := .Values.config.bind | default "" | toString }}
