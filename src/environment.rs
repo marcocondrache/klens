@@ -125,9 +125,126 @@ pub static CONFIG_POLL_INTERVAL: LazyLock<Duration> = LazyLock::new(|| {
     )
 });
 
+/// How often the topology lane refreshes metadata and consumer-group
+/// membership (default: 10 seconds).
+///
+/// Override with `KLENS_TOPOLOGY_LANE_INTERVAL` (seconds). Values below 1
+/// second fall back to the default.
+pub static TOPOLOGY_LANE_INTERVAL: LazyLock<Duration> = LazyLock::new(|| {
+    parse_poll_interval(
+        std::env::var("KLENS_TOPOLOGY_LANE_INTERVAL").ok(),
+        DEFAULT_TOPOLOGY_LANE_INTERVAL,
+    )
+});
+
+/// How often the watermark lane samples low and high watermarks, which also
+/// sets the produce-rate resolution (default: 3 seconds).
+///
+/// Override with `KLENS_WATERMARK_LANE_INTERVAL` (seconds). Values below 1
+/// second fall back to the default.
+pub static WATERMARK_LANE_INTERVAL: LazyLock<Duration> = LazyLock::new(|| {
+    parse_poll_interval(
+        std::env::var("KLENS_WATERMARK_LANE_INTERVAL").ok(),
+        DEFAULT_WATERMARK_LANE_INTERVAL,
+    )
+});
+
+/// How often the config lane describes every topic config (default: 60
+/// seconds).
+///
+/// Override with `KLENS_CONFIG_LANE_INTERVAL` (seconds). Values below 1
+/// second fall back to the default.
+pub static CONFIG_LANE_INTERVAL: LazyLock<Duration> = LazyLock::new(|| {
+    parse_poll_interval(
+        std::env::var("KLENS_CONFIG_LANE_INTERVAL").ok(),
+        DEFAULT_CONFIG_LANE_INTERVAL,
+    )
+});
+
+/// How often the subjects lane sweeps the Schema Registry listing (default:
+/// 30 seconds).
+///
+/// Override with `KLENS_SUBJECT_LANE_INTERVAL` (seconds). Values below 1
+/// second fall back to the default.
+pub static SUBJECT_LANE_INTERVAL: LazyLock<Duration> = LazyLock::new(|| {
+    parse_poll_interval(
+        std::env::var("KLENS_SUBJECT_LANE_INTERVAL").ok(),
+        DEFAULT_SUBJECT_LANE_INTERVAL,
+    )
+});
+
+/// How often the offsets scheduler wakes to decide which consumer groups are
+/// due for an offset fetch (default: 1 second).
+///
+/// Override with `KLENS_OFFSET_LANE_TICK` (seconds). Values below 1 second
+/// fall back to the default.
+pub static OFFSET_LANE_TICK: LazyLock<Duration> = LazyLock::new(|| {
+    parse_poll_interval(
+        std::env::var("KLENS_OFFSET_LANE_TICK").ok(),
+        DEFAULT_OFFSET_LANE_TICK,
+    )
+});
+
+/// Offset refresh cadence for groups someone is looking at (default: 2
+/// seconds).
+///
+/// Override with `KLENS_FAST_OFFSET_INTERVAL` (seconds). Values below 1
+/// second fall back to the default.
+pub static FAST_OFFSET_INTERVAL: LazyLock<Duration> = LazyLock::new(|| {
+    parse_poll_interval(
+        std::env::var("KLENS_FAST_OFFSET_INTERVAL").ok(),
+        DEFAULT_FAST_OFFSET_INTERVAL,
+    )
+});
+
+/// Offset refresh cadence for groups nobody is looking at (default: 20
+/// seconds).
+///
+/// Override with `KLENS_SLOW_OFFSET_INTERVAL` (seconds). Values below 1
+/// second fall back to the default.
+pub static SLOW_OFFSET_INTERVAL: LazyLock<Duration> = LazyLock::new(|| {
+    parse_poll_interval(
+        std::env::var("KLENS_SLOW_OFFSET_INTERVAL").ok(),
+        DEFAULT_SLOW_OFFSET_INTERVAL,
+    )
+});
+
+/// How long a one-shot query keeps a consumer group in the fast offset tier
+/// (default: 30 seconds).
+///
+/// Override with `KLENS_INTEREST_TTL` (seconds).
+pub static INTEREST_TTL: LazyLock<Duration> =
+    lazy_env_parse!(duration, "KLENS_INTEREST_TTL", Duration::from_secs(30));
+
+/// In-flight `OffsetFetch` requests per offsets-lane wave (default: 32).
+///
+/// Override with `KLENS_OFFSET_FETCH_CONCURRENCY`.
+pub static OFFSET_FETCH_CONCURRENCY: LazyLock<usize> =
+    lazy_env_parse!("KLENS_OFFSET_FETCH_CONCURRENCY", usize, 32);
+
+/// In-flight per-subject Schema Registry loads per sweep (default: 8).
+///
+/// Override with `KLENS_SUBJECT_FETCH_CONCURRENCY`.
+pub static SUBJECT_FETCH_CONCURRENCY: LazyLock<usize> =
+    lazy_env_parse!("KLENS_SUBJECT_FETCH_CONCURRENCY", usize, 8);
+
+/// How long an idle cluster may go without a watermark tick before the lane
+/// appends an explicit zero point so sparklines decay (default: 15 seconds).
+///
+/// Override with `KLENS_IDLE_HEARTBEAT` (seconds).
+pub static IDLE_HEARTBEAT: LazyLock<Duration> =
+    lazy_env_parse!(duration, "KLENS_IDLE_HEARTBEAT", Duration::from_secs(15));
+
 const DEFAULT_CATALOG_POLL_INTERVAL: Duration = Duration::from_secs(5);
 const DEFAULT_SUBJECT_POLL_INTERVAL: Duration = Duration::from_secs(15);
 const DEFAULT_CONFIG_POLL_INTERVAL: Duration = Duration::from_secs(30);
+const DEFAULT_TOPOLOGY_LANE_INTERVAL: Duration = Duration::from_secs(10);
+const DEFAULT_WATERMARK_LANE_INTERVAL: Duration = Duration::from_secs(3);
+const DEFAULT_CONFIG_LANE_INTERVAL: Duration = Duration::from_secs(60);
+const DEFAULT_SUBJECT_LANE_INTERVAL: Duration = Duration::from_secs(30);
+const DEFAULT_OFFSET_LANE_TICK: Duration = Duration::from_secs(1);
+const DEFAULT_FAST_OFFSET_INTERVAL: Duration = Duration::from_secs(2);
+const DEFAULT_SLOW_OFFSET_INTERVAL: Duration = Duration::from_secs(20);
 const MIN_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
 fn parse_poll_interval(raw: Option<String>, default: Duration) -> Duration {

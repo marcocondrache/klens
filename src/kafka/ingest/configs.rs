@@ -1,0 +1,99 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Duration;
+
+use async_trait::async_trait;
+
+use crate::environment::CONFIG_LANE_INTERVAL;
+use crate::kafka::error::KafkaError;
+use crate::kafka::session::ClusterSession;
+use crate::kafka::store::{Change, ClusterStore, ConfigTable, ConfigsDelta, Lane};
+
+use super::runner::{LaneSource, floor};
+
+/// One `DescribeConfigs` over every topic, on the slowest cadence of any
+/// lane.
+///
+/// Broker configs are deliberately absent: they are admin-gated, rare, and
+/// cheap to fetch live, so caching them buys nothing.
+pub struct ConfigLane {
+    session: Arc<dyn ClusterSession>,
+    interval: Duration,
+}
+
+impl ConfigLane {
+    pub fn new(session: Arc<dyn ClusterSession>) -> Self {
+        Self::with_interval(session, *CONFIG_LANE_INTERVAL)
+    }
+
+    pub fn with_interval(session: Arc<dyn ClusterSession>, interval: Duration) -> Self {
+        Self {
+            session,
+            interval: floor(interval),
+        }
+    }
+}
+
+#[async_trait]
+impl LaneSource for ConfigLane {
+    type Table = ConfigTable;
+    type Delta = ConfigsDelta;
+
+    fn name(&self) -> &'static str {
+        "configs"
+    }
+
+    fn interval(&self) -> Duration {
+        self.interval
+    }
+
+    fn lane<'a>(&self, store: &'a ClusterStore) -> &'a Lane<ConfigTable> {
+        &store.configs
+    }
+
+    async fn fetch(
+        &self,
+        store: &ClusterStore,
+        previous: Option<&Arc<ConfigTable>>,
+    ) -> Result<Option<ConfigTable>, KafkaError> {
+        let Some(topology) = store.topology.load() else {
+            return Ok(None);
+        };
+
+        let names: Vec<&str> = topology.topics.keys().map(AsRef::as_ref).collect();
+        let mut fetched = self.session.topic_configs(&names).await?;
+
+        let topics: HashMap<Arc<str>, Arc<Vec<crate::kafka::topic_config::ConfigEntry>>> = topology
+            .topics
+            .keys()
+            .filter_map(|name| {
+                let entries = fetched.remove(name.as_ref())?;
+                // Reuse the previous allocation when the entries are
+                // unchanged, so an unmoved config costs one pointer copy.
+                let entries = match previous.and_then(|table| table.topics.get(name)) {
+                    Some(existing) if existing.as_slice() == entries => Arc::clone(existing),
+                    _ => Arc::new(entries),
+                };
+                Some((Arc::clone(name), entries))
+            })
+            .collect();
+
+        Ok(Some(ConfigTable { topics }))
+    }
+
+    fn diff(&self, previous: Option<&ConfigTable>, next: &ConfigTable) -> Option<ConfigsDelta> {
+        ConfigsDelta::between(previous, next)
+    }
+
+    fn publish(
+        &self,
+        store: &ClusterStore,
+        version: u64,
+        _previous: Option<&Arc<ConfigTable>>,
+        _next: &Arc<ConfigTable>,
+        mut delta: ConfigsDelta,
+    ) {
+        delta.version = version;
+        store.bus.publish(Change::Configs(Arc::new(delta)));
+    }
+}
