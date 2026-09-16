@@ -1,13 +1,7 @@
-{{/*
-Expand the name of the chart.
-*/}}
 {{- define "klens.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
-{{/*
-Create a default fully qualified app name (truncated to the 63-char DNS limit).
-*/}}
 {{- define "klens.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
@@ -21,16 +15,10 @@ Create a default fully qualified app name (truncated to the 63-char DNS limit).
 {{- end }}
 {{- end }}
 
-{{/*
-Chart name and version as used by the chart label.
-*/}}
 {{- define "klens.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
-{{/*
-Common labels
-*/}}
 {{- define "klens.labels" -}}
 helm.sh/chart: {{ include "klens.chart" . }}
 {{ include "klens.selectorLabels" . }}
@@ -40,17 +28,11 @@ app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
-{{/*
-Selector labels
-*/}}
 {{- define "klens.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "klens.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
-{{/*
-Service account name to use.
-*/}}
 {{- define "klens.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
 {{- default (include "klens.fullname" .) .Values.serviceAccount.name }}
@@ -60,8 +42,7 @@ Service account name to use.
 {{- end }}
 
 {{/*
-Container image reference. A digest pins immutably and wins when set.
-Otherwise repository:tag, with tag defaulting to the chart appVersion.
+Digest wins over tag. Tag defaults to appVersion.
 */}}
 {{- define "klens.image" -}}
 {{- if .Values.image.digest -}}
@@ -71,24 +52,15 @@ Otherwise repository:tag, with tag defaulting to the chart appVersion.
 {{- end -}}
 {{- end }}
 
-{{/*
-Image for the helm test connection pod.
-*/}}
 {{- define "klens.testImage" -}}
 {{- $img := .Values.tests.image -}}
 {{- printf "%s:%s" $img.repository $img.tag -}}
 {{- end }}
 
-{{/*
-Name of the ConfigMap holding the klens config file.
-*/}}
 {{- define "klens.configMapName" -}}
 {{- default (include "klens.fullname" .) .Values.existingConfigMap -}}
 {{- end }}
 
-{{/*
-Name of the Secret holding interpolation env, or empty if none.
-*/}}
 {{- define "klens.secretName" -}}
 {{- if .Values.secret.existingSecret -}}
 {{- .Values.secret.existingSecret -}}
@@ -98,8 +70,7 @@ Name of the Secret holding interpolation env, or empty if none.
 {{- end }}
 
 {{/*
-Reject a loopback bind when the chart owns the ConfigMap. The Service cannot
-reach 127.0.0.1 inside the pod.
+Loopback bind is a silent Service miss. Fail when the chart owns the file.
 */}}
 {{- define "klens.validateBind" -}}
 {{- if not .Values.existingConfigMap }}
