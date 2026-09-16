@@ -64,9 +64,25 @@ try {
     throw new Error(`expected /cluster/<name>/topics, got ${landingUrl}`);
   }
 
+  const pageSize = page.getByRole("combobox").filter({ hasText: "100" });
+  await pageSize.waitFor();
   await page.screenshot({ path: join(artifactDir, "landing.png"), fullPage: true });
   await writeFile(join(artifactDir, "landing.aria.yml"), await page.locator("body").ariaSnapshot());
-  notes.push(`landed ${landingUrl}`);
+  notes.push(`landed ${landingUrl} rows-per-page=100`);
+
+  await page.getByRole("switch", { name: "Show internal" }).click();
+  await page.waitForFunction(() => new URL(window.location.href).searchParams.get("internal") === "1");
+  const internalHits =
+    (await page.getByText("__consumer_offsets", { exact: true }).count()) +
+    (await page.getByText("_schemas", { exact: true }).count());
+  if (internalHits < 1) {
+    throw new Error("expected an internal topic after Show internal");
+  }
+  await page.screenshot({ path: join(artifactDir, "internal.png"), fullPage: true });
+  await writeFile(join(artifactDir, "internal.aria.yml"), await page.locator("body").ariaSnapshot());
+  notes.push(`internal ${page.url()} hits=${internalHits}`);
+  await page.getByRole("switch", { name: "Show internal" }).click();
+  await page.waitForFunction(() => !new URL(window.location.href).searchParams.has("internal"));
 
   const search = page.getByPlaceholder("Search topics…");
   await search.fill(topic);

@@ -18,7 +18,7 @@ Schema registry is the subject catalog. It lists subjects the configured registr
 
 Preconditions:
 
-- Doctor reports `local` `HEALTHY`.
+- Doctor reports `clusters` includes `local` and `catalogHealth` has `updatedAt` with no `lastError`.
 - Start from `/`.
 
 - **Open catalog.** Click sidebar `Schema Registry`. URL is `/cluster/local/schemas`. Heading is `Schema registry`. The description includes `subjects registered`.

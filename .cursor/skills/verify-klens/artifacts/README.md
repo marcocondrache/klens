@@ -26,3 +26,16 @@ Maintain pass. One launch, doctor, then every mapped feature.
 - Brokers: `/cluster/local/nodes`, host `127.0.0.1:9092`, open `/cluster/local/nodes/0`. GraphQL `controller` is `false` on the only broker. No `controller` badge. Product gap, left in `features/brokers.md`.
 - Command palette: header `Search` opens dialog `Search klens`. `Control+K` after clicking the Topics heading. Topic hit `klens-verify-topics`. Go to `Brokers` → `/cluster/local/nodes`. `/` on Topics focuses `Search topics…`.
 
+## 20260916T073041Z / 20260916T073212Z
+
+Maintain pass after #224 / #220 / #209. One long-lived instance is not enough when the default 5s catalog poll's ListGroups RPC times out and poisons the shared krafka client. Later drives used `KLENS_CATALOG_POLL_INTERVAL=600` so catalog stayed green. That override is a session workaround, not a launch.sh change.
+
+- Doctor: `/health` 204, `/auth/me` `enabled: false`, `query { clusters }` → `["local"]`, `catalogHealth.updatedAt` set, `lastError` null.
+- Topics: `/` → `/cluster/local/topics`, `Rows per page` `100`, `Show internal` → `__consumer_offsets` and `_schemas` at `?internal=1`. A leftover `?q=` hides those names.
+- Topic records: Data tab chrome matches the map (`Search key or value…`, `50 rows`). Fetch shows `kafka request timed out (TIMEOUT)`. `rpk topic consume` still returns `verify-1`. Product gap, left in `features/topic-records.md`.
+- Consumer groups: `/cluster/local/groups`, search `klens-verify-group`, `state=EMPTY`, open `/cluster/local/groups/klens-verify-group`.
+- Schema registry: `/cluster/local/schemas`, `No results.`, GraphQL `schemaSubjects` `[]`.
+- Brokers: `/cluster/local/nodes`, host `127.0.0.1:9092`, open `/cluster/local/nodes/0`. GraphQL `controller` is `false`. No `controller` badge. Product gap, left in `features/brokers.md`.
+- ACLs: `/cluster/local/acls`, `No ACL bindings.`, GraphQL `authorizer: ENABLED`, `bindings: []`. Search writes `?q=alice`. Resource `Topic` writes `?resource=TOPIC`.
+- Command palette: header `Search` opens `Search klens` with Go to including `ACLs` and Switch cluster `local`. Topic hit `klens-verify-topics`. Go to `ACLs` / `Brokers`. `/` on Brokers opens the dialog. `/` on Topics focuses `Search topics…`. Playwright `Control+K` does not reach the page under Google Chrome; `window` `keydown` with `ctrlKey` does.
+

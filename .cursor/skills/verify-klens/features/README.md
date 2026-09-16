@@ -5,7 +5,7 @@ This directory is the maintained source for verifying user-facing klens behavior
 ## Baseline preconditions
 
 - Launch with `.cursor/skills/verify-klens/helpers/launch.sh`.
-- Doctor with `.cursor/skills/verify-klens/helpers/doctor.sh`. Require cluster `local`, status `HEALTHY`, and URL `http://127.0.0.1:18080` unless `KLENS_VERIFY_PORT` changed it.
+- Doctor with `.cursor/skills/verify-klens/helpers/doctor.sh`. Require `clusters` to include `local`, `catalogHealth.updatedAt` set, no `lastError`, and URL `http://127.0.0.1:18080` unless `KLENS_VERIFY_PORT` changed it.
 - Seed topic `klens-verify-topics` exists with key `verify-1` and value `hello-from-verify-klens`.
 - Auth is off. `/auth/me` reports `"enabled": false`.
 - Never drive an instance this run did not start.
@@ -24,7 +24,7 @@ This directory is the maintained source for verifying user-facing klens behavior
 - UI proof includes an ARIA snapshot and a screenshot with the `klens` wordmark visible.
 - GraphQL proof is a response body, not a status code alone.
 - Record the feature ID and the URL used with every artifact.
-- An `OFFLINE` cluster is `verified-unreachable` for catalog features. Quote the `Cluster unreachable` alert.
+- `catalogHealth.lastError` with `updatedAt == null` is `verified-unreachable` for catalog features. Quote the `Cluster unreachable` alert. A later poll failure with `updatedAt` set shows `Catalog update failed` and is not a catalog pass.
 - Do not report a skipped entry point as verified through a different path.
 
 ## Feature entry contract
@@ -43,5 +43,5 @@ Each feature file starts with an H1 and one paragraph. It then uses exactly four
 - [Consumer groups](./consumer-groups.md) covers the groups catalog and a group row.
 - [Schema registry](./schema-registry.md) covers the subject catalog and the subject sheet.
 - [Brokers](./brokers.md) covers the broker list and the controller badge.
-- [ACLs](./acls.md) covers the live ACL list and the authorizer-off empty state.
-- [Command palette](./command-palette.md) covers search from the header button, `/`, and `Meta+K`.
+- [ACLs](./acls.md) covers the live ACL list and the ENABLED empty list on the verify broker.
+- [Command palette](./command-palette.md) covers search from the header button, `/`, and `Meta+K` / `Control+K`.
