@@ -116,7 +116,7 @@ jobs:
         run: |
           dest="${RUNNER_TEMP}/chart"
           mkdir -p "$dest"
-          repository="$(printf 'oci://ghcr.io/%s/charts' "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          repository="$(printf 'oci://ghcr.io/%s/charts' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
           helm package charts/klens \
             --destination "$dest" \
             --version "$VERSION" \

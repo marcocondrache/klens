@@ -13,7 +13,7 @@ Kafka UI for inspecting topics, messages, consumer groups, and schemas
 Install from GHCR. `config` is the same YAML the process loads in Docker.
 
 ```sh
-helm install klens oci://ghcr.io/marcocondrache/klens/charts/klens \
+helm install klens oci://ghcr.io/marcocondrache/charts/klens \
   -n klens --create-namespace -f my-values.yaml
 ```
 

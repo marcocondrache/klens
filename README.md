@@ -25,7 +25,7 @@ docker run --rm -p 8080:8080 \
 The Helm chart is published to the same registry:
 
 ```sh
-helm install klens oci://ghcr.io/marcocondrache/klens/charts/klens \
+helm install klens oci://ghcr.io/marcocondrache/charts/klens \
   -n klens --create-namespace -f my-values.yaml
 ```
 
