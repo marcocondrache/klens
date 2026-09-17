@@ -134,6 +134,11 @@ pub struct AuthConfig {
     pub oidc: OidcConfig,
     #[serde(default)]
     pub roles: Option<RolesConfig>,
+    /// Signing key for the session cookie, as base64 or raw text of at least
+    /// 32 bytes. Without one, every restart invalidates every session.
+    /// `KLENS_SESSION_KEY` is the env equivalent.
+    #[serde(default)]
+    pub session_key: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]

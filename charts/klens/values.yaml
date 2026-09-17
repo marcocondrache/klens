@@ -29,7 +29,7 @@ config:
 
 # -- Extra environment variables as a map (templated).
 env: {}
-# KLENS_CATALOG_POLL_INTERVAL: "15"
+# KLENS_TOPOLOGY_LANE_INTERVAL: "15"
 
 # -- Extra environment variables as a raw list (templated).
 extraEnv: []

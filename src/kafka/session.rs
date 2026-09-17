@@ -12,7 +12,7 @@ use async_trait::async_trait;
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
     AclListing, ClusterIdentity, CommittedOffset, ConfigEntry, GroupSnapshot, MetadataSnapshot,
-    ScanConsumer, SchemaSubject, Watermarks,
+    RegisteredSchema, ScanConsumer, SchemaSubject, Watermarks,
 };
 use crate::kafka::scan::payload::PayloadCodec;
 
@@ -90,6 +90,22 @@ pub trait ClusterSession: Send + Sync + 'static {
 
     async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
         Ok(Vec::new())
+    }
+
+    /// One subject version's schema text and references.
+    ///
+    /// The subjects lane keeps only the listing; bodies are fetched on
+    /// demand because they are large, rarely read, and privileged.
+    async fn subject_schema(
+        &self,
+        subject: &str,
+        version: i32,
+    ) -> Result<RegisteredSchema, KafkaError> {
+        Err(KafkaError::UnknownSubject {
+            cluster: self.identity().name.clone(),
+            subject: subject.to_owned(),
+            version,
+        })
     }
 
     /// All ACL bindings the broker will describe, or authorizer-off.

@@ -23,6 +23,10 @@ async-trait = "0.1"
 indexmap = "2"
 axum = { version = "0.8", features = ["http2", "ws"] }
 axum-login = "0.18"
+# Pulled in only for `key-expansion`, which is what gives
+# `tower_sessions::cookie::Key::derive_from` (HKDF) so a configured session
+# secret does not have to be a full 64-byte key.
+cookie = { version = "0.18", features = ["key-expansion"] }
 tower-sessions = { version = "0.14", features = ["memory-store", "signed"] }
 futures = "0.3"
 cel = { version = "0.14", features = ["json"] }

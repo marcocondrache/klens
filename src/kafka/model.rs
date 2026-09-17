@@ -23,6 +23,6 @@ pub use crate::kafka::scan::query::{RecordOrder, RecordQuery, TimestampRange};
 pub use crate::kafka::scan::session::{RawRecord, ScanConsumer};
 pub use crate::kafka::scan::{Compression, Record, RecordHeader, RecordPage};
 pub use crate::kafka::search::{SearchHit, SearchKind};
-pub use crate::kafka::topic::{Partition, Topic};
+pub use crate::kafka::topic::Topic;
 pub use crate::kafka::topic_config::{CleanupPolicy, ConfigEntry, ConfigSource};
 pub use crate::kafka::watermarks::Watermarks;

@@ -5,6 +5,7 @@
 //! single consumer group, and schema subjects.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use futures::future::{join_all, try_join_all};
 use indexmap::IndexMap;
@@ -31,7 +32,7 @@ use crate::kafka::watermarks::Watermarks;
 
 /// Assembles the catalog snapshot and serves live Kafka I/O from [`ClusterSession`]s.
 pub struct QueryEngine<S: ?Sized> {
-    registry: IndexMap<String, Box<S>>,
+    registry: IndexMap<String, Arc<S>>,
     limits: RecordLimits,
 }
 
@@ -47,7 +48,7 @@ impl QueryEngine<dyn ClusterSession> {
         for session in sessions {
             registry.insert(
                 session.identity().name.clone(),
-                Box::new(session) as Box<dyn ClusterSession>,
+                Arc::new(session) as Arc<dyn ClusterSession>,
             );
         }
 
@@ -70,10 +71,16 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
             .collect()
     }
 
+    /// Shared handles for the ingestion lanes, which outlive any single
+    /// request and so cannot borrow.
+    pub fn sessions(&self) -> Vec<Arc<S>> {
+        self.registry.values().map(Arc::clone).collect()
+    }
+
     pub fn session(&self, name: &str) -> Result<&S, KafkaError> {
         self.registry
             .get(name)
-            .map(Box::as_ref)
+            .map(Arc::as_ref)
             .ok_or_else(|| KafkaError::UnknownCluster(name.to_owned()))
     }
 

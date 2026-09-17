@@ -7,6 +7,7 @@ use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use axum_login::AuthManagerLayerBuilder;
+use base64::Engine as _;
 use openidconnect::{CsrfToken, Nonce, PkceCodeChallenge};
 use serde::{Deserialize, Serialize};
 use tower_sessions::cookie::time::Duration;
@@ -16,7 +17,10 @@ use tower_sessions::{Expiry, MemoryStore, SessionManagerLayer};
 
 use crate::AppState;
 use crate::config::AuthConfig;
-use crate::environment::{LOGIN_MAX_AGE_SECS, SESSION_COOKIE, SESSION_COOKIE_KEY_PREFIX};
+use crate::environment::{
+    LOGIN_MAX_AGE_SECS, MIN_SESSION_KEY_BYTES, SESSION_COOKIE, SESSION_COOKIE_KEY_PREFIX,
+    SESSION_KEY,
+};
 use crate::utils::unix_timestamp_secs;
 
 pub(crate) mod access;
@@ -87,7 +91,7 @@ impl AuthState {
         Self {
             backend: AuthBackend::disabled(),
             policy: AccessPolicy::disabled(),
-            session_layer: session_layer(false),
+            session_layer: session_layer(false, Key::generate()),
         }
     }
 
@@ -96,8 +100,9 @@ impl AuthState {
             None => Ok(Self::disabled()),
             Some(config) => {
                 let policy = AccessPolicy::from_roles(config.roles.as_ref());
+                let key = signing_key(SESSION_KEY.as_deref().or(config.session_key.as_deref()))?;
                 let flow = Oidc::discover(&config.oidc, policy.groups_claim()).await?;
-                Ok(Self::enabled(Arc::new(flow), &config.oidc, policy))
+                Ok(Self::enabled(Arc::new(flow), &config.oidc, policy, key))
             }
         }
     }
@@ -106,11 +111,12 @@ impl AuthState {
         flow: Arc<dyn OidcFlow>,
         oidc: &crate::config::OidcConfig,
         policy: AccessPolicy,
+        key: Key,
     ) -> Self {
         Self {
             backend: AuthBackend::enabled(flow),
             policy,
-            session_layer: session_layer(oidc.cookie_secure()),
+            session_layer: session_layer(oidc.cookie_secure(), key),
         }
     }
 
@@ -141,6 +147,65 @@ impl AuthState {
         let user = session.user.as_ref()?;
         self.access_from_user(user)
     }
+
+    fn guard(&self, session: &AuthSession) -> SessionGuard {
+        SessionGuard {
+            auth: self.clone(),
+            subject: self
+                .is_enabled()
+                .then(|| session.user.as_ref().map(|user| user.sub.clone()))
+                .flatten(),
+        }
+    }
+}
+
+/// Re-resolves a session's access on demand.
+///
+/// Subscription authorization used to freeze at the WebSocket upgrade, so an
+/// expired or revoked session kept streaming. The guard is consulted per
+/// emitted event instead: it is an in-memory lookup, negligible at seconds
+/// cadence.
+#[derive(Clone)]
+pub struct SessionGuard {
+    auth: AuthState,
+    /// `None` when auth is disabled, which is the only case where there is
+    /// nothing to revalidate against.
+    subject: Option<String>,
+}
+
+impl SessionGuard {
+    /// `None` means the session is gone, expired, or no longer maps to any
+    /// role, and the stream must close.
+    pub fn revalidate(&self) -> Option<EffectiveAccess> {
+        let Some(subject) = &self.subject else {
+            return (!self.auth.is_enabled()).then_some(EffectiveAccess::Unrestricted);
+        };
+        let user = self.auth.backend.live_user(subject)?;
+        self.auth.access_from_user(&user)
+    }
+
+    pub fn subject(&self) -> Option<&str> {
+        self.subject.as_deref()
+    }
+
+    /// A guard over a session that can never expire, for the auth-disabled
+    /// path and for tests.
+    pub(crate) fn open() -> Self {
+        Self {
+            auth: AuthState::disabled(),
+            subject: None,
+        }
+    }
+
+    /// A guard whose subject has no live session, so it always revalidates to
+    /// nothing.
+    #[cfg(test)]
+    pub(crate) fn expired() -> Self {
+        Self {
+            auth: AuthState::enabled_for_tests(),
+            subject: Some("gone".to_owned()),
+        }
+    }
 }
 
 pub fn router() -> Router<AppState> {
@@ -165,6 +230,7 @@ pub async fn require_session(
     if let Some(access) = state.auth.access_from_session(&auth_session) {
         let mut request = request;
         request.extensions_mut().insert(access);
+        request.extensions_mut().insert(state.auth.guard(&auth_session));
         return next.run(request).await;
     }
 
@@ -185,40 +251,29 @@ struct AuthMeResponse {
     user: Option<AuthUserResponse>,
 }
 
+/// Identity only. Per-cluster roles and privileges come from the GraphQL
+/// `whoami` query, which is the one place that knows the grants are pairwise.
 #[derive(Serialize)]
 struct AuthUserResponse {
     sub: String,
     email: Option<String>,
     name: Option<String>,
-    role: Option<&'static str>,
-    clusters: Option<Vec<String>>,
 }
 
-impl AuthUserResponse {
-    fn from_session(user: SessionUser, access: &EffectiveAccess) -> Self {
-        let role = match access.role() {
-            Some(access::Role::Admin) => Some("admin"),
-            Some(access::Role::Viewer) => Some("viewer"),
-            None => None,
-        };
-        let clusters = match access.clusters() {
-            Some(access::ClusterScope::All) | None => None,
-            Some(access::ClusterScope::Only(names)) => Some(names.iter().cloned().collect()),
-        };
+impl From<SessionUser> for AuthUserResponse {
+    fn from(user: SessionUser) -> Self {
         Self {
             sub: user.sub,
             email: user.email,
             name: user.name,
-            role,
-            clusters,
         }
     }
 }
 
 async fn me(State(state): State<AppState>, auth_session: AuthSession) -> impl IntoResponse {
     let user = auth_session.user.clone().and_then(|user| {
-        let access = state.auth.access_from_user(&user)?;
-        Some(AuthUserResponse::from_session(user, &access))
+        state.auth.access_from_user(&user)?;
+        Some(AuthUserResponse::from(user))
     });
     Json(AuthMeResponse {
         enabled: state.auth.is_enabled(),
@@ -402,7 +457,7 @@ struct LoginPending {
     pkce_verifier: String,
 }
 
-fn session_layer(secure: bool) -> SessionLayer {
+fn session_layer(secure: bool, key: Key) -> SessionLayer {
     SessionManagerLayer::new(MemoryStore::default())
         .with_name(SESSION_COOKIE)
         .with_http_only(true)
@@ -410,7 +465,40 @@ fn session_layer(secure: bool) -> SessionLayer {
         .with_same_site(SameSite::Lax)
         .with_secure(secure)
         .with_path("/")
-        .with_signed(Key::generate())
+        .with_signed(key)
+}
+
+/// Derives the cookie signing key from the configured secret.
+///
+/// A generated key is fine for a single process but silently logs every user
+/// out on restart and breaks any multi-replica deployment, so the fallback is
+/// loud.
+fn signing_key(configured: Option<&str>) -> anyhow::Result<Key> {
+    let Some(secret) = configured.map(str::trim).filter(|value| !value.is_empty()) else {
+        tracing::warn!(
+            "no session key configured; sessions will not survive a restart. \
+             set KLENS_SESSION_KEY or auth.session_key"
+        );
+        return Ok(Key::generate());
+    };
+
+    // Base64 is the natural shape for random bytes, but a long passphrase is
+    // a legitimate choice too — and a passphrase can itself be valid base64
+    // that decodes to fewer bytes than it has characters. Fall back to the
+    // raw bytes whenever the decoded form does not clear the floor, so a long
+    // enough secret is never rejected for a shape it never claimed.
+    let bytes = match base64::engine::general_purpose::STANDARD.decode(secret) {
+        Ok(decoded) if decoded.len() >= MIN_SESSION_KEY_BYTES => decoded,
+        _ => secret.as_bytes().to_vec(),
+    };
+
+    anyhow::ensure!(
+        bytes.len() >= MIN_SESSION_KEY_BYTES,
+        "session key must decode to at least {MIN_SESSION_KEY_BYTES} bytes, got {}",
+        bytes.len()
+    );
+
+    Ok(Key::derive_from(&bytes))
 }
 
 #[cfg(test)]
@@ -433,7 +521,7 @@ mod tests {
             Self {
                 backend: AuthBackend::enabled(Arc::new(flow)),
                 policy,
-                session_layer: session_layer(false),
+                session_layer: session_layer(false, Key::generate()),
             }
         }
     }
@@ -454,7 +542,7 @@ mod tests {
             .method("POST")
             .uri("/graphql")
             .header(header::CONTENT_TYPE, "application/json")
-            .body(Body::from(r#"{"query":"{ clusters }"}"#))
+            .body(Body::from(r#"{"query":"{ clusters { cluster } }"}"#))
             .unwrap()
     }
 
@@ -859,8 +947,47 @@ mod tests {
         assert_eq!(graphql.status(), StatusCode::UNAUTHORIZED);
     }
 
+    #[test]
+    fn the_same_session_key_derives_the_same_signing_key_across_restarts() {
+        let encoded = base64::engine::general_purpose::STANDARD.encode([7u8; 32]);
+
+        assert_eq!(
+            signing_key(Some(&encoded)).expect("key").signing(),
+            signing_key(Some(&encoded)).expect("key").signing()
+        );
+    }
+
+    /// `"pppp..."` is both a plausible passphrase and valid base64 that
+    /// decodes to only 24 bytes, so decoding must not be able to reject a
+    /// secret that is long enough as written.
+    #[test]
+    fn a_passphrase_that_happens_to_be_base64_is_taken_as_written() {
+        let passphrase = "p".repeat(MIN_SESSION_KEY_BYTES);
+        let key = signing_key(Some(&passphrase)).expect("passphrase");
+
+        assert_ne!(
+            key.signing(),
+            signing_key(Some(&base64::engine::general_purpose::STANDARD.encode([7u8; 32])))
+                .expect("key")
+                .signing()
+        );
+    }
+
+    #[test]
+    fn a_short_session_key_is_rejected_rather_than_silently_padded() {
+        let error = signing_key(Some("too-short")).expect_err("short key");
+        assert!(error.to_string().contains("at least"), "{error}");
+    }
+
+    #[test]
+    fn an_absent_session_key_falls_back_to_a_generated_one() {
+        let first = signing_key(None).expect("generated");
+        let second = signing_key(Some("   ")).expect("blank counts as absent");
+        assert_ne!(first.signing(), second.signing());
+    }
+
     #[tokio::test]
-    async fn me_reports_bound_role() {
+    async fn me_reports_identity_only() {
         let router = app(AuthState::enabled_for_tests_with(
             FakeOidc::default(),
             bound_viewers(),
@@ -888,8 +1015,48 @@ mod tests {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["enabled"], true);
-        assert_eq!(json["user"]["role"], "viewer");
+        assert_eq!(json["user"]["sub"], "user-1");
+        assert_eq!(json["user"]["email"], "user@example.com");
+        // Roles are pairwise, so they cannot be reported cluster-free here.
+        assert!(json["user"]["role"].is_null());
         assert!(json["user"]["clusters"].is_null());
+    }
+
+    #[tokio::test]
+    async fn whoami_reports_the_bound_role_per_cluster() {
+        let router = app(AuthState::enabled_for_tests_with(
+            FakeOidc::default(),
+            bound_viewers(),
+        ));
+        let user = SessionUser::new(
+            "user-1",
+            None,
+            None,
+            vec!["klens-viewers".into()],
+            unix_timestamp_secs() + 3600,
+        );
+        let cookie = impersonate_cookie(&router, &user).await;
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/graphql")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::COOKIE, cookie)
+            .body(Body::from(
+                r#"{"query":"{ whoami { subject clusters { cluster role privileges } } }"}"#,
+            ))
+            .unwrap();
+
+        let response = send(router, request).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let whoami = &json["data"]["whoami"];
+
+        assert_eq!(whoami["subject"], "user-1");
+        assert_eq!(whoami["clusters"][0]["cluster"], "local");
+        assert_eq!(whoami["clusters"][0]["role"], "VIEWER");
+        assert_eq!(whoami["clusters"][0]["privileges"], serde_json::json!([]));
     }
 
     #[tokio::test]
@@ -931,7 +1098,7 @@ mod tests {
             .header(header::CONTENT_TYPE, "application/json")
             .header(header::COOKIE, cookie)
             .body(Body::from(
-                r#"{"query":"{ records(query: { cluster: \"local\", topic: \"orders.created\", filter: \"\", limit: 1, order: OLDEST }) { records { key } } }"}"#,
+                r#"{"query":"{ records(cluster: \"local\", query: { topic: \"orders.created\", limit: 1, order: OLDEST }) { records { key } } }"}"#,
             ))
             .unwrap();
 

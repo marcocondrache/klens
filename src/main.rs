@@ -4,6 +4,7 @@ use anyhow::Context;
 use klens::app::{AppState, router};
 use klens::config::Config;
 use klens::kafka::QueryEngine;
+use klens::kafka::ingest::LaneIntervals;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -27,8 +28,7 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("oidc authentication enabled");
     }
 
-    let state = AppState::with_auth(engine, auth)
-        .with_catalog_poller(*klens::environment::CATALOG_POLL_INTERVAL);
+    let state = AppState::with_auth(engine, auth).with_ingest(LaneIntervals::default());
 
     klens::serve(router(state), config.bind).await
 }

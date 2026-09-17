@@ -20,7 +20,7 @@ use crate::kafka::group::{
 };
 use crate::kafka::metadata::{BrokerMetadata, MetadataSnapshot, PartitionMetadata, TopicMetadata};
 use crate::kafka::model::{PartitionWindow, RawRecord, ScanConsumer};
-use crate::kafka::registry::{SchemaCompatibility, SchemaSubject, SchemaType};
+use crate::kafka::registry::{RegisteredSchema, SchemaCompatibility, SchemaSubject, SchemaType};
 use crate::kafka::scan::payload::{PayloadCodec, PayloadSlot};
 use crate::kafka::scan::{Compression, Record, RecordHeader};
 use crate::kafka::session::ClusterSession;
@@ -825,6 +825,33 @@ impl ClusterSession for FakeCluster {
             });
         }
         Ok(self.inner.subjects.lock().expect("subjects").clone())
+    }
+
+    async fn subject_schema(
+        &self,
+        subject: &str,
+        version: i32,
+    ) -> Result<RegisteredSchema, KafkaError> {
+        self.inner
+            .subjects
+            .lock()
+            .expect("subjects")
+            .iter()
+            .find(|registered| {
+                registered.subject == subject
+                    && (version == 0 || registered.versions.contains(&version))
+            })
+            .map(|registered| RegisteredSchema {
+                id: registered.id,
+                schema_type: registered.schema_type,
+                schema: registered.schema.clone(),
+                references: Vec::new(),
+            })
+            .ok_or_else(|| KafkaError::UnknownSubject {
+                cluster: self.identity.name.clone(),
+                subject: subject.to_owned(),
+                version,
+            })
     }
 
     async fn acls(&self) -> Result<AclListing, KafkaError> {
