@@ -43,6 +43,8 @@ interface DataTableProps<TData extends RowData> {
   canPreviousPage?: boolean;
   onPreviousPage?: () => void;
   onNextPage?: () => void;
+  onPageSizeChange?: (pageSize: number) => void;
+  pageSizes?: number[];
   loadingMore?: boolean;
   fill?: boolean;
 }
@@ -73,6 +75,8 @@ export function DataTable<TData extends RowData>({
   canPreviousPage = false,
   onPreviousPage,
   onNextPage,
+  onPageSizeChange,
+  pageSizes,
   loadingMore = false,
   fill = false,
 }: DataTableProps<TData>) {
@@ -214,6 +218,8 @@ export function DataTable<TData extends RowData>({
           canPreviousPage={canPreviousPage}
           onPreviousPage={onPreviousPage}
           onNextPage={onNextPage}
+          onPageSizeChange={onPageSizeChange}
+          pageSizes={pageSizes}
           loadingMore={loadingMore}
         />
       </div>

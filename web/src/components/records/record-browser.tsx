@@ -42,17 +42,12 @@ import { formatBytes, formatRelative, formatTimestamp, fromDatetimeLocalValue } 
 import type { KafkaRecord, RecordOrder, TopicDetail } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
-const LIMITS = ["25", "50", "100"] as const;
-
 const ORDER_ITEMS = [
   { value: "NEWEST", label: "Newest first" },
   { value: "OLDEST", label: "Oldest first" },
 ] as const;
 
-const LIMIT_ITEMS = LIMITS.map((value) => ({
-  value,
-  label: `${value} rows`,
-}));
+const RECORD_PAGE_SIZES = [25, 50, 100];
 
 function preview(value: string | null) {
   if (!value) return "—";
@@ -143,7 +138,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
   const [term, setTerm] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const [limit, setLimit] = useState("50");
+  const [limit, setLimit] = useState(50);
   const [order, setOrder] = useState<RecordOrder>("NEWEST");
   const [cursor, setCursor] = useState<string | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
@@ -163,7 +158,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
       order,
       from: fromDatetimeLocalValue(from),
       to: fromDatetimeLocalValue(to),
-      limit: Number(limit),
+      limit,
       filter: needle ? { contains: needle, cel: null } : null,
       schemaId,
     };
@@ -308,28 +303,6 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
               </SelectContent>
             </Select>
 
-            <Select
-              value={limit}
-              items={LIMIT_ITEMS}
-              onValueChange={(value) => {
-                setLimit(String(value));
-                rewind();
-              }}
-            >
-              <SelectTrigger size="sm" className="w-28">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {LIMIT_ITEMS.map((item) => (
-                    <SelectItem key={item.value} value={item.value}>
-                      {item.label}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-
             {showSchemaPicker ? (
               <SchemaPicker
                 subjects={subjects?.rows ?? []}
@@ -348,11 +321,16 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
         getRowId={(record) => `${record.partition}-${record.offset}`}
         loading={isFetching && records.length === 0}
         refreshing={isFetching && records.length > 0}
-        pageSize={Number(limit)}
+        pageSize={limit}
+        pageSizes={RECORD_PAGE_SIZES}
         pageIndex={pageIndex}
         hasMore={data?.nextCursor != null}
         loadingMore={isFetching && isPlaceholderData}
         canPreviousPage={data?.prevCursor != null || pageIndex > 0}
+        onPageSizeChange={(size) => {
+          setLimit(size);
+          rewind();
+        }}
         onPreviousPage={() => {
           if (data?.prevCursor == null) {
             rewind();
