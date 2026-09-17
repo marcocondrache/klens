@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ClockIcon, TriangleAlertIcon } from "lucide-react";
+import { ClockIcon, EyeOffIcon, TriangleAlertIcon } from "lucide-react";
 import { createColumnHelper } from "@tanstack/react-table";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -57,6 +57,23 @@ const LIMIT_ITEMS = LIMITS.map((value) => ({
 function preview(value: string | null) {
   if (!value) return "—";
   return value.replace(/\s+/g, " ").trim();
+}
+
+function ObfuscatedBadge() {
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<Pill tone="brand" className="cursor-default" />}>
+        <EyeOffIcon className="size-3.5" />
+        Obfuscated
+      </TooltipTrigger>
+      <TooltipContent className="block max-w-80 py-2 leading-relaxed">
+        A rule on this cluster hides parts of this topic. Protected fields render as *** or as kx:
+        tokens — equal values share a token, so records still correlate, and a masked number renders
+        as text. A value the registry could not decode is masked whole. Searches match this view,
+        never the value behind it.
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 const columnHelper = createColumnHelper<DataTableFeatures, KafkaRecord>();
@@ -324,6 +341,8 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                 }}
               />
             ) : null}
+
+            {data?.obfuscated ? <ObfuscatedBadge /> : null}
           </>
         }
         getRowId={(record) => `${record.partition}-${record.offset}`}
@@ -388,8 +407,9 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
           {selectedRecord ? (
             <>
               <SheetHeader className="border-b">
-                <SheetTitle className="font-mono text-sm">
+                <SheetTitle className="flex items-center gap-2 font-mono text-sm">
                   {topic.name}[{selectedRecord.partition}]@{selectedRecord.offset}
+                  {data?.obfuscated ? <ObfuscatedBadge /> : null}
                 </SheetTitle>
                 <SheetDescription>
                   {formatTimestamp(selectedRecord.timestamp)} ·{" "}

@@ -70,6 +70,16 @@ clusters:
     #       key: mask
     #       value: hash
     #       headers: ["x-user-id"]   # header values to mask, by name
+    #     # Pattern rules, for schemaless text topics no registry decodes.
+    #     # They run on the rendered text of key and value, only on topics
+    #     # named here, and are weaker than field rules: a value in an
+    #     # unexpected format slips past the regex.
+    #     - topics: ["app.logs"]
+    #       patterns:
+    #         - regex: '\b\d{13,19}\b'
+    #           strategy: hash       # the match becomes a token
+    #         - regex: '[\w.+-]+@[\w-]+\.[\w.]+'
+    #           strategy: mask       # the match becomes ***
 
 # Optional OpenID Connect login gate. When omitted, the UI and GraphQL API are
 # open to anyone who can reach the process. /health stays public either way.

@@ -440,8 +440,20 @@ pub struct ObfuscationRule {
     /// Header names whose values are masked.
     #[serde(default)]
     pub headers: Vec<String>,
+    /// Regexes applied to the rendered text of key and value, for topics
+    /// whose payloads never become JSON. Each match is replaced by its
+    /// strategy's output.
+    #[serde(default)]
+    pub patterns: Vec<ObfuscationPattern>,
     #[serde(default)]
     pub unparsed: UnparsedPolicy,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObfuscationPattern {
+    pub regex: String,
+    pub strategy: ObfuscationStrategy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -459,7 +471,7 @@ pub enum ObfuscationStrategy {
     /// Replace with a deterministic keyed token, so equal values still
     /// render equal.
     Hash,
-    /// Remove the field entirely.
+    /// Remove the field entirely, or the matched span for a pattern rule.
     Drop,
 }
 
@@ -597,9 +609,10 @@ impl ObfuscationRule {
             && self.key.is_none()
             && self.value.is_none()
             && self.headers.is_empty()
+            && self.patterns.is_empty()
         {
             return fail(format!(
-                "obfuscation rule for '{}' must set at least one of fields, key, value or headers",
+                "obfuscation rule for '{}' must set at least one of fields, key, value, headers or patterns",
                 self.topics.join(", ")
             ));
         }
@@ -613,6 +626,12 @@ impl ObfuscationRule {
             }
         }
 
+        for pattern in &self.patterns {
+            if pattern.regex.trim().is_empty() {
+                return fail("obfuscation patterns must not be empty".to_owned());
+            }
+        }
+
         if self.headers.iter().any(|header| header.trim().is_empty()) {
             return fail("obfuscation header names must not be empty".to_owned());
         }
@@ -621,6 +640,7 @@ impl ObfuscationRule {
             .fields
             .iter()
             .map(|field| field.strategy)
+            .chain(self.patterns.iter().map(|pattern| pattern.strategy))
             .chain(self.key)
             .chain(self.value)
             .any(ObfuscationStrategy::needs_secret);
@@ -1470,7 +1490,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("at least one of fields, key, value or headers")
+                .contains("at least one of fields, key, value, headers or patterns")
         );
     }
 
@@ -1500,6 +1520,55 @@ mod tests {
             error
                 .to_string()
                 .contains("'*' is only allowed as the last character")
+        );
+    }
+
+    #[test]
+    fn accepts_pattern_rules_and_rejects_ones_that_say_nothing() {
+        obfuscated(
+            "
+              secret: 0123456789abcdef0123456789abcdef
+              rules:
+                - topics: ['app.logs']
+                  patterns:
+                    - regex: '\\b\\d{13,19}\\b'
+                      strategy: hash
+                    - regex: '[\\w.+-]+@[\\w-]+\\.[\\w.]+'
+                      strategy: mask
+            ",
+        )
+        .expect("patterns are a rule of their own");
+
+        let error = obfuscated(
+            "
+              rules:
+                - topics: ['app.logs']
+                  patterns:
+                    - regex: '  '
+                      strategy: mask
+            ",
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("patterns must not be empty"));
+    }
+
+    #[test]
+    fn rejects_a_hashing_pattern_without_a_secret() {
+        let error = obfuscated(
+            "
+              rules:
+                - topics: ['app.logs']
+                  patterns:
+                    - regex: '\\d{13,19}'
+                      strategy: hash
+            ",
+        )
+        .unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("hash strategy requires a secret")
         );
     }
 

@@ -161,14 +161,16 @@ impl ScanSession {
         Ok(Self {
             consumer,
             codec: session.payload_codec(),
-            obfuscator: session
-                .obfuscation()
-                .and_then(|policy| policy.for_topic(&query.topic)),
+            obfuscator: topic_obfuscator(session, &query.topic),
             topic: query.topic.clone(),
             filter: query.filter.clone(),
             schema_id: query.schema_id,
             walk,
         })
+    }
+
+    fn obfuscated(&self) -> bool {
+        self.obfuscator.is_some()
     }
 
     pub async fn close(self) {
@@ -448,6 +450,15 @@ struct Candidate {
     value: Option<usize>,
 }
 
+fn topic_obfuscator<S: ClusterSession + ?Sized>(
+    session: &S,
+    topic: &str,
+) -> Option<Arc<TopicObfuscator>> {
+    session
+        .obfuscation()
+        .and_then(|policy| policy.for_topic(topic))
+}
+
 /// Active half-open offset ranges. Kafka can jump over offsets in compacted logs.
 struct WindowScan {
     remaining: HashMap<i32, Range<i64>>,
@@ -548,7 +559,10 @@ pub async fn fetch_page<S: ClusterSession + ?Sized>(
     let mut cursor = query.cursor.clone();
     let mut windows = plan(cursor.as_ref());
     if windows.is_empty() || limit == 0 {
-        return Ok(RecordPage::empty());
+        return Ok(RecordPage {
+            obfuscated: topic_obfuscator(session, &query.topic).is_some(),
+            ..RecordPage::empty()
+        });
     }
 
     let deadline = Instant::now() + session.consume_timeout();
@@ -605,6 +619,7 @@ pub async fn fetch_page<S: ClusterSession + ?Sized>(
             .cmp_for_order(&right.raw.sort_key(), order)
     });
     scan.decode_page(&mut kept).await;
+    let obfuscated = scan.obfuscated();
     scan.close().await;
 
     let near = rewind_cursor(walk, watermarks, &edges(&kept), order, direction.flipped());
@@ -619,6 +634,7 @@ pub async fn fetch_page<S: ClusterSession + ?Sized>(
             .map(|record| record.into_record(&query.topic))
             .collect(),
         complete,
+        obfuscated,
         next_cursor: next_cursor.map(|cursor| cursor.encode()),
         prev_cursor: prev_cursor.map(|cursor| cursor.encode()),
     })
@@ -1136,6 +1152,86 @@ mod tests {
             session.decoded_payloads(),
             4,
             "only the two records that reach the page decode, key and value each"
+        );
+    }
+
+    const PATTERNS: &str = r"
+        secret: 0123456789abcdef0123456789abcdef
+        rules:
+          - topics: ['orders.*']
+            patterns:
+              - regex: '\d{13,19}'
+                strategy: hash
+    ";
+
+    fn text_orders() -> FakeCluster {
+        let records = (0..4)
+            .map(|offset| {
+                let mut record = card_record(offset, PAN);
+                record.value = Some(format!("charged {PAN} on order {offset}"));
+                record
+            })
+            .collect();
+
+        FakeCluster::local()
+            .with_orders_records(records)
+            .with_obfuscation(PATTERNS)
+            .with_consume_timeout(Duration::from_secs(10))
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_pattern_rule_tokens_text_no_field_rule_could_have_reached() {
+        let page = card_page(&text_orders(), None).await;
+
+        let value = page.records[0].value.as_deref().expect("value");
+        assert!(value.starts_with("charged kx:"), "{value}");
+        assert!(!value.contains(PAN), "{value}");
+        assert!(value.ends_with("on order 0"), "{value}");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_contains_filter_cannot_be_an_oracle_for_a_pattern_rule_either() {
+        let session = text_orders();
+
+        assert!(
+            card_page(&session, contains("4111"))
+                .await
+                .records
+                .is_empty(),
+            "raw bytes must stay out of reach of a filter on a rewritten topic"
+        );
+        assert_eq!(
+            card_page(&session, contains("on order 2"))
+                .await
+                .records
+                .len(),
+            1,
+            "text no pattern matches still filters"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_page_says_whether_its_topic_is_obfuscated() {
+        assert!(card_page(&cards(), None).await.obfuscated);
+        assert!(card_page(&text_orders(), None).await.obfuscated);
+
+        let plain = FakeCluster::local().with_consume_timeout(Duration::from_secs(10));
+        assert!(!card_page(&plain, None).await.obfuscated);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_empty_page_still_says_its_topic_is_obfuscated() {
+        let session = cards();
+        let query = query();
+
+        let page = fetch_page(&session, &query, &[0], &marks(0, 0), 4, LIMITS)
+            .await
+            .unwrap();
+
+        assert!(page.records.is_empty());
+        assert!(
+            page.obfuscated,
+            "a page with nothing on it still describes its topic"
         );
     }
 }
