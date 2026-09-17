@@ -106,3 +106,7 @@ schema_registry:
   # username: user
   # password: secret
 ```
+
+Credentials may only travel over plaintext `http://` when the host is loopback.
+A remote registry that needs a username and password must be reached over
+`https://`.

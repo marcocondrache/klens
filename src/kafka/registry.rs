@@ -1,9 +1,9 @@
-//! Schema Registry types, HTTP client, and payload decode.
+//! Schema Registry types, catalog port, and payload decode.
 //!
 //! [`SchemaSubject`] and [`RegisteredSchema`] are the domain types. `client`
-//! is the HTTP port ([`client::SchemaRegistryClient`]). `decode` turns a
-//! Confluent-framed payload into text. `protobuf` is the protobuf path
-//! inside decode.
+//! is the registry port ([`client::SchemaRegistryClient`]), a thin adapter
+//! over [`schemreg`]. `decode` turns a Confluent-framed payload into text.
+//! `protobuf` is the protobuf path inside decode.
 
 pub mod client;
 pub mod decode;
@@ -16,15 +16,12 @@ pub enum SchemaType {
     Protobuf,
 }
 
-impl SchemaType {
+impl From<schemreg::SchemaType> for SchemaType {
     /// Schema Registry omits `schemaType` for Avro, so that is the fallback.
-    pub fn from_registry(value: Option<&str>) -> Self {
-        match value
-            .map(|value| value.trim().to_ascii_uppercase())
-            .as_deref()
-        {
-            Some("JSON") | Some("JSONSCHEMA") => Self::Json,
-            Some("PROTOBUF") => Self::Protobuf,
+    fn from(value: schemreg::SchemaType) -> Self {
+        match value {
+            schemreg::SchemaType::Json => Self::Json,
+            schemreg::SchemaType::Protobuf => Self::Protobuf,
             _ => Self::Avro,
         }
     }
@@ -48,16 +45,15 @@ pub enum SchemaCompatibility {
     None,
 }
 
-impl SchemaCompatibility {
+impl From<schemreg::CompatibilityLevel> for SchemaCompatibility {
     /// Transitive variants collapse onto their base mode.
-    pub fn from_registry(value: Option<&str>) -> Self {
-        match value
-            .map(|value| value.trim().to_ascii_uppercase().replace('-', "_"))
-            .as_deref()
-        {
-            Some("FORWARD") | Some("FORWARD_TRANSITIVE") => Self::Forward,
-            Some("FULL") | Some("FULL_TRANSITIVE") => Self::Full,
-            Some("NONE") => Self::None,
+    fn from(value: schemreg::CompatibilityLevel) -> Self {
+        use schemreg::CompatibilityLevel as Level;
+
+        match value {
+            Level::Forward | Level::ForwardTransitive => Self::Forward,
+            Level::Full | Level::FullTransitive => Self::Full,
+            Level::None => Self::None,
             _ => Self::Backward,
         }
     }
