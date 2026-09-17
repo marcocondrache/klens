@@ -28,7 +28,6 @@ export const keys = {
     ["cluster", cluster, "groups", group, "lag"] as const,
 
   subjectRows: (cluster: string) => ["cluster", cluster, "subjects"] as const,
-  /** Prefix over every cached version of one subject. */
   subjectVersions: (cluster: string, name: string) =>
     ["cluster", cluster, "subjects", name] as const,
   subject: (cluster: string, name: string, version: number | null) =>

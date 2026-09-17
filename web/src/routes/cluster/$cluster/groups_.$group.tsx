@@ -118,8 +118,6 @@ function ConsumerGroupPage() {
   const members = group?.members ?? [];
   const maxLag = Math.max(1, ...offsets.map((offset) => toNumber(offset.lag)));
   const memberLabels = new Map(members.map((member) => [member.id, member.clientId] as const));
-  // The detail projection reports partitions and members, not a topic list;
-  // a group is "on" a topic if it commits there or holds an assignment.
   const topicCount = new Set([
     ...offsets.map((offset) => offset.topic),
     ...members.flatMap((member) => member.assignments.map((assignment) => assignment.topic)),

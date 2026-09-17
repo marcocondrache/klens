@@ -81,15 +81,6 @@ function AppLayout() {
   );
 }
 
-/**
- * A detail page subscribes to its own entity, so the server filters the bus
- * instead of shipping every topic's rate to a page showing one sparkline. A
- * group scope also leases the fast offsets tier for as long as the page is
- * open.
- *
- * Matched by route id rather than loose params: this layout renders above the
- * detail routes, so its own match never carries their parameters.
- */
 function useRouteScope(): Scope {
   const topic = useMatch({
     from: "/cluster/$cluster/topics_/$topic",

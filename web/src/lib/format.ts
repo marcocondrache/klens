@@ -3,12 +3,6 @@ import type { CleanupPolicy } from "@/lib/api/types";
 const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB", "PB"];
 const COUNT_UNITS = ["", "K", "M", "B", "T"];
 
-/**
- * `Int64` crosses the wire as a string so nothing rounds past 2^53. Anything
- * that only needs a magnitude — units, ratios, chart values — can take the
- * lossy view; exact rendering goes through {@link formatNumber}, which never
- * converts.
- */
 export type Int64 = string | number;
 
 export function toNumber(value: Int64): number {
@@ -58,7 +52,6 @@ export function formatThroughput(value: number, digits = 1) {
   return formatCount(value, digits);
 }
 
-/** Exact: an `Int64` string is grouped digit-wise rather than parsed. */
 export function formatNumber(value: Int64) {
   if (typeof value === "number") {
     return value.toLocaleString("en-US");

@@ -8,18 +8,12 @@ import { keys } from "./keys";
 import { subscribe } from "./subscribe";
 import type { GroupDetail, GroupOffset, GroupRow, Point, TopicGroupRow, TopicRow } from "./types";
 
-/** Matches the server's ring capacity, so seed and stream agree on length. */
 const HISTORY_LEN = 60;
 
 type Update = UpdatesSubscription["updates"];
 
 export type Scope = { topic?: string; group?: string };
 
-/**
- * The one subscription. Every lane delta for this page arrives here already
- * narrowed to its scope, and is *applied* to the cache: a catalog tick costs
- * one small event rather than a fan of full-catalog refetches.
- */
 export function useUpdates(cluster: string, scope: Scope = {}) {
   const queryClient = useQueryClient();
   const { topic, group } = scope;
@@ -72,8 +66,6 @@ function apply(queryClient: QueryClient, cluster: string, update: Update): void 
                 ...detail,
                 totalLag: update.lag,
                 lagComplete: update.lagComplete,
-                // A list-scoped wave carries totals only; keeping the stale
-                // per-partition rows beats blanking the offsets table.
                 offsets: update.offsets.length > 0 ? update.offsets : detail.offsets,
               },
       );
@@ -93,8 +85,6 @@ function apply(queryClient: QueryClient, cluster: string, update: Update): void 
     }
 
     case "TopologyDelta": {
-      // Counts and lane freshness move with topology, and nothing else
-      // reports them.
       void queryClient.invalidateQueries({ queryKey: keys.clusters() });
 
       const topics = [...update.addedTopics, ...update.removedTopics, ...update.changedTopics];
@@ -112,8 +102,6 @@ function apply(queryClient: QueryClient, cluster: string, update: Update): void 
         for (const id of groups) {
           void queryClient.invalidateQueries({ queryKey: keys.group(cluster, id), exact: true });
         }
-        // Membership moved, and the delta names groups rather than the topics
-        // they read, so every open topic-groups view is suspect.
         void queryClient.invalidateQueries({
           predicate: (query) => isTopicSubKey(query.queryKey, cluster, "groups"),
         });
@@ -126,8 +114,6 @@ function apply(queryClient: QueryClient, cluster: string, update: Update): void 
     }
 
     case "ConfigsChanged": {
-      // Retention and cleanup policy are row fields sourced from the config
-      // lane, so a config sweep moves the rows too.
       void queryClient.invalidateQueries({ queryKey: keys.topicRows(cluster), exact: true });
       for (const name of update.configTopics) {
         void queryClient.invalidateQueries({
@@ -142,14 +128,11 @@ function apply(queryClient: QueryClient, cluster: string, update: Update): void 
     case "SubjectsChanged": {
       void queryClient.invalidateQueries({ queryKey: keys.subjectRows(cluster), exact: true });
       for (const name of [...update.changed, ...update.removed]) {
-        // Every cached version of the subject, not just the latest one.
         void queryClient.invalidateQueries({ queryKey: keys.subjectVersions(cluster, name) });
       }
       return;
     }
 
-    // The stream outran this client, so the deltas it missed are gone. The
-    // connection is still good: refetch the projections and keep following.
     case "Resync": {
       void queryClient.invalidateQueries({ queryKey: keys.clusters() });
       void queryClient.invalidateQueries({ queryKey: keys.cluster(cluster) });
@@ -192,8 +175,6 @@ function patchGroupRows(
   );
 }
 
-/** Appends only where a ring is already cached: an unscoped tick names every
- * topic in the cluster, and none of them need a history nobody is showing. */
 function appendPoint(queryClient: QueryClient, key: readonly unknown[], at: string, value: number) {
   queryClient.setQueryData(key, (points: Point[] | undefined) =>
     points ? [...points, { at, value }].slice(-HISTORY_LEN) : points,

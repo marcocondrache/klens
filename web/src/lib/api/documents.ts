@@ -1,7 +1,5 @@
 import { graphql } from "@/graphql/gql";
 
-// ------------------------------------------------------------------ identity
-
 export const IdentityFields = graphql(`
   fragment IdentityFields on Identity {
     subject
@@ -51,8 +49,6 @@ export const ClusterHealthFields = graphql(`
     offlinePartitions
   }
 `);
-
-// -------------------------------------------------------------------- topics
 
 export const TopicRowFields = graphql(`
   fragment TopicRowFields on TopicRow {
@@ -106,8 +102,6 @@ export const TopicGroupRowFields = graphql(`
     lagOnTopic
   }
 `);
-
-// -------------------------------------------------------------------- groups
 
 export const GroupRowFields = graphql(`
   fragment GroupRowFields on GroupRow {
@@ -167,8 +161,6 @@ export const GroupDetailFields = graphql(`
   }
 `);
 
-// ------------------------------------------------------------------- brokers
-
 export const BrokerRowFields = graphql(`
   fragment BrokerRowFields on BrokerRow {
     id
@@ -190,8 +182,6 @@ export const ConfigEntryFields = graphql(`
     sensitive
   }
 `);
-
-// ------------------------------------------------------------------ subjects
 
 export const SubjectRowFields = graphql(`
   fragment SubjectRowFields on SubjectRow {
@@ -219,8 +209,6 @@ export const SubjectDetailFields = graphql(`
   }
 `);
 
-// ---------------------------------------------------------------------- acls
-
 export const AclFields = graphql(`
   fragment AclFields on Acl {
     resourceType
@@ -232,8 +220,6 @@ export const AclFields = graphql(`
     permission
   }
 `);
-
-// ------------------------------------------------------------------- records
 
 export const RecordHeaderFields = graphql(`
   fragment RecordHeaderFields on RecordHeader {
@@ -259,8 +245,6 @@ export const RecordFields = graphql(`
   }
 `);
 
-// -------------------------------------------------------------------- series
-
 export const PointFields = graphql(`
   fragment PointFields on Point {
     at
@@ -276,8 +260,6 @@ export const SearchHitFields = graphql(`
     detail
   }
 `);
-
-// ------------------------------------------------------------------- queries
 
 export const whoamiQuery = graphql(`
   query Whoami {
@@ -436,8 +418,6 @@ export const searchQuery = graphql(`
     }
   }
 `);
-
-// -------------------------------------------------------------- subscription
 
 export const updatesSubscription = graphql(`
   subscription Updates($cluster: String!, $scope: UpdateScope) {

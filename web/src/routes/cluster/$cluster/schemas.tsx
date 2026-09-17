@@ -93,8 +93,6 @@ function SchemasPage() {
   const now = useNow();
   const caption = laneCaption(data?.sourceHealth, now);
 
-  // Bodies are large and privileged, so the listing carries none: the sheet
-  // asks for exactly the one version it is about to show.
   const { data: detail, isPending: detailPending } = useSubject(
     cluster,
     selected?.subject ?? null,

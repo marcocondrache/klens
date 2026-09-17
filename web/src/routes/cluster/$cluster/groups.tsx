@@ -100,10 +100,6 @@ const columns = columnHelper.columns([
   }),
 ]);
 
-/**
- * An incomplete total is a floor, not a measurement: a committed partition
- * whose watermark has not landed yet contributes nothing to the sum.
- */
 function LagPill({ row }: { row: GroupRow }) {
   return (
     <Pill
