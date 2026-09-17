@@ -342,12 +342,6 @@ fn sort_topics(rows: &mut [crate::kafka::store::TopicRow], sort: &TopicSort) {
     }
 }
 
-/// Key-based paging over an ordered row list.
-///
-/// `after` is the key of the last row the client already has, so a page is
-/// resumed by identity rather than by index and a concurrent insert cannot
-/// silently skip a row. An unknown key starts from the beginning: the row it
-/// named is gone, and refusing would strand the client.
 fn page<T>(
     rows: Vec<T>,
     after: Option<&str>,

@@ -1,10 +1,3 @@
-//! The HTTP layer: GraphQL over the store, OIDC session auth, health.
-//!
-//! [`AppState`] is the seam. Everything the UI reads on a cadence is a
-//! projection of [`StoreSet`], filled by [`Ingest`]. Only the four reads that
-//! cannot be projected — record pages, broker configs, ACLs, and schema
-//! bodies — still go to the brokers through [`QueryEngine`].
-
 use std::sync::Arc;
 
 use axum::Router;
@@ -28,8 +21,6 @@ pub struct AppState {
     pub(crate) query: Arc<QueryEngine<dyn ClusterSession>>,
     pub(crate) stores: Arc<StoreSet>,
     pub(crate) auth: AuthState,
-    /// Dropping this aborts every lane, so ingestion lives exactly as long as
-    /// the state that serves what it writes.
     _ingest: Option<Arc<Ingest>>,
 }
 
@@ -51,11 +42,6 @@ impl AppState {
         }
     }
 
-    /// Starts the ingestion lanes against the stores this state already
-    /// holds.
-    ///
-    /// Without it the read model stays empty, which is exactly what tests
-    /// that seed the store by hand want.
     pub fn with_ingest(self, intervals: LaneIntervals) -> Self {
         let clusters = self
             .query
@@ -77,9 +63,6 @@ impl AppState {
         self.stores.cluster(name)
     }
 
-    /// Ready once every cluster's topology lane has committed once. Until
-    /// then the API would answer with empty projections, which reads as an
-    /// empty cluster rather than an unfinished boot.
     pub(crate) fn is_ready(&self) -> bool {
         self.stores.ready()
     }

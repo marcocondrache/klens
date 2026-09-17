@@ -51,10 +51,6 @@ impl AuthBackend {
             .insert(user.sub.clone(), user);
     }
 
-    /// The still-valid user behind a subject, evicting it once expired.
-    ///
-    /// Shares the expiry rule with [`AuthnBackend::get_user`] so a long-lived
-    /// subscription cannot outlive the session that opened it.
     pub(crate) fn live_user(&self, subject: &str) -> Option<SessionUser> {
         let mut users = self.users.lock().expect("auth user store");
         match users.get(subject) {

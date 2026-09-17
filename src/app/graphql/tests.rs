@@ -23,8 +23,6 @@ use crate::kafka::{FakeCluster, QueryEngine};
 use super::context::GraphQlContext;
 use super::schema;
 
-// ------------------------------------------------------------ harness
-
 fn with(sessions: Vec<FakeCluster>) -> AppState {
     AppState::new(Arc::new(QueryEngine::from_sessions(sessions)))
 }
@@ -75,7 +73,6 @@ async fn run(
     (serde_json::to_value(data).expect("data is serializable"), errors)
 }
 
-/// Runs `query` and fails the test if it produced any error.
 async fn ok(context: &GraphQlContext, query: &str) -> serde_json::Value {
     let (data, errors) = run(context, query).await;
     assert!(
@@ -99,15 +96,10 @@ fn code_of(error: &ExecutionError<DefaultScalarValue>) -> String {
     }
 }
 
-/// Runs `query` and returns the `extensions.code` of every error it produced.
 async fn codes(context: &GraphQlContext, query: &str) -> Vec<String> {
     run(context, query).await.1.iter().map(code_of).collect()
 }
 
-// ------------------------------------------------------------ seeding
-
-/// The store every query test reads from: two topics, one group committed
-/// behind the log, one subject, one topic config.
 fn seed(store: &ClusterStore) {
     store.topology.commit(Arc::new(topology(
         vec![
@@ -158,15 +150,11 @@ fn seeded() -> AppState {
     seeded_with(FakeCluster::local()).0
 }
 
-/// The same seeded store, with the session handle kept so a test can assert
-/// the broker was never called.
 fn seeded_with(session: FakeCluster) -> (AppState, FakeCluster) {
     let state = with(vec![session.clone()]);
     seed(state.cluster("local").expect("local cluster"));
     (state, session)
 }
-
-// ------------------------------------------------------------ identity
 
 #[tokio::test]
 async fn whoami_reports_no_subject_when_auth_is_disabled() {
@@ -201,7 +189,6 @@ async fn whoami_resolves_each_cluster_against_its_own_grant() {
         serde_json::json!(["RECORDS", "CONFIGS", "SCHEMA_TEXT", "ACLS"])
     );
 
-    // The wide Admin grant on `local` must not raise the narrow Viewer grant.
     assert_eq!(clusters[1]["cluster"], "payments");
     assert_eq!(clusters[1]["role"], "VIEWER");
     assert_eq!(clusters[1]["privileges"], serde_json::json!([]));
@@ -219,8 +206,6 @@ async fn whoami_omits_clusters_the_session_cannot_see() {
         serde_json::json!([{ "cluster": "payments" }])
     );
 }
-
-// ------------------------------------------------------------ denials
 
 #[tokio::test]
 async fn an_invisible_cluster_reads_as_unknown_not_forbidden() {
@@ -279,8 +264,6 @@ async fn unprivileged_projections_stay_open_to_a_viewer() {
     assert_eq!(data["subjectRows"]["rows"][0]["subject"], "orders.created-value");
 }
 
-// ------------------------------------------------------------ Int64
-
 #[tokio::test]
 async fn sixty_four_bit_counters_cross_the_wire_as_strings() {
     let state = state();
@@ -305,8 +288,6 @@ async fn sixty_four_bit_counters_cross_the_wire_as_strings() {
     assert_eq!(data["topicRows"]["rows"][0]["producedTotal"], huge.to_string());
 }
 
-// ------------------------------------------------------------ rows
-
 #[tokio::test]
 async fn topic_rows_project_counts_and_configs_without_touching_the_broker() {
     let (state, session) = seeded_with(FakeCluster::local());
@@ -324,7 +305,6 @@ async fn topic_rows_project_counts_and_configs_without_touching_the_broker() {
     assert_eq!(data["topicRows"]["total"], 2);
     assert_eq!(rows[0]["name"], "orders.created");
     assert_eq!(rows[0]["partitionCount"], 2);
-    // (100 - 0) + (60 - 10)
     assert_eq!(rows[0]["retainedMessages"], "150");
     assert_eq!(rows[0]["cleanupPolicy"], "COMPACT");
     assert_eq!(rows[0]["retentionMs"], "604800000");
@@ -409,7 +389,6 @@ async fn group_rows_join_commits_against_watermarks() {
     assert_eq!(row["state"], "STABLE");
     assert_eq!(row["memberCount"], 1);
     assert_eq!(row["topicNames"], serde_json::json!(["orders.created"]));
-    // (100 - 90) + (60 - 55)
     assert_eq!(row["totalLag"], "15");
     assert_eq!(row["lagComplete"], true);
 }
@@ -428,8 +407,6 @@ async fn broker_rows_count_the_partitions_each_node_carries() {
     assert_eq!(data["brokerRows"][0]["partitionCount"], 3);
     assert_eq!(data["brokerRows"][0]["leaderCount"], 3);
 }
-
-// ------------------------------------------------------------ details
 
 #[tokio::test]
 async fn topic_detail_flags_under_replication_per_partition() {
@@ -545,8 +522,6 @@ async fn topic_configs_for_an_unknown_topic_are_an_error() {
     );
 }
 
-// ------------------------------------------------------------ live reads
-
 #[tokio::test]
 async fn broker_configs_stay_live_because_no_lane_sweeps_them() {
     let state = seeded();
@@ -647,8 +622,6 @@ async fn a_record_filter_cannot_be_both_a_substring_and_an_expression() {
     );
 }
 
-// ------------------------------------------------------------ health, series, search
-
 #[tokio::test]
 async fn cluster_health_reports_per_lane_freshness_and_counts() {
     let state = seeded();
@@ -733,11 +706,6 @@ async fn search_is_answered_from_the_prebuilt_index() {
     assert!(kinds.contains("SUBJECT"), "{kinds:?}");
 }
 
-// ------------------------------------------------------------ subscription
-
-/// Opens `updates`, runs `publish` once the subscriber is attached, and
-/// returns at most `take` events. An event is `Err` when the stream
-/// terminated with a GraphQL error.
 async fn updates(
     context: &GraphQlContext,
     query: &str,
@@ -750,7 +718,6 @@ async fn updates(
         .expect("subscription is valid against the schema");
     let mut connection = juniper_subscriptions::Connection::from_stream(stream, errors);
 
-    // The resolver has already run, so the store's bus has this subscriber.
     publish();
 
     let mut events = Vec::new();
@@ -766,7 +733,6 @@ async fn updates(
     events
 }
 
-/// The `extensions.code` of every error raised while opening `updates`.
 async fn subscribe_codes(context: &GraphQlContext, query: &str) -> Vec<String> {
     let schema = schema();
     let (_, errors) = resolve_into_stream(query, None, &schema, &Variables::new(), context)
@@ -869,8 +835,6 @@ async fn an_event_outside_the_scope_never_reaches_the_socket() {
             ... on ConfigsChanged { topics }
         } }"#,
         || {
-            // Only `orders.created` changed, so the scoped subscriber must
-            // see the topology delta that names it and nothing else.
             store.bus.publish(Change::Configs(Arc::new(ConfigsDelta {
                 version: 1,
                 topics: vec![Arc::from("orders.created")],
@@ -950,8 +914,6 @@ async fn a_group_scoped_subscriber_holds_an_interest_lease_for_the_stream() {
         assert!(store.interest.is_hot("order-processor"));
     }
 
-    // Disconnecting releases the offsets lane's fast tier immediately, so a
-    // closed page stops costing broker calls.
     assert!(!store.interest.is_hot("order-processor"));
 }
 
@@ -1013,8 +975,6 @@ async fn falling_behind_the_bus_asks_the_client_to_refetch_instead_of_dropping_i
             ... on Resync { reason }
         } }"#,
         move || {
-            // The bus is bounded, so publishing past its capacity before the
-            // stream is first polled guarantees the subscriber lagged.
             for index in 0..(2 * BUS_CAPACITY) {
                 store.bus.publish(tick(&[("orders.created", index as f64)]));
             }
@@ -1071,16 +1031,12 @@ async fn a_session_that_expires_mid_stream_terminates_it() {
     );
 }
 
-// ------------------------------------------------------------ routing
-
 #[tokio::test]
 async fn the_subscription_route_is_wired_with_the_session_extensions() {
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use tower::ServiceExt as _;
 
-    // A plain GET is not an upgrade, so a wired route rejects it as a bad
-    // request. A missing route would be 404 and a missing extension a 500.
     let response = crate::app::router(seeded())
         .oneshot(
             Request::builder()

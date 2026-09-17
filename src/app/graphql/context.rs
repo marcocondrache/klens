@@ -12,15 +12,9 @@ use super::error::GqlError;
 pub struct GraphQlContext {
     pub state: AppState,
     pub access: EffectiveAccess,
-    /// Re-resolves access mid-stream. Queries are short enough that the
-    /// upgrade-time snapshot is the truth; subscriptions are not.
     pub guard: SessionGuard,
 }
 
-/// A cluster the session may see, paired with the store it projects from.
-///
-/// Every cluster-scoped resolver starts here, so visibility is checked before
-/// anything is read and the capability handles are one call away.
 pub struct Cluster<'a> {
     pub access: ClusterAccess<'a>,
     pub store: &'a Arc<ClusterStore>,
