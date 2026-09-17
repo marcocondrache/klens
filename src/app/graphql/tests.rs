@@ -18,7 +18,7 @@ use crate::kafka::store::{
     Change, ClusterStore, ConfigTable, ConfigsDelta, GroupLagUpdate, GroupOffsetsWave, Interner,
     OffsetTable, SubjectTable, SubjectsDelta, TopicRate, TopologyDelta, WatermarksTick,
 };
-use crate::kafka::{FakeCluster, SessionSet};
+use crate::kafka::{FakeCluster, SessionSet, card_record};
 
 use super::context::GraphQlContext;
 use super::schema;
@@ -641,6 +641,103 @@ async fn records_are_read_live_through_the_scan_path() {
     assert_eq!(records[0]["topic"], "orders.created");
     assert_eq!(records[0]["sizeBytes"], "24");
     assert_eq!(records[0]["compression"], "NONE");
+}
+
+#[tokio::test]
+async fn an_obfuscated_topic_serves_tokens_instead_of_payloads() {
+    let pan = "4111111111111111";
+    let records = (0..3).map(|offset| card_record(offset, pan)).collect();
+    let state = seeded_with(
+        FakeCluster::local()
+            .with_orders_records(records)
+            .with_obfuscation(
+                "
+                secret: 0123456789abcdef0123456789abcdef
+                rules:
+                  - topics: ['orders.*']
+                    headers: ['x-user-id']
+                    fields:
+                      - path: card.number
+                        strategy: hash
+                      - path: card.cvv
+                        strategy: drop
+                ",
+            ),
+    )
+    .0;
+
+    let data = ok(
+        &ctx(&state),
+        r#"{ records(cluster: "local", query: { topic: "orders.created", limit: 3 }) {
+            records { key value headers { key value } }
+        } }"#,
+    )
+    .await;
+
+    let records = data["records"]["records"].as_array().expect("records");
+    assert_eq!(records.len(), 3);
+    for record in records {
+        let value = record["value"].as_str().expect("value");
+        assert!(value.contains("\"kx:"), "{value}");
+        assert!(!value.contains(pan), "{value}");
+        assert!(!value.contains("cvv"), "dropped fields vanish: {value}");
+        assert!(
+            record["key"].as_str().expect("key").starts_with("ord_"),
+            "no rule names the key: {record}"
+        );
+        assert_eq!(record["headers"][0]["value"], "***");
+    }
+}
+
+#[tokio::test]
+async fn an_obfuscated_topic_cannot_be_filtered_on_the_cleartext_it_hides() {
+    let pan = "4111111111111111";
+    let records = (0..3).map(|offset| card_record(offset, pan)).collect();
+    let state = seeded_with(
+        FakeCluster::local()
+            .with_orders_records(records)
+            .with_obfuscation(
+                "
+                secret: 0123456789abcdef0123456789abcdef
+                rules:
+                  - topics: ['orders.*']
+                    fields:
+                      - path: card.number
+                        strategy: hash
+                ",
+            ),
+    )
+    .0;
+
+    let hidden = ok(
+        &ctx(&state),
+        r#"{ records(cluster: "local", query: {
+            topic: "orders.created", limit: 3, filter: { contains: "4111" }
+        }) { records { offset } } }"#,
+    )
+    .await;
+    let visible = ok(
+        &ctx(&state),
+        r#"{ records(cluster: "local", query: {
+            topic: "orders.created", limit: 3, filter: { contains: "ord_1" }
+        }) { records { offset } } }"#,
+    )
+    .await;
+
+    assert!(
+        hidden["records"]["records"]
+            .as_array()
+            .expect("records")
+            .is_empty(),
+        "a filter must not answer questions about an obfuscated field"
+    );
+    assert_eq!(
+        visible["records"]["records"]
+            .as_array()
+            .expect("records")
+            .len(),
+        1
+    );
 }
 
 #[tokio::test]

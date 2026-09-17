@@ -9,7 +9,7 @@ use bytes::Bytes;
 use krafka::testing::FakeBroker;
 use tokio::sync::OnceCell;
 
-use crate::config::SecurityProtocol;
+use crate::config::{ObfuscationConfig, SecurityProtocol};
 use crate::kafka::acl::{
     Acl, AclListing, AclOperation, AclPatternType, AclPermission, AclResourceType,
 };
@@ -21,7 +21,8 @@ use crate::kafka::group::{
 use crate::kafka::metadata::{BrokerMetadata, MetadataSnapshot, PartitionMetadata, TopicMetadata};
 use crate::kafka::model::{PartitionWindow, RawRecord, ScanConsumer};
 use crate::kafka::registry::{RegisteredSchema, SchemaCompatibility, SchemaSubject, SchemaType};
-use crate::kafka::scan::payload::{PayloadCodec, PayloadSlot};
+use crate::kafka::scan::obfuscate::ObfuscationPolicy;
+use crate::kafka::scan::payload::{DecodedPayload, PayloadCodec, PayloadSlot, framed_schema_id};
 use crate::kafka::scan::{Compression, Record, RecordHeader};
 use crate::kafka::session::ClusterSession;
 use crate::kafka::topic_config::{ConfigEntry, ConfigSource};
@@ -58,6 +59,7 @@ struct Inner {
     assignments: Mutex<Vec<Vec<(i32, i64, i64)>>>,
     consumers: AtomicUsize,
     codec: Arc<CountingCodec>,
+    obfuscation: Mutex<Option<Arc<ObfuscationPolicy>>>,
     calls: SessionCalls,
 }
 
@@ -228,6 +230,7 @@ impl FakeCluster {
                 assignments: Mutex::new(Vec::new()),
                 consumers: AtomicUsize::new(0),
                 codec: Arc::new(CountingCodec::default()),
+                obfuscation: Mutex::new(None),
                 calls: SessionCalls::default(),
             }),
         }
@@ -265,6 +268,21 @@ impl FakeCluster {
     /// wave to overlap.
     pub fn with_offsets_delay(self, delay: Duration) -> Self {
         *self.inner.offsets_delay.lock().expect("offsets delay") = delay;
+        self
+    }
+
+    /// Compile obfuscation rules from the YAML a config file would carry,
+    /// validation included.
+    pub fn with_obfuscation(self, yaml: &str) -> Self {
+        let config: ObfuscationConfig =
+            serde_yaml_ng::from_str(yaml).expect("obfuscation config parses");
+        config
+            .validate(&self.identity.name)
+            .expect("obfuscation config is valid");
+
+        *self.inner.obfuscation.lock().expect("obfuscation") = Some(Arc::new(
+            ObfuscationPolicy::compile(&config).expect("obfuscation config compiles"),
+        ));
         self
     }
 
@@ -810,6 +828,10 @@ impl ClusterSession for FakeCluster {
         Some(self.inner.codec.clone())
     }
 
+    fn obfuscation(&self) -> Option<Arc<ObfuscationPolicy>> {
+        self.inner.obfuscation.lock().expect("obfuscation").clone()
+    }
+
     async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
         if !*self.inner.serve_subjects.lock().expect("serve subjects") {
             return Ok(Vec::new());
@@ -992,6 +1014,39 @@ fn raw_record(record: &Record) -> RawRecord {
     }
 }
 
+/// A Confluent-framed payload, as the `String` a fixture [`Record`] carries.
+///
+/// Only ids below 128 stay valid UTF-8, which is all a fixture needs.
+fn framed(schema_id: u32, body: &str) -> String {
+    String::from_utf8(schemreg::encode_wire_format(schema_id, body.as_bytes()).to_vec())
+        .expect("a small schema id frames as utf-8")
+}
+
+/// A record the codec decodes into a tree obfuscation rules can walk: a
+/// framed value with a card, and a header worth masking.
+pub fn card_record(offset: i64, pan: &str) -> Record {
+    Record {
+        topic: "orders.created".into(),
+        partition: 0,
+        offset,
+        timestamp: 1_700_000_000_000 + offset,
+        key: Some(format!("ord_{offset}")),
+        value: Some(framed(
+            7,
+            &format!(r#"{{"orderId":"ord_{offset}","card":{{"number":"{pan}","cvv":"123"}}}}"#),
+        )),
+        headers: vec![RecordHeader {
+            key: "x-user-id".into(),
+            value: "ada".into(),
+        }],
+        schema_id: None,
+        size_bytes: 0,
+        compression: Compression::None,
+    }
+}
+
+/// Stands in for a registry: framed payloads whose body is JSON decode, and
+/// everything else is left to fall back to its raw bytes.
 #[derive(Default)]
 struct CountingCodec {
     decoded: AtomicUsize,
@@ -1001,6 +1056,21 @@ struct CountingCodec {
 impl PayloadCodec for CountingCodec {
     async fn decode_batch(&self, slots: &mut [PayloadSlot]) {
         self.decoded.fetch_add(slots.len(), Ordering::SeqCst);
+
+        for slot in slots {
+            let Ok((_, body)) = schemreg::decode_wire_prefix(&slot.raw) else {
+                continue;
+            };
+            let Ok(json) = serde_json::from_slice(&slot.raw[body..]) else {
+                continue;
+            };
+
+            slot.decoded = Some(DecodedPayload::decoded(
+                slot.raw.clone(),
+                framed_schema_id(&slot.raw),
+                json,
+            ));
+        }
     }
 }
 

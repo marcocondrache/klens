@@ -40,6 +40,9 @@ pub enum KafkaError {
     #[error("schema registry request failed for cluster '{cluster}': {message}")]
     SchemaRegistry { cluster: String, message: String },
 
+    #[error("invalid obfuscation rules for cluster '{cluster}': {message}")]
+    Obfuscation { cluster: String, message: String },
+
     #[error(transparent)]
     Krafka(#[from] krafka::error::KrafkaError),
 }
@@ -57,6 +60,7 @@ impl KafkaError {
             Self::Admin(_) => "ADMIN",
             Self::BrokerConfigs { .. } => "BROKER_CONFIGS",
             Self::SchemaRegistry { .. } => "SCHEMA_REGISTRY",
+            Self::Obfuscation { .. } => "OBFUSCATION",
             Self::Krafka(_) => "CLIENT",
         }
     }
