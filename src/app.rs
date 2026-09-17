@@ -86,7 +86,6 @@ impl AppState {
         self.stores.ready()
     }
 
-    /// One page of records, planned against the topology lane and read live.
     pub(crate) async fn live_records(
         &self,
         cluster: &str,
@@ -101,8 +100,6 @@ impl AppState {
         .await
     }
 
-    /// Broker configs are read one broker at a time and only by admins, so no
-    /// lane sweeps them and there is nothing to cache.
     pub(crate) async fn live_broker_configs(
         &self,
         cluster: &str,

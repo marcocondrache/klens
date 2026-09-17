@@ -13,9 +13,7 @@
 //!   per-cluster change bus. [`ingest`] fills it from five independent
 //!   per-cluster loops.
 //! - [`scan`] is the records engine: one consumer per page request, a
-//!   two-stage filter, and bidirectional cursors. It is the only read the
-//!   store cannot project, alongside broker configs, ACLs, and schema
-//!   bodies.
+//!   two-stage filter, and bidirectional cursors.
 
 mod client;
 mod registry;

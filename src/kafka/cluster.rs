@@ -1,7 +1,5 @@
 use crate::config::{ClusterConfig, SecurityProtocol};
 
-/// How a cluster is addressed: the name it is configured under and how to
-/// reach it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClusterIdentity {
     pub name: String,
