@@ -267,7 +267,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                 rewind();
               }}
             >
-              <SelectTrigger size="sm" className="w-40">
+              <SelectTrigger className="w-40">
                 <SelectValue placeholder="Partition" />
               </SelectTrigger>
               <SelectContent>
@@ -289,7 +289,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                 rewind();
               }}
             >
-              <SelectTrigger size="sm" className="w-36">
+              <SelectTrigger className="w-36">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
