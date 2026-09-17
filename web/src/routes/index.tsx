@@ -8,29 +8,28 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import { PageLoading } from "@/components/page-loading";
-import { useClusterNames } from "@/lib/api/catalog";
+import { CatalogLoading, ClustersLoading } from "@/components/page-loading";
+import { useClusters } from "@/lib/api/catalog";
+import { isFirstCatalogPending } from "@/lib/clusters";
 
 export const Route = createFileRoute("/")({
   component: HomePage,
 });
 
 function HomePage() {
-  const { data: clusters, isPending, isError } = useClusterNames();
-  const name = clusters?.[0];
+  const { data: clusters, isPending, isError } = useClusters();
+  const first = clusters?.[0];
 
   if (isPending) {
-    return (
-      <PageLoading
-        title="Loading clusters"
-        description="Reading the configured cluster list."
-        slowDescription="The GraphQL API is not responding."
-      />
-    );
+    return <ClustersLoading />;
   }
 
-  if (name) {
-    return <Navigate to="/cluster/$cluster/topics" params={{ cluster: name }} replace />;
+  if (isFirstCatalogPending(first)) {
+    return <CatalogLoading />;
+  }
+
+  if (first) {
+    return <Navigate to="/cluster/$cluster/topics" params={{ cluster: first.cluster }} replace />;
   }
 
   return (

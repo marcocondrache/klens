@@ -33,7 +33,7 @@ Preconditions:
 
 ## Gotchas
 
-- First metadata fetch can take several seconds. Wait for heading `Topics`, not a fixed sleep. The loading copy is `Loading clusters` then a skeleton table.
+- First metadata fetch can take several seconds. Wait for heading `Topics`, not a fixed sleep. Until the cluster is ready, the UI shows a full-page `Loading catalog` spinner, not the shell or an empty table. `Loading clusters` only covers the cluster-list query.
 - Search uses a unicode ellipsis in the placeholder (`Search topics…`), not three dots.
 - Internal topics stay hidden until `Show internal` is on. A leftover `?q=` hides internal names that do not match. Clear search before this toggle. A missing seed topic is a Kafka problem, not this toggle.
 - First-fail catalog (`lastError` set, `updatedAt` null) still redirects to Topics and shows alert `Cluster unreachable`. A later poll failure with a stale snapshot shows `Catalog update failed`. Neither is a catalog pass.

@@ -7,9 +7,10 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppHeader } from "@/components/app-header";
 import { AppSidebar } from "@/components/app-sidebar";
 import { CommandPalette } from "@/components/command-palette";
+import { CatalogLoading, ClustersLoading } from "@/components/page-loading";
 import { useClusterHealth, useClusterNames } from "@/lib/api/catalog";
 import { useUpdates, type Scope } from "@/lib/api/updates";
-import { useClusterName } from "@/lib/clusters";
+import { isFirstCatalogPending, useClusterName } from "@/lib/clusters";
 import { findSearchHotkeyTarget, isTypingTarget } from "@/lib/keyboard";
 import { NotFoundPage } from "@/routes/-not-found";
 
@@ -54,6 +55,14 @@ function AppLayout() {
 
   if (!isPending && clusters && clusters.length > 0 && !known) {
     return <Navigate to="/cluster/$cluster" params={{ cluster: clusters[0] }} replace />;
+  }
+
+  if (isPending) {
+    return <ClustersLoading />;
+  }
+
+  if (isFirstCatalogPending(health)) {
+    return <CatalogLoading />;
   }
 
   const topology = health?.topology;

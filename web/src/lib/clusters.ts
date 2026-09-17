@@ -16,6 +16,11 @@ export function clusterTone(health: ClusterHealth | null | undefined): Tone {
   return lanes(health).every((lane) => lane.healthy) ? "ok" : "warn";
 }
 
+/** True until topology commits once, unless that first poll already failed. */
+export function isFirstCatalogPending(health: ClusterHealth | null | undefined): boolean {
+  return health != null && !health.ready && health.topology.lastError == null;
+}
+
 export function lanes(health: ClusterHealth): LaneHealth[] {
   return [health.topology, health.watermarks, health.offsets, health.configs, health.subjects];
 }
