@@ -1,439 +1,230 @@
-use futures::stream::{self, BoxStream};
-use juniper::{FieldResult, IntoFieldError, graphql_subscription};
+//! The one subscription.
+//!
+//! A page opens `updates(cluster, scope)` and gets every lane's typed delta
+//! on one socket. There is no per-metric sampler and no per-page stream: the
+//! ingestion lanes already tick at their own cadence, and this multiplexes
+//! what they publish onto whoever is listening.
+
+use std::collections::VecDeque;
+use std::sync::Arc;
+
+use futures::stream::{BoxStream, StreamExt as _};
+use juniper::{FieldError, IntoFieldError as _, graphql_subscription};
+use tokio::sync::broadcast::Receiver;
+use tokio::sync::broadcast::error::RecvError;
+
+use crate::app::auth::SessionGuard;
+use crate::kafka::store::{Change, GroupOffsetsWave, InterestLease};
 
 use super::context::GraphQlContext;
-use super::types::{CatalogUpdated, ConsumerGroup, TopicRate};
-use crate::AppState;
-use crate::app::sampler::SamplerMap;
+use super::error::GqlError;
+use super::types::{
+    ConfigsChanged, GroupLagUpdate, Resync, ResyncReason, SubjectsChanged, TopicRate,
+    TopologyDelta, Update, UpdateScope, WatermarksTick, names,
+};
 
 pub struct Subscription;
 
-type TopicRateStream = BoxStream<'static, FieldResult<Vec<TopicRate>>>;
-type ConsumerGroupStream = BoxStream<'static, FieldResult<ConsumerGroup>>;
-type CatalogUpdatedStream = BoxStream<'static, FieldResult<CatalogUpdated>>;
-
-#[derive(Default)]
-pub(crate) struct Samplers {
-    topic_rates: SamplerMap<String, FieldResult<Vec<TopicRate>>>,
-    group_lag: SamplerMap<(String, String), FieldResult<ConsumerGroup>>,
-}
-
 #[graphql_subscription(context = GraphQlContext)]
 impl Subscription {
-    async fn topic_rates(context: &GraphQlContext, cluster: String) -> TopicRateStream {
-        if let Err(error) = context.allow_cluster(&cluster) {
-            return Box::pin(stream::once(async move { Err(error.into_field_error()) }));
-        }
-
-        let sampler = context.samplers.topic_rates.attach(cluster.clone(), {
-            let state = context.clone();
-            move || {
-                let state = state.clone();
-                let cluster = cluster.clone();
-                async move { sample_topic_rates(&state, &cluster).await }
-            }
-        });
-
-        Box::pin(sampler.stream())
-    }
-
-    async fn consumer_group_lag(
+    /// Every lane delta for one cluster, optionally narrowed to one topic or
+    /// group.
+    ///
+    /// A scoped subscriber pays only for its own page: the all-topics
+    /// watermark firehose exists for list pages, and even that carries one
+    /// `{topic, rate}` pair per topic rather than catalog objects.
+    async fn updates(
         context: &GraphQlContext,
         cluster: String,
-        id: String,
-    ) -> ConsumerGroupStream {
-        if let Err(error) = context.allow_cluster(&cluster) {
-            return Box::pin(stream::once(async move { Err(error.into_field_error()) }));
-        }
-        let key = (cluster.clone(), id.clone());
-        let sampler = context.samplers.group_lag.attach(key, {
-            let state = context.clone();
-            move || {
-                let state = state.clone();
-                let cluster = cluster.clone();
-                let id = id.clone();
-                async move { sample_consumer_group_lag(&state, &cluster, &id).await }
-            }
-        });
+        scope: Option<UpdateScope>,
+    ) -> Result<BoxStream<'static, Result<Update, FieldError>>, GqlError> {
+        let store = Arc::clone(context.cluster(&cluster)?.store);
+        let scope = scope.unwrap_or_default();
 
-        Box::pin(sampler.stream())
+        Ok(Stream {
+            // Held for the stream's lifetime; dropping it on disconnect
+            // releases the offsets lane's fast tier immediately.
+            _lease: scope
+                .group
+                .as_deref()
+                .map(|group| store.interest.lease_group(group)),
+            events: store.bus.subscribe(),
+            guard: context.guard.clone(),
+            pending: VecDeque::new(),
+            cluster,
+            scope,
+            done: false,
+        }
+        .into_stream())
     }
+}
 
-    async fn catalog_updated(context: &GraphQlContext, cluster: String) -> CatalogUpdatedStream {
-        if let Err(error) = context.allow_cluster(&cluster) {
-            return Box::pin(stream::once(async move { Err(error.into_field_error()) }));
-        }
-        let mut updates = context.catalog_updates(&cluster);
-        let _ = updates.borrow_and_update();
+struct Stream {
+    events: Receiver<Change>,
+    _lease: Option<InterestLease>,
+    guard: SessionGuard,
+    /// One lane delta can fan out to several updates; they are emitted one
+    /// per poll rather than collapsed into an aggregate nobody asked for.
+    pending: VecDeque<Update>,
+    cluster: String,
+    scope: UpdateScope,
+    done: bool,
+}
 
-        Box::pin(stream::unfold(
-            (updates, cluster),
-            |(mut updates, cluster)| async move {
-                loop {
-                    updates.changed().await.ok()?;
-                    let Some(revision) = updates.borrow_and_update().clone() else {
-                        continue;
-                    };
-                    if revision.cluster == cluster {
-                        return Some((Ok(CatalogUpdated::from(revision)), (updates, cluster)));
+impl Stream {
+    fn into_stream(self) -> BoxStream<'static, Result<Update, FieldError>> {
+        futures::stream::unfold(self, |mut state| async move {
+            loop {
+                if state.done {
+                    return None;
+                }
+                if let Some(update) = state.pending.pop_front() {
+                    return Some((Ok(update), state));
+                }
+
+                match state.events.recv().await {
+                    // Every sender is gone: the cluster's lanes stopped.
+                    Err(RecvError::Closed) => return None,
+                    // The client fell behind the bus, so its cache is wrong
+                    // in ways no delta can repair. Tell it to refetch rather
+                    // than buffer without bound.
+                    Err(RecvError::Lagged(missed)) => {
+                        tracing::debug!(
+                            cluster = %state.cluster,
+                            missed,
+                            "subscriber lagged the change bus"
+                        );
+                        return Some((
+                            Ok(Update::Resync(Resync {
+                                reason: ResyncReason::Lagged,
+                            })),
+                            state,
+                        ));
+                    }
+                    Ok(change) => {
+                        if let Some(error) = state.denied() {
+                            state.done = true;
+                            return Some((Err(error.into_field_error()), state));
+                        }
+                        state.pending.extend(project(&change, &state.scope));
                     }
                 }
-            },
-        ))
-    }
-}
-
-async fn sample_topic_rates(state: &AppState, cluster: &str) -> FieldResult<Vec<TopicRate>> {
-    Ok(state
-        .series_topic_rates(cluster)
-        .into_iter()
-        .map(TopicRate::from)
-        .collect())
-}
-
-async fn sample_consumer_group_lag(
-    state: &AppState,
-    cluster: &str,
-    id: &str,
-) -> FieldResult<ConsumerGroup> {
-    let group = state
-        .live_consumer_group(cluster, id)
-        .await
-        .map_err(IntoFieldError::into_field_error)?;
-    state.series_observe_group_lag(cluster, id, group.lag);
-    Ok(ConsumerGroup::from(group))
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-    use std::time::Duration;
-
-    use futures::StreamExt;
-    use juniper::{EmptyMutation, RootNode, SubscriptionCoordinator, http::GraphQLRequest};
-    use juniper_subscriptions::Coordinator;
-
-    use super::*;
-    use crate::app::graphql::context::GraphQlContext;
-    use crate::app::graphql::query::Query;
-    use crate::environment::SAMPLE_INTERVAL;
-    use crate::kafka::model::CleanupPolicy;
-    use crate::kafka::{FakeCluster, QueryEngine, Topic};
-
-    /// The high watermark of `orders.created` partition 0 climbs by a further 10
-    /// on every read, so rate and lag samples grow between subscription ticks.
-    fn growing_cluster() -> FakeCluster {
-        FakeCluster::local().with_growing_watermarks(10)
-    }
-
-    fn schema() -> RootNode<Query, EmptyMutation<GraphQlContext>, Subscription> {
-        RootNode::new(Query, EmptyMutation::<GraphQlContext>::new(), Subscription)
-    }
-
-    fn ctx(state: &AppState) -> GraphQlContext {
-        GraphQlContext::unrestricted(state.clone())
-    }
-
-    async fn wait_until(mut predicate: impl FnMut() -> bool) {
-        for _ in 0..200 {
-            if predicate() {
-                return;
             }
-            tokio::task::yield_now().await;
-        }
-        panic!("condition not met");
+        })
+        .boxed()
     }
 
-    fn catalog_updated_request() -> GraphQLRequest {
-        serde_json::from_str(
-            r#"{ "query": "subscription { catalogUpdated(cluster: \"local\") { cluster generation } }" }"#,
-        )
-        .unwrap()
-    }
-
-    fn topic_rates_request() -> GraphQLRequest {
-        serde_json::from_str(
-            r#"{ "query": "subscription { topicRates(cluster: \"local\") { name messagesPerSec } }" }"#,
-        )
-        .unwrap()
-    }
-
-    #[tokio::test]
-    async fn catalog_updated_subscription_skips_watermark_only_stores() {
-        let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
-            FakeCluster::local(),
-        ])));
-        let coordinator = Coordinator::new(schema());
-        let request = catalog_updated_request();
-        let context = ctx(&state);
-        let mut stream = coordinator.subscribe(&request, &context).await.unwrap();
-
-        let first = state.catalog_snapshot("local").await.unwrap();
-        tokio::task::yield_now().await;
-        let first_event = tokio::time::timeout(Duration::from_millis(50), stream.next())
-            .await
-            .expect("first roster store notifies")
-            .unwrap();
-        let first_event = serde_json::to_value(first_event).unwrap();
-        assert_eq!(first_event["data"]["catalogUpdated"]["cluster"], "local");
-        assert_eq!(first_event["data"]["catalogUpdated"]["generation"], 1);
-
-        let mut louder = (*first).clone();
-        louder.topics[0].message_count += 10;
-        louder.updated_at = first.updated_at;
-        state.catalog.store("local", louder);
-        assert!(
-            tokio::time::timeout(Duration::from_millis(50), stream.next())
-                .await
-                .is_err()
-        );
-
-        let mut roster = (*first).clone();
-        roster.topics.push(Topic {
-            name: "payments.settled".into(),
-            internal: false,
-            partitions: Vec::new(),
-            replication_factor: 1,
-            message_count: 0,
-            cleanup_policy: CleanupPolicy::Delete,
-            retention_ms: 0,
-            consumer_groups: Vec::new(),
-            under_replicated: false,
-        });
-        state.catalog.store("local", roster);
-        let second = tokio::time::timeout(Duration::from_millis(50), stream.next())
-            .await
-            .expect("roster change notifies")
-            .unwrap();
-        let second = serde_json::to_value(second).unwrap();
-        assert_eq!(second["data"]["catalogUpdated"]["generation"], 2);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn topic_rates_subscription_emits_watermark_delta() {
-        let state = AppState::new(Arc::new(QueryEngine::from_sessions(
-            vec![growing_cluster()],
-        )))
-        .with_catalog_poller(Duration::from_secs(1));
-        wait_until(|| state.catalog.snapshot("local").is_some()).await;
-        wait_until(|| !state.rates.topic_rates("local").is_empty()).await;
-
-        let coordinator = Coordinator::new(schema());
-        let request = topic_rates_request();
-        let context = ctx(&state);
-        let mut stream = coordinator.subscribe(&request, &context).await.unwrap();
-
-        let first = stream.next().await.unwrap();
-        let first = serde_json::to_value(first).unwrap();
-        assert_eq!(first["data"]["topicRates"][0]["name"], "orders.created");
-        assert_eq!(first["data"]["topicRates"][0]["messagesPerSec"], 0.0);
-
-        tokio::time::advance(Duration::from_secs(1) + Duration::from_millis(1)).await;
-        wait_until(|| state.rates.cluster_history("local").len() >= 2).await;
-        assert!(
-            state
-                .rates
-                .topic_rate("local", "orders.created")
-                .unwrap()
-                .messages_per_sec
-                > 0.0
-        );
-
-        tokio::time::advance(*SAMPLE_INTERVAL - Duration::from_secs(1) + Duration::from_millis(1))
-            .await;
-
-        let second = stream.next().await.unwrap();
-        let second = serde_json::to_value(second).unwrap();
-        assert_eq!(second["data"]["topicRates"][0]["name"], "orders.created");
-        assert!(
-            second["data"]["topicRates"][0]["messagesPerSec"]
-                .as_f64()
-                .unwrap()
-                > 0.0
-        );
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn concurrent_subscribers_do_not_observe_rates() {
-        let state = AppState::new(Arc::new(QueryEngine::from_sessions(
-            vec![growing_cluster()],
-        )))
-        .with_catalog_poller(Duration::from_secs(1));
-        wait_until(|| !state.rates.topic_rates("local").is_empty()).await;
-
-        let coordinator = Coordinator::new(schema());
-        let request = topic_rates_request();
-        let context = ctx(&state);
-        let mut first = coordinator.subscribe(&request, &context).await.unwrap();
-        let mut second = coordinator.subscribe(&request, &context).await.unwrap();
-
-        first.next().await.unwrap();
-        second.next().await.unwrap();
-        let after_first = state.rates.cluster_history("local").len();
-
-        tokio::time::advance(Duration::from_secs(1) + Duration::from_millis(1)).await;
-        wait_until(|| state.rates.cluster_history("local").len() > after_first).await;
-        tokio::time::advance(*SAMPLE_INTERVAL - Duration::from_secs(1) + Duration::from_millis(1))
-            .await;
-
-        first.next().await.unwrap();
-        second.next().await.unwrap();
-
-        assert!(
-            state.rates.cluster_history("local").len() < 4,
-            "two subscribers must share poller samples, not observe on each WS tick"
-        );
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn topic_rates_subscription_does_not_list_offsets() {
-        let state = AppState::new(Arc::new(QueryEngine::from_sessions(
-            vec![growing_cluster()],
-        )));
-        let coordinator = Coordinator::new(schema());
-        let request = topic_rates_request();
-        let context = ctx(&state);
-        let mut stream = coordinator.subscribe(&request, &context).await.unwrap();
-
-        let first = stream.next().await.unwrap();
-        let first = serde_json::to_value(first).unwrap();
-        assert_eq!(first["data"]["topicRates"], serde_json::json!([]));
-
-        tokio::time::advance(*SAMPLE_INTERVAL + Duration::from_millis(1)).await;
-        let second = stream.next().await.unwrap();
-        let second = serde_json::to_value(second).unwrap();
-        assert_eq!(second["data"]["topicRates"], serde_json::json!([]));
-        assert!(state.rates.cluster_history("local").is_empty());
-        assert!(state.catalog.snapshot("local").is_none());
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn consumer_group_lag_subscription_emits_updated_lag() {
-        let state = AppState::new(Arc::new(QueryEngine::from_sessions(
-            vec![growing_cluster()],
-        )));
-        let coordinator = Coordinator::new(schema());
-        let request: GraphQLRequest = serde_json::from_str(
-            r#"{ "query": "subscription { consumerGroupLag(cluster: \"local\", id: \"order-processor\") { id lag offsets { partition lag endOffset } } }" }"#,
-        )
-        .unwrap();
-
-        let context = ctx(&state);
-        let mut stream = coordinator.subscribe(&request, &context).await.unwrap();
-
-        let first = stream.next().await.unwrap();
-        let first = serde_json::to_value(first).unwrap();
-        assert_eq!(first["data"]["consumerGroupLag"]["id"], "order-processor");
-        let first_lag = first["data"]["consumerGroupLag"]["lag"].as_f64().unwrap();
-        assert!(first_lag >= 0.0);
-
-        tokio::time::advance(*SAMPLE_INTERVAL + Duration::from_millis(1)).await;
-
-        let second = stream.next().await.unwrap();
-        let second = serde_json::to_value(second).unwrap();
-        assert_eq!(second["data"]["consumerGroupLag"]["id"], "order-processor");
-        let second_lag = second["data"]["consumerGroupLag"]["lag"].as_f64().unwrap();
-        assert!(
-            second_lag > first_lag,
-            "expected lag to grow after high watermarks advance (first={first_lag}, second={second_lag})"
-        );
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn consumer_group_lag_stays_live_when_the_catalog_snapshot_is_stale() {
-        let state = AppState::new(Arc::new(QueryEngine::from_sessions(
-            vec![growing_cluster()],
-        )));
-        let snapshot = state.query.catalog("local").await.unwrap();
-        let seeded = snapshot.group("order-processor").unwrap().lag;
-        state.catalog.seed("local", snapshot);
-
-        let coordinator = Coordinator::new(schema());
-        let request: GraphQLRequest = serde_json::from_str(
-            r#"{ "query": "subscription { consumerGroupLag(cluster: \"local\", id: \"order-processor\") { id lag } }" }"#,
-        )
-        .unwrap();
-        let context = ctx(&state);
-        let mut stream = coordinator.subscribe(&request, &context).await.unwrap();
-
-        let first = stream.next().await.unwrap();
-        let first = serde_json::to_value(first).unwrap();
-        let first_lag = first["data"]["consumerGroupLag"]["lag"].as_f64().unwrap();
-
-        tokio::time::advance(*SAMPLE_INTERVAL + Duration::from_millis(1)).await;
-        let second = stream.next().await.unwrap();
-        let second = serde_json::to_value(second).unwrap();
-        let second_lag = second["data"]["consumerGroupLag"]["lag"].as_f64().unwrap();
-
-        assert!(
-            second_lag > first_lag,
-            "subscription must keep sampling Kafka (first={first_lag}, second={second_lag})"
-        );
-        assert_eq!(
-            state
-                .catalog
-                .snapshot("local")
-                .unwrap()
-                .group("order-processor")
-                .unwrap()
-                .lag,
-            seeded
-        );
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn consumer_group_lag_subscription_reports_unknown_group() {
-        let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
-            FakeCluster::local(),
-        ])));
-        let coordinator = Coordinator::new(schema());
-        let request: GraphQLRequest = serde_json::from_str(
-            r#"{ "query": "subscription { consumerGroupLag(cluster: \"local\", id: \"ghost\") { id lag } }" }"#,
-        )
-        .unwrap();
-        let context = ctx(&state);
-        let mut stream = coordinator.subscribe(&request, &context).await.unwrap();
-
-        let first = stream.next().await.unwrap();
-        let first = serde_json::to_value(first).unwrap();
-        let errors = first["errors"].as_array().unwrap();
-        assert!(
-            errors.iter().any(|error| {
-                error["message"].as_str()
-                    == Some("unknown consumer group 'ghost' in cluster 'local'")
-                    && error["extensions"]["code"].as_str() == Some("UNKNOWN_GROUP")
-            }),
-            "errors={errors:?}"
-        );
-        assert!(first["data"]["consumerGroupLag"].is_null());
-    }
-
-    #[tokio::test]
-    async fn topic_rates_hidden_cluster_is_unknown() {
-        use crate::app::auth::access::{ClusterScope, EffectiveAccess, Grant, Role};
-
-        let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
-            FakeCluster::local(),
-        ])));
-        let context = GraphQlContext {
-            state,
-            access: EffectiveAccess::Restricted(Grant {
-                role: Role::Viewer,
-                clusters: ClusterScope::Only(["payments".into()].into()),
-            }),
+    /// An expired or revoked session must not keep streaming just because it
+    /// was valid at the upgrade, so access is re-resolved per event. It is an
+    /// in-memory lookup, negligible at seconds cadence.
+    fn denied(&self) -> Option<GqlError> {
+        let Some(access) = self.guard.revalidate() else {
+            return Some(GqlError::SessionExpired);
         };
-        let coordinator = Coordinator::new(schema());
-        let request = topic_rates_request();
-        let mut stream = coordinator.subscribe(&request, &context).await.unwrap();
+        access.cluster(&self.cluster).err().map(GqlError::from)
+    }
+}
 
-        let first = stream.next().await.unwrap();
-        let first = serde_json::to_value(first).unwrap();
-        let errors = first["errors"].as_array().unwrap();
-        assert!(
-            errors
+/// Narrows a lane delta to what this subscriber asked for. An empty result
+/// means the event carries nothing for this scope and the socket stays quiet.
+fn project(change: &Change, scope: &UpdateScope) -> Vec<Update> {
+    match change {
+        Change::Watermarks(tick) => {
+            let topics = match scope.topic.as_deref() {
+                None => tick.rates.iter().map(TopicRate::from).collect(),
+                Some(topic) => match tick.rate(topic) {
+                    None => return Vec::new(),
+                    Some(rate) => vec![TopicRate {
+                        topic: topic.to_owned(),
+                        rate,
+                    }],
+                },
+            };
+            vec![Update::Watermarks(WatermarksTick {
+                at: tick.at,
+                topics,
+                cluster_rate: tick.cluster_rate,
+            })]
+        }
+
+        Change::GroupOffsets(wave) => match scope.group.as_deref() {
+            Some(group) => wave
+                .group(group)
+                .map(|update| Update::GroupLag(lag_update(wave, update, true)))
+                .into_iter()
+                .collect(),
+            // A list page renders totals, so it gets one update per group
+            // without the per-partition offsets behind them.
+            None => wave
+                .groups
                 .iter()
-                .any(|error| { error["extensions"]["code"].as_str() == Some("UNKNOWN_CLUSTER") }),
-            "errors={errors:?}"
-        );
+                .map(|update| Update::GroupLag(lag_update(wave, update, false)))
+                .collect(),
+        },
+
+        Change::Topology(delta) => {
+            let relevant = match (scope.topic.as_deref(), scope.group.as_deref()) {
+                (None, None) => true,
+                (topic, group) => {
+                    topic.is_some_and(|topic| delta.touches_topic(topic))
+                        || group.is_some_and(|group| delta.touches_group(group))
+                }
+            };
+            if !relevant {
+                return Vec::new();
+            }
+            vec![Update::Topology(TopologyDelta {
+                version: delta.version.into(),
+                added_topics: names(&delta.added_topics),
+                removed_topics: names(&delta.removed_topics),
+                changed_topics: names(&delta.changed_topics),
+                added_groups: names(&delta.added_groups),
+                removed_groups: names(&delta.removed_groups),
+                changed_groups: names(&delta.changed_groups),
+                brokers_changed: delta.brokers_changed,
+            })]
+        }
+
+        Change::Configs(delta) => {
+            let topics = match scope.topic.as_deref() {
+                None => names(&delta.topics),
+                Some(topic) => {
+                    if !delta.topics.iter().any(|changed| changed.as_ref() == topic) {
+                        return Vec::new();
+                    }
+                    vec![topic.to_owned()]
+                }
+            };
+            vec![Update::Configs(ConfigsChanged {
+                version: delta.version.into(),
+                topics,
+            })]
+        }
+
+        // The subjects listing is cluster-wide: a topic page still wants to
+        // know its value schema moved, and it cannot tell that from the name.
+        Change::Subjects(delta) => vec![Update::Subjects(SubjectsChanged {
+            version: delta.version.into(),
+            added: names(&delta.added),
+            removed: names(&delta.removed),
+            changed: names(&delta.changed),
+        })],
+    }
+}
+
+fn lag_update(
+    wave: &GroupOffsetsWave,
+    update: &crate::kafka::store::GroupLagUpdate,
+    offsets: bool,
+) -> GroupLagUpdate {
+    GroupLagUpdate {
+        at: wave.at,
+        group: update.group.to_string(),
+        lag: update.total_lag.into(),
+        lag_complete: update.lag_complete,
+        offsets: match offsets {
+            true => update.offsets.iter().cloned().map(Into::into).collect(),
+            false => Vec::new(),
+        },
     }
 }

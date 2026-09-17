@@ -50,6 +50,22 @@ impl AuthBackend {
             .expect("auth user store")
             .insert(user.sub.clone(), user);
     }
+
+    /// The still-valid user behind a subject, evicting it once expired.
+    ///
+    /// Shares the expiry rule with [`AuthnBackend::get_user`] so a long-lived
+    /// subscription cannot outlive the session that opened it.
+    pub(crate) fn live_user(&self, subject: &str) -> Option<SessionUser> {
+        let mut users = self.users.lock().expect("auth user store");
+        match users.get(subject) {
+            Some(user) if user.exp > unix_timestamp_secs() => Some(user.clone()),
+            Some(_) => {
+                users.remove(subject);
+                None
+            }
+            None => None,
+        }
+    }
 }
 
 impl std::fmt::Debug for AuthBackend {
@@ -102,14 +118,6 @@ impl AuthnBackend for AuthBackend {
     }
 
     async fn get_user(&self, user_id: &UserId<Self>) -> Result<Option<Self::User>, Self::Error> {
-        let mut users = self.users.lock().expect("auth user store");
-        match users.get(user_id) {
-            Some(user) if user.exp > unix_timestamp_secs() => Ok(Some(user.clone())),
-            Some(_) => {
-                users.remove(user_id);
-                Ok(None)
-            }
-            None => Ok(None),
-        }
+        Ok(self.live_user(user_id))
     }
 }

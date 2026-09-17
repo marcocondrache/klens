@@ -29,9 +29,12 @@ the process loads here.
 helm install klens ./charts/klens -n klens --create-namespace -f my-values.yaml
 ```
 
-The topics and consumer groups pages read a background catalog snapshot.
-Override the poll interval with `KLENS_CATALOG_POLL_INTERVAL` (seconds,
-default 5, minimum 1).
+Every page reads a background projection of each cluster, refreshed by
+independent lanes. Override a lane's cadence with `KLENS_TOPOLOGY_LANE_INTERVAL`
+(default 10), `KLENS_WATERMARK_LANE_INTERVAL` (3), `KLENS_CONFIG_LANE_INTERVAL`
+(60), or `KLENS_SUBJECT_LANE_INTERVAL` (30), in seconds, minimum 1. Consumer
+group offsets refresh at `KLENS_FAST_OFFSET_INTERVAL` (2) for groups someone is
+looking at and `KLENS_SLOW_OFFSET_INTERVAL` (20) for the rest.
 
 ## Authentication
 
@@ -41,6 +44,11 @@ To require a login, add an OIDC provider to `config.yaml`. klens uses the
 authorization code flow with PKCE. Sessions use
 [axum-login](https://github.com/maxcountryman/axum-login). `/health` stays
 public. A process restart drops in-memory sessions and requires a new login.
+
+Set `auth.session_key` (or `KLENS_SESSION_KEY`, which takes precedence) to a
+base64 or plain secret of at least 32 bytes so the session cookie survives a
+restart. Without one, klens generates a key per boot and every deploy logs
+everyone out.
 
 ```yaml
 auth:
@@ -56,8 +64,16 @@ authenticated user has the same access as an open deployment.
 
 To map IdP groups to `admin` or `viewer`, add `roles`. Unmatched users cannot
 sign in. Admins can read records, live broker/topic configs, schema text, and
-ACL bindings on their clusters. Viewers see the catalog only. Omit `clusters` on a binding
-to allow every configured cluster.
+ACL bindings on their clusters. Viewers see the catalog only. Omit `clusters` on
+a binding to allow every configured cluster.
+
+Bindings are evaluated per cluster and never merged: a user's role on a cluster
+is the highest role among the bindings that name it, so a cluster-wide `admin`
+binding plus a `payments`-only `viewer` binding still leaves that user an admin
+on `payments` (the wide binding covers it) while a `viewer` binding alone never
+gains privileges from an admin binding scoped elsewhere. A cluster no binding
+covers is invisible: it is reported as unknown rather than forbidden, so nobody
+can probe for clusters they are not allowed to know about.
 
 ```yaml
 auth:

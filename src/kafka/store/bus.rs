@@ -8,7 +8,7 @@ use crate::kafka::group::GroupOffset;
 
 use super::tables::{ConfigTable, GroupInfo, SubjectTable, TopicInfo, Topology};
 
-const BUS_CAPACITY: usize = 256;
+pub const BUS_CAPACITY: usize = 256;
 
 /// A typed delta from one ingestion lane.
 ///

@@ -30,7 +30,7 @@ use crate::kafka::error::KafkaError;
 use crate::kafka::group::{CommittedOffset, GroupSnapshot, is_internal_group};
 use crate::kafka::metadata::MetadataSnapshot;
 use crate::kafka::model::ScanConsumer;
-use crate::kafka::registry::SchemaSubject;
+use crate::kafka::registry::{RegisteredSchema, SchemaSubject};
 use crate::kafka::registry::client::SchemaRegistryClient;
 use crate::kafka::registry::decode::PayloadDecoder;
 use crate::kafka::scan::payload::PayloadCodec;
@@ -306,6 +306,24 @@ impl ClusterSession for KafkaClient {
             return Ok(Vec::new());
         };
         decoder.client().subjects().await
+    }
+
+    async fn subject_schema(
+        &self,
+        subject: &str,
+        version: i32,
+    ) -> Result<RegisteredSchema, KafkaError> {
+        let Some(decoder) = &self.schema_registry else {
+            return Err(KafkaError::UnknownSubject {
+                cluster: self.identity.name.clone(),
+                subject: subject.to_owned(),
+                version,
+            });
+        };
+        decoder
+            .client()
+            .schema_by_subject_version(subject, version)
+            .await
     }
 
     async fn acls(&self) -> Result<AclListing, KafkaError> {
