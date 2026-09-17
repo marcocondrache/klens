@@ -2,10 +2,7 @@ use std::cell::OnceCell;
 
 use async_trait::async_trait;
 use bytes::Bytes;
-
-/// Confluent wire framing: magic byte 0, then a big-endian schema id.
-const CONFLUENT_MAGIC: u8 = 0;
-const FRAME_LEN: usize = 5;
+use schemreg::{SchemaId, decode_wire_prefix};
 
 /// One key or value, decoded at most once.
 ///
@@ -104,17 +101,18 @@ pub trait PayloadCodec: Send + Sync {
     async fn decode_batch(&self, slots: &mut [PayloadSlot]);
 }
 
-/// Schema id from a Confluent frame, if the bytes carry one.
+/// Schema id from a Confluent wire-format prefix, if the bytes carry one.
+///
+/// A v1 prefix names a 16-byte GUID rather than a numeric id, so a payload
+/// can be framed — and decodable — while reporting `None` here.
 pub fn framed_schema_id(bytes: &[u8]) -> Option<i32> {
-    if bytes.len() < FRAME_LEN || bytes[0] != CONFLUENT_MAGIC {
-        return None;
-    }
-    Some(i32::from_be_bytes(bytes[1..FRAME_LEN].try_into().ok()?))
+    let (key, _) = decode_wire_prefix(bytes).ok()?;
+    i32::try_from(SchemaId::as_u32(key.as_id()?)).ok()
 }
 
 /// Whether these bytes need a registry round trip before they mean anything.
 pub fn needs_decode(bytes: &[u8], override_id: Option<i32>) -> bool {
-    framed_schema_id(bytes).is_some() || override_id.is_some()
+    decode_wire_prefix(bytes).is_ok() || override_id.is_some()
 }
 
 fn render_raw(bytes: &[u8]) -> String {
@@ -124,12 +122,10 @@ fn render_raw(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use schemreg::encode_wire_format;
 
-    fn framed(id: i32, body: &[u8]) -> Bytes {
-        let mut bytes = vec![CONFLUENT_MAGIC];
-        bytes.extend_from_slice(&id.to_be_bytes());
-        bytes.extend_from_slice(body);
-        Bytes::from(bytes)
+    fn framed(id: u32, body: &[u8]) -> Bytes {
+        encode_wire_format(id, body)
     }
 
     #[test]
@@ -167,6 +163,15 @@ mod tests {
         assert!(needs_decode(b"plain", Some(7)));
         assert!(needs_decode(&framed(7, b"body"), None));
         assert!(!needs_decode(&[0, 1, 2], None), "too short to be a frame");
+    }
+
+    #[test]
+    fn a_guid_framed_payload_is_decodable_without_a_numeric_id() {
+        let guid: schemreg::SchemaGuid = "550e8400-e29b-41d4-a716-446655440000".parse().unwrap();
+        let raw = encode_wire_format(guid, b"body");
+
+        assert!(needs_decode(&raw, None));
+        assert_eq!(framed_schema_id(&raw), None);
     }
 
     #[test]
