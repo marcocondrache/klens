@@ -28,6 +28,8 @@ interface DataTablePaginationProps<TData extends RowData> {
   canPreviousPage?: boolean;
   onPreviousPage?: () => void;
   onNextPage?: () => void;
+  onPageSizeChange?: (pageSize: number) => void;
+  pageSizes?: number[];
   loadingMore?: boolean;
 }
 
@@ -38,6 +40,8 @@ export function DataTablePagination<TData extends RowData>({
   canPreviousPage = false,
   onPreviousPage,
   onNextPage,
+  onPageSizeChange,
+  pageSizes = PAGE_SIZES,
   loadingMore = false,
 }: DataTablePaginationProps<TData>) {
   const pageSize = table.state.pagination.pageSize;
@@ -45,9 +49,9 @@ export function DataTablePagination<TData extends RowData>({
   const selected = table.getFilteredSelectedRowModel().rows.length;
   const filtered = table.getFilteredRowModel().rows.length;
   const pageCount = Math.max(1, table.getPageCount());
-  const sizes = PAGE_SIZES.includes(pageSize)
-    ? PAGE_SIZES
-    : [...PAGE_SIZES, pageSize].sort((left, right) => left - right);
+  const sizes = pageSizes.includes(pageSize)
+    ? pageSizes
+    : [...pageSizes, pageSize].sort((left, right) => left - right);
   const pageSizeItems = sizes.map((size) => ({
     value: String(size),
     label: String(size),
@@ -62,14 +66,19 @@ export function DataTablePagination<TData extends RowData>({
         {selected} of {filtered} row(s) selected.
       </div>
       <div className="flex items-center gap-6 lg:gap-8">
-        {manual ? null : (
+        {(!manual || onPageSizeChange) && (
           <div className="flex items-center gap-2">
             <p className="text-sm font-medium">Rows per page</p>
             <Select
               value={String(pageSize)}
               items={pageSizeItems}
               onValueChange={(value) => {
-                table.setPageSize(Number(value));
+                const size = Number(value);
+                if (onPageSizeChange) {
+                  onPageSizeChange(size);
+                  return;
+                }
+                table.setPageSize(size);
               }}
             >
               <SelectTrigger size="sm" className="w-[70px]">
