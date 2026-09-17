@@ -88,10 +88,6 @@ pub trait ClusterSession: Send + Sync + 'static {
         Ok(Vec::new())
     }
 
-    /// One subject version's schema text and references.
-    ///
-    /// The subjects lane keeps only the listing; bodies are fetched on
-    /// demand because they are large, rarely read, and privileged.
     async fn subject_schema(
         &self,
         subject: &str,

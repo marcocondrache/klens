@@ -1,10 +1,3 @@
-//! The one subscription.
-//!
-//! A page opens `updates(cluster, scope)` and gets every lane's typed delta
-//! on one socket. There is no per-metric sampler and no per-page stream: the
-//! ingestion lanes already tick at their own cadence, and this multiplexes
-//! what they publish onto whoever is listening.
-
 use std::collections::VecDeque;
 use std::sync::Arc;
 
@@ -42,8 +35,6 @@ impl Subscription {
         let scope = scope.unwrap_or_default();
 
         Ok(Stream {
-            // Held for the stream's lifetime; dropping it on disconnect
-            // releases the offsets lane's fast tier immediately.
             _lease: scope
                 .group
                 .as_deref()
@@ -63,8 +54,6 @@ struct Stream {
     events: Receiver<Change>,
     _lease: Option<InterestLease>,
     guard: SessionGuard,
-    /// One lane delta can fan out to several updates; they are emitted one
-    /// per poll rather than collapsed into an aggregate nobody asked for.
     pending: VecDeque<Update>,
     cluster: String,
     scope: UpdateScope,
@@ -83,11 +72,7 @@ impl Stream {
                 }
 
                 match state.events.recv().await {
-                    // Every sender is gone: the cluster's lanes stopped.
                     Err(RecvError::Closed) => return None,
-                    // The client fell behind the bus, so its cache is wrong
-                    // in ways no delta can repair. Tell it to refetch rather
-                    // than buffer without bound.
                     Err(RecvError::Lagged(missed)) => {
                         tracing::debug!(
                             cluster = %state.cluster,
@@ -114,9 +99,6 @@ impl Stream {
         .boxed()
     }
 
-    /// An expired or revoked session must not keep streaming just because it
-    /// was valid at the upgrade, so access is re-resolved per event. It is an
-    /// in-memory lookup, negligible at seconds cadence.
     fn denied(&self) -> Option<GqlError> {
         let Some(access) = self.guard.revalidate() else {
             return Some(GqlError::SessionExpired);
@@ -125,8 +107,6 @@ impl Stream {
     }
 }
 
-/// Narrows a lane delta to what this subscriber asked for. An empty result
-/// means the event carries nothing for this scope and the socket stays quiet.
 fn project(change: &Change, scope: &UpdateScope) -> Vec<Update> {
     match change {
         Change::Watermarks(tick) => {
@@ -153,8 +133,6 @@ fn project(change: &Change, scope: &UpdateScope) -> Vec<Update> {
                 .map(|update| Update::GroupLag(lag_update(wave, update, true)))
                 .into_iter()
                 .collect(),
-            // A list page renders totals, so it gets one update per group
-            // without the per-partition offsets behind them.
             None => wave
                 .groups
                 .iter()
@@ -201,8 +179,6 @@ fn project(change: &Change, scope: &UpdateScope) -> Vec<Update> {
             })]
         }
 
-        // The subjects listing is cluster-wide: a topic page still wants to
-        // know its value schema moved, and it cannot tell that from the name.
         Change::Subjects(delta) => vec![Update::Subjects(SubjectsChanged {
             version: delta.version.into(),
             added: names(&delta.added),

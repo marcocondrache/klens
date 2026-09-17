@@ -71,8 +71,6 @@ impl<S: ClusterSession + ?Sized> QueryEngine<S> {
             .collect()
     }
 
-    /// Shared handles for the ingestion lanes, which outlive any single
-    /// request and so cannot borrow.
     pub fn sessions(&self) -> Vec<Arc<S>> {
         self.registry.values().map(Arc::clone).collect()
     }

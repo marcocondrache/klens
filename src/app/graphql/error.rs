@@ -3,16 +3,10 @@ use juniper::{FieldError, IntoFieldError, ScalarValue, graphql_value};
 use crate::app::auth::access::AccessError;
 use crate::kafka::{KafkaError, QueryError};
 
-/// Every failure the API surfaces, carrying a stable `extensions.code`.
-///
-/// Denials are errors, never silent empties or redacted strings: a client
-/// that cannot tell "no topics" from "not allowed to see topics" cannot show
-/// the user anything useful.
 #[derive(Debug)]
 pub enum GqlError {
     Kafka(KafkaError),
     Access(AccessError),
-    /// The session expired or was revoked while a subscription was running.
     SessionExpired,
 }
 

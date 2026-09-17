@@ -1,15 +1,3 @@
-//! Pairwise grants and capability handles.
-//!
-//! A grant is a `(role, scope)` pair and stays that way: grants are never
-//! merged. Effective access is evaluated **per cluster** as the highest role
-//! among the grants whose scope covers that cluster, so Admin on `prod` plus
-//! Viewer on `payments` leaves `payments` a viewer.
-//!
-//! Privileged work takes a capability token ([`RecordsCap`], [`ConfigsCap`],
-//! [`SchemaTextCap`], [`AclsCap`]). The tokens carry a cluster name and
-//! cannot be constructed outside this module, so the only way to call a
-//! privileged operation is to have passed its check.
-
 use std::collections::BTreeSet;
 use std::fmt::{Display, Formatter};
 
@@ -17,8 +5,6 @@ use crate::config::{RoleBinding, RoleName, RolesConfig, default_groups_claim};
 
 const MAX_GROUPS: usize = 64;
 
-/// Admin outranks Viewer, which is what "highest role among covering grants"
-/// means.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Role {
     Viewer,
@@ -104,8 +90,6 @@ impl ClusterScope {
     }
 }
 
-/// One configured binding, exactly as configured. Grants are never combined:
-/// combining them is what let a wide role escalate onto a narrow scope.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Grant {
     pub role: Role,
@@ -114,14 +98,11 @@ pub struct Grant {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EffectiveAccess {
-    /// Auth is off, or configured without role bindings.
     Unrestricted,
     Granted(Vec<Grant>),
 }
 
 impl EffectiveAccess {
-    /// Highest role among the grants covering `cluster`. `None` means the
-    /// cluster is invisible to this session.
     pub fn role_for(&self, cluster: &str) -> Option<Role> {
         match self {
             Self::Unrestricted => Some(Role::Admin),
@@ -133,8 +114,6 @@ impl EffectiveAccess {
         }
     }
 
-    /// The one fallible call every resolver makes. Holding a
-    /// [`ClusterAccess`] is proof the cluster is visible.
     pub fn cluster<'a>(&self, name: &'a str) -> Result<ClusterAccess<'a>, AccessError> {
         match self.role_for(name) {
             Some(role) => Ok(ClusterAccess {
@@ -156,8 +135,6 @@ impl EffectiveAccess {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AccessError {
-    /// An invisible cluster reads as missing rather than forbidden, so a
-    /// session cannot probe for clusters it is not allowed to know about.
     UnknownCluster(String),
     Forbidden {
         cluster: String,
@@ -188,8 +165,6 @@ impl Display for AccessError {
 
 impl std::error::Error for AccessError {}
 
-/// Proof that a session may see a cluster, and the gate to everything it may
-/// do there.
 #[derive(Clone, Copy, Debug)]
 pub struct ClusterAccess<'a> {
     cluster: &'a str,
@@ -230,14 +205,11 @@ impl<'a> ClusterAccess<'a> {
     }
 }
 
-/// The only way to build a capability token, and private to this module.
 #[derive(Clone, Copy, Debug)]
 struct Capability<'a> {
     cluster: &'a str,
 }
 
-/// Declares a capability token: a carrier of the cluster name that nothing
-/// outside this module can construct.
 macro_rules! capability {
     ($(#[$meta:meta])* $token:ident, $method:ident, $privilege:expr) => {
         $(#[$meta])*
@@ -258,30 +230,10 @@ macro_rules! capability {
     };
 }
 
-capability!(
-    /// Required to browse records.
-    RecordsCap,
-    records,
-    Privilege::Records
-);
-capability!(
-    /// Required to read live topic and broker configs.
-    ConfigsCap,
-    configs,
-    Privilege::Configs
-);
-capability!(
-    /// Required to read a schema body.
-    SchemaTextCap,
-    schema_text,
-    Privilege::SchemaText
-);
-capability!(
-    /// Required to list ACL bindings.
-    AclsCap,
-    acls,
-    Privilege::Acls
-);
+capability!(RecordsCap, records, Privilege::Records);
+capability!(ConfigsCap, configs, Privilege::Configs);
+capability!(SchemaTextCap, schema_text, Privilege::SchemaText);
+capability!(AclsCap, acls, Privilege::Acls);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Identity<'a> {
@@ -359,8 +311,6 @@ impl RoleTable {
         }
     }
 
-    /// Every matching binding becomes its own grant. `None` means no binding
-    /// matched, which is a refusal to admit the session at all.
     fn resolve(&self, groups: &[String]) -> Option<Vec<Grant>> {
         let present: BTreeSet<&str> = groups.iter().map(String::as_str).collect();
         let grants: Vec<Grant> = self

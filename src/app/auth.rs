@@ -159,23 +159,13 @@ impl AuthState {
     }
 }
 
-/// Re-resolves a session's access on demand.
-///
-/// Subscription authorization used to freeze at the WebSocket upgrade, so an
-/// expired or revoked session kept streaming. The guard is consulted per
-/// emitted event instead: it is an in-memory lookup, negligible at seconds
-/// cadence.
 #[derive(Clone)]
 pub struct SessionGuard {
     auth: AuthState,
-    /// `None` when auth is disabled, which is the only case where there is
-    /// nothing to revalidate against.
     subject: Option<String>,
 }
 
 impl SessionGuard {
-    /// `None` means the session is gone, expired, or no longer maps to any
-    /// role, and the stream must close.
     pub fn revalidate(&self) -> Option<EffectiveAccess> {
         let Some(subject) = &self.subject else {
             return (!self.auth.is_enabled()).then_some(EffectiveAccess::Unrestricted);
@@ -188,8 +178,6 @@ impl SessionGuard {
         self.subject.as_deref()
     }
 
-    /// A guard over a session that can never expire, for the auth-disabled
-    /// path and for tests.
     pub(crate) fn open() -> Self {
         Self {
             auth: AuthState::disabled(),
@@ -197,8 +185,6 @@ impl SessionGuard {
         }
     }
 
-    /// A guard whose subject has no live session, so it always revalidates to
-    /// nothing.
     #[cfg(test)]
     pub(crate) fn expired() -> Self {
         Self {
@@ -251,8 +237,6 @@ struct AuthMeResponse {
     user: Option<AuthUserResponse>,
 }
 
-/// Identity only. Per-cluster roles and privileges come from the GraphQL
-/// `whoami` query, which is the one place that knows the grants are pairwise.
 #[derive(Serialize)]
 struct AuthUserResponse {
     sub: String,
@@ -468,11 +452,6 @@ fn session_layer(secure: bool, key: Key) -> SessionLayer {
         .with_signed(key)
 }
 
-/// Derives the cookie signing key from the configured secret.
-///
-/// A generated key is fine for a single process but silently logs every user
-/// out on restart and breaks any multi-replica deployment, so the fallback is
-/// loud.
 fn signing_key(configured: Option<&str>) -> anyhow::Result<Key> {
     let Some(secret) = configured.map(str::trim).filter(|value| !value.is_empty()) else {
         tracing::warn!(
@@ -482,11 +461,6 @@ fn signing_key(configured: Option<&str>) -> anyhow::Result<Key> {
         return Ok(Key::generate());
     };
 
-    // Base64 is the natural shape for random bytes, but a long passphrase is
-    // a legitimate choice too — and a passphrase can itself be valid base64
-    // that decodes to fewer bytes than it has characters. Fall back to the
-    // raw bytes whenever the decoded form does not clear the floor, so a long
-    // enough secret is never rejected for a shape it never claimed.
     let bytes = match base64::engine::general_purpose::STANDARD.decode(secret) {
         Ok(decoded) if decoded.len() >= MIN_SESSION_KEY_BYTES => decoded,
         _ => secret.as_bytes().to_vec(),
@@ -957,9 +931,6 @@ mod tests {
         );
     }
 
-    /// `"pppp..."` is both a plausible passphrase and valid base64 that
-    /// decodes to only 24 bytes, so decoding must not be able to reject a
-    /// secret that is long enough as written.
     #[test]
     fn a_passphrase_that_happens_to_be_base64_is_taken_as_written() {
         let passphrase = "p".repeat(MIN_SESSION_KEY_BYTES);
@@ -1017,7 +988,6 @@ mod tests {
         assert_eq!(json["enabled"], true);
         assert_eq!(json["user"]["sub"], "user-1");
         assert_eq!(json["user"]["email"], "user@example.com");
-        // Roles are pairwise, so they cannot be reported cluster-free here.
         assert!(json["user"]["role"].is_null());
         assert!(json["user"]["clusters"].is_null());
     }

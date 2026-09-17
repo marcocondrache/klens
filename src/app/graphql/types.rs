@@ -1,9 +1,3 @@
-//! The GraphQL surface, projected from the store.
-//!
-//! Types mirror [`crate::kafka::store::projections`] rather than the old
-//! assembled catalog: a list page asks for rows, a detail page asks for a
-//! detail, and neither pays for the other.
-
 use chrono::{DateTime, Utc};
 use juniper::{GraphQLEnum, GraphQLInputObject, GraphQLObject, GraphQLUnion};
 
@@ -32,8 +26,6 @@ macro_rules! from_same_variants {
         }
     };
 }
-
-// ---------------------------------------------------------------- identity
 
 #[derive(GraphQLEnum, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Role {
@@ -68,8 +60,6 @@ pub(super) struct Identity {
     pub subject: Option<String>,
     pub clusters: Vec<ClusterGrant>,
 }
-
-// ------------------------------------------------------------------ health
 
 #[derive(GraphQLObject)]
 pub(super) struct LaneHealth {
@@ -133,8 +123,6 @@ impl From<projections::ClusterHealthView> for ClusterHealth {
         }
     }
 }
-
-// ------------------------------------------------------------------ topics
 
 #[derive(GraphQLEnum, Clone, Copy)]
 pub(super) enum CleanupPolicy {
@@ -243,8 +231,6 @@ impl From<projections::TopicDetail> for TopicDetail {
         }
     }
 }
-
-// ------------------------------------------------------------------ groups
 
 #[derive(GraphQLEnum, Clone, Copy)]
 pub(super) enum GroupState {
@@ -402,8 +388,6 @@ impl From<projections::TopicGroupRow> for TopicGroupRow {
     }
 }
 
-// ----------------------------------------------------------------- brokers
-
 #[derive(GraphQLObject)]
 pub(super) struct BrokerRow {
     pub id: i32,
@@ -428,8 +412,6 @@ impl From<projections::BrokerRow> for BrokerRow {
         }
     }
 }
-
-// ----------------------------------------------------------------- configs
 
 #[derive(GraphQLEnum, Clone, Copy)]
 #[allow(clippy::enum_variant_names)]
@@ -471,8 +453,6 @@ impl From<domain::ConfigEntry> for ConfigEntry {
         }
     }
 }
-
-// ---------------------------------------------------------------- subjects
 
 #[derive(GraphQLEnum, Clone, Copy)]
 pub(super) enum SchemaType {
@@ -571,8 +551,6 @@ impl SubjectDetail {
         }
     }
 }
-
-// --------------------------------------------------------------------- acls
 
 #[derive(GraphQLEnum, Clone, Copy)]
 pub(super) enum AclAuthorizer {
@@ -687,8 +665,6 @@ impl From<domain::AclListing> for AclListing {
         }
     }
 }
-
-// ----------------------------------------------------------------- records
 
 #[derive(GraphQLEnum, Clone, Copy)]
 pub(super) enum Compression {
@@ -840,8 +816,6 @@ impl TryFrom<RecordQueryInput> for domain::RecordQuery {
     }
 }
 
-// ------------------------------------------------------------ series/search
-
 #[derive(GraphQLObject)]
 pub(super) struct Point {
     pub at: DateTime<Utc>,
@@ -895,8 +869,6 @@ impl From<domain::SearchHit> for SearchHit {
     }
 }
 
-// ------------------------------------------------------------ rows: paging
-
 /// Server-side name filtering so a 10k-topic cluster's list page does not
 /// need the full set client-side.
 #[derive(GraphQLInputObject, Default)]
@@ -930,8 +902,6 @@ pub(super) struct TopicSort {
     #[graphql(default = false)]
     pub desc: bool,
 }
-
-// ------------------------------------------------------------ subscriptions
 
 #[derive(GraphQLInputObject, Default, Clone)]
 pub(super) struct UpdateScope {
