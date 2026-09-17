@@ -3,10 +3,6 @@
 //! Everything that talks to a broker goes through [`ClusterSession`], and
 //! [`SessionSet`] holds one per configured cluster. Production is
 //! [`super::client::KafkaClient`]. Tests use an in-memory fake cluster.
-//!
-//! The ingestion lanes own the cadenced reads; the API layer reaches for a
-//! session only for the four reads no lane can project: record pages, broker
-//! configs, ACLs, and schema bodies.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -62,7 +58,6 @@ pub trait ClusterSession: Send + Sync + 'static {
 
     async fn groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError>;
 
-    /// Committed offsets, per topic partition, for one consumer group.
     async fn committed_offsets(
         &self,
         group_id: &str,
@@ -109,10 +104,6 @@ pub trait ClusterSession: Send + Sync + 'static {
 }
 
 /// Every configured cluster's I/O port, in config order.
-///
-/// The counterpart of [`crate::kafka::store::StoreSet`]: one entry per
-/// cluster, keyed by name. The lanes borrow a session for the whole process
-/// lifetime, so sessions are handed out as `Arc`s.
 pub struct SessionSet {
     sessions: IndexMap<String, Arc<dyn ClusterSession>>,
 }
@@ -150,8 +141,6 @@ impl SessionSet {
             .collect()
     }
 
-    /// Owned handles for the ingestion lanes, which outlive any single
-    /// request and so cannot borrow.
     pub fn sessions(&self) -> Vec<Arc<dyn ClusterSession>> {
         self.sessions.values().map(Arc::clone).collect()
     }

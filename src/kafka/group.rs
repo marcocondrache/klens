@@ -1,7 +1,4 @@
 //! Raw broker group state.
-//!
-//! [`GroupSnapshot`] is what the broker reports. Lag is never stored: the
-//! store joins committed offsets against watermarks at read time.
 
 /// Raw consumer group state as reported by the broker, before end offsets are
 /// joined in to compute lag.

@@ -1,10 +1,3 @@
-//! The request-level records read: from a [`RecordQuery`] to one page.
-//!
-//! Everything the scan needs that is not the scan itself lives here —
-//! validation, partition resolution, and the offset bounds a plan is built
-//! from — so [`session::ScanSession`](super::session::ScanSession) stays a
-//! pure consumer loop.
-
 use std::collections::HashMap;
 
 use crate::kafka::error::KafkaError;
@@ -19,12 +12,6 @@ use super::plan::apply_timestamp_bounds;
 use super::query::RecordQuery;
 use super::session::fetch_page;
 
-/// Reads one page of records.
-///
-/// The query is validated before any broker call, so a bad limit or an
-/// inverted timestamp range costs nothing. Window bounds are always read
-/// live: a plan built on watermarks from a lane tick could point past a
-/// compacted head.
 pub async fn read_page<S: ClusterSession + ?Sized>(
     session: &S,
     store: &ClusterStore,
@@ -40,11 +27,6 @@ pub async fn read_page<S: ClusterSession + ?Sized>(
     fetch_page(session, &query, &partitions, &watermarks, limit, limits).await
 }
 
-/// Partitions to scan, from the topology lane.
-///
-/// Only a topic the lane has not committed yet costs a metadata round trip;
-/// that miss also kicks the lane, so the next request is served from the
-/// store.
 async fn resolve_partitions<S: ClusterSession + ?Sized>(
     session: &S,
     store: &ClusterStore,
@@ -84,8 +66,6 @@ fn select_partitions(
     }
 }
 
-/// Low and high watermarks per partition, narrowed to the query's timestamp
-/// window so the planner never walks offsets the window excludes.
 async fn window_watermarks<S: ClusterSession + ?Sized>(
     session: &S,
     query: &RecordQuery,
@@ -139,7 +119,6 @@ mod tests {
         ClusterStore::new(identity("local"))
     }
 
-    /// A store whose topology lane already knows the fake cluster's topic.
     fn ingested_store() -> ClusterStore {
         let store = store();
         store.topology.commit(Arc::new(topology(
