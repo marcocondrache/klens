@@ -59,7 +59,6 @@ function preview(value: string | null) {
   return value.replace(/\s+/g, " ").trim();
 }
 
-/** Records on an obfuscated topic are a view of the log, not the log itself. */
 function ObfuscatedBadge() {
   return (
     <Tooltip>
