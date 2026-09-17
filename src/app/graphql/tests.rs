@@ -63,12 +63,10 @@ fn granted(grants: Vec<(&str, PrivilegeSet, ClusterScope)>) -> EffectiveAccess {
     )
 }
 
-/// A role holding every privilege, under the name the example config uses.
 fn admin(scope: ClusterScope) -> (&'static str, PrivilegeSet, ClusterScope) {
     ("admin", PrivilegeSet::ALL, scope)
 }
 
-/// A role holding none: the cluster is visible, nothing on it is.
 fn viewer(scope: ClusterScope) -> (&'static str, PrivilegeSet, ClusterScope) {
     ("viewer", PrivilegeSet::NONE, scope)
 }

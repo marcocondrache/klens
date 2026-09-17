@@ -142,12 +142,8 @@ pub struct AuthConfig {
     pub session_key: Option<String>,
 }
 
-/// Upper bound on `auth.roles.definitions`. Mirrors the cap on claimed groups
-/// in the access layer: a pathological config must not bloat every session.
 const MAX_ROLE_DEFINITIONS: usize = 64;
 
-/// Roles are whatever the deployment says they are: a name for a set of
-/// privileges, bound to IdP groups. There are no built-in names.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RolesConfig {
@@ -167,15 +163,11 @@ pub fn default_groups_claim() -> String {
 #[serde(deny_unknown_fields)]
 pub struct RoleBinding {
     pub groups: Vec<String>,
-    /// Resolved against [`RolesConfig::definitions`] at validation time.
     pub role: String,
     #[serde(default)]
     pub clusters: Option<Vec<String>>,
 }
 
-/// Config spelling of a privilege. Distinct from the GraphQL enum of the same
-/// name and from `access::Privilege`, which is what the enforcement layer
-/// speaks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PrivilegeName {
