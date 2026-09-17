@@ -29,7 +29,7 @@ export function Stat({
   return (
     <div
       className={cn(
-        "relative overflow-hidden bg-card p-4 ring-1 ring-foreground/10",
+        "relative overflow-hidden rounded-xl bg-card p-4 ring-1 ring-foreground/10",
         accent && "ring-brand/25",
       )}
     >
@@ -53,7 +53,7 @@ export function Stat({
         {icon ? (
           <span
             className={cn(
-              "flex size-8 shrink-0 items-center justify-center border bg-muted/50 text-muted-foreground [&_svg]:size-4",
+              "flex size-8 shrink-0 items-center justify-center rounded-md border bg-muted/50 text-muted-foreground [&_svg]:size-4",
               accent && "border-brand/25 bg-brand/10 text-brand",
             )}
           >

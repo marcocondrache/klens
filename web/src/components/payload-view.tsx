@@ -55,7 +55,7 @@ export function PayloadView({
         <h3 className="text-sm font-medium text-muted-foreground">{label}</h3>
         <div className="flex items-center gap-1">
           {showPrettyToggle ? (
-            <div className="mr-1 flex border p-0.5">
+            <div className="mr-1 flex rounded-lg border p-0.5">
               <Button
                 variant={pretty ? "secondary" : "ghost"}
                 size="xs"
