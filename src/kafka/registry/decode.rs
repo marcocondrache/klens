@@ -1,11 +1,3 @@
-//! Schema Registry payload decoding.
-//!
-//! Decoding is **batched**: a scan hands over a whole poll batch, and the
-//! codec resolves each distinct schema id once and builds one Avro reader per
-//! id for the entire batch. v1 rebuilt a `GenericDatumReader` — which
-//! re-resolves every named type in the writer schema — for every single
-//! record.
-
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -150,9 +142,6 @@ impl PayloadDecoder {
         }
     }
 
-    /// Walk the reference graph breadth-first, fetching each level with
-    /// bounded concurrency. v1 fetched strictly one at a time, so a schema
-    /// with a deep reference tree serialised an entire page behind it.
     async fn collect_named_references(
         &self,
         registered: &RegisteredSchema,
@@ -198,8 +187,6 @@ impl PayloadCodec for PayloadDecoder {
 }
 
 impl PayloadDecoder {
-    /// Decode a batch in place, returning why each slot that carried a frame
-    /// but produced nothing failed. Callers log them; the tests assert on them.
     async fn decode_slots(&self, slots: &mut [PayloadSlot]) -> Vec<Option<(i32, DecodeError)>> {
         let mut failures = vec![None; slots.len()];
         let framings: Vec<Option<Framing>> = slots.iter().map(Framing::of).collect();
@@ -221,7 +208,6 @@ impl PayloadDecoder {
             schemas.insert(id, resolved);
         }
 
-        // One reader per schema id, reused for every record in the batch.
         let readers = avro_readers(&schemas);
 
         for ((slot, framing), failure) in slots.iter_mut().zip(framings).zip(failures.iter_mut()) {
@@ -275,10 +261,7 @@ fn report(schema_id: i32, error: &DecodeError) {
     }
 }
 
-/// Avro readers for every Avro schema in the batch.
-///
-/// Building one resolves the writer schema's named types, which is the
-/// expensive part; sharing it across the batch is the whole point.
+/// Building a `GenericDatumReader` resolves the writer schema's named types.
 fn avro_readers(
     schemas: &HashMap<i32, Result<Arc<CachedSchema>, DecodeError>>,
 ) -> HashMap<i32, GenericDatumReader<'_>> {
@@ -364,7 +347,6 @@ impl From<ProtobufError> for DecodeError {
     }
 }
 
-/// A single decoded payload, flattened for the tests below.
 #[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DecodedField {
@@ -390,7 +372,6 @@ impl PayloadDecoder {
         }
     }
 
-    /// Why a single payload failed to decode, if it did.
     async fn decode_failure(&self, bytes: &[u8], override_id: Option<i32>) -> Option<DecodeError> {
         let mut slots = [PayloadSlot::new(Bytes::copy_from_slice(bytes), override_id)];
         let failures = self.decode_slots(&mut slots).await;
@@ -408,7 +389,6 @@ mod tests {
     use crate::config::SchemaRegistryConfig;
     use crate::kafka::scan::filter::{RecordMeta, cel};
 
-    /// What an undecodable payload renders as.
     fn decode_bytes(bytes: &[u8]) -> String {
         String::from_utf8_lossy(bytes).into_owned()
     }
@@ -514,8 +494,6 @@ mod tests {
             .await;
     }
 
-    /// The decoded payload is what a filter sees, so a failed decode has to
-    /// leave the raw bytes behind rather than an empty string.
     fn matches_orderid(value: &DecodedPayload) -> bool {
         cel(r#"valueText.lowerAscii().contains("orderid")"#)
             .unwrap()
@@ -921,9 +899,6 @@ mod tests {
         assert_eq!(value["status"], "OPEN");
     }
 
-    /// Schema ids are immutable once resolved, so only the negative answer
-    /// may be retried — a registry that has not caught up yet would otherwise
-    /// poison the cache for the lifetime of the process.
     #[test]
     fn only_missing_schemas_carry_a_ttl() {
         let now = Instant::now();
@@ -937,9 +912,6 @@ mod tests {
         );
     }
 
-    /// A page decodes many records under few schema ids. Resolving the id
-    /// once per batch — and reusing one Avro reader for all of them — is the
-    /// difference between one registry round trip and one per record.
     #[tokio::test]
     async fn a_batch_resolves_each_schema_id_once() {
         let server = MockServer::start().await;
@@ -969,7 +941,6 @@ mod tests {
         );
     }
 
-    /// The cache is what keeps the second page of a browse off the registry.
     #[tokio::test]
     async fn a_resolved_schema_is_not_fetched_again() {
         let server = MockServer::start().await;

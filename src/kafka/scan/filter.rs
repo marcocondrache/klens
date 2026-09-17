@@ -1,14 +1,3 @@
-//! Two-stage record predicates.
-//!
-//! Stage one answers from metadata alone — partition, offset, timestamp,
-//! size, headers, schema id — and never decodes. Stage two sees the raw
-//! bytes, and only a record that still might reach the page is decoded and
-//! handed to stage three.
-//!
-//! [`CompiledFilter::Contains`] is the shape the UI actually sends: a
-//! case-insensitive substring over key and value text. [`CompiledFilter::Cel`]
-//! stays as the advanced escape hatch.
-
 use std::fmt::{Debug, Formatter};
 use std::sync::{Arc, LazyLock};
 
@@ -21,18 +10,14 @@ use crate::kafka::scan::payload::DecodedPayload;
 use crate::kafka::scan::{Compression, compression_name};
 use crate::utils::datetime_from_unix_millis;
 
-/// Reject expressions larger than this so a browse request cannot carry an
-/// arbitrarily large program.
 const MAX_FILTER_BYTES: usize = 4096;
 
-/// CEL variables that can only be answered by decoding the payload.
 const PAYLOAD_VARIABLES: [&str; 4] = ["key", "value", "keyText", "valueText"];
 
 /// Built once: `Context::default` rebuilds the whole standard library on
-/// every call, which the v1 filter paid for per record.
+/// every call.
 static STDLIB: LazyLock<Arc<Env>> = LazyLock::new(|| Arc::new(Env::stdlib()));
 
-/// Everything about a record that is known before any decode.
 #[derive(Debug, Clone, Copy)]
 pub struct RecordMeta<'a> {
     pub topic: &'a str,
@@ -46,7 +31,6 @@ pub struct RecordMeta<'a> {
     pub headers: &'a [(Bytes, Option<Bytes>)],
 }
 
-/// A key or value as it came off the wire.
 #[derive(Debug, Clone, Copy)]
 pub struct RawField<'a> {
     pub bytes: &'a [u8],
@@ -92,8 +76,8 @@ impl CompiledFilter {
         }
     }
 
-    /// Stage one. `NeedsPayload` means the record survives on metadata and
-    /// has to be looked at more closely.
+    /// `NeedsPayload` means the record survives on metadata and has to be
+    /// looked at more closely.
     pub fn on_meta(&self, meta: &RecordMeta<'_>) -> Verdict {
         match self {
             Self::Contains(_) => Verdict::NeedsPayload,
@@ -101,11 +85,6 @@ impl CompiledFilter {
         }
     }
 
-    /// Stage two: the raw bytes, still undecoded.
-    ///
-    /// A substring filter answers here whenever the payload carries no
-    /// Confluent frame, which is the whole point — the common case never
-    /// reaches the registry.
     pub fn on_raw(&self, key: Option<RawField<'_>>, value: Option<RawField<'_>>) -> Verdict {
         match self {
             Self::Contains(filter) => filter.on_raw(key, value),
@@ -113,7 +92,6 @@ impl CompiledFilter {
         }
     }
 
-    /// Stage three, against payloads decoded exactly once.
     pub fn on_payload(
         &self,
         meta: &RecordMeta<'_>,
@@ -250,8 +228,6 @@ pub fn contains(needle: &str) -> Option<CompiledFilter> {
     }))
 }
 
-/// Substring search that folds ASCII case on both sides, matching the
-/// `lowerAscii().contains()` idiom the UI used to send as CEL.
 fn contains_ascii_ci(haystack: &[u8], needle: &[u8]) -> bool {
     if needle.is_empty() {
         return true;
@@ -291,8 +267,6 @@ fn lower_ascii(This(this): This<Arc<String>>) -> String {
     this.to_ascii_lowercase()
 }
 
-/// A decoded payload binds as its structured value. Text payloads keep the
-/// v1 behaviour: parse as JSON when they can, bind as a string otherwise.
 fn structured(payload: Option<&DecodedPayload>) -> serde_json::Value {
     let Some(payload) = payload else {
         return serde_json::Value::Null;

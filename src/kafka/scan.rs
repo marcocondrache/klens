@@ -1,17 +1,3 @@
-//! Decoded records and the scan pipeline that produces them.
-//!
-//! A browse request opens one [`session::ScanSession`] per page. The session
-//! owns a single consumer and reuses it across every filter pass, so a search
-//! that has to read a long way back never rebuilds its connection.
-//!
-//! - [`query::RecordQuery`] is the request.
-//! - [`plan`] turns watermarks into partition windows and computes the two
-//!   cursor edges a page hands back.
-//! - [`filter::CompiledFilter`] decides, in three escalating stages, whether a
-//!   record is worth decoding.
-//! - [`payload::PayloadCodec`] decodes what survives.
-//! - [`batch::RecordBatch`] keeps only the best `limit` records.
-
 pub mod batch;
 pub mod cursor;
 pub mod filter;

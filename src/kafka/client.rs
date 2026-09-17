@@ -528,8 +528,6 @@ mod tests {
         assert_eq!(records[0].value.as_deref(), Some("hello"));
         assert_eq!(records[0].key.as_deref(), Some("k"));
 
-        // A window whose end runs past the log end still completes: the scan
-        // resolves the idle partition from its position and lag.
         let past_high = scan_once(
             &client,
             "orders",
@@ -577,10 +575,6 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![0, 1]
         );
-        // v1 re-read every window's end offset before scanning it. The
-        // planner now supplies bounds the request already fetched, so the
-        // only lookup left is the one krafka does when it first sees a
-        // partition — once per page, not once per pass.
         assert_eq!(
             broker.request_count(krafka::protocol::ApiKey::ListOffsets),
             2

@@ -1,15 +1,8 @@
-//! The bounded limit-heap a scan fills.
-//!
-//! Carried over from v1, with one addition: [`RecordBatch::admits`] answers
-//! whether a record could still reach the page from its metadata alone, so
-//! the scan can skip decoding records the heap would immediately drop.
-
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 
 use super::query::RecordOrder;
 
-/// Everything the page order depends on, all of it known before a decode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SortKey {
     pub timestamp: i64,
@@ -18,7 +11,6 @@ pub struct SortKey {
 }
 
 impl SortKey {
-    /// Better records compare less.
     pub fn cmp_for_order(&self, other: &Self, order: RecordOrder) -> Ordering {
         match order {
             RecordOrder::Newest => self
@@ -58,10 +50,6 @@ impl<T> RecordBatch<T> {
     }
 
     /// Whether a record with this key could still reach the page.
-    ///
-    /// Once the heap is full, anything no better than its worst element is
-    /// dropped on push — so it never needs to be decoded in the first place.
-    /// Ties lose: a full heap already holds the earlier record.
     pub fn admits(&self, key: &SortKey) -> bool {
         if self.limit == 0 {
             return false;
@@ -115,8 +103,6 @@ struct Entry<T> {
 
 impl<T> Ord for Entry<T> {
     fn cmp(&self, other: &Self) -> Ordering {
-        // Better records compare less, so the max-heap keeps the worst at its root.
-        // Every entry uses the batch's order; sequence preserves stable sort ties.
         self.key
             .cmp_for_order(&other.key, self.order)
             .then(self.sequence.cmp(&other.sequence))
@@ -184,7 +170,6 @@ mod tests {
             for value in ["first", "second", "third", "fourth"] {
                 batch.push(key(100, 0, 1), value);
             }
-            // Replacing the worst tied record must retain the earliest two ties.
             let better = if order == RecordOrder::Newest { 200 } else { 0 };
             batch.push(key(better, 0, 2), "better");
             assert_eq!(batch.into_sorted(), vec!["better", "first", "second"]);

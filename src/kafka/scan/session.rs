@@ -1,11 +1,3 @@
-//! One consumer per page request, reused across every filter pass.
-//!
-//! v1 built, assigned and closed a consumer for each pass, so a filtered
-//! browse could pay 64 build/close cycles for a single page. A
-//! [`ScanSession`] opens one consumer and reseeks it, and runs the whole
-//! two-stage pipeline against it: metadata, then raw bytes, then — only for
-//! records that could still reach the page — a decode.
-
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::sync::Arc;
@@ -28,7 +20,6 @@ use super::plan::{PartitionWindow, advance_cursor, plan_windows, rewind_cursor};
 use super::query::{RecordOrder, RecordQuery};
 use super::{Compression, Record, RecordHeader, RecordPage};
 
-/// A filtered browse may have to walk a long way back before it fills a page.
 const MAX_FILTER_PASSES: usize = 64;
 
 /// Leave time to inspect consumer positions after empty polls, which is how
@@ -64,9 +55,6 @@ impl RawRecord {
 }
 
 /// A consumer scoped to a single page request.
-///
-/// Every method takes `&self`: the scan drives one consumer through many
-/// passes and never needs exclusive access to it.
 #[async_trait]
 pub trait ScanConsumer: Send + Sync {
     /// Point the consumer at these windows' start offsets, replacing any
@@ -100,11 +88,6 @@ pub struct ScanOutcome {
     pub scanned: bool,
 }
 
-/// A record that made the heap.
-///
-/// `key` and `value` are only filled in while the scan is still running when
-/// the filter had to see them. Everything else is decoded once the page is
-/// final, so a record that loses its place is never decoded at all.
 struct Kept {
     raw: RawRecord,
     key: Option<DecodedPayload>,
@@ -152,7 +135,6 @@ impl Kept {
     }
 }
 
-/// A scan in progress: one consumer, many passes.
 pub struct ScanSession {
     consumer: Box<dyn ScanConsumer>,
     codec: Option<Arc<dyn PayloadCodec>>,
@@ -202,8 +184,6 @@ impl ScanSession {
             return Ok(scan.outcome(windows, self.walk));
         }
 
-        // Assignment talks to the broker too, so it answers to the deadline
-        // like everything else: a pass that cannot even start is abandoned.
         match timeout_at(deadline, self.consumer.assign(windows)).await {
             Ok(assigned) => assigned?,
             Err(_) => return Ok(scan.outcome(windows, self.walk)),
@@ -228,10 +208,6 @@ impl ScanSession {
         Ok(scan.outcome(windows, self.walk))
     }
 
-    /// Run the two-stage pipeline over one poll batch.
-    ///
-    /// Decodes are collected and issued together so codecs can build their
-    /// per-schema state once for the whole batch.
     async fn ingest(
         &self,
         polled: Vec<RawRecord>,
@@ -256,8 +232,6 @@ impl ScanSession {
             }
 
             let sort = raw.sort_key();
-            // The heap already holds `limit` better records, so this one can
-            // never reach the page: it is not worth a filter, let alone a decode.
             if !batch.admits(&sort) {
                 continue;
             }
@@ -265,8 +239,6 @@ impl ScanSession {
             let Some(verdict) = self.screen(&raw) else {
                 continue;
             };
-            // Settled without the payload: the decode, if this record even
-            // keeps its place, can wait until the page is final.
             if verdict != Verdict::NeedsPayload {
                 batch.push(sort, Kept::pending(raw));
                 continue;
@@ -321,7 +293,6 @@ impl ScanSession {
         }
     }
 
-    /// Decode the payloads of records that reached the page and no further.
     async fn decode_page(&self, page: &mut [Kept]) {
         let mut slots = Vec::new();
         let mut indices = Vec::with_capacity(page.len());
@@ -361,7 +332,6 @@ impl ScanSession {
         slots.into_iter().map(|slot| Some(slot.take())).collect()
     }
 
-    /// Stages one and two. `None` means the record is out.
     fn screen(&self, raw: &RawRecord) -> Option<Verdict> {
         let Some(filter) = &self.filter else {
             return Some(Verdict::Pass);
@@ -502,8 +472,6 @@ impl WindowScan {
     }
 }
 
-/// A window the scan gave up on collapses onto the boundary it started from,
-/// so the cursor stays exactly where it was for that partition.
 fn abandoned(window: &PartitionWindow, walk: RecordOrder) -> PartitionWindow {
     let boundary = match walk {
         RecordOrder::Newest => window.end,
@@ -519,10 +487,9 @@ fn abandoned(window: &PartitionWindow, walk: RecordOrder) -> PartitionWindow {
 
 /// Fetch one page.
 ///
-/// A filtered query may need several passes to fill the page; they share one
-/// consumer and one deadline. Running out of time is not fatal: whatever the
-/// heap holds is returned with `complete: false` and a cursor that resumes at
-/// the last fully scanned window edge.
+/// Running out of time is not fatal: whatever the heap holds is returned
+/// with `complete: false` and a cursor that resumes at the last fully
+/// scanned window edge.
 pub async fn fetch_page<S: ClusterSession + ?Sized>(
     session: &S,
     query: &RecordQuery,
@@ -591,7 +558,6 @@ pub async fn fetch_page<S: ClusterSession + ?Sized>(
         }
     }
 
-    // Nothing read and nothing to show: the deadline beat the first window.
     if !scanned && kept.is_empty() {
         scan.close().await;
         return Err(KafkaError::Timeout);
@@ -607,7 +573,6 @@ pub async fn fetch_page<S: ClusterSession + ?Sized>(
 
     let near = rewind_cursor(walk, watermarks, &edges(&kept), order, direction.flipped());
     let (next_cursor, prev_cursor) = match direction {
-        // The first page has nothing before it, whatever its near edge is.
         CursorDirection::Forward => (cursor, query.cursor.as_ref().and(near)),
         CursorDirection::Backward => (near, cursor),
     };
@@ -629,11 +594,6 @@ fn edges(kept: &[Kept]) -> Vec<(i32, i64)> {
         .collect()
 }
 
-/// Read exactly these windows in one pass.
-///
-/// Only the broker adapter's tests use this: it exercises a real
-/// [`ScanConsumer`] without a planner or a cursor. An incomplete scan is an
-/// error, since there is no page to attach a resume cursor to.
 #[cfg(test)]
 pub async fn scan_once<S: ClusterSession + ?Sized>(
     session: &S,

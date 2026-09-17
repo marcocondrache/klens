@@ -1,10 +1,3 @@
-//! Payloads decoded once, rendered late.
-//!
-//! The v1 pipeline decoded every in-window record to a `String`, then the CEL
-//! filter parsed that string back into JSON. v2 decodes to a
-//! [`serde_json::Value`] once, filters against the structured value, and only
-//! renders text for the records that survive the limit heap.
-
 use std::cell::OnceCell;
 
 use async_trait::async_trait;
@@ -16,9 +9,7 @@ const FRAME_LEN: usize = 5;
 
 /// One key or value, decoded at most once.
 ///
-/// `json` is `Some` only for payloads a registry codec understood. `text` is
-/// rendered on first use, which for a filtered page is only the records that
-/// reach the page.
+/// `json` is `Some` only for payloads a registry codec understood.
 #[derive(Debug)]
 pub struct DecodedPayload {
     raw: Bytes,
@@ -63,7 +54,6 @@ impl DecodedPayload {
         self.json.as_ref()
     }
 
-    /// Rendered text, built on first use.
     pub fn text(&self) -> &str {
         self.text.get_or_init(|| match &self.json {
             Some(json) => serde_json::to_string(json).unwrap_or_else(|_| render_raw(&self.raw)),
@@ -82,7 +72,6 @@ impl DecodedPayload {
     }
 }
 
-/// One payload handed to a codec, and the slot its decode lands in.
 pub struct PayloadSlot {
     pub raw: Bytes,
     /// Explicit schema id for bytes that carry no Confluent frame. Wire ids
@@ -110,10 +99,6 @@ impl PayloadSlot {
 }
 
 /// Registry-aware decoding, batched.
-///
-/// A batch is decoded in one call so per-schema decoder state — an Avro
-/// reader with its resolved schemata — is built once per batch instead of
-/// once per record.
 #[async_trait]
 pub trait PayloadCodec: Send + Sync {
     async fn decode_batch(&self, slots: &mut [PayloadSlot]);
@@ -128,9 +113,6 @@ pub fn framed_schema_id(bytes: &[u8]) -> Option<i32> {
 }
 
 /// Whether these bytes need a registry round trip before they mean anything.
-///
-/// Unframed payloads without an override are plain text, so a substring
-/// filter can scan them without decoding at all.
 pub fn needs_decode(bytes: &[u8], override_id: Option<i32>) -> bool {
     framed_schema_id(bytes).is_some() || override_id.is_some()
 }

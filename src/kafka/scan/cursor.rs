@@ -1,10 +1,3 @@
-//! Self-describing, bidirectional browse cursors.
-//!
-//! v1 cursors were bare `partition:offset` pairs whose meaning came from the
-//! query's order. v2 carries the order and the direction it walks, so a page
-//! can hand back both edges and the server can reject a cursor replayed
-//! against a different order.
-//!
 //! ```text
 //! cursor     := "v2" ":" order ":" dir ":" boundaries
 //! order      := "n" | "o"
@@ -12,8 +5,7 @@
 //! boundaries := partition ":" offset { "," partition ":" offset }
 //! ```
 //!
-//! An **omitted** partition is exhausted in that direction and must not
-//! restart — a cursor is never "start from the watermark again".
+//! An omitted partition is exhausted in that direction and must not restart.
 
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
@@ -69,10 +61,6 @@ impl RecordCursor {
     }
 
     /// The order the scan actually walks the log in.
-    ///
-    /// A backward page flips the walk: the previous page of a newest-first
-    /// browse is found by reading *forward* from the page's near edge and
-    /// keeping the records closest to it.
     pub fn walk(&self) -> RecordOrder {
         walk_order(self.order, self.direction)
     }
@@ -131,7 +119,6 @@ impl RecordCursor {
     }
 }
 
-/// The order a page walks the log in, given its query order and direction.
 pub fn walk_order(order: RecordOrder, direction: CursorDirection) -> RecordOrder {
     match direction {
         CursorDirection::Forward => order,
