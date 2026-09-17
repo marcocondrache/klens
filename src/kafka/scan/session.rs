@@ -169,8 +169,6 @@ impl ScanSession {
         })
     }
 
-    /// Whether a rule covers this topic, so the page can say the payloads
-    /// are a view of the records rather than the records themselves.
     fn obfuscated(&self) -> bool {
         self.obfuscator.is_some()
     }
@@ -452,7 +450,6 @@ struct Candidate {
     value: Option<usize>,
 }
 
-/// This topic's rules, resolved once per page.
 fn topic_obfuscator<S: ClusterSession + ?Sized>(
     session: &S,
     topic: &str,
@@ -1167,8 +1164,7 @@ mod tests {
                 strategy: hash
     ";
 
-    /// A topic whose payloads never decode: the text is all a rule can reach.
-    fn logs() -> FakeCluster {
+    fn text_orders() -> FakeCluster {
         let records = (0..4)
             .map(|offset| {
                 let mut record = card_record(offset, PAN);
@@ -1185,7 +1181,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_pattern_rule_tokens_text_no_field_rule_could_have_reached() {
-        let page = card_page(&logs(), None).await;
+        let page = card_page(&text_orders(), None).await;
 
         let value = page.records[0].value.as_deref().expect("value");
         assert!(value.starts_with("charged kx:"), "{value}");
@@ -1195,7 +1191,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_contains_filter_cannot_be_an_oracle_for_a_pattern_rule_either() {
-        let session = logs();
+        let session = text_orders();
 
         assert!(
             card_page(&session, contains("4111"))
@@ -1217,7 +1213,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_page_says_whether_its_topic_is_obfuscated() {
         assert!(card_page(&cards(), None).await.obfuscated);
-        assert!(card_page(&logs(), None).await.obfuscated);
+        assert!(card_page(&text_orders(), None).await.obfuscated);
 
         let plain = FakeCluster::local().with_consume_timeout(Duration::from_secs(10));
         assert!(!card_page(&plain, None).await.obfuscated);

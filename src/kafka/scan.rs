@@ -73,9 +73,6 @@ impl Record {
 /// unread: the records are real, but the page is not everything the query
 /// would have matched. `next_cursor` then resumes where the scan stopped
 /// rather than where the page ended.
-///
-/// `obfuscated` is true when a rule covers the topic, so a reader knows the
-/// payloads are a view of the records rather than the records themselves.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordPage {
     pub records: Vec<Record>,

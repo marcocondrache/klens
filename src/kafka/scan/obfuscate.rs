@@ -34,10 +34,6 @@ const TOKEN_PREFIX: &str = "kx:";
 /// collisions at page scale while staying short enough to read.
 const TOKEN_BYTES: usize = 8;
 
-/// Compiled size of one pattern rule. A Unicode-aware `\b\d{13,19}\b` costs
-/// a little over 100 KiB on its own, so the bound is generous for the
-/// classes real rules need while staying an order of magnitude under the
-/// crate's own 10 MiB default.
 const REGEX_SIZE_LIMIT: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -226,17 +222,11 @@ impl TopicObfuscator {
                 let token = token(payload.text(), self.hasher.as_deref());
                 payload.replace(token);
             }
-            // Patterns read the rendered text, so they only have something
-            // to scan when the whole field survived.
-            _ => self.rewrite_matches(payload),
+            Some(ObfuscationStrategy::Drop) => {}
+            None => self.rewrite_matches(payload),
         }
     }
 
-    /// Replace every pattern match in the rendered text.
-    ///
-    /// The render is the one the response would have done anyway, and a
-    /// record nothing matches keeps its tree — and its JSON shape — at the
-    /// cost of the scan alone.
     fn rewrite_matches(&self, payload: &mut DecodedPayload) {
         if self.patterns.is_empty() {
             return;
@@ -291,13 +281,6 @@ impl CompiledField {
     }
 }
 
-/// A pattern rule, compiled once.
-///
-/// Field rules only reach JSON a registry decode produced; a pattern reaches
-/// the rendered text, which is all a schemaless topic ever has. It is the
-/// weaker guarantee of the two — a value written in an unexpected format
-/// slips past the regex — so it exists for text topics, not instead of
-/// field rules.
 #[derive(Debug)]
 struct CompiledPattern {
     regex: Regex,
@@ -311,15 +294,11 @@ impl CompiledPattern {
             reason,
         };
 
-        // The `regex` crate is DFA-based, so matching is linear whatever the
-        // config says and only the compiled size needs a bound.
         let regex = RegexBuilder::new(source)
             .size_limit(REGEX_SIZE_LIMIT)
             .build()
             .map_err(|error| invalid(error.to_string()))?;
 
-        // A pattern that also matches nothing would rewrite every position
-        // of every payload, which is a foot-gun rather than a policy.
         if regex.is_match("") {
             return Err(invalid("it matches the empty string".to_owned()));
         }
@@ -327,21 +306,19 @@ impl CompiledPattern {
         Ok(Self { regex, strategy })
     }
 
-    /// Rewrite every match. Text nothing matches comes back borrowed, so a
-    /// clean record costs the scan and no allocation.
     fn apply<'a>(&self, text: &'a str, hasher: Option<&KeyedHasher>) -> Cow<'a, str> {
         match self.strategy {
-            // `NoExpand` because a replacement is literal: `$1` in a mask is
-            // three characters, not a capture group.
-            ObfuscationStrategy::Mask => self
-                .regex
-                .replace_all(text, regex::NoExpand(OBFUSCATION_MASK)),
-            ObfuscationStrategy::Drop => self.regex.replace_all(text, regex::NoExpand("")),
+            ObfuscationStrategy::Mask => replace_literal(&self.regex, text, OBFUSCATION_MASK),
+            ObfuscationStrategy::Drop => replace_literal(&self.regex, text, ""),
             ObfuscationStrategy::Hash => self
                 .regex
                 .replace_all(text, |captures: &Captures<'_>| token(&captures[0], hasher)),
         }
     }
+}
+
+fn replace_literal<'a>(regex: &Regex, text: &'a str, replacement: &'static str) -> Cow<'a, str> {
+    regex.replace_all(text, regex::NoExpand(replacement))
 }
 
 /// Walk one compiled path into the tree, rewriting what it lands on.
