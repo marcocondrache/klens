@@ -1,8 +1,9 @@
 //! Flat re-export of Kafka domain types for the rest of the crate.
 //!
 //! The `kafka` module root re-exports the product subset. This barrel also
-//! has raw snapshots ([`GroupSnapshot`], [`MetadataSnapshot`]) and
-//! [`FetchPlan`], which `session` and `engine` use.
+//! has raw snapshots ([`GroupSnapshot`], [`MetadataSnapshot`]) and the scan
+//! port types ([`ScanConsumer`], [`RawRecord`]), which `session` and `engine`
+//! use.
 
 pub use crate::kafka::acl::{
     Acl, AclListing, AclOperation, AclPatternType, AclPermission, AclResourceType,
@@ -14,12 +15,13 @@ pub use crate::kafka::group::{
     MemberAssignment,
 };
 pub use crate::kafka::metadata::MetadataSnapshot;
-pub use crate::kafka::record::plan::FetchPlan;
-pub use crate::kafka::record::query::{RecordOrder, RecordQuery, TimestampRange};
-pub use crate::kafka::record::{Compression, Record, RecordHeader, RecordPage, decode_bytes};
 pub use crate::kafka::registry::{
     RegisteredSchema, SchemaCompatibility, SchemaReference, SchemaSubject, SchemaType,
 };
+pub use crate::kafka::scan::plan::PartitionWindow;
+pub use crate::kafka::scan::query::{RecordOrder, RecordQuery, TimestampRange};
+pub use crate::kafka::scan::session::{RawRecord, ScanConsumer};
+pub use crate::kafka::scan::{Compression, Record, RecordHeader, RecordPage};
 pub use crate::kafka::search::{SearchHit, SearchKind};
 pub use crate::kafka::topic::{Partition, Topic};
 pub use crate::kafka::topic_config::{CleanupPolicy, ConfigEntry, ConfigSource};

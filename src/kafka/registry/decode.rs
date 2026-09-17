@@ -1,39 +1,61 @@
-use std::collections::HashSet;
+//! Schema Registry payload decoding.
+//!
+//! Decoding is **batched**: a scan hands over a whole poll batch, and the
+//! codec resolves each distinct schema id once and builds one Avro reader per
+//! id for the entire batch. v1 rebuilt a `GenericDatumReader` — which
+//! re-resolves every named type in the writer schema — for every single
+//! record.
+
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use apache_avro::Schema;
 use apache_avro::reader::datum::GenericDatumReader;
+use async_trait::async_trait;
+use bytes::Bytes;
+use futures::StreamExt;
+use futures::stream::FuturesUnordered;
 use moka::future::Cache;
+use moka::policy::Expiry;
+use serde_json::Value;
 
 use super::client::SchemaRegistryClient;
 use super::protobuf::{ProtobufCodec, ProtobufError};
-use crate::kafka::model::{RegisteredSchema, SchemaType, decode_bytes};
+use crate::environment::{MISSING_SCHEMA_TTL, SUBJECT_FETCH_CONCURRENCY};
+use crate::kafka::model::{RegisteredSchema, SchemaReference, SchemaType};
+use crate::kafka::scan::payload::{DecodedPayload, PayloadCodec, PayloadSlot, framed_schema_id};
 use thiserror::Error;
 
-const CONFLUENT_MAGIC: u8 = 0;
+/// Confluent wire framing: magic byte 0, then a big-endian schema id.
+const FRAME_LEN: usize = 5;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct DecodedField {
-    pub text: String,
-    pub schema_id: Option<i32>,
-}
-
+/// How a payload says which schema it uses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ConfluentFrame<'a> {
+struct Framing {
     schema_id: i32,
-    payload: &'a [u8],
+    /// Where the payload body starts.
+    body: usize,
+    /// Whether a protobuf body carries its message-index prefix. Only framed
+    /// payloads do; an override says "read these bytes as this schema".
     indexed: bool,
 }
 
-impl<'a> ConfluentFrame<'a> {
-    fn parse(bytes: &'a [u8]) -> Option<Self> {
-        if bytes.len() < 5 || bytes[0] != CONFLUENT_MAGIC {
-            return None;
+impl Framing {
+    /// Wire-format schema ids always win over the override.
+    fn of(slot: &PayloadSlot) -> Option<Self> {
+        if let Some(schema_id) = framed_schema_id(&slot.raw) {
+            return Some(Self {
+                schema_id,
+                body: FRAME_LEN,
+                indexed: true,
+            });
         }
-        Some(Self {
-            schema_id: i32::from_be_bytes(bytes[1..5].try_into().ok()?),
-            payload: &bytes[5..],
-            indexed: true,
+
+        slot.override_id.map(|schema_id| Self {
+            schema_id,
+            body: 0,
+            indexed: false,
         })
     }
 }
@@ -56,123 +78,38 @@ struct AvroCodec {
     dependencies: Vec<Schema>,
 }
 
+/// A registered schema is immutable, so it is cached for the process
+/// lifetime. A *missing* one is not: registering it later must start working
+/// without a restart.
+struct MissingExpiry;
+
+impl Expiry<i32, Arc<CachedSchema>> for MissingExpiry {
+    fn expire_after_create(
+        &self,
+        _key: &i32,
+        value: &Arc<CachedSchema>,
+        _created_at: Instant,
+    ) -> Option<Duration> {
+        match value.as_ref() {
+            CachedSchema::Missing => Some(*MISSING_SCHEMA_TTL),
+            _ => None,
+        }
+    }
+}
+
 impl PayloadDecoder {
     pub(crate) fn new(client: SchemaRegistryClient) -> Self {
         Self {
             client,
-            cache: Cache::builder().max_capacity(10_000).build(),
+            cache: Cache::builder()
+                .max_capacity(10_000)
+                .expire_after(MissingExpiry)
+                .build(),
         }
     }
 
     pub(crate) fn client(&self) -> &SchemaRegistryClient {
         &self.client
-    }
-
-    #[cfg(test)]
-    pub(crate) async fn decode(&self, bytes: &[u8]) -> String {
-        self.decode_with(bytes, None).await.text
-    }
-
-    /// Decode a payload, optionally using `override_id` when the bytes are not
-    /// Confluent-framed. Wire-format schema ids always win over the override.
-    pub(crate) async fn decode_with(&self, bytes: &[u8], override_id: Option<i32>) -> DecodedField {
-        let wire_frame = ConfluentFrame::parse(bytes);
-        let frame = wire_frame.or_else(|| {
-            override_id.map(|schema_id| ConfluentFrame {
-                schema_id,
-                payload: bytes,
-                indexed: false,
-            })
-        });
-
-        DecodedField {
-            text: match frame {
-                Some(frame) => self.decode_or_raw(frame, bytes).await,
-                None => decode_bytes(bytes),
-            },
-            schema_id: wire_frame.map(|frame| frame.schema_id),
-        }
-    }
-
-    async fn decode_or_raw(&self, frame: ConfluentFrame<'_>, original: &[u8]) -> String {
-        match self.decode_frame(frame).await {
-            Ok(json) => json,
-            Err(error) => {
-                match &error {
-                    DecodeError::Missing(message) => {
-                        tracing::debug!(
-                            schema_id = frame.schema_id,
-                            error = %message,
-                            "skipping schema registry payload decode"
-                        );
-                    }
-                    DecodeError::Failed(message) => {
-                        tracing::warn!(
-                            schema_id = frame.schema_id,
-                            error = %message,
-                            "failed to decode schema registry payload"
-                        );
-                    }
-                }
-                decode_bytes(original)
-            }
-        }
-    }
-}
-
-pub(crate) async fn decode_field(
-    decoder: Option<&PayloadDecoder>,
-    bytes: Option<&[u8]>,
-    override_id: Option<i32>,
-) -> Option<DecodedField> {
-    match (bytes, decoder) {
-        (None, _) => None,
-        (Some(bytes), Some(decoder)) => Some(decoder.decode_with(bytes, override_id).await),
-        (Some(bytes), None) => Some(DecodedField {
-            text: decode_bytes(bytes),
-            schema_id: ConfluentFrame::parse(bytes).map(|frame| frame.schema_id),
-        }),
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Error)]
-enum DecodeError {
-    #[error("{0}")]
-    Missing(String),
-    #[error("{0}")]
-    Failed(String),
-}
-
-impl DecodeError {
-    fn missing(message: impl Into<String>) -> Self {
-        Self::Missing(message.into())
-    }
-
-    fn failed(error: impl std::fmt::Display) -> Self {
-        Self::Failed(error.to_string())
-    }
-}
-
-impl From<ProtobufError> for DecodeError {
-    fn from(error: ProtobufError) -> Self {
-        Self::Failed(error.to_string())
-    }
-}
-
-impl PayloadDecoder {
-    async fn decode_frame(&self, frame: ConfluentFrame<'_>) -> Result<String, DecodeError> {
-        let cached = self.resolved(frame.schema_id).await?;
-        match cached.as_ref() {
-            CachedSchema::Missing => Err(DecodeError::missing("schema id not found in registry")),
-            CachedSchema::Json => json_payload(frame.payload),
-            CachedSchema::Avro(codec) => avro_payload(codec, frame.payload),
-            CachedSchema::Protobuf(codec) => if frame.indexed {
-                codec.decode_framed(frame.payload)
-            } else {
-                codec.decode_raw(frame.payload)
-            }
-            .map_err(DecodeError::from),
-        }
     }
 
     async fn resolved(&self, id: i32) -> Result<Arc<CachedSchema>, DecodeError> {
@@ -213,6 +150,9 @@ impl PayloadDecoder {
         }
     }
 
+    /// Walk the reference graph breadth-first, fetching each level with
+    /// bounded concurrency. v1 fetched strictly one at a time, so a schema
+    /// with a deep reference tree serialised an entire page behind it.
     async fn collect_named_references(
         &self,
         registered: &RegisteredSchema,
@@ -221,20 +161,170 @@ impl PayloadDecoder {
         let mut pending = registered.references.clone();
         let mut seen = HashSet::new();
 
-        while let Some(reference) = pending.pop() {
-            if !seen.insert((reference.subject.clone(), reference.version)) {
-                continue;
+        while !pending.is_empty() {
+            let wave: Vec<SchemaReference> = pending
+                .drain(..)
+                .filter(|reference| seen.insert((reference.subject.clone(), reference.version)))
+                .collect();
+
+            let mut fetches = futures::stream::iter(wave.into_iter().map(|reference| async move {
+                let fetched = self
+                    .client
+                    .schema_by_subject_version(&reference.subject, reference.version)
+                    .await
+                    .map_err(DecodeError::failed)?;
+                Ok::<_, DecodeError>((reference.name, fetched))
+            }))
+            .buffer_unordered(*SUBJECT_FETCH_CONCURRENCY);
+
+            while let Some(result) = fetches.next().await {
+                let (name, fetched) = result?;
+                pending.extend(fetched.references);
+                bodies.push((name, fetched.schema));
             }
-            let fetched = self
-                .client
-                .schema_by_subject_version(&reference.subject, reference.version)
-                .await
-                .map_err(DecodeError::failed)?;
-            pending.extend(fetched.references);
-            bodies.push((reference.name, fetched.schema));
         }
 
         Ok(bodies)
+    }
+}
+
+#[async_trait]
+impl PayloadCodec for PayloadDecoder {
+    async fn decode_batch(&self, slots: &mut [PayloadSlot]) {
+        for failure in self.decode_slots(slots).await.into_iter().flatten() {
+            report(failure.0, &failure.1);
+        }
+    }
+}
+
+impl PayloadDecoder {
+    /// Decode a batch in place, returning why each slot that carried a frame
+    /// but produced nothing failed. Callers log them; the tests assert on them.
+    async fn decode_slots(&self, slots: &mut [PayloadSlot]) -> Vec<Option<(i32, DecodeError)>> {
+        let mut failures = vec![None; slots.len()];
+        let framings: Vec<Option<Framing>> = slots.iter().map(Framing::of).collect();
+        let ids: HashSet<i32> = framings
+            .iter()
+            .flatten()
+            .map(|framing| framing.schema_id)
+            .collect();
+        if ids.is_empty() {
+            return failures;
+        }
+
+        let mut schemas = HashMap::with_capacity(ids.len());
+        let mut loads: FuturesUnordered<_> = ids
+            .into_iter()
+            .map(|id| async move { (id, self.resolved(id).await) })
+            .collect();
+        while let Some((id, resolved)) = loads.next().await {
+            schemas.insert(id, resolved);
+        }
+
+        // One reader per schema id, reused for every record in the batch.
+        let readers = avro_readers(&schemas);
+
+        for ((slot, framing), failure) in slots.iter_mut().zip(framings).zip(failures.iter_mut()) {
+            let Some(framing) = framing else {
+                continue;
+            };
+            let cached = match schemas.get(&framing.schema_id) {
+                Some(Ok(cached)) => cached,
+                Some(Err(error)) => {
+                    *failure = Some((framing.schema_id, error.clone()));
+                    continue;
+                }
+                None => continue,
+            };
+
+            let raw = slot.raw.clone();
+            let body = &raw[framing.body.min(raw.len())..];
+            match decode_body(
+                cached,
+                readers.get(&framing.schema_id),
+                framing.indexed,
+                body,
+            ) {
+                Ok(json) => {
+                    slot.decoded = Some(DecodedPayload::decoded(raw.clone(), wire_id(&raw), json));
+                }
+                Err(error) => *failure = Some((framing.schema_id, error)),
+            }
+        }
+
+        failures
+    }
+}
+
+fn wire_id(raw: &Bytes) -> Option<i32> {
+    framed_schema_id(raw)
+}
+
+fn report(schema_id: i32, error: &DecodeError) {
+    match error {
+        DecodeError::Missing(message) => tracing::debug!(
+            schema_id,
+            error = %message,
+            "skipping schema registry payload decode"
+        ),
+        DecodeError::Failed(message) => tracing::warn!(
+            schema_id,
+            error = %message,
+            "failed to decode schema registry payload"
+        ),
+    }
+}
+
+/// Avro readers for every Avro schema in the batch.
+///
+/// Building one resolves the writer schema's named types, which is the
+/// expensive part; sharing it across the batch is the whole point.
+fn avro_readers(
+    schemas: &HashMap<i32, Result<Arc<CachedSchema>, DecodeError>>,
+) -> HashMap<i32, GenericDatumReader<'_>> {
+    schemas
+        .iter()
+        .filter_map(|(id, resolved)| {
+            let CachedSchema::Avro(codec) = resolved.as_ref().ok()?.as_ref() else {
+                return None;
+            };
+            let schemata: Vec<&Schema> = codec
+                .dependencies
+                .iter()
+                .chain(std::iter::once(&codec.writer))
+                .collect();
+            let reader = GenericDatumReader::builder(&codec.writer)
+                .writer_schemata(schemata)
+                .ok()?
+                .build()
+                .ok()?;
+            Some((*id, reader))
+        })
+        .collect()
+}
+
+fn decode_body(
+    cached: &CachedSchema,
+    reader: Option<&GenericDatumReader<'_>>,
+    indexed: bool,
+    body: &[u8],
+) -> Result<Value, DecodeError> {
+    match cached {
+        CachedSchema::Missing => Err(DecodeError::missing("schema id not found in registry")),
+        CachedSchema::Json => serde_json::from_slice(body).map_err(DecodeError::failed),
+        CachedSchema::Avro(_) => {
+            let reader = reader.ok_or_else(|| DecodeError::failed("unusable avro schema"))?;
+            let value = reader
+                .read_value(&mut &*body)
+                .map_err(DecodeError::failed)?;
+            Value::try_from(value).map_err(DecodeError::failed)
+        }
+        CachedSchema::Protobuf(codec) => if indexed {
+            codec.decode_framed(body)
+        } else {
+            codec.decode_raw(body)
+        }
+        .map_err(DecodeError::from),
     }
 }
 
@@ -250,33 +340,78 @@ fn parse_avro<'a>(
     })
 }
 
-fn avro_payload(codec: &AvroCodec, payload: &[u8]) -> Result<String, DecodeError> {
-    let schemata: Vec<&Schema> = codec
-        .dependencies
-        .iter()
-        .chain(std::iter::once(&codec.writer))
-        .collect();
-    let value = GenericDatumReader::builder(&codec.writer)
-        .writer_schemata(schemata)
-        .map_err(DecodeError::failed)?
-        .build()
-        .map_err(DecodeError::failed)?
-        .read_value(&mut &*payload)
-        .map_err(DecodeError::failed)?;
-    let json = serde_json::Value::try_from(value).map_err(DecodeError::failed)?;
-    serde_json::to_string(&json).map_err(DecodeError::failed)
+#[derive(Clone, Debug, PartialEq, Eq, Error)]
+enum DecodeError {
+    #[error("{0}")]
+    Missing(String),
+    #[error("{0}")]
+    Failed(String),
 }
 
-fn json_payload(payload: &[u8]) -> Result<String, DecodeError> {
-    let json: serde_json::Value = serde_json::from_slice(payload).map_err(DecodeError::failed)?;
-    serde_json::to_string(&json).map_err(DecodeError::failed)
+impl DecodeError {
+    fn missing(message: impl Into<String>) -> Self {
+        Self::Missing(message.into())
+    }
+
+    fn failed(error: impl std::fmt::Display) -> Self {
+        Self::Failed(error.to_string())
+    }
+}
+
+impl From<ProtobufError> for DecodeError {
+    fn from(error: ProtobufError) -> Self {
+        Self::Failed(error.to_string())
+    }
+}
+
+/// A single decoded payload, flattened for the tests below.
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DecodedField {
+    pub text: String,
+    pub schema_id: Option<i32>,
+}
+
+#[cfg(test)]
+impl PayloadDecoder {
+    pub(crate) async fn decode(&self, bytes: &[u8]) -> String {
+        self.decode_with(bytes, None).await.text
+    }
+
+    pub(crate) async fn decode_with(&self, bytes: &[u8], override_id: Option<i32>) -> DecodedField {
+        let mut slots = [PayloadSlot::new(Bytes::copy_from_slice(bytes), override_id)];
+        self.decode_batch(&mut slots).await;
+        let [slot] = slots;
+        let decoded = slot.take();
+
+        DecodedField {
+            schema_id: decoded.schema_id(),
+            text: decoded.into_text(),
+        }
+    }
+
+    /// Why a single payload failed to decode, if it did.
+    async fn decode_failure(&self, bytes: &[u8], override_id: Option<i32>) -> Option<DecodeError> {
+        let mut slots = [PayloadSlot::new(Bytes::copy_from_slice(bytes), override_id)];
+        let failures = self.decode_slots(&mut slots).await;
+        failures
+            .into_iter()
+            .flatten()
+            .next()
+            .map(|(_, error)| error)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::config::SchemaRegistryConfig;
-    use crate::kafka::model::{Compression, Record as KafkaRecord};
+    use crate::kafka::scan::filter::{RecordMeta, cel};
+
+    /// What an undecodable payload renders as.
+    fn decode_bytes(bytes: &[u8]) -> String {
+        String::from_utf8_lossy(bytes).into_owned()
+    }
     use apache_avro::types::{Record, Value};
     use apache_avro::writer::datum::GenericDatumWriter;
     use wiremock::matchers::{method, path};
@@ -350,8 +485,8 @@ mod tests {
     }
 
     fn frame(schema_id: i32, payload: &[u8]) -> Vec<u8> {
-        let mut out = Vec::with_capacity(5 + payload.len());
-        out.push(CONFLUENT_MAGIC);
+        let mut out = Vec::with_capacity(FRAME_LEN + payload.len());
+        out.push(0);
         out.extend_from_slice(&schema_id.to_be_bytes());
         out.extend_from_slice(payload);
         out
@@ -379,26 +514,33 @@ mod tests {
             .await;
     }
 
-    fn matches_orderid(record: &KafkaRecord) -> bool {
-        crate::kafka::record::filter::compile(r#"valueText.lowerAscii().contains("orderid")"#)
+    /// The decoded payload is what a filter sees, so a failed decode has to
+    /// leave the raw bytes behind rather than an empty string.
+    fn matches_orderid(value: &DecodedPayload) -> bool {
+        cel(r#"valueText.lowerAscii().contains("orderid")"#)
             .unwrap()
             .unwrap()
-            .matches(record)
+            .on_payload(&sample_meta(), None, Some(value))
     }
 
-    fn sample_record(key: Option<String>, value: Option<String>) -> KafkaRecord {
-        KafkaRecord {
-            topic: "orders".into(),
+    fn sample_meta() -> RecordMeta<'static> {
+        RecordMeta {
+            topic: "orders",
             partition: 0,
             offset: 1,
             timestamp: 0,
-            key,
-            value,
-            schema_id: None,
-            headers: Vec::new(),
             size_bytes: 0,
-            compression: Compression::None,
+            compression: crate::kafka::model::Compression::None,
+            schema_id: None,
+            headers: &[],
         }
+    }
+
+    async fn decode_payload(decoder: &PayloadDecoder, bytes: &[u8]) -> DecodedPayload {
+        let mut slots = [PayloadSlot::new(Bytes::copy_from_slice(bytes), None)];
+        decoder.decode_batch(&mut slots).await;
+        let [slot] = slots;
+        slot.take()
     }
 
     #[test]
@@ -420,16 +562,29 @@ mod tests {
     #[test]
     fn parses_confluent_frame() {
         let bytes = frame(12, b"datum");
-        let parsed = ConfluentFrame::parse(&bytes).unwrap();
+        let slot = PayloadSlot::new(Bytes::from(bytes), None);
+        let parsed = Framing::of(&slot).unwrap();
         assert_eq!(parsed.schema_id, 12);
-        assert_eq!(parsed.payload, b"datum");
+        assert_eq!(&slot.raw[parsed.body..], b"datum");
     }
 
     #[test]
     fn rejects_short_or_non_magic_frames() {
-        assert!(ConfluentFrame::parse(&[0, 0, 0, 1]).is_none());
-        assert!(ConfluentFrame::parse(b"hello").is_none());
-        assert!(ConfluentFrame::parse(&[]).is_none());
+        for bytes in [vec![0, 0, 0, 1], b"hello".to_vec(), Vec::new()] {
+            let slot = PayloadSlot::new(Bytes::from(bytes), None);
+            assert!(Framing::of(&slot).is_none());
+        }
+    }
+
+    #[test]
+    fn an_override_frames_unframed_bytes_only() {
+        let framed = PayloadSlot::new(Bytes::from(frame(12, b"datum")), Some(99));
+        assert_eq!(Framing::of(&framed).unwrap().schema_id, 12);
+
+        let bare = PayloadSlot::new(Bytes::from_static(b"datum"), Some(99));
+        let framing = Framing::of(&bare).unwrap();
+        assert_eq!(framing.schema_id, 99);
+        assert_eq!(framing.body, 0);
     }
 
     #[tokio::test]
@@ -442,17 +597,17 @@ mod tests {
             record.put("amount", 42i64);
         });
         let framed = frame(12, &payload);
-        let json = decoder(&server.uri()).decode(&framed).await;
-        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let decoded = decode_payload(&decoder(&server.uri()), &framed).await;
+        let value = decoded.json().expect("decoded to structured json");
 
         assert_eq!(value["orderId"], "abc");
         assert_eq!(value["amount"], 42);
         assert!(
-            !decode_bytes(&framed)
+            !String::from_utf8_lossy(&framed)
                 .to_ascii_lowercase()
                 .contains("orderid")
         );
-        assert!(matches_orderid(&sample_record(None, Some(json))));
+        assert!(matches_orderid(&decoded));
     }
 
     #[tokio::test]
@@ -532,12 +687,11 @@ mod tests {
             decoder(&server.uri()).decode(&framed).await,
             decode_bytes(&framed)
         );
-        let parsed = ConfluentFrame::parse(&framed).unwrap();
         assert_eq!(
             decoder(&server.uri())
-                .decode_frame(parsed)
+                .decode_failure(&framed, None)
                 .await
-                .unwrap_err(),
+                .unwrap(),
             DecodeError::missing("schema id not found in registry")
         );
     }
@@ -561,12 +715,12 @@ mod tests {
         let mut payload = crate::kafka::registry::protobuf::encode_indexes(&[0]);
         payload.extend_from_slice(b"\x0a\x03abc\x10\x2a");
         let framed = frame(3, &payload);
-        let json = decoder(&server.uri()).decode(&framed).await;
-        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let decoded = decode_payload(&decoder(&server.uri()), &framed).await;
+        let value = decoded.json().expect("decoded to structured json");
 
         assert_eq!(value["orderId"], "abc");
         assert_eq!(value["amount"], "42");
-        assert!(matches_orderid(&sample_record(None, Some(json))));
+        assert!(matches_orderid(&decoded));
     }
 
     #[tokio::test]
@@ -597,12 +751,11 @@ mod tests {
         let server = MockServer::start().await;
         mock_schema(&server, 3, "PROTOBUF", ORDER_PROTO).await;
         let framed = frame(3, &[]);
-        let parsed = ConfluentFrame::parse(&framed).unwrap();
         assert_eq!(
             decoder(&server.uri())
-                .decode_frame(parsed)
+                .decode_failure(&framed, None)
                 .await
-                .unwrap_err(),
+                .unwrap(),
             DecodeError::failed("truncated protobuf message index")
         );
     }
@@ -652,22 +805,6 @@ mod tests {
         let json = decoder(&server.uri()).decode(&frame(20, &payload)).await;
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(value["status"]["code"], "OPEN");
-    }
-
-    #[tokio::test]
-    async fn decode_field_without_decoder_is_lossy_utf8() {
-        let decoded = decode_field(None, Some(b"hello"), None).await.unwrap();
-        assert_eq!(decoded.text, "hello");
-        assert_eq!(decoded.schema_id, None);
-        assert!(decode_field(None, None, None).await.is_none());
-    }
-
-    #[tokio::test]
-    async fn decode_field_without_decoder_exposes_wire_schema_id() {
-        let framed = frame(12, b"datum");
-        let decoded = decode_field(None, Some(&framed), None).await.unwrap();
-        assert_eq!(decoded.schema_id, Some(12));
-        assert_eq!(decoded.text, decode_bytes(&framed));
     }
 
     #[tokio::test]
@@ -782,5 +919,82 @@ mod tests {
         let json = decoder(&server.uri()).decode(&frame(20, &payload)).await;
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(value["status"], "OPEN");
+    }
+
+    /// Schema ids are immutable once resolved, so only the negative answer
+    /// may be retried — a registry that has not caught up yet would otherwise
+    /// poison the cache for the lifetime of the process.
+    #[test]
+    fn only_missing_schemas_carry_a_ttl() {
+        let now = Instant::now();
+        assert_eq!(
+            MissingExpiry.expire_after_create(&1, &Arc::new(CachedSchema::Missing), now),
+            Some(*MISSING_SCHEMA_TTL)
+        );
+        assert_eq!(
+            MissingExpiry.expire_after_create(&2, &Arc::new(CachedSchema::Json), now),
+            None
+        );
+    }
+
+    /// A page decodes many records under few schema ids. Resolving the id
+    /// once per batch — and reusing one Avro reader for all of them — is the
+    /// difference between one registry round trip and one per record.
+    #[tokio::test]
+    async fn a_batch_resolves_each_schema_id_once() {
+        let server = MockServer::start().await;
+        mock_schema(&server, 12, "AVRO", ORDER_SCHEMA).await;
+
+        let decoder = decoder(&server.uri());
+        let mut slots: Vec<PayloadSlot> = (0..5)
+            .map(|index| {
+                let payload = encode_avro(ORDER_SCHEMA, |_, record| {
+                    record.put("orderId", format!("id-{index}"));
+                    record.put("amount", index as i64);
+                });
+                PayloadSlot::new(Bytes::from(frame(12, &payload)), None)
+            })
+            .collect();
+
+        decoder.decode_batch(&mut slots).await;
+
+        for (index, slot) in slots.into_iter().enumerate() {
+            let value = slot.take().json().expect("decoded").clone();
+            assert_eq!(value["orderId"], format!("id-{index}"));
+        }
+        assert_eq!(
+            fetches(&server, "/schemas/ids/12").await,
+            1,
+            "every record in the batch shares one resolution"
+        );
+    }
+
+    /// The cache is what keeps the second page of a browse off the registry.
+    #[tokio::test]
+    async fn a_resolved_schema_is_not_fetched_again() {
+        let server = MockServer::start().await;
+        mock_schema(&server, 12, "AVRO", ORDER_SCHEMA).await;
+
+        let decoder = decoder(&server.uri());
+        let payload = encode_avro(ORDER_SCHEMA, |_, record| {
+            record.put("orderId", "abc".to_owned());
+            record.put("amount", 1i64);
+        });
+        let framed = frame(12, &payload);
+
+        decode_payload(&decoder, &framed).await;
+        decode_payload(&decoder, &framed).await;
+
+        assert_eq!(fetches(&server, "/schemas/ids/12").await, 1);
+    }
+
+    async fn fetches(server: &MockServer, path: &str) -> usize {
+        server
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .iter()
+            .filter(|request| request.url.path() == path)
+            .count()
     }
 }

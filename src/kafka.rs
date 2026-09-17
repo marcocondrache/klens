@@ -13,7 +13,9 @@
 //!   per-cluster change bus. [`ingest`] fills it from five independent
 //!   per-cluster loops.
 //! - Assembled types live in `topic`, `broker`, `cluster`, `group`
-//!   (`ConsumerGroup`), `search`, and `record`. `model` re-exports them.
+//!   (`ConsumerGroup`), `search`, and `scan`. `model` re-exports them.
+//! - [`scan`] is the records engine: one consumer per page request, a
+//!   two-stage filter, and bidirectional cursors.
 //! - `catalog` stores and polls the v1 product snapshot ([`ClusterSnapshot`],
 //!   [`CatalogPoller`]). [`QueryEngine`] builds that snapshot (`assemble_catalog`)
 //!   and serves live records, configs, one group, and subjects. `rates`,
@@ -32,7 +34,7 @@ mod broker;
 mod cluster;
 mod group;
 mod limits;
-mod record;
+mod scan;
 mod search;
 mod topic;
 
@@ -64,8 +66,10 @@ pub use model::{
     RecordPage, RecordQuery, SearchHit, TimestampRange, Topic,
 };
 pub use rates::{RateStore, TopicRate};
-pub use record::cursor::RecordCursor;
-pub use record::filter::{RecordFilter, compile as compile_record_filter};
+pub use scan::cursor::{CursorDirection, RecordCursor};
+pub use scan::filter::{
+    CompiledFilter, cel as compile_cel_filter, contains as compile_contains_filter,
+};
 pub use series::ThroughputPoint;
 pub use session::ClusterSession;
 

@@ -373,7 +373,7 @@ fn browse_record(partition: i32, offset: i64, timestamp: i64) -> Record {
         schema_id: None,
         headers: Vec::new(),
         size_bytes: 0,
-        compression: crate::kafka::record::Compression::None,
+        compression: crate::kafka::scan::Compression::None,
     }
 }
 
@@ -402,7 +402,7 @@ async fn all_partitions_newest_stays_timestamp_ordered_across_cursors() {
                 .iter()
                 .map(|record| (record.partition, record.timestamp)),
         );
-        if !page.has_more {
+        if !page.has_more() {
             break;
         }
         query.cursor =
@@ -439,7 +439,7 @@ async fn records_filter_by_timestamp_range() {
         .collect();
 
     assert_eq!(keys, vec![Some("ord_3"), Some("ord_4"), Some("ord_5")]);
-    assert!(!page.has_more);
+    assert!(!page.has_more());
 }
 
 #[tokio::test]
@@ -461,7 +461,7 @@ async fn filtered_records_fill_the_requested_limit() {
             schema_id: None,
             headers: Vec::new(),
             size_bytes: 0,
-            compression: crate::kafka::record::Compression::None,
+            compression: crate::kafka::scan::Compression::None,
         });
     }
 
@@ -471,7 +471,7 @@ async fn filtered_records_fill_the_requested_limit() {
     query.limit = 10;
     query.order = RecordOrder::Newest;
     query.filter =
-        crate::kafka::compile_record_filter(r#"keyText.lowerAscii().contains("hit-")"#).unwrap();
+        crate::kafka::compile_cel_filter(r#"keyText.lowerAscii().contains("hit-")"#).unwrap();
 
     let page = engine.records("local", query.clone()).await.unwrap();
     assert_eq!(
@@ -483,7 +483,7 @@ async fn filtered_records_fill_the_requested_limit() {
             .map(|record| record.key.as_deref())
             .collect::<Vec<_>>()
     );
-    assert!(page.has_more);
+    assert!(page.has_more());
     let keys: Vec<_> = page
         .records
         .iter()
@@ -517,7 +517,7 @@ async fn filtered_records_fill_the_requested_limit() {
         page_two_keys,
         vec![Some("hit-80"), Some("hit-40"), Some("hit-0")]
     );
-    assert!(!page_two.has_more);
+    assert!(!page_two.has_more());
 }
 
 #[tokio::test]
@@ -528,7 +528,7 @@ async fn records_timestamp_from_after_the_log_is_empty() {
 
     let page = engine.records("local", query).await.unwrap();
     assert!(page.records.is_empty());
-    assert!(!page.has_more);
+    assert!(!page.has_more());
 }
 
 #[tokio::test]
