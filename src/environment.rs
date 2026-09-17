@@ -38,6 +38,20 @@ pub static MAX_SESSION_SECS: LazyLock<i64> =
 /// Versioned prefix mixed into the session auth hash.
 pub const SESSION_COOKIE_KEY_PREFIX: &str = "klens-session-v1";
 
+/// Signing key for the session cookie, as base64 or raw text of at least
+/// [`MIN_SESSION_KEY_BYTES`].
+///
+/// Takes precedence over `auth.session_key` in the config file. Without
+/// either, a key is generated per boot and every deploy logs everyone out.
+///
+/// Override with `KLENS_SESSION_KEY`.
+pub static SESSION_KEY: LazyLock<Option<String>> =
+    LazyLock::new(|| std::env::var("KLENS_SESSION_KEY").ok());
+
+/// Shortest accepted session signing key. `cookie::Key::derive_from` panics
+/// below this.
+pub const MIN_SESSION_KEY_BYTES: usize = 32;
+
 /// Prefix for Kafka `client.id` values (`klens-<cluster>[-<role>]`).
 pub const CLIENT_ID_PREFIX: &str = "klens";
 

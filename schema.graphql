@@ -61,7 +61,7 @@ enum ConfigSource {
   DEFAULT_CONFIG
 }
 
-enum ConsumerGroupState {
+enum GroupState {
   STABLE
   EMPTY
   PREPARING_REBALANCE
@@ -69,9 +69,25 @@ enum ConsumerGroupState {
   DEAD
 }
 
+enum PrivilegeName {
+  RECORDS
+  CONFIGS
+  SCHEMA_TEXT
+  ACLS
+}
+
 enum RecordOrder {
   NEWEST
   OLDEST
+}
+
+enum ResyncReason {
+  "The client fell behind the change bus and missed events." LAGGED
+}
+
+enum Role {
+  VIEWER
+  ADMIN
 }
 
 enum SchemaCompatibility {
@@ -87,24 +103,61 @@ enum SchemaType {
   PROTOBUF
 }
 
-enum SearchResultKind {
+enum SearchKind {
   TOPIC
   GROUP
   NODE
   SUBJECT
 }
 
-input RecordQuery {
-  cluster: String!
+enum TopicSortField {
+  NAME
+  RATE
+  RETAINED_MESSAGES
+  PARTITIONS
+  GROUPS
+}
+
+"A substring match or a CEL expression, never both."
+input RecordFilterInput {
+  contains: String
+  cel: String
+}
+
+input RecordQueryInput {
   topic: String!
   partition: Int
-  filter: String
-  timestampFrom: DateTime
-  timestampTo: DateTime
-  limit: Int!
-  order: RecordOrder!
-  cursor: String
+  """
+    Nullable rather than defaulted because juniper renders an enum
+    default as a quoted string, which is not valid SDL.
+  """ order: RecordOrder
+  from: DateTime
+  to: DateTime
+  limit: Int! = 50
+  filter: RecordFilterInput
   schemaId: Int
+  cursor: String
+}
+
+"""
+  Server-side name filtering so a 10k-topic cluster's list page does not
+  need the full set client-side.
+"""
+input RowFilter {
+  contains: String
+}
+
+input TopicSort {
+  """
+    Nullable rather than defaulted because juniper renders an enum
+    default as a quoted string, which is not valid SDL.
+  """ field: TopicSortField
+  desc: Boolean! = false
+}
+
+input UpdateScope {
+  topic: String
+  group: String
 }
 
 """
@@ -123,6 +176,15 @@ input RecordQuery {
 """
 scalar DateTime
 
+"""
+  Signed 64-bit integer, serialized as a string.
+
+  Offsets, watermarks, lag and retained counts routinely pass 2^53, where a
+  JSON number silently loses precision in every JavaScript client. A string
+  crosses the wire intact. Input accepts either a string or an `Int`.
+"""
+scalar Int64
+
 type Acl {
   resourceType: AclResourceType!
   resourceName: String!
@@ -138,7 +200,7 @@ type AclListing {
   bindings: [Acl!]!
 }
 
-type Broker {
+type BrokerRow {
   id: Int!
   host: String!
   port: Int!
@@ -148,27 +210,35 @@ type Broker {
   leaderCount: Int!
 }
 
-type CatalogHealth {
-  updatedAt: DateTime
-  subjectsUpdatedAt: DateTime
-  lastError: String
-  lastPollDurationMs: Float
+"""
+  What the session may do on one cluster. Pairwise: a wider grant elsewhere
+  does not raise this one.
+"""
+type ClusterGrant {
+  cluster: String!
+  role: Role!
+  privileges: [PrivilegeName!]!
+}
+
+"""
+  Per-lane freshness and the counts a dashboard header needs. Replaces
+  polling a catalog just to learn how stale it is.
+"""
+type ClusterHealth {
+  cluster: String!
+  ready: Boolean!
+  topology: LaneHealth!
+  watermarks: LaneHealth!
+  offsets: LaneHealth!
+  configs: LaneHealth!
+  subjects: LaneHealth!
   topicCount: Int!
+  partitionCount: Int!
   groupCount: Int!
   brokerCount: Int!
   subjectCount: Int!
-}
-
-type CatalogUpdated {
-  cluster: String!
-  updatedAt: DateTime!
-  generation: Int!
-}
-
-type ClusterCatalog {
-  updatedAt: DateTime!
-  topics: [Topic!]!
-  consumerGroups: [ConsumerGroup!]!
+  underReplicatedPartitions: Int!
+  offlinePartitions: Int!
 }
 
 type ConfigEntry {
@@ -179,20 +249,31 @@ type ConfigEntry {
   sensitive: Boolean!
 }
 
-type ConsumerGroup {
-  id: String!
-  state: ConsumerGroupState!
-  protocol: String!
-  coordinator: Int!
-  members: [ConsumerGroupMember!]!
-  memberCount: Int!
+type ConfigsChanged {
+  version: Int64!
   topics: [String!]!
-  lag: Float!
-  offsets: [GroupOffset!]!
-  assignedPartitionCount: Int!
 }
 
-type ConsumerGroupMember {
+type GroupDetail {
+  id: String!
+  state: GroupState!
+  protocol: String!
+  coordinatorId: Int!
+  members: [GroupMember!]!
+  offsets: [GroupOffset!]!
+  totalLag: Int64!
+  lagComplete: Boolean!
+}
+
+type GroupLagUpdate {
+  at: DateTime!
+  group: String!
+  lag: Int64!
+  lagComplete: Boolean!
+  offsets: [GroupOffset!]!
+}
+
+type GroupMember {
   id: String!
   clientId: String!
   host: String!
@@ -202,10 +283,45 @@ type ConsumerGroupMember {
 type GroupOffset {
   topic: String!
   partition: Int!
-  currentOffset: Float!
-  endOffset: Float!
-  lag: Float!
+  currentOffset: Int64!
+  endOffset: Int64!
+  lag: Int64!
   memberId: String
+}
+
+type GroupRow {
+  id: String!
+  state: GroupState!
+  memberCount: Int!
+  topicNames: [String!]!
+  totalLag: Int64!
+  """
+    False when a committed partition had no watermark to join against, so
+    the total understates the real lag.
+  """
+  lagComplete: Boolean!
+  coordinatorId: Int!
+}
+
+type GroupRowPage {
+  rows: [GroupRow!]!
+  total: Int!
+  nextCursor: String
+}
+
+type Identity {
+  "`null` when authentication is disabled."
+  subject: String
+  clusters: [ClusterGrant!]!
+}
+
+type LaneHealth {
+  updatedAt: DateTime
+  checkedAt: DateTime
+  lastError: String
+  lastPollMs: Int64
+  "False once a lane has failed since its last successful commit."
+  healthy: Boolean!
 }
 
 type MemberAssignment {
@@ -213,32 +329,80 @@ type MemberAssignment {
   partitions: [Int!]!
 }
 
-type Partition {
+type PartitionRow {
   id: Int!
   leader: Int!
   replicas: [Int!]!
   isr: [Int!]!
-  lowWatermark: Float!
-  highWatermark: Float!
+  lowWatermark: Int64!
+  highWatermark: Int64!
+  retained: Int64!
+  underReplicated: Boolean!
+}
+
+type Point {
+  at: DateTime!
+  value: Float!
 }
 
 type Query {
-  clusters: [String!]!
-  brokers(cluster: String!): [Broker!]!
-  broker(cluster: String!, id: Int!): Broker
-  brokerConfigs(cluster: String!, id: Int!): [ConfigEntry!]!
-  clusterCatalog(cluster: String!): ClusterCatalog!
-  catalogHealth(cluster: String!): CatalogHealth!
-  topic(cluster: String!, name: String!): Topic
+  "Who the session is and, per cluster, exactly what it may do."
+  whoami: Identity!
+  """
+    Per-lane freshness and counts for every visible cluster. Replaces
+    polling a catalog just to discover how stale it is.
+  """
+  clusters: [ClusterHealth!]!
+  topicRows(cluster: String!, filter: RowFilter, sort: TopicSort, after: String, limit: Int): TopicRowPage!
+  topic(cluster: String!, name: String!): TopicDetail
+  topicGroups(cluster: String!, topic: String!): [TopicGroupRow!]!
+  """
+    Served from the config lane, not the broker: a config sweep is slow
+    and its result is the same for everyone.
+  """
   topicConfigs(cluster: String!, name: String!): [ConfigEntry!]!
-  consumerGroups(cluster: String!, topic: String): [ConsumerGroup!]!
-  consumerGroup(cluster: String!, id: String!): ConsumerGroup
-  topicThroughput(cluster: String!, topic: String!): [ThroughputPoint!]!
-  groupLagHistory(cluster: String!, id: String!): [ThroughputPoint!]!
-  schemaSubjects(cluster: String!): [SchemaSubject!]!
+  groupRows(cluster: String!, filter: RowFilter, after: String, limit: Int): GroupRowPage!
+  """
+    Registers interest, which promotes the group to the offsets lane's
+    fast tier while someone is looking at it.
+  """
+  group(cluster: String!, id: String!): GroupDetail
+  brokerRows(cluster: String!): [BrokerRow!]!
+  "No lane sweeps broker configs, so this one stays live."
+  brokerConfigs(cluster: String!, id: Int!): [ConfigEntry!]!
+  subjectRows(cluster: String!): SubjectRowsResult!
+  """
+    Schema bodies are large, rarely read, and privileged, so the subjects
+    lane keeps only the listing and the body is fetched on demand.
+  """
+  subject(cluster: String!, name: String!, version: Int): SubjectDetail!
   acls(cluster: String!): AclListing!
-  records(query: RecordQuery!): RecordPage!
-  search(cluster: String!, term: String!): SearchResults!
+  records(cluster: String!, query: RecordQueryInput!): RecordPage!
+  """
+    The same points the subscription streams, with the same server
+    timestamps, so seeding a chart and then following the stream produces
+    one coherent series.
+  """
+  topicRateHistory(cluster: String!, topic: String!): [Point!]!
+  groupLagHistory(cluster: String!, group: String!): [Point!]!
+  """
+    Answered from the prebuilt index, so a per-keystroke search never
+    walks the catalog.
+  """
+  search(cluster: String!, term: String!): [SearchHit!]!
+}
+
+type Record {
+  topic: String!
+  partition: Int!
+  offset: Int64!
+  timestamp: DateTime!
+  key: String
+  value: String
+  schemaId: Int
+  headers: [RecordHeader!]!
+  sizeBytes: Int64!
+  compression: Compression!
 }
 
 type RecordHeader {
@@ -247,72 +411,160 @@ type RecordHeader {
 }
 
 type RecordPage {
-  records: [TopicRecord!]!
-  hasMore: Boolean!
+  records: [Record!]!
+  """
+    False when the scan hit its deadline with windows still unread: the
+    records are real, but the page is not everything the query matched.
+    `nextCursor` resumes where the scan stopped.
+  """
+  complete: Boolean!
   nextCursor: String
+  prevCursor: String
 }
 
-type SchemaSubject {
+"""
+  Refetch the projections and keep the stream: the deltas in between are
+  gone, but the connection is still good.
+"""
+type Resync {
+  reason: ResyncReason!
+}
+
+type SchemaReference {
+  name: String!
+  subject: String!
+  version: Int!
+}
+
+type SearchHit {
+  kind: SearchKind!
+  id: String!
+  label: String!
+  detail: String!
+}
+
+type SubjectDetail {
+  subject: String!
+  version: Int!
+  id: Int!
+  type: SchemaType!
+  schema: String!
+  references: [SchemaReference!]!
+}
+
+type SubjectRow {
   subject: String!
   id: Int!
   type: SchemaType!
   latestVersion: Int!
   versions: [Int!]!
   compatibility: SchemaCompatibility!
-  schema: String!
 }
 
-type SearchResult {
-  kind: SearchResultKind!
-  id: String!
-  label: String!
-  detail: String!
+"""
+  Registry degradation is typed rather than hidden: an empty `rows` with an
+  unhealthy `sourceHealth` is a registry outage, not a registry with no
+  subjects.
+"""
+type SubjectRowsResult {
+  rows: [SubjectRow!]!
+  sourceHealth: LaneHealth!
 }
 
-type SearchResults {
-  hits: [SearchResult!]!
-  schemaRegistryError: String
+type SubjectsChanged {
+  version: Int64!
+  added: [String!]!
+  removed: [String!]!
+  changed: [String!]!
 }
 
 type Subscription {
-  topicRates(cluster: String!): [TopicRate!]!
-  consumerGroupLag(cluster: String!, id: String!): ConsumerGroup!
-  catalogUpdated(cluster: String!): CatalogUpdated!
+  """
+    Every lane delta for one cluster, optionally narrowed to one topic or
+    group.
+
+    A scoped subscriber pays only for its own page: the all-topics
+    watermark firehose exists for list pages, and even that carries one
+    `{topic, rate}` pair per topic rather than catalog objects.
+  """
+  updates(cluster: String!, scope: UpdateScope): Update!
 }
 
-type ThroughputPoint {
-  timestamp: DateTime!
-  messages: Float!
-}
-
-type Topic {
+type TopicDetail {
   name: String!
   internal: Boolean!
-  partitions: [Partition!]!
-  partitionCount: Int!
+  partitions: [PartitionRow!]!
   replicationFactor: Int!
-  messageCount: Float!
-  cleanupPolicy: CleanupPolicy!
-  retentionMs: Float!
-  consumerGroups: [String!]!
-  messagesPerSec: Float!
+  retainedMessages: Int64!
+  producedTotal: Int64!
+  groupCount: Int!
   underReplicated: Boolean!
 }
 
-type TopicRate {
-  name: String!
-  messagesPerSec: Float!
+"""
+  The projection a topic page needs: which groups read this topic and how
+  far behind they are on it alone.
+"""
+type TopicGroupRow {
+  id: String!
+  state: GroupState!
+  memberCount: Int!
+  lagOnTopic: Int64!
 }
 
-type TopicRecord {
+type TopicRate {
   topic: String!
-  partition: Int!
-  offset: Float!
-  timestamp: DateTime!
-  key: String
-  value: String
-  schemaId: Int
-  headers: [RecordHeader!]!
-  sizeBytes: Float!
-  compression: Compression!
+  rate: Float!
 }
+
+type TopicRow {
+  name: String!
+  internal: Boolean!
+  partitionCount: Int!
+  replicationFactor: Int!
+  "Messages currently in the log (`Σ high − low`)."
+  retainedMessages: Int64!
+  """
+    Messages ever produced (`Σ high`). Overstates a retention-truncated
+    topic, so it is not the display default.
+  """
+  producedTotal: Int64!
+  rate: Float!
+  retentionMs: Int64!
+  cleanupPolicy: CleanupPolicy!
+  groupCount: Int!
+  underReplicated: Boolean!
+}
+
+type TopicRowPage {
+  rows: [TopicRow!]!
+  """
+    Rows matching the filter before paging, so a client can size its
+    scrollbar without walking every page.
+  """
+  total: Int!
+  nextCursor: String
+}
+
+type TopologyDelta {
+  version: Int64!
+  addedTopics: [String!]!
+  removedTopics: [String!]!
+  changedTopics: [String!]!
+  addedGroups: [String!]!
+  removedGroups: [String!]!
+  changedGroups: [String!]!
+  brokersChanged: Boolean!
+}
+
+type WatermarksTick {
+  at: DateTime!
+  """
+    One `{topic, rate}` pair per topic, never catalog objects. A scoped
+    subscriber gets only its topic.
+  """
+  topics: [TopicRate!]!
+  clusterRate: Float!
+}
+
+union Update = WatermarksTick | GroupLagUpdate | TopologyDelta | ConfigsChanged | SubjectsChanged | Resync

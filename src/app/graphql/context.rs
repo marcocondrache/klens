@@ -1,8 +1,10 @@
 use std::ops::Deref;
+use std::sync::Arc;
 
 use crate::AppState;
-use crate::app::auth::access::{EffectiveAccess, Privilege};
-use crate::kafka::KafkaError;
+use crate::app::auth::SessionGuard;
+use crate::app::auth::access::{ClusterAccess, EffectiveAccess};
+use crate::kafka::store::ClusterStore;
 
 use super::error::GqlError;
 
@@ -10,6 +12,18 @@ use super::error::GqlError;
 pub struct GraphQlContext {
     pub state: AppState,
     pub access: EffectiveAccess,
+    pub guard: SessionGuard,
+}
+
+pub struct Cluster<'a> {
+    pub access: ClusterAccess<'a>,
+    pub store: &'a Arc<ClusterStore>,
+}
+
+impl Cluster<'_> {
+    pub fn name(&self) -> &str {
+        self.access.cluster()
+    }
 }
 
 impl GraphQlContext {
@@ -17,24 +31,16 @@ impl GraphQlContext {
         Self {
             state,
             access: EffectiveAccess::Unrestricted,
+            guard: SessionGuard::open(),
         }
     }
 
-    pub fn allow_cluster(&self, cluster: &str) -> Result<(), KafkaError> {
-        if self.access.can_see_cluster(cluster) {
-            Ok(())
-        } else {
-            Err(KafkaError::UnknownCluster(cluster.to_owned()))
-        }
-    }
-
-    pub fn allow_privilege(&self, privilege: Privilege, cluster: &str) -> Result<(), GqlError> {
-        self.allow_cluster(cluster)?;
-        if self.access.allows(privilege, cluster) {
-            Ok(())
-        } else {
-            Err(GqlError::Forbidden)
-        }
+    pub fn cluster<'a>(&'a self, name: &'a str) -> Result<Cluster<'a>, GqlError> {
+        let access = self.access.cluster(name)?;
+        Ok(Cluster {
+            store: self.state.cluster(access.cluster())?,
+            access,
+        })
     }
 }
 

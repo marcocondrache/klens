@@ -14,6 +14,13 @@ pub enum KafkaError {
     #[error("unknown consumer group '{id}' in cluster '{cluster}'")]
     UnknownGroup { cluster: String, id: String },
 
+    #[error("unknown schema subject '{subject}' version {version} in cluster '{cluster}'")]
+    UnknownSubject {
+        cluster: String,
+        subject: String,
+        version: i32,
+    },
+
     #[error("unknown partition {partition} for topic '{topic}' in cluster '{cluster}'")]
     UnknownPartition {
         cluster: String,
@@ -47,6 +54,7 @@ impl KafkaError {
             Self::UnknownTopic { .. } => "UNKNOWN_TOPIC",
             Self::UnknownBroker { .. } => "UNKNOWN_BROKER",
             Self::UnknownGroup { .. } => "UNKNOWN_GROUP",
+            Self::UnknownSubject { .. } => "UNKNOWN_SUBJECT",
             Self::UnknownPartition { .. } => "UNKNOWN_PARTITION",
             Self::InvalidQuery(query) => query.code(),
             Self::Timeout => "TIMEOUT",
