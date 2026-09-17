@@ -11,9 +11,6 @@ pub enum KafkaError {
     #[error("unknown broker {id} in cluster '{cluster}'")]
     UnknownBroker { cluster: String, id: i32 },
 
-    #[error("unknown consumer group '{id}' in cluster '{cluster}'")]
-    UnknownGroup { cluster: String, id: String },
-
     #[error("unknown schema subject '{subject}' version {version} in cluster '{cluster}'")]
     UnknownSubject {
         cluster: String,
@@ -53,7 +50,6 @@ impl KafkaError {
             Self::UnknownCluster(_) => "UNKNOWN_CLUSTER",
             Self::UnknownTopic { .. } => "UNKNOWN_TOPIC",
             Self::UnknownBroker { .. } => "UNKNOWN_BROKER",
-            Self::UnknownGroup { .. } => "UNKNOWN_GROUP",
             Self::UnknownSubject { .. } => "UNKNOWN_SUBJECT",
             Self::UnknownPartition { .. } => "UNKNOWN_PARTITION",
             Self::InvalidQuery(query) => query.code(),
@@ -135,14 +131,6 @@ mod tests {
             }
             .code(),
             "UNKNOWN_BROKER"
-        );
-        assert_eq!(
-            KafkaError::UnknownGroup {
-                cluster: "local".into(),
-                id: "ghost".into(),
-            }
-            .code(),
-            "UNKNOWN_GROUP"
         );
         assert_eq!(
             KafkaError::UnknownPartition {

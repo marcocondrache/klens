@@ -4,6 +4,7 @@ pub mod filter;
 pub mod payload;
 pub mod plan;
 pub mod query;
+pub mod read;
 pub mod session;
 
 use std::cmp::Ordering;

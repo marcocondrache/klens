@@ -486,7 +486,7 @@ mod tests {
 
     use super::oidc::FakeOidc;
     use super::*;
-    use crate::kafka::{FakeCluster, QueryEngine};
+    use crate::kafka::{FakeCluster, SessionSet};
 
     impl AuthState {
         pub(crate) fn enabled_for_tests() -> Self {
@@ -504,7 +504,7 @@ mod tests {
 
     fn app(auth: AuthState) -> axum::Router {
         crate::app::router(AppState::with_auth(
-            Arc::new(QueryEngine::from_sessions(vec![FakeCluster::local()])),
+            Arc::new(SessionSet::from_sessions(vec![FakeCluster::local()])),
             auth,
         ))
     }

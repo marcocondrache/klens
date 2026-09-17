@@ -4,7 +4,6 @@ use indexmap::IndexMap;
 
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
-use crate::kafka::search::SearchHit;
 use crate::kafka::topic_config::ConfigEntry;
 
 use super::bus::ChangeBus;
@@ -14,7 +13,7 @@ use super::projections::{
     self, BrokerRow, ClusterHealthView, GroupDetail, GroupRow, SubjectRow, TopicDetail,
     TopicGroupRow, TopicRow,
 };
-use super::search::SearchIndex;
+use super::search::{SearchHit, SearchIndex};
 use super::series::SeriesStore;
 use super::tables::{ConfigTable, OffsetTable, SubjectTable, Topology, WatermarkTable};
 

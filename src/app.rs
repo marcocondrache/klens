@@ -6,7 +6,9 @@ use axum::middleware;
 use crate::kafka::ingest::{Ingest, LaneIntervals};
 use crate::kafka::model::{AclListing, RegisteredSchema};
 use crate::kafka::store::{ClusterStore, StoreSet};
-use crate::kafka::{ClusterSession, ConfigEntry, KafkaError, QueryEngine, RecordPage, RecordQuery};
+use crate::kafka::{
+    ConfigEntry, KafkaError, RecordLimits, RecordPage, RecordQuery, SessionSet, read_page,
+};
 
 pub(crate) mod auth;
 mod graphql;
@@ -16,33 +18,35 @@ pub use auth::AuthState;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub(crate) query: Arc<QueryEngine<dyn ClusterSession>>,
+    pub(crate) sessions: Arc<SessionSet>,
     pub(crate) stores: Arc<StoreSet>,
     pub(crate) auth: AuthState,
+    limits: RecordLimits,
     _ingest: Option<Arc<Ingest>>,
 }
 
 impl AppState {
-    pub fn new(query: Arc<QueryEngine<dyn ClusterSession>>) -> Self {
-        Self::build(query, AuthState::disabled())
+    pub fn new(sessions: Arc<SessionSet>) -> Self {
+        Self::build(sessions, AuthState::disabled())
     }
 
-    pub fn with_auth(query: Arc<QueryEngine<dyn ClusterSession>>, auth: AuthState) -> Self {
-        Self::build(query, auth)
+    pub fn with_auth(sessions: Arc<SessionSet>, auth: AuthState) -> Self {
+        Self::build(sessions, auth)
     }
 
-    fn build(query: Arc<QueryEngine<dyn ClusterSession>>, auth: AuthState) -> Self {
+    fn build(sessions: Arc<SessionSet>, auth: AuthState) -> Self {
         Self {
-            stores: Arc::new(StoreSet::new(query.identities())),
-            query,
+            stores: Arc::new(StoreSet::new(sessions.identities())),
+            sessions,
             auth,
+            limits: RecordLimits::from_env(),
             _ingest: None,
         }
     }
 
     pub fn with_ingest(self, intervals: LaneIntervals) -> Self {
         let clusters = self
-            .query
+            .sessions
             .sessions()
             .into_iter()
             .filter_map(|session| {
@@ -70,7 +74,13 @@ impl AppState {
         cluster: &str,
         query: RecordQuery,
     ) -> Result<RecordPage, KafkaError> {
-        self.query.records(cluster, query).await
+        read_page(
+            self.sessions.session(cluster)?,
+            self.cluster(cluster)?,
+            query,
+            self.limits,
+        )
+        .await
     }
 
     pub(crate) async fn live_broker_configs(
@@ -78,11 +88,21 @@ impl AppState {
         cluster: &str,
         id: i32,
     ) -> Result<Vec<ConfigEntry>, KafkaError> {
-        self.query.broker_configs(cluster, id).await
+        let store = self.cluster(cluster)?;
+        if let Some(topology) = store.topology.load()
+            && !topology.brokers.contains_key(&id)
+        {
+            return Err(KafkaError::UnknownBroker {
+                cluster: cluster.to_owned(),
+                id,
+            });
+        }
+
+        self.sessions.session(cluster)?.broker_configs(id).await
     }
 
     pub(crate) async fn live_acls(&self, cluster: &str) -> Result<AclListing, KafkaError> {
-        self.query.session(cluster)?.acls().await
+        self.sessions.session(cluster)?.acls().await
     }
 
     pub(crate) async fn live_subject_schema(
@@ -91,7 +111,7 @@ impl AppState {
         subject: &str,
         version: i32,
     ) -> Result<RegisteredSchema, KafkaError> {
-        self.query
+        self.sessions
             .session(cluster)?
             .subject_schema(subject, version)
             .await
@@ -147,7 +167,7 @@ mod tests {
 
     #[tokio::test]
     async fn ingestion_fills_the_store_the_api_projects_from() {
-        let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
+        let state = AppState::new(Arc::new(SessionSet::from_sessions(vec![
             FakeCluster::local(),
         ])))
         .with_ingest(intervals());
@@ -168,7 +188,7 @@ mod tests {
     #[tokio::test]
     async fn ingestion_never_describes_acls() {
         let session = FakeCluster::local();
-        let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![session.clone()])))
+        let state = AppState::new(Arc::new(SessionSet::from_sessions(vec![session.clone()])))
             .with_ingest(intervals());
 
         wait_until(|| state.is_ready()).await;
@@ -182,7 +202,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_state_without_ingestion_never_becomes_ready() {
-        let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
+        let state = AppState::new(Arc::new(SessionSet::from_sessions(vec![
             FakeCluster::local(),
         ])));
 
