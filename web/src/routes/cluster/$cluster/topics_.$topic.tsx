@@ -1,4 +1,4 @@
-import { AlertTriangleIcon, DatabaseIcon, GaugeIcon, NetworkIcon } from "lucide-react";
+import { AlertTriangleIcon } from "lucide-react";
 import { createFileRoute } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
 
@@ -10,13 +10,11 @@ import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
 import { PageHeader } from "@/components/page-header";
 import { RecordBrowser } from "@/components/records/record-browser";
-import { Sparkline } from "@/components/charts";
-import { Stat, StatGrid } from "@/components/stat";
 import { GroupStateBadge, Pill } from "@/components/status";
 import { lagTone } from "@/lib/tone";
 import { useTopic, useTopicGroups } from "@/lib/api/catalog";
 import { catalogLookupMessage } from "@/lib/catalog-lookup";
-import { useTopicConfigs, useTopicRateHistory } from "@/lib/api/live";
+import { useTopicConfigs } from "@/lib/api/live";
 import { useClusterName } from "@/lib/clusters";
 import {
   formatCleanupPolicy,
@@ -27,7 +25,7 @@ import {
   isCompactCleanup,
   toNumber,
 } from "@/lib/format";
-import type { PartitionRow, TopicGroupRow } from "@/lib/api/types";
+import type { PartitionRow, TopicDetail, TopicGroupRow, TopicRow } from "@/lib/api/types";
 import { parseTopicDetailSearch } from "@/lib/route-search";
 import { useAccess } from "@/hooks/use-access";
 
@@ -115,6 +113,17 @@ const partitionColumns = partitionColumnHelper.columns([
   }),
 ]);
 
+function TopicFacts({ detail, row }: { detail: TopicDetail; row: TopicRow | null }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+      <span className="numeric">{detail.partitions.length} partitions</span>
+      <span className="numeric">{formatCount(detail.retainedMessages)} msgs</span>
+      {row ? <span className="numeric">retention {formatDuration(row.retentionMs)}</span> : null}
+      {row ? <span className="numeric text-brand">{formatThroughput(row.rate)}/s</span> : null}
+    </div>
+  );
+}
+
 function TopicPage() {
   const cluster = useClusterName();
   const navigate = Route.useNavigate();
@@ -137,7 +146,6 @@ function TopicPage() {
     topicName,
     tab === "config" && canConfigs,
   );
-  const { data: history = [] } = useTopicRateHistory(cluster, topicName);
   const { data: groups = [], isPending: groupsPending } = useTopicGroups(
     cluster,
     topicName,
@@ -237,38 +245,8 @@ function TopicPage() {
             </>
           ) : null
         }
-        description={
-          detail
-            ? `${row ? `retention ${formatDuration(row.retentionMs)} · ` : ""}${groupCount} consumer groups`
-            : null
-        }
+        description={detail ? <TopicFacts detail={detail} row={row} /> : null}
       />
-
-      <StatGrid>
-        <Stat
-          label="Partitions"
-          value={detail?.partitions.length ?? 0}
-          hint={`replication factor ${detail?.replicationFactor ?? "—"}`}
-          icon={<NetworkIcon />}
-          loading={isPending}
-        />
-        <Stat
-          label="Messages"
-          value={formatCount(detail?.retainedMessages ?? 0)}
-          hint={formatNumber(detail?.retainedMessages ?? 0)}
-          icon={<DatabaseIcon />}
-          loading={isPending}
-        />
-        <Stat
-          label="Produce rate"
-          value={`${formatThroughput(row?.rate ?? 0)}/s`}
-          icon={<GaugeIcon />}
-          loading={isPending}
-          accent
-        >
-          <Sparkline data={history} />
-        </Stat>
-      </StatGrid>
 
       <Tabs
         value={tab}

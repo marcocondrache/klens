@@ -16,7 +16,7 @@ export function PageHeader({
 }) {
   return (
     <div className="flex flex-wrap items-start justify-between gap-4">
-      <div className="min-w-0 space-y-1.5">
+      <div className="min-w-0 space-y-1">
         <div className="flex flex-wrap items-center gap-2">
           <h1
             className={cn(
@@ -28,7 +28,7 @@ export function PageHeader({
           </h1>
           {badges}
         </div>
-        {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
+        {description ? <div className="text-sm text-muted-foreground">{description}</div> : null}
       </div>
 
       {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}

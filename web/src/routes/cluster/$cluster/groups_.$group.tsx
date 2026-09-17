@@ -1,22 +1,18 @@
-import { ActivityIcon, LayersIcon, NetworkIcon, UsersRoundIcon } from "lucide-react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Sparkline } from "@/components/charts";
 import { CopyButton } from "@/components/copy-button";
 import { DataTableColumnHeader } from "@/components/data-table/column-header";
 import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
 import { PageHeader } from "@/components/page-header";
-import { Stat, StatGrid } from "@/components/stat";
 import { GroupStateBadge, Pill } from "@/components/status";
 import { useGroup } from "@/lib/api/catalog";
 import { catalogLookupMessage } from "@/lib/catalog-lookup";
-import { useGroupLagHistory } from "@/lib/api/live";
 import { useClusterName } from "@/lib/clusters";
 import { formatCount, formatNumber, toNumber } from "@/lib/format";
-import type { GroupMember, GroupOffset } from "@/lib/api/types";
+import type { GroupDetail, GroupMember, GroupOffset } from "@/lib/api/types";
 import { parseGroupDetailSearch } from "@/lib/route-search";
 
 export const Route = createFileRoute("/cluster/$cluster/groups_/$group")({
@@ -76,6 +72,30 @@ const memberColumns = memberColumnHelper.columns([
   ),
 ]);
 
+function GroupFacts({
+  group,
+  members,
+  topicCount,
+  partitions,
+}: {
+  group: GroupDetail;
+  members: number;
+  topicCount: number;
+  partitions: number;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+      <span className="numeric">{members} members</span>
+      <span className="numeric">{topicCount} topics</span>
+      <span className="numeric">{partitions} assigned partitions</span>
+      <span className="numeric text-brand">
+        {group.lagComplete ? "" : "≥ "}
+        {formatCount(group.totalLag)} lag
+      </span>
+    </div>
+  );
+}
+
 function ConsumerGroupPage() {
   const cluster = useClusterName();
   const navigate = Route.useNavigate();
@@ -83,7 +103,6 @@ function ConsumerGroupPage() {
   const { tab: tabParam } = Route.useSearch();
   const tab = tabParam ?? "offsets";
   const { data: group, isPending, isError, error } = useGroup(cluster, groupId);
-  const { data: lagHistory = [] } = useGroupLagHistory(cluster, groupId);
 
   function selectTab(value: string) {
     void navigate({
@@ -227,36 +246,17 @@ function ConsumerGroupPage() {
             </>
           ) : null
         }
-        description={group ? `${topicCount} topics · ${offsets.length} assigned partitions` : null}
+        description={
+          group ? (
+            <GroupFacts
+              group={group}
+              members={members.length}
+              topicCount={topicCount}
+              partitions={offsets.length}
+            />
+          ) : null
+        }
       />
-
-      <StatGrid>
-        <Stat
-          label="Total lag"
-          value={`${group?.lagComplete === false ? "≥ " : ""}${formatCount(group?.totalLag ?? 0)}`}
-          hint={group?.lagComplete === false ? "some watermarks missing" : undefined}
-          icon={<ActivityIcon />}
-          loading={isPending}
-          accent
-        >
-          <Sparkline data={lagHistory} />
-        </Stat>
-        <Stat
-          label="Members"
-          value={members.length}
-          hint={group?.state === "EMPTY" ? "no active consumers" : "active consumers"}
-          icon={<UsersRoundIcon />}
-          loading={isPending}
-        />
-        <Stat label="Topics" value={topicCount} icon={<LayersIcon />} loading={isPending} />
-        <Stat
-          label="Partitions"
-          value={offsets.length}
-          hint="with committed offsets"
-          icon={<NetworkIcon />}
-          loading={isPending}
-        />
-      </StatGrid>
 
       <Tabs
         value={tab}
