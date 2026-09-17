@@ -14,8 +14,6 @@
 //!   per-cluster loops.
 //! - Assembled types live in `topic`, `broker`, `cluster`, `group`
 //!   (`ConsumerGroup`), `search`, and `scan`. `model` re-exports them.
-//! - [`scan`] is the records engine: one consumer per page request, a
-//!   two-stage filter, and bidirectional cursors.
 //! - `catalog` stores and polls the v1 product snapshot ([`ClusterSnapshot`],
 //!   [`CatalogPoller`]). [`QueryEngine`] builds that snapshot (`assemble_catalog`)
 //!   and serves live records, configs, one group, and subjects. `rates`,

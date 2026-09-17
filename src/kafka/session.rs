@@ -75,15 +75,11 @@ pub trait ClusterSession: Send + Sync + 'static {
     ) -> Result<Vec<CommittedOffset>, KafkaError>;
 
     /// Open a consumer for one page request.
-    ///
-    /// The scan reuses it across every filter pass, so this is called once
-    /// per page and only when there is at least one window to read.
     async fn open_scan(&self, topic: &str) -> Result<Box<dyn ScanConsumer>, KafkaError>;
 
     /// Registry-aware payload decoding, when the cluster has a registry.
     ///
-    /// `None` means payloads are returned as-is, which also lets substring
-    /// filters answer straight from the raw bytes.
+    /// `None` means payloads are returned as-is.
     fn payload_codec(&self) -> Option<Arc<dyn PayloadCodec>> {
         None
     }

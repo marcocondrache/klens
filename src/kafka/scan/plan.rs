@@ -1,13 +1,3 @@
-//! Partition windows and the cursor edges a scanned page hands back.
-//!
-//! A window is half-open: `start` inclusive, `end` exclusive. Windows are
-//! planned from watermarks the request already fetched — v1 re-clamped every
-//! window against a per-partition `fetch_end_offset` round trip on every
-//! pass, for offsets it had just read. A window whose end runs past the real
-//! log end is not a problem: the scan resolves idle partitions from the
-//! consumer's position and lag, so it completes the window instead of
-//! hanging on it.
-
 use std::collections::{BTreeMap, HashMap};
 
 use crate::kafka::limits::RecordLimits;
@@ -82,12 +72,6 @@ pub fn plan_windows(
         .collect()
 }
 
-/// Where the next window for `partition` should start (oldest walk) or
-/// exclusively end (newest walk).
-///
-/// A missing cursor means the first page. A cursor that omits a partition
-/// means that partition is exhausted — not that it should restart from the
-/// log end.
 fn resume_offset(
     cursor: Option<&RecordCursor>,
     partition: i32,
@@ -211,15 +195,12 @@ pub fn rewind_cursor(
             continue;
         };
         match walk {
-            // The reverse walk is oldest-first, so the boundary is the first
-            // offset it should read.
             RecordOrder::Newest => {
                 let next = offset + 1;
                 if next < marks.high {
                     offsets.insert(partition, next);
                 }
             }
-            // The reverse walk is newest-first, so the boundary is exclusive.
             RecordOrder::Oldest => {
                 if offset > marks.low {
                     offsets.insert(partition, offset);
@@ -273,8 +254,6 @@ pub fn apply_timestamp_bounds(
 mod tests {
     use super::*;
 
-    /// The `environment.rs` defaults, pinned so the window assertions below do not
-    /// depend on the ambient environment.
     fn limits() -> RecordLimits {
         RecordLimits {
             max_limit: 500,
@@ -562,7 +541,6 @@ mod tests {
 
     #[test]
     fn a_partially_covered_window_only_advances_over_what_was_read() {
-        // The pass planned [30, 40) but the deadline stopped it at 36.
         let cursor = advance(
             RecordOrder::Newest,
             &[window(0, 36, 40)],

@@ -1,8 +1,3 @@
-//! krafka-backed [`ScanConsumer`].
-//!
-//! One consumer per page request. The scan reseeks it between passes, so the
-//! adapter only has to translate assignments, polls and position queries.
-
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -21,7 +16,6 @@ pub(super) struct KrafkaScan {
 }
 
 impl KrafkaScan {
-    /// Only scan state is new: connections and metadata belong to the cluster.
     pub(super) async fn open(client: &KrafkaClient, topic: &str) -> Result<Self, KafkaError> {
         let consumer = Consumer::builder()
             .with_client(client)
@@ -45,7 +39,6 @@ impl ScanConsumer for KrafkaScan {
         self.consumer
             .assign(&self.topic, partitions.clone())
             .await?;
-        // A previous pass paused every partition it finished.
         self.consumer.resume(&self.topic, &partitions).await;
 
         // Seeking before the first poll also avoids an auto-offset-reset
@@ -95,7 +88,6 @@ impl ScanConsumer for KrafkaScan {
     }
 }
 
-/// Also close on cancellation; the consumer borrows the cluster's pool.
 impl Drop for KrafkaScan {
     fn drop(&mut self) {
         if self.closed.swap(true, Ordering::SeqCst) {
@@ -115,9 +107,6 @@ impl Drop for KrafkaScan {
 mod tests {
     use super::*;
 
-    /// The scan only treats an empty poll as the end of a window once the
-    /// consumer's own position or lag agrees, so a retriable broker error
-    /// cannot be mistaken for EOF.
     #[tokio::test]
     async fn position_and_lag_track_a_partially_read_window() {
         let broker = krafka::testing::FakeBroker::start().await.unwrap();
@@ -156,9 +145,6 @@ mod tests {
         scan.close().await;
     }
 
-    /// The whole point of holding one consumer across a page: reseeking it
-    /// costs nothing at the broker, where v1 paid a fresh offset lookup for
-    /// every filter pass.
     #[tokio::test]
     async fn reseeking_between_passes_does_not_look_offsets_up_again() {
         let broker = krafka::testing::FakeBroker::start().await.unwrap();

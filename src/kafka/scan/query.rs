@@ -46,8 +46,6 @@ impl RecordQuery {
             .map_or(CursorDirection::Forward, |cursor| cursor.direction)
     }
 
-    /// A filtered browse reads far more records than it returns, so it plans
-    /// wider windows and is allowed more passes.
     pub fn searching(&self) -> bool {
         self.filter.is_some() || self.schema_id.is_some()
     }

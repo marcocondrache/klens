@@ -540,18 +540,14 @@ impl FakeCluster {
         &self.inner.calls
     }
 
-    /// Every window list the scan assigned, in order — one entry per pass.
     pub fn assigned_windows(&self) -> Vec<Vec<(i32, i64, i64)>> {
         self.inner.assignments.lock().expect("assignments").clone()
     }
 
-    /// How many consumers the engine opened. A page must only ever need one.
     pub fn consumers_opened(&self) -> usize {
         self.inner.consumers.load(Ordering::SeqCst)
     }
 
-    /// How many payloads reached the decoder, which is what the two-stage
-    /// filter exists to keep small.
     pub fn decoded_payloads(&self) -> usize {
         self.inner.codec.decoded.load(Ordering::SeqCst)
     }
@@ -836,21 +832,12 @@ impl ClusterSession for FakeCluster {
     }
 }
 
-/// An in-memory [`ScanConsumer`] over the cluster's canned records.
-///
-/// It models the parts of a real consumer the scan actually leans on: an
-/// assignment it can be reseeked to, polls that only ever return records
-/// inside the assigned windows, and a position that walks to the end of a
-/// window once everything in it has been handed over.
 struct FakeScan {
     cluster: Arc<Inner>,
     topic: String,
-    /// Records inside the current assignment that have not been polled yet.
     pending: Mutex<Vec<RawRecord>>,
     windows: Mutex<HashMap<i32, (i64, i64)>>,
     paused: Mutex<HashSet<i32>>,
-    /// Fetch latency still owed for this assignment, paid off a budget at a
-    /// time so a deadline can cut a slow pass short.
     owed: Mutex<Duration>,
 }
 
@@ -978,11 +965,6 @@ fn raw_record(record: &Record) -> RawRecord {
     }
 }
 
-/// A codec that counts what it was asked to decode.
-///
-/// Payloads are already plain UTF-8 in the fake, so decoding is a no-op —
-/// the count is the point, because it shows how much work the two-stage
-/// filter avoided.
 #[derive(Default)]
 struct CountingCodec {
     decoded: AtomicUsize,
