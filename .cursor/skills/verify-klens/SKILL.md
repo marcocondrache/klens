@@ -35,6 +35,7 @@ Overrides, all optional:
 - `KLENS_VERIFY_RUN_DIR` (default `.cursor/skills/verify-klens/run`)
 - `KLENS_VERIFY_BROKERS` (default `127.0.0.1:9092`)
 - `RPK` (path to `rpk`; default `rpk` on `PATH`)
+- `KLENS_CATALOG_POLL_INTERVAL` (product env, seconds, default `5`). A 5s catalog poll can fail `ListGroups` against Redpanda and set `catalogHealth.lastError`, which fails doctor. For a multi-feature drive set `600` so the poller stays quiet. That override is session harness, not a product fix. Do not add it to `launch.sh`.
 
 Do not use `mise web:dev` / `vp dev` for verification. `web/vite.config.ts` proxies `/graphql`, `/auth`, `/api`, and `/health` to `http://localhost:8080`, so a Vite session cannot bind a private port.
 
@@ -71,6 +72,8 @@ Prefer the helper for the feature under test. Topics is the seeded proof path:
 
 That script uses Playwright against `/usr/bin/google-chrome` (override with `CHROME`). It opens the UI, waits for the Topics heading, checks `Rows per page` is `100`, toggles `Show internal`, filters to the seeded topic, opens the topic, and writes evidence.
 
+Drive the live ACL page before opening a topic Data tab. A records fetch timeout can poison the shared krafka client so later `acls` RPCs also time out.
+
 If you drive by hand, use these handles from this repo. Prefer them over coordinates.
 
 | Control | Handle |
@@ -80,7 +83,7 @@ If you drive by hand, use these handles from this repo. Prefer them over coordin
 | Topic search | `input[data-search-hotkey]` placeholder `Search topics…` |
 | Internal topics | label `Show internal` |
 | Sidebar | links `Topics`, `Consumer Groups`, `Schema Registry`, `Brokers`, `ACLs` |
-| Command palette | button `Search`, or `Meta+K` / `Control+K`; `/` opens the dialog only when no `data-search-hotkey` field is visible; dialog title `Search klens` |
+| Command palette | header button visible label `Search` (accessible name `Search Ctrl+K /`), or `Meta+K` / `Control+K`; `/` opens the dialog only when no `data-search-hotkey` field is visible; dialog title `Search klens` |
 | Catalog alerts | `Cluster unreachable` when `lastError` is set and `updatedAt` is null; `Catalog update failed` when both are set |
 | Topic row | table cell with the topic name; click opens `/cluster/local/topics/<name>` |
 | Topic tabs | `Data`, `Partitions`, `Consumer groups`, `Configuration` |
