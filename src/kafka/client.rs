@@ -33,6 +33,7 @@ use crate::kafka::model::ScanConsumer;
 use crate::kafka::registry::client::SchemaRegistryClient;
 use crate::kafka::registry::decode::PayloadDecoder;
 use crate::kafka::registry::{RegisteredSchema, SchemaSubject};
+use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::topic_config::ConfigEntry;
@@ -52,6 +53,7 @@ pub struct KafkaClient {
     krafka: KrafkaSharedClient,
     admin: KrafkaAdmin,
     schema_registry: Option<Arc<PayloadDecoder>>,
+    obfuscation: Option<Arc<ObfuscationPolicy>>,
 }
 
 impl std::fmt::Debug for KafkaClient {
@@ -71,6 +73,19 @@ impl KafkaClient {
             .map(|registry| {
                 SchemaRegistryClient::new(identity.name.clone(), registry)
                     .map(|client| Arc::new(PayloadDecoder::new(client)))
+            })
+            .transpose()?;
+
+        let obfuscation = config
+            .obfuscation
+            .as_ref()
+            .map(|rules| {
+                ObfuscationPolicy::compile(rules)
+                    .map(Arc::new)
+                    .map_err(|error| KafkaError::Obfuscation {
+                        cluster: identity.name.clone(),
+                        message: error.to_string(),
+                    })
             })
             .transpose()?;
 
@@ -113,6 +128,7 @@ impl KafkaClient {
             krafka,
             admin,
             schema_registry,
+            obfuscation,
         })
     }
 }
@@ -281,6 +297,10 @@ impl ClusterSession for KafkaClient {
             .map(|decoder| decoder as Arc<dyn PayloadCodec>)
     }
 
+    fn obfuscation(&self) -> Option<Arc<ObfuscationPolicy>> {
+        self.obfuscation.clone()
+    }
+
     async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
         let Some(decoder) = &self.schema_registry else {
             return Ok(Vec::new());
@@ -440,6 +460,7 @@ mod tests {
             bootstrap_servers: vec![broker.bootstrap_servers()],
             security: None,
             schema_registry: None,
+            obfuscation: None,
             properties: crate::config::KafkaProperties {
                 request_timeout_ms: Some(100),
                 connect_timeout_ms: Some(100),
@@ -749,6 +770,7 @@ mod tests {
             bootstrap_servers: vec![bootstrap.to_owned()],
             security: None,
             schema_registry: None,
+            obfuscation: None,
             properties: Default::default(),
         })
         .await

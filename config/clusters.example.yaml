@@ -43,6 +43,34 @@ clusters:
       # username: ${SCHEMA_REGISTRY_USERNAME}
       # password: ${SCHEMA_REGISTRY_PASSWORD}
 
+    # Optional server-side obfuscation. Rules are per topic, compiled at boot,
+    # and applied before filters run, so a filter can only ever match what the
+    # page itself shows. Applies to every session, admins included.
+    #
+    # obfuscation:
+    #   # Required as soon as one rule hashes. Base64 or plain text, 32+ bytes.
+    #   # Rotating it changes every token.
+    #   secret: ${KLENS_OBFUSCATION_SECRET}
+    #   rules:
+    #     # Field rules walk the JSON a registry decode produced. An array met
+    #     # on the path fans out, so items.sku covers every element's sku.
+    #     - topics: ["payments.*"]   # exact name, or a trailing-* prefix
+    #       fields:
+    #         - path: card.number
+    #           strategy: hash       # kx:3f9a2c481b7d6e05, equal values match
+    #         - path: card.cvv
+    #           strategy: drop       # the field disappears
+    #         - path: customer.email
+    #           strategy: mask       # ***
+    #       # A value that never decoded cannot be walked: mask it whole
+    #       # (default) or serve it as it came off the wire.
+    #       unparsed: mask           # mask | allow
+    #     # Whole-field rules, for topics browsed as raw text.
+    #     - topics: ["audit.raw"]
+    #       key: mask
+    #       value: hash
+    #       headers: ["x-user-id"]   # header values to mask, by name
+
 # Optional OpenID Connect login gate. When omitted, the UI and GraphQL API are
 # open to anyone who can reach the process. /health stays public either way.
 #

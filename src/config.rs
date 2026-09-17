@@ -290,6 +290,8 @@ pub struct ClusterConfig {
     #[serde(default)]
     pub schema_registry: Option<SchemaRegistryConfig>,
     #[serde(default)]
+    pub obfuscation: Option<ObfuscationConfig>,
+    #[serde(default)]
     pub properties: KafkaProperties,
 }
 
@@ -375,6 +377,256 @@ impl ClusterConfig {
 
         if let Some(schema_registry) = &self.schema_registry {
             schema_registry.validate(&self.name)?;
+        }
+
+        if let Some(obfuscation) = &self.obfuscation {
+            obfuscation.validate(&self.name)?;
+        }
+
+        Ok(())
+    }
+}
+
+/// Minimum key material for `hash` tokens, matching the session key bar.
+pub const MIN_OBFUSCATION_SECRET_BYTES: usize = 32;
+
+/// The token every `mask` rule writes, and the `unparsed` fallback.
+pub const OBFUSCATION_MASK: &str = "***";
+
+/// Server-side obfuscation of record keys, values, and headers.
+///
+/// Rules are compiled once at boot and applied inside the scan, before any
+/// filter runs, so a filter can never be used as an oracle for a field the
+/// response hides.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObfuscationConfig {
+    /// Key for `hash` tokens, as base64 or raw text of at least 32 bytes.
+    /// Required as soon as one rule hashes. Rotating it changes every token,
+    /// so correlation across the rotation is lost.
+    #[serde(default)]
+    pub secret: Option<String>,
+    pub rules: Vec<ObfuscationRule>,
+}
+
+/// What to do with a value that never became JSON, because the registry is
+/// down, the schema is gone, or the bytes were never framed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UnparsedPolicy {
+    /// Fail closed: the whole value is masked.
+    #[default]
+    Mask,
+    /// Fail open: undecodable values are served as they came off the wire.
+    Allow,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObfuscationRule {
+    /// Exact topic names, or a trailing-`*` prefix. No topic may be matched
+    /// by two rules.
+    pub topics: Vec<String>,
+    /// Dotted paths into decoded JSON. An array met mid-path fans out over
+    /// its elements, so `items.sku` covers every element's `sku`.
+    #[serde(default)]
+    pub fields: Vec<ObfuscationField>,
+    /// Strategy for the whole record key, applied after any field rules.
+    #[serde(default)]
+    pub key: Option<ObfuscationStrategy>,
+    /// Strategy for the whole record value, applied after any field rules.
+    #[serde(default)]
+    pub value: Option<ObfuscationStrategy>,
+    /// Header names whose values are masked.
+    #[serde(default)]
+    pub headers: Vec<String>,
+    #[serde(default)]
+    pub unparsed: UnparsedPolicy,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObfuscationField {
+    pub path: String,
+    pub strategy: ObfuscationStrategy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ObfuscationStrategy {
+    /// Replace with `***`.
+    Mask,
+    /// Replace with a deterministic keyed token, so equal values still
+    /// render equal.
+    Hash,
+    /// Remove the field entirely.
+    Drop,
+}
+
+impl ObfuscationStrategy {
+    fn needs_secret(self) -> bool {
+        matches!(self, Self::Hash)
+    }
+}
+
+/// A topic selector: an exact name, or everything under a trailing-`*`
+/// prefix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TopicPattern<'a> {
+    Exact(&'a str),
+    Prefix(&'a str),
+}
+
+impl<'a> TopicPattern<'a> {
+    pub fn parse(pattern: &'a str) -> Result<Self, String> {
+        if pattern.trim().is_empty() {
+            return Err("topic must not be empty".to_owned());
+        }
+
+        match pattern.strip_suffix('*') {
+            Some(prefix) if !prefix.contains('*') => Ok(Self::Prefix(prefix)),
+            None if !pattern.contains('*') => Ok(Self::Exact(pattern)),
+            _ => Err("'*' is only allowed as the last character".to_owned()),
+        }
+    }
+
+    pub fn matches(self, topic: &str) -> bool {
+        match self {
+            Self::Exact(name) => topic == name,
+            Self::Prefix(prefix) => topic.starts_with(prefix),
+        }
+    }
+
+    /// Whether both selectors can ever name the same topic.
+    fn overlaps(self, other: Self) -> bool {
+        match (self, other) {
+            (Self::Exact(left), Self::Exact(right)) => left == right,
+            (Self::Exact(name), Self::Prefix(prefix))
+            | (Self::Prefix(prefix), Self::Exact(name)) => name.starts_with(prefix),
+            (Self::Prefix(left), Self::Prefix(right)) => {
+                left.starts_with(right) || right.starts_with(left)
+            }
+        }
+    }
+
+    fn source(self) -> String {
+        match self {
+            Self::Exact(name) => name.to_owned(),
+            Self::Prefix(prefix) => format!("{prefix}*"),
+        }
+    }
+}
+
+impl ObfuscationConfig {
+    /// Key material for `hash` tokens: base64 when it decodes to enough
+    /// bytes, otherwise the literal text. Mirrors the session key.
+    pub fn secret_bytes(&self) -> Option<Vec<u8>> {
+        let secret = self
+            .secret
+            .as_deref()
+            .map(str::trim)
+            .filter(|secret| !secret.is_empty())?;
+
+        let decoded = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, secret);
+        Some(match decoded {
+            Ok(bytes) if bytes.len() >= MIN_OBFUSCATION_SECRET_BYTES => bytes,
+            _ => secret.as_bytes().to_vec(),
+        })
+    }
+
+    pub(crate) fn validate(&self, cluster: &str) -> Result<(), ConfigError> {
+        let fail = |reason: String| Err(ConfigError::invalid_cluster(cluster, reason));
+
+        if self.rules.is_empty() {
+            return fail("obfuscation rules must not be empty".to_owned());
+        }
+
+        match self.secret_bytes() {
+            Some(bytes) if bytes.len() < MIN_OBFUSCATION_SECRET_BYTES => {
+                return fail(format!(
+                    "obfuscation secret must decode to at least {MIN_OBFUSCATION_SECRET_BYTES} bytes, got {}",
+                    bytes.len()
+                ));
+            }
+            _ => {}
+        }
+
+        let hashed = self.secret_bytes().is_some();
+        let mut selectors: Vec<TopicPattern<'_>> = Vec::new();
+
+        for rule in &self.rules {
+            rule.validate(cluster, hashed)?;
+
+            for topic in &rule.topics {
+                let pattern = TopicPattern::parse(topic).map_err(|reason| {
+                    ConfigError::invalid_cluster(
+                        cluster,
+                        format!("obfuscation topic '{topic}': {reason}"),
+                    )
+                })?;
+
+                if let Some(other) = selectors.iter().find(|other| other.overlaps(pattern)) {
+                    return fail(format!(
+                        "obfuscation topics '{topic}' and '{}' match the same topics; \
+                         a topic must be covered by exactly one rule",
+                        other.source()
+                    ));
+                }
+            }
+
+            selectors.extend(
+                rule.topics
+                    .iter()
+                    .filter_map(|topic| TopicPattern::parse(topic).ok()),
+            );
+        }
+
+        Ok(())
+    }
+}
+
+impl ObfuscationRule {
+    fn validate(&self, cluster: &str, has_secret: bool) -> Result<(), ConfigError> {
+        let fail = |reason: String| Err(ConfigError::invalid_cluster(cluster, reason));
+
+        if self.topics.is_empty() {
+            return fail("obfuscation rule topics must not be empty".to_owned());
+        }
+
+        if self.fields.is_empty()
+            && self.key.is_none()
+            && self.value.is_none()
+            && self.headers.is_empty()
+        {
+            return fail(format!(
+                "obfuscation rule for '{}' must set at least one of fields, key, value or headers",
+                self.topics.join(", ")
+            ));
+        }
+
+        for field in &self.fields {
+            if field.path.trim().is_empty() || field.path.split('.').any(str::is_empty) {
+                return fail(format!(
+                    "obfuscation field path '{}' must not have empty segments",
+                    field.path
+                ));
+            }
+        }
+
+        if self.headers.iter().any(|header| header.trim().is_empty()) {
+            return fail("obfuscation header names must not be empty".to_owned());
+        }
+
+        let hashes = self
+            .fields
+            .iter()
+            .map(|field| field.strategy)
+            .chain(self.key)
+            .chain(self.value)
+            .any(ObfuscationStrategy::needs_secret);
+
+        if hashes && !has_secret {
+            return fail("obfuscation hash strategy requires a secret".to_owned());
         }
 
         Ok(())
@@ -741,6 +993,7 @@ mod tests {
             bootstrap_servers: vec!["localhost:9092".to_owned()],
             security: None,
             schema_registry: None,
+            obfuscation: None,
             properties: KafkaProperties::default(),
         };
 
@@ -1069,6 +1322,238 @@ mod tests {
                 .to_string()
                 .contains("username and password must be set together")
         );
+    }
+
+    #[test]
+    fn parses_obfuscation_rules() {
+        let config = parse_cluster(
+            "
+            name: payments
+            bootstrap_servers:
+              - broker:9092
+            obfuscation:
+              secret: 0123456789abcdef0123456789abcdef
+              rules:
+                - topics: ['payments.*']
+                  fields:
+                    - path: card.number
+                      strategy: hash
+                    - path: card.cvv
+                      strategy: drop
+                  unparsed: allow
+                - topics: ['audit.raw']
+                  key: mask
+                  value: hash
+                  headers: ['x-user-id']
+            ",
+        )
+        .unwrap();
+        config.validate().unwrap();
+
+        let obfuscation = config.obfuscation.unwrap();
+        assert_eq!(obfuscation.rules.len(), 2);
+        assert_eq!(obfuscation.rules[0].fields[0].path, "card.number");
+        assert_eq!(
+            obfuscation.rules[0].fields[0].strategy,
+            ObfuscationStrategy::Hash
+        );
+        assert_eq!(obfuscation.rules[0].unparsed, UnparsedPolicy::Allow);
+        assert_eq!(obfuscation.rules[1].key, Some(ObfuscationStrategy::Mask));
+        assert_eq!(obfuscation.rules[1].headers, vec!["x-user-id"]);
+    }
+
+    #[test]
+    fn obfuscation_fails_closed_on_values_that_never_decode() {
+        let config = parse_cluster(
+            "
+            name: payments
+            bootstrap_servers:
+              - broker:9092
+            obfuscation:
+              rules:
+                - topics: [cards]
+                  fields:
+                    - path: pan
+                      strategy: mask
+            ",
+        )
+        .unwrap();
+
+        assert_eq!(
+            config.obfuscation.unwrap().rules[0].unparsed,
+            UnparsedPolicy::Mask
+        );
+    }
+
+    fn obfuscated(rules: &str) -> Result<(), ConfigError> {
+        let yaml = format!(
+            "
+            name: payments
+            bootstrap_servers:
+              - broker:9092
+            obfuscation:
+{rules}
+            "
+        );
+
+        parse_cluster(&yaml)
+            .expect("obfuscation config parses")
+            .validate()
+    }
+
+    #[test]
+    fn rejects_hashing_without_a_secret() {
+        let error = obfuscated(
+            "
+              rules:
+                - topics: [cards]
+                  fields:
+                    - path: pan
+                      strategy: hash
+            ",
+        )
+        .unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("hash strategy requires a secret")
+        );
+    }
+
+    #[test]
+    fn rejects_a_secret_with_too_little_key_material() {
+        let error = obfuscated(
+            "
+              secret: short
+              rules:
+                - topics: [cards]
+                  value: hash
+            ",
+        )
+        .unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("secret must decode to at least 32 bytes")
+        );
+    }
+
+    #[test]
+    fn rejects_empty_rules_and_rules_that_do_nothing() {
+        let error = obfuscated(
+            "
+              rules: []
+            ",
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("rules must not be empty"));
+
+        let error = obfuscated(
+            "
+              rules:
+                - topics: []
+                  value: mask
+            ",
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("topics must not be empty"));
+
+        let error = obfuscated(
+            "
+              rules:
+                - topics: [cards]
+            ",
+        )
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("at least one of fields, key, value or headers")
+        );
+    }
+
+    #[test]
+    fn rejects_paths_and_topics_that_cannot_mean_anything() {
+        let error = obfuscated(
+            "
+              rules:
+                - topics: [cards]
+                  fields:
+                    - path: card..number
+                      strategy: mask
+            ",
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("must not have empty segments"));
+
+        let error = obfuscated(
+            "
+              rules:
+                - topics: ['pay*ments']
+                  value: mask
+            ",
+        )
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("'*' is only allowed as the last character")
+        );
+    }
+
+    #[test]
+    fn rejects_two_rules_that_cover_one_topic() {
+        let overlaps = [
+            ("payments.cards", "payments.cards"),
+            ("payments.*", "payments.cards"),
+            ("payments.cards", "payments.*"),
+            ("payments.*", "payments.eu.*"),
+        ];
+
+        for (first, second) in overlaps {
+            let error = obfuscated(&format!(
+                "
+              rules:
+                - topics: ['{first}']
+                  value: mask
+                - topics: ['{second}']
+                  value: drop
+            "
+            ))
+            .unwrap_err();
+
+            assert!(
+                error.to_string().contains("match the same topics"),
+                "{first} and {second}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn accepts_rules_that_only_look_alike() {
+        obfuscated(
+            "
+              rules:
+                - topics: ['payments.*']
+                  value: mask
+                - topics: ['payment', 'payments']
+                  value: drop
+            ",
+        )
+        .expect("a prefix rule does not cover the name it was built from");
+
+        obfuscated(
+            "
+              rules:
+                - topics: ['payments.cards']
+                  value: mask
+                - topics: ['payments.wallets', 'audit.*']
+                  value: drop
+            ",
+        )
+        .unwrap();
     }
 
     fn load_yaml(yaml: &str, vars: &[(&str, &str)]) -> Result<Config, ConfigError> {
