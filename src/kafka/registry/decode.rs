@@ -19,38 +19,30 @@ use crate::environment::{MISSING_SCHEMA_TTL, SUBJECT_FETCH_CONCURRENCY};
 use crate::kafka::model::{SchemaReference, SchemaType};
 use crate::kafka::scan::payload::{DecodedPayload, PayloadCodec, PayloadSlot, framed_schema_id};
 
-/// Bound on the per-decoder caches. A registered schema is immutable, so
-/// nothing evicts one on age.
 const MAX_CACHED_SCHEMAS: u64 = 10_000;
 
-/// How a payload says which schema it uses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Framing {
     key: SchemaKey,
-    /// Where the payload body starts.
-    body: usize,
-    /// Whether the payload carries a wire-format prefix of its own. Only
-    /// framed payloads do, and only they carry a protobuf message-index
-    /// prefix; an override says "read these bytes as this schema".
-    framed: bool,
+    payload_start: usize,
+    has_wire_prefix: bool,
 }
 
 impl Framing {
-    /// Wire-format schema ids always win over the override.
     fn of(slot: &PayloadSlot) -> Option<Self> {
-        if let Ok((key, body)) = decode_wire_prefix(&slot.raw) {
+        if let Ok((key, payload_start)) = decode_wire_prefix(&slot.raw) {
             return Some(Self {
                 key,
-                body,
-                framed: true,
+                payload_start,
+                has_wire_prefix: true,
             });
         }
 
         let id = u32::try_from(slot.override_id?).ok()?;
         Some(Self {
             key: SchemaKey::Id(SchemaId::new(id)),
-            body: 0,
-            framed: false,
+            payload_start: 0,
+            has_wire_prefix: false,
         })
     }
 }
@@ -58,19 +50,11 @@ impl Framing {
 #[derive(Clone)]
 pub(crate) struct PayloadDecoder {
     client: SchemaRegistryClient,
-    /// Fetches and parses writer schemas, walking Avro references itself.
     avro: Arc<AvroSchemaDecoder<Arc<Registry>>>,
-    /// Compiled protobuf descriptor pools. `CachedSchemaRegistry` caches raw
-    /// schemas and `AvroSchemaDecoder` caches parsed Avro ones, so this is the
-    /// only schema parse klens still owns.
     pools: Cache<SchemaKey, Arc<ProtobufCodec>>,
-    /// Schemas the registry does not know. Resolved schemas are cached for the
-    /// process lifetime because a registered schema is immutable. A missing
-    /// one is not: registering it later must start working without a restart.
     missing: Cache<SchemaKey, ()>,
 }
 
-/// What a resolved schema means for the bytes that name it.
 #[derive(Clone)]
 enum Resolved {
     Avro,
@@ -138,9 +122,6 @@ impl PayloadDecoder {
             .map_err(|error| (*error).clone())
     }
 
-    /// The transitive closure of a protobuf schema's registry references, as
-    /// `(import name, source)` pairs for the protox resolver. Avro walks its
-    /// own references inside [`AvroSchemaDecoder`].
     async fn collect_named_references(
         &self,
         schema: &Schema,
@@ -248,7 +229,7 @@ impl PayloadDecoder {
         framing: Framing,
         raw: &Bytes,
     ) -> Result<Value, DecodeError> {
-        let body = raw.slice(framing.body.min(raw.len())..);
+        let body = raw.slice(framing.payload_start.min(raw.len())..);
 
         match resolved {
             Resolved::Missing => Err(DecodeError::missing("schema id not found in registry")),
@@ -256,7 +237,7 @@ impl PayloadDecoder {
             Resolved::Avro => {
                 // The decoder reads the identifier off the wire prefix, so an
                 // override has to be handed bytes that carry one.
-                let framed = if framing.framed {
+                let framed = if framing.has_wire_prefix {
                     raw.clone()
                 } else {
                     encode_wire_format(framing.key, &body)
@@ -268,7 +249,7 @@ impl PayloadDecoder {
                     .map_err(DecodeError::failed)?;
                 Value::try_from(value).map_err(DecodeError::failed)
             }
-            Resolved::Protobuf(codec) => if framing.framed {
+            Resolved::Protobuf(codec) => if framing.has_wire_prefix {
                 codec.decode_framed(&body)
             } else {
                 codec.decode_raw(&body)
@@ -506,8 +487,8 @@ mod tests {
         let slot = PayloadSlot::new(Bytes::from(bytes), None);
         let parsed = Framing::of(&slot).unwrap();
         assert_eq!(parsed.key, 12u32);
-        assert!(parsed.framed);
-        assert_eq!(&slot.raw[parsed.body..], b"datum");
+        assert!(parsed.has_wire_prefix);
+        assert_eq!(&slot.raw[parsed.payload_start..], b"datum");
     }
 
     #[test]
@@ -517,8 +498,8 @@ mod tests {
         let parsed = Framing::of(&slot).unwrap();
 
         assert_eq!(parsed.key, SchemaKey::Guid(guid));
-        assert!(parsed.framed);
-        assert_eq!(&slot.raw[parsed.body..], b"datum");
+        assert!(parsed.has_wire_prefix);
+        assert_eq!(&slot.raw[parsed.payload_start..], b"datum");
     }
 
     #[test]
@@ -537,8 +518,8 @@ mod tests {
         let bare = PayloadSlot::new(Bytes::from_static(b"datum"), Some(99));
         let framing = Framing::of(&bare).unwrap();
         assert_eq!(framing.key, 99u32);
-        assert_eq!(framing.body, 0);
-        assert!(!framing.framed);
+        assert_eq!(framing.payload_start, 0);
+        assert!(!framing.has_wire_prefix);
     }
 
     #[tokio::test]

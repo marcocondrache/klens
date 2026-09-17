@@ -1,10 +1,3 @@
-//! Schema Registry types, catalog port, and payload decode.
-//!
-//! [`SchemaSubject`] and [`RegisteredSchema`] are the domain types. `client`
-//! is the registry port ([`client::SchemaRegistryClient`]), a thin adapter
-//! over [`schemreg`]. `decode` turns a Confluent-framed payload into text.
-//! `protobuf` is the protobuf path inside decode.
-
 pub mod client;
 pub mod decode;
 pub mod protobuf;
@@ -17,9 +10,9 @@ pub enum SchemaType {
 }
 
 impl From<schemreg::SchemaType> for SchemaType {
-    /// Schema Registry omits `schemaType` for Avro, so that is the fallback.
     fn from(value: schemreg::SchemaType) -> Self {
         match value {
+            schemreg::SchemaType::Avro => Self::Avro,
             schemreg::SchemaType::Json => Self::Json,
             schemreg::SchemaType::Protobuf => Self::Protobuf,
             _ => Self::Avro,
@@ -46,11 +39,11 @@ pub enum SchemaCompatibility {
 }
 
 impl From<schemreg::CompatibilityLevel> for SchemaCompatibility {
-    /// Transitive variants collapse onto their base mode.
     fn from(value: schemreg::CompatibilityLevel) -> Self {
         use schemreg::CompatibilityLevel as Level;
 
         match value {
+            Level::Backward | Level::BackwardTransitive => Self::Backward,
             Level::Forward | Level::ForwardTransitive => Self::Forward,
             Level::Full | Level::FullTransitive => Self::Full,
             Level::None => Self::None,

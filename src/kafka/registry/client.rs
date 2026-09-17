@@ -12,17 +12,11 @@ use crate::environment::{SCHEMA_REGISTRY_TIMEOUT, SUBJECT_FETCH_CONCURRENCY};
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{RegisteredSchema, SchemaCompatibility, SchemaReference, SchemaSubject};
 
-/// Schema ids are immutable, so the by-id cache never expires; this is the
-/// only thing keeping it from growing with the registry.
 const MAX_CACHED_SCHEMAS: usize = 10_000;
 
-/// A Confluent-compatible registry behind a process-lifetime schema cache.
 pub(crate) type Registry = CachedSchemaRegistry<ConfluentSchemaRegistry>;
 
 /// Catalog port for a Confluent-compatible Schema Registry.
-///
-/// Wraps [`schemreg`] with the two things that are klens's rather than the
-/// crate's: the subject sweep policy, and the mapping onto klens domain types.
 #[derive(Clone)]
 pub struct SchemaRegistryClient {
     cluster: String,
@@ -39,8 +33,6 @@ impl SchemaRegistryClient {
         let mut builder = ConfluentSchemaRegistry::builder()
             .url(config.url.as_str())
             .request_timeout(*SCHEMA_REGISTRY_TIMEOUT)
-            // The ingestion lanes have their own sweep cadence; stacking a
-            // retry budget under it can make a sweep overrun its interval.
             .retry_policy(RetryPolicy::none());
 
         if let (Some(username), Some(password)) = (&config.username, &config.password) {
@@ -63,7 +55,6 @@ impl SchemaRegistryClient {
         })
     }
 
-    /// The cached registry, shared with the decode pipeline.
     pub(crate) fn registry(&self) -> &Arc<Registry> {
         &self.registry
     }
@@ -82,8 +73,6 @@ impl SchemaRegistryClient {
             .await
             .map_err(|error| self.fail(error.to_string()))?;
 
-        // At most one global-config fetch per sweep, and only if some subject
-        // needs it.
         let global = OnceCell::new();
 
         let mut subjects: Vec<SchemaSubject> = futures::stream::iter(names)
@@ -149,15 +138,6 @@ impl SchemaRegistryClient {
         })
     }
 
-    /// The subject's *effective* compatibility: normally one call, because
-    /// `?defaultToGlobal=true` makes the registry apply the global fallback
-    /// itself.
-    ///
-    /// Registries that ignore that parameter answer 404 for a subject with no
-    /// override of its own, so a not-found falls back to the global config —
-    /// resolved once per sweep rather than once per subject. A registry with no
-    /// configuration at all 404s both, which is not an error: it means nothing
-    /// is enforced.
     async fn compatibility(
         &self,
         name: &str,
@@ -175,7 +155,6 @@ impl SchemaRegistryClient {
         }
     }
 
-    /// The registry-wide default, read straight from `GET /config`.
     async fn global_compatibility(&self) -> SchemaCompatibility {
         match self.registry.get_compatibility("").await {
             Ok(level) => level.into(),
@@ -210,8 +189,6 @@ fn is_unconfigured(error: &SchemaRegError) -> bool {
             == Some(schemreg::error::error_code::SUBJECT_COMPATIBILITY_NOT_CONFIGURED)
 }
 
-/// Registry ids are unsigned on the wire and signed in klens's domain and
-/// GraphQL surface; the registry never issues one that does not fit.
 pub(crate) fn schema_id(schema: &Schema) -> Option<i32> {
     i32::try_from(SchemaId::as_u32(schema.id?)).ok()
 }
@@ -385,8 +362,6 @@ mod tests {
         assert_eq!(subjects[0].compatibility, SchemaCompatibility::None);
     }
 
-    /// Registries that ignore `?defaultToGlobal=true` answer 404 for a subject
-    /// with no override of its own; the global default still applies.
     #[tokio::test]
     async fn a_subject_without_an_override_falls_back_to_the_global_default() {
         let server = MockServer::start().await;
