@@ -86,10 +86,10 @@ clusters:
 #
 # Register redirect_uri with the identity provider. Without roles, any
 # authenticated user has the same access as an open deployment. With roles,
-# unmatched users cannot sign in. Admins can read records, live configs,
-# schema text, and ACL bindings. Viewers see the catalog only. Omit clusters
-# to allow every
-# configured cluster.
+# unmatched users cannot sign in. A role is a name for a set of privileges:
+# each role grants exactly the privileges it lists, out of records, configs,
+# schema_text, and acls. An empty list still sees the catalog. Omit clusters
+# on a binding to allow every configured cluster.
 #
 # auth:
 #   oidc:
@@ -101,11 +101,18 @@ clusters:
 #     # cookie_secure: false  # default: true when redirect_uri is https
 #   roles:
 #     # claim: groups
+#     definitions:
+#       admin: [records, configs, schema_text, acls]
+#       viewer: []  # catalog only: clusters, topics, groups — no payloads
+#       operator: [records, configs]
+#       auditor: [acls, schema_text]
 #     bindings:
 #       - groups: [klens-admins]
 #         role: admin
 #       - groups: [klens-viewers]
 #         role: viewer
-#       - groups: [payments-viewers]
-#         role: viewer
-#         clusters: [payments]
+#       - groups: [kafka-operators]
+#         role: operator
+#         clusters: [staging, dev]
+#       - groups: [security-team]
+#         role: auditor

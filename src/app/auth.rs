@@ -836,22 +836,27 @@ mod tests {
     }
 
     fn bound_admins() -> AccessPolicy {
-        AccessPolicy::from_roles(Some(&crate::config::RolesConfig {
-            claim: "groups".into(),
-            bindings: vec![crate::config::RoleBinding {
-                groups: vec!["klens-admins".into()],
-                role: crate::config::RoleName::Admin,
-                clusters: None,
-            }],
-        }))
+        use crate::config::PrivilegeName::{Acls, Configs, Records, SchemaText};
+        bound(
+            "admin",
+            &[Records, Configs, SchemaText, Acls],
+            "klens-admins",
+        )
     }
 
     fn bound_viewers() -> AccessPolicy {
+        bound("viewer", &[], "klens-viewers")
+    }
+
+    fn bound(role: &str, privileges: &[crate::config::PrivilegeName], group: &str) -> AccessPolicy {
         AccessPolicy::from_roles(Some(&crate::config::RolesConfig {
             claim: "groups".into(),
+            definitions: [(role.to_owned(), privileges.to_vec())]
+                .into_iter()
+                .collect(),
             bindings: vec![crate::config::RoleBinding {
-                groups: vec!["klens-viewers".into()],
-                role: crate::config::RoleName::Viewer,
+                groups: vec![group.to_owned()],
+                role: role.to_owned(),
                 clusters: None,
             }],
         }))
@@ -997,7 +1002,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn whoami_reports_the_bound_role_per_cluster() {
+    async fn whoami_reports_the_bound_roles_per_cluster() {
         let router = app(AuthState::enabled_for_tests_with(
             FakeOidc::default(),
             bound_viewers(),
@@ -1017,7 +1022,7 @@ mod tests {
             .header(header::CONTENT_TYPE, "application/json")
             .header(header::COOKIE, cookie)
             .body(Body::from(
-                r#"{"query":"{ whoami { subject clusters { cluster role privileges } } }"}"#,
+                r#"{"query":"{ whoami { subject clusters { cluster roles privileges } } }"}"#,
             ))
             .unwrap();
 
@@ -1029,7 +1034,10 @@ mod tests {
 
         assert_eq!(whoami["subject"], "user-1");
         assert_eq!(whoami["clusters"][0]["cluster"], "local");
-        assert_eq!(whoami["clusters"][0]["role"], "VIEWER");
+        assert_eq!(
+            whoami["clusters"][0]["roles"],
+            serde_json::json!(["viewer"])
+        );
         assert_eq!(whoami["clusters"][0]["privileges"], serde_json::json!([]));
     }
 
