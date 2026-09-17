@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use prost_reflect::{DescriptorPool, DynamicMessage, FileDescriptor, MessageDescriptor};
 use protox::Compiler;
 use protox::file::{ChainFileResolver, File, FileResolver, GoogleFileResolver};
+use serde_json::Value;
 use thiserror::Error;
 
 const ROOT_FILE: &str = "schema.proto";
@@ -75,20 +76,20 @@ impl ProtobufCodec {
         })
     }
 
-    pub(crate) fn decode_framed(&self, payload: &[u8]) -> Result<String, ProtobufError> {
+    pub(crate) fn decode_framed(&self, payload: &[u8]) -> Result<Value, ProtobufError> {
         let (indexes, rest) = parse_indexes(payload)?;
         self.decode_message(&indexes, rest)
     }
 
-    pub(crate) fn decode_raw(&self, payload: &[u8]) -> Result<String, ProtobufError> {
+    pub(crate) fn decode_raw(&self, payload: &[u8]) -> Result<Value, ProtobufError> {
         self.decode_message(&[0], payload)
     }
 
-    fn decode_message(&self, indexes: &[i32], payload: &[u8]) -> Result<String, ProtobufError> {
+    fn decode_message(&self, indexes: &[i32], payload: &[u8]) -> Result<Value, ProtobufError> {
         let descriptor = self.message_at(indexes)?;
         let message = DynamicMessage::decode(descriptor, payload)
             .map_err(|error| ProtobufError::Decode(error.to_string()))?;
-        serde_json::to_string(&message).map_err(|error| ProtobufError::Json(error.to_string()))
+        serde_json::to_value(&message).map_err(|error| ProtobufError::Json(error.to_string()))
     }
 
     fn root_file(&self) -> Result<FileDescriptor, ProtobufError> {
@@ -219,8 +220,7 @@ mod tests {
         let codec = ProtobufCodec::compile(ORDER, &[]).unwrap();
         let mut payload = encode_indexes(&[0]);
         payload.extend_from_slice(b"\x0a\x03abc\x10\x2a");
-        let json: serde_json::Value =
-            serde_json::from_str(&codec.decode_framed(&payload).unwrap()).unwrap();
+        let json: serde_json::Value = codec.decode_framed(&payload).unwrap();
         assert_eq!(json["orderId"], "abc");
         assert_eq!(json["amount"], "42");
     }
@@ -230,8 +230,7 @@ mod tests {
         let codec = ProtobufCodec::compile(ORDER, &[]).unwrap();
         let mut payload = encode_indexes(&[2]);
         payload.extend_from_slice(b"\x08\x07");
-        let json: serde_json::Value =
-            serde_json::from_str(&codec.decode_framed(&payload).unwrap()).unwrap();
+        let json: serde_json::Value = codec.decode_framed(&payload).unwrap();
         assert_eq!(json["n"], 7);
     }
 
@@ -240,16 +239,14 @@ mod tests {
         let codec = ProtobufCodec::compile(ORDER, &[]).unwrap();
         let mut payload = encode_indexes(&[1, 0]);
         payload.extend_from_slice(b"\x0a\x03xyz");
-        let json: serde_json::Value =
-            serde_json::from_str(&codec.decode_framed(&payload).unwrap()).unwrap();
+        let json: serde_json::Value = codec.decode_framed(&payload).unwrap();
         assert_eq!(json["name"], "xyz");
     }
 
     #[test]
     fn decodes_raw_payload_as_first_message() {
         let codec = ProtobufCodec::compile(ORDER, &[]).unwrap();
-        let json: serde_json::Value =
-            serde_json::from_str(&codec.decode_raw(b"\x0a\x03abc\x10\x2a").unwrap()).unwrap();
+        let json: serde_json::Value = codec.decode_raw(b"\x0a\x03abc\x10\x2a").unwrap();
         assert_eq!(json["orderId"], "abc");
         assert_eq!(json["amount"], "42");
     }
@@ -274,8 +271,7 @@ mod tests {
             ProtobufCodec::compile(root, &[("common.proto".into(), common.into())]).unwrap();
         let mut payload = encode_indexes(&[0]);
         payload.extend_from_slice(b"\x0a\x06\x0a\x04OPEN");
-        let json: serde_json::Value =
-            serde_json::from_str(&codec.decode_framed(&payload).unwrap()).unwrap();
+        let json: serde_json::Value = codec.decode_framed(&payload).unwrap();
         assert_eq!(json["status"]["code"], "OPEN");
     }
 

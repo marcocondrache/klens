@@ -4,15 +4,17 @@
 //! [`super::client::KafkaClient`]. Tests use an in-memory fake cluster.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
-    AclListing, ClusterIdentity, CommittedOffset, ConfigEntry, FetchPlan, GroupSnapshot,
-    MetadataSnapshot, Record, SchemaSubject, Watermarks,
+    AclListing, ClusterIdentity, CommittedOffset, ConfigEntry, GroupSnapshot, MetadataSnapshot,
+    ScanConsumer, SchemaSubject, Watermarks,
 };
+use crate::kafka::scan::payload::PayloadCodec;
 
 /// Per-cluster Kafka I/O. Matches [`super::client::KafkaClient`].
 #[async_trait]
@@ -72,10 +74,15 @@ pub trait ClusterSession: Send + Sync + 'static {
         partitions: &[(String, i32)],
     ) -> Result<Vec<CommittedOffset>, KafkaError>;
 
-    /// Fully scan the plan's half-open windows, then return at most `limit`
-    /// matching records sorted by `order`. An incomplete scan must return an
-    /// error, not a partial batch: pagination advances past underfilled windows.
-    async fn records(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError>;
+    /// Open a consumer for one page request.
+    async fn open_scan(&self, topic: &str) -> Result<Box<dyn ScanConsumer>, KafkaError>;
+
+    /// Registry-aware payload decoding, when the cluster has a registry.
+    ///
+    /// `None` means payloads are returned as-is.
+    fn payload_codec(&self) -> Option<Arc<dyn PayloadCodec>> {
+        None
+    }
 
     async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
         Ok(Vec::new())

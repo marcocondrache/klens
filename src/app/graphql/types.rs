@@ -395,7 +395,7 @@ impl TryFrom<RecordQuery> for domain::RecordQuery {
         Ok(Self {
             topic: query.topic,
             partition: query.partition,
-            filter: crate::kafka::compile_record_filter(query.filter.as_deref().unwrap_or(""))?,
+            filter: crate::kafka::compile_cel_filter(query.filter.as_deref().unwrap_or(""))?,
             timestamps,
             limit: query.limit,
             order: domain::RecordOrder::from(query.order),
@@ -430,8 +430,8 @@ impl From<domain::Record> for TopicRecord {
 impl From<domain::RecordPage> for RecordPage {
     fn from(page: domain::RecordPage) -> Self {
         Self {
+            has_more: page.has_more(),
             records: page.records.into_iter().map(TopicRecord::from).collect(),
-            has_more: page.has_more,
             next_cursor: page.next_cursor,
         }
     }

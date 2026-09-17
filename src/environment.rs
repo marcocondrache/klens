@@ -228,6 +228,20 @@ pub static OFFSET_FETCH_CONCURRENCY: LazyLock<usize> =
 pub static SUBJECT_FETCH_CONCURRENCY: LazyLock<usize> =
     lazy_env_parse!("KLENS_SUBJECT_FETCH_CONCURRENCY", usize, 8);
 
+/// How long a schema id the registry does not know stays cached as missing
+/// (default: 60 seconds).
+///
+/// Resolved schemas are cached for the process lifetime because a registered
+/// schema is immutable. A missing one is not: registering it later must not
+/// leave every record rendering as raw bytes forever.
+///
+/// Override with `KLENS_MISSING_SCHEMA_TTL` (seconds).
+pub static MISSING_SCHEMA_TTL: LazyLock<Duration> = lazy_env_parse!(
+    duration,
+    "KLENS_MISSING_SCHEMA_TTL",
+    Duration::from_secs(60)
+);
+
 /// How long an idle cluster may go without a watermark tick before the lane
 /// appends an explicit zero point so sparklines decay (default: 15 seconds).
 ///
