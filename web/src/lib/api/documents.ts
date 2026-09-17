@@ -5,7 +5,7 @@ export const IdentityFields = graphql(`
     subject
     clusters {
       cluster
-      role
+      roles
       privileges
     }
   }

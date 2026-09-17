@@ -1,45 +1,11 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Display, Formatter};
+use std::sync::Arc;
 
-use crate::config::{RoleBinding, RoleName, RolesConfig, default_groups_claim};
+use crate::config::{PrivilegeName, RolesConfig, default_groups_claim};
+use crate::r#macro::from_same_variants;
 
 const MAX_GROUPS: usize = 64;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Role {
-    Viewer,
-    Admin,
-}
-
-impl Role {
-    fn allows(self, privilege: Privilege) -> bool {
-        match self {
-            Self::Admin => true,
-            Self::Viewer => match privilege {
-                Privilege::Records
-                | Privilege::Configs
-                | Privilege::SchemaText
-                | Privilege::Acls => false,
-            },
-        }
-    }
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Admin => "admin",
-            Self::Viewer => "viewer",
-        }
-    }
-}
-
-impl From<RoleName> for Role {
-    fn from(name: RoleName) -> Self {
-        match name {
-            RoleName::Admin => Self::Admin,
-            RoleName::Viewer => Self::Viewer,
-        }
-    }
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Privilege {
@@ -60,11 +26,61 @@ impl Privilege {
             Self::Acls => "acls",
         }
     }
+
+    const fn bit(self) -> u8 {
+        match self {
+            Self::Records => 1 << 0,
+            Self::Configs => 1 << 1,
+            Self::SchemaText => 1 << 2,
+            Self::Acls => 1 << 3,
+        }
+    }
 }
 
 impl Display for Privilege {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(self.name())
+    }
+}
+
+from_same_variants!(PrivilegeName => Privilege { Records, Configs, SchemaText, Acls });
+
+/// Bitset over [`Privilege::ALL`]: what a role confers, and what a session
+/// holds on one cluster. Cheap to copy, union, and test.
+///
+/// Sets replace an ordered role enum because user-defined roles are not
+/// comparable — `{records, configs}` and `{acls, schema_text}` neither
+/// contains the other — so overlapping grants combine by union, not by max.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PrivilegeSet(u8);
+
+impl PrivilegeSet {
+    pub const NONE: Self = Self(0);
+    pub const ALL: Self = Self(
+        Privilege::Records.bit()
+            | Privilege::Configs.bit()
+            | Privilege::SchemaText.bit()
+            | Privilege::Acls.bit(),
+    );
+
+    pub fn from_privileges(privileges: impl IntoIterator<Item = Privilege>) -> Self {
+        privileges
+            .into_iter()
+            .fold(Self::NONE, |set, privilege| Self(set.0 | privilege.bit()))
+    }
+
+    pub fn contains(self, privilege: Privilege) -> bool {
+        self.0 & privilege.bit() != 0
+    }
+
+    pub fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    pub fn iter(self) -> impl Iterator<Item = Privilege> {
+        Privilege::ALL
+            .into_iter()
+            .filter(move |privilege| self.contains(*privilege))
     }
 }
 
@@ -90,9 +106,13 @@ impl ClusterScope {
     }
 }
 
+/// One binding that matched the session's groups: the privileges it confers,
+/// on the clusters it covers. `role_name` is carried for reporting only —
+/// nothing resolves against it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Grant {
-    pub role: Role,
+    pub role_name: Arc<str>,
+    pub privileges: PrivilegeSet,
     pub scope: ClusterScope,
 }
 
@@ -103,29 +123,40 @@ pub enum EffectiveAccess {
 }
 
 impl EffectiveAccess {
-    pub fn role_for(&self, cluster: &str) -> Option<Role> {
+    /// Union of the privileges every grant *covering this cluster* confers,
+    /// or `None` when no grant covers it at all.
+    ///
+    /// Filtering by scope before the union is what keeps a wide grant on one
+    /// cluster from leaking onto another. `Some(PrivilegeSet::NONE)` is a
+    /// visible cluster with nothing privileged on it — distinct from `None`,
+    /// which is a cluster the session must not know exists.
+    pub fn privileges_for(&self, cluster: &str) -> Option<PrivilegeSet> {
         match self {
-            Self::Unrestricted => Some(Role::Admin),
+            Self::Unrestricted => Some(PrivilegeSet::ALL),
             Self::Granted(grants) => grants
                 .iter()
                 .filter(|grant| grant.scope.contains(cluster))
-                .map(|grant| grant.role)
-                .max(),
+                .map(|grant| grant.privileges)
+                .reduce(PrivilegeSet::union),
         }
     }
 
-    pub fn cluster<'a>(&self, name: &'a str) -> Result<ClusterAccess<'a>, AccessError> {
-        match self.role_for(name) {
-            Some(role) => Ok(ClusterAccess {
+    pub fn cluster<'a>(&'a self, name: &'a str) -> Result<ClusterAccess<'a>, AccessError> {
+        match self.privileges_for(name) {
+            Some(privileges) => Ok(ClusterAccess {
                 cluster: name,
-                role,
+                privileges,
+                grants: match self {
+                    Self::Unrestricted => &[],
+                    Self::Granted(grants) => grants,
+                },
             }),
             None => Err(AccessError::UnknownCluster(name.to_owned())),
         }
     }
 
     pub fn can_see_cluster(&self, cluster: &str) -> bool {
-        self.role_for(cluster).is_some()
+        self.privileges_for(cluster).is_some()
     }
 
     pub fn visible_clusters<'a>(&self, all: impl Iterator<Item = &'a str>) -> Vec<&'a str> {
@@ -168,7 +199,8 @@ impl std::error::Error for AccessError {}
 #[derive(Clone, Copy, Debug)]
 pub struct ClusterAccess<'a> {
     cluster: &'a str,
-    role: Role,
+    privileges: PrivilegeSet,
+    grants: &'a [Grant],
 }
 
 impl<'a> ClusterAccess<'a> {
@@ -176,19 +208,27 @@ impl<'a> ClusterAccess<'a> {
         self.cluster
     }
 
-    pub fn role(&self) -> Role {
-        self.role
+    /// Names of the roles covering this cluster, sorted and deduplicated.
+    /// A debugging aid for `whoami` — empty when access is unrestricted,
+    /// because then no role table decided anything.
+    pub fn role_names(&self) -> Vec<&'a str> {
+        let mut names: Vec<&'a str> = self
+            .grants
+            .iter()
+            .filter(|grant| grant.scope.contains(self.cluster))
+            .map(|grant| grant.role_name.as_ref())
+            .collect();
+        names.sort_unstable();
+        names.dedup();
+        names
     }
 
     pub fn allows(&self, privilege: Privilege) -> bool {
-        self.role.allows(privilege)
+        self.privileges.contains(privilege)
     }
 
     pub fn privileges(&self) -> Vec<Privilege> {
-        Privilege::ALL
-            .into_iter()
-            .filter(|privilege| self.allows(*privilege))
-            .collect()
+        self.privileges.iter().collect()
     }
 
     fn capability(&self, privilege: Privilege) -> Result<Capability<'a>, AccessError> {
@@ -249,7 +289,8 @@ pub struct RoleTable {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct CompiledBinding {
     groups: BTreeSet<String>,
-    role: Role,
+    role_name: Arc<str>,
+    privileges: PrivilegeSet,
     scope: ClusterScope,
 }
 
@@ -301,12 +342,34 @@ impl AccessPolicy {
 
 impl RoleTable {
     fn compile(config: &RolesConfig) -> Self {
+        let definitions: BTreeMap<&str, PrivilegeSet> = config
+            .definitions
+            .iter()
+            .map(|(role, privileges)| {
+                (
+                    role.as_str(),
+                    PrivilegeSet::from_privileges(privileges.iter().copied().map(Privilege::from)),
+                )
+            })
+            .collect();
+
         Self {
             groups_claim: config.claim.clone(),
             bindings: config
                 .bindings
                 .iter()
-                .map(CompiledBinding::from_config)
+                // Validation rejects bindings naming an undefined role, so an
+                // unresolved name can only come from a config that never went
+                // through it: drop the binding rather than grant anything.
+                .filter_map(|binding| {
+                    let privileges = *definitions.get(binding.role.as_str())?;
+                    Some(CompiledBinding {
+                        groups: binding.groups.iter().cloned().collect(),
+                        role_name: Arc::from(binding.role.as_str()),
+                        privileges,
+                        scope: ClusterScope::from_list(binding.clusters.as_deref()),
+                    })
+                })
                 .collect(),
         }
     }
@@ -323,22 +386,13 @@ impl RoleTable {
                     .any(|group| present.contains(group.as_str()))
             })
             .map(|binding| Grant {
-                role: binding.role,
+                role_name: Arc::clone(&binding.role_name),
+                privileges: binding.privileges,
                 scope: binding.scope.clone(),
             })
             .collect();
 
         (!grants.is_empty()).then_some(grants)
-    }
-}
-
-impl CompiledBinding {
-    fn from_config(binding: &RoleBinding) -> Self {
-        Self {
-            groups: binding.groups.iter().cloned().collect(),
-            role: Role::from(binding.role),
-            scope: ClusterScope::from_list(binding.clusters.as_deref()),
-        }
     }
 }
 
@@ -358,19 +412,30 @@ pub fn groups_from_json(value: &serde_json::Value, claim: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{RoleBinding, RoleName, RolesConfig};
+    use crate::config::{PrivilegeName, RoleBinding, RolesConfig};
 
-    fn table(bindings: Vec<RoleBinding>) -> AccessPolicy {
+    const EVERYTHING: &[PrivilegeName] = &[
+        PrivilegeName::Records,
+        PrivilegeName::Configs,
+        PrivilegeName::SchemaText,
+        PrivilegeName::Acls,
+    ];
+
+    fn table(definitions: &[(&str, &[PrivilegeName])], bindings: Vec<RoleBinding>) -> AccessPolicy {
         AccessPolicy::from_roles(Some(&RolesConfig {
             claim: "groups".into(),
+            definitions: definitions
+                .iter()
+                .map(|(role, privileges)| ((*role).to_owned(), privileges.to_vec()))
+                .collect(),
             bindings,
         }))
     }
 
-    fn binding(groups: &[&str], role: RoleName, clusters: Option<&[&str]>) -> RoleBinding {
+    fn binding(groups: &[&str], role: &str, clusters: Option<&[&str]>) -> RoleBinding {
         RoleBinding {
             groups: groups.iter().map(|group| (*group).to_owned()).collect(),
-            role,
+            role: role.to_owned(),
             clusters: clusters.map(|names| names.iter().map(|name| (*name).to_owned()).collect()),
         }
     }
@@ -380,6 +445,10 @@ mod tests {
         policy.admit(&Identity { groups: &owned })
     }
 
+    fn set(privileges: &[Privilege]) -> PrivilegeSet {
+        PrivilegeSet::from_privileges(privileges.iter().copied())
+    }
+
     #[test]
     fn omitted_roles_are_unrestricted() {
         let policy = AccessPolicy::from_roles(None);
@@ -387,36 +456,101 @@ mod tests {
 
         assert_eq!(access, EffectiveAccess::Unrestricted);
         assert!(access.cluster("prod").unwrap().records().is_ok());
+        assert_eq!(access.privileges_for("prod"), Some(PrivilegeSet::ALL));
+        assert!(
+            access.cluster("prod").unwrap().role_names().is_empty(),
+            "no role table decided anything"
+        );
     }
 
     #[test]
     fn unmatched_groups_are_refused() {
-        let policy = table(vec![binding(&["klens-admins"], RoleName::Admin, None)]);
+        let policy = table(
+            &[("admin", EVERYTHING)],
+            vec![binding(&["klens-admins"], "admin", None)],
+        );
         assert_eq!(admit(&policy, &["other"]), None);
         assert_eq!(admit(&policy, &[]), None);
     }
 
     #[test]
-    fn admin_holds_every_capability_on_every_cluster() {
-        let policy = table(vec![binding(&["klens-admins"], RoleName::Admin, None)]);
+    fn a_binding_naming_an_undefined_role_grants_nothing() {
+        let policy = table(
+            &[("admin", EVERYTHING)],
+            vec![binding(&["klens-admins"], "opreator", None)],
+        );
+        assert_eq!(
+            admit(&policy, &["klens-admins"]),
+            None,
+            "validation rejects this config; compiling it must still fail closed"
+        );
+    }
+
+    #[test]
+    fn a_role_holding_every_privilege_holds_every_capability() {
+        let policy = table(
+            &[("admin", EVERYTHING)],
+            vec![binding(&["klens-admins"], "admin", None)],
+        );
         let access = admit(&policy, &["klens-admins"]).unwrap();
 
         let prod = access.cluster("prod").unwrap();
-        assert_eq!(prod.role(), Role::Admin);
+        assert_eq!(prod.role_names(), vec!["admin"]);
         assert_eq!(prod.records().unwrap().cluster(), "prod");
         assert!(prod.configs().is_ok());
         assert!(prod.schema_text().is_ok());
         assert!(prod.acls().is_ok());
         assert_eq!(prod.privileges(), Privilege::ALL.to_vec());
+        assert_eq!(access.privileges_for("prod"), Some(PrivilegeSet::ALL));
         assert!(access.cluster("staging").unwrap().schema_text().is_ok());
     }
 
     #[test]
-    fn viewer_sees_the_catalog_and_nothing_privileged() {
-        let policy = table(vec![binding(&["klens-viewers"], RoleName::Viewer, None)]);
+    fn a_role_grants_exactly_what_it_declares() {
+        let policy = table(
+            &[(
+                "operator",
+                &[PrivilegeName::Records, PrivilegeName::Configs],
+            )],
+            vec![binding(&["kafka-operators"], "operator", None)],
+        );
+        let access = admit(&policy, &["kafka-operators"]).unwrap();
+        let prod = access.cluster("prod").unwrap();
+
+        assert_eq!(
+            access.privileges_for("prod"),
+            Some(set(&[Privilege::Records, Privilege::Configs]))
+        );
+        assert_eq!(
+            prod.privileges(),
+            vec![Privilege::Records, Privilege::Configs]
+        );
+        assert!(prod.records().is_ok());
+        assert!(prod.configs().is_ok());
+        assert_eq!(
+            prod.schema_text().unwrap_err(),
+            AccessError::Forbidden {
+                cluster: "prod".into(),
+                privilege: Privilege::SchemaText,
+            }
+        );
+        assert!(prod.acls().is_err());
+    }
+
+    #[test]
+    fn a_role_without_privileges_sees_the_catalog_and_nothing_else() {
+        let policy = table(
+            &[("viewer", &[])],
+            vec![binding(&["klens-viewers"], "viewer", None)],
+        );
         let access = admit(&policy, &["klens-viewers"]).unwrap();
         let prod = access.cluster("prod").expect("the cluster is visible");
 
+        assert_eq!(
+            access.privileges_for("prod"),
+            Some(PrivilegeSet::NONE),
+            "visible with nothing on it, not invisible"
+        );
         assert!(prod.privileges().is_empty());
         assert_eq!(
             prod.records().unwrap_err(),
@@ -432,14 +566,18 @@ mod tests {
 
     #[test]
     fn a_cluster_outside_every_scope_reads_as_unknown() {
-        let policy = table(vec![binding(
-            &["payments-viewers"],
-            RoleName::Viewer,
-            Some(&["payments"]),
-        )]);
+        let policy = table(
+            &[("viewer", &[])],
+            vec![binding(
+                &["payments-viewers"],
+                "viewer",
+                Some(&["payments"]),
+            )],
+        );
         let access = admit(&policy, &["payments-viewers"]).unwrap();
 
         assert!(access.cluster("payments").is_ok());
+        assert_eq!(access.privileges_for("prod"), None);
         assert_eq!(
             access.cluster("prod").unwrap_err(),
             AccessError::UnknownCluster("prod".into())
@@ -452,43 +590,134 @@ mod tests {
 
     #[test]
     fn a_wider_admin_grant_does_not_escalate_a_narrow_viewer_grant() {
-        let policy = table(vec![
-            binding(&["payments-viewers"], RoleName::Viewer, Some(&["payments"])),
-            binding(&["klens-admins"], RoleName::Admin, Some(&["prod"])),
-        ]);
+        let policy = table(
+            &[("admin", EVERYTHING), ("viewer", &[])],
+            vec![
+                binding(&["payments-viewers"], "viewer", Some(&["payments"])),
+                binding(&["klens-admins"], "admin", Some(&["prod"])),
+            ],
+        );
         let access = admit(&policy, &["payments-viewers", "klens-admins"]).unwrap();
 
-        assert_eq!(access.role_for("prod"), Some(Role::Admin));
+        assert_eq!(access.privileges_for("prod"), Some(PrivilegeSet::ALL));
         assert_eq!(
-            access.role_for("payments"),
-            Some(Role::Viewer),
+            access.privileges_for("payments"),
+            Some(PrivilegeSet::NONE),
             "the admin grant covers prod only"
         );
         assert!(access.cluster("prod").unwrap().records().is_ok());
         assert!(
             access.cluster("payments").unwrap().records().is_err(),
-            "scopes must not union under a globally-maxed role"
+            "scopes must not union under a grant held elsewhere"
         );
     }
 
     #[test]
-    fn overlapping_grants_take_the_highest_covering_role() {
-        let policy = table(vec![
-            binding(&["everyone"], RoleName::Viewer, None),
-            binding(&["ops"], RoleName::Admin, Some(&["prod"])),
-        ]);
+    fn overlapping_grants_take_the_union_of_covering_roles() {
+        let policy = table(
+            &[("admin", EVERYTHING), ("viewer", &[])],
+            vec![
+                binding(&["everyone"], "viewer", None),
+                binding(&["ops"], "admin", Some(&["prod"])),
+            ],
+        );
         let access = admit(&policy, &["everyone", "ops"]).unwrap();
 
-        assert_eq!(access.role_for("prod"), Some(Role::Admin));
-        assert_eq!(access.role_for("staging"), Some(Role::Viewer));
+        assert_eq!(access.privileges_for("prod"), Some(PrivilegeSet::ALL));
+        assert_eq!(access.privileges_for("staging"), Some(PrivilegeSet::NONE));
         assert!(access.cluster("staging").unwrap().configs().is_err());
     }
 
     #[test]
+    fn incomparable_roles_union_only_where_both_grants_reach() {
+        let policy = table(
+            &[
+                (
+                    "operator",
+                    &[PrivilegeName::Records, PrivilegeName::Configs],
+                ),
+                ("auditor", &[PrivilegeName::Acls, PrivilegeName::SchemaText]),
+            ],
+            vec![
+                binding(&["kafka-operators"], "operator", None),
+                binding(&["security-team"], "auditor", Some(&["prod"])),
+            ],
+        );
+        let access = admit(&policy, &["kafka-operators", "security-team"]).unwrap();
+
+        assert_eq!(
+            access.privileges_for("prod"),
+            Some(PrivilegeSet::ALL),
+            "neither role contains the other; both apply"
+        );
+        assert_eq!(
+            access.privileges_for("staging"),
+            Some(set(&[Privilege::Records, Privilege::Configs])),
+            "the auditor grant is scoped to prod"
+        );
+
+        let staging = access.cluster("staging").unwrap();
+        assert!(staging.records().is_ok());
+        assert!(staging.acls().is_err());
+        assert!(staging.schema_text().is_err());
+    }
+
+    #[test]
+    fn role_names_report_every_covering_grant_deduplicated() {
+        let policy = table(
+            &[
+                (
+                    "operator",
+                    &[PrivilegeName::Records, PrivilegeName::Configs],
+                ),
+                ("auditor", &[PrivilegeName::Acls, PrivilegeName::SchemaText]),
+            ],
+            vec![
+                binding(&["kafka-operators"], "operator", None),
+                binding(&["oncall"], "operator", Some(&["prod"])),
+                binding(&["security-team"], "auditor", Some(&["prod"])),
+            ],
+        );
+        let access = admit(&policy, &["kafka-operators", "oncall", "security-team"]).unwrap();
+
+        assert_eq!(
+            access.cluster("prod").unwrap().role_names(),
+            vec!["auditor", "operator"],
+            "two bindings name 'operator' on prod; the name is reported once"
+        );
+        assert_eq!(
+            access.cluster("staging").unwrap().role_names(),
+            vec!["operator"]
+        );
+    }
+
+    #[test]
     fn too_many_groups_are_refused() {
-        let policy = table(vec![binding(&["klens-admins"], RoleName::Admin, None)]);
+        let policy = table(
+            &[("admin", EVERYTHING)],
+            vec![binding(&["klens-admins"], "admin", None)],
+        );
         let groups: Vec<String> = (0..MAX_GROUPS + 1).map(|i| format!("g{i}")).collect();
         assert_eq!(policy.admit(&Identity { groups: &groups }), None);
+    }
+
+    #[test]
+    fn privilege_sets_union_and_test_by_bit() {
+        let records = set(&[Privilege::Records]);
+        let acls = set(&[Privilege::Acls]);
+
+        assert!(records.contains(Privilege::Records));
+        assert!(!records.contains(Privilege::Acls));
+        assert_eq!(
+            records.union(acls).iter().collect::<Vec<_>>(),
+            vec![Privilege::Records, Privilege::Acls]
+        );
+        assert_eq!(PrivilegeSet::default(), PrivilegeSet::NONE);
+        assert_eq!(
+            PrivilegeSet::from_privileges(Privilege::ALL),
+            PrivilegeSet::ALL
+        );
+        assert!(PrivilegeSet::NONE.iter().next().is_none());
     }
 
     #[test]

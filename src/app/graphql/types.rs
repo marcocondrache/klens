@@ -1,39 +1,14 @@
 use chrono::{DateTime, Utc};
 use juniper::{GraphQLEnum, GraphQLInputObject, GraphQLObject, GraphQLUnion};
 
-use crate::app::auth::access::{self, Privilege};
+use crate::app::auth::access::Privilege;
 use crate::kafka::model as domain;
 use crate::kafka::store::{self, projections};
 use crate::kafka::{CompiledFilter, QueryError, RecordCursor};
+use crate::r#macro::from_same_variants;
 use crate::utils::datetime_from_unix_millis;
 
 use super::scalars::Int64;
-
-/// Generate a `From` between two enums whose variants have the same names.
-///
-/// The variants are listed rather than inferred so the generated `match` stays
-/// exhaustive: a new variant on the source enum fails to compile until it is
-/// added here. Enums whose variant names differ (`ConfigSource`) stay
-/// hand-written.
-macro_rules! from_same_variants {
-    ($src:ty => $dst:ty { $($variant:ident),+ $(,)? }) => {
-        impl From<$src> for $dst {
-            fn from(value: $src) -> Self {
-                match value {
-                    $( <$src>::$variant => Self::$variant, )+
-                }
-            }
-        }
-    };
-}
-
-#[derive(GraphQLEnum, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Role {
-    Viewer,
-    Admin,
-}
-
-from_same_variants!(access::Role => Role { Viewer, Admin });
 
 #[derive(GraphQLEnum, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PrivilegeName {
@@ -50,7 +25,9 @@ from_same_variants!(Privilege => PrivilegeName { Records, Configs, SchemaText, A
 #[derive(GraphQLObject)]
 pub(super) struct ClusterGrant {
     pub cluster: String,
-    pub role: Role,
+    /// Names of the roles that granted this access, for tracing a privilege
+    /// back to an IdP group mapping. Empty when no role table applies.
+    pub roles: Vec<String>,
     pub privileges: Vec<PrivilegeName>,
 }
 

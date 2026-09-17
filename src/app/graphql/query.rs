@@ -4,7 +4,7 @@ use super::context::{Cluster, GraphQlContext};
 use super::error::GqlError;
 use super::types::{
     AclListing, BrokerRow, ClusterGrant, ClusterHealth, ConfigEntry, GroupDetail, GroupRow,
-    GroupRowPage, Identity, Point, RecordPage, RecordQueryInput, Role, RowFilter, SearchHit,
+    GroupRowPage, Identity, Point, RecordPage, RecordQueryInput, RowFilter, SearchHit,
     SubjectDetail, SubjectRow, SubjectRowsResult, TopicDetail, TopicGroupRow, TopicRow,
     TopicRowPage, TopicSort, TopicSortField,
 };
@@ -23,7 +23,11 @@ impl Query {
                 let access = context.access.cluster(name).ok()?;
                 Some(ClusterGrant {
                     cluster: name.to_owned(),
-                    role: Role::from(access.role()),
+                    roles: access
+                        .role_names()
+                        .into_iter()
+                        .map(ToOwned::to_owned)
+                        .collect(),
                     privileges: access.privileges().into_iter().map(Into::into).collect(),
                 })
             })

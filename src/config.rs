@@ -1,6 +1,7 @@
 use std::borrow::Cow;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::env::VarError;
+use std::fmt::{Display, Formatter};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
@@ -141,11 +142,20 @@ pub struct AuthConfig {
     pub session_key: Option<String>,
 }
 
+/// Upper bound on `auth.roles.definitions`. Mirrors the cap on claimed groups
+/// in the access layer: a pathological config must not bloat every session.
+const MAX_ROLE_DEFINITIONS: usize = 64;
+
+/// Roles are whatever the deployment says they are: a name for a set of
+/// privileges, bound to IdP groups. There are no built-in names.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RolesConfig {
     #[serde(default = "default_groups_claim")]
     pub claim: String,
+    /// Role name to the privileges it grants. An empty list is valid and
+    /// means the bound clusters are visible but nothing privileged is.
+    pub definitions: BTreeMap<String, Vec<PrivilegeName>>,
     pub bindings: Vec<RoleBinding>,
 }
 
@@ -157,16 +167,39 @@ pub fn default_groups_claim() -> String {
 #[serde(deny_unknown_fields)]
 pub struct RoleBinding {
     pub groups: Vec<String>,
-    pub role: RoleName,
+    /// Resolved against [`RolesConfig::definitions`] at validation time.
+    pub role: String,
     #[serde(default)]
     pub clusters: Option<Vec<String>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum RoleName {
-    Admin,
-    Viewer,
+/// Config spelling of a privilege. Distinct from the GraphQL enum of the same
+/// name and from `access::Privilege`, which is what the enforcement layer
+/// speaks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PrivilegeName {
+    Records,
+    Configs,
+    SchemaText,
+    Acls,
+}
+
+impl PrivilegeName {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Records => "records",
+            Self::Configs => "configs",
+            Self::SchemaText => "schema_text",
+            Self::Acls => "acls",
+        }
+    }
+}
+
+impl Display for PrivilegeName {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
 }
 
 impl RolesConfig {
@@ -177,11 +210,40 @@ impl RolesConfig {
             return fail("roles claim must not be empty");
         }
 
+        if self.definitions.is_empty() {
+            return fail("roles definitions must not be empty");
+        }
+
+        if self.definitions.len() > MAX_ROLE_DEFINITIONS {
+            return fail(&format!(
+                "too many role definitions (at most {MAX_ROLE_DEFINITIONS})"
+            ));
+        }
+
+        for (role, privileges) in &self.definitions {
+            if role.trim().is_empty() {
+                return fail("role definition name must not be empty");
+            }
+
+            let mut seen = HashSet::with_capacity(privileges.len());
+            for privilege in privileges {
+                if !seen.insert(privilege) {
+                    return fail(&format!("role '{role}' lists '{privilege}' more than once"));
+                }
+            }
+        }
+
         if self.bindings.is_empty() {
             return fail("roles bindings must not be empty");
         }
 
         for binding in &self.bindings {
+            if !self.definitions.contains_key(&binding.role) {
+                return fail(&format!(
+                    "roles binding references unknown role '{}'",
+                    binding.role
+                ));
+            }
             if binding.groups.is_empty() {
                 return fail("roles binding groups must not be empty");
             }
@@ -1104,7 +1166,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_role_bindings() {
+    fn parses_role_definitions_and_bindings() {
         let config = parse_config(
             "
             bind: 127.0.0.1:8080
@@ -1116,6 +1178,10 @@ mod tests {
                 client_secret: secret
                 redirect_uri: http://localhost:8080/auth/callback
               roles:
+                definitions:
+                  admin: [records, configs, schema_text, acls]
+                  viewer: []
+                  operator: [records, configs]
                 bindings:
                   - groups: [klens-admins]
                     role: admin
@@ -1128,10 +1194,24 @@ mod tests {
 
         let roles = config.auth.as_ref().unwrap().roles.as_ref().unwrap();
         assert_eq!(roles.claim, "groups");
+        assert_eq!(
+            roles.definitions["admin"],
+            vec![
+                PrivilegeName::Records,
+                PrivilegeName::Configs,
+                PrivilegeName::SchemaText,
+                PrivilegeName::Acls,
+            ]
+        );
+        assert!(roles.definitions["viewer"].is_empty());
+        assert_eq!(
+            roles.definitions["operator"],
+            vec![PrivilegeName::Records, PrivilegeName::Configs]
+        );
         assert_eq!(roles.bindings.len(), 2);
-        assert_eq!(roles.bindings[0].role, RoleName::Admin);
+        assert_eq!(roles.bindings[0].role, "admin");
         assert_eq!(roles.bindings[0].clusters, None);
-        assert_eq!(roles.bindings[1].role, RoleName::Viewer);
+        assert_eq!(roles.bindings[1].role, "viewer");
         assert_eq!(
             roles.bindings[1].clusters.as_deref(),
             Some(["payments".to_owned()].as_slice())
@@ -1139,9 +1219,8 @@ mod tests {
         config.validate().unwrap();
     }
 
-    #[test]
-    fn rejects_empty_role_bindings() {
-        let config = parse_config(
+    fn parse_roles(definitions: &str, bindings: &str) -> Config {
+        parse_config(&format!(
             "
             bind: 127.0.0.1:8080
             clusters: []
@@ -1152,10 +1231,16 @@ mod tests {
                 client_secret: secret
                 redirect_uri: http://localhost:8080/auth/callback
               roles:
-                bindings: []
-            ",
-        )
-        .unwrap();
+                definitions:{definitions}
+                bindings:{bindings}
+            "
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn rejects_empty_role_bindings() {
+        let config = parse_roles("\n                  admin: [records]", " []");
 
         let error = config.validate().unwrap_err();
         assert!(
@@ -1163,6 +1248,112 @@ mod tests {
                 .to_string()
                 .contains("roles bindings must not be empty")
         );
+    }
+
+    #[test]
+    fn rejects_empty_role_definitions() {
+        let config = parse_roles(
+            " {}",
+            "
+                  - groups: [klens-admins]
+                    role: admin",
+        );
+
+        let error = config.validate().unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("roles definitions must not be empty")
+        );
+    }
+
+    #[test]
+    fn rejects_a_blank_role_definition_name() {
+        let config = parse_roles(
+            "
+                  \"  \": [records]",
+            "
+                  - groups: [klens-admins]
+                    role: \"  \"",
+        );
+
+        let error = config.validate().unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("role definition name must not be empty")
+        );
+    }
+
+    #[test]
+    fn rejects_a_repeated_privilege_in_a_definition() {
+        let config = parse_roles(
+            "
+                  operator: [records, configs, records]",
+            "
+                  - groups: [kafka-operators]
+                    role: operator",
+        );
+
+        let error = config.validate().unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("role 'operator' lists 'records' more than once"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn rejects_a_binding_naming_an_undefined_role() {
+        let config = parse_roles(
+            "
+                  operator: [records]",
+            "
+                  - groups: [kafka-operators]
+                    role: opreator",
+        );
+
+        let error = config.validate().unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("roles binding references unknown role 'opreator'"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn rejects_too_many_role_definitions() {
+        let definitions: String = (0..=MAX_ROLE_DEFINITIONS)
+            .map(|index| format!("\n                  role{index}: [records]"))
+            .collect();
+        let config = parse_roles(
+            &definitions,
+            "
+                  - groups: [klens-admins]
+                    role: role0",
+        );
+
+        let error = config.validate().unwrap_err();
+        assert!(
+            error.to_string().contains("too many role definitions"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn allows_definitions_no_binding_uses() {
+        let config = parse_roles(
+            "
+                  admin: [records, configs, schema_text, acls]
+                  auditor: [acls, schema_text]",
+            "
+                  - groups: [klens-admins]
+                    role: admin",
+        );
+
+        config.validate().unwrap();
     }
 
     #[test]

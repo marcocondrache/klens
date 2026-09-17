@@ -97,10 +97,6 @@ export type ResyncReason =
   /** The client fell behind the change bus and missed events. */
   | 'LAGGED';
 
-export type Role =
-  | 'ADMIN'
-  | 'VIEWER';
-
 export type SchemaCompatibility =
   | 'BACKWARD'
   | 'FORWARD'
@@ -123,7 +119,7 @@ export type UpdateScope = {
   topic: string | null | undefined;
 };
 
-export type IdentityFieldsFragment = { subject: string | null, clusters: Array<{ cluster: string, role: Role, privileges: Array<PrivilegeName> }> };
+export type IdentityFieldsFragment = { subject: string | null, clusters: Array<{ cluster: string, roles: Array<string>, privileges: Array<PrivilegeName> }> };
 
 export type LaneHealthFieldsFragment = { updatedAt: string | null, checkedAt: string | null, lastError: string | null, lastPollMs: string | null, healthy: boolean };
 
@@ -168,7 +164,7 @@ export type SearchHitFieldsFragment = { kind: SearchKind, id: string, label: str
 export type WhoamiQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type WhoamiQuery = { whoami: { subject: string | null, clusters: Array<{ cluster: string, role: Role, privileges: Array<PrivilegeName> }> } };
+export type WhoamiQuery = { whoami: { subject: string | null, clusters: Array<{ cluster: string, roles: Array<string>, privileges: Array<PrivilegeName> }> } };
 
 export type ClustersQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -329,7 +325,7 @@ export const IdentityFieldsFragmentDoc = new TypedDocumentString(`
   subject
   clusters {
     cluster
-    role
+    roles
     privileges
   }
 }
@@ -614,7 +610,7 @@ export const WhoamiDocument = new TypedDocumentString(`
   subject
   clusters {
     cluster
-    role
+    roles
     privileges
   }
 }`) as unknown as TypedDocumentString<WhoamiQuery, WhoamiQueryVariables>;
