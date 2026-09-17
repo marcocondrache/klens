@@ -71,13 +71,13 @@ const columns = columnHelper.columns([
     meta: { label: "Topics" },
     cell: ({ row }) => (
       <span className="flex flex-wrap gap-1">
-        {row.original.topicNames.slice(0, 2).map((topic) => (
+        {row.original.topicNames.slice(0, 1).map((topic) => (
           <Pill key={topic} className="font-mono">
             {topic}
           </Pill>
         ))}
-        {row.original.topicNames.length > 2 ? (
-          <Pill>+{row.original.topicNames.length - 2}</Pill>
+        {row.original.topicNames.length > 1 ? (
+          <Pill>+{row.original.topicNames.length - 1}</Pill>
         ) : null}
       </span>
     ),
