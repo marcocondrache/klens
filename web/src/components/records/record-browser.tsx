@@ -1,7 +1,8 @@
-import { useState } from "react";
-import { ClockIcon } from "lucide-react";
+import { useMemo, useState } from "react";
+import { ClockIcon, TriangleAlertIcon } from "lucide-react";
 import { createColumnHelper } from "@tanstack/react-table";
 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   Empty,
   EmptyDescription,
@@ -33,12 +34,12 @@ import { PayloadView } from "@/components/payload-view";
 import { SchemaPicker } from "@/components/schema-picker";
 import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
-import { useSchemaSubjects } from "@/lib/api/catalog";
-import { useRecords } from "@/lib/api/live";
+import { useSubjectRows } from "@/lib/api/catalog";
+import { useRecords, type RecordsFilter } from "@/lib/api/live";
 import { useAccess } from "@/hooks/use-access";
 import { queryErrorMessage } from "@/lib/query-error";
 import { formatBytes, formatRelative, formatTimestamp, fromDatetimeLocalValue } from "@/lib/format";
-import type { RecordOrder, Topic, TopicRecord } from "@/lib/api/types";
+import type { KafkaRecord, RecordOrder, TopicDetail } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
 const LIMITS = ["25", "50", "100"] as const;
@@ -58,14 +59,7 @@ function preview(value: string | null) {
   return value.replace(/\s+/g, " ").trim();
 }
 
-function containsFilter(term: string): string | null {
-  const trimmed = term.trim();
-  if (!trimmed) return null;
-  const needle = JSON.stringify(trimmed);
-  return `keyText.lowerAscii().contains(${needle}) || valueText.lowerAscii().contains(${needle})`;
-}
-
-const columnHelper = createColumnHelper<DataTableFeatures, TopicRecord>();
+const columnHelper = createColumnHelper<DataTableFeatures, KafkaRecord>();
 
 const columns = columnHelper.columns([
   columnHelper.accessor("partition", {
@@ -127,75 +121,65 @@ const columns = columnHelper.columns([
   }),
 ]);
 
-export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topic }) {
+export function RecordBrowser({ cluster, topic }: { cluster: string; topic: TopicDetail }) {
   const [partition, setPartition] = useState<string>("all");
   const [term, setTerm] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [limit, setLimit] = useState("50");
   const [order, setOrder] = useState<RecordOrder>("NEWEST");
+  const [cursor, setCursor] = useState<string | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
-  const [selected, setSelected] = useState<TopicRecord | null>(null);
+  const [selected, setSelected] = useState<KafkaRecord | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [schemaId, setSchemaId] = useState<number | null>(null);
 
-  const timestampFrom = fromDatetimeLocalValue(from);
-  const timestampTo = fromDatetimeLocalValue(to);
-  const filter = containsFilter(term);
   const { can } = useAccess();
-  const { data: subjects = [] } = useSchemaSubjects(cluster);
-  const { data, isFetching, isError, error, hasNextPage, fetchNextPage, isFetchingNextPage } =
-    useRecords(
-      {
-        cluster,
-        topic: topic.name,
-        partition: partition === "all" ? null : Number(partition),
-        filter,
-        timestampFrom,
-        timestampTo,
-        limit: Number(limit),
-        order,
-        schemaId,
-      },
-      can(cluster, "records"),
-    );
-  const pages = data?.pages ?? [];
-  const currentPage = pages[pageIndex];
-  const records = currentPage?.records ?? [];
-  const hasCachedNextPage = Boolean(pages[pageIndex + 1]);
-  const hasMore = hasCachedNextPage || (pageIndex === pages.length - 1 && Boolean(hasNextPage));
+  const { data: subjects } = useSubjectRows(cluster);
+
+  const query = useMemo<RecordsFilter>(() => {
+    const needle = term.trim();
+
+    return {
+      topic: topic.name,
+      partition: partition === "all" ? null : Number(partition),
+      order,
+      from: fromDatetimeLocalValue(from),
+      to: fromDatetimeLocalValue(to),
+      limit: Number(limit),
+      filter: needle ? { contains: needle, cel: null } : null,
+      schemaId,
+    };
+  }, [topic.name, partition, order, from, to, limit, term, schemaId]);
+
+  const { data, isFetching, isPlaceholderData, isError, error } = useRecords(
+    cluster,
+    query,
+    cursor,
+    can(cluster, "RECORDS"),
+  );
+
+  const records = data?.records ?? [];
   const showSchemaPicker =
-    schemaId != null ||
-    pages.some((page) =>
-      page.records.some((record) => record.value != null && record.schemaId == null),
-    );
+    schemaId != null || records.some((record) => record.value != null && record.schemaId == null);
   const selectedRecord =
     selected == null
       ? null
-      : (pages
-          .flatMap((page) => page.records)
-          .find(
-            (record) =>
-              record.partition === selected.partition && record.offset === selected.offset,
-          ) ?? selected);
+      : (records.find(
+          (record) => record.partition === selected.partition && record.offset === selected.offset,
+        ) ?? selected);
 
-  function resetPages() {
+  function rewind() {
+    setCursor(null);
     setPageIndex(0);
   }
 
-  function selectSchema(id: number | null) {
-    setSchemaId(id);
-    resetPages();
+  function step(next: string | null, delta: number) {
+    if (next == null) return;
+    setCursor(next);
+    setPageIndex((current) => Math.max(0, current + delta));
   }
 
-  async function goToNextPage() {
-    const nextPageIndex = pageIndex + 1;
-    if (!pages[nextPageIndex]) {
-      const result = await fetchNextPage();
-      if (!result.data?.pages[nextPageIndex]) return;
-    }
-    setPageIndex(nextPageIndex);
-  }
   const partitionItems = [
     { value: "all", label: "All partitions" },
     ...topic.partitions.map((part) => ({
@@ -206,6 +190,17 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
+      {data && !data.complete ? (
+        <Alert>
+          <TriangleAlertIcon />
+          <AlertTitle>Partial page</AlertTitle>
+          <AlertDescription>
+            The scan hit its deadline with offsets still unread. These records match, but the page
+            is not everything the query matched — continue to keep scanning.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       <DataTable
         columns={columns}
         data={records}
@@ -215,7 +210,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
               value={term}
               onChange={(event) => {
                 setTerm(event.target.value);
-                resetPages();
+                rewind();
               }}
               placeholder="Search key or value…"
             />
@@ -230,7 +225,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                 max={to || undefined}
                 onChange={(event) => {
                   setFrom(event.target.value);
-                  resetPages();
+                  rewind();
                 }}
                 aria-label="From timestamp"
               />
@@ -246,7 +241,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                 min={from || undefined}
                 onChange={(event) => {
                   setTo(event.target.value);
-                  resetPages();
+                  rewind();
                 }}
                 aria-label="To timestamp"
               />
@@ -257,7 +252,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
               items={partitionItems}
               onValueChange={(value) => {
                 setPartition(String(value));
-                resetPages();
+                rewind();
               }}
             >
               <SelectTrigger size="sm" className="w-40">
@@ -279,7 +274,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
               items={ORDER_ITEMS}
               onValueChange={(value) => {
                 setOrder(value as RecordOrder);
-                resetPages();
+                rewind();
               }}
             >
               <SelectTrigger size="sm" className="w-36">
@@ -301,7 +296,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
               items={LIMIT_ITEMS}
               onValueChange={(value) => {
                 setLimit(String(value));
-                resetPages();
+                rewind();
               }}
             >
               <SelectTrigger size="sm" className="w-28">
@@ -320,26 +315,33 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
 
             {showSchemaPicker ? (
               <SchemaPicker
-                subjects={subjects}
+                subjects={subjects?.rows ?? []}
                 topic={topic.name}
                 value={schemaId}
-                onChange={selectSchema}
+                onChange={(id) => {
+                  setSchemaId(id);
+                  rewind();
+                }}
               />
             ) : null}
           </>
         }
         getRowId={(record) => `${record.partition}-${record.offset}`}
-        loading={isFetching && records.length === 0 && !isFetchingNextPage}
-        refreshing={(isFetching && records.length > 0) || isFetchingNextPage}
+        loading={isFetching && records.length === 0}
+        refreshing={isFetching && records.length > 0}
         pageSize={Number(limit)}
         pageIndex={pageIndex}
-        hasMore={hasMore}
-        loadingMore={isFetchingNextPage}
-        canPreviousPage={pageIndex > 0}
-        onPreviousPage={() => setPageIndex((current) => Math.max(0, current - 1))}
-        onNextPage={() => {
-          void goToNextPage();
+        hasMore={data?.nextCursor != null}
+        loadingMore={isFetching && isPlaceholderData}
+        canPreviousPage={data?.prevCursor != null || pageIndex > 0}
+        onPreviousPage={() => {
+          if (data?.prevCursor == null) {
+            rewind();
+            return;
+          }
+          step(data.prevCursor, -1);
         }}
+        onNextPage={() => step(data?.nextCursor ?? null, 1)}
         onRowClick={setSelected}
         selectedKey={
           selectedRecord ? `${selectedRecord.partition}-${selectedRecord.offset}` : undefined

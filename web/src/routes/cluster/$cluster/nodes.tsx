@@ -9,17 +9,16 @@ import { type DataTableFeatures } from "@/components/data-table/features";
 import { PageHeader } from "@/components/page-header";
 import { Pill } from "@/components/status";
 import { useNow } from "@/hooks/use-now";
-import { useBrokers, useCatalogHealth } from "@/lib/api/catalog";
-import { useClusterName } from "@/lib/clusters";
-import { catalogHealthCaption } from "@/lib/catalog-health";
+import { useBrokerRows, useClusterHealth } from "@/lib/api/catalog";
+import { laneCaption, useClusterName } from "@/lib/clusters";
 import { formatNumber } from "@/lib/format";
-import type { Broker } from "@/lib/api/types";
+import type { BrokerRow } from "@/lib/api/types";
 
 export const Route = createFileRoute("/cluster/$cluster/nodes")({
   component: NodesPage,
 });
 
-const columnHelper = createColumnHelper<DataTableFeatures, Broker>();
+const columnHelper = createColumnHelper<DataTableFeatures, BrokerRow>();
 
 const columns = columnHelper.columns([
   columnHelper.accessor("id", {
@@ -89,14 +88,10 @@ const columns = columnHelper.columns([
 function NodesPage() {
   const cluster = useClusterName();
   const navigate = Route.useNavigate();
-  const { data: brokers = [], isPending, isError, error } = useBrokers(cluster);
-  const { data: health } = useCatalogHealth(cluster);
+  const { data: brokers = [], isPending, isError, error } = useBrokerRows(cluster);
+  const { data: health } = useClusterHealth(cluster);
   const now = useNow();
-  const caption = catalogHealthCaption({
-    updatedAt: health?.updatedAt,
-    lastError: health?.lastError,
-    now,
-  });
+  const caption = laneCaption(health?.topology, now);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">

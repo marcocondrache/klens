@@ -98,7 +98,7 @@ function AclsPage() {
   const navigate = Route.useNavigate();
   const { q: term = "", resource = "all" } = Route.useSearch();
   const { can } = useAccess();
-  const canAcls = can(cluster, "acls");
+  const canAcls = can(cluster, "ACLS");
   const { data, isPending, isError, error } = useAcls(cluster, canAcls);
   const disabled = data?.authorizer === "DISABLED";
   const bindings = data?.bindings ?? EMPTY_BINDINGS;

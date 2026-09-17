@@ -3,6 +3,12 @@ import type { CleanupPolicy } from "@/lib/api/types";
 const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB", "PB"];
 const COUNT_UNITS = ["", "K", "M", "B", "T"];
 
+export type Int64 = string | number;
+
+export function toNumber(value: Int64): number {
+  return typeof value === "number" ? value : Number(value);
+}
+
 export function formatEnumLabel(value: string) {
   return value
     .split("_")
@@ -19,20 +25,22 @@ export function isCompactCleanup(policy: CleanupPolicy) {
   return policy === "COMPACT" || policy === "COMPACT_DELETE";
 }
 
-export function formatBytes(value: number, digits = 1) {
-  if (value === 0) return "0 B";
+export function formatBytes(value: Int64, digits = 1) {
+  const bytes = toNumber(value);
+  if (bytes === 0) return "0 B";
 
-  const exponent = Math.min(Math.floor(Math.log10(Math.abs(value)) / 3), BYTE_UNITS.length - 1);
-  const scaled = value / 1000 ** exponent;
+  const exponent = Math.min(Math.floor(Math.log10(Math.abs(bytes)) / 3), BYTE_UNITS.length - 1);
+  const scaled = bytes / 1000 ** exponent;
 
   return `${scaled.toFixed(exponent === 0 ? 0 : digits)} ${BYTE_UNITS[exponent]}`;
 }
 
-export function formatCount(value: number, digits = 1) {
-  if (Math.abs(value) < 1000) return String(value);
+export function formatCount(value: Int64, digits = 1) {
+  const count = toNumber(value);
+  if (Math.abs(count) < 1000) return String(count);
 
-  const exponent = Math.min(Math.floor(Math.log10(Math.abs(value)) / 3), COUNT_UNITS.length - 1);
-  const scaled = value / 1000 ** exponent;
+  const exponent = Math.min(Math.floor(Math.log10(Math.abs(count)) / 3), COUNT_UNITS.length - 1);
+  const scaled = count / 1000 ** exponent;
 
   return `${scaled.toFixed(scaled >= 100 ? 0 : digits)}${COUNT_UNITS[exponent]}`;
 }
@@ -44,11 +52,26 @@ export function formatThroughput(value: number, digits = 1) {
   return formatCount(value, digits);
 }
 
-export function formatNumber(value: number) {
-  return value.toLocaleString("en-US");
+export function formatNumber(value: Int64) {
+  if (typeof value === "number") {
+    return value.toLocaleString("en-US");
+  }
+
+  const sign = value.startsWith("-") ? "-" : "";
+  const digits = sign ? value.slice(1) : value;
+  if (!/^\d+$/.test(digits)) {
+    return value;
+  }
+
+  return sign + digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
-export function formatDuration(ms: number) {
+export function isZero(value: Int64) {
+  return typeof value === "number" ? value === 0 : /^-?0+$/.test(value);
+}
+
+export function formatDuration(value: Int64) {
+  const ms = toNumber(value);
   if (ms < 0) return "infinite";
   if (ms === 0) return "0";
 

@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
 import { execute } from "@/graphql/execute";
 
@@ -7,8 +7,9 @@ import {
   brokerConfigsQuery,
   groupLagHistoryQuery,
   recordsQuery,
+  subjectQuery,
   topicConfigsQuery,
-  topicThroughputQuery,
+  topicRateHistoryQuery,
 } from "./documents";
 import { keys, type RecordsFilter } from "./keys";
 
@@ -47,28 +48,29 @@ export function useTopicConfigs(cluster: string, topic: string, enabled = true) 
   });
 }
 
-export function useTopicThroughput(cluster: string, topic: string) {
+export function useSubject(
+  cluster: string,
+  name: string | null,
+  version: number | null,
+  enabled = true,
+) {
   return useQuery({
-    queryKey: keys.topicThroughput(cluster, topic),
+    queryKey: keys.subject(cluster, name ?? "", version),
     queryFn: async () => {
-      const { topicThroughput } = await execute(topicThroughputQuery, { cluster, topic });
-      return topicThroughput;
+      const { subject } = await execute(subjectQuery, { cluster, name: name ?? "", version });
+      return subject;
     },
+    enabled: enabled && name != null,
   });
 }
 
-export function useRecords(query: RecordsFilter, enabled = true) {
-  return useInfiniteQuery({
-    queryKey: keys.records(query),
-    queryFn: async ({ pageParam }) => {
-      const { records } = await execute(recordsQuery, {
-        query: { ...query, cursor: pageParam },
-      });
-      return records;
+export function useTopicRateHistory(cluster: string, topic: string) {
+  return useQuery({
+    queryKey: keys.topicRateHistory(cluster, topic),
+    queryFn: async () => {
+      const { topicRateHistory } = await execute(topicRateHistoryQuery, { cluster, topic });
+      return topicRateHistory;
     },
-    initialPageParam: null as string | null,
-    getNextPageParam: (lastPage) => lastPage.nextCursor,
-    enabled,
   });
 }
 
@@ -76,11 +78,28 @@ export function useGroupLagHistory(cluster: string, group: string) {
   return useQuery({
     queryKey: keys.groupLagHistory(cluster, group),
     queryFn: async () => {
-      const { groupLagHistory } = await execute(groupLagHistoryQuery, {
-        cluster,
-        id: group,
-      });
+      const { groupLagHistory } = await execute(groupLagHistoryQuery, { cluster, group });
       return groupLagHistory;
     },
+  });
+}
+
+export function useRecords(
+  cluster: string,
+  query: RecordsFilter,
+  cursor: string | null,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: keys.records(cluster, query, cursor),
+    queryFn: async () => {
+      const { records } = await execute(recordsQuery, {
+        cluster,
+        query: { ...query, cursor },
+      });
+      return records;
+    },
+    enabled,
+    placeholderData: keepPreviousData,
   });
 }
