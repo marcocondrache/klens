@@ -22,12 +22,15 @@ docker run --rm -p 8080:8080 \
   ghcr.io/marcocondrache/klens:latest
 ```
 
-A Helm chart lives in [`charts/klens`](charts/klens). `config` is the same YAML
-the process loads here.
+The Helm chart is published to the same registry:
 
 ```sh
-helm install klens ./charts/klens -n klens --create-namespace -f my-values.yaml
+helm install klens oci://ghcr.io/marcocondrache/klens/charts/klens \
+  -n klens --create-namespace -f my-values.yaml
 ```
+
+`config` is the same YAML the process loads here. The chart also lives in
+[`charts/klens`](charts/klens) if you want to install from a checkout.
 
 Every page reads a background projection of each cluster, refreshed by
 independent lanes. Override a lane's cadence with `KLENS_TOPOLOGY_LANE_INTERVAL`
