@@ -1,13 +1,12 @@
-export type AuthRole = "admin" | "viewer";
-
-export type AccessPrivilege = "records" | "configs" | "schemaText" | "acls";
-
+/**
+ * `/auth/me` answers "who is signed in", nothing more. What a session may do
+ * is per cluster and comes from the GraphQL `whoami` query, because only the
+ * server knows that grants are pairwise.
+ */
 export type AuthUser = {
   sub: string;
   email: string | null;
   name: string | null;
-  role: AuthRole | null;
-  clusters: string[] | null;
 };
 
 export type AuthMe = {
@@ -49,32 +48,4 @@ export function initials(user: AuthUser): string {
   }
 
   return user.sub.slice(0, 2).toUpperCase();
-}
-
-export function canAccessCluster(me: AuthMe | undefined, cluster: string): boolean {
-  if (!me?.enabled) return true;
-  const user = me.user;
-  if (!user) return false;
-  if (user.clusters == null) return true;
-  return user.clusters.includes(cluster);
-}
-
-export function canAccess(
-  me: AuthMe | undefined,
-  cluster: string,
-  privilege: AccessPrivilege,
-): boolean {
-  if (!me?.enabled) return true;
-  const user = me.user;
-  if (!user) return false;
-  if (user.role == null) return true;
-  if (!canAccessCluster(me, cluster)) return false;
-  if (user.role === "admin") return true;
-  switch (privilege) {
-    case "records":
-    case "configs":
-    case "schemaText":
-    case "acls":
-      return false;
-  }
 }

@@ -2,27 +2,34 @@ export type {
   AclFieldsFragment as Acl,
   AclAuthorizer,
   AclResourceType,
-  BrokerFieldsFragment as Broker,
+  BrokerRowFieldsFragment as BrokerRow,
   CleanupPolicy,
+  ClusterHealthFieldsFragment as ClusterHealth,
   ConfigEntryFieldsFragment as ConfigEntry,
-  ConsumerGroupFieldsFragment as ConsumerGroup,
-  GroupListFieldsFragment as GroupList,
-  ConsumerGroupMemberFieldsFragment as ConsumerGroupMember,
-  ConsumerGroupState,
+  GroupDetailFieldsFragment as GroupDetail,
+  GroupMemberFieldsFragment as GroupMember,
   GroupOffsetFieldsFragment as GroupOffset,
-  PartitionFieldsFragment as Partition,
+  GroupRowFieldsFragment as GroupRow,
+  GroupState,
+  IdentityFieldsFragment as Identity,
+  LaneHealthFieldsFragment as LaneHealth,
+  PartitionRowFieldsFragment as PartitionRow,
+  PointFieldsFragment as Point,
+  PrivilegeName,
+  RecordFieldsFragment as KafkaRecord,
   RecordOrder,
-  RecordQuery,
-  SchemaSubjectFieldsFragment as SchemaSubject,
-  ThroughputPointFieldsFragment as ThroughputPoint,
-  TopicFieldsFragment as Topic,
-  TopicListFieldsFragment as TopicList,
-  TopicRateFieldsFragment as TopicRate,
-  TopicRecordFieldsFragment as TopicRecord,
+  RecordQueryInput,
+  Role,
+  SubjectDetailFieldsFragment as SubjectDetail,
+  SubjectRowFieldsFragment as SubjectRow,
+  TopicDetailFieldsFragment as TopicDetail,
+  TopicGroupRowFieldsFragment as TopicGroupRow,
+  TopicRowFieldsFragment as TopicRow,
+  UpdateScope,
 } from "@/graphql/graphql";
 
-import type { SearchResultFieldsFragment } from "@/graphql/graphql";
+import type { SearchHitFieldsFragment } from "@/graphql/graphql";
 
-export type SearchResult = SearchResultFieldsFragment & {
+export type SearchHit = SearchHitFieldsFragment & {
   href: string;
 };

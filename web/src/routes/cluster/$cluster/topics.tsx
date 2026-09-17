@@ -20,17 +20,19 @@ import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
 import { useNow } from "@/hooks/use-now";
-import { useTopics } from "@/lib/api/catalog";
-import { useClusterName } from "@/lib/clusters";
+import { useClusterHealth, useTopicRows } from "@/lib/api/catalog";
+import { laneCaption, useClusterName } from "@/lib/clusters";
 import {
   formatCleanupPolicy,
   formatDuration,
   formatNumber,
-  formatRelative,
   formatThroughput,
   isCompactCleanup,
+  isZero,
+  toNumber,
 } from "@/lib/format";
-import type { TopicList } from "@/lib/api/types";
+import type { Int64 } from "@/lib/format";
+import type { TopicRow } from "@/lib/api/types";
 import { parseTopicsSearch } from "@/lib/route-search";
 
 export const Route = createFileRoute("/cluster/$cluster/topics")({
@@ -44,17 +46,17 @@ const POLICY_ITEMS = [
   { value: "compact", label: "compact" },
 ] as const;
 
-const EMPTY_TOPICS: TopicList[] = [];
+const EMPTY_TOPICS: TopicRow[] = [];
 
-function emptyMetric(value: number, display: ReactNode) {
-  if (value === 0) {
+function emptyMetric(value: Int64, display: ReactNode) {
+  if (isZero(value)) {
     return <span className="text-muted-foreground">—</span>;
   }
 
   return display;
 }
 
-const columnHelper = createColumnHelper<DataTableFeatures, TopicList>();
+const columnHelper = createColumnHelper<DataTableFeatures, TopicRow>();
 
 const columns = columnHelper.columns([
   columnHelper.accessor("name", {
@@ -92,15 +94,16 @@ const columns = columnHelper.columns([
     ),
     meta: { align: "right", label: "RF" },
   }),
-  columnHelper.accessor("messageCount", {
+  columnHelper.accessor((topic) => toNumber(topic.retainedMessages), {
     id: "messages",
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Messages" className="justify-end" />
     ),
     meta: { align: "right", label: "Messages" },
-    cell: ({ getValue }) => emptyMetric(getValue(), formatNumber(getValue())),
+    cell: ({ row }) =>
+      emptyMetric(row.original.retainedMessages, formatNumber(row.original.retainedMessages)),
   }),
-  columnHelper.accessor("messagesPerSec", {
+  columnHelper.accessor("rate", {
     id: "rate",
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Msg/s" className="justify-end" />
@@ -108,13 +111,13 @@ const columns = columnHelper.columns([
     meta: { align: "right", label: "Msg/s" },
     cell: ({ getValue }) => emptyMetric(getValue(), formatThroughput(getValue())),
   }),
-  columnHelper.accessor("retentionMs", {
+  columnHelper.accessor((topic) => toNumber(topic.retentionMs), {
     id: "retention",
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Retention" className="justify-end" />
     ),
     meta: { align: "right", label: "Retention" },
-    cell: ({ getValue }) => <span>{formatDuration(getValue())}</span>,
+    cell: ({ row }) => <span>{formatDuration(row.original.retentionMs)}</span>,
   }),
   columnHelper.accessor("cleanupPolicy", {
     id: "policy",
@@ -128,7 +131,7 @@ const columns = columnHelper.columns([
       </Pill>
     ),
   }),
-  columnHelper.accessor((topic) => topic.consumerGroups.length, {
+  columnHelper.accessor("groupCount", {
     id: "groups",
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Groups" className="justify-end" />
@@ -144,10 +147,10 @@ function TopicsPage() {
   const { q: term = "", internal, policy = "all" } = Route.useSearch();
   const showInternal = internal === "1";
 
-  const { data, isPending, isError, error } = useTopics(cluster);
+  const { data: topics = EMPTY_TOPICS, isPending, isError, error } = useTopicRows(cluster);
+  const { data: health } = useClusterHealth(cluster);
   const now = useNow();
-  const topics = data?.topics ?? EMPTY_TOPICS;
-  const updatedAt = data?.updatedAt;
+  const caption = laneCaption(health?.topology, now);
 
   function update(key: "q" | "internal" | "policy", value: string | null) {
     void navigate({
@@ -186,9 +189,7 @@ function TopicsPage() {
     <div className="flex min-h-0 flex-1 flex-col gap-5">
       <PageHeader
         title="Topics"
-        description={`${rows.length} of ${topics.length} topics${
-          updatedAt ? ` · Updated ${formatRelative(updatedAt, now)}` : ""
-        }`}
+        description={`${rows.length} of ${topics.length} topics${caption ? ` · ${caption}` : ""}`}
       />
 
       <DataTable

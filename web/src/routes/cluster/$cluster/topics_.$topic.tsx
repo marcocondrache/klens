@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { AlertTriangleIcon, DatabaseIcon, GaugeIcon, NetworkIcon } from "lucide-react";
 import { createFileRoute } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
@@ -15,10 +14,9 @@ import { Sparkline } from "@/components/charts";
 import { Stat, StatGrid } from "@/components/stat";
 import { GroupStateBadge, Pill } from "@/components/status";
 import { lagTone } from "@/lib/tone";
-import { useTopic, useTopicConsumerGroups } from "@/lib/api/catalog";
+import { useTopic, useTopicGroups } from "@/lib/api/catalog";
 import { catalogLookupMessage } from "@/lib/catalog-lookup";
-import { useTopicConfigs, useTopicThroughput } from "@/lib/api/live";
-import { useTopicRates } from "@/lib/api/subscriptions";
+import { useTopicConfigs, useTopicRateHistory } from "@/lib/api/live";
 import { useClusterName } from "@/lib/clusters";
 import {
   formatCleanupPolicy,
@@ -27,8 +25,9 @@ import {
   formatNumber,
   formatThroughput,
   isCompactCleanup,
+  toNumber,
 } from "@/lib/format";
-import type { ConsumerGroup, Partition } from "@/lib/api/types";
+import type { PartitionRow, TopicGroupRow } from "@/lib/api/types";
 import { parseTopicDetailSearch } from "@/lib/route-search";
 import { useAccess } from "@/hooks/use-access";
 
@@ -37,8 +36,8 @@ export const Route = createFileRoute("/cluster/$cluster/topics_/$topic")({
   component: TopicPage,
 });
 
-const partitionColumnHelper = createColumnHelper<DataTableFeatures, Partition>();
-const groupColumnHelper = createColumnHelper<DataTableFeatures, ConsumerGroup>();
+const partitionColumnHelper = createColumnHelper<DataTableFeatures, PartitionRow>();
+const groupColumnHelper = createColumnHelper<DataTableFeatures, TopicGroupRow>();
 
 const partitionColumns = partitionColumnHelper.columns([
   partitionColumnHelper.accessor("id", {
@@ -90,29 +89,29 @@ const partitionColumns = partitionColumnHelper.columns([
       </span>
     ),
   }),
-  partitionColumnHelper.accessor("lowWatermark", {
+  partitionColumnHelper.accessor((partition) => toNumber(partition.lowWatermark), {
     id: "low",
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Low offset" className="justify-end" />
     ),
     meta: { align: "right", label: "Low offset" },
-    cell: ({ getValue }) => formatNumber(getValue()),
+    cell: ({ row }) => formatNumber(row.original.lowWatermark),
   }),
-  partitionColumnHelper.accessor("highWatermark", {
+  partitionColumnHelper.accessor((partition) => toNumber(partition.highWatermark), {
     id: "high",
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="High offset" className="justify-end" />
     ),
     meta: { align: "right", label: "High offset" },
-    cell: ({ getValue }) => formatNumber(getValue()),
+    cell: ({ row }) => formatNumber(row.original.highWatermark),
   }),
-  partitionColumnHelper.accessor((partition) => partition.highWatermark - partition.lowWatermark, {
+  partitionColumnHelper.accessor((partition) => toNumber(partition.retained), {
     id: "messages",
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Messages" className="justify-end" />
     ),
     meta: { align: "right", label: "Messages" },
-    cell: ({ getValue }) => formatNumber(getValue()),
+    cell: ({ row }) => formatNumber(row.original.retained),
   }),
 ]);
 
@@ -122,33 +121,30 @@ function TopicPage() {
   const { topic: topicName } = Route.useParams();
   const { tab: tabParam } = Route.useSearch();
   const { can } = useAccess();
-  const canRecords = can(cluster, "records");
-  const canConfigs = can(cluster, "configs");
+  const canRecords = can(cluster, "RECORDS");
+  const canConfigs = can(cluster, "CONFIGS");
   const requested = tabParam ?? (canRecords ? "data" : "partitions");
   const tab =
     (requested === "data" && !canRecords) || (requested === "config" && !canConfigs)
       ? "partitions"
       : requested;
 
-  const { data: topic, isPending, isError, error } = useTopic(cluster, topicName);
-  useTopicRates(cluster);
+  const { data, isPending, isError, error } = useTopic(cluster, topicName);
+  const detail = data?.detail ?? null;
+  const row = data?.row ?? null;
   const { data: configs = [], isPending: configsPending } = useTopicConfigs(
     cluster,
     topicName,
     tab === "config" && canConfigs,
   );
-  const { data: throughput = [] } = useTopicThroughput(cluster, topicName);
-  const { data: groups = [], isPending: groupsPending } = useTopicConsumerGroups(
+  const { data: history = [] } = useTopicRateHistory(cluster, topicName);
+  const { data: groups = [], isPending: groupsPending } = useTopicGroups(
     cluster,
     topicName,
     tab === "groups",
   );
 
-  const consuming = useMemo(
-    () => groups.filter((group) => group.topics.includes(topicName)),
-    [groups, topicName],
-  );
-  const groupCount = topic?.consumerGroups.length ?? consuming.length;
+  const groupCount = detail?.groupCount ?? groups.length;
 
   function selectTab(value: string) {
     void navigate({
@@ -171,7 +167,7 @@ function TopicPage() {
     isPending,
     isError,
     error,
-    data: topic,
+    data: detail,
     missing: "This topic does not exist in the selected cluster.",
     failed: "Failed to load this topic.",
   });
@@ -190,7 +186,7 @@ function TopicPage() {
       meta: { label: "State" },
       cell: ({ getValue }) => <GroupStateBadge state={getValue()} />,
     }),
-    groupColumnHelper.accessor((group) => group.members.length, {
+    groupColumnHelper.accessor("memberCount", {
       id: "members",
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title="Members" className="justify-end" />
@@ -198,28 +194,18 @@ function TopicPage() {
       meta: { align: "right", label: "Members" },
       cell: ({ getValue }) => getValue(),
     }),
-    groupColumnHelper.accessor(
-      (group) =>
-        group.offsets
-          .filter((offset) => offset.topic === topicName)
-          .reduce((sum, offset) => sum + offset.lag, 0),
-      {
-        id: "lag",
-        header: ({ column }) => (
-          <DataTableColumnHeader
-            column={column}
-            title="Lag on this topic"
-            className="justify-end"
-          />
-        ),
-        meta: { align: "right", label: "Lag on this topic" },
-        cell: ({ getValue }) => (
-          <Pill tone={lagTone(getValue())} className="numeric font-mono">
-            {formatNumber(getValue())}
-          </Pill>
-        ),
-      },
-    ),
+    groupColumnHelper.accessor((group) => toNumber(group.lagOnTopic), {
+      id: "lag",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Lag on this topic" className="justify-end" />
+      ),
+      meta: { align: "right", label: "Lag on this topic" },
+      cell: ({ row: groupRow }) => (
+        <Pill tone={lagTone(toNumber(groupRow.original.lagOnTopic))} className="numeric font-mono">
+          {formatNumber(groupRow.original.lagOnTopic)}
+        </Pill>
+      ),
+    }),
   ]);
 
   return (
@@ -233,14 +219,16 @@ function TopicPage() {
         }
         mono
         badges={
-          topic ? (
+          detail ? (
             <>
-              {topic.internal ? <Pill>internal</Pill> : null}
-              <Pill tone={isCompactCleanup(topic.cleanupPolicy) ? "brand" : "idle"}>
-                {formatCleanupPolicy(topic.cleanupPolicy)}
-              </Pill>
-              <Pill>RF {topic.replicationFactor}</Pill>
-              {topic.underReplicated ? (
+              {detail.internal ? <Pill>internal</Pill> : null}
+              {row ? (
+                <Pill tone={isCompactCleanup(row.cleanupPolicy) ? "brand" : "idle"}>
+                  {formatCleanupPolicy(row.cleanupPolicy)}
+                </Pill>
+              ) : null}
+              <Pill>RF {detail.replicationFactor}</Pill>
+              {detail.underReplicated ? (
                 <Pill tone="warn">
                   <AlertTriangleIcon className="size-3" />
                   under-replicated
@@ -250,8 +238,8 @@ function TopicPage() {
           ) : null
         }
         description={
-          topic
-            ? `retention ${formatDuration(topic.retentionMs)} · ${groupCount} consumer groups`
+          detail
+            ? `${row ? `retention ${formatDuration(row.retentionMs)} · ` : ""}${groupCount} consumer groups`
             : null
         }
       />
@@ -259,26 +247,26 @@ function TopicPage() {
       <StatGrid>
         <Stat
           label="Partitions"
-          value={topic?.partitions.length ?? 0}
-          hint={`replication factor ${topic?.replicationFactor ?? "—"}`}
+          value={detail?.partitions.length ?? 0}
+          hint={`replication factor ${detail?.replicationFactor ?? "—"}`}
           icon={<NetworkIcon />}
           loading={isPending}
         />
         <Stat
           label="Messages"
-          value={formatCount(topic?.messageCount ?? 0)}
-          hint={formatNumber(topic?.messageCount ?? 0)}
+          value={formatCount(detail?.retainedMessages ?? 0)}
+          hint={formatNumber(detail?.retainedMessages ?? 0)}
           icon={<DatabaseIcon />}
           loading={isPending}
         />
         <Stat
           label="Produce rate"
-          value={`${formatThroughput(topic?.messagesPerSec ?? 0)}/s`}
+          value={`${formatThroughput(row?.rate ?? 0)}/s`}
           icon={<GaugeIcon />}
           loading={isPending}
           accent
         >
-          <Sparkline data={throughput} />
+          <Sparkline data={history} />
         </Stat>
       </StatGrid>
 
@@ -292,7 +280,7 @@ function TopicPage() {
           <TabsTrigger value="partitions">
             Partitions
             <span className="numeric ml-1.5 text-muted-foreground">
-              {topic?.partitions.length ?? 0}
+              {detail?.partitions.length ?? 0}
             </span>
           </TabsTrigger>
           <TabsTrigger value="groups">
@@ -304,14 +292,14 @@ function TopicPage() {
 
         {canRecords ? (
           <TabsContent value="data" className="mt-4 flex min-h-0 flex-col">
-            {topic ? <RecordBrowser cluster={cluster} topic={topic} /> : null}
+            {detail ? <RecordBrowser cluster={cluster} topic={detail} /> : null}
           </TabsContent>
         ) : null}
 
         <TabsContent value="partitions" className="mt-4 flex min-h-0 flex-col">
           <DataTable
             columns={partitionColumns}
-            data={topic?.partitions ?? []}
+            data={detail?.partitions ?? []}
             getRowId={(partition) => String(partition.id)}
             loading={isPending}
             pageSize={25}
@@ -323,7 +311,7 @@ function TopicPage() {
         <TabsContent value="groups" className="mt-4 flex min-h-0 flex-col">
           <DataTable
             columns={groupColumns}
-            data={consuming}
+            data={groups}
             getRowId={(group) => group.id}
             loading={groupsPending}
             onRowClick={(group) => {
