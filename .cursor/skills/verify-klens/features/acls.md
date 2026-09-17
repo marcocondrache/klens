@@ -34,3 +34,4 @@ Preconditions:
 - A GraphQL field error on `acls` is a failed drive. Do not treat that as either empty state.
 - The heading, sidebar, and palette label are all `ACLs`.
 - Sidebar `ACLs` has no count badge. The command palette does not search ACL rows.
+- Drive this page before topic Data. After a records timeout, `acls` can return `operation timed out: request` with code `CLIENT`. That is a poisoned client, not the ENABLED empty list.

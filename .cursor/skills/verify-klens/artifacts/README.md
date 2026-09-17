@@ -39,3 +39,17 @@ Maintain pass after #224 / #220 / #209. One long-lived instance is not enough wh
 - ACLs: `/cluster/local/acls`, `No ACL bindings.`, GraphQL `authorizer: ENABLED`, `bindings: []`. Search writes `?q=alice`. Resource `Topic` writes `?resource=TOPIC`.
 - Command palette: header `Search` opens `Search klens` with Go to including `ACLs` and Switch cluster `local`. Topic hit `klens-verify-topics`. Go to `ACLs` / `Brokers`. `/` on Brokers opens the dialog. `/` on Topics focuses `Search topics…`. Playwright `Control+K` does not reach the page under Google Chrome; `window` `keydown` with `ctrlKey` does.
 
+## 20260917T072143Z / 20260917T072432Z / 20260917T072757Z
+
+Maintain pass after #225. Helm (#226) and CI dep bumps are not UI features.
+
+- First launch used the default 5s catalog poll. Doctor started green. After `drive-topics.mjs`, doctor failed with `catalogHealth.lastError` `invalid state: list_consumer_groups failed: all brokers returned errors` and a stale `updatedAt`. Artifacts stayed after cleanup.
+- Later launches used session-only `KLENS_CATALOG_POLL_INTERVAL=600`. Doctor stayed green. That override is not in `launch.sh`.
+- Topics: `/` → `/cluster/local/topics`, `Rows per page` `100`, `Show internal` → `__consumer_offsets` and `_schemas` at `?internal=1`, filter and open `klens-verify-topics`.
+- Topic records: Data tab chrome matches the map (`Search key or value…`, `50 rows`). Fetch shows `operation timed out: request (CLIENT)` or `kafka request timed out` (`TIMEOUT`). `rpk topic consume` still returns `verify-1` / `hello-from-verify-klens`. Product gap, left in `features/topic-records.md`.
+- Consumer groups: `/cluster/local/groups?q=klens-verify-group&state=EMPTY`, open `/cluster/local/groups/klens-verify-group`.
+- Schema registry: `/cluster/local/schemas`, `No results.`, GraphQL `schemaSubjects` `[]`. Search writes `?q=no-such-subject`.
+- Brokers: `/cluster/local/nodes`, host `127.0.0.1:9092`, open `/cluster/local/nodes/0`. GraphQL `controller` is `false`. No `controller` badge. Product gap, left in `features/brokers.md`.
+- ACLs: must run before topic Data. After a records timeout, `acls` returned `CLIENT` timeout. On a fresh client, `/cluster/local/acls?q=alice&resource=TOPIC` shows `No ACL bindings.`, GraphQL `authorizer: ENABLED`, `bindings: []`.
+- Command palette: header button accessible name is `Search Ctrl+K /`. Dialog `Search klens` lists Go to `Topics`, `Consumer Groups`, `Schema Registry`, `Brokers`, `ACLs` and Switch cluster `local`. Topic hit `klens-verify-topics 1 partitions`. Go to `ACLs` / `Brokers`. `/` on Brokers opens the dialog. `/` on Topics focuses `Search topics…`. Playwright `Control+K` does not reach the page; `window` `keydown` with `ctrlKey` does.
+

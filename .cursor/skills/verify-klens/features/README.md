@@ -16,6 +16,8 @@ This directory is the maintained source for verifying user-facing klens behavior
 - Prefer headings, placeholders, button names, and route paths over CSS position.
 - Treat topic names and the seed payload as literals.
 - Run browser steps through Playwright (`helpers/drive-topics.mjs` for Topics). Use `curl` only to corroborate GraphQL.
+- Drive ACLs before opening topic Data. A records timeout can poison later live RPCs.
+- Default catalog poll is 5s. If doctor fails with `list_consumer_groups` after a few polls, relaunch with `KLENS_CATALOG_POLL_INTERVAL=600`. That is session harness, not a `launch.sh` default.
 - Leave `klens-verify-topics` in place across features in one session. Cleanup does not delete Kafka data unless this run started the broker.
 
 ## Proof and skip reporting
