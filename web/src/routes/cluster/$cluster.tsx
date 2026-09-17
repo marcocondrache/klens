@@ -1,14 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { TriangleAlertIcon } from "lucide-react";
-import { Navigate, Outlet, createFileRoute } from "@tanstack/react-router";
+import { Navigate, Outlet, createFileRoute, useMatch } from "@tanstack/react-router";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppHeader } from "@/components/app-header";
 import { AppSidebar } from "@/components/app-sidebar";
 import { CommandPalette } from "@/components/command-palette";
-import { useCatalogHealth, useClusters } from "@/lib/api/catalog";
-import { useCatalogUpdated } from "@/lib/api/subscriptions";
+import { useClusterHealth, useClusterNames } from "@/lib/api/catalog";
+import { useUpdates, type Scope } from "@/lib/api/updates";
 import { useClusterName } from "@/lib/clusters";
 import { findSearchHotkeyTarget, isTypingTarget } from "@/lib/keyboard";
 import { NotFoundPage } from "@/routes/-not-found";
@@ -20,9 +20,9 @@ export const Route = createFileRoute("/cluster/$cluster")({
 
 function AppLayout() {
   const cluster = useClusterName();
-  const { data: clusters, isPending } = useClusters();
-  const { data: health } = useCatalogHealth(cluster);
-  useCatalogUpdated(cluster);
+  const { data: clusters, isPending } = useClusterNames();
+  const { data: health } = useClusterHealth(cluster);
+  useUpdates(cluster, useRouteScope());
   const [paletteOpen, setPaletteOpen] = useState(false);
   const known = clusters?.includes(cluster);
 
@@ -56,23 +56,21 @@ function AppLayout() {
     return <Navigate to="/cluster/$cluster" params={{ cluster: clusters[0] }} replace />;
   }
 
+  const topology = health?.topology;
+
   return (
     <SidebarProvider className="h-svh">
       <AppSidebar />
       <SidebarInset className="min-w-0 overflow-hidden">
         <AppHeader onSearch={() => setPaletteOpen(true)} />
         <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-4 md:p-6 md:group-has-data-[collapsible=icon]/sidebar-wrapper:px-8">
-          {health?.lastError && health.updatedAt == null ? (
+          {topology?.lastError ? (
             <Alert variant="destructive">
               <TriangleAlertIcon />
-              <AlertTitle>Cluster unreachable</AlertTitle>
-              <AlertDescription>{health.lastError}</AlertDescription>
-            </Alert>
-          ) : health?.lastError ? (
-            <Alert variant="destructive">
-              <TriangleAlertIcon />
-              <AlertTitle>Catalog update failed</AlertTitle>
-              <AlertDescription>{health.lastError}</AlertDescription>
+              <AlertTitle>
+                {topology.updatedAt == null ? "Cluster unreachable" : "Topology lane failing"}
+              </AlertTitle>
+              <AlertDescription>{topology.lastError}</AlertDescription>
             </Alert>
           ) : null}
           <Outlet />
@@ -80,5 +78,32 @@ function AppLayout() {
       </SidebarInset>
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
     </SidebarProvider>
+  );
+}
+
+/**
+ * A detail page subscribes to its own entity, so the server filters the bus
+ * instead of shipping every topic's rate to a page showing one sparkline. A
+ * group scope also leases the fast offsets tier for as long as the page is
+ * open.
+ *
+ * Matched by route id rather than loose params: this layout renders above the
+ * detail routes, so its own match never carries their parameters.
+ */
+function useRouteScope(): Scope {
+  const topic = useMatch({
+    from: "/cluster/$cluster/topics_/$topic",
+    shouldThrow: false,
+    select: (match) => match.params.topic,
+  });
+  const group = useMatch({
+    from: "/cluster/$cluster/groups_/$group",
+    shouldThrow: false,
+    select: (match) => match.params.group,
+  });
+
+  return useMemo(
+    () => ({ ...(topic ? { topic } : {}), ...(group ? { group } : {}) }),
+    [topic, group],
   );
 }

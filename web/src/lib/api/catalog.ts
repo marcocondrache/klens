@@ -1,166 +1,154 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, type Query } from "@tanstack/react-query";
 
 import { execute } from "@/graphql/execute";
 import { clusterPath } from "@/lib/clusters";
 
 import {
-  brokerQuery,
-  brokersQuery,
-  catalogHealthQuery,
+  brokerRowsQuery,
   clustersQuery,
-  consumerGroupQuery,
-  consumerGroupsQuery,
-  groupsCatalogQuery,
-  schemaSubjectsQuery,
+  groupQuery,
+  groupRowsQuery,
   searchQuery,
+  subjectRowsQuery,
+  topicGroupsQuery,
   topicQuery,
-  topicsQuery,
+  topicRowsQuery,
 } from "./documents";
 import { keys } from "./keys";
-import type { GroupList, SearchResult, TopicList } from "./types";
+import type { ClusterHealth, SearchHit } from "./types";
 
-export type TopicsCache = {
-  topics: TopicList[];
-  updatedAt: string;
-};
-
-export type GroupsCache = {
-  groups: GroupList[];
-  updatedAt: string;
-};
-
-function required<T>(value: T | null | undefined, message: string): T {
-  if (value == null) {
-    throw new Error(message);
-  }
-
-  return value;
-}
-
-function searchHref(cluster: string, result: Omit<SearchResult, "href">): string {
-  switch (result.kind) {
+function searchHref(cluster: string, hit: Omit<SearchHit, "href">): string {
+  switch (hit.kind) {
     case "TOPIC":
-      return clusterPath(cluster, "topics", result.id);
+      return clusterPath(cluster, "topics", hit.id);
     case "GROUP":
-      return clusterPath(cluster, "groups", result.id);
+      return clusterPath(cluster, "groups", hit.id);
     case "NODE":
-      return clusterPath(cluster, "nodes", result.id);
+      return clusterPath(cluster, "nodes", hit.id);
     case "SUBJECT":
-      return `${clusterPath(cluster, "schemas")}?q=${encodeURIComponent(result.id)}`;
+      return `${clusterPath(cluster, "schemas")}?q=${encodeURIComponent(hit.id)}`;
   }
 }
+
+/**
+ * Per-lane freshness for every visible cluster. One query backs the switcher,
+ * the sidebar counts and the staleness captions, so nothing polls a catalog
+ * to discover how old it is.
+ */
+const clustersOptions = {
+  queryKey: keys.clusters(),
+  queryFn: async () => {
+    const { clusters } = await execute(clustersQuery);
+    return clusters;
+  },
+  // A cluster whose topology lane has never committed is still starting up;
+  // deltas only begin once it has.
+  refetchInterval: (query: Query<ClusterHealth[]>) =>
+    query.state.data?.every((cluster) => cluster.ready) === false ? 2000 : false,
+};
 
 export function useClusters() {
+  return useQuery(clustersOptions);
+}
+
+export function useClusterNames() {
   return useQuery({
-    queryKey: keys.clusters(),
+    ...clustersOptions,
+    select: (clusters: ClusterHealth[]) => clusters.map((cluster) => cluster.cluster),
+  });
+}
+
+export function useClusterHealth(cluster: string) {
+  return useQuery({
+    ...clustersOptions,
+    select: (clusters: ClusterHealth[]) =>
+      clusters.find((entry) => entry.cluster === cluster) ?? null,
+  });
+}
+
+export function useTopicRows(cluster: string) {
+  return useQuery({
+    queryKey: keys.topicRows(cluster),
     queryFn: async () => {
-      const { clusters } = await execute(clustersQuery);
-      return clusters;
+      const { topicRows } = await execute(topicRowsQuery, { cluster });
+      return topicRows.rows;
     },
   });
 }
 
-export function useCatalogHealth(cluster: string) {
-  return useQuery({
-    queryKey: keys.catalogHealth(cluster),
-    queryFn: async () => {
-      const { catalogHealth } = await execute(catalogHealthQuery, { cluster });
-      return catalogHealth;
-    },
-    refetchInterval: (query) => {
-      const health = query.state.data;
-      return health?.updatedAt == null || health.subjectsUpdatedAt == null ? 2000 : false;
-    },
-  });
-}
-
-export function useBrokers(cluster: string) {
-  return useQuery({
-    queryKey: keys.brokers(cluster),
-    queryFn: async () => {
-      const { brokers } = await execute(brokersQuery, { cluster });
-      return brokers;
-    },
-  });
-}
-
-export function useBroker(cluster: string, id: number) {
-  return useQuery({
-    queryKey: keys.broker(cluster, id),
-    queryFn: async () => {
-      const { broker } = await execute(brokerQuery, { cluster, id });
-      return required(broker, `unknown broker '${id}' in cluster '${cluster}'`);
-    },
-    enabled: Number.isFinite(id),
-  });
-}
-
-export function useTopics(cluster: string) {
-  return useQuery({
-    queryKey: keys.topics(cluster),
-    queryFn: async () => {
-      const { clusterCatalog } = await execute(topicsQuery, { cluster });
-      return {
-        topics: clusterCatalog.topics,
-        updatedAt: clusterCatalog.updatedAt,
-      } satisfies TopicsCache;
-    },
-  });
-}
-
+/**
+ * Partitions come from the detail projection; rate, retention and cleanup
+ * policy are row fields, so the page asks for both in one round trip rather
+ * than reconstructing them from configs it may not be allowed to read.
+ */
 export function useTopic(cluster: string, topic: string) {
   return useQuery({
     queryKey: keys.topic(cluster, topic),
     queryFn: async () => {
-      const { topic: data } = await execute(topicQuery, { cluster, name: topic });
-      return data ?? null;
-    },
-  });
-}
-
-export function useConsumerGroups(cluster: string) {
-  return useQuery({
-    queryKey: keys.groups(cluster),
-    queryFn: async () => {
-      const { clusterCatalog } = await execute(groupsCatalogQuery, { cluster });
+      const { topic: detail, topicRows } = await execute(topicQuery, { cluster, name: topic });
       return {
-        groups: clusterCatalog.consumerGroups,
-        updatedAt: clusterCatalog.updatedAt,
-      } satisfies GroupsCache;
+        detail,
+        row: topicRows.rows.find((row) => row.name === topic) ?? null,
+      };
     },
   });
 }
 
-export function useTopicConsumerGroups(cluster: string, topic: string, enabled = true) {
+export function useTopicGroups(cluster: string, topic: string, enabled = true) {
   return useQuery({
     queryKey: keys.topicGroups(cluster, topic),
     queryFn: async () => {
-      const { consumerGroups } = await execute(consumerGroupsQuery, {
-        cluster,
-        topic,
-      });
-      return consumerGroups;
+      const { topicGroups } = await execute(topicGroupsQuery, { cluster, topic });
+      return topicGroups;
     },
     enabled,
   });
 }
 
-export function useConsumerGroup(cluster: string, group: string) {
+export function useGroupRows(cluster: string) {
   return useQuery({
-    queryKey: keys.group(cluster, group),
+    queryKey: keys.groupRows(cluster),
     queryFn: async () => {
-      const { consumerGroup } = await execute(consumerGroupQuery, { cluster, id: group });
-      return consumerGroup ?? null;
+      const { groupRows } = await execute(groupRowsQuery, { cluster });
+      return groupRows.rows;
     },
   });
 }
 
-export function useSchemaSubjects(cluster: string) {
+export function useGroup(cluster: string, group: string) {
   return useQuery({
-    queryKey: keys.subjects(cluster),
+    queryKey: keys.group(cluster, group),
     queryFn: async () => {
-      const { schemaSubjects } = await execute(schemaSubjectsQuery, { cluster });
-      return schemaSubjects;
+      const { group: detail } = await execute(groupQuery, { cluster, id: group });
+      return detail ?? null;
+    },
+  });
+}
+
+export function useBrokerRows(cluster: string) {
+  return useQuery({
+    queryKey: keys.brokerRows(cluster),
+    queryFn: async () => {
+      const { brokerRows } = await execute(brokerRowsQuery, { cluster });
+      return brokerRows;
+    },
+  });
+}
+
+export function useBroker(cluster: string, id: number) {
+  const { data, ...rest } = useBrokerRows(cluster);
+  return {
+    ...rest,
+    data: data?.find((broker) => broker.id === id) ?? null,
+  };
+}
+
+export function useSubjectRows(cluster: string) {
+  return useQuery({
+    queryKey: keys.subjectRows(cluster),
+    queryFn: async () => {
+      const { subjectRows } = await execute(subjectRowsQuery, { cluster });
+      return subjectRows;
     },
   });
 }
@@ -170,13 +158,7 @@ export function useSearch(cluster: string, term: string) {
     queryKey: keys.search(cluster, term),
     queryFn: async () => {
       const { search } = await execute(searchQuery, { cluster, term });
-      return {
-        hits: search.hits.map((result) => ({
-          ...result,
-          href: searchHref(cluster, result),
-        })),
-        schemaRegistryError: search.schemaRegistryError,
-      };
+      return search.map((hit) => ({ ...hit, href: searchHref(cluster, hit) }));
     },
     enabled: term.trim().length > 0,
   });

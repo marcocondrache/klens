@@ -1,68 +1,123 @@
 import { graphql } from "@/graphql/gql";
 
-export const BrokerFields = graphql(`
-  fragment BrokerFields on Broker {
-    id
-    host
-    port
-    rack
-    controller
-    partitionCount
-    leaderCount
+// ------------------------------------------------------------------ identity
+
+export const IdentityFields = graphql(`
+  fragment IdentityFields on Identity {
+    subject
+    clusters {
+      cluster
+      role
+      privileges
+    }
   }
 `);
 
-export const PartitionFields = graphql(`
-  fragment PartitionFields on Partition {
+export const LaneHealthFields = graphql(`
+  fragment LaneHealthFields on LaneHealth {
+    updatedAt
+    checkedAt
+    lastError
+    lastPollMs
+    healthy
+  }
+`);
+
+export const ClusterHealthFields = graphql(`
+  fragment ClusterHealthFields on ClusterHealth {
+    cluster
+    ready
+    topology {
+      ...LaneHealthFields
+    }
+    watermarks {
+      ...LaneHealthFields
+    }
+    offsets {
+      ...LaneHealthFields
+    }
+    configs {
+      ...LaneHealthFields
+    }
+    subjects {
+      ...LaneHealthFields
+    }
+    topicCount
+    partitionCount
+    groupCount
+    brokerCount
+    subjectCount
+    underReplicatedPartitions
+    offlinePartitions
+  }
+`);
+
+// -------------------------------------------------------------------- topics
+
+export const TopicRowFields = graphql(`
+  fragment TopicRowFields on TopicRow {
+    name
+    internal
+    partitionCount
+    replicationFactor
+    retainedMessages
+    producedTotal
+    rate
+    retentionMs
+    cleanupPolicy
+    groupCount
+    underReplicated
+  }
+`);
+
+export const PartitionRowFields = graphql(`
+  fragment PartitionRowFields on PartitionRow {
     id
     leader
     replicas
     isr
     lowWatermark
     highWatermark
+    retained
+    underReplicated
   }
 `);
 
-export const TopicFields = graphql(`
-  fragment TopicFields on Topic {
+export const TopicDetailFields = graphql(`
+  fragment TopicDetailFields on TopicDetail {
     name
     internal
+    replicationFactor
+    retainedMessages
+    producedTotal
+    groupCount
+    underReplicated
     partitions {
-      ...PartitionFields
+      ...PartitionRowFields
     }
-    partitionCount
-    replicationFactor
-    messageCount
-    cleanupPolicy
-    retentionMs
-    consumerGroups
-    messagesPerSec
-    underReplicated
   }
 `);
 
-export const TopicListFields = graphql(`
-  fragment TopicListFields on Topic {
-    name
-    internal
-    partitionCount
-    replicationFactor
-    messageCount
-    cleanupPolicy
-    retentionMs
-    consumerGroups
-    messagesPerSec
-    underReplicated
+export const TopicGroupRowFields = graphql(`
+  fragment TopicGroupRowFields on TopicGroupRow {
+    id
+    state
+    memberCount
+    lagOnTopic
   }
 `);
 
-export const ConfigEntryFields = graphql(`
-  fragment ConfigEntryFields on ConfigEntry {
-    name
-    value
-    source
-    readOnly
-    sensitive
+// -------------------------------------------------------------------- groups
+
+export const GroupRowFields = graphql(`
+  fragment GroupRowFields on GroupRow {
+    id
+    state
+    memberCount
+    topicNames
+    totalLag
+    lagComplete
+    coordinatorId
   }
 `);
 
@@ -73,8 +128,8 @@ export const MemberAssignmentFields = graphql(`
   }
 `);
 
-export const ConsumerGroupMemberFields = graphql(`
-  fragment ConsumerGroupMemberFields on ConsumerGroupMember {
+export const GroupMemberFields = graphql(`
+  fragment GroupMemberFields on GroupMember {
     id
     clientId
     host
@@ -95,73 +150,76 @@ export const GroupOffsetFields = graphql(`
   }
 `);
 
-export const ConsumerGroupFields = graphql(`
-  fragment ConsumerGroupFields on ConsumerGroup {
+export const GroupDetailFields = graphql(`
+  fragment GroupDetailFields on GroupDetail {
     id
     state
     protocol
-    coordinator
+    coordinatorId
+    totalLag
+    lagComplete
     members {
-      ...ConsumerGroupMemberFields
+      ...GroupMemberFields
     }
-    memberCount
-    topics
-    lag
     offsets {
       ...GroupOffsetFields
     }
-    assignedPartitionCount
   }
 `);
 
-export const GroupListFields = graphql(`
-  fragment GroupListFields on ConsumerGroup {
+// ------------------------------------------------------------------- brokers
+
+export const BrokerRowFields = graphql(`
+  fragment BrokerRowFields on BrokerRow {
     id
-    state
-    protocol
-    coordinator
-    memberCount
-    topics
-    lag
-    assignedPartitionCount
+    host
+    port
+    rack
+    controller
+    partitionCount
+    leaderCount
   }
 `);
 
-export const ThroughputPointFields = graphql(`
-  fragment ThroughputPointFields on ThroughputPoint {
-    timestamp
-    messages
-  }
-`);
-
-export const TopicRateFields = graphql(`
-  fragment TopicRateFields on TopicRate {
+export const ConfigEntryFields = graphql(`
+  fragment ConfigEntryFields on ConfigEntry {
     name
-    messagesPerSec
+    value
+    source
+    readOnly
+    sensitive
   }
 `);
 
-export const ConsumerGroupLagFields = graphql(`
-  fragment ConsumerGroupLagFields on ConsumerGroup {
-    id
-    lag
-    offsets {
-      ...GroupOffsetFields
-    }
-  }
-`);
+// ------------------------------------------------------------------ subjects
 
-export const SchemaSubjectFields = graphql(`
-  fragment SchemaSubjectFields on SchemaSubject {
+export const SubjectRowFields = graphql(`
+  fragment SubjectRowFields on SubjectRow {
     subject
     id
     type
     latestVersion
     versions
     compatibility
-    schema
   }
 `);
+
+export const SubjectDetailFields = graphql(`
+  fragment SubjectDetailFields on SubjectDetail {
+    subject
+    version
+    id
+    type
+    schema
+    references {
+      name
+      subject
+      version
+    }
+  }
+`);
+
+// ---------------------------------------------------------------------- acls
 
 export const AclFields = graphql(`
   fragment AclFields on Acl {
@@ -175,6 +233,8 @@ export const AclFields = graphql(`
   }
 `);
 
+// ------------------------------------------------------------------- records
+
 export const RecordHeaderFields = graphql(`
   fragment RecordHeaderFields on RecordHeader {
     key
@@ -182,8 +242,8 @@ export const RecordHeaderFields = graphql(`
   }
 `);
 
-export const TopicRecordFields = graphql(`
-  fragment TopicRecordFields on TopicRecord {
+export const RecordFields = graphql(`
+  fragment RecordFields on Record {
     topic
     partition
     offset
@@ -191,16 +251,25 @@ export const TopicRecordFields = graphql(`
     key
     value
     schemaId
+    sizeBytes
+    compression
     headers {
       ...RecordHeaderFields
     }
-    sizeBytes
-    compression
   }
 `);
 
-export const SearchResultFields = graphql(`
-  fragment SearchResultFields on SearchResult {
+// -------------------------------------------------------------------- series
+
+export const PointFields = graphql(`
+  fragment PointFields on Point {
+    at
+    value
+  }
+`);
+
+export const SearchHitFields = graphql(`
+  fragment SearchHitFields on SearchHit {
     kind
     id
     label
@@ -208,57 +277,29 @@ export const SearchResultFields = graphql(`
   }
 `);
 
+// ------------------------------------------------------------------- queries
+
+export const whoamiQuery = graphql(`
+  query Whoami {
+    whoami {
+      ...IdentityFields
+    }
+  }
+`);
+
 export const clustersQuery = graphql(`
   query Clusters {
-    clusters
-  }
-`);
-
-export const catalogHealthQuery = graphql(`
-  query CatalogHealth($cluster: String!) {
-    catalogHealth(cluster: $cluster) {
-      updatedAt
-      subjectsUpdatedAt
-      lastError
-      lastPollDurationMs
-      topicCount
-      groupCount
-      brokerCount
-      subjectCount
+    clusters {
+      ...ClusterHealthFields
     }
   }
 `);
 
-export const brokersQuery = graphql(`
-  query Brokers($cluster: String!) {
-    brokers(cluster: $cluster) {
-      ...BrokerFields
-    }
-  }
-`);
-
-export const brokerQuery = graphql(`
-  query Broker($cluster: String!, $id: Int!) {
-    broker(cluster: $cluster, id: $id) {
-      ...BrokerFields
-    }
-  }
-`);
-
-export const brokerConfigsQuery = graphql(`
-  query BrokerConfigs($cluster: String!, $id: Int!) {
-    brokerConfigs(cluster: $cluster, id: $id) {
-      ...ConfigEntryFields
-    }
-  }
-`);
-
-export const topicsQuery = graphql(`
-  query Topics($cluster: String!) {
-    clusterCatalog(cluster: $cluster) {
-      updatedAt
-      topics {
-        ...TopicListFields
+export const topicRowsQuery = graphql(`
+  query TopicRows($cluster: String!) {
+    topicRows(cluster: $cluster) {
+      rows {
+        ...TopicRowFields
       }
     }
   }
@@ -267,7 +308,20 @@ export const topicsQuery = graphql(`
 export const topicQuery = graphql(`
   query Topic($cluster: String!, $name: String!) {
     topic(cluster: $cluster, name: $name) {
-      ...TopicFields
+      ...TopicDetailFields
+    }
+    topicRows(cluster: $cluster, filter: { contains: $name }) {
+      rows {
+        ...TopicRowFields
+      }
+    }
+  }
+`);
+
+export const topicGroupsQuery = graphql(`
+  query TopicGroups($cluster: String!, $topic: String!) {
+    topicGroups(cluster: $cluster, topic: $topic) {
+      ...TopicGroupRowFields
     }
   }
 `);
@@ -280,53 +334,57 @@ export const topicConfigsQuery = graphql(`
   }
 `);
 
-export const consumerGroupsQuery = graphql(`
-  query ConsumerGroups($cluster: String!, $topic: String) {
-    consumerGroups(cluster: $cluster, topic: $topic) {
-      ...ConsumerGroupFields
-    }
-  }
-`);
-
-export const groupsCatalogQuery = graphql(`
-  query GroupsCatalog($cluster: String!) {
-    clusterCatalog(cluster: $cluster) {
-      updatedAt
-      consumerGroups {
-        ...GroupListFields
+export const groupRowsQuery = graphql(`
+  query GroupRows($cluster: String!) {
+    groupRows(cluster: $cluster) {
+      rows {
+        ...GroupRowFields
       }
     }
   }
 `);
 
-export const consumerGroupQuery = graphql(`
-  query ConsumerGroup($cluster: String!, $id: String!) {
-    consumerGroup(cluster: $cluster, id: $id) {
-      ...ConsumerGroupFields
+export const groupQuery = graphql(`
+  query Group($cluster: String!, $id: String!) {
+    group(cluster: $cluster, id: $id) {
+      ...GroupDetailFields
     }
   }
 `);
 
-export const topicThroughputQuery = graphql(`
-  query TopicThroughput($cluster: String!, $topic: String!) {
-    topicThroughput(cluster: $cluster, topic: $topic) {
-      ...ThroughputPointFields
+export const brokerRowsQuery = graphql(`
+  query BrokerRows($cluster: String!) {
+    brokerRows(cluster: $cluster) {
+      ...BrokerRowFields
     }
   }
 `);
 
-export const groupLagHistoryQuery = graphql(`
-  query GroupLagHistory($cluster: String!, $id: String!) {
-    groupLagHistory(cluster: $cluster, id: $id) {
-      ...ThroughputPointFields
+export const brokerConfigsQuery = graphql(`
+  query BrokerConfigs($cluster: String!, $id: Int!) {
+    brokerConfigs(cluster: $cluster, id: $id) {
+      ...ConfigEntryFields
     }
   }
 `);
 
-export const schemaSubjectsQuery = graphql(`
-  query SchemaSubjects($cluster: String!) {
-    schemaSubjects(cluster: $cluster) {
-      ...SchemaSubjectFields
+export const subjectRowsQuery = graphql(`
+  query SubjectRows($cluster: String!) {
+    subjectRows(cluster: $cluster) {
+      rows {
+        ...SubjectRowFields
+      }
+      sourceHealth {
+        ...LaneHealthFields
+      }
+    }
+  }
+`);
+
+export const subjectQuery = graphql(`
+  query Subject($cluster: String!, $name: String!, $version: Int) {
+    subject(cluster: $cluster, name: $name, version: $version) {
+      ...SubjectDetailFields
     }
   }
 `);
@@ -343,13 +401,30 @@ export const aclsQuery = graphql(`
 `);
 
 export const recordsQuery = graphql(`
-  query Records($query: RecordQuery!) {
-    records(query: $query) {
-      records {
-        ...TopicRecordFields
-      }
-      hasMore
+  query Records($cluster: String!, $query: RecordQueryInput!) {
+    records(cluster: $cluster, query: $query) {
+      complete
       nextCursor
+      prevCursor
+      records {
+        ...RecordFields
+      }
+    }
+  }
+`);
+
+export const topicRateHistoryQuery = graphql(`
+  query TopicRateHistory($cluster: String!, $topic: String!) {
+    topicRateHistory(cluster: $cluster, topic: $topic) {
+      ...PointFields
+    }
+  }
+`);
+
+export const groupLagHistoryQuery = graphql(`
+  query GroupLagHistory($cluster: String!, $group: String!) {
+    groupLagHistory(cluster: $cluster, group: $group) {
+      ...PointFields
     }
   }
 `);
@@ -357,36 +432,57 @@ export const recordsQuery = graphql(`
 export const searchQuery = graphql(`
   query Search($cluster: String!, $term: String!) {
     search(cluster: $cluster, term: $term) {
-      hits {
-        ...SearchResultFields
+      ...SearchHitFields
+    }
+  }
+`);
+
+// -------------------------------------------------------------- subscription
+
+export const updatesSubscription = graphql(`
+  subscription Updates($cluster: String!, $scope: UpdateScope) {
+    updates(cluster: $cluster, scope: $scope) {
+      __typename
+      ... on WatermarksTick {
+        at
+        clusterRate
+        topics {
+          topic
+          rate
+        }
       }
-      schemaRegistryError
-    }
-  }
-`);
-
-export const topicRatesSubscription = graphql(`
-  subscription TopicRates($cluster: String!) {
-    topicRates(cluster: $cluster) {
-      ...TopicRateFields
-    }
-  }
-`);
-
-export const consumerGroupLagSubscription = graphql(`
-  subscription ConsumerGroupLag($cluster: String!, $id: String!) {
-    consumerGroupLag(cluster: $cluster, id: $id) {
-      ...ConsumerGroupLagFields
-    }
-  }
-`);
-
-export const catalogUpdatedSubscription = graphql(`
-  subscription CatalogUpdated($cluster: String!) {
-    catalogUpdated(cluster: $cluster) {
-      cluster
-      updatedAt
-      generation
+      ... on GroupLagUpdate {
+        at
+        group
+        lag
+        lagComplete
+        offsets {
+          ...GroupOffsetFields
+        }
+      }
+      ... on TopologyDelta {
+        version
+        addedTopics
+        removedTopics
+        changedTopics
+        addedGroups
+        removedGroups
+        changedGroups
+        brokersChanged
+      }
+      ... on ConfigsChanged {
+        version
+        configTopics: topics
+      }
+      ... on SubjectsChanged {
+        version
+        added
+        removed
+        changed
+      }
+      ... on Resync {
+        reason
+      }
     }
   }
 `);

@@ -54,29 +54,52 @@ export type ConfigSource =
   | 'DYNAMIC_TOPIC_CONFIG'
   | 'STATIC_BROKER_CONFIG';
 
-export type ConsumerGroupState =
+export type GroupState =
   | 'COMPLETING_REBALANCE'
   | 'DEAD'
   | 'EMPTY'
   | 'PREPARING_REBALANCE'
   | 'STABLE';
 
+export type PrivilegeName =
+  | 'ACLS'
+  | 'CONFIGS'
+  | 'RECORDS'
+  | 'SCHEMA_TEXT';
+
+/** A substring match or a CEL expression, never both. */
+export type RecordFilterInput = {
+  cel: string | null | undefined;
+  contains: string | null | undefined;
+};
+
 export type RecordOrder =
   | 'NEWEST'
   | 'OLDEST';
 
-export type RecordQuery = {
-  cluster: string;
+export type RecordQueryInput = {
   cursor: string | null | undefined;
-  filter: string | null | undefined;
+  filter: RecordFilterInput | null | undefined;
+  from: string | null | undefined;
   limit: number;
-  order: RecordOrder;
+  /**
+   * Nullable rather than defaulted because juniper renders an enum
+   * default as a quoted string, which is not valid SDL.
+   */
+  order: RecordOrder | null | undefined;
   partition: number | null | undefined;
   schemaId: number | null | undefined;
-  timestampFrom: string | null | undefined;
-  timestampTo: string | null | undefined;
+  to: string | null | undefined;
   topic: string;
 };
+
+export type ResyncReason =
+  /** The client fell behind the change bus and missed events. */
+  | 'LAGGED';
+
+export type Role =
+  | 'ADMIN'
+  | 'VIEWER';
 
 export type SchemaCompatibility =
   | 'BACKWARD'
@@ -89,89 +112,75 @@ export type SchemaType =
   | 'JSON'
   | 'PROTOBUF';
 
-export type SearchResultKind =
+export type SearchKind =
   | 'GROUP'
   | 'NODE'
   | 'SUBJECT'
   | 'TOPIC';
 
-export type BrokerFieldsFragment = { id: number, host: string, port: number, rack: string | null, controller: boolean, partitionCount: number, leaderCount: number };
+export type UpdateScope = {
+  group: string | null | undefined;
+  topic: string | null | undefined;
+};
 
-export type PartitionFieldsFragment = { id: number, leader: number, replicas: Array<number>, isr: Array<number>, lowWatermark: number, highWatermark: number };
+export type IdentityFieldsFragment = { subject: string | null, clusters: Array<{ cluster: string, role: Role, privileges: Array<PrivilegeName> }> };
 
-export type TopicFieldsFragment = { name: string, internal: boolean, partitionCount: number, replicationFactor: number, messageCount: number, cleanupPolicy: CleanupPolicy, retentionMs: number, consumerGroups: Array<string>, messagesPerSec: number, underReplicated: boolean, partitions: Array<{ id: number, leader: number, replicas: Array<number>, isr: Array<number>, lowWatermark: number, highWatermark: number }> };
+export type LaneHealthFieldsFragment = { updatedAt: string | null, checkedAt: string | null, lastError: string | null, lastPollMs: string | null, healthy: boolean };
 
-export type TopicListFieldsFragment = { name: string, internal: boolean, partitionCount: number, replicationFactor: number, messageCount: number, cleanupPolicy: CleanupPolicy, retentionMs: number, consumerGroups: Array<string>, messagesPerSec: number, underReplicated: boolean };
+export type ClusterHealthFieldsFragment = { cluster: string, ready: boolean, topicCount: number, partitionCount: number, groupCount: number, brokerCount: number, subjectCount: number, underReplicatedPartitions: number, offlinePartitions: number, topology: { updatedAt: string | null, checkedAt: string | null, lastError: string | null, lastPollMs: string | null, healthy: boolean }, watermarks: { updatedAt: string | null, checkedAt: string | null, lastError: string | null, lastPollMs: string | null, healthy: boolean }, offsets: { updatedAt: string | null, checkedAt: string | null, lastError: string | null, lastPollMs: string | null, healthy: boolean }, configs: { updatedAt: string | null, checkedAt: string | null, lastError: string | null, lastPollMs: string | null, healthy: boolean }, subjects: { updatedAt: string | null, checkedAt: string | null, lastError: string | null, lastPollMs: string | null, healthy: boolean } };
 
-export type ConfigEntryFieldsFragment = { name: string, value: string | null, source: ConfigSource, readOnly: boolean, sensitive: boolean };
+export type TopicRowFieldsFragment = { name: string, internal: boolean, partitionCount: number, replicationFactor: number, retainedMessages: string, producedTotal: string, rate: number, retentionMs: string, cleanupPolicy: CleanupPolicy, groupCount: number, underReplicated: boolean };
+
+export type PartitionRowFieldsFragment = { id: number, leader: number, replicas: Array<number>, isr: Array<number>, lowWatermark: string, highWatermark: string, retained: string, underReplicated: boolean };
+
+export type TopicDetailFieldsFragment = { name: string, internal: boolean, replicationFactor: number, retainedMessages: string, producedTotal: string, groupCount: number, underReplicated: boolean, partitions: Array<{ id: number, leader: number, replicas: Array<number>, isr: Array<number>, lowWatermark: string, highWatermark: string, retained: string, underReplicated: boolean }> };
+
+export type TopicGroupRowFieldsFragment = { id: string, state: GroupState, memberCount: number, lagOnTopic: string };
+
+export type GroupRowFieldsFragment = { id: string, state: GroupState, memberCount: number, topicNames: Array<string>, totalLag: string, lagComplete: boolean, coordinatorId: number };
 
 export type MemberAssignmentFieldsFragment = { topic: string, partitions: Array<number> };
 
-export type ConsumerGroupMemberFieldsFragment = { id: string, clientId: string, host: string, assignments: Array<{ topic: string, partitions: Array<number> }> };
+export type GroupMemberFieldsFragment = { id: string, clientId: string, host: string, assignments: Array<{ topic: string, partitions: Array<number> }> };
 
-export type GroupOffsetFieldsFragment = { topic: string, partition: number, currentOffset: number, endOffset: number, lag: number, memberId: string | null };
+export type GroupOffsetFieldsFragment = { topic: string, partition: number, currentOffset: string, endOffset: string, lag: string, memberId: string | null };
 
-export type ConsumerGroupFieldsFragment = { id: string, state: ConsumerGroupState, protocol: string, coordinator: number, memberCount: number, topics: Array<string>, lag: number, assignedPartitionCount: number, members: Array<{ id: string, clientId: string, host: string, assignments: Array<{ topic: string, partitions: Array<number> }> }>, offsets: Array<{ topic: string, partition: number, currentOffset: number, endOffset: number, lag: number, memberId: string | null }> };
+export type GroupDetailFieldsFragment = { id: string, state: GroupState, protocol: string, coordinatorId: number, totalLag: string, lagComplete: boolean, members: Array<{ id: string, clientId: string, host: string, assignments: Array<{ topic: string, partitions: Array<number> }> }>, offsets: Array<{ topic: string, partition: number, currentOffset: string, endOffset: string, lag: string, memberId: string | null }> };
 
-export type GroupListFieldsFragment = { id: string, state: ConsumerGroupState, protocol: string, coordinator: number, memberCount: number, topics: Array<string>, lag: number, assignedPartitionCount: number };
+export type BrokerRowFieldsFragment = { id: number, host: string, port: number, rack: string | null, controller: boolean, partitionCount: number, leaderCount: number };
 
-export type ThroughputPointFieldsFragment = { timestamp: string, messages: number };
+export type ConfigEntryFieldsFragment = { name: string, value: string | null, source: ConfigSource, readOnly: boolean, sensitive: boolean };
 
-export type TopicRateFieldsFragment = { name: string, messagesPerSec: number };
+export type SubjectRowFieldsFragment = { subject: string, id: number, type: SchemaType, latestVersion: number, versions: Array<number>, compatibility: SchemaCompatibility };
 
-export type ConsumerGroupLagFieldsFragment = { id: string, lag: number, offsets: Array<{ topic: string, partition: number, currentOffset: number, endOffset: number, lag: number, memberId: string | null }> };
-
-export type SchemaSubjectFieldsFragment = { subject: string, id: number, type: SchemaType, latestVersion: number, versions: Array<number>, compatibility: SchemaCompatibility, schema: string };
+export type SubjectDetailFieldsFragment = { subject: string, version: number, id: number, type: SchemaType, schema: string, references: Array<{ name: string, subject: string, version: number }> };
 
 export type AclFieldsFragment = { resourceType: AclResourceType, resourceName: string, patternType: AclPatternType, principal: string, host: string, operation: AclOperation, permission: AclPermission };
 
 export type RecordHeaderFieldsFragment = { key: string, value: string };
 
-export type TopicRecordFieldsFragment = { topic: string, partition: number, offset: number, timestamp: string, key: string | null, value: string | null, schemaId: number | null, sizeBytes: number, compression: Compression, headers: Array<{ key: string, value: string }> };
+export type RecordFieldsFragment = { topic: string, partition: number, offset: string, timestamp: string, key: string | null, value: string | null, schemaId: number | null, sizeBytes: string, compression: Compression, headers: Array<{ key: string, value: string }> };
 
-export type SearchResultFieldsFragment = { kind: SearchResultKind, id: string, label: string, detail: string };
+export type PointFieldsFragment = { at: string, value: number };
+
+export type SearchHitFieldsFragment = { kind: SearchKind, id: string, label: string, detail: string };
+
+export type WhoamiQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type WhoamiQuery = { whoami: { subject: string | null, clusters: Array<{ cluster: string, role: Role, privileges: Array<PrivilegeName> }> } };
 
 export type ClustersQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type ClustersQuery = { clusters: Array<string> };
+export type ClustersQuery = { clusters: Array<{ cluster: string, ready: boolean, topicCount: number, partitionCount: number, groupCount: number, brokerCount: number, subjectCount: number, underReplicatedPartitions: number, offlinePartitions: number, topology: { updatedAt: string | null, checkedAt: string | null, lastError: string | null, lastPollMs: string | null, healthy: boolean }, watermarks: { updatedAt: string | null, checkedAt: string | null, lastError: string | null, lastPollMs: string | null, healthy: boolean }, offsets: { updatedAt: string | null, checkedAt: string | null, lastError: string | null, lastPollMs: string | null, healthy: boolean }, configs: { updatedAt: string | null, checkedAt: string | null, lastError: string | null, lastPollMs: string | null, healthy: boolean }, subjects: { updatedAt: string | null, checkedAt: string | null, lastError: string | null, lastPollMs: string | null, healthy: boolean } }> };
 
-export type CatalogHealthQueryVariables = Exact<{
+export type TopicRowsQueryVariables = Exact<{
   cluster: string;
 }>;
 
 
-export type CatalogHealthQuery = { catalogHealth: { updatedAt: string | null, subjectsUpdatedAt: string | null, lastError: string | null, lastPollDurationMs: number | null, topicCount: number, groupCount: number, brokerCount: number, subjectCount: number } };
-
-export type BrokersQueryVariables = Exact<{
-  cluster: string;
-}>;
-
-
-export type BrokersQuery = { brokers: Array<{ id: number, host: string, port: number, rack: string | null, controller: boolean, partitionCount: number, leaderCount: number }> };
-
-export type BrokerQueryVariables = Exact<{
-  cluster: string;
-  id: number;
-}>;
-
-
-export type BrokerQuery = { broker: { id: number, host: string, port: number, rack: string | null, controller: boolean, partitionCount: number, leaderCount: number } | null };
-
-export type BrokerConfigsQueryVariables = Exact<{
-  cluster: string;
-  id: number;
-}>;
-
-
-export type BrokerConfigsQuery = { brokerConfigs: Array<{ name: string, value: string | null, source: ConfigSource, readOnly: boolean, sensitive: boolean }> };
-
-export type TopicsQueryVariables = Exact<{
-  cluster: string;
-}>;
-
-
-export type TopicsQuery = { clusterCatalog: { updatedAt: string, topics: Array<{ name: string, internal: boolean, partitionCount: number, replicationFactor: number, messageCount: number, cleanupPolicy: CleanupPolicy, retentionMs: number, consumerGroups: Array<string>, messagesPerSec: number, underReplicated: boolean }> } };
+export type TopicRowsQuery = { topicRows: { rows: Array<{ name: string, internal: boolean, partitionCount: number, replicationFactor: number, retainedMessages: string, producedTotal: string, rate: number, retentionMs: string, cleanupPolicy: CleanupPolicy, groupCount: number, underReplicated: boolean }> } };
 
 export type TopicQueryVariables = Exact<{
   cluster: string;
@@ -179,7 +188,15 @@ export type TopicQueryVariables = Exact<{
 }>;
 
 
-export type TopicQuery = { topic: { name: string, internal: boolean, partitionCount: number, replicationFactor: number, messageCount: number, cleanupPolicy: CleanupPolicy, retentionMs: number, consumerGroups: Array<string>, messagesPerSec: number, underReplicated: boolean, partitions: Array<{ id: number, leader: number, replicas: Array<number>, isr: Array<number>, lowWatermark: number, highWatermark: number }> } | null };
+export type TopicQuery = { topic: { name: string, internal: boolean, replicationFactor: number, retainedMessages: string, producedTotal: string, groupCount: number, underReplicated: boolean, partitions: Array<{ id: number, leader: number, replicas: Array<number>, isr: Array<number>, lowWatermark: string, highWatermark: string, retained: string, underReplicated: boolean }> } | null, topicRows: { rows: Array<{ name: string, internal: boolean, partitionCount: number, replicationFactor: number, retainedMessages: string, producedTotal: string, rate: number, retentionMs: string, cleanupPolicy: CleanupPolicy, groupCount: number, underReplicated: boolean }> } };
+
+export type TopicGroupsQueryVariables = Exact<{
+  cluster: string;
+  topic: string;
+}>;
+
+
+export type TopicGroupsQuery = { topicGroups: Array<{ id: string, state: GroupState, memberCount: number, lagOnTopic: string }> };
 
 export type TopicConfigsQueryVariables = Exact<{
   cluster: string;
@@ -189,51 +206,51 @@ export type TopicConfigsQueryVariables = Exact<{
 
 export type TopicConfigsQuery = { topicConfigs: Array<{ name: string, value: string | null, source: ConfigSource, readOnly: boolean, sensitive: boolean }> };
 
-export type ConsumerGroupsQueryVariables = Exact<{
-  cluster: string;
-  topic: string | null | undefined;
-}>;
-
-
-export type ConsumerGroupsQuery = { consumerGroups: Array<{ id: string, state: ConsumerGroupState, protocol: string, coordinator: number, memberCount: number, topics: Array<string>, lag: number, assignedPartitionCount: number, members: Array<{ id: string, clientId: string, host: string, assignments: Array<{ topic: string, partitions: Array<number> }> }>, offsets: Array<{ topic: string, partition: number, currentOffset: number, endOffset: number, lag: number, memberId: string | null }> }> };
-
-export type GroupsCatalogQueryVariables = Exact<{
+export type GroupRowsQueryVariables = Exact<{
   cluster: string;
 }>;
 
 
-export type GroupsCatalogQuery = { clusterCatalog: { updatedAt: string, consumerGroups: Array<{ id: string, state: ConsumerGroupState, protocol: string, coordinator: number, memberCount: number, topics: Array<string>, lag: number, assignedPartitionCount: number }> } };
+export type GroupRowsQuery = { groupRows: { rows: Array<{ id: string, state: GroupState, memberCount: number, topicNames: Array<string>, totalLag: string, lagComplete: boolean, coordinatorId: number }> } };
 
-export type ConsumerGroupQueryVariables = Exact<{
+export type GroupQueryVariables = Exact<{
   cluster: string;
   id: string;
 }>;
 
 
-export type ConsumerGroupQuery = { consumerGroup: { id: string, state: ConsumerGroupState, protocol: string, coordinator: number, memberCount: number, topics: Array<string>, lag: number, assignedPartitionCount: number, members: Array<{ id: string, clientId: string, host: string, assignments: Array<{ topic: string, partitions: Array<number> }> }>, offsets: Array<{ topic: string, partition: number, currentOffset: number, endOffset: number, lag: number, memberId: string | null }> } | null };
+export type GroupQuery = { group: { id: string, state: GroupState, protocol: string, coordinatorId: number, totalLag: string, lagComplete: boolean, members: Array<{ id: string, clientId: string, host: string, assignments: Array<{ topic: string, partitions: Array<number> }> }>, offsets: Array<{ topic: string, partition: number, currentOffset: string, endOffset: string, lag: string, memberId: string | null }> } | null };
 
-export type TopicThroughputQueryVariables = Exact<{
-  cluster: string;
-  topic: string;
-}>;
-
-
-export type TopicThroughputQuery = { topicThroughput: Array<{ timestamp: string, messages: number }> };
-
-export type GroupLagHistoryQueryVariables = Exact<{
-  cluster: string;
-  id: string;
-}>;
-
-
-export type GroupLagHistoryQuery = { groupLagHistory: Array<{ timestamp: string, messages: number }> };
-
-export type SchemaSubjectsQueryVariables = Exact<{
+export type BrokerRowsQueryVariables = Exact<{
   cluster: string;
 }>;
 
 
-export type SchemaSubjectsQuery = { schemaSubjects: Array<{ subject: string, id: number, type: SchemaType, latestVersion: number, versions: Array<number>, compatibility: SchemaCompatibility, schema: string }> };
+export type BrokerRowsQuery = { brokerRows: Array<{ id: number, host: string, port: number, rack: string | null, controller: boolean, partitionCount: number, leaderCount: number }> };
+
+export type BrokerConfigsQueryVariables = Exact<{
+  cluster: string;
+  id: number;
+}>;
+
+
+export type BrokerConfigsQuery = { brokerConfigs: Array<{ name: string, value: string | null, source: ConfigSource, readOnly: boolean, sensitive: boolean }> };
+
+export type SubjectRowsQueryVariables = Exact<{
+  cluster: string;
+}>;
+
+
+export type SubjectRowsQuery = { subjectRows: { rows: Array<{ subject: string, id: number, type: SchemaType, latestVersion: number, versions: Array<number>, compatibility: SchemaCompatibility }>, sourceHealth: { updatedAt: string | null, checkedAt: string | null, lastError: string | null, lastPollMs: string | null, healthy: boolean } } };
+
+export type SubjectQueryVariables = Exact<{
+  cluster: string;
+  name: string;
+  version: number | null | undefined;
+}>;
+
+
+export type SubjectQuery = { subject: { subject: string, version: number, id: number, type: SchemaType, schema: string, references: Array<{ name: string, subject: string, version: number }> } };
 
 export type AclsQueryVariables = Exact<{
   cluster: string;
@@ -243,11 +260,28 @@ export type AclsQueryVariables = Exact<{
 export type AclsQuery = { acls: { authorizer: AclAuthorizer, bindings: Array<{ resourceType: AclResourceType, resourceName: string, patternType: AclPatternType, principal: string, host: string, operation: AclOperation, permission: AclPermission }> } };
 
 export type RecordsQueryVariables = Exact<{
-  query: RecordQuery;
+  cluster: string;
+  query: RecordQueryInput;
 }>;
 
 
-export type RecordsQuery = { records: { hasMore: boolean, nextCursor: string | null, records: Array<{ topic: string, partition: number, offset: number, timestamp: string, key: string | null, value: string | null, schemaId: number | null, sizeBytes: number, compression: Compression, headers: Array<{ key: string, value: string }> }> } };
+export type RecordsQuery = { records: { complete: boolean, nextCursor: string | null, prevCursor: string | null, records: Array<{ topic: string, partition: number, offset: string, timestamp: string, key: string | null, value: string | null, schemaId: number | null, sizeBytes: string, compression: Compression, headers: Array<{ key: string, value: string }> }> } };
+
+export type TopicRateHistoryQueryVariables = Exact<{
+  cluster: string;
+  topic: string;
+}>;
+
+
+export type TopicRateHistoryQuery = { topicRateHistory: Array<{ at: string, value: number }> };
+
+export type GroupLagHistoryQueryVariables = Exact<{
+  cluster: string;
+  group: string;
+}>;
+
+
+export type GroupLagHistoryQuery = { groupLagHistory: Array<{ at: string, value: number }> };
 
 export type SearchQueryVariables = Exact<{
   cluster: string;
@@ -255,29 +289,22 @@ export type SearchQueryVariables = Exact<{
 }>;
 
 
-export type SearchQuery = { search: { schemaRegistryError: string | null, hits: Array<{ kind: SearchResultKind, id: string, label: string, detail: string }> } };
+export type SearchQuery = { search: Array<{ kind: SearchKind, id: string, label: string, detail: string }> };
 
-export type TopicRatesSubscriptionVariables = Exact<{
+export type UpdatesSubscriptionVariables = Exact<{
   cluster: string;
+  scope: UpdateScope | null | undefined;
 }>;
 
 
-export type TopicRatesSubscription = { topicRates: Array<{ name: string, messagesPerSec: number }> };
-
-export type ConsumerGroupLagSubscriptionVariables = Exact<{
-  cluster: string;
-  id: string;
-}>;
-
-
-export type ConsumerGroupLagSubscription = { consumerGroupLag: { id: string, lag: number, offsets: Array<{ topic: string, partition: number, currentOffset: number, endOffset: number, lag: number, memberId: string | null }> } };
-
-export type CatalogUpdatedSubscriptionVariables = Exact<{
-  cluster: string;
-}>;
-
-
-export type CatalogUpdatedSubscription = { catalogUpdated: { cluster: string, updatedAt: string, generation: number } };
+export type UpdatesSubscription = { updates:
+    | { __typename: 'ConfigsChanged', version: string, configTopics: Array<string> }
+    | { __typename: 'GroupLagUpdate', at: string, group: string, lag: string, lagComplete: boolean, offsets: Array<{ topic: string, partition: number, currentOffset: string, endOffset: string, lag: string, memberId: string | null }> }
+    | { __typename: 'Resync', reason: ResyncReason }
+    | { __typename: 'SubjectsChanged', version: string, added: Array<string>, removed: Array<string>, changed: Array<string> }
+    | { __typename: 'TopologyDelta', version: string, addedTopics: Array<string>, removedTopics: Array<string>, changedTopics: Array<string>, addedGroups: Array<string>, removedGroups: Array<string>, changedGroups: Array<string>, brokersChanged: boolean }
+    | { __typename: 'WatermarksTick', at: string, clusterRate: number, topics: Array<{ topic: string, rate: number }> }
+   };
 
 export class TypedDocumentString<TResult, TVariables>
   extends String
@@ -297,82 +324,136 @@ export class TypedDocumentString<TResult, TVariables>
     return this.value;
   }
 }
-export const BrokerFieldsFragmentDoc = new TypedDocumentString(`
-    fragment BrokerFields on Broker {
-  id
-  host
-  port
-  rack
-  controller
-  partitionCount
-  leaderCount
-}
-    `, {"fragmentName":"BrokerFields"}) as unknown as TypedDocumentString<BrokerFieldsFragment, unknown>;
-export const PartitionFieldsFragmentDoc = new TypedDocumentString(`
-    fragment PartitionFields on Partition {
-  id
-  leader
-  replicas
-  isr
-  lowWatermark
-  highWatermark
-}
-    `, {"fragmentName":"PartitionFields"}) as unknown as TypedDocumentString<PartitionFieldsFragment, unknown>;
-export const TopicFieldsFragmentDoc = new TypedDocumentString(`
-    fragment TopicFields on Topic {
-  name
-  internal
-  partitions {
-    ...PartitionFields
+export const IdentityFieldsFragmentDoc = new TypedDocumentString(`
+    fragment IdentityFields on Identity {
+  subject
+  clusters {
+    cluster
+    role
+    privileges
   }
+}
+    `, {"fragmentName":"IdentityFields"}) as unknown as TypedDocumentString<IdentityFieldsFragment, unknown>;
+export const LaneHealthFieldsFragmentDoc = new TypedDocumentString(`
+    fragment LaneHealthFields on LaneHealth {
+  updatedAt
+  checkedAt
+  lastError
+  lastPollMs
+  healthy
+}
+    `, {"fragmentName":"LaneHealthFields"}) as unknown as TypedDocumentString<LaneHealthFieldsFragment, unknown>;
+export const ClusterHealthFieldsFragmentDoc = new TypedDocumentString(`
+    fragment ClusterHealthFields on ClusterHealth {
+  cluster
+  ready
+  topology {
+    ...LaneHealthFields
+  }
+  watermarks {
+    ...LaneHealthFields
+  }
+  offsets {
+    ...LaneHealthFields
+  }
+  configs {
+    ...LaneHealthFields
+  }
+  subjects {
+    ...LaneHealthFields
+  }
+  topicCount
+  partitionCount
+  groupCount
+  brokerCount
+  subjectCount
+  underReplicatedPartitions
+  offlinePartitions
+}
+    fragment LaneHealthFields on LaneHealth {
+  updatedAt
+  checkedAt
+  lastError
+  lastPollMs
+  healthy
+}`, {"fragmentName":"ClusterHealthFields"}) as unknown as TypedDocumentString<ClusterHealthFieldsFragment, unknown>;
+export const TopicRowFieldsFragmentDoc = new TypedDocumentString(`
+    fragment TopicRowFields on TopicRow {
+  name
+  internal
   partitionCount
   replicationFactor
-  messageCount
-  cleanupPolicy
+  retainedMessages
+  producedTotal
+  rate
   retentionMs
-  consumerGroups
-  messagesPerSec
+  cleanupPolicy
+  groupCount
   underReplicated
 }
-    fragment PartitionFields on Partition {
+    `, {"fragmentName":"TopicRowFields"}) as unknown as TypedDocumentString<TopicRowFieldsFragment, unknown>;
+export const PartitionRowFieldsFragmentDoc = new TypedDocumentString(`
+    fragment PartitionRowFields on PartitionRow {
   id
   leader
   replicas
   isr
   lowWatermark
   highWatermark
-}`, {"fragmentName":"TopicFields"}) as unknown as TypedDocumentString<TopicFieldsFragment, unknown>;
-export const TopicListFieldsFragmentDoc = new TypedDocumentString(`
-    fragment TopicListFields on Topic {
-  name
-  internal
-  partitionCount
-  replicationFactor
-  messageCount
-  cleanupPolicy
-  retentionMs
-  consumerGroups
-  messagesPerSec
+  retained
   underReplicated
 }
-    `, {"fragmentName":"TopicListFields"}) as unknown as TypedDocumentString<TopicListFieldsFragment, unknown>;
-export const ConfigEntryFieldsFragmentDoc = new TypedDocumentString(`
-    fragment ConfigEntryFields on ConfigEntry {
+    `, {"fragmentName":"PartitionRowFields"}) as unknown as TypedDocumentString<PartitionRowFieldsFragment, unknown>;
+export const TopicDetailFieldsFragmentDoc = new TypedDocumentString(`
+    fragment TopicDetailFields on TopicDetail {
   name
-  value
-  source
-  readOnly
-  sensitive
+  internal
+  replicationFactor
+  retainedMessages
+  producedTotal
+  groupCount
+  underReplicated
+  partitions {
+    ...PartitionRowFields
+  }
 }
-    `, {"fragmentName":"ConfigEntryFields"}) as unknown as TypedDocumentString<ConfigEntryFieldsFragment, unknown>;
+    fragment PartitionRowFields on PartitionRow {
+  id
+  leader
+  replicas
+  isr
+  lowWatermark
+  highWatermark
+  retained
+  underReplicated
+}`, {"fragmentName":"TopicDetailFields"}) as unknown as TypedDocumentString<TopicDetailFieldsFragment, unknown>;
+export const TopicGroupRowFieldsFragmentDoc = new TypedDocumentString(`
+    fragment TopicGroupRowFields on TopicGroupRow {
+  id
+  state
+  memberCount
+  lagOnTopic
+}
+    `, {"fragmentName":"TopicGroupRowFields"}) as unknown as TypedDocumentString<TopicGroupRowFieldsFragment, unknown>;
+export const GroupRowFieldsFragmentDoc = new TypedDocumentString(`
+    fragment GroupRowFields on GroupRow {
+  id
+  state
+  memberCount
+  topicNames
+  totalLag
+  lagComplete
+  coordinatorId
+}
+    `, {"fragmentName":"GroupRowFields"}) as unknown as TypedDocumentString<GroupRowFieldsFragment, unknown>;
 export const MemberAssignmentFieldsFragmentDoc = new TypedDocumentString(`
     fragment MemberAssignmentFields on MemberAssignment {
   topic
   partitions
 }
     `, {"fragmentName":"MemberAssignmentFields"}) as unknown as TypedDocumentString<MemberAssignmentFieldsFragment, unknown>;
-export const ConsumerGroupMemberFieldsFragmentDoc = new TypedDocumentString(`
-    fragment ConsumerGroupMemberFields on ConsumerGroupMember {
+export const GroupMemberFieldsFragmentDoc = new TypedDocumentString(`
+    fragment GroupMemberFields on GroupMember {
   id
   clientId
   host
@@ -383,7 +464,7 @@ export const ConsumerGroupMemberFieldsFragmentDoc = new TypedDocumentString(`
     fragment MemberAssignmentFields on MemberAssignment {
   topic
   partitions
-}`, {"fragmentName":"ConsumerGroupMemberFields"}) as unknown as TypedDocumentString<ConsumerGroupMemberFieldsFragment, unknown>;
+}`, {"fragmentName":"GroupMemberFields"}) as unknown as TypedDocumentString<GroupMemberFieldsFragment, unknown>;
 export const GroupOffsetFieldsFragmentDoc = new TypedDocumentString(`
     fragment GroupOffsetFields on GroupOffset {
   topic
@@ -394,28 +475,26 @@ export const GroupOffsetFieldsFragmentDoc = new TypedDocumentString(`
   memberId
 }
     `, {"fragmentName":"GroupOffsetFields"}) as unknown as TypedDocumentString<GroupOffsetFieldsFragment, unknown>;
-export const ConsumerGroupFieldsFragmentDoc = new TypedDocumentString(`
-    fragment ConsumerGroupFields on ConsumerGroup {
+export const GroupDetailFieldsFragmentDoc = new TypedDocumentString(`
+    fragment GroupDetailFields on GroupDetail {
   id
   state
   protocol
-  coordinator
+  coordinatorId
+  totalLag
+  lagComplete
   members {
-    ...ConsumerGroupMemberFields
+    ...GroupMemberFields
   }
-  memberCount
-  topics
-  lag
   offsets {
     ...GroupOffsetFields
   }
-  assignedPartitionCount
 }
     fragment MemberAssignmentFields on MemberAssignment {
   topic
   partitions
 }
-fragment ConsumerGroupMemberFields on ConsumerGroupMember {
+fragment GroupMemberFields on GroupMember {
   id
   clientId
   host
@@ -430,58 +509,51 @@ fragment GroupOffsetFields on GroupOffset {
   endOffset
   lag
   memberId
-}`, {"fragmentName":"ConsumerGroupFields"}) as unknown as TypedDocumentString<ConsumerGroupFieldsFragment, unknown>;
-export const GroupListFieldsFragmentDoc = new TypedDocumentString(`
-    fragment GroupListFields on ConsumerGroup {
+}`, {"fragmentName":"GroupDetailFields"}) as unknown as TypedDocumentString<GroupDetailFieldsFragment, unknown>;
+export const BrokerRowFieldsFragmentDoc = new TypedDocumentString(`
+    fragment BrokerRowFields on BrokerRow {
   id
-  state
-  protocol
-  coordinator
-  memberCount
-  topics
-  lag
-  assignedPartitionCount
+  host
+  port
+  rack
+  controller
+  partitionCount
+  leaderCount
 }
-    `, {"fragmentName":"GroupListFields"}) as unknown as TypedDocumentString<GroupListFieldsFragment, unknown>;
-export const ThroughputPointFieldsFragmentDoc = new TypedDocumentString(`
-    fragment ThroughputPointFields on ThroughputPoint {
-  timestamp
-  messages
-}
-    `, {"fragmentName":"ThroughputPointFields"}) as unknown as TypedDocumentString<ThroughputPointFieldsFragment, unknown>;
-export const TopicRateFieldsFragmentDoc = new TypedDocumentString(`
-    fragment TopicRateFields on TopicRate {
+    `, {"fragmentName":"BrokerRowFields"}) as unknown as TypedDocumentString<BrokerRowFieldsFragment, unknown>;
+export const ConfigEntryFieldsFragmentDoc = new TypedDocumentString(`
+    fragment ConfigEntryFields on ConfigEntry {
   name
-  messagesPerSec
+  value
+  source
+  readOnly
+  sensitive
 }
-    `, {"fragmentName":"TopicRateFields"}) as unknown as TypedDocumentString<TopicRateFieldsFragment, unknown>;
-export const ConsumerGroupLagFieldsFragmentDoc = new TypedDocumentString(`
-    fragment ConsumerGroupLagFields on ConsumerGroup {
-  id
-  lag
-  offsets {
-    ...GroupOffsetFields
-  }
-}
-    fragment GroupOffsetFields on GroupOffset {
-  topic
-  partition
-  currentOffset
-  endOffset
-  lag
-  memberId
-}`, {"fragmentName":"ConsumerGroupLagFields"}) as unknown as TypedDocumentString<ConsumerGroupLagFieldsFragment, unknown>;
-export const SchemaSubjectFieldsFragmentDoc = new TypedDocumentString(`
-    fragment SchemaSubjectFields on SchemaSubject {
+    `, {"fragmentName":"ConfigEntryFields"}) as unknown as TypedDocumentString<ConfigEntryFieldsFragment, unknown>;
+export const SubjectRowFieldsFragmentDoc = new TypedDocumentString(`
+    fragment SubjectRowFields on SubjectRow {
   subject
   id
   type
   latestVersion
   versions
   compatibility
-  schema
 }
-    `, {"fragmentName":"SchemaSubjectFields"}) as unknown as TypedDocumentString<SchemaSubjectFieldsFragment, unknown>;
+    `, {"fragmentName":"SubjectRowFields"}) as unknown as TypedDocumentString<SubjectRowFieldsFragment, unknown>;
+export const SubjectDetailFieldsFragmentDoc = new TypedDocumentString(`
+    fragment SubjectDetailFields on SubjectDetail {
+  subject
+  version
+  id
+  type
+  schema
+  references {
+    name
+    subject
+    version
+  }
+}
+    `, {"fragmentName":"SubjectDetailFields"}) as unknown as TypedDocumentString<SubjectDetailFieldsFragment, unknown>;
 export const AclFieldsFragmentDoc = new TypedDocumentString(`
     fragment AclFields on Acl {
   resourceType
@@ -499,8 +571,8 @@ export const RecordHeaderFieldsFragmentDoc = new TypedDocumentString(`
   value
 }
     `, {"fragmentName":"RecordHeaderFields"}) as unknown as TypedDocumentString<RecordHeaderFieldsFragment, unknown>;
-export const TopicRecordFieldsFragmentDoc = new TypedDocumentString(`
-    fragment TopicRecordFields on TopicRecord {
+export const RecordFieldsFragmentDoc = new TypedDocumentString(`
+    fragment RecordFields on Record {
   topic
   partition
   offset
@@ -508,136 +580,162 @@ export const TopicRecordFieldsFragmentDoc = new TypedDocumentString(`
   key
   value
   schemaId
+  sizeBytes
+  compression
   headers {
     ...RecordHeaderFields
   }
-  sizeBytes
-  compression
 }
     fragment RecordHeaderFields on RecordHeader {
   key
   value
-}`, {"fragmentName":"TopicRecordFields"}) as unknown as TypedDocumentString<TopicRecordFieldsFragment, unknown>;
-export const SearchResultFieldsFragmentDoc = new TypedDocumentString(`
-    fragment SearchResultFields on SearchResult {
+}`, {"fragmentName":"RecordFields"}) as unknown as TypedDocumentString<RecordFieldsFragment, unknown>;
+export const PointFieldsFragmentDoc = new TypedDocumentString(`
+    fragment PointFields on Point {
+  at
+  value
+}
+    `, {"fragmentName":"PointFields"}) as unknown as TypedDocumentString<PointFieldsFragment, unknown>;
+export const SearchHitFieldsFragmentDoc = new TypedDocumentString(`
+    fragment SearchHitFields on SearchHit {
   kind
   id
   label
   detail
 }
-    `, {"fragmentName":"SearchResultFields"}) as unknown as TypedDocumentString<SearchResultFieldsFragment, unknown>;
+    `, {"fragmentName":"SearchHitFields"}) as unknown as TypedDocumentString<SearchHitFieldsFragment, unknown>;
+export const WhoamiDocument = new TypedDocumentString(`
+    query Whoami {
+  whoami {
+    ...IdentityFields
+  }
+}
+    fragment IdentityFields on Identity {
+  subject
+  clusters {
+    cluster
+    role
+    privileges
+  }
+}`) as unknown as TypedDocumentString<WhoamiQuery, WhoamiQueryVariables>;
 export const ClustersDocument = new TypedDocumentString(`
     query Clusters {
-  clusters
-}
-    `) as unknown as TypedDocumentString<ClustersQuery, ClustersQueryVariables>;
-export const CatalogHealthDocument = new TypedDocumentString(`
-    query CatalogHealth($cluster: String!) {
-  catalogHealth(cluster: $cluster) {
-    updatedAt
-    subjectsUpdatedAt
-    lastError
-    lastPollDurationMs
-    topicCount
-    groupCount
-    brokerCount
-    subjectCount
+  clusters {
+    ...ClusterHealthFields
   }
 }
-    `) as unknown as TypedDocumentString<CatalogHealthQuery, CatalogHealthQueryVariables>;
-export const BrokersDocument = new TypedDocumentString(`
-    query Brokers($cluster: String!) {
-  brokers(cluster: $cluster) {
-    ...BrokerFields
-  }
+    fragment LaneHealthFields on LaneHealth {
+  updatedAt
+  checkedAt
+  lastError
+  lastPollMs
+  healthy
 }
-    fragment BrokerFields on Broker {
-  id
-  host
-  port
-  rack
-  controller
+fragment ClusterHealthFields on ClusterHealth {
+  cluster
+  ready
+  topology {
+    ...LaneHealthFields
+  }
+  watermarks {
+    ...LaneHealthFields
+  }
+  offsets {
+    ...LaneHealthFields
+  }
+  configs {
+    ...LaneHealthFields
+  }
+  subjects {
+    ...LaneHealthFields
+  }
+  topicCount
   partitionCount
-  leaderCount
-}`) as unknown as TypedDocumentString<BrokersQuery, BrokersQueryVariables>;
-export const BrokerDocument = new TypedDocumentString(`
-    query Broker($cluster: String!, $id: Int!) {
-  broker(cluster: $cluster, id: $id) {
-    ...BrokerFields
-  }
-}
-    fragment BrokerFields on Broker {
-  id
-  host
-  port
-  rack
-  controller
-  partitionCount
-  leaderCount
-}`) as unknown as TypedDocumentString<BrokerQuery, BrokerQueryVariables>;
-export const BrokerConfigsDocument = new TypedDocumentString(`
-    query BrokerConfigs($cluster: String!, $id: Int!) {
-  brokerConfigs(cluster: $cluster, id: $id) {
-    ...ConfigEntryFields
-  }
-}
-    fragment ConfigEntryFields on ConfigEntry {
-  name
-  value
-  source
-  readOnly
-  sensitive
-}`) as unknown as TypedDocumentString<BrokerConfigsQuery, BrokerConfigsQueryVariables>;
-export const TopicsDocument = new TypedDocumentString(`
-    query Topics($cluster: String!) {
-  clusterCatalog(cluster: $cluster) {
-    updatedAt
-    topics {
-      ...TopicListFields
+  groupCount
+  brokerCount
+  subjectCount
+  underReplicatedPartitions
+  offlinePartitions
+}`) as unknown as TypedDocumentString<ClustersQuery, ClustersQueryVariables>;
+export const TopicRowsDocument = new TypedDocumentString(`
+    query TopicRows($cluster: String!) {
+  topicRows(cluster: $cluster) {
+    rows {
+      ...TopicRowFields
     }
   }
 }
-    fragment TopicListFields on Topic {
+    fragment TopicRowFields on TopicRow {
   name
   internal
   partitionCount
   replicationFactor
-  messageCount
-  cleanupPolicy
+  retainedMessages
+  producedTotal
+  rate
   retentionMs
-  consumerGroups
-  messagesPerSec
+  cleanupPolicy
+  groupCount
   underReplicated
-}`) as unknown as TypedDocumentString<TopicsQuery, TopicsQueryVariables>;
+}`) as unknown as TypedDocumentString<TopicRowsQuery, TopicRowsQueryVariables>;
 export const TopicDocument = new TypedDocumentString(`
     query Topic($cluster: String!, $name: String!) {
   topic(cluster: $cluster, name: $name) {
-    ...TopicFields
+    ...TopicDetailFields
+  }
+  topicRows(cluster: $cluster, filter: {contains: $name}) {
+    rows {
+      ...TopicRowFields
+    }
   }
 }
-    fragment PartitionFields on Partition {
+    fragment TopicRowFields on TopicRow {
+  name
+  internal
+  partitionCount
+  replicationFactor
+  retainedMessages
+  producedTotal
+  rate
+  retentionMs
+  cleanupPolicy
+  groupCount
+  underReplicated
+}
+fragment PartitionRowFields on PartitionRow {
   id
   leader
   replicas
   isr
   lowWatermark
   highWatermark
+  retained
+  underReplicated
 }
-fragment TopicFields on Topic {
+fragment TopicDetailFields on TopicDetail {
   name
   internal
-  partitions {
-    ...PartitionFields
-  }
-  partitionCount
   replicationFactor
-  messageCount
-  cleanupPolicy
-  retentionMs
-  consumerGroups
-  messagesPerSec
+  retainedMessages
+  producedTotal
+  groupCount
   underReplicated
+  partitions {
+    ...PartitionRowFields
+  }
 }`) as unknown as TypedDocumentString<TopicQuery, TopicQueryVariables>;
+export const TopicGroupsDocument = new TypedDocumentString(`
+    query TopicGroups($cluster: String!, $topic: String!) {
+  topicGroups(cluster: $cluster, topic: $topic) {
+    ...TopicGroupRowFields
+  }
+}
+    fragment TopicGroupRowFields on TopicGroupRow {
+  id
+  state
+  memberCount
+  lagOnTopic
+}`) as unknown as TypedDocumentString<TopicGroupsQuery, TopicGroupsQueryVariables>;
 export const TopicConfigsDocument = new TypedDocumentString(`
     query TopicConfigs($cluster: String!, $name: String!) {
   topicConfigs(cluster: $cluster, name: $name) {
@@ -651,78 +749,34 @@ export const TopicConfigsDocument = new TypedDocumentString(`
   readOnly
   sensitive
 }`) as unknown as TypedDocumentString<TopicConfigsQuery, TopicConfigsQueryVariables>;
-export const ConsumerGroupsDocument = new TypedDocumentString(`
-    query ConsumerGroups($cluster: String!, $topic: String) {
-  consumerGroups(cluster: $cluster, topic: $topic) {
-    ...ConsumerGroupFields
-  }
-}
-    fragment MemberAssignmentFields on MemberAssignment {
-  topic
-  partitions
-}
-fragment ConsumerGroupMemberFields on ConsumerGroupMember {
-  id
-  clientId
-  host
-  assignments {
-    ...MemberAssignmentFields
-  }
-}
-fragment GroupOffsetFields on GroupOffset {
-  topic
-  partition
-  currentOffset
-  endOffset
-  lag
-  memberId
-}
-fragment ConsumerGroupFields on ConsumerGroup {
-  id
-  state
-  protocol
-  coordinator
-  members {
-    ...ConsumerGroupMemberFields
-  }
-  memberCount
-  topics
-  lag
-  offsets {
-    ...GroupOffsetFields
-  }
-  assignedPartitionCount
-}`) as unknown as TypedDocumentString<ConsumerGroupsQuery, ConsumerGroupsQueryVariables>;
-export const GroupsCatalogDocument = new TypedDocumentString(`
-    query GroupsCatalog($cluster: String!) {
-  clusterCatalog(cluster: $cluster) {
-    updatedAt
-    consumerGroups {
-      ...GroupListFields
+export const GroupRowsDocument = new TypedDocumentString(`
+    query GroupRows($cluster: String!) {
+  groupRows(cluster: $cluster) {
+    rows {
+      ...GroupRowFields
     }
   }
 }
-    fragment GroupListFields on ConsumerGroup {
+    fragment GroupRowFields on GroupRow {
   id
   state
-  protocol
-  coordinator
   memberCount
-  topics
-  lag
-  assignedPartitionCount
-}`) as unknown as TypedDocumentString<GroupsCatalogQuery, GroupsCatalogQueryVariables>;
-export const ConsumerGroupDocument = new TypedDocumentString(`
-    query ConsumerGroup($cluster: String!, $id: String!) {
-  consumerGroup(cluster: $cluster, id: $id) {
-    ...ConsumerGroupFields
+  topicNames
+  totalLag
+  lagComplete
+  coordinatorId
+}`) as unknown as TypedDocumentString<GroupRowsQuery, GroupRowsQueryVariables>;
+export const GroupDocument = new TypedDocumentString(`
+    query Group($cluster: String!, $id: String!) {
+  group(cluster: $cluster, id: $id) {
+    ...GroupDetailFields
   }
 }
     fragment MemberAssignmentFields on MemberAssignment {
   topic
   partitions
 }
-fragment ConsumerGroupMemberFields on ConsumerGroupMember {
+fragment GroupMemberFields on GroupMember {
   id
   clientId
   host
@@ -738,57 +792,92 @@ fragment GroupOffsetFields on GroupOffset {
   lag
   memberId
 }
-fragment ConsumerGroupFields on ConsumerGroup {
+fragment GroupDetailFields on GroupDetail {
   id
   state
   protocol
-  coordinator
+  coordinatorId
+  totalLag
+  lagComplete
   members {
-    ...ConsumerGroupMemberFields
+    ...GroupMemberFields
   }
-  memberCount
-  topics
-  lag
   offsets {
     ...GroupOffsetFields
   }
-  assignedPartitionCount
-}`) as unknown as TypedDocumentString<ConsumerGroupQuery, ConsumerGroupQueryVariables>;
-export const TopicThroughputDocument = new TypedDocumentString(`
-    query TopicThroughput($cluster: String!, $topic: String!) {
-  topicThroughput(cluster: $cluster, topic: $topic) {
-    ...ThroughputPointFields
+}`) as unknown as TypedDocumentString<GroupQuery, GroupQueryVariables>;
+export const BrokerRowsDocument = new TypedDocumentString(`
+    query BrokerRows($cluster: String!) {
+  brokerRows(cluster: $cluster) {
+    ...BrokerRowFields
   }
 }
-    fragment ThroughputPointFields on ThroughputPoint {
-  timestamp
-  messages
-}`) as unknown as TypedDocumentString<TopicThroughputQuery, TopicThroughputQueryVariables>;
-export const GroupLagHistoryDocument = new TypedDocumentString(`
-    query GroupLagHistory($cluster: String!, $id: String!) {
-  groupLagHistory(cluster: $cluster, id: $id) {
-    ...ThroughputPointFields
+    fragment BrokerRowFields on BrokerRow {
+  id
+  host
+  port
+  rack
+  controller
+  partitionCount
+  leaderCount
+}`) as unknown as TypedDocumentString<BrokerRowsQuery, BrokerRowsQueryVariables>;
+export const BrokerConfigsDocument = new TypedDocumentString(`
+    query BrokerConfigs($cluster: String!, $id: Int!) {
+  brokerConfigs(cluster: $cluster, id: $id) {
+    ...ConfigEntryFields
   }
 }
-    fragment ThroughputPointFields on ThroughputPoint {
-  timestamp
-  messages
-}`) as unknown as TypedDocumentString<GroupLagHistoryQuery, GroupLagHistoryQueryVariables>;
-export const SchemaSubjectsDocument = new TypedDocumentString(`
-    query SchemaSubjects($cluster: String!) {
-  schemaSubjects(cluster: $cluster) {
-    ...SchemaSubjectFields
+    fragment ConfigEntryFields on ConfigEntry {
+  name
+  value
+  source
+  readOnly
+  sensitive
+}`) as unknown as TypedDocumentString<BrokerConfigsQuery, BrokerConfigsQueryVariables>;
+export const SubjectRowsDocument = new TypedDocumentString(`
+    query SubjectRows($cluster: String!) {
+  subjectRows(cluster: $cluster) {
+    rows {
+      ...SubjectRowFields
+    }
+    sourceHealth {
+      ...LaneHealthFields
+    }
   }
 }
-    fragment SchemaSubjectFields on SchemaSubject {
+    fragment LaneHealthFields on LaneHealth {
+  updatedAt
+  checkedAt
+  lastError
+  lastPollMs
+  healthy
+}
+fragment SubjectRowFields on SubjectRow {
   subject
   id
   type
   latestVersion
   versions
   compatibility
+}`) as unknown as TypedDocumentString<SubjectRowsQuery, SubjectRowsQueryVariables>;
+export const SubjectDocument = new TypedDocumentString(`
+    query Subject($cluster: String!, $name: String!, $version: Int) {
+  subject(cluster: $cluster, name: $name, version: $version) {
+    ...SubjectDetailFields
+  }
+}
+    fragment SubjectDetailFields on SubjectDetail {
+  subject
+  version
+  id
+  type
   schema
-}`) as unknown as TypedDocumentString<SchemaSubjectsQuery, SchemaSubjectsQueryVariables>;
+  references {
+    name
+    subject
+    version
+  }
+}`) as unknown as TypedDocumentString<SubjectQuery, SubjectQueryVariables>;
 export const AclsDocument = new TypedDocumentString(`
     query Acls($cluster: String!) {
   acls(cluster: $cluster) {
@@ -808,20 +897,21 @@ export const AclsDocument = new TypedDocumentString(`
   permission
 }`) as unknown as TypedDocumentString<AclsQuery, AclsQueryVariables>;
 export const RecordsDocument = new TypedDocumentString(`
-    query Records($query: RecordQuery!) {
-  records(query: $query) {
-    records {
-      ...TopicRecordFields
-    }
-    hasMore
+    query Records($cluster: String!, $query: RecordQueryInput!) {
+  records(cluster: $cluster, query: $query) {
+    complete
     nextCursor
+    prevCursor
+    records {
+      ...RecordFields
+    }
   }
 }
     fragment RecordHeaderFields on RecordHeader {
   key
   value
 }
-fragment TopicRecordFields on TopicRecord {
+fragment RecordFields on Record {
   topic
   partition
   offset
@@ -829,41 +919,88 @@ fragment TopicRecordFields on TopicRecord {
   key
   value
   schemaId
+  sizeBytes
+  compression
   headers {
     ...RecordHeaderFields
   }
-  sizeBytes
-  compression
 }`) as unknown as TypedDocumentString<RecordsQuery, RecordsQueryVariables>;
+export const TopicRateHistoryDocument = new TypedDocumentString(`
+    query TopicRateHistory($cluster: String!, $topic: String!) {
+  topicRateHistory(cluster: $cluster, topic: $topic) {
+    ...PointFields
+  }
+}
+    fragment PointFields on Point {
+  at
+  value
+}`) as unknown as TypedDocumentString<TopicRateHistoryQuery, TopicRateHistoryQueryVariables>;
+export const GroupLagHistoryDocument = new TypedDocumentString(`
+    query GroupLagHistory($cluster: String!, $group: String!) {
+  groupLagHistory(cluster: $cluster, group: $group) {
+    ...PointFields
+  }
+}
+    fragment PointFields on Point {
+  at
+  value
+}`) as unknown as TypedDocumentString<GroupLagHistoryQuery, GroupLagHistoryQueryVariables>;
 export const SearchDocument = new TypedDocumentString(`
     query Search($cluster: String!, $term: String!) {
   search(cluster: $cluster, term: $term) {
-    hits {
-      ...SearchResultFields
-    }
-    schemaRegistryError
+    ...SearchHitFields
   }
 }
-    fragment SearchResultFields on SearchResult {
+    fragment SearchHitFields on SearchHit {
   kind
   id
   label
   detail
 }`) as unknown as TypedDocumentString<SearchQuery, SearchQueryVariables>;
-export const TopicRatesDocument = new TypedDocumentString(`
-    subscription TopicRates($cluster: String!) {
-  topicRates(cluster: $cluster) {
-    ...TopicRateFields
-  }
-}
-    fragment TopicRateFields on TopicRate {
-  name
-  messagesPerSec
-}`) as unknown as TypedDocumentString<TopicRatesSubscription, TopicRatesSubscriptionVariables>;
-export const ConsumerGroupLagDocument = new TypedDocumentString(`
-    subscription ConsumerGroupLag($cluster: String!, $id: String!) {
-  consumerGroupLag(cluster: $cluster, id: $id) {
-    ...ConsumerGroupLagFields
+export const UpdatesDocument = new TypedDocumentString(`
+    subscription Updates($cluster: String!, $scope: UpdateScope) {
+  updates(cluster: $cluster, scope: $scope) {
+    __typename
+    ... on WatermarksTick {
+      at
+      clusterRate
+      topics {
+        topic
+        rate
+      }
+    }
+    ... on GroupLagUpdate {
+      at
+      group
+      lag
+      lagComplete
+      offsets {
+        ...GroupOffsetFields
+      }
+    }
+    ... on TopologyDelta {
+      version
+      addedTopics
+      removedTopics
+      changedTopics
+      addedGroups
+      removedGroups
+      changedGroups
+      brokersChanged
+    }
+    ... on ConfigsChanged {
+      version
+      configTopics: topics
+    }
+    ... on SubjectsChanged {
+      version
+      added
+      removed
+      changed
+    }
+    ... on Resync {
+      reason
+    }
   }
 }
     fragment GroupOffsetFields on GroupOffset {
@@ -873,20 +1010,4 @@ export const ConsumerGroupLagDocument = new TypedDocumentString(`
   endOffset
   lag
   memberId
-}
-fragment ConsumerGroupLagFields on ConsumerGroup {
-  id
-  lag
-  offsets {
-    ...GroupOffsetFields
-  }
-}`) as unknown as TypedDocumentString<ConsumerGroupLagSubscription, ConsumerGroupLagSubscriptionVariables>;
-export const CatalogUpdatedDocument = new TypedDocumentString(`
-    subscription CatalogUpdated($cluster: String!) {
-  catalogUpdated(cluster: $cluster) {
-    cluster
-    updatedAt
-    generation
-  }
-}
-    `) as unknown as TypedDocumentString<CatalogUpdatedSubscription, CatalogUpdatedSubscriptionVariables>;
+}`) as unknown as TypedDocumentString<UpdatesSubscription, UpdatesSubscriptionVariables>;

@@ -11,7 +11,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import type { SchemaSubject } from "@/lib/api/types";
+import type { SubjectRow } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
 const DECODABLE = new Set(["AVRO", "JSON", "PROTOBUF"]);
@@ -22,7 +22,7 @@ export function SchemaPicker({
   value,
   onChange,
 }: {
-  subjects: SchemaSubject[];
+  subjects: SubjectRow[];
   topic: string;
   value: number | null;
   onChange: (id: number | null) => void;
@@ -120,7 +120,7 @@ function SubjectItem({
   checked,
   onSelect,
 }: {
-  subject: SchemaSubject;
+  subject: SubjectRow;
   checked: boolean;
   onSelect: () => void;
 }) {

@@ -18,10 +18,10 @@ import { SearchField } from "@/components/search-field";
 import { GroupStateBadge, Pill } from "@/components/status";
 import { lagTone } from "@/lib/tone";
 import { useNow } from "@/hooks/use-now";
-import { useConsumerGroups } from "@/lib/api/catalog";
-import { useClusterName } from "@/lib/clusters";
-import { formatCount, formatEnumLabel, formatNumber, formatRelative } from "@/lib/format";
-import type { ConsumerGroupState, GroupList } from "@/lib/api/types";
+import { useClusterHealth, useGroupRows } from "@/lib/api/catalog";
+import { laneCaption, useClusterName } from "@/lib/clusters";
+import { formatCount, formatEnumLabel, formatNumber, toNumber } from "@/lib/format";
+import type { GroupRow, GroupState } from "@/lib/api/types";
 import { parseGroupsSearch } from "@/lib/route-search";
 
 export const Route = createFileRoute("/cluster/$cluster/groups")({
@@ -29,9 +29,9 @@ export const Route = createFileRoute("/cluster/$cluster/groups")({
   component: ConsumerGroupsPage,
 });
 
-const EMPTY_GROUPS: GroupList[] = [];
+const EMPTY_GROUPS: GroupRow[] = [];
 
-const STATES: ConsumerGroupState[] = [
+const STATES: GroupState[] = [
   "STABLE",
   "EMPTY",
   "PREPARING_REBALANCE",
@@ -44,7 +44,7 @@ const STATE_ITEMS = [
   ...STATES.map((value) => ({ value, label: formatEnumLabel(value) })),
 ];
 
-const columnHelper = createColumnHelper<DataTableFeatures, GroupList>();
+const columnHelper = createColumnHelper<DataTableFeatures, GroupRow>();
 
 const columns = columnHelper.columns([
   columnHelper.accessor("id", {
@@ -65,41 +65,33 @@ const columns = columnHelper.columns([
     meta: { align: "right", label: "Members" },
     cell: ({ getValue }) => getValue(),
   }),
-  columnHelper.accessor((group) => group.topics.length, {
+  columnHelper.accessor((group) => group.topicNames.length, {
     id: "topics",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Topics" />,
     meta: { label: "Topics" },
     cell: ({ row }) => (
       <span className="flex flex-wrap gap-1">
-        {row.original.topics.slice(0, 2).map((topic) => (
+        {row.original.topicNames.slice(0, 2).map((topic) => (
           <Pill key={topic} className="font-mono">
             {topic}
           </Pill>
         ))}
-        {row.original.topics.length > 2 ? <Pill>+{row.original.topics.length - 2}</Pill> : null}
+        {row.original.topicNames.length > 2 ? (
+          <Pill>+{row.original.topicNames.length - 2}</Pill>
+        ) : null}
       </span>
     ),
   }),
-  columnHelper.accessor("assignedPartitionCount", {
-    id: "partitions",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Assigned" className="justify-end" />
-    ),
-    meta: { align: "right", label: "Assigned" },
-    cell: ({ getValue }) => getValue(),
-  }),
-  columnHelper.accessor("lag", {
+  columnHelper.accessor((group) => toNumber(group.totalLag), {
+    id: "lag",
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Lag" className="justify-end" />
     ),
     meta: { align: "right", label: "Lag" },
-    cell: ({ getValue }) => (
-      <Pill tone={lagTone(getValue())} className="numeric font-mono">
-        {formatNumber(getValue())}
-      </Pill>
-    ),
+    cell: ({ row }) => <LagPill row={row.original} />,
   }),
-  columnHelper.accessor("coordinator", {
+  columnHelper.accessor("coordinatorId", {
+    id: "coordinator",
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Coordinator" className="justify-end" />
     ),
@@ -108,15 +100,32 @@ const columns = columnHelper.columns([
   }),
 ]);
 
+/**
+ * An incomplete total is a floor, not a measurement: a committed partition
+ * whose watermark has not landed yet contributes nothing to the sum.
+ */
+function LagPill({ row }: { row: GroupRow }) {
+  return (
+    <Pill
+      tone={lagTone(toNumber(row.totalLag))}
+      className="numeric font-mono"
+      title={row.lagComplete ? undefined : "Some partitions have no watermark yet"}
+    >
+      {row.lagComplete ? "" : "≥ "}
+      {formatNumber(row.totalLag)}
+    </Pill>
+  );
+}
+
 function ConsumerGroupsPage() {
   const cluster = useClusterName();
   const navigate = Route.useNavigate();
   const { q: term = "", state = "all" } = Route.useSearch();
 
-  const { data, isPending, isError, error } = useConsumerGroups(cluster);
+  const { data: groups = EMPTY_GROUPS, isPending, isError, error } = useGroupRows(cluster);
+  const { data: health } = useClusterHealth(cluster);
   const now = useNow();
-  const groups = data?.groups ?? EMPTY_GROUPS;
-  const updatedAt = data?.updatedAt;
+  const caption = laneCaption(health?.offsets, now);
 
   function update(key: "q" | "state", value: string | null) {
     void navigate({
@@ -147,15 +156,13 @@ function ConsumerGroupsPage() {
     });
   }, [groups, term, state]);
 
-  const totalLag = rows.reduce((sum, group) => sum + group.lag, 0);
+  const totalLag = rows.reduce((sum, group) => sum + toNumber(group.totalLag), 0);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
       <PageHeader
         title="Consumer groups"
-        description={`${rows.length} groups · ${formatCount(totalLag)} messages of lag${
-          updatedAt ? ` · Updated ${formatRelative(updatedAt, now)}` : ""
-        }`}
+        description={`${rows.length} groups · ${formatCount(totalLag)} messages of lag${caption ? ` · ${caption}` : ""}`}
       />
 
       <DataTable

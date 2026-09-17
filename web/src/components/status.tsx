@@ -1,7 +1,7 @@
-import type { ReactNode } from "react";
+import type { ComponentProps } from "react";
 import { cn } from "@/lib/utils";
 
-import type { ConsumerGroupState } from "@/lib/api/types";
+import type { GroupState } from "@/lib/api/types";
 import { formatEnumLabel } from "@/lib/format";
 import type { Tone } from "@/lib/tone";
 
@@ -38,11 +38,8 @@ export function Pill({
   tone = "idle",
   children,
   className,
-}: {
-  tone?: Tone;
-  children: ReactNode;
-  className?: string;
-}) {
+  ...props
+}: ComponentProps<"span"> & { tone?: Tone }) {
   return (
     <span
       className={cn(
@@ -50,13 +47,14 @@ export function Pill({
         TONE_PILL[tone],
         className,
       )}
+      {...props}
     >
       {children}
     </span>
   );
 }
 
-const GROUP_TONE: Record<ConsumerGroupState, Tone> = {
+const GROUP_TONE: Record<GroupState, Tone> = {
   STABLE: "ok",
   EMPTY: "idle",
   PREPARING_REBALANCE: "warn",
@@ -64,7 +62,7 @@ const GROUP_TONE: Record<ConsumerGroupState, Tone> = {
   DEAD: "error",
 };
 
-export function GroupStateBadge({ state }: { state: ConsumerGroupState }) {
+export function GroupStateBadge({ state }: { state: GroupState }) {
   return (
     <Pill tone={GROUP_TONE[state]}>
       <StatusDot tone={GROUP_TONE[state]} />

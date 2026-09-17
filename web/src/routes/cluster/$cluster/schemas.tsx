@@ -18,11 +18,11 @@ import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
 import { useNow } from "@/hooks/use-now";
-import { useCatalogHealth, useSchemaSubjects } from "@/lib/api/catalog";
-import { useClusterName } from "@/lib/clusters";
-import { catalogHealthCaption } from "@/lib/catalog-health";
+import { useSubjectRows } from "@/lib/api/catalog";
+import { useSubject } from "@/lib/api/live";
+import { laneCaption, useClusterName } from "@/lib/clusters";
 import { prettyJson } from "@/lib/format";
-import type { SchemaSubject } from "@/lib/api/types";
+import type { SubjectRow } from "@/lib/api/types";
 import { parseSchemasSearch } from "@/lib/route-search";
 import { useAccess } from "@/hooks/use-access";
 
@@ -31,7 +31,9 @@ export const Route = createFileRoute("/cluster/$cluster/schemas")({
   component: SchemasPage,
 });
 
-const columnHelper = createColumnHelper<DataTableFeatures, SchemaSubject>();
+const EMPTY_SUBJECTS: SubjectRow[] = [];
+
+const columnHelper = createColumnHelper<DataTableFeatures, SubjectRow>();
 
 const columns = columnHelper.columns([
   columnHelper.accessor("subject", {
@@ -82,24 +84,36 @@ function SchemasPage() {
   const cluster = useClusterName();
   const navigate = Route.useNavigate();
   const { q: term = "" } = Route.useSearch();
-  const [selected, setSelected] = useState<SchemaSubject | null>(null);
+  const [selected, setSelected] = useState<SubjectRow | null>(null);
+  const [version, setVersion] = useState<number | null>(null);
   const { can } = useAccess();
-  const canSchemaText = can(cluster, "schemaText");
-  const { data: subjects = [], isPending, isError, error } = useSchemaSubjects(cluster);
-  const { data: health } = useCatalogHealth(cluster);
+  const canSchemaText = can(cluster, "SCHEMA_TEXT");
+  const { data, isPending, isError, error } = useSubjectRows(cluster);
+  const subjects = data?.rows ?? EMPTY_SUBJECTS;
   const now = useNow();
-  const caption = catalogHealthCaption({
-    updatedAt: health?.subjectsUpdatedAt,
-    lastError: health?.lastError,
-    now,
-  });
+  const caption = laneCaption(data?.sourceHealth, now);
+
+  // Bodies are large and privileged, so the listing carries none: the sheet
+  // asks for exactly the one version it is about to show.
+  const { data: detail, isPending: detailPending } = useSubject(
+    cluster,
+    selected?.subject ?? null,
+    version,
+    canSchemaText,
+  );
+
+  function open(subject: SubjectRow) {
+    setSelected(subject);
+    setVersion(null);
+  }
 
   const rows = useMemo(() => {
     const needle = term.trim().toLowerCase();
     if (!needle) return subjects;
     return subjects.filter((subject) => subject.subject.toLowerCase().includes(needle));
   }, [subjects, term]);
-  const schemaText = selected ? prettyJson(selected.schema) : "";
+  const schemaText = detail ? prettyJson(detail.schema) : "";
+  const shownVersion = version ?? selected?.latestVersion;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
@@ -133,44 +147,49 @@ function SchemasPage() {
           isError ? (error instanceof Error ? error.message : "Failed to load schemas.") : undefined
         }
         defaultSort={{ id: "subject", direction: "asc" }}
-        onRowClick={setSelected}
+        onRowClick={open}
         fill
       />
 
-      <Sheet open={selected !== null} onOpenChange={(open) => !open && setSelected(null)}>
+      <Sheet open={selected !== null} onOpenChange={(isOpen) => !isOpen && setSelected(null)}>
         <SheetContent side="right" className="w-full gap-0 sm:max-w-lg">
           {selected ? (
             <>
               <SheetHeader className="border-b">
                 <SheetTitle className="font-mono text-sm">{selected.subject}</SheetTitle>
                 <SheetDescription>
-                  {selected.type} · version {selected.latestVersion} · {selected.compatibility}
+                  {selected.type} · version {shownVersion} · {selected.compatibility}
                 </SheetDescription>
               </SheetHeader>
 
               <div className="flex-1 space-y-4 overflow-y-auto p-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-medium text-muted-foreground">Schema</h3>
-                  {canSchemaText ? <CopyButton value={schemaText} label="Copy schema" /> : null}
+                  {canSchemaText && schemaText ? (
+                    <CopyButton value={schemaText} label="Copy schema" />
+                  ) : null}
                 </div>
-                {canSchemaText ? (
-                  <JsonBlock source={schemaText} />
-                ) : (
+                {!canSchemaText ? (
                   <p className="text-sm text-muted-foreground">
                     Schema text is not available for your role.
                   </p>
+                ) : detailPending ? (
+                  <p className="text-sm text-muted-foreground">Loading schema…</p>
+                ) : (
+                  <JsonBlock source={schemaText} />
                 )}
 
                 <div className="space-y-2">
                   <h3 className="text-sm font-medium text-muted-foreground">Versions</h3>
                   <div className="flex flex-wrap gap-1.5">
-                    {selected.versions.map((version) => (
+                    {selected.versions.map((entry) => (
                       <Pill
-                        key={version}
-                        tone={version === selected.latestVersion ? "brand" : "idle"}
-                        className="numeric font-mono"
+                        key={entry}
+                        tone={entry === shownVersion ? "brand" : "idle"}
+                        className="numeric cursor-pointer font-mono"
+                        onClick={() => setVersion(entry)}
                       >
-                        v{version}
+                        v{entry}
                       </Pill>
                     ))}
                   </div>
