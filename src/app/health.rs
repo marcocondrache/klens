@@ -30,73 +30,45 @@ mod tests {
 
     use crate::AppState;
     use crate::app::router;
-    use crate::kafka::model::CleanupPolicy;
-    use crate::kafka::{ClusterSnapshot, FakeCluster, QueryEngine, Topic};
+    use crate::kafka::store::fixtures::{partition, topic, topology};
+    use crate::kafka::{FakeCluster, QueryEngine};
 
-    fn app(state: AppState) -> axum::Router {
+    fn state() -> AppState {
+        AppState::new(Arc::new(QueryEngine::from_sessions(vec![
+            FakeCluster::local(),
+        ])))
+    }
+
+    async fn status(state: AppState, path: &str) -> StatusCode {
         router(state)
-    }
-
-    fn empty_topic(name: &str) -> Topic {
-        Topic {
-            name: name.to_owned(),
-            internal: false,
-            partitions: Vec::new(),
-            replication_factor: 1,
-            message_count: 0,
-            cleanup_policy: CleanupPolicy::Delete,
-            retention_ms: 0,
-            consumer_groups: Vec::new(),
-            under_replicated: false,
-        }
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap()
+            .status()
     }
 
     #[tokio::test]
-    async fn ready_is_unavailable_until_every_cluster_has_a_snapshot() {
-        let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
-            FakeCluster::local(),
-        ])));
-        let response = app(state.clone())
-            .oneshot(
-                Request::builder()
-                    .uri("/ready")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-
-        state.catalog.store(
-            "local",
-            ClusterSnapshot::from_topics(vec![empty_topic("ready")]),
+    async fn ready_is_unavailable_until_topology_has_committed() {
+        let state = state();
+        assert_eq!(
+            status(state.clone(), "/ready").await,
+            StatusCode::SERVICE_UNAVAILABLE
         );
-        let response = app(state)
-            .oneshot(
-                Request::builder()
-                    .uri("/ready")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+        state
+            .cluster("local")
+            .unwrap()
+            .topology
+            .commit(Arc::new(topology(
+                vec![topic("ready", vec![partition(0, vec![1], vec![1])])],
+                Vec::new(),
+            )));
+
+        assert_eq!(status(state, "/ready").await, StatusCode::NO_CONTENT);
     }
 
     #[tokio::test]
-    async fn health_stays_up_when_the_catalog_is_empty() {
-        let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
-            FakeCluster::local(),
-        ])));
-        let response = app(state)
-            .oneshot(
-                Request::builder()
-                    .uri("/health")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    async fn health_stays_up_while_the_store_is_still_empty() {
+        assert_eq!(status(state(), "/health").await, StatusCode::NO_CONTENT);
     }
 }

@@ -650,6 +650,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1a373e3602691c3cdea496d2f0ee5935151e6168fe87739483c463db1b2f2f87"
 dependencies = [
  "base64 0.22.1",
+ "hkdf",
  "hmac",
  "percent-encoding",
  "rand 0.8.8",
@@ -1907,6 +1908,7 @@ dependencies = [
  "bytes",
  "cel",
  "chrono",
+ "cookie",
  "futures",
  "indexmap 2.14.2",
  "juniper",

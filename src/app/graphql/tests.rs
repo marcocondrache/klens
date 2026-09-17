@@ -1,31 +1,38 @@
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
-use std::time::Duration;
 
-use crate::kafka::model::{
-    CleanupPolicy, GroupMember, GroupOffset, GroupState, MemberAssignment, SchemaCompatibility,
-    SchemaSubject, SchemaType,
+use futures::StreamExt as _;
+use juniper::{
+    DefaultScalarValue, ExecutionError, Value, Variables, execute, graphql_value,
+    resolve_into_stream,
 };
-use crate::kafka::{
-    Broker, ClusterHealth, ClusterIdentity, ClusterOverview, ClusterSnapshot, ConsumerGroup,
-    FakeCluster, QueryEngine, Topic,
+
+use crate::AppState;
+use crate::app::auth::SessionGuard;
+use crate::app::auth::access::{ClusterScope, EffectiveAccess, Grant, Role};
+use crate::kafka::store::bus::BUS_CAPACITY;
+use crate::kafka::store::fixtures::{
+    at, config, group, offline_partition, offsets, partition, subject, topic, topology, watermarks,
 };
-use juniper::{Variables, execute, graphql_value};
+use crate::kafka::store::{
+    Change, ClusterStore, ConfigTable, ConfigsDelta, GroupLagUpdate, GroupOffsetsWave, Interner,
+    OffsetTable, SubjectTable, SubjectsDelta, TopicRate, TopologyDelta, WatermarksTick,
+};
+use crate::kafka::{FakeCluster, QueryEngine};
 
 use super::context::GraphQlContext;
-use super::*;
-use crate::app::auth::access::{ClusterScope, EffectiveAccess, Grant, Role};
+use super::schema;
+
+fn with(sessions: Vec<FakeCluster>) -> AppState {
+    AppState::new(Arc::new(QueryEngine::from_sessions(sessions)))
+}
 
 fn state() -> AppState {
-    AppState::new(Arc::new(QueryEngine::from_sessions(vec![
-        FakeCluster::local(),
-    ])))
+    with(vec![FakeCluster::local()])
 }
 
 fn two_clusters() -> AppState {
-    AppState::new(Arc::new(QueryEngine::from_sessions(vec![
-        FakeCluster::local(),
-        FakeCluster::named("payments"),
-    ])))
+    with(vec![FakeCluster::local(), FakeCluster::named("payments")])
 }
 
 fn ctx(state: &AppState) -> GraphQlContext {
@@ -34,1232 +41,1064 @@ fn ctx(state: &AppState) -> GraphQlContext {
 
 fn ctx_with(state: &AppState, access: EffectiveAccess) -> GraphQlContext {
     GraphQlContext {
-        state: state.clone(),
         access,
+        ..ctx(state)
     }
 }
 
-fn viewer(clusters: ClusterScope) -> EffectiveAccess {
-    EffectiveAccess::Restricted(Grant {
-        role: Role::Viewer,
-        clusters,
-    })
+fn only(clusters: &[&str]) -> ClusterScope {
+    ClusterScope::Only(clusters.iter().map(|name| (*name).to_owned()).collect())
 }
 
-fn admin(clusters: ClusterScope) -> EffectiveAccess {
-    EffectiveAccess::Restricted(Grant {
-        role: Role::Admin,
-        clusters,
-    })
+fn granted(grants: Vec<(Role, ClusterScope)>) -> EffectiveAccess {
+    EffectiveAccess::Granted(
+        grants
+            .into_iter()
+            .map(|(role, scope)| Grant { role, scope })
+            .collect(),
+    )
 }
 
-/// Execute `query` against a fresh schema and return the response data plus the
-/// messages of any GraphQL errors.
-async fn gql_partial(context: &GraphQlContext, query: &str) -> (serde_json::Value, Vec<String>) {
-    let (value, errors) = execute(query, None, &schema(), &Variables::new(), context)
+fn viewer_everywhere() -> EffectiveAccess {
+    granted(vec![(Role::Viewer, ClusterScope::All)])
+}
+
+async fn run(
+    context: &GraphQlContext,
+    query: &str,
+) -> (serde_json::Value, Vec<ExecutionError<DefaultScalarValue>>) {
+    let (data, errors) = execute(query, None, &schema(), &Variables::new(), context)
         .await
-        .unwrap();
-
-    let messages = errors
-        .iter()
-        .map(|error| error.error().message().to_owned())
-        .collect();
-    (serde_json::to_value(value).unwrap(), messages)
+        .expect("query is valid against the schema");
+    (
+        serde_json::to_value(data).expect("data is serializable"),
+        errors,
+    )
 }
 
-/// Execute `query` and return its data, failing the test if the query produced
-/// any GraphQL error.
-async fn gql(state: &AppState, query: &str) -> serde_json::Value {
-    gql_on(&ctx(state), query).await
-}
-
-async fn gql_on(context: &GraphQlContext, query: &str) -> serde_json::Value {
-    let (data, errors) = gql_partial(context, query).await;
-
-    assert!(errors.is_empty(), "{errors:?}");
+async fn ok(context: &GraphQlContext, query: &str) -> serde_json::Value {
+    let (data, errors) = run(context, query).await;
+    assert!(
+        errors.is_empty(),
+        "{:?}",
+        errors
+            .iter()
+            .map(|error| error.error().message())
+            .collect::<Vec<_>>()
+    );
     data
 }
 
-/// Execute `query` and return only its error messages.
-async fn gql_errors(state: &AppState, query: &str) -> Vec<String> {
-    gql_partial(&ctx(state), query).await.1
-}
-
-async fn gql_field_errors(state: &AppState, query: &str) -> Vec<(String, juniper::Value)> {
-    gql_field_errors_on(&ctx(state), query).await
-}
-
-async fn gql_field_errors_on(
-    context: &GraphQlContext,
-    query: &str,
-) -> Vec<(String, juniper::Value)> {
-    let (_, errors) = execute(query, None, &schema(), &Variables::new(), context)
-        .await
-        .unwrap();
-    errors
-        .iter()
-        .map(|error| {
-            (
-                error.error().message().to_owned(),
-                error.error().extensions().clone(),
-            )
-        })
-        .collect()
-}
-
-fn cached_overview(name: &str) -> ClusterOverview {
-    ClusterOverview {
-        identity: ClusterIdentity {
-            name: name.into(),
-            bootstrap_servers: vec!["cached:9092".into()],
-            security_protocol: crate::config::SecurityProtocol::Plaintext,
+fn code_of(error: &ExecutionError<DefaultScalarValue>) -> String {
+    match error.error().extensions() {
+        Value::Object(object) => match object.get_field_value("code") {
+            Some(Value::Scalar(DefaultScalarValue::String(code))) => code.clone(),
+            other => panic!("error has no string code: {other:?}"),
         },
-        cluster_id: "from-cache".into(),
-        health: ClusterHealth::Degraded,
-        broker_count: 3,
-        topic_count: 7,
-        partition_count: 11,
-        consumer_group_count: 2,
-        under_replicated_partitions: 1,
-        offline_partitions: 0,
-        message_count: 0,
+        other => panic!("error has no extensions object: {other:?}"),
     }
 }
 
-fn cached_subject(subject: &str) -> SchemaSubject {
-    SchemaSubject {
-        subject: subject.into(),
-        id: 9,
-        schema_type: SchemaType::Avro,
-        latest_version: 3,
-        versions: vec![3],
-        compatibility: SchemaCompatibility::Backward,
-        schema: "{\"cached\":true}".into(),
-    }
+async fn codes(context: &GraphQlContext, query: &str) -> Vec<String> {
+    run(context, query).await.1.iter().map(code_of).collect()
 }
 
-fn cached_broker(id: i32, host: &str) -> Broker {
-    Broker {
-        id,
-        host: host.into(),
-        port: 9093,
-        rack: None,
-        controller: false,
-        partition_count: 4,
-        leader_count: 2,
-    }
-}
-
-/// A topic with no partitions, for tests that only care about roster shape.
-/// Override the fields under test with `..cached_topic(name)`.
-fn cached_topic(name: &str) -> Topic {
-    Topic {
-        name: name.into(),
-        internal: false,
-        partitions: Vec::new(),
-        replication_factor: 1,
-        message_count: 0,
-        cleanup_policy: CleanupPolicy::Delete,
-        retention_ms: 0,
-        consumer_groups: Vec::new(),
-        under_replicated: false,
-    }
-}
-
-fn cached_group(id: &str, topic: &str, lag: i64) -> ConsumerGroup {
-    ConsumerGroup {
-        id: id.into(),
-        state: GroupState::Stable,
-        protocol: "range".into(),
-        coordinator: 1,
-        members: vec![GroupMember {
-            id: "member-1".into(),
-            client_id: "client".into(),
-            host: "127.0.0.1".into(),
-            assignments: vec![MemberAssignment {
-                topic: topic.into(),
-                partitions: vec![0],
-            }],
-        }],
-        topics: vec![topic.into()],
-        lag,
-        offsets: vec![GroupOffset {
-            topic: topic.into(),
-            partition: 0,
-            current_offset: 1,
-            end_offset: 1 + lag,
-            lag,
-            member_id: Some("member-1".into()),
-        }],
-    }
-}
-
-#[tokio::test]
-async fn resolves_cluster_names_from_config() {
-    assert_eq!(
-        gql(&state(), "{ clusters }").await,
-        serde_json::json!({ "clusters": ["local"] })
-    );
-}
-
-#[tokio::test]
-async fn clusters_lists_visible_names_without_touching_kafka() {
-    let down = FakeCluster::named("down").unreachable();
-    let local = FakeCluster::local();
-    let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
-        down.clone(),
-        local.clone(),
-    ])));
-
-    assert_eq!(
-        gql(&state, "{ clusters }").await,
-        serde_json::json!({ "clusters": ["down", "local"] })
-    );
-    assert_eq!(down.calls().metadata(), 0);
-    assert_eq!(local.calls().metadata(), 0);
-}
-
-#[tokio::test]
-async fn brokers_read_the_in_memory_snapshot() {
-    let state = state();
-    state.catalog.store(
-        "local",
-        ClusterSnapshot::assemble(
-            Vec::new(),
-            Vec::new(),
-            vec![cached_broker(9, "cached-broker")],
-            cached_overview("local"),
-        ),
-    );
-
-    assert_eq!(
-        gql(
-            &state,
-            r#"{
-                brokers(cluster: "local") { id host port partitionCount leaderCount }
-                broker(cluster: "local", id: 9) { id host }
-                missing: broker(cluster: "local", id: 1) { id }
-            }"#
-        )
-        .await,
-        serde_json::json!({
-            "brokers": [{
-                "id": 9,
-                "host": "cached-broker",
-                "port": 9093,
-                "partitionCount": 4,
-                "leaderCount": 2
-            }],
-            "broker": { "id": 9, "host": "cached-broker" },
-            "missing": null
-        })
-    );
-}
-
-#[tokio::test]
-async fn search_reads_topics_groups_and_nodes_from_the_snapshot() {
-    let state = state();
-    state.catalog.store(
-        "local",
-        ClusterSnapshot::assemble(
-            vec![cached_topic("payments.cached")],
-            vec![cached_group("cached-processor", "payments.cached", 1)],
-            vec![cached_broker(9, "cached-host")],
-            cached_overview("local"),
-        ),
-    );
-
-    assert_eq!(
-        gql(
-            &state,
-            r#"{
-                cached: search(cluster: "local", term: "cached") { hits { kind id } schemaRegistryError }
-                order: search(cluster: "local", term: "order") { hits { kind id } schemaRegistryError }
-            }"#
-        )
-        .await,
-        serde_json::json!({
-            "cached": {
-                "hits": [
-                    { "kind": "TOPIC", "id": "payments.cached" },
-                    { "kind": "GROUP", "id": "cached-processor" },
-                    { "kind": "NODE", "id": "9" }
+fn seed(store: &ClusterStore) {
+    store.topology.commit(Arc::new(topology(
+        vec![
+            topic(
+                "orders.created",
+                vec![
+                    partition(0, vec![1], vec![1]),
+                    partition(1, vec![1], vec![1]),
                 ],
-                "schemaRegistryError": null
-            },
-            "order": {
-                "hits": [
-                    { "kind": "SUBJECT", "id": "orders.created-value" }
-                ],
-                "schemaRegistryError": null
-            }
-        })
-    );
+            ),
+            topic("payments.settled", vec![partition(0, vec![1], vec![1])]),
+        ],
+        vec![group("order-processor", "orders.created", vec![0, 1])],
+    )));
+
+    store.watermarks.commit(Arc::new(watermarks(
+        at(1_000),
+        &[
+            ("orders.created", 0, 0, 100),
+            ("orders.created", 1, 10, 60),
+            ("payments.settled", 0, 0, 5),
+        ],
+    )));
+
+    store.offsets.commit(Arc::new(OffsetTable {
+        groups: HashMap::from([(
+            Arc::from("order-processor"),
+            Arc::new(offsets(
+                at(1_000),
+                &[("orders.created", 0, 90), ("orders.created", 1, 55)],
+            )),
+        )]),
+    }));
+
+    store.configs.commit(Arc::new(ConfigTable {
+        topics: HashMap::from([(
+            Arc::from("orders.created"),
+            Arc::new(vec![
+                config("cleanup.policy", "compact"),
+                config("retention.ms", "604800000"),
+            ]),
+        )]),
+    }));
+
+    store.subjects.commit(Arc::new(SubjectTable::assemble(
+        &[subject("orders.created-value", 1, 2)],
+        &mut Interner::default(),
+    )));
+
+    store.rebuild_search();
+}
+
+fn seeded() -> AppState {
+    seeded_with(FakeCluster::local()).0
+}
+
+fn seeded_with(session: FakeCluster) -> (AppState, FakeCluster) {
+    let state = with(vec![session.clone()]);
+    seed(state.cluster("local").expect("local cluster"));
+    (state, session)
 }
 
 #[tokio::test]
-async fn schema_subjects_read_the_subject_cache() {
-    let state = state();
-    state
-        .subjects
-        .store("local", vec![cached_subject("payments.cached-value")]);
-
-    assert_eq!(
-        gql(
-            &state,
-            r#"{ schemaSubjects(cluster: "local") { subject id type latestVersion schema } }"#
-        )
-        .await,
-        serde_json::json!({
-            "schemaSubjects": [{
-                "subject": "payments.cached-value",
-                "id": 9,
-                "type": "AVRO",
-                "latestVersion": 3,
-                "schema": "{\"cached\":true}"
-            }]
-        })
-    );
-}
-
-#[tokio::test]
-async fn search_reads_subjects_from_the_subject_cache() {
-    let state = state();
-    state.catalog.store(
-        "local",
-        ClusterSnapshot::assemble(
-            vec![cached_topic("payments.cached")],
-            vec![cached_group("cached-processor", "payments.cached", 1)],
-            vec![cached_broker(9, "cached-host")],
-            cached_overview("local"),
-        ),
-    );
-    state
-        .subjects
-        .store("local", vec![cached_subject("payments.cached-value")]);
-
-    assert_eq!(
-        gql(
-            &state,
-            r#"{
-                cached: search(cluster: "local", term: "cached") { hits { kind id } schemaRegistryError }
-                order: search(cluster: "local", term: "order") { hits { kind id } schemaRegistryError }
-            }"#
-        )
-        .await,
-        serde_json::json!({
-            "cached": {
-                "hits": [
-                    { "kind": "TOPIC", "id": "payments.cached" },
-                    { "kind": "GROUP", "id": "cached-processor" },
-                    { "kind": "NODE", "id": "9" },
-                    { "kind": "SUBJECT", "id": "payments.cached-value" }
-                ],
-                "schemaRegistryError": null
-            },
-            "order": {
-                "hits": [],
-                "schemaRegistryError": null
-            }
-        })
-    );
-}
-
-#[tokio::test]
-async fn search_reports_a_failed_subject_seed() {
-    let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
-        FakeCluster::local().with_subjects_error("registry down"),
-    ])));
-    state.catalog.store(
-        "local",
-        ClusterSnapshot::assemble(
-            vec![cached_topic("payments.cached")],
-            Vec::new(),
-            Vec::new(),
-            cached_overview("local"),
-        ),
-    );
-
-    assert_eq!(
-        gql(
-            &state,
-            r#"{ search(cluster: "local", term: "cached") { hits { kind id } schemaRegistryError } }"#
-        )
-        .await,
-        serde_json::json!({
-            "search": {
-                "hits": [{ "kind": "TOPIC", "id": "payments.cached" }],
-                "schemaRegistryError": "schema registry request failed for cluster 'local': registry down"
-            }
-        })
-    );
-
-    assert!(
-        !gql_errors(
-            &state,
-            r#"{ schemaSubjects(cluster: "local") { subject } }"#
-        )
-        .await
-        .is_empty()
-    );
-}
-
-#[tokio::test]
-async fn resolves_catalog_from_the_query_engine() {
-    assert_eq!(
-        gql(
-            &state(),
-            r#"{
-                brokers(cluster: "local") { id host }
-                clusterCatalog(cluster: "local") { topics { name messageCount consumerGroups } }
-                consumerGroups(cluster: "local") { id lag }
-            }"#
-        )
-        .await,
-        serde_json::json!({
-            "brokers": [{ "id": 1, "host": "localhost" }],
-            "clusterCatalog": { "topics": [{
-                "name": "orders.created",
-                "messageCount": 16.0,
-                "consumerGroups": ["order-processor"]
-            }] },
-            "consumerGroups": [{ "id": "order-processor", "lag": 5.0 }]
-        })
-    );
-}
-
-#[tokio::test]
-async fn resolves_schema_subjects_from_the_query_engine() {
-    assert_eq!(
-        gql(
-            &state(),
-            r#"{ schemaSubjects(cluster: "local") { subject id type latestVersion versions compatibility schema } }"#
-        )
-        .await,
-        serde_json::json!({
-            "schemaSubjects": [{
-                "subject": "orders.created-value",
-                "id": 1,
-                "type": "AVRO",
-                "latestVersion": 2,
-                "versions": [1, 2],
-                "compatibility": "BACKWARD",
-                "schema": "{\"type\":\"record\",\"name\":\"Order\",\"fields\":[{\"name\":\"orderId\",\"type\":\"string\"}]}"
-            }]
-        })
-    );
-}
-
-#[tokio::test]
-async fn browses_and_searches_records() {
-    assert_eq!(
-        gql(
-            &state(),
-            r#"{
-                records(query: {
-                    cluster: "local"
-                    topic: "orders.created"
-                    filter: "key == \"ord_1\""
-                    limit: 10
-                    order: OLDEST
-                }) { records { key } hasMore nextCursor }
-                search(cluster: "local", term: "order") { hits { kind id } schemaRegistryError }
-            }"#
-        )
-        .await,
-        serde_json::json!({
-            "records": { "records": [{ "key": "ord_1" }], "hasMore": false, "nextCursor": null },
-            "search": {
-                "hits": [
-                    { "kind": "TOPIC", "id": "orders.created" },
-                    { "kind": "GROUP", "id": "order-processor" },
-                    { "kind": "SUBJECT", "id": "orders.created-value" }
-                ],
-                "schemaRegistryError": null
-            }
-        })
-    );
-}
-
-#[tokio::test]
-async fn records_accept_schema_overrides_and_expose_wire_ids() {
-    assert_eq!(
-        gql(
-            &state(),
-            r#"{
-                records(query: {
-                    cluster: "local"
-                    topic: "orders.created"
-                    filter: ""
-                    limit: 1
-                    order: OLDEST
-                    schemaId: 1
-                }) { records { schemaId } }
-            }"#
-        )
-        .await,
-        serde_json::json!({
-            "records": { "records": [{ "schemaId": null }] }
-        })
-    );
-}
-
-#[tokio::test]
-async fn pages_through_records() {
-    let state = state();
-
-    let page = gql(
-        &state,
-        r#"{
-                records(query: {
-                    cluster: "local"
-                    topic: "orders.created"
-                    filter: ""
-                    limit: 5
-                    order: OLDEST
-                }) { records { key } hasMore nextCursor }
-            }"#,
-    )
-    .await;
-
-    assert_eq!(page["records"]["hasMore"], true);
-    assert_eq!(page["records"]["records"].as_array().unwrap().len(), 5);
-    let cursor = page["records"]["nextCursor"].as_str().unwrap();
-
-    let next = gql(
-        &state,
-        &format!(
-            r#"{{
-                records(query: {{
-                    cluster: "local"
-                    topic: "orders.created"
-                    filter: ""
-                    limit: 5
-                    order: OLDEST
-                    cursor: "{cursor}"
-                }}) {{ records {{ key }} hasMore nextCursor }}
-            }}"#
-        ),
-    )
-    .await;
-
-    assert!(!next["records"]["records"].as_array().unwrap().is_empty());
-}
-
-#[tokio::test]
-async fn records_honor_timestamp_bounds() {
-    assert_eq!(
-        gql(
-            &state(),
-            r#"{
-                records(query: {
-                    cluster: "local"
-                    topic: "orders.created"
-                    filter: ""
-                    timestampFrom: "2023-11-14T22:13:23Z"
-                    timestampTo: "2023-11-14T22:13:25Z"
-                    limit: 50
-                    order: OLDEST
-                }) { records { key timestamp } hasMore nextCursor }
-            }"#
-        )
-        .await,
-        serde_json::json!({
-            "records": {
-                "records": [
-                    { "key": "ord_3", "timestamp": "2023-11-14T22:13:23Z" },
-                    { "key": "ord_4", "timestamp": "2023-11-14T22:13:24Z" },
-                    { "key": "ord_5", "timestamp": "2023-11-14T22:13:25Z" }
-                ],
-                "hasMore": false,
-                "nextCursor": null
-            }
-        })
-    );
-}
-
-#[tokio::test]
-async fn records_reject_inverted_timestamp_range() {
-    let errors = gql_field_errors(
-        &state(),
-        r#"{
-                records(query: {
-                    cluster: "local"
-                    topic: "orders.created"
-                    filter: ""
-                    timestampFrom: "1970-01-01T00:00:02Z"
-                    timestampTo: "1970-01-01T00:00:01Z"
-                    limit: 10
-                    order: OLDEST
-                }) { records { key } }
-            }"#,
-    )
-    .await;
-
-    assert!(
-        errors.iter().any(|(message, extensions)| {
-            message.contains("timestampFrom")
-                && *extensions == graphql_value!({ "code": "INVERTED_TIMESTAMP_RANGE" })
-        }),
-        "{errors:?}"
-    );
-}
-
-#[tokio::test]
-async fn records_reject_invalid_filter() {
-    let errors = gql_field_errors(
-        &state(),
-        r#"{
-                records(query: {
-                    cluster: "local"
-                    topic: "orders.created"
-                    filter: "value.status =="
-                    limit: 10
-                    order: OLDEST
-                }) { records { key } }
-            }"#,
-    )
-    .await;
-
-    assert!(
-        errors.iter().any(|(message, extensions)| {
-            message.contains("invalid filter")
-                && *extensions == graphql_value!({ "code": "INVALID_FILTER" })
-        }),
-        "{errors:?}"
-    );
-}
-
-#[tokio::test]
-async fn consumer_groups_can_filter_by_topic() {
-    assert_eq!(
-        gql(
-            &state(),
-            r#"{
-                matching: consumerGroups(cluster: "local", topic: "orders.created") { id }
-                none: consumerGroups(cluster: "local", topic: "missing") { id }
-            }"#
-        )
-        .await,
-        serde_json::json!({
-            "matching": [{ "id": "order-processor" }],
-            "none": []
-        })
-    );
-}
-
-#[tokio::test]
-async fn schema_includes_topic_rate_subscription() {
-    let sdl = schema().as_sdl();
-    assert!(sdl.contains("type Subscription"));
-    assert!(sdl.contains("topicRates(cluster: String!): [TopicRate!]!"));
-    assert!(sdl.contains("consumerGroupLag(cluster: String!, id: String!): ConsumerGroup!"));
-    assert!(sdl.contains("schemaId: Int"));
-    assert!(sdl.contains("type ClusterCatalog"));
-    assert!(sdl.contains("clusterCatalog(cluster: String!): ClusterCatalog!"));
-    assert!(sdl.contains("type CatalogHealth"));
-    assert!(sdl.contains("catalogHealth(cluster: String!): CatalogHealth!"));
-    assert!(sdl.contains("clusters: [String!]!"));
-    assert!(!sdl.contains("cluster(name: String!): Cluster"));
-    assert!(sdl.contains("partitionCount: Int!"));
-    assert!(sdl.contains("memberCount: Int!"));
-    assert!(sdl.contains("assignedPartitionCount: Int!"));
-    assert!(sdl.contains("catalogUpdated(cluster: String!): CatalogUpdated!"));
-    assert!(sdl.contains("type SearchResults"));
-    assert!(sdl.contains("search(cluster: String!, term: String!): SearchResults!"));
-}
-
-#[tokio::test]
-async fn topic_and_catalog_read_the_in_memory_snapshot() {
-    let state = state();
-    state.catalog.store(
-        "local",
-        ClusterSnapshot::from_topics(vec![Topic {
-            message_count: 3,
-            consumer_groups: vec!["cached-group".into()],
-            ..cached_topic("from-cache")
-        }]),
-    );
-
-    assert_eq!(
-        gql(
-            &state,
-            r#"{
-                topic(cluster: "local", name: "from-cache") { name messageCount consumerGroups partitionCount }
-                missing: topic(cluster: "local", name: "orders.created") { name }
-                clusterCatalog(cluster: "local") { topics { name } }
-            }"#
-        )
-        .await,
-        serde_json::json!({
-            "topic": {
-                "name": "from-cache",
-                "messageCount": 3.0,
-                "consumerGroups": ["cached-group"],
-                "partitionCount": 0
-            },
-            "missing": null,
-            "clusterCatalog": { "topics": [{ "name": "from-cache" }] }
-        })
-    );
-}
-
-#[tokio::test]
-async fn catalog_health_reads_cached_counts_and_poll_error() {
-    let state = state();
-    state.catalog.store(
-        "local",
-        ClusterSnapshot::from_topics(vec![Topic {
-            message_count: 3,
-            ..cached_topic("from-cache")
-        }]),
-    );
-    state
-        .subjects
-        .store("local", vec![cached_subject("kept-value")]);
-    state.catalog.record_poll(
-        "local",
-        Duration::from_millis(18),
-        Some("broker down".into()),
-    );
-
-    assert_eq!(
-        gql(
-            &state,
-            r#"{
-                catalogHealth(cluster: "local") {
-                    lastError
-                    lastPollDurationMs
-                    topicCount
-                    subjectCount
-                }
-            }"#
-        )
-        .await,
-        serde_json::json!({
-            "catalogHealth": {
-                "lastError": "broker down",
-                "lastPollDurationMs": 18.0,
-                "topicCount": 1,
-                "subjectCount": 1
-            }
-        })
-    );
-
-    assert!(
-        !gql_errors(
-            &state,
-            r#"{ catalogHealth(cluster: "ghost") { lastError } }"#
-        )
-        .await
-        .is_empty()
-    );
-}
-
-#[tokio::test]
-async fn catalog_health_reports_a_failed_poll() {
-    let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
-        FakeCluster::named("down").unreachable(),
-    ])))
-    .with_catalog_poller(Duration::from_secs(60));
-
-    for _ in 0..200 {
-        if state.catalog_health("down").last_error.is_some() {
-            break;
-        }
-        tokio::task::yield_now().await;
-    }
-    assert!(
-        state.catalog_health("down").last_error.is_some(),
-        "poller never recorded last_error"
-    );
-
-    let last_error = gql(
-        &state,
-        r#"{ catalogHealth(cluster: "down") { lastError } }"#,
-    )
-    .await["catalogHealth"]["lastError"]
-        .as_str()
-        .expect("lastError")
-        .to_owned();
-    assert!(last_error.contains("broker down"), "lastError={last_error}");
-}
-
-#[tokio::test]
-async fn topic_query_seeds_the_catalog_on_a_cold_cache() {
-    let state = state();
-
-    assert_eq!(
-        gql(
-            &state,
-            r#"{
-                topic(cluster: "local", name: "orders.created") { name messageCount consumerGroups }
-                missing: topic(cluster: "local", name: "ghost") { name }
-            }"#
-        )
-        .await,
-        serde_json::json!({
-            "topic": {
-                "name": "orders.created",
-                "messageCount": 16.0,
-                "consumerGroups": ["order-processor"]
-            },
-            "missing": null
-        })
-    );
-    assert_eq!(
-        state.catalog.topic("local", "orders.created").unwrap().name,
-        "orders.created"
-    );
-}
-
-#[tokio::test]
-async fn topic_and_group_report_a_failed_catalog_seed() {
-    let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
-        FakeCluster::named("down").unreachable(),
-    ])));
-
-    let topic_query = r#"{ topic(cluster: "down", name: "orders.created") { name } }"#;
-    let (topic_data, _) = gql_partial(&ctx(&state), topic_query).await;
-    let topic_errors = gql_field_errors(&state, topic_query).await;
-    assert!(
-        topic_errors.iter().any(|(message, extensions)| {
-            message.contains("broker down") && *extensions == graphql_value!({ "code": "ADMIN" })
-        }),
-        "{topic_errors:?}"
-    );
-    assert_eq!(topic_data["topic"], serde_json::Value::Null);
-
-    let group_query = r#"{ consumerGroup(cluster: "down", id: "order-processor") { id } }"#;
-    let (group_data, _) = gql_partial(&ctx(&state), group_query).await;
-    let group_errors = gql_field_errors(&state, group_query).await;
-    assert!(
-        group_errors.iter().any(|(message, extensions)| {
-            message.contains("broker down") && *extensions == graphql_value!({ "code": "ADMIN" })
-        }),
-        "{group_errors:?}"
-    );
-    assert_eq!(group_data["consumerGroup"], serde_json::Value::Null);
-}
-
-#[tokio::test]
-async fn groups_and_catalog_read_the_in_memory_snapshot() {
-    let state = state();
-    state.catalog.store(
-        "local",
-        ClusterSnapshot::from_catalog(
-            Vec::new(),
-            vec![
-                cached_group("from-cache", "orders", 9),
-                cached_group("other", "payments", 2),
-            ],
-        ),
-    );
-
-    assert_eq!(
-        gql(
-            &state,
-            r#"{
-                consumerGroups(cluster: "local") { id lag topics }
-                matching: consumerGroups(cluster: "local", topic: "orders") { id }
-                none: consumerGroups(cluster: "local", topic: "missing") { id }
-                consumerGroup(cluster: "local", id: "from-cache") {
-                    id
-                    state
-                    protocol
-                    coordinator
-                    lag
-                    memberCount
-                    assignedPartitionCount
-                    members { id clientId host }
-                    offsets { topic partition lag memberId }
-                }
-                missing: consumerGroup(cluster: "local", id: "ghost") { id }
-                clusterCatalog(cluster: "local") { consumerGroups { id } }
-            }"#
-        )
-        .await,
-        serde_json::json!({
-            "consumerGroups": [
-                { "id": "from-cache", "lag": 9.0, "topics": ["orders"] },
-                { "id": "other", "lag": 2.0, "topics": ["payments"] }
-            ],
-            "matching": [{ "id": "from-cache" }],
-            "none": [],
-            "consumerGroup": {
-                "id": "from-cache",
-                "state": "STABLE",
-                "protocol": "range",
-                "coordinator": 1,
-                "lag": 9.0,
-                "memberCount": 1,
-                "assignedPartitionCount": 1,
-                "members": [{ "id": "member-1", "clientId": "client", "host": "127.0.0.1" }],
-                "offsets": [{ "topic": "orders", "partition": 0, "lag": 9.0, "memberId": "member-1" }]
-            },
-            "missing": null,
-            "clusterCatalog": { "consumerGroups": [{ "id": "from-cache" }, { "id": "other" }] }
-        })
-    );
-}
-
-#[tokio::test]
-async fn catalog_snapshot_returns_the_same_arc() {
-    let state = state();
-    let first = state.catalog_snapshot("local").await.unwrap();
-    let second = state.catalog_snapshot("local").await.unwrap();
-    assert!(Arc::ptr_eq(&first, &second));
-    assert_eq!(first.topics[0].name, "orders.created");
-    assert_eq!(first.groups[0].id, "order-processor");
-    assert_eq!(first.brokers[0].id, 1);
-    assert_eq!(first.overview.cluster_id, "test-cluster");
-}
-
-#[tokio::test]
-async fn cluster_catalog_exposes_updated_at_after_fallback() {
-    let state = state();
-
-    let body = gql(
-        &state,
-        r#"{ clusterCatalog(cluster: "local") { updatedAt topics { name } } }"#,
-    )
-    .await;
-
-    assert_eq!(
-        body["clusterCatalog"]["topics"][0]["name"],
-        "orders.created"
-    );
-    assert!(
-        body["clusterCatalog"]["updatedAt"]
-            .as_str()
-            .is_some_and(|timestamp| !timestamp.is_empty())
-    );
-    assert_eq!(
-        state.catalog.topic("local", "orders.created").unwrap().name,
-        "orders.created"
-    );
-    assert_eq!(
-        state.catalog.group("local", "order-processor").unwrap().id,
-        "order-processor"
-    );
-}
-
-#[tokio::test]
-async fn catalog_topics_use_stored_produce_rates() {
-    let state = state();
-    let start = tokio::time::Instant::now();
-    state.rates.observe_at(
-        "local",
-        [("orders.created".to_owned(), 10)].into_iter().collect(),
-        start,
-        1_000.0,
-    );
-    state.rates.observe_at(
-        "local",
-        [("orders.created".to_owned(), 30)].into_iter().collect(),
-        start + Duration::from_secs(2),
-        3_000.0,
-    );
-
-    let body = gql(
-        &state,
-        r#"{
-                clusterCatalog(cluster: "local") { topics { name messagesPerSec } }
-                topic(cluster: "local", name: "orders.created") { name messagesPerSec }
-            }"#,
-    )
-    .await;
-
-    assert_eq!(
-        body["clusterCatalog"]["topics"][0],
-        serde_json::json!({ "name": "orders.created", "messagesPerSec": 10.0 })
-    );
-    assert_eq!(
-        body["topic"],
-        serde_json::json!({ "name": "orders.created", "messagesPerSec": 10.0 })
-    );
-}
-
-#[tokio::test]
-async fn resolves_acls_from_the_session() {
-    assert_eq!(
-        gql(
-            &state(),
-            r#"{ acls(cluster: "local") {
-                authorizer
-                bindings {
-                    resourceType
-                    resourceName
-                    patternType
-                    principal
-                    host
-                    operation
-                    permission
-                }
-            } }"#
-        )
-        .await,
-        serde_json::json!({
-            "acls": {
-                "authorizer": "ENABLED",
-                "bindings": [
-                    {
-                        "resourceType": "TOPIC",
-                        "resourceName": "orders.created",
-                        "patternType": "LITERAL",
-                        "principal": "User:alice",
-                        "host": "*",
-                        "operation": "READ",
-                        "permission": "ALLOW"
-                    },
-                    {
-                        "resourceType": "TOPIC",
-                        "resourceName": "orders.",
-                        "patternType": "PREFIXED",
-                        "principal": "User:eve",
-                        "host": "10.0.0.1",
-                        "operation": "WRITE",
-                        "permission": "DENY"
-                    },
-                    {
-                        "resourceType": "GROUP",
-                        "resourceName": "order-processor",
-                        "patternType": "LITERAL",
-                        "principal": "User:order-processor",
-                        "host": "*",
-                        "operation": "READ",
-                        "permission": "ALLOW"
-                    }
-                ]
-            }
-        })
-    );
-}
-
-#[tokio::test]
-async fn disabled_authorizer_is_acl_data() {
-    let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
-        FakeCluster::local().with_security_disabled(),
-    ])));
-    let (data, errors) = gql_partial(
+async fn whoami_reports_no_subject_when_auth_is_disabled() {
+    let state = two_clusters();
+    let data = ok(
         &ctx(&state),
-        r#"{ acls(cluster: "local") { authorizer bindings { principal } } }"#,
-    )
-    .await;
-    assert!(errors.is_empty(), "{errors:?}");
-    assert_eq!(
-        data,
-        serde_json::json!({
-            "acls": { "authorizer": "DISABLED", "bindings": [] }
-        })
-    );
-}
-
-#[tokio::test]
-async fn acls_unknown_cluster_is_a_field_error() {
-    let errors = gql_field_errors(&state(), r#"{ acls(cluster: "ghost") { authorizer } }"#).await;
-    assert!(
-        errors.iter().any(|(message, extensions)| {
-            message == "unknown cluster 'ghost'"
-                && *extensions == graphql_value!({ "code": "UNKNOWN_CLUSTER" })
-        }),
-        "{errors:?}"
-    );
-}
-
-#[tokio::test]
-async fn acls_admin_failure_is_a_field_error() {
-    let state = AppState::new(Arc::new(QueryEngine::from_sessions(vec![
-        FakeCluster::local().with_acls_error("describe failed"),
-    ])));
-    let errors = gql_field_errors(&state, r#"{ acls(cluster: "local") { authorizer } }"#).await;
-    assert!(
-        errors.iter().any(|(message, extensions)| {
-            message.contains("describe failed")
-                && *extensions == graphql_value!({ "code": "ADMIN" })
-        }),
-        "{errors:?}"
-    );
-}
-
-fn records_query(cluster: &str) -> String {
-    format!(
-        r#"{{
-            records(query: {{
-                cluster: "{cluster}"
-                topic: "orders.created"
-                filter: ""
-                limit: 2
-                order: OLDEST
-            }}) {{ records {{ key }} }}
-        }}"#
-    )
-}
-
-#[tokio::test]
-async fn viewer_cannot_read_records_or_live_configs() {
-    let state = state();
-    let context = ctx_with(&state, viewer(ClusterScope::All));
-
-    let records = gql_field_errors_on(&context, &records_query("local")).await;
-    assert!(
-        records.iter().any(|(message, extensions)| {
-            message == "forbidden" && *extensions == graphql_value!({ "code": "FORBIDDEN" })
-        }),
-        "{records:?}"
-    );
-
-    let configs = gql_field_errors_on(
-        &context,
-        r#"{ topicConfigs(cluster: "local", name: "orders.created") { name } }"#,
-    )
-    .await;
-    assert!(
-        configs
-            .iter()
-            .any(|(_, extensions)| *extensions == graphql_value!({ "code": "FORBIDDEN" })),
-        "{configs:?}"
-    );
-
-    let brokers = gql_field_errors_on(
-        &context,
-        r#"{ brokerConfigs(cluster: "local", id: 1) { name } }"#,
-    )
-    .await;
-    assert!(
-        brokers
-            .iter()
-            .any(|(_, extensions)| *extensions == graphql_value!({ "code": "FORBIDDEN" })),
-        "{brokers:?}"
-    );
-
-    let acls = gql_field_errors_on(&context, r#"{ acls(cluster: "local") { authorizer } }"#).await;
-    assert!(
-        acls.iter()
-            .any(|(_, extensions)| *extensions == graphql_value!({ "code": "FORBIDDEN" })),
-        "{acls:?}"
-    );
-}
-
-#[tokio::test]
-async fn viewer_sees_subject_names_without_schema_text() {
-    let state = state();
-    let body = gql_on(
-        &ctx_with(&state, viewer(ClusterScope::All)),
-        r#"{ schemaSubjects(cluster: "local") { subject schema } }"#,
+        "{ whoami { subject clusters { cluster role } } }",
     )
     .await;
 
-    assert_eq!(
-        body,
-        serde_json::json!({
-            "schemaSubjects": [{
-                "subject": "orders.created-value",
-                "schema": ""
-            }]
-        })
-    );
+    assert_eq!(data["whoami"]["subject"], serde_json::Value::Null);
+    assert_eq!(data["whoami"]["clusters"][0]["cluster"], "local");
+    assert_eq!(data["whoami"]["clusters"][0]["role"], "ADMIN");
+    assert_eq!(data["whoami"]["clusters"][1]["cluster"], "payments");
 }
 
 #[tokio::test]
-async fn hidden_cluster_matches_an_unknown_cluster() {
+async fn whoami_resolves_each_cluster_against_its_own_grant() {
     let state = two_clusters();
     let context = ctx_with(
         &state,
-        viewer(ClusterScope::Only(["payments".into()].into())),
+        granted(vec![
+            (Role::Admin, only(&["local"])),
+            (Role::Viewer, only(&["payments"])),
+        ]),
     );
 
-    let body = gql_on(
+    let data = ok(
         &context,
-        r#"{
-            clusters
-        }"#,
+        "{ whoami { clusters { cluster role privileges } } }",
     )
     .await;
+    let clusters = data["whoami"]["clusters"].as_array().expect("clusters");
+
+    assert_eq!(clusters.len(), 2);
+    assert_eq!(clusters[0]["cluster"], "local");
+    assert_eq!(clusters[0]["role"], "ADMIN");
     assert_eq!(
-        body,
-        serde_json::json!({
-            "clusters": ["payments"]
-        })
+        clusters[0]["privileges"],
+        serde_json::json!(["RECORDS", "CONFIGS", "SCHEMA_TEXT", "ACLS"])
     );
 
-    let catalog = gql_field_errors_on(
-        &context,
-        r#"{ clusterCatalog(cluster: "local") { topics { name } } }"#,
-    )
-    .await;
-    assert!(
-        catalog.iter().any(|(message, extensions)| {
-            message.contains("unknown cluster")
-                && *extensions == graphql_value!({ "code": "UNKNOWN_CLUSTER" })
-        }),
-        "{catalog:?}"
-    );
+    assert_eq!(clusters[1]["cluster"], "payments");
+    assert_eq!(clusters[1]["role"], "VIEWER");
+    assert_eq!(clusters[1]["privileges"], serde_json::json!([]));
+}
 
-    let records = gql_field_errors_on(&context, &records_query("local")).await;
-    assert!(
-        records.iter().any(|(_, extensions)| {
-            *extensions == graphql_value!({ "code": "UNKNOWN_CLUSTER" })
-        }),
-        "{records:?}"
-    );
+#[tokio::test]
+async fn whoami_omits_clusters_the_session_cannot_see() {
+    let state = two_clusters();
+    let context = ctx_with(&state, granted(vec![(Role::Viewer, only(&["payments"]))]));
 
-    let forbidden = gql_field_errors_on(&context, &records_query("payments")).await;
-    assert!(
-        forbidden
-            .iter()
-            .any(|(_, extensions)| *extensions == graphql_value!({ "code": "FORBIDDEN" })),
-        "{forbidden:?}"
-    );
+    let data = ok(&context, "{ whoami { clusters { cluster } } }").await;
 
-    let hidden_acls =
-        gql_field_errors_on(&context, r#"{ acls(cluster: "local") { authorizer } }"#).await;
-    assert!(
-        hidden_acls.iter().any(|(_, extensions)| {
-            *extensions == graphql_value!({ "code": "UNKNOWN_CLUSTER" })
-        }),
-        "{hidden_acls:?}"
+    assert_eq!(
+        data["whoami"]["clusters"],
+        serde_json::json!([{ "cluster": "payments" }])
     );
 }
 
 #[tokio::test]
-async fn admin_still_reads_records_on_an_allowed_cluster() {
+async fn an_invisible_cluster_reads_as_unknown_not_forbidden() {
     let state = two_clusters();
-    let body = gql_on(
-        &ctx_with(
-            &state,
-            admin(ClusterScope::Only(["payments".into()].into())),
-        ),
-        &records_query("payments"),
-    )
-    .await;
+    let context = ctx_with(&state, granted(vec![(Role::Admin, only(&["local"]))]));
+
     assert_eq!(
-        body["records"]["records"][0]["key"],
-        serde_json::json!("ord_0")
+        codes(&context, r#"{ topicRows(cluster: "payments") { total } }"#).await,
+        vec!["UNKNOWN_CLUSTER"]
     );
+}
 
-    let hidden = gql_field_errors_on(
-        &ctx_with(
-            &state,
-            admin(ClusterScope::Only(["payments".into()].into())),
-        ),
-        &records_query("local"),
+#[tokio::test]
+async fn a_cluster_nobody_configured_reads_as_unknown() {
+    assert_eq!(
+        codes(
+            &ctx(&state()),
+            r#"{ topicRows(cluster: "nope") { total } }"#
+        )
+        .await,
+        vec!["UNKNOWN_CLUSTER"]
+    );
+}
+
+#[tokio::test]
+async fn a_visible_cluster_without_the_privilege_reads_as_forbidden() {
+    let state = seeded();
+    let context = ctx_with(&state, viewer_everywhere());
+
+    for query in [
+        r#"{ topicConfigs(cluster: "local", name: "orders.created") { name } }"#,
+        r#"{ brokerConfigs(cluster: "local", id: 1) { name } }"#,
+        r#"{ acls(cluster: "local") { authorizer } }"#,
+        r#"{ subject(cluster: "local", name: "orders.created-value") { schema } }"#,
+        r#"{ records(cluster: "local", query: { topic: "orders.created" }) { complete } }"#,
+    ] {
+        assert_eq!(codes(&context, query).await, vec!["FORBIDDEN"], "{query}");
+    }
+}
+
+#[tokio::test]
+async fn unprivileged_projections_stay_open_to_a_viewer() {
+    let state = seeded();
+    let context = ctx_with(&state, viewer_everywhere());
+
+    let data = ok(
+        &context,
+        r#"{
+            topicRows(cluster: "local") { total }
+            groupRows(cluster: "local") { total }
+            brokerRows(cluster: "local") { id }
+            subjectRows(cluster: "local") { rows { subject } }
+        }"#,
     )
     .await;
+
+    assert_eq!(data["topicRows"]["total"], 2);
+    assert_eq!(data["groupRows"]["total"], 1);
+    assert_eq!(data["brokerRows"][0]["id"], 1);
+    assert_eq!(
+        data["subjectRows"]["rows"][0]["subject"],
+        "orders.created-value"
+    );
+}
+
+#[tokio::test]
+async fn sixty_four_bit_counters_cross_the_wire_as_strings() {
+    let state = state();
+    let store = state.cluster("local").expect("local cluster");
+    let huge = 9_007_199_254_740_993_i64; // 2^53 + 1: lossy as a JSON number.
+
+    store.topology.commit(Arc::new(topology(
+        vec![topic("wide", vec![partition(0, vec![1], vec![1])])],
+        Vec::new(),
+    )));
+    store
+        .watermarks
+        .commit(Arc::new(watermarks(at(1_000), &[("wide", 0, 0, huge)])));
+
+    let data = ok(
+        &ctx(&state),
+        r#"{ topicRows(cluster: "local") { rows { retainedMessages producedTotal } } }"#,
+    )
+    .await;
+
+    assert_eq!(
+        data["topicRows"]["rows"][0]["retainedMessages"],
+        huge.to_string()
+    );
+    assert_eq!(
+        data["topicRows"]["rows"][0]["producedTotal"],
+        huge.to_string()
+    );
+}
+
+#[tokio::test]
+async fn topic_rows_project_counts_and_configs_without_touching_the_broker() {
+    let (state, session) = seeded_with(FakeCluster::local());
+
+    let data = ok(
+        &ctx(&state),
+        r#"{ topicRows(cluster: "local", sort: { field: NAME }) {
+            total
+            rows { name partitionCount retainedMessages cleanupPolicy retentionMs groupCount }
+        } }"#,
+    )
+    .await;
+    let rows = &data["topicRows"]["rows"];
+
+    assert_eq!(data["topicRows"]["total"], 2);
+    assert_eq!(rows[0]["name"], "orders.created");
+    assert_eq!(rows[0]["partitionCount"], 2);
+    assert_eq!(rows[0]["retainedMessages"], "150");
+    assert_eq!(rows[0]["cleanupPolicy"], "COMPACT");
+    assert_eq!(rows[0]["retentionMs"], "604800000");
+    assert_eq!(rows[0]["groupCount"], 1);
+    assert_eq!(session.calls().metadata(), 0);
+}
+
+#[tokio::test]
+async fn topic_rows_filter_by_name_before_paging() {
+    let state = seeded();
+
+    let data = ok(
+        &ctx(&state),
+        r#"{ topicRows(cluster: "local", filter: { contains: "PAY" }) {
+            total
+            rows { name }
+        } }"#,
+    )
+    .await;
+
+    assert_eq!(data["topicRows"]["total"], 1);
+    assert_eq!(data["topicRows"]["rows"][0]["name"], "payments.settled");
+}
+
+#[tokio::test]
+async fn topic_rows_page_by_key_and_report_the_unpaged_total() {
+    let state = seeded();
+
+    let first = ok(
+        &ctx(&state),
+        r#"{ topicRows(cluster: "local", limit: 1) { total nextCursor rows { name } } }"#,
+    )
+    .await;
+
+    assert_eq!(first["topicRows"]["total"], 2);
+    assert_eq!(first["topicRows"]["rows"][0]["name"], "orders.created");
+    assert_eq!(first["topicRows"]["nextCursor"], "orders.created");
+
+    let second = ok(
+        &ctx(&state),
+        r#"{ topicRows(cluster: "local", limit: 1, after: "orders.created") {
+            nextCursor
+            rows { name }
+        } }"#,
+    )
+    .await;
+
+    assert_eq!(second["topicRows"]["rows"][0]["name"], "payments.settled");
+    assert_eq!(second["topicRows"]["nextCursor"], serde_json::Value::Null);
+}
+
+#[tokio::test]
+async fn topic_rows_sort_descending_on_the_requested_column() {
+    let state = seeded();
+
+    let data = ok(
+        &ctx(&state),
+        r#"{ topicRows(cluster: "local", sort: { field: RETAINED_MESSAGES, desc: true }) {
+            rows { name }
+        } }"#,
+    )
+    .await;
+
+    assert_eq!(data["topicRows"]["rows"][0]["name"], "orders.created");
+    assert_eq!(data["topicRows"]["rows"][1]["name"], "payments.settled");
+}
+
+#[tokio::test]
+async fn group_rows_join_commits_against_watermarks() {
+    let state = seeded();
+
+    let data = ok(
+        &ctx(&state),
+        r#"{ groupRows(cluster: "local") {
+            rows { id state memberCount topicNames totalLag lagComplete }
+        } }"#,
+    )
+    .await;
+    let row = &data["groupRows"]["rows"][0];
+
+    assert_eq!(row["id"], "order-processor");
+    assert_eq!(row["state"], "STABLE");
+    assert_eq!(row["memberCount"], 1);
+    assert_eq!(row["topicNames"], serde_json::json!(["orders.created"]));
+    assert_eq!(row["totalLag"], "15");
+    assert_eq!(row["lagComplete"], true);
+}
+
+#[tokio::test]
+async fn broker_rows_count_the_partitions_each_node_carries() {
+    let state = seeded();
+
+    let data = ok(
+        &ctx(&state),
+        r#"{ brokerRows(cluster: "local") { id host port controller partitionCount leaderCount } }"#,
+    )
+    .await;
+
+    assert_eq!(data["brokerRows"][0]["host"], "localhost");
+    assert_eq!(data["brokerRows"][0]["partitionCount"], 3);
+    assert_eq!(data["brokerRows"][0]["leaderCount"], 3);
+}
+
+#[tokio::test]
+async fn topic_detail_flags_under_replication_per_partition() {
+    let state = state();
+    let store = state.cluster("local").expect("local cluster");
+    store.topology.commit(Arc::new(topology(
+        vec![topic(
+            "orders.created",
+            vec![
+                partition(0, vec![1, 2], vec![1, 2]),
+                offline_partition(1, vec![1, 2]),
+            ],
+        )],
+        Vec::new(),
+    )));
+
+    let data = ok(
+        &ctx(&state),
+        r#"{ topic(cluster: "local", name: "orders.created") {
+            name
+            replicationFactor
+            underReplicated
+            partitions { id leader underReplicated }
+        } }"#,
+    )
+    .await;
+    let topic = &data["topic"];
+
+    assert_eq!(topic["replicationFactor"], 2);
+    assert_eq!(topic["underReplicated"], true);
+    assert_eq!(topic["partitions"][0]["underReplicated"], false);
+    assert_eq!(topic["partitions"][1]["underReplicated"], true);
+    assert_eq!(topic["partitions"][1]["leader"], -1);
+}
+
+#[tokio::test]
+async fn a_missing_topic_is_null_not_an_error() {
+    let state = seeded();
+    let (data, errors) = run(
+        &ctx(&state),
+        r#"{ topic(cluster: "local", name: "ghost") { name } }"#,
+    )
+    .await;
+
+    assert!(errors.is_empty());
+    assert_eq!(data["topic"], serde_json::Value::Null);
+}
+
+#[tokio::test]
+async fn topic_groups_report_lag_on_that_topic_alone() {
+    let state = seeded();
+
+    let data = ok(
+        &ctx(&state),
+        r#"{ topicGroups(cluster: "local", topic: "orders.created") {
+            id state memberCount lagOnTopic
+        } }"#,
+    )
+    .await;
+
+    assert_eq!(data["topicGroups"][0]["id"], "order-processor");
+    assert_eq!(data["topicGroups"][0]["lagOnTopic"], "15");
+}
+
+#[tokio::test]
+async fn opening_a_group_registers_interest_so_its_offsets_poll_faster() {
+    let state = seeded();
+    let store = state.cluster("local").expect("local cluster");
+    assert!(!store.interest.is_hot("order-processor"));
+
+    let data = ok(
+        &ctx(&state),
+        r#"{ group(cluster: "local", id: "order-processor") {
+            id totalLag lagComplete
+            members { id clientId }
+            offsets { topic partition currentOffset endOffset lag }
+        } }"#,
+    )
+    .await;
+
+    assert_eq!(data["group"]["totalLag"], "15");
+    assert_eq!(data["group"]["members"][0]["clientId"], "c1");
+    assert_eq!(data["group"]["offsets"][0]["currentOffset"], "90");
+    assert_eq!(data["group"]["offsets"][0]["endOffset"], "100");
+    assert_eq!(data["group"]["offsets"][0]["lag"], "10");
+    assert!(store.interest.is_hot("order-processor"));
+}
+
+#[tokio::test]
+async fn topic_configs_come_from_the_lane_not_the_broker() {
+    let (state, session) = seeded_with(FakeCluster::local());
+
+    let data = ok(
+        &ctx(&state),
+        r#"{ topicConfigs(cluster: "local", name: "orders.created") { name value source } }"#,
+    )
+    .await;
+
+    assert_eq!(data["topicConfigs"][0]["name"], "cleanup.policy");
+    assert_eq!(data["topicConfigs"][0]["value"], "compact");
+    assert_eq!(data["topicConfigs"][0]["source"], "DYNAMIC_TOPIC_CONFIG");
+    assert_eq!(session.calls().topic_configs(), 0);
+}
+
+#[tokio::test]
+async fn topic_configs_for_an_unknown_topic_are_an_error() {
+    let state = seeded();
+
+    assert_eq!(
+        codes(
+            &ctx(&state),
+            r#"{ topicConfigs(cluster: "local", name: "ghost") { name } }"#
+        )
+        .await,
+        vec!["UNKNOWN_TOPIC"]
+    );
+}
+
+#[tokio::test]
+async fn broker_configs_stay_live_because_no_lane_sweeps_them() {
+    let state = seeded();
+
+    let data = ok(
+        &ctx(&state),
+        r#"{ brokerConfigs(cluster: "local", id: 1) { name value } }"#,
+    )
+    .await;
+
+    assert_eq!(data["brokerConfigs"][0]["name"], "log.retention.hours");
+}
+
+#[tokio::test]
+async fn acls_stay_live_and_carry_the_authorizer_state() {
+    let state = seeded();
+
+    let data = ok(
+        &ctx(&state),
+        r#"{ acls(cluster: "local") { authorizer bindings { resourceType principal operation permission } } }"#,
+    )
+    .await;
+
+    assert_eq!(data["acls"]["authorizer"], "ENABLED");
     assert!(
-        hidden
-            .iter()
-            .any(|(_, extensions)| *extensions == graphql_value!({ "code": "UNKNOWN_CLUSTER" })),
-        "{hidden:?}"
+        !data["acls"]["bindings"]
+            .as_array()
+            .expect("bindings")
+            .is_empty()
     );
+}
 
-    let acls = gql_on(
-        &ctx_with(
-            &state,
-            admin(ClusterScope::Only(["payments".into()].into())),
-        ),
-        r#"{ acls(cluster: "payments") { authorizer bindings { principal } } }"#,
+#[tokio::test]
+async fn a_schema_body_is_fetched_on_demand_rather_than_kept_in_the_lane() {
+    let state = seeded();
+
+    let data = ok(
+        &ctx(&state),
+        r#"{ subject(cluster: "local", name: "orders.created-value") {
+            subject version id type schema
+        } }"#,
     )
     .await;
-    assert_eq!(acls["acls"]["authorizer"], "ENABLED");
+
+    assert_eq!(data["subject"]["subject"], "orders.created-value");
+    assert_eq!(data["subject"]["type"], "AVRO");
+    assert!(
+        data["subject"]["schema"]
+            .as_str()
+            .expect("schema body")
+            .contains("orderId")
+    );
+}
+
+#[tokio::test]
+async fn an_unknown_subject_is_a_typed_error() {
+    let state = seeded();
+
+    assert_eq!(
+        codes(
+            &ctx(&state),
+            r#"{ subject(cluster: "local", name: "ghost-value") { schema } }"#
+        )
+        .await,
+        vec!["UNKNOWN_SUBJECT"]
+    );
+}
+
+#[tokio::test]
+async fn records_are_read_live_through_the_scan_path() {
+    let state = seeded();
+
+    let data = ok(
+        &ctx(&state),
+        r#"{ records(cluster: "local", query: { topic: "orders.created", limit: 3 }) {
+            complete
+            records { topic partition offset key sizeBytes compression }
+        } }"#,
+    )
+    .await;
+
+    let records = data["records"]["records"].as_array().expect("records");
+    assert_eq!(records.len(), 3);
+    assert_eq!(records[0]["topic"], "orders.created");
+    assert_eq!(records[0]["sizeBytes"], "24");
+    assert_eq!(records[0]["compression"], "NONE");
+}
+
+#[tokio::test]
+async fn a_record_filter_cannot_be_both_a_substring_and_an_expression() {
+    let state = seeded();
+
+    assert_eq!(
+        codes(
+            &ctx(&state),
+            r#"{ records(
+                cluster: "local",
+                query: { topic: "orders.created", filter: { contains: "a", cel: "true" } }
+            ) { complete } }"#
+        )
+        .await,
+        vec!["INVALID_FILTER"]
+    );
+}
+
+#[tokio::test]
+async fn cluster_health_reports_per_lane_freshness_and_counts() {
+    let state = seeded();
+
+    let data = ok(
+        &ctx(&state),
+        r#"{ clusters {
+            cluster ready
+            topology { healthy updatedAt }
+            subjects { healthy }
+            topicCount partitionCount groupCount brokerCount subjectCount
+            underReplicatedPartitions offlinePartitions
+        } }"#,
+    )
+    .await;
+    let health = &data["clusters"][0];
+
+    assert_eq!(health["cluster"], "local");
+    assert_eq!(health["ready"], true);
+    assert_eq!(health["topology"]["healthy"], true);
+    assert_ne!(health["topology"]["updatedAt"], serde_json::Value::Null);
+    assert_eq!(health["topicCount"], 2);
+    assert_eq!(health["partitionCount"], 3);
+    assert_eq!(health["groupCount"], 1);
+    assert_eq!(health["brokerCount"], 1);
+    assert_eq!(health["subjectCount"], 1);
+    assert_eq!(health["underReplicatedPartitions"], 0);
+}
+
+#[tokio::test]
+async fn a_cluster_with_no_commits_yet_is_visible_but_not_ready() {
+    let state = state();
+
+    let data = ok(&ctx(&state), "{ clusters { cluster ready topicCount } }").await;
+
+    assert_eq!(data["clusters"][0]["ready"], false);
+    assert_eq!(data["clusters"][0]["topicCount"], 0);
+}
+
+#[tokio::test]
+async fn history_replays_the_same_points_the_subscription_streams() {
+    let state = seeded();
+    let store = state.cluster("local").expect("local cluster");
+    let topic: Arc<str> = Arc::from("orders.created");
+    let group: Arc<str> = Arc::from("order-processor");
+
+    store.series.push_topic_rate(&topic, at(1_000), 12.5);
+    store.series.push_topic_rate(&topic, at(2_000), 13.5);
+    store.series.push_group_lag(&group, at(2_000), 15);
+
+    let data = ok(
+        &ctx(&state),
+        r#"{
+            topicRateHistory(cluster: "local", topic: "orders.created") { at value }
+            groupLagHistory(cluster: "local", group: "order-processor") { value }
+        }"#,
+    )
+    .await;
+
+    assert_eq!(
+        data["topicRateHistory"].as_array().expect("points").len(),
+        2
+    );
+    assert_eq!(data["topicRateHistory"][1]["value"], 13.5);
+    assert_eq!(data["groupLagHistory"][0]["value"], 15.0);
+}
+
+#[tokio::test]
+async fn search_is_answered_from_the_prebuilt_index() {
+    let state = seeded();
+
+    let data = ok(
+        &ctx(&state),
+        r#"{ search(cluster: "local", term: "orders") { kind id } }"#,
+    )
+    .await;
+    let kinds: BTreeSet<&str> = data["search"]
+        .as_array()
+        .expect("hits")
+        .iter()
+        .map(|hit| hit["kind"].as_str().expect("kind"))
+        .collect();
+
+    assert!(kinds.contains("TOPIC"), "{kinds:?}");
+    assert!(kinds.contains("SUBJECT"), "{kinds:?}");
+}
+
+async fn updates(
+    context: &GraphQlContext,
+    query: &str,
+    publish: impl FnOnce(),
+    take: usize,
+) -> Vec<Result<Value, String>> {
+    let schema = schema();
+    let (stream, errors) = resolve_into_stream(query, None, &schema, &Variables::new(), context)
+        .await
+        .expect("subscription is valid against the schema");
+    let mut connection = juniper_subscriptions::Connection::from_stream(stream, errors);
+
+    publish();
+
+    let mut events = Vec::new();
+    for _ in 0..take {
+        let Some(output) = connection.next().await else {
+            break;
+        };
+        events.push(match output.errors.first() {
+            Some(error) => Err(error.error().message().to_owned()),
+            None => Ok(output.data),
+        });
+    }
+    events
+}
+
+async fn subscribe_codes(context: &GraphQlContext, query: &str) -> Vec<String> {
+    let schema = schema();
+    let (_, errors) = resolve_into_stream(query, None, &schema, &Variables::new(), context)
+        .await
+        .expect("subscription is valid against the schema");
+    errors.iter().map(code_of).collect()
+}
+
+fn tick(topics: &[(&str, f64)]) -> Change {
+    Change::Watermarks(Arc::new(WatermarksTick {
+        version: 1,
+        at: at(1_000),
+        rates: topics
+            .iter()
+            .map(|(topic, rate)| TopicRate {
+                topic: Arc::from(*topic),
+                rate: *rate,
+            })
+            .collect(),
+        cluster_rate: topics.iter().map(|(_, rate)| rate).sum(),
+    }))
+}
+
+fn wave(groups: &[(&str, i64)]) -> Change {
+    Change::GroupOffsets(Arc::new(GroupOffsetsWave {
+        version: 1,
+        at: at(1_000),
+        groups: groups
+            .iter()
+            .map(|(group, lag)| GroupLagUpdate {
+                group: Arc::from(*group),
+                total_lag: *lag,
+                lag_complete: true,
+                offsets: Vec::new(),
+            })
+            .collect(),
+    }))
+}
+
+#[tokio::test]
+async fn an_unscoped_subscriber_gets_the_whole_cluster_firehose() {
+    let state = seeded();
+    let store = Arc::clone(state.cluster("local").expect("local cluster"));
+
+    let events = updates(
+        &ctx(&state),
+        r#"subscription { updates(cluster: "local") {
+            __typename
+            ... on WatermarksTick { clusterRate topics { topic rate } }
+        } }"#,
+        || {
+            store
+                .bus
+                .publish(tick(&[("orders.created", 10.0), ("payments.settled", 2.0)]))
+        },
+        1,
+    )
+    .await;
+
+    let value = events[0].as_ref().expect("no error");
+    assert_eq!(
+        *value,
+        graphql_value!({ "updates": {
+            "__typename": "WatermarksTick",
+            "clusterRate": 12.0,
+            "topics": [
+                { "topic": "orders.created", "rate": 10.0 },
+                { "topic": "payments.settled", "rate": 2.0 },
+            ],
+        } })
+    );
+}
+
+#[tokio::test]
+async fn a_topic_scoped_subscriber_pays_only_for_its_own_topic() {
+    let state = seeded();
+    let store = Arc::clone(state.cluster("local").expect("local cluster"));
+
+    let events = updates(
+        &ctx(&state),
+        r#"subscription { updates(cluster: "local", scope: { topic: "orders.created" }) {
+            ... on WatermarksTick { topics { topic rate } }
+        } }"#,
+        || {
+            store
+                .bus
+                .publish(tick(&[("orders.created", 10.0), ("payments.settled", 2.0)]))
+        },
+        1,
+    )
+    .await;
+
+    assert_eq!(
+        *events[0].as_ref().expect("no error"),
+        graphql_value!({ "updates": { "topics": [{ "topic": "orders.created", "rate": 10.0 }] } })
+    );
+}
+
+#[tokio::test]
+async fn an_event_outside_the_scope_never_reaches_the_socket() {
+    let state = seeded();
+    let store = Arc::clone(state.cluster("local").expect("local cluster"));
+
+    let events = updates(
+        &ctx(&state),
+        r#"subscription { updates(cluster: "local", scope: { topic: "payments.settled" }) {
+            __typename
+            ... on ConfigsChanged { topics }
+        } }"#,
+        || {
+            store.bus.publish(Change::Configs(Arc::new(ConfigsDelta {
+                version: 1,
+                topics: vec![Arc::from("orders.created")],
+            })));
+            store.bus.publish(Change::Subjects(Arc::new(SubjectsDelta {
+                version: 1,
+                added: vec![Arc::from("payments.settled-value")],
+                removed: Vec::new(),
+                changed: Vec::new(),
+            })));
+        },
+        1,
+    )
+    .await;
+
+    assert_eq!(
+        *events[0].as_ref().expect("no error"),
+        graphql_value!({ "updates": { "__typename": "SubjectsChanged" } })
+    );
+}
+
+#[tokio::test]
+async fn an_unscoped_lag_wave_fans_out_one_update_per_group_without_offsets() {
+    let state = seeded();
+    let store = Arc::clone(state.cluster("local").expect("local cluster"));
+
+    let events = updates(
+        &ctx(&state),
+        r#"subscription { updates(cluster: "local") {
+            ... on GroupLagUpdate { group lag offsets { partition } }
+        } }"#,
+        || {
+            store
+                .bus
+                .publish(wave(&[("order-processor", 15), ("audit", 3)]))
+        },
+        2,
+    )
+    .await;
+
+    assert_eq!(
+        *events[0].as_ref().expect("no error"),
+        graphql_value!({ "updates": { "group": "order-processor", "lag": "15", "offsets": [] } })
+    );
+    assert_eq!(
+        *events[1].as_ref().expect("no error"),
+        graphql_value!({ "updates": { "group": "audit", "lag": "3", "offsets": [] } })
+    );
+}
+
+#[tokio::test]
+async fn a_group_scoped_subscriber_holds_an_interest_lease_for_the_stream() {
+    let state = seeded();
+    let store = Arc::clone(state.cluster("local").expect("local cluster"));
+    let context = ctx(&state);
+    let schema = schema();
+
+    {
+        let (stream, errors) = resolve_into_stream(
+            r#"subscription { updates(cluster: "local", scope: { group: "order-processor" }) {
+                ... on GroupLagUpdate { group lag }
+            } }"#,
+            None,
+            &schema,
+            &Variables::new(),
+            &context,
+        )
+        .await
+        .expect("subscription is valid against the schema");
+        let mut connection = juniper_subscriptions::Connection::from_stream(stream, errors);
+
+        store
+            .bus
+            .publish(wave(&[("order-processor", 15), ("audit", 3)]));
+
+        let output = connection.next().await.expect("an event");
+        assert_eq!(
+            output.data,
+            graphql_value!({ "updates": { "group": "order-processor", "lag": "15" } })
+        );
+        assert!(store.interest.is_hot("order-processor"));
+    }
+
+    assert!(!store.interest.is_hot("order-processor"));
+}
+
+#[tokio::test]
+async fn a_topology_delta_reaches_a_scoped_subscriber_only_when_it_names_its_topic() {
+    let state = seeded();
+    let store = Arc::clone(state.cluster("local").expect("local cluster"));
+
+    let events = updates(
+        &ctx(&state),
+        r#"subscription { updates(cluster: "local", scope: { topic: "orders.created" }) {
+            ... on TopologyDelta { version addedTopics changedTopics }
+        } }"#,
+        || {
+            store.bus.publish(Change::Topology(Arc::new(TopologyDelta {
+                version: 4,
+                added_topics: vec![Arc::from("unrelated")],
+                removed_topics: Vec::new(),
+                changed_topics: Vec::new(),
+                added_groups: Vec::new(),
+                removed_groups: Vec::new(),
+                changed_groups: Vec::new(),
+                brokers_changed: false,
+            })));
+            store.bus.publish(Change::Topology(Arc::new(TopologyDelta {
+                version: 5,
+                added_topics: Vec::new(),
+                removed_topics: Vec::new(),
+                changed_topics: vec![Arc::from("orders.created")],
+                added_groups: Vec::new(),
+                removed_groups: Vec::new(),
+                changed_groups: Vec::new(),
+                brokers_changed: false,
+            })));
+        },
+        1,
+    )
+    .await;
+
+    assert_eq!(
+        *events[0].as_ref().expect("no error"),
+        graphql_value!({ "updates": {
+            "version": "5",
+            "addedTopics": [],
+            "changedTopics": ["orders.created"],
+        } })
+    );
+}
+
+#[tokio::test]
+async fn falling_behind_the_bus_asks_the_client_to_refetch_instead_of_dropping_it() {
+    let state = seeded();
+    let store = Arc::clone(state.cluster("local").expect("local cluster"));
+
+    let events = updates(
+        &ctx(&state),
+        r#"subscription { updates(cluster: "local") {
+            __typename
+            ... on Resync { reason }
+        } }"#,
+        move || {
+            for index in 0..(2 * BUS_CAPACITY) {
+                store.bus.publish(tick(&[("orders.created", index as f64)]));
+            }
+        },
+        1,
+    )
+    .await;
+
+    assert_eq!(
+        *events[0].as_ref().expect("no error"),
+        graphql_value!({ "updates": { "__typename": "Resync", "reason": "LAGGED" } })
+    );
+}
+
+#[tokio::test]
+async fn a_cluster_the_session_cannot_see_is_never_subscribable() {
+    let state = two_clusters();
+    seed(state.cluster("payments").expect("payments cluster"));
+    let context = ctx_with(&state, granted(vec![(Role::Viewer, only(&["local"]))]));
+
+    assert_eq!(
+        subscribe_codes(
+            &context,
+            r#"subscription { updates(cluster: "payments") { __typename } }"#
+        )
+        .await,
+        vec!["UNKNOWN_CLUSTER"]
+    );
+}
+
+#[tokio::test]
+async fn a_session_that_expires_mid_stream_terminates_it() {
+    let state = seeded();
+    let store = Arc::clone(state.cluster("local").expect("local cluster"));
+    let context = GraphQlContext {
+        guard: SessionGuard::expired(),
+        ..ctx(&state)
+    };
+
+    let events = updates(
+        &context,
+        r#"subscription { updates(cluster: "local") { __typename } }"#,
+        move || store.bus.publish(tick(&[("orders.created", 1.0)])),
+        2,
+    )
+    .await;
+
+    assert_eq!(events.len(), 1);
+    assert!(
+        events[0]
+            .as_ref()
+            .expect_err("the stream must fail")
+            .contains("session is no longer valid")
+    );
+}
+
+#[tokio::test]
+async fn the_subscription_route_is_wired_with_the_session_extensions() {
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt as _;
+
+    let response = crate::app::router(seeded())
+        .oneshot(
+            Request::builder()
+                .uri("/graphql")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
