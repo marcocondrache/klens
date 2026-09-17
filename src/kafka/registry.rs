@@ -12,6 +12,7 @@ pub enum SchemaType {
 impl From<schemreg::SchemaType> for SchemaType {
     fn from(value: schemreg::SchemaType) -> Self {
         match value {
+            schemreg::SchemaType::Avro => Self::Avro,
             schemreg::SchemaType::Json => Self::Json,
             schemreg::SchemaType::Protobuf => Self::Protobuf,
             _ => Self::Avro,
@@ -42,6 +43,7 @@ impl From<schemreg::CompatibilityLevel> for SchemaCompatibility {
         use schemreg::CompatibilityLevel as Level;
 
         match value {
+            Level::Backward | Level::BackwardTransitive => Self::Backward,
             Level::Forward | Level::ForwardTransitive => Self::Forward,
             Level::Full | Level::FullTransitive => Self::Full,
             Level::None => Self::None,
