@@ -446,7 +446,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                   {selectedRecord.headers.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No headers.</p>
                   ) : (
-                    <div className="divide-y overflow-hidden border">
+                    <div className="divide-y overflow-hidden rounded-md border">
                       {selectedRecord.headers.map((header) => (
                         <div
                           key={header.key}
@@ -487,7 +487,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
 
 function Meta({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="border bg-muted/20 px-3 py-2">
+    <div className="rounded-md border bg-muted/20 px-3 py-2">
       <p className="text-sm text-muted-foreground">{label}</p>
       <p className="numeric mt-0.5 font-mono text-sm">{value}</p>
     </div>
