@@ -319,7 +319,11 @@ fn sort_topics(rows: &mut [crate::kafka::store::TopicRow], sort: &TopicSort) {
     match sort.field.unwrap_or(TopicSortField::Name) {
         TopicSortField::Name => rows.sort_by(|left, right| left.name.cmp(&right.name)),
         TopicSortField::Rate => {
-            rows.sort_by(|left, right| left.rate.total_cmp(&right.rate).then(left.name.cmp(&right.name)));
+            rows.sort_by(|left, right| {
+                left.rate
+                    .total_cmp(&right.rate)
+                    .then(left.name.cmp(&right.name))
+            });
         }
         TopicSortField::RetainedMessages => rows.sort_by(|left, right| {
             left.retained_messages

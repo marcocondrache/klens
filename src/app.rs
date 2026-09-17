@@ -6,9 +6,7 @@ use axum::middleware;
 use crate::kafka::ingest::{Ingest, LaneIntervals};
 use crate::kafka::model::{AclListing, RegisteredSchema};
 use crate::kafka::store::{ClusterStore, StoreSet};
-use crate::kafka::{
-    ClusterSession, ConfigEntry, KafkaError, QueryEngine, RecordPage, RecordQuery,
-};
+use crate::kafka::{ClusterSession, ConfigEntry, KafkaError, QueryEngine, RecordPage, RecordQuery};
 
 pub(crate) mod auth;
 mod graphql;
@@ -154,12 +152,17 @@ mod tests {
         ])))
         .with_ingest(intervals());
 
-        wait_until(|| state.is_ready() && !state.cluster("local").unwrap().subject_rows().is_empty())
-            .await;
+        wait_until(|| {
+            state.is_ready() && !state.cluster("local").unwrap().subject_rows().is_empty()
+        })
+        .await;
 
         let store = state.cluster("local").unwrap();
         assert_eq!(store.topic_rows()[0].name.as_ref(), "orders.created");
-        assert_eq!(store.subject_rows()[0].subject.as_ref(), "orders.created-value");
+        assert_eq!(
+            store.subject_rows()[0].subject.as_ref(),
+            "orders.created-value"
+        );
     }
 
     #[tokio::test]

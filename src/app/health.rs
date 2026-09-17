@@ -55,10 +55,14 @@ mod tests {
             StatusCode::SERVICE_UNAVAILABLE
         );
 
-        state.cluster("local").unwrap().topology.commit(Arc::new(topology(
-            vec![topic("ready", vec![partition(0, vec![1], vec![1])])],
-            Vec::new(),
-        )));
+        state
+            .cluster("local")
+            .unwrap()
+            .topology
+            .commit(Arc::new(topology(
+                vec![topic("ready", vec![partition(0, vec![1], vec![1])])],
+                Vec::new(),
+            )));
 
         assert_eq!(status(state, "/ready").await, StatusCode::NO_CONTENT);
     }

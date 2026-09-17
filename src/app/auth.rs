@@ -216,7 +216,9 @@ pub async fn require_session(
     if let Some(access) = state.auth.access_from_session(&auth_session) {
         let mut request = request;
         request.extensions_mut().insert(access);
-        request.extensions_mut().insert(state.auth.guard(&auth_session));
+        request
+            .extensions_mut()
+            .insert(state.auth.guard(&auth_session));
         return next.run(request).await;
     }
 
@@ -938,9 +940,11 @@ mod tests {
 
         assert_ne!(
             key.signing(),
-            signing_key(Some(&base64::engine::general_purpose::STANDARD.encode([7u8; 32])))
-                .expect("key")
-                .signing()
+            signing_key(Some(
+                &base64::engine::general_purpose::STANDARD.encode([7u8; 32])
+            ))
+            .expect("key")
+            .signing()
         );
     }
 
