@@ -1303,14 +1303,14 @@ mod tests {
                   operator: [records]",
             "
                   - groups: [kafka-operators]
-                    role: opreator",
+                    role: unknown-role",
         );
 
         let error = config.validate().unwrap_err();
         assert!(
             error
                 .to_string()
-                .contains("roles binding references unknown role 'opreator'"),
+                .contains("roles binding references unknown role 'unknown-role'"),
             "{error}"
         );
     }

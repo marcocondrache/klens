@@ -455,7 +455,7 @@ mod tests {
     fn a_binding_naming_an_undefined_role_grants_nothing() {
         let policy = table(
             &[("admin", EVERYTHING)],
-            vec![binding(&["klens-admins"], "opreator", None)],
+            vec![binding(&["klens-admins"], "unknown-role", None)],
         );
         assert_eq!(
             admit(&policy, &["klens-admins"]),
