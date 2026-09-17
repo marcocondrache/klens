@@ -31,3 +31,4 @@ Preconditions:
 - The route segment is `nodes`. The UI label is `Brokers`. Do not look for `/cluster/local/brokers`.
 - Copy address is a clipboard control. It is not required for a catalog pass.
 - First-fail catalog (`lastError` set, `updatedAt` null) shows `Cluster unreachable`. A later poll failure with a stale snapshot shows `Catalog update failed`. Neither is a Brokers pass.
+- `Broker::assemble` in `src/kafka/broker.rs` hardcodes `controller: false`. The badge and GraphQL `controller: true` are the intended user-facing behavior. A verify broker with no badge is that product gap, not a recipe miss.

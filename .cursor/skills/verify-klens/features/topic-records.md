@@ -35,3 +35,4 @@ Preconditions:
 - Record search compiles to a CEL filter on `keyText` and `valueText`. A topic-catalog `?q=` does not filter records.
 - Empty topics show title `No records`, not the Topics `No results.` string.
 - Schema Registry decode is a production boundary. Plain string payloads must appear without a registry.
+- If Data shows `kafka request timed out` or `operation timed out: request (CLIENT)` while `rpk topic consume` still returns `verify-1`, that is a product gap after krafka 0.24, not a map miss. Do not rewrite this recipe to expect the timeout. Opening Data can also poison later live RPCs such as `acls`.
