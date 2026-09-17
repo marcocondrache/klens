@@ -81,7 +81,7 @@ export function DataTablePagination<TData extends RowData>({
                 table.setPageSize(size);
               }}
             >
-              <SelectTrigger size="sm" className="w-[70px]">
+              <SelectTrigger className="w-[70px]">
                 <SelectValue placeholder={String(pageSize)} />
               </SelectTrigger>
               <SelectContent side="top">

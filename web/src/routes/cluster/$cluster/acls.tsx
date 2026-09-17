@@ -173,7 +173,7 @@ function AclsPage() {
               items={RESOURCE_ITEMS}
               onValueChange={(value) => update("resource", String(value))}
             >
-              <SelectTrigger size="sm" className="w-48">
+              <SelectTrigger className="w-48">
                 <SelectValue placeholder="Resource" />
               </SelectTrigger>
               <SelectContent>
