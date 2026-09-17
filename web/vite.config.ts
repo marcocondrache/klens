@@ -30,6 +30,7 @@ export default defineConfig({
   lint: {
     ignorePatterns: readonlyPatterns,
     plugins: ["react", "typescript", "oxc"],
+    jsPlugins: ["@shadcn/lint"],
     options: {
       typeAware: true,
       typeCheck: true,
