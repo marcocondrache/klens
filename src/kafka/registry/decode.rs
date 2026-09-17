@@ -24,25 +24,25 @@ const MAX_CACHED_SCHEMAS: u64 = 10_000;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Framing {
     key: SchemaKey,
-    body: usize,
-    framed: bool,
+    payload_start: usize,
+    has_wire_prefix: bool,
 }
 
 impl Framing {
     fn of(slot: &PayloadSlot) -> Option<Self> {
-        if let Ok((key, body)) = decode_wire_prefix(&slot.raw) {
+        if let Ok((key, payload_start)) = decode_wire_prefix(&slot.raw) {
             return Some(Self {
                 key,
-                body,
-                framed: true,
+                payload_start,
+                has_wire_prefix: true,
             });
         }
 
         let id = u32::try_from(slot.override_id?).ok()?;
         Some(Self {
             key: SchemaKey::Id(SchemaId::new(id)),
-            body: 0,
-            framed: false,
+            payload_start: 0,
+            has_wire_prefix: false,
         })
     }
 }
@@ -229,7 +229,7 @@ impl PayloadDecoder {
         framing: Framing,
         raw: &Bytes,
     ) -> Result<Value, DecodeError> {
-        let body = raw.slice(framing.body.min(raw.len())..);
+        let body = raw.slice(framing.payload_start.min(raw.len())..);
 
         match resolved {
             Resolved::Missing => Err(DecodeError::missing("schema id not found in registry")),
@@ -237,7 +237,7 @@ impl PayloadDecoder {
             Resolved::Avro => {
                 // The decoder reads the identifier off the wire prefix, so an
                 // override has to be handed bytes that carry one.
-                let framed = if framing.framed {
+                let framed = if framing.has_wire_prefix {
                     raw.clone()
                 } else {
                     encode_wire_format(framing.key, &body)
@@ -249,7 +249,7 @@ impl PayloadDecoder {
                     .map_err(DecodeError::failed)?;
                 Value::try_from(value).map_err(DecodeError::failed)
             }
-            Resolved::Protobuf(codec) => if framing.framed {
+            Resolved::Protobuf(codec) => if framing.has_wire_prefix {
                 codec.decode_framed(&body)
             } else {
                 codec.decode_raw(&body)
@@ -487,8 +487,8 @@ mod tests {
         let slot = PayloadSlot::new(Bytes::from(bytes), None);
         let parsed = Framing::of(&slot).unwrap();
         assert_eq!(parsed.key, 12u32);
-        assert!(parsed.framed);
-        assert_eq!(&slot.raw[parsed.body..], b"datum");
+        assert!(parsed.has_wire_prefix);
+        assert_eq!(&slot.raw[parsed.payload_start..], b"datum");
     }
 
     #[test]
@@ -498,8 +498,8 @@ mod tests {
         let parsed = Framing::of(&slot).unwrap();
 
         assert_eq!(parsed.key, SchemaKey::Guid(guid));
-        assert!(parsed.framed);
-        assert_eq!(&slot.raw[parsed.body..], b"datum");
+        assert!(parsed.has_wire_prefix);
+        assert_eq!(&slot.raw[parsed.payload_start..], b"datum");
     }
 
     #[test]
@@ -518,8 +518,8 @@ mod tests {
         let bare = PayloadSlot::new(Bytes::from_static(b"datum"), Some(99));
         let framing = Framing::of(&bare).unwrap();
         assert_eq!(framing.key, 99u32);
-        assert_eq!(framing.body, 0);
-        assert!(!framing.framed);
+        assert_eq!(framing.payload_start, 0);
+        assert!(!framing.has_wire_prefix);
     }
 
     #[tokio::test]
