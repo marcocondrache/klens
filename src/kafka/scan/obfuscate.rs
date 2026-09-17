@@ -1,0 +1,820 @@
+//! Configured obfuscation of record keys, values, and headers.
+//!
+//! Rules are compiled once at boot ([`ObfuscationPolicy::compile`]) and then
+//! evaluated per record: one topic lookup per page, and `O(path)` pointer
+//! chasing per rule per record. A cluster without rules never builds a policy
+//! at all, so the unconfigured path is a single `Option` check.
+//!
+//! The transform runs inside the scan, *before* any filter sees a payload, so
+//! filters match what the response shows. Without that ordering a filter is
+//! an oracle: an operator recovers a masked card number by extending a
+//! `contains` prefix one digit at a time.
+
+use std::collections::HashMap;
+use std::fmt::Write as _;
+use std::sync::Arc;
+
+use bytes::Bytes;
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
+use thiserror::Error;
+
+use crate::config::{
+    OBFUSCATION_MASK, ObfuscationConfig, ObfuscationStrategy, TopicPattern, UnparsedPolicy,
+};
+
+use super::payload::DecodedPayload;
+
+/// Marks a value the user is looking at a token of, not the value itself.
+const TOKEN_PREFIX: &str = "kx:";
+
+/// Bytes of the HMAC tag a token carries. 64 bits is far past birthday
+/// collisions at page scale while staying short enough to read.
+const TOKEN_BYTES: usize = 8;
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum ObfuscationError {
+    #[error("the hash strategy requires a secret")]
+    MissingSecret,
+    #[error("invalid topic '{pattern}': {reason}")]
+    InvalidTopic { pattern: String, reason: String },
+    #[error("invalid field path '{path}'")]
+    InvalidPath { path: String },
+}
+
+/// Which half of a record a transform is running on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Field {
+    Key,
+    Value,
+}
+
+/// Every cluster rule, indexed by topic.
+#[derive(Debug)]
+pub struct ObfuscationPolicy {
+    exact: HashMap<Box<str>, Arc<TopicObfuscator>>,
+    /// Longest prefix first, so the most specific rule wins. Overlapping
+    /// rules are a config error, so the order only matters for determinism.
+    prefixes: Vec<(Box<str>, Arc<TopicObfuscator>)>,
+}
+
+impl ObfuscationPolicy {
+    pub fn compile(config: &ObfuscationConfig) -> Result<Self, ObfuscationError> {
+        let hasher = config
+            .secret_bytes()
+            .map(|secret| Arc::new(KeyedHasher::new(&secret)));
+
+        let mut exact: HashMap<Box<str>, Arc<TopicObfuscator>> = HashMap::new();
+        let mut prefixes: Vec<(Box<str>, Arc<TopicObfuscator>)> = Vec::new();
+
+        for rule in &config.rules {
+            let fields = rule
+                .fields
+                .iter()
+                .map(|field| CompiledField::compile(&field.path, field.strategy))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            let obfuscator = Arc::new(TopicObfuscator {
+                fields,
+                key: rule.key,
+                value: rule.value,
+                headers: rule
+                    .headers
+                    .iter()
+                    .map(|header| header.as_str().into())
+                    .collect(),
+                unparsed: rule.unparsed,
+                hasher: hasher.clone(),
+            });
+
+            if obfuscator.hashes() && obfuscator.hasher.is_none() {
+                return Err(ObfuscationError::MissingSecret);
+            }
+
+            for topic in &rule.topics {
+                match TopicPattern::parse(topic).map_err(|reason| {
+                    ObfuscationError::InvalidTopic {
+                        pattern: topic.clone(),
+                        reason,
+                    }
+                })? {
+                    TopicPattern::Exact(name) => {
+                        exact.insert(name.into(), Arc::clone(&obfuscator));
+                    }
+                    TopicPattern::Prefix(prefix) => {
+                        prefixes.push((prefix.into(), Arc::clone(&obfuscator)));
+                    }
+                }
+            }
+        }
+
+        prefixes.sort_by_key(|(prefix, _)| std::cmp::Reverse(prefix.len()));
+
+        Ok(Self { exact, prefixes })
+    }
+
+    /// One lookup per page: a scan reads a single topic.
+    pub fn for_topic(&self, topic: &str) -> Option<Arc<TopicObfuscator>> {
+        if let Some(obfuscator) = self.exact.get(topic) {
+            return Some(Arc::clone(obfuscator));
+        }
+
+        self.prefixes
+            .iter()
+            .find(|(prefix, _)| topic.starts_with(prefix.as_ref()))
+            .map(|(_, obfuscator)| Arc::clone(obfuscator))
+    }
+}
+
+/// Everything one topic's records go through.
+#[derive(Debug)]
+pub struct TopicObfuscator {
+    fields: Vec<CompiledField>,
+    key: Option<ObfuscationStrategy>,
+    value: Option<ObfuscationStrategy>,
+    headers: Vec<Box<str>>,
+    unparsed: UnparsedPolicy,
+    hasher: Option<Arc<KeyedHasher>>,
+}
+
+impl TopicObfuscator {
+    /// Whether keys or values are rewritten, which is what makes filtering
+    /// the raw bytes an oracle.
+    pub fn hides_payload(&self) -> bool {
+        !self.fields.is_empty() || self.key.is_some() || self.value.is_some()
+    }
+
+    /// Mask configured header values in place, before anything renders or
+    /// filters them.
+    pub fn mask_headers(&self, headers: &mut [(Bytes, Option<Bytes>)]) {
+        if self.headers.is_empty() {
+            return;
+        }
+
+        for (name, value) in headers.iter_mut() {
+            if self
+                .headers
+                .iter()
+                .any(|masked| masked.as_bytes() == name.as_ref())
+            {
+                *value = Some(Bytes::from_static(OBFUSCATION_MASK.as_bytes()));
+            }
+        }
+    }
+
+    /// Rewrite one decoded field in place.
+    ///
+    /// Runs before the payload's text is ever rendered, so the render happens
+    /// once and already sees tokens. `drop` on a whole field clears it: the
+    /// record then reports no key, or no value.
+    pub fn apply(&self, field: Field, slot: &mut Option<DecodedPayload>) {
+        let whole = match field {
+            Field::Key => self.key,
+            Field::Value => self.value,
+        };
+
+        if whole == Some(ObfuscationStrategy::Drop) {
+            *slot = None;
+            return;
+        }
+
+        let Some(payload) = slot.as_mut() else {
+            return;
+        };
+
+        match payload.json_mut() {
+            Some(json) => {
+                for rule in &self.fields {
+                    rule.apply(json, self.hasher.as_deref());
+                }
+            }
+            // A value that never became JSON cannot be walked, so field rules
+            // would silently miss: fail closed instead.
+            None if field == Field::Value
+                && !self.fields.is_empty()
+                && self.unparsed == UnparsedPolicy::Mask =>
+            {
+                payload.replace(OBFUSCATION_MASK.to_owned());
+            }
+            None => {}
+        }
+
+        match whole {
+            Some(ObfuscationStrategy::Mask) => payload.replace(OBFUSCATION_MASK.to_owned()),
+            Some(ObfuscationStrategy::Hash) => {
+                let token = token(payload.text(), self.hasher.as_deref());
+                payload.replace(token);
+            }
+            _ => {}
+        }
+    }
+
+    fn hashes(&self) -> bool {
+        self.fields
+            .iter()
+            .map(|field| field.strategy)
+            .chain(self.key)
+            .chain(self.value)
+            .any(|strategy| strategy == ObfuscationStrategy::Hash)
+    }
+}
+
+/// A dotted path, pre-split once.
+#[derive(Debug)]
+struct CompiledField {
+    path: Box<[Box<str>]>,
+    strategy: ObfuscationStrategy,
+}
+
+impl CompiledField {
+    fn compile(path: &str, strategy: ObfuscationStrategy) -> Result<Self, ObfuscationError> {
+        if path.trim().is_empty() || path.split('.').any(str::is_empty) {
+            return Err(ObfuscationError::InvalidPath {
+                path: path.to_owned(),
+            });
+        }
+
+        Ok(Self {
+            path: path.split('.').map(Box::from).collect(),
+            strategy,
+        })
+    }
+
+    fn apply(&self, json: &mut serde_json::Value, hasher: Option<&KeyedHasher>) {
+        walk(json, &self.path, self.strategy, hasher);
+    }
+}
+
+/// Walk one compiled path into the tree, rewriting what it lands on.
+///
+/// An array met on the way fans out over its elements, so `items.sku` covers
+/// `items[0].sku`, `items[1].sku`, and so on. A path that does not exist
+/// costs the walk and nothing else.
+fn walk(
+    value: &mut serde_json::Value,
+    path: &[Box<str>],
+    strategy: ObfuscationStrategy,
+    hasher: Option<&KeyedHasher>,
+) {
+    let Some((head, rest)) = path.split_first() else {
+        return;
+    };
+
+    match value {
+        serde_json::Value::Array(items) => {
+            for item in items {
+                walk(item, path, strategy, hasher);
+            }
+        }
+        serde_json::Value::Object(fields) if rest.is_empty() => match strategy {
+            ObfuscationStrategy::Drop => {
+                fields.remove(head.as_ref());
+            }
+            _ => {
+                if let Some(found) = fields.get_mut(head.as_ref()) {
+                    *found = serde_json::Value::String(match strategy {
+                        ObfuscationStrategy::Hash => token(&leaf_text(found), hasher),
+                        _ => OBFUSCATION_MASK.to_owned(),
+                    });
+                }
+            }
+        },
+        serde_json::Value::Object(fields) => {
+            if let Some(found) = fields.get_mut(head.as_ref()) {
+                walk(found, rest, strategy, hasher);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// What a leaf hashes as: a string hashes its contents and anything else its
+/// JSON text, so one value tokens the same however a rule reached it.
+fn leaf_text(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(text) => text.clone(),
+        other => other.to_string(),
+    }
+}
+
+/// A token, or a mask when no key material exists.
+///
+/// Compilation rejects hashing without a secret, so the fallback is only ever
+/// the fail-closed answer to a bug.
+fn token(value: &str, hasher: Option<&KeyedHasher>) -> String {
+    match hasher {
+        Some(hasher) => hasher.token(value),
+        None => OBFUSCATION_MASK.to_owned(),
+    }
+}
+
+/// HMAC-SHA256, truncated.
+///
+/// Keyed because the inputs obfuscation protects are low entropy: an unkeyed
+/// hash of a phone number or an email is a rainbow-table lookup, while a
+/// keyed one needs the secret before enumeration means anything.
+pub struct KeyedHasher {
+    mac: Hmac<Sha256>,
+}
+
+impl std::fmt::Debug for KeyedHasher {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("KeyedHasher")
+            .finish_non_exhaustive()
+    }
+}
+
+impl KeyedHasher {
+    pub fn new(secret: &[u8]) -> Self {
+        Self {
+            // HMAC accepts a key of any length: longer keys are hashed down,
+            // shorter ones zero-padded.
+            mac: Hmac::<Sha256>::new_from_slice(secret).expect("hmac accepts any key length"),
+        }
+    }
+
+    /// `kx:` plus 16 hex characters. Equal inputs give equal tokens for as
+    /// long as the secret lives, which is what keeps records correlatable.
+    pub fn token(&self, value: &str) -> String {
+        let mut mac = self.mac.clone();
+        mac.update(value.as_bytes());
+        let tag = mac.finalize().into_bytes();
+
+        let mut token = String::with_capacity(TOKEN_PREFIX.len() + TOKEN_BYTES * 2);
+        token.push_str(TOKEN_PREFIX);
+        for byte in &tag[..TOKEN_BYTES] {
+            let _ = write!(token, "{byte:02x}");
+        }
+        token
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config(yaml: &str) -> ObfuscationConfig {
+        serde_yaml_ng::from_str(yaml).expect("obfuscation config")
+    }
+
+    fn policy(yaml: &str) -> ObfuscationPolicy {
+        ObfuscationPolicy::compile(&config(yaml)).expect("compiled policy")
+    }
+
+    fn payments() -> ObfuscationPolicy {
+        policy(
+            "
+            secret: 0123456789abcdef0123456789abcdef
+            rules:
+              - topics: ['payments.*']
+                fields:
+                  - path: card.number
+                    strategy: hash
+                  - path: card.cvv
+                    strategy: drop
+                  - path: customer.email
+                    strategy: mask
+            ",
+        )
+    }
+
+    fn decoded(json: serde_json::Value) -> Option<DecodedPayload> {
+        Some(DecodedPayload::decoded(
+            Bytes::from(json.to_string()),
+            Some(7),
+            json,
+        ))
+    }
+
+    fn raw(text: &str) -> Option<DecodedPayload> {
+        Some(DecodedPayload::raw(Bytes::from(text.to_owned())))
+    }
+
+    fn value_of(slot: &Option<DecodedPayload>) -> Option<serde_json::Value> {
+        slot.as_ref().and_then(DecodedPayload::json).cloned()
+    }
+
+    fn apply(obfuscator: &TopicObfuscator, json: serde_json::Value) -> serde_json::Value {
+        let mut slot = decoded(json);
+        obfuscator.apply(Field::Value, &mut slot);
+        value_of(&slot).expect("value survives")
+    }
+
+    #[test]
+    fn each_strategy_rewrites_its_own_field_and_leaves_the_rest() {
+        let obfuscator = payments().for_topic("payments.authorized").expect("rule");
+
+        let masked = apply(
+            &obfuscator,
+            serde_json::json!({
+                "card": {"number": "4111111111111111", "cvv": "123", "brand": "visa"},
+                "customer": {"email": "ada@example.com", "id": 42},
+                "amount": 9.5,
+            }),
+        );
+
+        let number = masked["card"]["number"].as_str().expect("token");
+        assert!(number.starts_with("kx:"), "{number}");
+        assert_eq!(number.len(), 19);
+        assert!(masked["card"].get("cvv").is_none(), "dropped fields vanish");
+        assert_eq!(masked["card"]["brand"], "visa");
+        assert_eq!(masked["customer"]["email"], "***");
+        assert_eq!(masked["customer"]["id"], 42);
+        assert_eq!(masked["amount"], 9.5);
+    }
+
+    #[test]
+    fn the_same_value_always_hashes_to_the_same_token() {
+        let obfuscator = payments().for_topic("payments.authorized").expect("rule");
+
+        let first = apply(&obfuscator, serde_json::json!({"card": {"number": "4111"}}));
+        let second = apply(&obfuscator, serde_json::json!({"card": {"number": "4111"}}));
+        let other = apply(&obfuscator, serde_json::json!({"card": {"number": "4112"}}));
+
+        assert_eq!(first["card"]["number"], second["card"]["number"]);
+        assert_ne!(first["card"]["number"], other["card"]["number"]);
+    }
+
+    #[test]
+    fn a_different_secret_gives_different_tokens() {
+        let rules = |secret: &str| {
+            policy(&format!(
+                "
+                secret: {secret}
+                rules:
+                  - topics: [payments]
+                    fields:
+                      - path: pan
+                        strategy: hash
+                "
+            ))
+            .for_topic("payments")
+            .expect("rule")
+        };
+
+        let left = apply(
+            &rules("0123456789abcdef0123456789abcdef"),
+            serde_json::json!({"pan": "4111"}),
+        );
+        let right = apply(
+            &rules("fedcba9876543210fedcba9876543210"),
+            serde_json::json!({"pan": "4111"}),
+        );
+
+        assert_ne!(left["pan"], right["pan"]);
+    }
+
+    #[test]
+    fn an_array_on_the_path_fans_out_over_its_elements() {
+        let obfuscator = policy(
+            "
+            rules:
+              - topics: [orders]
+                fields:
+                  - path: items.sku
+                    strategy: mask
+            ",
+        )
+        .for_topic("orders")
+        .expect("rule");
+
+        let masked = apply(
+            &obfuscator,
+            serde_json::json!({
+                "items": [{"sku": "a", "qty": 1}, {"sku": "b", "qty": 2}],
+            }),
+        );
+
+        assert_eq!(masked["items"][0]["sku"], "***");
+        assert_eq!(masked["items"][1]["sku"], "***");
+        assert_eq!(masked["items"][0]["qty"], 1);
+    }
+
+    #[test]
+    fn a_root_array_is_walked_element_by_element() {
+        let obfuscator = policy(
+            "
+            rules:
+              - topics: [orders]
+                fields:
+                  - path: sku
+                    strategy: mask
+            ",
+        )
+        .for_topic("orders")
+        .expect("rule");
+
+        let masked = apply(&obfuscator, serde_json::json!([{"sku": "a"}, {"sku": "b"}]));
+
+        assert_eq!(masked, serde_json::json!([{"sku": "***"}, {"sku": "***"}]));
+    }
+
+    #[test]
+    fn numbers_and_booleans_become_token_strings() {
+        let obfuscator = policy(
+            "
+            secret: 0123456789abcdef0123456789abcdef
+            rules:
+              - topics: [orders]
+                fields:
+                  - path: id
+                    strategy: hash
+                  - path: vip
+                    strategy: mask
+            ",
+        )
+        .for_topic("orders")
+        .expect("rule");
+
+        let masked = apply(&obfuscator, serde_json::json!({"id": 42, "vip": true}));
+
+        assert!(masked["id"].as_str().expect("token").starts_with("kx:"));
+        assert_eq!(masked["vip"], "***");
+    }
+
+    #[test]
+    fn a_field_and_a_whole_field_rule_token_a_value_the_same_way() {
+        let rules = |body: &str| {
+            policy(&format!(
+                "
+                secret: 0123456789abcdef0123456789abcdef
+                rules:
+                  - topics: [orders]
+                    {body}
+                "
+            ))
+            .for_topic("orders")
+            .expect("rule")
+        };
+
+        let field = apply(
+            &rules("fields: [{path: email, strategy: hash}]"),
+            serde_json::json!({"email": "ada@example.com"}),
+        );
+        let mut whole = raw("ada@example.com");
+        rules("key: hash").apply(Field::Key, &mut whole);
+
+        assert_eq!(field["email"], whole.expect("key").into_text().as_str());
+    }
+
+    #[test]
+    fn a_missing_path_changes_nothing() {
+        let obfuscator = payments().for_topic("payments.authorized").expect("rule");
+        let original = serde_json::json!({"card": "4111", "note": null});
+
+        assert_eq!(apply(&obfuscator, original.clone()), original);
+    }
+
+    #[test]
+    fn whole_field_rules_replace_key_and_value_text() {
+        let obfuscator = policy(
+            "
+            secret: 0123456789abcdef0123456789abcdef
+            rules:
+              - topics: ['audit.raw']
+                key: mask
+                value: hash
+            ",
+        )
+        .for_topic("audit.raw")
+        .expect("rule");
+
+        let mut key = raw("ada@example.com");
+        let mut value = raw("plain text body");
+        obfuscator.apply(Field::Key, &mut key);
+        obfuscator.apply(Field::Value, &mut value);
+
+        assert_eq!(key.expect("key").into_text(), "***");
+        let value = value.expect("value").into_text();
+        assert!(value.starts_with("kx:"), "{value}");
+    }
+
+    #[test]
+    fn dropping_a_whole_field_leaves_no_field_at_all() {
+        let obfuscator = policy(
+            "
+            rules:
+              - topics: ['audit.raw']
+                value: drop
+            ",
+        )
+        .for_topic("audit.raw")
+        .expect("rule");
+
+        let mut value = raw("secret body");
+        obfuscator.apply(Field::Value, &mut value);
+
+        assert!(value.is_none());
+    }
+
+    #[test]
+    fn a_value_that_never_decoded_is_masked_when_the_topic_has_field_rules() {
+        let obfuscator = payments().for_topic("payments.authorized").expect("rule");
+
+        let mut value = raw(r#"{"card":{"number":"4111111111111111"}}"#);
+        obfuscator.apply(Field::Value, &mut value);
+
+        assert_eq!(value.expect("value").into_text(), "***");
+    }
+
+    #[test]
+    fn unparsed_allow_serves_undecodable_values_as_they_are() {
+        let obfuscator = policy(
+            "
+            rules:
+              - topics: [payments]
+                unparsed: allow
+                fields:
+                  - path: card.number
+                    strategy: mask
+            ",
+        )
+        .for_topic("payments")
+        .expect("rule");
+
+        let mut value = raw("unframed bytes");
+        obfuscator.apply(Field::Value, &mut value);
+
+        assert_eq!(value.expect("value").into_text(), "unframed bytes");
+    }
+
+    #[test]
+    fn an_undecodable_key_is_left_alone_by_value_field_rules() {
+        let obfuscator = payments().for_topic("payments.authorized").expect("rule");
+
+        let mut key = raw("ord_1");
+        obfuscator.apply(Field::Key, &mut key);
+
+        assert_eq!(key.expect("key").into_text(), "ord_1");
+    }
+
+    #[test]
+    fn field_rules_reach_a_decoded_key_too() {
+        let obfuscator = payments().for_topic("payments.authorized").expect("rule");
+
+        let mut key = decoded(serde_json::json!({"customer": {"email": "ada@example.com"}}));
+        obfuscator.apply(Field::Key, &mut key);
+
+        assert_eq!(value_of(&key).expect("key")["customer"]["email"], "***");
+    }
+
+    #[test]
+    fn configured_headers_are_masked_by_name() {
+        let obfuscator = policy(
+            "
+            rules:
+              - topics: [orders]
+                headers: ['x-user-id']
+            ",
+        )
+        .for_topic("orders")
+        .expect("rule");
+
+        let mut headers = vec![
+            (
+                Bytes::from_static(b"x-user-id"),
+                Some(Bytes::from_static(b"ada")),
+            ),
+            (
+                Bytes::from_static(b"source"),
+                Some(Bytes::from_static(b"checkout")),
+            ),
+        ];
+        obfuscator.mask_headers(&mut headers);
+
+        assert_eq!(headers[0].1.as_deref(), Some(b"***".as_slice()));
+        assert_eq!(headers[1].1.as_deref(), Some(b"checkout".as_slice()));
+    }
+
+    #[test]
+    fn a_header_only_rule_leaves_the_payload_filterable_on_raw_bytes() {
+        let obfuscator = policy(
+            "
+            rules:
+              - topics: [orders]
+                headers: ['x-user-id']
+            ",
+        )
+        .for_topic("orders")
+        .expect("rule");
+
+        assert!(!obfuscator.hides_payload());
+        assert!(
+            payments()
+                .for_topic("payments.x")
+                .expect("rule")
+                .hides_payload()
+        );
+    }
+
+    #[test]
+    fn topics_match_exactly_or_by_prefix_and_nothing_else() {
+        let policy = policy(
+            "
+            rules:
+              - topics: ['payments.*', 'audit.raw']
+                value: mask
+            ",
+        );
+
+        assert!(policy.for_topic("payments.authorized").is_some());
+        assert!(policy.for_topic("payments.").is_some());
+        assert!(policy.for_topic("audit.raw").is_some());
+        assert!(policy.for_topic("audit.rawer").is_none());
+        assert!(policy.for_topic("orders.created").is_none());
+    }
+
+    #[test]
+    fn the_longest_matching_prefix_wins() {
+        let policy = policy(
+            "
+            rules:
+              - topics: ['payments.*']
+                value: mask
+              - topics: ['payments.eu.*']
+                value: drop
+            ",
+        );
+
+        let mut value = raw("body");
+        policy
+            .for_topic("payments.eu.cards")
+            .expect("rule")
+            .apply(Field::Value, &mut value);
+
+        assert!(value.is_none(), "the eu rule, not the payments rule");
+    }
+
+    #[test]
+    fn hashing_without_a_secret_does_not_compile() {
+        let error = ObfuscationPolicy::compile(&config(
+            "
+            rules:
+              - topics: [payments]
+                fields:
+                  - path: card.number
+                    strategy: hash
+            ",
+        ))
+        .unwrap_err();
+
+        assert_eq!(error, ObfuscationError::MissingSecret);
+    }
+
+    #[test]
+    fn empty_path_segments_do_not_compile() {
+        let error = ObfuscationPolicy::compile(&config(
+            "
+            rules:
+              - topics: [payments]
+                fields:
+                  - path: card..number
+                    strategy: mask
+            ",
+        ))
+        .unwrap_err();
+
+        assert!(matches!(error, ObfuscationError::InvalidPath { .. }));
+    }
+
+    #[test]
+    fn a_star_in_the_middle_of_a_topic_does_not_compile() {
+        let error = ObfuscationPolicy::compile(&config(
+            "
+            rules:
+              - topics: ['pay*ments']
+                value: mask
+            ",
+        ))
+        .unwrap_err();
+
+        assert!(matches!(error, ObfuscationError::InvalidTopic { .. }));
+    }
+
+    #[test]
+    fn a_base64_secret_and_its_raw_bytes_are_the_same_key() {
+        let raw = "0123456789abcdef0123456789abcdef";
+        let encoded =
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, raw.as_bytes());
+
+        let token = |secret: &str| {
+            let policy = policy(&format!(
+                "
+                secret: {secret}
+                rules:
+                  - topics: [payments]
+                    value: hash
+                "
+            ));
+            let mut value = Some(DecodedPayload::raw(Bytes::from_static(b"4111")));
+            policy
+                .for_topic("payments")
+                .expect("rule")
+                .apply(Field::Value, &mut value);
+            value.expect("value").into_text()
+        };
+
+        assert_eq!(token(raw), token(&encoded));
+    }
+}

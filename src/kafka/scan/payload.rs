@@ -51,6 +51,27 @@ impl DecodedPayload {
         self.json.as_ref()
     }
 
+    /// The decoded tree, for in-place rewriting.
+    ///
+    /// Any text rendered so far is dropped, so the next read renders the tree
+    /// as it now stands.
+    pub fn json_mut(&mut self) -> Option<&mut serde_json::Value> {
+        if self.json.is_some() {
+            self.text.take();
+        }
+        self.json.as_mut()
+    }
+
+    /// Replace the whole payload with `text`, forgetting the decode.
+    ///
+    /// The raw bytes go with it: nothing downstream may reach the original
+    /// value once it has been replaced.
+    pub fn replace(&mut self, text: String) {
+        self.raw = Bytes::new();
+        self.json = None;
+        self.text = OnceCell::from(text);
+    }
+
     pub fn text(&self) -> &str {
         self.text.get_or_init(|| match &self.json {
             Some(json) => serde_json::to_string(json).unwrap_or_else(|_| render_raw(&self.raw)),
@@ -179,5 +200,40 @@ mod tests {
         let slot = PayloadSlot::new(Bytes::from_static(b"plain"), None);
 
         assert_eq!(slot.take().text(), "plain");
+    }
+
+    #[test]
+    fn replacing_a_payload_drops_its_bytes_and_its_tree() {
+        let mut payload = DecodedPayload::decoded(
+            framed(7, b"..."),
+            Some(7),
+            serde_json::json!({"pan": "4111"}),
+        );
+        assert_eq!(payload.text(), r#"{"pan":"4111"}"#);
+
+        payload.replace("***".to_owned());
+
+        assert_eq!(payload.text(), "***");
+        assert!(payload.json().is_none());
+        assert!(payload.bytes().is_empty());
+        assert_eq!(
+            payload.schema_id(),
+            Some(7),
+            "metadata still describes the wire record"
+        );
+    }
+
+    #[test]
+    fn mutating_the_tree_invalidates_an_already_rendered_text() {
+        let mut payload = DecodedPayload::decoded(
+            framed(7, b"..."),
+            Some(7),
+            serde_json::json!({"pan": "4111"}),
+        );
+        assert_eq!(payload.text(), r#"{"pan":"4111"}"#);
+
+        payload.json_mut().expect("tree")["pan"] = serde_json::json!("***");
+
+        assert_eq!(payload.text(), r#"{"pan":"***"}"#);
     }
 }
