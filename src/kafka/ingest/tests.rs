@@ -13,8 +13,6 @@ use crate::kafka::store::fixtures::identity;
 use crate::kafka::store::{Change, ClusterStore};
 use crate::kafka::testing::FakeCluster;
 
-/// Cadences long enough that no lane polls a second time on its own. A test
-/// drives the one lane it cares about with an explicit kick.
 fn idle() -> LaneIntervals {
     LaneIntervals {
         topology: Duration::from_secs(600),
@@ -35,7 +33,6 @@ fn port(session: &FakeCluster) -> Arc<dyn ClusterSession> {
     Arc::new(session.clone())
 }
 
-/// Aborts its lanes on drop, like [`Ingest`].
 struct Lanes(Vec<JoinHandle<()>>);
 
 impl Drop for Lanes {
@@ -46,8 +43,6 @@ impl Drop for Lanes {
     }
 }
 
-/// Everything except the offsets scheduler, so a test can drive
-/// [`OffsetLane::sweep`] itself without racing a background wave.
 fn catalog_lanes(store: &Arc<ClusterStore>, session: &FakeCluster) -> Lanes {
     let intervals = idle();
     Lanes(vec![
@@ -498,7 +493,6 @@ async fn lag_is_computed_from_the_tables_and_fed_to_the_series_store() {
 
     lane.sweep(&store).await;
 
-    // Both partitions sit at high watermark 8, committed at 6 and 5.
     assert_eq!(store.group_row("order-processor").unwrap().total_lag, 5);
     assert_eq!(store.series.group_lag("order-processor"), Some(5));
     assert_eq!(

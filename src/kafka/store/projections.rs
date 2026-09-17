@@ -127,10 +127,6 @@ pub struct ClusterHealthView {
     pub offline_partitions: i32,
 }
 
-/// The lag of one committed offset against its partition's high watermark.
-///
-/// A partition with no watermark contributes nothing and flags the total as
-/// incomplete rather than silently reading as zero lag.
 fn lag_of(committed: i64, end: Option<i64>) -> (i64, bool) {
     match end {
         Some(end) => ((end - committed).max(0), true),
@@ -203,9 +199,6 @@ pub fn topic_detail(
     }
 }
 
-/// Joins committed offsets against watermarks, then fills in assigned
-/// partitions that never committed: those lag by the whole log, which is how
-/// a group that has never run shows up.
 pub fn group_offsets(
     group: &GroupInfo,
     offsets: Option<&GroupOffsets>,
@@ -375,14 +368,10 @@ pub fn offsets_for<'a>(offsets: Option<&'a OffsetTable>, group: &str) -> Option<
     offsets?.get(group).map(Arc::as_ref)
 }
 
-/// `offsets` is already sorted by topic then partition.
 fn unique_topics(offsets: &[GroupOffset]) -> Vec<String> {
-    let mut topics: Vec<String> = Vec::new();
-    for offset in offsets {
-        if topics.last() != Some(&offset.topic) {
-            topics.push(offset.topic.clone());
-        }
-    }
+    let mut topics: Vec<String> = offsets.iter().map(|offset| offset.topic.clone()).collect();
+    topics.sort();
+    topics.dedup();
     topics
 }
 

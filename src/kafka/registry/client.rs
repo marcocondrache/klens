@@ -69,11 +69,6 @@ impl SchemaRegistryClient {
         })
     }
 
-    /// The list projection for every subject.
-    ///
-    /// Fan-out is capped, the global compatibility config is fetched once per
-    /// sweep instead of once per subject, and a subject that fails degrades
-    /// itself rather than the whole listing.
     pub async fn subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
         let names = self
             .inner
@@ -172,8 +167,6 @@ impl SchemaRegistryClient {
         })
     }
 
-    /// Cluster-wide default, read once per sweep. A registry that cannot
-    /// answer falls back to `NONE` rather than failing every subject.
     async fn global_compatibility(&self) -> SchemaCompatibility {
         match self.global_config().await {
             Ok(Some(config)) => compatibility_from_config(&config),

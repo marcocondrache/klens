@@ -257,7 +257,7 @@ impl FakeCluster {
     }
 
     /// Holds every committed-offset fetch open long enough for a scheduler
-    /// wave to overlap, so in-flight counts mean something.
+    /// wave to overlap.
     pub fn with_offsets_delay(self, delay: Duration) -> Self {
         *self.inner.offsets_delay.lock().expect("offsets delay") = delay;
         self

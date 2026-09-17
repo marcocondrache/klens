@@ -2,8 +2,7 @@
 //!
 //! Five independent per-cluster loops, each fetching at its own cadence,
 //! diffing against the previous table, swapping it, and publishing a typed
-//! delta. A slow config sweep never blocks a fast watermark tick, and a
-//! failing lane never takes the others down with it.
+//! delta.
 //!
 //! | Lane       | Cadence  | Emits                                     |
 //! | ---------- | -------- | ----------------------------------------- |

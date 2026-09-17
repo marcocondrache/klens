@@ -19,10 +19,6 @@ use super::series::SeriesStore;
 use super::tables::{ConfigTable, OffsetTable, SubjectTable, Topology, WatermarkTable};
 
 /// The normalized read model for one cluster.
-///
-/// Every table swaps independently at its own cadence. Reads are pointer
-/// loads; everything the UI derives from small inputs — counts, lag sums,
-/// under-replicated flags — is a projection computed here, never stored.
 pub struct ClusterStore {
     pub identity: ClusterIdentity,
     pub topology: Lane<Topology>,
@@ -74,8 +70,6 @@ impl ClusterStore {
         self.topology.ready()
     }
 
-    /// Rebuilt on every topology and subject commit, so per-keystroke search
-    /// never walks the catalog.
     pub fn rebuild_search(&self) {
         let topology = self.topology.load();
         let subjects = self.subjects.load();
@@ -186,8 +180,6 @@ impl ClusterStore {
         ))
     }
 
-    /// Exactly the projection the topic page needs, read off the reverse
-    /// index instead of scanning every group.
     pub fn topic_groups(&self, topic: &str) -> Vec<TopicGroupRow> {
         let Some(topology) = self.topology.load() else {
             return Vec::new();
@@ -276,8 +268,7 @@ impl ClusterStore {
         }
     }
 
-    /// Wakes every lane. Used after a live read reveals staleness, and by
-    /// tests.
+    /// Wakes every lane.
     pub fn kick(&self) {
         self.topology.kick();
         self.watermarks.kick();

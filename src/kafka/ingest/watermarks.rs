@@ -15,15 +15,6 @@ use crate::utils::utc_now;
 
 use super::runner::{LaneSource, floor};
 
-/// Two batched `ListOffsets` calls per tick, and the only source of produce
-/// rates.
-///
-/// Rates are computed at commit time and appended to the series store with
-/// server timestamps, unconditionally. No sampler, no subscriber coupling, no
-/// per-subscription broker polls.
-///
-/// Intervals are measured on the monotonic clock; only the points themselves
-/// carry wall-clock timestamps.
 pub struct WatermarkLane {
     session: Arc<dyn ClusterSession>,
     interval: Duration,
@@ -47,9 +38,6 @@ impl WatermarkLane {
         }
     }
 
-    /// Every partition in the topology, plus every partition a group left a
-    /// committed offset on. Lag stays computable for a topic a group consumed
-    /// that metadata no longer reports.
     fn wanted_partitions(&self, store: &ClusterStore, topology: &Topology) -> Vec<(String, i32)> {
         let mut pairs: Vec<(String, i32)> = topology
             .partition_pairs()
@@ -102,8 +90,6 @@ impl LaneSource for WatermarkLane {
         store: &ClusterStore,
         _previous: Option<&Arc<WatermarkTable>>,
     ) -> Result<Option<WatermarkTable>, KafkaError> {
-        // Nothing to sample until the topology lane says which partitions
-        // exist.
         let Some(topology) = store.topology.load() else {
             return Ok(None);
         };
@@ -122,8 +108,6 @@ impl LaneSource for WatermarkLane {
         if previous.is_none_or(|previous| previous.marks != next.marks) {
             return Some(());
         }
-        // An idle cluster still needs an occasional point so sparklines decay
-        // to zero instead of freezing on their last value.
         self.since_last_commit(Instant::now())
             .is_none_or(|since| since >= self.idle_heartbeat)
             .then_some(())
