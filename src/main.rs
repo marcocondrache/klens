@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Context;
 use klens::app::{AppState, router};
 use klens::config::Config;
-use klens::kafka::QueryEngine;
+use klens::kafka::SessionSet;
 use klens::kafka::ingest::LaneIntervals;
 
 #[tokio::main]
@@ -12,13 +12,13 @@ async fn main() -> anyhow::Result<()> {
     let _telemetry =
         klens::telemetry::Telemetry::init(&config.log_level, env!("CARGO_CRATE_NAME"))?;
 
-    let engine = Arc::new(
-        QueryEngine::from_config(&config)
+    let sessions = Arc::new(
+        SessionSet::from_config(&config)
             .await
-            .context("failed to initialize kafka query engine")?,
+            .context("failed to connect to the configured kafka clusters")?,
     );
 
-    tracing::info!(clusters = ?engine.names(), "configured kafka clusters");
+    tracing::info!(clusters = ?sessions.names(), "configured kafka clusters");
 
     let auth = klens::app::AuthState::from_config(config.auth.as_ref())
         .await
@@ -28,7 +28,7 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("oidc authentication enabled");
     }
 
-    let state = AppState::with_auth(engine, auth).with_ingest(LaneIntervals::default());
+    let state = AppState::with_auth(sessions, auth).with_ingest(LaneIntervals::default());
 
     klens::serve(router(state), config.bind).await
 }
