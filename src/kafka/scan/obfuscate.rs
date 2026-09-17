@@ -28,7 +28,7 @@ pub enum ObfuscationError {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Field {
+pub enum RecordSide {
     Key,
     Value,
 }
@@ -137,10 +137,10 @@ impl TopicObfuscator {
         }
     }
 
-    pub fn apply(&self, field: Field, slot: &mut Option<DecodedPayload>) {
-        let whole = match field {
-            Field::Key => self.key,
-            Field::Value => self.value,
+    pub fn apply(&self, side: RecordSide, slot: &mut Option<DecodedPayload>) {
+        let whole = match side {
+            RecordSide::Key => self.key,
+            RecordSide::Value => self.value,
         };
 
         if whole == Some(ObfuscationStrategy::Drop) {
@@ -158,7 +158,7 @@ impl TopicObfuscator {
                     rule.apply(json, self.hasher.as_deref());
                 }
             }
-            None if field == Field::Value
+            None if side == RecordSide::Value
                 && !self.fields.is_empty()
                 && self.unparsed == UnparsedPolicy::Mask =>
             {
@@ -346,7 +346,7 @@ mod tests {
 
     fn apply(obfuscator: &TopicObfuscator, json: serde_json::Value) -> serde_json::Value {
         let mut slot = decoded(json);
-        obfuscator.apply(Field::Value, &mut slot);
+        obfuscator.apply(RecordSide::Value, &mut slot);
         value_of(&slot).expect("value survives")
     }
 
@@ -502,7 +502,7 @@ mod tests {
             serde_json::json!({"email": "ada@example.com"}),
         );
         let mut whole = raw("ada@example.com");
-        rules("key: hash").apply(Field::Key, &mut whole);
+        rules("key: hash").apply(RecordSide::Key, &mut whole);
 
         assert_eq!(field["email"], whole.expect("key").into_text().as_str());
     }
@@ -531,8 +531,8 @@ mod tests {
 
         let mut key = raw("ada@example.com");
         let mut value = raw("plain text body");
-        obfuscator.apply(Field::Key, &mut key);
-        obfuscator.apply(Field::Value, &mut value);
+        obfuscator.apply(RecordSide::Key, &mut key);
+        obfuscator.apply(RecordSide::Value, &mut value);
 
         assert_eq!(key.expect("key").into_text(), "***");
         let value = value.expect("value").into_text();
@@ -552,7 +552,7 @@ mod tests {
         .expect("rule");
 
         let mut value = raw("secret body");
-        obfuscator.apply(Field::Value, &mut value);
+        obfuscator.apply(RecordSide::Value, &mut value);
 
         assert!(value.is_none());
     }
@@ -562,7 +562,7 @@ mod tests {
         let obfuscator = payments().for_topic("payments.authorized").expect("rule");
 
         let mut value = raw(r#"{"card":{"number":"4111111111111111"}}"#);
-        obfuscator.apply(Field::Value, &mut value);
+        obfuscator.apply(RecordSide::Value, &mut value);
 
         assert_eq!(value.expect("value").into_text(), "***");
     }
@@ -583,7 +583,7 @@ mod tests {
         .expect("rule");
 
         let mut value = raw("unframed bytes");
-        obfuscator.apply(Field::Value, &mut value);
+        obfuscator.apply(RecordSide::Value, &mut value);
 
         assert_eq!(value.expect("value").into_text(), "unframed bytes");
     }
@@ -593,7 +593,7 @@ mod tests {
         let obfuscator = payments().for_topic("payments.authorized").expect("rule");
 
         let mut key = raw("ord_1");
-        obfuscator.apply(Field::Key, &mut key);
+        obfuscator.apply(RecordSide::Key, &mut key);
 
         assert_eq!(key.expect("key").into_text(), "ord_1");
     }
@@ -603,7 +603,7 @@ mod tests {
         let obfuscator = payments().for_topic("payments.authorized").expect("rule");
 
         let mut key = decoded(serde_json::json!({"customer": {"email": "ada@example.com"}}));
-        obfuscator.apply(Field::Key, &mut key);
+        obfuscator.apply(RecordSide::Key, &mut key);
 
         assert_eq!(value_of(&key).expect("key")["customer"]["email"], "***");
     }
@@ -690,7 +690,7 @@ mod tests {
         policy
             .for_topic("payments.eu.cards")
             .expect("rule")
-            .apply(Field::Value, &mut value);
+            .apply(RecordSide::Value, &mut value);
 
         assert!(value.is_none(), "the eu rule, not the payments rule");
     }
@@ -760,7 +760,7 @@ mod tests {
             policy
                 .for_topic("payments")
                 .expect("rule")
-                .apply(Field::Value, &mut value);
+                .apply(RecordSide::Value, &mut value);
             value.expect("value").into_text()
         };
 

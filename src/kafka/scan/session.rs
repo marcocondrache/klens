@@ -15,7 +15,7 @@ use crate::kafka::watermarks::Watermarks;
 use super::batch::{RecordBatch, SortKey};
 use super::cursor::CursorDirection;
 use super::filter::{CompiledFilter, RawField, RecordMeta, Verdict};
-use super::obfuscate::{Field, TopicObfuscator};
+use super::obfuscate::{RecordSide, TopicObfuscator};
 use super::payload::{DecodedPayload, PayloadCodec, PayloadSlot, framed_schema_id, needs_decode};
 use super::plan::{PartitionWindow, advance_cursor, plan_windows, rewind_cursor};
 use super::query::{RecordOrder, RecordQuery};
@@ -339,8 +339,8 @@ impl ScanSession {
             return;
         };
 
-        obfuscator.apply(Field::Key, key);
-        obfuscator.apply(Field::Value, value);
+        obfuscator.apply(RecordSide::Key, key);
+        obfuscator.apply(RecordSide::Value, value);
     }
 
     async fn decode(&self, mut slots: Vec<PayloadSlot>) -> Vec<Option<DecodedPayload>> {
