@@ -28,7 +28,7 @@ Preconditions:
 
 - **Button entry.** Click `Search`. Dialog `Search klens` appears. The input placeholder is `Search topics, groups, brokers and schemas…`. Go to lists `Topics`, `Consumer Groups`, `Schema Registry`, `Brokers`, and `ACLs`. Switch cluster lists `local`.
 - **Keyboard entry.** Close the dialog and wait until it is hidden. Press `Control+K` (or dispatch `keydown` `k` with `ctrlKey` on `window` if Chrome steals the chord). The same dialog appears.
-- **Topic match.** Type `klens-verify-topics`. A Topics group lists `klens-verify-topics`. Choose it. The dialog closes and the URL is `/cluster/local/topics/klens-verify-topics`.
+- **Topic match.** Type `klens-verify-topics`. A Topics group lists `klens-verify-topics` and that row is selected. ArrowDown does not move to Go to `Topics`. Choose the hit. The dialog closes and the URL is `/cluster/local/topics/klens-verify-topics`.
 - **Go to.** Reopen the palette. Choose `ACLs` under Go to. The URL is `/cluster/local/acls`. Reopen and choose `Brokers`. The URL is `/cluster/local/nodes`.
 - **Slash vs search field.** On Brokers (no `data-search-hotkey`), press `/`. The dialog opens. Close it. On Topics, press `/`. Focus moves to `Search topics…` and the dialog does not open.
 - **Proof.** Screenshot the open dialog with the topic match visible. Save the URLs after the topic, ACLs, and Brokers navigations.
@@ -41,4 +41,4 @@ Preconditions:
 - Close the dialog and wait until it is hidden before the next open. `Control+K` toggles. A chord while the dialog is still closing closes it again.
 - The dialog title is `Search klens` and is visually hidden (`sr-only`). Query it by accessible name, not by visible text.
 - Results wait on GraphQL `search`. Wait for the topic row, not a fixed debounce sleep.
-- A query with no hits shows `No matches in local.`
+- A query with no hits shows `No matches in local.` Catalog hits replace the Go to and Switch cluster groups so arrow keys stay on the hits. Those groups return when the query misses the catalog but still matches a section or cluster name.
