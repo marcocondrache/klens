@@ -51,10 +51,6 @@ impl DecodedPayload {
         self.json.as_ref()
     }
 
-    /// The decoded tree, for in-place rewriting.
-    ///
-    /// Any text rendered so far is dropped, so the next read renders the tree
-    /// as it now stands.
     pub fn json_mut(&mut self) -> Option<&mut serde_json::Value> {
         if self.json.is_some() {
             self.text.take();
@@ -62,10 +58,6 @@ impl DecodedPayload {
         self.json.as_mut()
     }
 
-    /// Replace the whole payload with `text`, forgetting the decode.
-    ///
-    /// The raw bytes go with it: nothing downstream may reach the original
-    /// value once it has been replaced.
     pub fn replace(&mut self, text: String) {
         self.raw = Bytes::new();
         self.json = None;

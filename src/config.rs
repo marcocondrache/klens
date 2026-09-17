@@ -387,57 +387,36 @@ impl ClusterConfig {
     }
 }
 
-/// Minimum key material for `hash` tokens, matching the session key bar.
 pub const MIN_OBFUSCATION_SECRET_BYTES: usize = 32;
 
-/// The token every `mask` rule writes, and the `unparsed` fallback.
 pub const OBFUSCATION_MASK: &str = "***";
 
-/// Server-side obfuscation of record keys, values, and headers.
-///
-/// Rules are compiled once at boot and applied inside the scan, before any
-/// filter runs, so a filter can never be used as an oracle for a field the
-/// response hides.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ObfuscationConfig {
-    /// Key for `hash` tokens, as base64 or raw text of at least 32 bytes.
-    /// Required as soon as one rule hashes. Rotating it changes every token,
-    /// so correlation across the rotation is lost.
     #[serde(default)]
     pub secret: Option<String>,
     pub rules: Vec<ObfuscationRule>,
 }
 
-/// What to do with a value that never became JSON, because the registry is
-/// down, the schema is gone, or the bytes were never framed.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum UnparsedPolicy {
-    /// Fail closed: the whole value is masked.
     #[default]
     Mask,
-    /// Fail open: undecodable values are served as they came off the wire.
     Allow,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ObfuscationRule {
-    /// Exact topic names, or a trailing-`*` prefix. No topic may be matched
-    /// by two rules.
     pub topics: Vec<String>,
-    /// Dotted paths into decoded JSON. An array met mid-path fans out over
-    /// its elements, so `items.sku` covers every element's `sku`.
     #[serde(default)]
     pub fields: Vec<ObfuscationField>,
-    /// Strategy for the whole record key, applied after any field rules.
     #[serde(default)]
     pub key: Option<ObfuscationStrategy>,
-    /// Strategy for the whole record value, applied after any field rules.
     #[serde(default)]
     pub value: Option<ObfuscationStrategy>,
-    /// Header names whose values are masked.
     #[serde(default)]
     pub headers: Vec<String>,
     #[serde(default)]
@@ -454,12 +433,8 @@ pub struct ObfuscationField {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ObfuscationStrategy {
-    /// Replace with `***`.
     Mask,
-    /// Replace with a deterministic keyed token, so equal values still
-    /// render equal.
     Hash,
-    /// Remove the field entirely.
     Drop,
 }
 
@@ -469,8 +444,6 @@ impl ObfuscationStrategy {
     }
 }
 
-/// A topic selector: an exact name, or everything under a trailing-`*`
-/// prefix.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TopicPattern<'a> {
     Exact(&'a str),
@@ -497,7 +470,6 @@ impl<'a> TopicPattern<'a> {
         }
     }
 
-    /// Whether both selectors can ever name the same topic.
     fn overlaps(self, other: Self) -> bool {
         match (self, other) {
             (Self::Exact(left), Self::Exact(right)) => left == right,
@@ -518,8 +490,6 @@ impl<'a> TopicPattern<'a> {
 }
 
 impl ObfuscationConfig {
-    /// Key material for `hash` tokens: base64 when it decodes to enough
-    /// bytes, otherwise the literal text. Mirrors the session key.
     pub fn secret_bytes(&self) -> Option<Vec<u8>> {
         let secret = self
             .secret

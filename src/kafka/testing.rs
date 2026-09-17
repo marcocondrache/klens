@@ -271,8 +271,6 @@ impl FakeCluster {
         self
     }
 
-    /// Compile obfuscation rules from the YAML a config file would carry,
-    /// validation included.
     pub fn with_obfuscation(self, yaml: &str) -> Self {
         let config: ObfuscationConfig =
             serde_yaml_ng::from_str(yaml).expect("obfuscation config parses");
@@ -1014,16 +1012,11 @@ fn raw_record(record: &Record) -> RawRecord {
     }
 }
 
-/// A Confluent-framed payload, as the `String` a fixture [`Record`] carries.
-///
-/// Only ids below 128 stay valid UTF-8, which is all a fixture needs.
 fn framed(schema_id: u32, body: &str) -> String {
     String::from_utf8(schemreg::encode_wire_format(schema_id, body.as_bytes()).to_vec())
         .expect("a small schema id frames as utf-8")
 }
 
-/// A record the codec decodes into a tree obfuscation rules can walk: a
-/// framed value with a card, and a header worth masking.
 pub fn card_record(offset: i64, pan: &str) -> Record {
     Record {
         topic: "orders.created".into(),
@@ -1045,8 +1038,6 @@ pub fn card_record(offset: i64, pan: &str) -> Record {
     }
 }
 
-/// Stands in for a registry: framed payloads whose body is JSON decode, and
-/// everything else is left to fall back to its raw bytes.
 #[derive(Default)]
 struct CountingCodec {
     decoded: AtomicUsize,

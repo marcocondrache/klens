@@ -141,7 +141,6 @@ pub struct ScanSession {
     codec: Option<Arc<dyn PayloadCodec>>,
     topic: String,
     filter: Option<CompiledFilter>,
-    /// This topic's obfuscation rules, resolved once per page.
     obfuscator: Option<Arc<TopicObfuscator>>,
     schema_id: Option<i32>,
     walk: RecordOrder,
@@ -242,8 +241,6 @@ impl ScanSession {
                 continue;
             }
 
-            // Before `meta()` exists, so CEL over `headers` and the rendered
-            // headers both see the masked value.
             if let Some(obfuscator) = &self.obfuscator {
                 obfuscator.mask_headers(&mut raw.headers);
             }
@@ -337,8 +334,6 @@ impl ScanSession {
         }
     }
 
-    /// Apply this topic's rules to a decoded pair, before anything filters or
-    /// renders it. Unconfigured topics pay one branch.
     fn obfuscate(&self, key: &mut Option<DecodedPayload>, value: &mut Option<DecodedPayload>) {
         let Some(obfuscator) = &self.obfuscator else {
             return;
@@ -370,9 +365,6 @@ impl ScanSession {
             return Some(verdict);
         }
 
-        // Answering from raw bytes would let a filter match cleartext this
-        // topic never shows, which is an oracle for the hidden value. Decode
-        // first and filter the obfuscated view instead.
         if self
             .obfuscator
             .as_ref()
