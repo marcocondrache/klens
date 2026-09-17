@@ -87,3 +87,38 @@ jobs:
         with:
           version: ${{ needs.semantic-release.outputs.new_release_version }}
           gh-token: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-chart:
+    name: publish chart
+    needs: semantic-release
+    if: needs.semantic-release.outputs.new_release_published == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: v${{ needs.semantic-release.outputs.new_release_version }}
+      - name: Install Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Package and push the chart
+        env:
+          VERSION: ${{ needs.semantic-release.outputs.new_release_version }}
+        run: |
+          dest="${RUNNER_TEMP}/chart"
+          mkdir -p "$dest"
+          repository="$(printf 'oci://ghcr.io/%s/charts' "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          helm package charts/klens \
+            --destination "$dest" \
+            --version "$VERSION" \
+            --app-version "$VERSION"
+          helm push "$dest/klens-${VERSION}.tgz" "$repository"
