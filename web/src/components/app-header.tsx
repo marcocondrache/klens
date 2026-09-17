@@ -106,7 +106,6 @@ export function AppHeader({ onSearch }: { onSearch: () => void }) {
           <SearchIcon />
           <span>Search</span>
           <Kbd className="ml-auto">{formatModK()}</Kbd>
-          <Kbd>/</Kbd>
         </Button>
 
         <Button

@@ -83,7 +83,7 @@ If you drive by hand, use these handles from this repo. Prefer them over coordin
 | Topic search | `input[data-search-hotkey]` placeholder `Search topics…` |
 | Internal topics | label `Show internal` |
 | Sidebar | links `Topics`, `Consumer Groups`, `Schema Registry`, `Brokers`, `ACLs` |
-| Command palette | header button visible label `Search` (accessible name `Search Ctrl+K /`), or `Meta+K` / `Control+K`; `/` opens the dialog only when no `data-search-hotkey` field is visible; dialog title `Search klens` |
+| Command palette | header button visible label `Search` (accessible name `Search Ctrl+K`), or `Meta+K` / `Control+K`; `/` opens the dialog only when no `data-search-hotkey` field is visible; dialog title `Search klens` |
 | Catalog alerts | `Cluster unreachable` when `lastError` is set and `updatedAt` is null; `Catalog update failed` when both are set |
 | Topic row | table cell with the topic name; click opens `/cluster/local/topics/<name>` |
 | Topic tabs | `Data`, `Partitions`, `Consumer groups`, `Configuration` |
