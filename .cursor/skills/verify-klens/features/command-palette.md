@@ -36,7 +36,7 @@ Preconditions:
 ## Gotchas
 
 - `/` focuses the first visible `data-search-hotkey` field instead of the palette. That includes Topics, Groups, Schemas, ACLs, the topic Data tab (`Search key or value…`), topic Configuration, and the broker node `Filter configuration…`. The Brokers list has no hotkey, so `/` opens the dialog there. See `findSearchHotkeyTarget` in `web/src/lib/keyboard.ts`.
-- The header button visible label is `Search`. Its accessible name is `Search Ctrl+K /` because the chord hints live inside the button. Playwright `getByRole('button', { name: 'Search', exact: true })` misses it. Use `name: 'Search'` without `exact`, or `/^Search/`.
+- The header button visible label is `Search`. Its accessible name is `Search Ctrl+K` because the chord hint lives inside the button. Playwright `getByRole('button', { name: 'Search', exact: true })` misses it. Use `name: 'Search'` without `exact`, or `/^Search/`.
 - Google Chrome on Linux may swallow `Control+K` (omnibox). Use the header `Search` button, or dispatch `keydown` on `window` with `key: "k"` and `ctrlKey: true`.
 - Close the dialog and wait until it is hidden before the next open. `Control+K` toggles. A chord while the dialog is still closing closes it again.
 - The dialog title is `Search klens` and is visually hidden (`sr-only`). Query it by accessible name, not by visible text.
