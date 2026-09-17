@@ -60,6 +60,7 @@ reqwest = { version = "0.13", default-features = false, features = ["json", "que
 apache-avro = "0.22"
 prost-reflect = { version = "0.16", features = ["serde"] }
 protox = "0.9"
+bytes = "1"
 
 [build-dependencies]
 anyhow = "1"

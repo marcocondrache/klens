@@ -1,10 +1,11 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use krafka::testing::FakeBroker;
 use tokio::sync::OnceCell;
 
@@ -18,10 +19,10 @@ use crate::kafka::group::{
     CommittedOffset, GroupMember, GroupSnapshot, GroupState, MemberAssignment,
 };
 use crate::kafka::metadata::{BrokerMetadata, MetadataSnapshot, PartitionMetadata, TopicMetadata};
-use crate::kafka::record::batch::RecordBatch;
-use crate::kafka::record::plan::FetchPlan;
-use crate::kafka::record::{Compression, Record, RecordHeader};
+use crate::kafka::model::{PartitionWindow, RawRecord, ScanConsumer};
 use crate::kafka::registry::{SchemaCompatibility, SchemaSubject, SchemaType};
+use crate::kafka::scan::payload::{PayloadCodec, PayloadSlot};
+use crate::kafka::scan::{Compression, Record, RecordHeader};
 use crate::kafka::session::ClusterSession;
 use crate::kafka::topic_config::{ConfigEntry, ConfigSource};
 use crate::kafka::watermarks::Watermarks;
@@ -54,7 +55,9 @@ struct Inner {
     offsets_delay: Mutex<Duration>,
     consume_timeout: Mutex<Option<Duration>>,
     watermark_growth: Mutex<Option<Arc<WatermarkGrowth>>>,
-    plans: Mutex<Vec<FetchPlan>>,
+    assignments: Mutex<Vec<Vec<(i32, i64, i64)>>>,
+    consumers: AtomicUsize,
+    codec: Arc<CountingCodec>,
     calls: SessionCalls,
 }
 
@@ -222,7 +225,9 @@ impl FakeCluster {
                 offsets_delay: Mutex::new(Duration::ZERO),
                 consume_timeout: Mutex::new(None),
                 watermark_growth: Mutex::new(None),
-                plans: Mutex::new(Vec::new()),
+                assignments: Mutex::new(Vec::new()),
+                consumers: AtomicUsize::new(0),
+                codec: Arc::new(CountingCodec::default()),
                 calls: SessionCalls::default(),
             }),
         }
@@ -535,8 +540,20 @@ impl FakeCluster {
         &self.inner.calls
     }
 
-    pub fn recorded_plans(&self) -> Vec<FetchPlan> {
-        self.inner.plans.lock().expect("plans").clone()
+    /// Every window list the scan assigned, in order — one entry per pass.
+    pub fn assigned_windows(&self) -> Vec<Vec<(i32, i64, i64)>> {
+        self.inner.assignments.lock().expect("assignments").clone()
+    }
+
+    /// How many consumers the engine opened. A page must only ever need one.
+    pub fn consumers_opened(&self) -> usize {
+        self.inner.consumers.load(Ordering::SeqCst)
+    }
+
+    /// How many payloads reached the decoder, which is what the two-stage
+    /// filter exists to keep small.
+    pub fn decoded_payloads(&self) -> usize {
+        self.inner.codec.decoded.load(Ordering::SeqCst)
     }
 
     async fn broker(&self) -> &FakeBroker {
@@ -781,26 +798,20 @@ impl ClusterSession for FakeCluster {
             .unwrap_or_default())
     }
 
-    async fn records(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError> {
-        self.inner.plans.lock().expect("plans").push(plan.clone());
-        let delay = *self.inner.records_delay.lock().expect("records delay");
-        if !delay.is_zero() {
-            tokio::time::sleep(delay).await;
-        }
-        let stored = self.inner.records.lock().expect("records").clone();
-        let mut batch = RecordBatch::new(plan.limit, plan.order);
-        for record in stored.iter().filter(|record| {
-            record.topic == plan.topic
-                && plan.windows.iter().any(|window| {
-                    window.partition == record.partition
-                        && record.offset >= window.start
-                        && record.offset < window.end
-                })
-                && record.matches(plan.filter.as_ref())
-        }) {
-            batch.push(record.clone());
-        }
-        Ok(batch.into_records())
+    async fn open_scan(&self, topic: &str) -> Result<Box<dyn ScanConsumer>, KafkaError> {
+        self.inner.consumers.fetch_add(1, Ordering::SeqCst);
+        Ok(Box::new(FakeScan {
+            cluster: self.inner.clone(),
+            topic: topic.to_owned(),
+            pending: Mutex::new(Vec::new()),
+            windows: Mutex::new(HashMap::new()),
+            paused: Mutex::new(HashSet::new()),
+            owed: Mutex::new(Duration::ZERO),
+        }))
+    }
+
+    fn payload_codec(&self) -> Option<Arc<dyn PayloadCodec>> {
+        Some(self.inner.codec.clone())
     }
 
     async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
@@ -822,6 +833,165 @@ impl ClusterSession for FakeCluster {
             return Err(KafkaError::Admin(message.clone()));
         }
         Ok(self.inner.acls.lock().expect("acls").clone())
+    }
+}
+
+/// An in-memory [`ScanConsumer`] over the cluster's canned records.
+///
+/// It models the parts of a real consumer the scan actually leans on: an
+/// assignment it can be reseeked to, polls that only ever return records
+/// inside the assigned windows, and a position that walks to the end of a
+/// window once everything in it has been handed over.
+struct FakeScan {
+    cluster: Arc<Inner>,
+    topic: String,
+    /// Records inside the current assignment that have not been polled yet.
+    pending: Mutex<Vec<RawRecord>>,
+    windows: Mutex<HashMap<i32, (i64, i64)>>,
+    paused: Mutex<HashSet<i32>>,
+    /// Fetch latency still owed for this assignment, paid off a budget at a
+    /// time so a deadline can cut a slow pass short.
+    owed: Mutex<Duration>,
+}
+
+impl FakeScan {
+    fn position_of(&self, partition: i32) -> Option<i64> {
+        let windows = self.windows.lock().expect("windows");
+        let (_, end) = *windows.get(&partition)?;
+        let next = self
+            .pending
+            .lock()
+            .expect("pending")
+            .iter()
+            .filter(|record| record.partition == partition)
+            .map(|record| record.offset)
+            .min();
+        Some(next.unwrap_or(end))
+    }
+}
+
+#[async_trait]
+impl ScanConsumer for FakeScan {
+    async fn assign(&self, windows: &[PartitionWindow]) -> Result<(), KafkaError> {
+        self.cluster.assignments.lock().expect("assignments").push(
+            windows
+                .iter()
+                .map(|window| (window.partition, window.start, window.end))
+                .collect(),
+        );
+        self.paused.lock().expect("paused").clear();
+        *self.owed.lock().expect("owed") =
+            *self.cluster.records_delay.lock().expect("records delay");
+
+        let mut assigned = HashMap::new();
+        for window in windows {
+            assigned.insert(window.partition, (window.start, window.end));
+        }
+
+        let mut pending: Vec<RawRecord> = self
+            .cluster
+            .records
+            .lock()
+            .expect("records")
+            .iter()
+            .filter(|record| record.topic == self.topic)
+            .filter(|record| {
+                assigned
+                    .get(&record.partition)
+                    .is_some_and(|(start, end)| record.offset >= *start && record.offset < *end)
+            })
+            .map(raw_record)
+            .collect();
+        pending.sort_by_key(|record| (record.partition, record.offset));
+
+        *self.pending.lock().expect("pending") = pending;
+        *self.windows.lock().expect("windows") = assigned;
+        Ok(())
+    }
+
+    async fn poll(&self, budget: Duration) -> Result<Vec<RawRecord>, KafkaError> {
+        let owed = *self.owed.lock().expect("owed");
+        if !owed.is_zero() {
+            let slice = owed.min(budget);
+            tokio::time::sleep(slice).await;
+            *self.owed.lock().expect("owed") = owed - slice;
+            if slice < owed {
+                return Ok(Vec::new());
+            }
+        }
+
+        let paused = self.paused.lock().expect("paused").clone();
+        let mut pending = self.pending.lock().expect("pending");
+        let (ready, held) = pending
+            .drain(..)
+            .partition(|record| !paused.contains(&record.partition));
+        *pending = held;
+        Ok(ready)
+    }
+
+    async fn pause(&self, partitions: &[i32]) {
+        let mut paused = self.paused.lock().expect("paused");
+        paused.extend(partitions.iter().copied());
+    }
+
+    async fn position(&self, partition: i32) -> Option<i64> {
+        self.position_of(partition)
+    }
+
+    async fn lag(&self, partition: i32) -> Option<u64> {
+        let position = self.position_of(partition)?;
+        let high = self
+            .cluster
+            .watermarks
+            .lock()
+            .expect("watermarks")
+            .get(&self.topic)
+            .and_then(|partitions| partitions.get(&partition))
+            .map(|marks| marks.high)?;
+        Some(high.saturating_sub(position).max(0) as u64)
+    }
+
+    async fn close(&self) {}
+}
+
+fn raw_record(record: &Record) -> RawRecord {
+    RawRecord {
+        partition: record.partition,
+        offset: record.offset,
+        timestamp: record.timestamp,
+        key: record.key.as_ref().map(|key| Bytes::from(key.clone())),
+        value: record
+            .value
+            .as_ref()
+            .map(|value| Bytes::from(value.clone())),
+        headers: record
+            .headers
+            .iter()
+            .map(|header| {
+                (
+                    Bytes::from(header.key.clone()),
+                    Some(Bytes::from(header.value.clone())),
+                )
+            })
+            .collect(),
+        compression: record.compression,
+    }
+}
+
+/// A codec that counts what it was asked to decode.
+///
+/// Payloads are already plain UTF-8 in the fake, so decoding is a no-op —
+/// the count is the point, because it shows how much work the two-stage
+/// filter avoided.
+#[derive(Default)]
+struct CountingCodec {
+    decoded: AtomicUsize,
+}
+
+#[async_trait]
+impl PayloadCodec for CountingCodec {
+    async fn decode_batch(&self, slots: &mut [PayloadSlot]) {
+        self.decoded.fetch_add(slots.len(), Ordering::SeqCst);
     }
 }
 
