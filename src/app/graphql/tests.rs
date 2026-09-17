@@ -18,13 +18,13 @@ use crate::kafka::store::{
     Change, ClusterStore, ConfigTable, ConfigsDelta, GroupLagUpdate, GroupOffsetsWave, Interner,
     OffsetTable, SubjectTable, SubjectsDelta, TopicRate, TopologyDelta, WatermarksTick,
 };
-use crate::kafka::{FakeCluster, QueryEngine};
+use crate::kafka::{FakeCluster, SessionSet};
 
 use super::context::GraphQlContext;
 use super::schema;
 
 fn with(sessions: Vec<FakeCluster>) -> AppState {
-    AppState::new(Arc::new(QueryEngine::from_sessions(sessions)))
+    AppState::new(Arc::new(SessionSet::from_sessions(sessions)))
 }
 
 fn state() -> AppState {

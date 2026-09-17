@@ -151,26 +151,6 @@ impl ClusterSession for KafkaClient {
         ))
     }
 
-    async fn group(&self, id: &str) -> Result<GroupSnapshot, KafkaError> {
-        if is_internal_group(id) {
-            return Err(KafkaError::UnknownGroup {
-                cluster: self.identity.name.clone(),
-                id: id.to_owned(),
-            });
-        }
-        let described = self
-            .admin
-            .describe_consumer_groups(vec![id.to_owned()])
-            .await?;
-        snapshots_from_descriptions(described)
-            .into_iter()
-            .find(|snapshot| snapshot.id == id)
-            .ok_or_else(|| KafkaError::UnknownGroup {
-                cluster: self.identity.name.clone(),
-                id: id.to_owned(),
-            })
-    }
-
     /// Committed offsets for a group we are not a member of.
     async fn committed_offsets(
         &self,
@@ -716,7 +696,15 @@ mod tests {
         );
 
         let client = kafka_client(&broker.bootstrap_servers()).await;
-        let group = client.group("orders-group").await.expect("describe group");
+        let described = client
+            .admin
+            .describe_consumer_groups(vec!["orders-group".to_owned()])
+            .await
+            .expect("describe group");
+        let group = snapshots_from_descriptions(described)
+            .into_iter()
+            .find(|group| group.id == "orders-group")
+            .expect("orders-group");
         assert_eq!(
             group.members[0].assignments,
             vec![MemberAssignment {

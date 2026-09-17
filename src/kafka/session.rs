@@ -1,14 +1,23 @@
 //! Per-cluster Kafka I/O port.
 //!
-//! The query engine talks only to [`ClusterSession`]. Production is
+//! Everything that talks to a broker goes through [`ClusterSession`], and
+//! [`SessionSet`] holds one per configured cluster. Production is
 //! [`super::client::KafkaClient`]. Tests use an in-memory fake cluster.
+//!
+//! The ingestion lanes own the cadenced reads; the API layer reaches for a
+//! session only for the four reads no lane can project: record pages, broker
+//! configs, ACLs, and schema bodies.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use futures::future::try_join_all;
+use indexmap::IndexMap;
 
+use crate::config::Config;
+use crate::kafka::client::KafkaClient;
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
     AclListing, ClusterIdentity, CommittedOffset, ConfigEntry, GroupSnapshot, MetadataSnapshot,
@@ -53,21 +62,7 @@ pub trait ClusterSession: Send + Sync + 'static {
 
     async fn groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError>;
 
-    /// Snapshot for one consumer group.
-    ///
-    /// The default scans [`groups`](Self::groups). Live clusters override
-    /// this with a single-group broker fetch.
-    async fn group(&self, id: &str) -> Result<GroupSnapshot, KafkaError> {
-        self.groups()
-            .await?
-            .into_iter()
-            .find(|group| group.id == id)
-            .ok_or_else(|| KafkaError::UnknownGroup {
-                cluster: self.identity().name.clone(),
-                id: id.to_owned(),
-            })
-    }
-
+    /// Committed offsets, per topic partition, for one consumer group.
     async fn committed_offsets(
         &self,
         group_id: &str,
@@ -110,5 +105,151 @@ pub trait ClusterSession: Send + Sync + 'static {
 
     fn consume_timeout(&self) -> Duration {
         *crate::environment::CONSUME_TIMEOUT
+    }
+}
+
+/// Every configured cluster's I/O port, in config order.
+///
+/// The counterpart of [`crate::kafka::store::StoreSet`]: one entry per
+/// cluster, keyed by name. The lanes borrow a session for the whole process
+/// lifetime, so sessions are handed out as `Arc`s.
+pub struct SessionSet {
+    sessions: IndexMap<String, Arc<dyn ClusterSession>>,
+}
+
+impl SessionSet {
+    /// Connects one client per configured cluster, in parallel.
+    pub async fn from_config(config: &Config) -> Result<Self, KafkaError> {
+        Ok(Self::from_sessions(
+            try_join_all(config.clusters.iter().map(KafkaClient::new)).await?,
+        ))
+    }
+
+    pub fn from_sessions(sessions: Vec<impl ClusterSession>) -> Self {
+        Self {
+            sessions: sessions
+                .into_iter()
+                .map(|session| {
+                    (
+                        session.identity().name.clone(),
+                        Arc::new(session) as Arc<dyn ClusterSession>,
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    pub fn names(&self) -> Vec<&str> {
+        self.sessions.keys().map(String::as_str).collect()
+    }
+
+    pub fn identities(&self) -> Vec<ClusterIdentity> {
+        self.sessions
+            .values()
+            .map(|session| session.identity().clone())
+            .collect()
+    }
+
+    /// Owned handles for the ingestion lanes, which outlive any single
+    /// request and so cannot borrow.
+    pub fn sessions(&self) -> Vec<Arc<dyn ClusterSession>> {
+        self.sessions.values().map(Arc::clone).collect()
+    }
+
+    pub fn session(&self, name: &str) -> Result<&dyn ClusterSession, KafkaError> {
+        self.sessions
+            .get(name)
+            .map(Arc::as_ref)
+            .ok_or_else(|| KafkaError::UnknownCluster(name.to_owned()))
+    }
+}
+
+impl std::fmt::Debug for SessionSet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SessionSet")
+            .field("clusters", &self.names())
+            .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::ClusterConfig;
+    use crate::kafka::testing::FakeCluster;
+
+    fn cluster_config(name: &str) -> ClusterConfig {
+        ClusterConfig {
+            name: name.to_owned(),
+            bootstrap_servers: vec!["localhost:9092".to_owned()],
+            security: None,
+            schema_registry: None,
+            properties: Default::default(),
+        }
+    }
+
+    fn config(clusters: Vec<ClusterConfig>) -> Config {
+        Config {
+            bind: "127.0.0.1:8080".parse().unwrap(),
+            log_level: "info".into(),
+            clusters,
+            auth: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn from_config_connects_all_clusters_and_keeps_config_order() {
+        use krafka::protocol::ApiKey;
+        use krafka::testing::FakeBroker;
+
+        let first = FakeBroker::start().await.unwrap();
+        let second = FakeBroker::start().await.unwrap();
+        let mut b = cluster_config("b");
+        b.bootstrap_servers = vec![first.bootstrap_servers()];
+        let mut a = cluster_config("a");
+        a.bootstrap_servers = vec![second.bootstrap_servers()];
+
+        let sessions = SessionSet::from_config(&config(vec![b, a])).await.unwrap();
+
+        assert_eq!(sessions.names(), vec!["b", "a"]);
+        assert!(first.request_count(ApiKey::Metadata) > 0);
+        assert!(second.request_count(ApiKey::Metadata) > 0);
+    }
+
+    #[tokio::test]
+    async fn from_config_returns_connection_errors() {
+        let mut cluster = cluster_config("invalid");
+        cluster.bootstrap_servers.clear();
+
+        let result = SessionSet::from_config(&config(vec![cluster])).await;
+
+        assert!(matches!(result, Err(KafkaError::Krafka(_))));
+    }
+
+    #[test]
+    fn identities_keep_config_order() {
+        let sessions = SessionSet::from_sessions(vec![
+            FakeCluster::named("prod"),
+            FakeCluster::named("staging"),
+        ]);
+
+        let names: Vec<String> = sessions
+            .identities()
+            .into_iter()
+            .map(|identity| identity.name)
+            .collect();
+
+        assert_eq!(names, vec!["prod", "staging"]);
+    }
+
+    #[test]
+    fn an_unknown_cluster_is_an_error() {
+        let sessions = SessionSet::from_sessions(vec![FakeCluster::local()]);
+
+        assert!(sessions.session("local").is_ok());
+        assert!(matches!(
+            sessions.session("missing"),
+            Err(KafkaError::UnknownCluster(name)) if name == "missing"
+        ));
     }
 }

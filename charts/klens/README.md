@@ -23,8 +23,8 @@ and `volumeMounts`. Set a Secret `defaultMode` of 0400 on the client key.
 `bind` must be a SocketAddr the Service can reach. A loopback address fails render.
 A `config.bind` port that does not match `service.port` also fails render.
 
-`/health` is process liveness after listen. `/ready` waits for the first catalog
-snapshot on every configured cluster. `helm test` curls `/health`.
+`/health` is process liveness after listen. `/ready` waits for the first topology
+poll on every configured cluster. `helm test` curls `/health`.
 
 replicaCount greater than 1 is legal. Login sessions stay in process memory
 and do not stick across pods.
@@ -89,7 +89,7 @@ Kubernetes: `>=1.25.0-0`
 | podLabels | object | `{}` | Labels added to the pod. |
 | podSecurityContext | object | `{"fsGroup":65532,"runAsGroup":65532,"runAsNonRoot":true,"runAsUser":65532,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod-level securityContext (non-root uid/gid 65532, RuntimeDefault seccomp). |
 | priorityClassName | string | `""` | PriorityClass for the pod. Empty uses the cluster default. |
-| readinessProbe | object | `{"httpGet":{"path":"/ready","port":"http"},"periodSeconds":10}` | Readiness probe. Targets `/ready` after every configured cluster has a catalog snapshot. |
+| readinessProbe | object | `{"httpGet":{"path":"/ready","port":"http"},"periodSeconds":10}` | Readiness probe. Targets `/ready` after every configured cluster has a topology poll. |
 | replicaCount | int | `1` | Replica count. Sessions live in process memory and do not stick across pods. |
 | resources | object | `{}` | Pod resource requests and limits. |
 | secret.existingSecret | string | `""` | Existing Secret whose keys are injected as environment variables. |

@@ -1,6 +1,3 @@
-use crate::kafka::topic::Partition;
-use crate::kafka::watermarks::Watermarks;
-
 /// Raw cluster metadata as reported by the broker, before watermarks,
 /// configs or consumer groups are folded in.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,17 +85,6 @@ impl PartitionMetadata {
 
     pub fn offline(&self) -> bool {
         self.leader < 0
-    }
-
-    pub fn with_watermarks(&self, marks: Watermarks) -> Partition {
-        Partition {
-            id: self.id,
-            leader: self.leader,
-            replicas: self.replicas.clone(),
-            isr: self.isr.clone(),
-            low_watermark: marks.low,
-            high_watermark: marks.high,
-        }
     }
 }
 
