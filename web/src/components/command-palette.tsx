@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState } from "react";
+import { useState } from "react";
 import { FileJsonIcon, HardDriveIcon, LayersIcon, ServerIcon, UsersRoundIcon } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 
@@ -47,7 +47,8 @@ export function CommandPalette({
   const { can } = useAccess();
   const sections = visibleSections(can(cluster, "ACLS"));
   const [term, setTerm] = useState("");
-  const [selected, setSelected] = useState("");
+  const [picked, setPicked] = useState<string | null>(null);
+  const [lead, setLead] = useState("");
 
   function goHref(href: string) {
     void navigate({ href });
@@ -59,7 +60,8 @@ export function CommandPalette({
   function changeOpen(next: boolean) {
     if (!next) {
       setTerm("");
-      setSelected("");
+      setPicked(null);
+      setLead("");
     }
     onOpenChange(next);
   }
@@ -94,9 +96,10 @@ export function CommandPalette({
     goto.length === 0 &&
     clusterHits.length === 0;
 
-  useLayoutEffect(() => {
-    setSelected(highlight);
-  }, [highlight]);
+  if (lead !== highlight) {
+    setLead(highlight);
+    setPicked(null);
+  }
 
   return (
     <CommandDialog
@@ -106,7 +109,7 @@ export function CommandPalette({
       description="Jump to a topic, consumer group, broker, schema or section"
       className="sm:max-w-xl"
     >
-      <Command shouldFilter={false} value={selected} onValueChange={setSelected}>
+      <Command shouldFilter={false} value={picked ?? highlight} onValueChange={setPicked}>
         <CommandInput
           value={term}
           onValueChange={setTerm}
