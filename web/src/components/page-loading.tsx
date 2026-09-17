@@ -38,3 +38,23 @@ export function PageLoading({
     </div>
   );
 }
+
+export function ClustersLoading() {
+  return (
+    <PageLoading
+      title="Loading clusters"
+      description="Reading the configured cluster list."
+      slowDescription="The GraphQL API is not responding."
+    />
+  );
+}
+
+export function CatalogLoading() {
+  return (
+    <PageLoading
+      title="Loading catalog"
+      description="Waiting for the first cluster snapshot."
+      slowDescription="The cluster is taking longer than usual to become ready."
+    />
+  );
+}
