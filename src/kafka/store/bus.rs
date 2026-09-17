@@ -36,8 +36,6 @@ pub struct TopologyDelta {
 }
 
 impl TopologyDelta {
-    /// Lockstep walk of the sorted tables. O(n), no hashing, and the granular
-    /// delta falls out for free.
     pub fn between(previous: Option<&Topology>, next: &Topology) -> Option<Self> {
         let empty = Topology::default();
         let previous = previous.unwrap_or(&empty);
@@ -214,7 +212,6 @@ impl ChangeBus {
         self.sender.subscribe()
     }
 
-    /// Drops the event when nobody is listening, which is the common case.
     pub fn publish(&self, change: Change) {
         let _ = self.sender.send(change);
     }
@@ -224,10 +221,8 @@ impl ChangeBus {
     }
 }
 
-/// Added, removed, changed.
 type KeyDiff = (Vec<Arc<str>>, Vec<Arc<str>>, Vec<Arc<str>>);
 
-/// Lockstep walk of two sorted maps, yielding added, removed and changed keys.
 fn diff_maps<V>(
     previous: &BTreeMap<Arc<str>, V>,
     next: &BTreeMap<Arc<str>, V>,

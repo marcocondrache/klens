@@ -12,10 +12,6 @@ use super::runner::{LaneSource, floor};
 
 /// The Schema Registry list projection: subject, id, type, versions,
 /// compatibility.
-///
-/// Schema bodies are never stored here. Shipping every body to render a list
-/// of names is what made the old sweep expensive; the body is an on-demand
-/// per-subject fetch.
 pub struct SubjectLane {
     session: Arc<dyn ClusterSession>,
     interval: Duration,

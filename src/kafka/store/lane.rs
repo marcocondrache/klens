@@ -27,10 +27,6 @@ impl LaneHealth {
 }
 
 /// An immutable table behind a swappable pointer.
-///
-/// Readers take a pointer clone; writers build a full successor and swap it.
-/// The version only moves when the content moved, so a no-change poll is
-/// invisible to everything downstream.
 pub struct Lane<T> {
     table: RwLock<Option<Arc<T>>>,
     version: AtomicU64,

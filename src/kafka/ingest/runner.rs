@@ -8,10 +8,6 @@ use crate::kafka::error::KafkaError;
 use crate::kafka::store::{ClusterStore, Lane};
 
 /// One ingestion lane: fetch, diff, commit, publish.
-///
-/// Every lane runs on its own task at its own cadence, so a 60-second config
-/// sweep never blocks a 3-second watermark tick, and a failure in one lane
-/// leaves the others serving.
 #[async_trait]
 pub trait LaneSource: Send + Sync + 'static {
     type Table: Send + Sync + 'static;
@@ -37,8 +33,7 @@ pub trait LaneSource: Send + Sync + 'static {
     /// commits nothing, so the version stays put and no event is published.
     fn diff(&self, previous: Option<&Self::Table>, next: &Self::Table) -> Option<Self::Delta>;
 
-    /// Runs after the successor is committed. Feeds the series store, the
-    /// search index and the change bus.
+    /// Runs after the successor is committed.
     fn publish(
         &self,
         store: &ClusterStore,
@@ -102,8 +97,6 @@ mod tests {
     use crate::kafka::store::Topology;
     use crate::kafka::store::fixtures::{identity, partition, topic, topology};
 
-    /// Serves a scripted sequence of topologies so the runner's commit, skip
-    /// and failure paths can be driven exactly.
     struct Scripted {
         polls: AtomicUsize,
         script: Mutex<Vec<Result<Topology, String>>>,

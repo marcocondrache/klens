@@ -13,9 +13,6 @@ use super::runner::{LaneSource, floor};
 
 /// One `DescribeConfigs` over every topic, on the slowest cadence of any
 /// lane.
-///
-/// Broker configs are deliberately absent: they are admin-gated, rare, and
-/// cheap to fetch live, so caching them buys nothing.
 pub struct ConfigLane {
     session: Arc<dyn ClusterSession>,
     interval: Duration,
@@ -68,8 +65,6 @@ impl LaneSource for ConfigLane {
             .keys()
             .filter_map(|name| {
                 let entries = fetched.remove(name.as_ref())?;
-                // Reuse the previous allocation when the entries are
-                // unchanged, so an unmoved config costs one pointer copy.
                 let entries = match previous.and_then(|table| table.topics.get(name)) {
                     Some(existing) if existing.as_slice() == entries => Arc::clone(existing),
                     _ => Arc::new(entries),

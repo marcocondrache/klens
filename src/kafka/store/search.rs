@@ -15,9 +15,6 @@ struct Entry {
 
 /// Lowercased name index over topics, groups, brokers and subjects, rebuilt
 /// on every topology or subject commit.
-///
-/// Typeahead runs per keystroke, so the per-query cost has to be a scan of
-/// pre-lowercased strings, not a walk over the catalog.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SearchIndex {
     entries: Vec<Entry>,

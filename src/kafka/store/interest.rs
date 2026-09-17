@@ -27,10 +27,6 @@ impl InterestState {
 
 type Groups = Arc<Mutex<HashMap<Arc<str>, InterestState>>>;
 
-/// Who is actually looking at what.
-///
-/// The offsets lane promotes groups recorded here to its fast tier, so broker
-/// load scales with viewed groups rather than existing groups.
 #[derive(Debug, Clone)]
 pub struct InterestRegistry {
     groups: Groups,

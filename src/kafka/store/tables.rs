@@ -9,8 +9,6 @@ use crate::kafka::registry::{SchemaCompatibility, SchemaSubject, SchemaType};
 use crate::kafka::topic_config::ConfigEntry;
 use crate::kafka::watermarks::Watermarks;
 
-/// Reuses the previous table's `Arc<str>` keys so a name is stored once per
-/// cluster no matter how many tables reference it.
 #[derive(Debug, Default)]
 pub struct Interner {
     names: HashSet<Arc<str>>,
@@ -103,8 +101,6 @@ impl GroupInfo {
     }
 }
 
-/// Topology lane output: brokers, topics with their partitions, consumer
-/// group membership, and the topic-to-groups reverse index.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Topology {
     pub cluster_id: Option<String>,
@@ -202,8 +198,6 @@ impl Topology {
             .unwrap_or_default()
     }
 
-    /// Interned key for `name`, or a fresh `Arc` when the topic is unknown.
-    /// Lets the other lanes key on the same allocation.
     pub fn intern_topic(&self, name: &str) -> Arc<str> {
         match self.topics.get_key_value(name) {
             Some((key, _)) => Arc::clone(key),
@@ -231,7 +225,6 @@ impl Topology {
     }
 }
 
-/// Watermark lane output, rebuilt every tick.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WatermarkTable {
     pub sampled_at: DateTime<Utc>,
@@ -290,8 +283,6 @@ impl GroupOffsets {
     }
 }
 
-/// Offsets lane output. Per-group values are `Arc`s so a wave that refreshes
-/// twelve groups rebuilds one map of pointers, not every group.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct OffsetTable {
     pub groups: HashMap<Arc<str>, Arc<GroupOffsets>>,
@@ -303,8 +294,6 @@ impl OffsetTable {
     }
 }
 
-/// Config lane output. Broker configs are deliberately absent: they are
-/// admin-gated, rare, and cheap to fetch live.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ConfigTable {
     pub topics: HashMap<Arc<str>, Arc<Vec<ConfigEntry>>>,
@@ -316,8 +305,6 @@ impl ConfigTable {
     }
 }
 
-/// Registry list projection for one subject. Schema bodies are fetched on
-/// demand and never stored here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubjectInfo {
     pub id: i32,
@@ -327,7 +314,6 @@ pub struct SubjectInfo {
     pub compatibility: SchemaCompatibility,
 }
 
-/// Subjects lane output.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SubjectTable {
     pub subjects: BTreeMap<Arc<str>, SubjectInfo>,

@@ -17,8 +17,7 @@
 //! - `catalog` stores and polls the v1 product snapshot ([`ClusterSnapshot`],
 //!   [`CatalogPoller`]). [`QueryEngine`] builds that snapshot (`assemble_catalog`)
 //!   and serves live records, configs, one group, and subjects. `rates`,
-//!   `lag`, and `series` are its time series. All of this is superseded by
-//!   [`store`] and [`ingest`] and goes away once the API cuts over.
+//!   `lag`, and `series` are its time series.
 
 mod client;
 mod registry;

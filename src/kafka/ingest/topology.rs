@@ -12,10 +12,6 @@ use super::runner::{LaneSource, floor};
 
 /// Metadata plus consumer-group membership, the slowest-moving shape in the
 /// cluster.
-///
-/// Diffing the sorted tables replaces the old metadata hash: "nothing
-/// changed" costs one lockstep walk and no downstream work, and when
-/// something did change the granular delta falls out for free.
 pub struct TopologyLane {
     session: Arc<dyn ClusterSession>,
     interval: Duration,
@@ -81,8 +77,6 @@ impl LaneSource for TopologyLane {
     ) {
         delta.version = version;
 
-        // Membership in the topology is the series retention policy: a topic
-        // or group the cluster no longer reports loses its ring here.
         if !delta.removed_topics.is_empty() {
             store
                 .series

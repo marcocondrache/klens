@@ -43,10 +43,6 @@ impl<V: Clone> Ring<V> {
 
 /// Server-timestamped sparkline history, fed only by the watermark and
 /// offsets lanes.
-///
-/// History exists whether or not anyone is subscribed, and the API serves the
-/// same points it streams, so seeding a chart and then following the stream
-/// produces one coherent series.
 #[derive(Debug)]
 pub struct SeriesStore {
     topic_rates: RwLock<HashMap<Arc<str>, Ring<f64>>>,
@@ -150,8 +146,6 @@ impl SeriesStore {
             .map(|point| point.value)
     }
 
-    /// Membership in the topology is the retention policy: a topic or group
-    /// the cluster no longer reports loses its ring on the next commit.
     pub fn retain_topics(&self, live: impl Fn(&str) -> bool) {
         self.topic_rates
             .write()

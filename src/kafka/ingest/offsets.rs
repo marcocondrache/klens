@@ -21,16 +21,13 @@ use super::runner::floor;
 /// Committed offsets, on a tiered schedule rather than a fixed interval.
 ///
 /// Groups someone is looking at refresh fast; everything else refreshes
-/// slowly. Broker load therefore scales with viewed groups, not existing
-/// groups, which is where the old per-poll fan-out fell over.
+/// slowly.
 pub struct OffsetLane {
     session: Arc<dyn ClusterSession>,
     tick: Duration,
     fast: Duration,
     slow: Duration,
     concurrency: usize,
-    /// When each group was last asked, on the monotonic clock. Scheduling
-    /// state belongs to the scheduler, not to the table.
     attempted_at: Mutex<HashMap<Arc<str>, Instant>>,
 }
 
@@ -95,8 +92,6 @@ impl OffsetLane {
         }
     }
 
-    /// One pass: pick what is due, fetch it concurrently, commit once,
-    /// compute lag, feed the series store, publish the wave.
     pub async fn sweep(&self, store: &ClusterStore) -> Wave {
         let Some(topology) = store.topology.load() else {
             return Wave::default();
@@ -122,8 +117,6 @@ impl OffsetLane {
 
         for id in topology.groups.keys() {
             match fetched.get(id) {
-                // A per-group failure degrades that group: it keeps its
-                // previous value, and `sampled_at` exposes the staleness.
                 Some(None) => {
                     failed.push(Arc::clone(id));
                     if let Some(stale) = previous.as_ref().and_then(|table| table.get(id)) {
@@ -140,8 +133,6 @@ impl OffsetLane {
                         }),
                     );
                 }
-                // Untouched groups carry their pointer across, so a wave is
-                // one map rebuild rather than a full refetch.
                 None => {
                     if let Some(kept) = previous.as_ref().and_then(|table| table.get(id)) {
                         groups.insert(Arc::clone(id), Arc::clone(kept));
@@ -209,8 +200,6 @@ impl OffsetLane {
         }
     }
 
-    /// Forgets the schedule for groups the cluster no longer reports, so the
-    /// bookkeeping stays the size of the roster.
     fn retain(&self, topology: &Topology) {
         self.attempted_at
             .lock()
@@ -277,8 +266,6 @@ impl OffsetLane {
     }
 }
 
-/// Assigned partitions, plus whatever the group last committed to. The union
-/// keeps an empty group's offsets refreshing after its members are gone.
 fn offset_fetch_partitions(
     topology: &Topology,
     previous: Option<&OffsetTable>,
@@ -307,8 +294,6 @@ fn offset_fetch_partitions(
     partitions
 }
 
-/// Groups the offsets table still carries that the topology no longer
-/// reports.
 fn stale_groups(topology: &Topology, previous: Option<&OffsetTable>) -> Vec<Arc<str>> {
     previous
         .map(|table| {
