@@ -14,8 +14,8 @@ import {
   CommandShortcut,
 } from "@/components/ui/command";
 import { StatusDot } from "@/components/status";
-import { useCatalogHealth, useClusters, useSearch } from "@/lib/api/catalog";
-import { catalogTone, useClusterName } from "@/lib/clusters";
+import { useClusters, useSearch } from "@/lib/api/catalog";
+import { clusterTone, useClusterName } from "@/lib/clusters";
 import { useAccess } from "@/hooks/use-access";
 import { clusterSectionTo, useActiveSection, visibleSections } from "@/lib/sections";
 
@@ -37,7 +37,7 @@ export function CommandPalette({
   const navigate = useNavigate();
   const section = useActiveSection();
   const { can } = useAccess();
-  const sections = visibleSections(can(cluster, "acls"));
+  const sections = visibleSections(can(cluster, "ACLS"));
   const [term, setTerm] = useState("");
 
   function goHref(href: string) {
@@ -45,10 +45,7 @@ export function CommandPalette({
   }
 
   const { data: clusters = [] } = useClusters();
-  const { data: health } = useCatalogHealth(cluster);
-  const { data: search, isFetching, isError, error } = useSearch(cluster, term);
-  const results = search?.hits ?? [];
-  const registryError = search?.schemaRegistryError;
+  const { data: results = [], isFetching, isError, error } = useSearch(cluster, term);
 
   function changeOpen(next: boolean) {
     if (!next) setTerm("");
@@ -84,11 +81,7 @@ export function CommandPalette({
             <CommandEmpty>{error instanceof Error ? error.message : "Search failed."}</CommandEmpty>
           ) : null}
 
-          {term && registryError ? (
-            <p className="px-2 py-1.5 text-sm text-destructive">{registryError}</p>
-          ) : null}
-
-          {term && !isFetching && !isError && results.length === 0 && !registryError ? (
+          {term && !isFetching && !isError && results.length === 0 ? (
             <CommandEmpty>No matches in {cluster}.</CommandEmpty>
           ) : null}
 
@@ -203,24 +196,24 @@ export function CommandPalette({
           </CommandGroup>
 
           <CommandGroup heading="Switch cluster">
-            {clusters.map((name) => (
+            {clusters.map((entry) => (
               <CommandItem
-                key={name}
-                value={`cluster:${name}`}
+                key={entry.cluster}
+                value={`cluster:${entry.cluster}`}
                 className="min-w-0"
                 onSelect={() =>
                   run(() => {
                     void navigate({
                       to: section ? clusterSectionTo(section.segment) : "/cluster/$cluster",
-                      params: { cluster: name },
+                      params: { cluster: entry.cluster },
                     });
                   })
                 }
               >
                 <ServerIcon className="text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate">{name}</span>
+                <span className="min-w-0 flex-1 truncate">{entry.cluster}</span>
                 <CommandShortcut className="flex shrink-0 items-center gap-1.5 tracking-normal">
-                  <StatusDot tone={name === cluster ? catalogTone(health) : "idle"} />
+                  <StatusDot tone={clusterTone(entry)} />
                 </CommandShortcut>
               </CommandItem>
             ))}

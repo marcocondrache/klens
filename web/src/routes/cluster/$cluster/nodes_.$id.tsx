@@ -22,7 +22,7 @@ function NodePage() {
   const brokerId = Number(id);
 
   const { can } = useAccess();
-  const canConfigs = can(cluster, "configs");
+  const canConfigs = can(cluster, "CONFIGS");
   const { data: broker, isPending } = useBroker(cluster, brokerId);
   const { data: configs = [], isPending: configsPending } = useBrokerConfigs(
     cluster,

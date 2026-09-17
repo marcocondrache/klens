@@ -11,13 +11,12 @@ import { type DataTableFeatures } from "@/components/data-table/features";
 import { PageHeader } from "@/components/page-header";
 import { Stat, StatGrid } from "@/components/stat";
 import { GroupStateBadge, Pill } from "@/components/status";
-import { useConsumerGroup } from "@/lib/api/catalog";
+import { useGroup } from "@/lib/api/catalog";
 import { catalogLookupMessage } from "@/lib/catalog-lookup";
 import { useGroupLagHistory } from "@/lib/api/live";
-import { useConsumerGroupLag } from "@/lib/api/subscriptions";
 import { useClusterName } from "@/lib/clusters";
-import { formatCount, formatNumber } from "@/lib/format";
-import type { ConsumerGroupMember, GroupOffset } from "@/lib/api/types";
+import { formatCount, formatNumber, toNumber } from "@/lib/format";
+import type { GroupMember, GroupOffset } from "@/lib/api/types";
 import { parseGroupDetailSearch } from "@/lib/route-search";
 
 export const Route = createFileRoute("/cluster/$cluster/groups_/$group")({
@@ -26,7 +25,7 @@ export const Route = createFileRoute("/cluster/$cluster/groups_/$group")({
 });
 
 const offsetColumnHelper = createColumnHelper<DataTableFeatures, GroupOffset>();
-const memberColumnHelper = createColumnHelper<DataTableFeatures, ConsumerGroupMember>();
+const memberColumnHelper = createColumnHelper<DataTableFeatures, GroupMember>();
 
 const memberColumns = memberColumnHelper.columns([
   memberColumnHelper.accessor("clientId", {
@@ -83,9 +82,8 @@ function ConsumerGroupPage() {
   const { group: groupId } = Route.useParams();
   const { tab: tabParam } = Route.useSearch();
   const tab = tabParam ?? "offsets";
-  const { data: group, isPending, isError, error } = useConsumerGroup(cluster, groupId);
+  const { data: group, isPending, isError, error } = useGroup(cluster, groupId);
   const { data: lagHistory = [] } = useGroupLagHistory(cluster, groupId);
-  useConsumerGroupLag(cluster, groupId);
 
   function selectTab(value: string) {
     void navigate({
@@ -116,10 +114,14 @@ function ConsumerGroupPage() {
     return <PageHeader title={groupId} mono description={lookup} />;
   }
 
-  const maxLag = Math.max(1, ...(group?.offsets ?? []).map((offset) => offset.lag));
-  const memberLabels = new Map(
-    (group?.members ?? []).map((member) => [member.id, member.clientId] as const),
-  );
+  const offsets = group?.offsets ?? [];
+  const members = group?.members ?? [];
+  const maxLag = Math.max(1, ...offsets.map((offset) => toNumber(offset.lag)));
+  const memberLabels = new Map(members.map((member) => [member.id, member.clientId] as const));
+  const topicCount = new Set([
+    ...offsets.map((offset) => offset.topic),
+    ...members.flatMap((member) => member.assignments.map((assignment) => assignment.topic)),
+  ]).size;
 
   const offsetColumns = offsetColumnHelper.columns([
     offsetColumnHelper.accessor("topic", {
@@ -143,28 +145,29 @@ function ConsumerGroupPage() {
       meta: { align: "right", label: "Partition" },
       cell: ({ getValue }) => <span className="numeric font-mono">{getValue()}</span>,
     }),
-    offsetColumnHelper.accessor("currentOffset", {
+    offsetColumnHelper.accessor((offset) => toNumber(offset.currentOffset), {
       id: "current",
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title="Committed" className="justify-end" />
       ),
       meta: { align: "right", label: "Committed" },
-      cell: ({ getValue }) => formatNumber(getValue()),
+      cell: ({ row }) => formatNumber(row.original.currentOffset),
     }),
-    offsetColumnHelper.accessor("endOffset", {
+    offsetColumnHelper.accessor((offset) => toNumber(offset.endOffset), {
       id: "end",
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title="End offset" className="justify-end" />
       ),
       meta: { align: "right", label: "End offset" },
-      cell: ({ getValue }) => formatNumber(getValue()),
+      cell: ({ row }) => formatNumber(row.original.endOffset),
     }),
-    offsetColumnHelper.accessor("lag", {
+    offsetColumnHelper.accessor((offset) => toNumber(offset.lag), {
+      id: "lag",
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title="Lag" className="justify-end" />
       ),
       meta: { align: "right", label: "Lag" },
-      cell: ({ getValue }) => {
+      cell: ({ getValue, row }) => {
         const lag = getValue();
 
         return (
@@ -183,7 +186,7 @@ function ConsumerGroupPage() {
                 }}
               />
             </span>
-            <span className="numeric w-16 font-mono">{formatNumber(lag)}</span>
+            <span className="numeric w-16 font-mono">{formatNumber(row.original.lag)}</span>
           </span>
         );
       },
@@ -220,21 +223,18 @@ function ConsumerGroupPage() {
             <>
               <GroupStateBadge state={group.state} />
               {group.protocol ? <Pill>{group.protocol}</Pill> : null}
-              <Pill>coordinator {group.coordinator}</Pill>
+              <Pill>coordinator {group.coordinatorId}</Pill>
             </>
           ) : null
         }
-        description={
-          group
-            ? `${group.topics.length} topics · ${group.offsets.length} assigned partitions`
-            : null
-        }
+        description={group ? `${topicCount} topics · ${offsets.length} assigned partitions` : null}
       />
 
       <StatGrid>
         <Stat
           label="Total lag"
-          value={formatCount(group?.lag ?? 0)}
+          value={`${group?.lagComplete === false ? "≥ " : ""}${formatCount(group?.totalLag ?? 0)}`}
+          hint={group?.lagComplete === false ? "some watermarks missing" : undefined}
           icon={<ActivityIcon />}
           loading={isPending}
           accent
@@ -243,20 +243,15 @@ function ConsumerGroupPage() {
         </Stat>
         <Stat
           label="Members"
-          value={group?.members.length ?? 0}
+          value={members.length}
           hint={group?.state === "EMPTY" ? "no active consumers" : "active consumers"}
           icon={<UsersRoundIcon />}
           loading={isPending}
         />
-        <Stat
-          label="Topics"
-          value={group?.topics.length ?? 0}
-          icon={<LayersIcon />}
-          loading={isPending}
-        />
+        <Stat label="Topics" value={topicCount} icon={<LayersIcon />} loading={isPending} />
         <Stat
           label="Partitions"
-          value={group?.offsets.length ?? 0}
+          value={offsets.length}
           hint="with committed offsets"
           icon={<NetworkIcon />}
           loading={isPending}
@@ -271,22 +266,18 @@ function ConsumerGroupPage() {
         <TabsList variant="line" className="shrink-0">
           <TabsTrigger value="offsets">
             Offsets
-            <span className="numeric ml-1.5 text-muted-foreground">
-              {group?.offsets.length ?? 0}
-            </span>
+            <span className="numeric ml-1.5 text-muted-foreground">{offsets.length}</span>
           </TabsTrigger>
           <TabsTrigger value="members">
             Members
-            <span className="numeric ml-1.5 text-muted-foreground">
-              {group?.members.length ?? 0}
-            </span>
+            <span className="numeric ml-1.5 text-muted-foreground">{members.length}</span>
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="offsets" className="mt-4 flex min-h-0 flex-col">
           <DataTable
             columns={offsetColumns}
-            data={group?.offsets ?? []}
+            data={offsets}
             getRowId={(offset) => `${offset.topic}-${offset.partition}`}
             loading={isPending}
             pageSize={25}
@@ -304,7 +295,7 @@ function ConsumerGroupPage() {
         <TabsContent value="members" className="mt-4 flex min-h-0 flex-col">
           <DataTable
             columns={memberColumns}
-            data={group?.members ?? []}
+            data={members}
             getRowId={(member) => member.id}
             loading={isPending}
             emptyState={

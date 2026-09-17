@@ -9,14 +9,14 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { PageLoading } from "@/components/page-loading";
-import { useClusters } from "@/lib/api/catalog";
+import { useClusterNames } from "@/lib/api/catalog";
 
 export const Route = createFileRoute("/")({
   component: HomePage,
 });
 
 function HomePage() {
-  const { data: clusters, isPending, isError } = useClusters();
+  const { data: clusters, isPending, isError } = useClusterNames();
   const name = clusters?.[0];
 
   if (isPending) {

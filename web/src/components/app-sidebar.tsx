@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { GithubIcon } from "@/components/icons";
-import { useCatalogHealth } from "@/lib/api/catalog";
+import { useClusterHealth } from "@/lib/api/catalog";
 import { RELEASE_URL, REPO_URL, VERSION } from "@/lib/build";
 import { useClusterName } from "@/lib/clusters";
 import { formatCount } from "@/lib/format";
@@ -31,15 +31,15 @@ export function AppSidebar() {
   const cluster = useClusterName();
   const matchRoute = useMatchRoute();
   const { can } = useAccess();
-  const sections = visibleSections(can(cluster, "acls"));
+  const sections = visibleSections(can(cluster, "ACLS"));
 
-  const { data: health } = useCatalogHealth(cluster);
+  const { data: health } = useClusterHealth(cluster);
 
   const counts: Record<ClusterSection, number | undefined> = {
-    topics: health?.updatedAt == null ? undefined : health.topicCount,
-    groups: health?.updatedAt == null ? undefined : health.groupCount,
-    schemas: health?.subjectsUpdatedAt == null ? undefined : health.subjectCount,
-    nodes: health?.updatedAt == null ? undefined : health.brokerCount,
+    topics: health?.topology.updatedAt == null ? undefined : health.topicCount,
+    groups: health?.topology.updatedAt == null ? undefined : health.groupCount,
+    schemas: health?.subjects.updatedAt == null ? undefined : health.subjectCount,
+    nodes: health?.topology.updatedAt == null ? undefined : health.brokerCount,
     acls: undefined,
   };
 
