@@ -10,12 +10,14 @@
 //! an oracle: an operator recovers a masked card number by extending a
 //! `contains` prefix one digit at a time.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::sync::Arc;
 
 use bytes::Bytes;
 use hmac::{Hmac, Mac};
+use regex::{Captures, Regex, RegexBuilder};
 use sha2::Sha256;
 use thiserror::Error;
 
@@ -32,6 +34,12 @@ const TOKEN_PREFIX: &str = "kx:";
 /// collisions at page scale while staying short enough to read.
 const TOKEN_BYTES: usize = 8;
 
+/// Compiled size of one pattern rule. A Unicode-aware `\b\d{13,19}\b` costs
+/// a little over 100 KiB on its own, so the bound is generous for the
+/// classes real rules need while staying an order of magnitude under the
+/// crate's own 10 MiB default.
+const REGEX_SIZE_LIMIT: usize = 1024 * 1024;
+
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ObfuscationError {
     #[error("the hash strategy requires a secret")]
@@ -40,6 +48,8 @@ pub enum ObfuscationError {
     InvalidTopic { pattern: String, reason: String },
     #[error("invalid field path '{path}'")]
     InvalidPath { path: String },
+    #[error("invalid pattern '{pattern}': {reason}")]
+    InvalidPattern { pattern: String, reason: String },
 }
 
 /// Which half of a record a transform is running on.
@@ -74,8 +84,15 @@ impl ObfuscationPolicy {
                 .map(|field| CompiledField::compile(&field.path, field.strategy))
                 .collect::<Result<Vec<_>, _>>()?;
 
+            let patterns = rule
+                .patterns
+                .iter()
+                .map(|pattern| CompiledPattern::compile(&pattern.regex, pattern.strategy))
+                .collect::<Result<Vec<_>, _>>()?;
+
             let obfuscator = Arc::new(TopicObfuscator {
                 fields,
+                patterns,
                 key: rule.key,
                 value: rule.value,
                 headers: rule
@@ -130,6 +147,7 @@ impl ObfuscationPolicy {
 #[derive(Debug)]
 pub struct TopicObfuscator {
     fields: Vec<CompiledField>,
+    patterns: Vec<CompiledPattern>,
     key: Option<ObfuscationStrategy>,
     value: Option<ObfuscationStrategy>,
     headers: Vec<Box<str>>,
@@ -141,7 +159,10 @@ impl TopicObfuscator {
     /// Whether keys or values are rewritten, which is what makes filtering
     /// the raw bytes an oracle.
     pub fn hides_payload(&self) -> bool {
-        !self.fields.is_empty() || self.key.is_some() || self.value.is_some()
+        !self.fields.is_empty()
+            || !self.patterns.is_empty()
+            || self.key.is_some()
+            || self.value.is_some()
     }
 
     /// Mask configured header values in place, before anything renders or
@@ -205,7 +226,31 @@ impl TopicObfuscator {
                 let token = token(payload.text(), self.hasher.as_deref());
                 payload.replace(token);
             }
-            _ => {}
+            // Patterns read the rendered text, so they only have something
+            // to scan when the whole field survived.
+            _ => self.rewrite_matches(payload),
+        }
+    }
+
+    /// Replace every pattern match in the rendered text.
+    ///
+    /// The render is the one the response would have done anyway, and a
+    /// record nothing matches keeps its tree — and its JSON shape — at the
+    /// cost of the scan alone.
+    fn rewrite_matches(&self, payload: &mut DecodedPayload) {
+        if self.patterns.is_empty() {
+            return;
+        }
+
+        let mut text = Cow::Borrowed(payload.text());
+        for pattern in &self.patterns {
+            if let Cow::Owned(rewritten) = pattern.apply(text.as_ref(), self.hasher.as_deref()) {
+                text = Cow::Owned(rewritten);
+            }
+        }
+
+        if let Cow::Owned(text) = text {
+            payload.replace(text);
         }
     }
 
@@ -213,6 +258,7 @@ impl TopicObfuscator {
         self.fields
             .iter()
             .map(|field| field.strategy)
+            .chain(self.patterns.iter().map(|pattern| pattern.strategy))
             .chain(self.key)
             .chain(self.value)
             .any(|strategy| strategy == ObfuscationStrategy::Hash)
@@ -242,6 +288,59 @@ impl CompiledField {
 
     fn apply(&self, json: &mut serde_json::Value, hasher: Option<&KeyedHasher>) {
         walk(json, &self.path, self.strategy, hasher);
+    }
+}
+
+/// A pattern rule, compiled once.
+///
+/// Field rules only reach JSON a registry decode produced; a pattern reaches
+/// the rendered text, which is all a schemaless topic ever has. It is the
+/// weaker guarantee of the two — a value written in an unexpected format
+/// slips past the regex — so it exists for text topics, not instead of
+/// field rules.
+#[derive(Debug)]
+struct CompiledPattern {
+    regex: Regex,
+    strategy: ObfuscationStrategy,
+}
+
+impl CompiledPattern {
+    fn compile(source: &str, strategy: ObfuscationStrategy) -> Result<Self, ObfuscationError> {
+        let invalid = |reason: String| ObfuscationError::InvalidPattern {
+            pattern: source.to_owned(),
+            reason,
+        };
+
+        // The `regex` crate is DFA-based, so matching is linear whatever the
+        // config says and only the compiled size needs a bound.
+        let regex = RegexBuilder::new(source)
+            .size_limit(REGEX_SIZE_LIMIT)
+            .build()
+            .map_err(|error| invalid(error.to_string()))?;
+
+        // A pattern that also matches nothing would rewrite every position
+        // of every payload, which is a foot-gun rather than a policy.
+        if regex.is_match("") {
+            return Err(invalid("it matches the empty string".to_owned()));
+        }
+
+        Ok(Self { regex, strategy })
+    }
+
+    /// Rewrite every match. Text nothing matches comes back borrowed, so a
+    /// clean record costs the scan and no allocation.
+    fn apply<'a>(&self, text: &'a str, hasher: Option<&KeyedHasher>) -> Cow<'a, str> {
+        match self.strategy {
+            // `NoExpand` because a replacement is literal: `$1` in a mask is
+            // three characters, not a capture group.
+            ObfuscationStrategy::Mask => self
+                .regex
+                .replace_all(text, regex::NoExpand(OBFUSCATION_MASK)),
+            ObfuscationStrategy::Drop => self.regex.replace_all(text, regex::NoExpand("")),
+            ObfuscationStrategy::Hash => self
+                .regex
+                .replace_all(text, |captures: &Captures<'_>| token(&captures[0], hasher)),
+        }
     }
 }
 
@@ -706,6 +805,180 @@ mod tests {
                 .expect("rule")
                 .hides_payload()
         );
+    }
+
+    fn logs() -> ObfuscationPolicy {
+        policy(
+            r"
+            secret: 0123456789abcdef0123456789abcdef
+            rules:
+              - topics: ['app.logs']
+                patterns:
+                  - regex: '\b\d{13,19}\b'
+                    strategy: hash
+                  - regex: '[\w.+-]+@[\w-]+\.[\w.]+'
+                    strategy: mask
+            ",
+        )
+    }
+
+    #[test]
+    fn patterns_rewrite_every_match_in_text_a_field_rule_could_never_reach() {
+        let obfuscator = logs().for_topic("app.logs").expect("rule");
+
+        let mut value = raw("charged 4111111111111111 for ada@example.com, retry 4111111111111111");
+        obfuscator.apply(Field::Value, &mut value);
+        let text = value.expect("value").into_text();
+
+        assert!(!text.contains("4111111111111111"), "{text}");
+        assert!(!text.contains("ada@example.com"), "{text}");
+        assert_eq!(text.matches("kx:").count(), 2, "{text}");
+        assert!(text.contains("***"), "{text}");
+        assert!(
+            text.starts_with("charged "),
+            "the rest is untouched: {text}"
+        );
+    }
+
+    #[test]
+    fn a_pattern_hashes_equal_spans_to_equal_tokens() {
+        let obfuscator = logs().for_topic("app.logs").expect("rule");
+
+        let mut value = raw("pan 4111111111111111 then 4111111111111111 then 4222222222222222");
+        obfuscator.apply(Field::Value, &mut value);
+        let text = value.expect("value").into_text();
+
+        let tokens: Vec<&str> = text
+            .split_whitespace()
+            .filter(|w| w.starts_with("kx:"))
+            .collect();
+        assert_eq!(tokens.len(), 3);
+        assert_eq!(tokens[0], tokens[1], "the same span tokens the same way");
+        assert_ne!(tokens[0], tokens[2]);
+    }
+
+    #[test]
+    fn a_pattern_that_matches_nothing_leaves_the_payload_alone() {
+        let obfuscator = logs().for_topic("app.logs").expect("rule");
+
+        let mut value = decoded(serde_json::json!({"level": "warn", "took": 12}));
+        obfuscator.apply(Field::Value, &mut value);
+
+        assert_eq!(
+            value_of(&value).expect("value"),
+            serde_json::json!({"level": "warn", "took": 12}),
+            "an untouched record keeps its tree, and its shape"
+        );
+    }
+
+    #[test]
+    fn patterns_reach_the_key_as_well_as_the_value() {
+        let obfuscator = logs().for_topic("app.logs").expect("rule");
+
+        let mut key = raw("user ada@example.com");
+        obfuscator.apply(Field::Key, &mut key);
+
+        assert_eq!(key.expect("key").into_text(), "user ***");
+    }
+
+    #[test]
+    fn a_pattern_can_delete_what_it_matches() {
+        let obfuscator = policy(
+            r"
+            rules:
+              - topics: ['app.logs']
+                patterns:
+                  - regex: 'token=\S+'
+                    strategy: drop
+            ",
+        )
+        .for_topic("app.logs")
+        .expect("rule");
+
+        let mut value = raw("GET /orders token=abc123 200");
+        obfuscator.apply(Field::Value, &mut value);
+
+        assert_eq!(value.expect("value").into_text(), "GET /orders  200");
+    }
+
+    #[test]
+    fn a_whole_field_rule_wins_over_the_patterns_beside_it() {
+        let obfuscator = policy(
+            r"
+            rules:
+              - topics: ['app.logs']
+                value: mask
+                patterns:
+                  - regex: '\d+'
+                    strategy: drop
+            ",
+        )
+        .for_topic("app.logs")
+        .expect("rule");
+
+        let mut value = raw("charged 4111111111111111");
+        obfuscator.apply(Field::Value, &mut value);
+
+        assert_eq!(value.expect("value").into_text(), "***");
+    }
+
+    #[test]
+    fn a_pattern_rule_takes_the_payload_off_the_raw_filter_path() {
+        assert!(
+            logs().for_topic("app.logs").expect("rule").hides_payload(),
+            "a filter must not answer from bytes a pattern rewrites"
+        );
+    }
+
+    #[test]
+    fn a_pattern_that_does_not_compile_does_not_compile_the_policy() {
+        let error = ObfuscationPolicy::compile(&config(
+            "
+            rules:
+              - topics: ['app.logs']
+                patterns:
+                  - regex: '[unclosed'
+                    strategy: mask
+            ",
+        ))
+        .unwrap_err();
+
+        assert!(matches!(error, ObfuscationError::InvalidPattern { .. }));
+    }
+
+    #[test]
+    fn a_pattern_that_matches_everywhere_at_once_does_not_compile() {
+        let error = ObfuscationPolicy::compile(&config(
+            r"
+            rules:
+              - topics: ['app.logs']
+                patterns:
+                  - regex: '\d*'
+                    strategy: mask
+            ",
+        ))
+        .unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            r"invalid pattern '\d*': it matches the empty string"
+        );
+    }
+
+    #[test]
+    fn hashing_in_a_pattern_without_a_secret_does_not_compile() {
+        let error = ObfuscationPolicy::compile(&config(
+            r"
+            rules:
+              - topics: ['app.logs']
+                patterns:
+                  - regex: '\d{13,19}'
+                    strategy: hash
+            ",
+        ))
+        .unwrap_err();
+
+        assert_eq!(error, ObfuscationError::MissingSecret);
     }
 
     #[test]

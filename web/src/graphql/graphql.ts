@@ -265,7 +265,7 @@ export type RecordsQueryVariables = Exact<{
 }>;
 
 
-export type RecordsQuery = { records: { complete: boolean, nextCursor: string | null, prevCursor: string | null, records: Array<{ topic: string, partition: number, offset: string, timestamp: string, key: string | null, value: string | null, schemaId: number | null, sizeBytes: string, compression: Compression, headers: Array<{ key: string, value: string }> }> } };
+export type RecordsQuery = { records: { complete: boolean, obfuscated: boolean, nextCursor: string | null, prevCursor: string | null, records: Array<{ topic: string, partition: number, offset: string, timestamp: string, key: string | null, value: string | null, schemaId: number | null, sizeBytes: string, compression: Compression, headers: Array<{ key: string, value: string }> }> } };
 
 export type TopicRateHistoryQueryVariables = Exact<{
   cluster: string;
@@ -900,6 +900,7 @@ export const RecordsDocument = new TypedDocumentString(`
     query Records($cluster: String!, $query: RecordQueryInput!) {
   records(cluster: $cluster, query: $query) {
     complete
+    obfuscated
     nextCursor
     prevCursor
     records {
