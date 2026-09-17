@@ -147,8 +147,6 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
       from: fromDatetimeLocalValue(from),
       to: fromDatetimeLocalValue(to),
       limit: Number(limit),
-      // The server owns matching now; a hand-built CEL string was only ever
-      // an approximation of "contains".
       filter: needle ? { contains: needle, cel: null } : null,
       schemaId,
     };
@@ -171,7 +169,6 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
           (record) => record.partition === selected.partition && record.offset === selected.offset,
         ) ?? selected);
 
-  /** Any change to the query invalidates the cursor it was paged with. */
   function rewind() {
     setCursor(null);
     setPageIndex(0);

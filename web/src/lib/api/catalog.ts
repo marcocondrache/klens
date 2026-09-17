@@ -30,19 +30,12 @@ function searchHref(cluster: string, hit: Omit<SearchHit, "href">): string {
   }
 }
 
-/**
- * Per-lane freshness for every visible cluster. One query backs the switcher,
- * the sidebar counts and the staleness captions, so nothing polls a catalog
- * to discover how old it is.
- */
 const clustersOptions = {
   queryKey: keys.clusters(),
   queryFn: async () => {
     const { clusters } = await execute(clustersQuery);
     return clusters;
   },
-  // A cluster whose topology lane has never committed is still starting up;
-  // deltas only begin once it has.
   refetchInterval: (query: Query<ClusterHealth[]>) =>
     query.state.data?.every((cluster) => cluster.ready) === false ? 2000 : false,
 };
@@ -76,11 +69,6 @@ export function useTopicRows(cluster: string) {
   });
 }
 
-/**
- * Partitions come from the detail projection; rate, retention and cleanup
- * policy are row fields, so the page asks for both in one round trip rather
- * than reconstructing them from configs it may not be allowed to read.
- */
 export function useTopic(cluster: string, topic: string) {
   return useQuery({
     queryKey: keys.topic(cluster, topic),

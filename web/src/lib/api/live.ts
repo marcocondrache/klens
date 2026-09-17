@@ -48,7 +48,6 @@ export function useTopicConfigs(cluster: string, topic: string, enabled = true) 
   });
 }
 
-/** Schema bodies are fetched per subject, never shipped with the listing. */
 export function useSubject(
   cluster: string,
   name: string | null,
@@ -65,10 +64,6 @@ export function useSubject(
   });
 }
 
-/**
- * Seeds a sparkline from the same ring the subscription streams, with the
- * same server timestamps, so `seed ++ stream` is one continuous series.
- */
 export function useTopicRateHistory(cluster: string, topic: string) {
   return useQuery({
     queryKey: keys.topicRateHistory(cluster, topic),
@@ -89,11 +84,6 @@ export function useGroupLagHistory(cluster: string, group: string) {
   });
 }
 
-/**
- * One page at a time, in either direction: the server hands back the cursor
- * for both edges of what it scanned, so there is nothing to cache client-side
- * to fake a previous page.
- */
 export function useRecords(
   cluster: string,
   query: RecordsFilter,

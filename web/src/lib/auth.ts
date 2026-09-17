@@ -1,8 +1,3 @@
-/**
- * `/auth/me` answers "who is signed in", nothing more. What a session may do
- * is per cluster and comes from the GraphQL `whoami` query, because only the
- * server knows that grants are pairwise.
- */
 export type AuthUser = {
   sub: string;
   email: string | null;

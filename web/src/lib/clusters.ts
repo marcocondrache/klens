@@ -10,11 +10,6 @@ export function useClusterName() {
 
 export type Tone = "ok" | "warn" | "error" | "idle";
 
-/**
- * A cluster is ready once its topology lane has committed. After that a
- * failing lane is a degradation, not an outage: the store keeps serving the
- * last good table.
- */
 export function clusterTone(health: ClusterHealth | null | undefined): Tone {
   if (!health) return "idle";
   if (!health.ready) return health.topology.lastError ? "error" : "idle";
