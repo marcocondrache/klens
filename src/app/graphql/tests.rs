@@ -9,7 +9,7 @@ use juniper::{
 
 use crate::AppState;
 use crate::app::auth::SessionGuard;
-use crate::app::auth::access::{ClusterScope, EffectiveAccess, Grant, Role};
+use crate::app::auth::access::{ClusterScope, EffectiveAccess, Grant, Privilege, PrivilegeSet};
 use crate::kafka::store::bus::BUS_CAPACITY;
 use crate::kafka::store::fixtures::{
     at, config, group, offline_partition, offsets, partition, subject, topic, topology, watermarks,
@@ -50,17 +50,29 @@ fn only(clusters: &[&str]) -> ClusterScope {
     ClusterScope::Only(clusters.iter().map(|name| (*name).to_owned()).collect())
 }
 
-fn granted(grants: Vec<(Role, ClusterScope)>) -> EffectiveAccess {
+fn granted(grants: Vec<(&str, PrivilegeSet, ClusterScope)>) -> EffectiveAccess {
     EffectiveAccess::Granted(
         grants
             .into_iter()
-            .map(|(role, scope)| Grant { role, scope })
+            .map(|(role_name, privileges, scope)| Grant {
+                role_name: Arc::from(role_name),
+                privileges,
+                scope,
+            })
             .collect(),
     )
 }
 
+fn admin(scope: ClusterScope) -> (&'static str, PrivilegeSet, ClusterScope) {
+    ("admin", PrivilegeSet::ALL, scope)
+}
+
+fn viewer(scope: ClusterScope) -> (&'static str, PrivilegeSet, ClusterScope) {
+    ("viewer", PrivilegeSet::NONE, scope)
+}
+
 fn viewer_everywhere() -> EffectiveAccess {
-    granted(vec![(Role::Viewer, ClusterScope::All)])
+    granted(vec![viewer(ClusterScope::All)])
 }
 
 async fn run(
@@ -170,13 +182,21 @@ async fn whoami_reports_no_subject_when_auth_is_disabled() {
     let state = two_clusters();
     let data = ok(
         &ctx(&state),
-        "{ whoami { subject clusters { cluster role } } }",
+        "{ whoami { subject clusters { cluster roles privileges } } }",
     )
     .await;
 
     assert_eq!(data["whoami"]["subject"], serde_json::Value::Null);
     assert_eq!(data["whoami"]["clusters"][0]["cluster"], "local");
-    assert_eq!(data["whoami"]["clusters"][0]["role"], "ADMIN");
+    assert_eq!(
+        data["whoami"]["clusters"][0]["roles"],
+        serde_json::json!([]),
+        "no role table decided this"
+    );
+    assert_eq!(
+        data["whoami"]["clusters"][0]["privileges"],
+        serde_json::json!(["RECORDS", "CONFIGS", "SCHEMA_TEXT", "ACLS"])
+    );
     assert_eq!(data["whoami"]["clusters"][1]["cluster"], "payments");
 }
 
@@ -185,36 +205,66 @@ async fn whoami_resolves_each_cluster_against_its_own_grant() {
     let state = two_clusters();
     let context = ctx_with(
         &state,
-        granted(vec![
-            (Role::Admin, only(&["local"])),
-            (Role::Viewer, only(&["payments"])),
-        ]),
+        granted(vec![admin(only(&["local"])), viewer(only(&["payments"]))]),
     );
 
     let data = ok(
         &context,
-        "{ whoami { clusters { cluster role privileges } } }",
+        "{ whoami { clusters { cluster roles privileges } } }",
     )
     .await;
     let clusters = data["whoami"]["clusters"].as_array().expect("clusters");
 
     assert_eq!(clusters.len(), 2);
     assert_eq!(clusters[0]["cluster"], "local");
-    assert_eq!(clusters[0]["role"], "ADMIN");
+    assert_eq!(clusters[0]["roles"], serde_json::json!(["admin"]));
     assert_eq!(
         clusters[0]["privileges"],
         serde_json::json!(["RECORDS", "CONFIGS", "SCHEMA_TEXT", "ACLS"])
     );
 
     assert_eq!(clusters[1]["cluster"], "payments");
-    assert_eq!(clusters[1]["role"], "VIEWER");
+    assert_eq!(clusters[1]["roles"], serde_json::json!(["viewer"]));
     assert_eq!(clusters[1]["privileges"], serde_json::json!([]));
+}
+
+#[tokio::test]
+async fn whoami_unions_the_privileges_of_every_role_covering_a_cluster() {
+    let state = state();
+    let context = ctx_with(
+        &state,
+        granted(vec![
+            (
+                "operator",
+                PrivilegeSet::from_privileges([Privilege::Records, Privilege::Configs]),
+                ClusterScope::All,
+            ),
+            (
+                "auditor",
+                PrivilegeSet::from_privileges([Privilege::Acls, Privilege::SchemaText]),
+                only(&["local"]),
+            ),
+        ]),
+    );
+
+    let data = ok(
+        &context,
+        "{ whoami { clusters { cluster roles privileges } } }",
+    )
+    .await;
+    let local = &data["whoami"]["clusters"][0];
+
+    assert_eq!(local["roles"], serde_json::json!(["auditor", "operator"]));
+    assert_eq!(
+        local["privileges"],
+        serde_json::json!(["RECORDS", "CONFIGS", "SCHEMA_TEXT", "ACLS"])
+    );
 }
 
 #[tokio::test]
 async fn whoami_omits_clusters_the_session_cannot_see() {
     let state = two_clusters();
-    let context = ctx_with(&state, granted(vec![(Role::Viewer, only(&["payments"]))]));
+    let context = ctx_with(&state, granted(vec![viewer(only(&["payments"]))]));
 
     let data = ok(&context, "{ whoami { clusters { cluster } } }").await;
 
@@ -227,7 +277,7 @@ async fn whoami_omits_clusters_the_session_cannot_see() {
 #[tokio::test]
 async fn an_invisible_cluster_reads_as_unknown_not_forbidden() {
     let state = two_clusters();
-    let context = ctx_with(&state, granted(vec![(Role::Admin, only(&["local"]))]));
+    let context = ctx_with(&state, granted(vec![admin(only(&["local"]))]));
 
     assert_eq!(
         codes(&context, r#"{ topicRows(cluster: "payments") { total } }"#).await,
@@ -1224,7 +1274,7 @@ async fn falling_behind_the_bus_asks_the_client_to_refetch_instead_of_dropping_i
 async fn a_cluster_the_session_cannot_see_is_never_subscribable() {
     let state = two_clusters();
     seed(state.cluster("payments").expect("payments cluster"));
-    let context = ctx_with(&state, granted(vec![(Role::Viewer, only(&["local"]))]));
+    let context = ctx_with(&state, granted(vec![viewer(only(&["local"]))]));
 
     assert_eq!(
         subscribe_codes(

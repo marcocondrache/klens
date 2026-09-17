@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { execute } from "@/graphql/execute";
 import { whoamiQuery } from "@/lib/api/documents";
 import { keys } from "@/lib/api/keys";
-import type { Identity, PrivilegeName, Role } from "@/lib/api/types";
+import type { Identity, PrivilegeName } from "@/lib/api/types";
 
 export function useWhoami() {
   return useQuery({
@@ -20,7 +20,6 @@ export type Access = {
   ready: boolean;
   can: (cluster: string, privilege: PrivilegeName) => boolean;
   canSeeCluster: (cluster: string) => boolean;
-  roleFor: (cluster: string) => Role | null;
 };
 
 export function useAccess(): Access {
@@ -30,7 +29,6 @@ export function useAccess(): Access {
     ready: data != null,
     can: (cluster, privilege) => grant(data, cluster)?.privileges.includes(privilege) ?? !data,
     canSeeCluster: (cluster) => (data ? grant(data, cluster) != null : true),
-    roleFor: (cluster) => grant(data, cluster)?.role ?? null,
   };
 }
 

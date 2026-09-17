@@ -85,11 +85,6 @@ enum ResyncReason {
   "The client fell behind the change bus and missed events." LAGGED
 }
 
-enum Role {
-  VIEWER
-  ADMIN
-}
-
 enum SchemaCompatibility {
   BACKWARD
   FORWARD
@@ -216,7 +211,11 @@ type BrokerRow {
 """
 type ClusterGrant {
   cluster: String!
-  role: Role!
+  """
+    Names of the roles that granted this access, for tracing a privilege
+    back to an IdP group mapping. Empty when no role table applies.
+  """
+  roles: [String!]!
   privileges: [PrivilegeName!]!
 }
 

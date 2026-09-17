@@ -19,7 +19,6 @@ export type {
   RecordFieldsFragment as KafkaRecord,
   RecordOrder,
   RecordQueryInput,
-  Role,
   SubjectDetailFieldsFragment as SubjectDetail,
   SubjectRowFieldsFragment as SubjectRow,
   TopicDetailFieldsFragment as TopicDetail,

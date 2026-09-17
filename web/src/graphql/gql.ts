@@ -15,7 +15,7 @@ import * as types from './graphql';
  * Learn more about it here: https://the-guild.dev/graphql/codegen/plugins/presets/preset-client#reducing-bundle-size
  */
 type Documents = {
-    "\n  fragment IdentityFields on Identity {\n    subject\n    clusters {\n      cluster\n      role\n      privileges\n    }\n  }\n": typeof types.IdentityFieldsFragmentDoc,
+    "\n  fragment IdentityFields on Identity {\n    subject\n    clusters {\n      cluster\n      roles\n      privileges\n    }\n  }\n": typeof types.IdentityFieldsFragmentDoc,
     "\n  fragment LaneHealthFields on LaneHealth {\n    updatedAt\n    checkedAt\n    lastError\n    lastPollMs\n    healthy\n  }\n": typeof types.LaneHealthFieldsFragmentDoc,
     "\n  fragment ClusterHealthFields on ClusterHealth {\n    cluster\n    ready\n    topology {\n      ...LaneHealthFields\n    }\n    watermarks {\n      ...LaneHealthFields\n    }\n    offsets {\n      ...LaneHealthFields\n    }\n    configs {\n      ...LaneHealthFields\n    }\n    subjects {\n      ...LaneHealthFields\n    }\n    topicCount\n    partitionCount\n    groupCount\n    brokerCount\n    subjectCount\n    underReplicatedPartitions\n    offlinePartitions\n  }\n": typeof types.ClusterHealthFieldsFragmentDoc,
     "\n  fragment TopicRowFields on TopicRow {\n    name\n    internal\n    partitionCount\n    replicationFactor\n    retainedMessages\n    producedTotal\n    rate\n    retentionMs\n    cleanupPolicy\n    groupCount\n    underReplicated\n  }\n": typeof types.TopicRowFieldsFragmentDoc,
@@ -56,7 +56,7 @@ type Documents = {
     "\n  subscription Updates($cluster: String!, $scope: UpdateScope) {\n    updates(cluster: $cluster, scope: $scope) {\n      __typename\n      ... on WatermarksTick {\n        at\n        clusterRate\n        topics {\n          topic\n          rate\n        }\n      }\n      ... on GroupLagUpdate {\n        at\n        group\n        lag\n        lagComplete\n        offsets {\n          ...GroupOffsetFields\n        }\n      }\n      ... on TopologyDelta {\n        version\n        addedTopics\n        removedTopics\n        changedTopics\n        addedGroups\n        removedGroups\n        changedGroups\n        brokersChanged\n      }\n      ... on ConfigsChanged {\n        version\n        configTopics: topics\n      }\n      ... on SubjectsChanged {\n        version\n        added\n        removed\n        changed\n      }\n      ... on Resync {\n        reason\n      }\n    }\n  }\n": typeof types.UpdatesDocument,
 };
 const documents: Documents = {
-    "\n  fragment IdentityFields on Identity {\n    subject\n    clusters {\n      cluster\n      role\n      privileges\n    }\n  }\n": types.IdentityFieldsFragmentDoc,
+    "\n  fragment IdentityFields on Identity {\n    subject\n    clusters {\n      cluster\n      roles\n      privileges\n    }\n  }\n": types.IdentityFieldsFragmentDoc,
     "\n  fragment LaneHealthFields on LaneHealth {\n    updatedAt\n    checkedAt\n    lastError\n    lastPollMs\n    healthy\n  }\n": types.LaneHealthFieldsFragmentDoc,
     "\n  fragment ClusterHealthFields on ClusterHealth {\n    cluster\n    ready\n    topology {\n      ...LaneHealthFields\n    }\n    watermarks {\n      ...LaneHealthFields\n    }\n    offsets {\n      ...LaneHealthFields\n    }\n    configs {\n      ...LaneHealthFields\n    }\n    subjects {\n      ...LaneHealthFields\n    }\n    topicCount\n    partitionCount\n    groupCount\n    brokerCount\n    subjectCount\n    underReplicatedPartitions\n    offlinePartitions\n  }\n": types.ClusterHealthFieldsFragmentDoc,
     "\n  fragment TopicRowFields on TopicRow {\n    name\n    internal\n    partitionCount\n    replicationFactor\n    retainedMessages\n    producedTotal\n    rate\n    retentionMs\n    cleanupPolicy\n    groupCount\n    underReplicated\n  }\n": types.TopicRowFieldsFragmentDoc,
@@ -100,7 +100,7 @@ const documents: Documents = {
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  fragment IdentityFields on Identity {\n    subject\n    clusters {\n      cluster\n      role\n      privileges\n    }\n  }\n"): typeof import('./graphql').IdentityFieldsFragmentDoc;
+export function graphql(source: "\n  fragment IdentityFields on Identity {\n    subject\n    clusters {\n      cluster\n      roles\n      privileges\n    }\n  }\n"): typeof import('./graphql').IdentityFieldsFragmentDoc;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
