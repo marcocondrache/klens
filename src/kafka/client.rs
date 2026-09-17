@@ -3,13 +3,14 @@
 //! One [`KafkaClient`] per cluster. Callers use domain types only. Production
 //! [`ClusterSession`] is this type. All broker I/O goes through krafka.
 
-mod browse;
 mod config;
 mod convert;
 mod groups;
 mod offsets;
+mod scan;
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -28,11 +29,11 @@ use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
 use crate::kafka::group::{CommittedOffset, GroupSnapshot, is_internal_group};
 use crate::kafka::metadata::MetadataSnapshot;
-use crate::kafka::record::Record;
-use crate::kafka::record::plan::FetchPlan;
+use crate::kafka::model::ScanConsumer;
 use crate::kafka::registry::SchemaSubject;
 use crate::kafka::registry::client::SchemaRegistryClient;
 use crate::kafka::registry::decode::PayloadDecoder;
+use crate::kafka::scan::payload::PayloadCodec;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::topic_config::ConfigEntry;
 use crate::kafka::watermarks::Watermarks;
@@ -50,7 +51,7 @@ pub struct KafkaClient {
     consume_timeout: Duration,
     krafka: KrafkaSharedClient,
     admin: KrafkaAdmin,
-    schema_registry: Option<PayloadDecoder>,
+    schema_registry: Option<Arc<PayloadDecoder>>,
 }
 
 impl std::fmt::Debug for KafkaClient {
@@ -68,7 +69,8 @@ impl KafkaClient {
             .schema_registry
             .as_ref()
             .map(|registry| {
-                SchemaRegistryClient::new(identity.name.clone(), registry).map(PayloadDecoder::new)
+                SchemaRegistryClient::new(identity.name.clone(), registry)
+                    .map(|client| Arc::new(PayloadDecoder::new(client)))
             })
             .transpose()?;
 
@@ -289,19 +291,14 @@ impl ClusterSession for KafkaClient {
         }
     }
 
-    /// Fully scan the plan's half-open windows. Incomplete scans return
-    /// [`KafkaError::Timeout`], not a partial page.
-    async fn records(&self, plan: &FetchPlan) -> Result<Vec<Record>, KafkaError> {
-        if plan.windows.is_empty() || plan.limit == 0 {
-            return Ok(Vec::new());
-        }
-        let deadline = tokio::time::Instant::now() + self.consume_timeout;
-        tokio::time::timeout_at(
-            deadline,
-            browse::fetch(&self.krafka, plan, self.schema_registry.as_ref(), deadline),
-        )
-        .await
-        .map_err(|_| KafkaError::Timeout)?
+    async fn open_scan(&self, topic: &str) -> Result<Box<dyn ScanConsumer>, KafkaError> {
+        Ok(Box::new(scan::KrafkaScan::open(&self.krafka, topic).await?))
+    }
+
+    fn payload_codec(&self) -> Option<Arc<dyn PayloadCodec>> {
+        self.schema_registry
+            .clone()
+            .map(|decoder| decoder as Arc<dyn PayloadCodec>)
     }
 
     async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
@@ -346,8 +343,16 @@ mod tests {
 
     use crate::config::ClusterConfig;
     use crate::kafka::group::MemberAssignment;
-    use crate::kafka::record::plan::PartitionWindow;
-    use crate::kafka::record::query::RecordOrder;
+    use crate::kafka::model::{PartitionWindow, RecordOrder};
+    use crate::kafka::scan::session::scan_once;
+
+    fn window(partition: i32, start: i64, end: i64) -> PartitionWindow {
+        PartitionWindow {
+            partition,
+            start,
+            end,
+        }
+    }
 
     #[derive(Clone, Default)]
     struct LogBuf(Arc<Mutex<Vec<u8>>>);
@@ -509,41 +514,29 @@ mod tests {
         produce_krafka(&broker.bootstrap_servers(), "orders", 1).await;
 
         let client = kafka_client(&broker.bootstrap_servers()).await;
-        let records = client
-            .records(&FetchPlan {
-                topic: "orders".into(),
-                windows: vec![PartitionWindow {
-                    partition: 0,
-                    start: 0,
-                    end: 1,
-                }],
-                filter: None,
-                limit: 10,
-                order: RecordOrder::Oldest,
-                schema_id: None,
-            })
-            .await
-            .expect("records");
+        let records = scan_once(
+            &client,
+            "orders",
+            &[window(0, 0, 1)],
+            10,
+            RecordOrder::Oldest,
+        )
+        .await
+        .expect("records");
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].offset, 0);
         assert_eq!(records[0].value.as_deref(), Some("hello"));
         assert_eq!(records[0].key.as_deref(), Some("k"));
 
-        let past_high = client
-            .records(&FetchPlan {
-                topic: "orders".into(),
-                windows: vec![PartitionWindow {
-                    partition: 0,
-                    start: 5,
-                    end: 10,
-                }],
-                filter: None,
-                limit: 10,
-                order: RecordOrder::Oldest,
-                schema_id: None,
-            })
-            .await
-            .expect("empty past high watermark");
+        let past_high = scan_once(
+            &client,
+            "orders",
+            &[window(0, 5, 10)],
+            10,
+            RecordOrder::Oldest,
+        )
+        .await
+        .expect("empty past high watermark");
         assert!(past_high.is_empty());
     }
 
@@ -557,21 +550,19 @@ mod tests {
 
         let client = kafka_client(&broker.bootstrap_servers()).await;
 
-        let window = |start: i64, end: i64| FetchPlan {
-            topic: "orders".into(),
-            windows: vec![PartitionWindow {
-                partition: 0,
-                start,
-                end,
-            }],
-            filter: None,
-            limit: 10,
-            order: RecordOrder::Oldest,
-            schema_id: None,
+        let pass = async |start: i64, end: i64| {
+            scan_once(
+                &client,
+                "orders",
+                &[window(0, start, end)],
+                10,
+                RecordOrder::Oldest,
+            )
+            .await
         };
 
-        let first = client.records(&window(2, 4)).await.expect("first pass");
-        let second = client.records(&window(0, 2)).await.expect("second pass");
+        let first = pass(2, 4).await.expect("first pass");
+        let second = pass(0, 2).await.expect("second pass");
 
         assert_eq!(
             first.iter().map(|record| record.offset).collect::<Vec<_>>(),
@@ -584,19 +575,14 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![0, 1]
         );
-        // Each scan only clamps its high watermark: initial_offsets avoids
-        // looking up a reset position that would immediately be overwritten.
         assert_eq!(
             broker.request_count(krafka::protocol::ApiKey::ListOffsets),
             2
         );
         assert_eq!(broker.request_count(krafka::protocol::ApiKey::JoinGroup), 0);
 
-        let first_plan = window(0, 2);
-        let second_plan = window(2, 4);
         let (first, second) =
-            tokio::try_join!(client.records(&first_plan), client.records(&second_plan),)
-                .expect("independent concurrent scans");
+            tokio::try_join!(pass(0, 2), pass(2, 4)).expect("independent concurrent scans");
         assert_eq!(
             first.iter().map(|record| record.offset).collect::<Vec<_>>(),
             vec![0, 1]
@@ -616,21 +602,15 @@ mod tests {
         assert!(broker.create_topic("orders", 1));
         produce_krafka(&broker.bootstrap_servers(), "orders", 550).await;
         let client = kafka_client(&broker.bootstrap_servers()).await;
-        let records = client
-            .records(&FetchPlan {
-                topic: "orders".into(),
-                windows: vec![PartitionWindow {
-                    partition: 0,
-                    start: 0,
-                    end: 550,
-                }],
-                filter: None,
-                limit: 550,
-                order: RecordOrder::Oldest,
-                schema_id: None,
-            })
-            .await
-            .unwrap();
+        let records = scan_once(
+            &client,
+            "orders",
+            &[window(0, 0, 550)],
+            550,
+            RecordOrder::Oldest,
+        )
+        .await
+        .unwrap();
         assert_eq!(
             records
                 .iter()
@@ -651,18 +631,13 @@ mod tests {
         client.consume_timeout = Duration::from_millis(50);
         let error = tokio::time::timeout(
             Duration::from_secs(1),
-            client.records(&FetchPlan {
-                topic: "orders".into(),
-                windows: vec![PartitionWindow {
-                    partition: 0,
-                    start: 0,
-                    end: 1,
-                }],
-                filter: None,
-                limit: 1,
-                order: RecordOrder::Oldest,
-                schema_id: None,
-            }),
+            scan_once(
+                &client,
+                "orders",
+                &[window(0, 0, 1)],
+                1,
+                RecordOrder::Oldest,
+            ),
         )
         .await
         .expect("broker I/O must honor the scan deadline")

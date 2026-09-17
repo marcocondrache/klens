@@ -3,8 +3,8 @@ use std::ops::{Bound, RangeBounds};
 use chrono::{DateTime, Utc};
 
 use crate::kafka::error::QueryError;
-use crate::kafka::record::cursor::RecordCursor;
-use crate::kafka::record::filter::RecordFilter;
+use crate::kafka::scan::cursor::{CursorDirection, RecordCursor};
+use crate::kafka::scan::filter::CompiledFilter;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RecordOrder {
@@ -12,16 +12,43 @@ pub enum RecordOrder {
     Oldest,
 }
 
+impl RecordOrder {
+    pub fn flipped(self) -> Self {
+        match self {
+            Self::Newest => Self::Oldest,
+            Self::Oldest => Self::Newest,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordQuery {
     pub topic: String,
     pub partition: Option<i32>,
-    pub filter: Option<RecordFilter>,
+    pub filter: Option<CompiledFilter>,
     pub timestamps: TimestampRange,
     pub limit: i32,
     pub order: RecordOrder,
     pub cursor: Option<RecordCursor>,
     pub schema_id: Option<i32>,
+}
+
+impl RecordQuery {
+    /// Which way the scan walks the log, which is the query's order unless a
+    /// cursor asked for the previous page.
+    pub fn walk(&self) -> RecordOrder {
+        self.cursor.as_ref().map_or(self.order, RecordCursor::walk)
+    }
+
+    pub fn direction(&self) -> CursorDirection {
+        self.cursor
+            .as_ref()
+            .map_or(CursorDirection::Forward, |cursor| cursor.direction)
+    }
+
+    pub fn searching(&self) -> bool {
+        self.filter.is_some() || self.schema_id.is_some()
+    }
 }
 
 /// UTC bounds for a record browse. Either side may be unbounded.
