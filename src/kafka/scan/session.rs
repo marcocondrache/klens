@@ -15,6 +15,7 @@ use crate::kafka::watermarks::Watermarks;
 use super::batch::{RecordBatch, SortKey};
 use super::cursor::CursorDirection;
 use super::filter::{CompiledFilter, RawField, RecordMeta, Verdict};
+use super::obfuscate::{Field, TopicObfuscator};
 use super::payload::{DecodedPayload, PayloadCodec, PayloadSlot, framed_schema_id, needs_decode};
 use super::plan::{PartitionWindow, advance_cursor, plan_windows, rewind_cursor};
 use super::query::{RecordOrder, RecordQuery};
@@ -140,6 +141,8 @@ pub struct ScanSession {
     codec: Option<Arc<dyn PayloadCodec>>,
     topic: String,
     filter: Option<CompiledFilter>,
+    /// This topic's obfuscation rules, resolved once per page.
+    obfuscator: Option<Arc<TopicObfuscator>>,
     schema_id: Option<i32>,
     walk: RecordOrder,
 }
@@ -158,6 +161,9 @@ impl ScanSession {
         Ok(Self {
             consumer,
             codec: session.payload_codec(),
+            obfuscator: session
+                .obfuscation()
+                .and_then(|policy| policy.for_topic(&query.topic)),
             topic: query.topic.clone(),
             filter: query.filter.clone(),
             schema_id: query.schema_id,
@@ -217,7 +223,7 @@ impl ScanSession {
         let mut candidates: Vec<Candidate> = Vec::new();
         let mut slots: Vec<PayloadSlot> = Vec::new();
 
-        for raw in polled {
+        for mut raw in polled {
             let partition = raw.partition;
             if !scan.remaining.contains_key(&partition) {
                 continue;
@@ -234,6 +240,12 @@ impl ScanSession {
             let sort = raw.sort_key();
             if !batch.admits(&sort) {
                 continue;
+            }
+
+            // Before `meta()` exists, so CEL over `headers` and the rendered
+            // headers both see the masked value.
+            if let Some(obfuscator) = &self.obfuscator {
+                obfuscator.mask_headers(&mut raw.headers);
             }
 
             let Some(verdict) = self.screen(&raw) else {
@@ -268,8 +280,9 @@ impl ScanSession {
         let mut decoded = self.decode(slots).await;
 
         for candidate in candidates {
-            let key = candidate.key.and_then(|index| decoded[index].take());
-            let value = candidate.value.and_then(|index| decoded[index].take());
+            let mut key = candidate.key.and_then(|index| decoded[index].take());
+            let mut value = candidate.value.and_then(|index| decoded[index].take());
+            self.obfuscate(&mut key, &mut value);
 
             if let Some(filter) = &self.filter
                 && !filter.on_payload(
@@ -319,8 +332,20 @@ impl ScanSession {
             }
             record.key = key.and_then(|index| decoded[index].take());
             record.value = value.and_then(|index| decoded[index].take());
+            self.obfuscate(&mut record.key, &mut record.value);
             record.decoded = true;
         }
+    }
+
+    /// Apply this topic's rules to a decoded pair, before anything filters or
+    /// renders it. Unconfigured topics pay one branch.
+    fn obfuscate(&self, key: &mut Option<DecodedPayload>, value: &mut Option<DecodedPayload>) {
+        let Some(obfuscator) = &self.obfuscator else {
+            return;
+        };
+
+        obfuscator.apply(Field::Key, key);
+        obfuscator.apply(Field::Value, value);
     }
 
     async fn decode(&self, mut slots: Vec<PayloadSlot>) -> Vec<Option<DecodedPayload>> {
@@ -343,6 +368,17 @@ impl ScanSession {
         };
         if verdict != Verdict::NeedsPayload {
             return Some(verdict);
+        }
+
+        // Answering from raw bytes would let a filter match cleartext this
+        // topic never shows, which is an oracle for the hidden value. Decode
+        // first and filter the obfuscated view instead.
+        if self
+            .obfuscator
+            .as_ref()
+            .is_some_and(|obfuscator| obfuscator.hides_payload())
+        {
+            return Some(Verdict::NeedsPayload);
         }
 
         match filter.on_raw(
@@ -638,9 +674,9 @@ mod tests {
 
     use super::*;
     use crate::kafka::scan::cursor::RecordCursor;
-    use crate::kafka::scan::filter::contains;
+    use crate::kafka::scan::filter::{cel, contains};
     use crate::kafka::scan::query::TimestampRange;
-    use crate::kafka::testing::FakeCluster;
+    use crate::kafka::testing::{FakeCluster, card_record};
 
     const LIMITS: RecordLimits = RecordLimits {
         max_limit: 500,
@@ -979,6 +1015,127 @@ mod tests {
             session.decoded_payloads(),
             2,
             "the heap fills after two records and rejects the rest before decoding"
+        );
+    }
+
+    const PAN: &str = "4111111111111111";
+
+    const RULES: &str = "
+        secret: 0123456789abcdef0123456789abcdef
+        rules:
+          - topics: ['orders.*']
+            headers: ['x-user-id']
+            fields:
+              - path: card.number
+                strategy: hash
+    ";
+
+    fn cards() -> FakeCluster {
+        let records = (0..4).map(|offset| card_record(offset, PAN)).collect();
+
+        FakeCluster::local()
+            .with_orders_records(records)
+            .with_obfuscation(RULES)
+            .with_consume_timeout(Duration::from_secs(10))
+    }
+
+    async fn card_page(session: &FakeCluster, filter: Option<CompiledFilter>) -> RecordPage {
+        let mut query = query();
+        query.filter = filter;
+        query.limit = 4;
+
+        fetch_page(session, &query, &[0], &marks(0, 4), 4, LIMITS)
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_obfuscated_field_leaves_as_a_token_and_never_as_cleartext() {
+        let page = card_page(&cards(), None).await;
+
+        let value = page.records[0].value.as_deref().expect("value");
+        assert!(value.contains("\"kx:"), "{value}");
+        assert!(!value.contains(PAN), "{value}");
+        assert!(
+            value.contains("ord_0"),
+            "fields no rule names still render: {value}"
+        );
+        assert_eq!(page.records[0].key.as_deref(), Some("ord_0"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_contains_filter_cannot_be_an_oracle_for_an_obfuscated_field() {
+        let session = cards();
+
+        assert!(
+            card_page(&session, contains(PAN)).await.records.is_empty(),
+            "the cleartext the page never shows must not be searchable"
+        );
+        assert!(
+            card_page(&session, contains("4111"))
+                .await
+                .records
+                .is_empty(),
+            "nor may a prefix of it be, one digit at a time"
+        );
+        assert_eq!(
+            card_page(&session, contains("ord_2")).await.records.len(),
+            1,
+            "everything else still filters"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_filter_matches_the_token_the_page_shows() {
+        let page = card_page(&cards(), contains("kx:")).await;
+
+        assert_eq!(offsets(&page), vec![0, 1, 2, 3]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn configured_headers_are_masked_before_filters_and_before_rendering() {
+        let session = cards();
+
+        let page = card_page(&session, None).await;
+        assert_eq!(page.records[0].headers[0].value, "***");
+
+        let matched = card_page(&session, cel(r#"headers["x-user-id"] == "ada""#).unwrap()).await;
+        assert!(
+            matched.records.is_empty(),
+            "a header expression sees the masked value too"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_value_the_codec_declined_is_masked_rather_than_served_raw() {
+        let mut unframed = card_record(0, PAN);
+        unframed.value = Some(format!(r#"{{"card":{{"number":"{PAN}"}}}}"#));
+
+        let session = FakeCluster::local()
+            .with_orders_records(vec![unframed])
+            .with_obfuscation(RULES)
+            .with_consume_timeout(Duration::from_secs(10));
+
+        let page = card_page(&session, None).await;
+
+        assert_eq!(
+            page.records[0].value.as_deref(),
+            Some("***"),
+            "an unframed value cannot be walked, so the whole value fails closed"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn metadata_filters_still_answer_before_anything_is_decoded() {
+        let session = cards();
+
+        let page = card_page(&session, cel("offset >= 2").unwrap()).await;
+
+        assert_eq!(offsets(&page), vec![2, 3]);
+        assert_eq!(
+            session.decoded_payloads(),
+            4,
+            "only the two records that reach the page decode, key and value each"
         );
     }
 }

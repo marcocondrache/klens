@@ -19,6 +19,7 @@ use crate::kafka::model::{
     AclListing, ClusterIdentity, CommittedOffset, ConfigEntry, GroupSnapshot, MetadataSnapshot,
     RegisteredSchema, ScanConsumer, SchemaSubject, Watermarks,
 };
+use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
 
 /// Per-cluster Kafka I/O. Matches [`super::client::KafkaClient`].
@@ -71,6 +72,14 @@ pub trait ClusterSession: Send + Sync + 'static {
     ///
     /// `None` means payloads are returned as-is.
     fn payload_codec(&self) -> Option<Arc<dyn PayloadCodec>> {
+        None
+    }
+
+    /// Obfuscation rules for this cluster, compiled at startup.
+    ///
+    /// `None` means records leave the process exactly as they came off the
+    /// wire.
+    fn obfuscation(&self) -> Option<Arc<ObfuscationPolicy>> {
         None
     }
 
@@ -173,6 +182,7 @@ mod tests {
             bootstrap_servers: vec!["localhost:9092".to_owned()],
             security: None,
             schema_registry: None,
+            obfuscation: None,
             properties: Default::default(),
         }
     }

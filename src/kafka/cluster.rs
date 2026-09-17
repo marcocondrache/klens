@@ -32,6 +32,7 @@ mod tests {
             bootstrap_servers: vec!["localhost:9092".to_owned()],
             security: None,
             schema_registry: None,
+            obfuscation: None,
             properties: Default::default(),
         });
 

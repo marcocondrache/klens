@@ -48,4 +48,4 @@ pub use scan::read::read_page;
 pub use session::{ClusterSession, SessionSet};
 
 #[cfg(test)]
-pub use testing::FakeCluster;
+pub use testing::{FakeCluster, card_record};
