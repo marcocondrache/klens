@@ -1,10 +1,3 @@
-//! Schema Registry types, HTTP client, and payload decode.
-//!
-//! [`SchemaSubject`] and [`RegisteredSchema`] are the domain types. `client`
-//! is the HTTP port ([`client::SchemaRegistryClient`]). `decode` turns a
-//! Confluent-framed payload into text. `protobuf` is the protobuf path
-//! inside decode.
-
 pub mod client;
 pub mod decode;
 pub mod protobuf;
@@ -16,15 +9,12 @@ pub enum SchemaType {
     Protobuf,
 }
 
-impl SchemaType {
-    /// Schema Registry omits `schemaType` for Avro, so that is the fallback.
-    pub fn from_registry(value: Option<&str>) -> Self {
-        match value
-            .map(|value| value.trim().to_ascii_uppercase())
-            .as_deref()
-        {
-            Some("JSON") | Some("JSONSCHEMA") => Self::Json,
-            Some("PROTOBUF") => Self::Protobuf,
+impl From<schemreg::SchemaType> for SchemaType {
+    fn from(value: schemreg::SchemaType) -> Self {
+        match value {
+            schemreg::SchemaType::Avro => Self::Avro,
+            schemreg::SchemaType::Json => Self::Json,
+            schemreg::SchemaType::Protobuf => Self::Protobuf,
             _ => Self::Avro,
         }
     }
@@ -48,16 +38,15 @@ pub enum SchemaCompatibility {
     None,
 }
 
-impl SchemaCompatibility {
-    /// Transitive variants collapse onto their base mode.
-    pub fn from_registry(value: Option<&str>) -> Self {
-        match value
-            .map(|value| value.trim().to_ascii_uppercase().replace('-', "_"))
-            .as_deref()
-        {
-            Some("FORWARD") | Some("FORWARD_TRANSITIVE") => Self::Forward,
-            Some("FULL") | Some("FULL_TRANSITIVE") => Self::Full,
-            Some("NONE") => Self::None,
+impl From<schemreg::CompatibilityLevel> for SchemaCompatibility {
+    fn from(value: schemreg::CompatibilityLevel) -> Self {
+        use schemreg::CompatibilityLevel as Level;
+
+        match value {
+            Level::Backward | Level::BackwardTransitive => Self::Backward,
+            Level::Forward | Level::ForwardTransitive => Self::Forward,
+            Level::Full | Level::FullTransitive => Self::Full,
+            Level::None => Self::None,
             _ => Self::Backward,
         }
     }

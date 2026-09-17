@@ -34,6 +34,10 @@ clusters:
 
     # Optional Confluent-compatible Schema Registry. When omitted, the Schemas
     # page is empty for this cluster.
+    #
+    # Credentials may only travel over plaintext `http://` when the host is
+    # loopback. A remote registry that needs a username and password must be
+    # reached over `https://`, otherwise startup fails for this cluster.
     schema_registry:
       url: http://localhost:8081
       # username: ${SCHEMA_REGISTRY_USERNAME}
