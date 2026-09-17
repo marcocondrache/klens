@@ -45,12 +45,6 @@ impl Display for Privilege {
 
 from_same_variants!(PrivilegeName => Privilege { Records, Configs, SchemaText, Acls });
 
-/// Bitset over [`Privilege::ALL`]: what a role confers, and what a session
-/// holds on one cluster. Cheap to copy, union, and test.
-///
-/// Sets replace an ordered role enum because user-defined roles are not
-/// comparable — `{records, configs}` and `{acls, schema_text}` neither
-/// contains the other — so overlapping grants combine by union, not by max.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PrivilegeSet(u8);
 
@@ -106,9 +100,6 @@ impl ClusterScope {
     }
 }
 
-/// One binding that matched the session's groups: the privileges it confers,
-/// on the clusters it covers. `role_name` is carried for reporting only —
-/// nothing resolves against it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Grant {
     pub role_name: Arc<str>,
@@ -123,13 +114,6 @@ pub enum EffectiveAccess {
 }
 
 impl EffectiveAccess {
-    /// Union of the privileges every grant *covering this cluster* confers,
-    /// or `None` when no grant covers it at all.
-    ///
-    /// Filtering by scope before the union is what keeps a wide grant on one
-    /// cluster from leaking onto another. `Some(PrivilegeSet::NONE)` is a
-    /// visible cluster with nothing privileged on it — distinct from `None`,
-    /// which is a cluster the session must not know exists.
     pub fn privileges_for(&self, cluster: &str) -> Option<PrivilegeSet> {
         match self {
             Self::Unrestricted => Some(PrivilegeSet::ALL),
@@ -208,9 +192,6 @@ impl<'a> ClusterAccess<'a> {
         self.cluster
     }
 
-    /// Names of the roles covering this cluster, sorted and deduplicated.
-    /// A debugging aid for `whoami` — empty when access is unrestricted,
-    /// because then no role table decided anything.
     pub fn role_names(&self) -> Vec<&'a str> {
         let mut names: Vec<&'a str> = self
             .grants
@@ -358,9 +339,6 @@ impl RoleTable {
             bindings: config
                 .bindings
                 .iter()
-                // Validation rejects bindings naming an undefined role, so an
-                // unresolved name can only come from a config that never went
-                // through it: drop the binding rather than grant anything.
                 .filter_map(|binding| {
                     let privileges = *definitions.get(binding.role.as_str())?;
                     Some(CompiledBinding {
@@ -477,7 +455,7 @@ mod tests {
     fn a_binding_naming_an_undefined_role_grants_nothing() {
         let policy = table(
             &[("admin", EVERYTHING)],
-            vec![binding(&["klens-admins"], "opreator", None)],
+            vec![binding(&["klens-admins"], "unknown-role", None)],
         );
         assert_eq!(
             admit(&policy, &["klens-admins"]),
