@@ -2,13 +2,13 @@ use std::sync::Arc;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use futures::StreamExt;
 use reqwest::StatusCode;
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
-use tokio::task::JoinSet;
 use url::Url;
 
 use crate::config::SchemaRegistryConfig;
-use crate::environment::SCHEMA_REGISTRY_TIMEOUT;
+use crate::environment::{SCHEMA_REGISTRY_TIMEOUT, SUBJECT_FETCH_CONCURRENCY};
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
     RegisteredSchema, SchemaCompatibility, SchemaReference, SchemaSubject, SchemaType,
@@ -77,17 +77,21 @@ impl SchemaRegistryClient {
             .await
             .map_err(|error| self.fail_error(error))?
             .into_inner();
-        let mut join = JoinSet::new();
 
-        for name in names {
-            let client = self.clone();
-            join.spawn(async move { client.load_subject(&name).await });
-        }
+        let fallback = self.global_compatibility().await;
 
-        let mut subjects = Vec::new();
-        while let Some(result) = join.join_next().await {
-            subjects.push(result.map_err(|error| self.fail(error.to_string()))??);
-        }
+        let mut subjects: Vec<SchemaSubject> = futures::stream::iter(names)
+            .map(|name| async move {
+                let loaded = self.load_subject(&name, fallback).await;
+                if let Err(error) = &loaded {
+                    tracing::warn!(subject = %name, %error, "skipping subject");
+                }
+                loaded.ok()
+            })
+            .buffer_unordered(*SUBJECT_FETCH_CONCURRENCY)
+            .filter_map(std::future::ready)
+            .collect()
+            .await;
 
         subjects.sort_by(|left, right| left.subject.cmp(&right.subject));
         Ok(subjects)
@@ -121,7 +125,11 @@ impl SchemaRegistryClient {
         self.registered_from_schema(id, latest)
     }
 
-    async fn load_subject(&self, name: &str) -> Result<SchemaSubject, KafkaError> {
+    async fn load_subject(
+        &self,
+        name: &str,
+        fallback: SchemaCompatibility,
+    ) -> Result<SchemaSubject, KafkaError> {
         let versions = self
             .inner
             .list_versions()
@@ -139,7 +147,10 @@ impl SchemaRegistryClient {
             .await
             .map_err(|error| self.fail_error(error))?
             .into_inner();
-        let compatibility = self.compatibility(name).await?;
+        let compatibility = match self.subject_config(name).await? {
+            Some(config) => compatibility_from_config(&config),
+            None => fallback,
+        };
 
         Ok(SchemaSubject {
             subject: name.to_owned(),
@@ -156,16 +167,15 @@ impl SchemaRegistryClient {
         })
     }
 
-    async fn compatibility(&self, name: &str) -> Result<SchemaCompatibility, KafkaError> {
-        if let Some(config) = self.subject_config(name).await? {
-            return Ok(compatibility_from_config(&config));
+    async fn global_compatibility(&self) -> SchemaCompatibility {
+        match self.global_config().await {
+            Ok(Some(config)) => compatibility_from_config(&config),
+            Ok(None) => SchemaCompatibility::None,
+            Err(error) => {
+                tracing::warn!(%error, "falling back to NONE compatibility");
+                SchemaCompatibility::None
+            }
         }
-
-        if let Some(config) = self.global_config().await? {
-            return Ok(compatibility_from_config(&config));
-        }
-
-        Ok(SchemaCompatibility::None)
     }
 
     async fn subject_config(
@@ -410,6 +420,96 @@ mod tests {
 
         assert_eq!(subjects[0].schema_type, SchemaType::Json);
         assert_eq!(subjects[0].compatibility, SchemaCompatibility::Full);
+    }
+
+    #[tokio::test]
+    async fn the_global_config_is_read_once_per_sweep() {
+        let server = MockServer::start().await;
+        let names: Vec<String> = (0..10).map(|index| format!("subject-{index}")).collect();
+
+        Mock::given(method("GET"))
+            .and(path("/subjects"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&names))
+            .mount(&server)
+            .await;
+        for name in &names {
+            mock_subject(&server, name, 1, 1, "AVRO", "{}", &[1], None).await;
+        }
+        Mock::given(method("GET"))
+            .and(path("/config"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "compatibilityLevel": "BACKWARD",
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = SchemaRegistryClient::new("local", &config(&server.uri())).unwrap();
+        let subjects = client.subjects().await.unwrap();
+
+        assert_eq!(subjects.len(), 10);
+        assert!(
+            subjects
+                .iter()
+                .all(|subject| subject.compatibility == SchemaCompatibility::Backward)
+        );
+    }
+
+    #[tokio::test]
+    async fn one_failing_subject_does_not_fail_the_sweep() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/subjects"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(["broken-value", "orders-value"]),
+            )
+            .mount(&server)
+            .await;
+        mock_subject(
+            &server,
+            "orders-value",
+            1,
+            1,
+            "AVRO",
+            "{}",
+            &[1],
+            Some("FULL"),
+        )
+        .await;
+        Mock::given(method("GET"))
+            .and(path("/subjects/broken-value/versions"))
+            .respond_with(ResponseTemplate::new(500).set_body_string("boom"))
+            .mount(&server)
+            .await;
+
+        let client = SchemaRegistryClient::new("local", &config(&server.uri())).unwrap();
+        let subjects = client.subjects().await.unwrap();
+
+        assert_eq!(subjects.len(), 1);
+        assert_eq!(subjects[0].subject, "orders-value");
+    }
+
+    #[tokio::test]
+    async fn a_missing_global_config_is_not_an_error() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/subjects"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(["orders-value"]))
+            .mount(&server)
+            .await;
+        mock_subject(&server, "orders-value", 1, 1, "AVRO", "{}", &[1], None).await;
+        Mock::given(method("GET"))
+            .and(path("/config"))
+            .respond_with(ResponseTemplate::new(500).set_body_string("unavailable"))
+            .mount(&server)
+            .await;
+
+        let client = SchemaRegistryClient::new("local", &config(&server.uri())).unwrap();
+        let subjects = client.subjects().await.unwrap();
+
+        assert_eq!(subjects[0].compatibility, SchemaCompatibility::None);
     }
 
     #[tokio::test]

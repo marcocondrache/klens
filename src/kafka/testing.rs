@@ -45,11 +45,13 @@ struct Inner {
     metadata_error: Mutex<Option<String>>,
     subjects_error: Mutex<Option<String>>,
     configs_error: Mutex<Option<String>>,
+    offsets_error: Mutex<Option<String>>,
     acls_error: Mutex<Option<String>>,
     serve_subjects: Mutex<bool>,
     metadata_delay: Mutex<Duration>,
     watermark_delay: Mutex<Duration>,
     records_delay: Mutex<Duration>,
+    offsets_delay: Mutex<Duration>,
     consume_timeout: Mutex<Option<Duration>>,
     watermark_growth: Mutex<Option<Arc<WatermarkGrowth>>>,
     plans: Mutex<Vec<FetchPlan>>,
@@ -211,11 +213,13 @@ impl FakeCluster {
                 metadata_error: Mutex::new(None),
                 subjects_error: Mutex::new(None),
                 configs_error: Mutex::new(None),
+                offsets_error: Mutex::new(None),
                 acls_error: Mutex::new(None),
                 serve_subjects: Mutex::new(true),
                 metadata_delay: Mutex::new(Duration::ZERO),
                 watermark_delay: Mutex::new(Duration::ZERO),
                 records_delay: Mutex::new(Duration::ZERO),
+                offsets_delay: Mutex::new(Duration::ZERO),
                 consume_timeout: Mutex::new(None),
                 watermark_growth: Mutex::new(None),
                 plans: Mutex::new(Vec::new()),
@@ -249,6 +253,13 @@ impl FakeCluster {
 
     pub fn with_records_delay(self, delay: Duration) -> Self {
         *self.inner.records_delay.lock().expect("records delay") = delay;
+        self
+    }
+
+    /// Holds every committed-offset fetch open long enough for a scheduler
+    /// wave to overlap.
+    pub fn with_offsets_delay(self, delay: Duration) -> Self {
+        *self.inner.offsets_delay.lock().expect("offsets delay") = delay;
         self
     }
 
@@ -346,6 +357,58 @@ impl FakeCluster {
     pub fn extra_group(self, group: GroupSnapshot) -> Self {
         self.inner.groups.lock().expect("groups").push(group);
         self
+    }
+
+    /// Adds or replaces a group after construction, so a lane can observe the
+    /// roster change between polls.
+    pub fn put_group(&self, group: GroupSnapshot) {
+        let mut groups = self.inner.groups.lock().expect("groups");
+        match groups.iter_mut().find(|existing| existing.id == group.id) {
+            Some(existing) => *existing = group,
+            None => groups.push(group),
+        }
+    }
+
+    pub fn remove_group(&self, id: &str) {
+        self.inner
+            .groups
+            .lock()
+            .expect("groups")
+            .retain(|group| group.id != id);
+    }
+
+    pub fn commit_offsets(&self, id: &str, committed: Vec<CommittedOffset>) {
+        if let Some(group) = self
+            .inner
+            .groups
+            .lock()
+            .expect("groups")
+            .iter_mut()
+            .find(|group| group.id == id)
+        {
+            group.committed = committed;
+        }
+    }
+
+    pub fn set_topic_configs(&self, topic: &str, configs: Vec<ConfigEntry>) {
+        self.inner
+            .topic_configs
+            .lock()
+            .expect("topic configs")
+            .insert(topic.to_owned(), configs);
+    }
+
+    pub fn set_subjects(&self, subjects: Vec<SchemaSubject>) {
+        *self.inner.subjects.lock().expect("subjects") = subjects;
+    }
+
+    /// Fails or heals `metadata()` after construction.
+    pub fn set_metadata_error(&self, error: Option<&str>) {
+        *self.inner.metadata_error.lock().expect("metadata error") = error.map(str::to_owned);
+    }
+
+    pub fn set_offsets_error(&self, error: Option<&str>) {
+        *self.inner.offsets_error.lock().expect("offsets error") = error.map(str::to_owned);
     }
 
     pub fn with_orders_records(self, records: Vec<Record>) -> Self {
@@ -451,6 +514,21 @@ impl FakeCluster {
         {
             marks.remove(&id);
         }
+    }
+
+    /// Removes a topic from metadata, as a deletion would.
+    pub fn remove_topic(&self, name: &str) {
+        self.inner
+            .metadata
+            .lock()
+            .expect("metadata")
+            .topics
+            .retain(|topic| topic.name != name);
+        self.inner
+            .watermarks
+            .lock()
+            .expect("watermarks")
+            .remove(name);
     }
 
     pub fn calls(&self) -> &SessionCalls {
@@ -669,6 +747,29 @@ impl ClusterSession for FakeCluster {
             .calls
             .committed_offsets
             .fetch_add(1, Ordering::SeqCst);
+        let in_flight = self
+            .inner
+            .calls
+            .offsets_in_flight
+            .fetch_add(1, Ordering::SeqCst)
+            + 1;
+        self.inner
+            .calls
+            .offsets_peak
+            .fetch_max(in_flight, Ordering::SeqCst);
+
+        let delay = *self.inner.offsets_delay.lock().expect("offsets delay");
+        if !delay.is_zero() {
+            tokio::time::sleep(delay).await;
+        }
+        self.inner
+            .calls
+            .offsets_in_flight
+            .fetch_sub(1, Ordering::SeqCst);
+
+        if let Some(message) = &*self.inner.offsets_error.lock().expect("offsets error") {
+            return Err(KafkaError::Admin(message.clone()));
+        }
         Ok(self
             .inner
             .groups
@@ -724,7 +825,8 @@ impl ClusterSession for FakeCluster {
     }
 }
 
-/// How many times the engine or poller called each [`ClusterSession`] method.
+/// How many times the engine, poller or ingestion lanes called each
+/// [`ClusterSession`] method.
 #[derive(Debug, Default)]
 pub struct SessionCalls {
     metadata: AtomicUsize,
@@ -732,6 +834,8 @@ pub struct SessionCalls {
     groups: AtomicUsize,
     topic_configs: AtomicUsize,
     committed_offsets: AtomicUsize,
+    offsets_in_flight: AtomicUsize,
+    offsets_peak: AtomicUsize,
     acls: AtomicUsize,
 }
 
@@ -754,6 +858,11 @@ impl SessionCalls {
 
     pub fn committed_offsets(&self) -> usize {
         self.committed_offsets.load(Ordering::SeqCst)
+    }
+
+    /// The most committed-offset fetches that were ever open at once.
+    pub fn committed_offsets_peak(&self) -> usize {
+        self.offsets_peak.load(Ordering::SeqCst)
     }
 
     pub fn acls(&self) -> usize {

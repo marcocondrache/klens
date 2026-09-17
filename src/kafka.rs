@@ -1,4 +1,5 @@
-//! Kafka I/O, assembled domain types, the catalog snapshot, and live record reads.
+//! Kafka I/O, the versioned read model, assembled domain types, and live
+//! record reads.
 //!
 //! Open these first.
 //!
@@ -7,12 +8,16 @@
 //!   the in-memory session.
 //! - Raw broker snapshots live in `metadata`, `group` (`GroupSnapshot`),
 //!   `watermarks`, and `topic_config`.
+//! - [`store`] is the v2 read model: normalized tables behind versioned
+//!   lanes, read-time projections, a server-timestamped series store, and a
+//!   per-cluster change bus. [`ingest`] fills it from five independent
+//!   per-cluster loops.
 //! - Assembled types live in `topic`, `broker`, `cluster`, `group`
 //!   (`ConsumerGroup`), `search`, and `record`. `model` re-exports them.
-//! - `catalog` stores and polls the product snapshot ([`ClusterSnapshot`],
+//! - `catalog` stores and polls the v1 product snapshot ([`ClusterSnapshot`],
 //!   [`CatalogPoller`]). [`QueryEngine`] builds that snapshot (`assemble_catalog`)
 //!   and serves live records, configs, one group, and subjects. `rates`,
-//!   `lag`, and `series` are time series.
+//!   `lag`, and `series` are its time series.
 
 mod client;
 mod registry;
@@ -33,9 +38,11 @@ mod topic;
 
 mod catalog;
 mod engine;
+pub mod ingest;
 mod lag;
 mod rates;
 mod series;
+pub mod store;
 
 mod error;
 pub(crate) mod model;
