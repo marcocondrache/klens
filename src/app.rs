@@ -7,7 +7,8 @@ use crate::kafka::ingest::{Ingest, LaneIntervals};
 use crate::kafka::model::{AclListing, RegisteredSchema};
 use crate::kafka::store::{ClusterStore, StoreSet};
 use crate::kafka::{
-    ConfigEntry, KafkaError, RecordPage, RecordQuery, RecordLimits, SessionSet, read_page, };
+    ConfigEntry, KafkaError, RecordLimits, RecordPage, RecordQuery, SessionSet, read_page,
+};
 
 pub(crate) mod auth;
 mod graphql;
