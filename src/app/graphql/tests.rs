@@ -18,7 +18,7 @@ use crate::kafka::store::{
     Change, ClusterStore, ConfigTable, ConfigsDelta, GroupLagUpdate, GroupOffsetsWave, Interner,
     OffsetTable, SubjectTable, SubjectsDelta, TopicRate, TopologyDelta, WatermarksTick,
 };
-use crate::kafka::{FakeCluster, QueryEngine};
+use crate::kafka::{FakeCluster, SessionSet};
 
 use super::context::GraphQlContext;
 use super::schema;
@@ -26,7 +26,7 @@ use super::schema;
 // ------------------------------------------------------------ harness
 
 fn with(sessions: Vec<FakeCluster>) -> AppState {
-    AppState::new(Arc::new(QueryEngine::from_sessions(sessions)))
+    AppState::new(Arc::new(SessionSet::from_sessions(sessions)))
 }
 
 fn state() -> AppState {
@@ -72,7 +72,10 @@ async fn run(
     let (data, errors) = execute(query, None, &schema(), &Variables::new(), context)
         .await
         .expect("query is valid against the schema");
-    (serde_json::to_value(data).expect("data is serializable"), errors)
+    (
+        serde_json::to_value(data).expect("data is serializable"),
+        errors,
+    )
 }
 
 /// Runs `query` and fails the test if it produced any error.
@@ -111,28 +114,34 @@ async fn codes(context: &GraphQlContext, query: &str) -> Vec<String> {
 fn seed(store: &ClusterStore) {
     store.topology.commit(Arc::new(topology(
         vec![
-            topic("orders.created", vec![
-                partition(0, vec![1], vec![1]),
-                partition(1, vec![1], vec![1]),
-            ]),
+            topic(
+                "orders.created",
+                vec![
+                    partition(0, vec![1], vec![1]),
+                    partition(1, vec![1], vec![1]),
+                ],
+            ),
             topic("payments.settled", vec![partition(0, vec![1], vec![1])]),
         ],
         vec![group("order-processor", "orders.created", vec![0, 1])],
     )));
 
-    store.watermarks.commit(Arc::new(watermarks(at(1_000), &[
-        ("orders.created", 0, 0, 100),
-        ("orders.created", 1, 10, 60),
-        ("payments.settled", 0, 0, 5),
-    ])));
+    store.watermarks.commit(Arc::new(watermarks(
+        at(1_000),
+        &[
+            ("orders.created", 0, 0, 100),
+            ("orders.created", 1, 10, 60),
+            ("payments.settled", 0, 0, 5),
+        ],
+    )));
 
     store.offsets.commit(Arc::new(OffsetTable {
         groups: HashMap::from([(
             Arc::from("order-processor"),
-            Arc::new(offsets(at(1_000), &[
-                ("orders.created", 0, 90),
-                ("orders.created", 1, 55),
-            ])),
+            Arc::new(offsets(
+                at(1_000),
+                &[("orders.created", 0, 90), ("orders.created", 1, 55)],
+            )),
         )]),
     }));
 
@@ -171,7 +180,11 @@ fn seeded_with(session: FakeCluster) -> (AppState, FakeCluster) {
 #[tokio::test]
 async fn whoami_reports_no_subject_when_auth_is_disabled() {
     let state = two_clusters();
-    let data = ok(&ctx(&state), "{ whoami { subject clusters { cluster role } } }").await;
+    let data = ok(
+        &ctx(&state),
+        "{ whoami { subject clusters { cluster role } } }",
+    )
+    .await;
 
     assert_eq!(data["whoami"]["subject"], serde_json::Value::Null);
     assert_eq!(data["whoami"]["clusters"][0]["cluster"], "local");
@@ -190,7 +203,11 @@ async fn whoami_resolves_each_cluster_against_its_own_grant() {
         ]),
     );
 
-    let data = ok(&context, "{ whoami { clusters { cluster role privileges } } }").await;
+    let data = ok(
+        &context,
+        "{ whoami { clusters { cluster role privileges } } }",
+    )
+    .await;
     let clusters = data["whoami"]["clusters"].as_array().expect("clusters");
 
     assert_eq!(clusters.len(), 2);
@@ -236,7 +253,11 @@ async fn an_invisible_cluster_reads_as_unknown_not_forbidden() {
 #[tokio::test]
 async fn a_cluster_nobody_configured_reads_as_unknown() {
     assert_eq!(
-        codes(&ctx(&state()), r#"{ topicRows(cluster: "nope") { total } }"#).await,
+        codes(
+            &ctx(&state()),
+            r#"{ topicRows(cluster: "nope") { total } }"#
+        )
+        .await,
         vec!["UNKNOWN_CLUSTER"]
     );
 }
@@ -276,7 +297,10 @@ async fn unprivileged_projections_stay_open_to_a_viewer() {
     assert_eq!(data["topicRows"]["total"], 2);
     assert_eq!(data["groupRows"]["total"], 1);
     assert_eq!(data["brokerRows"][0]["id"], 1);
-    assert_eq!(data["subjectRows"]["rows"][0]["subject"], "orders.created-value");
+    assert_eq!(
+        data["subjectRows"]["rows"][0]["subject"],
+        "orders.created-value"
+    );
 }
 
 // ------------------------------------------------------------ Int64
@@ -301,8 +325,14 @@ async fn sixty_four_bit_counters_cross_the_wire_as_strings() {
     )
     .await;
 
-    assert_eq!(data["topicRows"]["rows"][0]["retainedMessages"], huge.to_string());
-    assert_eq!(data["topicRows"]["rows"][0]["producedTotal"], huge.to_string());
+    assert_eq!(
+        data["topicRows"]["rows"][0]["retainedMessages"],
+        huge.to_string()
+    );
+    assert_eq!(
+        data["topicRows"]["rows"][0]["producedTotal"],
+        huge.to_string()
+    );
 }
 
 // ------------------------------------------------------------ rows
@@ -436,10 +466,13 @@ async fn topic_detail_flags_under_replication_per_partition() {
     let state = state();
     let store = state.cluster("local").expect("local cluster");
     store.topology.commit(Arc::new(topology(
-        vec![topic("orders.created", vec![
-            partition(0, vec![1, 2], vec![1, 2]),
-            offline_partition(1, vec![1, 2]),
-        ])],
+        vec![topic(
+            "orders.created",
+            vec![
+                partition(0, vec![1, 2], vec![1, 2]),
+                offline_partition(1, vec![1, 2]),
+            ],
+        )],
         Vec::new(),
     )));
 
@@ -571,7 +604,12 @@ async fn acls_stay_live_and_carry_the_authorizer_state() {
     .await;
 
     assert_eq!(data["acls"]["authorizer"], "ENABLED");
-    assert!(!data["acls"]["bindings"].as_array().expect("bindings").is_empty());
+    assert!(
+        !data["acls"]["bindings"]
+            .as_array()
+            .expect("bindings")
+            .is_empty()
+    );
 }
 
 #[tokio::test]
@@ -708,7 +746,10 @@ async fn history_replays_the_same_points_the_subscription_streams() {
     )
     .await;
 
-    assert_eq!(data["topicRateHistory"].as_array().expect("points").len(), 2);
+    assert_eq!(
+        data["topicRateHistory"].as_array().expect("points").len(),
+        2
+    );
     assert_eq!(data["topicRateHistory"][1]["value"], 13.5);
     assert_eq!(data["groupLagHistory"][0]["value"], 15.0);
 }
@@ -817,7 +858,11 @@ async fn an_unscoped_subscriber_gets_the_whole_cluster_firehose() {
             __typename
             ... on WatermarksTick { clusterRate topics { topic rate } }
         } }"#,
-        || store.bus.publish(tick(&[("orders.created", 10.0), ("payments.settled", 2.0)])),
+        || {
+            store
+                .bus
+                .publish(tick(&[("orders.created", 10.0), ("payments.settled", 2.0)]))
+        },
         1,
     )
     .await;
@@ -846,7 +891,11 @@ async fn a_topic_scoped_subscriber_pays_only_for_its_own_topic() {
         r#"subscription { updates(cluster: "local", scope: { topic: "orders.created" }) {
             ... on WatermarksTick { topics { topic rate } }
         } }"#,
-        || store.bus.publish(tick(&[("orders.created", 10.0), ("payments.settled", 2.0)])),
+        || {
+            store
+                .bus
+                .publish(tick(&[("orders.created", 10.0), ("payments.settled", 2.0)]))
+        },
         1,
     )
     .await;
@@ -902,7 +951,11 @@ async fn an_unscoped_lag_wave_fans_out_one_update_per_group_without_offsets() {
         r#"subscription { updates(cluster: "local") {
             ... on GroupLagUpdate { group lag offsets { partition } }
         } }"#,
-        || store.bus.publish(wave(&[("order-processor", 15), ("audit", 3)])),
+        || {
+            store
+                .bus
+                .publish(wave(&[("order-processor", 15), ("audit", 3)]))
+        },
         2,
     )
     .await;

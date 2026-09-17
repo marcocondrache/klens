@@ -826,7 +826,11 @@ impl TryFrom<RecordQueryInput> for domain::RecordQuery {
     fn try_from(query: RecordQueryInput) -> Result<Self, Self::Error> {
         Ok(Self {
             timestamps: domain::TimestampRange::new(query.from, query.to)?,
-            filter: query.filter.map(RecordFilterInput::compile).transpose()?.flatten(),
+            filter: query
+                .filter
+                .map(RecordFilterInput::compile)
+                .transpose()?
+                .flatten(),
             cursor: match query.cursor.as_deref().map(str::trim) {
                 None | Some("") => None,
                 Some(cursor) => Some(RecordCursor::parse(cursor)?),

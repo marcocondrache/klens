@@ -86,58 +86,11 @@ pub static REQUEST_TIMEOUT: LazyLock<Duration> =
 pub static CONSUME_TIMEOUT: LazyLock<Duration> =
     lazy_env_parse!(duration, "KLENS_CONSUME_TIMEOUT", Duration::from_secs(5));
 
-/// Consumer groups whose committed offsets are fetched together (default: 8).
-///
-/// Override with `KLENS_OFFSET_FETCH_BATCH`.
-pub static OFFSET_FETCH_BATCH: LazyLock<usize> =
-    lazy_env_parse!("KLENS_OFFSET_FETCH_BATCH", usize, 8);
-
 /// Maximum records a browse or search query may request (default: 500).
 ///
 /// Override with `KLENS_MAX_RECORD_LIMIT`.
 pub static MAX_RECORD_LIMIT: LazyLock<usize> =
     lazy_env_parse!("KLENS_MAX_RECORD_LIMIT", usize, 500);
-
-/// How often a live `topicRates` subscription samples high watermarks
-/// (default: 2 seconds).
-///
-/// Override with `KLENS_SAMPLE_INTERVAL` (seconds).
-pub static SAMPLE_INTERVAL: LazyLock<Duration> =
-    lazy_env_parse!(duration, "KLENS_SAMPLE_INTERVAL", Duration::from_secs(2));
-
-/// How often each cluster's topic and consumer-group catalog is refreshed
-/// (default: 5 seconds).
-///
-/// Override with `KLENS_CATALOG_POLL_INTERVAL` (seconds). Values below 1
-/// second fall back to the default.
-pub static CATALOG_POLL_INTERVAL: LazyLock<Duration> = LazyLock::new(|| {
-    parse_poll_interval(
-        std::env::var("KLENS_CATALOG_POLL_INTERVAL").ok(),
-        DEFAULT_CATALOG_POLL_INTERVAL,
-    )
-});
-
-/// How often each cluster's schema subjects are refreshed (default: 15 seconds).
-///
-/// Override with `KLENS_SUBJECT_POLL_INTERVAL` (seconds). Values below 1
-/// second fall back to the default.
-pub static SUBJECT_POLL_INTERVAL: LazyLock<Duration> = LazyLock::new(|| {
-    parse_poll_interval(
-        std::env::var("KLENS_SUBJECT_POLL_INTERVAL").ok(),
-        DEFAULT_SUBJECT_POLL_INTERVAL,
-    )
-});
-
-/// How often topic configs are refreshed inside the catalog poll (default: 30 seconds).
-///
-/// Override with `KLENS_CONFIG_POLL_INTERVAL` (seconds). Values below 1
-/// second fall back to the default.
-pub static CONFIG_POLL_INTERVAL: LazyLock<Duration> = LazyLock::new(|| {
-    parse_poll_interval(
-        std::env::var("KLENS_CONFIG_POLL_INTERVAL").ok(),
-        DEFAULT_CONFIG_POLL_INTERVAL,
-    )
-});
 
 /// How often the topology lane refreshes metadata and consumer-group
 /// membership (default: 10 seconds).
@@ -263,9 +216,6 @@ pub static MISSING_SCHEMA_TTL: LazyLock<Duration> = lazy_env_parse!(
 pub static IDLE_HEARTBEAT: LazyLock<Duration> =
     lazy_env_parse!(duration, "KLENS_IDLE_HEARTBEAT", Duration::from_secs(15));
 
-const DEFAULT_CATALOG_POLL_INTERVAL: Duration = Duration::from_secs(5);
-const DEFAULT_SUBJECT_POLL_INTERVAL: Duration = Duration::from_secs(15);
-const DEFAULT_CONFIG_POLL_INTERVAL: Duration = Duration::from_secs(30);
 const DEFAULT_TOPOLOGY_LANE_INTERVAL: Duration = Duration::from_secs(10);
 const DEFAULT_WATERMARK_LANE_INTERVAL: Duration = Duration::from_secs(3);
 const DEFAULT_CONFIG_LANE_INTERVAL: Duration = Duration::from_secs(60);
@@ -326,54 +276,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn catalog_poll_interval_defaults_when_unset_or_invalid() {
+    fn a_poll_interval_defaults_when_unset_or_invalid() {
         assert_eq!(
-            parse_poll_interval(None, DEFAULT_CATALOG_POLL_INTERVAL),
-            DEFAULT_CATALOG_POLL_INTERVAL
+            parse_poll_interval(None, DEFAULT_TOPOLOGY_LANE_INTERVAL),
+            DEFAULT_TOPOLOGY_LANE_INTERVAL
         );
         assert_eq!(
-            parse_poll_interval(Some("not-a-number".into()), DEFAULT_CATALOG_POLL_INTERVAL),
-            DEFAULT_CATALOG_POLL_INTERVAL
+            parse_poll_interval(Some("not-a-number".into()), DEFAULT_TOPOLOGY_LANE_INTERVAL),
+            DEFAULT_TOPOLOGY_LANE_INTERVAL
         );
         assert_eq!(
-            parse_poll_interval(Some("0".into()), DEFAULT_CATALOG_POLL_INTERVAL),
-            DEFAULT_CATALOG_POLL_INTERVAL
+            parse_poll_interval(Some("0".into()), DEFAULT_TOPOLOGY_LANE_INTERVAL),
+            DEFAULT_TOPOLOGY_LANE_INTERVAL,
+            "sub-second polling is a footgun, not a configuration"
         );
     }
 
     #[test]
-    fn catalog_poll_interval_accepts_values_at_or_above_one_second() {
+    fn a_poll_interval_accepts_values_at_or_above_one_second() {
         assert_eq!(
-            parse_poll_interval(Some("1".into()), DEFAULT_CATALOG_POLL_INTERVAL),
+            parse_poll_interval(Some("1".into()), DEFAULT_TOPOLOGY_LANE_INTERVAL),
             MIN_POLL_INTERVAL
         );
         assert_eq!(
-            parse_poll_interval(Some("15".into()), DEFAULT_CATALOG_POLL_INTERVAL),
+            parse_poll_interval(Some("15".into()), DEFAULT_TOPOLOGY_LANE_INTERVAL),
             Duration::from_secs(15)
-        );
-    }
-
-    #[test]
-    fn subject_poll_interval_defaults_when_unset_or_invalid() {
-        assert_eq!(
-            parse_poll_interval(None, DEFAULT_SUBJECT_POLL_INTERVAL),
-            DEFAULT_SUBJECT_POLL_INTERVAL
-        );
-        assert_eq!(
-            parse_poll_interval(Some("0".into()), DEFAULT_SUBJECT_POLL_INTERVAL),
-            DEFAULT_SUBJECT_POLL_INTERVAL
-        );
-    }
-
-    #[test]
-    fn config_poll_interval_defaults_when_unset_or_invalid() {
-        assert_eq!(
-            parse_poll_interval(None, DEFAULT_CONFIG_POLL_INTERVAL),
-            DEFAULT_CONFIG_POLL_INTERVAL
-        );
-        assert_eq!(
-            parse_poll_interval(Some("0".into()), DEFAULT_CONFIG_POLL_INTERVAL),
-            DEFAULT_CONFIG_POLL_INTERVAL
         );
     }
 }

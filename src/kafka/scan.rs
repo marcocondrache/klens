@@ -4,7 +4,7 @@
 //! owns a single consumer and reuses it across every filter pass, so a search
 //! that has to read a long way back never rebuilds its connection.
 //!
-//! - [`query::RecordQuery`] is the request.
+//! - [`query::RecordQuery`] is the request; [`read::read_page`] serves it.
 //! - [`plan`] turns watermarks into partition windows and computes the two
 //!   cursor edges a page hands back.
 //! - [`filter::CompiledFilter`] decides, in three escalating stages, whether a
@@ -18,6 +18,7 @@ pub mod filter;
 pub mod payload;
 pub mod plan;
 pub mod query;
+pub mod read;
 pub mod session;
 
 use std::cmp::Ordering;

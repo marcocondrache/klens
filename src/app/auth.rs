@@ -230,7 +230,9 @@ pub async fn require_session(
     if let Some(access) = state.auth.access_from_session(&auth_session) {
         let mut request = request;
         request.extensions_mut().insert(access);
-        request.extensions_mut().insert(state.auth.guard(&auth_session));
+        request
+            .extensions_mut()
+            .insert(state.auth.guard(&auth_session));
         return next.run(request).await;
     }
 
@@ -510,7 +512,7 @@ mod tests {
 
     use super::oidc::FakeOidc;
     use super::*;
-    use crate::kafka::{FakeCluster, QueryEngine};
+    use crate::kafka::{FakeCluster, SessionSet};
 
     impl AuthState {
         pub(crate) fn enabled_for_tests() -> Self {
@@ -528,7 +530,7 @@ mod tests {
 
     fn app(auth: AuthState) -> axum::Router {
         crate::app::router(AppState::with_auth(
-            Arc::new(QueryEngine::from_sessions(vec![FakeCluster::local()])),
+            Arc::new(SessionSet::from_sessions(vec![FakeCluster::local()])),
             auth,
         ))
     }
@@ -967,9 +969,11 @@ mod tests {
 
         assert_ne!(
             key.signing(),
-            signing_key(Some(&base64::engine::general_purpose::STANDARD.encode([7u8; 32])))
-                .expect("key")
-                .signing()
+            signing_key(Some(
+                &base64::engine::general_purpose::STANDARD.encode([7u8; 32])
+            ))
+            .expect("key")
+            .signing()
         );
     }
 

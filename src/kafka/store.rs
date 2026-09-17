@@ -34,7 +34,7 @@ pub use projections::{
     BrokerRow, ClusterHealthView, GroupDetail, GroupRow, PartitionRow, SubjectRow, TopicDetail,
     TopicGroupRow, TopicRow,
 };
-pub use search::SearchIndex;
+pub use search::{SearchHit, SearchIndex, SearchKind};
 pub use series::{Point, SeriesStore};
 pub use tables::{
     BrokerInfo, ConfigTable, GroupInfo, GroupOffsets, Interner, OffsetTable, SubjectInfo,

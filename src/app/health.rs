@@ -31,10 +31,10 @@ mod tests {
     use crate::AppState;
     use crate::app::router;
     use crate::kafka::store::fixtures::{partition, topic, topology};
-    use crate::kafka::{FakeCluster, QueryEngine};
+    use crate::kafka::{FakeCluster, SessionSet};
 
     fn state() -> AppState {
-        AppState::new(Arc::new(QueryEngine::from_sessions(vec![
+        AppState::new(Arc::new(SessionSet::from_sessions(vec![
             FakeCluster::local(),
         ])))
     }
@@ -55,10 +55,14 @@ mod tests {
             StatusCode::SERVICE_UNAVAILABLE
         );
 
-        state.cluster("local").unwrap().topology.commit(Arc::new(topology(
-            vec![topic("ready", vec![partition(0, vec![1], vec![1])])],
-            Vec::new(),
-        )));
+        state
+            .cluster("local")
+            .unwrap()
+            .topology
+            .commit(Arc::new(topology(
+                vec![topic("ready", vec![partition(0, vec![1], vec![1])])],
+                Vec::new(),
+            )));
 
         assert_eq!(status(state, "/ready").await, StatusCode::NO_CONTENT);
     }

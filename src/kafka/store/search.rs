@@ -1,8 +1,25 @@
-use crate::kafka::search::{SearchHit, SearchKind};
-
 use super::tables::{SubjectTable, Topology};
 
 const MAX_HITS: usize = 20;
+
+/// What a [`SearchHit`] points at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchKind {
+    Topic,
+    Group,
+    Node,
+    Subject,
+}
+
+/// One typeahead result: what it is, what to navigate to, and a one-line
+/// detail the UI shows next to the name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchHit {
+    pub kind: SearchKind,
+    pub id: String,
+    pub label: String,
+    pub detail: String,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Entry {

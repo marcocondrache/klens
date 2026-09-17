@@ -159,7 +159,7 @@ livenessProbe:
     path: /health
     port: http
   periodSeconds: 20
-# -- Readiness probe. Targets `/ready` after every configured cluster has a catalog snapshot.
+# -- Readiness probe. Targets `/ready` after every configured cluster has a topology poll.
 readinessProbe:
   httpGet:
     path: /ready
