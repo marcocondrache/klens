@@ -178,7 +178,7 @@ function ConsumerGroupsPage() {
               items={STATE_ITEMS}
               onValueChange={(value) => update("state", String(value))}
             >
-              <SelectTrigger size="sm" className="w-48">
+              <SelectTrigger className="w-48">
                 <SelectValue placeholder="State" />
               </SelectTrigger>
               <SelectContent>

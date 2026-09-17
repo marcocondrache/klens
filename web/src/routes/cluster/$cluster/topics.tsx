@@ -209,7 +209,7 @@ function TopicsPage() {
               items={POLICY_ITEMS}
               onValueChange={(value) => update("policy", String(value))}
             >
-              <SelectTrigger size="sm" className="w-40">
+              <SelectTrigger className="w-40">
                 <SelectValue placeholder="Cleanup policy" />
               </SelectTrigger>
               <SelectContent>

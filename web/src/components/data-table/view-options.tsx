@@ -21,7 +21,7 @@ export function DataTableViewOptions<TData extends RowData>({
 }) {
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger render={<Button variant="outline" size="sm" className="ml-auto" />}>
+      <DropdownMenuTrigger render={<Button variant="outline" className="ml-auto" />}>
         <Settings2Icon data-icon="inline-start" />
         View
       </DropdownMenuTrigger>
