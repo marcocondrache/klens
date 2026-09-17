@@ -1,0 +1,56 @@
+name: helm
+description: Package and push the Helm chart to GHCR as an OCI artifact.
+
+inputs:
+  chart:
+    description: Path to the chart directory.
+    required: false
+    default: charts/klens
+  version:
+    description: Chart and app version to publish (e.g. 0.1.0 from a v0.1.0 git tag).
+    required: true
+  repository:
+    description: OCI repository prefix to push into (without the chart name).
+    required: false
+    default: ghcr.io/${{ github.repository }}/charts
+  gh-token:
+    description: Token used to log in to GHCR.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+
+    - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ inputs.gh-token }}
+
+    - name: Package and push chart
+      shell: bash
+      env:
+        CHART: ${{ inputs.chart }}
+        VERSION: ${{ inputs.version }}
+        REPOSITORY: ${{ inputs.repository }}
+      run: |
+        set -euxo pipefail
+
+        repository="$(printf '%s\n' "${REPOSITORY#oci://}" | tr '[:upper:]' '[:lower:]')"
+        dest="${RUNNER_TEMP}/helm-chart"
+        mkdir -p "$dest"
+
+        helm lint "$CHART"
+
+        name="$(awk '/^name:[[:space:]]*/ { print $2; exit }' "$CHART/Chart.yaml")"
+        helm package "$CHART" \
+          --version "$VERSION" \
+          --app-version "$VERSION" \
+          --destination "$dest"
+
+        package="$dest/${name}-${VERSION}.tgz"
+        test -f "$package"
+
+        helm push "$package" "oci://${repository}"
+        helm show chart "oci://${repository}/${name}" --version "$VERSION"

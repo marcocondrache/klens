@@ -22,8 +22,15 @@ docker run --rm -p 8080:8080 \
   ghcr.io/marcocondrache/klens:latest
 ```
 
-A Helm chart lives in [`charts/klens`](charts/klens). `config` is the same YAML
+The Helm chart is published to the same registry. `config` is the same YAML
 the process loads here.
+
+```sh
+helm install klens oci://ghcr.io/marcocondrache/klens/charts/klens \
+  -n klens --create-namespace -f my-values.yaml
+```
+
+A checkout can install [`charts/klens`](charts/klens) from the path instead.
 
 ```sh
 helm install klens ./charts/klens -n klens --create-namespace -f my-values.yaml
