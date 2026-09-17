@@ -121,7 +121,10 @@ export function DataTable<TData extends RowData>({
         <DataTableViewOptions table={table} />
       </div>
       <div
-        className={cn("relative overflow-hidden border", fill && "flex min-h-0 flex-1 flex-col")}
+        className={cn(
+          "relative overflow-hidden rounded-md border",
+          fill && "flex min-h-0 flex-1 flex-col",
+        )}
       >
         {refreshing ? <RefreshBar className="absolute inset-x-0 top-0 z-20" /> : null}
         <div className={cn(fill && "min-h-0 flex-1 overflow-auto")}>
