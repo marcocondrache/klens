@@ -19,24 +19,16 @@ use crate::environment::{MISSING_SCHEMA_TTL, SUBJECT_FETCH_CONCURRENCY};
 use crate::kafka::model::{SchemaReference, SchemaType};
 use crate::kafka::scan::payload::{DecodedPayload, PayloadCodec, PayloadSlot, framed_schema_id};
 
-/// Bound on the per-decoder caches. A registered schema is immutable, so
-/// nothing evicts one on age.
 const MAX_CACHED_SCHEMAS: u64 = 10_000;
 
-/// How a payload says which schema it uses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Framing {
     key: SchemaKey,
-    /// Where the payload body starts.
     body: usize,
-    /// Whether the payload carries a wire-format prefix of its own. Only
-    /// framed payloads do, and only they carry a protobuf message-index
-    /// prefix; an override says "read these bytes as this schema".
     framed: bool,
 }
 
 impl Framing {
-    /// Wire-format schema ids always win over the override.
     fn of(slot: &PayloadSlot) -> Option<Self> {
         if let Ok((key, body)) = decode_wire_prefix(&slot.raw) {
             return Some(Self {
@@ -58,19 +50,11 @@ impl Framing {
 #[derive(Clone)]
 pub(crate) struct PayloadDecoder {
     client: SchemaRegistryClient,
-    /// Fetches and parses writer schemas, walking Avro references itself.
     avro: Arc<AvroSchemaDecoder<Arc<Registry>>>,
-    /// Compiled protobuf descriptor pools. `CachedSchemaRegistry` caches raw
-    /// schemas and `AvroSchemaDecoder` caches parsed Avro ones, so this is the
-    /// only schema parse klens still owns.
     pools: Cache<SchemaKey, Arc<ProtobufCodec>>,
-    /// Schemas the registry does not know. Resolved schemas are cached for the
-    /// process lifetime because a registered schema is immutable. A missing
-    /// one is not: registering it later must start working without a restart.
     missing: Cache<SchemaKey, ()>,
 }
 
-/// What a resolved schema means for the bytes that name it.
 #[derive(Clone)]
 enum Resolved {
     Avro,
@@ -138,9 +122,6 @@ impl PayloadDecoder {
             .map_err(|error| (*error).clone())
     }
 
-    /// The transitive closure of a protobuf schema's registry references, as
-    /// `(import name, source)` pairs for the protox resolver. Avro walks its
-    /// own references inside [`AvroSchemaDecoder`].
     async fn collect_named_references(
         &self,
         schema: &Schema,
