@@ -77,6 +77,7 @@ impl Record {
 pub struct RecordPage {
     pub records: Vec<Record>,
     pub complete: bool,
+    pub obfuscated: bool,
     pub next_cursor: Option<String>,
     pub prev_cursor: Option<String>,
 }
@@ -86,6 +87,7 @@ impl RecordPage {
         Self {
             records: Vec::new(),
             complete: true,
+            obfuscated: false,
             next_cursor: None,
             prev_cursor: None,
         }
@@ -150,6 +152,7 @@ mod tests {
         assert!(page.complete);
         assert!(!page.has_more());
         assert!(page.prev_cursor.is_none());
+        assert!(!page.obfuscated);
     }
 
     #[test]

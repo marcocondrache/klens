@@ -418,6 +418,13 @@ type RecordPage {
     `nextCursor` resumes where the scan stopped.
   """
   complete: Boolean!
+  """
+    True when an obfuscation rule covers this topic. Keys, values, and
+    headers are then a view of the records: protected fields render as
+    `***` or as `kx:` tokens, a value that never decoded may be masked
+    whole, and filters match that view rather than the wire record.
+  """
+  obfuscated: Boolean!
   nextCursor: String
   prevCursor: String
 }

@@ -690,6 +690,87 @@ async fn an_obfuscated_topic_serves_tokens_instead_of_payloads() {
 }
 
 #[tokio::test]
+async fn a_page_says_whether_a_rule_covers_its_topic() {
+    let pan = "4111111111111111";
+    let records: Vec<_> = (0..2).map(|offset| card_record(offset, pan)).collect();
+    let rules = "
+        rules:
+          - topics: ['orders.*']
+            fields:
+              - path: card.number
+                strategy: mask
+        ";
+
+    let plain = seeded_with(FakeCluster::local().with_orders_records(records.clone())).0;
+    let protected = seeded_with(
+        FakeCluster::local()
+            .with_orders_records(records)
+            .with_obfuscation(rules),
+    )
+    .0;
+
+    let query = r#"{ records(cluster: "local", query: { topic: "orders.created", limit: 2 }) {
+        obfuscated records { offset }
+    } }"#;
+
+    assert_eq!(
+        ok(&ctx(&plain), query).await["records"]["obfuscated"],
+        serde_json::json!(false)
+    );
+    assert_eq!(
+        ok(&ctx(&protected), query).await["records"]["obfuscated"],
+        serde_json::json!(true)
+    );
+}
+
+#[tokio::test]
+async fn a_pattern_rule_tokens_a_topic_no_registry_ever_decodes() {
+    let pan = "4111111111111111";
+    let records = (0..3)
+        .map(|offset| {
+            let mut record = card_record(offset, pan);
+            record.value = Some(format!("charged {pan} for ada@example.com"));
+            record
+        })
+        .collect();
+    let state = seeded_with(
+        FakeCluster::local()
+            .with_orders_records(records)
+            .with_obfuscation(
+                r"
+                secret: 0123456789abcdef0123456789abcdef
+                rules:
+                  - topics: ['orders.*']
+                    patterns:
+                      - regex: '\d{13,19}'
+                        strategy: hash
+                      - regex: '[\w.+-]+@[\w-]+\.[\w.]+'
+                        strategy: mask
+                ",
+            ),
+    )
+    .0;
+
+    let data = ok(
+        &ctx(&state),
+        r#"{ records(cluster: "local", query: { topic: "orders.created", limit: 3 }) {
+            obfuscated records { value }
+        } }"#,
+    )
+    .await;
+
+    assert_eq!(data["records"]["obfuscated"], serde_json::json!(true));
+    let records = data["records"]["records"].as_array().expect("records");
+    assert_eq!(records.len(), 3);
+    for record in records {
+        let value = record["value"].as_str().expect("value");
+        assert!(value.starts_with("charged kx:"), "{value}");
+        assert!(!value.contains(pan), "{value}");
+        assert!(value.ends_with("for ***"), "{value}");
+    }
+}
+
+#[tokio::test]
 async fn an_obfuscated_topic_cannot_be_filtered_on_the_cleartext_it_hides() {
     let pan = "4111111111111111";
     let records = (0..3).map(|offset| card_record(offset, pan)).collect();

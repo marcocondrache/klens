@@ -49,7 +49,7 @@ type Documents = {
     "\n  query SubjectRows($cluster: String!) {\n    subjectRows(cluster: $cluster) {\n      rows {\n        ...SubjectRowFields\n      }\n      sourceHealth {\n        ...LaneHealthFields\n      }\n    }\n  }\n": typeof types.SubjectRowsDocument,
     "\n  query Subject($cluster: String!, $name: String!, $version: Int) {\n    subject(cluster: $cluster, name: $name, version: $version) {\n      ...SubjectDetailFields\n    }\n  }\n": typeof types.SubjectDocument,
     "\n  query Acls($cluster: String!) {\n    acls(cluster: $cluster) {\n      authorizer\n      bindings {\n        ...AclFields\n      }\n    }\n  }\n": typeof types.AclsDocument,
-    "\n  query Records($cluster: String!, $query: RecordQueryInput!) {\n    records(cluster: $cluster, query: $query) {\n      complete\n      nextCursor\n      prevCursor\n      records {\n        ...RecordFields\n      }\n    }\n  }\n": typeof types.RecordsDocument,
+    "\n  query Records($cluster: String!, $query: RecordQueryInput!) {\n    records(cluster: $cluster, query: $query) {\n      complete\n      obfuscated\n      nextCursor\n      prevCursor\n      records {\n        ...RecordFields\n      }\n    }\n  }\n": typeof types.RecordsDocument,
     "\n  query TopicRateHistory($cluster: String!, $topic: String!) {\n    topicRateHistory(cluster: $cluster, topic: $topic) {\n      ...PointFields\n    }\n  }\n": typeof types.TopicRateHistoryDocument,
     "\n  query GroupLagHistory($cluster: String!, $group: String!) {\n    groupLagHistory(cluster: $cluster, group: $group) {\n      ...PointFields\n    }\n  }\n": typeof types.GroupLagHistoryDocument,
     "\n  query Search($cluster: String!, $term: String!) {\n    search(cluster: $cluster, term: $term) {\n      ...SearchHitFields\n    }\n  }\n": typeof types.SearchDocument,
@@ -90,7 +90,7 @@ const documents: Documents = {
     "\n  query SubjectRows($cluster: String!) {\n    subjectRows(cluster: $cluster) {\n      rows {\n        ...SubjectRowFields\n      }\n      sourceHealth {\n        ...LaneHealthFields\n      }\n    }\n  }\n": types.SubjectRowsDocument,
     "\n  query Subject($cluster: String!, $name: String!, $version: Int) {\n    subject(cluster: $cluster, name: $name, version: $version) {\n      ...SubjectDetailFields\n    }\n  }\n": types.SubjectDocument,
     "\n  query Acls($cluster: String!) {\n    acls(cluster: $cluster) {\n      authorizer\n      bindings {\n        ...AclFields\n      }\n    }\n  }\n": types.AclsDocument,
-    "\n  query Records($cluster: String!, $query: RecordQueryInput!) {\n    records(cluster: $cluster, query: $query) {\n      complete\n      nextCursor\n      prevCursor\n      records {\n        ...RecordFields\n      }\n    }\n  }\n": types.RecordsDocument,
+    "\n  query Records($cluster: String!, $query: RecordQueryInput!) {\n    records(cluster: $cluster, query: $query) {\n      complete\n      obfuscated\n      nextCursor\n      prevCursor\n      records {\n        ...RecordFields\n      }\n    }\n  }\n": types.RecordsDocument,
     "\n  query TopicRateHistory($cluster: String!, $topic: String!) {\n    topicRateHistory(cluster: $cluster, topic: $topic) {\n      ...PointFields\n    }\n  }\n": types.TopicRateHistoryDocument,
     "\n  query GroupLagHistory($cluster: String!, $group: String!) {\n    groupLagHistory(cluster: $cluster, group: $group) {\n      ...PointFields\n    }\n  }\n": types.GroupLagHistoryDocument,
     "\n  query Search($cluster: String!, $term: String!) {\n    search(cluster: $cluster, term: $term) {\n      ...SearchHitFields\n    }\n  }\n": types.SearchDocument,
@@ -236,7 +236,7 @@ export function graphql(source: "\n  query Acls($cluster: String!) {\n    acls(c
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  query Records($cluster: String!, $query: RecordQueryInput!) {\n    records(cluster: $cluster, query: $query) {\n      complete\n      nextCursor\n      prevCursor\n      records {\n        ...RecordFields\n      }\n    }\n  }\n"): typeof import('./graphql').RecordsDocument;
+export function graphql(source: "\n  query Records($cluster: String!, $query: RecordQueryInput!) {\n    records(cluster: $cluster, query: $query) {\n      complete\n      obfuscated\n      nextCursor\n      prevCursor\n      records {\n        ...RecordFields\n      }\n    }\n  }\n"): typeof import('./graphql').RecordsDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */

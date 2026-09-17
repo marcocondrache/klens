@@ -738,6 +738,11 @@ pub(super) struct RecordPage {
     /// records are real, but the page is not everything the query matched.
     /// `nextCursor` resumes where the scan stopped.
     pub complete: bool,
+    /// True when an obfuscation rule covers this topic. Keys, values, and
+    /// headers are then a view of the records: protected fields render as
+    /// `***` or as `kx:` tokens, a value that never decoded may be masked
+    /// whole, and filters match that view rather than the wire record.
+    pub obfuscated: bool,
     pub next_cursor: Option<String>,
     pub prev_cursor: Option<String>,
 }
@@ -747,6 +752,7 @@ impl From<domain::RecordPage> for RecordPage {
         Self {
             records: page.records.into_iter().map(Into::into).collect(),
             complete: page.complete,
+            obfuscated: page.obfuscated,
             next_cursor: page.next_cursor,
             prev_cursor: page.prev_cursor,
         }

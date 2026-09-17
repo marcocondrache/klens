@@ -386,6 +386,7 @@ export const recordsQuery = graphql(`
   query Records($cluster: String!, $query: RecordQueryInput!) {
     records(cluster: $cluster, query: $query) {
       complete
+      obfuscated
       nextCursor
       prevCursor
       records {

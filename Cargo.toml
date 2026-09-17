@@ -70,6 +70,7 @@ protox = "0.9"
 bytes = "1"
 hmac = "0.12"
 sha2 = "0.10"
+regex = "1.13"
 
 [dev-dependencies]
 juniper_subscriptions = "0.18"
