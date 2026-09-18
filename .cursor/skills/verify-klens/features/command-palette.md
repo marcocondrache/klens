@@ -21,7 +21,7 @@ The command palette jumps to a topic, group, broker, schema, or section without 
 
 Preconditions:
 
-- Doctor reports `clusters` includes `local` and `catalogHealth` has `updatedAt` with no `lastError`.
+- Doctor reports cluster `local` is ready and topology has `updatedAt` with no `lastError`.
 - Topic `klens-verify-topics` exists.
 - Viewport is at least 640px wide so the labeled `Search` button is shown.
 - Start from `/cluster/local/topics`.
