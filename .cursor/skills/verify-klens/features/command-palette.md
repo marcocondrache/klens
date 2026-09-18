@@ -41,4 +41,4 @@ Preconditions:
 - Close the dialog and wait until it is hidden before the next open. `Control+K` toggles. A chord while the dialog is still closing closes it again.
 - The dialog title is `Search klens` and is visually hidden (`sr-only`). Query it by accessible name, not by visible text.
 - Results wait on GraphQL `search`. Wait for the topic row, not a fixed debounce sleep.
-- A query with no hits shows `No matches in local.` Catalog hits replace the Go to and Switch cluster groups so arrow keys stay on the hits. Those groups return when the query misses the catalog but still matches a section or cluster name.
+- A query with no hits shows `No matches in local.` Typing hides Go to and Switch cluster so arrow keys stay on catalog hits.

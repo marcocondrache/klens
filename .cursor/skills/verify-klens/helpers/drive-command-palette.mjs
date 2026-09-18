@@ -93,20 +93,11 @@ try {
   await dialog.getByRole("combobox").waitFor();
   await dialog.getByRole("combobox").fill("zzzz-no-such-entity");
   await dialog.getByText("No matches in local.").waitFor({ timeout: 10_000 });
-  notes.push("empty state shown");
-  await page.keyboard.press("Escape");
-  await dialog.waitFor({ state: "hidden" });
-
-  await page.getByRole("button", { name: /^Search/ }).click();
-  await dialog.getByRole("combobox").waitFor();
-  await dialog.getByRole("combobox").fill("acl");
-  await dialog.getByRole("option", { name: "ACLs", exact: true }).waitFor();
-  const aclSelected = (await selectedOptions().allInnerTexts()).map((text) => text.trim());
-  if (!aclSelected.some((text) => text === "ACLs")) {
-    throw new Error(`expected ACLs selected for query acl, got ${JSON.stringify(aclSelected)}`);
+  if ((await dialog.getByRole("option", { name: "Topics", exact: true }).count()) !== 0) {
+    throw new Error("Go to Topics stayed visible on an empty search");
   }
-  notes.push(`acl selected ${JSON.stringify(aclSelected)}`);
-  await page.screenshot({ path: join(artifactDir, "acl-goto.png") });
+  notes.push("empty state shown");
+  await page.screenshot({ path: join(artifactDir, "no-matches.png") });
 
   await writeFile(join(artifactDir, "NOTES.txt"), `${notes.join("\n")}\n`);
   console.log(`drive-command-palette: ok ${artifactDir}`);

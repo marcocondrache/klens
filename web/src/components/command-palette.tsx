@@ -25,15 +25,6 @@ const RESULT_ICON = {
   SUBJECT: FileJsonIcon,
 };
 
-function matchesQuery(label: string, term: string) {
-  const query = term.trim().toLowerCase();
-  return query.length === 0 || label.toLowerCase().includes(query);
-}
-
-function firstValue(...values: Array<string | undefined>) {
-  return values.find((value) => value != null && value.length > 0) ?? "";
-}
-
 export function CommandPalette({
   open,
   onOpenChange,
@@ -47,8 +38,7 @@ export function CommandPalette({
   const { can } = useAccess();
   const sections = visibleSections(can(cluster, "ACLS"));
   const [term, setTerm] = useState("");
-  const [picked, setPicked] = useState<string | null>(null);
-  const [lead, setLead] = useState("");
+  const searching = term.trim().length > 0;
 
   function goHref(href: string) {
     void navigate({ href });
@@ -58,11 +48,7 @@ export function CommandPalette({
   const { data: results = [], isFetching, isError, error } = useSearch(cluster, term);
 
   function changeOpen(next: boolean) {
-    if (!next) {
-      setTerm("");
-      setPicked(null);
-      setLead("");
-    }
+    if (!next) setTerm("");
     onOpenChange(next);
   }
 
@@ -75,31 +61,6 @@ export function CommandPalette({
   const groups = results.filter((result) => result.kind === "GROUP");
   const nodes = results.filter((result) => result.kind === "NODE");
   const subjects = results.filter((result) => result.kind === "SUBJECT");
-  const goto =
-    results.length > 0 ? [] : sections.filter((section) => matchesQuery(section.label, term));
-  const clusterHits =
-    results.length > 0 ? [] : clusters.filter((entry) => matchesQuery(entry.cluster, term));
-  const highlight = firstValue(
-    topics[0]?.href,
-    groups[0]?.href,
-    nodes[0]?.href,
-    subjects[0]?.href,
-    goto[0] ? `nav:${goto[0].label}` : undefined,
-    clusterHits[0] ? `cluster:${clusterHits[0].cluster}` : undefined,
-  );
-  const searching = term.trim().length > 0;
-  const showEmpty =
-    searching &&
-    !isFetching &&
-    !isError &&
-    results.length === 0 &&
-    goto.length === 0 &&
-    clusterHits.length === 0;
-
-  if (lead !== highlight) {
-    setLead(highlight);
-    setPicked(null);
-  }
 
   return (
     <CommandDialog
@@ -109,7 +70,7 @@ export function CommandPalette({
       description="Jump to a topic, consumer group, broker, schema or section"
       className="sm:max-w-xl"
     >
-      <Command shouldFilter={false} value={picked ?? highlight} onValueChange={setPicked}>
+      <Command shouldFilter={false}>
         <CommandInput
           value={term}
           onValueChange={setTerm}
@@ -117,12 +78,12 @@ export function CommandPalette({
         />
         <CommandList className="max-h-[min(24rem,50vh)]">
           {searching && isError ? (
-            <p className="px-2 py-3 text-center text-sm text-destructive">
-              {error instanceof Error ? error.message : "Search failed."}
-            </p>
+            <CommandEmpty>{error instanceof Error ? error.message : "Search failed."}</CommandEmpty>
           ) : null}
 
-          {showEmpty ? <CommandEmpty>No matches in {cluster}.</CommandEmpty> : null}
+          {searching && !isFetching && !isError && results.length === 0 ? (
+            <CommandEmpty>No matches in {cluster}.</CommandEmpty>
+          ) : null}
 
           {topics.length ? (
             <CommandGroup heading="Topics">
@@ -212,9 +173,9 @@ export function CommandPalette({
             </CommandGroup>
           ) : null}
 
-          {goto.length ? (
+          {searching ? null : (
             <CommandGroup heading="Go to">
-              {goto.map((section) => (
+              {sections.map((section) => (
                 <CommandItem
                   key={section.segment}
                   value={`nav:${section.label}`}
@@ -232,11 +193,11 @@ export function CommandPalette({
                 </CommandItem>
               ))}
             </CommandGroup>
-          ) : null}
+          )}
 
-          {clusterHits.length ? (
+          {searching ? null : (
             <CommandGroup heading="Switch cluster">
-              {clusterHits.map((entry) => (
+              {clusters.map((entry) => (
                 <CommandItem
                   key={entry.cluster}
                   value={`cluster:${entry.cluster}`}
@@ -258,7 +219,7 @@ export function CommandPalette({
                 </CommandItem>
               ))}
             </CommandGroup>
-          ) : null}
+          )}
         </CommandList>
       </Command>
     </CommandDialog>
