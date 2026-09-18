@@ -141,6 +141,7 @@ All scripts are executable. Run them from any cwd. They resolve the repo root fr
 | `helpers/launch.sh` | Build, config, optional Kafka, seed, start, wait for `/health` |
 | `helpers/doctor.sh` | Read-only liveness, port owner, auth, GraphQL health |
 | `helpers/drive-topics.mjs` | Playwright proof of the Topics feature |
+| `helpers/drive-command-palette.mjs` | Playwright proof of palette search and arrow keys |
 | `helpers/cleanup.sh` | Stop the PID this run started |
 
 Install the browser driver once per machine:
