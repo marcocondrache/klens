@@ -19,7 +19,7 @@ ACLs is the live binding list. It describes every ACL the broker returns for the
 
 Preconditions:
 
-- Doctor reports `clusters` includes `local` and `catalogHealth` has `updatedAt` with no `lastError`.
+- Doctor reports cluster `local` is ready and topology has `updatedAt` with no `lastError`.
 - Start from `/`.
 
 - **Open list.** Click sidebar `ACLs`. URL is `/cluster/local/acls`. Heading is `ACLs`.

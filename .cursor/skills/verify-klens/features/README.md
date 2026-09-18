@@ -5,9 +5,9 @@ This directory is the maintained source for verifying user-facing klens behavior
 ## Baseline preconditions
 
 - Launch with `.cursor/skills/verify-klens/helpers/launch.sh`.
-- Doctor with `.cursor/skills/verify-klens/helpers/doctor.sh`. Require `clusters` to include `local`, `catalogHealth.updatedAt` set, no `lastError`, and URL `http://127.0.0.1:18080` unless `KLENS_VERIFY_PORT` changed it.
+- Doctor with `.cursor/skills/verify-klens/helpers/doctor.sh`. Require `clusters` to include `local` with topology `updatedAt` set, no `lastError`, and URL `http://127.0.0.1:18080` unless `KLENS_VERIFY_PORT` changed it.
 - Seed topic `klens-verify-topics` exists with key `verify-1` and value `hello-from-verify-klens`.
-- Auth is off. `/auth/me` reports `"enabled": false`.
+- Auth is off. `/auth/me` reports `"enabled": false`. Custom roles and the header user menu stay hidden. `whoami.subject` is null.
 - Never drive an instance this run did not start.
 
 ## Driving conventions
@@ -17,7 +17,7 @@ This directory is the maintained source for verifying user-facing klens behavior
 - Treat topic names and the seed payload as literals.
 - Run browser steps through Playwright (`helpers/drive-topics.mjs` for Topics). Use `curl` only to corroborate GraphQL.
 - Drive ACLs before opening topic Data. A records timeout can poison later live RPCs.
-- Default catalog poll is 5s. If doctor fails with `list_consumer_groups` after a few polls, relaunch with `KLENS_CATALOG_POLL_INTERVAL=600`. That is session harness, not a `launch.sh` default.
+- Default topology lane interval is 10s. If doctor fails with `list_consumer_groups` after a few polls, relaunch with `KLENS_TOPOLOGY_LANE_INTERVAL=600`. That is session harness, not a `launch.sh` default. `KLENS_CATALOG_POLL_INTERVAL` is ignored.
 - Leave `klens-verify-topics` in place across features in one session. Cleanup does not delete Kafka data unless this run started the broker.
 
 ## Proof and skip reporting
@@ -26,7 +26,7 @@ This directory is the maintained source for verifying user-facing klens behavior
 - UI proof includes an ARIA snapshot and a screenshot with the `klens` wordmark visible.
 - GraphQL proof is a response body, not a status code alone.
 - Record the feature ID and the URL used with every artifact.
-- `catalogHealth.lastError` with `updatedAt == null` is `verified-unreachable` for catalog features. Quote the `Cluster unreachable` alert. A later poll failure with `updatedAt` set shows `Catalog update failed` and is not a catalog pass.
+- `clusters.topology.lastError` with `updatedAt == null` is `verified-unreachable` for catalog features. Quote the `Cluster unreachable` alert. A later poll failure with `updatedAt` set shows `Topology lane failing` and is not a catalog pass.
 - Do not report a skipped entry point as verified through a different path.
 
 ## Feature entry contract

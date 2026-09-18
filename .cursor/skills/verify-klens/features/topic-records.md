@@ -19,7 +19,7 @@ Topic records is the Data tab on a topic page. It lists recent records and opens
 
 Preconditions:
 
-- Doctor reports `clusters` includes `local` and `catalogHealth` has `updatedAt` with no `lastError`.
+- Doctor reports cluster `local` is ready and topology has `updatedAt` with no `lastError`.
 - Topic `klens-verify-topics` has key `verify-1` and value `hello-from-verify-klens`.
 - Start from `/cluster/local/topics`.
 
@@ -35,4 +35,5 @@ Preconditions:
 - Record search compiles to a CEL filter on `keyText` and `valueText`. A topic-catalog `?q=` does not filter records.
 - Empty topics show title `No records`, not the Topics `No results.` string.
 - Schema Registry decode is a production boundary. Plain string payloads must appear without a registry.
+- An `Obfuscated` badge appears only when `records.obfuscated` is true. The verify launch writes no obfuscation rules, so the seed payload stays plain.
 - If Data shows `kafka request timed out` or `operation timed out: request (CLIENT)` while `rpk topic consume` still returns `verify-1`, that is a product gap after krafka 0.24, not a map miss. Do not rewrite this recipe to expect the timeout. Opening Data can also poison later live RPCs such as `acls`.
