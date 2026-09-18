@@ -10,7 +10,6 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-  CommandSeparator,
   CommandShortcut,
 } from "@/components/ui/command";
 import { StatusDot } from "@/components/status";
@@ -39,6 +38,7 @@ export function CommandPalette({
   const { can } = useAccess();
   const sections = visibleSections(can(cluster, "ACLS"));
   const [term, setTerm] = useState("");
+  const searching = term.trim().length > 0;
 
   function goHref(href: string) {
     void navigate({ href });
@@ -77,11 +77,11 @@ export function CommandPalette({
           placeholder="Search topics, groups, brokers and schemas…"
         />
         <CommandList className="max-h-[min(24rem,50vh)]">
-          {term && isError ? (
+          {searching && isError ? (
             <CommandEmpty>{error instanceof Error ? error.message : "Search failed."}</CommandEmpty>
           ) : null}
 
-          {term && !isFetching && !isError && results.length === 0 ? (
+          {searching && !isFetching && !isError && results.length === 0 ? (
             <CommandEmpty>No matches in {cluster}.</CommandEmpty>
           ) : null}
 
@@ -173,51 +173,53 @@ export function CommandPalette({
             </CommandGroup>
           ) : null}
 
-          {results.length ? <CommandSeparator /> : null}
+          {searching ? null : (
+            <CommandGroup heading="Go to">
+              {sections.map((section) => (
+                <CommandItem
+                  key={section.segment}
+                  value={`nav:${section.label}`}
+                  onSelect={() =>
+                    run(() => {
+                      void navigate({
+                        to: clusterSectionTo(section.segment),
+                        params: { cluster },
+                      });
+                    })
+                  }
+                >
+                  <section.icon className="text-muted-foreground" />
+                  <span>{section.label}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          )}
 
-          <CommandGroup heading="Go to">
-            {sections.map((section) => (
-              <CommandItem
-                key={section.segment}
-                value={`nav:${section.label}`}
-                onSelect={() =>
-                  run(() => {
-                    void navigate({
-                      to: clusterSectionTo(section.segment),
-                      params: { cluster },
-                    });
-                  })
-                }
-              >
-                <section.icon className="text-muted-foreground" />
-                <span>{section.label}</span>
-              </CommandItem>
-            ))}
-          </CommandGroup>
-
-          <CommandGroup heading="Switch cluster">
-            {clusters.map((entry) => (
-              <CommandItem
-                key={entry.cluster}
-                value={`cluster:${entry.cluster}`}
-                className="min-w-0"
-                onSelect={() =>
-                  run(() => {
-                    void navigate({
-                      to: section ? clusterSectionTo(section.segment) : "/cluster/$cluster",
-                      params: { cluster: entry.cluster },
-                    });
-                  })
-                }
-              >
-                <ServerIcon className="text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate">{entry.cluster}</span>
-                <CommandShortcut className="flex shrink-0 items-center gap-1.5 tracking-normal">
-                  <StatusDot tone={clusterTone(entry)} />
-                </CommandShortcut>
-              </CommandItem>
-            ))}
-          </CommandGroup>
+          {searching ? null : (
+            <CommandGroup heading="Switch cluster">
+              {clusters.map((entry) => (
+                <CommandItem
+                  key={entry.cluster}
+                  value={`cluster:${entry.cluster}`}
+                  className="min-w-0"
+                  onSelect={() =>
+                    run(() => {
+                      void navigate({
+                        to: section ? clusterSectionTo(section.segment) : "/cluster/$cluster",
+                        params: { cluster: entry.cluster },
+                      });
+                    })
+                  }
+                >
+                  <ServerIcon className="text-muted-foreground" />
+                  <span className="min-w-0 flex-1 truncate">{entry.cluster}</span>
+                  <CommandShortcut className="flex shrink-0 items-center gap-1.5 tracking-normal">
+                    <StatusDot tone={clusterTone(entry)} />
+                  </CommandShortcut>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          )}
         </CommandList>
       </Command>
     </CommandDialog>
