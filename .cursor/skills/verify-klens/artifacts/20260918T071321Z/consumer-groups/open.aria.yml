@@ -1,0 +1,78 @@
+- text: klens Cluster
+- list:
+  - listitem:
+    - link "Topics":
+      - /url: /cluster/local/topics
+    - text: "3"
+  - listitem:
+    - link "Consumer Groups":
+      - /url: /cluster/local/groups
+    - text: "1"
+  - listitem:
+    - link "Schema Registry":
+      - /url: /cluster/local/schemas
+  - listitem:
+    - link "Brokers":
+      - /url: /cluster/local/nodes
+    - text: "1"
+  - listitem:
+    - link "ACLs":
+      - /url: /cluster/local/acls
+- link "v0.1.0":
+  - /url: https://github.com/marcocondrache/klens/releases/tag/v0.1.0
+- link "Open repository":
+  - /url: https://github.com/marcocondrache/klens
+- button "Toggle Sidebar"
+- main:
+  - button "Toggle Sidebar"
+  - separator
+  - button "local"
+  - separator
+  - navigation "breadcrumb":
+    - list:
+      - listitem:
+        - link "Consumer Groups":
+          - /url: /cluster/local/groups
+      - listitem:
+        - link "klens-verify-group" [disabled]
+  - button "Search Ctrl+K"
+  - button "Refresh"
+  - button "Toggle theme"
+  - heading "klens-verify-group Copy group ID" [level=1]:
+    - text: klens-verify-group
+    - button "Copy group ID"
+  - text: Empty coordinator 0 0 members 0 topics 0 assigned partitions 0 lag
+  - tablist:
+    - tab "Offsets 0" [selected]
+    - tab "Members 0"
+  - tabpanel "Offsets 0":
+    - button "View"
+    - table:
+      - rowgroup:
+        - row "Topic Partition Committed End offset Lag Member":
+          - columnheader "Topic":
+            - button "Topic"
+          - columnheader "Partition":
+            - button "Partition"
+          - columnheader "Committed":
+            - button "Committed"
+          - columnheader "End offset":
+            - button "End offset"
+          - columnheader "Lag":
+            - button "Lag"
+          - columnheader "Member":
+            - button "Member"
+      - rowgroup:
+        - row "No results.":
+          - cell "No results."
+    - text: 0 of 0 row(s) selected.
+    - paragraph: Rows per page
+    - combobox: "25"
+    - text: Page 1 of 1
+    - button "Go to first page" [disabled]
+    - button "Go to previous page" [disabled]
+    - button "Go to next page" [disabled]
+    - button "Go to last page" [disabled]
+- heading "Search klens" [level=2]
+- paragraph: Jump to a topic, consumer group, broker, schema or section
+- region "Notifications alt+T"
