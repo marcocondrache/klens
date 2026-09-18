@@ -24,15 +24,15 @@ Preconditions:
 - Start from `/cluster/local/topics`.
 
 - **Open topic.** Click `klens-verify-topics`. Heading contains `klens-verify-topics`. Tab `Data` is selected.
-- **See record.** The records table includes key `verify-1`. Wait for that cell, not the stats skeleton.
+- **See record.** The records table includes key `verify-1`. Wait for that cell, not the header `{n} msgs` line.
 - **Open payload.** Click the `verify-1` row. A sheet titled `klens-verify-topics[0]@<offset>` appears. The Value block contains `hello-from-verify-klens`.
 - **Filter.** Close the sheet. Type `verify-1` into `Search key or value…`. The row remains. Replace the query with `no-such-payload`. Empty title `No records` appears with `Nothing matched your search in the scanned offsets.`
 - **Proof.** Screenshot the populated Data tab and the open sheet. Save `POST /graphql` `records` for cluster `local` topic `klens-verify-topics` and confirm key `verify-1`.
 
 ## Gotchas
 
-- Stats (`Partitions`, `Messages`) can render before records finish. Assert the key cell, not the Messages stat.
-- Record search compiles to a CEL filter on `keyText` and `valueText`. A topic-catalog `?q=` does not filter records.
+- Header facts (`N partitions`, `N msgs`) can render before records finish. Assert the key cell, not that count line.
+- Record search sends GraphQL `filter.contains`. It is not a CEL filter. A topic-catalog `?q=` does not filter records.
 - Empty topics show title `No records`, not the Topics `No results.` string.
 - Schema Registry decode is a production boundary. Plain string payloads must appear without a registry.
 - An `Obfuscated` badge appears only when `records.obfuscated` is true. The verify launch writes no obfuscation rules, so the seed payload stays plain.

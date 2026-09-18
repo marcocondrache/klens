@@ -24,11 +24,11 @@ Preconditions:
 - **Open catalog.** Click sidebar `Schema Registry`. URL is `/cluster/local/schemas`. Heading is `Schema registry`. The description includes `subjects registered`.
 - **Search.** If a subject is visible, type a unique prefix into `Search subjects…`. The URL contains `q=`. Non-matching subjects leave the table.
 - **Open subject.** Click a subject row. A sheet titled with that subject appears. The Schema block shows JSON. There is no `/schemas/<subject>` route.
-- **Proof.** Screenshot the catalog with the heading and at least one column header (`Subject`, `Type`, `Compatibility`). Save `POST /graphql` `subjectRows(cluster: "local") { rows { subject id type } }`.
+- **Proof.** Screenshot the catalog with the heading and at least one column header (`Subject`, `Type`, `Compatibility`). Save `POST /graphql` `subjectRows(cluster: "local") { rows { subject id type } sourceHealth { lastError } }`.
 
 ## Gotchas
 
-- A verify launch with no registered subjects shows `No results.` That empty catalog is a pass only when GraphQL also returns `[]`.
+- A verify launch with no registered subjects shows `No results.` That empty catalog is a pass only when GraphQL `rows` is `[]` and `sourceHealth.lastError` is null. A set `lastError` is a registry outage, even if the table is empty.
 - The heading is `Schema registry`. The sidebar and palette label are `Schema Registry`.
-- Launch always writes `schema_registry.url: http://127.0.0.1:8081`. If that port is down, the page can error instead of showing an empty table. Quote the error and stop.
+- Launch always writes `schema_registry.url: http://127.0.0.1:8081`. Quote `sourceHealth.lastError` and stop if it is set.
 - A command palette SUBJECT hit lands on `/cluster/local/schemas?q=<subject>`. The sheet stays closed until the row is clicked.
