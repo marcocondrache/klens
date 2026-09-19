@@ -86,6 +86,81 @@ pub static REQUEST_TIMEOUT: LazyLock<Duration> =
 pub static CONSUME_TIMEOUT: LazyLock<Duration> =
     lazy_env_parse!(duration, "KLENS_CONSUME_TIMEOUT", Duration::from_secs(5));
 
+/// Requests one broker connection may hold in flight (default: 32).
+///
+/// krafka defaults to 10, which is where a fanned-out admin call starts
+/// queueing on the connection semaphore instead of pipelining.
+///
+/// Override with `KLENS_MAX_IN_FLIGHT_REQUESTS`.
+pub static MAX_IN_FLIGHT_REQUESTS: LazyLock<usize> =
+    lazy_env_parse!("KLENS_MAX_IN_FLIGHT_REQUESTS", usize, 32);
+
+/// Largest broker response frame the client will accept, in MiB
+/// (default: 32).
+///
+/// Worst-case memory per connection is this times
+/// [`MAX_IN_FLIGHT_REQUESTS`], and krafka warns past 1 GiB; the two defaults
+/// multiply to exactly that bound, so raising either means lowering the
+/// other. A cluster whose `max.message.bytes` is larger than this frame
+/// needs it raised: Kafka returns one whole record batch per partition
+/// however small the fetch budget, and a frame the client refuses comes back
+/// identical on every retry, stalling that partition for good.
+///
+/// Override with `KLENS_MAX_RESPONSE_MB`.
+pub static MAX_RESPONSE_MB: LazyLock<usize> = lazy_env_parse!("KLENS_MAX_RESPONSE_MB", usize, 32);
+
+/// Shards of a fanned-out admin call that may be in flight at once
+/// (default: 16).
+///
+/// Override with `KLENS_ADMIN_FAN_CONCURRENCY`.
+pub static ADMIN_FAN_CONCURRENCY: LazyLock<usize> =
+    lazy_env_parse!("KLENS_ADMIN_FAN_CONCURRENCY", usize, 16);
+
+/// Consumer groups per `DescribeGroups` shard (default: 8).
+///
+/// krafka resolves one coordinator per group serially inside a call, so the
+/// chunk size is what bounds that serial run.
+///
+/// Override with `KLENS_GROUP_DESCRIBE_CHUNK`.
+pub static GROUP_DESCRIBE_CHUNK: LazyLock<usize> =
+    lazy_env_parse!("KLENS_GROUP_DESCRIBE_CHUNK", usize, 8);
+
+/// Idle scan consumers kept per topic (default: 2).
+///
+/// Override with `KLENS_SCAN_POOL_PER_TOPIC`.
+pub static SCAN_POOL_PER_TOPIC: LazyLock<usize> =
+    lazy_env_parse!("KLENS_SCAN_POOL_PER_TOPIC", usize, 2);
+
+/// Idle scan consumers kept across every topic (default: 16).
+///
+/// Override with `KLENS_SCAN_POOL_TOTAL`.
+pub static SCAN_POOL_TOTAL: LazyLock<usize> = lazy_env_parse!("KLENS_SCAN_POOL_TOTAL", usize, 16);
+
+/// How long an idle scan consumer stays poolable (default: 60 seconds).
+///
+/// Override with `KLENS_SCAN_POOL_IDLE_TTL` (seconds).
+pub static SCAN_POOL_IDLE_TTL: LazyLock<Duration> = lazy_env_parse!(
+    duration,
+    "KLENS_SCAN_POOL_IDLE_TTL",
+    Duration::from_secs(60)
+);
+
+/// How long ago the watermark lane must have verified its sample for a
+/// record page to plan from it (default: the watermark lane interval).
+///
+/// Verification is the lane's last completed fetch, whether or not it
+/// committed anything: an unchanged table stays fresh as long as the lane
+/// keeps checking it.
+///
+/// Override with `KLENS_WATERMARK_FRESHNESS` (seconds).
+pub static WATERMARK_FRESHNESS: LazyLock<Duration> = LazyLock::new(|| {
+    std::env::var("KLENS_WATERMARK_FRESHNESS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .map(Duration::from_secs)
+        .unwrap_or(*WATERMARK_LANE_INTERVAL)
+});
+
 /// Maximum records a browse or search query may request (default: 500).
 ///
 /// Override with `KLENS_MAX_RECORD_LIMIT`.

@@ -3,11 +3,13 @@
 //! One [`KafkaClient`] per cluster. Callers use domain types only. Production
 //! [`ClusterSession`] is this type. All broker I/O goes through krafka.
 
-mod config;
+mod admin;
 mod convert;
 mod groups;
 mod offsets;
+mod pool;
 mod scan;
+mod transport;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -15,21 +17,19 @@ use std::time::Duration;
 use async_trait::async_trait;
 use foldhash::{HashMap, HashMapExt};
 use krafka::admin::{
-    AclFilter, AdminClient as KrafkaAdmin, ConfigResourceType, DescribeConfigsRequest,
-    DescribeConfigsResource, GroupListing, OffsetSpec, OffsetVisibility,
+    AclFilter, ConfigResourceType, DescribeConfigsRequest, DescribeConfigsResource, GroupListing,
+    OffsetSpec, OffsetVisibility,
 };
 use krafka::client::KrafkaClient as KrafkaSharedClient;
 
 use crate::config::ClusterConfig;
-use crate::environment::{
-    CLIENT_ID_PREFIX, CONSUME_TIMEOUT, REQUEST_TIMEOUT, SOCKET_CONNECTION_SETUP_TIMEOUT_MS,
-};
+use crate::environment::CONSUME_TIMEOUT;
 use crate::kafka::acl::AclListing;
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
 use crate::kafka::group::{CommittedOffset, GroupSnapshot, is_internal_group};
-use crate::kafka::metadata::MetadataSnapshot;
-use crate::kafka::model::ScanConsumer;
+use crate::kafka::metadata::{MetadataSnapshot, TopicMetadata};
+use crate::kafka::model::{PartitionWindow, ScanConsumer};
 use crate::kafka::registry::client::SchemaRegistryClient;
 use crate::kafka::registry::decode::PayloadDecoder;
 use crate::kafka::registry::{RegisteredSchema, SchemaSubject};
@@ -39,10 +39,11 @@ use crate::kafka::session::ClusterSession;
 use crate::kafka::topic_config::ConfigEntry;
 use crate::kafka::watermarks::Watermarks;
 
-use config::krafka_auth;
+use admin::AdminFan;
 use convert::committed_from_krafka;
 use groups::snapshots_from_descriptions;
 use offsets::{from_list_offsets, merge_watermark_offsets, partition_time_offsets};
+use pool::ScanPool;
 
 /// Process-lifetime Kafka handle. All broker I/O for a cluster goes through here.
 ///
@@ -51,7 +52,8 @@ pub struct KafkaClient {
     identity: ClusterIdentity,
     consume_timeout: Duration,
     krafka: KrafkaSharedClient,
-    admin: KrafkaAdmin,
+    admin: AdminFan,
+    scans: Arc<ScanPool>,
     schema_registry: Option<Arc<PayloadDecoder>>,
     obfuscation: Option<Arc<ObfuscationPolicy>>,
 }
@@ -89,44 +91,14 @@ impl KafkaClient {
             })
             .transpose()?;
 
-        let properties = &config.properties;
-        let connect_timeout = Duration::from_millis(
-            properties
-                .connect_timeout_ms
-                .unwrap_or(u64::from(*SOCKET_CONNECTION_SETUP_TIMEOUT_MS)),
-        );
-        let request_timeout = properties
-            .request_timeout_ms
-            .map(Duration::from_millis)
-            .unwrap_or(*REQUEST_TIMEOUT)
-            .max(connect_timeout);
-        let client_id = properties
-            .client_id
-            .clone()
-            .unwrap_or_else(|| format!("{CLIENT_ID_PREFIX}-{}", config.name));
-
-        let mut builder = KrafkaSharedClient::builder(config.bootstrap_servers.join(","))
-            .client_id(client_id)
-            .request_timeout(request_timeout)
-            .connect_timeout(connect_timeout);
-
-        if let Some(auth) = krafka_auth(config)? {
-            builder = builder.auth(auth);
-        }
-
-        let krafka = builder.build().await?;
-        let admin = KrafkaAdmin::builder()
-            .with_client(&krafka)
-            .request_timeout(request_timeout)
-            .connect_timeout(connect_timeout)
-            .build()
-            .await?;
+        let transport = transport::connect(config).await?;
 
         Ok(Self {
             identity,
             consume_timeout: *CONSUME_TIMEOUT,
-            krafka,
-            admin,
+            scans: ScanPool::spawn(transport.client.clone()),
+            krafka: transport.client,
+            admin: AdminFan::new(transport.admin),
             schema_registry,
             obfuscation,
         })
@@ -149,9 +121,24 @@ impl ClusterSession for KafkaClient {
         Ok(MetadataSnapshot::from_krafka(cache))
     }
 
+    /// One topic's partitions, from krafka's per-topic cache when it is
+    /// fresh and a topic-scoped Metadata RPC when it is not.
+    async fn topic_metadata(&self, topic: &str) -> Result<TopicMetadata, KafkaError> {
+        let cache = self.krafka.metadata();
+        cache.refresh_for_topics(Some(&[topic])).await?;
+        cache
+            .topic(topic)
+            .map(TopicMetadata::from_krafka)
+            .ok_or_else(|| KafkaError::UnknownTopic {
+                cluster: self.identity.name.clone(),
+                topic: topic.to_owned(),
+            })
+    }
+
     async fn groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
         let listed = self
             .admin
+            .admin()
             .list_consumer_groups(&GroupListing::all())
             .await?;
         let ids: Vec<String> = listed
@@ -163,7 +150,7 @@ impl ClusterSession for KafkaClient {
             return Ok(Vec::new());
         }
         Ok(snapshots_from_descriptions(
-            self.admin.describe_consumer_groups(ids).await?,
+            self.admin.describe_groups(&ids).await?,
         ))
     }
 
@@ -181,6 +168,7 @@ impl ClusterSession for KafkaClient {
         let query = list_offset_query(&topics);
         let listed = self
             .admin
+            .admin()
             .describe_consumer_group_offsets(
                 group_id,
                 Some(&query),
@@ -193,17 +181,15 @@ impl ClusterSession for KafkaClient {
     /// Low and high watermarks. Does not refetch cluster metadata.
     async fn watermarks(
         &self,
-        partitions: &[(String, i32)],
+        topics: &HashMap<String, Vec<i32>>,
     ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError> {
-        if partitions.is_empty() {
+        if topics.is_empty() {
             return Ok(HashMap::new());
         }
 
-        let topics = partitions_by_topic(partitions);
-        let query = list_offset_query(&topics);
         let (beginning, end) = tokio::try_join!(
-            self.admin.list_offsets(&query, OffsetSpec::Earliest),
-            self.admin.list_offsets(&query, OffsetSpec::Latest),
+            self.admin.list_offsets(topics, OffsetSpec::Earliest),
+            self.admin.list_offsets(topics, OffsetSpec::Latest),
         )?;
         Ok(merge_watermark_offsets(
             &from_list_offsets(beginning.into_iter().map(list_offset_parts)),
@@ -223,6 +209,7 @@ impl ClusterSession for KafkaClient {
 
         let listed = self
             .admin
+            .admin()
             .list_offsets(&[(topic, partitions)], OffsetSpec::Timestamp(timestamp))
             .await?;
         Ok(partition_time_offsets(from_list_offsets(
@@ -250,7 +237,11 @@ impl ClusterSession for KafkaClient {
             include_synonyms: false,
             include_documentation: false,
         };
-        let results = self.admin.describe_configs_per_resource(request).await?;
+        let results = self
+            .admin
+            .admin()
+            .describe_configs_per_resource(request)
+            .await?;
 
         let mut out = HashMap::new();
         for result in results {
@@ -270,6 +261,7 @@ impl ClusterSession for KafkaClient {
     async fn broker_configs(&self, broker_id: i32) -> Result<Vec<ConfigEntry>, KafkaError> {
         let results = self
             .admin
+            .admin()
             .describe_configs_per_resource(DescribeConfigsRequest::for_broker(broker_id))
             .await?;
 
@@ -287,8 +279,14 @@ impl ClusterSession for KafkaClient {
         }
     }
 
-    async fn open_scan(&self, topic: &str) -> Result<Box<dyn ScanConsumer>, KafkaError> {
-        Ok(Box::new(scan::KrafkaScan::open(&self.krafka, topic).await?))
+    /// Open and assign in one call, from the pool when a page of the same
+    /// topic left a consumer behind.
+    async fn open_scan(
+        &self,
+        topic: &str,
+        windows: &[PartitionWindow],
+    ) -> Result<Box<dyn ScanConsumer>, KafkaError> {
+        Ok(Box::new(self.scans.acquire(topic, windows).await?))
     }
 
     fn payload_codec(&self) -> Option<Arc<dyn PayloadCodec>> {
@@ -329,7 +327,7 @@ impl ClusterSession for KafkaClient {
     async fn acls(&self) -> Result<AclListing, KafkaError> {
         AclListing::from_admin_result(
             &self.identity.name,
-            self.admin.describe_acls(AclFilter::all()).await,
+            self.admin.admin().describe_acls(AclFilter::all()).await,
         )
     }
 }
@@ -372,6 +370,10 @@ mod tests {
         }
     }
 
+    fn wanted(topic: &str, partitions: &[i32]) -> HashMap<String, Vec<i32>> {
+        HashMap::from([(topic.to_owned(), partitions.to_vec())])
+    }
+
     #[derive(Clone, Default)]
     struct LogBuf(Arc<Mutex<Vec<u8>>>);
 
@@ -400,6 +402,28 @@ mod tests {
         }
     }
 
+    /// Pipelining 32 requests against krafka's 100 MiB default frame would
+    /// put the worst case at 3.2 GiB, which krafka warns about.
+    #[tokio::test]
+    async fn connecting_does_not_warn_about_the_connection_memory_ceiling() {
+        let logs = LogBuf::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(logs.clone())
+            .with_max_level(tracing::Level::WARN)
+            .without_time()
+            .finish();
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        let broker = krafka::testing::FakeBroker::start()
+            .await
+            .expect("fake broker");
+        let client = kafka_client(&broker.bootstrap_servers()).await;
+        client.metadata().await.expect("metadata");
+
+        let text = logs.as_string();
+        assert!(!text.contains("memory ceiling"), "{text}");
+    }
+
     #[tokio::test]
     async fn admin_calls_do_not_warn_about_missing_close() {
         let logs = LogBuf::default();
@@ -419,11 +443,11 @@ mod tests {
 
         let client = kafka_client(&broker.bootstrap_servers()).await;
         client
-            .watermarks(&[("orders".into(), 0)])
+            .watermarks(&wanted("orders", &[0]))
             .await
             .expect("watermarks");
         client
-            .watermarks(&[("orders".into(), 0)])
+            .watermarks(&wanted("orders", &[0]))
             .await
             .expect("second watermarks");
 
@@ -441,7 +465,7 @@ mod tests {
         broker.clear_requests();
         let offsets = client.committed_offsets("unused", &[]).await.unwrap();
         assert!(offsets.is_empty());
-        assert!(client.watermarks(&[]).await.unwrap().is_empty());
+        assert!(client.watermarks(&HashMap::new()).await.unwrap().is_empty());
         assert!(
             client
                 .offsets_for_times("orders", &[], 0)
@@ -469,7 +493,10 @@ mod tests {
         })
         .await
         .unwrap();
-        assert_eq!(client.admin.request_timeout(), Duration::from_millis(100));
+        assert_eq!(
+            client.admin.admin().request_timeout(),
+            Duration::from_millis(100)
+        );
         broker.clear_requests();
         broker.on(krafka::protocol::ApiKey::Metadata, |_| {
             krafka::testing::Control::Silence
@@ -483,7 +510,7 @@ mod tests {
             broker.request_count(krafka::protocol::ApiKey::Metadata) > 0,
             "{error:?}"
         );
-        client.admin.close().await;
+        client.admin.admin().close().await;
         client.krafka.pool().close_all().await;
     }
 
@@ -512,7 +539,7 @@ mod tests {
 
         let client = kafka_client(&broker.bootstrap_servers()).await;
         let marks = client
-            .watermarks(&[("orders".into(), 0)])
+            .watermarks(&wanted("orders", &[0]))
             .await
             .expect("watermarks");
         assert_eq!(marks["orders"][&0], Watermarks { low: 0, high: 1 });
@@ -559,8 +586,10 @@ mod tests {
         assert!(past_high.is_empty());
     }
 
+    /// Consecutive pages reuse the pooled consumer, concurrent ones each get
+    /// their own, and no page ever asks the broker where its window starts.
     #[tokio::test]
-    async fn consecutive_scans_share_transport_without_sharing_positions() {
+    async fn consecutive_scans_reuse_a_consumer_without_looking_offsets_up() {
         let broker = krafka::testing::FakeBroker::start()
             .await
             .expect("fake broker");
@@ -596,7 +625,8 @@ mod tests {
         );
         assert_eq!(
             broker.request_count(krafka::protocol::ApiKey::ListOffsets),
-            2
+            0,
+            "a window start is known before the consumer exists"
         );
         assert_eq!(broker.request_count(krafka::protocol::ApiKey::JoinGroup), 0);
 
@@ -639,17 +669,50 @@ mod tests {
         );
     }
 
+    /// The poll budget is how long a broker may park a fetch, not a cap on
+    /// the round trip that carries it back. A link slower than the budget —
+    /// any cluster across a WAN — still has to deliver records.
+    #[tokio::test]
+    async fn a_round_trip_slower_than_the_poll_budget_still_delivers() {
+        let broker = krafka::testing::FakeBroker::start().await.unwrap();
+        assert!(broker.create_topic("orders", 1));
+        produce_krafka(&broker.bootstrap_servers(), "orders", 2).await;
+        let client = kafka_client(&broker.bootstrap_servers()).await;
+        broker.on(krafka::protocol::ApiKey::Fetch, |_| {
+            krafka::testing::Control::Delay(crate::kafka::scan::session::POLL_BUDGET * 3)
+        });
+
+        let records = scan_once(
+            &client,
+            "orders",
+            &[window(0, 0, 2)],
+            2,
+            RecordOrder::Oldest,
+        )
+        .await
+        .expect("a slow round trip is not a timeout");
+
+        assert_eq!(
+            records
+                .iter()
+                .map(|record| record.offset)
+                .collect::<Vec<_>>(),
+            vec![0, 1]
+        );
+    }
+
     #[tokio::test]
     async fn record_deadline_bounds_broker_io() {
         let broker = krafka::testing::FakeBroker::start().await.unwrap();
         assert!(broker.create_topic("orders", 1));
+        produce_krafka(&broker.bootstrap_servers(), "orders", 1).await;
         let mut client = kafka_client(&broker.bootstrap_servers()).await;
-        broker.on(krafka::protocol::ApiKey::ListOffsets, |_| {
+        broker.on(krafka::protocol::ApiKey::Fetch, |_| {
             krafka::testing::Control::Silence
         });
         client.consume_timeout = Duration::from_millis(50);
         let error = tokio::time::timeout(
-            Duration::from_secs(1),
+            Duration::from_secs(2),
             scan_once(
                 &client,
                 "orders",
@@ -719,6 +782,7 @@ mod tests {
         let client = kafka_client(&broker.bootstrap_servers()).await;
         let described = client
             .admin
+            .admin()
             .describe_consumer_groups(vec!["orders-group".to_owned()])
             .await
             .expect("describe group");
@@ -794,6 +858,7 @@ mod tests {
     async fn commit_krafka(client: &KafkaClient, group: &str, topic: &str, offset: i64) {
         client
             .admin
+            .admin()
             .alter_consumer_group_offsets(group, &[(topic, &[(0, offset)])])
             .await
             .expect("commit");
