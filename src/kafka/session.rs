@@ -17,7 +17,7 @@ use crate::kafka::client::KafkaClient;
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
     AclListing, ClusterIdentity, CommittedOffset, ConfigEntry, GroupSnapshot, MetadataSnapshot,
-    RegisteredSchema, ScanConsumer, SchemaSubject, Watermarks,
+    PartitionWindow, RegisteredSchema, ScanConsumer, SchemaSubject, TopicMetadata, Watermarks,
 };
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
@@ -27,15 +27,21 @@ use crate::kafka::scan::payload::PayloadCodec;
 pub trait ClusterSession: Send + Sync + 'static {
     fn identity(&self) -> &ClusterIdentity;
 
+    /// Every topic and broker in the cluster. The topology lane's call.
     async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError>;
 
-    /// Low and high watermarks for the given partitions.
+    /// One topic's partitions, served from the client's cache when it is
+    /// fresh. What everything interactive asks for.
+    async fn topic_metadata(&self, topic: &str) -> Result<TopicMetadata, KafkaError>;
+
+    /// Low and high watermarks for the given partitions, grouped by topic.
     ///
     /// The caller supplies partitions from a metadata snapshot it already
-    /// has. This method does not refetch cluster metadata.
+    /// has. This method does not refetch cluster metadata. Implementations
+    /// fan the request out per topic.
     async fn watermarks(
         &self,
-        partitions: &[(String, i32)],
+        topics: &HashMap<String, Vec<i32>>,
     ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError>;
 
     /// Earliest offset at or after `timestamp` (unix ms) for each answered
@@ -65,8 +71,15 @@ pub trait ClusterSession: Send + Sync + 'static {
         partitions: &[(String, i32)],
     ) -> Result<Vec<CommittedOffset>, KafkaError>;
 
-    /// Open a consumer for one page request.
-    async fn open_scan(&self, topic: &str) -> Result<Box<dyn ScanConsumer>, KafkaError>;
+    /// Open a consumer for one page request, already assigned to `windows`.
+    ///
+    /// Assigning here is what lets an implementation pre-seed the window
+    /// starts, so the assignment resolves no offsets of its own.
+    async fn open_scan(
+        &self,
+        topic: &str,
+        windows: &[PartitionWindow],
+    ) -> Result<Box<dyn ScanConsumer>, KafkaError>;
 
     /// Registry-aware payload decoding, when the cluster has a registry.
     ///

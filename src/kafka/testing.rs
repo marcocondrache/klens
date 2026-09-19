@@ -654,9 +654,33 @@ impl ClusterSession for FakeCluster {
         Ok(self.inner.metadata.lock().expect("metadata").clone())
     }
 
+    async fn topic_metadata(&self, topic: &str) -> Result<TopicMetadata, KafkaError> {
+        self.inner
+            .calls
+            .topic_metadata
+            .fetch_add(1, Ordering::SeqCst);
+        let delay = *self.inner.metadata_delay.lock().expect("metadata delay");
+        if !delay.is_zero() {
+            tokio::time::sleep(delay).await;
+        }
+        if let Some(message) = &*self.inner.metadata_error.lock().expect("metadata error") {
+            return Err(KafkaError::Admin(message.clone()));
+        }
+        self.inner
+            .metadata
+            .lock()
+            .expect("metadata")
+            .topic(topic)
+            .cloned()
+            .ok_or_else(|| KafkaError::UnknownTopic {
+                cluster: self.identity.name.clone(),
+                topic: topic.to_owned(),
+            })
+    }
+
     async fn watermarks(
         &self,
-        partitions: &[(String, i32)],
+        topics: &HashMap<String, Vec<i32>>,
     ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError> {
         self.inner.calls.watermarks.fetch_add(1, Ordering::SeqCst);
         let delay = *self.inner.watermark_delay.lock().expect("watermark delay");
@@ -673,17 +697,12 @@ impl ClusterSession for FakeCluster {
             .clone();
         let stored = self.inner.watermarks.lock().expect("watermarks").clone();
 
-        let mut topics: Vec<&str> = partitions.iter().map(|(topic, _)| topic.as_str()).collect();
-        topics.sort_unstable();
-        topics.dedup();
-
         Ok(topics
-            .into_iter()
-            .map(|name| {
+            .iter()
+            .map(|(name, partitions)| {
                 let wanted: HashMap<i32, Watermarks> = partitions
                     .iter()
-                    .filter(|(topic, _)| topic == name)
-                    .filter_map(|(_, partition)| {
+                    .filter_map(|partition| {
                         broker_watermarks(broker, name, *partition)
                             .or_else(|| {
                                 stored
@@ -812,16 +831,22 @@ impl ClusterSession for FakeCluster {
             .unwrap_or_default())
     }
 
-    async fn open_scan(&self, topic: &str) -> Result<Box<dyn ScanConsumer>, KafkaError> {
+    async fn open_scan(
+        &self,
+        topic: &str,
+        windows: &[PartitionWindow],
+    ) -> Result<Box<dyn ScanConsumer>, KafkaError> {
         self.inner.consumers.fetch_add(1, Ordering::SeqCst);
-        Ok(Box::new(FakeScan {
+        let scan = FakeScan {
             cluster: self.inner.clone(),
             topic: topic.to_owned(),
             pending: Mutex::new(Vec::new()),
             windows: Mutex::new(HashMap::new()),
             paused: Mutex::new(HashSet::new()),
             owed: Mutex::new(Duration::ZERO),
-        }))
+        };
+        scan.reassign(windows).await?;
+        Ok(Box::new(scan))
     }
 
     fn payload_codec(&self) -> Option<Arc<dyn PayloadCodec>> {
@@ -908,7 +933,7 @@ impl FakeScan {
 
 #[async_trait]
 impl ScanConsumer for FakeScan {
-    async fn assign(&self, windows: &[PartitionWindow]) -> Result<(), KafkaError> {
+    async fn reassign(&self, windows: &[PartitionWindow]) -> Result<(), KafkaError> {
         self.cluster.assignments.lock().expect("assignments").push(
             windows
                 .iter()
@@ -1079,6 +1104,7 @@ impl PayloadCodec for CountingCodec {
 #[derive(Debug, Default)]
 pub struct SessionCalls {
     metadata: AtomicUsize,
+    topic_metadata: AtomicUsize,
     watermarks: AtomicUsize,
     groups: AtomicUsize,
     topic_configs: AtomicUsize,
@@ -1091,6 +1117,10 @@ pub struct SessionCalls {
 impl SessionCalls {
     pub fn metadata(&self) -> usize {
         self.metadata.load(Ordering::SeqCst)
+    }
+
+    pub fn topic_metadata(&self) -> usize {
+        self.topic_metadata.load(Ordering::SeqCst)
     }
 
     pub fn watermarks(&self) -> usize {

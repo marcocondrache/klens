@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -25,7 +25,10 @@ const MAX_FILTER_PASSES: usize = 64;
 
 /// Leave time to inspect consumer positions after empty polls, which is how
 /// an idle or compacted partition is recognised as finished.
-const POLL_BUDGET: Duration = Duration::from_millis(100);
+///
+/// Consumers are built with this as their `fetch_max_wait`, so a broker
+/// releases a long poll exactly when the scan stops waiting for it.
+pub const POLL_BUDGET: Duration = Duration::from_millis(100);
 
 /// A record exactly as it came off the wire.
 #[derive(Debug, Clone)]
@@ -56,11 +59,14 @@ impl RawRecord {
 }
 
 /// A consumer scoped to a single page request.
+///
+/// It arrives already assigned to the page's first windows; a filter scan
+/// that needs another pass re-points it with [`reassign`](Self::reassign).
 #[async_trait]
 pub trait ScanConsumer: Send + Sync {
-    /// Point the consumer at these windows' start offsets, replacing any
+    /// Point the consumer at these windows' start offsets, replacing the
     /// previous assignment and resuming anything paused by an earlier pass.
-    async fn assign(&self, windows: &[PartitionWindow]) -> Result<(), KafkaError>;
+    async fn reassign(&self, windows: &[PartitionWindow]) -> Result<(), KafkaError>;
 
     async fn poll(&self, budget: Duration) -> Result<Vec<RawRecord>, KafkaError>;
 
@@ -73,6 +79,8 @@ pub trait ScanConsumer: Send + Sync {
     /// Records left between the position and the end of the log, if known.
     async fn lag(&self, partition: i32) -> Option<u64>;
 
+    /// Give the consumer up. Whether that closes it or returns it to a pool
+    /// is the session's business.
     async fn close(&self);
 }
 
@@ -145,16 +153,21 @@ pub struct ScanSession {
     obfuscator: Option<Arc<TopicObfuscator>>,
     schema_id: Option<i32>,
     walk: RecordOrder,
+    /// What the consumer is pointed at, so a pass that plans the same
+    /// windows costs no reassignment.
+    assigned: Mutex<Vec<PartitionWindow>>,
 }
 
 impl ScanSession {
+    /// Open a consumer already assigned to `windows`.
     pub async fn open<S: ClusterSession + ?Sized>(
         session: &S,
         query: &RecordQuery,
         walk: RecordOrder,
         deadline: Instant,
+        windows: &[PartitionWindow],
     ) -> Result<Self, KafkaError> {
-        let consumer = timeout_at(deadline, session.open_scan(&query.topic))
+        let consumer = timeout_at(deadline, session.open_scan(&query.topic, windows))
             .await
             .map_err(|_| KafkaError::Timeout)??;
 
@@ -166,11 +179,16 @@ impl ScanSession {
             filter: query.filter.clone(),
             schema_id: query.schema_id,
             walk,
+            assigned: Mutex::new(windows.to_vec()),
         })
     }
 
     fn obfuscated(&self) -> bool {
         self.obfuscator.is_some()
+    }
+
+    fn points_at(&self, windows: &[PartitionWindow]) -> bool {
+        *self.assigned.lock().expect("scan assignment") == windows
     }
 
     pub async fn close(self) {
@@ -192,9 +210,12 @@ impl ScanSession {
             return Ok(scan.outcome(windows, self.walk));
         }
 
-        match timeout_at(deadline, self.consumer.assign(windows)).await {
-            Ok(assigned) => assigned?,
-            Err(_) => return Ok(scan.outcome(windows, self.walk)),
+        if !self.points_at(windows) {
+            match timeout_at(deadline, self.consumer.reassign(windows)).await {
+                Ok(assigned) => assigned?,
+                Err(_) => return Ok(scan.outcome(windows, self.walk)),
+            }
+            *self.assigned.lock().expect("scan assignment") = windows.to_vec();
         }
 
         while !scan.remaining.is_empty() {
@@ -203,8 +224,16 @@ impl ScanSession {
                 break;
             }
 
+            // A consumer may overrun its budget: the budget bounds how long a
+            // broker parks the fetch, while the round trip carrying it back
+            // answers to the connection's request timeout. The page deadline
+            // is what has to hold, so it bounds the poll too.
             let budget = deadline.saturating_duration_since(now).min(POLL_BUDGET);
-            let polled = self.consumer.poll(budget).await?;
+            let Ok(polled) = timeout_at(deadline, self.consumer.poll(budget)).await else {
+                break;
+            };
+
+            let polled = polled?;
             if polled.is_empty() {
                 self.settle_idle(&mut scan, deadline).await;
                 continue;
@@ -566,7 +595,7 @@ pub async fn fetch_page<S: ClusterSession + ?Sized>(
     }
 
     let deadline = Instant::now() + session.consume_timeout();
-    let scan = ScanSession::open(session, query, walk, deadline).await?;
+    let scan = ScanSession::open(session, query, walk, deadline, &windows).await?;
 
     let max_passes = if searching { MAX_FILTER_PASSES } else { 1 };
     let mut kept: Vec<Kept> = Vec::with_capacity(limit);
@@ -668,7 +697,7 @@ pub async fn scan_once<S: ClusterSession + ?Sized>(
     };
 
     let deadline = Instant::now() + session.consume_timeout();
-    let scan = ScanSession::open(session, &query, order, deadline).await?;
+    let scan = ScanSession::open(session, &query, order, deadline, windows).await?;
     let mut batch = RecordBatch::new(limit, order);
     let outcome = scan.run(windows, &mut batch, deadline).await;
     let mut page = batch.into_sorted();

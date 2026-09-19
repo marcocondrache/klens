@@ -1,10 +1,93 @@
+//! Connection setup for one cluster: timeouts, pipelining, and auth.
+
+use std::time::Duration;
+
+use krafka::admin::AdminClient as KrafkaAdmin;
 use krafka::auth::{AuthConfig, TlsConfig as KrafkaTlsConfig};
+use krafka::client::KrafkaClient as KrafkaSharedClient;
+use krafka::network::TransportConfig;
 
 use crate::config::{ClusterConfig, SaslMechanism, SecurityConfig, SecurityProtocol, TlsConfig};
+use crate::environment::{
+    CLIENT_ID_PREFIX, MAX_IN_FLIGHT_REQUESTS, MAX_RESPONSE_MB, REQUEST_TIMEOUT,
+    SOCKET_CONNECTION_SETUP_TIMEOUT_MS,
+};
 use crate::kafka::error::KafkaError;
 
+/// The shared transport and the admin client that rides on it.
+pub(super) struct Transport {
+    pub(super) client: KrafkaSharedClient,
+    pub(super) admin: KrafkaAdmin,
+}
+
+/// Connect one cluster's shared socket pool and its admin client.
+///
+/// The admin client is built `with_client`, so it costs no network and shares
+/// the pool and metadata cache with every consumer opened later.
+pub(super) async fn connect(config: &ClusterConfig) -> Result<Transport, KafkaError> {
+    let properties = &config.properties;
+    let connect_timeout = Duration::from_millis(
+        properties
+            .connect_timeout_ms
+            .unwrap_or(u64::from(*SOCKET_CONNECTION_SETUP_TIMEOUT_MS)),
+    );
+    let request_timeout = properties
+        .request_timeout_ms
+        .map(Duration::from_millis)
+        .unwrap_or(*REQUEST_TIMEOUT)
+        .max(connect_timeout);
+    let client_id = properties
+        .client_id
+        .clone()
+        .unwrap_or_else(|| format!("{CLIENT_ID_PREFIX}-{}", config.name));
+
+    let mut builder = KrafkaSharedClient::builder(config.bootstrap_servers.join(","))
+        .client_id(client_id)
+        .request_timeout(request_timeout)
+        .connect_timeout(connect_timeout)
+        // Fanned-out admin calls only pipeline as far as this ceiling; past
+        // it submitters queue on the connection semaphore. Frames shrink to
+        // match, because the two multiply into the connection's worst-case
+        // memory and krafka's 100 MiB default frame was sized for 10.
+        .transport(
+            TransportConfig::builder()
+                .max_in_flight_requests((*MAX_IN_FLIGHT_REQUESTS).max(1))
+                .max_response_size(max_response_size())
+                .tcp_nodelay(true)
+                .build()?,
+        );
+
+    if let Some(auth) = krafka_auth(config)? {
+        builder = builder.auth(auth);
+    }
+
+    let client = builder.build().await?;
+    let admin = KrafkaAdmin::builder()
+        .with_client(&client)
+        .request_timeout(request_timeout)
+        .connect_timeout(connect_timeout)
+        .build()
+        .await?;
+
+    Ok(Transport { client, admin })
+}
+
+/// Largest response frame a broker connection will read.
+pub(super) fn max_response_size() -> usize {
+    (*MAX_RESPONSE_MB).max(1) * 1024 * 1024
+}
+
+/// What one consumer poll may ask every broker for in total.
+///
+/// Half the frame ceiling, because Kafka answers with one complete record
+/// batch per partition even when that overruns the budget: a fetch sized to
+/// the frame could come back larger than the frame.
+pub(super) fn fetch_max_bytes() -> i32 {
+    i32::try_from(max_response_size() / 2).unwrap_or(i32::MAX)
+}
+
 /// `None` is plaintext. A SASL protocol with no `sasl` block is an error.
-pub(super) fn krafka_auth(cluster: &ClusterConfig) -> Result<Option<AuthConfig>, KafkaError> {
+fn krafka_auth(cluster: &ClusterConfig) -> Result<Option<AuthConfig>, KafkaError> {
     let Some(security) = &cluster.security else {
         return Ok(None);
     };
@@ -95,15 +178,16 @@ mod tests {
 
         cluster.bootstrap_servers = vec![broker.bootstrap_servers()];
         // Building succeeds only if request_timeout is raised to the connect timeout.
-        let client = super::super::KafkaClient::new(&cluster).await.unwrap();
+        let transport = connect(&cluster).await.unwrap();
         assert!(
             broker
                 .requests()
                 .iter()
                 .all(|request| request.client_id.as_deref() == Some("custom-client"))
         );
-        client.admin.close().await;
-        client.krafka.pool().close_all().await;
+        assert_eq!(transport.admin.request_timeout(), Duration::from_secs(30));
+        transport.admin.close().await;
+        transport.client.pool().close_all().await;
     }
 
     #[test]
