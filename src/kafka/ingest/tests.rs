@@ -190,7 +190,7 @@ async fn the_topology_lane_keeps_the_search_index_current() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn the_watermark_lane_feeds_latest_rates_unconditionally() {
+async fn the_watermark_lane_feeds_latest_rates() {
     let session = FakeCluster::local().with_growing_watermarks(20);
     let store = store(&session);
     let _lanes = Ingest::start([(Arc::clone(&store), port(&session))], idle());
@@ -206,7 +206,7 @@ async fn the_watermark_lane_feeds_latest_rates_unconditionally() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_watermark_tick_carries_server_timestamps() {
+async fn a_watermark_tick_matches_the_rate_store() {
     let session = FakeCluster::local();
     let store = store(&session);
     let _lanes = Ingest::start([(Arc::clone(&store), port(&session))], idle());
@@ -231,7 +231,7 @@ async fn a_watermark_tick_carries_server_timestamps() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn an_idle_cluster_still_gets_a_heartbeat_point() {
+async fn an_idle_cluster_still_zeros_the_latest_rate() {
     let session = FakeCluster::local();
     let store = store(&session);
     let _lanes = Ingest::start([(Arc::clone(&store), port(&session))], idle());
