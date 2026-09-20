@@ -1,21 +1,13 @@
-import {
-  keepPreviousData,
-  useInfiniteQuery,
-  useQueryClient,
-  type InfiniteData,
-} from "@tanstack/react-query";
+import { useState } from "react";
+import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
 
 import { execute } from "@/graphql/execute";
-
-import type { RecordsQuery } from "@/graphql/graphql";
 
 import { recordsQuery } from "./documents";
 import { keys, type RecordsFilter } from "./keys";
 import type { KafkaRecord } from "./types";
 
 export type { RecordsFilter };
-
-type RecordPage = NonNullable<RecordsQuery["cluster"]>["records"];
 
 export type WalkPhase = "loading" | "ready" | "refreshing" | "pending";
 
@@ -45,11 +37,12 @@ function walkPhase(
   isPlaceholder: boolean,
   isFetching: boolean,
   isFetchingNextPage: boolean,
+  isFetchingPreviousPage: boolean,
 ): WalkPhase {
   if (!enabled) {
     return "ready";
   }
-  if (isPlaceholder || isFetchingNextPage) {
+  if (isPlaceholder || isFetchingNextPage || isFetchingPreviousPage) {
     return "pending";
   }
   if (isFetching && pageCount === 0) {
@@ -62,11 +55,10 @@ function walkPhase(
 }
 
 export function useRecords(cluster: string, query: RecordsFilter, enabled = true): RecordWalk {
-  const recordsKey = keys.records(cluster, query);
-  const queryClient = useQueryClient();
+  const [pageIndex, setPageIndex] = useState(0);
 
   const result = useInfiniteQuery({
-    queryKey: recordsKey,
+    queryKey: keys.records(cluster, query),
     initialPageParam: null as string | null,
     placeholderData: keepPreviousData,
     enabled,
@@ -78,17 +70,24 @@ export function useRecords(cluster: string, query: RecordsFilter, enabled = true
       return visibleCluster(node).records;
     },
     getNextPageParam: (page) => page.nextCursor ?? undefined,
+    getPreviousPageParam: (page) => page.prevCursor ?? undefined,
   });
 
   const pages = result.data?.pages ?? [];
-  const pageIndex = result.isPlaceholderData ? 0 : Math.max(0, pages.length - 1);
-  const page = pages[pageIndex];
+  const last = Math.max(0, pages.length - 1);
+  const index = result.isPlaceholderData ? 0 : Math.min(pageIndex, last);
+  if (pageIndex !== index) {
+    setPageIndex(index);
+  }
+
+  const page = pages[index];
   const phase = walkPhase(
     enabled,
     pages.length,
     result.isPlaceholderData,
     result.isFetching,
     result.isFetchingNextPage,
+    result.isFetchingPreviousPage,
   );
   const pending = phase === "pending";
 
@@ -111,30 +110,40 @@ export function useRecords(cluster: string, query: RecordsFilter, enabled = true
     records: page?.records ?? [],
     complete: page?.complete ?? true,
     obfuscated: page?.obfuscated ?? false,
-    pageIndex,
-    hasNext: !pending && page?.nextCursor != null,
-    hasPrevious: !pending && pages.length > 1,
+    pageIndex: index,
+    hasNext: !pending && (index < pages.length - 1 || page?.nextCursor != null),
+    hasPrevious: !pending && (index > 0 || page?.prevCursor != null),
     phase,
     error: result.error ?? null,
     stepNext() {
-      if (pending || page?.nextCursor == null) {
+      if (pending) {
         return;
       }
-      void result.fetchNextPage({ cancelRefetch: false });
+      if (index < pages.length - 1) {
+        setPageIndex(index + 1);
+        return;
+      }
+      if (page?.nextCursor == null) {
+        return;
+      }
+      void result.fetchNextPage({ cancelRefetch: false }).then((next) => {
+        if (!next.isError && next.data != null) {
+          setPageIndex(next.data.pages.length - 1);
+        }
+      });
     },
     stepPrev() {
-      if (pending || pages.length <= 1) {
+      if (pending) {
         return;
       }
-      queryClient.setQueryData<InfiniteData<RecordPage, string | null>>(recordsKey, (data) => {
-        if (data == null || data.pages.length <= 1) {
-          return data;
-        }
-        return {
-          pages: data.pages.slice(0, -1),
-          pageParams: data.pageParams.slice(0, -1),
-        };
-      });
+      if (index > 0) {
+        setPageIndex(index - 1);
+        return;
+      }
+      if (page?.prevCursor == null) {
+        return;
+      }
+      void result.fetchPreviousPage({ cancelRefetch: false });
     },
   };
 }
