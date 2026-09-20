@@ -1,5 +1,5 @@
 const HEADER = /^\s*(?:query|mutation|subscription)\s+(\w+)/;
 
-export function operationName(document: string): string | undefined {
-  return HEADER.exec(document)?.[1];
+export function operationName(document: { toString(): string }): string | undefined {
+  return HEADER.exec(String(document))?.[1];
 }
