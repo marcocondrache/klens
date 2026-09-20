@@ -5,7 +5,7 @@ use tracing_subscriber::{
 
 mod graphql;
 
-pub(crate) use graphql::{DocumentHead, OperationId, complete, record_ws_upgrade};
+pub(crate) use graphql::{OperationId, complete, record_ws_upgrade};
 
 pub struct Telemetry {
     _guard: WorkerGuard,

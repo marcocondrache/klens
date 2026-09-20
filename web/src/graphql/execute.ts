@@ -1,6 +1,7 @@
 import { GraphQLError } from "@/lib/graphql-error";
 
 import type { TypedDocumentString } from "./graphql";
+import { operationName } from "./operation-name";
 
 export async function execute<TResult, TVariables>(
   query: TypedDocumentString<TResult, TVariables>,
@@ -16,6 +17,7 @@ export async function execute<TResult, TVariables>(
     body: JSON.stringify({
       query,
       variables,
+      operationName: operationName(query),
     }),
   });
 

@@ -3,9 +3,7 @@ use std::time::Duration;
 
 use juniper::parser::{ParseError, SourcePosition, Spanning};
 
-use super::{
-    OperationId, OperationKind, OperationName, OperationOutcome, RequestFailure, complete, record,
-};
+use super::{OperationId, OperationOutcome, RequestFailure, complete, record};
 use crate::telemetry::capture::subscriber as capture;
 use crate::telemetry::log_http_completed;
 
@@ -23,150 +21,35 @@ fn parse_error_result() -> Result<
 }
 
 #[test]
-fn ui_whoami_document_is_query_whoami() {
-    let id = OperationId::parse("query Whoami { whoami { subject } }", None);
+fn operation_name_from_the_wire_is_the_identity() {
     assert_eq!(
-        id,
-        OperationId::Identified {
-            name: OperationName::named("Whoami"),
-            kind: OperationKind::Query,
-        }
-    );
-}
-
-#[test]
-fn json_operation_name_whoami_matches_the_document() {
-    let id = OperationId::parse("query Whoami { whoami { subject } }", Some("Whoami"));
-    assert_eq!(
-        id,
-        OperationId::Identified {
-            name: OperationName::named("Whoami"),
-            kind: OperationKind::Query,
-        }
-    );
-}
-
-#[test]
-fn shorthand_document_is_anonymous_query() {
-    let id = OperationId::parse("{ clusters { cluster } }", None);
-    assert_eq!(
-        id,
-        OperationId::Identified {
-            name: OperationName::Anonymous,
-            kind: OperationKind::Query,
-        }
-    );
-}
-
-#[test]
-fn json_operation_name_selects_among_definitions() {
-    let id = OperationId::parse("query A { a } query B { b }", Some("B"));
-    assert_eq!(
-        id,
-        OperationId::Identified {
-            name: OperationName::named("B"),
-            kind: OperationKind::Query,
-        }
-    );
-}
-
-#[test]
-fn two_operations_without_a_name_are_unresolved() {
-    let id = OperationId::parse("query A { a } query B { b }", None);
-    assert_eq!(id, OperationId::Unresolved { hint: None });
-}
-
-#[test]
-fn non_graphql_text_is_unresolved() {
-    let id = OperationId::parse("not graphql", None);
-    assert_eq!(id, OperationId::Unresolved { hint: None });
-}
-
-#[test]
-fn fragments_are_skipped_and_whoami_is_recovered() {
-    let id = OperationId::parse(
-        r#"
-    query Whoami {
-  whoami {
-    ...IdentityFields
-  }
-}
-    fragment IdentityFields on Identity {
-  subject
-}"#,
-        None,
+        OperationId::from_name(Some("Whoami")),
+        OperationId::Named(Arc::from("Whoami"))
     );
     assert_eq!(
-        id,
-        OperationId::Identified {
-            name: OperationName::named("Whoami"),
-            kind: OperationKind::Query,
-        }
+        OperationId::from_name(Some("Clusters")),
+        OperationId::Named(Arc::from("Clusters"))
     );
 }
 
 #[test]
-fn unnamed_query_keyword_is_anonymous() {
-    let id = OperationId::parse("query { clusters { cluster } }", None);
-    assert_eq!(
-        id,
-        OperationId::Identified {
-            name: OperationName::Anonymous,
-            kind: OperationKind::Query,
-        }
-    );
-}
-
-#[test]
-fn subscription_updates_is_identified() {
-    let id = OperationId::parse(
-        "subscription Updates($cluster: String!, $scope: UpdateScope) { updates(cluster: $cluster, scope: $scope) { __typename } }",
-        None,
-    );
-    assert_eq!(
-        id,
-        OperationId::Identified {
-            name: OperationName::named("Updates"),
-            kind: OperationKind::Subscription,
-        }
-    );
-}
-
-#[test]
-fn unknown_json_name_does_not_fall_back() {
-    let id = OperationId::parse("query A { a }", Some("Nope"));
-    assert_eq!(
-        id,
-        OperationId::Unresolved {
-            hint: Some(Arc::from("Nope")),
-        }
-    );
-}
-
-#[test]
-fn field_named_query_is_not_an_operation() {
-    let id = OperationId::parse("query Whoami { query { subject } }", None);
-    assert_eq!(
-        id,
-        OperationId::Identified {
-            name: OperationName::named("Whoami"),
-            kind: OperationKind::Query,
-        }
-    );
+fn missing_or_blank_operation_name_is_unknown() {
+    assert_eq!(OperationId::from_name(None), OperationId::Unknown);
+    assert_eq!(OperationId::from_name(Some("")), OperationId::Unknown);
+    assert_eq!(OperationId::from_name(Some("  ")), OperationId::Unknown);
 }
 
 #[test]
 fn record_whoami_ok_inherits_request_id_and_omits_the_document() {
     let (logs, _guard) = capture(tracing::Level::INFO);
-    let id = OperationId::parse("query Whoami { whoami { subject } }", None);
+    let id = OperationId::from_name(Some("Whoami"));
     let _span = tracing::info_span!("http.request", request_id = "req-1").entered();
     record(&id, &OperationOutcome::Ok, Duration::from_millis(12));
     let text = logs.as_string();
     assert!(text.contains("operation=Whoami"), "{text}");
-    assert!(text.contains("kind=query"), "{text}");
     assert!(text.contains("outcome=ok"), "{text}");
     assert!(text.contains("req-1"), "{text}");
-    assert!(!text.contains("whoami"), "{text}");
+    assert!(!text.contains("whoami {"), "{text}");
     assert!(!text.contains("POST /graphql"), "{text}");
     assert!(!text.contains("subject"), "{text}");
 }
@@ -174,18 +57,13 @@ fn record_whoami_ok_inherits_request_id_and_omits_the_document() {
 #[test]
 fn field_errors_are_not_ok_and_do_not_log_the_document() {
     let (logs, _guard) = capture(tracing::Level::INFO);
-    let id = OperationId::parse(
-        "query TopicRows($cluster: String!) { topicRows(cluster: $cluster) { rows { name } } }",
-        None,
-    );
     record(
-        &id,
+        &OperationId::from_name(Some("TopicRows")),
         &OperationOutcome::executed(2),
         Duration::from_millis(40),
     );
     let text = logs.as_string();
     assert!(text.contains("operation=TopicRows"), "{text}");
-    assert!(text.contains("kind=query"), "{text}");
     assert!(text.contains("outcome=field_errors"), "{text}");
     assert!(text.contains("errors=2"), "{text}");
     assert!(!text.contains("outcome=ok"), "{text}");
@@ -197,7 +75,7 @@ fn field_errors_are_not_ok_and_do_not_log_the_document() {
 fn request_failed_is_warn_and_distinct_from_field_errors() {
     let (logs, _guard) = capture(tracing::Level::WARN);
     record(
-        &OperationId::parse("{", None),
+        &OperationId::Unknown,
         &OperationOutcome::from_execution(&parse_error_result()),
         Duration::from_millis(1),
     );
@@ -210,12 +88,9 @@ fn request_failed_is_warn_and_distinct_from_field_errors() {
 }
 
 #[test]
-fn complete_records_the_identified_operation() {
+fn complete_records_the_named_operation() {
     let (logs, _guard) = capture(tracing::Level::INFO);
-    let identities = [OperationId::parse(
-        "query Whoami { whoami { subject } }",
-        None,
-    )];
+    let identities = [OperationId::from_name(Some("Whoami"))];
     let response = juniper::http::GraphQLBatchResponse::Single(
         juniper::http::GraphQLResponse::from_result(Ok((
             juniper::Value::<juniper::DefaultScalarValue>::null(),
@@ -225,7 +100,6 @@ fn complete_records_the_identified_operation() {
     let _ = complete(&identities, response, Duration::from_millis(12));
     let text = logs.as_string();
     assert!(text.contains("operation=Whoami"), "{text}");
-    assert!(text.contains("kind=query"), "{text}");
     assert!(text.contains("outcome=ok"), "{text}");
 }
 

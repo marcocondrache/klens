@@ -1371,7 +1371,7 @@ async fn a_whoami_post_logs_the_operation_name() {
                 .uri("/graphql")
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(
-                    r#"{"query":"query Whoami { whoami { subject } }"}"#,
+                    r#"{"query":"query Whoami { whoami { subject } }","operationName":"Whoami"}"#,
                 ))
                 .expect("request"),
         )
@@ -1381,8 +1381,35 @@ async fn a_whoami_post_logs_the_operation_name() {
     assert_eq!(response.status(), StatusCode::OK);
     let text = logs.as_string();
     assert!(text.contains("operation=Whoami"), "{text}");
-    assert!(text.contains("kind=query"), "{text}");
     assert!(text.contains("outcome=ok"), "{text}");
     assert!(!text.contains("POST /graphql"), "{text}");
     assert!(!text.contains("whoami {"), "{text}");
+}
+
+#[tokio::test]
+async fn a_graphql_post_without_operation_name_logs_unknown() {
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode, header};
+    use tower::ServiceExt as _;
+
+    let (logs, _guard) = crate::telemetry::capture::subscriber(tracing::Level::INFO);
+
+    let response = crate::app::router(state())
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/graphql")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"query":"query Whoami { whoami { subject } }"}"#,
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let text = logs.as_string();
+    assert!(text.contains("operation=(unknown)"), "{text}");
+    assert!(!text.contains("operation=Whoami"), "{text}");
 }

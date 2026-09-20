@@ -8,7 +8,6 @@ use axum::{
     extract::{Extension, State},
     routing::get,
 };
-use juniper::http::GraphQLBatchRequest;
 use juniper::{EmptyMutation, RootNode};
 use juniper_axum::subscriptions;
 use juniper_axum::{extract::JuniperRequest, response::JuniperResponse};
@@ -17,7 +16,7 @@ use juniper_graphql_ws::ConnectionConfig;
 use crate::AppState;
 use crate::app::auth::SessionGuard;
 use crate::app::auth::access::EffectiveAccess;
-use crate::telemetry::{DocumentHead, OperationId, complete, record_ws_upgrade};
+use crate::telemetry::{OperationId, complete, record_ws_upgrade};
 
 mod context;
 mod error;
@@ -62,7 +61,7 @@ async fn graphql(
         access,
         guard,
     };
-    let identities = OperationId::parse_each(document_heads(&request));
+    let identities = OperationId::from_each(request.operation_names());
     let started = Instant::now();
     let response = request.execute(&*schema, &context).await;
     JuniperResponse(complete(&identities, response, started.elapsed()))
@@ -85,22 +84,6 @@ async fn graphql_ws(
         .on_upgrade(move |socket| {
             subscriptions::serve_ws(socket, schema, ConnectionConfig::new(context))
         })
-}
-
-fn document_heads(request: &GraphQLBatchRequest) -> Vec<DocumentHead<'_>> {
-    match request {
-        GraphQLBatchRequest::Single(req) => vec![DocumentHead {
-            query: &req.query,
-            operation_name: req.operation_name.as_deref(),
-        }],
-        GraphQLBatchRequest::Batch(reqs) => reqs
-            .iter()
-            .map(|req| DocumentHead {
-                query: &req.query,
-                operation_name: req.operation_name.as_deref(),
-            })
-            .collect(),
-    }
 }
 
 #[cfg(test)]

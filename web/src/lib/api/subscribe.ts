@@ -1,6 +1,7 @@
 import { createClient } from "graphql-ws";
 
 import type { TypedDocumentString } from "@/graphql/graphql";
+import { operationName } from "@/graphql/operation-name";
 
 function websocketUrl() {
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
@@ -22,6 +23,7 @@ export function subscribe<TResult, TVariables extends Record<string, unknown>>(
     {
       query: String(document),
       variables,
+      operationName: operationName(document),
     },
     {
       next(result) {
