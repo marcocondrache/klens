@@ -245,13 +245,6 @@ export const RecordFields = graphql(`
   }
 `);
 
-export const PointFields = graphql(`
-  fragment PointFields on Point {
-    at
-    value
-  }
-`);
-
 export const SearchHitFields = graphql(`
   fragment SearchHitFields on SearchHit {
     kind
@@ -396,22 +389,6 @@ export const recordsQuery = graphql(`
   }
 `);
 
-export const topicRateHistoryQuery = graphql(`
-  query TopicRateHistory($cluster: String!, $topic: String!) {
-    topicRateHistory(cluster: $cluster, topic: $topic) {
-      ...PointFields
-    }
-  }
-`);
-
-export const groupLagHistoryQuery = graphql(`
-  query GroupLagHistory($cluster: String!, $group: String!) {
-    groupLagHistory(cluster: $cluster, group: $group) {
-      ...PointFields
-    }
-  }
-`);
-
 export const searchQuery = graphql(`
   query Search($cluster: String!, $term: String!) {
     search(cluster: $cluster, term: $term) {
@@ -425,15 +402,12 @@ export const updatesSubscription = graphql(`
     updates(cluster: $cluster, scope: $scope) {
       __typename
       ... on WatermarksTick {
-        at
-        clusterRate
         topics {
           topic
           rate
         }
       }
       ... on GroupLagUpdate {
-        at
         group
         lag
         lagComplete

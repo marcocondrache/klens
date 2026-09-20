@@ -14,7 +14,6 @@ export type {
   IdentityFieldsFragment as Identity,
   LaneHealthFieldsFragment as LaneHealth,
   PartitionRowFieldsFragment as PartitionRow,
-  PointFieldsFragment as Point,
   PrivilegeName,
   RecordFieldsFragment as KafkaRecord,
   RecordOrder,
