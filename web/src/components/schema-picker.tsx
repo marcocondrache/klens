@@ -135,8 +135,6 @@ function useSchemaPickerView(input: {
 }): SchemaPickerView {
   const intent = pickerIntent(input.value, input.page);
   const query = useSubjectRows(input.cluster, intent.kind === "active");
-  // Disabled React Query with no cache reports isPending.
-  if (intent.kind === "dormant") return { kind: "hidden" };
   return schemaPickerView(intent, toCatalogLoad(query, input.topic));
 }
 
