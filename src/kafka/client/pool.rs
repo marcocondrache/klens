@@ -1,11 +1,3 @@
-//! Topic-keyed reuse of scan consumers.
-//!
-//! Consecutive pages of one browse session open the same topic with adjacent
-//! windows. Keeping the consumer between them keeps its fetch session, its
-//! known positions — so re-seeking costs no `ListOffsets` — and the records
-//! its last poll read ahead, which is exactly the next page when the window
-//! continues where the last one ended.
-
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -26,8 +18,6 @@ use super::transport::fetch_max_bytes;
 pub(super) struct ScanPool {
     client: KrafkaSharedClient,
     idle: Mutex<Idle>,
-    /// Consumers the pool declined, waiting for a `close()` that cannot run
-    /// where they were given up. Releasing is synchronous; closing is not.
     discarded: Mutex<Vec<Arc<Consumer>>>,
     max_per_topic: usize,
     max_total: usize,
@@ -46,7 +36,6 @@ struct Parked {
 }
 
 impl ScanPool {
-    /// Build a pool and the janitor that expires what nobody came back for.
     pub(super) fn spawn(client: KrafkaSharedClient) -> Arc<Self> {
         let pool = Arc::new(Self {
             client,
@@ -64,8 +53,6 @@ impl ScanPool {
             ticker.tick().await;
             loop {
                 ticker.tick().await;
-                // The pool outlives its cluster session and nothing else; a
-                // dead weak reference is the shutdown signal.
                 let Some(pool) = janitor.upgrade() else {
                     return;
                 };
@@ -77,8 +64,6 @@ impl ScanPool {
         pool
     }
 
-    /// A consumer assigned to `windows`, from the pool when this topic left
-    /// one behind.
     pub(super) async fn acquire(
         self: &Arc<Self>,
         topic: &str,
@@ -97,7 +82,6 @@ impl ScanPool {
         Ok(ScanLease::new(Arc::clone(self), topic, consumer))
     }
 
-    /// Consumers this topic can hand out without building one.
     #[cfg(test)]
     pub(super) fn parked(&self, topic: &str) -> usize {
         self.idle
@@ -108,8 +92,6 @@ impl ScanPool {
             .map_or(0, Vec::len)
     }
 
-    /// Take a consumer back, or give it up when the pool is full or the
-    /// caller poisoned it. Synchronous, so a lease can release from `Drop`.
     pub(super) fn release(&self, topic: &str, consumer: Arc<Consumer>, reusable: bool) {
         if !reusable {
             self.discard(consumer);
@@ -138,7 +120,6 @@ impl ScanPool {
         idle.total += 1;
     }
 
-    /// Close everything the pool has given up on.
     pub(super) async fn sweep(&self) {
         let discarded = std::mem::take(&mut *self.discarded.lock().expect("scan pool graveyard"));
         for consumer in discarded {
@@ -205,7 +186,6 @@ impl ScanPool {
             .push(consumer);
     }
 
-    /// A consumer tuned for paging rather than for streaming.
     async fn build(
         &self,
         topic: &str,
@@ -220,7 +200,6 @@ impl ScanPool {
             // The broker releases the long poll exactly when the scan stops
             // waiting for it, instead of holding a fetch nobody will read.
             .fetch_max_wait(POLL_BUDGET)
-            // Records past what a page can hold are decode work thrown away.
             .max_poll_records(page_limit)
             .max_buffered_records(page_limit.saturating_mul(2))
             // krafka's 50 MB default is wider than the frame the connection
@@ -239,8 +218,6 @@ impl ScanPool {
     }
 }
 
-/// Point a consumer at `windows`, replacing any previous assignment.
-///
 /// A partition already sitting at its window start is left alone: seeking
 /// there would discard the records the last poll read ahead, which for a
 /// continuing page are the ones it is about to ask for.

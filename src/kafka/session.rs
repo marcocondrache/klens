@@ -27,11 +27,11 @@ use crate::kafka::scan::payload::PayloadCodec;
 pub trait ClusterSession: Send + Sync + 'static {
     fn identity(&self) -> &ClusterIdentity;
 
-    /// Every topic and broker in the cluster. The topology lane's call.
+    /// Every topic and broker in the cluster.
     async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError>;
 
     /// One topic's partitions, served from the client's cache when it is
-    /// fresh. What everything interactive asks for.
+    /// fresh.
     async fn topic_metadata(&self, topic: &str) -> Result<TopicMetadata, KafkaError>;
 
     /// Low and high watermarks for the given partitions, grouped by topic.
@@ -72,9 +72,6 @@ pub trait ClusterSession: Send + Sync + 'static {
     ) -> Result<Vec<CommittedOffset>, KafkaError>;
 
     /// Open a consumer for one page request, already assigned to `windows`.
-    ///
-    /// Assigning here is what lets an implementation pre-seed the window
-    /// starts, so the assignment resolves no offsets of its own.
     async fn open_scan(
         &self,
         topic: &str,

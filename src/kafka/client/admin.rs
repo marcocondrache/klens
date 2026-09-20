@@ -1,11 +1,3 @@
-//! Fan-out wrappers around krafka's admin client.
-//!
-//! krafka groups a `ListOffsets` call by leader and then walks the leaders
-//! one at a time, and resolves one coordinator per group when describing
-//! consumer groups. Sharding a request before krafka sees it turns those
-//! serial round trips into concurrent ones on the pipelined sockets, bounded
-//! by a shared permit so a large cluster cannot open a request storm.
-
 use std::collections::HashMap;
 
 use futures::future::try_join_all;
@@ -30,15 +22,10 @@ impl AdminFan {
         }
     }
 
-    /// The unsharded client, for calls krafka already batches into one RPC.
     pub(super) fn admin(&self) -> &KrafkaAdmin {
         &self.admin
     }
 
-    /// `list_offsets` for many partitions, one krafka call per topic.
-    ///
-    /// Leaders distribute with topics, so sharding by topic is what turns
-    /// krafka's serial per-leader loop into concurrent waves.
     pub(super) async fn list_offsets(
         &self,
         topics: &HashMap<String, Vec<i32>>,
@@ -54,8 +41,6 @@ impl AdminFan {
         Ok(try_join_all(shards).await?.into_iter().flatten().collect())
     }
 
-    /// `describe_consumer_groups` in chunks, all chunks in flight at once.
-    ///
     /// Coordinator lookups stay serial *within* a chunk, so the chunk size is
     /// what bounds the longest serial run.
     pub(super) async fn describe_groups(
@@ -98,8 +83,6 @@ mod tests {
         )
     }
 
-    /// One shard per topic, and the shards overlap: three leaders each
-    /// holding a `ListOffsets` for 200 ms cost one wave, not three.
     #[tokio::test]
     async fn list_offsets_shards_by_topic_and_overlaps_the_leaders() {
         let cluster = FakeBroker::start_cluster(3).await.expect("fake cluster");

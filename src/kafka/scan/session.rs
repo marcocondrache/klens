@@ -25,9 +25,6 @@ const MAX_FILTER_PASSES: usize = 64;
 
 /// Leave time to inspect consumer positions after empty polls, which is how
 /// an idle or compacted partition is recognised as finished.
-///
-/// Consumers are built with this as their `fetch_max_wait`, so a broker
-/// releases a long poll exactly when the scan stops waiting for it.
 pub const POLL_BUDGET: Duration = Duration::from_millis(100);
 
 /// A record exactly as it came off the wire.
@@ -153,8 +150,6 @@ pub struct ScanSession {
     obfuscator: Option<Arc<TopicObfuscator>>,
     schema_id: Option<i32>,
     walk: RecordOrder,
-    /// What the consumer is pointed at, so a pass that plans the same
-    /// windows costs no reassignment.
     assigned: Mutex<Vec<PartitionWindow>>,
 }
 
@@ -224,10 +219,6 @@ impl ScanSession {
                 break;
             }
 
-            // A consumer may overrun its budget: the budget bounds how long a
-            // broker parks the fetch, while the round trip carrying it back
-            // answers to the connection's request timeout. The page deadline
-            // is what has to hold, so it bounds the poll too.
             let budget = deadline.saturating_duration_since(now).min(POLL_BUDGET);
             let Ok(polled) = timeout_at(deadline, self.consumer.poll(budget)).await else {
                 break;

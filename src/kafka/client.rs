@@ -121,8 +121,6 @@ impl ClusterSession for KafkaClient {
         Ok(MetadataSnapshot::from_krafka(cache))
     }
 
-    /// One topic's partitions, from krafka's per-topic cache when it is
-    /// fresh and a topic-scoped Metadata RPC when it is not.
     async fn topic_metadata(&self, topic: &str) -> Result<TopicMetadata, KafkaError> {
         let cache = self.krafka.metadata();
         cache.refresh_for_topics(Some(&[topic])).await?;
@@ -279,8 +277,6 @@ impl ClusterSession for KafkaClient {
         }
     }
 
-    /// Open and assign in one call, from the pool when a page of the same
-    /// topic left a consumer behind.
     async fn open_scan(
         &self,
         topic: &str,
@@ -402,8 +398,6 @@ mod tests {
         }
     }
 
-    /// Pipelining 32 requests against krafka's 100 MiB default frame would
-    /// put the worst case at 3.2 GiB, which krafka warns about.
     #[tokio::test]
     async fn connecting_does_not_warn_about_the_connection_memory_ceiling() {
         let logs = LogBuf::default();
@@ -586,8 +580,6 @@ mod tests {
         assert!(past_high.is_empty());
     }
 
-    /// Consecutive pages reuse the pooled consumer, concurrent ones each get
-    /// their own, and no page ever asks the broker where its window starts.
     #[tokio::test]
     async fn consecutive_scans_reuse_a_consumer_without_looking_offsets_up() {
         let broker = krafka::testing::FakeBroker::start()
@@ -669,9 +661,6 @@ mod tests {
         );
     }
 
-    /// The poll budget is how long a broker may park a fetch, not a cap on
-    /// the round trip that carries it back. A link slower than the budget —
-    /// any cluster across a WAN — still has to deliver records.
     #[tokio::test]
     async fn a_round_trip_slower_than_the_poll_budget_still_delivers() {
         let broker = krafka::testing::FakeBroker::start().await.unwrap();

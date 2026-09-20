@@ -40,21 +40,12 @@ async fn resolve_partitions<S: ClusterSession + ?Sized>(
         return select_partitions(store.name(), query, &topic.partitions);
     }
 
-    // A topic the lane has not committed yet costs one topic-scoped
-    // metadata call, not a full cluster fetch.
     store.topology.kick();
     let topic = session.topic_metadata(&query.topic).await?;
 
     select_partitions(store.name(), query, &topic.partitions)
 }
 
-/// The watermark lane's sample, when it is recent enough to plan a page from
-/// and covers every partition the page reads.
-///
-/// Staleness is bounded and recoverable either way: a stale high mark hides
-/// records younger than one lane interval, which the next page picks up, and
-/// a stale low mark on an aggressively retained topic plans a window that
-/// scans empty — which the scan already treats as a finished window.
 fn sampled_watermarks(
     store: &ClusterStore,
     topic: &str,
@@ -64,10 +55,6 @@ fn sampled_watermarks(
         .watermarks
         .load()
         .filter(|table| {
-            // The lane re-verifies the marks every interval but recommits the
-            // table only when they moved (or on its idle heartbeat), so an
-            // unchanged table is as current as the lane's last completed
-            // check. A table no lane has checked has only its own sample time.
             let verified_at = store
                 .watermarks
                 .health()
@@ -264,9 +251,6 @@ mod tests {
         assert_eq!(session.calls().watermarks(), 0);
     }
 
-    /// A quiet topic's marks stop moving, so the lane stops recommitting the
-    /// table — but it keeps verifying it. The last completed check is what
-    /// keeps an old, unchanged table plannable.
     #[tokio::test]
     async fn an_unchanged_table_the_lane_just_verified_is_still_fresh() {
         let session = FakeCluster::local();

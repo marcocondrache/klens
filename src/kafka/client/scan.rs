@@ -10,11 +10,6 @@ use crate::kafka::model::{Compression, PartitionWindow, RawRecord, ScanConsumer}
 
 use super::pool::{ScanPool, assign};
 
-/// One page's hold on a pooled consumer.
-///
-/// Closing it releases the consumer back to the pool with its fetch session,
-/// positions and read-ahead buffer intact. Only an error the consumer may not
-/// have recovered from gives it up.
 pub(super) struct ScanLease {
     pool: Arc<ScanPool>,
     topic: String,
@@ -34,8 +29,6 @@ impl ScanLease {
         }
     }
 
-    /// A consumer that failed mid-page may hold a broken fetch session or a
-    /// position nobody can account for; the next page starts clean instead.
     fn watch<T>(&self, result: Result<T, KafkaError>) -> Result<T, KafkaError> {
         if result.is_err() {
             self.healthy.store(false, Ordering::SeqCst);
@@ -106,8 +99,6 @@ impl ScanConsumer for ScanLease {
 
 impl Drop for ScanLease {
     fn drop(&mut self) {
-        // Releasing is synchronous even here: whatever the pool declines is
-        // closed by its janitor, not by a task spawned from a destructor.
         self.release();
     }
 }
@@ -129,8 +120,6 @@ mod tests {
         }
     }
 
-    /// Read a window to its end, discarding what the consumer reads past it —
-    /// which is what the scan loop does with the same surplus.
     async fn read(scan: &ScanLease, window: PartitionWindow) -> Vec<i64> {
         let mut offsets = Vec::new();
         while (offsets.len() as i64) < window.end - window.start {

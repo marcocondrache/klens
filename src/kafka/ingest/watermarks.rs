@@ -39,8 +39,6 @@ impl WatermarkLane {
         }
     }
 
-    /// Every partition worth sampling, grouped by topic because that is the
-    /// shard the client fans out over.
     fn wanted_partitions(
         &self,
         store: &ClusterStore,
