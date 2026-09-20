@@ -1,17 +1,9 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 
 import { execute } from "@/graphql/execute";
 
-import {
-  aclsQuery,
-  brokerConfigsQuery,
-  recordsQuery,
-  subjectQuery,
-  topicConfigsQuery,
-} from "./documents";
-import { keys, type RecordsFilter } from "./keys";
-
-export type { RecordsFilter };
+import { aclsQuery, brokerConfigsQuery, subjectQuery, topicConfigsQuery } from "./documents";
+import { keys } from "./keys";
 
 function visibleCluster<T>(cluster: T | null): T {
   if (cluster == null) {
@@ -70,25 +62,5 @@ export function useSubject(
       return visibleCluster(node).subject;
     },
     enabled: enabled && name != null,
-  });
-}
-
-export function useRecords(
-  cluster: string,
-  query: RecordsFilter,
-  cursor: string | null,
-  enabled = true,
-) {
-  return useQuery({
-    queryKey: keys.records(cluster, query, cursor),
-    queryFn: async () => {
-      const { cluster: node } = await execute(recordsQuery, {
-        cluster,
-        query: { ...query, cursor },
-      });
-      return visibleCluster(node).records;
-    },
-    enabled,
-    placeholderData: keepPreviousData,
   });
 }

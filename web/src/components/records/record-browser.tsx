@@ -35,7 +35,7 @@ import { SchemaPicker } from "@/components/schema-picker";
 import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
 import { useSubjectRows } from "@/lib/api/catalog";
-import { useRecords, type RecordsFilter } from "@/lib/api/live";
+import { useRecords, type RecordsFilter } from "@/lib/api/records";
 import { useAccess } from "@/hooks/use-access";
 import { queryErrorMessage } from "@/lib/query-error";
 import { formatBytes, formatRelative, formatTimestamp, fromDatetimeLocalValue } from "@/lib/format";
@@ -140,8 +140,6 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
   const [to, setTo] = useState("");
   const [limit, setLimit] = useState(50);
   const [order, setOrder] = useState<RecordOrder>("NEWEST");
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [pageIndex, setPageIndex] = useState(0);
   const [selected, setSelected] = useState<KafkaRecord | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [schemaId, setSchemaId] = useState<number | null>(null);
@@ -164,14 +162,8 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
     };
   }, [topic.name, partition, order, from, to, limit, term, schemaId]);
 
-  const { data, isFetching, isPlaceholderData, isError, error } = useRecords(
-    cluster,
-    query,
-    cursor,
-    can(cluster, "RECORDS"),
-  );
-
-  const records = data?.records ?? [];
+  const walk = useRecords(cluster, query, can(cluster, "RECORDS"));
+  const records = walk.records;
   const showSchemaPicker =
     schemaId != null || records.some((record) => record.value != null && record.schemaId == null);
   const selectedRecord =
@@ -180,17 +172,6 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
       : (records.find(
           (record) => record.partition === selected.partition && record.offset === selected.offset,
         ) ?? selected);
-
-  function rewind() {
-    setCursor(null);
-    setPageIndex(0);
-  }
-
-  function step(next: string | null, delta: number) {
-    if (next == null) return;
-    setCursor(next);
-    setPageIndex((current) => Math.max(0, current + delta));
-  }
 
   const partitionItems = [
     { value: "all", label: "All partitions" },
@@ -202,7 +183,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
-      {data && !data.complete ? (
+      {!walk.complete ? (
         <Alert>
           <TriangleAlertIcon />
           <AlertTitle>Partial page</AlertTitle>
@@ -222,7 +203,6 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
               value={term}
               onChange={(event) => {
                 setTerm(event.target.value);
-                rewind();
               }}
               placeholder="Search key or value…"
             />
@@ -237,7 +217,6 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                 max={to || undefined}
                 onChange={(event) => {
                   setFrom(event.target.value);
-                  rewind();
                 }}
                 aria-label="From timestamp"
               />
@@ -253,7 +232,6 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                 min={from || undefined}
                 onChange={(event) => {
                   setTo(event.target.value);
-                  rewind();
                 }}
                 aria-label="To timestamp"
               />
@@ -264,7 +242,6 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
               items={partitionItems}
               onValueChange={(value) => {
                 setPartition(String(value));
-                rewind();
               }}
             >
               <SelectTrigger className="w-40">
@@ -286,7 +263,6 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
               items={ORDER_ITEMS}
               onValueChange={(value) => {
                 setOrder(value as RecordOrder);
-                rewind();
               }}
             >
               <SelectTrigger className="w-36">
@@ -310,41 +286,31 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                 value={schemaId}
                 onChange={(id) => {
                   setSchemaId(id);
-                  rewind();
                 }}
               />
             ) : null}
 
-            {data?.obfuscated ? <ObfuscatedBadge /> : null}
+            {walk.obfuscated ? <ObfuscatedBadge /> : null}
           </>
         }
         getRowId={(record) => `${record.partition}-${record.offset}`}
-        loading={isFetching && records.length === 0}
-        refreshing={isFetching && records.length > 0}
+        loading={walk.phase === "loading"}
+        refreshing={walk.phase === "refreshing"}
         pageSize={limit}
         pageSizes={RECORD_PAGE_SIZES}
-        pageIndex={pageIndex}
-        hasMore={data?.nextCursor != null}
-        loadingMore={isFetching && isPlaceholderData}
-        canPreviousPage={data?.prevCursor != null || pageIndex > 0}
-        onPageSizeChange={(size) => {
-          setLimit(size);
-          rewind();
-        }}
-        onPreviousPage={() => {
-          if (data?.prevCursor == null) {
-            rewind();
-            return;
-          }
-          step(data.prevCursor, -1);
-        }}
-        onNextPage={() => step(data?.nextCursor ?? null, 1)}
+        pageIndex={walk.pageIndex}
+        hasMore={walk.hasNext}
+        loadingMore={walk.phase === "pending"}
+        canPreviousPage={walk.hasPrevious}
+        onPageSizeChange={setLimit}
+        onPreviousPage={walk.stepPrev}
+        onNextPage={walk.stepNext}
         onRowClick={setSelected}
         selectedKey={
           selectedRecord ? `${selectedRecord.partition}-${selectedRecord.offset}` : undefined
         }
         fill
-        error={queryErrorMessage(isError, error, "Failed to load records.")}
+        error={queryErrorMessage(walk.error != null, walk.error, "Failed to load records.")}
         emptyState={
           <Empty className="py-10">
             <EmptyHeader>
@@ -387,7 +353,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
               <SheetHeader className="border-b">
                 <SheetTitle className="flex items-center gap-2 font-mono text-sm">
                   {topic.name}[{selectedRecord.partition}]@{selectedRecord.offset}
-                  {data?.obfuscated ? <ObfuscatedBadge /> : null}
+                  {walk.obfuscated ? <ObfuscatedBadge /> : null}
                 </SheetTitle>
                 <SheetDescription>
                   {formatTimestamp(selectedRecord.timestamp)} ·{" "}

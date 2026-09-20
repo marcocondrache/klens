@@ -17,8 +17,8 @@ export const keys = {
     ["cluster", cluster, "topics", topic, "configs"] as const,
   topicGroups: (cluster: string, topic: string) =>
     ["cluster", cluster, "topics", topic, "groups"] as const,
-  records: (cluster: string, query: RecordsFilter, cursor: string | null) =>
-    ["cluster", cluster, "topics", query.topic, "records", query, cursor] as const,
+  records: (cluster: string, query: RecordsFilter) =>
+    ["cluster", cluster, "topics", query.topic, "records", query] as const,
 
   groupRows: (cluster: string) => ["cluster", cluster, "groups"] as const,
   group: (cluster: string, group: string) => ["cluster", cluster, "groups", group] as const,
