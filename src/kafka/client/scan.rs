@@ -10,7 +10,7 @@ use crate::kafka::model::{Compression, PartitionWindow, RawRecord, ScanConsumer}
 
 use super::pool::{ScanPool, assign};
 
-pub(super) struct ScanHold {
+pub(super) struct ScanLease {
     pool: Arc<ScanPool>,
     topic: String,
     consumer: Arc<Consumer>,
@@ -18,7 +18,7 @@ pub(super) struct ScanHold {
     released: AtomicBool,
 }
 
-impl ScanHold {
+impl ScanLease {
     pub(super) fn new(pool: Arc<ScanPool>, topic: &str, consumer: Arc<Consumer>) -> Self {
         Self {
             pool,
@@ -36,21 +36,20 @@ impl ScanHold {
         result
     }
 
-    fn release(&self) -> bool {
+    fn release(&self) {
         if self.released.swap(true, Ordering::SeqCst) {
-            return false;
+            return;
         }
         self.pool.release(
             &self.topic,
             Arc::clone(&self.consumer),
             self.reusable.load(Ordering::SeqCst),
         );
-        true
     }
 }
 
 #[async_trait]
-impl ScanConsumer for ScanHold {
+impl ScanConsumer for ScanLease {
     async fn reassign(&self, windows: &[PartitionWindow]) -> Result<(), KafkaError> {
         self.poison(assign(&self.consumer, &self.topic, windows).await)
     }
@@ -91,13 +90,11 @@ impl ScanConsumer for ScanHold {
     }
 
     async fn close(&self) {
-        if self.release() {
-            self.pool.sweep().await;
-        }
+        self.release();
     }
 }
 
-impl Drop for ScanHold {
+impl Drop for ScanLease {
     fn drop(&mut self) {
         self.release();
     }
@@ -120,7 +117,7 @@ mod tests {
         }
     }
 
-    async fn read(scan: &ScanHold, window: PartitionWindow) -> Vec<i64> {
+    async fn read(scan: &ScanLease, window: PartitionWindow) -> Vec<i64> {
         let mut offsets = Vec::new();
         while (offsets.len() as i64) < window.end - window.start {
             let polled = scan.poll(Duration::from_secs(1)).await.expect("poll");

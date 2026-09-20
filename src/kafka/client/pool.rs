@@ -1,5 +1,5 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex, Weak};
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use krafka::client::KrafkaClient as KrafkaSharedClient;
@@ -13,97 +13,114 @@ use crate::kafka::error::KafkaError;
 use crate::kafka::model::PartitionWindow;
 use crate::kafka::scan::session::ScanPace;
 
-use super::scan::ScanHold;
+use super::scan::ScanLease;
 
 pub(super) struct ScanPool {
     client: KrafkaSharedClient,
-    idle: Mutex<Idle>,
-    graveyard: Graveyard,
-    max_per_topic: usize,
-    max_total: usize,
-    idle_ttl: Duration,
+    inner: Mutex<ScanPoolInner>,
 }
 
-#[derive(Default)]
-struct Idle {
-    topics: HashMap<String, Vec<Parked>>,
-    total: usize,
+struct ScanPoolInner {
+    parked: VecDeque<Parked>,
+    max_per_topic: usize,
+    max_total: usize,
+    ttl: Duration,
 }
 
 struct Parked {
+    topic: String,
     consumer: Arc<Consumer>,
     since: Instant,
 }
 
-struct Graveyard {
-    waiting: Mutex<Vec<Arc<Consumer>>>,
-}
-
-impl Graveyard {
+impl ScanPoolInner {
     fn new() -> Self {
         Self {
-            waiting: Mutex::new(Vec::new()),
+            parked: VecDeque::new(),
+            max_per_topic: (*SCAN_POOL_PER_TOPIC).max(1),
+            max_total: (*SCAN_POOL_TOTAL).max(1),
+            ttl: *SCAN_POOL_IDLE_TTL,
         }
     }
 
-    fn push(&self, consumer: Arc<Consumer>) {
-        self.waiting
-            .lock()
-            .expect("scan pool graveyard")
-            .push(consumer);
+    /// Newest match first: the most recently parked consumer has the
+    /// freshest positions and metadata. Closed consumers found along the
+    /// way are evicted.
+    fn take(&mut self, topic: &str, evicted: &mut Vec<Arc<Consumer>>) -> Option<Arc<Consumer>> {
+        self.expire(evicted);
+
+        while let Some(index) = self.parked.iter().rposition(|parked| parked.topic == topic) {
+            let candidate = self.parked.remove(index).expect("index from rposition");
+            if !candidate.consumer.is_closed() {
+                return Some(candidate.consumer);
+            }
+            evicted.push(candidate.consumer);
+        }
+        None
     }
 
-    fn extend(&self, consumers: Vec<Arc<Consumer>>) {
-        self.waiting
-            .lock()
-            .expect("scan pool graveyard")
-            .extend(consumers);
+    /// A consumer over either cap is evicted rather than parked.
+    fn park(&mut self, topic: &str, consumer: Arc<Consumer>, evicted: &mut Vec<Arc<Consumer>>) {
+        self.expire(evicted);
+
+        let same_topic = self
+            .parked
+            .iter()
+            .filter(|parked| parked.topic == topic)
+            .count();
+        if self.parked.len() >= self.max_total || same_topic >= self.max_per_topic {
+            evicted.push(consumer);
+            return;
+        }
+
+        self.parked.push_back(Parked {
+            topic: topic.to_owned(),
+            consumer,
+            since: Instant::now(),
+        });
     }
 
-    fn drain(&self) -> Vec<Arc<Consumer>> {
-        std::mem::take(&mut *self.waiting.lock().expect("scan pool graveyard"))
-    }
-}
-
-struct Janitor {
-    pool: Weak<ScanPool>,
-    period: Duration,
-}
-
-impl Janitor {
-    fn spawn(self) {
-        tokio::spawn(async move { self.run().await });
-    }
-
-    async fn run(self) {
-        let mut ticker = tokio::time::interval(self.period);
-        ticker.tick().await;
-        loop {
-            ticker.tick().await;
-            let Some(pool) = self.pool.upgrade() else {
-                return;
-            };
-            pool.expire_idle();
-            pool.sweep().await;
+    /// The queue is sorted by age, so everything expired sits at the front.
+    fn expire(&mut self, evicted: &mut Vec<Arc<Consumer>>) {
+        while self
+            .parked
+            .front()
+            .is_some_and(|parked| parked.since.elapsed() > self.ttl)
+        {
+            let expired = self.parked.pop_front().expect("non-empty front");
+            evicted.push(expired.consumer);
         }
     }
+}
+
+/// Nothing waits on a retired consumer, so closing it is fire-and-forget.
+fn retire(consumer: Arc<Consumer>) {
+    tokio::spawn(async move {
+        let _ = consumer.close().await;
+    });
 }
 
 impl ScanPool {
     pub(super) fn spawn(transport: &transport::Transport) -> Arc<Self> {
         let pool = Arc::new(Self {
             client: transport.client.clone(),
-            idle: Mutex::new(Idle::default()),
-            graveyard: Graveyard::new(),
-            max_per_topic: (*SCAN_POOL_PER_TOPIC).max(1),
-            max_total: (*SCAN_POOL_TOTAL).max(1),
-            idle_ttl: *SCAN_POOL_IDLE_TTL,
+            inner: Mutex::new(ScanPoolInner::new()),
         });
-        Janitor {
-            pool: Arc::downgrade(&pool),
-            period: pool.idle_ttl,
-        }
-        .spawn();
+
+        let weak = Arc::downgrade(&pool);
+        let period = pool.inner.lock().expect("scan pool").ttl;
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(period);
+            ticker.tick().await;
+            loop {
+                ticker.tick().await;
+                let Some(pool) = weak.upgrade() else {
+                    return;
+                };
+                pool.with_idle(|idle, evicted| idle.expire(evicted));
+            }
+        });
+
         pool
     }
 
@@ -111,112 +128,46 @@ impl ScanPool {
         self: &Arc<Self>,
         topic: &str,
         windows: &[PartitionWindow],
-    ) -> Result<ScanHold, KafkaError> {
-        let consumer = match self.take(topic) {
+    ) -> Result<ScanLease, KafkaError> {
+        let taken = self.with_idle(|idle, evicted| idle.take(topic, evicted));
+        let consumer = match taken {
             Some(consumer) => consumer,
             None => Arc::new(self.build(topic, windows).await?),
         };
         if let Err(error) = assign(&consumer, topic, windows).await {
-            self.discard(consumer);
-            self.sweep().await;
+            retire(consumer);
             return Err(error);
         }
 
-        Ok(ScanHold::new(Arc::clone(self), topic, consumer))
-    }
-
-    #[cfg(test)]
-    pub(super) fn parked(&self, topic: &str) -> usize {
-        self.idle
-            .lock()
-            .expect("scan pool")
-            .topics
-            .get(topic)
-            .map_or(0, Vec::len)
+        Ok(ScanLease::new(Arc::clone(self), topic, consumer))
     }
 
     pub(super) fn release(&self, topic: &str, consumer: Arc<Consumer>, reusable: bool) {
         if !reusable {
-            self.discard(consumer);
+            retire(consumer);
             return;
         }
-
-        let mut idle = self.idle.lock().expect("scan pool");
-        let full = idle.total >= self.max_total
-            || idle
-                .topics
-                .get(topic)
-                .is_some_and(|parked| parked.len() >= self.max_per_topic);
-        if full {
-            drop(idle);
-            self.discard(consumer);
-            return;
-        }
-
-        idle.topics
-            .entry(topic.to_owned())
-            .or_default()
-            .push(Parked {
-                consumer,
-                since: Instant::now(),
-            });
-        idle.total += 1;
+        self.with_idle(|idle, evicted| idle.park(topic, consumer, evicted));
     }
 
-    pub(super) async fn sweep(&self) {
-        for consumer in self.graveyard.drain() {
-            let _ = consumer.close().await;
-        }
+    #[cfg(test)]
+    pub(super) fn parked(&self, topic: &str) -> usize {
+        self.inner
+            .lock()
+            .expect("scan pool")
+            .parked
+            .iter()
+            .filter(|parked| parked.topic == topic)
+            .count()
     }
 
-    fn take(&self, topic: &str) -> Option<Arc<Consumer>> {
-        let mut stale = Vec::new();
-        let mut taken = None;
-
-        {
-            let mut idle = self.idle.lock().expect("scan pool");
-            if let Some(parked) = idle.topics.get_mut(topic) {
-                while let Some(candidate) = parked.pop() {
-                    if candidate.since.elapsed() <= self.idle_ttl && !candidate.consumer.is_closed()
-                    {
-                        taken = Some(candidate.consumer);
-                        break;
-                    }
-                    stale.push(candidate.consumer);
-                }
-            }
-            idle.total -= stale.len() + usize::from(taken.is_some());
+    fn with_idle<T>(&self, op: impl FnOnce(&mut ScanPoolInner, &mut Vec<Arc<Consumer>>) -> T) -> T {
+        let mut evicted = Vec::new();
+        let result = op(&mut self.inner.lock().expect("scan pool"), &mut evicted);
+        for consumer in evicted {
+            retire(consumer);
         }
-
-        if !stale.is_empty() {
-            self.graveyard.extend(stale);
-        }
-        taken
-    }
-
-    fn expire_idle(&self) {
-        let mut expired = Vec::new();
-        {
-            let mut idle = self.idle.lock().expect("scan pool");
-            let ttl = self.idle_ttl;
-            idle.topics.retain(|_, parked| {
-                parked.retain(|candidate| {
-                    if candidate.since.elapsed() <= ttl {
-                        return true;
-                    }
-                    expired.push(Arc::clone(&candidate.consumer));
-                    false
-                });
-                !parked.is_empty()
-            });
-            idle.total -= expired.len();
-        }
-
-        self.graveyard.extend(expired);
-    }
-
-    fn discard(&self, consumer: Arc<Consumer>) {
-        self.graveyard.push(consumer);
+        result
     }
 
     async fn build(
