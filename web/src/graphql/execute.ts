@@ -16,6 +16,7 @@ export async function execute<TResult, TVariables>(
     body: JSON.stringify({
       query,
       variables,
+      operationName: query.__meta__?.operationName,
     }),
   });
 

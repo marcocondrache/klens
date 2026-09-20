@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Instant;
 
 use axum::extract::WebSocketUpgrade;
 use axum::response::Response;
@@ -15,6 +16,7 @@ use juniper_graphql_ws::ConnectionConfig;
 use crate::AppState;
 use crate::app::auth::SessionGuard;
 use crate::app::auth::access::EffectiveAccess;
+use crate::telemetry::{OperationId, complete, record_ws_upgrade};
 
 mod context;
 mod error;
@@ -59,7 +61,10 @@ async fn graphql(
         access,
         guard,
     };
-    JuniperResponse(request.execute(&*schema, &context).await)
+    let identities = OperationId::from_each(request.operation_names());
+    let started = Instant::now();
+    let response = request.execute(&*schema, &context).await;
+    JuniperResponse(complete(&identities, response, started.elapsed()))
 }
 
 async fn graphql_ws(
@@ -74,6 +79,7 @@ async fn graphql_ws(
         access,
         guard,
     };
+    record_ws_upgrade();
     ws.protocols(["graphql-transport-ws", "graphql-ws"])
         .on_upgrade(move |socket| {
             subscriptions::serve_ws(socket, schema, ConnectionConfig::new(context))
