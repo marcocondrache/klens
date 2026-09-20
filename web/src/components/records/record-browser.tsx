@@ -170,6 +170,8 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
   );
 
   const records = data?.records ?? [];
+  const showSchemaPicker =
+    schemaId != null || records.some((record) => record.value != null && record.schemaId == null);
   const selectedRecord =
     selected == null
       ? null
@@ -299,16 +301,17 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
               </SelectContent>
             </Select>
 
-            <SchemaPicker
-              cluster={cluster}
-              topic={topic.name}
-              value={schemaId}
-              page={records}
-              onChange={(id) => {
-                setSchemaId(id);
-                rewind();
-              }}
-            />
+            {showSchemaPicker ? (
+              <SchemaPicker
+                cluster={cluster}
+                topic={topic.name}
+                value={schemaId}
+                onChange={(id) => {
+                  setSchemaId(id);
+                  rewind();
+                }}
+              />
+            ) : null}
 
             {data?.obfuscated ? <ObfuscatedBadge /> : null}
           </>
