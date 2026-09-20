@@ -1,3 +1,5 @@
+use std::io::IsTerminal;
+
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{
     EnvFilter, filter::ParseError, layer::SubscriberExt, util::SubscriberInitExt,
@@ -15,7 +17,8 @@ impl Telemetry {
     pub fn init(filter: &str, target: &str) -> anyhow::Result<Self> {
         let filter = filter_from_value(filter, target)?;
         let (writer, guard) = tracing_appender::non_blocking(std::io::stdout());
-        let layer = tracing_subscriber::fmt::layer().with_ansi(false);
+        let layer = tracing_subscriber::fmt::layer()
+            .with_ansi(cfg!(debug_assertions) && std::io::stdout().is_terminal());
 
         tracing_subscriber::registry()
             .with(filter)
