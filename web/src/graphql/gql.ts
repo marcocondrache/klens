@@ -36,20 +36,20 @@ type Documents = {
     "\n  fragment RecordFields on Record {\n    topic\n    partition\n    offset\n    timestamp\n    key\n    value\n    schemaId\n    sizeBytes\n    compression\n    headers {\n      ...RecordHeaderFields\n    }\n  }\n": typeof types.RecordFieldsFragmentDoc,
     "\n  fragment SearchHitFields on SearchHit {\n    kind\n    id\n    label\n    detail\n  }\n": typeof types.SearchHitFieldsFragmentDoc,
     "\n  query Whoami {\n    whoami {\n      ...IdentityFields\n    }\n  }\n": typeof types.WhoamiDocument,
-    "\n  query Clusters {\n    clusters {\n      ...ClusterHealthFields\n    }\n  }\n": typeof types.ClustersDocument,
-    "\n  query TopicRows($cluster: String!) {\n    topicRows(cluster: $cluster) {\n      rows {\n        ...TopicRowFields\n      }\n    }\n  }\n": typeof types.TopicRowsDocument,
-    "\n  query Topic($cluster: String!, $name: String!) {\n    topic(cluster: $cluster, name: $name) {\n      ...TopicDetailFields\n    }\n    topicRows(cluster: $cluster, filter: { contains: $name }) {\n      rows {\n        ...TopicRowFields\n      }\n    }\n  }\n": typeof types.TopicDocument,
-    "\n  query TopicGroups($cluster: String!, $topic: String!) {\n    topicGroups(cluster: $cluster, topic: $topic) {\n      ...TopicGroupRowFields\n    }\n  }\n": typeof types.TopicGroupsDocument,
-    "\n  query TopicConfigs($cluster: String!, $name: String!) {\n    topicConfigs(cluster: $cluster, name: $name) {\n      ...ConfigEntryFields\n    }\n  }\n": typeof types.TopicConfigsDocument,
-    "\n  query GroupRows($cluster: String!) {\n    groupRows(cluster: $cluster) {\n      rows {\n        ...GroupRowFields\n      }\n    }\n  }\n": typeof types.GroupRowsDocument,
-    "\n  query Group($cluster: String!, $id: String!) {\n    group(cluster: $cluster, id: $id) {\n      ...GroupDetailFields\n    }\n  }\n": typeof types.GroupDocument,
-    "\n  query BrokerRows($cluster: String!) {\n    brokerRows(cluster: $cluster) {\n      ...BrokerRowFields\n    }\n  }\n": typeof types.BrokerRowsDocument,
-    "\n  query BrokerConfigs($cluster: String!, $id: Int!) {\n    brokerConfigs(cluster: $cluster, id: $id) {\n      ...ConfigEntryFields\n    }\n  }\n": typeof types.BrokerConfigsDocument,
-    "\n  query SubjectRows($cluster: String!) {\n    subjectRows(cluster: $cluster) {\n      rows {\n        ...SubjectRowFields\n      }\n      sourceHealth {\n        ...LaneHealthFields\n      }\n    }\n  }\n": typeof types.SubjectRowsDocument,
-    "\n  query Subject($cluster: String!, $name: String!, $version: Int) {\n    subject(cluster: $cluster, name: $name, version: $version) {\n      ...SubjectDetailFields\n    }\n  }\n": typeof types.SubjectDocument,
-    "\n  query Acls($cluster: String!) {\n    acls(cluster: $cluster) {\n      authorizer\n      bindings {\n        ...AclFields\n      }\n    }\n  }\n": typeof types.AclsDocument,
-    "\n  query Records($cluster: String!, $query: RecordQueryInput!) {\n    records(cluster: $cluster, query: $query) {\n      complete\n      obfuscated\n      nextCursor\n      prevCursor\n      records {\n        ...RecordFields\n      }\n    }\n  }\n": typeof types.RecordsDocument,
-    "\n  query Search($cluster: String!, $term: String!) {\n    search(cluster: $cluster, term: $term) {\n      ...SearchHitFields\n    }\n  }\n": typeof types.SearchDocument,
+    "\n  query Clusters {\n    clusters {\n      name\n      health {\n        ...ClusterHealthFields\n      }\n    }\n  }\n": typeof types.ClustersDocument,
+    "\n  query TopicRows($cluster: String!) {\n    cluster(name: $cluster) {\n      topics {\n        rows {\n          ...TopicRowFields\n        }\n      }\n    }\n  }\n": typeof types.TopicRowsDocument,
+    "\n  query Topic($cluster: String!, $name: String!) {\n    cluster(name: $cluster) {\n      topic(name: $name) {\n        ...TopicDetailFields\n      }\n      topics(filter: { contains: $name }) {\n        rows {\n          ...TopicRowFields\n        }\n      }\n    }\n  }\n": typeof types.TopicDocument,
+    "\n  query TopicGroups($cluster: String!, $topic: String!) {\n    cluster(name: $cluster) {\n      topicGroups(topic: $topic) {\n        ...TopicGroupRowFields\n      }\n    }\n  }\n": typeof types.TopicGroupsDocument,
+    "\n  query TopicConfigs($cluster: String!, $name: String!) {\n    cluster(name: $cluster) {\n      topicConfigs(name: $name) {\n        ...ConfigEntryFields\n      }\n    }\n  }\n": typeof types.TopicConfigsDocument,
+    "\n  query GroupRows($cluster: String!) {\n    cluster(name: $cluster) {\n      groups {\n        rows {\n          ...GroupRowFields\n        }\n      }\n    }\n  }\n": typeof types.GroupRowsDocument,
+    "\n  query Group($cluster: String!, $id: String!) {\n    cluster(name: $cluster) {\n      group(id: $id) {\n        ...GroupDetailFields\n      }\n    }\n  }\n": typeof types.GroupDocument,
+    "\n  query BrokerRows($cluster: String!) {\n    cluster(name: $cluster) {\n      brokers {\n        ...BrokerRowFields\n      }\n    }\n  }\n": typeof types.BrokerRowsDocument,
+    "\n  query BrokerConfigs($cluster: String!, $id: Int!) {\n    cluster(name: $cluster) {\n      brokerConfigs(id: $id) {\n        ...ConfigEntryFields\n      }\n    }\n  }\n": typeof types.BrokerConfigsDocument,
+    "\n  query SubjectRows($cluster: String!) {\n    cluster(name: $cluster) {\n      subjects {\n        rows {\n          ...SubjectRowFields\n        }\n        sourceHealth {\n          ...LaneHealthFields\n        }\n      }\n    }\n  }\n": typeof types.SubjectRowsDocument,
+    "\n  query Subject($cluster: String!, $name: String!, $version: Int) {\n    cluster(name: $cluster) {\n      subject(name: $name, version: $version) {\n        ...SubjectDetailFields\n      }\n    }\n  }\n": typeof types.SubjectDocument,
+    "\n  query Acls($cluster: String!) {\n    cluster(name: $cluster) {\n      acls {\n        authorizer\n        bindings {\n          ...AclFields\n        }\n      }\n    }\n  }\n": typeof types.AclsDocument,
+    "\n  query Records($cluster: String!, $query: RecordQueryInput!) {\n    cluster(name: $cluster) {\n      records(query: $query) {\n        complete\n        obfuscated\n        nextCursor\n        prevCursor\n        records {\n          ...RecordFields\n        }\n      }\n    }\n  }\n": typeof types.RecordsDocument,
+    "\n  query Search($cluster: String!, $term: String!) {\n    cluster(name: $cluster) {\n      search(term: $term) {\n        ...SearchHitFields\n      }\n    }\n  }\n": typeof types.SearchDocument,
     "\n  subscription Updates($cluster: String!, $scope: UpdateScope) {\n    updates(cluster: $cluster, scope: $scope) {\n      __typename\n      ... on WatermarksTick {\n        topics {\n          topic\n          rate\n        }\n      }\n      ... on GroupLagUpdate {\n        group\n        lag\n        lagComplete\n        offsets {\n          ...GroupOffsetFields\n        }\n      }\n      ... on TopologyDelta {\n        version\n        addedTopics\n        removedTopics\n        changedTopics\n        addedGroups\n        removedGroups\n        changedGroups\n        brokersChanged\n      }\n      ... on ConfigsChanged {\n        version\n        configTopics: topics\n      }\n      ... on SubjectsChanged {\n        version\n        added\n        removed\n        changed\n      }\n      ... on Resync {\n        reason\n      }\n    }\n  }\n": typeof types.UpdatesDocument,
 };
 const documents: Documents = {
@@ -74,20 +74,20 @@ const documents: Documents = {
     "\n  fragment RecordFields on Record {\n    topic\n    partition\n    offset\n    timestamp\n    key\n    value\n    schemaId\n    sizeBytes\n    compression\n    headers {\n      ...RecordHeaderFields\n    }\n  }\n": types.RecordFieldsFragmentDoc,
     "\n  fragment SearchHitFields on SearchHit {\n    kind\n    id\n    label\n    detail\n  }\n": types.SearchHitFieldsFragmentDoc,
     "\n  query Whoami {\n    whoami {\n      ...IdentityFields\n    }\n  }\n": types.WhoamiDocument,
-    "\n  query Clusters {\n    clusters {\n      ...ClusterHealthFields\n    }\n  }\n": types.ClustersDocument,
-    "\n  query TopicRows($cluster: String!) {\n    topicRows(cluster: $cluster) {\n      rows {\n        ...TopicRowFields\n      }\n    }\n  }\n": types.TopicRowsDocument,
-    "\n  query Topic($cluster: String!, $name: String!) {\n    topic(cluster: $cluster, name: $name) {\n      ...TopicDetailFields\n    }\n    topicRows(cluster: $cluster, filter: { contains: $name }) {\n      rows {\n        ...TopicRowFields\n      }\n    }\n  }\n": types.TopicDocument,
-    "\n  query TopicGroups($cluster: String!, $topic: String!) {\n    topicGroups(cluster: $cluster, topic: $topic) {\n      ...TopicGroupRowFields\n    }\n  }\n": types.TopicGroupsDocument,
-    "\n  query TopicConfigs($cluster: String!, $name: String!) {\n    topicConfigs(cluster: $cluster, name: $name) {\n      ...ConfigEntryFields\n    }\n  }\n": types.TopicConfigsDocument,
-    "\n  query GroupRows($cluster: String!) {\n    groupRows(cluster: $cluster) {\n      rows {\n        ...GroupRowFields\n      }\n    }\n  }\n": types.GroupRowsDocument,
-    "\n  query Group($cluster: String!, $id: String!) {\n    group(cluster: $cluster, id: $id) {\n      ...GroupDetailFields\n    }\n  }\n": types.GroupDocument,
-    "\n  query BrokerRows($cluster: String!) {\n    brokerRows(cluster: $cluster) {\n      ...BrokerRowFields\n    }\n  }\n": types.BrokerRowsDocument,
-    "\n  query BrokerConfigs($cluster: String!, $id: Int!) {\n    brokerConfigs(cluster: $cluster, id: $id) {\n      ...ConfigEntryFields\n    }\n  }\n": types.BrokerConfigsDocument,
-    "\n  query SubjectRows($cluster: String!) {\n    subjectRows(cluster: $cluster) {\n      rows {\n        ...SubjectRowFields\n      }\n      sourceHealth {\n        ...LaneHealthFields\n      }\n    }\n  }\n": types.SubjectRowsDocument,
-    "\n  query Subject($cluster: String!, $name: String!, $version: Int) {\n    subject(cluster: $cluster, name: $name, version: $version) {\n      ...SubjectDetailFields\n    }\n  }\n": types.SubjectDocument,
-    "\n  query Acls($cluster: String!) {\n    acls(cluster: $cluster) {\n      authorizer\n      bindings {\n        ...AclFields\n      }\n    }\n  }\n": types.AclsDocument,
-    "\n  query Records($cluster: String!, $query: RecordQueryInput!) {\n    records(cluster: $cluster, query: $query) {\n      complete\n      obfuscated\n      nextCursor\n      prevCursor\n      records {\n        ...RecordFields\n      }\n    }\n  }\n": types.RecordsDocument,
-    "\n  query Search($cluster: String!, $term: String!) {\n    search(cluster: $cluster, term: $term) {\n      ...SearchHitFields\n    }\n  }\n": types.SearchDocument,
+    "\n  query Clusters {\n    clusters {\n      name\n      health {\n        ...ClusterHealthFields\n      }\n    }\n  }\n": types.ClustersDocument,
+    "\n  query TopicRows($cluster: String!) {\n    cluster(name: $cluster) {\n      topics {\n        rows {\n          ...TopicRowFields\n        }\n      }\n    }\n  }\n": types.TopicRowsDocument,
+    "\n  query Topic($cluster: String!, $name: String!) {\n    cluster(name: $cluster) {\n      topic(name: $name) {\n        ...TopicDetailFields\n      }\n      topics(filter: { contains: $name }) {\n        rows {\n          ...TopicRowFields\n        }\n      }\n    }\n  }\n": types.TopicDocument,
+    "\n  query TopicGroups($cluster: String!, $topic: String!) {\n    cluster(name: $cluster) {\n      topicGroups(topic: $topic) {\n        ...TopicGroupRowFields\n      }\n    }\n  }\n": types.TopicGroupsDocument,
+    "\n  query TopicConfigs($cluster: String!, $name: String!) {\n    cluster(name: $cluster) {\n      topicConfigs(name: $name) {\n        ...ConfigEntryFields\n      }\n    }\n  }\n": types.TopicConfigsDocument,
+    "\n  query GroupRows($cluster: String!) {\n    cluster(name: $cluster) {\n      groups {\n        rows {\n          ...GroupRowFields\n        }\n      }\n    }\n  }\n": types.GroupRowsDocument,
+    "\n  query Group($cluster: String!, $id: String!) {\n    cluster(name: $cluster) {\n      group(id: $id) {\n        ...GroupDetailFields\n      }\n    }\n  }\n": types.GroupDocument,
+    "\n  query BrokerRows($cluster: String!) {\n    cluster(name: $cluster) {\n      brokers {\n        ...BrokerRowFields\n      }\n    }\n  }\n": types.BrokerRowsDocument,
+    "\n  query BrokerConfigs($cluster: String!, $id: Int!) {\n    cluster(name: $cluster) {\n      brokerConfigs(id: $id) {\n        ...ConfigEntryFields\n      }\n    }\n  }\n": types.BrokerConfigsDocument,
+    "\n  query SubjectRows($cluster: String!) {\n    cluster(name: $cluster) {\n      subjects {\n        rows {\n          ...SubjectRowFields\n        }\n        sourceHealth {\n          ...LaneHealthFields\n        }\n      }\n    }\n  }\n": types.SubjectRowsDocument,
+    "\n  query Subject($cluster: String!, $name: String!, $version: Int) {\n    cluster(name: $cluster) {\n      subject(name: $name, version: $version) {\n        ...SubjectDetailFields\n      }\n    }\n  }\n": types.SubjectDocument,
+    "\n  query Acls($cluster: String!) {\n    cluster(name: $cluster) {\n      acls {\n        authorizer\n        bindings {\n          ...AclFields\n        }\n      }\n    }\n  }\n": types.AclsDocument,
+    "\n  query Records($cluster: String!, $query: RecordQueryInput!) {\n    cluster(name: $cluster) {\n      records(query: $query) {\n        complete\n        obfuscated\n        nextCursor\n        prevCursor\n        records {\n          ...RecordFields\n        }\n      }\n    }\n  }\n": types.RecordsDocument,
+    "\n  query Search($cluster: String!, $term: String!) {\n    cluster(name: $cluster) {\n      search(term: $term) {\n        ...SearchHitFields\n      }\n    }\n  }\n": types.SearchDocument,
     "\n  subscription Updates($cluster: String!, $scope: UpdateScope) {\n    updates(cluster: $cluster, scope: $scope) {\n      __typename\n      ... on WatermarksTick {\n        topics {\n          topic\n          rate\n        }\n      }\n      ... on GroupLagUpdate {\n        group\n        lag\n        lagComplete\n        offsets {\n          ...GroupOffsetFields\n        }\n      }\n      ... on TopologyDelta {\n        version\n        addedTopics\n        removedTopics\n        changedTopics\n        addedGroups\n        removedGroups\n        changedGroups\n        brokersChanged\n      }\n      ... on ConfigsChanged {\n        version\n        configTopics: topics\n      }\n      ... on SubjectsChanged {\n        version\n        added\n        removed\n        changed\n      }\n      ... on Resync {\n        reason\n      }\n    }\n  }\n": types.UpdatesDocument,
 };
 
@@ -178,59 +178,59 @@ export function graphql(source: "\n  query Whoami {\n    whoami {\n      ...Iden
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  query Clusters {\n    clusters {\n      ...ClusterHealthFields\n    }\n  }\n"): typeof import('./graphql').ClustersDocument;
+export function graphql(source: "\n  query Clusters {\n    clusters {\n      name\n      health {\n        ...ClusterHealthFields\n      }\n    }\n  }\n"): typeof import('./graphql').ClustersDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  query TopicRows($cluster: String!) {\n    topicRows(cluster: $cluster) {\n      rows {\n        ...TopicRowFields\n      }\n    }\n  }\n"): typeof import('./graphql').TopicRowsDocument;
+export function graphql(source: "\n  query TopicRows($cluster: String!) {\n    cluster(name: $cluster) {\n      topics {\n        rows {\n          ...TopicRowFields\n        }\n      }\n    }\n  }\n"): typeof import('./graphql').TopicRowsDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  query Topic($cluster: String!, $name: String!) {\n    topic(cluster: $cluster, name: $name) {\n      ...TopicDetailFields\n    }\n    topicRows(cluster: $cluster, filter: { contains: $name }) {\n      rows {\n        ...TopicRowFields\n      }\n    }\n  }\n"): typeof import('./graphql').TopicDocument;
+export function graphql(source: "\n  query Topic($cluster: String!, $name: String!) {\n    cluster(name: $cluster) {\n      topic(name: $name) {\n        ...TopicDetailFields\n      }\n      topics(filter: { contains: $name }) {\n        rows {\n          ...TopicRowFields\n        }\n      }\n    }\n  }\n"): typeof import('./graphql').TopicDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  query TopicGroups($cluster: String!, $topic: String!) {\n    topicGroups(cluster: $cluster, topic: $topic) {\n      ...TopicGroupRowFields\n    }\n  }\n"): typeof import('./graphql').TopicGroupsDocument;
+export function graphql(source: "\n  query TopicGroups($cluster: String!, $topic: String!) {\n    cluster(name: $cluster) {\n      topicGroups(topic: $topic) {\n        ...TopicGroupRowFields\n      }\n    }\n  }\n"): typeof import('./graphql').TopicGroupsDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  query TopicConfigs($cluster: String!, $name: String!) {\n    topicConfigs(cluster: $cluster, name: $name) {\n      ...ConfigEntryFields\n    }\n  }\n"): typeof import('./graphql').TopicConfigsDocument;
+export function graphql(source: "\n  query TopicConfigs($cluster: String!, $name: String!) {\n    cluster(name: $cluster) {\n      topicConfigs(name: $name) {\n        ...ConfigEntryFields\n      }\n    }\n  }\n"): typeof import('./graphql').TopicConfigsDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  query GroupRows($cluster: String!) {\n    groupRows(cluster: $cluster) {\n      rows {\n        ...GroupRowFields\n      }\n    }\n  }\n"): typeof import('./graphql').GroupRowsDocument;
+export function graphql(source: "\n  query GroupRows($cluster: String!) {\n    cluster(name: $cluster) {\n      groups {\n        rows {\n          ...GroupRowFields\n        }\n      }\n    }\n  }\n"): typeof import('./graphql').GroupRowsDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  query Group($cluster: String!, $id: String!) {\n    group(cluster: $cluster, id: $id) {\n      ...GroupDetailFields\n    }\n  }\n"): typeof import('./graphql').GroupDocument;
+export function graphql(source: "\n  query Group($cluster: String!, $id: String!) {\n    cluster(name: $cluster) {\n      group(id: $id) {\n        ...GroupDetailFields\n      }\n    }\n  }\n"): typeof import('./graphql').GroupDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  query BrokerRows($cluster: String!) {\n    brokerRows(cluster: $cluster) {\n      ...BrokerRowFields\n    }\n  }\n"): typeof import('./graphql').BrokerRowsDocument;
+export function graphql(source: "\n  query BrokerRows($cluster: String!) {\n    cluster(name: $cluster) {\n      brokers {\n        ...BrokerRowFields\n      }\n    }\n  }\n"): typeof import('./graphql').BrokerRowsDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  query BrokerConfigs($cluster: String!, $id: Int!) {\n    brokerConfigs(cluster: $cluster, id: $id) {\n      ...ConfigEntryFields\n    }\n  }\n"): typeof import('./graphql').BrokerConfigsDocument;
+export function graphql(source: "\n  query BrokerConfigs($cluster: String!, $id: Int!) {\n    cluster(name: $cluster) {\n      brokerConfigs(id: $id) {\n        ...ConfigEntryFields\n      }\n    }\n  }\n"): typeof import('./graphql').BrokerConfigsDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  query SubjectRows($cluster: String!) {\n    subjectRows(cluster: $cluster) {\n      rows {\n        ...SubjectRowFields\n      }\n      sourceHealth {\n        ...LaneHealthFields\n      }\n    }\n  }\n"): typeof import('./graphql').SubjectRowsDocument;
+export function graphql(source: "\n  query SubjectRows($cluster: String!) {\n    cluster(name: $cluster) {\n      subjects {\n        rows {\n          ...SubjectRowFields\n        }\n        sourceHealth {\n          ...LaneHealthFields\n        }\n      }\n    }\n  }\n"): typeof import('./graphql').SubjectRowsDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  query Subject($cluster: String!, $name: String!, $version: Int) {\n    subject(cluster: $cluster, name: $name, version: $version) {\n      ...SubjectDetailFields\n    }\n  }\n"): typeof import('./graphql').SubjectDocument;
+export function graphql(source: "\n  query Subject($cluster: String!, $name: String!, $version: Int) {\n    cluster(name: $cluster) {\n      subject(name: $name, version: $version) {\n        ...SubjectDetailFields\n      }\n    }\n  }\n"): typeof import('./graphql').SubjectDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  query Acls($cluster: String!) {\n    acls(cluster: $cluster) {\n      authorizer\n      bindings {\n        ...AclFields\n      }\n    }\n  }\n"): typeof import('./graphql').AclsDocument;
+export function graphql(source: "\n  query Acls($cluster: String!) {\n    cluster(name: $cluster) {\n      acls {\n        authorizer\n        bindings {\n          ...AclFields\n        }\n      }\n    }\n  }\n"): typeof import('./graphql').AclsDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  query Records($cluster: String!, $query: RecordQueryInput!) {\n    records(cluster: $cluster, query: $query) {\n      complete\n      obfuscated\n      nextCursor\n      prevCursor\n      records {\n        ...RecordFields\n      }\n    }\n  }\n"): typeof import('./graphql').RecordsDocument;
+export function graphql(source: "\n  query Records($cluster: String!, $query: RecordQueryInput!) {\n    cluster(name: $cluster) {\n      records(query: $query) {\n        complete\n        obfuscated\n        nextCursor\n        prevCursor\n        records {\n          ...RecordFields\n        }\n      }\n    }\n  }\n"): typeof import('./graphql').RecordsDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  query Search($cluster: String!, $term: String!) {\n    search(cluster: $cluster, term: $term) {\n      ...SearchHitFields\n    }\n  }\n"): typeof import('./graphql').SearchDocument;
+export function graphql(source: "\n  query Search($cluster: String!, $term: String!) {\n    cluster(name: $cluster) {\n      search(term: $term) {\n        ...SearchHitFields\n      }\n    }\n  }\n"): typeof import('./graphql').SearchDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */

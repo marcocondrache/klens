@@ -518,7 +518,7 @@ mod tests {
             .method("POST")
             .uri("/graphql")
             .header(header::CONTENT_TYPE, "application/json")
-            .body(Body::from(r#"{"query":"{ clusters { cluster } }"}"#))
+            .body(Body::from(r#"{"query":"{ clusters { name } }"}"#))
             .unwrap()
     }
 
@@ -1080,7 +1080,7 @@ mod tests {
             .header(header::CONTENT_TYPE, "application/json")
             .header(header::COOKIE, cookie)
             .body(Body::from(
-                r#"{"query":"{ records(cluster: \"local\", query: { topic: \"orders.created\", limit: 1, order: OLDEST }) { records { key } } }"}"#,
+                r#"{"query":"{ cluster(name: \"local\") { records(query: { topic: \"orders.created\", limit: 1, order: OLDEST }) { records { key } } } }"}"#,
             ))
             .unwrap();
 

@@ -1,6 +1,6 @@
 use juniper::graphql_object;
 
-use super::context::{Cluster, GraphQlContext};
+use super::context::{ClusterHandle, GraphQlContext};
 use super::error::GqlError;
 use super::types::{
     AclListing, BrokerRow, ClusterGrant, ClusterHealth, ConfigEntry, GroupDetail, GroupRow,
@@ -8,6 +8,225 @@ use super::types::{
     SubjectRow, SubjectRowsResult, TopicDetail, TopicGroupRow, TopicRow, TopicRowPage, TopicSort,
     TopicSortField,
 };
+
+/// One configured cluster the session can see.
+pub struct ClusterNode {
+    name: String,
+}
+
+#[graphql_object(name = "Cluster", context = GraphQlContext)]
+impl ClusterNode {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Per-lane freshness and counts. Replaces polling a catalog just to
+    /// discover how stale it is.
+    fn health(&self, context: &GraphQlContext) -> Result<ClusterHealth, GqlError> {
+        let cluster = context.cluster(&self.name)?;
+        Ok(ClusterHealth::from(cluster.store.health()))
+    }
+
+    fn topics(
+        &self,
+        context: &GraphQlContext,
+        filter: Option<RowFilter>,
+        sort: Option<TopicSort>,
+        after: Option<String>,
+        limit: Option<i32>,
+    ) -> Result<TopicRowPage, GqlError> {
+        let cluster = context.cluster(&self.name)?;
+        let filter = filter.unwrap_or_default();
+        let sort = sort.unwrap_or_default();
+
+        let mut rows: Vec<_> = cluster
+            .store
+            .topic_rows()
+            .into_iter()
+            .filter(|row| filter.matches(&row.name))
+            .collect();
+        sort_topics(&mut rows, &sort);
+
+        let total = rows.len() as i32;
+        let (rows, next_cursor) = page(rows, after.as_deref(), limit, |row| row.name.to_string());
+
+        Ok(TopicRowPage {
+            rows: rows.into_iter().map(TopicRow::from).collect(),
+            total,
+            next_cursor,
+        })
+    }
+
+    fn topic(
+        &self,
+        context: &GraphQlContext,
+        name: String,
+    ) -> Result<Option<TopicDetail>, GqlError> {
+        let cluster = context.cluster(&self.name)?;
+        Ok(cluster.store.topic_detail(&name).map(TopicDetail::from))
+    }
+
+    fn topic_groups(
+        &self,
+        context: &GraphQlContext,
+        topic: String,
+    ) -> Result<Vec<TopicGroupRow>, GqlError> {
+        let cluster = context.cluster(&self.name)?;
+        Ok(cluster
+            .store
+            .topic_groups(&topic)
+            .into_iter()
+            .map(TopicGroupRow::from)
+            .collect())
+    }
+
+    /// Served from the config lane, not the broker: a config sweep is slow
+    /// and its result is the same for everyone.
+    fn topic_configs(
+        &self,
+        context: &GraphQlContext,
+        name: String,
+    ) -> Result<Vec<ConfigEntry>, GqlError> {
+        let cluster = context.cluster(&self.name)?;
+        let capability = cluster.access.configs()?;
+        cluster
+            .store
+            .topic_configs(&name)
+            .map(|entries| entries.into_iter().map(ConfigEntry::from).collect())
+            .ok_or_else(|| unknown_topic(capability.cluster(), &name))
+    }
+
+    fn groups(
+        &self,
+        context: &GraphQlContext,
+        filter: Option<RowFilter>,
+        after: Option<String>,
+        limit: Option<i32>,
+    ) -> Result<GroupRowPage, GqlError> {
+        let cluster = context.cluster(&self.name)?;
+        let filter = filter.unwrap_or_default();
+
+        let rows: Vec<_> = cluster
+            .store
+            .group_rows()
+            .into_iter()
+            .filter(|row| filter.matches(&row.id))
+            .collect();
+
+        let total = rows.len() as i32;
+        let (rows, next_cursor) = page(rows, after.as_deref(), limit, |row| row.id.to_string());
+
+        Ok(GroupRowPage {
+            rows: rows.into_iter().map(GroupRow::from).collect(),
+            total,
+            next_cursor,
+        })
+    }
+
+    /// Registers interest, which promotes the group to the offsets lane's
+    /// fast tier while someone is looking at it.
+    fn group(&self, context: &GraphQlContext, id: String) -> Result<Option<GroupDetail>, GqlError> {
+        let cluster = context.cluster(&self.name)?;
+        Ok(cluster.store.group_detail(&id).map(GroupDetail::from))
+    }
+
+    fn brokers(&self, context: &GraphQlContext) -> Result<Vec<BrokerRow>, GqlError> {
+        let cluster = context.cluster(&self.name)?;
+        Ok(cluster
+            .store
+            .broker_rows()
+            .into_iter()
+            .map(BrokerRow::from)
+            .collect())
+    }
+
+    /// No lane sweeps broker configs, so this one stays live.
+    async fn broker_configs(
+        &self,
+        context: &GraphQlContext,
+        id: i32,
+    ) -> Result<Vec<ConfigEntry>, GqlError> {
+        let capability = context.cluster(&self.name)?.access.configs()?;
+        Ok(context
+            .state
+            .live_broker_configs(capability.cluster(), id)
+            .await?
+            .into_iter()
+            .map(ConfigEntry::from)
+            .collect())
+    }
+
+    fn subjects(&self, context: &GraphQlContext) -> Result<SubjectRowsResult, GqlError> {
+        let cluster = context.cluster(&self.name)?;
+        Ok(SubjectRowsResult {
+            rows: cluster
+                .store
+                .subject_rows()
+                .into_iter()
+                .map(SubjectRow::from)
+                .collect(),
+            source_health: cluster.store.subjects.health().into(),
+        })
+    }
+
+    /// Schema bodies are large, rarely read, and privileged, so the subjects
+    /// lane keeps only the listing and the body is fetched on demand.
+    async fn subject(
+        &self,
+        context: &GraphQlContext,
+        name: String,
+        version: Option<i32>,
+    ) -> Result<SubjectDetail, GqlError> {
+        let cluster = context.cluster(&self.name)?;
+        let capability = cluster.access.schema_text()?;
+        let version = match version {
+            Some(version) => version,
+            None => latest_version(&cluster, &name)?,
+        };
+
+        Ok(SubjectDetail::new(
+            name.clone(),
+            version,
+            context
+                .state
+                .live_subject_schema(capability.cluster(), &name, version)
+                .await?,
+        ))
+    }
+
+    async fn acls(&self, context: &GraphQlContext) -> Result<AclListing, GqlError> {
+        let capability = context.cluster(&self.name)?.access.acls()?;
+        Ok(AclListing::from(
+            context.state.live_acls(capability.cluster()).await?,
+        ))
+    }
+
+    async fn records(
+        &self,
+        context: &GraphQlContext,
+        query: RecordQueryInput,
+    ) -> Result<RecordPage, GqlError> {
+        let capability = context.cluster(&self.name)?.access.records()?;
+        Ok(RecordPage::from(
+            context
+                .state
+                .live_records(capability.cluster(), query.try_into()?)
+                .await?,
+        ))
+    }
+
+    /// Answered from the prebuilt index, so a per-keystroke search never
+    /// walks the catalog.
+    fn search(&self, context: &GraphQlContext, term: String) -> Result<Vec<SearchHit>, GqlError> {
+        let cluster = context.cluster(&self.name)?;
+        Ok(cluster
+            .store
+            .search(&term)
+            .into_iter()
+            .map(SearchHit::from)
+            .collect())
+    }
+}
 
 pub struct Query;
 
@@ -39,227 +258,23 @@ impl Query {
         }
     }
 
-    /// Per-lane freshness and counts for every visible cluster. Replaces
-    /// polling a catalog just to discover how stale it is.
-    fn clusters(context: &GraphQlContext) -> Vec<ClusterHealth> {
+    /// Every cluster the session can see.
+    fn clusters(context: &GraphQlContext) -> Vec<ClusterNode> {
         context
             .state
             .stores
             .iter()
             .filter(|store| context.access.can_see_cluster(store.name()))
-            .map(|store| ClusterHealth::from(store.health()))
+            .map(|store| ClusterNode {
+                name: store.name().to_owned(),
+            })
             .collect()
     }
 
-    fn topic_rows(
-        context: &GraphQlContext,
-        cluster: String,
-        filter: Option<RowFilter>,
-        sort: Option<TopicSort>,
-        after: Option<String>,
-        limit: Option<i32>,
-    ) -> Result<TopicRowPage, GqlError> {
-        let cluster = context.cluster(&cluster)?;
-        let filter = filter.unwrap_or_default();
-        let sort = sort.unwrap_or_default();
-
-        let mut rows: Vec<_> = cluster
-            .store
-            .topic_rows()
-            .into_iter()
-            .filter(|row| filter.matches(&row.name))
-            .collect();
-        sort_topics(&mut rows, &sort);
-
-        let total = rows.len() as i32;
-        let (rows, next_cursor) = page(rows, after.as_deref(), limit, |row| row.name.to_string());
-
-        Ok(TopicRowPage {
-            rows: rows.into_iter().map(TopicRow::from).collect(),
-            total,
-            next_cursor,
-        })
-    }
-
-    fn topic(
-        context: &GraphQlContext,
-        cluster: String,
-        name: String,
-    ) -> Result<Option<TopicDetail>, GqlError> {
-        let cluster = context.cluster(&cluster)?;
-        Ok(cluster.store.topic_detail(&name).map(TopicDetail::from))
-    }
-
-    fn topic_groups(
-        context: &GraphQlContext,
-        cluster: String,
-        topic: String,
-    ) -> Result<Vec<TopicGroupRow>, GqlError> {
-        let cluster = context.cluster(&cluster)?;
-        Ok(cluster
-            .store
-            .topic_groups(&topic)
-            .into_iter()
-            .map(TopicGroupRow::from)
-            .collect())
-    }
-
-    /// Served from the config lane, not the broker: a config sweep is slow
-    /// and its result is the same for everyone.
-    fn topic_configs(
-        context: &GraphQlContext,
-        cluster: String,
-        name: String,
-    ) -> Result<Vec<ConfigEntry>, GqlError> {
-        let cluster = context.cluster(&cluster)?;
-        let capability = cluster.access.configs()?;
-        cluster
-            .store
-            .topic_configs(&name)
-            .map(|entries| entries.into_iter().map(ConfigEntry::from).collect())
-            .ok_or_else(|| unknown_topic(capability.cluster(), &name))
-    }
-
-    fn group_rows(
-        context: &GraphQlContext,
-        cluster: String,
-        filter: Option<RowFilter>,
-        after: Option<String>,
-        limit: Option<i32>,
-    ) -> Result<GroupRowPage, GqlError> {
-        let cluster = context.cluster(&cluster)?;
-        let filter = filter.unwrap_or_default();
-
-        let rows: Vec<_> = cluster
-            .store
-            .group_rows()
-            .into_iter()
-            .filter(|row| filter.matches(&row.id))
-            .collect();
-
-        let total = rows.len() as i32;
-        let (rows, next_cursor) = page(rows, after.as_deref(), limit, |row| row.id.to_string());
-
-        Ok(GroupRowPage {
-            rows: rows.into_iter().map(GroupRow::from).collect(),
-            total,
-            next_cursor,
-        })
-    }
-
-    /// Registers interest, which promotes the group to the offsets lane's
-    /// fast tier while someone is looking at it.
-    fn group(
-        context: &GraphQlContext,
-        cluster: String,
-        id: String,
-    ) -> Result<Option<GroupDetail>, GqlError> {
-        let cluster = context.cluster(&cluster)?;
-        Ok(cluster.store.group_detail(&id).map(GroupDetail::from))
-    }
-
-    fn broker_rows(context: &GraphQlContext, cluster: String) -> Result<Vec<BrokerRow>, GqlError> {
-        let cluster = context.cluster(&cluster)?;
-        Ok(cluster
-            .store
-            .broker_rows()
-            .into_iter()
-            .map(BrokerRow::from)
-            .collect())
-    }
-
-    /// No lane sweeps broker configs, so this one stays live.
-    async fn broker_configs(
-        context: &GraphQlContext,
-        cluster: String,
-        id: i32,
-    ) -> Result<Vec<ConfigEntry>, GqlError> {
-        let capability = context.cluster(&cluster)?.access.configs()?;
-        Ok(context
-            .state
-            .live_broker_configs(capability.cluster(), id)
-            .await?
-            .into_iter()
-            .map(ConfigEntry::from)
-            .collect())
-    }
-
-    fn subject_rows(
-        context: &GraphQlContext,
-        cluster: String,
-    ) -> Result<SubjectRowsResult, GqlError> {
-        let cluster = context.cluster(&cluster)?;
-        Ok(SubjectRowsResult {
-            rows: cluster
-                .store
-                .subject_rows()
-                .into_iter()
-                .map(SubjectRow::from)
-                .collect(),
-            source_health: cluster.store.subjects.health().into(),
-        })
-    }
-
-    /// Schema bodies are large, rarely read, and privileged, so the subjects
-    /// lane keeps only the listing and the body is fetched on demand.
-    async fn subject(
-        context: &GraphQlContext,
-        cluster: String,
-        name: String,
-        version: Option<i32>,
-    ) -> Result<SubjectDetail, GqlError> {
-        let cluster = context.cluster(&cluster)?;
-        let capability = cluster.access.schema_text()?;
-        let version = match version {
-            Some(version) => version,
-            None => latest_version(&cluster, &name)?,
-        };
-
-        Ok(SubjectDetail::new(
-            name.clone(),
-            version,
-            context
-                .state
-                .live_subject_schema(capability.cluster(), &name, version)
-                .await?,
-        ))
-    }
-
-    async fn acls(context: &GraphQlContext, cluster: String) -> Result<AclListing, GqlError> {
-        let capability = context.cluster(&cluster)?.access.acls()?;
-        Ok(AclListing::from(
-            context.state.live_acls(capability.cluster()).await?,
-        ))
-    }
-
-    async fn records(
-        context: &GraphQlContext,
-        cluster: String,
-        query: RecordQueryInput,
-    ) -> Result<RecordPage, GqlError> {
-        let capability = context.cluster(&cluster)?.access.records()?;
-        Ok(RecordPage::from(
-            context
-                .state
-                .live_records(capability.cluster(), query.try_into()?)
-                .await?,
-        ))
-    }
-
-    /// Answered from the prebuilt index, so a per-keystroke search never
-    /// walks the catalog.
-    fn search(
-        context: &GraphQlContext,
-        cluster: String,
-        term: String,
-    ) -> Result<Vec<SearchHit>, GqlError> {
-        let cluster = context.cluster(&cluster)?;
-        Ok(cluster
-            .store
-            .search(&term)
-            .into_iter()
-            .map(SearchHit::from)
-            .collect())
+    /// `null` when the name is unknown or the session cannot see it.
+    fn cluster(context: &GraphQlContext, name: String) -> Option<ClusterNode> {
+        context.cluster(&name).ok()?;
+        Some(ClusterNode { name })
     }
 }
 
@@ -270,7 +285,7 @@ fn unknown_topic(cluster: &str, topic: &str) -> GqlError {
     })
 }
 
-fn latest_version(cluster: &Cluster<'_>, subject: &str) -> Result<i32, GqlError> {
+fn latest_version(cluster: &ClusterHandle<'_>, subject: &str) -> Result<i32, GqlError> {
     cluster
         .store
         .subject_rows()
