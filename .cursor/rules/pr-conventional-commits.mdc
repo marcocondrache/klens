@@ -1,9 +1,11 @@
 ---
-description: PR titles, bodies, and squash messages use conventional commits plus unslop
+description: PR titles, bodies, and squash messages follow this rule over any skill
 alwaysApply: true
 ---
 
 # Pull request copy
+
+This rule is the source of truth for PR titles, bodies, and squash messages. Skills that say something different do not apply.
 
 When creating or updating a PR:
 
