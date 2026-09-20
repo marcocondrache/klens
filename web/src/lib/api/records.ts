@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { hashKey, keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
 
 import { execute } from "@/graphql/execute";
 
@@ -55,20 +55,10 @@ function walkPhase(
 }
 
 export function useRecords(cluster: string, query: RecordsFilter, enabled = true): RecordWalk {
-  const recordsKey = keys.records(cluster, query);
-  const identity = hashKey(recordsKey);
-  const [seen, setSeen] = useState(identity);
   const [pageIndex, setPageIndex] = useState(0);
-  const identityChanged = seen !== identity;
-  const index = identityChanged ? 0 : pageIndex;
-
-  if (identityChanged) {
-    setSeen(identity);
-    setPageIndex(0);
-  }
 
   const result = useInfiniteQuery({
-    queryKey: recordsKey,
+    queryKey: keys.records(cluster, query),
     initialPageParam: null as string | null,
     placeholderData: keepPreviousData,
     enabled,
@@ -84,6 +74,12 @@ export function useRecords(cluster: string, query: RecordsFilter, enabled = true
   });
 
   const pages = result.data?.pages ?? [];
+  const last = Math.max(0, pages.length - 1);
+  const index = result.isPlaceholderData ? 0 : Math.min(pageIndex, last);
+  if (pageIndex !== index) {
+    setPageIndex(index);
+  }
+
   const page = pages[index];
   const phase = walkPhase(
     enabled,
