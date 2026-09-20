@@ -41,7 +41,6 @@ pub async fn serve(router: Router, bind: SocketAddr) -> Result<()> {
                         "http.request",
                         method = %request.method(),
                         uri = %request.uri(),
-                        version = ?request.version(),
                     )
                 })
                 .on_response(|response: &Response<_>, latency: Duration, _span: &Span| {

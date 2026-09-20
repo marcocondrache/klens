@@ -51,6 +51,7 @@ fn record_whoami_ok_omits_the_document() {
     assert!(text.contains("operation=Whoami"), "{text}");
     assert!(text.contains("outcome=ok"), "{text}");
     assert!(!text.contains("request_id"), "{text}");
+    assert!(!text.contains("HTTP/1"), "{text}");
     assert!(!text.contains("whoami {"), "{text}");
     assert!(!text.contains("POST /graphql"), "{text}");
     assert!(!text.contains("subject"), "{text}");
