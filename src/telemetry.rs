@@ -3,6 +3,10 @@ use tracing_subscriber::{
     EnvFilter, filter::ParseError, layer::SubscriberExt, util::SubscriberInitExt,
 };
 
+mod graphql;
+
+pub(crate) use graphql::{DocumentHead, OperationId, complete, record_ws_upgrade};
+
 pub struct Telemetry {
     _guard: WorkerGuard,
 }
@@ -37,5 +41,14 @@ pub fn filter_from_value(value: &str, target: &str) -> Result<EnvFilter, ParseEr
             .add_directive(tracing::Level::WARN.into())
             .add_directive(format!("{target}=trace").parse()?)),
         custom => EnvFilter::builder().parse(custom),
+    }
+}
+
+pub(crate) fn log_http_completed(status: u16, latency: std::time::Duration) {
+    let latency_ms = latency.as_millis();
+    if status == 500 {
+        tracing::warn!(status, latency_ms, "request completed");
+    } else {
+        tracing::debug!(status, latency_ms, "request completed");
     }
 }

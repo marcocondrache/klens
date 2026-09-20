@@ -17,6 +17,8 @@ use tower_http::sensitive_headers::{
 use tower_http::trace::TraceLayer;
 use tracing::Span;
 
+use crate::telemetry::log_http_completed;
+
 pub mod web;
 
 pub async fn serve(router: Router, bind: SocketAddr) -> Result<()> {
@@ -53,12 +55,9 @@ pub async fn serve(router: Router, bind: SocketAddr) -> Result<()> {
                     )
                 })
                 .on_response(|response: &Response<_>, latency: Duration, _span: &Span| {
-                    tracing::info!(
-                        status = response.status().as_u16(),
-                        latency_ms = latency.as_millis(),
-                        "request completed"
-                    );
-                }),
+                    log_http_completed(response.status().as_u16(), latency);
+                })
+                .on_failure(()),
         )
         .layer(SetSensitiveResponseHeadersLayer::from_shared(
             sensitive_headers,
