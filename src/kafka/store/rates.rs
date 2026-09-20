@@ -2,7 +2,6 @@ use std::sync::{Arc, RwLock};
 
 use foldhash::{HashMap, HashMapExt};
 
-/// Latest produce rate per topic, written by the watermark lane.
 #[derive(Debug)]
 pub struct RateStore {
     topic_rates: RwLock<HashMap<Arc<str>, f64>>,

@@ -196,20 +196,13 @@ async fn the_watermark_lane_feeds_latest_rates_unconditionally() {
     let _lanes = Ingest::start([(Arc::clone(&store), port(&session))], idle());
 
     wait_for(|| store.watermarks.version() > 0, "first watermark tick").await;
-    assert_eq!(
-        store.rates.get("orders.created"),
-        Some(0.0),
-        "the first sample has no baseline"
-    );
+    assert_eq!(store.rates.get("orders.created"), Some(0.0));
 
     tokio::time::advance(Duration::from_secs(2)).await;
     store.watermarks.kick();
     wait_for(|| store.watermarks.version() > 1, "second watermark tick").await;
 
-    assert!(
-        store.rates.get("orders.created").unwrap() > 0.0,
-        "nobody subscribed, and the latest rate is still written"
-    );
+    assert!(store.rates.get("orders.created").unwrap() > 0.0);
 }
 
 #[tokio::test(start_paused = true)]
@@ -261,11 +254,7 @@ async fn an_idle_cluster_still_gets_a_heartbeat_point() {
     store.watermarks.kick();
     wait_for(|| store.watermarks.version() > 1, "heartbeat tick").await;
 
-    assert_eq!(
-        store.rates.get("orders.created"),
-        Some(0.0),
-        "an idle topic decays to zero instead of freezing"
-    );
+    assert_eq!(store.rates.get("orders.created"), Some(0.0));
 }
 
 #[tokio::test(start_paused = true)]
@@ -590,11 +579,7 @@ async fn a_deleted_topic_loses_its_rate() {
     )
     .await;
 
-    assert_eq!(
-        store.rates.get("payments"),
-        None,
-        "membership in the topology is the retention policy"
-    );
+    assert_eq!(store.rates.get("payments"), None);
     assert_eq!(store.rates.get("orders.created"), Some(0.0));
 }
 
