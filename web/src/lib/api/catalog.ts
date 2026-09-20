@@ -139,13 +139,14 @@ export function useBroker(cluster: string, id: number) {
   };
 }
 
-export function useSubjectRows(cluster: string) {
+export function useSubjectRows(cluster: string, enabled = true) {
   return useQuery({
     queryKey: keys.subjectRows(cluster),
     queryFn: async () => {
       const { cluster: node } = await execute(subjectRowsQuery, { cluster });
       return visibleCluster(node).subjects;
     },
+    enabled,
   });
 }
 
