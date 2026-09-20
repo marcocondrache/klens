@@ -66,6 +66,7 @@ type WalkChrome = {
   identityHash: string;
   epoch: number;
   pageIndex: number;
+  trail: RecordWindow[];
 };
 
 function visibleCluster<T>(cluster: T | null): T {
@@ -126,10 +127,6 @@ function walkPhase(input: {
   return "ready";
 }
 
-function canStepPrev(window: RecordWindow | undefined, pageIndex: number): boolean {
-  return window?.edges.prev != null || pageIndex > 0;
-}
-
 function forwardKind(window: RecordWindow): "resume" | "advance" | "none" {
   if (window.edges.next == null) {
     return "none";
@@ -152,36 +149,41 @@ function emptyWalk(actions: WalkActions): RecordWalk {
 }
 
 function mergeWalk(
-  focus: WalkFocus | undefined,
+  window: RecordWindow | undefined,
   pageIndex: number,
+  trailLength: number,
   phase: WalkPhase,
   error: unknown,
 ): Omit<RecordWalk, keyof WalkActions> {
   const stepping = phase === "pending";
   return {
-    records: focus?.window.records ?? [],
-    complete: focus?.window.complete ?? true,
-    obfuscated: focus?.window.obfuscated ?? false,
+    records: window?.records ?? [],
+    complete: window?.complete ?? true,
+    obfuscated: window?.obfuscated ?? false,
     pageIndex,
-    hasNext: !stepping && focus?.window.edges.next != null,
-    hasPrevious: !stepping && canStepPrev(focus?.window, pageIndex),
+    hasNext: !stepping && (pageIndex < trailLength - 1 || window?.edges.next != null),
+    hasPrevious: !stepping && (pageIndex > 0 || window?.edges.prev != null),
     phase,
     error,
   };
 }
 
+function emptyChrome(identityHash: string, epoch = 0): WalkChrome {
+  return { identityHash, epoch, pageIndex: 0, trail: [] };
+}
+
 export function useRecords(cluster: string, query: RecordsFilter, enabled = true): RecordWalk {
   const recordsKey = keys.records(cluster, query);
   const identityHash = hashKey(recordsKey);
-  const [chrome, setChrome] = useState<WalkChrome>({ identityHash, epoch: 0, pageIndex: 0 });
+  const [chrome, setChrome] = useState<WalkChrome>(() => emptyChrome(identityHash));
   const identityChanged = chrome.identityHash !== identityHash;
   const epoch = identityChanged ? 0 : chrome.epoch;
   const pageIndex = identityChanged ? 0 : chrome.pageIndex;
+  const trail = identityChanged ? [] : chrome.trail;
   const inFlight = useRef(false);
 
   if (identityChanged) {
-    inFlight.current = false;
-    setChrome({ identityHash, epoch: 0, pageIndex: 0 });
+    setChrome(emptyChrome(identityHash));
   }
 
   const result = useInfiniteQuery<
@@ -207,14 +209,46 @@ export function useRecords(cluster: string, query: RecordsFilter, enabled = true
     getPreviousPageParam: (window) => window.edges.prev ?? undefined,
   });
 
-  const focus = focusOf(result.data);
+  const queryFocus = focusOf(result.data);
+  const viewingHead = trail.length === 0 || pageIndex === trail.length - 1;
+
+  if (!identityChanged && !result.isPlaceholderData && queryFocus != null) {
+    if (trail.length === 0) {
+      setChrome((current) =>
+        current.identityHash === identityHash &&
+        current.epoch === epoch &&
+        current.trail.length === 0
+          ? { ...current, trail: [queryFocus.window] }
+          : current,
+      );
+    } else if (
+      viewingHead &&
+      !result.isFetchingNextPage &&
+      !result.isFetchingPreviousPage &&
+      trail[pageIndex] !== queryFocus.window
+    ) {
+      setChrome((current) =>
+        current.identityHash === identityHash &&
+        current.epoch === epoch &&
+        current.pageIndex === current.trail.length - 1 &&
+        current.trail[current.pageIndex] !== queryFocus.window
+          ? {
+              ...current,
+              trail: [...current.trail.slice(0, -1), queryFocus.window],
+            }
+          : current,
+      );
+    }
+  }
+
+  const displayed = trail[pageIndex] ?? queryFocus?.window;
   const phase = walkPhase({
     enabled,
-    hasFocus: focus != null,
-    isPlaceholder: result.isPlaceholderData,
-    isFetching: result.isFetching,
-    isFetchingNextPage: result.isFetchingNextPage,
-    isFetchingPreviousPage: result.isFetchingPreviousPage,
+    hasFocus: displayed != null,
+    isPlaceholder: result.isPlaceholderData && trail.length === 0,
+    isFetching: viewingHead && result.isFetching,
+    isFetchingNextPage: viewingHead && result.isFetchingNextPage,
+    isFetchingPreviousPage: viewingHead && result.isFetchingPreviousPage,
   });
 
   const idle: WalkActions = {
@@ -227,71 +261,109 @@ export function useRecords(cluster: string, query: RecordsFilter, enabled = true
     return emptyWalk(idle);
   }
 
-  function sameWalk(current: WalkChrome, start: WalkChrome): boolean {
+  function sameWalk(
+    current: WalkChrome,
+    start: Pick<WalkChrome, "identityHash" | "epoch">,
+  ): boolean {
     return current.identityHash === start.identityHash && current.epoch === start.epoch;
   }
 
-  async function stepNext() {
+  function stepNext() {
     if (phase === "pending" || inFlight.current) {
       return;
     }
-    if (focus == null) {
+    if (pageIndex < trail.length - 1) {
+      setChrome((current) =>
+        sameWalk(current, { identityHash, epoch }) && current.pageIndex < current.trail.length - 1
+          ? { ...current, pageIndex: current.pageIndex + 1 }
+          : current,
+      );
       return;
     }
-    const kind = forwardKind(focus.window);
+    if (displayed == null) {
+      return;
+    }
+    const kind = forwardKind(displayed);
     if (kind === "none") {
       return;
     }
-    const start = { identityHash, epoch, pageIndex };
+    const start = { identityHash, epoch };
     inFlight.current = true;
-    try {
-      const next = await result.fetchNextPage({ cancelRefetch: false });
-      if (next.isError) {
-        return;
+    void (async () => {
+      try {
+        const next = await result.fetchNextPage({ cancelRefetch: false });
+        if (next.isError) {
+          return;
+        }
+        const fetched = focusOf(next.data)?.window;
+        if (fetched == null) {
+          return;
+        }
+        setChrome((current) => {
+          if (!sameWalk(current, start)) {
+            return current;
+          }
+          if (kind === "resume") {
+            const trail = current.trail.slice();
+            trail[current.pageIndex] = fetched;
+            return { ...current, trail };
+          }
+          return {
+            ...current,
+            trail: [...current.trail, fetched],
+            pageIndex: current.pageIndex + 1,
+          };
+        });
+      } finally {
+        inFlight.current = false;
       }
-      if (kind === "advance") {
-        setChrome((current) =>
-          sameWalk(current, start) ? { ...current, pageIndex: current.pageIndex + 1 } : current,
-        );
-      }
-    } finally {
-      inFlight.current = false;
-    }
+    })();
   }
 
-  async function stepPrev() {
+  function stepPrev() {
     if (phase === "pending" || inFlight.current) {
       return;
     }
-    if (focus?.window.edges.prev != null) {
-      const start = { identityHash, epoch, pageIndex };
-      inFlight.current = true;
+    if (pageIndex > 0) {
+      setChrome((current) =>
+        sameWalk(current, { identityHash, epoch }) && current.pageIndex > 0
+          ? { ...current, pageIndex: current.pageIndex - 1 }
+          : current,
+      );
+      return;
+    }
+    if (displayed?.edges.prev == null) {
+      return;
+    }
+    const start = { identityHash, epoch };
+    inFlight.current = true;
+    void (async () => {
       try {
         const previous = await result.fetchPreviousPage({ cancelRefetch: false });
         if (previous.isError) {
           return;
         }
+        const fetched = focusOf(previous.data)?.window;
+        if (fetched == null) {
+          return;
+        }
         setChrome((current) =>
           sameWalk(current, start)
-            ? { ...current, pageIndex: Math.max(0, current.pageIndex - 1) }
+            ? { ...current, trail: [fetched, ...current.trail], pageIndex: 0 }
             : current,
         );
       } finally {
         inFlight.current = false;
       }
-      return;
-    }
-    if (pageIndex > 0) {
-      rewind();
-    }
+    })();
   }
 
   function rewind() {
-    setChrome({ identityHash, epoch: epoch + 1, pageIndex: 0 });
+    setChrome(emptyChrome(identityHash, epoch + 1));
   }
 
   return {
-    ...mergeWalk(focus, pageIndex, phase, result.error ?? null),
+    ...mergeWalk(displayed, pageIndex, trail.length, phase, result.error ?? null),
     stepNext,
     stepPrev,
     rewind,
