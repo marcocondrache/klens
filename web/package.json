@@ -51,7 +51,7 @@
     "@vitejs/plugin-react": "^6.1.0",
     "babel-plugin-react-compiler": "^1.0.0",
     "graphql": "^17.0.0",
-    "typescript": "~6.0.2",
+    "typescript": "~7.0.0",
     "vite": "npm:@voidzero-dev/vite-plus-core@0.3.3",
     "vite-plus": "0.3.3"
   },
