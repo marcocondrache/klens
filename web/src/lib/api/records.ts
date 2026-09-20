@@ -193,7 +193,6 @@ export function useRecords(cluster: string, query: RecordsFilter, enabled = true
   >({
     queryKey: [...recordsKey, epoch],
     initialPageParam: null,
-    // first === last === focus, so previous is this window's server prev.
     maxPages: 1,
     placeholderData: keepPreviousData,
     enabled,
