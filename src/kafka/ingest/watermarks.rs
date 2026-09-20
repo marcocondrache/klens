@@ -134,16 +134,10 @@ impl LaneSource for WatermarkLane {
         self.mark_committed(now);
 
         let rates = rates_between(previous.map(Arc::as_ref), next, elapsed);
-        let cluster_rate = round_rate(rates.iter().map(|rate| rate.rate).sum());
 
         for rate in &rates {
-            store
-                .series
-                .push_topic_rate(&rate.topic, next.sampled_at, rate.rate);
+            store.rates.set(&rate.topic, rate.rate);
         }
-        store
-            .series
-            .push_cluster_rate(next.sampled_at, cluster_rate);
 
         store
             .bus
@@ -151,7 +145,6 @@ impl LaneSource for WatermarkLane {
                 version,
                 at: next.sampled_at,
                 rates,
-                cluster_rate,
             })));
     }
 }

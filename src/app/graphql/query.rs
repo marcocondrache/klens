@@ -4,9 +4,9 @@ use super::context::{Cluster, GraphQlContext};
 use super::error::GqlError;
 use super::types::{
     AclListing, BrokerRow, ClusterGrant, ClusterHealth, ConfigEntry, GroupDetail, GroupRow,
-    GroupRowPage, Identity, Point, RecordPage, RecordQueryInput, RowFilter, SearchHit,
-    SubjectDetail, SubjectRow, SubjectRowsResult, TopicDetail, TopicGroupRow, TopicRow,
-    TopicRowPage, TopicSort, TopicSortField,
+    GroupRowPage, Identity, RecordPage, RecordQueryInput, RowFilter, SearchHit, SubjectDetail,
+    SubjectRow, SubjectRowsResult, TopicDetail, TopicGroupRow, TopicRow, TopicRowPage, TopicSort,
+    TopicSortField,
 };
 
 pub struct Query;
@@ -244,39 +244,6 @@ impl Query {
                 .live_records(capability.cluster(), query.try_into()?)
                 .await?,
         ))
-    }
-
-    /// The same points the subscription streams, with the same server
-    /// timestamps, so seeding a chart and then following the stream produces
-    /// one coherent series.
-    fn topic_rate_history(
-        context: &GraphQlContext,
-        cluster: String,
-        topic: String,
-    ) -> Result<Vec<Point>, GqlError> {
-        let cluster = context.cluster(&cluster)?;
-        Ok(cluster
-            .store
-            .series
-            .topic_history(&topic)
-            .into_iter()
-            .map(Point::from)
-            .collect())
-    }
-
-    fn group_lag_history(
-        context: &GraphQlContext,
-        cluster: String,
-        group: String,
-    ) -> Result<Vec<Point>, GqlError> {
-        let cluster = context.cluster(&cluster)?;
-        Ok(cluster
-            .store
-            .series
-            .group_history(&group)
-            .into_iter()
-            .map(Point::from)
-            .collect())
     }
 
     /// Answered from the prebuilt index, so a per-keystroke search never

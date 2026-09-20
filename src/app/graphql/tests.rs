@@ -399,8 +399,8 @@ async fn topic_rows_expose_the_latest_rate() {
     let state = seeded();
     let store = state.cluster("local").expect("local cluster");
     let topic: Arc<str> = Arc::from("orders.created");
-    store.series.push_topic_rate(&topic, at(1_000), 12.5);
-    store.series.push_topic_rate(&topic, at(2_000), 13.5);
+    store.rates.set(&topic, 12.5);
+    store.rates.set(&topic, 13.5);
 
     let data = ok(
         &ctx(&state),
@@ -953,34 +953,6 @@ async fn a_cluster_with_no_commits_yet_is_visible_but_not_ready() {
 }
 
 #[tokio::test]
-async fn history_replays_the_same_points_the_subscription_streams() {
-    let state = seeded();
-    let store = state.cluster("local").expect("local cluster");
-    let topic: Arc<str> = Arc::from("orders.created");
-    let group: Arc<str> = Arc::from("order-processor");
-
-    store.series.push_topic_rate(&topic, at(1_000), 12.5);
-    store.series.push_topic_rate(&topic, at(2_000), 13.5);
-    store.series.push_group_lag(&group, at(2_000), 15);
-
-    let data = ok(
-        &ctx(&state),
-        r#"{
-            topicRateHistory(cluster: "local", topic: "orders.created") { at value }
-            groupLagHistory(cluster: "local", group: "order-processor") { value }
-        }"#,
-    )
-    .await;
-
-    assert_eq!(
-        data["topicRateHistory"].as_array().expect("points").len(),
-        2
-    );
-    assert_eq!(data["topicRateHistory"][1]["value"], 13.5);
-    assert_eq!(data["groupLagHistory"][0]["value"], 15.0);
-}
-
-#[tokio::test]
 async fn search_is_answered_from_the_prebuilt_index() {
     let state = seeded();
 
@@ -1046,7 +1018,6 @@ fn tick(topics: &[(&str, f64)]) -> Change {
                 rate: *rate,
             })
             .collect(),
-        cluster_rate: topics.iter().map(|(_, rate)| rate).sum(),
     }))
 }
 
@@ -1075,7 +1046,7 @@ async fn an_unscoped_subscriber_gets_the_whole_cluster_firehose() {
         &ctx(&state),
         r#"subscription { updates(cluster: "local") {
             __typename
-            ... on WatermarksTick { clusterRate topics { topic rate } }
+            ... on WatermarksTick { topics { topic rate } }
         } }"#,
         || {
             store
@@ -1091,7 +1062,6 @@ async fn an_unscoped_subscriber_gets_the_whole_cluster_firehose() {
         *value,
         graphql_value!({ "updates": {
             "__typename": "WatermarksTick",
-            "clusterRate": 12.0,
             "topics": [
                 { "topic": "orders.created", "rate": 10.0 },
                 { "topic": "payments.settled", "rate": 2.0 },

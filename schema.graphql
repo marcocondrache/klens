@@ -339,11 +339,6 @@ type PartitionRow {
   underReplicated: Boolean!
 }
 
-type Point {
-  at: DateTime!
-  value: Float!
-}
-
 type Query {
   "Who the session is and, per cluster, exactly what it may do."
   whoami: Identity!
@@ -377,13 +372,6 @@ type Query {
   subject(cluster: String!, name: String!, version: Int): SubjectDetail!
   acls(cluster: String!): AclListing!
   records(cluster: String!, query: RecordQueryInput!): RecordPage!
-  """
-    The same points the subscription streams, with the same server
-    timestamps, so seeding a chart and then following the stream produces
-    one coherent series.
-  """
-  topicRateHistory(cluster: String!, topic: String!): [Point!]!
-  groupLagHistory(cluster: String!, group: String!): [Point!]!
   """
     Answered from the prebuilt index, so a per-keystroke search never
     walks the catalog.
@@ -570,7 +558,6 @@ type WatermarksTick {
     subscriber gets only its topic.
   """
   topics: [TopicRate!]!
-  clusterRate: Float!
 }
 
 union Update = WatermarksTick | GroupLagUpdate | TopologyDelta | ConfigsChanged | SubjectsChanged | Resync

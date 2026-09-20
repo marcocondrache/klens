@@ -255,7 +255,7 @@ pub static MISSING_SCHEMA_TTL: LazyLock<Duration> = lazy_env_parse!(
 );
 
 /// How long an idle cluster may go without a watermark tick before the lane
-/// appends an explicit zero point so sparklines decay (default: 15 seconds).
+/// publishes a zero rate so an idle topic does not freeze (default: 15 seconds).
 ///
 /// Override with `KLENS_IDLE_HEARTBEAT` (seconds).
 pub static IDLE_HEARTBEAT: LazyLock<Duration> =
@@ -283,12 +283,6 @@ fn parse_poll_interval(raw: Option<String>, default: Duration) -> Duration {
 /// Override with `KLENS_MAX_SAMPLE_GAP` (seconds).
 pub static MAX_SAMPLE_GAP: LazyLock<Duration> =
     lazy_env_parse!(duration, "KLENS_MAX_SAMPLE_GAP", Duration::from_secs(15));
-
-/// How many throughput points to keep per topic and for the cluster total
-/// (default: 60).
-///
-/// Override with `KLENS_HISTORY_LEN`.
-pub static HISTORY_LEN: LazyLock<usize> = lazy_env_parse!("KLENS_HISTORY_LEN", usize, 60);
 
 /// Extra partition-window multiplier when a record search is active
 /// (default: 8).

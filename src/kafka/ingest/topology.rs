@@ -78,14 +78,7 @@ impl LaneSource for TopologyLane {
         delta.version = version;
 
         if !delta.removed_topics.is_empty() {
-            store
-                .series
-                .retain_topics(|topic| next.topics.contains_key(topic));
-        }
-        if !delta.removed_groups.is_empty() {
-            store
-                .series
-                .retain_groups(|group| next.groups.contains_key(group));
+            store.rates.retain(|topic| next.topics.contains_key(topic));
         }
 
         store.rebuild_search();
