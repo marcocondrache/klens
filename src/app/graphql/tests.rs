@@ -395,6 +395,29 @@ async fn topic_rows_project_counts_and_configs_without_touching_the_broker() {
 }
 
 #[tokio::test]
+async fn topic_rows_expose_the_latest_rate() {
+    let state = seeded();
+    let store = state.cluster("local").expect("local cluster");
+    let topic: Arc<str> = Arc::from("orders.created");
+    store.series.push_topic_rate(&topic, at(1_000), 12.5);
+    store.series.push_topic_rate(&topic, at(2_000), 13.5);
+
+    let data = ok(
+        &ctx(&state),
+        r#"{ topicRows(cluster: "local", sort: { field: NAME }) {
+            rows { name rate }
+        } }"#,
+    )
+    .await;
+    let rows = &data["topicRows"]["rows"];
+
+    assert_eq!(rows[0]["name"], "orders.created");
+    assert_eq!(rows[0]["rate"], 13.5);
+    assert_eq!(rows[1]["name"], "payments.settled");
+    assert_eq!(rows[1]["rate"], 0.0);
+}
+
+#[tokio::test]
 async fn topic_rows_filter_by_name_before_paging() {
     let state = seeded();
 
