@@ -23,6 +23,41 @@ export async function signOut(): Promise<void> {
   window.location.assign("/login");
 }
 
+const MAX_NEXT_PATH = 2048;
+
+export function safeNextPath(value: string | null | undefined): string | undefined {
+  if (value == null) return undefined;
+  const next = value.trim();
+  if (!next || next === "/" || next.length > MAX_NEXT_PATH) return undefined;
+  if (!next.startsWith("/") || next.startsWith("//")) return undefined;
+  for (let i = 0; i < next.length; i++) {
+    const code = next.charCodeAt(i);
+    if (code < 32 || next[i] === "\\") return undefined;
+  }
+  try {
+    const url = new URL(next, "https://klens.invalid");
+    if (url.origin !== "https://klens.invalid") return undefined;
+    const path = url.pathname;
+    if (
+      path === "/login" ||
+      path.startsWith("/login/") ||
+      path === "/auth" ||
+      path.startsWith("/auth/")
+    ) {
+      return undefined;
+    }
+  } catch {
+    return undefined;
+  }
+  return next;
+}
+
+export function ssoLoginHref(next?: string): string {
+  const path = safeNextPath(next);
+  if (!path) return "/auth/login";
+  return `/auth/login?next=${encodeURIComponent(path)}`;
+}
+
 export function displayName(user: AuthUser): string {
   return user.name?.trim() || user.email?.trim() || user.sub;
 }

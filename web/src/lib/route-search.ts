@@ -1,3 +1,5 @@
+import { safeNextPath } from "@/lib/auth";
+
 export type TopicsSearch = {
   q?: string;
   internal?: "1";
@@ -30,6 +32,7 @@ export type AclsSearch = {
 
 export type LoginSearch = {
   error?: string;
+  next?: string;
 };
 
 export type TopicDetailSearch = {
@@ -87,7 +90,11 @@ export function parseAclsSearch(search: Record<string, unknown>): AclsSearch {
 
 export function parseLoginSearch(search: Record<string, unknown>): LoginSearch {
   const error = optionalString(search.error);
-  return error ? { error } : {};
+  const next = safeNextPath(optionalString(search.next));
+  return {
+    ...(error ? { error } : {}),
+    ...(next ? { next } : {}),
+  };
 }
 
 export function parseTopicDetailSearch(search: Record<string, unknown>): TopicDetailSearch {

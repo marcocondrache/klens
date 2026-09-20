@@ -32,6 +32,7 @@ use backend::{AuthBackend, OidcCredentials};
 use oidc::{Oidc, OidcFlow};
 
 const LOGIN_PENDING_KEY: &str = "klens.login_pending";
+const MAX_NEXT_PATH_BYTES: usize = 2048;
 
 type AuthSession = axum_login::AuthSession<AuthBackend>;
 type SessionLayer = SessionManagerLayer<MemoryStore, SignedCookie>;
@@ -267,7 +268,16 @@ async fn me(State(state): State<AppState>, auth_session: AuthSession) -> impl In
     })
 }
 
-async fn login(State(state): State<AppState>, auth_session: AuthSession) -> Response {
+#[derive(Debug, Deserialize)]
+struct LoginQuery {
+    next: Option<String>,
+}
+
+async fn login(
+    State(state): State<AppState>,
+    auth_session: AuthSession,
+    Query(query): Query<LoginQuery>,
+) -> Response {
     let Some(flow) = state.auth.flow() else {
         return StatusCode::NOT_FOUND.into_response();
     };
@@ -281,6 +291,7 @@ async fn login(State(state): State<AppState>, auth_session: AuthSession) -> Resp
         state: csrf.secret().to_owned(),
         nonce: nonce.secret().to_owned(),
         pkce_verifier: pkce_verifier.secret().to_owned(),
+        next: safe_next_path(query.next.as_deref()),
     };
 
     auth_session
@@ -317,10 +328,6 @@ async fn callback(
         return StatusCode::NOT_FOUND.into_response();
     }
 
-    if query.error.is_some() {
-        return login_error(&mut auth_session, LoginFail::Auth).await;
-    }
-
     let pending = match auth_session
         .session
         .get::<LoginPending>(LOGIN_PENDING_KEY)
@@ -329,25 +336,30 @@ async fn callback(
         Ok(Some(pending)) => pending,
         Ok(None) => {
             tracing::warn!("oidc callback missing login state");
-            return login_error(&mut auth_session, LoginFail::Auth).await;
+            return login_error(&mut auth_session, LoginFail::Auth, None).await;
         }
         Err(error) => {
             tracing::error!(%error, "failed to read oidc login state");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
+    let next = pending.next.clone();
+
+    if query.error.is_some() {
+        return login_error(&mut auth_session, LoginFail::Auth, next.as_deref()).await;
+    }
 
     let Some(state_param) = query.state.as_deref() else {
-        return login_error(&mut auth_session, LoginFail::Auth).await;
+        return login_error(&mut auth_session, LoginFail::Auth, next.as_deref()).await;
     };
 
     if pending.state != state_param {
         tracing::warn!("oidc callback rejected: state mismatch");
-        return login_error(&mut auth_session, LoginFail::Auth).await;
+        return login_error(&mut auth_session, LoginFail::Auth, next.as_deref()).await;
     }
 
     let Some(code) = query.code else {
-        return login_error(&mut auth_session, LoginFail::Auth).await;
+        return login_error(&mut auth_session, LoginFail::Auth, next.as_deref()).await;
     };
 
     let user = match auth_session
@@ -359,7 +371,7 @@ async fn callback(
         .await
     {
         Ok(Some(user)) => user,
-        Ok(None) => return login_error(&mut auth_session, LoginFail::Auth).await,
+        Ok(None) => return login_error(&mut auth_session, LoginFail::Auth, next.as_deref()).await,
         Err(error) => {
             tracing::error!(%error, "oidc authenticate failed");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
@@ -368,7 +380,7 @@ async fn callback(
 
     if state.auth.access_from_user(&user).is_none() {
         tracing::info!(sub = %user.sub, "oidc login refused: no matching role");
-        return login_error(&mut auth_session, LoginFail::Forbidden).await;
+        return login_error(&mut auth_session, LoginFail::Forbidden, next.as_deref()).await;
     }
 
     if let Err(error) = auth_session
@@ -393,7 +405,7 @@ async fn callback(
     }
 
     tracing::info!(sub = %user.sub, "oidc login succeeded");
-    Redirect::to("/").into_response()
+    Redirect::to(&after_login_path(next.as_deref())).into_response()
 }
 
 async fn logout(mut auth_session: AuthSession) -> impl IntoResponse {
@@ -409,16 +421,16 @@ enum LoginFail {
     Forbidden,
 }
 
-async fn login_error(auth_session: &mut AuthSession, fail: LoginFail) -> Response {
+async fn login_error(
+    auth_session: &mut AuthSession,
+    fail: LoginFail,
+    next: Option<&str>,
+) -> Response {
     if let Err(error) = auth_session.logout().await {
         tracing::error!(%error, "failed to clear session after login error");
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
-    let location = match fail {
-        LoginFail::Auth => "/login?error=auth",
-        LoginFail::Forbidden => "/login?error=forbidden",
-    };
-    Redirect::to(location).into_response()
+    Redirect::to(&login_fail_location(fail, next)).into_response()
 }
 
 #[cfg(test)]
@@ -441,6 +453,55 @@ struct LoginPending {
     state: String,
     nonce: String,
     pkce_verifier: String,
+    #[serde(default)]
+    next: Option<String>,
+}
+
+fn safe_next_path(value: Option<&str>) -> Option<String> {
+    let value = value?.trim();
+    if value.is_empty() || value == "/" || value.len() > MAX_NEXT_PATH_BYTES {
+        return None;
+    }
+    if !value.starts_with('/') || value.starts_with("//") {
+        return None;
+    }
+    if value
+        .bytes()
+        .any(|byte| byte == b'\\' || byte.is_ascii_control())
+    {
+        return None;
+    }
+    let uri = value.parse::<axum::http::Uri>().ok()?;
+    if uri.scheme().is_some() || uri.authority().is_some() {
+        return None;
+    }
+    let path = uri.path();
+    if path == "/login"
+        || path.starts_with("/login/")
+        || path == "/auth"
+        || path.starts_with("/auth/")
+    {
+        return None;
+    }
+    Some(value.to_owned())
+}
+
+fn after_login_path(next: Option<&str>) -> String {
+    safe_next_path(next).unwrap_or_else(|| "/".to_owned())
+}
+
+fn login_fail_location(fail: LoginFail, next: Option<&str>) -> String {
+    let error = match fail {
+        LoginFail::Auth => "auth",
+        LoginFail::Forbidden => "forbidden",
+    };
+    let mut location = format!("/login?error={error}");
+    if let Some(next) = safe_next_path(next) {
+        location.push_str("&next=");
+        let encoded: String = url::form_urlencoded::byte_serialize(next.as_bytes()).collect();
+        location.push_str(&encoded);
+    }
+    location
 }
 
 fn session_layer(secure: bool, key: Key) -> SessionLayer {
@@ -835,6 +896,51 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn callback_redirects_to_the_requested_next_path() {
+        let (_, callback) = login_and_callback(
+            AuthState::enabled_for_tests(),
+            "test-code",
+            Some("/cluster/local/topics?q=orders&internal=1"),
+        )
+        .await;
+
+        assert!(callback.status().is_redirection());
+        assert_eq!(
+            callback.headers().get(header::LOCATION).unwrap(),
+            "/cluster/local/topics?q=orders&internal=1"
+        );
+    }
+
+    #[tokio::test]
+    async fn callback_ignores_an_open_redirect_next_path() {
+        let (_, callback) = login_and_callback(
+            AuthState::enabled_for_tests(),
+            "test-code",
+            Some("https://evil.example/phish"),
+        )
+        .await;
+
+        assert!(callback.status().is_redirection());
+        assert_eq!(callback.headers().get(header::LOCATION).unwrap(), "/");
+    }
+
+    #[tokio::test]
+    async fn callback_keeps_next_when_sign_in_fails() {
+        let (_, callback) = login_and_callback(
+            AuthState::enabled_for_tests(),
+            "wrong",
+            Some("/cluster/local/topics"),
+        )
+        .await;
+
+        assert!(callback.status().is_redirection());
+        assert_eq!(
+            callback.headers().get(header::LOCATION).unwrap(),
+            "/login?error=auth&next=%2Fcluster%2Flocal%2Ftopics"
+        );
+    }
+
     fn bound_admins() -> AccessPolicy {
         use crate::config::PrivilegeName::{Acls, Configs, Records, SchemaText};
         bound(
@@ -865,12 +971,21 @@ mod tests {
     async fn login_and_callback(
         auth: AuthState,
         code: &str,
+        next: Option<&str>,
     ) -> (axum::Router, axum::http::Response<Body>) {
         let router = app(auth);
+        let login_uri = match next {
+            Some(next) => {
+                let encoded: String =
+                    url::form_urlencoded::byte_serialize(next.as_bytes()).collect();
+                format!("/auth/login?next={encoded}")
+            }
+            None => "/auth/login".to_owned(),
+        };
         let login = send(
             router.clone(),
             Request::builder()
-                .uri("/auth/login")
+                .uri(login_uri)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -911,6 +1026,7 @@ mod tests {
                 bound_admins(),
             ),
             "test-code",
+            None,
         )
         .await;
 
@@ -964,6 +1080,29 @@ mod tests {
         let first = signing_key(None).expect("generated");
         let second = signing_key(Some("   ")).expect("blank counts as absent");
         assert_ne!(first.signing(), second.signing());
+    }
+
+    #[test]
+    fn next_path_keeps_in_app_paths_and_drops_open_redirects() {
+        assert_eq!(
+            safe_next_path(Some("/cluster/local/topics?q=orders")),
+            Some("/cluster/local/topics?q=orders".into())
+        );
+        assert_eq!(safe_next_path(Some("/")), None);
+        assert_eq!(safe_next_path(None), None);
+        assert_eq!(safe_next_path(Some("")), None);
+        assert_eq!(safe_next_path(Some("https://evil.example/")), None);
+        assert_eq!(safe_next_path(Some("//evil.example")), None);
+        assert_eq!(safe_next_path(Some("/login")), None);
+        assert_eq!(safe_next_path(Some("/login?error=auth")), None);
+        assert_eq!(safe_next_path(Some("/auth/login")), None);
+        assert_eq!(safe_next_path(Some("/auth/callback")), None);
+        assert_eq!(safe_next_path(Some("/\\evil.example")), None);
+        assert_eq!(after_login_path(Some("/login")), "/");
+        assert_eq!(
+            login_fail_location(LoginFail::Auth, Some("/cluster/local/topics")),
+            "/login?error=auth&next=%2Fcluster%2Flocal%2Ftopics"
+        );
     }
 
     #[tokio::test]

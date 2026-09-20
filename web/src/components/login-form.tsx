@@ -4,10 +4,11 @@ import { useSearch } from "@tanstack/react-router";
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { ssoLoginHref } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 export function LoginForm({ className, ...props }: React.ComponentProps<"div">) {
-  const { error } = useSearch({ from: "/login" });
+  const { error, next } = useSearch({ from: "/login" });
   const forbidden = error === "forbidden";
 
   return (
@@ -27,7 +28,7 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
           </AlertDescription>
         </Alert>
       ) : null}
-      <Button className="w-full" render={<a href="/auth/login" />}>
+      <Button className="w-full" render={<a href={ssoLoginHref(next)} />}>
         Continue with SSO
       </Button>
     </div>
