@@ -295,7 +295,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
         }
         getRowId={(record) => `${record.partition}-${record.offset}`}
         loading={walk.phase === "loading"}
-        refreshing={walk.phase === "refreshing"}
+        refreshing={walk.phase === "refreshing" || walk.phase === "pending"}
         pageSize={limit}
         pageSizes={RECORD_PAGE_SIZES}
         pageIndex={walk.pageIndex}
