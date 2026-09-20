@@ -14,7 +14,7 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
     <div className={cn("flex flex-col gap-6", className)} {...props}>
       <PageHeader
         title="Sign in"
-        description="Continue with your identity provider to use klens."
+        description="Use your identity provider."
       />
       {error ? (
         <Alert variant="destructive">
