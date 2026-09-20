@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use foldhash::{HashMap, HashMapExt};
 use std::sync::Arc;
 
 use futures::future::try_join_all;
@@ -183,7 +183,7 @@ mod tests {
             Control::Delay(Duration::from_millis(200))
         });
 
-        let wanted = HashMap::from([("orders".to_owned(), vec![0, 1, 2])]);
+        let wanted = HashMap::from_iter([("orders".to_owned(), vec![0, 1, 2])]);
         let started = std::time::Instant::now();
         let listed = fan
             .list_offsets(&wanted, OffsetSpec::Latest)

@@ -92,7 +92,7 @@ async fn window_watermarks<S: ClusterSession + ?Sized>(
         return Ok(sampled);
     }
 
-    let wanted = HashMap::from([(query.topic.clone(), partitions.to_vec())]);
+    let wanted = HashMap::from_iter([(query.topic.clone(), partitions.to_vec())]);
     let mut watermarks = session
         .watermarks(&wanted)
         .await?

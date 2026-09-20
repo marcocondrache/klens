@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use foldhash::{HashMap, HashMapExt};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 

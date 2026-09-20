@@ -207,7 +207,7 @@ impl ClusterSession for KafkaClient {
             return Ok(HashMap::new());
         }
 
-        let wanted = HashMap::from([(topic.to_owned(), partitions.to_vec())]);
+        let wanted = HashMap::from_iter([(topic.to_owned(), partitions.to_vec())]);
         let listed = self
             .admin
             .list_offsets(&wanted, OffsetSpec::Timestamp(timestamp))
@@ -364,7 +364,7 @@ mod tests {
     }
 
     fn wanted(topic: &str, partitions: &[i32]) -> HashMap<String, Vec<i32>> {
-        HashMap::from([(topic.to_owned(), partitions.to_vec())])
+        HashMap::from_iter([(topic.to_owned(), partitions.to_vec())])
     }
 
     #[derive(Clone, Default)]
