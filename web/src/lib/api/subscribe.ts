@@ -22,6 +22,7 @@ export function subscribe<TResult, TVariables extends Record<string, unknown>>(
     {
       query: String(document),
       variables,
+      operationName: document.__meta__?.operationName,
     },
     {
       next(result) {
