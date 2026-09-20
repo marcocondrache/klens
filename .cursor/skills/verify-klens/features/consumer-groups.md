@@ -26,7 +26,7 @@ Preconditions:
 - **Search.** If a group id is visible, type a unique prefix into `Search consumer groups…`. The URL contains `q=`. Non-matching ids leave the table.
 - **State filter.** Open the state select and choose `Empty` or `Stable` to match a visible group. The URL contains `state=`.
 - **Open group.** Click a group row. URL becomes `/cluster/local/groups/<id>` and the heading contains that id.
-- **Proof.** Screenshot the catalog with the heading and at least one column header (`Group`, `State`, `Lag`). Save `POST /graphql` `groupRows(cluster: "local") { rows { id state totalLag } }`.
+- **Proof.** Screenshot the catalog with the heading and at least one column header (`Group`, `State`, `Lag`). Save `POST /graphql` `cluster(name: "local") { groups { rows { id state totalLag } } }`.
 
 ## Gotchas
 

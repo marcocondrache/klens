@@ -35,7 +35,7 @@ clusters=""
 for _ in $(seq 1 40); do
   clusters="$(curl -sS -X POST "$KLENS_VERIFY_URL/graphql" \
     -H 'content-type: application/json' \
-    -d "{\"query\":\"query { clusters { cluster ready topology { updatedAt lastError } } }\"}")"
+    -d "{\"query\":\"query { clusters { name health { cluster ready topology { updatedAt lastError } } } }\"}")"
   echo "$clusters" | grep -q "\"cluster\":\"${KLENS_VERIFY_CLUSTER}\"" \
     || fail "graphql clusters missing ${KLENS_VERIFY_CLUSTER}: $clusters"
   if echo "$clusters" | grep -q '"updatedAt":"' && ! echo "$clusters" | grep -q '"lastError":"'; then

@@ -57,7 +57,7 @@ Read-only. Fail if any check misses:
 - `GET /health` is 204.
 - `GET /auth/me` is `{"enabled":false,"user":null}` (verify configs omit OIDC).
 - `GET /` includes `<title>klens</title>`.
-- `POST /graphql` `query { clusters { cluster ready topology { updatedAt lastError } } }` includes `local`, has topology `updatedAt` set, and has no topology `lastError`.
+- `POST /graphql` `query { clusters { name health { cluster ready topology { updatedAt lastError } } } }` includes `local`, has topology `updatedAt` set, and has no topology `lastError`.
 
 If doctor fails, stop driving. Relaunch or fix the unmet check.
 
@@ -97,7 +97,7 @@ GraphQL the UI uses (corroborate, do not substitute for the UI path):
 ```sh
 curl -sS -X POST "$KLENS_VERIFY_URL/graphql" \
   -H 'content-type: application/json' \
-  -d '{"query":"query { topicRows(cluster: \"local\") { rows { name internal } } }"}'
+  -d '{"query":"query { cluster(name: \"local\") { topics { rows { name internal } } } }"}'
 ```
 
 ## Evidence

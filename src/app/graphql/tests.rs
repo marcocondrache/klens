@@ -277,26 +277,22 @@ async fn whoami_omits_clusters_the_session_cannot_see() {
 }
 
 #[tokio::test]
-async fn an_invisible_cluster_reads_as_unknown_not_forbidden() {
+async fn an_invisible_cluster_is_null_not_forbidden() {
     let state = two_clusters();
     let context = ctx_with(&state, granted(vec![admin(only(&["local"]))]));
 
-    assert_eq!(
-        codes(&context, r#"{ topicRows(cluster: "payments") { total } }"#).await,
-        vec!["UNKNOWN_CLUSTER"]
-    );
+    let (data, errors) = run(&context, r#"{ cluster(name: "payments") { name } }"#).await;
+
+    assert!(errors.is_empty());
+    assert_eq!(data["cluster"], serde_json::Value::Null);
 }
 
 #[tokio::test]
-async fn a_cluster_nobody_configured_reads_as_unknown() {
-    assert_eq!(
-        codes(
-            &ctx(&state()),
-            r#"{ topicRows(cluster: "nope") { total } }"#
-        )
-        .await,
-        vec!["UNKNOWN_CLUSTER"]
-    );
+async fn a_cluster_nobody_configured_is_null() {
+    let (data, errors) = run(&ctx(&state()), r#"{ cluster(name: "nope") { name } }"#).await;
+
+    assert!(errors.is_empty());
+    assert_eq!(data["cluster"], serde_json::Value::Null);
 }
 
 #[tokio::test]
@@ -305,11 +301,11 @@ async fn a_visible_cluster_without_the_privilege_reads_as_forbidden() {
     let context = ctx_with(&state, viewer_everywhere());
 
     for query in [
-        r#"{ topicConfigs(cluster: "local", name: "orders.created") { name } }"#,
-        r#"{ brokerConfigs(cluster: "local", id: 1) { name } }"#,
-        r#"{ acls(cluster: "local") { authorizer } }"#,
-        r#"{ subject(cluster: "local", name: "orders.created-value") { schema } }"#,
-        r#"{ records(cluster: "local", query: { topic: "orders.created" }) { complete } }"#,
+        r#"{ cluster(name: "local") { topicConfigs(name: "orders.created") { name } } }"#,
+        r#"{ cluster(name: "local") { brokerConfigs(id: 1) { name } } }"#,
+        r#"{ cluster(name: "local") { acls { authorizer } } }"#,
+        r#"{ cluster(name: "local") { subject(name: "orders.created-value") { schema } } }"#,
+        r#"{ cluster(name: "local") { records(query: { topic: "orders.created" }) { complete } } }"#,
     ] {
         assert_eq!(codes(&context, query).await, vec!["FORBIDDEN"], "{query}");
     }
@@ -322,20 +318,21 @@ async fn unprivileged_projections_stay_open_to_a_viewer() {
 
     let data = ok(
         &context,
-        r#"{
-            topicRows(cluster: "local") { total }
-            groupRows(cluster: "local") { total }
-            brokerRows(cluster: "local") { id }
-            subjectRows(cluster: "local") { rows { subject } }
-        }"#,
+        r#"{ cluster(name: "local") {
+            topics { total }
+            groups { total }
+            brokers { id }
+            subjects { rows { subject } }
+        } }"#,
     )
     .await;
+    let cluster = &data["cluster"];
 
-    assert_eq!(data["topicRows"]["total"], 2);
-    assert_eq!(data["groupRows"]["total"], 1);
-    assert_eq!(data["brokerRows"][0]["id"], 1);
+    assert_eq!(cluster["topics"]["total"], 2);
+    assert_eq!(cluster["groups"]["total"], 1);
+    assert_eq!(cluster["brokers"][0]["id"], 1);
     assert_eq!(
-        data["subjectRows"]["rows"][0]["subject"],
+        cluster["subjects"]["rows"][0]["subject"],
         "orders.created-value"
     );
 }
@@ -356,18 +353,13 @@ async fn sixty_four_bit_counters_cross_the_wire_as_strings() {
 
     let data = ok(
         &ctx(&state),
-        r#"{ topicRows(cluster: "local") { rows { retainedMessages producedTotal } } }"#,
+        r#"{ cluster(name: "local") { topics { rows { retainedMessages producedTotal } } } }"#,
     )
     .await;
+    let row = &data["cluster"]["topics"]["rows"][0];
 
-    assert_eq!(
-        data["topicRows"]["rows"][0]["retainedMessages"],
-        huge.to_string()
-    );
-    assert_eq!(
-        data["topicRows"]["rows"][0]["producedTotal"],
-        huge.to_string()
-    );
+    assert_eq!(row["retainedMessages"], huge.to_string());
+    assert_eq!(row["producedTotal"], huge.to_string());
 }
 
 #[tokio::test]
@@ -376,15 +368,15 @@ async fn topic_rows_project_counts_and_configs_without_touching_the_broker() {
 
     let data = ok(
         &ctx(&state),
-        r#"{ topicRows(cluster: "local", sort: { field: NAME }) {
+        r#"{ cluster(name: "local") { topics(sort: { field: NAME }) {
             total
             rows { name partitionCount retainedMessages cleanupPolicy retentionMs groupCount }
-        } }"#,
+        } } }"#,
     )
     .await;
-    let rows = &data["topicRows"]["rows"];
+    let rows = &data["cluster"]["topics"]["rows"];
 
-    assert_eq!(data["topicRows"]["total"], 2);
+    assert_eq!(data["cluster"]["topics"]["total"], 2);
     assert_eq!(rows[0]["name"], "orders.created");
     assert_eq!(rows[0]["partitionCount"], 2);
     assert_eq!(rows[0]["retainedMessages"], "150");
@@ -404,12 +396,12 @@ async fn topic_rows_expose_the_latest_rate() {
 
     let data = ok(
         &ctx(&state),
-        r#"{ topicRows(cluster: "local", sort: { field: NAME }) {
+        r#"{ cluster(name: "local") { topics(sort: { field: NAME }) {
             rows { name rate }
-        } }"#,
+        } } }"#,
     )
     .await;
-    let rows = &data["topicRows"]["rows"];
+    let rows = &data["cluster"]["topics"]["rows"];
 
     assert_eq!(rows[0]["name"], "orders.created");
     assert_eq!(rows[0]["rate"], 13.5);
@@ -423,15 +415,18 @@ async fn topic_rows_filter_by_name_before_paging() {
 
     let data = ok(
         &ctx(&state),
-        r#"{ topicRows(cluster: "local", filter: { contains: "PAY" }) {
+        r#"{ cluster(name: "local") { topics(filter: { contains: "PAY" }) {
             total
             rows { name }
-        } }"#,
+        } } }"#,
     )
     .await;
 
-    assert_eq!(data["topicRows"]["total"], 1);
-    assert_eq!(data["topicRows"]["rows"][0]["name"], "payments.settled");
+    assert_eq!(data["cluster"]["topics"]["total"], 1);
+    assert_eq!(
+        data["cluster"]["topics"]["rows"][0]["name"],
+        "payments.settled"
+    );
 }
 
 #[tokio::test]
@@ -440,25 +435,34 @@ async fn topic_rows_page_by_key_and_report_the_unpaged_total() {
 
     let first = ok(
         &ctx(&state),
-        r#"{ topicRows(cluster: "local", limit: 1) { total nextCursor rows { name } } }"#,
+        r#"{ cluster(name: "local") { topics(limit: 1) { total nextCursor rows { name } } } }"#,
     )
     .await;
 
-    assert_eq!(first["topicRows"]["total"], 2);
-    assert_eq!(first["topicRows"]["rows"][0]["name"], "orders.created");
-    assert_eq!(first["topicRows"]["nextCursor"], "orders.created");
+    assert_eq!(first["cluster"]["topics"]["total"], 2);
+    assert_eq!(
+        first["cluster"]["topics"]["rows"][0]["name"],
+        "orders.created"
+    );
+    assert_eq!(first["cluster"]["topics"]["nextCursor"], "orders.created");
 
     let second = ok(
         &ctx(&state),
-        r#"{ topicRows(cluster: "local", limit: 1, after: "orders.created") {
+        r#"{ cluster(name: "local") { topics(limit: 1, after: "orders.created") {
             nextCursor
             rows { name }
-        } }"#,
+        } } }"#,
     )
     .await;
 
-    assert_eq!(second["topicRows"]["rows"][0]["name"], "payments.settled");
-    assert_eq!(second["topicRows"]["nextCursor"], serde_json::Value::Null);
+    assert_eq!(
+        second["cluster"]["topics"]["rows"][0]["name"],
+        "payments.settled"
+    );
+    assert_eq!(
+        second["cluster"]["topics"]["nextCursor"],
+        serde_json::Value::Null
+    );
 }
 
 #[tokio::test]
@@ -467,14 +471,20 @@ async fn topic_rows_sort_descending_on_the_requested_column() {
 
     let data = ok(
         &ctx(&state),
-        r#"{ topicRows(cluster: "local", sort: { field: RETAINED_MESSAGES, desc: true }) {
+        r#"{ cluster(name: "local") { topics(sort: { field: RETAINED_MESSAGES, desc: true }) {
             rows { name }
-        } }"#,
+        } } }"#,
     )
     .await;
 
-    assert_eq!(data["topicRows"]["rows"][0]["name"], "orders.created");
-    assert_eq!(data["topicRows"]["rows"][1]["name"], "payments.settled");
+    assert_eq!(
+        data["cluster"]["topics"]["rows"][0]["name"],
+        "orders.created"
+    );
+    assert_eq!(
+        data["cluster"]["topics"]["rows"][1]["name"],
+        "payments.settled"
+    );
 }
 
 #[tokio::test]
@@ -483,12 +493,12 @@ async fn group_rows_join_commits_against_watermarks() {
 
     let data = ok(
         &ctx(&state),
-        r#"{ groupRows(cluster: "local") {
+        r#"{ cluster(name: "local") { groups {
             rows { id state memberCount topicNames totalLag lagComplete }
-        } }"#,
+        } } }"#,
     )
     .await;
-    let row = &data["groupRows"]["rows"][0];
+    let row = &data["cluster"]["groups"]["rows"][0];
 
     assert_eq!(row["id"], "order-processor");
     assert_eq!(row["state"], "STABLE");
@@ -504,13 +514,13 @@ async fn broker_rows_count_the_partitions_each_node_carries() {
 
     let data = ok(
         &ctx(&state),
-        r#"{ brokerRows(cluster: "local") { id host port controller partitionCount leaderCount } }"#,
+        r#"{ cluster(name: "local") { brokers { id host port controller partitionCount leaderCount } } }"#,
     )
     .await;
 
-    assert_eq!(data["brokerRows"][0]["host"], "localhost");
-    assert_eq!(data["brokerRows"][0]["partitionCount"], 3);
-    assert_eq!(data["brokerRows"][0]["leaderCount"], 3);
+    assert_eq!(data["cluster"]["brokers"][0]["host"], "localhost");
+    assert_eq!(data["cluster"]["brokers"][0]["partitionCount"], 3);
+    assert_eq!(data["cluster"]["brokers"][0]["leaderCount"], 3);
 }
 
 #[tokio::test]
@@ -530,15 +540,15 @@ async fn topic_detail_flags_under_replication_per_partition() {
 
     let data = ok(
         &ctx(&state),
-        r#"{ topic(cluster: "local", name: "orders.created") {
+        r#"{ cluster(name: "local") { topic(name: "orders.created") {
             name
             replicationFactor
             underReplicated
             partitions { id leader underReplicated }
-        } }"#,
+        } } }"#,
     )
     .await;
-    let topic = &data["topic"];
+    let topic = &data["cluster"]["topic"];
 
     assert_eq!(topic["replicationFactor"], 2);
     assert_eq!(topic["underReplicated"], true);
@@ -552,12 +562,12 @@ async fn a_missing_topic_is_null_not_an_error() {
     let state = seeded();
     let (data, errors) = run(
         &ctx(&state),
-        r#"{ topic(cluster: "local", name: "ghost") { name } }"#,
+        r#"{ cluster(name: "local") { topic(name: "ghost") { name } } }"#,
     )
     .await;
 
     assert!(errors.is_empty());
-    assert_eq!(data["topic"], serde_json::Value::Null);
+    assert_eq!(data["cluster"]["topic"], serde_json::Value::Null);
 }
 
 #[tokio::test]
@@ -566,14 +576,14 @@ async fn topic_groups_report_lag_on_that_topic_alone() {
 
     let data = ok(
         &ctx(&state),
-        r#"{ topicGroups(cluster: "local", topic: "orders.created") {
+        r#"{ cluster(name: "local") { topicGroups(topic: "orders.created") {
             id state memberCount lagOnTopic
-        } }"#,
+        } } }"#,
     )
     .await;
 
-    assert_eq!(data["topicGroups"][0]["id"], "order-processor");
-    assert_eq!(data["topicGroups"][0]["lagOnTopic"], "15");
+    assert_eq!(data["cluster"]["topicGroups"][0]["id"], "order-processor");
+    assert_eq!(data["cluster"]["topicGroups"][0]["lagOnTopic"], "15");
 }
 
 #[tokio::test]
@@ -584,19 +594,20 @@ async fn opening_a_group_registers_interest_so_its_offsets_poll_faster() {
 
     let data = ok(
         &ctx(&state),
-        r#"{ group(cluster: "local", id: "order-processor") {
+        r#"{ cluster(name: "local") { group(id: "order-processor") {
             id totalLag lagComplete
             members { id clientId }
             offsets { topic partition currentOffset endOffset lag }
-        } }"#,
+        } } }"#,
     )
     .await;
+    let group = &data["cluster"]["group"];
 
-    assert_eq!(data["group"]["totalLag"], "15");
-    assert_eq!(data["group"]["members"][0]["clientId"], "c1");
-    assert_eq!(data["group"]["offsets"][0]["currentOffset"], "90");
-    assert_eq!(data["group"]["offsets"][0]["endOffset"], "100");
-    assert_eq!(data["group"]["offsets"][0]["lag"], "10");
+    assert_eq!(group["totalLag"], "15");
+    assert_eq!(group["members"][0]["clientId"], "c1");
+    assert_eq!(group["offsets"][0]["currentOffset"], "90");
+    assert_eq!(group["offsets"][0]["endOffset"], "100");
+    assert_eq!(group["offsets"][0]["lag"], "10");
     assert!(store.interest.is_hot("order-processor"));
 }
 
@@ -606,13 +617,14 @@ async fn topic_configs_come_from_the_lane_not_the_broker() {
 
     let data = ok(
         &ctx(&state),
-        r#"{ topicConfigs(cluster: "local", name: "orders.created") { name value source } }"#,
+        r#"{ cluster(name: "local") { topicConfigs(name: "orders.created") { name value source } } }"#,
     )
     .await;
+    let configs = &data["cluster"]["topicConfigs"];
 
-    assert_eq!(data["topicConfigs"][0]["name"], "cleanup.policy");
-    assert_eq!(data["topicConfigs"][0]["value"], "compact");
-    assert_eq!(data["topicConfigs"][0]["source"], "DYNAMIC_TOPIC_CONFIG");
+    assert_eq!(configs[0]["name"], "cleanup.policy");
+    assert_eq!(configs[0]["value"], "compact");
+    assert_eq!(configs[0]["source"], "DYNAMIC_TOPIC_CONFIG");
     assert_eq!(session.calls().topic_configs(), 0);
 }
 
@@ -623,7 +635,7 @@ async fn topic_configs_for_an_unknown_topic_are_an_error() {
     assert_eq!(
         codes(
             &ctx(&state),
-            r#"{ topicConfigs(cluster: "local", name: "ghost") { name } }"#
+            r#"{ cluster(name: "local") { topicConfigs(name: "ghost") { name } } }"#
         )
         .await,
         vec!["UNKNOWN_TOPIC"]
@@ -636,11 +648,14 @@ async fn broker_configs_stay_live_because_no_lane_sweeps_them() {
 
     let data = ok(
         &ctx(&state),
-        r#"{ brokerConfigs(cluster: "local", id: 1) { name value } }"#,
+        r#"{ cluster(name: "local") { brokerConfigs(id: 1) { name value } } }"#,
     )
     .await;
 
-    assert_eq!(data["brokerConfigs"][0]["name"], "log.retention.hours");
+    assert_eq!(
+        data["cluster"]["brokerConfigs"][0]["name"],
+        "log.retention.hours"
+    );
 }
 
 #[tokio::test]
@@ -649,17 +664,13 @@ async fn acls_stay_live_and_carry_the_authorizer_state() {
 
     let data = ok(
         &ctx(&state),
-        r#"{ acls(cluster: "local") { authorizer bindings { resourceType principal operation permission } } }"#,
+        r#"{ cluster(name: "local") { acls { authorizer bindings { resourceType principal operation permission } } } }"#,
     )
     .await;
+    let acls = &data["cluster"]["acls"];
 
-    assert_eq!(data["acls"]["authorizer"], "ENABLED");
-    assert!(
-        !data["acls"]["bindings"]
-            .as_array()
-            .expect("bindings")
-            .is_empty()
-    );
+    assert_eq!(acls["authorizer"], "ENABLED");
+    assert!(!acls["bindings"].as_array().expect("bindings").is_empty());
 }
 
 #[tokio::test]
@@ -668,16 +679,17 @@ async fn a_schema_body_is_fetched_on_demand_rather_than_kept_in_the_lane() {
 
     let data = ok(
         &ctx(&state),
-        r#"{ subject(cluster: "local", name: "orders.created-value") {
+        r#"{ cluster(name: "local") { subject(name: "orders.created-value") {
             subject version id type schema
-        } }"#,
+        } } }"#,
     )
     .await;
+    let subject = &data["cluster"]["subject"];
 
-    assert_eq!(data["subject"]["subject"], "orders.created-value");
-    assert_eq!(data["subject"]["type"], "AVRO");
+    assert_eq!(subject["subject"], "orders.created-value");
+    assert_eq!(subject["type"], "AVRO");
     assert!(
-        data["subject"]["schema"]
+        subject["schema"]
             .as_str()
             .expect("schema body")
             .contains("orderId")
@@ -691,7 +703,7 @@ async fn an_unknown_subject_is_a_typed_error() {
     assert_eq!(
         codes(
             &ctx(&state),
-            r#"{ subject(cluster: "local", name: "ghost-value") { schema } }"#
+            r#"{ cluster(name: "local") { subject(name: "ghost-value") { schema } } }"#
         )
         .await,
         vec!["UNKNOWN_SUBJECT"]
@@ -704,14 +716,16 @@ async fn records_are_read_live_through_the_scan_path() {
 
     let data = ok(
         &ctx(&state),
-        r#"{ records(cluster: "local", query: { topic: "orders.created", limit: 3 }) {
+        r#"{ cluster(name: "local") { records(query: { topic: "orders.created", limit: 3 }) {
             complete
             records { topic partition offset key sizeBytes compression }
-        } }"#,
+        } } }"#,
     )
     .await;
 
-    let records = data["records"]["records"].as_array().expect("records");
+    let records = data["cluster"]["records"]["records"]
+        .as_array()
+        .expect("records");
     assert_eq!(records.len(), 3);
     assert_eq!(records[0]["topic"], "orders.created");
     assert_eq!(records[0]["sizeBytes"], "24");
@@ -743,13 +757,15 @@ async fn an_obfuscated_topic_serves_tokens_instead_of_payloads() {
 
     let data = ok(
         &ctx(&state),
-        r#"{ records(cluster: "local", query: { topic: "orders.created", limit: 3 }) {
+        r#"{ cluster(name: "local") { records(query: { topic: "orders.created", limit: 3 }) {
             records { key value headers { key value } }
-        } }"#,
+        } } }"#,
     )
     .await;
 
-    let records = data["records"]["records"].as_array().expect("records");
+    let records = data["cluster"]["records"]["records"]
+        .as_array()
+        .expect("records");
     assert_eq!(records.len(), 3);
     for record in records {
         let value = record["value"].as_str().expect("value");
@@ -784,16 +800,16 @@ async fn a_page_says_whether_a_rule_covers_its_topic() {
     )
     .0;
 
-    let query = r#"{ records(cluster: "local", query: { topic: "orders.created", limit: 2 }) {
+    let query = r#"{ cluster(name: "local") { records(query: { topic: "orders.created", limit: 2 }) {
         obfuscated records { offset }
-    } }"#;
+    } } }"#;
 
     assert_eq!(
-        ok(&ctx(&plain), query).await["records"]["obfuscated"],
+        ok(&ctx(&plain), query).await["cluster"]["records"]["obfuscated"],
         serde_json::json!(false)
     );
     assert_eq!(
-        ok(&ctx(&protected), query).await["records"]["obfuscated"],
+        ok(&ctx(&protected), query).await["cluster"]["records"]["obfuscated"],
         serde_json::json!(true)
     );
 }
@@ -828,14 +844,19 @@ async fn a_pattern_rule_tokens_a_topic_no_registry_ever_decodes() {
 
     let data = ok(
         &ctx(&state),
-        r#"{ records(cluster: "local", query: { topic: "orders.created", limit: 3 }) {
+        r#"{ cluster(name: "local") { records(query: { topic: "orders.created", limit: 3 }) {
             obfuscated records { value }
-        } }"#,
+        } } }"#,
     )
     .await;
 
-    assert_eq!(data["records"]["obfuscated"], serde_json::json!(true));
-    let records = data["records"]["records"].as_array().expect("records");
+    assert_eq!(
+        data["cluster"]["records"]["obfuscated"],
+        serde_json::json!(true)
+    );
+    let records = data["cluster"]["records"]["records"]
+        .as_array()
+        .expect("records");
     assert_eq!(records.len(), 3);
     for record in records {
         let value = record["value"].as_str().expect("value");
@@ -867,28 +888,28 @@ async fn an_obfuscated_topic_cannot_be_filtered_on_the_cleartext_it_hides() {
 
     let hidden = ok(
         &ctx(&state),
-        r#"{ records(cluster: "local", query: {
+        r#"{ cluster(name: "local") { records(query: {
             topic: "orders.created", limit: 3, filter: { contains: "4111" }
-        }) { records { offset } } }"#,
+        }) { records { offset } } } }"#,
     )
     .await;
     let visible = ok(
         &ctx(&state),
-        r#"{ records(cluster: "local", query: {
+        r#"{ cluster(name: "local") { records(query: {
             topic: "orders.created", limit: 3, filter: { contains: "ord_1" }
-        }) { records { offset } } }"#,
+        }) { records { offset } } } }"#,
     )
     .await;
 
     assert!(
-        hidden["records"]["records"]
+        hidden["cluster"]["records"]["records"]
             .as_array()
             .expect("records")
             .is_empty(),
         "a filter must not answer questions about an obfuscated field"
     );
     assert_eq!(
-        visible["records"]["records"]
+        visible["cluster"]["records"]["records"]
             .as_array()
             .expect("records")
             .len(),
@@ -903,10 +924,9 @@ async fn a_record_filter_cannot_be_both_a_substring_and_an_expression() {
     assert_eq!(
         codes(
             &ctx(&state),
-            r#"{ records(
-                cluster: "local",
+            r#"{ cluster(name: "local") { records(
                 query: { topic: "orders.created", filter: { contains: "a", cel: "true" } }
-            ) { complete } }"#
+            ) { complete } } }"#
         )
         .await,
         vec!["INVALID_FILTER"]
@@ -920,16 +940,21 @@ async fn cluster_health_reports_per_lane_freshness_and_counts() {
     let data = ok(
         &ctx(&state),
         r#"{ clusters {
-            cluster ready
-            topology { healthy updatedAt }
-            subjects { healthy }
-            topicCount partitionCount groupCount brokerCount subjectCount
-            underReplicatedPartitions offlinePartitions
+            name
+            health {
+                cluster ready
+                topology { healthy updatedAt }
+                subjects { healthy }
+                topicCount partitionCount groupCount brokerCount subjectCount
+                underReplicatedPartitions offlinePartitions
+            }
         } }"#,
     )
     .await;
-    let health = &data["clusters"][0];
+    let cluster = &data["clusters"][0];
+    let health = &cluster["health"];
 
+    assert_eq!(cluster["name"], "local");
     assert_eq!(health["cluster"], "local");
     assert_eq!(health["ready"], true);
     assert_eq!(health["topology"]["healthy"], true);
@@ -946,10 +971,15 @@ async fn cluster_health_reports_per_lane_freshness_and_counts() {
 async fn a_cluster_with_no_commits_yet_is_visible_but_not_ready() {
     let state = state();
 
-    let data = ok(&ctx(&state), "{ clusters { cluster ready topicCount } }").await;
+    let data = ok(
+        &ctx(&state),
+        "{ clusters { name health { cluster ready topicCount } } }",
+    )
+    .await;
 
-    assert_eq!(data["clusters"][0]["ready"], false);
-    assert_eq!(data["clusters"][0]["topicCount"], 0);
+    assert_eq!(data["clusters"][0]["name"], "local");
+    assert_eq!(data["clusters"][0]["health"]["ready"], false);
+    assert_eq!(data["clusters"][0]["health"]["topicCount"], 0);
 }
 
 #[tokio::test]
@@ -958,10 +988,10 @@ async fn search_is_answered_from_the_prebuilt_index() {
 
     let data = ok(
         &ctx(&state),
-        r#"{ search(cluster: "local", term: "orders") { kind id } }"#,
+        r#"{ cluster(name: "local") { search(term: "orders") { kind id } } }"#,
     )
     .await;
-    let kinds: BTreeSet<&str> = data["search"]
+    let kinds: BTreeSet<&str> = data["cluster"]["search"]
         .as_array()
         .expect("hits")
         .iter()
