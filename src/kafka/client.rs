@@ -3,7 +3,6 @@
 //! One [`KafkaClient`] per cluster. Callers use domain types only. Production
 //! [`ClusterSession`] is this type. All broker I/O goes through krafka.
 
-mod budget;
 mod convert;
 mod groups;
 mod offsets;
@@ -38,7 +37,6 @@ use crate::kafka::session::ClusterSession;
 use crate::kafka::topic_config::ConfigEntry;
 use crate::kafka::watermarks::Watermarks;
 
-use budget::ConnectionBudget;
 use convert::committed_from_krafka;
 use groups::snapshots_from_descriptions;
 use offsets::{from_list_offsets, merge_watermark_offsets, partition_time_offsets};
@@ -89,13 +87,12 @@ impl KafkaClient {
             })
             .transpose()?;
 
-        let budget = ConnectionBudget::from_env()?;
-        let transport = transport::connect(config, &budget).await?;
+        let transport = transport::connect(config).await?;
 
         Ok(Self {
             identity,
             consume_timeout: *CONSUME_TIMEOUT,
-            scans: ScanPool::spawn(transport.client.clone(), budget),
+            scans: ScanPool::spawn(&transport),
             transport,
             schema_registry,
             obfuscation,

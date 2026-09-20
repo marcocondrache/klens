@@ -96,7 +96,8 @@ pub static MAX_IN_FLIGHT_REQUESTS: LazyLock<usize> =
 /// (default: 32).
 ///
 /// Override with `KLENS_MAX_RESPONSE_MB`.
-pub static MAX_RESPONSE_MB: LazyLock<usize> = lazy_env_parse!("KLENS_MAX_RESPONSE_MB", usize, 32);
+pub static MAX_RESPONSE_MB: LazyLock<usize> =
+    lazy_env_parse!("KLENS_MAX_RESPONSE_MB", usize, 32 * 1024 * 1024);
 
 /// Idle scan consumers kept per topic (default: 2).
 ///

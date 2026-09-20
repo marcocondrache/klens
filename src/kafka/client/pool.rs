@@ -6,20 +6,19 @@ use krafka::client::KrafkaClient as KrafkaSharedClient;
 use krafka::consumer::{AutoOffsetReset, Consumer};
 
 use crate::environment::{
-    MAX_RECORD_LIMIT, SCAN_POOL_IDLE_TTL, SCAN_POOL_PER_TOPIC, SCAN_POOL_TOTAL,
+    MAX_RECORD_LIMIT, MAX_RESPONSE_MB, SCAN_POOL_IDLE_TTL, SCAN_POOL_PER_TOPIC, SCAN_POOL_TOTAL,
 };
+use crate::kafka::client::transport;
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::PartitionWindow;
 use crate::kafka::scan::session::ScanPace;
 
-use super::budget::ConnectionBudget;
 use super::scan::ScanHold;
 
 pub(super) struct ScanPool {
     client: KrafkaSharedClient,
     idle: Mutex<Idle>,
     graveyard: Graveyard,
-    budget: ConnectionBudget,
     max_per_topic: usize,
     max_total: usize,
     idle_ttl: Duration,
@@ -91,12 +90,11 @@ impl Janitor {
 }
 
 impl ScanPool {
-    pub(super) fn spawn(client: KrafkaSharedClient, budget: ConnectionBudget) -> Arc<Self> {
+    pub(super) fn spawn(transport: &transport::Transport) -> Arc<Self> {
         let pool = Arc::new(Self {
-            client,
+            client: transport.client.clone(),
             idle: Mutex::new(Idle::default()),
             graveyard: Graveyard::new(),
-            budget,
             max_per_topic: (*SCAN_POOL_PER_TOPIC).max(1),
             max_total: (*SCAN_POOL_TOTAL).max(1),
             idle_ttl: *SCAN_POOL_IDLE_TTL,
@@ -239,7 +237,7 @@ impl ScanPool {
             .max_buffered_records(page_limit.saturating_mul(2))
             // krafka's 50 MB default is wider than the frame the connection
             // now accepts, which would make a busy fetch unreadable.
-            .fetch_max_bytes(self.budget.fetch_max_bytes())
+            .fetch_max_bytes(i32::try_from(*MAX_RESPONSE_MB / 2).unwrap_or(i32::MAX))
             // With the window starts already known, the first assignment
             // resolves no offsets.
             .initial_offsets(

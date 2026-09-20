@@ -6,20 +6,18 @@ use krafka::client::KrafkaClient as KrafkaSharedClient;
 use krafka::network::TransportConfig;
 
 use crate::config::{ClusterConfig, SaslMechanism, SecurityConfig, SecurityProtocol, TlsConfig};
-use crate::environment::{CLIENT_ID_PREFIX, REQUEST_TIMEOUT, SOCKET_CONNECTION_SETUP_TIMEOUT_MS};
+use crate::environment::{
+    CLIENT_ID_PREFIX, MAX_IN_FLIGHT_REQUESTS, MAX_RESPONSE_MB, REQUEST_TIMEOUT,
+    SOCKET_CONNECTION_SETUP_TIMEOUT_MS,
+};
 use crate::kafka::error::KafkaError;
-
-use super::budget::ConnectionBudget;
 
 pub(super) struct Transport {
     pub(super) client: KrafkaSharedClient,
     pub(super) admin: KrafkaAdmin,
 }
 
-pub(super) async fn connect(
-    config: &ClusterConfig,
-    budget: &ConnectionBudget,
-) -> Result<Transport, KafkaError> {
+pub(super) async fn connect(config: &ClusterConfig) -> Result<Transport, KafkaError> {
     let properties = &config.properties;
     let connect_timeout = Duration::from_millis(
         properties
@@ -42,8 +40,8 @@ pub(super) async fn connect(
         .connect_timeout(connect_timeout)
         .transport(
             TransportConfig::builder()
-                .max_in_flight_requests(budget.in_flight())
-                .max_response_size(budget.frame_bytes())
+                .max_in_flight_requests(*MAX_IN_FLIGHT_REQUESTS)
+                .max_response_size(*MAX_RESPONSE_MB)
                 .tcp_nodelay(true)
                 .build()?,
         );
@@ -155,9 +153,7 @@ mod tests {
 
         cluster.bootstrap_servers = vec![broker.bootstrap_servers()];
         // Building succeeds only if request_timeout is raised to the connect timeout.
-        let transport = connect(&cluster, &ConnectionBudget::from_env().unwrap())
-            .await
-            .unwrap();
+        let transport = connect(&cluster).await.unwrap();
         assert!(
             broker
                 .requests()
