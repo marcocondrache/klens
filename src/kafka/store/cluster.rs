@@ -1,5 +1,6 @@
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
+use arc_swap::ArcSwap;
 use indexmap::IndexMap;
 
 use crate::kafka::cluster::ClusterIdentity;
@@ -28,7 +29,7 @@ pub struct ClusterStore {
     pub series: SeriesStore,
     pub bus: ChangeBus,
     pub interest: InterestRegistry,
-    search: RwLock<Arc<SearchIndex>>,
+    search: ArcSwap<SearchIndex>,
 }
 
 impl std::fmt::Debug for ClusterStore {
@@ -56,7 +57,7 @@ impl ClusterStore {
             series: SeriesStore::new(),
             bus: ChangeBus::new(),
             interest: InterestRegistry::new(),
-            search: RwLock::new(Arc::new(SearchIndex::default())),
+            search: ArcSwap::new(Arc::new(SearchIndex::default())),
         }
     }
 
@@ -73,12 +74,11 @@ impl ClusterStore {
         let topology = self.topology.load();
         let subjects = self.subjects.load();
         let index = SearchIndex::build(topology.as_deref(), subjects.as_deref());
-        *self.search.write().expect("search index lock") = Arc::new(index);
+        self.search.store(Arc::new(index));
     }
 
     pub fn search(&self, term: &str) -> Vec<SearchHit> {
-        let index = Arc::clone(&self.search.read().expect("search index lock"));
-        index.search(term)
+        self.search.load().search(term)
     }
 
     pub fn topic_rows(&self) -> Vec<TopicRow> {
