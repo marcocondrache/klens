@@ -119,18 +119,6 @@ pub static SCAN_POOL_IDLE_TTL: LazyLock<Duration> = lazy_env_parse!(
     Duration::from_secs(60)
 );
 
-/// How long ago the watermark lane must have verified its sample for a
-/// record page to plan from it (default: the watermark lane interval).
-///
-/// Override with `KLENS_WATERMARK_FRESHNESS` (seconds).
-pub static WATERMARK_FRESHNESS: LazyLock<Duration> = LazyLock::new(|| {
-    std::env::var("KLENS_WATERMARK_FRESHNESS")
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-        .map(Duration::from_secs)
-        .unwrap_or(*WATERMARK_LANE_INTERVAL)
-});
-
 /// Maximum records a browse or search query may request (default: 500).
 ///
 /// Override with `KLENS_MAX_RECORD_LIMIT`.

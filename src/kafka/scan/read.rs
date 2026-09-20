@@ -1,18 +1,15 @@
 use foldhash::HashMap;
 
-use crate::environment::WATERMARK_FRESHNESS;
 use crate::kafka::error::KafkaError;
 use crate::kafka::limits::RecordLimits;
 use crate::kafka::metadata::PartitionMetadata;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::store::ClusterStore;
 use crate::kafka::watermarks::Watermarks;
-use crate::utils::utc_now;
 
 use super::RecordPage;
 use super::plan::apply_timestamp_bounds;
 use super::query::RecordQuery;
-use super::sample::VerifiedWatermarks;
 use super::session::fetch_page;
 
 pub async fn read_page<S: ClusterSession + ?Sized>(
@@ -25,7 +22,7 @@ pub async fn read_page<S: ClusterSession + ?Sized>(
     query.timestamps.validate()?;
 
     let partitions = resolve_partitions(session, store, &query).await?;
-    let watermarks = window_watermarks(session, store, &query, &partitions).await?;
+    let watermarks = window_watermarks(session, &query, &partitions).await?;
 
     fetch_page(session, &query, &partitions, &watermarks, limit, limits).await
 }
@@ -47,19 +44,6 @@ async fn resolve_partitions<S: ClusterSession + ?Sized>(
     select_partitions(store.name(), query, &topic.partitions)
 }
 
-fn sampled_watermarks(
-    store: &ClusterStore,
-    topic: &str,
-    partitions: &[i32],
-) -> Option<HashMap<i32, Watermarks>> {
-    let sampled = VerifiedWatermarks::observe(&store.watermarks)
-        .and_then(|sample| sample.plan(topic, partitions, utc_now(), *WATERMARK_FRESHNESS));
-    if sampled.is_none() {
-        store.watermarks.kick();
-    }
-    sampled
-}
-
 fn select_partitions(
     cluster: &str,
     query: &RecordQuery,
@@ -78,20 +62,9 @@ fn select_partitions(
 
 async fn window_watermarks<S: ClusterSession + ?Sized>(
     session: &S,
-    store: &ClusterStore,
     query: &RecordQuery,
     partitions: &[i32],
 ) -> Result<HashMap<i32, Watermarks>, KafkaError> {
-    let start = query.timestamps.start_seek();
-    let end = query.timestamps.end_seek();
-
-    if start.is_none()
-        && end.is_none()
-        && let Some(sampled) = sampled_watermarks(store, &query.topic, partitions)
-    {
-        return Ok(sampled);
-    }
-
     let wanted = HashMap::from_iter([(query.topic.clone(), partitions.to_vec())]);
     let mut watermarks = session
         .watermarks(&wanted)
@@ -99,6 +72,8 @@ async fn window_watermarks<S: ClusterSession + ?Sized>(
         .remove(&query.topic)
         .unwrap_or_default();
 
+    let start = query.timestamps.start_seek();
+    let end = query.timestamps.end_seek();
     if start.is_none() && end.is_none() {
         return Ok(watermarks);
     }
@@ -127,7 +102,7 @@ mod tests {
     use crate::kafka::RecordCursor;
     use crate::kafka::model::{Record, RecordOrder, TimestampRange};
     use crate::kafka::scan::Compression;
-    use crate::kafka::store::fixtures::{identity, partition, topic, topology, watermarks};
+    use crate::kafka::store::fixtures::{identity, partition, topic, topology};
     use crate::kafka::testing::FakeCluster;
     use crate::utils::datetime_from_unix_millis as unix_datetime;
 
@@ -214,87 +189,6 @@ mod tests {
             session.calls().metadata(),
             0,
             "one topic must not cost a full cluster fetch"
-        );
-    }
-
-    #[tokio::test]
-    async fn a_fresh_watermark_sample_plans_a_page_without_asking_the_broker() {
-        let session = FakeCluster::local();
-        let store = ingested_store();
-        store.watermarks.commit(Arc::new(watermarks(
-            utc_now(),
-            &[("orders.created", 0, 0, 8), ("orders.created", 1, 0, 8)],
-        )));
-
-        let page = page(&session, &store, browse_query()).await.unwrap();
-
-        assert!(!page.records.is_empty());
-        assert_eq!(session.calls().watermarks(), 0);
-    }
-
-    #[tokio::test]
-    async fn an_unchanged_table_the_lane_just_verified_is_still_fresh() {
-        let session = FakeCluster::local();
-        let store = ingested_store();
-        store.watermarks.commit(Arc::new(watermarks(
-            utc_now() - chrono::TimeDelta::hours(1),
-            &[("orders.created", 0, 0, 8), ("orders.created", 1, 0, 8)],
-        )));
-        store
-            .watermarks
-            .record_poll(std::time::Duration::from_millis(1), None);
-
-        let page = page(&session, &store, browse_query()).await.unwrap();
-
-        assert!(!page.records.is_empty());
-        assert_eq!(
-            session.calls().watermarks(),
-            0,
-            "an unchanged table the lane keeps checking must not cost a broker call"
-        );
-    }
-
-    #[tokio::test]
-    async fn a_stale_or_partial_sample_falls_back_to_the_broker() {
-        let stale = ingested_store();
-        stale.watermarks.commit(Arc::new(watermarks(
-            utc_now() - chrono::TimeDelta::hours(1),
-            &[("orders.created", 0, 0, 8), ("orders.created", 1, 0, 8)],
-        )));
-
-        let partial = ingested_store();
-        partial.watermarks.commit(Arc::new(watermarks(
-            utc_now(),
-            &[("orders.created", 0, 0, 8)],
-        )));
-
-        for store in [stale, partial] {
-            let session = FakeCluster::local();
-
-            let page = page(&session, &store, browse_query()).await.unwrap();
-
-            assert!(!page.records.is_empty());
-            assert_eq!(session.calls().watermarks(), 1);
-        }
-    }
-
-    #[tokio::test]
-    async fn a_timestamp_bounded_page_always_reads_live_watermarks() {
-        let session = FakeCluster::local();
-        let store = ingested_store();
-        store.watermarks.commit(Arc::new(watermarks(
-            utc_now(),
-            &[("orders.created", 0, 0, 8), ("orders.created", 1, 0, 8)],
-        )));
-        let mut query = browse_query();
-        query.timestamps = TimestampRange::from_bounds(unix_datetime(1_700_000_000_000)..);
-
-        page(&session, &store, query).await.unwrap();
-
-        assert_eq!(
-            session.calls().watermarks(),
-            1,
-            "offsets_for_times has no lane to answer from"
         );
     }
 
