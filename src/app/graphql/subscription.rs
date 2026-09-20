@@ -123,7 +123,6 @@ fn project(change: &Change, scope: &UpdateScope) -> Vec<Update> {
             vec![Update::Watermarks(WatermarksTick {
                 at: tick.at,
                 topics,
-                cluster_rate: tick.cluster_rate,
             })]
         }
 

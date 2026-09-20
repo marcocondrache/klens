@@ -15,8 +15,6 @@ export const keys = {
   topic: (cluster: string, topic: string) => ["cluster", cluster, "topics", topic] as const,
   topicConfigs: (cluster: string, topic: string) =>
     ["cluster", cluster, "topics", topic, "configs"] as const,
-  topicRateHistory: (cluster: string, topic: string) =>
-    ["cluster", cluster, "topics", topic, "rate"] as const,
   topicGroups: (cluster: string, topic: string) =>
     ["cluster", cluster, "topics", topic, "groups"] as const,
   records: (cluster: string, query: RecordsFilter, cursor: string | null) =>
@@ -24,8 +22,6 @@ export const keys = {
 
   groupRows: (cluster: string) => ["cluster", cluster, "groups"] as const,
   group: (cluster: string, group: string) => ["cluster", cluster, "groups", group] as const,
-  groupLagHistory: (cluster: string, group: string) =>
-    ["cluster", cluster, "groups", group, "lag"] as const,
 
   subjectRows: (cluster: string) => ["cluster", cluster, "subjects"] as const,
   subjectVersions: (cluster: string, name: string) =>

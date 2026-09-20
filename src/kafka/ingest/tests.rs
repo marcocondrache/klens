@@ -190,32 +190,23 @@ async fn the_topology_lane_keeps_the_search_index_current() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn the_watermark_lane_feeds_the_series_store_unconditionally() {
+async fn the_watermark_lane_feeds_latest_rates() {
     let session = FakeCluster::local().with_growing_watermarks(20);
     let store = store(&session);
     let _lanes = Ingest::start([(Arc::clone(&store), port(&session))], idle());
 
     wait_for(|| store.watermarks.version() > 0, "first watermark tick").await;
-    assert_eq!(
-        store.series.topic_rate("orders.created"),
-        Some(0.0),
-        "the first sample has no baseline"
-    );
+    assert_eq!(store.rates.get("orders.created"), Some(0.0));
 
     tokio::time::advance(Duration::from_secs(2)).await;
     store.watermarks.kick();
     wait_for(|| store.watermarks.version() > 1, "second watermark tick").await;
 
-    assert!(
-        store.series.topic_rate("orders.created").unwrap() > 0.0,
-        "nobody subscribed, and history exists anyway"
-    );
-    assert_eq!(store.series.topic_history("orders.created").len(), 2);
-    assert_eq!(store.series.cluster_history().len(), 2);
+    assert!(store.rates.get("orders.created").unwrap() > 0.0);
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_watermark_tick_carries_server_timestamps() {
+async fn a_watermark_tick_matches_the_rate_store() {
     let session = FakeCluster::local();
     let store = store(&session);
     let _lanes = Ingest::start([(Arc::clone(&store), port(&session))], idle());
@@ -235,17 +226,12 @@ async fn a_watermark_tick_carries_server_timestamps() {
     )
     .await;
 
-    let history = store.series.topic_history("orders.created");
-    assert_eq!(
-        history.last().unwrap().at,
-        tick.at,
-        "the stream and the history must be one series"
-    );
     assert_eq!(tick.rate("orders.created"), Some(0.0));
+    assert_eq!(store.rates.get("orders.created"), Some(0.0));
 }
 
 #[tokio::test(start_paused = true)]
-async fn an_idle_cluster_still_gets_a_heartbeat_point() {
+async fn an_idle_cluster_still_zeros_the_latest_rate() {
     let session = FakeCluster::local();
     let store = store(&session);
     let _lanes = Ingest::start([(Arc::clone(&store), port(&session))], idle());
@@ -268,16 +254,7 @@ async fn an_idle_cluster_still_gets_a_heartbeat_point() {
     store.watermarks.kick();
     wait_for(|| store.watermarks.version() > 1, "heartbeat tick").await;
 
-    assert_eq!(
-        store
-            .series
-            .topic_history("orders.created")
-            .last()
-            .unwrap()
-            .value,
-        0.0,
-        "sparklines decay to zero instead of freezing"
-    );
+    assert_eq!(store.rates.get("orders.created"), Some(0.0));
 }
 
 #[tokio::test(start_paused = true)]
@@ -484,7 +461,7 @@ async fn offset_fetches_respect_the_concurrency_cap() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn lag_is_computed_from_the_tables_and_fed_to_the_series_store() {
+async fn lag_is_computed_from_the_tables() {
     let session = FakeCluster::local();
     let store = store(&session);
     let lane = OffsetLane::new(port(&session));
@@ -494,7 +471,6 @@ async fn lag_is_computed_from_the_tables_and_fed_to_the_series_store() {
     lane.sweep(&store).await;
 
     assert_eq!(store.group_row("order-processor").unwrap().total_lag, 5);
-    assert_eq!(store.series.group_lag("order-processor"), Some(5));
     assert_eq!(
         session.calls().committed_offsets(),
         1,
@@ -582,13 +558,13 @@ async fn a_removed_group_is_dropped_from_the_offset_table() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_deleted_topic_loses_its_series_ring() {
+async fn a_deleted_topic_loses_its_rate() {
     let session = FakeCluster::local().extra_topic("payments", 1, 4);
     let store = store(&session);
     let _lanes = Ingest::start([(Arc::clone(&store), port(&session))], idle());
 
     wait_for(|| store.watermarks.version() > 0, "watermark commit").await;
-    assert!(!store.series.topic_history("payments").is_empty());
+    assert_eq!(store.rates.get("payments"), Some(0.0));
 
     session.remove_topic("payments");
     store.topology.kick();
@@ -603,14 +579,8 @@ async fn a_deleted_topic_loses_its_series_ring() {
     )
     .await;
 
-    assert!(
-        store.series.topic_history("payments").is_empty(),
-        "membership in the topology is the retention policy"
-    );
-    assert!(
-        !store.series.topic_history("orders.created").is_empty(),
-        "live topics keep their history"
-    );
+    assert_eq!(store.rates.get("payments"), None);
+    assert_eq!(store.rates.get("orders.created"), Some(0.0));
 }
 
 #[tokio::test(start_paused = true)]

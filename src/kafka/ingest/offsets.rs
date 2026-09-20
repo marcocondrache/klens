@@ -146,11 +146,6 @@ impl OffsetLane {
         let version = store.offsets.commit(Arc::clone(&next));
 
         let updates = self.lag_updates(store, &topology, &next, &refreshed);
-        for update in &updates {
-            store
-                .series
-                .push_group_lag(&update.group, now, update.total_lag);
-        }
         if !updates.is_empty() {
             store
                 .bus

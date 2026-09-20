@@ -14,8 +14,8 @@ use super::projections::{
     self, BrokerRow, ClusterHealthView, GroupDetail, GroupRow, SubjectRow, TopicDetail,
     TopicGroupRow, TopicRow,
 };
+use super::rates::RateStore;
 use super::search::{SearchHit, SearchIndex};
-use super::series::SeriesStore;
 use super::tables::{ConfigTable, OffsetTable, SubjectTable, Topology, WatermarkTable};
 
 /// The normalized read model for one cluster.
@@ -26,7 +26,7 @@ pub struct ClusterStore {
     pub offsets: Lane<OffsetTable>,
     pub configs: Lane<ConfigTable>,
     pub subjects: Lane<SubjectTable>,
-    pub series: SeriesStore,
+    pub rates: RateStore,
     pub bus: ChangeBus,
     pub interest: InterestRegistry,
     search: ArcSwap<SearchIndex>,
@@ -54,7 +54,7 @@ impl ClusterStore {
             offsets: Lane::new(),
             configs: Lane::new(),
             subjects: Lane::new(),
-            series: SeriesStore::new(),
+            rates: RateStore::new(),
             bus: ChangeBus::new(),
             interest: InterestRegistry::new(),
             search: ArcSwap::new(Arc::new(SearchIndex::default())),
@@ -98,7 +98,7 @@ impl ClusterStore {
                     watermarks.as_deref(),
                     configs.as_deref(),
                     &topology,
-                    self.series.topic_rate(name).unwrap_or(0.0),
+                    self.rates.get(name).unwrap_or(0.0),
                 )
             })
             .collect()
@@ -113,7 +113,7 @@ impl ClusterStore {
             self.watermarks.load().as_deref(),
             self.configs.load().as_deref(),
             &topology,
-            self.series.topic_rate(name).unwrap_or(0.0),
+            self.rates.get(name).unwrap_or(0.0),
         ))
     }
 
@@ -354,7 +354,7 @@ mod tests {
                 Arc::new(offsets(at(1_000), &[("orders", 0, 45)])),
             )]),
         }));
-        store.series.push_topic_rate(&orders, at(1_000), 7.5);
+        store.rates.set(&orders, 7.5);
         store
     }
 

@@ -34,7 +34,6 @@ type Documents = {
     "\n  fragment AclFields on Acl {\n    resourceType\n    resourceName\n    patternType\n    principal\n    host\n    operation\n    permission\n  }\n": typeof types.AclFieldsFragmentDoc,
     "\n  fragment RecordHeaderFields on RecordHeader {\n    key\n    value\n  }\n": typeof types.RecordHeaderFieldsFragmentDoc,
     "\n  fragment RecordFields on Record {\n    topic\n    partition\n    offset\n    timestamp\n    key\n    value\n    schemaId\n    sizeBytes\n    compression\n    headers {\n      ...RecordHeaderFields\n    }\n  }\n": typeof types.RecordFieldsFragmentDoc,
-    "\n  fragment PointFields on Point {\n    at\n    value\n  }\n": typeof types.PointFieldsFragmentDoc,
     "\n  fragment SearchHitFields on SearchHit {\n    kind\n    id\n    label\n    detail\n  }\n": typeof types.SearchHitFieldsFragmentDoc,
     "\n  query Whoami {\n    whoami {\n      ...IdentityFields\n    }\n  }\n": typeof types.WhoamiDocument,
     "\n  query Clusters {\n    clusters {\n      ...ClusterHealthFields\n    }\n  }\n": typeof types.ClustersDocument,
@@ -50,10 +49,8 @@ type Documents = {
     "\n  query Subject($cluster: String!, $name: String!, $version: Int) {\n    subject(cluster: $cluster, name: $name, version: $version) {\n      ...SubjectDetailFields\n    }\n  }\n": typeof types.SubjectDocument,
     "\n  query Acls($cluster: String!) {\n    acls(cluster: $cluster) {\n      authorizer\n      bindings {\n        ...AclFields\n      }\n    }\n  }\n": typeof types.AclsDocument,
     "\n  query Records($cluster: String!, $query: RecordQueryInput!) {\n    records(cluster: $cluster, query: $query) {\n      complete\n      obfuscated\n      nextCursor\n      prevCursor\n      records {\n        ...RecordFields\n      }\n    }\n  }\n": typeof types.RecordsDocument,
-    "\n  query TopicRateHistory($cluster: String!, $topic: String!) {\n    topicRateHistory(cluster: $cluster, topic: $topic) {\n      ...PointFields\n    }\n  }\n": typeof types.TopicRateHistoryDocument,
-    "\n  query GroupLagHistory($cluster: String!, $group: String!) {\n    groupLagHistory(cluster: $cluster, group: $group) {\n      ...PointFields\n    }\n  }\n": typeof types.GroupLagHistoryDocument,
     "\n  query Search($cluster: String!, $term: String!) {\n    search(cluster: $cluster, term: $term) {\n      ...SearchHitFields\n    }\n  }\n": typeof types.SearchDocument,
-    "\n  subscription Updates($cluster: String!, $scope: UpdateScope) {\n    updates(cluster: $cluster, scope: $scope) {\n      __typename\n      ... on WatermarksTick {\n        at\n        clusterRate\n        topics {\n          topic\n          rate\n        }\n      }\n      ... on GroupLagUpdate {\n        at\n        group\n        lag\n        lagComplete\n        offsets {\n          ...GroupOffsetFields\n        }\n      }\n      ... on TopologyDelta {\n        version\n        addedTopics\n        removedTopics\n        changedTopics\n        addedGroups\n        removedGroups\n        changedGroups\n        brokersChanged\n      }\n      ... on ConfigsChanged {\n        version\n        configTopics: topics\n      }\n      ... on SubjectsChanged {\n        version\n        added\n        removed\n        changed\n      }\n      ... on Resync {\n        reason\n      }\n    }\n  }\n": typeof types.UpdatesDocument,
+    "\n  subscription Updates($cluster: String!, $scope: UpdateScope) {\n    updates(cluster: $cluster, scope: $scope) {\n      __typename\n      ... on WatermarksTick {\n        topics {\n          topic\n          rate\n        }\n      }\n      ... on GroupLagUpdate {\n        group\n        lag\n        lagComplete\n        offsets {\n          ...GroupOffsetFields\n        }\n      }\n      ... on TopologyDelta {\n        version\n        addedTopics\n        removedTopics\n        changedTopics\n        addedGroups\n        removedGroups\n        changedGroups\n        brokersChanged\n      }\n      ... on ConfigsChanged {\n        version\n        configTopics: topics\n      }\n      ... on SubjectsChanged {\n        version\n        added\n        removed\n        changed\n      }\n      ... on Resync {\n        reason\n      }\n    }\n  }\n": typeof types.UpdatesDocument,
 };
 const documents: Documents = {
     "\n  fragment IdentityFields on Identity {\n    subject\n    clusters {\n      cluster\n      roles\n      privileges\n    }\n  }\n": types.IdentityFieldsFragmentDoc,
@@ -75,7 +72,6 @@ const documents: Documents = {
     "\n  fragment AclFields on Acl {\n    resourceType\n    resourceName\n    patternType\n    principal\n    host\n    operation\n    permission\n  }\n": types.AclFieldsFragmentDoc,
     "\n  fragment RecordHeaderFields on RecordHeader {\n    key\n    value\n  }\n": types.RecordHeaderFieldsFragmentDoc,
     "\n  fragment RecordFields on Record {\n    topic\n    partition\n    offset\n    timestamp\n    key\n    value\n    schemaId\n    sizeBytes\n    compression\n    headers {\n      ...RecordHeaderFields\n    }\n  }\n": types.RecordFieldsFragmentDoc,
-    "\n  fragment PointFields on Point {\n    at\n    value\n  }\n": types.PointFieldsFragmentDoc,
     "\n  fragment SearchHitFields on SearchHit {\n    kind\n    id\n    label\n    detail\n  }\n": types.SearchHitFieldsFragmentDoc,
     "\n  query Whoami {\n    whoami {\n      ...IdentityFields\n    }\n  }\n": types.WhoamiDocument,
     "\n  query Clusters {\n    clusters {\n      ...ClusterHealthFields\n    }\n  }\n": types.ClustersDocument,
@@ -91,10 +87,8 @@ const documents: Documents = {
     "\n  query Subject($cluster: String!, $name: String!, $version: Int) {\n    subject(cluster: $cluster, name: $name, version: $version) {\n      ...SubjectDetailFields\n    }\n  }\n": types.SubjectDocument,
     "\n  query Acls($cluster: String!) {\n    acls(cluster: $cluster) {\n      authorizer\n      bindings {\n        ...AclFields\n      }\n    }\n  }\n": types.AclsDocument,
     "\n  query Records($cluster: String!, $query: RecordQueryInput!) {\n    records(cluster: $cluster, query: $query) {\n      complete\n      obfuscated\n      nextCursor\n      prevCursor\n      records {\n        ...RecordFields\n      }\n    }\n  }\n": types.RecordsDocument,
-    "\n  query TopicRateHistory($cluster: String!, $topic: String!) {\n    topicRateHistory(cluster: $cluster, topic: $topic) {\n      ...PointFields\n    }\n  }\n": types.TopicRateHistoryDocument,
-    "\n  query GroupLagHistory($cluster: String!, $group: String!) {\n    groupLagHistory(cluster: $cluster, group: $group) {\n      ...PointFields\n    }\n  }\n": types.GroupLagHistoryDocument,
     "\n  query Search($cluster: String!, $term: String!) {\n    search(cluster: $cluster, term: $term) {\n      ...SearchHitFields\n    }\n  }\n": types.SearchDocument,
-    "\n  subscription Updates($cluster: String!, $scope: UpdateScope) {\n    updates(cluster: $cluster, scope: $scope) {\n      __typename\n      ... on WatermarksTick {\n        at\n        clusterRate\n        topics {\n          topic\n          rate\n        }\n      }\n      ... on GroupLagUpdate {\n        at\n        group\n        lag\n        lagComplete\n        offsets {\n          ...GroupOffsetFields\n        }\n      }\n      ... on TopologyDelta {\n        version\n        addedTopics\n        removedTopics\n        changedTopics\n        addedGroups\n        removedGroups\n        changedGroups\n        brokersChanged\n      }\n      ... on ConfigsChanged {\n        version\n        configTopics: topics\n      }\n      ... on SubjectsChanged {\n        version\n        added\n        removed\n        changed\n      }\n      ... on Resync {\n        reason\n      }\n    }\n  }\n": types.UpdatesDocument,
+    "\n  subscription Updates($cluster: String!, $scope: UpdateScope) {\n    updates(cluster: $cluster, scope: $scope) {\n      __typename\n      ... on WatermarksTick {\n        topics {\n          topic\n          rate\n        }\n      }\n      ... on GroupLagUpdate {\n        group\n        lag\n        lagComplete\n        offsets {\n          ...GroupOffsetFields\n        }\n      }\n      ... on TopologyDelta {\n        version\n        addedTopics\n        removedTopics\n        changedTopics\n        addedGroups\n        removedGroups\n        changedGroups\n        brokersChanged\n      }\n      ... on ConfigsChanged {\n        version\n        configTopics: topics\n      }\n      ... on SubjectsChanged {\n        version\n        added\n        removed\n        changed\n      }\n      ... on Resync {\n        reason\n      }\n    }\n  }\n": types.UpdatesDocument,
 };
 
 /**
@@ -176,10 +170,6 @@ export function graphql(source: "\n  fragment RecordFields on Record {\n    topi
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  fragment PointFields on Point {\n    at\n    value\n  }\n"): typeof import('./graphql').PointFieldsFragmentDoc;
-/**
- * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
- */
 export function graphql(source: "\n  fragment SearchHitFields on SearchHit {\n    kind\n    id\n    label\n    detail\n  }\n"): typeof import('./graphql').SearchHitFieldsFragmentDoc;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
@@ -240,19 +230,11 @@ export function graphql(source: "\n  query Records($cluster: String!, $query: Re
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  query TopicRateHistory($cluster: String!, $topic: String!) {\n    topicRateHistory(cluster: $cluster, topic: $topic) {\n      ...PointFields\n    }\n  }\n"): typeof import('./graphql').TopicRateHistoryDocument;
-/**
- * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
- */
-export function graphql(source: "\n  query GroupLagHistory($cluster: String!, $group: String!) {\n    groupLagHistory(cluster: $cluster, group: $group) {\n      ...PointFields\n    }\n  }\n"): typeof import('./graphql').GroupLagHistoryDocument;
-/**
- * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
- */
 export function graphql(source: "\n  query Search($cluster: String!, $term: String!) {\n    search(cluster: $cluster, term: $term) {\n      ...SearchHitFields\n    }\n  }\n"): typeof import('./graphql').SearchDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  subscription Updates($cluster: String!, $scope: UpdateScope) {\n    updates(cluster: $cluster, scope: $scope) {\n      __typename\n      ... on WatermarksTick {\n        at\n        clusterRate\n        topics {\n          topic\n          rate\n        }\n      }\n      ... on GroupLagUpdate {\n        at\n        group\n        lag\n        lagComplete\n        offsets {\n          ...GroupOffsetFields\n        }\n      }\n      ... on TopologyDelta {\n        version\n        addedTopics\n        removedTopics\n        changedTopics\n        addedGroups\n        removedGroups\n        changedGroups\n        brokersChanged\n      }\n      ... on ConfigsChanged {\n        version\n        configTopics: topics\n      }\n      ... on SubjectsChanged {\n        version\n        added\n        removed\n        changed\n      }\n      ... on Resync {\n        reason\n      }\n    }\n  }\n"): typeof import('./graphql').UpdatesDocument;
+export function graphql(source: "\n  subscription Updates($cluster: String!, $scope: UpdateScope) {\n    updates(cluster: $cluster, scope: $scope) {\n      __typename\n      ... on WatermarksTick {\n        topics {\n          topic\n          rate\n        }\n      }\n      ... on GroupLagUpdate {\n        group\n        lag\n        lagComplete\n        offsets {\n          ...GroupOffsetFields\n        }\n      }\n      ... on TopologyDelta {\n        version\n        addedTopics\n        removedTopics\n        changedTopics\n        addedGroups\n        removedGroups\n        changedGroups\n        brokersChanged\n      }\n      ... on ConfigsChanged {\n        version\n        configTopics: topics\n      }\n      ... on SubjectsChanged {\n        version\n        added\n        removed\n        changed\n      }\n      ... on Resync {\n        reason\n      }\n    }\n  }\n"): typeof import('./graphql').UpdatesDocument;
 
 
 export function graphql(source: string) {

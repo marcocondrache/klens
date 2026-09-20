@@ -157,8 +157,6 @@ export type RecordHeaderFieldsFragment = { key: string, value: string };
 
 export type RecordFieldsFragment = { topic: string, partition: number, offset: string, timestamp: string, key: string | null, value: string | null, schemaId: number | null, sizeBytes: string, compression: Compression, headers: Array<{ key: string, value: string }> };
 
-export type PointFieldsFragment = { at: string, value: number };
-
 export type SearchHitFieldsFragment = { kind: SearchKind, id: string, label: string, detail: string };
 
 export type WhoamiQueryVariables = Exact<{ [key: string]: never; }>;
@@ -263,22 +261,6 @@ export type RecordsQueryVariables = Exact<{
 
 export type RecordsQuery = { records: { complete: boolean, obfuscated: boolean, nextCursor: string | null, prevCursor: string | null, records: Array<{ topic: string, partition: number, offset: string, timestamp: string, key: string | null, value: string | null, schemaId: number | null, sizeBytes: string, compression: Compression, headers: Array<{ key: string, value: string }> }> } };
 
-export type TopicRateHistoryQueryVariables = Exact<{
-  cluster: string;
-  topic: string;
-}>;
-
-
-export type TopicRateHistoryQuery = { topicRateHistory: Array<{ at: string, value: number }> };
-
-export type GroupLagHistoryQueryVariables = Exact<{
-  cluster: string;
-  group: string;
-}>;
-
-
-export type GroupLagHistoryQuery = { groupLagHistory: Array<{ at: string, value: number }> };
-
 export type SearchQueryVariables = Exact<{
   cluster: string;
   term: string;
@@ -295,11 +277,11 @@ export type UpdatesSubscriptionVariables = Exact<{
 
 export type UpdatesSubscription = { updates:
     | { __typename: 'ConfigsChanged', version: string, configTopics: Array<string> }
-    | { __typename: 'GroupLagUpdate', at: string, group: string, lag: string, lagComplete: boolean, offsets: Array<{ topic: string, partition: number, currentOffset: string, endOffset: string, lag: string, memberId: string | null }> }
+    | { __typename: 'GroupLagUpdate', group: string, lag: string, lagComplete: boolean, offsets: Array<{ topic: string, partition: number, currentOffset: string, endOffset: string, lag: string, memberId: string | null }> }
     | { __typename: 'Resync', reason: ResyncReason }
     | { __typename: 'SubjectsChanged', version: string, added: Array<string>, removed: Array<string>, changed: Array<string> }
     | { __typename: 'TopologyDelta', version: string, addedTopics: Array<string>, removedTopics: Array<string>, changedTopics: Array<string>, addedGroups: Array<string>, removedGroups: Array<string>, changedGroups: Array<string>, brokersChanged: boolean }
-    | { __typename: 'WatermarksTick', at: string, clusterRate: number, topics: Array<{ topic: string, rate: number }> }
+    | { __typename: 'WatermarksTick', topics: Array<{ topic: string, rate: number }> }
    };
 
 export class TypedDocumentString<TResult, TVariables>
@@ -586,12 +568,6 @@ export const RecordFieldsFragmentDoc = new TypedDocumentString(`
   key
   value
 }`, {"fragmentName":"RecordFields"}) as unknown as TypedDocumentString<RecordFieldsFragment, unknown>;
-export const PointFieldsFragmentDoc = new TypedDocumentString(`
-    fragment PointFields on Point {
-  at
-  value
-}
-    `, {"fragmentName":"PointFields"}) as unknown as TypedDocumentString<PointFieldsFragment, unknown>;
 export const SearchHitFieldsFragmentDoc = new TypedDocumentString(`
     fragment SearchHitFields on SearchHit {
   kind
@@ -679,7 +655,7 @@ export const TopicDocument = new TypedDocumentString(`
   topic(cluster: $cluster, name: $name) {
     ...TopicDetailFields
   }
-  topicRows(cluster: $cluster, filter: {contains: $name}) {
+  topicRows(cluster: $cluster, filter: { contains: $name }) {
     rows {
       ...TopicRowFields
     }
@@ -922,26 +898,6 @@ fragment RecordFields on Record {
     ...RecordHeaderFields
   }
 }`) as unknown as TypedDocumentString<RecordsQuery, RecordsQueryVariables>;
-export const TopicRateHistoryDocument = new TypedDocumentString(`
-    query TopicRateHistory($cluster: String!, $topic: String!) {
-  topicRateHistory(cluster: $cluster, topic: $topic) {
-    ...PointFields
-  }
-}
-    fragment PointFields on Point {
-  at
-  value
-}`) as unknown as TypedDocumentString<TopicRateHistoryQuery, TopicRateHistoryQueryVariables>;
-export const GroupLagHistoryDocument = new TypedDocumentString(`
-    query GroupLagHistory($cluster: String!, $group: String!) {
-  groupLagHistory(cluster: $cluster, group: $group) {
-    ...PointFields
-  }
-}
-    fragment PointFields on Point {
-  at
-  value
-}`) as unknown as TypedDocumentString<GroupLagHistoryQuery, GroupLagHistoryQueryVariables>;
 export const SearchDocument = new TypedDocumentString(`
     query Search($cluster: String!, $term: String!) {
   search(cluster: $cluster, term: $term) {
@@ -959,15 +915,12 @@ export const UpdatesDocument = new TypedDocumentString(`
   updates(cluster: $cluster, scope: $scope) {
     __typename
     ... on WatermarksTick {
-      at
-      clusterRate
       topics {
         topic
         rate
       }
     }
     ... on GroupLagUpdate {
-      at
       group
       lag
       lagComplete
