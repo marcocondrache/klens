@@ -52,3 +52,50 @@ pub(crate) fn log_http_completed(status: u16, latency: std::time::Duration) {
         tracing::debug!(status, latency_ms, "request completed");
     }
 }
+
+#[cfg(test)]
+pub(crate) mod capture {
+    use std::io;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone, Default)]
+    pub(crate) struct LogBuf(Arc<Mutex<Vec<u8>>>);
+
+    impl io::Write for LogBuf {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.0.lock().expect("log buf").extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for LogBuf {
+        type Writer = Self;
+
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    impl LogBuf {
+        pub(crate) fn as_string(&self) -> String {
+            String::from_utf8_lossy(&self.0.lock().expect("log buf")).into_owned()
+        }
+    }
+
+    pub(crate) fn subscriber(
+        max_level: tracing::Level,
+    ) -> (LogBuf, tracing::subscriber::DefaultGuard) {
+        let logs = LogBuf::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(logs.clone())
+            .with_max_level(max_level)
+            .with_ansi(false)
+            .without_time()
+            .finish();
+        (logs, tracing::subscriber::set_default(subscriber))
+    }
+}

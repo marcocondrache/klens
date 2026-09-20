@@ -1,5 +1,4 @@
-use std::io;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use juniper::parser::{ParseError, SourcePosition, Spanning};
@@ -7,46 +6,8 @@ use juniper::parser::{ParseError, SourcePosition, Spanning};
 use super::{
     OperationId, OperationKind, OperationName, OperationOutcome, RequestFailure, complete, record,
 };
+use crate::telemetry::capture::subscriber as capture;
 use crate::telemetry::log_http_completed;
-
-#[derive(Clone, Default)]
-struct LogBuf(Arc<Mutex<Vec<u8>>>);
-
-impl io::Write for LogBuf {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.0.lock().expect("log buf").extend_from_slice(buf);
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
-impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for LogBuf {
-    type Writer = Self;
-
-    fn make_writer(&'a self) -> Self::Writer {
-        self.clone()
-    }
-}
-
-impl LogBuf {
-    fn as_string(&self) -> String {
-        String::from_utf8_lossy(&self.0.lock().expect("log buf")).into_owned()
-    }
-}
-
-fn capture(max_level: tracing::Level) -> (LogBuf, tracing::subscriber::DefaultGuard) {
-    let logs = LogBuf::default();
-    let subscriber = tracing_subscriber::fmt()
-        .with_writer(logs.clone())
-        .with_max_level(max_level)
-        .with_ansi(false)
-        .without_time()
-        .finish();
-    (logs, tracing::subscriber::set_default(subscriber))
-}
 
 fn parse_error_result() -> Result<
     (
