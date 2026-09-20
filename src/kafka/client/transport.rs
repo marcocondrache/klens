@@ -1,10 +1,68 @@
+use std::time::Duration;
+
+use krafka::admin::AdminClient as KrafkaAdmin;
 use krafka::auth::{AuthConfig, TlsConfig as KrafkaTlsConfig};
+use krafka::client::KrafkaClient as KrafkaSharedClient;
+use krafka::network::TransportConfig;
 
 use crate::config::{ClusterConfig, SaslMechanism, SecurityConfig, SecurityProtocol, TlsConfig};
+use crate::environment::{
+    CLIENT_ID_PREFIX, MAX_IN_FLIGHT_REQUESTS, MAX_RESPONSE_MB, REQUEST_TIMEOUT,
+    SOCKET_CONNECTION_SETUP_TIMEOUT_MS,
+};
 use crate::kafka::error::KafkaError;
 
+pub(super) struct Transport {
+    pub(super) client: KrafkaSharedClient,
+    pub(super) admin: KrafkaAdmin,
+}
+
+pub(super) async fn connect(config: &ClusterConfig) -> Result<Transport, KafkaError> {
+    let properties = &config.properties;
+    let connect_timeout = Duration::from_millis(
+        properties
+            .connect_timeout_ms
+            .unwrap_or(u64::from(*SOCKET_CONNECTION_SETUP_TIMEOUT_MS)),
+    );
+    let request_timeout = properties
+        .request_timeout_ms
+        .map(Duration::from_millis)
+        .unwrap_or(*REQUEST_TIMEOUT)
+        .max(connect_timeout);
+    let client_id = properties
+        .client_id
+        .clone()
+        .unwrap_or_else(|| format!("{CLIENT_ID_PREFIX}-{}", config.name));
+
+    let mut builder = KrafkaSharedClient::builder(config.bootstrap_servers.join(","))
+        .client_id(client_id)
+        .request_timeout(request_timeout)
+        .connect_timeout(connect_timeout)
+        .transport(
+            TransportConfig::builder()
+                .max_in_flight_requests(*MAX_IN_FLIGHT_REQUESTS)
+                .max_response_size(*MAX_RESPONSE_MB)
+                .tcp_nodelay(true)
+                .build()?,
+        );
+
+    if let Some(auth) = krafka_auth(config)? {
+        builder = builder.auth(auth);
+    }
+
+    let client = builder.build().await?;
+    let admin = KrafkaAdmin::builder()
+        .with_client(&client)
+        .request_timeout(request_timeout)
+        .connect_timeout(connect_timeout)
+        .build()
+        .await?;
+
+    Ok(Transport { client, admin })
+}
+
 /// `None` is plaintext. A SASL protocol with no `sasl` block is an error.
-pub(super) fn krafka_auth(cluster: &ClusterConfig) -> Result<Option<AuthConfig>, KafkaError> {
+fn krafka_auth(cluster: &ClusterConfig) -> Result<Option<AuthConfig>, KafkaError> {
     let Some(security) = &cluster.security else {
         return Ok(None);
     };
@@ -95,15 +153,16 @@ mod tests {
 
         cluster.bootstrap_servers = vec![broker.bootstrap_servers()];
         // Building succeeds only if request_timeout is raised to the connect timeout.
-        let client = super::super::KafkaClient::new(&cluster).await.unwrap();
+        let transport = connect(&cluster).await.unwrap();
         assert!(
             broker
                 .requests()
                 .iter()
                 .all(|request| request.client_id.as_deref() == Some("custom-client"))
         );
-        client.admin.close().await;
-        client.krafka.pool().close_all().await;
+        assert_eq!(transport.admin.request_timeout(), Duration::from_secs(30));
+        transport.admin.close().await;
+        transport.client.pool().close_all().await;
     }
 
     #[test]

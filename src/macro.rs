@@ -26,6 +26,15 @@ macro_rules! lazy_env_parse {
                 .unwrap_or($default)
         })
     };
+    (millis, $key:expr, $default:expr) => {
+        std::sync::LazyLock::new(|| {
+            std::env::var($key)
+                .ok()
+                .and_then(|s| s.parse::<u64>().ok())
+                .map(std::time::Duration::from_millis)
+                .unwrap_or($default)
+        })
+    };
 }
 
 pub(crate) use lazy_env_parse;
