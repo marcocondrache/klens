@@ -1,3 +1,4 @@
+use foldhash::{HashMap, HashMapExt};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -38,24 +39,29 @@ impl WatermarkLane {
         }
     }
 
-    fn wanted_partitions(&self, store: &ClusterStore, topology: &Topology) -> Vec<(String, i32)> {
-        let mut pairs: Vec<(String, i32)> = topology
-            .partition_pairs()
-            .into_iter()
-            .map(|(topic, partition)| (topic.to_string(), partition))
-            .collect();
+    fn wanted_partitions(
+        &self,
+        store: &ClusterStore,
+        topology: &Topology,
+    ) -> HashMap<String, Vec<i32>> {
+        let mut wanted: HashMap<String, Vec<i32>> = HashMap::new();
+        for (topic, partition) in topology.partition_pairs() {
+            wanted.entry(topic.to_string()).or_default().push(partition);
+        }
 
         if let Some(offsets) = store.offsets.load() {
             for group in offsets.groups.values() {
                 for (topic, partition) in group.partitions() {
-                    pairs.push((topic.to_owned(), partition));
+                    wanted.entry(topic.to_owned()).or_default().push(partition);
                 }
             }
         }
 
-        pairs.sort();
-        pairs.dedup();
-        pairs
+        for partitions in wanted.values_mut() {
+            partitions.sort_unstable();
+            partitions.dedup();
+        }
+        wanted
     }
 
     fn since_last_commit(&self, now: Instant) -> Option<Duration> {

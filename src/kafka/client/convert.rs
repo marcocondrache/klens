@@ -4,7 +4,7 @@ use krafka::admin::{
     ConfigEntry as KrafkaConfigEntry, ConsumerGroupDescription, ConsumerGroupMember,
     GroupOffsetEntry, TopicPartitionAssignment,
 };
-use krafka::metadata::ClusterMetadata;
+use krafka::metadata::{ClusterMetadata, TopicInfo as KrafkaTopicInfo};
 
 use crate::kafka::group::{
     CommittedOffset, GroupMember, GroupSnapshot, GroupState, MemberAssignment,
@@ -30,25 +30,30 @@ impl MetadataSnapshot {
             topics: cache
                 .topics()
                 .into_iter()
-                .map(|topic| {
-                    let mut partitions: Vec<PartitionMetadata> = topic
-                        .partitions
-                        .into_values()
-                        .map(|partition| PartitionMetadata {
-                            id: partition.partition,
-                            leader: partition.leader,
-                            replicas: partition.replicas,
-                            isr: partition.isr,
-                        })
-                        .collect();
-                    partitions.sort_unstable_by_key(|partition| partition.id);
-                    TopicMetadata {
-                        internal: topic.is_internal || is_internal_topic(&topic.name),
-                        name: topic.name,
-                        partitions,
-                    }
-                })
+                .map(TopicMetadata::from_krafka)
                 .collect(),
+        }
+    }
+}
+
+impl TopicMetadata {
+    pub(super) fn from_krafka(topic: KrafkaTopicInfo) -> Self {
+        let mut partitions: Vec<PartitionMetadata> = topic
+            .partitions
+            .into_values()
+            .map(|partition| PartitionMetadata {
+                id: partition.partition,
+                leader: partition.leader,
+                replicas: partition.replicas,
+                isr: partition.isr,
+            })
+            .collect();
+        partitions.sort_unstable_by_key(|partition| partition.id);
+
+        Self {
+            internal: topic.is_internal || is_internal_topic(&topic.name),
+            name: topic.name,
+            partitions,
         }
     }
 }

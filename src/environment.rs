@@ -86,6 +86,51 @@ pub static REQUEST_TIMEOUT: LazyLock<Duration> =
 pub static CONSUME_TIMEOUT: LazyLock<Duration> =
     lazy_env_parse!(duration, "KLENS_CONSUME_TIMEOUT", Duration::from_secs(5));
 
+/// Requests one broker connection may hold in flight (default: 32).
+///
+/// Override with `KLENS_MAX_IN_FLIGHT_REQUESTS`.
+pub static MAX_IN_FLIGHT_REQUESTS: LazyLock<usize> =
+    lazy_env_parse!("KLENS_MAX_IN_FLIGHT_REQUESTS", usize, 32);
+
+/// Largest broker response frame the client will accept, in MiB
+/// (default: 32).
+///
+/// Override with `KLENS_MAX_RESPONSE_MB`.
+pub static MAX_RESPONSE_MB: LazyLock<usize> =
+    lazy_env_parse!("KLENS_MAX_RESPONSE_MB", usize, 32 * 1024 * 1024);
+
+/// Idle scan consumers kept per topic (default: 2).
+///
+/// Override with `KLENS_SCAN_POOL_PER_TOPIC`.
+pub static SCAN_POOL_PER_TOPIC: LazyLock<usize> =
+    lazy_env_parse!("KLENS_SCAN_POOL_PER_TOPIC", usize, 2);
+
+/// Idle scan consumers kept across every topic (default: 16).
+///
+/// Override with `KLENS_SCAN_POOL_TOTAL`.
+pub static SCAN_POOL_TOTAL: LazyLock<usize> = lazy_env_parse!("KLENS_SCAN_POOL_TOTAL", usize, 16);
+
+/// How long an idle scan consumer stays poolable (default: 60 seconds).
+///
+/// Override with `KLENS_SCAN_POOL_IDLE_TTL` (seconds).
+pub static SCAN_POOL_IDLE_TTL: LazyLock<Duration> = lazy_env_parse!(
+    duration,
+    "KLENS_SCAN_POOL_IDLE_TTL",
+    Duration::from_secs(60)
+);
+
+/// How long one scan poll waits, and how long the broker may park the fetch
+/// (default: 100 milliseconds).
+///
+/// Same duration on purpose: the broker must release when the scan moves on.
+///
+/// Override with `KLENS_SCAN_PACE_BOUND_MS`.
+pub static SCAN_PACE_BOUND: LazyLock<Duration> = lazy_env_parse!(
+    millis,
+    "KLENS_SCAN_PACE_BOUND_MS",
+    Duration::from_millis(100)
+);
+
 /// Maximum records a browse or search query may request (default: 500).
 ///
 /// Override with `KLENS_MAX_RECORD_LIMIT`.

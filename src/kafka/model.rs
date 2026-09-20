@@ -12,7 +12,7 @@ pub use crate::kafka::cluster::ClusterIdentity;
 pub use crate::kafka::group::{
     CommittedOffset, GroupMember, GroupOffset, GroupSnapshot, GroupState, MemberAssignment,
 };
-pub use crate::kafka::metadata::MetadataSnapshot;
+pub use crate::kafka::metadata::{MetadataSnapshot, TopicMetadata};
 pub use crate::kafka::registry::{
     RegisteredSchema, SchemaCompatibility, SchemaReference, SchemaSubject, SchemaType,
 };

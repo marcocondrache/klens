@@ -1,5 +1,5 @@
 use std::ops::Range;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use foldhash::{HashMap, HashSet, HashSetExt};
@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use tokio::time::{Instant, timeout_at};
 
+use crate::environment::SCAN_PACE_BOUND;
 use crate::kafka::error::KafkaError;
 use crate::kafka::limits::RecordLimits;
 use crate::kafka::session::ClusterSession;
@@ -23,10 +24,6 @@ use super::query::{RecordOrder, RecordQuery};
 use super::{Compression, Record, RecordHeader, RecordPage};
 
 const MAX_FILTER_PASSES: usize = 64;
-
-/// Leave time to inspect consumer positions after empty polls, which is how
-/// an idle or compacted partition is recognised as finished.
-const POLL_BUDGET: Duration = Duration::from_millis(100);
 
 /// A record exactly as it came off the wire.
 #[derive(Debug, Clone)]
@@ -57,11 +54,14 @@ impl RawRecord {
 }
 
 /// A consumer scoped to a single page request.
+///
+/// It arrives already assigned to the page's first windows; a filter scan
+/// that needs another pass re-points it with [`reassign`](Self::reassign).
 #[async_trait]
 pub trait ScanConsumer: Send + Sync {
-    /// Point the consumer at these windows' start offsets, replacing any
+    /// Point the consumer at these windows' start offsets, replacing the
     /// previous assignment and resuming anything paused by an earlier pass.
-    async fn assign(&self, windows: &[PartitionWindow]) -> Result<(), KafkaError>;
+    async fn reassign(&self, windows: &[PartitionWindow]) -> Result<(), KafkaError>;
 
     async fn poll(&self, budget: Duration) -> Result<Vec<RawRecord>, KafkaError>;
 
@@ -74,6 +74,8 @@ pub trait ScanConsumer: Send + Sync {
     /// Records left between the position and the end of the log, if known.
     async fn lag(&self, partition: i32) -> Option<u64>;
 
+    /// Give the consumer up. Whether that closes it or returns it to a pool
+    /// is the session's business.
     async fn close(&self);
 }
 
@@ -146,16 +148,35 @@ pub struct ScanSession {
     obfuscator: Option<Arc<TopicObfuscator>>,
     schema_id: Option<i32>,
     walk: RecordOrder,
+    assigned: Mutex<Assignment>,
+}
+
+struct Assignment(Vec<PartitionWindow>);
+
+impl Assignment {
+    fn from_open(windows: &[PartitionWindow]) -> Self {
+        Self(windows.to_vec())
+    }
+
+    fn needs_reassign(&self, windows: &[PartitionWindow]) -> bool {
+        self.0 != windows
+    }
+
+    fn retarget(&mut self, windows: &[PartitionWindow]) {
+        self.0 = windows.to_vec();
+    }
 }
 
 impl ScanSession {
+    /// Open a consumer already assigned to `windows`.
     pub async fn open<S: ClusterSession + ?Sized>(
         session: &S,
         query: &RecordQuery,
         walk: RecordOrder,
         deadline: Instant,
+        windows: &[PartitionWindow],
     ) -> Result<Self, KafkaError> {
-        let consumer = timeout_at(deadline, session.open_scan(&query.topic))
+        let consumer = timeout_at(deadline, session.open_scan(&query.topic, windows))
             .await
             .map_err(|_| KafkaError::Timeout)??;
 
@@ -167,6 +188,7 @@ impl ScanSession {
             filter: query.filter.clone(),
             schema_id: query.schema_id,
             walk,
+            assigned: Mutex::new(Assignment::from_open(windows)),
         })
     }
 
@@ -193,9 +215,20 @@ impl ScanSession {
             return Ok(scan.outcome(windows, self.walk));
         }
 
-        match timeout_at(deadline, self.consumer.assign(windows)).await {
-            Ok(assigned) => assigned?,
-            Err(_) => return Ok(scan.outcome(windows, self.walk)),
+        if self
+            .assigned
+            .lock()
+            .expect("scan assignment")
+            .needs_reassign(windows)
+        {
+            match timeout_at(deadline, self.consumer.reassign(windows)).await {
+                Ok(assigned) => assigned?,
+                Err(_) => return Ok(scan.outcome(windows, self.walk)),
+            }
+            self.assigned
+                .lock()
+                .expect("scan assignment")
+                .retarget(windows);
         }
 
         while !scan.remaining.is_empty() {
@@ -204,8 +237,14 @@ impl ScanSession {
                 break;
             }
 
-            let budget = deadline.saturating_duration_since(now).min(POLL_BUDGET);
-            let polled = self.consumer.poll(budget).await?;
+            let budget = deadline
+                .saturating_duration_since(now)
+                .min(*SCAN_PACE_BOUND);
+            let Ok(polled) = timeout_at(deadline, self.consumer.poll(budget)).await else {
+                break;
+            };
+
+            let polled = polled?;
             if polled.is_empty() {
                 self.settle_idle(&mut scan, deadline).await;
                 continue;
@@ -567,7 +606,7 @@ pub async fn fetch_page<S: ClusterSession + ?Sized>(
     }
 
     let deadline = Instant::now() + session.consume_timeout();
-    let scan = ScanSession::open(session, query, walk, deadline).await?;
+    let scan = ScanSession::open(session, query, walk, deadline, &windows).await?;
 
     let max_passes = if searching { MAX_FILTER_PASSES } else { 1 };
     let mut kept: Vec<Kept> = Vec::with_capacity(limit);
@@ -669,7 +708,7 @@ pub async fn scan_once<S: ClusterSession + ?Sized>(
     };
 
     let deadline = Instant::now() + session.consume_timeout();
-    let scan = ScanSession::open(session, &query, order, deadline).await?;
+    let scan = ScanSession::open(session, &query, order, deadline, windows).await?;
     let mut batch = RecordBatch::new(limit, order);
     let outcome = scan.run(windows, &mut batch, deadline).await;
     let mut page = batch.into_sorted();

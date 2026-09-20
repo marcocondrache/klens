@@ -39,13 +39,7 @@ async fn resolve_partitions<S: ClusterSession + ?Sized>(
     }
 
     store.topology.kick();
-    let metadata = session.metadata().await?;
-    let topic = metadata
-        .topic(&query.topic)
-        .ok_or_else(|| KafkaError::UnknownTopic {
-            cluster: store.name().to_owned(),
-            topic: query.topic.clone(),
-        })?;
+    let topic = session.topic_metadata(&query.topic).await?;
 
     select_partitions(store.name(), query, &topic.partitions)
 }
@@ -71,12 +65,9 @@ async fn window_watermarks<S: ClusterSession + ?Sized>(
     query: &RecordQuery,
     partitions: &[i32],
 ) -> Result<HashMap<i32, Watermarks>, KafkaError> {
-    let pairs: Vec<(String, i32)> = partitions
-        .iter()
-        .map(|partition| (query.topic.clone(), *partition))
-        .collect();
+    let wanted = HashMap::from_iter([(query.topic.clone(), partitions.to_vec())]);
     let mut watermarks = session
-        .watermarks(&pairs)
+        .watermarks(&wanted)
         .await?
         .remove(&query.topic)
         .unwrap_or_default();
@@ -179,21 +170,26 @@ mod tests {
 
         assert!(!page.records.is_empty());
         assert_eq!(
-            session.calls().metadata(),
+            session.calls().metadata() + session.calls().topic_metadata(),
             0,
             "a topic the lane already committed must not cost a metadata call"
         );
     }
 
     #[tokio::test]
-    async fn a_topic_the_lane_has_not_seen_falls_back_to_metadata() {
+    async fn a_topic_the_lane_has_not_seen_costs_one_topic_scoped_metadata_call() {
         let session = FakeCluster::local();
         let store = store();
 
         let page = page(&session, &store, browse_query()).await.unwrap();
 
         assert!(!page.records.is_empty());
-        assert_eq!(session.calls().metadata(), 1);
+        assert_eq!(session.calls().topic_metadata(), 1);
+        assert_eq!(
+            session.calls().metadata(),
+            0,
+            "one topic must not cost a full cluster fetch"
+        );
     }
 
     #[tokio::test]
