@@ -310,14 +310,6 @@ impl StoreSet {
         self.clusters.values()
     }
 
-    pub fn len(&self) -> usize {
-        self.clusters.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.clusters.is_empty()
-    }
-
     /// Readiness: every configured cluster's topology lane has committed.
     pub fn ready(&self) -> bool {
         self.clusters.values().all(|store| store.ready())
