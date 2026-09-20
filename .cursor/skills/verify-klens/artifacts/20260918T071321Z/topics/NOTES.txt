@@ -1,0 +1,4 @@
+landed http://127.0.0.1:18080/cluster/local/topics rows-per-page=100
+internal http://127.0.0.1:18080/cluster/local/topics?internal=1 hits=2
+filtered http://127.0.0.1:18080/cluster/local/topics?q=klens-verify-topics
+opened http://127.0.0.1:18080/cluster/local/topics/klens-verify-topics

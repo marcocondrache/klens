@@ -32,25 +32,20 @@ html="$(curl -sS "$KLENS_VERIFY_URL/")"
 echo "$html" | grep -q '<title>klens</title>' || fail "GET / is missing <title>klens</title>"
 
 clusters=""
-catalog=""
 for _ in $(seq 1 40); do
   clusters="$(curl -sS -X POST "$KLENS_VERIFY_URL/graphql" \
     -H 'content-type: application/json' \
-    -d '{"query":"query { clusters }"}')"
-  catalog="$(curl -sS -X POST "$KLENS_VERIFY_URL/graphql" \
-    -H 'content-type: application/json' \
-    -d "{\"query\":\"query { catalogHealth(cluster: \\\"${KLENS_VERIFY_CLUSTER}\\\") { updatedAt lastError } }\"}")"
-  echo "$clusters" | grep -q "\"${KLENS_VERIFY_CLUSTER}\"" \
+    -d "{\"query\":\"query { clusters { cluster ready topology { updatedAt lastError } } }\"}")"
+  echo "$clusters" | grep -q "\"cluster\":\"${KLENS_VERIFY_CLUSTER}\"" \
     || fail "graphql clusters missing ${KLENS_VERIFY_CLUSTER}: $clusters"
-  if echo "$catalog" | grep -q '"updatedAt":"' && ! echo "$catalog" | grep -q '"lastError":"'; then
+  if echo "$clusters" | grep -q '"updatedAt":"' && ! echo "$clusters" | grep -q '"lastError":"'; then
     echo "doctor: ok"
     echo "  pid $pid"
     echo "  url $KLENS_VERIFY_URL"
     echo "  auth $me"
     echo "  clusters $clusters"
-    echo "  catalog $catalog"
     exit 0
   fi
   sleep 0.25
 done
-fail "catalogHealth did not become ready: $catalog"
+fail "clusters topology did not become ready: $clusters"
