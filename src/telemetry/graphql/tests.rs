@@ -40,15 +40,17 @@ fn missing_or_blank_operation_name_is_unknown() {
 }
 
 #[test]
-fn record_whoami_ok_inherits_request_id_and_omits_the_document() {
+fn record_whoami_ok_omits_the_document() {
     let (logs, _guard) = capture(tracing::Level::INFO);
-    let id = OperationId::from_name(Some("Whoami"));
-    let _span = tracing::info_span!("http.request", request_id = "req-1").entered();
-    record(&id, &OperationOutcome::Ok, Duration::from_millis(12));
+    record(
+        &OperationId::from_name(Some("Whoami")),
+        &OperationOutcome::Ok,
+        Duration::from_millis(12),
+    );
     let text = logs.as_string();
     assert!(text.contains("operation=Whoami"), "{text}");
     assert!(text.contains("outcome=ok"), "{text}");
-    assert!(text.contains("req-1"), "{text}");
+    assert!(!text.contains("request_id"), "{text}");
     assert!(!text.contains("whoami {"), "{text}");
     assert!(!text.contains("POST /graphql"), "{text}");
     assert!(!text.contains("subject"), "{text}");

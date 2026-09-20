@@ -10,7 +10,6 @@ use anyhow::Result;
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;
 use tower_http::catch_panic::CatchPanicLayer;
-use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
 use tower_http::sensitive_headers::{
     SetSensitiveRequestHeadersLayer, SetSensitiveResponseHeadersLayer,
 };
@@ -32,26 +31,17 @@ pub async fn serve(router: Router, bind: SocketAddr) -> Result<()> {
 
     let layers = ServiceBuilder::new()
         .layer(CatchPanicLayer::new())
-        .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
-        .layer(PropagateRequestIdLayer::x_request_id())
         .layer(SetSensitiveRequestHeadersLayer::from_shared(Arc::clone(
             &sensitive_headers,
         )))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|request: &Request<_>| {
-                    let request_id = request
-                        .headers()
-                        .get("x-request-id")
-                        .and_then(|value| value.to_str().ok())
-                        .unwrap_or("-");
-
                     tracing::info_span!(
                         "http.request",
                         method = %request.method(),
                         uri = %request.uri(),
                         version = ?request.version(),
-                        request_id = %request_id,
                     )
                 })
                 .on_response(|response: &Response<_>, latency: Duration, _span: &Span| {
