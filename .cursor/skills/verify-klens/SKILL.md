@@ -35,7 +35,7 @@ Overrides, all optional:
 - `KLENS_VERIFY_RUN_DIR` (default `.cursor/skills/verify-klens/run`)
 - `KLENS_VERIFY_BROKERS` (default `127.0.0.1:9092`)
 - `RPK` (path to `rpk`; default `rpk` on `PATH`)
-- `KLENS_CATALOG_POLL_INTERVAL` (product env, seconds, default `5`). A 5s catalog poll can fail `ListGroups` against Redpanda and set `catalogHealth.lastError`, which fails doctor. For a multi-feature drive set `600` so the poller stays quiet. That override is session harness, not a product fix. Do not add it to `launch.sh`.
+- `KLENS_TOPOLOGY_LANE_INTERVAL` (product env, seconds, default `10`). The topology lane refreshes metadata and consumer-group membership. A short interval can fail `ListGroups` against Redpanda and set `clusters.topology.lastError`, which fails doctor. For a multi-feature drive set `600` so the lane stays quiet. That override is session harness, not a product fix. Do not add it to `launch.sh`. The old `KLENS_CATALOG_POLL_INTERVAL` name is ignored.
 
 Do not use `mise web:dev` / `vp dev` for verification. `web/vite.config.ts` proxies `/graphql`, `/auth`, `/api`, and `/health` to `http://localhost:8080`, so a Vite session cannot bind a private port.
 
@@ -57,8 +57,7 @@ Read-only. Fail if any check misses:
 - `GET /health` is 204.
 - `GET /auth/me` is `{"enabled":false,"user":null}` (verify configs omit OIDC).
 - `GET /` includes `<title>klens</title>`.
-- `POST /graphql` `query { clusters }` includes `local`.
-- `POST /graphql` `query { catalogHealth(cluster: "local") { updatedAt lastError } }` has `updatedAt` set and no `lastError`.
+- `POST /graphql` `query { clusters { cluster ready topology { updatedAt lastError } } }` includes `local`, has topology `updatedAt` set, and has no topology `lastError`.
 
 If doctor fails, stop driving. Relaunch or fix the unmet check.
 
@@ -84,7 +83,7 @@ If you drive by hand, use these handles from this repo. Prefer them over coordin
 | Internal topics | label `Show internal` |
 | Sidebar | links `Topics`, `Consumer Groups`, `Schema Registry`, `Brokers`, `ACLs` |
 | Command palette | header button visible label `Search` (accessible name `Search Ctrl+K`), or `Meta+K` / `Control+K`; `/` opens the dialog only when no `data-search-hotkey` field is visible; dialog title `Search klens` |
-| Catalog alerts | `Cluster unreachable` when `lastError` is set and `updatedAt` is null; `Catalog update failed` when both are set |
+| Catalog alerts | `Cluster unreachable` when `topology.lastError` is set and `topology.updatedAt` is null; `Topology lane failing` when both are set |
 | Topic row | table cell with the topic name; click opens `/cluster/local/topics/<name>` |
 | Topic tabs | `Data`, `Partitions`, `Consumer groups`, `Configuration` |
 | Schema Registry page | `/cluster/local/schemas`, heading `Schema registry` |
@@ -98,7 +97,7 @@ GraphQL the UI uses (corroborate, do not substitute for the UI path):
 ```sh
 curl -sS -X POST "$KLENS_VERIFY_URL/graphql" \
   -H 'content-type: application/json' \
-  -d '{"query":"query { clusterCatalog(cluster: \"local\") { topics { name internal messageCount } } }"}'
+  -d '{"query":"query { topicRows(cluster: \"local\") { rows { name internal } } }"}'
 ```
 
 ## Evidence
@@ -111,13 +110,13 @@ A pass captures the user action and the resulting state:
 - An ARIA snapshot (Playwright `ariaSnapshot`) of the same page.
 - The GraphQL body that backs the view (topics list, topic, groups, or brokers).
 - The URL after navigation.
-- For a produce or seed, a second read of the topic (UI row or GraphQL `messageCount` / record key) after the write.
+- For a produce or seed, a second read of the topic (UI row or GraphQL record key) after the write.
 
 Proof standards:
 
 - Exercise the real UI route. A 200 from `/graphql` alone is not UI proof.
 - Mocks stop at Kafka and Schema Registry. Do not stub `/graphql` or `/auth/me`.
-- If `catalogHealth.lastError` is set and `updatedAt` is null, that is a verified-unreachable catalog (`Cluster unreachable`), not a Topics pass. Record the alert text and stop. `Catalog update failed` (stale `updatedAt` plus a later `lastError`) is also not a catalog pass.
+- If `clusters.topology.lastError` is set and `updatedAt` is null, that is a verified-unreachable catalog (`Cluster unreachable`), not a Topics pass. Record the alert text and stop. `Topology lane failing` (stale `updatedAt` plus a later `lastError`) is also not a catalog pass.
 - Dry-run does not apply. klens always talks to the configured brokers.
 
 ## Cleanup

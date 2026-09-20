@@ -20,7 +20,7 @@ Topics is the default catalog. After `/` loads a healthy cluster, the UI redirec
 
 Preconditions:
 
-- Doctor reports `clusters` includes `local` and `catalogHealth` has `updatedAt` with no `lastError`.
+- Doctor reports cluster `local` is ready and topology has `updatedAt` with no `lastError`.
 - Topic `klens-verify-topics` exists.
 - `helpers/drive-topics.mjs` is the scripted form of this recipe.
 
@@ -36,6 +36,6 @@ Preconditions:
 - First metadata fetch can take several seconds. Wait for heading `Topics`, not a fixed sleep. Until the cluster is ready, the UI shows a full-page `Loading catalog` spinner, not the shell or an empty table. `Loading clusters` only covers the cluster-list query.
 - Search uses a unicode ellipsis in the placeholder (`Search topics…`), not three dots.
 - Internal topics stay hidden until `Show internal` is on. A leftover `?q=` hides internal names that do not match. Clear search before this toggle. A missing seed topic is a Kafka problem, not this toggle.
-- First-fail catalog (`lastError` set, `updatedAt` null) still redirects to Topics and shows alert `Cluster unreachable`. A later poll failure with a stale snapshot shows `Catalog update failed`. Neither is a catalog pass.
+- First-fail catalog (`topology.lastError` set, `updatedAt` null) still redirects to Topics and shows alert `Cluster unreachable`. A later poll failure with a stale snapshot shows `Topology lane failing`. Neither is a catalog pass.
 - Clicking a row is the open path. Topic names in the table are not links.
 - Cleanup policy is a separate `All policies` select and writes `?policy=`. It is not required for this recipe.

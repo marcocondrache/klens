@@ -1,0 +1,7 @@
+- dialog "Search klens":
+  - group:
+    - combobox [expanded]: klens-verify-topics
+    - group
+  - listbox "Suggestions":
+    - group "Topics":
+      - option "klens-verify-topics 1 partitions" [selected]
