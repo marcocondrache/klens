@@ -165,8 +165,6 @@ impl ClusterStore {
         ))
     }
 
-    /// Registers interest so the offsets lane promotes this group to its fast
-    /// tier while someone is looking at it.
     pub fn group_detail(&self, id: &str) -> Option<GroupDetail> {
         let topology = self.topology.load()?;
         let (key, group) = topology.groups.get_key_value(id)?;
@@ -267,7 +265,6 @@ impl ClusterStore {
         }
     }
 
-    /// Wakes every lane.
     pub fn kick(&self) {
         self.topology.kick();
         self.watermarks.kick();
@@ -308,14 +305,6 @@ impl StoreSet {
 
     pub fn iter(&self) -> impl Iterator<Item = &Arc<ClusterStore>> {
         self.clusters.values()
-    }
-
-    pub fn len(&self) -> usize {
-        self.clusters.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.clusters.is_empty()
     }
 
     /// Readiness: every configured cluster's topology lane has committed.
