@@ -4,6 +4,7 @@
 //! [`ClusterSession`] is this type. All broker I/O goes through krafka.
 
 mod admin;
+mod budget;
 mod convert;
 mod groups;
 mod offsets;
@@ -40,6 +41,7 @@ use crate::kafka::topic_config::ConfigEntry;
 use crate::kafka::watermarks::Watermarks;
 
 use admin::AdminFan;
+use budget::ConnectionBudget;
 use convert::committed_from_krafka;
 use groups::snapshots_from_descriptions;
 use offsets::{from_list_offsets, merge_watermark_offsets, partition_time_offsets};
@@ -91,14 +93,16 @@ impl KafkaClient {
             })
             .transpose()?;
 
-        let transport = transport::connect(config).await?;
+        let budget = ConnectionBudget::from_env()?;
+        let transport = transport::connect(config, &budget).await?;
+        let metadata = Arc::clone(transport.client.metadata());
 
         Ok(Self {
             identity,
             consume_timeout: *CONSUME_TIMEOUT,
-            scans: ScanPool::spawn(transport.client.clone()),
+            scans: ScanPool::spawn(transport.client.clone(), budget),
             krafka: transport.client,
-            admin: AdminFan::new(transport.admin),
+            admin: AdminFan::new(transport.admin, metadata),
             schema_registry,
             obfuscation,
         })
@@ -136,7 +140,6 @@ impl ClusterSession for KafkaClient {
     async fn groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
         let listed = self
             .admin
-            .admin()
             .list_consumer_groups(&GroupListing::all())
             .await?;
         let ids: Vec<String> = listed
@@ -166,7 +169,6 @@ impl ClusterSession for KafkaClient {
         let query = list_offset_query(&topics);
         let listed = self
             .admin
-            .admin()
             .describe_consumer_group_offsets(
                 group_id,
                 Some(&query),
@@ -205,10 +207,10 @@ impl ClusterSession for KafkaClient {
             return Ok(HashMap::new());
         }
 
+        let wanted = HashMap::from([(topic.to_owned(), partitions.to_vec())]);
         let listed = self
             .admin
-            .admin()
-            .list_offsets(&[(topic, partitions)], OffsetSpec::Timestamp(timestamp))
+            .list_offsets(&wanted, OffsetSpec::Timestamp(timestamp))
             .await?;
         Ok(partition_time_offsets(from_list_offsets(
             listed.into_iter().map(list_offset_parts),
@@ -235,11 +237,7 @@ impl ClusterSession for KafkaClient {
             include_synonyms: false,
             include_documentation: false,
         };
-        let results = self
-            .admin
-            .admin()
-            .describe_configs_per_resource(request)
-            .await?;
+        let results = self.admin.describe_configs(request).await?;
 
         let mut out = HashMap::new();
         for result in results {
@@ -259,8 +257,7 @@ impl ClusterSession for KafkaClient {
     async fn broker_configs(&self, broker_id: i32) -> Result<Vec<ConfigEntry>, KafkaError> {
         let results = self
             .admin
-            .admin()
-            .describe_configs_per_resource(DescribeConfigsRequest::for_broker(broker_id))
+            .describe_configs(DescribeConfigsRequest::for_broker(broker_id))
             .await?;
 
         match results.into_iter().next() {
@@ -323,7 +320,7 @@ impl ClusterSession for KafkaClient {
     async fn acls(&self) -> Result<AclListing, KafkaError> {
         AclListing::from_admin_result(
             &self.identity.name,
-            self.admin.admin().describe_acls(AclFilter::all()).await,
+            self.admin.describe_acls(AclFilter::all()).await,
         )
     }
 }
@@ -487,10 +484,7 @@ mod tests {
         })
         .await
         .unwrap();
-        assert_eq!(
-            client.admin.admin().request_timeout(),
-            Duration::from_millis(100)
-        );
+        assert_eq!(client.admin.request_timeout(), Duration::from_millis(100));
         broker.clear_requests();
         broker.on(krafka::protocol::ApiKey::Metadata, |_| {
             krafka::testing::Control::Silence
@@ -504,7 +498,7 @@ mod tests {
             broker.request_count(krafka::protocol::ApiKey::Metadata) > 0,
             "{error:?}"
         );
-        client.admin.admin().close().await;
+        client.admin.close().await;
         client.krafka.pool().close_all().await;
     }
 
@@ -668,7 +662,9 @@ mod tests {
         produce_krafka(&broker.bootstrap_servers(), "orders", 2).await;
         let client = kafka_client(&broker.bootstrap_servers()).await;
         broker.on(krafka::protocol::ApiKey::Fetch, |_| {
-            krafka::testing::Control::Delay(crate::kafka::scan::session::POLL_BUDGET * 3)
+            krafka::testing::Control::Delay(
+                crate::kafka::scan::session::ScanPace::ALIGNED.slice() * 3,
+            )
         });
 
         let records = scan_once(
@@ -771,8 +767,7 @@ mod tests {
         let client = kafka_client(&broker.bootstrap_servers()).await;
         let described = client
             .admin
-            .admin()
-            .describe_consumer_groups(vec!["orders-group".to_owned()])
+            .describe_groups(&["orders-group".to_owned()])
             .await
             .expect("describe group");
         let group = snapshots_from_descriptions(described)
@@ -847,7 +842,6 @@ mod tests {
     async fn commit_krafka(client: &KafkaClient, group: &str, topic: &str, offset: i64) {
         client
             .admin
-            .admin()
             .alter_consumer_group_offsets(group, &[(topic, &[(0, offset)])])
             .await
             .expect("commit");

@@ -38,7 +38,7 @@ pub trait ClusterSession: Send + Sync + 'static {
     ///
     /// The caller supplies partitions from a metadata snapshot it already
     /// has. This method does not refetch cluster metadata. Implementations
-    /// fan the request out per topic.
+    /// shard the request by cached leader.
     async fn watermarks(
         &self,
         topics: &HashMap<String, Vec<i32>>,

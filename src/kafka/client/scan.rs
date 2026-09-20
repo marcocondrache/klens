@@ -10,28 +10,28 @@ use crate::kafka::model::{Compression, PartitionWindow, RawRecord, ScanConsumer}
 
 use super::pool::{ScanPool, assign};
 
-pub(super) struct ScanLease {
+pub(super) struct ScanHold {
     pool: Arc<ScanPool>,
     topic: String,
     consumer: Arc<Consumer>,
-    healthy: AtomicBool,
+    reusable: AtomicBool,
     released: AtomicBool,
 }
 
-impl ScanLease {
+impl ScanHold {
     pub(super) fn new(pool: Arc<ScanPool>, topic: &str, consumer: Arc<Consumer>) -> Self {
         Self {
             pool,
             topic: topic.to_owned(),
             consumer,
-            healthy: AtomicBool::new(true),
+            reusable: AtomicBool::new(true),
             released: AtomicBool::new(false),
         }
     }
 
-    fn watch<T>(&self, result: Result<T, KafkaError>) -> Result<T, KafkaError> {
+    fn poison<T>(&self, result: Result<T, KafkaError>) -> Result<T, KafkaError> {
         if result.is_err() {
-            self.healthy.store(false, Ordering::SeqCst);
+            self.reusable.store(false, Ordering::SeqCst);
         }
         result
     }
@@ -43,16 +43,16 @@ impl ScanLease {
         self.pool.release(
             &self.topic,
             Arc::clone(&self.consumer),
-            self.healthy.load(Ordering::SeqCst),
+            self.reusable.load(Ordering::SeqCst),
         );
         true
     }
 }
 
 #[async_trait]
-impl ScanConsumer for ScanLease {
+impl ScanConsumer for ScanHold {
     async fn reassign(&self, windows: &[PartitionWindow]) -> Result<(), KafkaError> {
-        self.watch(assign(&self.consumer, &self.topic, windows).await)
+        self.poison(assign(&self.consumer, &self.topic, windows).await)
     }
 
     async fn poll(&self, budget: Duration) -> Result<Vec<RawRecord>, KafkaError> {
@@ -60,7 +60,7 @@ impl ScanConsumer for ScanLease {
         // the round trip that carries it back: on a link slower than the
         // budget, cutting the poll off here would discard every response.
         // The scan bounds the page by its own deadline instead.
-        let polled = self.watch(self.consumer.poll(budget).await.map_err(KafkaError::from))?;
+        let polled = self.poison(self.consumer.poll(budget).await.map_err(KafkaError::from))?;
 
         Ok(polled
             .into_iter()
@@ -97,7 +97,7 @@ impl ScanConsumer for ScanLease {
     }
 }
 
-impl Drop for ScanLease {
+impl Drop for ScanHold {
     fn drop(&mut self) {
         self.release();
     }
@@ -120,7 +120,7 @@ mod tests {
         }
     }
 
-    async fn read(scan: &ScanLease, window: PartitionWindow) -> Vec<i64> {
+    async fn read(scan: &ScanHold, window: PartitionWindow) -> Vec<i64> {
         let mut offsets = Vec::new();
         while (offsets.len() as i64) < window.end - window.start {
             let polled = scan.poll(Duration::from_secs(1)).await.expect("poll");
@@ -199,7 +199,7 @@ mod tests {
             .acquire("orders", &[window(0, 0, 2)])
             .await
             .unwrap();
-        poisoned.healthy.store(false, Ordering::SeqCst);
+        poisoned.reusable.store(false, Ordering::SeqCst);
         poisoned.close().await;
 
         assert_eq!(

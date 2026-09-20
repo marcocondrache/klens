@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use krafka::client::KrafkaClient as KrafkaSharedClient;
@@ -10,15 +10,16 @@ use crate::environment::{
 };
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::PartitionWindow;
-use crate::kafka::scan::session::POLL_BUDGET;
+use crate::kafka::scan::session::ScanPace;
 
-use super::scan::ScanLease;
-use super::transport::fetch_max_bytes;
+use super::budget::ConnectionBudget;
+use super::scan::ScanHold;
 
 pub(super) struct ScanPool {
     client: KrafkaSharedClient,
     idle: Mutex<Idle>,
-    discarded: Mutex<Vec<Arc<Consumer>>>,
+    graveyard: Graveyard,
+    budget: ConnectionBudget,
     max_per_topic: usize,
     max_total: usize,
     idle_ttl: Duration,
@@ -35,32 +36,76 @@ struct Parked {
     since: Instant,
 }
 
+struct Graveyard {
+    waiting: Mutex<Vec<Arc<Consumer>>>,
+}
+
+impl Graveyard {
+    fn new() -> Self {
+        Self {
+            waiting: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn push(&self, consumer: Arc<Consumer>) {
+        self.waiting
+            .lock()
+            .expect("scan pool graveyard")
+            .push(consumer);
+    }
+
+    fn extend(&self, consumers: Vec<Arc<Consumer>>) {
+        self.waiting
+            .lock()
+            .expect("scan pool graveyard")
+            .extend(consumers);
+    }
+
+    fn drain(&self) -> Vec<Arc<Consumer>> {
+        std::mem::take(&mut *self.waiting.lock().expect("scan pool graveyard"))
+    }
+}
+
+struct Janitor {
+    pool: Weak<ScanPool>,
+    period: Duration,
+}
+
+impl Janitor {
+    fn spawn(self) {
+        tokio::spawn(async move { self.run().await });
+    }
+
+    async fn run(self) {
+        let mut ticker = tokio::time::interval(self.period);
+        ticker.tick().await;
+        loop {
+            ticker.tick().await;
+            let Some(pool) = self.pool.upgrade() else {
+                return;
+            };
+            pool.expire_idle();
+            pool.sweep().await;
+        }
+    }
+}
+
 impl ScanPool {
-    pub(super) fn spawn(client: KrafkaSharedClient) -> Arc<Self> {
+    pub(super) fn spawn(client: KrafkaSharedClient, budget: ConnectionBudget) -> Arc<Self> {
         let pool = Arc::new(Self {
             client,
             idle: Mutex::new(Idle::default()),
-            discarded: Mutex::new(Vec::new()),
+            graveyard: Graveyard::new(),
+            budget,
             max_per_topic: (*SCAN_POOL_PER_TOPIC).max(1),
             max_total: (*SCAN_POOL_TOTAL).max(1),
             idle_ttl: *SCAN_POOL_IDLE_TTL,
         });
-
-        let janitor = Arc::downgrade(&pool);
-        let period = pool.idle_ttl;
-        tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(period);
-            ticker.tick().await;
-            loop {
-                ticker.tick().await;
-                let Some(pool) = janitor.upgrade() else {
-                    return;
-                };
-                pool.expire_idle();
-                pool.sweep().await;
-            }
-        });
-
+        Janitor {
+            pool: Arc::downgrade(&pool),
+            period: pool.idle_ttl,
+        }
+        .spawn();
         pool
     }
 
@@ -68,7 +113,7 @@ impl ScanPool {
         self: &Arc<Self>,
         topic: &str,
         windows: &[PartitionWindow],
-    ) -> Result<ScanLease, KafkaError> {
+    ) -> Result<ScanHold, KafkaError> {
         let consumer = match self.take(topic) {
             Some(consumer) => consumer,
             None => Arc::new(self.build(topic, windows).await?),
@@ -79,7 +124,7 @@ impl ScanPool {
             return Err(error);
         }
 
-        Ok(ScanLease::new(Arc::clone(self), topic, consumer))
+        Ok(ScanHold::new(Arc::clone(self), topic, consumer))
     }
 
     #[cfg(test)]
@@ -121,8 +166,7 @@ impl ScanPool {
     }
 
     pub(super) async fn sweep(&self) {
-        let discarded = std::mem::take(&mut *self.discarded.lock().expect("scan pool graveyard"));
-        for consumer in discarded {
+        for consumer in self.graveyard.drain() {
             let _ = consumer.close().await;
         }
     }
@@ -147,10 +191,7 @@ impl ScanPool {
         }
 
         if !stale.is_empty() {
-            self.discarded
-                .lock()
-                .expect("scan pool graveyard")
-                .extend(stale);
+            self.graveyard.extend(stale);
         }
         taken
     }
@@ -173,17 +214,11 @@ impl ScanPool {
             idle.total -= expired.len();
         }
 
-        self.discarded
-            .lock()
-            .expect("scan pool graveyard")
-            .extend(expired);
+        self.graveyard.extend(expired);
     }
 
     fn discard(&self, consumer: Arc<Consumer>) {
-        self.discarded
-            .lock()
-            .expect("scan pool graveyard")
-            .push(consumer);
+        self.graveyard.push(consumer);
     }
 
     async fn build(
@@ -199,12 +234,12 @@ impl ScanPool {
             .auto_offset_reset(AutoOffsetReset::Earliest)
             // The broker releases the long poll exactly when the scan stops
             // waiting for it, instead of holding a fetch nobody will read.
-            .fetch_max_wait(POLL_BUDGET)
+            .fetch_max_wait(ScanPace::ALIGNED.park())
             .max_poll_records(page_limit)
             .max_buffered_records(page_limit.saturating_mul(2))
             // krafka's 50 MB default is wider than the frame the connection
             // now accepts, which would make a busy fetch unreadable.
-            .fetch_max_bytes(fetch_max_bytes())
+            .fetch_max_bytes(self.budget.fetch_max_bytes())
             // With the window starts already known, the first assignment
             // resolves no offsets.
             .initial_offsets(

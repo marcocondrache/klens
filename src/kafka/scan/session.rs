@@ -23,9 +23,27 @@ use super::{Compression, Record, RecordHeader, RecordPage};
 
 const MAX_FILTER_PASSES: usize = 64;
 
-/// Leave time to inspect consumer positions after empty polls, which is how
-/// an idle or compacted partition is recognised as finished.
-pub const POLL_BUDGET: Duration = Duration::from_millis(100);
+/// How long one scan poll waits, and how long the broker may park the fetch.
+///
+/// Same duration on purpose: the broker must release when the scan moves on.
+#[derive(Clone, Copy, Debug)]
+pub struct ScanPace {
+    bound: Duration,
+}
+
+impl ScanPace {
+    pub const ALIGNED: Self = Self {
+        bound: Duration::from_millis(100),
+    };
+
+    pub fn slice(self) -> Duration {
+        self.bound
+    }
+
+    pub fn park(self) -> Duration {
+        self.bound
+    }
+}
 
 /// A record exactly as it came off the wire.
 #[derive(Debug, Clone)]
@@ -150,7 +168,23 @@ pub struct ScanSession {
     obfuscator: Option<Arc<TopicObfuscator>>,
     schema_id: Option<i32>,
     walk: RecordOrder,
-    assigned: Mutex<Vec<PartitionWindow>>,
+    assigned: Mutex<Assignment>,
+}
+
+struct Assignment(Vec<PartitionWindow>);
+
+impl Assignment {
+    fn from_open(windows: &[PartitionWindow]) -> Self {
+        Self(windows.to_vec())
+    }
+
+    fn needs_reassign(&self, windows: &[PartitionWindow]) -> bool {
+        self.0 != windows
+    }
+
+    fn retarget(&mut self, windows: &[PartitionWindow]) {
+        self.0 = windows.to_vec();
+    }
 }
 
 impl ScanSession {
@@ -174,16 +208,12 @@ impl ScanSession {
             filter: query.filter.clone(),
             schema_id: query.schema_id,
             walk,
-            assigned: Mutex::new(windows.to_vec()),
+            assigned: Mutex::new(Assignment::from_open(windows)),
         })
     }
 
     fn obfuscated(&self) -> bool {
         self.obfuscator.is_some()
-    }
-
-    fn points_at(&self, windows: &[PartitionWindow]) -> bool {
-        *self.assigned.lock().expect("scan assignment") == windows
     }
 
     pub async fn close(self) {
@@ -205,12 +235,20 @@ impl ScanSession {
             return Ok(scan.outcome(windows, self.walk));
         }
 
-        if !self.points_at(windows) {
+        if self
+            .assigned
+            .lock()
+            .expect("scan assignment")
+            .needs_reassign(windows)
+        {
             match timeout_at(deadline, self.consumer.reassign(windows)).await {
                 Ok(assigned) => assigned?,
                 Err(_) => return Ok(scan.outcome(windows, self.walk)),
             }
-            *self.assigned.lock().expect("scan assignment") = windows.to_vec();
+            self.assigned
+                .lock()
+                .expect("scan assignment")
+                .retarget(windows);
         }
 
         while !scan.remaining.is_empty() {
@@ -219,7 +257,9 @@ impl ScanSession {
                 break;
             }
 
-            let budget = deadline.saturating_duration_since(now).min(POLL_BUDGET);
+            let budget = deadline
+                .saturating_duration_since(now)
+                .min(ScanPace::ALIGNED.slice());
             let Ok(polled) = timeout_at(deadline, self.consumer.poll(budget)).await else {
                 break;
             };

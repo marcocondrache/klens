@@ -12,6 +12,7 @@ use crate::utils::utc_now;
 use super::RecordPage;
 use super::plan::apply_timestamp_bounds;
 use super::query::RecordQuery;
+use super::sample::VerifiedWatermarks;
 use super::session::fetch_page;
 
 pub async fn read_page<S: ClusterSession + ?Sized>(
@@ -51,28 +52,8 @@ fn sampled_watermarks(
     topic: &str,
     partitions: &[i32],
 ) -> Option<HashMap<i32, Watermarks>> {
-    let sampled = store
-        .watermarks
-        .load()
-        .filter(|table| {
-            let verified_at = store
-                .watermarks
-                .health()
-                .checked_at
-                .map_or(table.sampled_at, |checked| checked.max(table.sampled_at));
-            utc_now()
-                .signed_duration_since(verified_at)
-                .num_milliseconds()
-                <= WATERMARK_FRESHNESS.as_millis() as i64
-        })
-        .and_then(|table| {
-            let marks = table.topic(topic)?;
-            partitions
-                .iter()
-                .map(|partition| marks.get(partition).map(|marks| (*partition, *marks)))
-                .collect()
-        });
-
+    let sampled = VerifiedWatermarks::observe(&store.watermarks)
+        .and_then(|sample| sample.plan(topic, partitions, utc_now(), *WATERMARK_FRESHNESS));
     if sampled.is_none() {
         store.watermarks.kick();
     }
