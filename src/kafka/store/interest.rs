@@ -1,6 +1,7 @@
-use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+use foldhash::{HashMap, HashMapExt, HashSet};
 
 use tokio::time::Instant;
 
@@ -143,7 +144,10 @@ mod tests {
         let lease = interest.lease_group("billing");
 
         tokio::time::advance(Duration::from_secs(3_600)).await;
-        assert_eq!(interest.hot_groups(), HashSet::from([Arc::from("billing")]));
+        assert_eq!(
+            interest.hot_groups(),
+            HashSet::from_iter([Arc::from("billing")])
+        );
 
         drop(lease);
         assert!(interest.hot_groups().is_empty());

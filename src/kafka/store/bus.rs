@@ -267,7 +267,7 @@ fn diff_maps<V>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
+    use foldhash::HashMap;
 
     use crate::kafka::group::GroupState;
     use crate::kafka::store::fixtures::{config, group, partition, topic, topology};

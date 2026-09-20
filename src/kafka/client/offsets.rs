@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use foldhash::{HashMap, HashMapExt};
 
 use crate::kafka::watermarks::Watermarks;
 
@@ -67,7 +67,7 @@ mod tests {
 
     #[test]
     fn partition_time_offsets_keeps_only_what_the_broker_returned() {
-        let listed = HashMap::from([
+        let listed = HashMap::from_iter([
             (("orders".into(), 0), Some(12)),
             (("orders".into(), 2), None),
         ]);
@@ -80,7 +80,7 @@ mod tests {
 
     #[test]
     fn merge_watermark_offsets_keeps_empty_skips_inverted_and_partial() {
-        let beginning = HashMap::from([
+        let beginning = HashMap::from_iter([
             (("orders".into(), 0), Some(0)),
             (("orders".into(), 1), Some(10)),
             (("orders".into(), 2), Some(4)),
@@ -88,7 +88,7 @@ mod tests {
             (("payments".into(), 1), None),
             (("logs".into(), 0), Some(3)),
         ]);
-        let end = HashMap::from([
+        let end = HashMap::from_iter([
             (("orders".into(), 0), Some(0)),
             (("orders".into(), 1), Some(5)),
             (("orders".into(), 2), Some(12)),
@@ -99,21 +99,21 @@ mod tests {
 
         assert_eq!(
             merge_watermark_offsets(&beginning, &end),
-            HashMap::from([
+            HashMap::from_iter([
                 (
                     "orders".into(),
-                    HashMap::from([
+                    HashMap::from_iter([
                         (0, Watermarks { low: 0, high: 0 }),
                         (2, Watermarks { low: 4, high: 12 }),
                     ]),
                 ),
                 (
                     "payments".into(),
-                    HashMap::from([(1, Watermarks { low: 9, high: 9 })]),
+                    HashMap::from_iter([(1, Watermarks { low: 9, high: 9 })]),
                 ),
                 (
                     "logs".into(),
-                    HashMap::from([(0, Watermarks { low: 3, high: 9 })]),
+                    HashMap::from_iter([(0, Watermarks { low: 3, high: 9 })]),
                 ),
             ])
         );

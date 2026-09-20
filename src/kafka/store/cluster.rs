@@ -327,7 +327,7 @@ impl StoreSet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
+    use foldhash::HashMap;
 
     use crate::kafka::store::fixtures::{
         at, group, identity, offsets, partition, subject, topic, topology, watermarks,
@@ -349,7 +349,7 @@ mod tests {
             .watermarks
             .commit(Arc::new(watermarks(at(1_000), &[("orders", 0, 10, 60)])));
         store.offsets.commit(Arc::new(OffsetTable {
-            groups: HashMap::from([(
+            groups: HashMap::from_iter([(
                 Arc::from("billing"),
                 Arc::new(offsets(at(1_000), &[("orders", 0, 45)])),
             )]),
@@ -466,7 +466,7 @@ mod tests {
         let first = Arc::clone(store.offsets.load().unwrap().get("billing").unwrap());
 
         store.offsets.commit(Arc::new(OffsetTable {
-            groups: HashMap::from([
+            groups: HashMap::from_iter([
                 (Arc::from("billing"), Arc::clone(&first)),
                 (
                     Arc::from("audit"),

@@ -1,5 +1,7 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 use std::sync::Arc;
+
+use foldhash::HashMap;
 
 use futures::StreamExt as _;
 use juniper::{
@@ -140,7 +142,7 @@ fn seed(store: &ClusterStore) {
     )));
 
     store.offsets.commit(Arc::new(OffsetTable {
-        groups: HashMap::from([(
+        groups: HashMap::from_iter([(
             Arc::from("order-processor"),
             Arc::new(offsets(
                 at(1_000),
@@ -150,7 +152,7 @@ fn seed(store: &ClusterStore) {
     }));
 
     store.configs.commit(Arc::new(ConfigTable {
-        topics: HashMap::from([(
+        topics: HashMap::from_iter([(
             Arc::from("orders.created"),
             Arc::new(vec![
                 config("cleanup.policy", "compact"),

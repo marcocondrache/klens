@@ -1,7 +1,8 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::sync::{Arc, RwLock};
 
 use chrono::{DateTime, Utc};
+use foldhash::{HashMap, HashMapExt};
 
 use crate::environment::HISTORY_LEN;
 

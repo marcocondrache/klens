@@ -1,7 +1,8 @@
-use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::sync::Arc;
 use std::time::Duration;
+
+use foldhash::{HashMap, HashSet, HashSetExt};
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -742,7 +743,7 @@ mod tests {
     }
 
     fn marks(low: i64, high: i64) -> HashMap<i32, Watermarks> {
-        HashMap::from([(0, Watermarks { low, high })])
+        HashMap::from_iter([(0, Watermarks { low, high })])
     }
 
     fn offsets(page: &RecordPage) -> Vec<i64> {
