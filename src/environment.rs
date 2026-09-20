@@ -88,23 +88,12 @@ pub static CONSUME_TIMEOUT: LazyLock<Duration> =
 
 /// Requests one broker connection may hold in flight (default: 32).
 ///
-/// krafka defaults to 10, which is where a fanned-out admin call starts
-/// queueing on the connection semaphore instead of pipelining.
-///
 /// Override with `KLENS_MAX_IN_FLIGHT_REQUESTS`.
 pub static MAX_IN_FLIGHT_REQUESTS: LazyLock<usize> =
     lazy_env_parse!("KLENS_MAX_IN_FLIGHT_REQUESTS", usize, 32);
 
 /// Largest broker response frame the client will accept, in MiB
 /// (default: 32).
-///
-/// Worst-case memory per connection is this times
-/// [`MAX_IN_FLIGHT_REQUESTS`], and krafka warns past 1 GiB; the two defaults
-/// multiply to exactly that bound, so raising either means lowering the
-/// other. A cluster whose `max.message.bytes` is larger than this frame
-/// needs it raised: Kafka returns one whole record batch per partition
-/// however small the fetch budget, and a frame the client refuses comes back
-/// identical on every retry, stalling that partition for good.
 ///
 /// Override with `KLENS_MAX_RESPONSE_MB`.
 pub static MAX_RESPONSE_MB: LazyLock<usize> = lazy_env_parse!("KLENS_MAX_RESPONSE_MB", usize, 32);
@@ -147,10 +136,6 @@ pub static SCAN_POOL_IDLE_TTL: LazyLock<Duration> = lazy_env_parse!(
 
 /// How long ago the watermark lane must have verified its sample for a
 /// record page to plan from it (default: the watermark lane interval).
-///
-/// Verification is the lane's last completed fetch, whether or not it
-/// committed anything: an unchanged table stays fresh as long as the lane
-/// keeps checking it.
 ///
 /// Override with `KLENS_WATERMARK_FRESHNESS` (seconds).
 pub static WATERMARK_FRESHNESS: LazyLock<Duration> = LazyLock::new(|| {

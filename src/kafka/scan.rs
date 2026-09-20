@@ -6,6 +6,7 @@ pub mod payload;
 pub mod plan;
 pub mod query;
 pub mod read;
+pub mod sample;
 pub mod session;
 
 use std::cmp::Ordering;

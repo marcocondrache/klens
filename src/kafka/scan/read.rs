@@ -12,6 +12,7 @@ use crate::utils::utc_now;
 use super::RecordPage;
 use super::plan::apply_timestamp_bounds;
 use super::query::RecordQuery;
+use super::sample::VerifiedWatermarks;
 use super::session::fetch_page;
 
 pub async fn read_page<S: ClusterSession + ?Sized>(
@@ -40,52 +41,19 @@ async fn resolve_partitions<S: ClusterSession + ?Sized>(
         return select_partitions(store.name(), query, &topic.partitions);
     }
 
-    // A topic the lane has not committed yet costs one topic-scoped
-    // metadata call, not a full cluster fetch.
     store.topology.kick();
     let topic = session.topic_metadata(&query.topic).await?;
 
     select_partitions(store.name(), query, &topic.partitions)
 }
 
-/// The watermark lane's sample, when it is recent enough to plan a page from
-/// and covers every partition the page reads.
-///
-/// Staleness is bounded and recoverable either way: a stale high mark hides
-/// records younger than one lane interval, which the next page picks up, and
-/// a stale low mark on an aggressively retained topic plans a window that
-/// scans empty — which the scan already treats as a finished window.
 fn sampled_watermarks(
     store: &ClusterStore,
     topic: &str,
     partitions: &[i32],
 ) -> Option<HashMap<i32, Watermarks>> {
-    let sampled = store
-        .watermarks
-        .load()
-        .filter(|table| {
-            // The lane re-verifies the marks every interval but recommits the
-            // table only when they moved (or on its idle heartbeat), so an
-            // unchanged table is as current as the lane's last completed
-            // check. A table no lane has checked has only its own sample time.
-            let verified_at = store
-                .watermarks
-                .health()
-                .checked_at
-                .map_or(table.sampled_at, |checked| checked.max(table.sampled_at));
-            utc_now()
-                .signed_duration_since(verified_at)
-                .num_milliseconds()
-                <= WATERMARK_FRESHNESS.as_millis() as i64
-        })
-        .and_then(|table| {
-            let marks = table.topic(topic)?;
-            partitions
-                .iter()
-                .map(|partition| marks.get(partition).map(|marks| (*partition, *marks)))
-                .collect()
-        });
-
+    let sampled = VerifiedWatermarks::observe(&store.watermarks)
+        .and_then(|sample| sample.plan(topic, partitions, utc_now(), *WATERMARK_FRESHNESS));
     if sampled.is_none() {
         store.watermarks.kick();
     }
@@ -264,9 +232,6 @@ mod tests {
         assert_eq!(session.calls().watermarks(), 0);
     }
 
-    /// A quiet topic's marks stop moving, so the lane stops recommitting the
-    /// table — but it keeps verifying it. The last completed check is what
-    /// keeps an old, unchanged table plannable.
     #[tokio::test]
     async fn an_unchanged_table_the_lane_just_verified_is_still_fresh() {
         let session = FakeCluster::local();
