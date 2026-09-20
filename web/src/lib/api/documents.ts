@@ -265,16 +265,21 @@ export const whoamiQuery = graphql(`
 export const clustersQuery = graphql(`
   query Clusters {
     clusters {
-      ...ClusterHealthFields
+      name
+      health {
+        ...ClusterHealthFields
+      }
     }
   }
 `);
 
 export const topicRowsQuery = graphql(`
   query TopicRows($cluster: String!) {
-    topicRows(cluster: $cluster) {
-      rows {
-        ...TopicRowFields
+    cluster(name: $cluster) {
+      topics {
+        rows {
+          ...TopicRowFields
+        }
       }
     }
   }
@@ -282,12 +287,14 @@ export const topicRowsQuery = graphql(`
 
 export const topicQuery = graphql(`
   query Topic($cluster: String!, $name: String!) {
-    topic(cluster: $cluster, name: $name) {
-      ...TopicDetailFields
-    }
-    topicRows(cluster: $cluster, filter: { contains: $name }) {
-      rows {
-        ...TopicRowFields
+    cluster(name: $cluster) {
+      topic(name: $name) {
+        ...TopicDetailFields
+      }
+      topics(filter: { contains: $name }) {
+        rows {
+          ...TopicRowFields
+        }
       }
     }
   }
@@ -295,25 +302,31 @@ export const topicQuery = graphql(`
 
 export const topicGroupsQuery = graphql(`
   query TopicGroups($cluster: String!, $topic: String!) {
-    topicGroups(cluster: $cluster, topic: $topic) {
-      ...TopicGroupRowFields
+    cluster(name: $cluster) {
+      topicGroups(topic: $topic) {
+        ...TopicGroupRowFields
+      }
     }
   }
 `);
 
 export const topicConfigsQuery = graphql(`
   query TopicConfigs($cluster: String!, $name: String!) {
-    topicConfigs(cluster: $cluster, name: $name) {
-      ...ConfigEntryFields
+    cluster(name: $cluster) {
+      topicConfigs(name: $name) {
+        ...ConfigEntryFields
+      }
     }
   }
 `);
 
 export const groupRowsQuery = graphql(`
   query GroupRows($cluster: String!) {
-    groupRows(cluster: $cluster) {
-      rows {
-        ...GroupRowFields
+    cluster(name: $cluster) {
+      groups {
+        rows {
+          ...GroupRowFields
+        }
       }
     }
   }
@@ -321,36 +334,44 @@ export const groupRowsQuery = graphql(`
 
 export const groupQuery = graphql(`
   query Group($cluster: String!, $id: String!) {
-    group(cluster: $cluster, id: $id) {
-      ...GroupDetailFields
+    cluster(name: $cluster) {
+      group(id: $id) {
+        ...GroupDetailFields
+      }
     }
   }
 `);
 
 export const brokerRowsQuery = graphql(`
   query BrokerRows($cluster: String!) {
-    brokerRows(cluster: $cluster) {
-      ...BrokerRowFields
+    cluster(name: $cluster) {
+      brokers {
+        ...BrokerRowFields
+      }
     }
   }
 `);
 
 export const brokerConfigsQuery = graphql(`
   query BrokerConfigs($cluster: String!, $id: Int!) {
-    brokerConfigs(cluster: $cluster, id: $id) {
-      ...ConfigEntryFields
+    cluster(name: $cluster) {
+      brokerConfigs(id: $id) {
+        ...ConfigEntryFields
+      }
     }
   }
 `);
 
 export const subjectRowsQuery = graphql(`
   query SubjectRows($cluster: String!) {
-    subjectRows(cluster: $cluster) {
-      rows {
-        ...SubjectRowFields
-      }
-      sourceHealth {
-        ...LaneHealthFields
+    cluster(name: $cluster) {
+      subjects {
+        rows {
+          ...SubjectRowFields
+        }
+        sourceHealth {
+          ...LaneHealthFields
+        }
       }
     }
   }
@@ -358,18 +379,22 @@ export const subjectRowsQuery = graphql(`
 
 export const subjectQuery = graphql(`
   query Subject($cluster: String!, $name: String!, $version: Int) {
-    subject(cluster: $cluster, name: $name, version: $version) {
-      ...SubjectDetailFields
+    cluster(name: $cluster) {
+      subject(name: $name, version: $version) {
+        ...SubjectDetailFields
+      }
     }
   }
 `);
 
 export const aclsQuery = graphql(`
   query Acls($cluster: String!) {
-    acls(cluster: $cluster) {
-      authorizer
-      bindings {
-        ...AclFields
+    cluster(name: $cluster) {
+      acls {
+        authorizer
+        bindings {
+          ...AclFields
+        }
       }
     }
   }
@@ -377,13 +402,15 @@ export const aclsQuery = graphql(`
 
 export const recordsQuery = graphql(`
   query Records($cluster: String!, $query: RecordQueryInput!) {
-    records(cluster: $cluster, query: $query) {
-      complete
-      obfuscated
-      nextCursor
-      prevCursor
-      records {
-        ...RecordFields
+    cluster(name: $cluster) {
+      records(query: $query) {
+        complete
+        obfuscated
+        nextCursor
+        prevCursor
+        records {
+          ...RecordFields
+        }
       }
     }
   }
@@ -391,8 +418,10 @@ export const recordsQuery = graphql(`
 
 export const searchQuery = graphql(`
   query Search($cluster: String!, $term: String!) {
-    search(cluster: $cluster, term: $term) {
-      ...SearchHitFields
+    cluster(name: $cluster) {
+      search(term: $term) {
+        ...SearchHitFields
+      }
     }
   }
 `);

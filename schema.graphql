@@ -205,6 +205,45 @@ type BrokerRow {
   leaderCount: Int!
 }
 
+type Cluster {
+  name: String!
+  """
+    Per-lane freshness and counts. Replaces polling a catalog just to
+    discover how stale it is.
+  """
+  health: ClusterHealth!
+  topics(filter: RowFilter, sort: TopicSort, after: String, limit: Int): TopicRowPage!
+  topic(name: String!): TopicDetail
+  topicGroups(topic: String!): [TopicGroupRow!]!
+  """
+    Served from the config lane, not the broker: a config sweep is slow
+    and its result is the same for everyone.
+  """
+  topicConfigs(name: String!): [ConfigEntry!]!
+  groups(filter: RowFilter, after: String, limit: Int): GroupRowPage!
+  """
+    Registers interest, which promotes the group to the offsets lane's
+    fast tier while someone is looking at it.
+  """
+  group(id: String!): GroupDetail
+  brokers: [BrokerRow!]!
+  "No lane sweeps broker configs, so this one stays live."
+  brokerConfigs(id: Int!): [ConfigEntry!]!
+  subjects: SubjectRowsResult!
+  """
+    Schema bodies are large, rarely read, and privileged, so the subjects
+    lane keeps only the listing and the body is fetched on demand.
+  """
+  subject(name: String!, version: Int): SubjectDetail!
+  acls: AclListing!
+  records(query: RecordQueryInput!): RecordPage!
+  """
+    Answered from the prebuilt index, so a per-keystroke search never
+    walks the catalog.
+  """
+  search(term: String!): [SearchHit!]!
+}
+
 """
   What the session may do on one cluster. Pairwise: a wider grant elsewhere
   does not raise this one.
@@ -342,41 +381,10 @@ type PartitionRow {
 type Query {
   "Who the session is and, per cluster, exactly what it may do."
   whoami: Identity!
-  """
-    Per-lane freshness and counts for every visible cluster. Replaces
-    polling a catalog just to discover how stale it is.
-  """
-  clusters: [ClusterHealth!]!
-  topicRows(cluster: String!, filter: RowFilter, sort: TopicSort, after: String, limit: Int): TopicRowPage!
-  topic(cluster: String!, name: String!): TopicDetail
-  topicGroups(cluster: String!, topic: String!): [TopicGroupRow!]!
-  """
-    Served from the config lane, not the broker: a config sweep is slow
-    and its result is the same for everyone.
-  """
-  topicConfigs(cluster: String!, name: String!): [ConfigEntry!]!
-  groupRows(cluster: String!, filter: RowFilter, after: String, limit: Int): GroupRowPage!
-  """
-    Registers interest, which promotes the group to the offsets lane's
-    fast tier while someone is looking at it.
-  """
-  group(cluster: String!, id: String!): GroupDetail
-  brokerRows(cluster: String!): [BrokerRow!]!
-  "No lane sweeps broker configs, so this one stays live."
-  brokerConfigs(cluster: String!, id: Int!): [ConfigEntry!]!
-  subjectRows(cluster: String!): SubjectRowsResult!
-  """
-    Schema bodies are large, rarely read, and privileged, so the subjects
-    lane keeps only the listing and the body is fetched on demand.
-  """
-  subject(cluster: String!, name: String!, version: Int): SubjectDetail!
-  acls(cluster: String!): AclListing!
-  records(cluster: String!, query: RecordQueryInput!): RecordPage!
-  """
-    Answered from the prebuilt index, so a per-keystroke search never
-    walks the catalog.
-  """
-  search(cluster: String!, term: String!): [SearchHit!]!
+  "Every cluster the session can see."
+  clusters: [Cluster!]!
+  "`null` when the name is unknown or the session cannot see it."
+  cluster(name: String!): Cluster
 }
 
 type Record {

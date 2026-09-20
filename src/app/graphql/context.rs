@@ -15,12 +15,12 @@ pub struct GraphQlContext {
     pub guard: SessionGuard,
 }
 
-pub struct Cluster<'a> {
+pub struct ClusterHandle<'a> {
     pub access: ClusterAccess<'a>,
     pub store: &'a Arc<ClusterStore>,
 }
 
-impl Cluster<'_> {
+impl ClusterHandle<'_> {
     pub fn name(&self) -> &str {
         self.access.cluster()
     }
@@ -35,9 +35,9 @@ impl GraphQlContext {
         }
     }
 
-    pub fn cluster<'a>(&'a self, name: &'a str) -> Result<Cluster<'a>, GqlError> {
+    pub fn cluster<'a>(&'a self, name: &'a str) -> Result<ClusterHandle<'a>, GqlError> {
         let access = self.access.cluster(name)?;
-        Ok(Cluster {
+        Ok(ClusterHandle {
             store: self.state.cluster(access.cluster())?,
             access,
         })

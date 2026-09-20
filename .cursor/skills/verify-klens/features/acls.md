@@ -23,7 +23,7 @@ Preconditions:
 - Start from `/`.
 
 - **Open list.** Click sidebar `ACLs`. URL is `/cluster/local/acls`. Heading is `ACLs`.
-- **Empty list.** Local Redpanda answers DescribeAcls with no rows. The table empty state is `No ACL bindings.` The description includes `0 bindings`. The page is not an error. GraphQL `acls(cluster: "local") { authorizer bindings { principal } }` returns `authorizer: ENABLED` and `bindings: []` with no field errors.
+- **Empty list.** Local Redpanda answers DescribeAcls with no rows. The table empty state is `No ACL bindings.` The description includes `0 bindings`. The page is not an error. GraphQL `cluster(name: "local") { acls { authorizer bindings { principal } } }` returns `authorizer: ENABLED` and `bindings: []` with no field errors.
 - **Search and resource.** Those filters stay on the page. They only change visible rows when bindings exist. On this broker they keep the same empty state.
 - **Proof.** Screenshot the page with the `ACLs` heading and the empty state. Save the GraphQL body above. There is no ACL badge in the sidebar and no `/acls/<id>` route.
 

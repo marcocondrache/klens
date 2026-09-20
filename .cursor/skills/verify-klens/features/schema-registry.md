@@ -24,7 +24,7 @@ Preconditions:
 - **Open catalog.** Click sidebar `Schema Registry`. URL is `/cluster/local/schemas`. Heading is `Schema registry`. The description includes `subjects registered`.
 - **Search.** If a subject is visible, type a unique prefix into `Search subjects…`. The URL contains `q=`. Non-matching subjects leave the table.
 - **Open subject.** Click a subject row. A sheet titled with that subject appears. The Schema block shows JSON. There is no `/schemas/<subject>` route.
-- **Proof.** Screenshot the catalog with the heading and at least one column header (`Subject`, `Type`, `Compatibility`). Save `POST /graphql` `subjectRows(cluster: "local") { rows { subject id type } sourceHealth { lastError } }`.
+- **Proof.** Screenshot the catalog with the heading and at least one column header (`Subject`, `Type`, `Compatibility`). Save `POST /graphql` `cluster(name: "local") { subjects { rows { subject id type } sourceHealth { lastError } } }`.
 
 ## Gotchas
 

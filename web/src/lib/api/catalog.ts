@@ -17,6 +17,13 @@ import {
 import { keys } from "./keys";
 import type { ClusterHealth, SearchHit } from "./types";
 
+function visibleCluster<T>(cluster: T | null): T {
+  if (cluster == null) {
+    throw new Error("Unknown cluster");
+  }
+  return cluster;
+}
+
 function searchHref(cluster: string, hit: Omit<SearchHit, "href">): string {
   switch (hit.kind) {
     case "TOPIC":
@@ -34,7 +41,7 @@ const clustersOptions = {
   queryKey: keys.clusters(),
   queryFn: async () => {
     const { clusters } = await execute(clustersQuery);
-    return clusters;
+    return clusters.map((entry) => entry.health);
   },
   refetchInterval: (query: Query<ClusterHealth[]>) =>
     query.state.data?.every((cluster) => cluster.ready) === false ? 2000 : false,
@@ -63,8 +70,8 @@ export function useTopicRows(cluster: string) {
   return useQuery({
     queryKey: keys.topicRows(cluster),
     queryFn: async () => {
-      const { topicRows } = await execute(topicRowsQuery, { cluster });
-      return topicRows.rows;
+      const { cluster: node } = await execute(topicRowsQuery, { cluster });
+      return visibleCluster(node).topics.rows;
     },
   });
 }
@@ -73,10 +80,11 @@ export function useTopic(cluster: string, topic: string) {
   return useQuery({
     queryKey: keys.topic(cluster, topic),
     queryFn: async () => {
-      const { topic: detail, topicRows } = await execute(topicQuery, { cluster, name: topic });
+      const { cluster: node } = await execute(topicQuery, { cluster, name: topic });
+      const resolved = visibleCluster(node);
       return {
-        detail,
-        row: topicRows.rows.find((row) => row.name === topic) ?? null,
+        detail: resolved.topic,
+        row: resolved.topics.rows.find((row) => row.name === topic) ?? null,
       };
     },
   });
@@ -86,8 +94,8 @@ export function useTopicGroups(cluster: string, topic: string, enabled = true) {
   return useQuery({
     queryKey: keys.topicGroups(cluster, topic),
     queryFn: async () => {
-      const { topicGroups } = await execute(topicGroupsQuery, { cluster, topic });
-      return topicGroups;
+      const { cluster: node } = await execute(topicGroupsQuery, { cluster, topic });
+      return visibleCluster(node).topicGroups;
     },
     enabled,
   });
@@ -97,8 +105,8 @@ export function useGroupRows(cluster: string) {
   return useQuery({
     queryKey: keys.groupRows(cluster),
     queryFn: async () => {
-      const { groupRows } = await execute(groupRowsQuery, { cluster });
-      return groupRows.rows;
+      const { cluster: node } = await execute(groupRowsQuery, { cluster });
+      return visibleCluster(node).groups.rows;
     },
   });
 }
@@ -107,8 +115,8 @@ export function useGroup(cluster: string, group: string) {
   return useQuery({
     queryKey: keys.group(cluster, group),
     queryFn: async () => {
-      const { group: detail } = await execute(groupQuery, { cluster, id: group });
-      return detail ?? null;
+      const { cluster: node } = await execute(groupQuery, { cluster, id: group });
+      return visibleCluster(node).group ?? null;
     },
   });
 }
@@ -117,8 +125,8 @@ export function useBrokerRows(cluster: string) {
   return useQuery({
     queryKey: keys.brokerRows(cluster),
     queryFn: async () => {
-      const { brokerRows } = await execute(brokerRowsQuery, { cluster });
-      return brokerRows;
+      const { cluster: node } = await execute(brokerRowsQuery, { cluster });
+      return visibleCluster(node).brokers;
     },
   });
 }
@@ -135,8 +143,8 @@ export function useSubjectRows(cluster: string) {
   return useQuery({
     queryKey: keys.subjectRows(cluster),
     queryFn: async () => {
-      const { subjectRows } = await execute(subjectRowsQuery, { cluster });
-      return subjectRows;
+      const { cluster: node } = await execute(subjectRowsQuery, { cluster });
+      return visibleCluster(node).subjects;
     },
   });
 }
@@ -145,8 +153,11 @@ export function useSearch(cluster: string, term: string) {
   return useQuery({
     queryKey: keys.search(cluster, term),
     queryFn: async () => {
-      const { search } = await execute(searchQuery, { cluster, term });
-      return search.map((hit) => ({ ...hit, href: searchHref(cluster, hit) }));
+      const { cluster: node } = await execute(searchQuery, { cluster, term });
+      return visibleCluster(node).search.map((hit) => ({
+        ...hit,
+        href: searchHref(cluster, hit),
+      }));
     },
     enabled: term.trim().length > 0,
   });

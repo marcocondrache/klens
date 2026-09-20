@@ -167,14 +167,14 @@ export type WhoamiQuery = { whoami: { subject: string | null, clusters: Array<{ 
 export type ClustersQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type ClustersQuery = { clusters: Array<{ cluster: string, ready: boolean, topicCount: number, partitionCount: number, groupCount: number, brokerCount: number, subjectCount: number, underReplicatedPartitions: number, offlinePartitions: number, topology: { updatedAt: string | null, checkedAt: string | null, lastError: string | null, lastPollMs: string | null, healthy: boolean }, watermarks: { updatedAt: string | null, checkedAt: string | null, lastError: string | null, lastPollMs: string | null, healthy: boolean }, offsets: { updatedAt: string | null, checkedAt: string | null, lastError: string | null, lastPollMs: string | null, healthy: boolean }, configs: { updatedAt: string | null, checkedAt: string | null, lastError: string | null, lastPollMs: string | null, healthy: boolean }, subjects: { updatedAt: string | null, checkedAt: string | null, lastError: string | null, lastPollMs: string | null, healthy: boolean } }> };
+export type ClustersQuery = { clusters: Array<{ name: string, health: { cluster: string, ready: boolean, topicCount: number, partitionCount: number, groupCount: number, brokerCount: number, subjectCount: number, underReplicatedPartitions: number, offlinePartitions: number, topology: { updatedAt: string | null, checkedAt: string | null, lastError: string | null, lastPollMs: string | null, healthy: boolean }, watermarks: { updatedAt: string | null, checkedAt: string | null, lastError: string | null, lastPollMs: string | null, healthy: boolean }, offsets: { updatedAt: string | null, checkedAt: string | null, lastError: string | null, lastPollMs: string | null, healthy: boolean }, configs: { updatedAt: string | null, checkedAt: string | null, lastError: string | null, lastPollMs: string | null, healthy: boolean }, subjects: { updatedAt: string | null, checkedAt: string | null, lastError: string | null, lastPollMs: string | null, healthy: boolean } } }> };
 
 export type TopicRowsQueryVariables = Exact<{
   cluster: string;
 }>;
 
 
-export type TopicRowsQuery = { topicRows: { rows: Array<{ name: string, internal: boolean, partitionCount: number, replicationFactor: number, retainedMessages: string, producedTotal: string, rate: number, retentionMs: string, cleanupPolicy: CleanupPolicy, groupCount: number, underReplicated: boolean }> } };
+export type TopicRowsQuery = { cluster: { topics: { rows: Array<{ name: string, internal: boolean, partitionCount: number, replicationFactor: number, retainedMessages: string, producedTotal: string, rate: number, retentionMs: string, cleanupPolicy: CleanupPolicy, groupCount: number, underReplicated: boolean }> } } | null };
 
 export type TopicQueryVariables = Exact<{
   cluster: string;
@@ -182,7 +182,7 @@ export type TopicQueryVariables = Exact<{
 }>;
 
 
-export type TopicQuery = { topic: { name: string, internal: boolean, replicationFactor: number, retainedMessages: string, producedTotal: string, groupCount: number, underReplicated: boolean, partitions: Array<{ id: number, leader: number, replicas: Array<number>, isr: Array<number>, lowWatermark: string, highWatermark: string, retained: string, underReplicated: boolean }> } | null, topicRows: { rows: Array<{ name: string, internal: boolean, partitionCount: number, replicationFactor: number, retainedMessages: string, producedTotal: string, rate: number, retentionMs: string, cleanupPolicy: CleanupPolicy, groupCount: number, underReplicated: boolean }> } };
+export type TopicQuery = { cluster: { topic: { name: string, internal: boolean, replicationFactor: number, retainedMessages: string, producedTotal: string, groupCount: number, underReplicated: boolean, partitions: Array<{ id: number, leader: number, replicas: Array<number>, isr: Array<number>, lowWatermark: string, highWatermark: string, retained: string, underReplicated: boolean }> } | null, topics: { rows: Array<{ name: string, internal: boolean, partitionCount: number, replicationFactor: number, retainedMessages: string, producedTotal: string, rate: number, retentionMs: string, cleanupPolicy: CleanupPolicy, groupCount: number, underReplicated: boolean }> } } | null };
 
 export type TopicGroupsQueryVariables = Exact<{
   cluster: string;
@@ -190,7 +190,7 @@ export type TopicGroupsQueryVariables = Exact<{
 }>;
 
 
-export type TopicGroupsQuery = { topicGroups: Array<{ id: string, state: GroupState, memberCount: number, lagOnTopic: string }> };
+export type TopicGroupsQuery = { cluster: { topicGroups: Array<{ id: string, state: GroupState, memberCount: number, lagOnTopic: string }> } | null };
 
 export type TopicConfigsQueryVariables = Exact<{
   cluster: string;
@@ -198,14 +198,14 @@ export type TopicConfigsQueryVariables = Exact<{
 }>;
 
 
-export type TopicConfigsQuery = { topicConfigs: Array<{ name: string, value: string | null, source: ConfigSource, readOnly: boolean, sensitive: boolean }> };
+export type TopicConfigsQuery = { cluster: { topicConfigs: Array<{ name: string, value: string | null, source: ConfigSource, readOnly: boolean, sensitive: boolean }> } | null };
 
 export type GroupRowsQueryVariables = Exact<{
   cluster: string;
 }>;
 
 
-export type GroupRowsQuery = { groupRows: { rows: Array<{ id: string, state: GroupState, memberCount: number, topicNames: Array<string>, totalLag: string, lagComplete: boolean, coordinatorId: number }> } };
+export type GroupRowsQuery = { cluster: { groups: { rows: Array<{ id: string, state: GroupState, memberCount: number, topicNames: Array<string>, totalLag: string, lagComplete: boolean, coordinatorId: number }> } } | null };
 
 export type GroupQueryVariables = Exact<{
   cluster: string;
@@ -213,14 +213,14 @@ export type GroupQueryVariables = Exact<{
 }>;
 
 
-export type GroupQuery = { group: { id: string, state: GroupState, protocol: string, coordinatorId: number, totalLag: string, lagComplete: boolean, members: Array<{ id: string, clientId: string, host: string, assignments: Array<{ topic: string, partitions: Array<number> }> }>, offsets: Array<{ topic: string, partition: number, currentOffset: string, endOffset: string, lag: string, memberId: string | null }> } | null };
+export type GroupQuery = { cluster: { group: { id: string, state: GroupState, protocol: string, coordinatorId: number, totalLag: string, lagComplete: boolean, members: Array<{ id: string, clientId: string, host: string, assignments: Array<{ topic: string, partitions: Array<number> }> }>, offsets: Array<{ topic: string, partition: number, currentOffset: string, endOffset: string, lag: string, memberId: string | null }> } | null } | null };
 
 export type BrokerRowsQueryVariables = Exact<{
   cluster: string;
 }>;
 
 
-export type BrokerRowsQuery = { brokerRows: Array<{ id: number, host: string, port: number, rack: string | null, controller: boolean, partitionCount: number, leaderCount: number }> };
+export type BrokerRowsQuery = { cluster: { brokers: Array<{ id: number, host: string, port: number, rack: string | null, controller: boolean, partitionCount: number, leaderCount: number }> } | null };
 
 export type BrokerConfigsQueryVariables = Exact<{
   cluster: string;
@@ -228,14 +228,14 @@ export type BrokerConfigsQueryVariables = Exact<{
 }>;
 
 
-export type BrokerConfigsQuery = { brokerConfigs: Array<{ name: string, value: string | null, source: ConfigSource, readOnly: boolean, sensitive: boolean }> };
+export type BrokerConfigsQuery = { cluster: { brokerConfigs: Array<{ name: string, value: string | null, source: ConfigSource, readOnly: boolean, sensitive: boolean }> } | null };
 
 export type SubjectRowsQueryVariables = Exact<{
   cluster: string;
 }>;
 
 
-export type SubjectRowsQuery = { subjectRows: { rows: Array<{ subject: string, id: number, type: SchemaType, latestVersion: number, versions: Array<number>, compatibility: SchemaCompatibility }>, sourceHealth: { updatedAt: string | null, checkedAt: string | null, lastError: string | null, lastPollMs: string | null, healthy: boolean } } };
+export type SubjectRowsQuery = { cluster: { subjects: { rows: Array<{ subject: string, id: number, type: SchemaType, latestVersion: number, versions: Array<number>, compatibility: SchemaCompatibility }>, sourceHealth: { updatedAt: string | null, checkedAt: string | null, lastError: string | null, lastPollMs: string | null, healthy: boolean } } } | null };
 
 export type SubjectQueryVariables = Exact<{
   cluster: string;
@@ -244,14 +244,14 @@ export type SubjectQueryVariables = Exact<{
 }>;
 
 
-export type SubjectQuery = { subject: { subject: string, version: number, id: number, type: SchemaType, schema: string, references: Array<{ name: string, subject: string, version: number }> } };
+export type SubjectQuery = { cluster: { subject: { subject: string, version: number, id: number, type: SchemaType, schema: string, references: Array<{ name: string, subject: string, version: number }> } } | null };
 
 export type AclsQueryVariables = Exact<{
   cluster: string;
 }>;
 
 
-export type AclsQuery = { acls: { authorizer: AclAuthorizer, bindings: Array<{ resourceType: AclResourceType, resourceName: string, patternType: AclPatternType, principal: string, host: string, operation: AclOperation, permission: AclPermission }> } };
+export type AclsQuery = { cluster: { acls: { authorizer: AclAuthorizer, bindings: Array<{ resourceType: AclResourceType, resourceName: string, patternType: AclPatternType, principal: string, host: string, operation: AclOperation, permission: AclPermission }> } } | null };
 
 export type RecordsQueryVariables = Exact<{
   cluster: string;
@@ -259,7 +259,7 @@ export type RecordsQueryVariables = Exact<{
 }>;
 
 
-export type RecordsQuery = { records: { complete: boolean, obfuscated: boolean, nextCursor: string | null, prevCursor: string | null, records: Array<{ topic: string, partition: number, offset: string, timestamp: string, key: string | null, value: string | null, schemaId: number | null, sizeBytes: string, compression: Compression, headers: Array<{ key: string, value: string }> }> } };
+export type RecordsQuery = { cluster: { records: { complete: boolean, obfuscated: boolean, nextCursor: string | null, prevCursor: string | null, records: Array<{ topic: string, partition: number, offset: string, timestamp: string, key: string | null, value: string | null, schemaId: number | null, sizeBytes: string, compression: Compression, headers: Array<{ key: string, value: string }> }> } } | null };
 
 export type SearchQueryVariables = Exact<{
   cluster: string;
@@ -267,7 +267,7 @@ export type SearchQueryVariables = Exact<{
 }>;
 
 
-export type SearchQuery = { search: Array<{ kind: SearchKind, id: string, label: string, detail: string }> };
+export type SearchQuery = { cluster: { search: Array<{ kind: SearchKind, id: string, label: string, detail: string }> } | null };
 
 export type UpdatesSubscriptionVariables = Exact<{
   cluster: string;
@@ -593,7 +593,10 @@ export const WhoamiDocument = new TypedDocumentString(`
 export const ClustersDocument = new TypedDocumentString(`
     query Clusters {
   clusters {
-    ...ClusterHealthFields
+    name
+    health {
+      ...ClusterHealthFields
+    }
   }
 }
     fragment LaneHealthFields on LaneHealth {
@@ -631,9 +634,11 @@ fragment ClusterHealthFields on ClusterHealth {
 }`) as unknown as TypedDocumentString<ClustersQuery, ClustersQueryVariables>;
 export const TopicRowsDocument = new TypedDocumentString(`
     query TopicRows($cluster: String!) {
-  topicRows(cluster: $cluster) {
-    rows {
-      ...TopicRowFields
+  cluster(name: $cluster) {
+    topics {
+      rows {
+        ...TopicRowFields
+      }
     }
   }
 }
@@ -652,12 +657,14 @@ export const TopicRowsDocument = new TypedDocumentString(`
 }`) as unknown as TypedDocumentString<TopicRowsQuery, TopicRowsQueryVariables>;
 export const TopicDocument = new TypedDocumentString(`
     query Topic($cluster: String!, $name: String!) {
-  topic(cluster: $cluster, name: $name) {
-    ...TopicDetailFields
-  }
-  topicRows(cluster: $cluster, filter: { contains: $name }) {
-    rows {
-      ...TopicRowFields
+  cluster(name: $cluster) {
+    topic(name: $name) {
+      ...TopicDetailFields
+    }
+    topics(filter: { contains: $name }) {
+      rows {
+        ...TopicRowFields
+      }
     }
   }
 }
@@ -698,8 +705,10 @@ fragment TopicDetailFields on TopicDetail {
 }`) as unknown as TypedDocumentString<TopicQuery, TopicQueryVariables>;
 export const TopicGroupsDocument = new TypedDocumentString(`
     query TopicGroups($cluster: String!, $topic: String!) {
-  topicGroups(cluster: $cluster, topic: $topic) {
-    ...TopicGroupRowFields
+  cluster(name: $cluster) {
+    topicGroups(topic: $topic) {
+      ...TopicGroupRowFields
+    }
   }
 }
     fragment TopicGroupRowFields on TopicGroupRow {
@@ -710,8 +719,10 @@ export const TopicGroupsDocument = new TypedDocumentString(`
 }`) as unknown as TypedDocumentString<TopicGroupsQuery, TopicGroupsQueryVariables>;
 export const TopicConfigsDocument = new TypedDocumentString(`
     query TopicConfigs($cluster: String!, $name: String!) {
-  topicConfigs(cluster: $cluster, name: $name) {
-    ...ConfigEntryFields
+  cluster(name: $cluster) {
+    topicConfigs(name: $name) {
+      ...ConfigEntryFields
+    }
   }
 }
     fragment ConfigEntryFields on ConfigEntry {
@@ -723,9 +734,11 @@ export const TopicConfigsDocument = new TypedDocumentString(`
 }`) as unknown as TypedDocumentString<TopicConfigsQuery, TopicConfigsQueryVariables>;
 export const GroupRowsDocument = new TypedDocumentString(`
     query GroupRows($cluster: String!) {
-  groupRows(cluster: $cluster) {
-    rows {
-      ...GroupRowFields
+  cluster(name: $cluster) {
+    groups {
+      rows {
+        ...GroupRowFields
+      }
     }
   }
 }
@@ -740,8 +753,10 @@ export const GroupRowsDocument = new TypedDocumentString(`
 }`) as unknown as TypedDocumentString<GroupRowsQuery, GroupRowsQueryVariables>;
 export const GroupDocument = new TypedDocumentString(`
     query Group($cluster: String!, $id: String!) {
-  group(cluster: $cluster, id: $id) {
-    ...GroupDetailFields
+  cluster(name: $cluster) {
+    group(id: $id) {
+      ...GroupDetailFields
+    }
   }
 }
     fragment MemberAssignmentFields on MemberAssignment {
@@ -780,8 +795,10 @@ fragment GroupDetailFields on GroupDetail {
 }`) as unknown as TypedDocumentString<GroupQuery, GroupQueryVariables>;
 export const BrokerRowsDocument = new TypedDocumentString(`
     query BrokerRows($cluster: String!) {
-  brokerRows(cluster: $cluster) {
-    ...BrokerRowFields
+  cluster(name: $cluster) {
+    brokers {
+      ...BrokerRowFields
+    }
   }
 }
     fragment BrokerRowFields on BrokerRow {
@@ -795,8 +812,10 @@ export const BrokerRowsDocument = new TypedDocumentString(`
 }`) as unknown as TypedDocumentString<BrokerRowsQuery, BrokerRowsQueryVariables>;
 export const BrokerConfigsDocument = new TypedDocumentString(`
     query BrokerConfigs($cluster: String!, $id: Int!) {
-  brokerConfigs(cluster: $cluster, id: $id) {
-    ...ConfigEntryFields
+  cluster(name: $cluster) {
+    brokerConfigs(id: $id) {
+      ...ConfigEntryFields
+    }
   }
 }
     fragment ConfigEntryFields on ConfigEntry {
@@ -808,12 +827,14 @@ export const BrokerConfigsDocument = new TypedDocumentString(`
 }`) as unknown as TypedDocumentString<BrokerConfigsQuery, BrokerConfigsQueryVariables>;
 export const SubjectRowsDocument = new TypedDocumentString(`
     query SubjectRows($cluster: String!) {
-  subjectRows(cluster: $cluster) {
-    rows {
-      ...SubjectRowFields
-    }
-    sourceHealth {
-      ...LaneHealthFields
+  cluster(name: $cluster) {
+    subjects {
+      rows {
+        ...SubjectRowFields
+      }
+      sourceHealth {
+        ...LaneHealthFields
+      }
     }
   }
 }
@@ -834,8 +855,10 @@ fragment SubjectRowFields on SubjectRow {
 }`) as unknown as TypedDocumentString<SubjectRowsQuery, SubjectRowsQueryVariables>;
 export const SubjectDocument = new TypedDocumentString(`
     query Subject($cluster: String!, $name: String!, $version: Int) {
-  subject(cluster: $cluster, name: $name, version: $version) {
-    ...SubjectDetailFields
+  cluster(name: $cluster) {
+    subject(name: $name, version: $version) {
+      ...SubjectDetailFields
+    }
   }
 }
     fragment SubjectDetailFields on SubjectDetail {
@@ -852,10 +875,12 @@ export const SubjectDocument = new TypedDocumentString(`
 }`) as unknown as TypedDocumentString<SubjectQuery, SubjectQueryVariables>;
 export const AclsDocument = new TypedDocumentString(`
     query Acls($cluster: String!) {
-  acls(cluster: $cluster) {
-    authorizer
-    bindings {
-      ...AclFields
+  cluster(name: $cluster) {
+    acls {
+      authorizer
+      bindings {
+        ...AclFields
+      }
     }
   }
 }
@@ -870,13 +895,15 @@ export const AclsDocument = new TypedDocumentString(`
 }`) as unknown as TypedDocumentString<AclsQuery, AclsQueryVariables>;
 export const RecordsDocument = new TypedDocumentString(`
     query Records($cluster: String!, $query: RecordQueryInput!) {
-  records(cluster: $cluster, query: $query) {
-    complete
-    obfuscated
-    nextCursor
-    prevCursor
-    records {
-      ...RecordFields
+  cluster(name: $cluster) {
+    records(query: $query) {
+      complete
+      obfuscated
+      nextCursor
+      prevCursor
+      records {
+        ...RecordFields
+      }
     }
   }
 }
@@ -900,8 +927,10 @@ fragment RecordFields on Record {
 }`) as unknown as TypedDocumentString<RecordsQuery, RecordsQueryVariables>;
 export const SearchDocument = new TypedDocumentString(`
     query Search($cluster: String!, $term: String!) {
-  search(cluster: $cluster, term: $term) {
-    ...SearchHitFields
+  cluster(name: $cluster) {
+    search(term: $term) {
+      ...SearchHitFields
+    }
   }
 }
     fragment SearchHitFields on SearchHit {
