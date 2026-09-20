@@ -12,10 +12,7 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
 
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
-      <PageHeader
-        title="Sign in"
-        description="Use your identity provider."
-      />
+      <PageHeader title="Sign in" description="Use your identity provider." />
       {error ? (
         <Alert variant="destructive">
           <CircleAlertIcon />
