@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use tokio::time::{Instant, timeout_at};
 
+use crate::environment::SCAN_PACE_BOUND;
 use crate::kafka::error::KafkaError;
 use crate::kafka::limits::RecordLimits;
 use crate::kafka::session::ClusterSession;
@@ -23,28 +24,6 @@ use super::query::{RecordOrder, RecordQuery};
 use super::{Compression, Record, RecordHeader, RecordPage};
 
 const MAX_FILTER_PASSES: usize = 64;
-
-/// How long one scan poll waits, and how long the broker may park the fetch.
-///
-/// Same duration on purpose: the broker must release when the scan moves on.
-#[derive(Clone, Copy, Debug)]
-pub struct ScanPace {
-    bound: Duration,
-}
-
-impl ScanPace {
-    pub const ALIGNED: Self = Self {
-        bound: Duration::from_millis(100),
-    };
-
-    pub fn slice(self) -> Duration {
-        self.bound
-    }
-
-    pub fn park(self) -> Duration {
-        self.bound
-    }
-}
 
 /// A record exactly as it came off the wire.
 #[derive(Debug, Clone)]
@@ -260,7 +239,7 @@ impl ScanSession {
 
             let budget = deadline
                 .saturating_duration_since(now)
-                .min(ScanPace::ALIGNED.slice());
+                .min(*SCAN_PACE_BOUND);
             let Ok(polled) = timeout_at(deadline, self.consumer.poll(budget)).await else {
                 break;
             };

@@ -6,12 +6,12 @@ use krafka::client::KrafkaClient as KrafkaSharedClient;
 use krafka::consumer::{AutoOffsetReset, Consumer};
 
 use crate::environment::{
-    MAX_RECORD_LIMIT, MAX_RESPONSE_MB, SCAN_POOL_IDLE_TTL, SCAN_POOL_PER_TOPIC, SCAN_POOL_TOTAL,
+    MAX_RECORD_LIMIT, MAX_RESPONSE_MB, SCAN_PACE_BOUND, SCAN_POOL_IDLE_TTL, SCAN_POOL_PER_TOPIC,
+    SCAN_POOL_TOTAL,
 };
 use crate::kafka::client::transport;
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::PartitionWindow;
-use crate::kafka::scan::session::ScanPace;
 
 use super::scan::ScanLease;
 
@@ -183,7 +183,7 @@ impl ScanPool {
             .auto_offset_reset(AutoOffsetReset::Earliest)
             // The broker releases the long poll exactly when the scan stops
             // waiting for it, instead of holding a fetch nobody will read.
-            .fetch_max_wait(ScanPace::ALIGNED.park())
+            .fetch_max_wait(*SCAN_PACE_BOUND)
             .max_poll_records(page_limit)
             .max_buffered_records(page_limit.saturating_mul(2))
             // krafka's 50 MB default is wider than the frame the connection

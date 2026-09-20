@@ -119,6 +119,18 @@ pub static SCAN_POOL_IDLE_TTL: LazyLock<Duration> = lazy_env_parse!(
     Duration::from_secs(60)
 );
 
+/// How long one scan poll waits, and how long the broker may park the fetch
+/// (default: 100 milliseconds).
+///
+/// Same duration on purpose: the broker must release when the scan moves on.
+///
+/// Override with `KLENS_SCAN_PACE_BOUND_MS`.
+pub static SCAN_PACE_BOUND: LazyLock<Duration> = lazy_env_parse!(
+    millis,
+    "KLENS_SCAN_PACE_BOUND_MS",
+    Duration::from_millis(100)
+);
+
 /// Maximum records a browse or search query may request (default: 500).
 ///
 /// Override with `KLENS_MAX_RECORD_LIMIT`.

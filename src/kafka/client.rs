@@ -354,6 +354,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use crate::config::ClusterConfig;
+    use crate::environment::SCAN_PACE_BOUND;
     use crate::kafka::group::MemberAssignment;
     use crate::kafka::model::{PartitionWindow, RecordOrder};
     use crate::kafka::scan::session::scan_once;
@@ -668,9 +669,7 @@ mod tests {
         produce_krafka(&broker.bootstrap_servers(), "orders", 2).await;
         let client = kafka_client(&broker.bootstrap_servers()).await;
         broker.on(krafka::protocol::ApiKey::Fetch, |_| {
-            krafka::testing::Control::Delay(
-                crate::kafka::scan::session::ScanPace::ALIGNED.slice() * 3,
-            )
+            krafka::testing::Control::Delay(*SCAN_PACE_BOUND * 3)
         });
 
         let records = scan_once(
