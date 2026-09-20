@@ -1,7 +1,8 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use foldhash::{HashMap, HashMapExt, HashSet};
 
 use crate::kafka::group::{CommittedOffset, GroupMember, GroupSnapshot, GroupState};
 use crate::kafka::metadata::{MetadataSnapshot, PartitionMetadata};
@@ -418,9 +419,9 @@ mod tests {
     fn watermark_totals_split_retained_from_produced() {
         let table = WatermarkTable::new(
             chrono::DateTime::UNIX_EPOCH,
-            HashMap::from([(
+            HashMap::from_iter([(
                 Arc::from("orders"),
-                HashMap::from([
+                HashMap::from_iter([
                     (0, Watermarks { low: 40, high: 100 }),
                     (1, Watermarks { low: 0, high: 10 }),
                 ]),

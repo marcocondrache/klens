@@ -9,11 +9,11 @@ mod groups;
 mod offsets;
 mod scan;
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use foldhash::{HashMap, HashMapExt};
 use krafka::admin::{
     AclFilter, AdminClient as KrafkaAdmin, ConfigResourceType, DescribeConfigsRequest,
     DescribeConfigsResource, GroupListing, OffsetSpec, OffsetVisibility,

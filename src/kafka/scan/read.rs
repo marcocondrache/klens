@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use foldhash::HashMap;
 
 use crate::kafka::error::KafkaError;
 use crate::kafka::limits::RecordLimits;

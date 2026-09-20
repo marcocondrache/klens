@@ -1,4 +1,6 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
+
+use foldhash::{HashMap, HashMapExt};
 
 use crate::kafka::limits::RecordLimits;
 use crate::kafka::watermarks::Watermarks;
@@ -264,7 +266,7 @@ mod tests {
     }
 
     fn marks(low: i64, high: i64) -> HashMap<i32, Watermarks> {
-        HashMap::from([(0, Watermarks { low, high })])
+        HashMap::from_iter([(0, Watermarks { low, high })])
     }
 
     fn cursor(partition: i32, offset: i64) -> RecordCursor {
@@ -423,7 +425,7 @@ mod tests {
 
     #[test]
     fn each_partition_keeps_a_full_page_window() {
-        let watermarks = HashMap::from([
+        let watermarks = HashMap::from_iter([
             (0, Watermarks { low: 0, high: 100 }),
             (1, Watermarks { low: 0, high: 100 }),
         ]);
@@ -449,7 +451,7 @@ mod tests {
 
     #[test]
     fn omitted_cursor_partition_stays_exhausted() {
-        let watermarks = HashMap::from([
+        let watermarks = HashMap::from_iter([
             (0, Watermarks { low: 0, high: 40 }),
             (1, Watermarks { low: 0, high: 40 }),
         ]);
@@ -469,7 +471,7 @@ mod tests {
 
     #[test]
     fn next_cursor_holds_unreturned_partition_at_window_end() {
-        let watermarks = HashMap::from([
+        let watermarks = HashMap::from_iter([
             (0, Watermarks { low: 10, high: 40 }),
             (1, Watermarks { low: 10, high: 40 }),
         ]);
@@ -626,7 +628,7 @@ mod tests {
     #[test]
     fn timestamp_from_raises_the_low_watermark() {
         let mut watermarks = marks(10, 40);
-        let from = HashMap::from([(0, Some(25))]);
+        let from = HashMap::from_iter([(0, Some(25))]);
 
         apply_timestamp_bounds(&mut watermarks, Some(&from), None);
         assert_eq!(watermarks[&0], Watermarks { low: 25, high: 40 });
@@ -635,7 +637,7 @@ mod tests {
     #[test]
     fn timestamp_to_lowers_the_high_watermark() {
         let mut watermarks = marks(10, 40);
-        let to = HashMap::from([(0, Some(22))]);
+        let to = HashMap::from_iter([(0, Some(22))]);
 
         apply_timestamp_bounds(&mut watermarks, None, Some(&to));
         assert_eq!(watermarks[&0], Watermarks { low: 10, high: 22 });
@@ -644,7 +646,7 @@ mod tests {
     #[test]
     fn invalid_from_offset_empties_the_partition() {
         let mut watermarks = marks(10, 40);
-        let from = HashMap::from([(0, None)]);
+        let from = HashMap::from_iter([(0, None)]);
 
         apply_timestamp_bounds(&mut watermarks, Some(&from), None);
         assert_eq!(watermarks[&0], Watermarks { low: 40, high: 40 });
@@ -653,7 +655,7 @@ mod tests {
     #[test]
     fn omitted_from_offset_keeps_the_watermark() {
         let mut watermarks = marks(10, 40);
-        let from = HashMap::from([(1, Some(25))]);
+        let from = HashMap::from_iter([(1, Some(25))]);
 
         apply_timestamp_bounds(&mut watermarks, Some(&from), None);
         assert_eq!(watermarks[&0], Watermarks { low: 10, high: 40 });
@@ -662,7 +664,7 @@ mod tests {
     #[test]
     fn invalid_to_offset_keeps_the_high_watermark() {
         let mut watermarks = marks(10, 40);
-        let to = HashMap::from([(0, None)]);
+        let to = HashMap::from_iter([(0, None)]);
 
         apply_timestamp_bounds(&mut watermarks, None, Some(&to));
         assert_eq!(watermarks[&0], Watermarks { low: 10, high: 40 });
@@ -671,8 +673,8 @@ mod tests {
     #[test]
     fn inverted_timestamp_bounds_collapse_to_empty() {
         let mut watermarks = marks(10, 40);
-        let from = HashMap::from([(0, Some(30))]);
-        let to = HashMap::from([(0, Some(20))]);
+        let from = HashMap::from_iter([(0, Some(30))]);
+        let to = HashMap::from_iter([(0, Some(20))]);
 
         apply_timestamp_bounds(&mut watermarks, Some(&from), Some(&to));
         assert_eq!(watermarks[&0], Watermarks { low: 20, high: 20 });

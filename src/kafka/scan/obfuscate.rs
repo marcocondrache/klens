@@ -11,11 +11,11 @@
 //! `contains` prefix one digit at a time.
 
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::sync::Arc;
 
 use bytes::Bytes;
+use foldhash::{HashMap, HashMapExt};
 use hmac::{Hmac, Mac};
 use regex::{Captures, Regex, RegexBuilder};
 use sha2::Sha256;
