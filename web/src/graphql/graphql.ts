@@ -589,7 +589,7 @@ export const WhoamiDocument = new TypedDocumentString(`
     roles
     privileges
   }
-}`) as unknown as TypedDocumentString<WhoamiQuery, WhoamiQueryVariables>;
+}`, {"operationName":"Whoami"}) as unknown as TypedDocumentString<WhoamiQuery, WhoamiQueryVariables>;
 export const ClustersDocument = new TypedDocumentString(`
     query Clusters {
   clusters {
@@ -631,7 +631,7 @@ fragment ClusterHealthFields on ClusterHealth {
   subjectCount
   underReplicatedPartitions
   offlinePartitions
-}`) as unknown as TypedDocumentString<ClustersQuery, ClustersQueryVariables>;
+}`, {"operationName":"Clusters"}) as unknown as TypedDocumentString<ClustersQuery, ClustersQueryVariables>;
 export const TopicRowsDocument = new TypedDocumentString(`
     query TopicRows($cluster: String!) {
   cluster(name: $cluster) {
@@ -654,7 +654,7 @@ export const TopicRowsDocument = new TypedDocumentString(`
   cleanupPolicy
   groupCount
   underReplicated
-}`) as unknown as TypedDocumentString<TopicRowsQuery, TopicRowsQueryVariables>;
+}`, {"operationName":"TopicRows"}) as unknown as TypedDocumentString<TopicRowsQuery, TopicRowsQueryVariables>;
 export const TopicDocument = new TypedDocumentString(`
     query Topic($cluster: String!, $name: String!) {
   cluster(name: $cluster) {
@@ -702,7 +702,7 @@ fragment TopicDetailFields on TopicDetail {
   partitions {
     ...PartitionRowFields
   }
-}`) as unknown as TypedDocumentString<TopicQuery, TopicQueryVariables>;
+}`, {"operationName":"Topic"}) as unknown as TypedDocumentString<TopicQuery, TopicQueryVariables>;
 export const TopicGroupsDocument = new TypedDocumentString(`
     query TopicGroups($cluster: String!, $topic: String!) {
   cluster(name: $cluster) {
@@ -716,7 +716,7 @@ export const TopicGroupsDocument = new TypedDocumentString(`
   state
   memberCount
   lagOnTopic
-}`) as unknown as TypedDocumentString<TopicGroupsQuery, TopicGroupsQueryVariables>;
+}`, {"operationName":"TopicGroups"}) as unknown as TypedDocumentString<TopicGroupsQuery, TopicGroupsQueryVariables>;
 export const TopicConfigsDocument = new TypedDocumentString(`
     query TopicConfigs($cluster: String!, $name: String!) {
   cluster(name: $cluster) {
@@ -731,7 +731,7 @@ export const TopicConfigsDocument = new TypedDocumentString(`
   source
   readOnly
   sensitive
-}`) as unknown as TypedDocumentString<TopicConfigsQuery, TopicConfigsQueryVariables>;
+}`, {"operationName":"TopicConfigs"}) as unknown as TypedDocumentString<TopicConfigsQuery, TopicConfigsQueryVariables>;
 export const GroupRowsDocument = new TypedDocumentString(`
     query GroupRows($cluster: String!) {
   cluster(name: $cluster) {
@@ -750,7 +750,7 @@ export const GroupRowsDocument = new TypedDocumentString(`
   totalLag
   lagComplete
   coordinatorId
-}`) as unknown as TypedDocumentString<GroupRowsQuery, GroupRowsQueryVariables>;
+}`, {"operationName":"GroupRows"}) as unknown as TypedDocumentString<GroupRowsQuery, GroupRowsQueryVariables>;
 export const GroupDocument = new TypedDocumentString(`
     query Group($cluster: String!, $id: String!) {
   cluster(name: $cluster) {
@@ -792,7 +792,7 @@ fragment GroupDetailFields on GroupDetail {
   offsets {
     ...GroupOffsetFields
   }
-}`) as unknown as TypedDocumentString<GroupQuery, GroupQueryVariables>;
+}`, {"operationName":"Group"}) as unknown as TypedDocumentString<GroupQuery, GroupQueryVariables>;
 export const BrokerRowsDocument = new TypedDocumentString(`
     query BrokerRows($cluster: String!) {
   cluster(name: $cluster) {
@@ -809,7 +809,7 @@ export const BrokerRowsDocument = new TypedDocumentString(`
   controller
   partitionCount
   leaderCount
-}`) as unknown as TypedDocumentString<BrokerRowsQuery, BrokerRowsQueryVariables>;
+}`, {"operationName":"BrokerRows"}) as unknown as TypedDocumentString<BrokerRowsQuery, BrokerRowsQueryVariables>;
 export const BrokerConfigsDocument = new TypedDocumentString(`
     query BrokerConfigs($cluster: String!, $id: Int!) {
   cluster(name: $cluster) {
@@ -824,7 +824,7 @@ export const BrokerConfigsDocument = new TypedDocumentString(`
   source
   readOnly
   sensitive
-}`) as unknown as TypedDocumentString<BrokerConfigsQuery, BrokerConfigsQueryVariables>;
+}`, {"operationName":"BrokerConfigs"}) as unknown as TypedDocumentString<BrokerConfigsQuery, BrokerConfigsQueryVariables>;
 export const SubjectRowsDocument = new TypedDocumentString(`
     query SubjectRows($cluster: String!) {
   cluster(name: $cluster) {
@@ -852,7 +852,7 @@ fragment SubjectRowFields on SubjectRow {
   latestVersion
   versions
   compatibility
-}`) as unknown as TypedDocumentString<SubjectRowsQuery, SubjectRowsQueryVariables>;
+}`, {"operationName":"SubjectRows"}) as unknown as TypedDocumentString<SubjectRowsQuery, SubjectRowsQueryVariables>;
 export const SubjectDocument = new TypedDocumentString(`
     query Subject($cluster: String!, $name: String!, $version: Int) {
   cluster(name: $cluster) {
@@ -872,7 +872,7 @@ export const SubjectDocument = new TypedDocumentString(`
     subject
     version
   }
-}`) as unknown as TypedDocumentString<SubjectQuery, SubjectQueryVariables>;
+}`, {"operationName":"Subject"}) as unknown as TypedDocumentString<SubjectQuery, SubjectQueryVariables>;
 export const AclsDocument = new TypedDocumentString(`
     query Acls($cluster: String!) {
   cluster(name: $cluster) {
@@ -892,7 +892,7 @@ export const AclsDocument = new TypedDocumentString(`
   host
   operation
   permission
-}`) as unknown as TypedDocumentString<AclsQuery, AclsQueryVariables>;
+}`, {"operationName":"Acls"}) as unknown as TypedDocumentString<AclsQuery, AclsQueryVariables>;
 export const RecordsDocument = new TypedDocumentString(`
     query Records($cluster: String!, $query: RecordQueryInput!) {
   cluster(name: $cluster) {
@@ -924,7 +924,7 @@ fragment RecordFields on Record {
   headers {
     ...RecordHeaderFields
   }
-}`) as unknown as TypedDocumentString<RecordsQuery, RecordsQueryVariables>;
+}`, {"operationName":"Records"}) as unknown as TypedDocumentString<RecordsQuery, RecordsQueryVariables>;
 export const SearchDocument = new TypedDocumentString(`
     query Search($cluster: String!, $term: String!) {
   cluster(name: $cluster) {
@@ -938,7 +938,7 @@ export const SearchDocument = new TypedDocumentString(`
   id
   label
   detail
-}`) as unknown as TypedDocumentString<SearchQuery, SearchQueryVariables>;
+}`, {"operationName":"Search"}) as unknown as TypedDocumentString<SearchQuery, SearchQueryVariables>;
 export const UpdatesDocument = new TypedDocumentString(`
     subscription Updates($cluster: String!, $scope: UpdateScope) {
   updates(cluster: $cluster, scope: $scope) {
@@ -989,4 +989,4 @@ export const UpdatesDocument = new TypedDocumentString(`
   endOffset
   lag
   memberId
-}`) as unknown as TypedDocumentString<UpdatesSubscription, UpdatesSubscriptionVariables>;
+}`, {"operationName":"Updates"}) as unknown as TypedDocumentString<UpdatesSubscription, UpdatesSubscriptionVariables>;
