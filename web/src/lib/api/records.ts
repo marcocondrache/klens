@@ -31,29 +31,6 @@ function visibleCluster<T>(cluster: T | null): T {
   return cluster;
 }
 
-function walkPhase(
-  enabled: boolean,
-  pageCount: number,
-  isPlaceholder: boolean,
-  isFetching: boolean,
-  isFetchingNextPage: boolean,
-  isFetchingPreviousPage: boolean,
-): WalkPhase {
-  if (!enabled) {
-    return "ready";
-  }
-  if (isPlaceholder || isFetchingNextPage || isFetchingPreviousPage) {
-    return "pending";
-  }
-  if (isFetching && pageCount === 0) {
-    return "loading";
-  }
-  if (isFetching) {
-    return "refreshing";
-  }
-  return "ready";
-}
-
 export function useRecords(cluster: string, query: RecordsFilter, enabled = true): RecordWalk {
   const [pageIndex, setPageIndex] = useState(0);
 
@@ -69,8 +46,8 @@ export function useRecords(cluster: string, query: RecordsFilter, enabled = true
       });
       return visibleCluster(node).records;
     },
-    getNextPageParam: (page) => page.nextCursor ?? undefined,
-    getPreviousPageParam: (page) => page.prevCursor ?? undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    getPreviousPageParam: (firstPage) => firstPage.prevCursor,
   });
 
   const pages = result.data?.pages ?? [];
@@ -81,15 +58,17 @@ export function useRecords(cluster: string, query: RecordsFilter, enabled = true
   }
 
   const page = pages[index];
-  const phase = walkPhase(
-    enabled,
-    pages.length,
-    result.isPlaceholderData,
-    result.isFetching,
-    result.isFetchingNextPage,
-    result.isFetchingPreviousPage,
-  );
-  const pending = phase === "pending";
+  const pending =
+    result.isPlaceholderData || result.isFetchingNextPage || result.isFetchingPreviousPage;
+  const phase: WalkPhase = !enabled
+    ? "ready"
+    : pending
+      ? "pending"
+      : result.isLoading
+        ? "loading"
+        : result.isFetching
+          ? "refreshing"
+          : "ready";
 
   if (!enabled) {
     return {
@@ -111,19 +90,16 @@ export function useRecords(cluster: string, query: RecordsFilter, enabled = true
     complete: page?.complete ?? true,
     obfuscated: page?.obfuscated ?? false,
     pageIndex: index,
-    hasNext: !pending && (index < pages.length - 1 || page?.nextCursor != null),
-    hasPrevious: !pending && (index > 0 || page?.prevCursor != null),
+    hasNext: !pending && (index < last || result.hasNextPage),
+    hasPrevious: !pending && (index > 0 || result.hasPreviousPage),
     phase,
     error: result.error ?? null,
     stepNext() {
       if (pending) {
         return;
       }
-      if (index < pages.length - 1) {
+      if (index < last) {
         setPageIndex(index + 1);
-        return;
-      }
-      if (page?.nextCursor == null) {
         return;
       }
       void result.fetchNextPage({ cancelRefetch: false }).then((next) => {
@@ -138,9 +114,6 @@ export function useRecords(cluster: string, query: RecordsFilter, enabled = true
       }
       if (index > 0) {
         setPageIndex(index - 1);
-        return;
-      }
-      if (page?.prevCursor == null) {
         return;
       }
       void result.fetchPreviousPage({ cancelRefetch: false });
