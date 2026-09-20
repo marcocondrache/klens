@@ -165,8 +165,6 @@ impl ClusterStore {
         ))
     }
 
-    /// Registers interest so the offsets lane promotes this group to its fast
-    /// tier while someone is looking at it.
     pub fn group_detail(&self, id: &str) -> Option<GroupDetail> {
         let topology = self.topology.load()?;
         let (key, group) = topology.groups.get_key_value(id)?;
@@ -267,7 +265,6 @@ impl ClusterStore {
         }
     }
 
-    /// Wakes every lane.
     pub fn kick(&self) {
         self.topology.kick();
         self.watermarks.kick();

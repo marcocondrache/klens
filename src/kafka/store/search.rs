@@ -2,7 +2,6 @@ use super::tables::{SubjectTable, Topology};
 
 const MAX_HITS: usize = 20;
 
-/// What a [`SearchHit`] points at.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchKind {
     Topic,
@@ -30,8 +29,6 @@ struct Entry {
     haystack: String,
 }
 
-/// Lowercased name index over topics, groups, brokers and subjects, rebuilt
-/// on every topology or subject commit.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SearchIndex {
     entries: Vec<Entry>,
