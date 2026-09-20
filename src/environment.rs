@@ -98,22 +98,6 @@ pub static MAX_IN_FLIGHT_REQUESTS: LazyLock<usize> =
 /// Override with `KLENS_MAX_RESPONSE_MB`.
 pub static MAX_RESPONSE_MB: LazyLock<usize> = lazy_env_parse!("KLENS_MAX_RESPONSE_MB", usize, 32);
 
-/// Shards of a fanned-out admin call that may be in flight at once
-/// (default: 16).
-///
-/// Override with `KLENS_ADMIN_FAN_CONCURRENCY`.
-pub static ADMIN_FAN_CONCURRENCY: LazyLock<usize> =
-    lazy_env_parse!("KLENS_ADMIN_FAN_CONCURRENCY", usize, 16);
-
-/// Consumer groups per `DescribeGroups` shard (default: 8).
-///
-/// krafka resolves one coordinator per group serially inside a call, so the
-/// chunk size is what bounds that serial run.
-///
-/// Override with `KLENS_GROUP_DESCRIBE_CHUNK`.
-pub static GROUP_DESCRIBE_CHUNK: LazyLock<usize> =
-    lazy_env_parse!("KLENS_GROUP_DESCRIBE_CHUNK", usize, 8);
-
 /// Idle scan consumers kept per topic (default: 2).
 ///
 /// Override with `KLENS_SCAN_POOL_PER_TOPIC`.
