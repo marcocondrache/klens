@@ -5,11 +5,9 @@ import { execute } from "@/graphql/execute";
 import {
   aclsQuery,
   brokerConfigsQuery,
-  groupLagHistoryQuery,
   recordsQuery,
   subjectQuery,
   topicConfigsQuery,
-  topicRateHistoryQuery,
 } from "./documents";
 import { keys, type RecordsFilter } from "./keys";
 
@@ -61,26 +59,6 @@ export function useSubject(
       return subject;
     },
     enabled: enabled && name != null,
-  });
-}
-
-export function useTopicRateHistory(cluster: string, topic: string) {
-  return useQuery({
-    queryKey: keys.topicRateHistory(cluster, topic),
-    queryFn: async () => {
-      const { topicRateHistory } = await execute(topicRateHistoryQuery, { cluster, topic });
-      return topicRateHistory;
-    },
-  });
-}
-
-export function useGroupLagHistory(cluster: string, group: string) {
-  return useQuery({
-    queryKey: keys.groupLagHistory(cluster, group),
-    queryFn: async () => {
-      const { groupLagHistory } = await execute(groupLagHistoryQuery, { cluster, group });
-      return groupLagHistory;
-    },
   });
 }
 

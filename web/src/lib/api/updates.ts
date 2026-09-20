@@ -6,9 +6,7 @@ import type { UpdatesSubscription } from "@/graphql/graphql";
 import { updatesSubscription } from "./documents";
 import { keys } from "./keys";
 import { subscribe } from "./subscribe";
-import type { GroupDetail, GroupOffset, GroupRow, Point, TopicGroupRow, TopicRow } from "./types";
-
-const HISTORY_LEN = 60;
+import type { GroupDetail, GroupOffset, GroupRow, TopicGroupRow, TopicRow } from "./types";
 
 type Update = UpdatesSubscription["updates"];
 
@@ -43,14 +41,11 @@ function apply(queryClient: QueryClient, cluster: string, update: Update): void 
 
       for (const [name, rate] of rates) {
         patchTopicDetailRate(queryClient, cluster, name, rate);
-        appendPoint(queryClient, keys.topicRateHistory(cluster, name), update.at, rate);
       }
       return;
     }
 
     case "GroupLagUpdate": {
-      const lag = Number(update.lag);
-
       patchGroupRows(queryClient, cluster, update.group, (row) => ({
         ...row,
         totalLag: update.lag,
@@ -69,8 +64,6 @@ function apply(queryClient: QueryClient, cluster: string, update: Update): void 
                 offsets: update.offsets.length > 0 ? update.offsets : detail.offsets,
               },
       );
-
-      appendPoint(queryClient, keys.groupLagHistory(cluster, update.group), update.at, lag);
 
       for (const [name, lagOnTopic] of lagByTopic(update.offsets)) {
         queryClient.setQueryData(
@@ -172,12 +165,6 @@ function patchGroupRows(
 ) {
   queryClient.setQueryData(keys.groupRows(cluster), (rows: GroupRow[] | undefined) =>
     rows?.map((row) => (row.id === group ? patch(row) : row)),
-  );
-}
-
-function appendPoint(queryClient: QueryClient, key: readonly unknown[], at: string, value: number) {
-  queryClient.setQueryData(key, (points: Point[] | undefined) =>
-    points ? [...points, { at, value }].slice(-HISTORY_LEN) : points,
   );
 }
 

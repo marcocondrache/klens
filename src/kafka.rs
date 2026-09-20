@@ -9,7 +9,7 @@
 //! - Raw broker snapshots live in `metadata`, `group` (`GroupSnapshot`),
 //!   `watermarks`, and `topic_config`.
 //! - [`store`] is the read model: normalized tables behind versioned lanes,
-//!   read-time projections, a server-timestamped series store, and a
+//!   read-time projections, latest topic rates, and a
 //!   per-cluster change bus. [`ingest`] fills it from five independent
 //!   per-cluster loops.
 

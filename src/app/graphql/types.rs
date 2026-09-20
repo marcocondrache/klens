@@ -803,30 +803,6 @@ impl TryFrom<RecordQueryInput> for domain::RecordQuery {
     }
 }
 
-#[derive(GraphQLObject)]
-pub(super) struct Point {
-    pub at: DateTime<Utc>,
-    pub value: f64,
-}
-
-impl From<store::Point<f64>> for Point {
-    fn from(point: store::Point<f64>) -> Self {
-        Self {
-            at: point.at,
-            value: point.value,
-        }
-    }
-}
-
-impl From<store::Point<i64>> for Point {
-    fn from(point: store::Point<i64>) -> Self {
-        Self {
-            at: point.at,
-            value: point.value as f64,
-        }
-    }
-}
-
 #[derive(GraphQLEnum, Clone, Copy)]
 pub(super) enum SearchKind {
     Topic,
@@ -917,7 +893,6 @@ pub(super) struct WatermarksTick {
     /// One `{topic, rate}` pair per topic, never catalog objects. A scoped
     /// subscriber gets only its topic.
     pub topics: Vec<TopicRate>,
-    pub cluster_rate: f64,
 }
 
 #[derive(GraphQLObject, Clone)]

@@ -89,7 +89,6 @@ pub struct WatermarksTick {
     pub at: DateTime<Utc>,
     /// Messages per second per topic, from the high-watermark delta.
     pub rates: Vec<TopicRate>,
-    pub cluster_rate: f64,
 }
 
 impl WatermarksTick {
