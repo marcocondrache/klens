@@ -54,7 +54,6 @@ jobs:
 
   style:
     name: style
-    # typos walks the whole tree
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
