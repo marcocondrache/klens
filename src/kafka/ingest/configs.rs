@@ -1,6 +1,7 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
+
+use foldhash::HashMap;
 
 use async_trait::async_trait;
 

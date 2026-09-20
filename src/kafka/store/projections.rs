@@ -1,5 +1,6 @@
-use std::collections::HashMap;
 use std::sync::Arc;
+
+use foldhash::{HashMap, HashMapExt};
 
 use crate::kafka::group::{GroupMember, GroupOffset, GroupState};
 use crate::kafka::topic_config::{CleanupPolicy, topic_config_values};
@@ -436,7 +437,7 @@ mod tests {
         let topology = topology();
         let (name, topic) = topology.topics.iter().next().unwrap();
         let configs = ConfigTable {
-            topics: HashMap::from([(
+            topics: HashMap::from_iter([(
                 Arc::from("orders"),
                 Arc::new(vec![
                     config("cleanup.policy", "compact"),

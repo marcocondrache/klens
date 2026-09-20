@@ -4,11 +4,11 @@
 //! [`SessionSet`] holds one per configured cluster. Production is
 //! [`super::client::KafkaClient`]. Tests use an in-memory fake cluster.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use foldhash::HashMap;
 use futures::future::try_join_all;
 use indexmap::IndexMap;
 

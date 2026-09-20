@@ -1,7 +1,7 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use foldhash::{HashMap, HashMapExt};
 
 use crate::config::SecurityProtocol;
 use crate::kafka::cluster::ClusterIdentity;

@@ -1,8 +1,9 @@
-use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 use std::time::Duration;
+
+use foldhash::{HashMap, HashMapExt, HashSet, HashSetExt};
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -106,15 +107,15 @@ impl FakeCluster {
             }],
         };
 
-        let watermarks = HashMap::from([(
+        let watermarks = HashMap::from_iter([(
             "orders.created".into(),
-            HashMap::from([
+            HashMap::from_iter([
                 (0, Watermarks { low: 0, high: 8 }),
                 (1, Watermarks { low: 0, high: 8 }),
             ]),
         )]);
 
-        let topic_configs = HashMap::from([(
+        let topic_configs = HashMap::from_iter([(
             "orders.created".into(),
             vec![
                 ConfigEntry {
@@ -134,7 +135,7 @@ impl FakeCluster {
             ],
         )]);
 
-        let broker_configs = HashMap::from([(
+        let broker_configs = HashMap::from_iter([(
             1,
             vec![ConfigEntry {
                 name: "log.retention.hours".into(),

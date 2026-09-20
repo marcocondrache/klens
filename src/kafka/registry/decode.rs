@@ -1,5 +1,6 @@
-use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+
+use foldhash::{HashMap, HashMapExt, HashSet, HashSetExt};
 
 use async_trait::async_trait;
 use bytes::Bytes;
