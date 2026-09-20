@@ -17,6 +17,42 @@ defaults:
     shell: bash -euxo pipefail {0}
 
 jobs:
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      rust: ${{ steps.filter.outputs.rust == 'true' || steps.filter.outputs.ci == 'true' }}
+      web: ${{ steps.filter.outputs.web == 'true' || steps.filter.outputs.ci == 'true' }}
+      helm: ${{ steps.filter.outputs.helm == 'true' || steps.filter.outputs.ci == 'true' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 2
+      - name: Detect changed groups
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          filters: |
+            rust:
+              - 'src/**'
+              - 'xtask/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.cargo/**'
+            web:
+              - 'web/**'
+              - 'schema.graphql'
+              - 'Cargo.toml'
+            helm:
+              - 'charts/**'
+            ci:
+              - '.github/workflows/ci.yaml'
+
   style:
     name: style
     runs-on: ubuntu-latest
@@ -35,6 +71,8 @@ jobs:
         uses: crate-ci/typos@b41eb62e9a8096c9ba6636e2365d3f56018a203c # master
 
   clippy:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -51,6 +89,8 @@ jobs:
         run: cargo clippy --all -- -D warnings
 
   web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -70,6 +110,8 @@ jobs:
 
   test:
     name: test
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -89,6 +131,8 @@ jobs:
         run: cargo nextest run --verbose --no-tests=pass
 
   docs:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -107,6 +151,8 @@ jobs:
 
   helm:
     name: helm
+    needs: changes
+    if: needs.changes.outputs.helm == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -125,6 +171,8 @@ jobs:
 
   machete:
     name: machete
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -141,7 +189,7 @@ jobs:
 
   tests_pass:
     name: tests pass
-    needs: [style, clippy, web, test, docs, machete, helm]
+    needs: [changes, style, clippy, web, test, docs, machete, helm]
     if: always()
     runs-on: ubuntu-latest
     steps:
