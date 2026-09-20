@@ -470,7 +470,10 @@ async fn lag_is_computed_from_the_tables() {
 
     lane.sweep(&store).await;
 
-    assert_eq!(store.group_row("order-processor").unwrap().total_lag, 5);
+    assert_eq!(
+        store.group_row("order-processor").unwrap().total_lag,
+        Some(5)
+    );
     assert_eq!(
         session.calls().committed_offsets(),
         1,

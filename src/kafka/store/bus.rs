@@ -122,9 +122,9 @@ impl GroupOffsetsWave {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GroupLagUpdate {
     pub group: Arc<str>,
-    pub total_lag: i64,
-    /// False when a committed partition had no watermark to join against, so
-    /// the total understates the real lag.
+    pub total_lag: Option<i64>,
+    /// False when a partition is missing a commit or a watermark, so a
+    /// present total may understate real lag.
     pub lag_complete: bool,
     pub offsets: Vec<GroupOffset>,
 }

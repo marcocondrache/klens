@@ -1,9 +1,10 @@
 import type { ComponentProps } from "react";
 import { cn } from "@/lib/utils";
 
+import { Skeleton } from "@/components/ui/skeleton";
 import type { GroupState } from "@/lib/api/types";
-import { formatEnumLabel } from "@/lib/format";
-import type { Tone } from "@/lib/tone";
+import { formatEnumLabel, formatNumber, toNumber } from "@/lib/format";
+import { lagTone, type Tone } from "@/lib/tone";
 
 const TONE_BG: Record<Tone, string> = {
   ok: "bg-ok",
@@ -67,6 +68,35 @@ export function GroupStateBadge({ state }: { state: GroupState }) {
     <Pill tone={GROUP_TONE[state]}>
       <StatusDot tone={GROUP_TONE[state]} />
       {formatEnumLabel(state)}
+    </Pill>
+  );
+}
+
+export function LagPill({
+  lag,
+  complete = true,
+}: {
+  lag: string | number | null | undefined;
+  complete?: boolean;
+}) {
+  if (lag == null) {
+    return (
+      <Skeleton
+        className="inline-block h-5 w-12 align-middle"
+        aria-label="Loading lag"
+        title="Waiting for committed offsets"
+      />
+    );
+  }
+
+  return (
+    <Pill
+      tone={lagTone(toNumber(lag))}
+      className="numeric font-mono"
+      title={complete ? undefined : "Lag is incomplete for some partitions"}
+    >
+      {complete ? "" : "≥ "}
+      {formatNumber(lag)}
     </Pill>
   );
 }

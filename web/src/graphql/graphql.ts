@@ -131,17 +131,17 @@ export type PartitionRowFieldsFragment = { id: number, leader: number, replicas:
 
 export type TopicDetailFieldsFragment = { name: string, internal: boolean, replicationFactor: number, retainedMessages: string, producedTotal: string, groupCount: number, underReplicated: boolean, partitions: Array<{ id: number, leader: number, replicas: Array<number>, isr: Array<number>, lowWatermark: string, highWatermark: string, retained: string, underReplicated: boolean }> };
 
-export type TopicGroupRowFieldsFragment = { id: string, state: GroupState, memberCount: number, lagOnTopic: string };
+export type TopicGroupRowFieldsFragment = { id: string, state: GroupState, memberCount: number, lagOnTopic: string | null };
 
-export type GroupRowFieldsFragment = { id: string, state: GroupState, memberCount: number, topicNames: Array<string>, totalLag: string, lagComplete: boolean, coordinatorId: number };
+export type GroupRowFieldsFragment = { id: string, state: GroupState, memberCount: number, topicNames: Array<string>, totalLag: string | null, lagComplete: boolean, coordinatorId: number };
 
 export type MemberAssignmentFieldsFragment = { topic: string, partitions: Array<number> };
 
 export type GroupMemberFieldsFragment = { id: string, clientId: string, host: string, assignments: Array<{ topic: string, partitions: Array<number> }> };
 
-export type GroupOffsetFieldsFragment = { topic: string, partition: number, currentOffset: string, endOffset: string, lag: string, memberId: string | null };
+export type GroupOffsetFieldsFragment = { topic: string, partition: number, currentOffset: string | null, endOffset: string | null, lag: string | null, memberId: string | null };
 
-export type GroupDetailFieldsFragment = { id: string, state: GroupState, protocol: string, coordinatorId: number, totalLag: string, lagComplete: boolean, members: Array<{ id: string, clientId: string, host: string, assignments: Array<{ topic: string, partitions: Array<number> }> }>, offsets: Array<{ topic: string, partition: number, currentOffset: string, endOffset: string, lag: string, memberId: string | null }> };
+export type GroupDetailFieldsFragment = { id: string, state: GroupState, protocol: string, coordinatorId: number, totalLag: string | null, lagComplete: boolean, members: Array<{ id: string, clientId: string, host: string, assignments: Array<{ topic: string, partitions: Array<number> }> }>, offsets: Array<{ topic: string, partition: number, currentOffset: string | null, endOffset: string | null, lag: string | null, memberId: string | null }> };
 
 export type BrokerRowFieldsFragment = { id: number, host: string, port: number, rack: string | null, controller: boolean, partitionCount: number, leaderCount: number };
 
@@ -190,7 +190,7 @@ export type TopicGroupsQueryVariables = Exact<{
 }>;
 
 
-export type TopicGroupsQuery = { cluster: { topicGroups: Array<{ id: string, state: GroupState, memberCount: number, lagOnTopic: string }> } | null };
+export type TopicGroupsQuery = { cluster: { topicGroups: Array<{ id: string, state: GroupState, memberCount: number, lagOnTopic: string | null }> } | null };
 
 export type TopicConfigsQueryVariables = Exact<{
   cluster: string;
@@ -205,7 +205,7 @@ export type GroupRowsQueryVariables = Exact<{
 }>;
 
 
-export type GroupRowsQuery = { cluster: { groups: { rows: Array<{ id: string, state: GroupState, memberCount: number, topicNames: Array<string>, totalLag: string, lagComplete: boolean, coordinatorId: number }> } } | null };
+export type GroupRowsQuery = { cluster: { groups: { rows: Array<{ id: string, state: GroupState, memberCount: number, topicNames: Array<string>, totalLag: string | null, lagComplete: boolean, coordinatorId: number }> } } | null };
 
 export type GroupQueryVariables = Exact<{
   cluster: string;
@@ -213,7 +213,7 @@ export type GroupQueryVariables = Exact<{
 }>;
 
 
-export type GroupQuery = { cluster: { group: { id: string, state: GroupState, protocol: string, coordinatorId: number, totalLag: string, lagComplete: boolean, members: Array<{ id: string, clientId: string, host: string, assignments: Array<{ topic: string, partitions: Array<number> }> }>, offsets: Array<{ topic: string, partition: number, currentOffset: string, endOffset: string, lag: string, memberId: string | null }> } | null } | null };
+export type GroupQuery = { cluster: { group: { id: string, state: GroupState, protocol: string, coordinatorId: number, totalLag: string | null, lagComplete: boolean, members: Array<{ id: string, clientId: string, host: string, assignments: Array<{ topic: string, partitions: Array<number> }> }>, offsets: Array<{ topic: string, partition: number, currentOffset: string | null, endOffset: string | null, lag: string | null, memberId: string | null }> } | null } | null };
 
 export type BrokerRowsQueryVariables = Exact<{
   cluster: string;
@@ -277,7 +277,7 @@ export type UpdatesSubscriptionVariables = Exact<{
 
 export type UpdatesSubscription = { updates:
     | { __typename: 'ConfigsChanged', version: string, configTopics: Array<string> }
-    | { __typename: 'GroupLagUpdate', group: string, lag: string, lagComplete: boolean, offsets: Array<{ topic: string, partition: number, currentOffset: string, endOffset: string, lag: string, memberId: string | null }> }
+    | { __typename: 'GroupLagUpdate', group: string, lag: string | null, lagComplete: boolean, offsets: Array<{ topic: string, partition: number, currentOffset: string | null, endOffset: string | null, lag: string | null, memberId: string | null }> }
     | { __typename: 'Resync', reason: ResyncReason }
     | { __typename: 'SubjectsChanged', version: string, added: Array<string>, removed: Array<string>, changed: Array<string> }
     | { __typename: 'TopologyDelta', version: string, addedTopics: Array<string>, removedTopics: Array<string>, changedTopics: Array<string>, addedGroups: Array<string>, removedGroups: Array<string>, changedGroups: Array<string>, brokersChanged: boolean }

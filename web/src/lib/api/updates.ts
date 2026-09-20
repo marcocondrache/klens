@@ -70,7 +70,9 @@ function apply(queryClient: QueryClient, cluster: string, update: Update): void 
           keys.topicGroups(cluster, name),
           (rows: TopicGroupRow[] | undefined) =>
             rows?.map((row) =>
-              row.id === update.group ? { ...row, lagOnTopic: String(lagOnTopic) } : row,
+              row.id === update.group
+                ? { ...row, lagOnTopic: lagOnTopic == null ? null : String(lagOnTopic) }
+                : row,
             ),
         );
       }
@@ -168,12 +170,17 @@ function patchGroupRows(
   );
 }
 
-function lagByTopic(offsets: GroupOffset[]): Map<string, number> {
-  const totals = new Map<string, number>();
+function lagByTopic(offsets: GroupOffset[]): Map<string, number | null> {
+  const totals = new Map<string, { sum: number; known: boolean }>();
   for (const offset of offsets) {
-    totals.set(offset.topic, (totals.get(offset.topic) ?? 0) + Number(offset.lag));
+    const entry = totals.get(offset.topic) ?? { sum: 0, known: false };
+    if (offset.lag != null) {
+      entry.sum += Number(offset.lag);
+      entry.known = true;
+    }
+    totals.set(offset.topic, entry);
   }
-  return totals;
+  return new Map([...totals].map(([topic, { sum, known }]) => [topic, known ? sum : null]));
 }
 
 function isTopicSubKey(key: readonly unknown[], cluster: string, leaf: string) {

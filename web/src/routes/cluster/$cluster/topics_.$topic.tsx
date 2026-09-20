@@ -10,8 +10,7 @@ import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
 import { PageHeader } from "@/components/page-header";
 import { RecordBrowser } from "@/components/records/record-browser";
-import { GroupStateBadge, Pill } from "@/components/status";
-import { lagTone } from "@/lib/tone";
+import { GroupStateBadge, LagPill, Pill } from "@/components/status";
 import { useTopic, useTopicGroups } from "@/lib/api/catalog";
 import { catalogLookupMessage } from "@/lib/catalog-lookup";
 import { useTopicConfigs } from "@/lib/api/live";
@@ -202,18 +201,21 @@ function TopicPage() {
       meta: { align: "right", label: "Members" },
       cell: ({ getValue }) => getValue(),
     }),
-    groupColumnHelper.accessor((group) => toNumber(group.lagOnTopic), {
-      id: "lag",
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Lag on this topic" className="justify-end" />
-      ),
-      meta: { align: "right", label: "Lag on this topic" },
-      cell: ({ row: groupRow }) => (
-        <Pill tone={lagTone(toNumber(groupRow.original.lagOnTopic))} className="numeric font-mono">
-          {formatNumber(groupRow.original.lagOnTopic)}
-        </Pill>
-      ),
-    }),
+    groupColumnHelper.accessor(
+      (group) => (group.lagOnTopic == null ? Number.NEGATIVE_INFINITY : toNumber(group.lagOnTopic)),
+      {
+        id: "lag",
+        header: ({ column }) => (
+          <DataTableColumnHeader
+            column={column}
+            title="Lag on this topic"
+            className="justify-end"
+          />
+        ),
+        meta: { align: "right", label: "Lag on this topic" },
+        cell: ({ row: groupRow }) => <LagPill lag={groupRow.original.lagOnTopic} />,
+      },
+    ),
   ]);
 
   return (

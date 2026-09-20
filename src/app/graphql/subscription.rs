@@ -11,6 +11,7 @@ use crate::kafka::store::{Change, GroupOffsetsWave, InterestLease};
 
 use super::context::GraphQlContext;
 use super::error::GqlError;
+use super::scalars::Int64;
 use super::types::{
     ConfigsChanged, GroupLagUpdate, Resync, ResyncReason, SubjectsChanged, TopicRate,
     TopologyDelta, Update, UpdateScope, WatermarksTick, names,
@@ -195,7 +196,7 @@ fn lag_update(
     GroupLagUpdate {
         at: wave.at,
         group: update.group.to_string(),
-        lag: update.total_lag.into(),
+        lag: update.total_lag.map(Int64::from),
         lag_complete: update.lag_complete,
         offsets: match offsets {
             true => update.offsets.iter().cloned().map(Into::into).collect(),

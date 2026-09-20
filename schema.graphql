@@ -299,14 +299,15 @@ type GroupDetail {
   coordinatorId: Int!
   members: [GroupMember!]!
   offsets: [GroupOffset!]!
-  totalLag: Int64!
+  "`null` until committed offsets have been loaded."
+  totalLag: Int64
   lagComplete: Boolean!
 }
 
 type GroupLagUpdate {
   at: DateTime!
   group: String!
-  lag: Int64!
+  lag: Int64
   lagComplete: Boolean!
   offsets: [GroupOffset!]!
 }
@@ -321,9 +322,11 @@ type GroupMember {
 type GroupOffset {
   topic: String!
   partition: Int!
-  currentOffset: Int64!
-  endOffset: Int64!
-  lag: Int64!
+  "`null` when this assigned partition has no committed offset yet."
+  currentOffset: Int64
+  endOffset: Int64
+  "`null` when lag cannot be computed because there is no commit."
+  lag: Int64
   memberId: String
 }
 
@@ -332,10 +335,14 @@ type GroupRow {
   state: GroupState!
   memberCount: Int!
   topicNames: [String!]!
-  totalLag: Int64!
   """
-    False when a committed partition had no watermark to join against, so
-    the total understates the real lag.
+    `null` until committed offsets have been loaded. A group with
+    assignments but no commits is still loading, not at the log start.
+  """
+  totalLag: Int64
+  """
+    False when a partition is missing a commit or a watermark, so a
+    present total may understate real lag.
   """
   lagComplete: Boolean!
   coordinatorId: Int!
@@ -511,7 +518,8 @@ type TopicGroupRow {
   id: String!
   state: GroupState!
   memberCount: Int!
-  lagOnTopic: Int64!
+  "`null` until a committed offset exists on this topic."
+  lagOnTopic: Int64
 }
 
 type TopicRate {

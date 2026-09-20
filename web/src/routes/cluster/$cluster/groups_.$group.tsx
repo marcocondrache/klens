@@ -7,6 +7,7 @@ import { DataTableColumnHeader } from "@/components/data-table/column-header";
 import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
 import { PageHeader } from "@/components/page-header";
+import { Skeleton } from "@/components/ui/skeleton";
 import { GroupStateBadge, Pill } from "@/components/status";
 import { useGroup } from "@/lib/api/catalog";
 import { catalogLookupMessage } from "@/lib/catalog-lookup";
@@ -72,6 +73,19 @@ const memberColumns = memberColumnHelper.columns([
   ),
 ]);
 
+function OffsetNumber({ value, label }: { value: string | null; label: string }) {
+  if (value == null) {
+    return (
+      <Skeleton
+        className="ml-auto h-4 w-12"
+        aria-label={label}
+        title="Waiting for committed offsets"
+      />
+    );
+  }
+  return formatNumber(value);
+}
+
 function GroupFacts({
   group,
   members,
@@ -88,10 +102,21 @@ function GroupFacts({
       <span className="numeric">{members} members</span>
       <span className="numeric">{topicCount} topics</span>
       <span className="numeric">{partitions} assigned partitions</span>
-      <span className="numeric text-brand">
-        {group.lagComplete ? "" : "≥ "}
-        {formatCount(group.totalLag)} lag
-      </span>
+      {group.totalLag == null ? (
+        <span className="inline-flex items-center gap-1.5 text-brand">
+          <Skeleton
+            className="h-4 w-10"
+            aria-label="Loading lag"
+            title="Waiting for committed offsets"
+          />
+          lag
+        </span>
+      ) : (
+        <span className="numeric text-brand">
+          {group.lagComplete ? "" : "≥ "}
+          {formatCount(group.totalLag)} lag
+        </span>
+      )}
     </div>
   );
 }
@@ -135,7 +160,10 @@ function ConsumerGroupPage() {
 
   const offsets = group?.offsets ?? [];
   const members = group?.members ?? [];
-  const maxLag = Math.max(1, ...offsets.map((offset) => toNumber(offset.lag)));
+  const maxLag = Math.max(
+    1,
+    ...offsets.flatMap((offset) => (offset.lag == null ? [] : [toNumber(offset.lag)])),
+  );
   const memberLabels = new Map(members.map((member) => [member.id, member.clientId] as const));
   const topicCount = new Set([
     ...offsets.map((offset) => offset.topic),
@@ -164,52 +192,80 @@ function ConsumerGroupPage() {
       meta: { align: "right", label: "Partition" },
       cell: ({ getValue }) => <span className="numeric font-mono">{getValue()}</span>,
     }),
-    offsetColumnHelper.accessor((offset) => toNumber(offset.currentOffset), {
-      id: "current",
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Committed" className="justify-end" />
-      ),
-      meta: { align: "right", label: "Committed" },
-      cell: ({ row }) => formatNumber(row.original.currentOffset),
-    }),
-    offsetColumnHelper.accessor((offset) => toNumber(offset.endOffset), {
-      id: "end",
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="End offset" className="justify-end" />
-      ),
-      meta: { align: "right", label: "End offset" },
-      cell: ({ row }) => formatNumber(row.original.endOffset),
-    }),
-    offsetColumnHelper.accessor((offset) => toNumber(offset.lag), {
-      id: "lag",
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Lag" className="justify-end" />
-      ),
-      meta: { align: "right", label: "Lag" },
-      cell: ({ getValue, row }) => {
-        const lag = getValue();
-
-        return (
-          <span className="flex items-center justify-end gap-2">
-            <span className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
-              <span
-                className={
-                  lag === 0
-                    ? "block h-full bg-ok/70"
-                    : lag > maxLag / 2
-                      ? "block h-full bg-destructive/70"
-                      : "block h-full bg-warn/70"
-                }
-                style={{
-                  width: `${Math.max(lag === 0 ? 0 : 4, (lag / maxLag) * 100)}%`,
-                }}
-              />
-            </span>
-            <span className="numeric w-16 font-mono">{formatNumber(row.original.lag)}</span>
-          </span>
-        );
+    offsetColumnHelper.accessor(
+      (offset) =>
+        offset.currentOffset == null ? Number.NEGATIVE_INFINITY : toNumber(offset.currentOffset),
+      {
+        id: "current",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Committed" className="justify-end" />
+        ),
+        meta: { align: "right", label: "Committed" },
+        cell: ({ row }) => (
+          <OffsetNumber value={row.original.currentOffset} label="Loading committed offset" />
+        ),
       },
-    }),
+    ),
+    offsetColumnHelper.accessor(
+      (offset) =>
+        offset.endOffset == null ? Number.NEGATIVE_INFINITY : toNumber(offset.endOffset),
+      {
+        id: "end",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="End offset" className="justify-end" />
+        ),
+        meta: { align: "right", label: "End offset" },
+        cell: ({ row }) => (
+          <OffsetNumber value={row.original.endOffset} label="Loading end offset" />
+        ),
+      },
+    ),
+    offsetColumnHelper.accessor(
+      (offset) => (offset.lag == null ? Number.NEGATIVE_INFINITY : toNumber(offset.lag)),
+      {
+        id: "lag",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Lag" className="justify-end" />
+        ),
+        meta: { align: "right", label: "Lag" },
+        cell: ({ getValue, row }) => {
+          if (row.original.lag == null) {
+            return (
+              <span className="flex items-center justify-end gap-2">
+                <Skeleton className="h-1.5 w-16" />
+                <Skeleton
+                  className="h-4 w-16"
+                  aria-label="Loading lag"
+                  title="Waiting for committed offsets"
+                />
+              </span>
+            );
+          }
+
+          const lag = getValue();
+
+          return (
+            <span className="flex items-center justify-end gap-2">
+              <span className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
+                <span
+                  className={
+                    lag === 0
+                      ? "block h-full bg-ok/70"
+                      : lag > maxLag / 2
+                        ? "block h-full bg-destructive/70"
+                        : "block h-full bg-warn/70"
+                  }
+                  style={{
+                    width: `${Math.max(lag === 0 ? 0 : 4, (lag / maxLag) * 100)}%`,
+                  }}
+                />
+              </span>
+              <span className="numeric w-16 font-mono">{formatNumber(row.original.lag)}</span>
+            </span>
+          );
+        },
+      },
+    ),
     offsetColumnHelper.accessor((offset) => offset.memberId ?? "", {
       id: "member",
       header: ({ column }) => (

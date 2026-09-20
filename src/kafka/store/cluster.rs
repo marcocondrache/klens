@@ -393,7 +393,7 @@ mod tests {
 
         let groups = store.group_rows();
         assert_eq!(groups.len(), 1);
-        assert_eq!(groups[0].total_lag, 15);
+        assert_eq!(groups[0].total_lag, Some(15));
         assert!(groups[0].lag_complete);
     }
 
@@ -426,7 +426,7 @@ mod tests {
         let rows = store.topic_groups("orders");
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].id.as_ref(), "billing");
-        assert_eq!(rows[0].lag_on_topic, 15);
+        assert_eq!(rows[0].lag_on_topic, Some(15));
         assert!(store.topic_groups("payments").is_empty());
     }
 
@@ -437,7 +437,7 @@ mod tests {
 
         let detail = store.group_detail("billing").expect("billing exists");
 
-        assert_eq!(detail.total_lag, 15);
+        assert_eq!(detail.total_lag, Some(15));
         assert!(
             store.interest.is_hot("billing"),
             "a viewed group must join the fast offset tier"

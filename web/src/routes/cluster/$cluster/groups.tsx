@@ -15,12 +15,11 @@ import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
 import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
-import { GroupStateBadge, Pill } from "@/components/status";
-import { lagTone } from "@/lib/tone";
+import { GroupStateBadge, LagPill, Pill } from "@/components/status";
 import { useNow } from "@/hooks/use-now";
 import { useClusterHealth, useGroupRows } from "@/lib/api/catalog";
 import { laneCaption, useClusterName } from "@/lib/clusters";
-import { formatCount, formatEnumLabel, formatNumber, toNumber } from "@/lib/format";
+import { formatCount, formatEnumLabel, toNumber } from "@/lib/format";
 import type { GroupRow, GroupState } from "@/lib/api/types";
 import { parseGroupsSearch } from "@/lib/route-search";
 
@@ -82,14 +81,19 @@ const columns = columnHelper.columns([
       </span>
     ),
   }),
-  columnHelper.accessor((group) => toNumber(group.totalLag), {
-    id: "lag",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Lag" className="justify-end" />
-    ),
-    meta: { align: "right", label: "Lag" },
-    cell: ({ row }) => <LagPill row={row.original} />,
-  }),
+  columnHelper.accessor(
+    (group) => (group.totalLag == null ? Number.NEGATIVE_INFINITY : toNumber(group.totalLag)),
+    {
+      id: "lag",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Lag" className="justify-end" />
+      ),
+      meta: { align: "right", label: "Lag" },
+      cell: ({ row }) => (
+        <LagPill lag={row.original.totalLag} complete={row.original.lagComplete} />
+      ),
+    },
+  ),
   columnHelper.accessor("coordinatorId", {
     id: "coordinator",
     header: ({ column }) => (
@@ -99,19 +103,6 @@ const columns = columnHelper.columns([
     cell: ({ getValue }) => <span className="numeric font-mono">broker {getValue()}</span>,
   }),
 ]);
-
-function LagPill({ row }: { row: GroupRow }) {
-  return (
-    <Pill
-      tone={lagTone(toNumber(row.totalLag))}
-      className="numeric font-mono"
-      title={row.lagComplete ? undefined : "Some partitions have no watermark yet"}
-    >
-      {row.lagComplete ? "" : "≥ "}
-      {formatNumber(row.totalLag)}
-    </Pill>
-  );
-}
 
 function ConsumerGroupsPage() {
   const cluster = useClusterName();
@@ -152,13 +143,21 @@ function ConsumerGroupsPage() {
     });
   }, [groups, term, state]);
 
-  const totalLag = rows.reduce((sum, group) => sum + toNumber(group.totalLag), 0);
+  const pendingLag = rows.some((group) => group.totalLag == null);
+  const totalLag = rows.reduce(
+    (sum, group) => sum + (group.totalLag == null ? 0 : toNumber(group.totalLag)),
+    0,
+  );
+  const lagCaption =
+    pendingLag && rows.every((group) => group.totalLag == null)
+      ? "lag loading"
+      : `${formatCount(totalLag)} messages of lag`;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
       <PageHeader
         title="Consumer groups"
-        description={`${rows.length} groups · ${formatCount(totalLag)} messages of lag${caption ? ` · ${caption}` : ""}`}
+        description={`${rows.length} groups · ${lagCaption}${caption ? ` · ${caption}` : ""}`}
       />
 
       <DataTable

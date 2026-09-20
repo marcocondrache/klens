@@ -264,9 +264,11 @@ impl From<domain::GroupMember> for GroupMember {
 pub(super) struct GroupOffset {
     pub topic: String,
     pub partition: i32,
-    pub current_offset: Int64,
-    pub end_offset: Int64,
-    pub lag: Int64,
+    /// `null` when this assigned partition has no committed offset yet.
+    pub current_offset: Option<Int64>,
+    pub end_offset: Option<Int64>,
+    /// `null` when lag cannot be computed because there is no commit.
+    pub lag: Option<Int64>,
     pub member_id: Option<String>,
 }
 
@@ -275,9 +277,9 @@ impl From<domain::GroupOffset> for GroupOffset {
         Self {
             topic: offset.topic,
             partition: offset.partition,
-            current_offset: offset.current_offset.into(),
-            end_offset: offset.end_offset.into(),
-            lag: offset.lag.into(),
+            current_offset: offset.current_offset.map(Int64::from),
+            end_offset: offset.end_offset.map(Int64::from),
+            lag: offset.lag.map(Int64::from),
             member_id: offset.member_id,
         }
     }
@@ -289,9 +291,11 @@ pub(super) struct GroupRow {
     pub state: GroupState,
     pub member_count: i32,
     pub topic_names: Vec<String>,
-    pub total_lag: Int64,
-    /// False when a committed partition had no watermark to join against, so
-    /// the total understates the real lag.
+    /// `null` until committed offsets have been loaded. A group with
+    /// assignments but no commits is still loading, not at the log start.
+    pub total_lag: Option<Int64>,
+    /// False when a partition is missing a commit or a watermark, so a
+    /// present total may understate real lag.
     pub lag_complete: bool,
     pub coordinator_id: i32,
 }
@@ -303,7 +307,7 @@ impl From<projections::GroupRow> for GroupRow {
             state: row.state.into(),
             member_count: row.member_count,
             topic_names: row.topic_names,
-            total_lag: row.total_lag.into(),
+            total_lag: row.total_lag.map(Int64::from),
             lag_complete: row.lag_complete,
             coordinator_id: row.coordinator_id,
         }
@@ -325,7 +329,8 @@ pub(super) struct GroupDetail {
     pub coordinator_id: i32,
     pub members: Vec<GroupMember>,
     pub offsets: Vec<GroupOffset>,
-    pub total_lag: Int64,
+    /// `null` until committed offsets have been loaded.
+    pub total_lag: Option<Int64>,
     pub lag_complete: bool,
 }
 
@@ -338,7 +343,7 @@ impl From<projections::GroupDetail> for GroupDetail {
             coordinator_id: detail.coordinator_id,
             members: detail.members.into_iter().map(Into::into).collect(),
             offsets: detail.offsets.into_iter().map(Into::into).collect(),
-            total_lag: detail.total_lag.into(),
+            total_lag: detail.total_lag.map(Int64::from),
             lag_complete: detail.lag_complete,
         }
     }
@@ -351,7 +356,8 @@ pub(super) struct TopicGroupRow {
     pub id: String,
     pub state: GroupState,
     pub member_count: i32,
-    pub lag_on_topic: Int64,
+    /// `null` until a committed offset exists on this topic.
+    pub lag_on_topic: Option<Int64>,
 }
 
 impl From<projections::TopicGroupRow> for TopicGroupRow {
@@ -360,7 +366,7 @@ impl From<projections::TopicGroupRow> for TopicGroupRow {
             id: row.id.to_string(),
             state: row.state.into(),
             member_count: row.member_count,
-            lag_on_topic: row.lag_on_topic.into(),
+            lag_on_topic: row.lag_on_topic.map(Int64::from),
         }
     }
 }
@@ -899,7 +905,7 @@ pub(super) struct WatermarksTick {
 pub(super) struct GroupLagUpdate {
     pub at: DateTime<Utc>,
     pub group: String,
-    pub lag: Int64,
+    pub lag: Option<Int64>,
     pub lag_complete: bool,
     pub offsets: Vec<GroupOffset>,
 }

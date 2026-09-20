@@ -509,6 +509,51 @@ async fn group_rows_join_commits_against_watermarks() {
 }
 
 #[tokio::test]
+async fn group_rows_leave_lag_null_until_commits_exist() {
+    let state = state();
+    let store = state.cluster("local").expect("local cluster");
+    store.topology.commit(Arc::new(topology(
+        vec![topic(
+            "orders.created",
+            vec![partition(0, vec![1], vec![1])],
+        )],
+        vec![group("order-processor", "orders.created", vec![0])],
+    )));
+    store.watermarks.commit(Arc::new(watermarks(
+        at(1_000),
+        &[("orders.created", 0, 0, 100)],
+    )));
+
+    let query = r#"{ cluster(name: "local") { groups { rows { id totalLag lagComplete } } } }"#;
+    let pending = ok(&ctx(&state), query).await;
+    assert_eq!(
+        pending["cluster"]["groups"]["rows"][0]["totalLag"],
+        serde_json::Value::Null
+    );
+    assert_eq!(
+        pending["cluster"]["groups"]["rows"][0]["lagComplete"],
+        false
+    );
+
+    store.offsets.commit(Arc::new(OffsetTable {
+        groups: HashMap::from_iter([(
+            Arc::from("order-processor"),
+            Arc::new(offsets(at(1_000), &[])),
+        )]),
+    }));
+
+    let sampled = ok(&ctx(&state), query).await;
+    assert_eq!(
+        sampled["cluster"]["groups"]["rows"][0]["totalLag"],
+        serde_json::Value::Null
+    );
+    assert_eq!(
+        sampled["cluster"]["groups"]["rows"][0]["lagComplete"],
+        false
+    );
+}
+
+#[tokio::test]
 async fn broker_rows_count_the_partitions_each_node_carries() {
     let state = seeded();
 
@@ -1059,7 +1104,7 @@ fn wave(groups: &[(&str, i64)]) -> Change {
             .iter()
             .map(|(group, lag)| GroupLagUpdate {
                 group: Arc::from(*group),
-                total_lag: *lag,
+                total_lag: Some(*lag),
                 lag_complete: true,
                 offsets: Vec::new(),
             })

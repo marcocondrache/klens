@@ -68,8 +68,11 @@ pub struct GroupRow {
     pub state: GroupState,
     pub member_count: i32,
     pub topic_names: Vec<String>,
-    pub total_lag: i64,
-    /// False when a committed partition had no watermark to join against.
+    /// `None` until committed offsets have been loaded. Assignments without
+    /// a commit are not treated as offset zero.
+    pub total_lag: Option<i64>,
+    /// False when a partition is missing a commit or a watermark, so a
+    /// present total may understate real lag.
     pub lag_complete: bool,
     pub coordinator_id: i32,
 }
@@ -82,7 +85,7 @@ pub struct GroupDetail {
     pub coordinator_id: i32,
     pub members: Vec<GroupMember>,
     pub offsets: Vec<GroupOffset>,
-    pub total_lag: i64,
+    pub total_lag: Option<i64>,
     pub lag_complete: bool,
 }
 
@@ -91,7 +94,7 @@ pub struct TopicGroupRow {
     pub id: Arc<str>,
     pub state: GroupState,
     pub member_count: i32,
-    pub lag_on_topic: i64,
+    pub lag_on_topic: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -204,20 +207,24 @@ pub fn group_offsets(
     group: &GroupInfo,
     offsets: Option<&GroupOffsets>,
     watermarks: Option<&WatermarkTable>,
-) -> (Vec<GroupOffset>, i64, bool) {
+) -> (Vec<GroupOffset>, Option<i64>, bool) {
     let end = |topic: &str, partition: i32| {
         watermarks
             .and_then(|table| table.get(topic, partition))
             .map(|marks: Watermarks| marks.high)
     };
 
+    let sampled = offsets.is_some();
     let mut seen: HashMap<(String, i32), GroupOffset> = HashMap::new();
-    let mut complete = true;
+    let mut complete = sampled;
+    let mut any_commit = false;
+    let mut pending = false;
 
     for committed in offsets
         .map(|offsets| offsets.committed.as_slice())
         .unwrap_or_default()
     {
+        any_commit = true;
         let end = end(&committed.topic, committed.partition);
         let (lag, known) = lag_of(committed.offset, end);
         complete &= known;
@@ -226,9 +233,9 @@ pub fn group_offsets(
             GroupOffset {
                 topic: committed.topic.clone(),
                 partition: committed.partition,
-                current_offset: committed.offset,
-                end_offset: end.unwrap_or(committed.offset),
-                lag,
+                current_offset: Some(committed.offset),
+                end_offset: end,
+                lag: Some(lag),
                 member_id: group
                     .member_for(&committed.topic, committed.partition)
                     .map(ToOwned::to_owned),
@@ -241,16 +248,16 @@ pub fn group_offsets(
         if seen.contains_key(&key) {
             continue;
         }
-        let end = end(topic, partition);
-        complete &= end.is_some();
+        pending = true;
+        complete = false;
         seen.insert(
             key,
             GroupOffset {
                 topic: topic.to_owned(),
                 partition,
-                current_offset: 0,
-                end_offset: end.unwrap_or(0),
-                lag: end.unwrap_or(0).max(0),
+                current_offset: None,
+                end_offset: end(topic, partition),
+                lag: None,
                 member_id: group.member_for(topic, partition).map(ToOwned::to_owned),
             },
         );
@@ -262,7 +269,11 @@ pub fn group_offsets(
             .cmp(&right.topic)
             .then(left.partition.cmp(&right.partition))
     });
-    let total = offsets.iter().map(|offset| offset.lag).sum();
+    let total = if !sampled || (!any_commit && pending) {
+        None
+    } else {
+        Some(offsets.iter().filter_map(|offset| offset.lag).sum())
+    };
     (offsets, total, complete)
 }
 
@@ -315,11 +326,14 @@ pub fn topic_group_row(
         id: Arc::clone(id),
         state: group.state,
         member_count: group.members.len() as i32,
-        lag_on_topic: offsets
-            .iter()
-            .filter(|offset| offset.topic == topic)
-            .map(|offset| offset.lag)
-            .sum(),
+        lag_on_topic: {
+            let lags: Vec<i64> = offsets
+                .iter()
+                .filter(|offset| offset.topic == topic)
+                .filter_map(|offset| offset.lag)
+                .collect();
+            (!lags.is_empty()).then_some(lags.into_iter().sum())
+        },
     }
 }
 
@@ -379,7 +393,7 @@ fn unique_topics(offsets: &[GroupOffset]) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kafka::group::MemberAssignment;
+    use crate::kafka::group::{GroupSnapshot, GroupState, MemberAssignment};
     use crate::kafka::store::fixtures::{
         at, config, group as group_snapshot, offline_partition, offsets, partition, topic,
         topology as build_topology, watermarks,
@@ -477,7 +491,7 @@ mod tests {
             Some(&marks()),
         );
 
-        assert_eq!(row.total_lag, 40, "10 behind + 30 behind");
+        assert_eq!(row.total_lag, Some(40), "10 behind + 30 behind");
         assert!(row.lag_complete);
         assert_eq!(row.member_count, 1);
         assert_eq!(row.topic_names, vec!["orders"]);
@@ -495,9 +509,10 @@ mod tests {
             Some(&marks()),
         );
 
-        assert_eq!(
-            row.total_lag, 50,
-            "partition 0 clamps to 0, partition 1 never committed"
+        assert_eq!(row.total_lag, Some(0), "partition 0 clamps to 0");
+        assert!(
+            !row.lag_complete,
+            "an assigned partition without a commit must not invent log-end lag"
         );
     }
 
@@ -513,7 +528,7 @@ mod tests {
             Some(&watermarks(at(1_000), &[])),
         );
 
-        assert_eq!(row.total_lag, 0);
+        assert_eq!(row.total_lag, Some(0));
         assert!(
             !row.lag_complete,
             "unknown partitions must not read as zero lag"
@@ -521,16 +536,52 @@ mod tests {
     }
 
     #[test]
-    fn an_assigned_partition_that_never_committed_lags_by_the_whole_log() {
+    fn an_assigned_partition_without_a_commit_leaves_lag_unknown() {
         let topology = topology();
         let (id, group) = topology.groups.iter().next().unwrap();
 
-        let detail = group_detail(id, group, None, Some(&marks()));
+        let unsampled = group_detail(id, group, None, Some(&marks()));
+        assert_eq!(unsampled.total_lag, None);
+        assert!(!unsampled.lag_complete);
+        assert_eq!(unsampled.offsets.len(), 2);
+        assert_eq!(unsampled.offsets[0].current_offset, None);
+        assert_eq!(unsampled.offsets[0].end_offset, Some(100));
+        assert_eq!(unsampled.offsets[0].lag, None);
+        assert_eq!(
+            unsampled.offsets[0].member_id.as_deref(),
+            Some("billing-m1")
+        );
 
-        assert_eq!(detail.total_lag, 150);
-        assert_eq!(detail.offsets.len(), 2);
-        assert_eq!(detail.offsets[0].current_offset, 0);
-        assert_eq!(detail.offsets[0].member_id.as_deref(), Some("billing-m1"));
+        let sampled_empty = group_detail(id, group, Some(&offsets(at(1_000), &[])), Some(&marks()));
+        assert_eq!(sampled_empty.total_lag, None);
+        assert!(!sampled_empty.lag_complete);
+        assert_eq!(sampled_empty.offsets[0].current_offset, None);
+        assert_eq!(sampled_empty.offsets[0].lag, None);
+    }
+
+    #[test]
+    fn an_empty_group_with_no_commits_has_zero_lag_once_sampled() {
+        let topology = build_topology(
+            vec![topic("orders", vec![partition(0, vec![1], vec![1])])],
+            vec![GroupSnapshot {
+                id: "idle".into(),
+                state: GroupState::Empty,
+                protocol: String::new(),
+                coordinator: 1,
+                members: Vec::new(),
+                committed: Vec::new(),
+            }],
+        );
+        let (id, group) = topology.groups.iter().next().unwrap();
+
+        let unsampled = group_detail(id, group, None, Some(&marks()));
+        assert_eq!(unsampled.total_lag, None);
+        assert!(!unsampled.lag_complete);
+
+        let sampled = group_detail(id, group, Some(&offsets(at(1_000), &[])), Some(&marks()));
+        assert_eq!(sampled.total_lag, Some(0));
+        assert!(sampled.lag_complete);
+        assert!(sampled.offsets.is_empty());
     }
 
     #[test]
@@ -547,9 +598,18 @@ mod tests {
         let (id, group) = topology.groups.iter().next().unwrap();
         let marks = watermarks(at(1_000), &[("orders", 0, 0, 10), ("payments", 0, 0, 900)]);
 
-        let row = topic_group_row(id, "orders", group, None, Some(&marks));
-        assert_eq!(row.lag_on_topic, 10);
+        let row = topic_group_row(
+            id,
+            "orders",
+            group,
+            Some(&offsets(at(1_000), &[("orders", 0, 0), ("payments", 0, 0)])),
+            Some(&marks),
+        );
+        assert_eq!(row.lag_on_topic, Some(10));
         assert_eq!(row.member_count, 1);
+
+        let pending = topic_group_row(id, "orders", group, None, Some(&marks));
+        assert_eq!(pending.lag_on_topic, None);
     }
 
     #[test]
