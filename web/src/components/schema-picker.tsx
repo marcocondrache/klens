@@ -11,26 +11,28 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useSubjectRows } from "@/lib/api/catalog";
 import type { SubjectRow } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
 const DECODABLE = new Set(["AVRO", "JSON", "PROTOBUF"]);
 
 export function SchemaPicker({
-  subjects,
+  cluster,
   topic,
   value,
   onChange,
 }: {
-  subjects: SubjectRow[];
+  cluster: string;
   topic: string;
   value: number | null;
   onChange: (id: number | null) => void;
 }) {
+  const { data: subjects } = useSubjectRows(cluster);
   const [open, setOpen] = useState(false);
   const preferred = `${topic}-value`;
   const options = useMemo(() => {
-    const decodable = subjects.filter((subject) => DECODABLE.has(subject.type));
+    const decodable = (subjects?.rows ?? []).filter((subject) => DECODABLE.has(subject.type));
     return {
       pinned: decodable.filter((subject) => subject.subject === preferred),
       rest: decodable.filter((subject) => subject.subject !== preferred),

@@ -34,7 +34,6 @@ import { PayloadView } from "@/components/payload-view";
 import { SchemaPicker } from "@/components/schema-picker";
 import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
-import { useSubjectRows } from "@/lib/api/catalog";
 import { useRecords, type RecordsFilter } from "@/lib/api/live";
 import { useAccess } from "@/hooks/use-access";
 import { queryErrorMessage } from "@/lib/query-error";
@@ -147,7 +146,6 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
   const [schemaId, setSchemaId] = useState<number | null>(null);
 
   const { can } = useAccess();
-  const { data: subjects } = useSubjectRows(cluster);
 
   const query = useMemo<RecordsFilter>(() => {
     const needle = term.trim();
@@ -305,7 +303,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
 
             {showSchemaPicker ? (
               <SchemaPicker
-                subjects={subjects?.rows ?? []}
+                cluster={cluster}
                 topic={topic.name}
                 value={schemaId}
                 onChange={(id) => {
