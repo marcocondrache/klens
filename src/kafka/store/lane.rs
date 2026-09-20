@@ -3,6 +3,7 @@ use std::sync::RwLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
+use arc_swap::ArcSwapOption;
 use chrono::{DateTime, Utc};
 use tokio::sync::Notify;
 
@@ -28,7 +29,7 @@ impl LaneHealth {
 
 /// An immutable table behind a swappable pointer.
 pub struct Lane<T> {
-    table: RwLock<Option<Arc<T>>>,
+    table: ArcSwapOption<T>,
     version: AtomicU64,
     health: RwLock<LaneHealth>,
     kick: Notify,
@@ -37,7 +38,7 @@ pub struct Lane<T> {
 impl<T> Default for Lane<T> {
     fn default() -> Self {
         Self {
-            table: RwLock::new(None),
+            table: ArcSwapOption::new(None),
             version: AtomicU64::new(0),
             health: RwLock::new(LaneHealth::default()),
             kick: Notify::new(),
@@ -60,7 +61,7 @@ impl<T> Lane<T> {
     }
 
     pub fn load(&self) -> Option<Arc<T>> {
-        self.table.read().expect("lane table lock").clone()
+        self.table.load_full()
     }
 
     pub fn version(&self) -> u64 {
@@ -73,11 +74,8 @@ impl<T> Lane<T> {
     }
 
     pub fn commit(&self, next: Arc<T>) -> u64 {
-        let mut table = self.table.write().expect("lane table lock");
-        *table = Some(next);
+        self.table.store(Some(next));
         let version = self.version.fetch_add(1, Ordering::AcqRel) + 1;
-        drop(table);
-
         self.health.write().expect("lane health lock").updated_at = Some(utc_now());
         version
     }
