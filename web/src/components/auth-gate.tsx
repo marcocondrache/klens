@@ -10,7 +10,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const onLogin = pathname === "/login";
 
   if (isPending) {
-    return <PageLoading title="Starting" description="Checking whether sign-in is required." />;
+    return <PageLoading title="Starting" description="Checking if you need to sign in." />;
   }
 
   if (isError) {

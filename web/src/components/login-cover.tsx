@@ -91,10 +91,11 @@ export function LoginCover() {
       />
 
       <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-background via-background/70 to-transparent p-10 pt-24">
-        <p className="text-xl font-semibold tracking-tight text-foreground">A lens for Kafka</p>
+        <p className="text-xl font-semibold tracking-tight text-foreground">
+          Inspect a Kafka cluster
+        </p>
         <p className="mt-1.5 max-w-md text-sm leading-relaxed text-muted-foreground">
-          Open a cluster and look through the topics and the messages on them, the groups consuming
-          them, the brokers, and the schemas.
+          Browse topics, records, consumer groups, brokers, and schemas.
         </p>
       </div>
     </div>

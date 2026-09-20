@@ -62,10 +62,10 @@ function ObfuscatedBadge() {
         Obfuscated
       </TooltipTrigger>
       <TooltipContent className="block max-w-80 py-2 leading-relaxed">
-        A rule on this cluster hides parts of this topic. Protected fields render as *** or as kx:
-        tokens — equal values share a token, so records still correlate, and a masked number renders
-        as text. A value the registry could not decode is masked whole. Searches match this view,
-        never the value behind it.
+        A rule on this cluster hides fields on this topic. Protected fields show as *** or as kx:
+        tokens. The same value always gets the same token. A masked number shows as text. A value
+        the schema registry could not decode is hidden entirely. Search matches this masked view,
+        not the original bytes.
       </TooltipContent>
     </Tooltip>
   );
@@ -207,8 +207,8 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
           <TriangleAlertIcon />
           <AlertTitle>Partial page</AlertTitle>
           <AlertDescription>
-            The scan hit its deadline with offsets still unread. These records match, but the page
-            is not everything the query matched — continue to keep scanning.
+            The scan timed out before it read every matching offset. These records match. Open the
+            next page to keep scanning.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -357,7 +357,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                   ? "Nothing in the selected time range."
                   : term
                     ? "Nothing matched your search in the scanned offsets."
-                    : "This topic has no records in the selected range."}
+                    : "This topic has no records."}
               </EmptyDescription>
             </EmptyHeader>
           </Empty>
