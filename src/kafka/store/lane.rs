@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use arc_swap::ArcSwapOption;
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use tokio::sync::Notify;
 
 use crate::utils::utc_now;
@@ -13,10 +13,10 @@ use crate::utils::utc_now;
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LaneHealth {
     /// When the lane last committed a table, i.e. when the data last moved.
-    pub updated_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<Timestamp>,
     /// When the lane last completed a fetch, whether or not it changed
     /// anything. A lane whose data is stable stays fresh here.
-    pub checked_at: Option<DateTime<Utc>>,
+    pub checked_at: Option<Timestamp>,
     pub last_error: Option<String>,
     pub last_poll_ms: Option<u64>,
 }

@@ -104,7 +104,7 @@ mod tests {
     use crate::kafka::scan::Compression;
     use crate::kafka::store::fixtures::{identity, partition, topic, topology};
     use crate::kafka::testing::FakeCluster;
-    use crate::utils::datetime_from_unix_millis as unix_datetime;
+    use crate::utils::timestamp_from_unix_millis as unix_datetime;
 
     fn store() -> ClusterStore {
         ClusterStore::new(identity("local"))

@@ -8,7 +8,6 @@ use cel::{Context, Env, Program, Timestamp, Value};
 use crate::kafka::error::QueryError;
 use crate::kafka::scan::payload::DecodedPayload;
 use crate::kafka::scan::{Compression, compression_name};
-use crate::utils::datetime_from_unix_millis;
 
 const MAX_FILTER_BYTES: usize = 4096;
 
@@ -293,8 +292,11 @@ fn header_map(headers: &[(Bytes, Option<Bytes>)]) -> std::collections::BTreeMap<
         .collect()
 }
 
+/// cel-rust still stores timestamps as chrono DateTime values.
 fn record_timestamp(millis: i64) -> chrono::DateTime<chrono::FixedOffset> {
-    datetime_from_unix_millis(millis).fixed_offset()
+    chrono::DateTime::from_timestamp_millis(millis)
+        .unwrap_or(chrono::DateTime::UNIX_EPOCH)
+        .fixed_offset()
 }
 
 #[cfg(test)]
@@ -373,6 +375,8 @@ mod tests {
         assert!(matches("partition == 1 && offset == 42 && size == 128"));
         assert!(matches(r#"compression == "gzip" && schemaId == 7"#));
         assert!(matches(r#"topic == "orders.created""#));
+        assert!(matches(r#"timestamp > timestamp("2020-01-01T00:00:00Z")"#));
+        assert!(!matches(r#"timestamp < timestamp("2020-01-01T00:00:00Z")"#));
     }
 
     #[test]

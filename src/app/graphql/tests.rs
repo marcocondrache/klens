@@ -718,7 +718,7 @@ async fn records_are_read_live_through_the_scan_path() {
         &ctx(&state),
         r#"{ cluster(name: "local") { records(query: { topic: "orders.created", limit: 3 }) {
             complete
-            records { topic partition offset key sizeBytes compression }
+            records { topic partition offset key sizeBytes compression timestamp }
         } } }"#,
     )
     .await;
@@ -730,6 +730,38 @@ async fn records_are_read_live_through_the_scan_path() {
     assert_eq!(records[0]["topic"], "orders.created");
     assert_eq!(records[0]["sizeBytes"], "24");
     assert_eq!(records[0]["compression"], "NONE");
+    records[0]["timestamp"]
+        .as_str()
+        .expect("timestamp")
+        .parse::<jiff::Timestamp>()
+        .expect("RFC 3339 DateTime");
+}
+
+#[tokio::test]
+async fn records_accept_rfc3339_timestamp_bounds() {
+    let state = seeded();
+
+    let data = ok(
+        &ctx(&state),
+        r#"{ cluster(name: "local") { records(query: {
+            topic: "orders.created",
+            order: OLDEST,
+            from: "2023-11-14T22:13:23Z",
+            to: "2023-11-14T22:13:25Z"
+        }) { records { offset timestamp } } } }"#,
+    )
+    .await;
+
+    let records = data["cluster"]["records"]["records"]
+        .as_array()
+        .expect("records");
+    let offsets: Vec<_> = records
+        .iter()
+        .map(|record| record["offset"].as_str().expect("offset"))
+        .collect();
+    assert_eq!(offsets, ["3", "4", "5"]);
+    assert_eq!(records[0]["timestamp"], "2023-11-14T22:13:23Z");
+    assert_eq!(records[2]["timestamp"], "2023-11-14T22:13:25Z");
 }
 
 #[tokio::test]
@@ -958,7 +990,11 @@ async fn cluster_health_reports_per_lane_freshness_and_counts() {
     assert_eq!(health["cluster"], "local");
     assert_eq!(health["ready"], true);
     assert_eq!(health["topology"]["healthy"], true);
-    assert_ne!(health["topology"]["updatedAt"], serde_json::Value::Null);
+    health["topology"]["updatedAt"]
+        .as_str()
+        .expect("updatedAt")
+        .parse::<jiff::Timestamp>()
+        .expect("RFC 3339 DateTime");
     assert_eq!(health["topicCount"], 2);
     assert_eq!(health["partitionCount"], 3);
     assert_eq!(health["groupCount"], 1);

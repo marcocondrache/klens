@@ -1,13 +1,13 @@
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
-pub(crate) fn utc_now() -> DateTime<Utc> {
-    Utc::now()
+pub(crate) fn utc_now() -> Timestamp {
+    Timestamp::now()
 }
 
 pub(crate) fn unix_timestamp_secs() -> i64 {
-    Utc::now().timestamp()
+    Timestamp::now().as_second()
 }
 
-pub(crate) fn datetime_from_unix_millis(millis: i64) -> DateTime<Utc> {
-    DateTime::from_timestamp_millis(millis).unwrap_or(DateTime::UNIX_EPOCH)
+pub(crate) fn timestamp_from_unix_millis(millis: i64) -> Timestamp {
+    Timestamp::from_millisecond(millis).unwrap_or(Timestamp::UNIX_EPOCH)
 }
