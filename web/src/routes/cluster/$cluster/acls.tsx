@@ -20,6 +20,7 @@ import { useAccess } from "@/hooks/use-access";
 import { useAcls } from "@/lib/api/live";
 import type { Acl, AclResourceType } from "@/lib/api/types";
 import { useClusterName } from "@/lib/clusters";
+import { graphqlErrorMessage } from "@/lib/graphql-error";
 import { formatEnumLabel } from "@/lib/format";
 import { ACL_RESOURCE_TYPES, parseAclsSearch } from "@/lib/route-search";
 
@@ -189,9 +190,7 @@ function AclsPage() {
           </>
         }
         loading={isPending}
-        error={
-          isError ? (error instanceof Error ? error.message : "Failed to load ACLs.") : undefined
-        }
+        error={isError ? graphqlErrorMessage(error, "Failed to load ACLs.") : undefined}
         emptyState={disabled ? "Authorization is disabled on this cluster." : "No ACL bindings."}
         defaultSort={{ id: "resourceName", direction: "asc" }}
         fill

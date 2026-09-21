@@ -15,6 +15,7 @@ import {
 import { StatusDot } from "@/components/status";
 import { useClusters, useSearch } from "@/lib/api/catalog";
 import { clusterTone, useClusterName } from "@/lib/clusters";
+import { graphqlErrorMessage } from "@/lib/graphql-error";
 import { useAccess } from "@/hooks/use-access";
 import { clusterSectionTo, useActiveSection, visibleSections } from "@/lib/sections";
 
@@ -78,7 +79,7 @@ export function CommandPalette({
         />
         <CommandList className="max-h-[min(24rem,50vh)]">
           {searching && isError ? (
-            <CommandEmpty>{error instanceof Error ? error.message : "Search failed."}</CommandEmpty>
+            <CommandEmpty>{graphqlErrorMessage(error, "Search failed.")}</CommandEmpty>
           ) : null}
 
           {searching && !isFetching && !isError && results.length === 0 ? (
