@@ -81,11 +81,7 @@ export function useTopic(cluster: string, topic: string) {
     queryKey: keys.topic(cluster, topic),
     queryFn: async () => {
       const { cluster: node } = await execute(topicQuery, { cluster, name: topic });
-      const resolved = visibleCluster(node);
-      return {
-        detail: resolved.topic,
-        row: resolved.topics.rows.find((row) => row.name === topic) ?? null,
-      };
+      return visibleCluster(node).topic;
     },
   });
 }

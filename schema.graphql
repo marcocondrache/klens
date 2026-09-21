@@ -496,6 +496,9 @@ type TopicDetail {
   replicationFactor: Int!
   retainedMessages: Int64!
   producedTotal: Int64!
+  rate: Float!
+  retentionMs: Int64!
+  cleanupPolicy: CleanupPolicy!
   groupCount: Int!
   underReplicated: Boolean!
 }

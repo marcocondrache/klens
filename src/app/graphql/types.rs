@@ -188,6 +188,9 @@ pub(super) struct TopicDetail {
     pub replication_factor: i32,
     pub retained_messages: Int64,
     pub produced_total: Int64,
+    pub rate: f64,
+    pub retention_ms: Int64,
+    pub cleanup_policy: CleanupPolicy,
     pub group_count: i32,
     pub under_replicated: bool,
 }
@@ -201,6 +204,9 @@ impl From<projections::TopicDetail> for TopicDetail {
             replication_factor: detail.replication_factor,
             retained_messages: detail.retained_messages.into(),
             produced_total: detail.produced_total.into(),
+            rate: detail.rate,
+            retention_ms: detail.retention_ms.into(),
+            cleanup_policy: detail.cleanup_policy.into(),
             group_count: detail.group_count,
             under_replicated: detail.under_replicated,
         }
