@@ -3,19 +3,34 @@ use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::Router;
 use axum::extract::{Path, Query};
 use axum::response::sse::{Event, KeepAlive, Sse};
+use axum::routing::get;
 use futures::stream::{BoxStream, StreamExt as _};
 use serde::Deserialize;
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::broadcast::error::RecvError;
 
+use crate::AppState;
 use crate::app::auth::SessionGuard;
 use crate::kafka::store::{Change, GroupOffsetsWave, InterestLease};
 
 use super::context::Session;
 use super::error::ApiError;
-use super::types::{GroupOffset, Int64, ResyncReason, TopicRate, Update, names};
+use super::groups::GroupOffset;
+use super::int64::Int64;
+
+mod types;
+
+#[cfg(test)]
+mod tests;
+
+pub(crate) use types::{ResyncReason, TopicRate, Update};
+
+pub(crate) fn router() -> Router<AppState> {
+    Router::new().route("/api/clusters/{cluster}/updates", get(updates))
+}
 
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct UpdateQuery {
@@ -141,6 +156,10 @@ fn error_event(error: &ApiError) -> Event {
         "code": error.code(),
     });
     Event::default().event("error").data(body.to_string())
+}
+
+fn names(values: &[Arc<str>]) -> Vec<String> {
+    values.iter().map(|value| value.to_string()).collect()
 }
 
 fn project(change: &Change, scope: &Scope) -> Vec<Update> {
