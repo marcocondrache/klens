@@ -186,8 +186,8 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
         rows.push(record);
       }
     }
-    return order === "NEWEST" ? rows.toReversed() : rows;
-  }, [data?.pages, order]);
+    return rows;
+  }, [data?.pages]);
   const lastPage = data?.pages[data.pages.length - 1];
   const scanKey = JSON.stringify(query);
   const obfuscated = data?.pages.some((page) => page.obfuscated) ?? false;
@@ -222,6 +222,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
       ) : null}
 
       <RecordTable
+        key={scanKey}
         columns={columns}
         data={records}
         toolbar={
@@ -319,8 +320,6 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
         selectedKey={
           selectedRecord ? `${selectedRecord.partition}-${selectedRecord.offset}` : undefined
         }
-        anchorTo={order === "NEWEST" ? "end" : "start"}
-        scanKey={scanKey}
         error={queryErrorMessage(isError, error, "Failed to load records.")}
         emptyState={
           <Empty className="py-10">

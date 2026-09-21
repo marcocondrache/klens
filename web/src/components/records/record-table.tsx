@@ -1,12 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   useTable,
   type Column,
@@ -21,7 +13,6 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { DataTableViewOptions } from "@/components/data-table/view-options";
 import { features, type DataTableFeatures } from "@/components/data-table/features";
 import { RefreshBar } from "@/components/refresh-bar";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
@@ -53,9 +44,6 @@ interface RecordTableProps<TData extends RowData> {
   fetchNextPage?: () => void;
   isFetchingNextPage?: boolean;
   isFetchNextPageError?: boolean;
-  /** `end` is a log tail: latest at the bottom, older batches prepend. */
-  anchorTo?: "start" | "end";
-  scanKey?: string;
 }
 
 function tablePlaceholder(content: ReactNode) {
@@ -81,12 +69,9 @@ export function RecordTable<TData extends RowData>({
   fetchNextPage,
   isFetchingNextPage = false,
   isFetchNextPageError = false,
-  anchorTo = "end",
-  scanKey,
 }: RecordTableProps<TData>) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [columnVisibility, setColumnVisibility] = useState<ColumnVisibilityState>({});
-  const [landed, setLanded] = useState(false);
 
   const table = useTable({
     features,
@@ -104,18 +89,15 @@ export function RecordTable<TData extends RowData>({
     () => visible.map((column) => COLUMN_TRACK[column.id] ?? "minmax(0,1fr)").join(" "),
     [visible],
   );
-  const historyAtStart = anchorTo === "end";
   const loaderCount = hasNextPage || isFetchingNextPage || isFetchNextPageError ? 1 : 0;
   const count = rows.length + loaderCount;
 
   const getItemKey = useCallback(
     (index: number) => {
-      if (historyAtStart && loaderCount && index === 0) return LOAD_MORE_KEY;
-      if (!historyAtStart && loaderCount && index === rows.length) return LOAD_MORE_KEY;
-      const row = rows[historyAtStart && loaderCount ? index - 1 : index];
-      return row?.id ?? index;
+      if (loaderCount && index === rows.length) return LOAD_MORE_KEY;
+      return rows[index]?.id ?? index;
     },
-    [historyAtStart, loaderCount, rows],
+    [loaderCount, rows],
   );
 
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
@@ -123,41 +105,9 @@ export function RecordTable<TData extends RowData>({
     getScrollElement: () => scrollRef.current,
     estimateSize: () => ROW_SIZE,
     getItemKey,
-    anchorTo,
-    followOnAppend: historyAtStart,
-    scrollEndThreshold: 80,
     overscan: 6,
     measureElement: (element) => element.offsetHeight,
   });
-
-  useLayoutEffect(() => {
-    setLanded(false);
-  }, [scanKey]);
-
-  useLayoutEffect(() => {
-    if (!historyAtStart || rows.length === 0 || landed) return;
-
-    let cancelled = false;
-    let frames = 0;
-    let frame = 0;
-
-    const tick = () => {
-      if (cancelled) return;
-      virtualizer.scrollToEnd();
-      frames += 1;
-      if (virtualizer.isAtEnd() || frames > 12) {
-        setLanded(true);
-        return;
-      }
-      frame = requestAnimationFrame(tick);
-    };
-
-    frame = requestAnimationFrame(tick);
-    return () => {
-      cancelled = true;
-      cancelAnimationFrame(frame);
-    };
-  }, [historyAtStart, landed, rows.length, virtualizer]);
 
   const items = virtualizer.getVirtualItems();
 
@@ -167,40 +117,24 @@ export function RecordTable<TData extends RowData>({
       fetchNextPage();
       return;
     }
-    if (historyAtStart && (!landed || virtualizer.isAtEnd(80))) return;
 
-    const edge = historyAtStart ? items[0] : items[items.length - 1];
+    const edge = items[items.length - 1];
     if (edge == null) return;
     if (getItemKey(edge.index) === LOAD_MORE_KEY) fetchNextPage();
   }, [
     fetchNextPage,
     getItemKey,
     hasNextPage,
-    historyAtStart,
     isFetchNextPageError,
     isFetchingNextPage,
     items,
-    landed,
     rows.length,
-    virtualizer,
   ]);
-
-  const showLatest = historyAtStart && landed && rows.length > 0 && !virtualizer.isAtEnd();
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
       <div className="flex shrink-0 flex-wrap items-center gap-3">
         {toolbar}
-        {showLatest ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => virtualizer.scrollToEnd()}
-          >
-            Latest
-          </Button>
-        ) : null}
         <DataTableViewOptions table={table} />
       </div>
       <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border">
@@ -250,9 +184,7 @@ export function RecordTable<TData extends RowData>({
               >
                 {items.map((item) => {
                   const isLoader = getItemKey(item.index) === LOAD_MORE_KEY;
-                  const row = isLoader
-                    ? undefined
-                    : rows[historyAtStart && loaderCount ? item.index - 1 : item.index];
+                  const row = isLoader ? undefined : rows[item.index];
 
                   return (
                     <div
