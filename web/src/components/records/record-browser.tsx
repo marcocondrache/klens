@@ -46,7 +46,7 @@ const ORDER_ITEMS = [
   { value: "OLDEST", label: "Oldest first" },
 ] as const;
 
-const RECORD_PAGE_SIZES = [25, 50, 100];
+const EMPTY_RECORDS: KafkaRecord[] = [];
 
 function preview(value: string | null) {
   if (!value) return "—";
@@ -137,10 +137,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
   const [term, setTerm] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const [limit, setLimit] = useState(50);
   const [order, setOrder] = useState<RecordOrder>("NEWEST");
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [pageIndex, setPageIndex] = useState(0);
   const [selected, setSelected] = useState<KafkaRecord | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [schemaId, setSchemaId] = useState<number | null>(null);
@@ -156,20 +153,40 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
       order,
       from: fromDatetimeLocalValue(from),
       to: fromDatetimeLocalValue(to),
-      limit,
       filter: needle ? { contains: needle, cel: null } : null,
       schemaId,
     };
-  }, [topic.name, partition, order, from, to, limit, term, schemaId]);
+  }, [topic.name, partition, order, from, to, term, schemaId]);
 
-  const { data, isFetching, isPlaceholderData, isError, error } = useRecords(
-    cluster,
-    query,
-    cursor,
-    can(cluster, "RECORDS"),
-  );
+  const {
+    data,
+    isFetching,
+    isFetchingNextPage,
+    isFetchNextPageError,
+    isError,
+    error,
+    fetchNextPage,
+    hasNextPage,
+  } = useRecords(cluster, query, can(cluster, "RECORDS"));
 
-  const records = data?.records ?? [];
+  const records = useMemo(() => {
+    const pages = data?.pages;
+    if (!pages?.length) return EMPTY_RECORDS;
+
+    const seen = new Set<string>();
+    const rows: KafkaRecord[] = [];
+    for (const page of pages) {
+      for (const record of page.records) {
+        const id = `${record.partition}-${record.offset}`;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        rows.push(record);
+      }
+    }
+    return rows;
+  }, [data?.pages]);
+  const lastPage = data?.pages[data.pages.length - 1];
+  const obfuscated = data?.pages.some((page) => page.obfuscated) ?? false;
   const showSchemaPicker =
     schemaId != null || records.some((record) => record.value != null && record.schemaId == null);
   const selectedRecord =
@@ -178,17 +195,6 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
       : (records.find(
           (record) => record.partition === selected.partition && record.offset === selected.offset,
         ) ?? selected);
-
-  function rewind() {
-    setCursor(null);
-    setPageIndex(0);
-  }
-
-  function step(next: string | null, delta: number) {
-    if (next == null) return;
-    setCursor(next);
-    setPageIndex((current) => Math.max(0, current + delta));
-  }
 
   const partitionItems = [
     { value: "all", label: "All partitions" },
@@ -200,13 +206,13 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
-      {data && !data.complete ? (
+      {lastPage && !lastPage.complete ? (
         <Alert>
           <TriangleAlertIcon />
-          <AlertTitle>Partial page</AlertTitle>
+          <AlertTitle>Partial scan</AlertTitle>
           <AlertDescription>
-            The scan timed out before it read every matching offset. These records match. Load the
-            next batch to keep scanning.
+            The scan timed out before it read every matching offset. These records match. Keep
+            scrolling to continue.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -218,10 +224,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
           <>
             <SearchField
               value={term}
-              onChange={(event) => {
-                setTerm(event.target.value);
-                rewind();
-              }}
+              onChange={(event) => setTerm(event.target.value)}
               placeholder="Search key or value…"
             />
 
@@ -233,10 +236,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                 type="datetime-local"
                 value={from}
                 max={to || undefined}
-                onChange={(event) => {
-                  setFrom(event.target.value);
-                  rewind();
-                }}
+                onChange={(event) => setFrom(event.target.value)}
                 aria-label="From timestamp"
               />
             </InputGroup>
@@ -249,10 +249,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                 type="datetime-local"
                 value={to}
                 min={from || undefined}
-                onChange={(event) => {
-                  setTo(event.target.value);
-                  rewind();
-                }}
+                onChange={(event) => setTo(event.target.value)}
                 aria-label="To timestamp"
               />
             </InputGroup>
@@ -260,10 +257,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
             <Select
               value={partition}
               items={partitionItems}
-              onValueChange={(value) => {
-                setPartition(String(value));
-                rewind();
-              }}
+              onValueChange={(value) => setPartition(String(value))}
             >
               <SelectTrigger className="w-40">
                 <SelectValue placeholder="Partition" />
@@ -282,10 +276,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
             <Select
               value={order}
               items={ORDER_ITEMS}
-              onValueChange={(value) => {
-                setOrder(value as RecordOrder);
-                rewind();
-              }}
+              onValueChange={(value) => setOrder(value as RecordOrder)}
             >
               <SelectTrigger className="w-36">
                 <SelectValue />
@@ -306,36 +297,20 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                 cluster={cluster}
                 topic={topic.name}
                 value={schemaId}
-                onChange={(id) => {
-                  setSchemaId(id);
-                  rewind();
-                }}
+                onChange={setSchemaId}
               />
             ) : null}
 
-            {data?.obfuscated ? <ObfuscatedBadge /> : null}
+            {obfuscated ? <ObfuscatedBadge /> : null}
           </>
         }
         getRowId={(record) => `${record.partition}-${record.offset}`}
-        loading={isFetching && records.length === 0}
-        refreshing={isFetching && records.length > 0}
-        pageSize={limit}
-        pageSizes={RECORD_PAGE_SIZES}
-        hasMore={data?.nextCursor != null}
-        loadingMore={isFetching && isPlaceholderData}
-        canPreviousPage={data?.prevCursor != null || pageIndex > 0}
-        onPageSizeChange={(size) => {
-          setLimit(size);
-          rewind();
-        }}
-        onPreviousPage={() => {
-          if (data?.prevCursor == null) {
-            rewind();
-            return;
-          }
-          step(data.prevCursor, -1);
-        }}
-        onNextPage={() => step(data?.nextCursor ?? null, 1)}
+        loading={isFetching && !isFetchingNextPage && records.length === 0}
+        refreshing={isFetching && !isFetchingNextPage && records.length > 0}
+        onLoadMore={fetchNextPage}
+        hasMore={Boolean(hasNextPage)}
+        loadingMore={isFetchingNextPage}
+        loadMoreError={isFetchNextPageError}
         onRowClick={setSelected}
         selectedKey={
           selectedRecord ? `${selectedRecord.partition}-${selectedRecord.offset}` : undefined
@@ -384,7 +359,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
               <SheetHeader className="border-b">
                 <SheetTitle className="flex items-center gap-2 font-mono text-sm">
                   {topic.name}[{selectedRecord.partition}]@{selectedRecord.offset}
-                  {data?.obfuscated ? <ObfuscatedBadge /> : null}
+                  {obfuscated ? <ObfuscatedBadge /> : null}
                 </SheetTitle>
                 <SheetDescription>
                   {formatTimestamp(selectedRecord.timestamp)} ·{" "}
