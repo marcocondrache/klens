@@ -6,5 +6,5 @@ publish = false
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-klens = { path = ".." }
+klens = { path = "..", features = ["schema-language"] }
 xshell = "0.2"

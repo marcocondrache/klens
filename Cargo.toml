@@ -9,6 +9,7 @@ ignored = ["cookie"]
 
 [features]
 ui = ["dep:rust-embed", "dep:mime_guess"]
+schema-language = ["juniper/schema-language"]
 
 [workspace]
 members = ["xtask"]
@@ -24,7 +25,14 @@ all = "deny"
 anyhow = "1"
 async-trait = "0.1"
 indexmap = "2"
-axum = { version = "0.8", features = ["http2", "ws"] }
+axum = { version = "0.8", default-features = false, features = [
+    "http1",
+    "json",
+    "query",
+    "tokio",
+    "tracing",
+    "ws",
+] }
 axum-login = "0.18"
 # Pulled in only for `key-expansion`, which is what gives
 # `tower_sessions::cookie::Key::derive_from` (HKDF) so a configured session
@@ -32,8 +40,8 @@ axum-login = "0.18"
 cookie = { version = "0.18", features = ["key-expansion"] }
 tower-sessions = { version = "0.14", features = ["memory-store", "signed"] }
 futures = "0.3"
-jiff = "0.2"
-juniper = { version = "0.17", features = ["jiff", "schema-language"] }
+jiff = { version = "0.2", default-features = false, features = ["std"] }
+juniper = { version = "0.17", features = ["jiff"] }
 juniper_axum = { version = "0.3", features = ["subscriptions"] }
 juniper_graphql_ws = { version = "0.5", features = ["graphql-transport-ws", "graphql-ws"] }
 krafka = { git = "https://github.com/hupe1980/krafka", rev = "776ac3402150289fbcab989d81265af4c7f31eaa" }
@@ -61,7 +69,6 @@ tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2.5.8"
 base64 = "0.22"
-reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls"] }
 schemreg = { version = "0.6", features = ["confluent", "avro"] }
 apache-avro = "0.21"
 prost-reflect = { version = "0.16", features = ["serde"] }
