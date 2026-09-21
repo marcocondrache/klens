@@ -43,6 +43,14 @@ cargo nextest run --verbose --no-tests=pass
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items
 ```
 
+## audit
+
+```sh
+cargo audit
+```
+
+`.cargo/audit.toml` ignores RUSTSEC-2023-0071. openidconnect depends on `rsa`, and RustSec lists no patched release.
+
 ## machete
 
 ```sh
