@@ -25,7 +25,7 @@ import {
   isCompactCleanup,
   toNumber,
 } from "@/lib/format";
-import type { PartitionRow, TopicDetail, TopicGroupRow, TopicRow } from "@/lib/api/types";
+import type { PartitionRow, TopicDetail, TopicGroupRow } from "@/lib/api/types";
 import { parseTopicDetailSearch } from "@/lib/route-search";
 import { useAccess } from "@/hooks/use-access";
 
@@ -113,13 +113,13 @@ const partitionColumns = partitionColumnHelper.columns([
   }),
 ]);
 
-function TopicFacts({ detail, row }: { detail: TopicDetail; row: TopicRow | null }) {
+function TopicFacts({ detail }: { detail: TopicDetail }) {
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
       <span className="numeric">{detail.partitions.length} partitions</span>
       <span className="numeric">{formatCount(detail.retainedMessages)} msgs</span>
-      {row ? <span className="numeric">retention {formatDuration(row.retentionMs)}</span> : null}
-      {row ? <span className="numeric text-brand">{formatThroughput(row.rate)}/s</span> : null}
+      <span className="numeric">retention {formatDuration(detail.retentionMs)}</span>
+      <span className="numeric text-brand">{formatThroughput(detail.rate)}/s</span>
     </div>
   );
 }
@@ -138,9 +138,7 @@ function TopicPage() {
       ? "partitions"
       : requested;
 
-  const { data, isPending, isError, error } = useTopic(cluster, topicName);
-  const detail = data?.detail ?? null;
-  const row = data?.row ?? null;
+  const { data: detail = null, isPending, isError, error } = useTopic(cluster, topicName);
   const { data: configs = [], isPending: configsPending } = useTopicConfigs(
     cluster,
     topicName,
@@ -230,11 +228,9 @@ function TopicPage() {
           detail ? (
             <>
               {detail.internal ? <Pill>internal</Pill> : null}
-              {row ? (
-                <Pill tone={isCompactCleanup(row.cleanupPolicy) ? "brand" : "idle"}>
-                  {formatCleanupPolicy(row.cleanupPolicy)}
-                </Pill>
-              ) : null}
+              <Pill tone={isCompactCleanup(detail.cleanupPolicy) ? "brand" : "idle"}>
+                {formatCleanupPolicy(detail.cleanupPolicy)}
+              </Pill>
               <Pill>RF {detail.replicationFactor}</Pill>
               {detail.underReplicated ? (
                 <Pill tone="warn">
@@ -245,7 +241,7 @@ function TopicPage() {
             </>
           ) : null
         }
-        description={detail ? <TopicFacts detail={detail} row={row} /> : null}
+        description={detail ? <TopicFacts detail={detail} /> : null}
       />
 
       <Tabs

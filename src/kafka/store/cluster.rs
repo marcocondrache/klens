@@ -124,7 +124,9 @@ impl ClusterStore {
             key,
             topic,
             self.watermarks.load().as_deref(),
+            self.configs.load().as_deref(),
             &topology,
+            self.rates.get(name).unwrap_or(0.0),
         ))
     }
 
@@ -377,6 +379,14 @@ mod tests {
         assert_eq!(rows[0].retained_messages, 50);
         assert_eq!(rows[0].rate, 7.5);
         assert_eq!(rows[0].group_count, 1);
+
+        let orders = store.topic_detail("orders").expect("orders exists");
+        assert_eq!(orders.rate, 7.5);
+        assert_eq!(orders.retention_ms, 0);
+        assert_eq!(
+            orders.cleanup_policy,
+            crate::kafka::topic_config::CleanupPolicy::Delete
+        );
         assert_eq!(rows[1].name.as_ref(), "payments");
         assert_eq!(rows[1].rate, 0.0, "a topic with no samples reads as idle");
 

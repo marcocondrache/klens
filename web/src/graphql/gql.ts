@@ -18,9 +18,9 @@ type Documents = {
     "\n  fragment IdentityFields on Identity {\n    subject\n    clusters {\n      cluster\n      roles\n      privileges\n    }\n  }\n": typeof types.IdentityFieldsFragmentDoc,
     "\n  fragment LaneHealthFields on LaneHealth {\n    updatedAt\n    checkedAt\n    lastError\n    lastPollMs\n    healthy\n  }\n": typeof types.LaneHealthFieldsFragmentDoc,
     "\n  fragment ClusterHealthFields on ClusterHealth {\n    cluster\n    ready\n    topology {\n      ...LaneHealthFields\n    }\n    watermarks {\n      ...LaneHealthFields\n    }\n    offsets {\n      ...LaneHealthFields\n    }\n    configs {\n      ...LaneHealthFields\n    }\n    subjects {\n      ...LaneHealthFields\n    }\n    topicCount\n    partitionCount\n    groupCount\n    brokerCount\n    subjectCount\n    underReplicatedPartitions\n    offlinePartitions\n  }\n": typeof types.ClusterHealthFieldsFragmentDoc,
-    "\n  fragment TopicRowFields on TopicRow {\n    name\n    internal\n    partitionCount\n    replicationFactor\n    retainedMessages\n    producedTotal\n    rate\n    retentionMs\n    cleanupPolicy\n    groupCount\n    underReplicated\n  }\n": typeof types.TopicRowFieldsFragmentDoc,
+    "\n  fragment TopicRowFields on TopicRow {\n    name\n    internal\n    partitionCount\n    replicationFactor\n    retainedMessages\n    rate\n    retentionMs\n    cleanupPolicy\n    groupCount\n    underReplicated\n  }\n": typeof types.TopicRowFieldsFragmentDoc,
     "\n  fragment PartitionRowFields on PartitionRow {\n    id\n    leader\n    replicas\n    isr\n    lowWatermark\n    highWatermark\n    retained\n    underReplicated\n  }\n": typeof types.PartitionRowFieldsFragmentDoc,
-    "\n  fragment TopicDetailFields on TopicDetail {\n    name\n    internal\n    replicationFactor\n    retainedMessages\n    producedTotal\n    groupCount\n    underReplicated\n    partitions {\n      ...PartitionRowFields\n    }\n  }\n": typeof types.TopicDetailFieldsFragmentDoc,
+    "\n  fragment TopicDetailFields on TopicDetail {\n    name\n    internal\n    replicationFactor\n    retainedMessages\n    rate\n    retentionMs\n    cleanupPolicy\n    groupCount\n    underReplicated\n    partitions {\n      ...PartitionRowFields\n    }\n  }\n": typeof types.TopicDetailFieldsFragmentDoc,
     "\n  fragment TopicGroupRowFields on TopicGroupRow {\n    id\n    state\n    memberCount\n    lagOnTopic\n  }\n": typeof types.TopicGroupRowFieldsFragmentDoc,
     "\n  fragment GroupRowFields on GroupRow {\n    id\n    state\n    memberCount\n    topicNames\n    totalLag\n    lagComplete\n    coordinatorId\n  }\n": typeof types.GroupRowFieldsFragmentDoc,
     "\n  fragment MemberAssignmentFields on MemberAssignment {\n    topic\n    partitions\n  }\n": typeof types.MemberAssignmentFieldsFragmentDoc,
@@ -38,7 +38,7 @@ type Documents = {
     "\n  query Whoami {\n    whoami {\n      ...IdentityFields\n    }\n  }\n": typeof types.WhoamiDocument,
     "\n  query Clusters {\n    clusters {\n      name\n      health {\n        ...ClusterHealthFields\n      }\n    }\n  }\n": typeof types.ClustersDocument,
     "\n  query TopicRows($cluster: String!) {\n    cluster(name: $cluster) {\n      topics {\n        rows {\n          ...TopicRowFields\n        }\n      }\n    }\n  }\n": typeof types.TopicRowsDocument,
-    "\n  query Topic($cluster: String!, $name: String!) {\n    cluster(name: $cluster) {\n      topic(name: $name) {\n        ...TopicDetailFields\n      }\n      topics(filter: { contains: $name }) {\n        rows {\n          ...TopicRowFields\n        }\n      }\n    }\n  }\n": typeof types.TopicDocument,
+    "\n  query Topic($cluster: String!, $name: String!) {\n    cluster(name: $cluster) {\n      topic(name: $name) {\n        ...TopicDetailFields\n      }\n    }\n  }\n": typeof types.TopicDocument,
     "\n  query TopicGroups($cluster: String!, $topic: String!) {\n    cluster(name: $cluster) {\n      topicGroups(topic: $topic) {\n        ...TopicGroupRowFields\n      }\n    }\n  }\n": typeof types.TopicGroupsDocument,
     "\n  query TopicConfigs($cluster: String!, $name: String!) {\n    cluster(name: $cluster) {\n      topicConfigs(name: $name) {\n        ...ConfigEntryFields\n      }\n    }\n  }\n": typeof types.TopicConfigsDocument,
     "\n  query GroupRows($cluster: String!) {\n    cluster(name: $cluster) {\n      groups {\n        rows {\n          ...GroupRowFields\n        }\n      }\n    }\n  }\n": typeof types.GroupRowsDocument,
@@ -56,9 +56,9 @@ const documents: Documents = {
     "\n  fragment IdentityFields on Identity {\n    subject\n    clusters {\n      cluster\n      roles\n      privileges\n    }\n  }\n": types.IdentityFieldsFragmentDoc,
     "\n  fragment LaneHealthFields on LaneHealth {\n    updatedAt\n    checkedAt\n    lastError\n    lastPollMs\n    healthy\n  }\n": types.LaneHealthFieldsFragmentDoc,
     "\n  fragment ClusterHealthFields on ClusterHealth {\n    cluster\n    ready\n    topology {\n      ...LaneHealthFields\n    }\n    watermarks {\n      ...LaneHealthFields\n    }\n    offsets {\n      ...LaneHealthFields\n    }\n    configs {\n      ...LaneHealthFields\n    }\n    subjects {\n      ...LaneHealthFields\n    }\n    topicCount\n    partitionCount\n    groupCount\n    brokerCount\n    subjectCount\n    underReplicatedPartitions\n    offlinePartitions\n  }\n": types.ClusterHealthFieldsFragmentDoc,
-    "\n  fragment TopicRowFields on TopicRow {\n    name\n    internal\n    partitionCount\n    replicationFactor\n    retainedMessages\n    producedTotal\n    rate\n    retentionMs\n    cleanupPolicy\n    groupCount\n    underReplicated\n  }\n": types.TopicRowFieldsFragmentDoc,
+    "\n  fragment TopicRowFields on TopicRow {\n    name\n    internal\n    partitionCount\n    replicationFactor\n    retainedMessages\n    rate\n    retentionMs\n    cleanupPolicy\n    groupCount\n    underReplicated\n  }\n": types.TopicRowFieldsFragmentDoc,
     "\n  fragment PartitionRowFields on PartitionRow {\n    id\n    leader\n    replicas\n    isr\n    lowWatermark\n    highWatermark\n    retained\n    underReplicated\n  }\n": types.PartitionRowFieldsFragmentDoc,
-    "\n  fragment TopicDetailFields on TopicDetail {\n    name\n    internal\n    replicationFactor\n    retainedMessages\n    producedTotal\n    groupCount\n    underReplicated\n    partitions {\n      ...PartitionRowFields\n    }\n  }\n": types.TopicDetailFieldsFragmentDoc,
+    "\n  fragment TopicDetailFields on TopicDetail {\n    name\n    internal\n    replicationFactor\n    retainedMessages\n    rate\n    retentionMs\n    cleanupPolicy\n    groupCount\n    underReplicated\n    partitions {\n      ...PartitionRowFields\n    }\n  }\n": types.TopicDetailFieldsFragmentDoc,
     "\n  fragment TopicGroupRowFields on TopicGroupRow {\n    id\n    state\n    memberCount\n    lagOnTopic\n  }\n": types.TopicGroupRowFieldsFragmentDoc,
     "\n  fragment GroupRowFields on GroupRow {\n    id\n    state\n    memberCount\n    topicNames\n    totalLag\n    lagComplete\n    coordinatorId\n  }\n": types.GroupRowFieldsFragmentDoc,
     "\n  fragment MemberAssignmentFields on MemberAssignment {\n    topic\n    partitions\n  }\n": types.MemberAssignmentFieldsFragmentDoc,
@@ -76,7 +76,7 @@ const documents: Documents = {
     "\n  query Whoami {\n    whoami {\n      ...IdentityFields\n    }\n  }\n": types.WhoamiDocument,
     "\n  query Clusters {\n    clusters {\n      name\n      health {\n        ...ClusterHealthFields\n      }\n    }\n  }\n": types.ClustersDocument,
     "\n  query TopicRows($cluster: String!) {\n    cluster(name: $cluster) {\n      topics {\n        rows {\n          ...TopicRowFields\n        }\n      }\n    }\n  }\n": types.TopicRowsDocument,
-    "\n  query Topic($cluster: String!, $name: String!) {\n    cluster(name: $cluster) {\n      topic(name: $name) {\n        ...TopicDetailFields\n      }\n      topics(filter: { contains: $name }) {\n        rows {\n          ...TopicRowFields\n        }\n      }\n    }\n  }\n": types.TopicDocument,
+    "\n  query Topic($cluster: String!, $name: String!) {\n    cluster(name: $cluster) {\n      topic(name: $name) {\n        ...TopicDetailFields\n      }\n    }\n  }\n": types.TopicDocument,
     "\n  query TopicGroups($cluster: String!, $topic: String!) {\n    cluster(name: $cluster) {\n      topicGroups(topic: $topic) {\n        ...TopicGroupRowFields\n      }\n    }\n  }\n": types.TopicGroupsDocument,
     "\n  query TopicConfigs($cluster: String!, $name: String!) {\n    cluster(name: $cluster) {\n      topicConfigs(name: $name) {\n        ...ConfigEntryFields\n      }\n    }\n  }\n": types.TopicConfigsDocument,
     "\n  query GroupRows($cluster: String!) {\n    cluster(name: $cluster) {\n      groups {\n        rows {\n          ...GroupRowFields\n        }\n      }\n    }\n  }\n": types.GroupRowsDocument,
@@ -106,7 +106,7 @@ export function graphql(source: "\n  fragment ClusterHealthFields on ClusterHeal
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  fragment TopicRowFields on TopicRow {\n    name\n    internal\n    partitionCount\n    replicationFactor\n    retainedMessages\n    producedTotal\n    rate\n    retentionMs\n    cleanupPolicy\n    groupCount\n    underReplicated\n  }\n"): typeof import('./graphql').TopicRowFieldsFragmentDoc;
+export function graphql(source: "\n  fragment TopicRowFields on TopicRow {\n    name\n    internal\n    partitionCount\n    replicationFactor\n    retainedMessages\n    rate\n    retentionMs\n    cleanupPolicy\n    groupCount\n    underReplicated\n  }\n"): typeof import('./graphql').TopicRowFieldsFragmentDoc;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
@@ -114,7 +114,7 @@ export function graphql(source: "\n  fragment PartitionRowFields on PartitionRow
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  fragment TopicDetailFields on TopicDetail {\n    name\n    internal\n    replicationFactor\n    retainedMessages\n    producedTotal\n    groupCount\n    underReplicated\n    partitions {\n      ...PartitionRowFields\n    }\n  }\n"): typeof import('./graphql').TopicDetailFieldsFragmentDoc;
+export function graphql(source: "\n  fragment TopicDetailFields on TopicDetail {\n    name\n    internal\n    replicationFactor\n    retainedMessages\n    rate\n    retentionMs\n    cleanupPolicy\n    groupCount\n    underReplicated\n    partitions {\n      ...PartitionRowFields\n    }\n  }\n"): typeof import('./graphql').TopicDetailFieldsFragmentDoc;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
@@ -186,7 +186,7 @@ export function graphql(source: "\n  query TopicRows($cluster: String!) {\n    c
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  query Topic($cluster: String!, $name: String!) {\n    cluster(name: $cluster) {\n      topic(name: $name) {\n        ...TopicDetailFields\n      }\n      topics(filter: { contains: $name }) {\n        rows {\n          ...TopicRowFields\n        }\n      }\n    }\n  }\n"): typeof import('./graphql').TopicDocument;
+export function graphql(source: "\n  query Topic($cluster: String!, $name: String!) {\n    cluster(name: $cluster) {\n      topic(name: $name) {\n        ...TopicDetailFields\n      }\n    }\n  }\n"): typeof import('./graphql').TopicDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */

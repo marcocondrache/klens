@@ -57,7 +57,6 @@ export const TopicRowFields = graphql(`
     partitionCount
     replicationFactor
     retainedMessages
-    producedTotal
     rate
     retentionMs
     cleanupPolicy
@@ -85,7 +84,9 @@ export const TopicDetailFields = graphql(`
     internal
     replicationFactor
     retainedMessages
-    producedTotal
+    rate
+    retentionMs
+    cleanupPolicy
     groupCount
     underReplicated
     partitions {
@@ -290,11 +291,6 @@ export const topicQuery = graphql(`
     cluster(name: $cluster) {
       topic(name: $name) {
         ...TopicDetailFields
-      }
-      topics(filter: { contains: $name }) {
-        rows {
-          ...TopicRowFields
-        }
       }
     }
   }
