@@ -1,5 +1,5 @@
 ---
-description: Run the six CI jobs locally before marking a PR ready
+description: Run the CI jobs locally before marking a PR ready
 alwaysApply: true
 ---
 
@@ -47,6 +47,15 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items
 
 ```sh
 cargo machete
+```
+
+## mutants
+
+Pull-request Rust diffs only. Write the base-branch diff first:
+
+```sh
+git diff origin/main... > git.diff
+cargo mutants --no-shuffle -vV --in-diff git.diff
 ```
 
 UI or GraphQL changes: `.cursor/skills/verify-klens/SKILL.md`.
