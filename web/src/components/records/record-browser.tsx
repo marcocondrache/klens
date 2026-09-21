@@ -205,8 +205,8 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
           <TriangleAlertIcon />
           <AlertTitle>Partial page</AlertTitle>
           <AlertDescription>
-            The scan timed out before it read every matching offset. These records match. Open the
-            next page to keep scanning.
+            The scan timed out before it read every matching offset. These records match. Load the
+            next batch to keep scanning.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -321,7 +321,6 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
         refreshing={isFetching && records.length > 0}
         pageSize={limit}
         pageSizes={RECORD_PAGE_SIZES}
-        pageIndex={pageIndex}
         hasMore={data?.nextCursor != null}
         loadingMore={isFetching && isPlaceholderData}
         canPreviousPage={data?.prevCursor != null || pageIndex > 0}
