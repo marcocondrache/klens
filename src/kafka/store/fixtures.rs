@@ -3,6 +3,7 @@ use std::sync::Arc;
 use foldhash::{HashMap, HashMapExt};
 use jiff::Timestamp;
 
+use super::tables::{GroupOffsets, Interner, Topology, WatermarkTable};
 use crate::config::SecurityProtocol;
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::group::{
@@ -12,9 +13,6 @@ use crate::kafka::metadata::{BrokerMetadata, MetadataSnapshot, PartitionMetadata
 use crate::kafka::registry::{SchemaCompatibility, SchemaSubject, SchemaType};
 use crate::kafka::topic_config::{ConfigEntry, ConfigSource};
 use crate::kafka::watermarks::Watermarks;
-use crate::utils::timestamp_from_unix_millis;
-
-use super::tables::{GroupOffsets, Interner, Topology, WatermarkTable};
 
 pub fn identity(name: &str) -> ClusterIdentity {
     ClusterIdentity {
@@ -87,7 +85,7 @@ pub fn topology(topics: Vec<TopicMetadata>, groups: Vec<GroupSnapshot>) -> Topol
 }
 
 pub fn at(millis: i64) -> Timestamp {
-    timestamp_from_unix_millis(millis)
+    Timestamp::from_millisecond(millis).unwrap_or(Timestamp::UNIX_EPOCH)
 }
 
 pub fn watermarks(sampled_at: Timestamp, marks: &[(&str, i32, i64, i64)]) -> WatermarkTable {

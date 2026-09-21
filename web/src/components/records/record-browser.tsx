@@ -153,7 +153,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
       order,
       from: fromDatetimeLocalValue(from),
       to: fromDatetimeLocalValue(to),
-      filter: needle ? { contains: needle, cel: null } : null,
+      filter: needle ? { contains: needle } : null,
       schemaId,
     };
   }, [topic.name, partition, order, from, to, term, schemaId]);

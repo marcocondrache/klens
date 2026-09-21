@@ -113,10 +113,9 @@ enum TopicSortField {
   GROUPS
 }
 
-"A substring match or a CEL expression, never both."
+"A case-insensitive substring over key and value text."
 input RecordFilterInput {
   contains: String
-  cel: String
 }
 
 input RecordQueryInput {

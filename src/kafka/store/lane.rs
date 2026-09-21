@@ -7,8 +7,6 @@ use arc_swap::ArcSwapOption;
 use jiff::Timestamp;
 use tokio::sync::Notify;
 
-use crate::utils::utc_now;
-
 /// Freshness and failure state for one ingestion lane.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LaneHealth {
@@ -76,7 +74,7 @@ impl<T> Lane<T> {
     pub fn commit(&self, next: Arc<T>) -> u64 {
         self.table.store(Some(next));
         let version = self.version.fetch_add(1, Ordering::AcqRel) + 1;
-        self.health.write().expect("lane health lock").updated_at = Some(utc_now());
+        self.health.write().expect("lane health lock").updated_at = Some(Timestamp::now());
         version
     }
 
@@ -84,7 +82,7 @@ impl<T> Lane<T> {
         let mut health = self.health.write().expect("lane health lock");
         health.last_poll_ms = Some(elapsed.as_millis() as u64);
         if error.is_none() {
-            health.checked_at = Some(utc_now());
+            health.checked_at = Some(Timestamp::now());
         }
         health.last_error = error;
     }

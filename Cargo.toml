@@ -32,9 +32,6 @@ axum-login = "0.18"
 cookie = { version = "0.18", features = ["key-expansion"] }
 tower-sessions = { version = "0.14", features = ["memory-store", "signed"] }
 futures = "0.3"
-cel = { version = "0.14", features = ["json"] }
-# cel::Timestamp is still a chrono DateTime newtype.
-chrono = { version = "0.4", default-features = false, features = ["std"] }
 jiff = "0.2"
 juniper = { version = "0.17", features = ["jiff", "schema-language"] }
 juniper_axum = { version = "0.3", features = ["subscriptions"] }

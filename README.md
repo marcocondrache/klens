@@ -174,7 +174,7 @@ match. They only run on topics a rule names, never by detection — and they are
 the weaker of the two, because a value written in an unexpected format slips
 past the regex. Use field rules wherever a schema exists.
 
-Filters see the obfuscated record, not the wire record: a `contains` or CEL
+Filters see the obfuscated record, not the wire record: a `contains`
 filter over a protected field matches the token, never the value behind it.
 That is deliberate — a filter that searched the cleartext would recover a
 hidden value one character at a time. What the page can show is what a query

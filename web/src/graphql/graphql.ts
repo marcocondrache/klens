@@ -67,9 +67,8 @@ export type PrivilegeName =
   | 'RECORDS'
   | 'SCHEMA_TEXT';
 
-/** A substring match or a CEL expression, never both. */
+/** A case-insensitive substring over key and value text. */
 export type RecordFilterInput = {
-  cel: string | null | undefined;
   contains: string | null | undefined;
 };
 

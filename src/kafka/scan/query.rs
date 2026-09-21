@@ -145,7 +145,7 @@ mod tests {
     use super::*;
 
     fn unix_datetime(ms: i64) -> Timestamp {
-        crate::utils::timestamp_from_unix_millis(ms)
+        Timestamp::from_millisecond(ms).unwrap_or(Timestamp::UNIX_EPOCH)
     }
 
     #[test]

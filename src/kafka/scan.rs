@@ -22,17 +22,6 @@ pub enum Compression {
     Zstd,
 }
 
-/// The name CEL filters and the API use for a compression codec.
-pub fn compression_name(compression: Compression) -> &'static str {
-    match compression {
-        Compression::None => "none",
-        Compression::Gzip => "gzip",
-        Compression::Snappy => "snappy",
-        Compression::Lz4 => "lz4",
-        Compression::Zstd => "zstd",
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordHeader {
     pub key: String,
@@ -153,11 +142,5 @@ mod tests {
         assert!(!page.has_more());
         assert!(page.prev_cursor.is_none());
         assert!(!page.obfuscated);
-    }
-
-    #[test]
-    fn compression_names_are_stable() {
-        assert_eq!(compression_name(Compression::None), "none");
-        assert_eq!(compression_name(Compression::Zstd), "zstd");
     }
 }

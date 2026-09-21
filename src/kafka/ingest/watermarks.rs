@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use jiff::Timestamp;
 use tokio::time::Instant;
 
 use crate::environment::{IDLE_HEARTBEAT, MAX_SAMPLE_GAP};
@@ -12,7 +13,6 @@ use crate::kafka::store::{
     Change, ClusterStore, Lane, TopicRate, Topology, WatermarkTable, WatermarksTick,
 };
 use crate::kafka::watermarks::Watermarks;
-use crate::utils::utc_now;
 
 use super::runner::{LaneSource, floor};
 
@@ -103,7 +103,7 @@ impl LaneSource for WatermarkLane {
             .into_iter()
             .map(|(topic, partitions)| (topology.intern_topic(&topic), partitions))
             .collect();
-        Ok(Some(WatermarkTable::new(utc_now(), marks)))
+        Ok(Some(WatermarkTable::new(Timestamp::now(), marks)))
     }
 
     fn diff(&self, previous: Option<&WatermarkTable>, next: &WatermarkTable) -> Option<()> {

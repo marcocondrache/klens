@@ -950,22 +950,6 @@ async fn an_obfuscated_topic_cannot_be_filtered_on_the_cleartext_it_hides() {
 }
 
 #[tokio::test]
-async fn a_record_filter_cannot_be_both_a_substring_and_an_expression() {
-    let state = seeded();
-
-    assert_eq!(
-        codes(
-            &ctx(&state),
-            r#"{ cluster(name: "local") { records(
-                query: { topic: "orders.created", filter: { contains: "a", cel: "true" } }
-            ) { complete } } }"#
-        )
-        .await,
-        vec!["INVALID_FILTER"]
-    );
-}
-
-#[tokio::test]
 async fn cluster_health_reports_per_lane_freshness_and_counts() {
     let state = seeded();
 
