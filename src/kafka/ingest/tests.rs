@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::broadcast::error::TryRecvError;
-use tokio::task::JoinHandle;
+use tokio::task::JoinSet;
 
 use super::*;
 use crate::kafka::group::{
@@ -13,17 +13,9 @@ use crate::kafka::store::fixtures::identity;
 use crate::kafka::store::{Change, ClusterStore};
 use crate::kafka::testing::FakeCluster;
 
-fn idle() -> LaneIntervals {
-    LaneIntervals {
-        topology: Duration::from_secs(600),
-        watermarks: Duration::from_secs(600),
-        offsets_tick: Duration::from_secs(600),
-        fast_offsets: Duration::from_secs(2),
-        slow_offsets: Duration::from_secs(20),
-        configs: Duration::from_secs(600),
-        subjects: Duration::from_secs(600),
-    }
-}
+/// Long enough that no lane ever fires on its own; tests drive polls with
+/// `kick`.
+const IDLE: Duration = Duration::from_secs(600);
 
 fn store(session: &FakeCluster) -> Arc<ClusterStore> {
     Arc::new(ClusterStore::new(session.identity().clone()))
@@ -33,28 +25,35 @@ fn port(session: &FakeCluster) -> Arc<dyn ClusterSession> {
     Arc::new(session.clone())
 }
 
-struct Lanes(Vec<JoinHandle<()>>);
-
-impl Drop for Lanes {
-    fn drop(&mut self) {
-        for task in &self.0 {
-            task.abort();
-        }
-    }
+fn catalog_lanes(store: &Arc<ClusterStore>, session: &FakeCluster) -> JoinSet<()> {
+    let mut lanes = JoinSet::new();
+    lanes.spawn(run(
+        Arc::clone(store),
+        TopologyLane::with_interval(port(session), IDLE),
+    ));
+    lanes.spawn(run(
+        Arc::clone(store),
+        WatermarkLane::with_interval(port(session), IDLE),
+    ));
+    lanes
 }
 
-fn catalog_lanes(store: &Arc<ClusterStore>, session: &FakeCluster) -> Lanes {
-    let intervals = idle();
-    Lanes(vec![
-        tokio::spawn(run(
-            Arc::clone(store),
-            TopologyLane::with_interval(port(session), intervals.topology),
-        )),
-        tokio::spawn(run(
-            Arc::clone(store),
-            WatermarkLane::with_interval(port(session), intervals.watermarks),
-        )),
-    ])
+fn idle_lanes(store: &Arc<ClusterStore>, session: &FakeCluster) -> JoinSet<()> {
+    let mut lanes = catalog_lanes(store, session);
+    lanes.spawn(run(
+        Arc::clone(store),
+        ConfigLane::with_interval(port(session), IDLE),
+    ));
+    lanes.spawn(run(
+        Arc::clone(store),
+        SubjectLane::with_interval(port(session), IDLE),
+    ));
+    lanes.spawn(
+        OffsetLane::new(port(session))
+            .with_tiers(IDLE, Duration::from_secs(2), Duration::from_secs(20))
+            .run(Arc::clone(store)),
+    );
+    lanes
 }
 
 fn group(id: &str, topic: &str, partitions: Vec<i32>, committed: &[(i32, i64)]) -> GroupSnapshot {
@@ -101,7 +100,7 @@ async fn wait_for(ready: impl Fn() -> bool, what: &str) {
 async fn the_topology_lane_assembles_brokers_topics_and_groups() {
     let session = FakeCluster::local();
     let store = store(&session);
-    let _lanes = Ingest::start([(Arc::clone(&store), port(&session))], idle());
+    let _lanes = idle_lanes(&store, &session);
 
     wait_for(|| store.ready(), "topology commit").await;
 
@@ -125,7 +124,7 @@ async fn the_topology_lane_assembles_brokers_topics_and_groups() {
 async fn a_topology_poll_that_changes_nothing_does_not_bump_the_version() {
     let session = FakeCluster::local();
     let store = store(&session);
-    let _lanes = Ingest::start([(Arc::clone(&store), port(&session))], idle());
+    let _lanes = idle_lanes(&store, &session);
 
     wait_for(|| store.ready(), "topology commit").await;
     let polls = session.calls().metadata();
@@ -148,7 +147,7 @@ async fn a_topology_poll_that_changes_nothing_does_not_bump_the_version() {
 async fn a_new_topic_is_published_as_a_granular_delta() {
     let session = FakeCluster::local();
     let store = store(&session);
-    let _lanes = Ingest::start([(Arc::clone(&store), port(&session))], idle());
+    let _lanes = idle_lanes(&store, &session);
 
     wait_for(|| store.ready(), "topology commit").await;
     let mut events = store.bus.subscribe();
@@ -175,7 +174,7 @@ async fn a_new_topic_is_published_as_a_granular_delta() {
 async fn the_topology_lane_keeps_the_search_index_current() {
     let session = FakeCluster::local();
     let store = store(&session);
-    let _lanes = Ingest::start([(Arc::clone(&store), port(&session))], idle());
+    let _lanes = idle_lanes(&store, &session);
 
     wait_for(|| store.ready(), "topology commit").await;
     wait_for(|| store.subjects.version() > 0, "subject commit").await;
@@ -193,7 +192,7 @@ async fn the_topology_lane_keeps_the_search_index_current() {
 async fn the_watermark_lane_feeds_latest_rates() {
     let session = FakeCluster::local().with_growing_watermarks(20);
     let store = store(&session);
-    let _lanes = Ingest::start([(Arc::clone(&store), port(&session))], idle());
+    let _lanes = idle_lanes(&store, &session);
 
     wait_for(|| store.watermarks.version() > 0, "first watermark tick").await;
     assert_eq!(store.rates.get("orders.created"), Some(0.0));
@@ -209,7 +208,7 @@ async fn the_watermark_lane_feeds_latest_rates() {
 async fn a_watermark_tick_matches_the_rate_store() {
     let session = FakeCluster::local();
     let store = store(&session);
-    let _lanes = Ingest::start([(Arc::clone(&store), port(&session))], idle());
+    let _lanes = idle_lanes(&store, &session);
 
     wait_for(|| store.watermarks.version() > 0, "watermark commit").await;
     let mut events = store.bus.subscribe();
@@ -234,7 +233,7 @@ async fn a_watermark_tick_matches_the_rate_store() {
 async fn an_idle_cluster_still_zeros_the_latest_rate() {
     let session = FakeCluster::local();
     let store = store(&session);
-    let _lanes = Ingest::start([(Arc::clone(&store), port(&session))], idle());
+    let _lanes = idle_lanes(&store, &session);
 
     wait_for(|| store.watermarks.version() > 0, "watermark commit").await;
 
@@ -261,7 +260,7 @@ async fn an_idle_cluster_still_zeros_the_latest_rate() {
 async fn the_config_lane_populates_the_config_table() {
     let session = FakeCluster::local();
     let store = store(&session);
-    let _lanes = Ingest::start([(Arc::clone(&store), port(&session))], idle());
+    let _lanes = idle_lanes(&store, &session);
 
     wait_for(|| store.configs.version() > 0, "config commit").await;
 
@@ -278,7 +277,7 @@ async fn the_config_lane_populates_the_config_table() {
 async fn a_changed_config_names_only_the_topic_that_moved() {
     let session = FakeCluster::local().extra_topic("payments", 1, 4);
     let store = store(&session);
-    let _lanes = Ingest::start([(Arc::clone(&store), port(&session))], idle());
+    let _lanes = idle_lanes(&store, &session);
 
     wait_for(|| store.configs.version() > 0, "config commit").await;
     let mut events = store.bus.subscribe();
@@ -308,7 +307,7 @@ async fn a_changed_config_names_only_the_topic_that_moved() {
 async fn the_subject_lane_stores_the_list_projection_only() {
     let session = FakeCluster::local();
     let store = store(&session);
-    let _lanes = Ingest::start([(Arc::clone(&store), port(&session))], idle());
+    let _lanes = idle_lanes(&store, &session);
 
     wait_for(|| store.subjects.version() > 0, "subject commit").await;
 
@@ -326,7 +325,7 @@ async fn the_subject_lane_stores_the_list_projection_only() {
 async fn a_registry_outage_degrades_only_the_subject_lane() {
     let session = FakeCluster::local().with_subjects_error("registry down");
     let store = store(&session);
-    let _lanes = Ingest::start([(Arc::clone(&store), port(&session))], idle());
+    let _lanes = idle_lanes(&store, &session);
 
     wait_for(|| store.ready(), "topology commit").await;
     wait_for(
@@ -561,7 +560,7 @@ async fn a_removed_group_is_dropped_from_the_offset_table() {
 async fn a_deleted_topic_loses_its_rate() {
     let session = FakeCluster::local().extra_topic("payments", 1, 4);
     let store = store(&session);
-    let _lanes = Ingest::start([(Arc::clone(&store), port(&session))], idle());
+    let _lanes = idle_lanes(&store, &session);
 
     wait_for(|| store.watermarks.version() > 0, "watermark commit").await;
     assert_eq!(store.rates.get("payments"), Some(0.0));
@@ -587,16 +586,15 @@ async fn a_deleted_topic_loses_its_rate() {
 async fn downstream_lanes_wait_for_topology_instead_of_committing_nothing() {
     let session = FakeCluster::local();
     let store = store(&session);
-    let _lanes = Lanes(vec![
-        tokio::spawn(run(
-            Arc::clone(&store),
-            WatermarkLane::with_interval(port(&session), Duration::from_secs(600)),
-        )),
-        tokio::spawn(run(
-            Arc::clone(&store),
-            ConfigLane::with_interval(port(&session), Duration::from_secs(600)),
-        )),
-    ]);
+    let mut lanes = JoinSet::new();
+    lanes.spawn(run(
+        Arc::clone(&store),
+        WatermarkLane::with_interval(port(&session), Duration::from_secs(600)),
+    ));
+    lanes.spawn(run(
+        Arc::clone(&store),
+        ConfigLane::with_interval(port(&session), Duration::from_secs(600)),
+    ));
 
     wait_for(
         || store.watermarks.health().checked_at.is_some(),
@@ -620,7 +618,7 @@ async fn downstream_lanes_wait_for_topology_instead_of_committing_nothing() {
 async fn every_lane_runs_per_cluster_and_stops_with_the_ingest() {
     let prod = FakeCluster::named("prod");
     let staging = FakeCluster::named("staging");
-    let (stores, lanes) = Ingest::bootstrap(vec![port(&prod), port(&staging)], idle());
+    let (stores, lanes) = Ingest::bootstrap(vec![port(&prod), port(&staging)]);
 
     assert_eq!(lanes.lane_count(), 10, "five lanes per cluster");
     wait_for(|| stores.ready(), "both clusters ready").await;
@@ -645,13 +643,10 @@ async fn one_cluster_never_wakes_another() {
     let staging = FakeCluster::named("staging");
     let prod_store = Arc::new(ClusterStore::new(identity("prod")));
     let staging_store = Arc::new(ClusterStore::new(identity("staging")));
-    let _lanes = Ingest::start(
-        [
-            (Arc::clone(&prod_store), port(&prod)),
-            (Arc::clone(&staging_store), port(&staging)),
-        ],
-        idle(),
-    );
+    let _lanes = Ingest::start([
+        (Arc::clone(&prod_store), port(&prod)),
+        (Arc::clone(&staging_store), port(&staging)),
+    ]);
 
     wait_for(|| prod_store.ready() && staging_store.ready(), "both ready").await;
     let mut staging_events = staging_store.bus.subscribe();

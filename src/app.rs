@@ -3,7 +3,7 @@ use std::sync::Arc;
 use axum::Router;
 use axum::middleware;
 
-use crate::kafka::ingest::{Ingest, LaneIntervals};
+use crate::kafka::ingest::Ingest;
 use crate::kafka::model::{AclListing, RegisteredSchema};
 use crate::kafka::store::{ClusterStore, StoreSet};
 use crate::kafka::{
@@ -44,7 +44,7 @@ impl AppState {
         }
     }
 
-    pub fn with_ingest(self, intervals: LaneIntervals) -> Self {
+    pub fn with_ingest(self) -> Self {
         let clusters = self
             .sessions
             .sessions()
@@ -56,7 +56,7 @@ impl AppState {
             .collect::<Vec<_>>();
 
         Self {
-            _ingest: Some(Arc::new(Ingest::start(clusters, intervals))),
+            _ingest: Some(Arc::new(Ingest::start(clusters))),
             ..self
         }
     }
@@ -138,22 +138,8 @@ pub fn router(state: AppState) -> Router {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
     use super::*;
     use crate::kafka::FakeCluster;
-
-    fn intervals() -> LaneIntervals {
-        LaneIntervals {
-            topology: Duration::from_secs(60),
-            watermarks: Duration::from_secs(60),
-            offsets_tick: Duration::from_secs(60),
-            fast_offsets: Duration::from_secs(60),
-            slow_offsets: Duration::from_secs(60),
-            configs: Duration::from_secs(60),
-            subjects: Duration::from_secs(60),
-        }
-    }
 
     async fn wait_until(predicate: impl Fn() -> bool) {
         for _ in 0..1_000 {
@@ -170,7 +156,7 @@ mod tests {
         let state = AppState::new(Arc::new(SessionSet::from_sessions(vec![
             FakeCluster::local(),
         ])))
-        .with_ingest(intervals());
+        .with_ingest();
 
         wait_until(|| {
             state.is_ready() && !state.cluster("local").unwrap().subject_rows().is_empty()
@@ -188,8 +174,8 @@ mod tests {
     #[tokio::test]
     async fn ingestion_never_describes_acls() {
         let session = FakeCluster::local();
-        let state = AppState::new(Arc::new(SessionSet::from_sessions(vec![session.clone()])))
-            .with_ingest(intervals());
+        let state =
+            AppState::new(Arc::new(SessionSet::from_sessions(vec![session.clone()]))).with_ingest();
 
         wait_until(|| state.is_ready()).await;
 
