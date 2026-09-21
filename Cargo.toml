@@ -9,7 +9,6 @@ ignored = ["cookie"]
 
 [features]
 ui = ["dep:rust-embed", "dep:mime_guess"]
-schema-language = ["juniper/schema-language"]
 
 [workspace]
 members = ["xtask"]
@@ -31,7 +30,6 @@ axum = { version = "0.8", default-features = false, features = [
     "query",
     "tokio",
     "tracing",
-    "ws",
 ] }
 axum-login = "0.18"
 # Pulled in only for `key-expansion`, which is what gives
@@ -40,10 +38,7 @@ axum-login = "0.18"
 cookie = { version = "0.18", features = ["key-expansion"] }
 tower-sessions = { version = "0.14", features = ["memory-store", "signed"] }
 futures = "0.3"
-jiff = { version = "0.2", default-features = false, features = ["std"] }
-juniper = { version = "0.17", features = ["jiff"] }
-juniper_axum = { version = "0.3", features = ["subscriptions"] }
-juniper_graphql_ws = { version = "0.5", features = ["graphql-transport-ws", "graphql-ws"] }
+jiff = { version = "0.2", default-features = false, features = ["serde", "std"] }
 krafka = { git = "https://github.com/hupe1980/krafka", rev = "776ac3402150289fbcab989d81265af4c7f31eaa" }
 moka = { version = "0.12", features = ["future"] }
 mime_guess = { version = "2", optional = true }
@@ -79,9 +74,9 @@ sha2 = "0.10"
 regex = "1.13"
 arc-swap = "1.9.2"
 foldhash = "0.2.0"
+ts-rs = { version = "12.0.1", features = ["jiff-impl", "serde-compat"] }
 
 [dev-dependencies]
-juniper_subscriptions = "0.18"
 krafka = { git = "https://github.com/hupe1980/krafka", rev = "776ac3402150289fbcab989d81265af4c7f31eaa", features = ["test-broker"] }
 tokio = { version = "1", features = ["test-util"] }
 wiremock = "0.6.5"

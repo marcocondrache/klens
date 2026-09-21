@@ -12,13 +12,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    #[command(about = "Regenerate schema.graphql from the Rust schema")]
-    Schema,
+    #[command(about = "Regenerate web/src/api/types.gen.ts from the API types")]
+    Types,
 }
 
 fn main() -> xshell::Result<()> {
     let sh = Shell::new()?;
     match Cli::parse().command {
-        Command::Schema => tasks::schema::run(&sh),
+        Command::Types => tasks::types::run(&sh),
     }
 }

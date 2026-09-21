@@ -11,8 +11,8 @@ use crate::kafka::{
     ConfigEntry, KafkaError, RecordLimits, RecordPage, RecordQuery, SessionSet, read_page,
 };
 
+mod api;
 pub(crate) mod auth;
-mod graphql;
 mod health;
 
 pub use auth::AuthState;
@@ -135,17 +135,17 @@ impl AppState {
     }
 }
 
-pub use graphql::{Schema, schema};
+pub use api::typescript;
 
 pub fn router(state: AppState) -> Router {
-    let graphql = graphql::router().route_layer(middleware::from_fn_with_state(
+    let api = api::router().route_layer(middleware::from_fn_with_state(
         state.clone(),
         auth::require_session,
     ));
     let auth_layer = state.auth.layer();
 
     Router::new()
-        .merge(graphql)
+        .merge(api)
         .merge(auth::router())
         .merge(health::router())
         .with_state(state)

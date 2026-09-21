@@ -11,7 +11,7 @@ usage() {
 
 install() {
   mise install
-  mise run web:codegen
+  mise run types
   cargo fetch --locked
 }
 

@@ -20,7 +20,7 @@ import { lagTone } from "@/lib/tone";
 import { useNow } from "@/hooks/use-now";
 import { useClusterHealth, useGroupRows } from "@/lib/api/catalog";
 import { laneCaption, useClusterName } from "@/lib/clusters";
-import { graphqlErrorMessage } from "@/lib/graphql-error";
+import { apiErrorMessage } from "@/lib/api/client";
 import { formatCount, formatEnumLabel, formatNumber, toNumber } from "@/lib/format";
 import type { GroupRow, GroupState } from "@/lib/api/types";
 import { parseGroupsSearch } from "@/lib/route-search";
@@ -195,7 +195,7 @@ function ConsumerGroupsPage() {
           </>
         }
         loading={isPending}
-        error={isError ? graphqlErrorMessage(error, "Failed to load consumer groups.") : undefined}
+        error={isError ? apiErrorMessage(error, "Failed to load consumer groups.") : undefined}
         defaultSort={{ id: "lag", direction: "desc" }}
         onRowClick={(group) => {
           void navigate({

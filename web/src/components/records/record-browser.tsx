@@ -36,7 +36,7 @@ import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
 import { useRecords, type RecordsFilter } from "@/lib/api/live";
 import { useAccess } from "@/hooks/use-access";
-import { graphqlErrorMessage } from "@/lib/graphql-error";
+import { apiErrorMessage } from "@/lib/api/client";
 import { formatBytes, formatRelative, formatTimestamp, fromDatetimeLocalValue } from "@/lib/format";
 import type { KafkaRecord, RecordOrder, TopicDetail } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
@@ -320,7 +320,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
         selectedKey={
           selectedRecord ? `${selectedRecord.partition}-${selectedRecord.offset}` : undefined
         }
-        error={isError ? graphqlErrorMessage(error, "Failed to load records.") : undefined}
+        error={isError ? apiErrorMessage(error, "Failed to load records.") : undefined}
         emptyState={
           <Empty className="py-10">
             <EmptyHeader>

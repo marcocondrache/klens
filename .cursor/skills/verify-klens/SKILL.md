@@ -1,13 +1,13 @@
 ---
 name: verify-klens
-description: Drive the klens Kafka web UI the way a user does. Use when proving a UI or GraphQL change, or when you need a local launch, doctor, drive, and cleanup recipe for klens.
+description: Drive the klens Kafka web UI the way a user does. Use when proving a UI or API change, or when you need a local launch, doctor, drive, and cleanup recipe for klens.
 ---
 
 # Verify klens
 
-klens is a single-process Kafka inspector. The user-facing surface is the web UI served by the Rust process (embedded `ui` feature). GraphQL at `POST /graphql` is the data API the UI calls. There is no product CLI or TUI.
+klens is a single-process Kafka inspector. The user-facing surface is the web UI served by the Rust process (embedded `ui` feature). JSON routes under `GET /api` are the data API the UI calls. Live catalog updates are `GET /api/clusters/{cluster}/updates` (`text/event-stream`). There is no product CLI or TUI.
 
-Read `features/README.md` before a drive. Drive one mapped feature end to end. Do not treat a GraphQL-only check as UI proof.
+Read `features/README.md` before a drive. Drive one mapped feature end to end. Do not treat an API-only check as UI proof.
 
 ## Launch
 
@@ -27,7 +27,7 @@ What that does:
 
 Ready when `GET /health` returns 204 and `GET /` returns HTML titled `klens`. The process log line is `listening`.
 
-This checkout's Cursor environment install is `mise install`, `mise run web:codegen`, and `cargo fetch --locked`. Its start is Docker, then `mise kafka:up`. Verify still builds and binds its own klens process.
+This checkout's Cursor environment install is `mise install`, `mise run types`, and `cargo fetch --locked`. Its start is Docker, then `mise kafka:up`. Verify still builds and binds its own klens process.
 
 Overrides, all optional:
 
@@ -37,7 +37,7 @@ Overrides, all optional:
 - `RPK` (path to `rpk`; default `rpk` on `PATH`)
 - `KLENS_VERIFY_TOPOLOGY_SECS` (harness only, seconds, default `10`). Written into the generated cluster as `ingest.topology_secs`. The topology lane refreshes metadata and consumer-group membership. A short interval can fail `ListGroups` against Redpanda and set `clusters.topology.lastError`, which fails doctor. For a multi-feature drive set `600` so the lane stays quiet. That override is session harness, not a product default. The old `KLENS_TOPOLOGY_LANE_INTERVAL` and `KLENS_CATALOG_POLL_INTERVAL` names are ignored.
 
-Do not use `mise web:dev` / `vp dev` for verification. `web/vite.config.ts` proxies `/graphql`, `/auth`, `/api`, and `/health` to `http://localhost:8080`, so a Vite session cannot bind a private port.
+Do not use `mise web:dev` / `vp dev` for verification. `web/vite.config.ts` proxies `/api`, `/auth`, and `/health` to `http://localhost:8080`, so a Vite session cannot bind a private port.
 
 Do not start a second verify instance in the same run directory. Two instances can run only with distinct `KLENS_VERIFY_PORT` and `KLENS_VERIFY_RUN_DIR` values. They may share one Kafka broker. Never drive an instance this run did not start.
 
@@ -57,7 +57,7 @@ Read-only. Fail if any check misses:
 - `GET /health` is 204.
 - `GET /auth/me` is `{"enabled":false,"user":null}` (verify configs omit OIDC).
 - `GET /` includes `<title>klens</title>`.
-- `POST /graphql` `query { clusters { name health { cluster ready topology { updatedAt lastError } } } }` includes `local`, has topology `updatedAt` set, and has no topology `lastError`.
+- `GET /api/clusters` includes `local`, has topology `updatedAt` set, and has no topology `lastError`.
 
 If doctor fails, stop driving. Relaunch or fix the unmet check.
 
@@ -92,12 +92,10 @@ If you drive by hand, use these handles from this repo. Prefer them over coordin
 | ACL search | `input[data-search-hotkey]` placeholder `Search ACLs…` |
 | Auth off | `/login` redirects to `/`; no `Continue with SSO` |
 
-GraphQL the UI uses (corroborate, do not substitute for the UI path):
+The JSON API the UI uses (corroborate, do not substitute for the UI path):
 
 ```sh
-curl -sS -X POST "$KLENS_VERIFY_URL/graphql" \
-  -H 'content-type: application/json' \
-  -d '{"query":"query { cluster(name: \"local\") { topics { rows { name internal } } } }"}'
+curl -sS "$KLENS_VERIFY_URL/api/clusters/local/topics"
 ```
 
 ## Evidence
@@ -108,14 +106,14 @@ A pass captures the user action and the resulting state:
 
 - Screenshot of the page after the action, with the `klens` sidebar wordmark visible.
 - An ARIA snapshot (Playwright `ariaSnapshot`) of the same page.
-- The GraphQL body that backs the view (topics list, topic, groups, or brokers).
+- The JSON body that backs the view (topics list, topic, groups, or brokers).
 - The URL after navigation.
-- For a produce or seed, a second read of the topic (UI row or GraphQL record key) after the write.
+- For a produce or seed, a second read of the topic (UI row or record key) after the write.
 
 Proof standards:
 
-- Exercise the real UI route. A 200 from `/graphql` alone is not UI proof.
-- Mocks stop at Kafka and Schema Registry. Do not stub `/graphql` or `/auth/me`.
+- Exercise the real UI route. A 200 from `/api` alone is not UI proof.
+- Mocks stop at Kafka and Schema Registry. Do not stub `/api` or `/auth/me`.
 - If `clusters.topology.lastError` is set and `updatedAt` is null, that is a verified-unreachable catalog (`Cluster unreachable`), not a Topics pass. Record the alert text and stop. `Topology lane failing` (stale `updatedAt` plus a later `lastError`) is also not a catalog pass.
 - Dry-run does not apply. klens always talks to the configured brokers.
 
@@ -138,7 +136,7 @@ All scripts are executable. Run them from any cwd. They resolve the repo root fr
 | Script | Purpose |
 |---|---|
 | `helpers/launch.sh` | Build, config, optional Kafka, seed, start, wait for `/health` |
-| `helpers/doctor.sh` | Read-only liveness, port owner, auth, GraphQL health |
+| `helpers/doctor.sh` | Read-only liveness, port owner, auth, API health |
 | `helpers/drive-topics.mjs` | Playwright proof of the Topics feature |
 | `helpers/drive-command-palette.mjs` | Playwright proof of palette search and arrow keys |
 | `helpers/cleanup.sh` | Stop the PID this run started |

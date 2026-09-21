@@ -1,6 +1,14 @@
-import type { RecordQueryInput } from "./types";
+import type { RecordOrder } from "./types";
 
-export type RecordsFilter = Omit<RecordQueryInput, "cursor" | "limit">;
+export type RecordsFilter = {
+  topic: string;
+  partition: number | null;
+  order: RecordOrder | null;
+  from: string | null;
+  to: string | null;
+  filter: { contains: string } | null;
+  schemaId: number | null;
+};
 
 export const keys = {
   whoami: () => ["whoami"] as const,

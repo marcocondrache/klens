@@ -1,33 +1,31 @@
 export type {
-  AclFieldsFragment as Acl,
+  Acl,
   AclAuthorizer,
   AclResourceType,
-  BrokerRowFieldsFragment as BrokerRow,
+  BrokerRow,
   CleanupPolicy,
-  ClusterHealthFieldsFragment as ClusterHealth,
-  ConfigEntryFieldsFragment as ConfigEntry,
-  GroupDetailFieldsFragment as GroupDetail,
-  GroupMemberFieldsFragment as GroupMember,
-  GroupOffsetFieldsFragment as GroupOffset,
-  GroupRowFieldsFragment as GroupRow,
+  ClusterHealth,
+  ConfigEntry,
+  GroupDetail,
+  GroupMember,
+  GroupOffset,
+  GroupRow,
   GroupState,
-  IdentityFieldsFragment as Identity,
-  LaneHealthFieldsFragment as LaneHealth,
-  PartitionRowFieldsFragment as PartitionRow,
+  Identity,
+  LaneHealth,
+  PartitionRow,
   PrivilegeName,
-  RecordFieldsFragment as KafkaRecord,
+  Record as KafkaRecord,
   RecordOrder,
-  RecordQueryInput,
-  SubjectDetailFieldsFragment as SubjectDetail,
-  SubjectRowFieldsFragment as SubjectRow,
-  TopicDetailFieldsFragment as TopicDetail,
-  TopicGroupRowFieldsFragment as TopicGroupRow,
-  TopicRowFieldsFragment as TopicRow,
-  UpdateScope,
-} from "@/graphql/graphql";
+  SubjectDetail,
+  SubjectRow,
+  TopicDetail,
+  TopicGroupRow,
+  TopicRow,
+} from "@/api/types.gen";
 
-import type { SearchHitFieldsFragment } from "@/graphql/graphql";
+import type { SearchHit as SearchHitWire } from "@/api/types.gen";
 
-export type SearchHit = SearchHitFieldsFragment & {
+export type SearchHit = SearchHitWire & {
   href: string;
 };

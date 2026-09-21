@@ -1,53 +1,77 @@
 use std::collections::VecDeque;
+use std::convert::Infallible;
 use std::sync::Arc;
+use std::time::Duration;
 
+use axum::extract::{Path, Query};
+use axum::response::sse::{Event, KeepAlive, Sse};
 use futures::stream::{BoxStream, StreamExt as _};
-use juniper::{FieldError, IntoFieldError as _, graphql_subscription};
+use serde::Deserialize;
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::app::auth::SessionGuard;
 use crate::kafka::store::{Change, GroupOffsetsWave, InterestLease};
 
-use super::context::GraphQlContext;
-use super::error::GqlError;
-use super::types::{
-    ConfigsChanged, GroupLagUpdate, Resync, ResyncReason, SubjectsChanged, TopicRate,
-    TopologyDelta, Update, UpdateScope, WatermarksTick, names,
-};
+use super::context::Session;
+use super::error::ApiError;
+use super::types::{GroupOffset, Int64, ResyncReason, TopicRate, Update, names};
 
-pub struct Subscription;
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct UpdateQuery {
+    topic: Option<String>,
+    group: Option<String>,
+}
 
-#[graphql_subscription(context = GraphQlContext)]
-impl Subscription {
-    /// Every lane delta for one cluster, optionally narrowed to one topic or
-    /// group.
-    ///
-    /// A scoped subscriber pays only for its own page: the all-topics
-    /// watermark firehose exists for list pages, and even that carries one
-    /// `{topic, rate}` pair per topic rather than catalog objects.
-    async fn updates(
-        context: &GraphQlContext,
-        cluster: String,
-        scope: Option<UpdateScope>,
-    ) -> Result<BoxStream<'static, Result<Update, FieldError>>, GqlError> {
-        let store = Arc::clone(context.cluster(&cluster)?.store);
-        let scope = scope.unwrap_or_default();
+#[derive(Debug, Clone, Default)]
+struct Scope {
+    topic: Option<String>,
+    group: Option<String>,
+}
 
-        Ok(Stream {
-            _lease: scope
-                .group
-                .as_deref()
-                .map(|group| store.interest.lease_group(group)),
-            events: store.bus.subscribe(),
-            guard: context.guard.clone(),
-            pending: VecDeque::new(),
-            cluster,
-            scope,
-            done: false,
-        }
-        .into_stream())
+/// Every lane delta for one cluster, optionally narrowed to one topic or group.
+///
+/// A scoped subscriber pays only for its own page: the all-topics watermark
+/// firehose exists for list pages, and even that carries one `{topic, rate}`
+/// pair per topic rather than catalog objects.
+pub(crate) async fn updates(
+    session: Session,
+    Path(cluster): Path<String>,
+    Query(query): Query<UpdateQuery>,
+) -> Result<
+    Sse<axum::response::sse::KeepAliveStream<BoxStream<'static, Result<Event, Infallible>>>>,
+    ApiError,
+> {
+    let store = Arc::clone(session.cluster(&cluster)?.store);
+    let scope = Scope {
+        topic: blank(query.topic),
+        group: blank(query.group),
+    };
+    let stream = Stream {
+        _lease: scope
+            .group
+            .as_deref()
+            .map(|group| store.interest.lease_group(group)),
+        events: store.bus.subscribe(),
+        guard: session.guard,
+        pending: VecDeque::new(),
+        cluster,
+        scope,
+        done: false,
     }
+    .into_stream();
+
+    Ok(Sse::new(stream).keep_alive(
+        KeepAlive::new()
+            .interval(Duration::from_secs(15))
+            .text("keep-alive"),
+    ))
+}
+
+fn blank(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
 }
 
 struct Stream {
@@ -56,19 +80,19 @@ struct Stream {
     guard: SessionGuard,
     pending: VecDeque<Update>,
     cluster: String,
-    scope: UpdateScope,
+    scope: Scope,
     done: bool,
 }
 
 impl Stream {
-    fn into_stream(self) -> BoxStream<'static, Result<Update, FieldError>> {
+    fn into_stream(self) -> BoxStream<'static, Result<Event, Infallible>> {
         futures::stream::unfold(self, |mut state| async move {
             loop {
                 if state.done {
                     return None;
                 }
                 if let Some(update) = state.pending.pop_front() {
-                    return Some((Ok(update), state));
+                    return Some((Ok(event(&update)), state));
                 }
 
                 match state.events.recv().await {
@@ -79,17 +103,15 @@ impl Stream {
                             missed,
                             "subscriber lagged the change bus"
                         );
-                        return Some((
-                            Ok(Update::Resync(Resync {
-                                reason: ResyncReason::Lagged,
-                            })),
-                            state,
-                        ));
+                        let update = Update::Resync {
+                            reason: ResyncReason::Lagged,
+                        };
+                        return Some((Ok(event(&update)), state));
                     }
                     Ok(change) => {
                         if let Some(error) = state.denied() {
                             state.done = true;
-                            return Some((Err(error.into_field_error()), state));
+                            return Some((Ok(error_event(&error)), state));
                         }
                         state.pending.extend(project(&change, &state.scope));
                     }
@@ -99,15 +121,29 @@ impl Stream {
         .boxed()
     }
 
-    fn denied(&self) -> Option<GqlError> {
+    fn denied(&self) -> Option<ApiError> {
         let Some(access) = self.guard.revalidate() else {
-            return Some(GqlError::SessionExpired);
+            return Some(ApiError::SessionExpired);
         };
-        access.cluster(&self.cluster).err().map(GqlError::from)
+        access.cluster(&self.cluster).err().map(ApiError::from)
     }
 }
 
-fn project(change: &Change, scope: &UpdateScope) -> Vec<Update> {
+fn event(update: &Update) -> Event {
+    Event::default()
+        .event(update.event())
+        .data(serde_json::to_string(update).expect("update is serializable"))
+}
+
+fn error_event(error: &ApiError) -> Event {
+    let body = serde_json::json!({
+        "error": error.to_string(),
+        "code": error.code(),
+    });
+    Event::default().event("error").data(body.to_string())
+}
+
+fn project(change: &Change, scope: &Scope) -> Vec<Update> {
     match change {
         Change::Watermarks(tick) => {
             let topics = match scope.topic.as_deref() {
@@ -120,22 +156,22 @@ fn project(change: &Change, scope: &UpdateScope) -> Vec<Update> {
                     }],
                 },
             };
-            vec![Update::Watermarks(WatermarksTick {
+            vec![Update::Watermarks {
                 at: tick.at,
                 topics,
-            })]
+            }]
         }
 
         Change::GroupOffsets(wave) => match scope.group.as_deref() {
             Some(group) => wave
                 .group(group)
-                .map(|update| Update::GroupLag(lag_update(wave, update, true)))
+                .map(|update| lag_update(wave, update, true))
                 .into_iter()
                 .collect(),
             None => wave
                 .groups
                 .iter()
-                .map(|update| Update::GroupLag(lag_update(wave, update, false)))
+                .map(|update| lag_update(wave, update, false))
                 .collect(),
         },
 
@@ -150,7 +186,7 @@ fn project(change: &Change, scope: &UpdateScope) -> Vec<Update> {
             if !relevant {
                 return Vec::new();
             }
-            vec![Update::Topology(TopologyDelta {
+            vec![Update::Topology {
                 version: delta.version.into(),
                 added_topics: names(&delta.added_topics),
                 removed_topics: names(&delta.removed_topics),
@@ -159,7 +195,7 @@ fn project(change: &Change, scope: &UpdateScope) -> Vec<Update> {
                 removed_groups: names(&delta.removed_groups),
                 changed_groups: names(&delta.changed_groups),
                 brokers_changed: delta.brokers_changed,
-            })]
+            }]
         }
 
         Change::Configs(delta) => {
@@ -172,18 +208,18 @@ fn project(change: &Change, scope: &UpdateScope) -> Vec<Update> {
                     vec![topic.to_owned()]
                 }
             };
-            vec![Update::Configs(ConfigsChanged {
+            vec![Update::Configs {
                 version: delta.version.into(),
                 topics,
-            })]
+            }]
         }
 
-        Change::Subjects(delta) => vec![Update::Subjects(SubjectsChanged {
+        Change::Subjects(delta) => vec![Update::Subjects {
             version: delta.version.into(),
             added: names(&delta.added),
             removed: names(&delta.removed),
             changed: names(&delta.changed),
-        })],
+        }],
     }
 }
 
@@ -191,14 +227,19 @@ fn lag_update(
     wave: &GroupOffsetsWave,
     update: &crate::kafka::store::GroupLagUpdate,
     offsets: bool,
-) -> GroupLagUpdate {
-    GroupLagUpdate {
+) -> Update {
+    Update::GroupLag {
         at: wave.at,
         group: update.group.to_string(),
-        lag: update.total_lag.into(),
+        lag: Int64::from(update.total_lag),
         lag_complete: update.lag_complete,
         offsets: match offsets {
-            true => update.offsets.iter().cloned().map(Into::into).collect(),
+            true => update
+                .offsets
+                .iter()
+                .cloned()
+                .map(GroupOffset::from)
+                .collect(),
             false => Vec::new(),
         },
     }

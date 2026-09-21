@@ -8,6 +8,9 @@ pub enum KafkaError {
     #[error("unknown topic '{topic}' in cluster '{cluster}'")]
     UnknownTopic { cluster: String, topic: String },
 
+    #[error("unknown group '{group}' in cluster '{cluster}'")]
+    UnknownGroup { cluster: String, group: String },
+
     #[error("unknown broker {id} in cluster '{cluster}'")]
     UnknownBroker { cluster: String, id: i32 },
 
@@ -52,6 +55,7 @@ impl KafkaError {
         match self {
             Self::UnknownCluster(_) => "UNKNOWN_CLUSTER",
             Self::UnknownTopic { .. } => "UNKNOWN_TOPIC",
+            Self::UnknownGroup { .. } => "UNKNOWN_GROUP",
             Self::UnknownBroker { .. } => "UNKNOWN_BROKER",
             Self::UnknownSubject { .. } => "UNKNOWN_SUBJECT",
             Self::UnknownPartition { .. } => "UNKNOWN_PARTITION",
@@ -123,6 +127,14 @@ mod tests {
             }
             .code(),
             "UNKNOWN_TOPIC"
+        );
+        assert_eq!(
+            KafkaError::UnknownGroup {
+                cluster: "local".into(),
+                group: "missing".into(),
+            }
+            .code(),
+            "UNKNOWN_GROUP"
         );
         assert_eq!(
             KafkaError::UnknownBroker {
