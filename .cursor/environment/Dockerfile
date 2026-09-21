@@ -11,6 +11,8 @@ RUN apt-get update \
         build-essential \
         docker.io \
         sudo \
+        tmux \
+        openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
