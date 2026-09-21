@@ -27,6 +27,7 @@ if [[ ! -x "$repo_root/target/debug/klens" ]]; then
   (cd "$repo_root" && cargo build --locked --features ui)
 fi
 
+topology_secs="${KLENS_VERIFY_TOPOLOGY_SECS:-10}"
 cat >"$config_file" <<EOF
 bind: ${KLENS_VERIFY_BIND}:${KLENS_VERIFY_PORT}
 log_level: info
@@ -36,6 +37,8 @@ clusters:
       - ${KLENS_VERIFY_BROKERS}
     schema_registry:
       url: http://127.0.0.1:8081
+    ingest:
+      topology_secs: ${topology_secs}
 EOF
 
 if port_open 127.0.0.1 9092; then

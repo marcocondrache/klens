@@ -61,7 +61,7 @@ Kubernetes: `>=1.25.0-0`
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity rules for pod scheduling (templated). |
-| config | object | `{"bind":"0.0.0.0:8080","clusters":[],"log_level":"info"}` | klens config file as a map. The binary validates this YAML, not the chart. |
+| config | object | `{"bind":"0.0.0.0:8080","clusters":[],"log_level":"info"}` | klens config file as a map. The binary validates this YAML, not the chart. Lane cadence is per cluster (`clusters[].ingest`). |
 | deploymentAnnotations | object | `{}` | Annotations added to the Deployment. |
 | env | object | `{}` | Extra environment variables as a map (templated). |
 | envFrom | list | `[]` | Extra envFrom sources (templated). |

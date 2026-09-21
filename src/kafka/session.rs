@@ -194,6 +194,7 @@ mod tests {
             schema_registry: None,
             obfuscation: None,
             properties: Default::default(),
+            ingest: Default::default(),
         }
     }
 

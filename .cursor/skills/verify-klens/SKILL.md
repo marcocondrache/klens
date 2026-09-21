@@ -35,7 +35,7 @@ Overrides, all optional:
 - `KLENS_VERIFY_RUN_DIR` (default `.cursor/skills/verify-klens/run`)
 - `KLENS_VERIFY_BROKERS` (default `127.0.0.1:9092`)
 - `RPK` (path to `rpk`; default `rpk` on `PATH`)
-- `KLENS_TOPOLOGY_LANE_INTERVAL` (product env, seconds, default `10`). The topology lane refreshes metadata and consumer-group membership. A short interval can fail `ListGroups` against Redpanda and set `clusters.topology.lastError`, which fails doctor. For a multi-feature drive set `600` so the lane stays quiet. That override is session harness, not a product fix. Do not add it to `launch.sh`. The old `KLENS_CATALOG_POLL_INTERVAL` name is ignored.
+- `KLENS_VERIFY_TOPOLOGY_SECS` (harness only, seconds, default `10`). Written into the generated cluster as `ingest.topology_secs`. The topology lane refreshes metadata and consumer-group membership. A short interval can fail `ListGroups` against Redpanda and set `clusters.topology.lastError`, which fails doctor. For a multi-feature drive set `600` so the lane stays quiet. That override is session harness, not a product default. The old `KLENS_TOPOLOGY_LANE_INTERVAL` and `KLENS_CATALOG_POLL_INTERVAL` names are ignored.
 
 Do not use `mise web:dev` / `vp dev` for verification. `web/vite.config.ts` proxies `/graphql`, `/auth`, `/api`, and `/health` to `http://localhost:8080`, so a Vite session cannot bind a private port.
 

@@ -9,9 +9,9 @@ mod utils;
 
 pub use app::{AppState, AuthState, router, schema};
 pub use config::{
-    AuthConfig, ClusterConfig, Config, ConfigError, OidcConfig, PrivilegeName, RoleBinding,
-    RolesConfig, SaslConfig, SaslMechanism, SchemaRegistryConfig, SecurityConfig, SecurityProtocol,
-    TlsConfig,
+    AuthConfig, ClusterConfig, ClusterIngestConfig, Config, ConfigError, OidcConfig, PrivilegeName,
+    RoleBinding, RolesConfig, SaslConfig, SaslMechanism, SchemaRegistryConfig, SecurityConfig,
+    SecurityProtocol, TlsConfig,
 };
 pub use kafka::{KafkaError, SessionSet};
 pub use server::serve;

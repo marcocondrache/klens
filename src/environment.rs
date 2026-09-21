@@ -137,90 +137,6 @@ pub static SCAN_PACE_BOUND: LazyLock<Duration> = lazy_env_parse!(
 pub static MAX_RECORD_LIMIT: LazyLock<usize> =
     lazy_env_parse!("KLENS_MAX_RECORD_LIMIT", usize, 500);
 
-/// How often the topology lane refreshes metadata and consumer-group
-/// membership (default: 10 seconds).
-///
-/// Override with `KLENS_TOPOLOGY_LANE_INTERVAL` (seconds). Values below 1
-/// second fall back to the default.
-pub static TOPOLOGY_LANE_INTERVAL: LazyLock<Duration> = LazyLock::new(|| {
-    parse_poll_interval(
-        std::env::var("KLENS_TOPOLOGY_LANE_INTERVAL").ok(),
-        DEFAULT_TOPOLOGY_LANE_INTERVAL,
-    )
-});
-
-/// How often the watermark lane samples low and high watermarks, which also
-/// sets the produce-rate resolution (default: 3 seconds).
-///
-/// Override with `KLENS_WATERMARK_LANE_INTERVAL` (seconds). Values below 1
-/// second fall back to the default.
-pub static WATERMARK_LANE_INTERVAL: LazyLock<Duration> = LazyLock::new(|| {
-    parse_poll_interval(
-        std::env::var("KLENS_WATERMARK_LANE_INTERVAL").ok(),
-        DEFAULT_WATERMARK_LANE_INTERVAL,
-    )
-});
-
-/// How often the config lane describes every topic config (default: 60
-/// seconds).
-///
-/// Override with `KLENS_CONFIG_LANE_INTERVAL` (seconds). Values below 1
-/// second fall back to the default.
-pub static CONFIG_LANE_INTERVAL: LazyLock<Duration> = LazyLock::new(|| {
-    parse_poll_interval(
-        std::env::var("KLENS_CONFIG_LANE_INTERVAL").ok(),
-        DEFAULT_CONFIG_LANE_INTERVAL,
-    )
-});
-
-/// How often the subjects lane sweeps the Schema Registry listing (default:
-/// 30 seconds).
-///
-/// Override with `KLENS_SUBJECT_LANE_INTERVAL` (seconds). Values below 1
-/// second fall back to the default.
-pub static SUBJECT_LANE_INTERVAL: LazyLock<Duration> = LazyLock::new(|| {
-    parse_poll_interval(
-        std::env::var("KLENS_SUBJECT_LANE_INTERVAL").ok(),
-        DEFAULT_SUBJECT_LANE_INTERVAL,
-    )
-});
-
-/// How often the offsets scheduler wakes to decide which consumer groups are
-/// due for an offset fetch (default: 1 second).
-///
-/// Override with `KLENS_OFFSET_LANE_TICK` (seconds). Values below 1 second
-/// fall back to the default.
-pub static OFFSET_LANE_TICK: LazyLock<Duration> = LazyLock::new(|| {
-    parse_poll_interval(
-        std::env::var("KLENS_OFFSET_LANE_TICK").ok(),
-        DEFAULT_OFFSET_LANE_TICK,
-    )
-});
-
-/// Offset refresh cadence for groups someone is looking at (default: 2
-/// seconds).
-///
-/// Override with `KLENS_FAST_OFFSET_INTERVAL` (seconds). Values below 1
-/// second fall back to the default.
-pub static FAST_OFFSET_INTERVAL: LazyLock<Duration> = LazyLock::new(|| {
-    parse_poll_interval(
-        std::env::var("KLENS_FAST_OFFSET_INTERVAL").ok(),
-        DEFAULT_FAST_OFFSET_INTERVAL,
-    )
-});
-
-/// Offset refresh cadence for groups nobody is looking at (default: 20
-/// seconds).
-///
-/// Override with `KLENS_SLOW_OFFSET_INTERVAL` (seconds). Values below 1
-/// second fall back to the default.
-pub static SLOW_OFFSET_INTERVAL: LazyLock<Duration> = LazyLock::new(|| {
-    parse_poll_interval(
-        std::env::var("KLENS_SLOW_OFFSET_INTERVAL").ok(),
-        DEFAULT_SLOW_OFFSET_INTERVAL,
-    )
-});
-
 /// How long a one-shot query keeps a consumer group in the fast offset tier
 /// (default: 30 seconds).
 ///
@@ -261,22 +177,6 @@ pub static MISSING_SCHEMA_TTL: LazyLock<Duration> = lazy_env_parse!(
 pub static IDLE_HEARTBEAT: LazyLock<Duration> =
     lazy_env_parse!(duration, "KLENS_IDLE_HEARTBEAT", Duration::from_secs(15));
 
-const DEFAULT_TOPOLOGY_LANE_INTERVAL: Duration = Duration::from_secs(10);
-const DEFAULT_WATERMARK_LANE_INTERVAL: Duration = Duration::from_secs(3);
-const DEFAULT_CONFIG_LANE_INTERVAL: Duration = Duration::from_secs(60);
-const DEFAULT_SUBJECT_LANE_INTERVAL: Duration = Duration::from_secs(30);
-const DEFAULT_OFFSET_LANE_TICK: Duration = Duration::from_secs(1);
-const DEFAULT_FAST_OFFSET_INTERVAL: Duration = Duration::from_secs(2);
-const DEFAULT_SLOW_OFFSET_INTERVAL: Duration = Duration::from_secs(20);
-const MIN_POLL_INTERVAL: Duration = Duration::from_secs(1);
-
-fn parse_poll_interval(raw: Option<String>, default: Duration) -> Duration {
-    raw.and_then(|value| value.parse::<u64>().ok())
-        .map(Duration::from_secs)
-        .filter(|interval| *interval >= MIN_POLL_INTERVAL)
-        .unwrap_or(default)
-}
-
 /// Ignore a previous watermark snapshot older than this when computing a
 /// produce rate (default: 15 seconds).
 ///
@@ -309,37 +209,3 @@ pub const STATIC_ASSET_CACHE_CONTROL: &str = "public, max-age=31536000, immutabl
 
 /// Cache-Control for `index.html` so clients pick up new asset hashes.
 pub const INDEX_CACHE_CONTROL: &str = "no-cache";
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_poll_interval_defaults_when_unset_or_invalid() {
-        assert_eq!(
-            parse_poll_interval(None, DEFAULT_TOPOLOGY_LANE_INTERVAL),
-            DEFAULT_TOPOLOGY_LANE_INTERVAL
-        );
-        assert_eq!(
-            parse_poll_interval(Some("not-a-number".into()), DEFAULT_TOPOLOGY_LANE_INTERVAL),
-            DEFAULT_TOPOLOGY_LANE_INTERVAL
-        );
-        assert_eq!(
-            parse_poll_interval(Some("0".into()), DEFAULT_TOPOLOGY_LANE_INTERVAL),
-            DEFAULT_TOPOLOGY_LANE_INTERVAL,
-            "sub-second polling is a footgun, not a configuration"
-        );
-    }
-
-    #[test]
-    fn a_poll_interval_accepts_values_at_or_above_one_second() {
-        assert_eq!(
-            parse_poll_interval(Some("1".into()), DEFAULT_TOPOLOGY_LANE_INTERVAL),
-            MIN_POLL_INTERVAL
-        );
-        assert_eq!(
-            parse_poll_interval(Some("15".into()), DEFAULT_TOPOLOGY_LANE_INTERVAL),
-            Duration::from_secs(15)
-        );
-    }
-}

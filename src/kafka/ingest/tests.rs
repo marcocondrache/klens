@@ -5,6 +5,7 @@ use tokio::sync::broadcast::error::TryRecvError;
 use tokio::task::JoinSet;
 
 use super::*;
+use crate::config::ClusterIngestConfig;
 use crate::kafka::group::{
     CommittedOffset, GroupMember, GroupSnapshot, GroupState, MemberAssignment,
 };
@@ -644,8 +645,16 @@ async fn one_cluster_never_wakes_another() {
     let prod_store = Arc::new(ClusterStore::new(identity("prod")));
     let staging_store = Arc::new(ClusterStore::new(identity("staging")));
     let _lanes = Ingest::start([
-        (Arc::clone(&prod_store), port(&prod)),
-        (Arc::clone(&staging_store), port(&staging)),
+        (
+            Arc::clone(&prod_store),
+            port(&prod),
+            ClusterIngestConfig::default(),
+        ),
+        (
+            Arc::clone(&staging_store),
+            port(&staging),
+            ClusterIngestConfig::default(),
+        ),
     ]);
 
     wait_for(|| prod_store.ready() && staging_store.ready(), "both ready").await;
