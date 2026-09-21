@@ -124,11 +124,11 @@ export type LaneHealthFieldsFragment = { updatedAt: string | null, checkedAt: st
 
 export type ClusterHealthFieldsFragment = { cluster: string, ready: boolean, topicCount: number, partitionCount: number, groupCount: number, brokerCount: number, subjectCount: number, underReplicatedPartitions: number, offlinePartitions: number, topology: { updatedAt: string | null, checkedAt: string | null, lastError: string | null, lastPollMs: string | null, healthy: boolean }, watermarks: { updatedAt: string | null, checkedAt: string | null, lastError: string | null, lastPollMs: string | null, healthy: boolean }, offsets: { updatedAt: string | null, checkedAt: string | null, lastError: string | null, lastPollMs: string | null, healthy: boolean }, configs: { updatedAt: string | null, checkedAt: string | null, lastError: string | null, lastPollMs: string | null, healthy: boolean }, subjects: { updatedAt: string | null, checkedAt: string | null, lastError: string | null, lastPollMs: string | null, healthy: boolean } };
 
-export type TopicRowFieldsFragment = { name: string, internal: boolean, partitionCount: number, replicationFactor: number, retainedMessages: string, producedTotal: string, rate: number, retentionMs: string, cleanupPolicy: CleanupPolicy, groupCount: number, underReplicated: boolean };
+export type TopicRowFieldsFragment = { name: string, internal: boolean, partitionCount: number, replicationFactor: number, retainedMessages: string, rate: number, retentionMs: string, cleanupPolicy: CleanupPolicy, groupCount: number, underReplicated: boolean };
 
 export type PartitionRowFieldsFragment = { id: number, leader: number, replicas: Array<number>, isr: Array<number>, lowWatermark: string, highWatermark: string, retained: string, underReplicated: boolean };
 
-export type TopicDetailFieldsFragment = { name: string, internal: boolean, replicationFactor: number, retainedMessages: string, producedTotal: string, groupCount: number, underReplicated: boolean, partitions: Array<{ id: number, leader: number, replicas: Array<number>, isr: Array<number>, lowWatermark: string, highWatermark: string, retained: string, underReplicated: boolean }> };
+export type TopicDetailFieldsFragment = { name: string, internal: boolean, replicationFactor: number, retainedMessages: string, rate: number, retentionMs: string, cleanupPolicy: CleanupPolicy, groupCount: number, underReplicated: boolean, partitions: Array<{ id: number, leader: number, replicas: Array<number>, isr: Array<number>, lowWatermark: string, highWatermark: string, retained: string, underReplicated: boolean }> };
 
 export type TopicGroupRowFieldsFragment = { id: string, state: GroupState, memberCount: number, lagOnTopic: string };
 
@@ -173,7 +173,7 @@ export type TopicRowsQueryVariables = Exact<{
 }>;
 
 
-export type TopicRowsQuery = { cluster: { topics: { rows: Array<{ name: string, internal: boolean, partitionCount: number, replicationFactor: number, retainedMessages: string, producedTotal: string, rate: number, retentionMs: string, cleanupPolicy: CleanupPolicy, groupCount: number, underReplicated: boolean }> } } | null };
+export type TopicRowsQuery = { cluster: { topics: { rows: Array<{ name: string, internal: boolean, partitionCount: number, replicationFactor: number, retainedMessages: string, rate: number, retentionMs: string, cleanupPolicy: CleanupPolicy, groupCount: number, underReplicated: boolean }> } } | null };
 
 export type TopicQueryVariables = Exact<{
   cluster: string;
@@ -181,7 +181,7 @@ export type TopicQueryVariables = Exact<{
 }>;
 
 
-export type TopicQuery = { cluster: { topic: { name: string, internal: boolean, replicationFactor: number, retainedMessages: string, producedTotal: string, groupCount: number, underReplicated: boolean, partitions: Array<{ id: number, leader: number, replicas: Array<number>, isr: Array<number>, lowWatermark: string, highWatermark: string, retained: string, underReplicated: boolean }> } | null, topics: { rows: Array<{ name: string, internal: boolean, partitionCount: number, replicationFactor: number, retainedMessages: string, producedTotal: string, rate: number, retentionMs: string, cleanupPolicy: CleanupPolicy, groupCount: number, underReplicated: boolean }> } } | null };
+export type TopicQuery = { cluster: { topic: { name: string, internal: boolean, replicationFactor: number, retainedMessages: string, rate: number, retentionMs: string, cleanupPolicy: CleanupPolicy, groupCount: number, underReplicated: boolean, partitions: Array<{ id: number, leader: number, replicas: Array<number>, isr: Array<number>, lowWatermark: string, highWatermark: string, retained: string, underReplicated: boolean }> } | null } | null };
 
 export type TopicGroupsQueryVariables = Exact<{
   cluster: string;
@@ -361,7 +361,6 @@ export const TopicRowFieldsFragmentDoc = new TypedDocumentString(`
   partitionCount
   replicationFactor
   retainedMessages
-  producedTotal
   rate
   retentionMs
   cleanupPolicy
@@ -387,7 +386,9 @@ export const TopicDetailFieldsFragmentDoc = new TypedDocumentString(`
   internal
   replicationFactor
   retainedMessages
-  producedTotal
+  rate
+  retentionMs
+  cleanupPolicy
   groupCount
   underReplicated
   partitions {
@@ -647,7 +648,6 @@ export const TopicRowsDocument = new TypedDocumentString(`
   partitionCount
   replicationFactor
   retainedMessages
-  producedTotal
   rate
   retentionMs
   cleanupPolicy
@@ -660,27 +660,9 @@ export const TopicDocument = new TypedDocumentString(`
     topic(name: $name) {
       ...TopicDetailFields
     }
-    topics(filter: { contains: $name }) {
-      rows {
-        ...TopicRowFields
-      }
-    }
   }
 }
-    fragment TopicRowFields on TopicRow {
-  name
-  internal
-  partitionCount
-  replicationFactor
-  retainedMessages
-  producedTotal
-  rate
-  retentionMs
-  cleanupPolicy
-  groupCount
-  underReplicated
-}
-fragment PartitionRowFields on PartitionRow {
+    fragment PartitionRowFields on PartitionRow {
   id
   leader
   replicas
@@ -695,7 +677,9 @@ fragment TopicDetailFields on TopicDetail {
   internal
   replicationFactor
   retainedMessages
-  producedTotal
+  rate
+  retentionMs
+  cleanupPolicy
   groupCount
   underReplicated
   partitions {

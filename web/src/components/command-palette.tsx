@@ -14,9 +14,12 @@ import {
 } from "@/components/ui/command";
 import { StatusDot } from "@/components/status";
 import { useClusters, useSearch } from "@/lib/api/catalog";
+import type { SearchHit } from "@/lib/api/types";
 import { clusterTone, useClusterName } from "@/lib/clusters";
+import { graphqlErrorMessage } from "@/lib/graphql-error";
 import { useAccess } from "@/hooks/use-access";
 import { clusterSectionTo, useActiveSection, visibleSections } from "@/lib/sections";
+import { cn } from "@/lib/utils";
 
 const RESULT_ICON = {
   TOPIC: LayersIcon,
@@ -24,6 +27,13 @@ const RESULT_ICON = {
   NODE: HardDriveIcon,
   SUBJECT: FileJsonIcon,
 };
+
+const RESULT_GROUPS: Array<{ kind: SearchHit["kind"]; heading: string }> = [
+  { kind: "TOPIC", heading: "Topics" },
+  { kind: "GROUP", heading: "Consumer groups" },
+  { kind: "NODE", heading: "Brokers" },
+  { kind: "SUBJECT", heading: "Schemas" },
+];
 
 export function CommandPalette({
   open,
@@ -57,11 +67,6 @@ export function CommandPalette({
     action();
   }
 
-  const topics = results.filter((result) => result.kind === "TOPIC");
-  const groups = results.filter((result) => result.kind === "GROUP");
-  const nodes = results.filter((result) => result.kind === "NODE");
-  const subjects = results.filter((result) => result.kind === "SUBJECT");
-
   return (
     <CommandDialog
       open={open}
@@ -78,18 +83,23 @@ export function CommandPalette({
         />
         <CommandList className="max-h-[min(24rem,50vh)]">
           {searching && isError ? (
-            <CommandEmpty>{error instanceof Error ? error.message : "Search failed."}</CommandEmpty>
+            <CommandEmpty>{graphqlErrorMessage(error, "Search failed.")}</CommandEmpty>
           ) : null}
 
           {searching && !isFetching && !isError && results.length === 0 ? (
             <CommandEmpty>No matches in {cluster}.</CommandEmpty>
           ) : null}
 
-          {topics.length ? (
-            <CommandGroup heading="Topics">
-              {topics.map((result) => {
-                const Icon = RESULT_ICON[result.kind];
-                return (
+          {RESULT_GROUPS.map(({ kind, heading }) => {
+            const items = results.filter((result) => result.kind === kind);
+            if (items.length === 0) return null;
+
+            const Icon = RESULT_ICON[kind];
+            const broker = kind === "NODE";
+
+            return (
+              <CommandGroup key={kind} heading={heading}>
+                {items.map((result) => (
                   <CommandItem
                     key={result.href}
                     value={result.href}
@@ -98,80 +108,21 @@ export function CommandPalette({
                   >
                     <Icon className="text-muted-foreground" />
                     <span
-                      className="min-w-0 flex-1 truncate font-mono text-sm"
-                      title={result.label}
+                      className={cn("min-w-0 flex-1 truncate", !broker && "font-mono text-sm")}
+                      title={broker ? undefined : result.label}
                     >
                       {result.label}
                     </span>
-                    <CommandShortcut className="shrink-0 tracking-normal">
+                    <CommandShortcut
+                      className={cn("shrink-0 tracking-normal", broker && "font-mono")}
+                    >
                       {result.detail}
                     </CommandShortcut>
                   </CommandItem>
-                );
-              })}
-            </CommandGroup>
-          ) : null}
-
-          {groups.length ? (
-            <CommandGroup heading="Consumer groups">
-              {groups.map((result) => (
-                <CommandItem
-                  key={result.href}
-                  value={result.href}
-                  onSelect={() => run(() => goHref(result.href))}
-                  className="min-w-0"
-                >
-                  <UsersRoundIcon className="text-muted-foreground" />
-                  <span className="min-w-0 flex-1 truncate font-mono text-sm" title={result.label}>
-                    {result.label}
-                  </span>
-                  <CommandShortcut className="shrink-0 tracking-normal">
-                    {result.detail}
-                  </CommandShortcut>
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          ) : null}
-
-          {nodes.length ? (
-            <CommandGroup heading="Brokers">
-              {nodes.map((result) => (
-                <CommandItem
-                  key={result.href}
-                  value={result.href}
-                  onSelect={() => run(() => goHref(result.href))}
-                  className="min-w-0"
-                >
-                  <HardDriveIcon className="text-muted-foreground" />
-                  <span className="min-w-0 flex-1 truncate">{result.label}</span>
-                  <CommandShortcut className="shrink-0 font-mono tracking-normal">
-                    {result.detail}
-                  </CommandShortcut>
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          ) : null}
-
-          {subjects.length ? (
-            <CommandGroup heading="Schemas">
-              {subjects.map((result) => (
-                <CommandItem
-                  key={result.href}
-                  value={result.href}
-                  onSelect={() => run(() => goHref(result.href))}
-                  className="min-w-0"
-                >
-                  <FileJsonIcon className="text-muted-foreground" />
-                  <span className="min-w-0 flex-1 truncate font-mono text-sm" title={result.label}>
-                    {result.label}
-                  </span>
-                  <CommandShortcut className="shrink-0 tracking-normal">
-                    {result.detail}
-                  </CommandShortcut>
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          ) : null}
+                ))}
+              </CommandGroup>
+            );
+          })}
 
           {searching ? null : (
             <CommandGroup heading="Go to">

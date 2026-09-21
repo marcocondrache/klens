@@ -21,6 +21,7 @@ import { useNow } from "@/hooks/use-now";
 import { useSubjectRows } from "@/lib/api/catalog";
 import { useSubject } from "@/lib/api/live";
 import { laneCaption, useClusterName } from "@/lib/clusters";
+import { graphqlErrorMessage } from "@/lib/graphql-error";
 import { prettyJson } from "@/lib/format";
 import type { SubjectRow } from "@/lib/api/types";
 import { parseSchemasSearch } from "@/lib/route-search";
@@ -141,9 +142,7 @@ function SchemasPage() {
           />
         }
         loading={isPending}
-        error={
-          isError ? (error instanceof Error ? error.message : "Failed to load schemas.") : undefined
-        }
+        error={isError ? graphqlErrorMessage(error, "Failed to load schemas.") : undefined}
         defaultSort={{ id: "subject", direction: "asc" }}
         onRowClick={open}
         fill

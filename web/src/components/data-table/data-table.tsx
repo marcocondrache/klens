@@ -2,7 +2,6 @@ import { useState, type ReactNode } from "react";
 import {
   useTable,
   type ColumnDef,
-  type ColumnFiltersState,
   type ColumnVisibilityState,
   type RowData,
   type SortingState,
@@ -63,9 +62,7 @@ export function DataTable<TData extends RowData>({
   const [sorting, setSorting] = useState<SortingState>(
     defaultSort ? [{ id: defaultSort.id, desc: defaultSort.direction === "desc" }] : [],
   );
-  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = useState<ColumnVisibilityState>({});
-  const [rowSelection, setRowSelection] = useState({});
 
   const table = useTable({
     features,
@@ -75,14 +72,10 @@ export function DataTable<TData extends RowData>({
     enableMultiSort: false,
     sortDescFirst: false,
     onSortingChange: setSorting,
-    onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
-    onRowSelectionChange: setRowSelection,
     state: {
       sorting,
-      columnFilters,
       columnVisibility,
-      rowSelection,
     },
   });
 
@@ -154,7 +147,7 @@ export function DataTable<TData extends RowData>({
                   return (
                     <TableRow
                       key={row.id}
-                      data-state={selected || row.getIsSelected() ? "selected" : undefined}
+                      data-state={selected ? "selected" : undefined}
                       onClick={onRowClick ? () => onRowClick(row.original) : undefined}
                       className={cn(onRowClick && "cursor-pointer")}
                     >

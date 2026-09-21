@@ -544,6 +544,9 @@ async fn topic_detail_flags_under_replication_per_partition() {
             name
             replicationFactor
             underReplicated
+            rate
+            retentionMs
+            cleanupPolicy
             partitions { id leader underReplicated }
         } } }"#,
     )
@@ -552,6 +555,9 @@ async fn topic_detail_flags_under_replication_per_partition() {
 
     assert_eq!(topic["replicationFactor"], 2);
     assert_eq!(topic["underReplicated"], true);
+    assert_eq!(topic["rate"], 0.0);
+    assert_eq!(topic["retentionMs"], "0");
+    assert_eq!(topic["cleanupPolicy"], "DELETE");
     assert_eq!(topic["partitions"][0]["underReplicated"], false);
     assert_eq!(topic["partitions"][1]["underReplicated"], true);
     assert_eq!(topic["partitions"][1]["leader"], -1);
