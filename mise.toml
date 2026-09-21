@@ -5,6 +5,7 @@ rpk = "26.2.2"
 rust = "latest"
 viteplus = "latest"
 
+"cargo:cargo-audit" = "latest"
 "cargo:cargo-machete" = "latest"
 "cargo:cargo-mutants" = "latest"
 "cargo:cargo-nextest" = "latest"
