@@ -32,7 +32,7 @@ Preconditions:
 ## Gotchas
 
 - Header facts (`N partitions`, `N msgs`) can render before records finish. Assert the key cell, not that count line.
-- Record search sends GraphQL `filter.contains`. It is not a CEL filter. A topic-catalog `?q=` does not filter records.
+- Record search sends GraphQL `filter.contains`. A topic-catalog `?q=` does not filter records.
 - The Data tab has no pager. Newest starts at the latest offsets at the top of the table. Oldest starts at the first offsets. Both load the next batch as you scroll down.
 - Empty topics show title `No records`, not the Topics `No results.` string.
 - Schema Registry decode is a production boundary. Plain string payloads must appear without a registry.

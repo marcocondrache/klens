@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use foldhash::{HashMap, HashMapExt, HashSet};
 use futures::StreamExt;
+use jiff::Timestamp;
 use tokio::time::Instant;
 
 use crate::config::ClusterIngestConfig;
@@ -13,7 +14,6 @@ use crate::kafka::store::projections::group_offsets;
 use crate::kafka::store::{
     Change, ClusterStore, GroupLagUpdate, GroupOffsets, GroupOffsetsWave, OffsetTable, Topology,
 };
-use crate::utils::utc_now;
 
 use super::runner::floor;
 
@@ -108,7 +108,7 @@ impl OffsetLane {
         }
 
         let fetched = self.fetch(&topology, previous.as_deref(), &due).await;
-        let now = utc_now();
+        let now = Timestamp::now();
 
         let mut groups: HashMap<Arc<str>, Arc<GroupOffsets>> =
             HashMap::with_capacity(topology.groups.len());

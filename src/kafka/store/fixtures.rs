@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
-use chrono::{DateTime, Utc};
 use foldhash::{HashMap, HashMapExt};
+use jiff::Timestamp;
 
+use super::tables::{GroupOffsets, Interner, Topology, WatermarkTable};
 use crate::config::SecurityProtocol;
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::group::{
@@ -12,9 +13,6 @@ use crate::kafka::metadata::{BrokerMetadata, MetadataSnapshot, PartitionMetadata
 use crate::kafka::registry::{SchemaCompatibility, SchemaSubject, SchemaType};
 use crate::kafka::topic_config::{ConfigEntry, ConfigSource};
 use crate::kafka::watermarks::Watermarks;
-use crate::utils::datetime_from_unix_millis;
-
-use super::tables::{GroupOffsets, Interner, Topology, WatermarkTable};
 
 pub fn identity(name: &str) -> ClusterIdentity {
     ClusterIdentity {
@@ -86,11 +84,11 @@ pub fn topology(topics: Vec<TopicMetadata>, groups: Vec<GroupSnapshot>) -> Topol
     Topology::assemble(&metadata(topics), &groups, &mut Interner::default())
 }
 
-pub fn at(millis: i64) -> DateTime<Utc> {
-    datetime_from_unix_millis(millis)
+pub fn at(millis: i64) -> Timestamp {
+    Timestamp::from_millisecond(millis).unwrap_or(Timestamp::UNIX_EPOCH)
 }
 
-pub fn watermarks(sampled_at: DateTime<Utc>, marks: &[(&str, i32, i64, i64)]) -> WatermarkTable {
+pub fn watermarks(sampled_at: Timestamp, marks: &[(&str, i32, i64, i64)]) -> WatermarkTable {
     let mut table: HashMap<Arc<str>, HashMap<i32, Watermarks>> = HashMap::new();
     for (topic, partition, low, high) in marks {
         table.entry(Arc::from(*topic)).or_default().insert(
@@ -104,7 +102,7 @@ pub fn watermarks(sampled_at: DateTime<Utc>, marks: &[(&str, i32, i64, i64)]) ->
     WatermarkTable::new(sampled_at, table)
 }
 
-pub fn offsets(sampled_at: DateTime<Utc>, committed: &[(&str, i32, i64)]) -> GroupOffsets {
+pub fn offsets(sampled_at: Timestamp, committed: &[(&str, i32, i64)]) -> GroupOffsets {
     GroupOffsets {
         sampled_at,
         committed: committed

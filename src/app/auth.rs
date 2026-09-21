@@ -8,6 +8,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use axum_login::AuthManagerLayerBuilder;
 use base64::Engine as _;
+use jiff::Timestamp;
 use openidconnect::{CsrfToken, Nonce, PkceCodeChallenge};
 use serde::{Deserialize, Serialize};
 use tower_sessions::cookie::time::Duration;
@@ -21,7 +22,6 @@ use crate::environment::{
     LOGIN_MAX_AGE_SECS, MIN_SESSION_KEY_BYTES, SESSION_COOKIE, SESSION_COOKIE_KEY_PREFIX,
     SESSION_KEY,
 };
-use crate::utils::unix_timestamp_secs;
 
 pub(crate) mod access;
 mod backend;
@@ -380,7 +380,7 @@ async fn callback(
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
 
-    let ttl = (user.exp - unix_timestamp_secs()).max(1);
+    let ttl = (user.exp - Timestamp::now().as_second()).max(1);
     auth_session
         .session
         .set_expiry(Some(Expiry::OnInactivity(Duration::seconds(ttl))));
@@ -612,7 +612,7 @@ mod tests {
             Some("user@example.com".into()),
             Some("Test User".into()),
             vec![],
-            unix_timestamp_secs() + 3600,
+            Timestamp::now().as_second() + 3600,
         );
         let cookie = impersonate_cookie(&router, &user).await;
 
@@ -977,7 +977,7 @@ mod tests {
             Some("user@example.com".into()),
             Some("Test User".into()),
             vec!["klens-viewers".into()],
-            unix_timestamp_secs() + 3600,
+            Timestamp::now().as_second() + 3600,
         );
         let cookie = impersonate_cookie(&router, &user).await;
 
@@ -1012,7 +1012,7 @@ mod tests {
             None,
             None,
             vec!["klens-viewers".into()],
-            unix_timestamp_secs() + 3600,
+            Timestamp::now().as_second() + 3600,
         );
         let cookie = impersonate_cookie(&router, &user).await;
 
@@ -1047,7 +1047,13 @@ mod tests {
             FakeOidc::default(),
             bound_admins(),
         ));
-        let user = SessionUser::new("user-1", None, None, vec![], unix_timestamp_secs() + 3600);
+        let user = SessionUser::new(
+            "user-1",
+            None,
+            None,
+            vec![],
+            Timestamp::now().as_second() + 3600,
+        );
         let cookie = impersonate_cookie(&router, &user).await;
 
         let mut request = graphql_request();
@@ -1070,7 +1076,7 @@ mod tests {
             None,
             None,
             vec!["klens-viewers".into()],
-            unix_timestamp_secs() + 3600,
+            Timestamp::now().as_second() + 3600,
         );
         let cookie = impersonate_cookie(&router, &user).await;
 

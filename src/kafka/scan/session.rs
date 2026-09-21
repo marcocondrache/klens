@@ -16,9 +16,9 @@ use crate::kafka::watermarks::Watermarks;
 
 use super::batch::{RecordBatch, SortKey};
 use super::cursor::CursorDirection;
-use super::filter::{CompiledFilter, RawField, RecordMeta, Verdict};
+use super::filter::{CompiledFilter, RawField, Verdict};
 use super::obfuscate::{Field, TopicObfuscator};
-use super::payload::{DecodedPayload, PayloadCodec, PayloadSlot, framed_schema_id, needs_decode};
+use super::payload::{DecodedPayload, PayloadCodec, PayloadSlot, needs_decode};
 use super::plan::{PartitionWindow, advance_cursor, plan_windows, rewind_cursor};
 use super::query::{RecordOrder, RecordQuery};
 use super::{Compression, Record, RecordHeader, RecordPage};
@@ -142,7 +142,6 @@ impl Kept {
 pub struct ScanSession {
     consumer: Box<dyn ScanConsumer>,
     codec: Option<Arc<dyn PayloadCodec>>,
-    topic: String,
     filter: Option<CompiledFilter>,
     /// This topic's obfuscation rules, resolved once per page.
     obfuscator: Option<Arc<TopicObfuscator>>,
@@ -184,7 +183,6 @@ impl ScanSession {
             consumer,
             codec: session.payload_codec(),
             obfuscator: topic_obfuscator(session, &query.topic),
-            topic: query.topic.clone(),
             filter: query.filter.clone(),
             schema_id: query.schema_id,
             walk,
@@ -284,8 +282,8 @@ impl ScanSession {
                 continue;
             }
 
-            // Before `meta()` exists, so CEL over `headers` and the rendered
-            // headers both see the masked value.
+            // Mask headers before screening so a contains filter sees the
+            // same values the page renders.
             if let Some(obfuscator) = &self.obfuscator {
                 obfuscator.mask_headers(&mut raw.headers);
             }
@@ -327,11 +325,7 @@ impl ScanSession {
             self.obfuscate(&mut key, &mut value);
 
             if let Some(filter) = &self.filter
-                && !filter.on_payload(
-                    &self.meta(&candidate.raw, value.as_ref()),
-                    key.as_ref(),
-                    value.as_ref(),
-                )
+                && !filter.on_payload(key.as_ref(), value.as_ref())
             {
                 continue;
             }
@@ -404,14 +398,6 @@ impl ScanSession {
             return Some(Verdict::Pass);
         };
 
-        let verdict = match filter.on_meta(&self.meta(raw, None)) {
-            Verdict::Fail => return None,
-            verdict => verdict,
-        };
-        if verdict != Verdict::NeedsPayload {
-            return Some(verdict);
-        }
-
         // Answering from raw bytes would let a filter match cleartext this
         // topic never shows, which is an oracle for the hidden value. Decode
         // first and filter the obfuscated view instead.
@@ -437,24 +423,6 @@ impl ScanSession {
             bytes,
             framed: self.codec.is_some() && needs_decode(bytes, override_id),
         })
-    }
-
-    fn meta<'a>(&'a self, raw: &'a RawRecord, value: Option<&DecodedPayload>) -> RecordMeta<'a> {
-        let schema_id = match value {
-            Some(value) => value.schema_id(),
-            None => raw.value.as_deref().and_then(framed_schema_id),
-        };
-
-        RecordMeta {
-            topic: &self.topic,
-            partition: raw.partition,
-            offset: raw.offset,
-            timestamp: raw.timestamp.max(0),
-            size_bytes: raw.size_bytes(),
-            compression: raw.compression,
-            schema_id,
-            headers: &raw.headers,
-        }
     }
 
     /// An empty poll alone is not EOF: it can also follow a retriable broker
@@ -730,7 +698,7 @@ mod tests {
 
     use super::*;
     use crate::kafka::scan::cursor::RecordCursor;
-    use crate::kafka::scan::filter::{cel, contains};
+    use crate::kafka::scan::filter::contains;
     use crate::kafka::scan::query::TimestampRange;
     use crate::kafka::testing::{FakeCluster, card_record};
 
@@ -1155,10 +1123,10 @@ mod tests {
         let page = card_page(&session, None).await;
         assert_eq!(page.records[0].headers[0].value, "***");
 
-        let matched = card_page(&session, cel(r#"headers["x-user-id"] == "ada""#).unwrap()).await;
+        let matched = card_page(&session, contains("ada")).await;
         assert!(
             matched.records.is_empty(),
-            "a header expression sees the masked value too"
+            "a header filter sees the masked value too"
         );
     }
 
@@ -1178,20 +1146,6 @@ mod tests {
             page.records[0].value.as_deref(),
             Some("***"),
             "an unframed value cannot be walked, so the whole value fails closed"
-        );
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn metadata_filters_still_answer_before_anything_is_decoded() {
-        let session = cards();
-
-        let page = card_page(&session, cel("offset >= 2").unwrap()).await;
-
-        assert_eq!(offsets(&page), vec![2, 3]);
-        assert_eq!(
-            session.decoded_payloads(),
-            4,
-            "only the two records that reach the page decode, key and value each"
         );
     }
 

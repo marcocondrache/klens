@@ -77,9 +77,6 @@ pub enum QueryError {
 
     #[error("timestampFrom must not be after timestampTo")]
     InvertedTimestampRange,
-
-    #[error("invalid filter: {0}")]
-    InvalidFilter(String),
 }
 
 impl QueryError {
@@ -88,7 +85,6 @@ impl QueryError {
             Self::LimitTooSmall => "LIMIT_TOO_SMALL",
             Self::InvalidCursor => "INVALID_CURSOR",
             Self::InvertedTimestampRange => "INVERTED_TIMESTAMP_RANGE",
-            Self::InvalidFilter(_) => "INVALID_FILTER",
         }
     }
 }
@@ -148,10 +144,6 @@ mod tests {
         assert_eq!(
             KafkaError::InvalidQuery(QueryError::InvertedTimestampRange).code(),
             "INVERTED_TIMESTAMP_RANGE"
-        );
-        assert_eq!(
-            KafkaError::InvalidQuery(QueryError::InvalidFilter("value.status ==".into())).code(),
-            "INVALID_FILTER"
         );
         assert_eq!(KafkaError::Timeout.code(), "TIMEOUT");
         assert_eq!(KafkaError::Admin("broker down".into()).code(), "ADMIN");

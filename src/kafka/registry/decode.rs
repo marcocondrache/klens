@@ -339,7 +339,7 @@ impl PayloadDecoder {
 mod tests {
     use super::*;
     use crate::config::SchemaRegistryConfig;
-    use crate::kafka::scan::filter::{RecordMeta, cel};
+    use crate::kafka::scan::filter::contains;
 
     fn decode_bytes(bytes: &[u8]) -> String {
         String::from_utf8_lossy(bytes).into_owned()
@@ -444,23 +444,7 @@ mod tests {
     }
 
     fn matches_orderid(value: &DecodedPayload) -> bool {
-        cel(r#"valueText.lowerAscii().contains("orderid")"#)
-            .unwrap()
-            .unwrap()
-            .on_payload(&sample_meta(), None, Some(value))
-    }
-
-    fn sample_meta() -> RecordMeta<'static> {
-        RecordMeta {
-            topic: "orders",
-            partition: 0,
-            offset: 1,
-            timestamp: 0,
-            size_bytes: 0,
-            compression: crate::kafka::model::Compression::None,
-            schema_id: None,
-            headers: &[],
-        }
+        contains("orderid").unwrap().on_payload(None, Some(value))
     }
 
     async fn decode_payload(decoder: &PayloadDecoder, bytes: &[u8]) -> DecodedPayload {

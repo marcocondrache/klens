@@ -104,7 +104,11 @@ mod tests {
     use crate::kafka::scan::Compression;
     use crate::kafka::store::fixtures::{identity, partition, topic, topology};
     use crate::kafka::testing::FakeCluster;
-    use crate::utils::datetime_from_unix_millis as unix_datetime;
+    use jiff::Timestamp;
+
+    fn unix_datetime(ms: i64) -> Timestamp {
+        Timestamp::from_millisecond(ms).unwrap_or(Timestamp::UNIX_EPOCH)
+    }
 
     fn store() -> ClusterStore {
         ClusterStore::new(identity("local"))
@@ -339,8 +343,7 @@ mod tests {
         let mut query = browse_query();
         query.limit = 10;
         query.order = RecordOrder::Newest;
-        query.filter =
-            crate::kafka::compile_cel_filter(r#"keyText.lowerAscii().contains("hit-")"#).unwrap();
+        query.filter = crate::kafka::compile_contains_filter("hit-");
 
         let first = page(&session, &store, query.clone()).await.unwrap();
         let keys: Vec<_> = first
