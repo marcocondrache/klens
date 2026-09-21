@@ -1,0 +1,7 @@
+[advisories]
+ignore = [
+    # RUSTSEC-2023-0071 (Marvin Attack) has no patched rsa release.
+    # openidconnect 4.0.1 depends on rsa to verify ID-token signatures.
+    # klens does not perform RSA private-key operations.
+    "RUSTSEC-2023-0071",
+]

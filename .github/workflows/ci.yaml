@@ -169,6 +169,24 @@ jobs:
           helm plugin install https://github.com/helm-unittest/helm-unittest --version "${HELM_UNITTEST_VERSION}" --verify=false
           helm unittest charts/klens
 
+  audit:
+    name: audit
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@fd94a048c157f8a2d1975d01ffb26bd0de4f192e # cargo-audit
+      - name: Audit dependencies
+        run: cargo audit
+
   machete:
     name: machete
     needs: changes
@@ -224,7 +242,7 @@ jobs:
 
   tests_pass:
     name: tests pass
-    needs: [changes, style, clippy, web, test, docs, machete, helm, mutants]
+    needs: [changes, style, clippy, web, test, docs, audit, machete, helm, mutants]
     if: always()
     runs-on: ubuntu-latest
     steps:
