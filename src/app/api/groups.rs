@@ -22,9 +22,9 @@ pub(crate) use types::{
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
-        .route("/api/clusters/{cluster}/groups", get(groups))
+        .route("/", get(groups))
         // Group ids may contain `/`.
-        .route("/api/clusters/{cluster}/groups/{*group}", get(group))
+        .route("/{*group}", get(group))
 }
 
 #[derive(Debug, Default, Deserialize)]

@@ -17,8 +17,20 @@ pub(crate) use types::{ClusterHealth, LaneHealth};
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
-        .route("/api/clusters", get(clusters))
-        .route("/api/clusters/{cluster}", get(cluster))
+        .route("/", get(clusters))
+        .nest("/{cluster}", cluster_routes())
+}
+
+fn cluster_routes() -> Router<AppState> {
+    Router::new()
+        .route("/", get(cluster))
+        .nest("/topics", super::topics::router())
+        .nest("/groups", super::groups::router())
+        .nest("/brokers", super::brokers::router())
+        .nest("/subjects", super::subjects::router())
+        .nest("/acls", super::acls::router())
+        .nest("/search", super::search::router())
+        .nest("/updates", super::updates::router())
 }
 
 async fn clusters(session: Session) -> Json<Vec<ClusterHealth>> {

@@ -18,7 +18,7 @@ pub(crate) use types::{
 };
 
 pub(crate) fn router() -> Router<AppState> {
-    Router::new().route("/api/clusters/{cluster}/acls", get(acls))
+    Router::new().route("/", get(acls))
 }
 
 async fn acls(session: Session, Path(name): Path<String>) -> Result<Json<AclListing>, ApiError> {

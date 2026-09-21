@@ -21,9 +21,9 @@ pub(crate) use types::{
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
-        .route("/api/clusters/{cluster}/subjects", get(subjects))
+        .route("/", get(subjects))
         // Subject names may contain `/`.
-        .route("/api/clusters/{cluster}/subjects/{*subject}", get(subject))
+        .route("/{*subject}", get(subject))
 }
 
 async fn subjects(

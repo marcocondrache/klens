@@ -18,11 +18,8 @@ pub(crate) use types::BrokerRow;
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
-        .route("/api/clusters/{cluster}/brokers", get(brokers))
-        .route(
-            "/api/clusters/{cluster}/brokers/{id}/configs",
-            get(broker_configs),
-        )
+        .route("/", get(brokers))
+        .route("/{id}/configs", get(broker_configs))
 }
 
 async fn brokers(

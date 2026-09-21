@@ -17,7 +17,7 @@ mod tests;
 pub(crate) use types::{SearchHit, SearchKind};
 
 pub(crate) fn router() -> Router<AppState> {
-    Router::new().route("/api/clusters/{cluster}/search", get(search))
+    Router::new().route("/", get(search))
 }
 
 #[derive(Debug, Default, Deserialize)]

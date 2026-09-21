@@ -23,16 +23,16 @@ pub(crate) use types::{
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
-        .route("/api/clusters/{cluster}/topics", get(topics))
-        .route("/api/clusters/{cluster}/topics/{topic}", get(topic))
-        .route(
-            "/api/clusters/{cluster}/topics/{topic}/groups",
-            get(topic_groups),
-        )
-        .route(
-            "/api/clusters/{cluster}/topics/{topic}/configs",
-            get(topic_configs),
-        )
+        .route("/", get(topics))
+        .nest("/{topic}", topic_routes())
+}
+
+fn topic_routes() -> Router<AppState> {
+    Router::new()
+        .route("/", get(topic))
+        .route("/groups", get(topic_groups))
+        .route("/configs", get(topic_configs))
+        .nest("/records", super::records::router())
 }
 
 #[derive(Debug, Default, Deserialize)]

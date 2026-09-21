@@ -14,7 +14,7 @@ mod tests;
 pub(crate) use types::{ClusterGrant, Identity, PrivilegeName};
 
 pub(crate) fn router() -> Router<AppState> {
-    Router::new().route("/api/whoami", get(whoami))
+    Router::new().route("/whoami", get(whoami))
 }
 
 async fn whoami(session: Session) -> Json<Identity> {

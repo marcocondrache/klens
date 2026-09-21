@@ -18,17 +18,12 @@ mod whoami;
 pub use typescript::typescript;
 
 pub(crate) fn router() -> axum::Router<crate::AppState> {
-    axum::Router::new()
-        .merge(whoami::router())
-        .merge(clusters::router())
-        .merge(topics::router())
-        .merge(records::router())
-        .merge(groups::router())
-        .merge(brokers::router())
-        .merge(subjects::router())
-        .merge(acls::router())
-        .merge(search::router())
-        .merge(updates::router())
+    axum::Router::new().nest(
+        "/api",
+        axum::Router::new()
+            .merge(whoami::router())
+            .nest("/clusters", clusters::router()),
+    )
 }
 
 #[cfg(test)]

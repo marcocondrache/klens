@@ -17,10 +17,7 @@ pub(crate) use types::{Compression, Record, RecordHeader, RecordOrder, RecordPag
 use types::{RecordParams, record_query};
 
 pub(crate) fn router() -> Router<AppState> {
-    Router::new().route(
-        "/api/clusters/{cluster}/topics/{topic}/records",
-        get(records),
-    )
+    Router::new().route("/", get(records))
 }
 
 async fn records(

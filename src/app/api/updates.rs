@@ -29,7 +29,7 @@ mod tests;
 pub(crate) use types::{ResyncReason, TopicRate, Update};
 
 pub(crate) fn router() -> Router<AppState> {
-    Router::new().route("/api/clusters/{cluster}/updates", get(updates))
+    Router::new().route("/", get(updates))
 }
 
 #[derive(Debug, Default, Deserialize)]
