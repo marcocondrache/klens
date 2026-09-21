@@ -113,6 +113,39 @@ const partitionColumns = partitionColumnHelper.columns([
   }),
 ]);
 
+const groupColumns = groupColumnHelper.columns([
+  groupColumnHelper.accessor("id", {
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Group" />,
+    meta: { label: "Group" },
+    cell: ({ getValue }) => <span className="font-mono text-sm">{getValue()}</span>,
+  }),
+  groupColumnHelper.accessor("state", {
+    header: ({ column }) => <DataTableColumnHeader column={column} title="State" />,
+    meta: { label: "State" },
+    cell: ({ getValue }) => <GroupStateBadge state={getValue()} />,
+  }),
+  groupColumnHelper.accessor("memberCount", {
+    id: "members",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Members" className="justify-end" />
+    ),
+    meta: { align: "right", label: "Members" },
+    cell: ({ getValue }) => getValue(),
+  }),
+  groupColumnHelper.accessor((group) => toNumber(group.lagOnTopic), {
+    id: "lag",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Lag on this topic" className="justify-end" />
+    ),
+    meta: { align: "right", label: "Lag on this topic" },
+    cell: ({ row: groupRow }) => (
+      <Pill tone={lagTone(toNumber(groupRow.original.lagOnTopic))} className="numeric font-mono">
+        {formatNumber(groupRow.original.lagOnTopic)}
+      </Pill>
+    ),
+  }),
+]);
+
 function TopicFacts({ detail }: { detail: TopicDetail }) {
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -180,39 +213,6 @@ function TopicPage() {
   if (lookup) {
     return <PageHeader title={topicName} mono description={lookup} />;
   }
-
-  const groupColumns = groupColumnHelper.columns([
-    groupColumnHelper.accessor("id", {
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Group" />,
-      meta: { label: "Group" },
-      cell: ({ getValue }) => <span className="font-mono text-sm">{getValue()}</span>,
-    }),
-    groupColumnHelper.accessor("state", {
-      header: ({ column }) => <DataTableColumnHeader column={column} title="State" />,
-      meta: { label: "State" },
-      cell: ({ getValue }) => <GroupStateBadge state={getValue()} />,
-    }),
-    groupColumnHelper.accessor("memberCount", {
-      id: "members",
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Members" className="justify-end" />
-      ),
-      meta: { align: "right", label: "Members" },
-      cell: ({ getValue }) => getValue(),
-    }),
-    groupColumnHelper.accessor((group) => toNumber(group.lagOnTopic), {
-      id: "lag",
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Lag on this topic" className="justify-end" />
-      ),
-      meta: { align: "right", label: "Lag on this topic" },
-      cell: ({ row: groupRow }) => (
-        <Pill tone={lagTone(toNumber(groupRow.original.lagOnTopic))} className="numeric font-mono">
-          {formatNumber(groupRow.original.lagOnTopic)}
-        </Pill>
-      ),
-    }),
-  ]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
