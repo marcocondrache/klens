@@ -16,12 +16,14 @@ use crate::kafka::watermarks::Watermarks;
 
 use super::batch::{RecordBatch, SortKey};
 use super::cursor::CursorDirection;
-use super::filter::{CompiledFilter, RawField, Verdict};
-use super::obfuscate::{Field, TopicObfuscator};
-use super::payload::{DecodedPayload, PayloadCodec, PayloadSlot, needs_decode};
+use super::obfuscate::TopicObfuscator;
+use super::pipeline::{DecodedRecord, Kept, RecordPipeline, Screen};
 use super::plan::{PartitionWindow, advance_cursor, plan_windows, rewind_cursor};
 use super::query::{RecordOrder, RecordQuery};
-use super::{Compression, Record, RecordHeader, RecordPage};
+use super::{Compression, RecordPage};
+
+#[cfg(test)]
+use super::Record;
 
 const MAX_FILTER_PASSES: usize = 64;
 
@@ -38,7 +40,7 @@ pub struct RawRecord {
 }
 
 impl RawRecord {
-    fn size_bytes(&self) -> u64 {
+    pub(super) fn size_bytes(&self) -> u64 {
         let key = self.key.as_ref().map_or(0, Bytes::len);
         let value = self.value.as_ref().map_or(0, Bytes::len);
         (key + value) as u64
@@ -92,60 +94,9 @@ pub struct ScanOutcome {
     pub scanned: bool,
 }
 
-struct Kept {
-    raw: RawRecord,
-    key: Option<DecodedPayload>,
-    value: Option<DecodedPayload>,
-    decoded: bool,
-}
-
-impl Kept {
-    fn pending(raw: RawRecord) -> Self {
-        Self {
-            raw,
-            key: None,
-            value: None,
-            decoded: false,
-        }
-    }
-
-    fn into_record(self, topic: &str) -> Record {
-        let schema_id = self.value.as_ref().and_then(DecodedPayload::schema_id);
-        let headers = self
-            .raw
-            .headers
-            .iter()
-            .map(|(key, value)| RecordHeader {
-                key: String::from_utf8_lossy(key).into_owned(),
-                value: value
-                    .as_deref()
-                    .map(|value| String::from_utf8_lossy(value).into_owned())
-                    .unwrap_or_default(),
-            })
-            .collect();
-
-        Record {
-            topic: topic.to_owned(),
-            partition: self.raw.partition,
-            offset: self.raw.offset,
-            timestamp: self.raw.timestamp.max(0),
-            size_bytes: self.raw.size_bytes(),
-            compression: self.raw.compression,
-            key: self.key.map(DecodedPayload::into_text),
-            value: self.value.map(DecodedPayload::into_text),
-            schema_id,
-            headers,
-        }
-    }
-}
-
 pub struct ScanSession {
     consumer: Box<dyn ScanConsumer>,
-    codec: Option<Arc<dyn PayloadCodec>>,
-    filter: Option<CompiledFilter>,
-    /// This topic's obfuscation rules, resolved once per page.
-    obfuscator: Option<Arc<TopicObfuscator>>,
-    schema_id: Option<i32>,
+    pipeline: RecordPipeline,
     walk: RecordOrder,
     assigned: Mutex<Assignment>,
 }
@@ -181,17 +132,19 @@ impl ScanSession {
 
         Ok(Self {
             consumer,
-            codec: session.payload_codec(),
-            obfuscator: topic_obfuscator(session, &query.topic),
-            filter: query.filter.clone(),
-            schema_id: query.schema_id,
+            pipeline: RecordPipeline::new(
+                session.payload_codec(),
+                query.filter.clone(),
+                topic_obfuscator(session, &query.topic),
+                query.schema_id,
+            ),
             walk,
             assigned: Mutex::new(Assignment::from_open(windows)),
         })
     }
 
     fn obfuscated(&self) -> bool {
-        self.obfuscator.is_some()
+        self.pipeline.obfuscated()
     }
 
     pub async fn close(self) {
@@ -260,8 +213,7 @@ impl ScanSession {
         scan: &mut WindowScan,
         batch: &mut RecordBatch<Kept>,
     ) {
-        let mut candidates: Vec<Candidate> = Vec::new();
-        let mut slots: Vec<PayloadSlot> = Vec::new();
+        let mut candidates = Vec::new();
 
         for mut raw in polled {
             let partition = raw.partition;
@@ -282,147 +234,17 @@ impl ScanSession {
                 continue;
             }
 
-            // Mask headers before screening so a contains filter sees the
-            // same values the page renders.
-            if let Some(obfuscator) = &self.obfuscator {
-                obfuscator.mask_headers(&mut raw.headers);
+            match self.pipeline.screen(&mut raw) {
+                None => continue,
+                Some(Screen::Deferred) => batch.push(sort, Kept::pending(raw)),
+                Some(Screen::NeedsPayload) => candidates.push(raw),
             }
-
-            let Some(verdict) = self.screen(&raw) else {
-                continue;
-            };
-            if verdict != Verdict::NeedsPayload {
-                batch.push(sort, Kept::pending(raw));
-                continue;
-            }
-
-            let key = raw.key.clone().map(|bytes| {
-                slots.push(PayloadSlot::new(bytes, None));
-                slots.len() - 1
-            });
-            let value = raw.value.clone().map(|bytes| {
-                slots.push(PayloadSlot::new(bytes, self.schema_id));
-                slots.len() - 1
-            });
-
-            candidates.push(Candidate {
-                raw,
-                sort,
-                key,
-                value,
-            });
         }
 
-        if candidates.is_empty() {
-            return;
+        for prepared in self.pipeline.decode_and_filter(candidates).await {
+            let sort = prepared.raw().sort_key();
+            batch.push(sort, prepared);
         }
-
-        let mut decoded = self.decode(slots).await;
-
-        for candidate in candidates {
-            let mut key = candidate.key.and_then(|index| decoded[index].take());
-            let mut value = candidate.value.and_then(|index| decoded[index].take());
-            self.obfuscate(&mut key, &mut value);
-
-            if let Some(filter) = &self.filter
-                && !filter.on_payload(key.as_ref(), value.as_ref())
-            {
-                continue;
-            }
-
-            batch.push(
-                candidate.sort,
-                Kept {
-                    raw: candidate.raw,
-                    key,
-                    value,
-                    decoded: true,
-                },
-            );
-        }
-    }
-
-    async fn decode_page(&self, page: &mut [Kept]) {
-        let mut slots = Vec::new();
-        let mut indices = Vec::with_capacity(page.len());
-        for record in page.iter() {
-            if record.decoded {
-                indices.push((None, None));
-                continue;
-            }
-            let key = record.raw.key.clone().map(|bytes| {
-                slots.push(PayloadSlot::new(bytes, None));
-                slots.len() - 1
-            });
-            let value = record.raw.value.clone().map(|bytes| {
-                slots.push(PayloadSlot::new(bytes, self.schema_id));
-                slots.len() - 1
-            });
-            indices.push((key, value));
-        }
-
-        let mut decoded = self.decode(slots).await;
-        for (record, (key, value)) in page.iter_mut().zip(indices) {
-            if record.decoded {
-                continue;
-            }
-            record.key = key.and_then(|index| decoded[index].take());
-            record.value = value.and_then(|index| decoded[index].take());
-            self.obfuscate(&mut record.key, &mut record.value);
-            record.decoded = true;
-        }
-    }
-
-    /// Apply this topic's rules to a decoded pair, before anything filters or
-    /// renders it. Unconfigured topics pay one branch.
-    fn obfuscate(&self, key: &mut Option<DecodedPayload>, value: &mut Option<DecodedPayload>) {
-        let Some(obfuscator) = &self.obfuscator else {
-            return;
-        };
-
-        obfuscator.apply(Field::Key, key);
-        obfuscator.apply(Field::Value, value);
-    }
-
-    async fn decode(&self, mut slots: Vec<PayloadSlot>) -> Vec<Option<DecodedPayload>> {
-        if let Some(codec) = &self.codec
-            && !slots.is_empty()
-        {
-            codec.decode_batch(&mut slots).await;
-        }
-        slots.into_iter().map(|slot| Some(slot.take())).collect()
-    }
-
-    fn screen(&self, raw: &RawRecord) -> Option<Verdict> {
-        let Some(filter) = &self.filter else {
-            return Some(Verdict::Pass);
-        };
-
-        // Answering from raw bytes would let a filter match cleartext this
-        // topic never shows, which is an oracle for the hidden value. Decode
-        // first and filter the obfuscated view instead.
-        if self
-            .obfuscator
-            .as_ref()
-            .is_some_and(|obfuscator| obfuscator.hides_payload())
-        {
-            return Some(Verdict::NeedsPayload);
-        }
-
-        match filter.on_raw(
-            self.field(raw.key.as_deref(), None),
-            self.field(raw.value.as_deref(), self.schema_id),
-        ) {
-            Verdict::Fail => None,
-            verdict => Some(verdict),
-        }
-    }
-
-    fn field<'a>(&self, bytes: Option<&'a [u8]>, override_id: Option<i32>) -> Option<RawField<'a>> {
-        bytes.map(|bytes| RawField {
-            bytes,
-            framed: self.codec.is_some() && needs_decode(bytes, override_id),
-        })
     }
 
     /// An empty poll alone is not EOF: it can also follow a retriable broker
@@ -449,13 +271,6 @@ impl ScanSession {
             self.consumer.pause(&[partition]).await;
         }
     }
-}
-
-struct Candidate {
-    raw: RawRecord,
-    sort: SortKey,
-    key: Option<usize>,
-    value: Option<usize>,
 }
 
 fn topic_obfuscator<S: ClusterSession + ?Sized>(
@@ -602,7 +417,7 @@ pub async fn fetch_page<S: ClusterSession + ?Sized>(
             walk,
             &outcome.covered,
             watermarks,
-            &edges(&found),
+            &edges(found.iter().map(Kept::raw)),
             remaining,
             order,
             direction,
@@ -622,15 +437,21 @@ pub async fn fetch_page<S: ClusterSession + ?Sized>(
     }
 
     kept.sort_by(|left, right| {
-        left.raw
+        left.raw()
             .sort_key()
-            .cmp_for_order(&right.raw.sort_key(), order)
+            .cmp_for_order(&right.raw().sort_key(), order)
     });
-    scan.decode_page(&mut kept).await;
+    let kept = scan.pipeline.decode_deferred(kept).await;
     let obfuscated = scan.obfuscated();
     scan.close().await;
 
-    let near = rewind_cursor(walk, watermarks, &edges(&kept), order, direction.flipped());
+    let near = rewind_cursor(
+        walk,
+        watermarks,
+        &edges(kept.iter().map(DecodedRecord::raw)),
+        order,
+        direction.flipped(),
+    );
     let (next_cursor, prev_cursor) = match direction {
         CursorDirection::Forward => (cursor, query.cursor.as_ref().and(near)),
         CursorDirection::Backward => (near, cursor),
@@ -648,9 +469,10 @@ pub async fn fetch_page<S: ClusterSession + ?Sized>(
     })
 }
 
-fn edges(kept: &[Kept]) -> Vec<(i32, i64)> {
-    kept.iter()
-        .map(|record| (record.raw.partition, record.raw.offset))
+fn edges<'a>(records: impl IntoIterator<Item = &'a RawRecord>) -> Vec<(i32, i64)> {
+    records
+        .into_iter()
+        .map(|raw| (raw.partition, raw.offset))
         .collect()
 }
 
@@ -679,8 +501,7 @@ pub async fn scan_once<S: ClusterSession + ?Sized>(
     let scan = ScanSession::open(session, &query, order, deadline, windows).await?;
     let mut batch = RecordBatch::new(limit, order);
     let outcome = scan.run(windows, &mut batch, deadline).await;
-    let mut page = batch.into_sorted();
-    scan.decode_page(&mut page).await;
+    let page = scan.pipeline.decode_deferred(batch.into_sorted()).await;
     scan.close().await;
 
     if !outcome?.complete {
@@ -697,8 +518,9 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
+    use crate::kafka::scan::Record;
     use crate::kafka::scan::cursor::RecordCursor;
-    use crate::kafka::scan::filter::contains;
+    use crate::kafka::scan::filter::{CompiledFilter, contains};
     use crate::kafka::scan::query::TimestampRange;
     use crate::kafka::testing::{FakeCluster, card_record};
 
