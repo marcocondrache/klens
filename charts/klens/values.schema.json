@@ -196,7 +196,7 @@
         },
         "enabled": {
           "default": false,
-          "description": "Expose the UI via an Ingress. Use a Prefix `/` path so SPA routes and GraphQL WebSocket reach the pod.",
+          "description": "Expose the UI via an Ingress. Use a Prefix `/` path so SPA routes and `/graphql` reach the pod.",
           "title": "enabled",
           "type": "boolean"
         },

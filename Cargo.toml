@@ -24,7 +24,7 @@ all = "deny"
 anyhow = "1"
 async-trait = "0.1"
 indexmap = "2"
-axum = { version = "0.8", features = ["http2", "ws"] }
+axum = { version = "0.8", features = ["http2"] }
 axum-login = "0.18"
 # Pulled in only for `key-expansion`, which is what gives
 # `tower_sessions::cookie::Key::derive_from` (HKDF) so a configured session
@@ -33,9 +33,10 @@ cookie = { version = "0.18", features = ["key-expansion"] }
 tower-sessions = { version = "0.14", features = ["memory-store", "signed"] }
 futures = "0.3"
 jiff = "0.2"
+async-stream = "0.3"
 juniper = { version = "0.17", features = ["jiff", "schema-language"] }
-juniper_axum = { version = "0.3", features = ["subscriptions"] }
-juniper_graphql_ws = { version = "0.5", features = ["graphql-transport-ws", "graphql-ws"] }
+juniper_axum = "0.3"
+juniper_subscriptions = "0.18"
 krafka = { git = "https://github.com/hupe1980/krafka", rev = "776ac3402150289fbcab989d81265af4c7f31eaa" }
 moka = { version = "0.12", features = ["future"] }
 mime_guess = { version = "2", optional = true }
@@ -74,7 +75,6 @@ arc-swap = "1.9.2"
 foldhash = "0.2.0"
 
 [dev-dependencies]
-juniper_subscriptions = "0.18"
 krafka = { git = "https://github.com/hupe1980/krafka", rev = "776ac3402150289fbcab989d81265af4c7f31eaa", features = ["test-broker"] }
 tokio = { version = "1", features = ["test-util"] }
 wiremock = "0.6.5"

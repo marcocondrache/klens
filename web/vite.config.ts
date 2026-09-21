@@ -53,10 +53,7 @@ export default defineConfig({
     proxy: {
       "/health": "http://localhost:8080",
       "/auth": "http://localhost:8080",
-      "/graphql": {
-        target: "http://localhost:8080",
-        ws: true,
-      },
+      "/graphql": "http://localhost:8080",
       "/graphiql": "http://localhost:8080",
     },
   },

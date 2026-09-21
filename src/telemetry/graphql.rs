@@ -133,8 +133,20 @@ pub fn record(id: &OperationId, outcome: &OperationOutcome, latency: Duration) {
     }
 }
 
-pub fn record_ws_upgrade() {
-    tracing::info!("graphql websocket connected");
+pub fn record_subscription_connected(id: &OperationId) {
+    tracing::info!(operation = %id.display_name(), "graphql subscription connected");
+}
+
+pub fn record_subscription_rejected(
+    id: &OperationId,
+    error: &juniper::GraphQLError,
+    latency: Duration,
+) {
+    record(
+        id,
+        &OperationOutcome::from_execution::<juniper::DefaultScalarValue>(&Err(error.clone())),
+        latency,
+    );
 }
 
 pub fn complete<S: juniper::ScalarValue>(

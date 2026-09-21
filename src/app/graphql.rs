@@ -1,27 +1,26 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use axum::extract::WebSocketUpgrade;
-use axum::response::Response;
+use axum::http::HeaderMap;
+use axum::response::{IntoResponse, Response};
 use axum::{
     Router,
     extract::{Extension, State},
-    routing::get,
+    routing::post,
 };
 use juniper::{EmptyMutation, RootNode};
-use juniper_axum::subscriptions;
 use juniper_axum::{extract::JuniperRequest, response::JuniperResponse};
-use juniper_graphql_ws::ConnectionConfig;
 
 use crate::AppState;
 use crate::app::auth::SessionGuard;
 use crate::app::auth::access::EffectiveAccess;
-use crate::telemetry::{OperationId, complete, record_ws_upgrade};
+use crate::telemetry::{OperationId, complete};
 
 mod context;
 mod error;
 mod query;
 mod scalars;
+mod sse;
 mod subscription;
 mod types;
 
@@ -37,25 +36,30 @@ pub fn schema() -> Schema {
 
 pub fn router() -> Router<AppState> {
     let router = Router::new()
-        .route("/graphql", get(graphql_ws).post(graphql))
+        .route("/graphql", post(graphql))
         .layer(Extension(Arc::new(schema())));
 
     #[cfg(debug_assertions)]
     let router = router.route(
         "/graphiql",
-        get(juniper_axum::graphiql("/graphql", "/graphql")),
+        axum::routing::get(juniper_axum::graphiql("/graphql", None)),
     );
 
     router
 }
 
 async fn graphql(
+    headers: HeaderMap,
     Extension(schema): Extension<Arc<Schema>>,
     State(state): State<AppState>,
     Extension(access): Extension<EffectiveAccess>,
     Extension(guard): Extension<SessionGuard>,
     JuniperRequest(request): JuniperRequest,
-) -> JuniperResponse {
+) -> Response {
+    if sse::wants_stream(&headers) {
+        return sse::open(schema, state, access, guard, request);
+    }
+
     let context = GraphQlContext {
         state,
         access,
@@ -64,26 +68,7 @@ async fn graphql(
     let identities = OperationId::from_each(request.operation_names());
     let started = Instant::now();
     let response = request.execute(&*schema, &context).await;
-    JuniperResponse(complete(&identities, response, started.elapsed()))
-}
-
-async fn graphql_ws(
-    Extension(schema): Extension<Arc<Schema>>,
-    State(state): State<AppState>,
-    Extension(access): Extension<EffectiveAccess>,
-    Extension(guard): Extension<SessionGuard>,
-    ws: WebSocketUpgrade,
-) -> Response {
-    let context = GraphQlContext {
-        state,
-        access,
-        guard,
-    };
-    record_ws_upgrade();
-    ws.protocols(["graphql-transport-ws", "graphql-ws"])
-        .on_upgrade(move |socket| {
-            subscriptions::serve_ws(socket, schema, ConnectionConfig::new(context))
-        })
+    JuniperResponse(complete(&identities, response, started.elapsed())).into_response()
 }
 
 #[cfg(test)]

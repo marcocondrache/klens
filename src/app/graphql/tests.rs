@@ -1364,22 +1364,144 @@ async fn a_session_that_expires_mid_stream_terminates_it() {
 }
 
 #[tokio::test]
-async fn the_subscription_route_is_wired_with_the_session_extensions() {
+async fn a_subscription_post_without_the_event_stream_header_is_rejected() {
     use axum::body::Body;
-    use axum::http::{Request, StatusCode};
+    use axum::http::{Request, StatusCode, header};
     use tower::ServiceExt as _;
+
+    let (logs, _guard) = crate::telemetry::capture::subscriber(tracing::Level::WARN);
 
     let response = crate::app::router(seeded())
         .oneshot(
             Request::builder()
+                .method("POST")
                 .uri("/graphql")
-                .body(Body::empty())
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"query":"subscription { updates(cluster: \"local\") { __typename } }"}"#,
+                ))
                 .expect("request"),
         )
         .await
         .expect("response");
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let text = logs.as_string();
+    assert!(text.contains("reason=subscription_on_http"), "{text}");
+}
+
+#[tokio::test]
+async fn an_event_stream_query_reports_the_failure_as_a_next_event() {
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode, header};
+    use tower::ServiceExt as _;
+
+    let (logs, _guard) = crate::telemetry::capture::subscriber(tracing::Level::WARN);
+
+    let response = crate::app::router(seeded())
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/graphql")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::ACCEPT, "text/event-stream")
+                .body(Body::from(r#"{"query":"{ __typename }"}"#))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("text/event-stream")
+    );
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("event stream");
+    let text = String::from_utf8(bytes.to_vec()).expect("utf-8");
+    assert!(text.contains("event: next"), "{text}");
+    assert!(text.contains("Expected subscription"), "{text}");
+    assert!(text.contains("event: complete"), "{text}");
+    let logs = logs.as_string();
+    assert!(logs.contains("reason=other"), "{logs}");
+}
+
+#[tokio::test]
+async fn an_event_stream_subscription_pushes_the_next_bus_event() {
+    use std::time::Duration;
+
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode, header};
+    use futures::StreamExt as _;
+    use tower::ServiceExt as _;
+
+    let state = seeded();
+    let store = Arc::clone(state.cluster("local").expect("local cluster"));
+
+    let response = crate::app::router(state)
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/graphql")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::ACCEPT, "text/event-stream")
+                .body(Body::from(
+                    r#"{"query":"subscription Updates { updates(cluster: \"local\") { __typename } }","operationName":"Updates"}"#,
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get("x-accel-buffering")
+            .and_then(|value| value.to_str().ok()),
+        Some("no")
+    );
+
+    let mut chunks = response.into_body().into_data_stream();
+    let reader = tokio::spawn(async move {
+        let mut collected = Vec::new();
+        while let Some(chunk) = chunks.next().await {
+            collected.extend_from_slice(&chunk.expect("chunk"));
+            if collected
+                .windows(b"WatermarksTick".len())
+                .any(|window| window == b"WatermarksTick")
+            {
+                break;
+            }
+        }
+        String::from_utf8(collected).expect("utf-8")
+    });
+
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if store.bus.subscriber_count() > 0 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("subscriber attached");
+
+    store.bus.publish(tick(&[("orders.created", 4.0)]));
+
+    let text = tokio::time::timeout(Duration::from_secs(2), reader)
+        .await
+        .expect("event arrived")
+        .expect("reader");
+    assert!(text.contains("event: next"), "{text}");
+    assert!(text.contains("WatermarksTick"), "{text}");
+
+    assert_eq!(store.bus.subscriber_count(), 0);
 }
 
 #[tokio::test]

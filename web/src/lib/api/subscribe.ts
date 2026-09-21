@@ -1,15 +1,10 @@
-import { createClient } from "graphql-ws";
+import { createClient } from "graphql-sse";
 
 import type { TypedDocumentString } from "@/graphql/graphql";
 
-function websocketUrl() {
-  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  return `${protocol}://${window.location.host}/graphql`;
-}
-
 const client = createClient({
-  url: websocketUrl,
-  lazy: true,
+  url: "/graphql",
+  credentials: "same-origin",
   retryAttempts: 8,
 });
 
