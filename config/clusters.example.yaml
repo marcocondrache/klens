@@ -32,6 +32,17 @@ clusters:
     #   request_timeout_ms: 10000
     #   connect_timeout_ms: 10000
 
+    # Optional ingest cadence, in seconds. Omitted keys use the defaults
+    # below. Values must be at least 1.
+    # ingest:
+    #   topology_secs: 10
+    #   watermark_secs: 3
+    #   config_secs: 60
+    #   subjects_secs: 30
+    #   offset_tick_secs: 1
+    #   fast_offset_secs: 2
+    #   slow_offset_secs: 20
+
     # Optional Confluent-compatible Schema Registry. When omitted, the Schemas
     # page is empty for this cluster.
     #

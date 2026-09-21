@@ -4,6 +4,9 @@
 //! diffing against the previous table, swapping it, and publishing a typed
 //! delta.
 //!
+//! Cadences default to [`crate::config::ClusterIngestConfig`] and can be
+//! overridden per cluster.
+//!
 //! | Lane       | Cadence  | Emits                                     |
 //! | ---------- | -------- | ----------------------------------------- |
 //! | Topology   | ~10s     | added / removed / changed topics & groups |
@@ -20,9 +23,11 @@ pub mod topology;
 pub mod watermarks;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::task::JoinSet;
 
+use crate::config::ClusterIngestConfig;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::store::{ClusterStore, StoreSet};
 
@@ -41,42 +46,63 @@ pub struct Ingest {
 
 impl Ingest {
     pub fn start(
-        clusters: impl IntoIterator<Item = (Arc<ClusterStore>, Arc<dyn ClusterSession>)>,
+        clusters: impl IntoIterator<
+            Item = (
+                Arc<ClusterStore>,
+                Arc<dyn ClusterSession>,
+                ClusterIngestConfig,
+            ),
+        >,
     ) -> Self {
-        use crate::environment::{
-            CONFIG_LANE_INTERVAL, SUBJECT_LANE_INTERVAL, TOPOLOGY_LANE_INTERVAL,
-            WATERMARK_LANE_INTERVAL,
-        };
-
         let mut tasks = JoinSet::new();
 
-        for (store, session) in clusters {
+        for (store, session, ingest) in clusters {
             tracing::info!(
                 cluster = %store.name(),
-                topology_secs = TOPOLOGY_LANE_INTERVAL.as_secs(),
-                watermark_secs = WATERMARK_LANE_INTERVAL.as_secs(),
-                config_secs = CONFIG_LANE_INTERVAL.as_secs(),
-                subject_secs = SUBJECT_LANE_INTERVAL.as_secs(),
+                topology_secs = ingest.topology_secs,
+                watermark_secs = ingest.watermark_secs,
+                config_secs = ingest.config_secs,
+                subject_secs = ingest.subjects_secs,
                 "starting ingestion lanes"
             );
 
             tasks.spawn(run(
                 Arc::clone(&store),
-                TopologyLane::new(Arc::clone(&session)),
+                TopologyLane::with_interval(
+                    Arc::clone(&session),
+                    Duration::from_secs(ingest.topology_secs),
+                ),
             ));
             tasks.spawn(run(
                 Arc::clone(&store),
-                WatermarkLane::new(Arc::clone(&session)),
+                WatermarkLane::with_interval(
+                    Arc::clone(&session),
+                    Duration::from_secs(ingest.watermark_secs),
+                ),
             ));
             tasks.spawn(run(
                 Arc::clone(&store),
-                ConfigLane::new(Arc::clone(&session)),
+                ConfigLane::with_interval(
+                    Arc::clone(&session),
+                    Duration::from_secs(ingest.config_secs),
+                ),
             ));
             tasks.spawn(run(
                 Arc::clone(&store),
-                SubjectLane::new(Arc::clone(&session)),
+                SubjectLane::with_interval(
+                    Arc::clone(&session),
+                    Duration::from_secs(ingest.subjects_secs),
+                ),
             ));
-            tasks.spawn(OffsetLane::new(Arc::clone(&session)).run(Arc::clone(&store)));
+            tasks.spawn(
+                OffsetLane::new(Arc::clone(&session))
+                    .with_tiers(
+                        Duration::from_secs(ingest.offset_tick_secs),
+                        Duration::from_secs(ingest.fast_offset_secs),
+                        Duration::from_secs(ingest.slow_offset_secs),
+                    )
+                    .run(Arc::clone(&store)),
+            );
         }
 
         Self { tasks }
@@ -90,11 +116,15 @@ impl Ingest {
                 .map(|session| session.identity().clone())
                 .collect::<Vec<_>>(),
         ));
-        let clusters: Vec<(Arc<ClusterStore>, Arc<dyn ClusterSession>)> = sessions
+        let clusters: Vec<(
+            Arc<ClusterStore>,
+            Arc<dyn ClusterSession>,
+            ClusterIngestConfig,
+        )> = sessions
             .into_iter()
             .filter_map(|session| {
                 let store = stores.get(&session.identity().name)?;
-                Some((Arc::clone(store), session))
+                Some((Arc::clone(store), session, ClusterIngestConfig::default()))
             })
             .collect();
 

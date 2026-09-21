@@ -485,6 +485,7 @@ mod tests {
                 connect_timeout_ms: Some(100),
                 ..Default::default()
             },
+            ingest: Default::default(),
         })
         .await
         .unwrap();
@@ -826,6 +827,7 @@ mod tests {
             schema_registry: None,
             obfuscation: None,
             properties: Default::default(),
+            ingest: Default::default(),
         })
         .await
         .expect("kafka client")

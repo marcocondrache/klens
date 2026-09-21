@@ -347,6 +347,62 @@ pub struct ClusterConfig {
     pub obfuscation: Option<ObfuscationConfig>,
     #[serde(default)]
     pub properties: KafkaProperties,
+    #[serde(default)]
+    pub ingest: ClusterIngestConfig,
+}
+
+/// Per-cluster ingest cadence, in seconds. Omitted keys use the defaults.
+///
+/// Values must be at least 1; sub-second polling is rejected at load.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ClusterIngestConfig {
+    pub topology_secs: u64,
+    pub watermark_secs: u64,
+    pub config_secs: u64,
+    pub subjects_secs: u64,
+    pub offset_tick_secs: u64,
+    pub fast_offset_secs: u64,
+    pub slow_offset_secs: u64,
+}
+
+impl Default for ClusterIngestConfig {
+    fn default() -> Self {
+        Self {
+            topology_secs: 10,
+            watermark_secs: 3,
+            config_secs: 60,
+            subjects_secs: 30,
+            offset_tick_secs: 1,
+            fast_offset_secs: 2,
+            slow_offset_secs: 20,
+        }
+    }
+}
+
+impl ClusterIngestConfig {
+    fn validate(&self, cluster: &str) -> Result<(), ConfigError> {
+        let fields = [
+            ("ingest.topology_secs", self.topology_secs),
+            ("ingest.watermark_secs", self.watermark_secs),
+            ("ingest.config_secs", self.config_secs),
+            ("ingest.subjects_secs", self.subjects_secs),
+            ("ingest.offset_tick_secs", self.offset_tick_secs),
+            ("ingest.fast_offset_secs", self.fast_offset_secs),
+            ("ingest.slow_offset_secs", self.slow_offset_secs),
+        ];
+
+        for (field, secs) in fields {
+            if secs < 1 {
+                return Err(ConfigError::invalid_cluster(
+                    cluster,
+                    format!("{field} must be at least 1"),
+                ));
+            }
+        }
+
+        Ok(())
+    }
 }
 
 /// Supported Kafka transport overrides. Timeout values are in milliseconds.
@@ -436,6 +492,8 @@ impl ClusterConfig {
         if let Some(obfuscation) = &self.obfuscation {
             obfuscation.validate(&self.name)?;
         }
+
+        self.ingest.validate(&self.name)?;
 
         Ok(())
     }
@@ -814,7 +872,73 @@ mod tests {
         assert_eq!(config.bind, "0.0.0.0:8080".parse().unwrap());
         assert_eq!(config.log_level, "info");
         assert_eq!(config.auth, None);
+        assert_eq!(
+            config.clusters[0].ingest,
+            ClusterIngestConfig::default(),
+            "omitted ingest uses the documented defaults"
+        );
         config.validate().unwrap();
+    }
+
+    #[test]
+    fn parses_cluster_ingest_overrides_and_fills_omitted_keys() {
+        let cluster = parse_cluster(
+            "
+            name: prod
+            bootstrap_servers:
+              - kafka:9092
+            ingest:
+              topology_secs: 15
+              watermark_secs: 5
+            ",
+        )
+        .unwrap();
+
+        assert_eq!(cluster.ingest.topology_secs, 15);
+        assert_eq!(cluster.ingest.watermark_secs, 5);
+        assert_eq!(cluster.ingest.config_secs, 60);
+        assert_eq!(cluster.ingest.subjects_secs, 30);
+        assert_eq!(cluster.ingest.offset_tick_secs, 1);
+        assert_eq!(cluster.ingest.fast_offset_secs, 2);
+        assert_eq!(cluster.ingest.slow_offset_secs, 20);
+        cluster.validate().unwrap();
+    }
+
+    #[test]
+    fn rejects_unknown_ingest_keys() {
+        let error = parse_cluster(
+            "
+            name: prod
+            bootstrap_servers:
+              - kafka:9092
+            ingest:
+              catalog_secs: 10
+            ",
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("unknown field `catalog_secs`"));
+    }
+
+    #[test]
+    fn rejects_sub_second_ingest_intervals() {
+        let cluster = parse_cluster(
+            "
+            name: prod
+            bootstrap_servers:
+              - kafka:9092
+            ingest:
+              topology_secs: 0
+            ",
+        )
+        .unwrap();
+
+        let error = cluster.validate().unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("ingest.topology_secs must be at least 1")
+        );
     }
 
     #[test]
@@ -1069,6 +1193,7 @@ mod tests {
             schema_registry: None,
             obfuscation: None,
             properties: KafkaProperties::default(),
+            ingest: ClusterIngestConfig::default(),
         };
 
         config.validate().unwrap();
