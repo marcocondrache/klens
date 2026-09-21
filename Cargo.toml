@@ -9,7 +9,6 @@ ignored = ["cookie"]
 
 [features]
 ui = ["dep:rust-embed", "dep:mime_guess"]
-# SDL printing for `xtask schema`. The server does not link the parser.
 schema-language = ["juniper/schema-language"]
 
 [workspace]
@@ -26,7 +25,6 @@ all = "deny"
 anyhow = "1"
 async-trait = "0.1"
 indexmap = "2"
-# Drop default `form`, `matched-path`, `original-uri`, and `tower-log`.
 axum = { version = "0.8", default-features = false, features = [
     "http1",
     "http2",
@@ -43,8 +41,6 @@ axum-login = "0.18"
 cookie = { version = "0.18", features = ["key-expansion"] }
 tower-sessions = { version = "0.14", features = ["memory-store", "signed"] }
 futures = "0.3"
-# Instants only. Default features enable the time zone database, which this
-# crate never queries.
 jiff = { version = "0.2", default-features = false, features = ["std"] }
 juniper = { version = "0.17", features = ["jiff"] }
 juniper_axum = { version = "0.3", features = ["subscriptions"] }
@@ -52,9 +48,6 @@ juniper_graphql_ws = { version = "0.5", features = ["graphql-transport-ws", "gra
 krafka = { git = "https://github.com/hupe1980/krafka", rev = "776ac3402150289fbcab989d81265af4c7f31eaa" }
 moka = { version = "0.12", features = ["future"] }
 mime_guess = { version = "2", optional = true }
-# Discovery and the token endpoint go through `openidconnect::reqwest`
-# (reqwest 0.12, rustls + ring). A direct reqwest 0.13 `rustls` feature
-# enables aws-lc-rs on the shared rustls crate, on top of krafka's ring.
 openidconnect = "4.0.1"
 rust-embed = { version = "8", optional = true }
 serde = { version = "1", features = ["derive"] }
