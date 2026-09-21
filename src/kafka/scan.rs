@@ -3,6 +3,7 @@ pub mod cursor;
 pub mod filter;
 pub mod obfuscate;
 pub mod payload;
+pub mod pipeline;
 pub mod plan;
 pub mod query;
 pub mod read;
