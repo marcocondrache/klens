@@ -1,15 +1,80 @@
-use jiff::Timestamp;
-use juniper::{GraphQLEnum, GraphQLInputObject, GraphQLObject, GraphQLUnion};
+use std::fmt;
 
-use super::scalars::Int64;
+use jiff::Timestamp;
+use serde::de::{self, Visitor};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use ts_rs::TS;
+
 use crate::app::auth::access::Privilege;
 use crate::kafka::model as domain;
 use crate::kafka::store::{self, projections};
-use crate::kafka::{CompiledFilter, QueryError, RecordCursor};
+use crate::kafka::{QueryError, RecordCursor};
 use crate::r#macro::from_same_variants;
 
-#[derive(GraphQLEnum, Clone, Copy, PartialEq, Eq)]
-pub(super) enum PrivilegeName {
+/// Signed 64-bit integer, serialized as a string.
+///
+/// Offsets, watermarks, lag and retained counts routinely pass 2^53, where a
+/// JSON number silently loses precision in every JavaScript client. A string
+/// crosses the wire intact. Input accepts either a string or an integer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, TS)]
+#[ts(type = "string")]
+pub(crate) struct Int64(i64);
+
+impl Serialize for Int64 {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.0.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for Int64 {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Int64Visitor;
+
+        impl Visitor<'_> for Int64Visitor {
+            type Value = Int64;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a string or integer")
+            }
+
+            fn visit_str<E: de::Error>(self, value: &str) -> Result<Int64, E> {
+                value.parse().map(Int64).map_err(E::custom)
+            }
+
+            fn visit_i64<E: de::Error>(self, value: i64) -> Result<Int64, E> {
+                Ok(Int64(value))
+            }
+
+            fn visit_u64<E: de::Error>(self, value: u64) -> Result<Int64, E> {
+                i64::try_from(value).map(Int64).map_err(E::custom)
+            }
+        }
+
+        deserializer.deserialize_any(Int64Visitor)
+    }
+}
+
+impl From<i64> for Int64 {
+    fn from(value: i64) -> Self {
+        Self(value)
+    }
+}
+
+impl From<u64> for Int64 {
+    fn from(value: u64) -> Self {
+        Self(value as i64)
+    }
+}
+
+impl From<i32> for Int64 {
+    fn from(value: i32) -> Self {
+        Self(i64::from(value))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum PrivilegeName {
     Records,
     Configs,
     SchemaText,
@@ -20,8 +85,9 @@ from_same_variants!(Privilege => PrivilegeName { Records, Configs, SchemaText, A
 
 /// What the session may do on one cluster. Pairwise: a wider grant elsewhere
 /// does not raise this one.
-#[derive(GraphQLObject)]
-pub(super) struct ClusterGrant {
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ClusterGrant {
     pub cluster: String,
     /// Names of the roles that granted this access, for tracing a privilege
     /// back to an IdP group mapping. Empty when no role table applies.
@@ -29,15 +95,17 @@ pub(super) struct ClusterGrant {
     pub privileges: Vec<PrivilegeName>,
 }
 
-#[derive(GraphQLObject)]
-pub(super) struct Identity {
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Identity {
     /// `null` when authentication is disabled.
     pub subject: Option<String>,
     pub clusters: Vec<ClusterGrant>,
 }
 
-#[derive(GraphQLObject)]
-pub(super) struct LaneHealth {
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LaneHealth {
     pub updated_at: Option<Timestamp>,
     pub checked_at: Option<Timestamp>,
     pub last_error: Option<String>,
@@ -58,10 +126,10 @@ impl From<store::LaneHealth> for LaneHealth {
     }
 }
 
-/// Per-lane freshness and the counts a dashboard header needs. Replaces
-/// polling a catalog just to learn how stale it is.
-#[derive(GraphQLObject)]
-pub(super) struct ClusterHealth {
+/// Per-lane freshness and the counts a dashboard header needs.
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ClusterHealth {
     pub cluster: String,
     pub ready: bool,
     pub topology: LaneHealth,
@@ -99,8 +167,9 @@ impl From<projections::ClusterHealthView> for ClusterHealth {
     }
 }
 
-#[derive(GraphQLEnum, Clone, Copy)]
-pub(super) enum CleanupPolicy {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum CleanupPolicy {
     Delete,
     Compact,
     CompactDelete,
@@ -108,8 +177,9 @@ pub(super) enum CleanupPolicy {
 
 from_same_variants!(domain::CleanupPolicy => CleanupPolicy { Delete, Compact, CompactDelete });
 
-#[derive(GraphQLObject)]
-pub(super) struct TopicRow {
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TopicRow {
     pub name: String,
     pub internal: bool,
     pub partition_count: i32,
@@ -144,8 +214,9 @@ impl From<projections::TopicRow> for TopicRow {
     }
 }
 
-#[derive(GraphQLObject)]
-pub(super) struct TopicRowPage {
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TopicRowPage {
     pub rows: Vec<TopicRow>,
     /// Rows matching the filter before paging, so a client can size its
     /// scrollbar without walking every page.
@@ -153,8 +224,9 @@ pub(super) struct TopicRowPage {
     pub next_cursor: Option<String>,
 }
 
-#[derive(GraphQLObject)]
-pub(super) struct PartitionRow {
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PartitionRow {
     pub id: i32,
     pub leader: i32,
     pub replicas: Vec<i32>,
@@ -180,8 +252,9 @@ impl From<projections::PartitionRow> for PartitionRow {
     }
 }
 
-#[derive(GraphQLObject)]
-pub(super) struct TopicDetail {
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TopicDetail {
     pub name: String,
     pub internal: bool,
     pub partitions: Vec<PartitionRow>,
@@ -213,8 +286,9 @@ impl From<projections::TopicDetail> for TopicDetail {
     }
 }
 
-#[derive(GraphQLEnum, Clone, Copy)]
-pub(super) enum GroupState {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum GroupState {
     Stable,
     Empty,
     PreparingRebalance,
@@ -230,8 +304,9 @@ from_same_variants!(domain::GroupState => GroupState {
     Dead,
 });
 
-#[derive(GraphQLObject, Clone)]
-pub(super) struct MemberAssignment {
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MemberAssignment {
     pub topic: String,
     pub partitions: Vec<i32>,
 }
@@ -245,8 +320,9 @@ impl From<domain::MemberAssignment> for MemberAssignment {
     }
 }
 
-#[derive(GraphQLObject, Clone)]
-pub(super) struct GroupMember {
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GroupMember {
     pub id: String,
     pub client_id: String,
     pub host: String,
@@ -264,8 +340,9 @@ impl From<domain::GroupMember> for GroupMember {
     }
 }
 
-#[derive(GraphQLObject, Clone)]
-pub(super) struct GroupOffset {
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GroupOffset {
     pub topic: String,
     pub partition: i32,
     pub current_offset: Int64,
@@ -287,8 +364,9 @@ impl From<domain::GroupOffset> for GroupOffset {
     }
 }
 
-#[derive(GraphQLObject)]
-pub(super) struct GroupRow {
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GroupRow {
     pub id: String,
     pub state: GroupState,
     pub member_count: i32,
@@ -314,15 +392,17 @@ impl From<projections::GroupRow> for GroupRow {
     }
 }
 
-#[derive(GraphQLObject)]
-pub(super) struct GroupRowPage {
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GroupRowPage {
     pub rows: Vec<GroupRow>,
     pub total: i32,
     pub next_cursor: Option<String>,
 }
 
-#[derive(GraphQLObject)]
-pub(super) struct GroupDetail {
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GroupDetail {
     pub id: String,
     pub state: GroupState,
     pub protocol: String,
@@ -348,10 +428,10 @@ impl From<projections::GroupDetail> for GroupDetail {
     }
 }
 
-/// The projection a topic page needs: which groups read this topic and how
-/// far behind they are on it alone.
-#[derive(GraphQLObject)]
-pub(super) struct TopicGroupRow {
+/// Which groups read this topic, and how far behind they are on it alone.
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TopicGroupRow {
     pub id: String,
     pub state: GroupState,
     pub member_count: i32,
@@ -369,8 +449,9 @@ impl From<projections::TopicGroupRow> for TopicGroupRow {
     }
 }
 
-#[derive(GraphQLObject)]
-pub(super) struct BrokerRow {
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct BrokerRow {
     pub id: i32,
     pub host: String,
     pub port: i32,
@@ -394,9 +475,10 @@ impl From<projections::BrokerRow> for BrokerRow {
     }
 }
 
-#[derive(GraphQLEnum, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[allow(clippy::enum_variant_names)]
-pub(super) enum ConfigSource {
+pub(crate) enum ConfigSource {
     DynamicTopicConfig,
     DynamicBrokerConfig,
     StaticBrokerConfig,
@@ -414,8 +496,9 @@ impl From<domain::ConfigSource> for ConfigSource {
     }
 }
 
-#[derive(GraphQLObject)]
-pub(super) struct ConfigEntry {
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ConfigEntry {
     pub name: String,
     pub value: Option<String>,
     pub source: ConfigSource,
@@ -435,8 +518,9 @@ impl From<domain::ConfigEntry> for ConfigEntry {
     }
 }
 
-#[derive(GraphQLEnum, Clone, Copy)]
-pub(super) enum SchemaType {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum SchemaType {
     Avro,
     Json,
     Protobuf,
@@ -444,8 +528,9 @@ pub(super) enum SchemaType {
 
 from_same_variants!(domain::SchemaType => SchemaType { Avro, Json, Protobuf });
 
-#[derive(GraphQLEnum, Clone, Copy)]
-pub(super) enum SchemaCompatibility {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum SchemaCompatibility {
     Backward,
     Forward,
     Full,
@@ -459,11 +544,12 @@ from_same_variants!(domain::SchemaCompatibility => SchemaCompatibility {
     None,
 });
 
-#[derive(GraphQLObject)]
-pub(super) struct SubjectRow {
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SubjectRow {
     pub subject: String,
     pub id: i32,
-    #[graphql(name = "type")]
+    #[serde(rename = "type")]
     pub schema_type: SchemaType,
     pub latest_version: i32,
     pub versions: Vec<i32>,
@@ -483,17 +569,18 @@ impl From<projections::SubjectRow> for SubjectRow {
     }
 }
 
-/// Registry degradation is typed rather than hidden: an empty `rows` with an
-/// unhealthy `sourceHealth` is a registry outage, not a registry with no
-/// subjects.
-#[derive(GraphQLObject)]
-pub(super) struct SubjectRowsResult {
+/// An empty `rows` with an unhealthy `sourceHealth` is a registry outage, not
+/// a registry with no subjects.
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SubjectRowsResult {
     pub rows: Vec<SubjectRow>,
     pub source_health: LaneHealth,
 }
 
-#[derive(GraphQLObject)]
-pub(super) struct SchemaReference {
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SchemaReference {
     pub name: String,
     pub subject: String,
     pub version: i32,
@@ -509,19 +596,20 @@ impl From<domain::SchemaReference> for SchemaReference {
     }
 }
 
-#[derive(GraphQLObject)]
-pub(super) struct SubjectDetail {
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SubjectDetail {
     pub subject: String,
     pub version: i32,
     pub id: i32,
-    #[graphql(name = "type")]
+    #[serde(rename = "type")]
     pub schema_type: SchemaType,
     pub schema: String,
     pub references: Vec<SchemaReference>,
 }
 
 impl SubjectDetail {
-    pub(super) fn new(subject: String, version: i32, schema: domain::RegisteredSchema) -> Self {
+    pub(crate) fn new(subject: String, version: i32, schema: domain::RegisteredSchema) -> Self {
         Self {
             subject,
             version,
@@ -533,14 +621,16 @@ impl SubjectDetail {
     }
 }
 
-#[derive(GraphQLEnum, Clone, Copy)]
-pub(super) enum AclAuthorizer {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum AclAuthorizer {
     Enabled,
     Disabled,
 }
 
-#[derive(GraphQLEnum, Clone, Copy)]
-pub(super) enum AclResourceType {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum AclResourceType {
     Topic,
     Group,
     Cluster,
@@ -556,16 +646,18 @@ from_same_variants!(domain::AclResourceType => AclResourceType {
     DelegationToken,
 });
 
-#[derive(GraphQLEnum, Clone, Copy)]
-pub(super) enum AclPatternType {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum AclPatternType {
     Literal,
     Prefixed,
 }
 
 from_same_variants!(domain::AclPatternType => AclPatternType { Literal, Prefixed });
 
-#[derive(GraphQLEnum, Clone, Copy)]
-pub(super) enum AclOperation {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum AclOperation {
     All,
     Read,
     Write,
@@ -593,16 +685,18 @@ from_same_variants!(domain::AclOperation => AclOperation {
     IdempotentWrite,
 });
 
-#[derive(GraphQLEnum, Clone, Copy)]
-pub(super) enum AclPermission {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum AclPermission {
     Allow,
     Deny,
 }
 
 from_same_variants!(domain::AclPermission => AclPermission { Allow, Deny });
 
-#[derive(GraphQLObject)]
-pub(super) struct Acl {
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Acl {
     pub resource_type: AclResourceType,
     pub resource_name: String,
     pub pattern_type: AclPatternType,
@@ -626,8 +720,9 @@ impl From<domain::Acl> for Acl {
     }
 }
 
-#[derive(GraphQLObject)]
-pub(super) struct AclListing {
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AclListing {
     pub authorizer: AclAuthorizer,
     pub bindings: Vec<Acl>,
 }
@@ -647,8 +742,9 @@ impl From<domain::AclListing> for AclListing {
     }
 }
 
-#[derive(GraphQLEnum, Clone, Copy)]
-pub(super) enum Compression {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum Compression {
     None,
     Gzip,
     Snappy,
@@ -658,16 +754,18 @@ pub(super) enum Compression {
 
 from_same_variants!(domain::Compression => Compression { None, Gzip, Snappy, Lz4, Zstd });
 
-#[derive(GraphQLEnum, Clone, Copy)]
-pub(super) enum RecordOrder {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum RecordOrder {
     Newest,
     Oldest,
 }
 
 from_same_variants!(RecordOrder => domain::RecordOrder { Newest, Oldest });
 
-#[derive(GraphQLObject)]
-pub(super) struct RecordHeader {
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RecordHeader {
     pub key: String,
     pub value: String,
 }
@@ -681,8 +779,9 @@ impl From<domain::RecordHeader> for RecordHeader {
     }
 }
 
-#[derive(GraphQLObject)]
-pub(super) struct Record {
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Record {
     pub topic: String,
     pub partition: i32,
     pub offset: Int64,
@@ -713,8 +812,9 @@ impl From<domain::Record> for Record {
     }
 }
 
-#[derive(GraphQLObject)]
-pub(super) struct RecordPage {
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RecordPage {
     pub records: Vec<Record>,
     /// False when the scan hit its deadline with windows still unread: the
     /// records are real, but the page is not everything the query matched.
@@ -741,62 +841,49 @@ impl From<domain::RecordPage> for RecordPage {
     }
 }
 
-/// A case-insensitive substring over key and value text.
-#[derive(GraphQLInputObject)]
-pub(super) struct RecordFilterInput {
-    pub contains: Option<String>,
-}
-
-impl RecordFilterInput {
-    fn compile(self) -> Option<CompiledFilter> {
-        self.contains
+pub(crate) fn record_query(
+    topic: String,
+    params: RecordParams,
+) -> Result<domain::RecordQuery, QueryError> {
+    Ok(domain::RecordQuery {
+        timestamps: domain::TimestampRange::new(params.from, params.to)?,
+        filter: params
+            .contains
             .as_deref()
-            .and_then(crate::kafka::compile_contains_filter)
-    }
+            .and_then(crate::kafka::compile_contains_filter),
+        cursor: match params.cursor.as_deref().map(str::trim) {
+            None | Some("") => None,
+            Some(cursor) => Some(RecordCursor::parse(cursor)?),
+        },
+        topic,
+        partition: params.partition,
+        limit: params.limit,
+        order: params.order.unwrap_or(RecordOrder::Newest).into(),
+        schema_id: params.schema_id,
+    })
 }
 
-fn non_empty(value: &&str) -> bool {
-    !value.is_empty()
-}
-
-#[derive(GraphQLInputObject)]
-pub(super) struct RecordQueryInput {
-    pub topic: String,
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RecordParams {
     pub partition: Option<i32>,
-    /// Nullable rather than defaulted because juniper renders an enum
-    /// default as a quoted string, which is not valid SDL.
     pub order: Option<RecordOrder>,
     pub from: Option<Timestamp>,
     pub to: Option<Timestamp>,
-    #[graphql(default = 50)]
+    #[serde(default = "default_record_limit")]
     pub limit: i32,
-    pub filter: Option<RecordFilterInput>,
+    pub contains: Option<String>,
     pub schema_id: Option<i32>,
     pub cursor: Option<String>,
 }
 
-impl TryFrom<RecordQueryInput> for domain::RecordQuery {
-    type Error = QueryError;
-
-    fn try_from(query: RecordQueryInput) -> Result<Self, Self::Error> {
-        Ok(Self {
-            timestamps: domain::TimestampRange::new(query.from, query.to)?,
-            filter: query.filter.and_then(RecordFilterInput::compile),
-            cursor: match query.cursor.as_deref().map(str::trim) {
-                None | Some("") => None,
-                Some(cursor) => Some(RecordCursor::parse(cursor)?),
-            },
-            topic: query.topic,
-            partition: query.partition,
-            limit: query.limit,
-            order: query.order.unwrap_or(RecordOrder::Newest).into(),
-            schema_id: query.schema_id,
-        })
-    }
+fn default_record_limit() -> i32 {
+    50
 }
 
-#[derive(GraphQLEnum, Clone, Copy)]
-pub(super) enum SearchKind {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum SearchKind {
     Topic,
     Group,
     Node,
@@ -805,8 +892,9 @@ pub(super) enum SearchKind {
 
 from_same_variants!(domain::SearchKind => SearchKind { Topic, Group, Node, Subject });
 
-#[derive(GraphQLObject)]
-pub(super) struct SearchHit {
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SearchHit {
     pub kind: SearchKind,
     pub id: String,
     pub label: String,
@@ -824,24 +912,9 @@ impl From<domain::SearchHit> for SearchHit {
     }
 }
 
-/// Server-side name filtering so a 10k-topic cluster's list page does not
-/// need the full set client-side.
-#[derive(GraphQLInputObject, Default)]
-pub(super) struct RowFilter {
-    pub contains: Option<String>,
-}
-
-impl RowFilter {
-    pub(super) fn matches(&self, name: &str) -> bool {
-        match self.contains.as_deref().map(str::trim).filter(non_empty) {
-            None => true,
-            Some(needle) => name.to_lowercase().contains(&needle.to_lowercase()),
-        }
-    }
-}
-
-#[derive(GraphQLEnum, Clone, Copy, PartialEq, Eq)]
-pub(super) enum TopicSortField {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum TopicSortField {
     Name,
     Rate,
     RetainedMessages,
@@ -849,23 +922,9 @@ pub(super) enum TopicSortField {
     Groups,
 }
 
-#[derive(GraphQLInputObject, Default)]
-pub(super) struct TopicSort {
-    /// Nullable rather than defaulted because juniper renders an enum
-    /// default as a quoted string, which is not valid SDL.
-    pub field: Option<TopicSortField>,
-    #[graphql(default = false)]
-    pub desc: bool,
-}
-
-#[derive(GraphQLInputObject, Default, Clone)]
-pub(super) struct UpdateScope {
-    pub topic: Option<String>,
-    pub group: Option<String>,
-}
-
-#[derive(GraphQLObject, Clone)]
-pub(super) struct TopicRate {
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TopicRate {
     pub topic: String,
     pub rate: f64,
 }
@@ -879,80 +938,161 @@ impl From<&store::TopicRate> for TopicRate {
     }
 }
 
-#[derive(GraphQLObject, Clone)]
-pub(super) struct WatermarksTick {
-    pub at: Timestamp,
-    /// One `{topic, rate}` pair per topic, never catalog objects. A scoped
-    /// subscriber gets only its topic.
-    pub topics: Vec<TopicRate>,
-}
-
-#[derive(GraphQLObject, Clone)]
-pub(super) struct GroupLagUpdate {
-    pub at: Timestamp,
-    pub group: String,
-    pub lag: Int64,
-    pub lag_complete: bool,
-    pub offsets: Vec<GroupOffset>,
-}
-
-#[derive(GraphQLObject, Clone)]
-pub(super) struct TopologyDelta {
-    pub version: Int64,
-    pub added_topics: Vec<String>,
-    pub removed_topics: Vec<String>,
-    pub changed_topics: Vec<String>,
-    pub added_groups: Vec<String>,
-    pub removed_groups: Vec<String>,
-    pub changed_groups: Vec<String>,
-    pub brokers_changed: bool,
-}
-
-#[derive(GraphQLObject, Clone)]
-pub(super) struct ConfigsChanged {
-    pub version: Int64,
-    pub topics: Vec<String>,
-}
-
-#[derive(GraphQLObject, Clone)]
-pub(super) struct SubjectsChanged {
-    pub version: Int64,
-    pub added: Vec<String>,
-    pub removed: Vec<String>,
-    pub changed: Vec<String>,
-}
-
-#[derive(GraphQLEnum, Clone, Copy)]
-pub(super) enum ResyncReason {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum ResyncReason {
     /// The client fell behind the change bus and missed events.
     Lagged,
 }
 
-/// Refetch the projections and keep the stream: the deltas in between are
-/// gone, but the connection is still good.
-#[derive(GraphQLObject, Clone)]
-pub(super) struct Resync {
-    pub reason: ResyncReason,
+/// One lane delta. `type` is the discriminant the client switches on.
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub(crate) enum Update {
+    Watermarks {
+        at: Timestamp,
+        /// One `{topic, rate}` pair per topic, never catalog objects. A scoped
+        /// subscriber gets only its topic.
+        topics: Vec<TopicRate>,
+    },
+    GroupLag {
+        at: Timestamp,
+        group: String,
+        lag: Int64,
+        lag_complete: bool,
+        offsets: Vec<GroupOffset>,
+    },
+    Topology {
+        version: Int64,
+        added_topics: Vec<String>,
+        removed_topics: Vec<String>,
+        changed_topics: Vec<String>,
+        added_groups: Vec<String>,
+        removed_groups: Vec<String>,
+        changed_groups: Vec<String>,
+        brokers_changed: bool,
+    },
+    Configs {
+        version: Int64,
+        topics: Vec<String>,
+    },
+    Subjects {
+        version: Int64,
+        added: Vec<String>,
+        removed: Vec<String>,
+        changed: Vec<String>,
+    },
+    Resync {
+        reason: ResyncReason,
+    },
 }
 
-#[derive(GraphQLUnion, Clone)]
-#[graphql(context = super::context::GraphQlContext)]
-pub(super) enum Update {
-    Watermarks(WatermarksTick),
-    GroupLag(GroupLagUpdate),
-    Topology(TopologyDelta),
-    Configs(ConfigsChanged),
-    Subjects(SubjectsChanged),
-    Resync(Resync),
+impl Update {
+    pub(crate) fn event(&self) -> &'static str {
+        match self {
+            Self::Watermarks { .. } => "watermarks",
+            Self::GroupLag { .. } => "groupLag",
+            Self::Topology { .. } => "topology",
+            Self::Configs { .. } => "configs",
+            Self::Subjects { .. } => "subjects",
+            Self::Resync { .. } => "resync",
+        }
+    }
 }
 
-pub(super) fn names(values: &[std::sync::Arc<str>]) -> Vec<String> {
+pub(crate) fn names(values: &[std::sync::Arc<str>]) -> Vec<String> {
     values.iter().map(|value| value.to_string()).collect()
+}
+
+pub fn typescript() -> String {
+    let cfg = ts_rs::Config::from_env();
+    let mut out = String::from("// Generated by `cargo xtask types`. Do not edit.\n\n");
+    macro_rules! emit {
+        ($($ty:ty),+ $(,)?) => {
+            $(
+                out.push_str("export ");
+                out.push_str(&<$ty as TS>::decl(&cfg));
+                out.push_str("\n\n");
+            )+
+        };
+    }
+    emit!(
+        Int64,
+        PrivilegeName,
+        ClusterGrant,
+        Identity,
+        LaneHealth,
+        ClusterHealth,
+        CleanupPolicy,
+        TopicRow,
+        TopicRowPage,
+        PartitionRow,
+        TopicDetail,
+        GroupState,
+        MemberAssignment,
+        GroupMember,
+        GroupOffset,
+        GroupRow,
+        GroupRowPage,
+        GroupDetail,
+        TopicGroupRow,
+        BrokerRow,
+        ConfigSource,
+        ConfigEntry,
+        SchemaType,
+        SchemaCompatibility,
+        SubjectRow,
+        SubjectRowsResult,
+        SchemaReference,
+        SubjectDetail,
+        AclAuthorizer,
+        AclResourceType,
+        AclPatternType,
+        AclOperation,
+        AclPermission,
+        Acl,
+        AclListing,
+        Compression,
+        RecordOrder,
+        RecordHeader,
+        Record,
+        RecordPage,
+        SearchKind,
+        SearchHit,
+        TopicSortField,
+        TopicRate,
+        ResyncReason,
+        Update,
+    );
+    out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn large_values_round_trip_as_strings() {
+        let offset = Int64::from(9_007_199_254_740_993_i64);
+        let json = serde_json::to_value(offset).expect("json");
+
+        assert_eq!(json, serde_json::json!("9007199254740993"));
+        assert_eq!(
+            serde_json::from_value::<Int64>(json).expect("parse"),
+            offset
+        );
+    }
+
+    #[test]
+    fn small_values_may_arrive_as_numbers() {
+        let parsed = serde_json::from_value::<Int64>(serde_json::json!(42)).expect("parse");
+
+        assert_eq!(parsed, Int64::from(42));
+    }
 
     #[test]
     fn a_record_keeps_its_wire_schema_id() {
@@ -973,22 +1113,15 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_filter_compiles_to_no_filter() {
-        let filter = RecordFilterInput {
-            contains: Some("   ".into()),
-        };
+    fn generated_typescript_is_checked_in() {
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("web/src/api/types.gen.ts");
+        let actual = std::fs::read_to_string(&path).unwrap_or_default();
 
-        assert!(filter.compile().is_none());
-    }
-
-    #[test]
-    fn row_filters_are_case_insensitive_substrings() {
-        let filter = RowFilter {
-            contains: Some("ORDERS".into()),
-        };
-
-        assert!(filter.matches("orders.created"));
-        assert!(!filter.matches("payments"));
-        assert!(RowFilter::default().matches("anything"));
+        assert_eq!(
+            actual,
+            typescript(),
+            "frontend types are stale; run `cargo xtask types`"
+        );
     }
 }

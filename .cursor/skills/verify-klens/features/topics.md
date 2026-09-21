@@ -29,7 +29,7 @@ Preconditions:
 - **Search.** Fill `Search topics…` with `klens-verify-topics`. The URL contains `q=klens-verify-topics`. The table still shows that topic and does not show unrelated names that were visible before.
 - **Open topic.** Click the `klens-verify-topics` row. The URL becomes `/cluster/local/topics/klens-verify-topics` and the heading contains `klens-verify-topics`.
 - **Internal toggle.** Return to Topics. Clear `Search topics…` so `q` is gone. Turn on `Show internal`. The URL contains `internal=1`. At least one internal name (often `__consumer_offsets` or `_schemas`) appears. Turn the switch off and those rows leave.
-- **Proof.** Write `landing.png`, `landing.aria.yml`, `topics.json`, `internal.png`, and `open.png` under `artifacts/<run-id>/topics/`. The screenshot shows the `klens` wordmark and `klens-verify-topics`. The GraphQL body lists that topic name.
+- **Proof.** Write `landing.png`, `landing.aria.yml`, `topics.json`, `internal.png`, and `open.png` under `artifacts/<run-id>/topics/`. The screenshot shows the `klens` wordmark and `klens-verify-topics`. `GET /api/clusters/local/topics` lists that topic name.
 
 ## Gotchas
 

@@ -327,7 +327,7 @@ impl FakeCluster {
         self
     }
 
-    /// Store [`AclListing::Disabled`]. GraphQL then returns authorizer DISABLED.
+    /// Store [`AclListing::Disabled`]. The ACL route then returns authorizer DISABLED.
     pub fn with_security_disabled(self) -> Self {
         *self.inner.acls.lock().expect("acls") = AclListing::Disabled;
         self

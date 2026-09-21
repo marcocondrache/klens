@@ -1,11 +1,10 @@
 import { useEffect } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 
-import type { UpdatesSubscription } from "@/graphql/graphql";
+import type { Update } from "@/api/types.gen";
 
-import { updatesSubscription } from "./documents";
+import { stream } from "./client";
 import { keys } from "./keys";
-import { subscribe } from "./subscribe";
 import type {
   GroupDetail,
   GroupOffset,
@@ -14,8 +13,6 @@ import type {
   TopicGroupRow,
   TopicRow,
 } from "./types";
-
-type Update = UpdatesSubscription["updates"];
 
 export type Scope = { topic?: string; group?: string };
 
@@ -28,17 +25,17 @@ export function useUpdates(cluster: string, scope: Scope = {}) {
       return;
     }
 
-    return subscribe(
-      updatesSubscription,
-      { cluster, scope: { topic: topic ?? null, group: group ?? null } },
-      ({ updates }) => apply(queryClient, cluster, updates),
+    return stream(
+      `/api/clusters/${encodeURIComponent(cluster)}/updates`,
+      { topic, group },
+      (update) => apply(queryClient, cluster, update),
     );
   }, [cluster, topic, group, queryClient]);
 }
 
 function apply(queryClient: QueryClient, cluster: string, update: Update): void {
-  switch (update.__typename) {
-    case "WatermarksTick": {
+  switch (update.type) {
+    case "watermarks": {
       const rates = new Map(update.topics.map((entry) => [entry.topic, entry.rate]));
 
       patchTopicRows(queryClient, cluster, (row) => {
@@ -52,7 +49,7 @@ function apply(queryClient: QueryClient, cluster: string, update: Update): void 
       return;
     }
 
-    case "GroupLagUpdate": {
+    case "groupLag": {
       patchGroupRows(queryClient, cluster, update.group, (row) => ({
         ...row,
         totalLag: update.lag,
@@ -84,7 +81,7 @@ function apply(queryClient: QueryClient, cluster: string, update: Update): void 
       return;
     }
 
-    case "TopologyDelta": {
+    case "topology": {
       void queryClient.invalidateQueries({ queryKey: keys.clusters() });
 
       const topics = [...update.addedTopics, ...update.removedTopics, ...update.changedTopics];
@@ -113,9 +110,9 @@ function apply(queryClient: QueryClient, cluster: string, update: Update): void 
       return;
     }
 
-    case "ConfigsChanged": {
+    case "configs": {
       void queryClient.invalidateQueries({ queryKey: keys.topicRows(cluster), exact: true });
-      for (const name of update.configTopics) {
+      for (const name of update.topics) {
         void queryClient.invalidateQueries({
           queryKey: keys.topicConfigs(cluster, name),
           exact: true,
@@ -125,7 +122,7 @@ function apply(queryClient: QueryClient, cluster: string, update: Update): void 
       return;
     }
 
-    case "SubjectsChanged": {
+    case "subjects": {
       void queryClient.invalidateQueries({ queryKey: keys.subjectRows(cluster), exact: true });
       for (const name of [...update.changed, ...update.removed]) {
         void queryClient.invalidateQueries({ queryKey: keys.subjectVersions(cluster, name) });
@@ -133,7 +130,7 @@ function apply(queryClient: QueryClient, cluster: string, update: Update): void 
       return;
     }
 
-    case "Resync": {
+    case "resync": {
       void queryClient.invalidateQueries({ queryKey: keys.clusters() });
       void queryClient.invalidateQueries({ queryKey: keys.cluster(cluster) });
       return;

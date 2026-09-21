@@ -1,17 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { execute } from "@/graphql/execute";
-import { whoamiQuery } from "@/lib/api/documents";
+import { get } from "@/lib/api/client";
 import { keys } from "@/lib/api/keys";
 import type { Identity, PrivilegeName } from "@/lib/api/types";
 
 export function useWhoami() {
   return useQuery({
     queryKey: keys.whoami(),
-    queryFn: async () => {
-      const { whoami } = await execute(whoamiQuery);
-      return whoami;
-    },
+    queryFn: () => get<Identity>("/api/whoami"),
     staleTime: 60_000,
   });
 }

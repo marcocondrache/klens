@@ -46,7 +46,6 @@ jobs:
               - '.cargo/**'
             web:
               - 'web/**'
-              - 'schema.graphql'
               - 'Cargo.toml'
             helm:
               - 'charts/**'

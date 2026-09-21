@@ -3,7 +3,7 @@
 FROM oven/bun:1 AS web
 WORKDIR /app
 
-COPY Cargo.toml schema.graphql ./
+COPY Cargo.toml ./
 COPY web/ ./web/
 
 WORKDIR /app/web

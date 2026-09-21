@@ -15,13 +15,7 @@ function appVersion() {
   }
 }
 
-const readonlyPatterns = [
-  "src/graphql/gql.ts",
-  "src/graphql/graphql.ts",
-  "src/graphql/index.ts",
-  "src/routeTree.gen.ts",
-  "src/components/ui",
-];
+const readonlyPatterns = ["src/api/types.gen.ts", "src/routeTree.gen.ts", "src/components/ui"];
 
 export default defineConfig({
   fmt: {
@@ -53,11 +47,7 @@ export default defineConfig({
     proxy: {
       "/health": "http://localhost:8080",
       "/auth": "http://localhost:8080",
-      "/graphql": {
-        target: "http://localhost:8080",
-        ws: true,
-      },
-      "/graphiql": "http://localhost:8080",
+      "/api": "http://localhost:8080",
     },
   },
   resolve: {

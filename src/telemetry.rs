@@ -5,10 +5,6 @@ use tracing_subscriber::{
     EnvFilter, filter::ParseError, layer::SubscriberExt, util::SubscriberInitExt,
 };
 
-mod graphql;
-
-pub(crate) use graphql::{OperationId, complete, record_ws_upgrade};
-
 pub struct Telemetry {
     _guard: WorkerGuard,
 }
@@ -100,5 +96,39 @@ pub(crate) mod capture {
             .without_time()
             .finish();
         (logs, tracing::subscriber::set_default(subscriber))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::capture::subscriber as capture;
+    use super::log_http_completed;
+
+    #[test]
+    fn log_http_completed_204_is_silent_at_info() {
+        let (logs, _guard) = capture(tracing::Level::INFO);
+        log_http_completed(204, Duration::from_millis(1));
+        let text = logs.as_string();
+        assert!(!text.contains("request completed"), "{text}");
+    }
+
+    #[test]
+    fn log_http_completed_503_is_silent_at_info() {
+        let (logs, _guard) = capture(tracing::Level::INFO);
+        log_http_completed(503, Duration::from_millis(1));
+        let text = logs.as_string();
+        assert!(!text.contains("request completed"), "{text}");
+    }
+
+    #[test]
+    fn log_http_completed_500_is_warn() {
+        let (logs, _guard) = capture(tracing::Level::WARN);
+        log_http_completed(500, Duration::from_millis(3));
+        let text = logs.as_string();
+        assert!(text.contains("request completed"), "{text}");
+        assert!(text.contains("status=500"), "{text}");
+        assert!(text.contains("WARN"), "{text}");
     }
 }

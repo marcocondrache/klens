@@ -88,7 +88,7 @@ service:
   annotations: {}
 
 ingress:
-  # -- Expose the UI via an Ingress. Use a Prefix `/` path so SPA routes and GraphQL WebSocket reach the pod.
+  # -- Expose the UI via an Ingress. Use a Prefix `/` path so SPA routes and `/api` reach the pod.
   enabled: false
   # -- IngressClass name.
   className: ""
