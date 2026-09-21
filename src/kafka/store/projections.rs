@@ -50,7 +50,7 @@ impl PartitionRow {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TopicDetail {
     pub name: Arc<str>,
     pub internal: bool,
@@ -58,6 +58,9 @@ pub struct TopicDetail {
     pub replication_factor: i32,
     pub retained_messages: i64,
     pub produced_total: i64,
+    pub rate: f64,
+    pub retention_ms: i64,
+    pub cleanup_policy: CleanupPolicy,
     pub group_count: i32,
     pub under_replicated: bool,
 }
@@ -165,7 +168,9 @@ pub fn topic_detail(
     name: &Arc<str>,
     topic: &TopicInfo,
     watermarks: Option<&WatermarkTable>,
+    configs: Option<&ConfigTable>,
     topology: &Topology,
+    rate: f64,
 ) -> TopicDetail {
     let partitions: Vec<PartitionRow> = topic
         .partitions
@@ -185,6 +190,9 @@ pub fn topic_detail(
         })
         .collect();
 
+    let (cleanup_policy, retention_ms) =
+        topic_config_values(configs.and_then(|configs| configs.get(name)));
+
     TopicDetail {
         name: Arc::clone(name),
         internal: topic.internal,
@@ -194,6 +202,9 @@ pub fn topic_detail(
             .iter()
             .map(|partition| partition.high_watermark.max(0))
             .sum(),
+        rate,
+        retention_ms,
+        cleanup_policy,
         group_count: topology.groups_for_topic(name).len() as i32,
         under_replicated: partitions.iter().any(PartitionRow::under_replicated),
         partitions,
@@ -427,7 +438,7 @@ mod tests {
         assert_eq!(row.retained_messages, 0);
         assert_eq!(row.cleanup_policy, CleanupPolicy::Delete);
 
-        let detail = topic_detail(name, topic, None, &topology);
+        let detail = topic_detail(name, topic, None, None, &topology, 0.0);
         assert_eq!(detail.partitions.len(), 2);
         assert_eq!(detail.partitions[0].high_watermark, 0);
     }
@@ -449,6 +460,11 @@ mod tests {
         let row = topic_row(name, topic, None, Some(&configs), &topology, 0.0);
         assert_eq!(row.cleanup_policy, CleanupPolicy::Compact);
         assert_eq!(row.retention_ms, 604_800_000);
+
+        let detail = topic_detail(name, topic, None, Some(&configs), &topology, 4.0);
+        assert_eq!(detail.cleanup_policy, CleanupPolicy::Compact);
+        assert_eq!(detail.retention_ms, 604_800_000);
+        assert_eq!(detail.rate, 4.0);
     }
 
     #[test]
@@ -456,7 +472,7 @@ mod tests {
         let topology = topology();
         let (name, topic) = topology.topics.iter().next().unwrap();
 
-        let detail = topic_detail(name, topic, Some(&marks()), &topology);
+        let detail = topic_detail(name, topic, Some(&marks()), None, &topology, 12.5);
 
         assert_eq!(detail.partitions[1].isr, vec![1]);
         assert_eq!(detail.partitions[1].replicas, vec![1, 2]);

@@ -6,7 +6,14 @@ import type { UpdatesSubscription } from "@/graphql/graphql";
 import { updatesSubscription } from "./documents";
 import { keys } from "./keys";
 import { subscribe } from "./subscribe";
-import type { GroupDetail, GroupOffset, GroupRow, TopicGroupRow, TopicRow } from "./types";
+import type {
+  GroupDetail,
+  GroupOffset,
+  GroupRow,
+  TopicDetail,
+  TopicGroupRow,
+  TopicRow,
+} from "./types";
 
 type Update = UpdatesSubscription["updates"];
 
@@ -150,10 +157,8 @@ function patchTopicDetailRate(
   topic: string,
   rate: number,
 ) {
-  queryClient.setQueryData(
-    keys.topic(cluster, topic),
-    (cache: { row: TopicRow | null } | undefined) =>
-      cache?.row ? { ...cache, row: { ...cache.row, rate } } : cache,
+  queryClient.setQueryData(keys.topic(cluster, topic), (detail: TopicDetail | null | undefined) =>
+    detail ? { ...detail, rate } : detail,
   );
 }
 
