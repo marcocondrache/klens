@@ -280,7 +280,6 @@ function ConsumerGroupPage() {
             data={offsets}
             getRowId={(offset) => `${offset.topic}-${offset.partition}`}
             loading={isPending}
-            pageSize={25}
             defaultSort={{ id: "lag", direction: "desc" }}
             onRowClick={(offset) => {
               void navigate({

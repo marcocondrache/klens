@@ -126,7 +126,6 @@ export function ConfigTable({
         </>
       }
       loading={loading}
-      pageSize={50}
       defaultSort={{ id: "name", direction: "asc" }}
       fill={fill}
     />

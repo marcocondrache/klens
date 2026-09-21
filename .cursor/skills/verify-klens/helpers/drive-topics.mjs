@@ -64,11 +64,13 @@ try {
     throw new Error(`expected /cluster/<name>/topics, got ${landingUrl}`);
   }
 
-  const pageSize = page.getByRole("combobox").filter({ hasText: "100" });
-  await pageSize.waitFor();
+  await page.getByRole("columnheader", { name: "Topic" }).waitFor();
+  if ((await page.getByText("Rows per page").count()) > 0) {
+    throw new Error("expected no table pagination");
+  }
   await page.screenshot({ path: join(artifactDir, "landing.png"), fullPage: true });
   await writeFile(join(artifactDir, "landing.aria.yml"), await page.locator("body").ariaSnapshot());
-  notes.push(`landed ${landingUrl} rows-per-page=100`);
+  notes.push(`landed ${landingUrl} no table pager`);
 
   await page.getByRole("switch", { name: "Show internal" }).click();
   await page.waitForFunction(() => new URL(window.location.href).searchParams.get("internal") === "1");
