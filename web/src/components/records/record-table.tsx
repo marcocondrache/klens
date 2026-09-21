@@ -136,8 +136,27 @@ export function RecordTable<TData extends RowData>({
 
   useLayoutEffect(() => {
     if (!historyAtStart || rows.length === 0 || landed) return;
-    virtualizer.scrollToEnd();
-    setLanded(true);
+
+    let cancelled = false;
+    let frames = 0;
+    let frame = 0;
+
+    const tick = () => {
+      if (cancelled) return;
+      virtualizer.scrollToEnd();
+      frames += 1;
+      if (virtualizer.isAtEnd() || frames > 12) {
+        setLanded(true);
+        return;
+      }
+      frame = requestAnimationFrame(tick);
+    };
+
+    frame = requestAnimationFrame(tick);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+    };
   }, [historyAtStart, landed, rows.length, virtualizer]);
 
   const items = virtualizer.getVirtualItems();
@@ -148,7 +167,7 @@ export function RecordTable<TData extends RowData>({
       fetchNextPage();
       return;
     }
-    if (historyAtStart && !landed) return;
+    if (historyAtStart && (!landed || virtualizer.isAtEnd(80))) return;
 
     const edge = historyAtStart ? items[0] : items[items.length - 1];
     if (edge == null) return;
@@ -163,6 +182,7 @@ export function RecordTable<TData extends RowData>({
     items,
     landed,
     rows.length,
+    virtualizer,
   ]);
 
   const showLatest = historyAtStart && landed && rows.length > 0 && !virtualizer.isAtEnd();
