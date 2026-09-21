@@ -27,7 +27,7 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("oidc authentication enabled");
     }
 
-    let state = AppState::with_auth(sessions, auth).with_ingest();
+    let state = AppState::with_auth(sessions, auth).with_ingest_from(&config);
 
     klens::serve(router(state), config.bind).await
 }

@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 
-use crate::environment::TOPOLOGY_LANE_INTERVAL;
 use crate::kafka::error::KafkaError;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::store::{Change, ClusterStore, Interner, Lane, Topology, TopologyDelta};
@@ -18,10 +17,6 @@ pub struct TopologyLane {
 }
 
 impl TopologyLane {
-    pub fn new(session: Arc<dyn ClusterSession>) -> Self {
-        Self::with_interval(session, *TOPOLOGY_LANE_INTERVAL)
-    }
-
     pub fn with_interval(session: Arc<dyn ClusterSession>, interval: Duration) -> Self {
         Self {
             session,

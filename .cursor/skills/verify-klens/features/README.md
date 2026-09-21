@@ -17,7 +17,7 @@ This directory is the maintained source for verifying user-facing klens behavior
 - Treat topic names and the seed payload as literals.
 - Run browser steps through Playwright (`helpers/drive-topics.mjs` for Topics, `helpers/drive-command-palette.mjs` for the palette). Use `curl` only to corroborate GraphQL.
 - Drive ACLs before opening topic Data. A records timeout can poison later live RPCs.
-- Default topology lane interval is 10s. If doctor fails with `list_consumer_groups` after a few polls, relaunch with `KLENS_TOPOLOGY_LANE_INTERVAL=600`. That is session harness, not a `launch.sh` default. `KLENS_CATALOG_POLL_INTERVAL` is ignored.
+- Default topology lane interval is 10s. If doctor fails with `list_consumer_groups` after a few polls, relaunch with `KLENS_VERIFY_TOPOLOGY_SECS=600`. That is session harness, not a `launch.sh` default. `KLENS_TOPOLOGY_LANE_INTERVAL` and `KLENS_CATALOG_POLL_INTERVAL` are ignored.
 - Leave `klens-verify-topics` in place across features in one session. Cleanup does not delete Kafka data unless this run started the broker.
 
 ## Proof and skip reporting

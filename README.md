@@ -33,11 +33,11 @@ helm install klens oci://ghcr.io/marcocondrache/charts/klens \
 [`charts/klens`](charts/klens) if you want to install from a checkout.
 
 Every page reads a background projection of each cluster, refreshed by
-independent lanes. Override a lane's cadence with `KLENS_TOPOLOGY_LANE_INTERVAL`
-(default 10), `KLENS_WATERMARK_LANE_INTERVAL` (3), `KLENS_CONFIG_LANE_INTERVAL`
-(60), or `KLENS_SUBJECT_LANE_INTERVAL` (30), in seconds, minimum 1. Consumer
-group offsets refresh at `KLENS_FAST_OFFSET_INTERVAL` (2) for groups someone is
-looking at and `KLENS_SLOW_OFFSET_INTERVAL` (20) for the rest.
+independent lanes. Override a cluster's cadence with `ingest` on that cluster
+(`topology_secs` 10, `watermark_secs` 3, `config_secs` 60, `subjects_secs` 30,
+`offset_tick_secs` 1, `fast_offset_secs` 2, `slow_offset_secs` 20). Values are
+seconds and must be at least 1. Offsets use the fast interval for groups
+someone is looking at and the slow interval for the rest.
 
 ## Authentication
 

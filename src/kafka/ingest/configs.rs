@@ -5,7 +5,6 @@ use foldhash::HashMap;
 
 use async_trait::async_trait;
 
-use crate::environment::CONFIG_LANE_INTERVAL;
 use crate::kafka::error::KafkaError;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::store::{Change, ClusterStore, ConfigTable, ConfigsDelta, Lane};
@@ -20,10 +19,6 @@ pub struct ConfigLane {
 }
 
 impl ConfigLane {
-    pub fn new(session: Arc<dyn ClusterSession>) -> Self {
-        Self::with_interval(session, *CONFIG_LANE_INTERVAL)
-    }
-
     pub fn with_interval(session: Arc<dyn ClusterSession>, interval: Duration) -> Self {
         Self {
             session,

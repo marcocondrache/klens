@@ -4,6 +4,9 @@
 //! diffing against the previous table, swapping it, and publishing a typed
 //! delta.
 //!
+//! Cadences default to [`crate::config::ClusterIngestConfig`] and can be
+//! overridden per cluster.
+//!
 //! | Lane       | Cadence  | Emits                                     |
 //! | ---------- | -------- | ----------------------------------------- |
 //! | Topology   | ~10s     | added / removed / changed topics & groups |
@@ -20,9 +23,11 @@ pub mod topology;
 pub mod watermarks;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::task::JoinSet;
 
+use crate::config::ClusterIngestConfig;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::store::{ClusterStore, StoreSet};
 
@@ -33,6 +38,39 @@ pub use subjects::SubjectLane;
 pub use topology::TopologyLane;
 pub use watermarks::WatermarkLane;
 
+/// Per-lane cadences. Defaults match [`ClusterIngestConfig`]; tests override
+/// them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LaneIntervals {
+    pub topology: Duration,
+    pub watermarks: Duration,
+    pub offsets_tick: Duration,
+    pub fast_offsets: Duration,
+    pub slow_offsets: Duration,
+    pub configs: Duration,
+    pub subjects: Duration,
+}
+
+impl From<&ClusterIngestConfig> for LaneIntervals {
+    fn from(config: &ClusterIngestConfig) -> Self {
+        Self {
+            topology: Duration::from_secs(config.topology_secs),
+            watermarks: Duration::from_secs(config.watermark_secs),
+            offsets_tick: Duration::from_secs(config.offset_tick_secs),
+            fast_offsets: Duration::from_secs(config.fast_offset_secs),
+            slow_offsets: Duration::from_secs(config.slow_offset_secs),
+            configs: Duration::from_secs(config.config_secs),
+            subjects: Duration::from_secs(config.subjects_secs),
+        }
+    }
+}
+
+impl Default for LaneIntervals {
+    fn default() -> Self {
+        Self::from(&ClusterIngestConfig::default())
+    }
+}
+
 /// Owns every lane task. Dropping it aborts them, so a store and its
 /// ingestion have the same lifetime.
 pub struct Ingest {
@@ -41,42 +79,45 @@ pub struct Ingest {
 
 impl Ingest {
     pub fn start(
-        clusters: impl IntoIterator<Item = (Arc<ClusterStore>, Arc<dyn ClusterSession>)>,
+        clusters: impl IntoIterator<Item = (Arc<ClusterStore>, Arc<dyn ClusterSession>, LaneIntervals)>,
     ) -> Self {
-        use crate::environment::{
-            CONFIG_LANE_INTERVAL, SUBJECT_LANE_INTERVAL, TOPOLOGY_LANE_INTERVAL,
-            WATERMARK_LANE_INTERVAL,
-        };
-
         let mut tasks = JoinSet::new();
 
-        for (store, session) in clusters {
+        for (store, session, intervals) in clusters {
             tracing::info!(
                 cluster = %store.name(),
-                topology_secs = TOPOLOGY_LANE_INTERVAL.as_secs(),
-                watermark_secs = WATERMARK_LANE_INTERVAL.as_secs(),
-                config_secs = CONFIG_LANE_INTERVAL.as_secs(),
-                subject_secs = SUBJECT_LANE_INTERVAL.as_secs(),
+                topology_secs = intervals.topology.as_secs(),
+                watermark_secs = intervals.watermarks.as_secs(),
+                config_secs = intervals.configs.as_secs(),
+                subject_secs = intervals.subjects.as_secs(),
                 "starting ingestion lanes"
             );
 
             tasks.spawn(run(
                 Arc::clone(&store),
-                TopologyLane::new(Arc::clone(&session)),
+                TopologyLane::with_interval(Arc::clone(&session), intervals.topology),
             ));
             tasks.spawn(run(
                 Arc::clone(&store),
-                WatermarkLane::new(Arc::clone(&session)),
+                WatermarkLane::with_interval(Arc::clone(&session), intervals.watermarks),
             ));
             tasks.spawn(run(
                 Arc::clone(&store),
-                ConfigLane::new(Arc::clone(&session)),
+                ConfigLane::with_interval(Arc::clone(&session), intervals.configs),
             ));
             tasks.spawn(run(
                 Arc::clone(&store),
-                SubjectLane::new(Arc::clone(&session)),
+                SubjectLane::with_interval(Arc::clone(&session), intervals.subjects),
             ));
-            tasks.spawn(OffsetLane::new(Arc::clone(&session)).run(Arc::clone(&store)));
+            tasks.spawn(
+                OffsetLane::new(Arc::clone(&session))
+                    .with_tiers(
+                        intervals.offsets_tick,
+                        intervals.fast_offsets,
+                        intervals.slow_offsets,
+                    )
+                    .run(Arc::clone(&store)),
+            );
         }
 
         Self { tasks }
@@ -90,11 +131,11 @@ impl Ingest {
                 .map(|session| session.identity().clone())
                 .collect::<Vec<_>>(),
         ));
-        let clusters: Vec<(Arc<ClusterStore>, Arc<dyn ClusterSession>)> = sessions
+        let clusters: Vec<(Arc<ClusterStore>, Arc<dyn ClusterSession>, LaneIntervals)> = sessions
             .into_iter()
             .filter_map(|session| {
                 let store = stores.get(&session.identity().name)?;
-                Some((Arc::clone(store), session))
+                Some((Arc::clone(store), session, LaneIntervals::default()))
             })
             .collect();
 
