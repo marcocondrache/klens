@@ -187,9 +187,44 @@ jobs:
       - name: Check unused dependencies
         run: cargo machete
 
+  mutants:
+    name: mutants
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: Fetch pull request base
+        run: git fetch --no-tags origin "${{ github.base_ref }}"
+      - name: Diff against the pull request base
+        run: git diff "origin/${{ github.base_ref }}.." > "${RUNNER_TEMP}/pr.diff"
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+      - name: Cache cargo registry and build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - name: Install nextest
+        uses: taiki-e/install-action@e88e69ecdb9658bd172693dcdc2c84e7f0ab6a11 # nextest
+      - name: Install cargo-mutants
+        uses: taiki-e/install-action@2ffdc177c283758d9c1f0f9563d70cce8bc9c576 # cargo-mutants
+      - name: Run cargo-mutants on the pull request diff
+        run: cargo mutants --no-shuffle -vV --in-place --in-diff "${RUNNER_TEMP}/pr.diff"
+      - name: Archive mutants.out
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: mutants.out
+          path: mutants.out
+          if-no-files-found: ignore
+
   tests_pass:
     name: tests pass
-    needs: [changes, style, clippy, web, test, docs, machete, helm]
+    needs: [changes, style, clippy, web, test, docs, machete, helm, mutants]
     if: always()
     runs-on: ubuntu-latest
     steps:

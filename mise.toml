@@ -6,6 +6,7 @@ rust = "latest"
 viteplus = "latest"
 
 "cargo:cargo-machete" = "latest"
+"cargo:cargo-mutants" = "latest"
 "cargo:cargo-nextest" = "latest"
 
 [tasks."helm:lint"]
