@@ -316,6 +316,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
           selectedRecord ? `${selectedRecord.partition}-${selectedRecord.offset}` : undefined
         }
         fill
+        virtualize
         error={queryErrorMessage(isError, error, "Failed to load records.")}
         emptyState={
           <Empty className="py-10">
