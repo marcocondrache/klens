@@ -22,7 +22,7 @@ Preconditions:
 - Doctor reports cluster `local` is ready and topology has `updatedAt` with no `lastError`.
 - Start from `/`.
 
-- **Open catalog.** Click sidebar `Consumer Groups`. URL is `/cluster/local/groups`. Heading is `Consumer groups`. The description includes `groups`. Footer `Rows per page` is `100`.
+- **Open catalog.** Click sidebar `Consumer Groups`. URL is `/cluster/local/groups`. Heading is `Consumer groups`. The description includes `groups`. The table lists every matching group. There is no `Rows per page` footer.
 - **Search.** If a group id is visible, type a unique prefix into `Search consumer groups…`. The URL contains `q=`. Non-matching ids leave the table.
 - **State filter.** Open the state select and choose `Empty` or `Stable` to match a visible group. The URL contains `state=`.
 - **Open group.** Click a group row. URL becomes `/cluster/local/groups/<id>` and the heading contains that id.

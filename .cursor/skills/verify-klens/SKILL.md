@@ -69,7 +69,7 @@ Prefer the helper for the feature under test. Topics is the seeded proof path:
 .cursor/skills/verify-klens/helpers/drive-topics.mjs
 ```
 
-That script uses Playwright against `/usr/bin/google-chrome` (override with `CHROME`). It opens the UI, waits for the Topics heading, checks `Rows per page` is `100`, toggles `Show internal`, filters to the seeded topic, opens the topic, and writes evidence.
+That script uses Playwright against `/usr/bin/google-chrome` (override with `CHROME`). It opens the UI, waits for the Topics heading, checks the table has no `Rows per page` footer, toggles `Show internal`, filters to the seeded topic, opens the topic, and writes evidence.
 
 Drive the live ACL page before opening a topic Data tab. A records fetch timeout can poison the shared krafka client so later `acls` RPCs also time out.
 

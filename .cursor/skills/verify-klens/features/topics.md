@@ -24,7 +24,7 @@ Preconditions:
 - Topic `klens-verify-topics` exists.
 - `helpers/drive-topics.mjs` is the scripted form of this recipe.
 
-- **Land.** Open `/`. Wait for heading `Topics` and URL `/cluster/local/topics`. The sidebar wordmark reads `klens`. Footer `Rows per page` is `100`.
+- **Land.** Open `/`. Wait for heading `Topics` and URL `/cluster/local/topics`. The sidebar wordmark reads `klens`. The table lists every matching topic. There is no `Rows per page` footer.
 - **See seed.** The table includes a cell `klens-verify-topics`. The page description matches `N of M topics` and may append ` · Updated …`.
 - **Search.** Fill `Search topics…` with `klens-verify-topics`. The URL contains `q=klens-verify-topics`. The table still shows that topic and does not show unrelated names that were visible before.
 - **Open topic.** Click the `klens-verify-topics` row. The URL becomes `/cluster/local/topics/klens-verify-topics` and the heading contains `klens-verify-topics`.

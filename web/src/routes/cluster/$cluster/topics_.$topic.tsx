@@ -280,7 +280,6 @@ function TopicPage() {
             data={detail?.partitions ?? []}
             getRowId={(partition) => String(partition.id)}
             loading={isPending}
-            pageSize={25}
             defaultSort={{ id: "id", direction: "asc" }}
             fill
           />
