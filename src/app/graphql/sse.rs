@@ -1,15 +1,16 @@
 //! GraphQL subscriptions over server-sent events.
 //!
-//! One `GET /graphql` is one subscription. The query string carries the
-//! GraphQL request. Each execution result is a `next` event, and the stream
-//! ends with `complete`. Closing the response unsubscribes.
+//! One `POST /graphql` with `Accept: text/event-stream` is one subscription.
+//! Juniper runs the subscription. Axum writes the event-stream bytes. The
+//! `next` and `complete` event names are the graphql-sse protocol, which
+//! Juniper does not ship. Closing the response unsubscribes.
 
 use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::Instant;
 
 use async_stream::stream;
-use axum::http::{HeaderName, HeaderValue};
+use axum::http::{HeaderMap, HeaderName, HeaderValue, header};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use futures::StreamExt as _;
@@ -23,6 +24,19 @@ use crate::telemetry::{OperationId, record_subscription_connected, record_subscr
 
 use super::Schema;
 use super::context::GraphQlContext;
+
+pub fn wants_stream(headers: &HeaderMap) -> bool {
+    headers
+        .get(header::ACCEPT)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| {
+            value.split(',').any(|part| {
+                part.split(';')
+                    .next()
+                    .is_some_and(|media| media.trim().eq_ignore_ascii_case("text/event-stream"))
+            })
+        })
+}
 
 pub fn open(
     schema: Arc<Schema>,
