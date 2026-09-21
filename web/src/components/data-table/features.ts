@@ -1,11 +1,7 @@
 import {
-  columnFilteringFeature,
   columnVisibilityFeature,
-  createFilteredRowModel,
   createSortedRowModel,
-  filterFn_includesString,
   metaHelper,
-  rowSelectionFeature,
   rowSortingFeature,
   sortFn_alphanumeric,
   sortFn_datetime,
@@ -21,13 +17,9 @@ export interface DataTableColumnMeta {
 }
 
 export const features = tableFeatures({
-  columnFilteringFeature,
   columnVisibilityFeature,
-  rowSelectionFeature,
   rowSortingFeature,
-  filteredRowModel: createFilteredRowModel(),
   sortedRowModel: createSortedRowModel(),
-  filterFns: { includesString: filterFn_includesString },
   sortFns: {
     alphanumeric: sortFn_alphanumeric,
     datetime: sortFn_datetime,
