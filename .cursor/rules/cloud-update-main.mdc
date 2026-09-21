@@ -1,0 +1,23 @@
+---
+description: In Cursor Cloud, fetch and update main before starting work
+alwaysApply: true
+---
+
+# Refresh main in cloud environments
+
+Cursor Cloud VMs often boot from a snapshot whose `main` is hours behind origin. Before branching or editing in a cloud session, update `main`. Skip this on a local checkout.
+
+```sh
+# ✅ GOOD — first commands in a cloud session
+git fetch origin main
+git checkout main
+git pull --ff-only origin main
+# then create the feature branch from that tip
+```
+
+```sh
+# ❌ BAD — branch from the snapshot checkout
+git checkout -b cursor/my-change
+```
+
+Retry fetch/pull on network errors (4s, 8s, 16s, 32s). Do not force-push or reset unrelated local work.
