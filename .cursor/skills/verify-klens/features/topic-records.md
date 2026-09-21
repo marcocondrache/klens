@@ -33,6 +33,7 @@ Preconditions:
 
 - Header facts (`N partitions`, `N msgs`) can render before records finish. Assert the key cell, not that count line.
 - Record search sends GraphQL `filter.contains`. It is not a CEL filter. A topic-catalog `?q=` does not filter records.
+- The Data tab has no pager. The table loads the next scan batch when you scroll to the end.
 - Empty topics show title `No records`, not the Topics `No results.` string.
 - Schema Registry decode is a production boundary. Plain string payloads must appear without a registry.
 - An `Obfuscated` badge appears only when `records.obfuscated` is true. The verify launch writes no obfuscation rules, so the seed payload stays plain.

@@ -1,4 +1,4 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 
 import { execute } from "@/graphql/execute";
 
@@ -73,22 +73,20 @@ export function useSubject(
   });
 }
 
-export function useRecords(
-  cluster: string,
-  query: RecordsFilter,
-  cursor: string | null,
-  enabled = true,
-) {
-  return useQuery({
-    queryKey: keys.records(cluster, query, cursor),
-    queryFn: async () => {
+const RECORD_BATCH_SIZE = 50;
+
+export function useRecords(cluster: string, query: RecordsFilter, enabled = true) {
+  return useInfiniteQuery({
+    queryKey: keys.records(cluster, query),
+    queryFn: async ({ pageParam }) => {
       const { cluster: node } = await execute(recordsQuery, {
         cluster,
-        query: { ...query, cursor },
+        query: { ...query, limit: RECORD_BATCH_SIZE, cursor: pageParam },
       });
       return visibleCluster(node).records;
     },
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.nextCursor,
     enabled,
-    placeholderData: keepPreviousData,
   });
 }
