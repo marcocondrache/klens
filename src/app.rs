@@ -3,8 +3,8 @@ use std::sync::Arc;
 use axum::Router;
 use axum::middleware;
 
-use crate::config::Config;
-use crate::kafka::ingest::{Ingest, LaneIntervals};
+use crate::config::{ClusterIngestConfig, Config};
+use crate::kafka::ingest::Ingest;
 use crate::kafka::model::{AclListing, RegisteredSchema};
 use crate::kafka::store::{ClusterStore, StoreSet};
 use crate::kafka::{
@@ -46,7 +46,7 @@ impl AppState {
     }
 
     pub fn with_ingest(self) -> Self {
-        self.ingest_with(|_| LaneIntervals::default())
+        self.ingest_with(|_| ClusterIngestConfig::default())
     }
 
     pub fn with_ingest_from(self, config: &Config) -> Self {
@@ -55,20 +55,20 @@ impl AppState {
                 .clusters
                 .iter()
                 .find(|cluster| cluster.name.trim() == name)
-                .map(|cluster| LaneIntervals::from(&cluster.ingest))
+                .map(|cluster| cluster.ingest)
                 .unwrap_or_default()
         })
     }
 
-    fn ingest_with(self, intervals: impl Fn(&str) -> LaneIntervals) -> Self {
+    fn ingest_with(self, ingest: impl Fn(&str) -> ClusterIngestConfig) -> Self {
         let clusters = self
             .sessions
             .sessions()
             .into_iter()
             .filter_map(|session| {
                 let store = self.stores.get(&session.identity().name)?;
-                let intervals = intervals(&session.identity().name);
-                Some((Arc::clone(store), session, intervals))
+                let ingest = ingest(&session.identity().name);
+                Some((Arc::clone(store), session, ingest))
             })
             .collect::<Vec<_>>();
 

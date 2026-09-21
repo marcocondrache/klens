@@ -18,28 +18,6 @@ use crate::kafka::testing::FakeCluster;
 /// `kick`.
 const IDLE: Duration = Duration::from_secs(600);
 
-#[test]
-fn lane_intervals_come_from_cluster_ingest_config() {
-    let config = ClusterIngestConfig {
-        topology_secs: 15,
-        watermark_secs: 5,
-        ..ClusterIngestConfig::default()
-    };
-
-    assert_eq!(
-        LaneIntervals::from(&config),
-        LaneIntervals {
-            topology: Duration::from_secs(15),
-            watermarks: Duration::from_secs(5),
-            offsets_tick: Duration::from_secs(1),
-            fast_offsets: Duration::from_secs(2),
-            slow_offsets: Duration::from_secs(20),
-            configs: Duration::from_secs(60),
-            subjects: Duration::from_secs(30),
-        }
-    );
-}
-
 fn store(session: &FakeCluster) -> Arc<ClusterStore> {
     Arc::new(ClusterStore::new(session.identity().clone()))
 }
@@ -670,12 +648,12 @@ async fn one_cluster_never_wakes_another() {
         (
             Arc::clone(&prod_store),
             port(&prod),
-            LaneIntervals::default(),
+            ClusterIngestConfig::default(),
         ),
         (
             Arc::clone(&staging_store),
             port(&staging),
-            LaneIntervals::default(),
+            ClusterIngestConfig::default(),
         ),
     ]);
 

@@ -354,7 +354,7 @@ pub struct ClusterConfig {
 /// Per-cluster ingest cadence, in seconds. Omitted keys use the defaults.
 ///
 /// Values must be at least 1; sub-second polling is rejected at load.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ClusterIngestConfig {
     pub topology_secs: u64,

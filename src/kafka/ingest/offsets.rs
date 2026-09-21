@@ -5,6 +5,7 @@ use foldhash::{HashMap, HashMapExt, HashSet};
 use futures::StreamExt;
 use tokio::time::Instant;
 
+use crate::config::ClusterIngestConfig;
 use crate::environment::OFFSET_FETCH_CONCURRENCY;
 use crate::kafka::group::CommittedOffset;
 use crate::kafka::session::ClusterSession;
@@ -46,12 +47,12 @@ impl Wave {
 
 impl OffsetLane {
     pub fn new(session: Arc<dyn ClusterSession>) -> Self {
-        let intervals = super::LaneIntervals::default();
+        let ingest = ClusterIngestConfig::default();
         Self {
             session,
-            tick: floor(intervals.offsets_tick),
-            fast: floor(intervals.fast_offsets),
-            slow: floor(intervals.slow_offsets),
+            tick: floor(Duration::from_secs(ingest.offset_tick_secs)),
+            fast: floor(Duration::from_secs(ingest.fast_offset_secs)),
+            slow: floor(Duration::from_secs(ingest.slow_offset_secs)),
             concurrency: (*OFFSET_FETCH_CONCURRENCY).max(1),
             attempted_at: Mutex::new(HashMap::new()),
         }
