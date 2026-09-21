@@ -1,27 +1,23 @@
 import { useQuery, type Query } from "@tanstack/react-query";
 
-import { execute } from "@/graphql/execute";
+import type {
+  BrokerRow,
+  ClusterHealth,
+  GroupDetail,
+  GroupRowPage,
+  SubjectRowsResult,
+  TopicDetail,
+  TopicGroupRow,
+  TopicRowPage,
+} from "@/api/types.gen";
 import { clusterPath } from "@/lib/clusters";
 
-import {
-  brokerRowsQuery,
-  clustersQuery,
-  groupQuery,
-  groupRowsQuery,
-  searchQuery,
-  subjectRowsQuery,
-  topicGroupsQuery,
-  topicQuery,
-  topicRowsQuery,
-} from "./documents";
+import { get, getOrNull, resourceId } from "./client";
 import { keys } from "./keys";
-import type { ClusterHealth, SearchHit } from "./types";
+import type { SearchHit } from "./types";
 
-function visibleCluster<T>(cluster: T | null): T {
-  if (cluster == null) {
-    throw new Error("Unknown cluster");
-  }
-  return cluster;
+function clusterPathname(cluster: string, ...rest: string[]) {
+  return ["/api/clusters", encodeURIComponent(cluster), ...rest].join("/");
 }
 
 function searchHref(cluster: string, hit: Omit<SearchHit, "href">): string {
@@ -39,10 +35,7 @@ function searchHref(cluster: string, hit: Omit<SearchHit, "href">): string {
 
 const clustersOptions = {
   queryKey: keys.clusters(),
-  queryFn: async () => {
-    const { clusters } = await execute(clustersQuery);
-    return clusters.map((entry) => entry.health);
-  },
+  queryFn: () => get<ClusterHealth[]>("/api/clusters"),
   refetchInterval: (query: Query<ClusterHealth[]>) =>
     query.state.data?.every((cluster) => cluster.ready) === false ? 2000 : false,
 };
@@ -70,8 +63,8 @@ export function useTopicRows(cluster: string) {
   return useQuery({
     queryKey: keys.topicRows(cluster),
     queryFn: async () => {
-      const { cluster: node } = await execute(topicRowsQuery, { cluster });
-      return visibleCluster(node).topics.rows;
+      const page = await get<TopicRowPage>(clusterPathname(cluster, "topics"));
+      return page.rows;
     },
   });
 }
@@ -79,20 +72,16 @@ export function useTopicRows(cluster: string) {
 export function useTopic(cluster: string, topic: string) {
   return useQuery({
     queryKey: keys.topic(cluster, topic),
-    queryFn: async () => {
-      const { cluster: node } = await execute(topicQuery, { cluster, name: topic });
-      return visibleCluster(node).topic;
-    },
+    queryFn: () =>
+      getOrNull<TopicDetail>(clusterPathname(cluster, "topics", encodeURIComponent(topic))),
   });
 }
 
 export function useTopicGroups(cluster: string, topic: string, enabled = true) {
   return useQuery({
     queryKey: keys.topicGroups(cluster, topic),
-    queryFn: async () => {
-      const { cluster: node } = await execute(topicGroupsQuery, { cluster, topic });
-      return visibleCluster(node).topicGroups;
-    },
+    queryFn: () =>
+      get<TopicGroupRow[]>(clusterPathname(cluster, "topics", encodeURIComponent(topic), "groups")),
     enabled,
   });
 }
@@ -101,8 +90,8 @@ export function useGroupRows(cluster: string) {
   return useQuery({
     queryKey: keys.groupRows(cluster),
     queryFn: async () => {
-      const { cluster: node } = await execute(groupRowsQuery, { cluster });
-      return visibleCluster(node).groups.rows;
+      const page = await get<GroupRowPage>(clusterPathname(cluster, "groups"));
+      return page.rows;
     },
   });
 }
@@ -110,20 +99,14 @@ export function useGroupRows(cluster: string) {
 export function useGroup(cluster: string, group: string) {
   return useQuery({
     queryKey: keys.group(cluster, group),
-    queryFn: async () => {
-      const { cluster: node } = await execute(groupQuery, { cluster, id: group });
-      return visibleCluster(node).group ?? null;
-    },
+    queryFn: () => getOrNull<GroupDetail>(clusterPathname(cluster, "groups", resourceId(group))),
   });
 }
 
 export function useBrokerRows(cluster: string) {
   return useQuery({
     queryKey: keys.brokerRows(cluster),
-    queryFn: async () => {
-      const { cluster: node } = await execute(brokerRowsQuery, { cluster });
-      return visibleCluster(node).brokers;
-    },
+    queryFn: () => get<BrokerRow[]>(clusterPathname(cluster, "brokers")),
   });
 }
 
@@ -138,10 +121,7 @@ export function useBroker(cluster: string, id: number) {
 export function useSubjectRows(cluster: string) {
   return useQuery({
     queryKey: keys.subjectRows(cluster),
-    queryFn: async () => {
-      const { cluster: node } = await execute(subjectRowsQuery, { cluster });
-      return visibleCluster(node).subjects;
-    },
+    queryFn: () => get<SubjectRowsResult>(clusterPathname(cluster, "subjects")),
   });
 }
 
@@ -149,8 +129,10 @@ export function useSearch(cluster: string, term: string) {
   return useQuery({
     queryKey: keys.search(cluster, term),
     queryFn: async () => {
-      const { cluster: node } = await execute(searchQuery, { cluster, term });
-      return visibleCluster(node).search.map((hit) => ({
+      const hits = await get<Omit<SearchHit, "href">[]>(clusterPathname(cluster, "search"), {
+        q: term,
+      });
+      return hits.map((hit) => ({
         ...hit,
         href: searchHref(cluster, hit),
       }));

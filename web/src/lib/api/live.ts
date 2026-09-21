@@ -1,32 +1,20 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 
-import { execute } from "@/graphql/execute";
+import type { AclListing, ConfigEntry, RecordPage, SubjectDetail } from "@/api/types.gen";
 
-import {
-  aclsQuery,
-  brokerConfigsQuery,
-  recordsQuery,
-  subjectQuery,
-  topicConfigsQuery,
-} from "./documents";
+import { get, resourceId } from "./client";
 import { keys, type RecordsFilter } from "./keys";
 
 export type { RecordsFilter };
 
-function visibleCluster<T>(cluster: T | null): T {
-  if (cluster == null) {
-    throw new Error("Unknown cluster");
-  }
-  return cluster;
+function clusterPathname(cluster: string, ...rest: string[]) {
+  return ["/api/clusters", encodeURIComponent(cluster), ...rest].join("/");
 }
 
 export function useAcls(cluster: string, enabled = true) {
   return useQuery({
     queryKey: keys.acls(cluster),
-    queryFn: async () => {
-      const { cluster: node } = await execute(aclsQuery, { cluster });
-      return visibleCluster(node).acls;
-    },
+    queryFn: () => get<AclListing>(clusterPathname(cluster, "acls")),
     enabled,
   });
 }
@@ -34,10 +22,7 @@ export function useAcls(cluster: string, enabled = true) {
 export function useBrokerConfigs(cluster: string, id: number, enabled = true) {
   return useQuery({
     queryKey: keys.brokerConfigs(cluster, id),
-    queryFn: async () => {
-      const { cluster: node } = await execute(brokerConfigsQuery, { cluster, id });
-      return visibleCluster(node).brokerConfigs;
-    },
+    queryFn: () => get<ConfigEntry[]>(clusterPathname(cluster, "brokers", String(id), "configs")),
     enabled: enabled && Number.isFinite(id),
   });
 }
@@ -45,10 +30,8 @@ export function useBrokerConfigs(cluster: string, id: number, enabled = true) {
 export function useTopicConfigs(cluster: string, topic: string, enabled = true) {
   return useQuery({
     queryKey: keys.topicConfigs(cluster, topic),
-    queryFn: async () => {
-      const { cluster: node } = await execute(topicConfigsQuery, { cluster, name: topic });
-      return visibleCluster(node).topicConfigs;
-    },
+    queryFn: () =>
+      get<ConfigEntry[]>(clusterPathname(cluster, "topics", encodeURIComponent(topic), "configs")),
     enabled,
   });
 }
@@ -61,14 +44,10 @@ export function useSubject(
 ) {
   return useQuery({
     queryKey: keys.subject(cluster, name ?? "", version),
-    queryFn: async () => {
-      const { cluster: node } = await execute(subjectQuery, {
-        cluster,
-        name: name ?? "",
+    queryFn: () =>
+      get<SubjectDetail>(clusterPathname(cluster, "subjects", resourceId(name ?? "")), {
         version,
-      });
-      return visibleCluster(node).subject;
-    },
+      }),
     enabled: enabled && name != null,
   });
 }
@@ -78,13 +57,20 @@ const RECORD_BATCH_SIZE = 50;
 export function useRecords(cluster: string, query: RecordsFilter, enabled = true) {
   return useInfiniteQuery({
     queryKey: keys.records(cluster, query),
-    queryFn: async ({ pageParam }) => {
-      const { cluster: node } = await execute(recordsQuery, {
-        cluster,
-        query: { ...query, limit: RECORD_BATCH_SIZE, cursor: pageParam },
-      });
-      return visibleCluster(node).records;
-    },
+    queryFn: ({ pageParam }) =>
+      get<RecordPage>(
+        clusterPathname(cluster, "topics", encodeURIComponent(query.topic), "records"),
+        {
+          partition: query.partition,
+          order: query.order,
+          from: query.from,
+          to: query.to,
+          limit: RECORD_BATCH_SIZE,
+          contains: query.filter?.contains,
+          schemaId: query.schemaId,
+          cursor: pageParam,
+        },
+      ),
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.nextCursor,
     enabled,

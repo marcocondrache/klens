@@ -4,7 +4,7 @@
 //! [`AclListing`] is the session result: either those rows, or authorizer-off.
 //! krafka `AclBinding` / `AclFilter` / `DescribeAclsResult` stay in this
 //! module and in `client`. They are not on [`super::session::ClusterSession`]
-//! or in GraphQL.
+//! or in the HTTP API.
 
 use krafka::admin::DescribeAclsResult;
 use krafka::error::{ErrorCode, KrafkaError};
@@ -94,7 +94,7 @@ impl AclListing {
     /// Map a krafka describe result or transport error into a listing.
     ///
     /// This is the only SECURITY_DISABLED / binding-parse policy.
-    /// `AppState` and GraphQL do not repeat it.
+    /// `AppState` and the HTTP handlers do not repeat it.
     pub fn from_admin_result(
         cluster: &str,
         result: Result<DescribeAclsResult, KrafkaError>,

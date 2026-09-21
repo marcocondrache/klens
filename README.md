@@ -41,7 +41,7 @@ someone is looking at and the slow interval for the rest.
 
 ## Authentication
 
-By default the UI and GraphQL API are open to anyone who can reach the process.
+By default the UI and JSON API are open to anyone who can reach the process.
 
 To require a login, add an OIDC provider to `config.yaml`. klens uses the
 authorization code flow with PKCE. Sessions use

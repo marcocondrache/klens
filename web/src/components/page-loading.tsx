@@ -44,7 +44,7 @@ export function ClustersLoading() {
     <PageLoading
       title="Loading clusters"
       description="Loading the cluster list."
-      slowDescription="The GraphQL API is not responding."
+      slowDescription="The API is not responding."
     />
   );
 }

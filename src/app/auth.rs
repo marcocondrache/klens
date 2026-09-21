@@ -178,6 +178,7 @@ impl SessionGuard {
         self.subject.as_deref()
     }
 
+    #[cfg(test)]
     pub(crate) fn open() -> Self {
         Self {
             auth: AuthState::disabled(),
@@ -513,12 +514,10 @@ mod tests {
         app.oneshot(request).await.unwrap()
     }
 
-    fn graphql_request() -> Request<Body> {
+    fn api_request() -> Request<Body> {
         Request::builder()
-            .method("POST")
-            .uri("/graphql")
-            .header(header::CONTENT_TYPE, "application/json")
-            .body(Body::from(r#"{"query":"{ clusters { name } }"}"#))
+            .uri("/api/clusters")
+            .body(Body::empty())
             .unwrap()
     }
 
@@ -589,14 +588,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn graphql_is_open_when_oidc_disabled() {
-        let response = send(app(AuthState::disabled()), graphql_request()).await;
+    async fn api_is_open_when_oidc_disabled() {
+        let response = send(app(AuthState::disabled()), api_request()).await;
         assert_eq!(response.status(), StatusCode::OK);
     }
 
     #[tokio::test]
-    async fn graphql_unauthorized_without_session() {
-        let response = send(app(AuthState::enabled_for_tests()), graphql_request()).await;
+    async fn api_unauthorized_without_session() {
+        let response = send(app(AuthState::enabled_for_tests()), api_request()).await;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
@@ -605,7 +604,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn graphql_allows_valid_session() {
+    async fn api_allows_valid_session() {
         let router = app(AuthState::enabled_for_tests());
         let user = SessionUser::new(
             "user-1",
@@ -616,7 +615,7 @@ mod tests {
         );
         let cookie = impersonate_cookie(&router, &user).await;
 
-        let mut request = graphql_request();
+        let mut request = api_request();
         request
             .headers_mut()
             .insert(header::COOKIE, cookie.parse().unwrap());
@@ -783,12 +782,12 @@ mod tests {
         let session_cookie = cookie_header(&callback);
         assert!(session_cookie.contains(SESSION_COOKIE));
 
-        let mut request = graphql_request();
+        let mut request = api_request();
         request
             .headers_mut()
             .insert(header::COOKIE, session_cookie.parse().unwrap());
-        let graphql = send(router, request).await;
-        assert_eq!(graphql.status(), StatusCode::OK);
+        let api = send(router, request).await;
+        assert_eq!(api.status(), StatusCode::OK);
     }
 
     #[tokio::test]
@@ -920,12 +919,12 @@ mod tests {
             "/login?error=forbidden"
         );
 
-        let mut request = graphql_request();
+        let mut request = api_request();
         if let Ok(cookies) = cookie_header(&callback).parse() {
             request.headers_mut().insert(header::COOKIE, cookies);
         }
-        let graphql = send(router, request).await;
-        assert_eq!(graphql.status(), StatusCode::UNAUTHORIZED);
+        let api = send(router, request).await;
+        assert_eq!(api.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[test]
@@ -1017,20 +1016,15 @@ mod tests {
         let cookie = impersonate_cookie(&router, &user).await;
 
         let request = Request::builder()
-            .method("POST")
-            .uri("/graphql")
-            .header(header::CONTENT_TYPE, "application/json")
+            .uri("/api/whoami")
             .header(header::COOKIE, cookie)
-            .body(Body::from(
-                r#"{"query":"{ whoami { subject clusters { cluster roles privileges } } }"}"#,
-            ))
+            .body(Body::empty())
             .unwrap();
 
         let response = send(router, request).await;
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        let whoami = &json["data"]["whoami"];
+        let whoami: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
         assert_eq!(whoami["subject"], "user-1");
         assert_eq!(whoami["clusters"][0]["cluster"], "local");
@@ -1042,7 +1036,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn graphql_rejects_a_session_without_a_matching_role() {
+    async fn api_rejects_a_session_without_a_matching_role() {
         let router = app(AuthState::enabled_for_tests_with(
             FakeOidc::default(),
             bound_admins(),
@@ -1056,7 +1050,7 @@ mod tests {
         );
         let cookie = impersonate_cookie(&router, &user).await;
 
-        let mut request = graphql_request();
+        let mut request = api_request();
         request
             .headers_mut()
             .insert(header::COOKIE, cookie.parse().unwrap());
@@ -1066,7 +1060,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn graphql_forbids_records_for_a_viewer() {
+    async fn api_forbids_records_for_a_viewer() {
         let router = app(AuthState::enabled_for_tests_with(
             FakeOidc::default(),
             bound_viewers(),
@@ -1081,19 +1075,15 @@ mod tests {
         let cookie = impersonate_cookie(&router, &user).await;
 
         let request = Request::builder()
-            .method("POST")
-            .uri("/graphql")
-            .header(header::CONTENT_TYPE, "application/json")
+            .uri("/api/clusters/local/topics/orders.created/records?limit=1&order=OLDEST")
             .header(header::COOKIE, cookie)
-            .body(Body::from(
-                r#"{"query":"{ cluster(name: \"local\") { records(query: { topic: \"orders.created\", limit: 1, order: OLDEST }) { records { key } } } }"}"#,
-            ))
+            .body(Body::empty())
             .unwrap();
 
         let response = send(router, request).await;
-        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(json["errors"][0]["extensions"]["code"], "FORBIDDEN");
+        assert_eq!(json["code"], "FORBIDDEN");
     }
 }

@@ -92,7 +92,7 @@ clusters:
     #         - regex: '[\w.+-]+@[\w-]+\.[\w.]+'
     #           strategy: mask       # the match becomes ***
 
-# Optional OpenID Connect login gate. When omitted, the UI and GraphQL API are
+# Optional OpenID Connect login gate. When omitted, the UI and JSON API are
 # open to anyone who can reach the process. /health stays public either way.
 #
 # Register redirect_uri with the identity provider. Without roles, any

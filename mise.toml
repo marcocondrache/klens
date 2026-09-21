@@ -18,23 +18,17 @@ run = "helm lint charts/klens"
 description = "Run helm-unittest template tests (needs the helm-unittest plugin)"
 run = "helm unittest charts/klens"
 
-[tasks.schema]
-description = "Regenerate schema.graphql from the Rust schema"
-run = "cargo xtask schema"
+[tasks.types]
+description = "Regenerate web/src/api/types.gen.ts from the API types"
+run = "cargo xtask types"
 
 [tasks."web:install"]
 description = "Install web dependencies"
 dir = "web"
 run = "vp install"
 
-[tasks."web:codegen"]
-description = "Generate TypeScript GraphQL documents from schema.graphql and graphql() operations"
-dir = "web"
-depends = ["schema", "web:install"]
-run = "vp run codegen"
-
 [tasks."web:dev"]
-description = "Run the Vite dev server (proxies /graphql, /auth, /api and /health to :8080)"
+description = "Run the Vite dev server (proxies /api, /auth, and /health to :8080)"
 dir = "web"
 depends = ["web:install"]
 run = "vp dev"
@@ -48,7 +42,7 @@ run = "vp check"
 [tasks."web:build"]
 description = "Build the web UI into static/"
 dir = "web"
-depends = ["web:install", "web:codegen"]
+depends = ["web:install"]
 run = "vp run build"
 
 [tasks."kafka:up"]

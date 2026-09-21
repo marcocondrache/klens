@@ -41,7 +41,7 @@ function HomePage() {
         <EmptyTitle>{isError ? "Could not load clusters" : "No clusters configured"}</EmptyTitle>
         <EmptyDescription>
           {isError
-            ? "The GraphQL API did not respond. Start the klens service and try again."
+            ? "The API did not respond. Start the klens service and try again."
             : "Add a cluster to config.yaml and restart the service."}
         </EmptyDescription>
       </EmptyHeader>

@@ -18,15 +18,11 @@ function parseEnv(text) {
   return out;
 }
 
-async function graphql(base, query) {
-  const response = await fetch(`${base}/graphql`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ query }),
-  });
+async function api(base, path) {
+  const response = await fetch(`${base}${path}`);
   const body = await response.text();
   if (!response.ok) {
-    throw new Error(`graphql ${response.status}: ${body}`);
+    throw new Error(`GET ${path} ${response.status}: ${body}`);
   }
   return body;
 }
@@ -107,13 +103,10 @@ try {
   await writeFile(join(artifactDir, "open.aria.yml"), await page.locator("body").ariaSnapshot());
   notes.push(`opened ${openUrl}`);
 
-  const topicsJson = await graphql(
-    base,
-    'query { cluster(name: "local") { topics { rows { name internal } } } }',
-  );
+  const topicsJson = await api(base, "/api/clusters/local/topics");
   await writeFile(join(artifactDir, "topics.json"), `${topicsJson}\n`);
   if (!topicsJson.includes(topic)) {
-    throw new Error(`graphql topics missing ${topic}: ${topicsJson}`);
+    throw new Error(`topics missing ${topic}: ${topicsJson}`);
   }
 
   await writeFile(join(artifactDir, "NOTES.txt"), `${notes.join("\n")}\n`);

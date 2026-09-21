@@ -15,7 +15,7 @@ This directory is the maintained source for verifying user-facing klens behavior
 - Start every recipe from `/` unless the feature file says otherwise.
 - Prefer headings, placeholders, button names, and route paths over CSS position.
 - Treat topic names and the seed payload as literals.
-- Run browser steps through Playwright (`helpers/drive-topics.mjs` for Topics, `helpers/drive-command-palette.mjs` for the palette). Use `curl` only to corroborate GraphQL.
+- Run browser steps through Playwright (`helpers/drive-topics.mjs` for Topics, `helpers/drive-command-palette.mjs` for the palette). Use `curl` only to corroborate `/api`.
 - Drive ACLs before opening topic Data. A records timeout can poison later live RPCs.
 - Default topology lane interval is 10s. If doctor fails with `list_consumer_groups` after a few polls, relaunch with `KLENS_VERIFY_TOPOLOGY_SECS=600`. That is session harness, not a `launch.sh` default. `KLENS_TOPOLOGY_LANE_INTERVAL` and `KLENS_CATALOG_POLL_INTERVAL` are ignored.
 - Leave `klens-verify-topics` in place across features in one session. Cleanup does not delete Kafka data unless this run started the broker.
@@ -24,7 +24,7 @@ This directory is the maintained source for verifying user-facing klens behavior
 
 - Capture the action and the resulting state. A final screenshot without the click or filter that produced it is incomplete.
 - UI proof includes an ARIA snapshot and a screenshot with the `klens` wordmark visible.
-- GraphQL proof is a response body, not a status code alone.
+- API proof is a response body, not a status code alone.
 - Record the feature ID and the URL used with every artifact.
 - `clusters.topology.lastError` with `updatedAt == null` is `verified-unreachable` for catalog features. Quote the `Cluster unreachable` alert. A later poll failure with `updatedAt` set shows `Topology lane failing` and is not a catalog pass.
 - Do not report a skipped entry point as verified through a different path.
