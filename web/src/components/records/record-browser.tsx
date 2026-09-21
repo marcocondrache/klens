@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { ClockIcon, EyeOffIcon, TriangleAlertIcon } from "lucide-react";
 import { createColumnHelper } from "@tanstack/react-table";
 
@@ -28,8 +28,8 @@ import {
 } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { DataTableColumnHeader } from "@/components/data-table/column-header";
-import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
+import { RecordTable } from "@/components/records/record-table";
 import { PayloadView } from "@/components/payload-view";
 import { SchemaPicker } from "@/components/schema-picker";
 import { SearchField } from "@/components/search-field";
@@ -42,8 +42,8 @@ import type { KafkaRecord, RecordOrder, TopicDetail } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
 const ORDER_ITEMS = [
-  { value: "NEWEST", label: "Newest first" },
-  { value: "OLDEST", label: "Oldest first" },
+  { value: "NEWEST", label: "Newest" },
+  { value: "OLDEST", label: "Oldest" },
 ] as const;
 
 const EMPTY_RECORDS: KafkaRecord[] = [];
@@ -168,6 +168,9 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
     fetchNextPage,
     hasNextPage,
   } = useRecords(cluster, query, can(cluster, "RECORDS"));
+  const loadMore = useCallback(() => {
+    void fetchNextPage();
+  }, [fetchNextPage]);
 
   const records = useMemo(() => {
     const pages = data?.pages;
@@ -183,9 +186,10 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
         rows.push(record);
       }
     }
-    return rows;
-  }, [data?.pages]);
+    return order === "NEWEST" ? rows.toReversed() : rows;
+  }, [data?.pages, order]);
   const lastPage = data?.pages[data.pages.length - 1];
+  const scanKey = JSON.stringify(query);
   const obfuscated = data?.pages.some((page) => page.obfuscated) ?? false;
   const showSchemaPicker =
     schemaId != null || records.some((record) => record.value != null && record.schemaId == null);
@@ -217,7 +221,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
         </Alert>
       ) : null}
 
-      <DataTable
+      <RecordTable
         columns={columns}
         data={records}
         toolbar={
@@ -307,16 +311,16 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
         getRowId={(record) => `${record.partition}-${record.offset}`}
         loading={isFetching && !isFetchingNextPage && records.length === 0}
         refreshing={isFetching && !isFetchingNextPage && records.length > 0}
-        onLoadMore={fetchNextPage}
-        hasMore={Boolean(hasNextPage)}
-        loadingMore={isFetchingNextPage}
-        loadMoreError={isFetchNextPageError}
+        hasNextPage={Boolean(hasNextPage)}
+        fetchNextPage={loadMore}
+        isFetchingNextPage={isFetchingNextPage}
+        isFetchNextPageError={isFetchNextPageError}
         onRowClick={setSelected}
         selectedKey={
           selectedRecord ? `${selectedRecord.partition}-${selectedRecord.offset}` : undefined
         }
-        fill
-        virtualize
+        anchorTo={order === "NEWEST" ? "end" : "start"}
+        scanKey={scanKey}
         error={queryErrorMessage(isError, error, "Failed to load records.")}
         emptyState={
           <Empty className="py-10">
