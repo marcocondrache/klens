@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use tokio::sync::broadcast;
 
 use crate::kafka::group::GroupOffset;
@@ -86,7 +86,7 @@ impl TopologyDelta {
 #[derive(Debug, Clone, PartialEq)]
 pub struct WatermarksTick {
     pub version: u64,
-    pub at: DateTime<Utc>,
+    pub at: Timestamp,
     /// Messages per second per topic, from the high-watermark delta.
     pub rates: Vec<TopicRate>,
 }
@@ -109,7 +109,7 @@ pub struct TopicRate {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GroupOffsetsWave {
     pub version: u64,
-    pub at: DateTime<Utc>,
+    pub at: Timestamp,
     pub groups: Vec<GroupLagUpdate>,
 }
 

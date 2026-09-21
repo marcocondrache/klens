@@ -1,6 +1,6 @@
 use std::ops::{Bound, RangeBounds};
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
 use crate::kafka::error::QueryError;
 use crate::kafka::scan::cursor::{CursorDirection, RecordCursor};
@@ -54,8 +54,8 @@ impl RecordQuery {
 /// UTC bounds for a record browse. Either side may be unbounded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TimestampRange {
-    start: Bound<DateTime<Utc>>,
-    end: Bound<DateTime<Utc>>,
+    start: Bound<Timestamp>,
+    end: Bound<Timestamp>,
 }
 
 impl TimestampRange {
@@ -64,7 +64,7 @@ impl TimestampRange {
         end: Bound::Unbounded,
     };
 
-    pub fn new(from: Option<DateTime<Utc>>, to: Option<DateTime<Utc>>) -> Result<Self, QueryError> {
+    pub fn new(from: Option<Timestamp>, to: Option<Timestamp>) -> Result<Self, QueryError> {
         match (from, to) {
             (None, None) => Self::UNBOUNDED,
             (Some(from), None) => Self::from_bounds(from..),
@@ -74,7 +74,7 @@ impl TimestampRange {
         .validate()
     }
 
-    pub fn from_bounds(range: impl RangeBounds<DateTime<Utc>>) -> Self {
+    pub fn from_bounds(range: impl RangeBounds<Timestamp>) -> Self {
         Self {
             start: copy_bound(range.start_bound()),
             end: copy_bound(range.end_bound()),
@@ -106,17 +106,17 @@ impl Default for TimestampRange {
     }
 }
 
-impl RangeBounds<DateTime<Utc>> for TimestampRange {
-    fn start_bound(&self) -> Bound<&DateTime<Utc>> {
+impl RangeBounds<Timestamp> for TimestampRange {
+    fn start_bound(&self) -> Bound<&Timestamp> {
         self.start.as_ref()
     }
 
-    fn end_bound(&self) -> Bound<&DateTime<Utc>> {
+    fn end_bound(&self) -> Bound<&Timestamp> {
         self.end.as_ref()
     }
 }
 
-fn copy_bound(bound: Bound<&DateTime<Utc>>) -> Bound<DateTime<Utc>> {
+fn copy_bound(bound: Bound<&Timestamp>) -> Bound<Timestamp> {
     match bound {
         Bound::Included(value) => Bound::Included(*value),
         Bound::Excluded(value) => Bound::Excluded(*value),
@@ -126,14 +126,14 @@ fn copy_bound(bound: Bound<&DateTime<Utc>>) -> Bound<DateTime<Utc>> {
 
 /// Kafka seeks to the first offset at or after a timestamp, so an exclusive
 /// bound is expressed by shifting one millisecond.
-fn timestamp_seek(bound: Bound<DateTime<Utc>>, is_end: bool) -> Option<i64> {
+fn timestamp_seek(bound: Bound<Timestamp>, is_end: bool) -> Option<i64> {
     match (bound, is_end) {
         (Bound::Unbounded, _) => None,
         (Bound::Included(timestamp), false) | (Bound::Excluded(timestamp), true) => {
-            Some(timestamp.timestamp_millis())
+            Some(timestamp.as_millisecond())
         }
         (Bound::Included(timestamp), true) | (Bound::Excluded(timestamp), false) => {
-            Some(timestamp.timestamp_millis().saturating_add(1))
+            Some(timestamp.as_millisecond().saturating_add(1))
         }
     }
 }
@@ -144,8 +144,8 @@ mod tests {
 
     use super::*;
 
-    fn unix_datetime(ms: i64) -> DateTime<Utc> {
-        crate::utils::datetime_from_unix_millis(ms)
+    fn unix_datetime(ms: i64) -> Timestamp {
+        Timestamp::from_millisecond(ms).unwrap_or(Timestamp::UNIX_EPOCH)
     }
 
     #[test]

@@ -113,10 +113,9 @@ enum TopicSortField {
   GROUPS
 }
 
-"A substring match or a CEL expression, never both."
+"A case-insensitive substring over key and value text."
 input RecordFilterInput {
   contains: String
-  cel: String
 }
 
 input RecordQueryInput {
@@ -156,18 +155,16 @@ input UpdateScope {
 }
 
 """
-  Combined date and time (with time zone) in [RFC 3339][0] format.
+  Instant in time represented as the number of nanoseconds since the Unix epoch.
 
-  Represents a description of an exact instant on the time-line (such as the
-  instant that a user account was created).
+  Always in UTC.
 
   [`DateTime` scalar][1] compliant.
 
-  See also [`chrono::DateTime`][2] for details.
+  See also [`jiff::Timestamp`][2] for details.
 
-  [0]: https://datatracker.ietf.org/doc/html/rfc3339#section-5
   [1]: https://graphql-scalars.dev/docs/scalars/date-time
-  [2]: https://docs.rs/chrono/latest/chrono/struct.DateTime.html
+  [2]: https://docs.rs/jiff/*/jiff/struct.Timestamp.html
 """
 scalar DateTime
 

@@ -1,5 +1,6 @@
 use anyhow::{Context, anyhow};
 use async_trait::async_trait;
+use jiff::Timestamp;
 use openidconnect::core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetadata};
 use openidconnect::reqwest;
 use openidconnect::{
@@ -20,7 +21,6 @@ type DiscoveredClient = CoreClient<
 use super::SessionUser;
 use super::access::groups_from_json;
 use crate::config::OidcConfig;
-use crate::utils::unix_timestamp_secs;
 
 #[async_trait]
 pub(crate) trait OidcFlow: Send + Sync {
@@ -155,7 +155,7 @@ impl OidcFlow for Oidc {
             }
         }
 
-        let now = unix_timestamp_secs();
+        let now = Timestamp::now().as_second();
         let exp = claims
             .expiration()
             .timestamp()
@@ -232,7 +232,7 @@ impl OidcFlow for FakeOidc {
             Some("user@example.com".into()),
             Some("Test User".into()),
             self.groups.clone(),
-            unix_timestamp_secs() + 3600,
+            Timestamp::now().as_second() + 3600,
         ))
     }
 }

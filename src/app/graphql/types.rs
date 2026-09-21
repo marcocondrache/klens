@@ -1,14 +1,12 @@
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use juniper::{GraphQLEnum, GraphQLInputObject, GraphQLObject, GraphQLUnion};
 
+use super::scalars::Int64;
 use crate::app::auth::access::Privilege;
 use crate::kafka::model as domain;
 use crate::kafka::store::{self, projections};
 use crate::kafka::{CompiledFilter, QueryError, RecordCursor};
 use crate::r#macro::from_same_variants;
-use crate::utils::datetime_from_unix_millis;
-
-use super::scalars::Int64;
 
 #[derive(GraphQLEnum, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PrivilegeName {
@@ -40,8 +38,8 @@ pub(super) struct Identity {
 
 #[derive(GraphQLObject)]
 pub(super) struct LaneHealth {
-    pub updated_at: Option<DateTime<Utc>>,
-    pub checked_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<Timestamp>,
+    pub checked_at: Option<Timestamp>,
     pub last_error: Option<String>,
     pub last_poll_ms: Option<Int64>,
     /// False once a lane has failed since its last successful commit.
@@ -682,7 +680,7 @@ pub(super) struct Record {
     pub topic: String,
     pub partition: i32,
     pub offset: Int64,
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: Timestamp,
     pub key: Option<String>,
     pub value: Option<String>,
     pub schema_id: Option<i32>,
@@ -697,7 +695,8 @@ impl From<domain::Record> for Record {
             topic: record.topic,
             partition: record.partition,
             offset: record.offset.into(),
-            timestamp: datetime_from_unix_millis(record.timestamp),
+            timestamp: Timestamp::from_millisecond(record.timestamp)
+                .unwrap_or(Timestamp::UNIX_EPOCH),
             key: record.key,
             value: record.value,
             schema_id: record.schema_id,
@@ -736,26 +735,17 @@ impl From<domain::RecordPage> for RecordPage {
     }
 }
 
-/// A substring match or a CEL expression, never both.
+/// A case-insensitive substring over key and value text.
 #[derive(GraphQLInputObject)]
 pub(super) struct RecordFilterInput {
     pub contains: Option<String>,
-    pub cel: Option<String>,
 }
 
 impl RecordFilterInput {
-    fn compile(self) -> Result<Option<CompiledFilter>, QueryError> {
-        match (
-            self.contains.as_deref().map(str::trim).filter(non_empty),
-            self.cel.as_deref().map(str::trim).filter(non_empty),
-        ) {
-            (Some(_), Some(_)) => Err(QueryError::InvalidFilter(
-                "set either 'contains' or 'cel', not both".to_owned(),
-            )),
-            (Some(needle), None) => Ok(crate::kafka::compile_contains_filter(needle)),
-            (None, Some(source)) => crate::kafka::compile_cel_filter(source),
-            (None, None) => Ok(None),
-        }
+    fn compile(self) -> Option<CompiledFilter> {
+        self.contains
+            .as_deref()
+            .and_then(crate::kafka::compile_contains_filter)
     }
 }
 
@@ -770,8 +760,8 @@ pub(super) struct RecordQueryInput {
     /// Nullable rather than defaulted because juniper renders an enum
     /// default as a quoted string, which is not valid SDL.
     pub order: Option<RecordOrder>,
-    pub from: Option<DateTime<Utc>>,
-    pub to: Option<DateTime<Utc>>,
+    pub from: Option<Timestamp>,
+    pub to: Option<Timestamp>,
     #[graphql(default = 50)]
     pub limit: i32,
     pub filter: Option<RecordFilterInput>,
@@ -785,11 +775,7 @@ impl TryFrom<RecordQueryInput> for domain::RecordQuery {
     fn try_from(query: RecordQueryInput) -> Result<Self, Self::Error> {
         Ok(Self {
             timestamps: domain::TimestampRange::new(query.from, query.to)?,
-            filter: query
-                .filter
-                .map(RecordFilterInput::compile)
-                .transpose()?
-                .flatten(),
+            filter: query.filter.and_then(RecordFilterInput::compile),
             cursor: match query.cursor.as_deref().map(str::trim) {
                 None | Some("") => None,
                 Some(cursor) => Some(RecordCursor::parse(cursor)?),
@@ -889,7 +875,7 @@ impl From<&store::TopicRate> for TopicRate {
 
 #[derive(GraphQLObject, Clone)]
 pub(super) struct WatermarksTick {
-    pub at: DateTime<Utc>,
+    pub at: Timestamp,
     /// One `{topic, rate}` pair per topic, never catalog objects. A scoped
     /// subscriber gets only its topic.
     pub topics: Vec<TopicRate>,
@@ -897,7 +883,7 @@ pub(super) struct WatermarksTick {
 
 #[derive(GraphQLObject, Clone)]
 pub(super) struct GroupLagUpdate {
-    pub at: DateTime<Utc>,
+    pub at: Timestamp,
     pub group: String,
     pub lag: Int64,
     pub lag_complete: bool,
@@ -981,23 +967,12 @@ mod tests {
     }
 
     #[test]
-    fn a_filter_may_not_be_both_substring_and_cel() {
-        let filter = RecordFilterInput {
-            contains: Some("boom".into()),
-            cel: Some("record.key == 'k'".into()),
-        };
-
-        assert!(filter.compile().is_err());
-    }
-
-    #[test]
     fn an_empty_filter_compiles_to_no_filter() {
         let filter = RecordFilterInput {
             contains: Some("   ".into()),
-            cel: None,
         };
 
-        assert!(filter.compile().unwrap().is_none());
+        assert!(filter.compile().is_none());
     }
 
     #[test]

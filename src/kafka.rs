@@ -41,9 +41,7 @@ pub use error::{KafkaError, QueryError};
 pub use limits::RecordLimits;
 pub use model::{ConfigEntry, RecordPage, RecordQuery};
 pub use scan::cursor::RecordCursor;
-pub use scan::filter::{
-    CompiledFilter, cel as compile_cel_filter, contains as compile_contains_filter,
-};
+pub use scan::filter::{CompiledFilter, contains as compile_contains_filter};
 pub use scan::read::read_page;
 pub use session::{ClusterSession, SessionSet};
 

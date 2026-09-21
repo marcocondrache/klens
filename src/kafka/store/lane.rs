@@ -4,19 +4,17 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use arc_swap::ArcSwapOption;
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use tokio::sync::Notify;
-
-use crate::utils::utc_now;
 
 /// Freshness and failure state for one ingestion lane.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LaneHealth {
     /// When the lane last committed a table, i.e. when the data last moved.
-    pub updated_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<Timestamp>,
     /// When the lane last completed a fetch, whether or not it changed
     /// anything. A lane whose data is stable stays fresh here.
-    pub checked_at: Option<DateTime<Utc>>,
+    pub checked_at: Option<Timestamp>,
     pub last_error: Option<String>,
     pub last_poll_ms: Option<u64>,
 }
@@ -76,7 +74,7 @@ impl<T> Lane<T> {
     pub fn commit(&self, next: Arc<T>) -> u64 {
         self.table.store(Some(next));
         let version = self.version.fetch_add(1, Ordering::AcqRel) + 1;
-        self.health.write().expect("lane health lock").updated_at = Some(utc_now());
+        self.health.write().expect("lane health lock").updated_at = Some(Timestamp::now());
         version
     }
 
@@ -84,7 +82,7 @@ impl<T> Lane<T> {
         let mut health = self.health.write().expect("lane health lock");
         health.last_poll_ms = Some(elapsed.as_millis() as u64);
         if error.is_none() {
-            health.checked_at = Some(utc_now());
+            health.checked_at = Some(Timestamp::now());
         }
         health.last_error = error;
     }

@@ -3,11 +3,11 @@ use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
 
 use axum_login::{AuthUser, AuthnBackend, UserId};
+use jiff::Timestamp;
 use openidconnect::{Nonce, PkceCodeVerifier};
 
 use super::SessionUser;
 use super::oidc::OidcFlow;
-use crate::utils::unix_timestamp_secs;
 
 #[derive(Clone)]
 pub(crate) struct AuthBackend {
@@ -54,7 +54,7 @@ impl AuthBackend {
     pub(crate) fn live_user(&self, subject: &str) -> Option<SessionUser> {
         let mut users = self.users.lock().expect("auth user store");
         match users.get(subject) {
-            Some(user) if user.exp > unix_timestamp_secs() => Some(user.clone()),
+            Some(user) if user.exp > Timestamp::now().as_second() => Some(user.clone()),
             Some(_) => {
                 users.remove(subject);
                 None
