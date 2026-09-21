@@ -25,6 +25,7 @@ cargo clippy --all -- -D warnings
 From `web/`:
 
 ```sh
+bun audit
 bun install --frozen-lockfile
 bunx vp check
 bun run build
