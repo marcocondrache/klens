@@ -11,6 +11,7 @@ import { Pill } from "@/components/status";
 import { useNow } from "@/hooks/use-now";
 import { useBrokerRows, useClusterHealth } from "@/lib/api/catalog";
 import { laneCaption, useClusterName } from "@/lib/clusters";
+import { graphqlErrorMessage } from "@/lib/graphql-error";
 import { formatNumber } from "@/lib/format";
 import type { BrokerRow } from "@/lib/api/types";
 
@@ -105,9 +106,7 @@ function NodesPage() {
         data={brokers}
         getRowId={(broker) => String(broker.id)}
         loading={isPending}
-        error={
-          isError ? (error instanceof Error ? error.message : "Failed to load brokers.") : undefined
-        }
+        error={isError ? graphqlErrorMessage(error, "Failed to load brokers.") : undefined}
         defaultSort={{ id: "id", direction: "asc" }}
         onRowClick={(broker) => {
           void navigate({

@@ -22,6 +22,7 @@ import { Pill } from "@/components/status";
 import { useNow } from "@/hooks/use-now";
 import { useClusterHealth, useTopicRows } from "@/lib/api/catalog";
 import { laneCaption, useClusterName } from "@/lib/clusters";
+import { graphqlErrorMessage } from "@/lib/graphql-error";
 import {
   formatCleanupPolicy,
   formatDuration,
@@ -234,9 +235,7 @@ function TopicsPage() {
           </>
         }
         loading={isPending}
-        error={
-          isError ? (error instanceof Error ? error.message : "Failed to load topics.") : undefined
-        }
+        error={isError ? graphqlErrorMessage(error, "Failed to load topics.") : undefined}
         defaultSort={{ id: "name", direction: "asc" }}
         onRowClick={(topic) => {
           void navigate({
