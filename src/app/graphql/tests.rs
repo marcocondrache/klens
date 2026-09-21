@@ -1363,8 +1363,17 @@ async fn a_session_that_expires_mid_stream_terminates_it() {
     );
 }
 
+fn subscription_get(query: &str, operation_name: Option<&str>) -> String {
+    let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+    serializer.append_pair("query", query);
+    if let Some(operation_name) = operation_name {
+        serializer.append_pair("operationName", operation_name);
+    }
+    format!("/graphql?{}", serializer.finish())
+}
+
 #[tokio::test]
-async fn a_subscription_post_without_the_event_stream_header_is_rejected() {
+async fn a_subscription_post_is_rejected() {
     use axum::body::Body;
     use axum::http::{Request, StatusCode, header};
     use tower::ServiceExt as _;
@@ -1377,6 +1386,7 @@ async fn a_subscription_post_without_the_event_stream_header_is_rejected() {
                 .method("POST")
                 .uri("/graphql")
                 .header(header::CONTENT_TYPE, "application/json")
+                .header(header::ACCEPT, "text/event-stream")
                 .body(Body::from(
                     r#"{"query":"subscription { updates(cluster: \"local\") { __typename } }"}"#,
                 ))
@@ -1401,11 +1411,9 @@ async fn an_event_stream_query_reports_the_failure_as_a_next_event() {
     let response = crate::app::router(seeded())
         .oneshot(
             Request::builder()
-                .method("POST")
-                .uri("/graphql")
-                .header(header::CONTENT_TYPE, "application/json")
-                .header(header::ACCEPT, "text/event-stream")
-                .body(Body::from(r#"{"query":"{ __typename }"}"#))
+                .method("GET")
+                .uri(subscription_get("{ __typename }", None))
+                .body(Body::empty())
                 .expect("request"),
         )
         .await
@@ -1435,7 +1443,7 @@ async fn an_event_stream_subscription_pushes_the_next_bus_event() {
     use std::time::Duration;
 
     use axum::body::Body;
-    use axum::http::{Request, StatusCode, header};
+    use axum::http::{Request, StatusCode};
     use futures::StreamExt as _;
     use tower::ServiceExt as _;
 
@@ -1445,13 +1453,12 @@ async fn an_event_stream_subscription_pushes_the_next_bus_event() {
     let response = crate::app::router(state)
         .oneshot(
             Request::builder()
-                .method("POST")
-                .uri("/graphql")
-                .header(header::CONTENT_TYPE, "application/json")
-                .header(header::ACCEPT, "text/event-stream")
-                .body(Body::from(
-                    r#"{"query":"subscription Updates { updates(cluster: \"local\") { __typename } }","operationName":"Updates"}"#,
+                .method("GET")
+                .uri(subscription_get(
+                    r#"subscription Updates { updates(cluster: "local") { __typename } }"#,
+                    Some("Updates"),
                 ))
+                .body(Body::empty())
                 .expect("request"),
         )
         .await
