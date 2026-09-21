@@ -52,6 +52,7 @@ interface DataTableProps<TData extends RowData> {
   loadingMore?: boolean;
   loadMoreError?: boolean;
   fill?: boolean;
+  virtualize?: boolean;
 }
 
 function tablePlaceholder(content: ReactNode) {
@@ -79,6 +80,7 @@ export function DataTable<TData extends RowData>({
   loadingMore = false,
   loadMoreError = false,
   fill = false,
+  virtualize = false,
 }: DataTableProps<TData>) {
   const serverRows = onLoadMore != null;
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -133,7 +135,10 @@ export function DataTable<TData extends RowData>({
         {refreshing ? <RefreshBar className="absolute inset-x-0 top-0 z-20" /> : null}
         <div
           ref={scrollRef}
-          className={cn("[overflow-anchor:none]", fill && "min-h-0 flex-1 overflow-auto")}
+          className={cn(
+            virtualize && "[overflow-anchor:none]",
+            fill && "min-h-0 flex-1 overflow-auto",
+          )}
         >
           <Table>
             <TableHeader className={cn(fill && "[&_tr]:border-b-0!")}>
@@ -179,7 +184,7 @@ export function DataTable<TData extends RowData>({
                     {error || emptyState ? tablePlaceholder(error ?? emptyState) : "No results."}
                   </TableCell>
                 </TableRow>
-              ) : (
+              ) : virtualize ? (
                 <DataTableVirtualRows
                   table={table}
                   rows={rows}
@@ -192,6 +197,16 @@ export function DataTable<TData extends RowData>({
                   loadingMore={loadingMore}
                   loadMoreError={loadMoreError}
                 />
+              ) : (
+                rows.map((row) => (
+                  <DataTableBodyRow
+                    key={row.id}
+                    table={table}
+                    row={row}
+                    selectedKey={selectedKey}
+                    onRowClick={onRowClick}
+                  />
+                ))
               )}
             </TableBody>
           </Table>
@@ -228,6 +243,47 @@ function SpacerRow({ height, columnCount }: { height: number; columnCount: numbe
         <td key={index} className="border-0 p-0" style={{ height }} />
       ))}
     </tr>
+  );
+}
+
+function DataTableBodyRow<TData extends RowData>({
+  table,
+  row,
+  selectedKey,
+  onRowClick,
+  index,
+  measureRef,
+}: {
+  table: ReactTable<DataTableFeatures, TData>;
+  row: Row<DataTableFeatures, TData>;
+  selectedKey?: string;
+  onRowClick?: (row: TData) => void;
+  index?: number;
+  measureRef?: (element: HTMLTableRowElement) => void;
+}) {
+  const selected = selectedKey === row.id;
+
+  return (
+    <TableRow
+      data-index={index}
+      ref={measureRef}
+      data-state={selected || row.getIsSelected() ? "selected" : undefined}
+      onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+      className={cn(onRowClick && "cursor-pointer")}
+    >
+      {row.getVisibleCells().map((cell) => {
+        const meta = cell.column.columnDef.meta;
+
+        return (
+          <TableCell
+            key={cell.id}
+            className={cn(meta?.align === "right" && "text-right numeric", meta?.className)}
+          >
+            <table.FlexRender cell={cell} />
+          </TableCell>
+        );
+      })}
+    </TableRow>
   );
 }
 
@@ -280,30 +336,17 @@ function DataTableVirtualRows<TData extends RowData>({
       {items.map((item) => {
         const row = rows[item.index];
         if (!row) return null;
-        const selected = selectedKey === row.id;
 
         return (
-          <TableRow
+          <DataTableBodyRow
             key={row.id}
-            data-index={item.index}
-            ref={virtualizer.measureElement}
-            data-state={selected || row.getIsSelected() ? "selected" : undefined}
-            onClick={onRowClick ? () => onRowClick(row.original) : undefined}
-            className={cn(onRowClick && "cursor-pointer")}
-          >
-            {row.getVisibleCells().map((cell) => {
-              const meta = cell.column.columnDef.meta;
-
-              return (
-                <TableCell
-                  key={cell.id}
-                  className={cn(meta?.align === "right" && "text-right numeric", meta?.className)}
-                >
-                  <table.FlexRender cell={cell} />
-                </TableCell>
-              );
-            })}
-          </TableRow>
+            table={table}
+            row={row}
+            selectedKey={selectedKey}
+            onRowClick={onRowClick}
+            index={item.index}
+            measureRef={virtualizer.measureElement}
+          />
         );
       })}
       <SpacerRow height={paddingBottom} columnCount={columnCount} />
