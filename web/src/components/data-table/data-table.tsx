@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode, type RefObject } from "react";
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import {
   useTable,
   type ColumnDef,
@@ -13,6 +13,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 
 import { RefreshBar } from "@/components/refresh-bar";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Spinner } from "@/components/ui/spinner";
 import {
   Table,
   TableBody,
@@ -24,10 +25,10 @@ import {
 import { cn } from "@/lib/utils";
 
 import { features, type DataTableFeatures } from "./features";
-import { DataTablePager } from "./pager";
 import { DataTableViewOptions } from "./view-options";
 
 const ROW_HEIGHT = 40;
+const LOAD_MORE_OVERSCAN = 8;
 
 const measureRow =
   typeof navigator === "undefined" || navigator.userAgent.includes("Firefox")
@@ -46,14 +47,10 @@ interface DataTableProps<TData extends RowData> {
   error?: ReactNode;
   emptyState?: ReactNode;
   defaultSort?: { id: string; direction: "asc" | "desc" };
-  pageSize?: number;
+  onLoadMore?: () => void;
   hasMore?: boolean;
-  canPreviousPage?: boolean;
-  onPreviousPage?: () => void;
-  onNextPage?: () => void;
-  onPageSizeChange?: (pageSize: number) => void;
-  pageSizes?: number[];
   loadingMore?: boolean;
+  loadMoreError?: boolean;
   fill?: boolean;
 }
 
@@ -77,17 +74,13 @@ export function DataTable<TData extends RowData>({
   error,
   emptyState,
   defaultSort,
-  pageSize,
+  onLoadMore,
   hasMore = false,
-  canPreviousPage = false,
-  onPreviousPage,
-  onNextPage,
-  onPageSizeChange,
-  pageSizes,
   loadingMore = false,
+  loadMoreError = false,
   fill = false,
 }: DataTableProps<TData>) {
-  const serverPaging = onNextPage != null;
+  const serverRows = onLoadMore != null;
   const scrollRef = useRef<HTMLDivElement>(null);
   const [sorting, setSorting] = useState<SortingState>(
     defaultSort ? [{ id: defaultSort.id, desc: defaultSort.direction === "desc" }] : [],
@@ -103,7 +96,7 @@ export function DataTable<TData extends RowData>({
     getRowId,
     enableMultiSort: false,
     sortDescFirst: false,
-    enableSorting: !serverPaging,
+    enableSorting: !serverRows,
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
@@ -118,6 +111,12 @@ export function DataTable<TData extends RowData>({
 
   const rows = table.getRowModel().rows;
   const columnCount = table.getVisibleLeafColumns().length || columns.length;
+  const scanning = rows.length === 0 && hasMore && !loading && error == null;
+
+  useEffect(() => {
+    if (!scanning || loadingMore || onLoadMore == null) return;
+    onLoadMore();
+  }, [scanning, loadingMore, onLoadMore]);
 
   return (
     <div className={cn("flex flex-col gap-4", fill && "min-h-0 flex-1")}>
@@ -161,7 +160,7 @@ export function DataTable<TData extends RowData>({
               ))}
             </TableHeader>
             <TableBody className={rows.length > 0 ? "[&_tr:last-child]:border-b" : undefined}>
-              {loading ? (
+              {loading || scanning ? (
                 Array.from({ length: 6 }, (_, index) => (
                   <TableRow key={index} className="hover:bg-transparent">
                     {columns.map((_, columnIndex) => (
@@ -188,27 +187,34 @@ export function DataTable<TData extends RowData>({
                   scrollRef={scrollRef}
                   selectedKey={selectedKey}
                   onRowClick={onRowClick}
+                  onLoadMore={onLoadMore}
+                  hasMore={hasMore}
+                  loadingMore={loadingMore}
+                  loadMoreError={loadMoreError}
                 />
               )}
             </TableBody>
           </Table>
+          {rows.length > 0 && (loadingMore || loadMoreError) ? (
+            <div className="flex items-center justify-center gap-2 py-3 text-sm text-muted-foreground">
+              {loadMoreError ? (
+                <button
+                  type="button"
+                  className="underline-offset-2 hover:underline"
+                  onClick={() => onLoadMore?.()}
+                >
+                  Couldn't load more. Retry
+                </button>
+              ) : (
+                <>
+                  <Spinner />
+                  Loading more…
+                </>
+              )}
+            </div>
+          ) : null}
         </div>
       </div>
-      {serverPaging && pageSize != null && pageSizes != null ? (
-        <div className={cn(fill && "shrink-0")}>
-          <DataTablePager
-            rowCount={rows.length}
-            pageSize={pageSize}
-            pageSizes={pageSizes}
-            hasMore={hasMore}
-            canPreviousPage={canPreviousPage}
-            onPreviousPage={onPreviousPage}
-            onNextPage={onNextPage}
-            onPageSizeChange={onPageSizeChange}
-            loadingMore={loadingMore}
-          />
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -232,6 +238,10 @@ function DataTableVirtualRows<TData extends RowData>({
   scrollRef,
   selectedKey,
   onRowClick,
+  onLoadMore,
+  hasMore,
+  loadingMore,
+  loadMoreError,
 }: {
   table: ReactTable<DataTableFeatures, TData>;
   rows: Array<Row<DataTableFeatures, TData>>;
@@ -239,6 +249,10 @@ function DataTableVirtualRows<TData extends RowData>({
   scrollRef: RefObject<HTMLDivElement | null>;
   selectedKey?: string;
   onRowClick?: (row: TData) => void;
+  onLoadMore?: () => void;
+  hasMore: boolean;
+  loadingMore: boolean;
+  loadMoreError: boolean;
 }) {
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -246,12 +260,19 @@ function DataTableVirtualRows<TData extends RowData>({
     getScrollElement: () => scrollRef.current,
     getItemKey: (index) => rows[index]?.id ?? index,
     measureElement: measureRow,
-    overscan: 8,
+    overscan: LOAD_MORE_OVERSCAN,
   });
   const items = virtualizer.getVirtualItems();
+  const lastIndex = items[items.length - 1]?.index;
   const paddingTop = items[0]?.start ?? 0;
   const paddingBottom =
     items.length > 0 ? virtualizer.getTotalSize() - (items[items.length - 1]?.end ?? 0) : 0;
+
+  useEffect(() => {
+    if (onLoadMore == null || !hasMore || loadingMore || loadMoreError) return;
+    if (lastIndex == null) return;
+    if (lastIndex >= rows.length - LOAD_MORE_OVERSCAN) onLoadMore();
+  }, [lastIndex, rows.length, hasMore, loadingMore, loadMoreError, onLoadMore]);
 
   return (
     <>
