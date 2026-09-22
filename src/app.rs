@@ -161,15 +161,13 @@ fn resources() -> Router<AppState> {
         .nest("/clusters", clusters::router())
 }
 
-fn public_routes() -> Router<AppState> {
-    Router::new()
-        .merge(health::router())
-        .nest("/auth", auth::router())
+fn auth_routes() -> Router<AppState> {
+    Router::new().nest("/auth", auth::router())
 }
 
 #[cfg(test)]
 fn api() -> Router<AppState> {
-    public_routes().merge(resources())
+    health::router().merge(auth_routes()).merge(resources())
 }
 
 pub fn router(state: AppState) -> Router {
@@ -180,8 +178,8 @@ pub fn router(state: AppState) -> Router {
     let auth_layer = state.auth.layer();
 
     Router::new()
-        .merge(public_routes())
-        .merge(resources)
+        .merge(health::router())
+        .nest("/api", auth_routes().merge(resources))
         .with_state(state)
         .fallback(crate::server::web::serve)
         .layer(auth_layer)

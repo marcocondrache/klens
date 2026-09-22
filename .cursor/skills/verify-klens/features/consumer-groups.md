@@ -26,11 +26,11 @@ Preconditions:
 - **Search.** If a group id is visible, type a unique prefix into `Search consumer groups…`. The URL contains `q=`. Non-matching ids leave the table.
 - **State filter.** Open the state select and choose `Empty` or `Stable` to match a visible group. The URL contains `state=`.
 - **Open group.** Click a group row. URL becomes `/cluster/local/groups/<id>` and the heading contains that id.
-- **Proof.** Screenshot the catalog with the heading and at least one column header (`Group`, `State`, `Lag`). Save `GET /clusters/local/groups`.
+- **Proof.** Screenshot the catalog with the heading and at least one column header (`Group`, `State`, `Lag`). Save `GET /api/clusters/local/groups`.
 
 ## Gotchas
 
-- A fresh Redpanda cluster can have zero user groups. The table then shows `No results.` That empty catalog is a pass only when `GET /clusters/local/groups` also returns `rows: []`.
+- A fresh Redpanda cluster can have zero user groups. The table then shows `No results.` That empty catalog is a pass only when `GET /api/clusters/local/groups` also returns `rows: []`.
 - klens hides its own `klens.internal.` groups. Do not expect browse or list-offsets groups in the UI.
 - Search matches group id, not assigned topic names.
 - The heading is `Consumer groups`. The sidebar label is `Consumer Groups`.

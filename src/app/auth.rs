@@ -448,7 +448,7 @@ fn session_layer(secure: bool, key: Key) -> SessionLayer {
     SessionManagerLayer::new(MemoryStore::default())
         .with_name(SESSION_COOKIE)
         .with_http_only(true)
-        // Lax so the IdP redirect back to /auth/callback still sends the session.
+        // Lax so the IdP redirect back to /api/auth/callback still sends the session.
         .with_same_site(SameSite::Lax)
         .with_secure(secure)
         .with_path("/")
@@ -516,7 +516,7 @@ mod tests {
 
     fn api_request() -> Request<Body> {
         Request::builder()
-            .uri("/clusters")
+            .uri("/api/clusters")
             .body(Body::empty())
             .unwrap()
     }
@@ -544,7 +544,7 @@ mod tests {
             router.clone(),
             Request::builder()
                 .method("POST")
-                .uri("/auth/impersonate")
+                .uri("/api/auth/impersonate")
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(serde_json::to_vec(user).expect("user json")))
                 .unwrap(),
@@ -629,7 +629,7 @@ mod tests {
         let response = send(
             app(AuthState::disabled()),
             Request::builder()
-                .uri("/auth/me")
+                .uri("/api/auth/me")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -647,7 +647,7 @@ mod tests {
         let response = send(
             app(AuthState::enabled_for_tests()),
             Request::builder()
-                .uri("/auth/me")
+                .uri("/api/auth/me")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -665,7 +665,7 @@ mod tests {
         let response = send(
             app(AuthState::disabled()),
             Request::builder()
-                .uri("/auth/login")
+                .uri("/api/auth/login")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -679,7 +679,7 @@ mod tests {
         let response = send(
             app(AuthState::enabled_for_tests()),
             Request::builder()
-                .uri("/auth/login")
+                .uri("/api/auth/login")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -703,7 +703,7 @@ mod tests {
         let missing = send(
             router.clone(),
             Request::builder()
-                .uri("/auth/callback?code=test-code&state=nope")
+                .uri("/api/auth/callback?code=test-code&state=nope")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -717,7 +717,7 @@ mod tests {
         let login = send(
             router.clone(),
             Request::builder()
-                .uri("/auth/login")
+                .uri("/api/auth/login")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -727,7 +727,7 @@ mod tests {
         let mismatched = send(
             router,
             Request::builder()
-                .uri("/auth/callback?code=test-code&state=wrong")
+                .uri("/api/auth/callback?code=test-code&state=wrong")
                 .header(header::COOKIE, cookies)
                 .body(Body::empty())
                 .unwrap(),
@@ -747,7 +747,7 @@ mod tests {
         let login = send(
             router.clone(),
             Request::builder()
-                .uri("/auth/login")
+                .uri("/api/auth/login")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -770,7 +770,7 @@ mod tests {
         let callback = send(
             router.clone(),
             Request::builder()
-                .uri(format!("/auth/callback?code=test-code&state={state}"))
+                .uri(format!("/api/auth/callback?code=test-code&state={state}"))
                 .header(header::COOKIE, cookies)
                 .body(Body::empty())
                 .unwrap(),
@@ -797,7 +797,7 @@ mod tests {
         let login = send(
             router.clone(),
             Request::builder()
-                .uri("/auth/login")
+                .uri("/api/auth/login")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -820,7 +820,7 @@ mod tests {
         let callback = send(
             router,
             Request::builder()
-                .uri(format!("/auth/callback?code=wrong&state={state}"))
+                .uri(format!("/api/auth/callback?code=wrong&state={state}"))
                 .header(header::COOKIE, cookies)
                 .body(Body::empty())
                 .unwrap(),
@@ -869,7 +869,7 @@ mod tests {
         let login = send(
             router.clone(),
             Request::builder()
-                .uri("/auth/login")
+                .uri("/api/auth/login")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -891,7 +891,7 @@ mod tests {
         let callback = send(
             router.clone(),
             Request::builder()
-                .uri(format!("/auth/callback?code={code}&state={state}"))
+                .uri(format!("/api/auth/callback?code={code}&state={state}"))
                 .header(header::COOKIE, cookies)
                 .body(Body::empty())
                 .unwrap(),
@@ -983,7 +983,7 @@ mod tests {
         let response = send(
             router,
             Request::builder()
-                .uri("/auth/me")
+                .uri("/api/auth/me")
                 .header(header::COOKIE, cookie)
                 .body(Body::empty())
                 .unwrap(),
@@ -1016,7 +1016,7 @@ mod tests {
         let cookie = impersonate_cookie(&router, &user).await;
 
         let request = Request::builder()
-            .uri("/whoami")
+            .uri("/api/whoami")
             .header(header::COOKIE, cookie)
             .body(Body::empty())
             .unwrap();
@@ -1075,7 +1075,7 @@ mod tests {
         let cookie = impersonate_cookie(&router, &user).await;
 
         let request = Request::builder()
-            .uri("/clusters/local/topics/orders.created/records?limit=1&order=OLDEST")
+            .uri("/api/clusters/local/topics/orders.created/records?limit=1&order=OLDEST")
             .header(header::COOKIE, cookie)
             .body(Body::empty())
             .unwrap();

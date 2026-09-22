@@ -27,7 +27,7 @@ Preconditions:
 - **See record.** The records table includes key `verify-1`. Wait for that cell, not the header `{n} msgs` line.
 - **Open payload.** Click the `verify-1` row. A sheet titled `klens-verify-topics[0]@<offset>` appears. The Value block contains `hello-from-verify-klens`.
 - **Filter.** Close the sheet. Type `verify-1` into `Search key or value…`. The row remains. Replace the query with `no-such-payload`. Empty title `No records` appears with `Nothing matched your search in the scanned offsets.`
-- **Proof.** Screenshot the populated Data tab and the open sheet. Save `GET /clusters/local/topics/klens-verify-topics/records` and confirm key `verify-1`.
+- **Proof.** Screenshot the populated Data tab and the open sheet. Save `GET /api/clusters/local/topics/klens-verify-topics/records` and confirm key `verify-1`.
 
 ## Gotchas
 

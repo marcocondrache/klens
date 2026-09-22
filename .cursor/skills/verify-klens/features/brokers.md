@@ -24,7 +24,7 @@ Preconditions:
 - **Open catalog.** Click sidebar `Brokers`. URL is `/cluster/local/nodes`. Heading is `Brokers`. The description includes `brokers`, plus a catalog freshness caption when the poller has run.
 - **See controller.** One row shows badge `controller`. The Host column includes `127.0.0.1:9092` on the default verify broker.
 - **Open node.** Click that row. URL is `/cluster/local/nodes/<id>` and the heading contains the broker id.
-- **Proof.** Screenshot the catalog with the controller badge. Save `GET /clusters/local/brokers`. The body has `controller: true` on one broker.
+- **Proof.** Screenshot the catalog with the controller badge. Save `GET /api/clusters/local/brokers`. The body has `controller: true` on one broker.
 
 ## Gotchas
 

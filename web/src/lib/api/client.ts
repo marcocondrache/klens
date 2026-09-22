@@ -22,9 +22,9 @@ export function apiErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-/** Vite's dev proxy strips `/api`. A production build calls the handlers directly. */
+/** API calls use `/api` in dev and in the embedded UI. */
 export function apiPath(path: string): string {
-  return import.meta.env.DEV ? `/api${path}` : path;
+  return `/api${path}`;
 }
 
 type QueryValue = string | number | boolean | null | undefined;

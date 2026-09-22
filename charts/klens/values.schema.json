@@ -196,7 +196,7 @@
         },
         "enabled": {
           "default": false,
-          "description": "Expose the UI via an Ingress. Use a Prefix `/` path so the UI and its routes reach the pod.",
+          "description": "Expose the UI via an Ingress. Use a Prefix `/` path so SPA routes and `/api` reach the pod.",
           "title": "enabled",
           "type": "boolean"
         },

@@ -103,7 +103,7 @@ try {
   await writeFile(join(artifactDir, "open.aria.yml"), await page.locator("body").ariaSnapshot());
   notes.push(`opened ${openUrl}`);
 
-  const topicsJson = await api(base, "/clusters/local/topics");
+  const topicsJson = await api(base, "/api/clusters/local/topics");
   await writeFile(join(artifactDir, "topics.json"), `${topicsJson}\n`);
   if (!topicsJson.includes(topic)) {
     throw new Error(`topics missing ${topic}: ${topicsJson}`);

@@ -39,7 +39,7 @@ and do not stick across pods.
 There is no `/metrics` route. This chart does not create a ServiceMonitor.
 
 Expose the UI with `ingress` or a Gateway API `httpRoute`. Use a Prefix `/`
-path so the UI and its routes reach
+path so SPA routes and `/api` reach
 the pod.
 
 {{ template "chart.maintainersSection" . }}

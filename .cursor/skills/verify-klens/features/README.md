@@ -7,7 +7,7 @@ This directory is the maintained source for verifying user-facing klens behavior
 - Launch with `.cursor/skills/verify-klens/helpers/launch.sh`.
 - Doctor with `.cursor/skills/verify-klens/helpers/doctor.sh`. Require `clusters` to include `local` with topology `updatedAt` set, no `lastError`, and URL `http://127.0.0.1:18080` unless `KLENS_VERIFY_PORT` changed it.
 - Seed topic `klens-verify-topics` exists with key `verify-1` and value `hello-from-verify-klens`.
-- Auth is off. `/auth/me` reports `"enabled": false`. Custom roles and the header user menu stay hidden. `whoami.subject` is null.
+- Auth is off. `/api/auth/me` reports `"enabled": false`. Custom roles and the header user menu stay hidden. `whoami.subject` is null.
 - Never drive an instance this run did not start.
 
 ## Driving conventions

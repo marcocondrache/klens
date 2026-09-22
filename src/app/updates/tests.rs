@@ -334,7 +334,7 @@ async fn the_updates_route_is_wired_with_the_session_extensions() {
     let response = crate::app::router(seeded())
         .oneshot(
             Request::builder()
-                .uri("/clusters/local/updates")
+                .uri("/api/clusters/local/updates")
                 .body(Body::empty())
                 .expect("request"),
         )
