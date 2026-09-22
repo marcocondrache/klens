@@ -126,7 +126,7 @@ jobs:
       - name: Cache cargo registry and build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - name: Install nextest
-        uses: taiki-e/install-action@e88e69ecdb9658bd172693dcdc2c84e7f0ab6a11 # nextest
+        uses: taiki-e/install-action@cae505dda7470fdae7eaa037ede96f6478023a22 # nextest
       - name: Build
         run: cargo build --verbose
       - name: Run tests
@@ -185,7 +185,7 @@ jobs:
         with:
           toolchain: stable
       - name: Install cargo-audit
-        uses: taiki-e/install-action@fd94a048c157f8a2d1975d01ffb26bd0de4f192e # cargo-audit
+        uses: taiki-e/install-action@70b2a403d1a0528ee29bd8aa5278fb72ce46a8f2 # cargo-audit
       - name: Audit dependencies
         run: cargo audit
 
@@ -203,7 +203,7 @@ jobs:
         with:
           toolchain: stable
       - name: Install cargo-machete
-        uses: taiki-e/install-action@09e4336461765da663c25fb1e82400062257432d # cargo-machete
+        uses: taiki-e/install-action@f861f7c3cb23cafb2bec4d627fd68e1df30fb6b4 # cargo-machete
       - name: Check unused dependencies
         run: cargo machete
 
@@ -229,9 +229,9 @@ jobs:
       - name: Cache cargo registry and build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - name: Install nextest
-        uses: taiki-e/install-action@e88e69ecdb9658bd172693dcdc2c84e7f0ab6a11 # nextest
+        uses: taiki-e/install-action@cae505dda7470fdae7eaa037ede96f6478023a22 # nextest
       - name: Install cargo-mutants
-        uses: taiki-e/install-action@2ffdc177c283758d9c1f0f9563d70cce8bc9c576 # cargo-mutants
+        uses: taiki-e/install-action@c58f078df6f07a6a4e3ff407a758ce97c93691d1 # cargo-mutants
       - name: Run cargo-mutants on the pull request diff
         run: cargo mutants --no-shuffle -vV --in-place --in-diff "${RUNNER_TEMP}/pr.diff"
       - name: Archive mutants.out
