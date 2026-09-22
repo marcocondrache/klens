@@ -25,7 +25,6 @@ import { clusterSectionTo, useActiveSection } from "@/lib/sections";
 interface Crumb {
   label: string;
   section?: ReturnType<typeof clusterSectionTo>;
-  icon?: typeof SearchIcon;
   mono?: boolean;
 }
 
@@ -45,7 +44,6 @@ export function AppHeader({ onSearch }: { onSearch: () => void }) {
   if (section) {
     crumbs.push({
       label: section.label,
-      icon: section.icon,
       section: detail ? clusterSectionTo(section.segment) : undefined,
     });
   }
@@ -55,78 +53,81 @@ export function AppHeader({ onSearch }: { onSearch: () => void }) {
   }
 
   return (
-    <header className="flex h-(--header-height) shrink-0 items-center gap-1 border-b px-4 lg:gap-2 lg:px-6">
-      <SidebarTrigger className="-ml-1" />
-      <Separator orientation="vertical" className="mx-2 h-4 data-vertical:self-auto" />
+    <header className="flex h-(--header-height) shrink-0 items-center gap-2 border-b transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-(--header-height)">
+      <div className="flex w-full min-w-0 items-center gap-1 px-4 lg:gap-2 lg:px-6">
+        <SidebarTrigger className="-ml-1" />
+        <Separator orientation="vertical" className="mx-2 h-4 data-vertical:self-auto" />
 
-      <Breadcrumb className="min-w-0">
-        <BreadcrumbList className="flex-nowrap">
-          {crumbs.map((crumb, index) => {
-            const last = index === crumbs.length - 1;
+        <Breadcrumb className="min-w-0">
+          <BreadcrumbList className="flex-nowrap text-base">
+            {crumbs.map((crumb, index) => {
+              const last = index === crumbs.length - 1;
 
-            return (
-              <Fragment key={`${crumb.label}-${index}`}>
-                <BreadcrumbItem className="min-w-0 gap-1.5">
-                  {crumb.icon ? <crumb.icon className="size-3.5 shrink-0" /> : null}
-                  {last || !crumb.section ? (
-                    <BreadcrumbPage className={cn("truncate", crumb.mono && "font-mono text-sm")}>
-                      {crumb.label}
-                    </BreadcrumbPage>
-                  ) : (
-                    <BreadcrumbLink
-                      render={<Link to={crumb.section} params={{ cluster }} />}
-                      className="truncate"
-                    >
-                      {crumb.label}
-                    </BreadcrumbLink>
-                  )}
-                </BreadcrumbItem>
-                {last ? null : <BreadcrumbSeparator />}
-              </Fragment>
-            );
-          })}
-        </BreadcrumbList>
-      </Breadcrumb>
+              return (
+                <Fragment key={`${crumb.label}-${index}`}>
+                  <BreadcrumbItem className="min-w-0">
+                    {last || !crumb.section ? (
+                      <BreadcrumbPage
+                        className={cn("truncate font-medium", crumb.mono && "font-mono text-sm")}
+                      >
+                        {crumb.label}
+                      </BreadcrumbPage>
+                    ) : (
+                      <BreadcrumbLink
+                        render={<Link to={crumb.section} params={{ cluster }} />}
+                        className="truncate"
+                      >
+                        {crumb.label}
+                      </BreadcrumbLink>
+                    )}
+                  </BreadcrumbItem>
+                  {last ? null : <BreadcrumbSeparator />}
+                </Fragment>
+              );
+            })}
+          </BreadcrumbList>
+        </Breadcrumb>
 
-      <div className="ml-auto flex items-center gap-1.5">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onSearch}
-          className="hidden min-w-56 justify-start gap-2 text-muted-foreground sm:flex"
-        >
-          <SearchIcon />
-          <span>Search</span>
-          <Kbd className="ml-auto -mr-1.5">{formatModK()}</Kbd>
-        </Button>
-
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={onSearch}
-          aria-label="Search"
-          className="sm:hidden"
-        >
-          <SearchIcon />
-        </Button>
-
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Refresh"
-                onClick={() => queryClient.invalidateQueries()}
-              />
-            }
+        <div className="ml-auto flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onSearch}
+            className="hidden min-w-56 justify-start gap-2 text-muted-foreground sm:flex"
           >
-            <RefreshCwIcon className={cn(fetching && "animate-spin")} />
-          </TooltipTrigger>
-          <TooltipContent>Refresh</TooltipContent>
-        </Tooltip>
+            <SearchIcon />
+            <span>Search</span>
+            <Kbd className="ml-auto -mr-1.5">{formatModK()}</Kbd>
+          </Button>
 
-        <ModeToggle />
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={onSearch}
+            aria-label="Search"
+            className="sm:hidden"
+          >
+            <SearchIcon />
+          </Button>
+
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Refresh"
+                  onClick={() => queryClient.invalidateQueries()}
+                />
+              }
+            >
+              <RefreshCwIcon className={cn(fetching && "animate-spin")} />
+            </TooltipTrigger>
+            <TooltipContent>Refresh</TooltipContent>
+          </Tooltip>
+
+          <ModeToggle />
+        </div>
       </div>
     </header>
   );

@@ -20,7 +20,7 @@ export function NavClusters({ active }: { active: string }) {
   const to = section ? clusterSectionTo(section.segment) : "/cluster/$cluster";
 
   return (
-    <SidebarGroup>
+    <SidebarGroup className="group-data-[collapsible=icon]:hidden">
       <SidebarGroupLabel>Clusters</SidebarGroupLabel>
       <SidebarMenu>
         {clusters.map((entry) => (
