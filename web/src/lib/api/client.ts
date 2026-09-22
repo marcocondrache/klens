@@ -22,6 +22,11 @@ export function apiErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+/** Vite's dev proxy strips `/api`. A production build calls the handlers directly. */
+export function apiPath(path: string): string {
+  return import.meta.env.DEV ? `/api${path}` : path;
+}
+
 type QueryValue = string | number | boolean | null | undefined;
 
 function withQuery(path: string, query?: Record<string, QueryValue>): string {
@@ -66,7 +71,7 @@ async function fail(response: Response): Promise<never> {
 }
 
 export async function get<T>(path: string, query?: Record<string, QueryValue>): Promise<T> {
-  const response = await fetch(withQuery(path, query), {
+  const response = await fetch(withQuery(apiPath(path), query), {
     credentials: "include",
     headers: { Accept: "application/json" },
   });
@@ -101,7 +106,7 @@ export function stream(
   onUpdate: (update: Update) => void,
 ): () => void {
   const controller = new AbortController();
-  void pump(withQuery(path, query), controller.signal, onUpdate);
+  void pump(withQuery(apiPath(path), query), controller.signal, onUpdate);
   return () => controller.abort();
 }
 

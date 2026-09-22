@@ -5,7 +5,7 @@ description: Drive the klens Kafka web UI the way a user does. Use when proving 
 
 # Verify klens
 
-klens is a single-process Kafka inspector. The user-facing surface is the web UI served by the Rust process (embedded `ui` feature). JSON routes under `GET /api` are the data API the UI calls. Live catalog updates are `GET /api/clusters/{cluster}/updates` (`text/event-stream`). There is no product CLI or TUI.
+klens is a single-process Kafka inspector. The user-facing surface is the web UI served by the Rust process (embedded `ui` feature). JSON routes are unprefixed (`GET /clusters/...`). Live catalog updates are `GET /clusters/{cluster}/updates` (`text/event-stream`). Vite's dev server proxies `/api` and strips that prefix; the embedded UI calls the handlers directly. There is no product CLI or TUI.
 
 Read `features/README.md` before a drive. Drive one mapped feature end to end. Do not treat an API-only check as UI proof.
 
@@ -37,7 +37,7 @@ Overrides, all optional:
 - `RPK` (path to `rpk`; default `rpk` on `PATH`)
 - `KLENS_VERIFY_TOPOLOGY_SECS` (harness only, seconds, default `10`). Written into the generated cluster as `ingest.topology_secs`. The topology lane refreshes metadata and consumer-group membership. A short interval can fail `ListGroups` against Redpanda and set `clusters.topology.lastError`, which fails doctor. For a multi-feature drive set `600` so the lane stays quiet. That override is session harness, not a product default. The old `KLENS_TOPOLOGY_LANE_INTERVAL` and `KLENS_CATALOG_POLL_INTERVAL` names are ignored.
 
-Do not use `mise web:dev` / `vp dev` for verification. `web/vite.config.ts` proxies `/api` to `http://localhost:8080` and drops that prefix, so a Vite session cannot bind a private port. Handlers are unprefixed; the UI still calls `/api`.
+Do not use `mise web:dev` / `vp dev` for verification. `web/vite.config.ts` proxies `/api` to `http://localhost:8080` and drops that prefix, so a Vite session cannot bind a private port. The embedded UI calls the unprefixed handlers.
 
 Do not start a second verify instance in the same run directory. Two instances can run only with distinct `KLENS_VERIFY_PORT` and `KLENS_VERIFY_RUN_DIR` values. They may share one Kafka broker. Never drive an instance this run did not start.
 
@@ -54,10 +54,10 @@ Read-only. Fail if any check misses:
 - The PID file exists and that PID is alive.
 - `/proc/<pid>/comm` is `klens`.
 - The recorded port is held by that PID.
-- `GET /health` is 204. `GET /api/health` is also 204.
-- `GET /api/auth/me` is `{"enabled":false,"user":null}` (verify configs omit OIDC).
+- `GET /health` is 204.
+- `GET /auth/me` is `{"enabled":false,"user":null}` (verify configs omit OIDC).
 - `GET /` includes `<title>klens</title>`.
-- `GET /api/clusters` includes `local`, has topology `updatedAt` set, and has no topology `lastError`.
+- `GET /clusters` includes `local`, has topology `updatedAt` set, and has no topology `lastError`.
 
 If doctor fails, stop driving. Relaunch or fix the unmet check.
 
@@ -95,7 +95,7 @@ If you drive by hand, use these handles from this repo. Prefer them over coordin
 The JSON API the UI uses (corroborate, do not substitute for the UI path):
 
 ```sh
-curl -sS "$KLENS_VERIFY_URL/api/clusters/local/topics"
+curl -sS "$KLENS_VERIFY_URL/clusters/local/topics"
 ```
 
 ## Evidence
@@ -112,8 +112,8 @@ A pass captures the user action and the resulting state:
 
 Proof standards:
 
-- Exercise the real UI route. A 200 from `/api` alone is not UI proof.
-- Mocks stop at Kafka and Schema Registry. Do not stub `/api` or `/api/auth/me`.
+- Exercise the real UI route. A 200 from a JSON route alone is not UI proof.
+- Mocks stop at Kafka and Schema Registry. Do not stub `/auth/me` or `/clusters`.
 - If `clusters.topology.lastError` is set and `updatedAt` is null, that is a verified-unreachable catalog (`Cluster unreachable`), not a Topics pass. Record the alert text and stop. `Topology lane failing` (stale `updatedAt` plus a later `lastError`) is also not a catalog pass.
 - Dry-run does not apply. klens always talks to the configured brokers.
 

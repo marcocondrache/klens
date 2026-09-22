@@ -39,7 +39,7 @@ and do not stick across pods.
 There is no `/metrics` route. This chart does not create a ServiceMonitor.
 
 Expose the UI with `ingress` or a Gateway API `httpRoute`. Use a Prefix `/`
-path so SPA routes and `/api` reach
+path so the UI and its routes reach
 the pod.
 
 ## Maintainers
@@ -86,7 +86,7 @@ Kubernetes: `>=1.25.0-0`
 | imagePullSecrets | list | `[]` | Image pull secrets for private registries. |
 | ingress.annotations | object | `{}` | Ingress annotations. |
 | ingress.className | string | `""` | IngressClass name. |
-| ingress.enabled | bool | `false` | Expose the UI via an Ingress. Use a Prefix `/` path so SPA routes and `/api` reach the pod. |
+| ingress.enabled | bool | `false` | Expose the UI via an Ingress. Use a Prefix `/` path so the UI and its routes reach the pod. |
 | ingress.hosts | list | `[{"host":"klens.example.com","paths":[{"path":"/","pathType":"Prefix"}]}]` | Ingress hosts and their paths. |
 | ingress.tls | list | `[]` | Ingress TLS configuration. |
 | livenessProbe | object | `{"httpGet":{"path":"/health","port":"http"},"periodSeconds":20}` | Liveness probe. Targets `/health` after startup succeeds. |

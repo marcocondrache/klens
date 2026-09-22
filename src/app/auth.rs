@@ -514,15 +514,6 @@ mod tests {
         app.oneshot(request).await.unwrap()
     }
 
-    async fn send_ui(app: axum::Router, request: Request<Body>) -> axum::http::Response<Body> {
-        tower::ServiceBuilder::new()
-            .map_request(crate::app::apply_ui_prefix)
-            .service(app)
-            .oneshot(request)
-            .await
-            .unwrap()
-    }
-
     fn api_request() -> Request<Body> {
         Request::builder()
             .uri("/clusters")
@@ -604,18 +595,8 @@ mod tests {
 
     #[tokio::test]
     async fn api_unauthorized_without_session() {
-        let router = app(AuthState::enabled_for_tests());
-        let response = send(router.clone(), api_request()).await;
+        let response = send(app(AuthState::enabled_for_tests()), api_request()).await;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-        let prefixed = send_ui(
-            router,
-            Request::builder()
-                .uri("/api/clusters")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
-        assert_eq!(prefixed.status(), StatusCode::UNAUTHORIZED);
 
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
@@ -649,24 +630,6 @@ mod tests {
             app(AuthState::disabled()),
             Request::builder()
                 .uri("/auth/me")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
-
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(json["enabled"], false);
-        assert!(json["user"].is_null());
-    }
-
-    #[tokio::test]
-    async fn the_ui_prefix_strips_to_the_session_route() {
-        let response = send_ui(
-            app(AuthState::disabled()),
-            Request::builder()
-                .uri("/api/auth/me")
                 .body(Body::empty())
                 .unwrap(),
         )

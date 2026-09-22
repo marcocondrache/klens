@@ -40,5 +40,5 @@ Preconditions:
 - Google Chrome on Linux may swallow `Control+K` (omnibox). Use the header `Search` button, or dispatch `keydown` on `window` with `key: "k"` and `ctrlKey: true`.
 - Close the dialog and wait until it is hidden before the next open. `Control+K` toggles. A chord while the dialog is still closing closes it again.
 - The dialog title is `Search klens` and is visually hidden (`sr-only`). Query it by accessible name, not by visible text.
-- Results wait on `GET /api/clusters/{cluster}/search`. Wait for the topic row, not a fixed debounce sleep.
+- Results wait on `GET /clusters/{cluster}/search`. Wait for the topic row, not a fixed debounce sleep.
 - A query with no hits shows `No matches in local.` Typing hides Go to and Switch cluster so arrow keys stay on catalog hits.

@@ -7,7 +7,7 @@ import type { Identity, PrivilegeName } from "@/lib/api/types";
 export function useWhoami() {
   return useQuery({
     queryKey: keys.whoami(),
-    queryFn: () => get<Identity>("/api/whoami"),
+    queryFn: () => get<Identity>("/whoami"),
     staleTime: 60_000,
   });
 }

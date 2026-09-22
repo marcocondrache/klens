@@ -23,19 +23,17 @@ fi
 
 health="$(curl -sS -o /dev/null -w '%{http_code}' "$KLENS_VERIFY_URL/health")"
 [[ "$health" == "204" ]] || fail "GET /health returned $health, expected 204"
-prefixed="$(curl -sS -o /dev/null -w '%{http_code}' "$KLENS_VERIFY_URL/api/health")"
-[[ "$prefixed" == "204" ]] || fail "GET /api/health returned $prefixed, expected 204"
 
-me="$(curl -sS "$KLENS_VERIFY_URL/api/auth/me")"
-echo "$me" | grep -q '"enabled":false' || fail "/api/auth/me enabled is not false: $me"
-echo "$me" | grep -q '"user":null' || fail "/api/auth/me user is not null: $me"
+me="$(curl -sS "$KLENS_VERIFY_URL/auth/me")"
+echo "$me" | grep -q '"enabled":false' || fail "/auth/me enabled is not false: $me"
+echo "$me" | grep -q '"user":null' || fail "/auth/me user is not null: $me"
 
 html="$(curl -sS "$KLENS_VERIFY_URL/")"
 echo "$html" | grep -q '<title>klens</title>' || fail "GET / is missing <title>klens</title>"
 
 clusters=""
 for _ in $(seq 1 40); do
-  clusters="$(curl -sS "$KLENS_VERIFY_URL/api/clusters")"
+  clusters="$(curl -sS "$KLENS_VERIFY_URL/clusters")"
   echo "$clusters" | grep -q "\"cluster\":\"${KLENS_VERIFY_CLUSTER}\"" \
     || fail "api clusters missing ${KLENS_VERIFY_CLUSTER}: $clusters"
   if echo "$clusters" | grep -q '"updatedAt":"' && ! echo "$clusters" | grep -q '"lastError":"'; then

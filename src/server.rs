@@ -1,5 +1,5 @@
+use axum::Router;
 use axum::http::{Request, Response, header};
-use axum::{Router, ServiceExt as _};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -50,9 +50,7 @@ pub async fn serve(router: Router, bind: SocketAddr) -> Result<()> {
             sensitive_headers,
         ));
 
-    let app = ServiceBuilder::new()
-        .map_request(crate::app::apply_ui_prefix)
-        .service(router.layer(layers));
+    let app = router.layer(layers);
 
     tracing::info!(bind = %bind, "listening");
 

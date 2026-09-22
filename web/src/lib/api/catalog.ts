@@ -17,7 +17,7 @@ import { keys } from "./keys";
 import type { SearchHit } from "./types";
 
 function clusterPathname(cluster: string, ...rest: string[]) {
-  return ["/api/clusters", encodeURIComponent(cluster), ...rest].join("/");
+  return ["/clusters", encodeURIComponent(cluster), ...rest].join("/");
 }
 
 function searchHref(cluster: string, hit: Omit<SearchHit, "href">): string {
@@ -35,7 +35,7 @@ function searchHref(cluster: string, hit: Omit<SearchHit, "href">): string {
 
 const clustersOptions = {
   queryKey: keys.clusters(),
-  queryFn: () => get<ClusterHealth[]>("/api/clusters"),
+  queryFn: () => get<ClusterHealth[]>("/clusters"),
   refetchInterval: (query: Query<ClusterHealth[]>) =>
     query.state.data?.every((cluster) => cluster.ready) === false ? 2000 : false,
 };
