@@ -28,12 +28,12 @@ const RESULT_ICON = {
   SUBJECT: FileJsonIcon,
 };
 
-const RESULT_GROUPS: Array<{ kind: SearchHit["kind"]; heading: string }> = [
-  { kind: "TOPIC", heading: "Topics" },
-  { kind: "GROUP", heading: "Consumer groups" },
-  { kind: "NODE", heading: "Brokers" },
-  { kind: "SUBJECT", heading: "Schemas" },
-];
+const RESULT_HEADING: Record<SearchHit["kind"], string> = {
+  TOPIC: "Topics",
+  GROUP: "Consumer groups",
+  NODE: "Brokers",
+  SUBJECT: "Schemas",
+};
 
 export function CommandPalette({
   open,
@@ -58,6 +58,7 @@ export function CommandPalette({
   const { data: results = [], isPending, isError, error } = useSearch(cluster, term);
   const showNavigation = !searching || isPending;
   const hits = searching && !isPending ? results : [];
+  const kinds = [...new Set(hits.map((hit) => hit.kind))];
 
   function changeOpen(next: boolean) {
     if (!next) setTerm("");
@@ -92,15 +93,14 @@ export function CommandPalette({
             <CommandEmpty>No matches in {cluster}.</CommandEmpty>
           ) : null}
 
-          {RESULT_GROUPS.map(({ kind, heading }) => {
+          {kinds.map((kind) => {
             const items = hits.filter((result) => result.kind === kind);
-            if (items.length === 0) return null;
 
             const Icon = RESULT_ICON[kind];
             const broker = kind === "NODE";
 
             return (
-              <CommandGroup key={kind} heading={heading}>
+              <CommandGroup key={kind} heading={RESULT_HEADING[kind]}>
                 {items.map((result) => (
                   <CommandItem
                     key={result.href}
