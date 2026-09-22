@@ -37,6 +37,7 @@ export function PayloadView({
   const [pretty, setPretty] = useState(true);
   const displayed = json && pretty ? prettySource : source;
   const showPrettyToggle = json && prettySource !== source;
+  const action = label.toLowerCase();
 
   function download() {
     const blob = new Blob([source], { type: json ? "application/json" : "text/plain" });
@@ -74,13 +75,13 @@ export function PayloadView({
           ) : null}
           {showCopy ? <CopyButton value={displayed} label={copyLabel} /> : null}
           {showDownload ? (
-            <IconButton label="Download value" onClick={download}>
+            <IconButton label={`Download ${action}`} onClick={download}>
               <DownloadIcon />
             </IconButton>
           ) : null}
           {showExpand ? (
             <IconButton
-              label={expanded ? "Collapse value" : "Expand value"}
+              label={expanded ? `Collapse ${action}` : `Expand ${action}`}
               pressed={expanded}
               onClick={() => onExpandedChange?.(!expanded)}
             >
