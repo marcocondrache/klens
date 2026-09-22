@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use arc_swap::ArcSwap;
 use indexmap::IndexMap;
 
 use crate::kafka::cluster::ClusterIdentity;
@@ -15,7 +14,7 @@ use super::projections::{
     TopicGroupRow, TopicRow,
 };
 use super::rates::RateStore;
-use super::search::{SearchHit, SearchIndex};
+use super::search::{self, SearchHit};
 use super::tables::{ConfigTable, OffsetTable, SubjectTable, Topology, WatermarkTable};
 
 /// The normalized read model for one cluster.
@@ -29,7 +28,6 @@ pub struct ClusterStore {
     pub rates: RateStore,
     pub bus: ChangeBus,
     pub interest: InterestRegistry,
-    search: ArcSwap<SearchIndex>,
 }
 
 impl std::fmt::Debug for ClusterStore {
@@ -57,7 +55,6 @@ impl ClusterStore {
             rates: RateStore::new(),
             bus: ChangeBus::new(),
             interest: InterestRegistry::new(),
-            search: ArcSwap::new(Arc::new(SearchIndex::default())),
         }
     }
 
@@ -70,15 +67,10 @@ impl ClusterStore {
         self.topology.ready()
     }
 
-    pub fn rebuild_search(&self) {
+    pub fn search(&self, term: &str) -> Vec<SearchHit> {
         let topology = self.topology.load();
         let subjects = self.subjects.load();
-        let index = SearchIndex::build(topology.as_deref(), subjects.as_deref());
-        self.search.store(Arc::new(index));
-    }
-
-    pub fn search(&self, term: &str) -> Vec<SearchHit> {
-        self.search.load().search(term)
+        search::find(topology.as_deref(), subjects.as_deref(), term)
     }
 
     pub fn topic_rows(&self) -> Vec<TopicRow> {
@@ -444,16 +436,14 @@ mod tests {
     }
 
     #[test]
-    fn the_search_index_follows_topology_and_subject_commits() {
+    fn search_follows_topology_and_subject_commits() {
         let store = seeded();
-        store.rebuild_search();
         assert_eq!(store.search("orders").len(), 1);
 
         store.subjects.commit(Arc::new(SubjectTable::assemble(
             &[subject("orders-value", 1, 1)],
             &mut Interner::default(),
         )));
-        store.rebuild_search();
 
         assert_eq!(store.search("orders").len(), 2);
         assert_eq!(store.subject_rows().len(), 1);

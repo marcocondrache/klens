@@ -69,7 +69,6 @@ impl LaneSource for SubjectLane {
         mut delta: SubjectsDelta,
     ) {
         delta.version = version;
-        store.rebuild_search();
         store.bus.publish(Change::Subjects(Arc::new(delta)));
     }
 }

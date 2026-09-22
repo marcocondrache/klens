@@ -76,7 +76,6 @@ impl LaneSource for TopologyLane {
             store.rates.retain(|topic| next.topics.contains_key(topic));
         }
 
-        store.rebuild_search();
         store.bus.publish(Change::Topology(Arc::new(delta)));
     }
 }
