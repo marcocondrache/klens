@@ -2,28 +2,29 @@ import { useMemo } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
 import { useQueryStates } from "nuqs";
+import { AsteriskIcon, BoxIcon, ShieldIcon, ZapIcon } from "lucide-react";
 
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { DataTableColumnHeader } from "@/components/data-table/column-header";
 import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
+import { FilterBar } from "@/components/data-table/filter-bar";
+import {
+  applyFilters,
+  filterParams,
+  readFilters,
+  type FilterField,
+  type FilterRule,
+} from "@/components/data-table/filters";
 import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
-import { Pill } from "@/components/status";
+import { Pill, StatusDot } from "@/components/status";
 import { useAccess } from "@/hooks/use-access";
 import { useAcls } from "@/lib/api/live";
 import type { Acl } from "@/lib/api/types";
 import { useClusterName } from "@/lib/clusters";
 import { apiErrorMessage } from "@/lib/api/client";
 import { formatEnumLabel } from "@/lib/format";
-import { ACL_RESOURCE_TYPES, aclsSearch } from "@/lib/route-search";
+import { ACL_OPERATIONS, ACL_PATTERNS, ACL_RESOURCE_TYPES, aclsSearch } from "@/lib/route-search";
 
 export const Route = createFileRoute("/cluster/$cluster/acls")({
   component: AclsPage,
@@ -31,9 +32,46 @@ export const Route = createFileRoute("/cluster/$cluster/acls")({
 
 const EMPTY_BINDINGS: Acl[] = [];
 
-const RESOURCE_ITEMS = [
-  { value: "all", label: "All resources" },
-  ...ACL_RESOURCE_TYPES.map((value) => ({ value, label: formatEnumLabel(value) })),
+function enumOptions(values: readonly string[]) {
+  return values.map((value) => ({ value, label: formatEnumLabel(value) }));
+}
+
+const FILTERS: Array<FilterField<Acl>> = [
+  {
+    id: "resource",
+    label: "Resource",
+    plural: "resources",
+    icon: BoxIcon,
+    options: enumOptions(ACL_RESOURCE_TYPES),
+    accessor: (acl) => acl.resourceType,
+  },
+  {
+    id: "operation",
+    label: "Operation",
+    plural: "operations",
+    icon: ZapIcon,
+    options: enumOptions(ACL_OPERATIONS),
+    accessor: (acl) => acl.operation,
+  },
+  {
+    id: "permission",
+    label: "Permission",
+    plural: "permissions",
+    icon: ShieldIcon,
+    options: [
+      { value: "ALLOW", label: "Allow", icon: <StatusDot tone="ok" /> },
+      { value: "DENY", label: "Deny", icon: <StatusDot tone="warn" /> },
+    ],
+    accessor: (acl) => acl.permission,
+  },
+  {
+    id: "pattern",
+    label: "Pattern",
+    plural: "patterns",
+    icon: AsteriskIcon,
+    options: enumOptions(ACL_PATTERNS),
+    accessor: (acl) => acl.patternType,
+  },
 ];
 
 const columnHelper = createColumnHelper<DataTableFeatures, Acl>();
@@ -89,20 +127,25 @@ function aclRowId(acl: Acl): string {
 
 function AclsPage() {
   const cluster = useClusterName();
-  const [{ q: term, resource }, setSearch] = useQueryStates(aclsSearch);
+  const [search, setSearch] = useQueryStates(aclsSearch);
+  const { q: term } = search;
+  const filters = readFilters(FILTERS, search);
   const { can } = useAccess();
   const canAcls = can(cluster, "ACLS");
   const { data, isPending, isError, error } = useAcls(cluster, canAcls);
   const disabled = data?.authorizer === "DISABLED";
   const bindings = data?.bindings ?? EMPTY_BINDINGS;
 
-  const rows = useMemo(() => {
-    const needle = term.trim().toLowerCase();
+  function setFilters(rules: FilterRule[]) {
+    void setSearch(filterParams(FILTERS, rules));
+  }
 
-    return bindings.filter((acl) => {
-      if (resource !== "all" && acl.resourceType !== resource) return false;
-      if (!needle) return true;
-      return [
+  const searched = useMemo(() => {
+    const needle = term.trim().toLowerCase();
+    if (!needle) return bindings;
+
+    return bindings.filter((acl) =>
+      [
         acl.resourceName,
         acl.principal,
         acl.host,
@@ -113,9 +156,11 @@ function AclsPage() {
       ]
         .join(" ")
         .toLowerCase()
-        .includes(needle);
-    });
-  }, [bindings, resource, term]);
+        .includes(needle),
+    );
+  }, [bindings, term]);
+
+  const rows = applyFilters(searched, FILTERS, filters);
 
   if (!canAcls) {
     return <PageHeader title="ACLs" description="ACL bindings are not available for your role." />;
@@ -142,26 +187,7 @@ function AclsPage() {
               placeholder="Search ACLs…"
             />
 
-            <Select
-              value={resource}
-              items={RESOURCE_ITEMS}
-              onValueChange={(value) =>
-                void setSearch({ resource: aclsSearch.resource.parse(String(value)) })
-              }
-            >
-              <SelectTrigger className="w-48">
-                <SelectValue placeholder="Resource" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {RESOURCE_ITEMS.map((item) => (
-                    <SelectItem key={item.value} value={item.value}>
-                      {item.label}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
+            <FilterBar fields={FILTERS} rows={searched} value={filters} onChange={setFilters} />
           </>
         }
         loading={isPending}

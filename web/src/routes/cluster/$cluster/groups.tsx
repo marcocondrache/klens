@@ -2,21 +2,22 @@ import { useMemo } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
 import { useQueryStates } from "nuqs";
+import { CircleDashedIcon, TimerIcon } from "lucide-react";
 
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { DataTableColumnHeader } from "@/components/data-table/column-header";
 import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
+import { FilterBar } from "@/components/data-table/filter-bar";
+import {
+  applyFilters,
+  filterParams,
+  readFilters,
+  type FilterField,
+  type FilterRule,
+} from "@/components/data-table/filters";
 import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
-import { GroupStateBadge, Pill } from "@/components/status";
+import { GROUP_TONE, GroupStateBadge, Pill, StatusDot } from "@/components/status";
 import { lagTone } from "@/lib/tone";
 import { useNow } from "@/hooks/use-now";
 import { useClusterHealth, useGroupRows } from "@/lib/api/catalog";
@@ -32,9 +33,30 @@ export const Route = createFileRoute("/cluster/$cluster/groups")({
 
 const EMPTY_GROUPS: GroupRow[] = [];
 
-const STATE_ITEMS = [
-  { value: "all", label: "All states" },
-  ...GROUP_STATES.map((value) => ({ value, label: formatEnumLabel(value) })),
+const FILTERS: Array<FilterField<GroupRow>> = [
+  {
+    id: "state",
+    label: "State",
+    plural: "states",
+    icon: CircleDashedIcon,
+    options: GROUP_STATES.map((state) => ({
+      value: state,
+      label: formatEnumLabel(state),
+      icon: <StatusDot tone={GROUP_TONE[state]} />,
+    })),
+    accessor: (group) => group.state,
+  },
+  {
+    id: "lag",
+    label: "Lag",
+    plural: "states",
+    icon: TimerIcon,
+    options: [
+      { value: "lagging", label: "Lagging", icon: <StatusDot tone="warn" /> },
+      { value: "caught-up", label: "Caught up", icon: <StatusDot tone="ok" /> },
+    ],
+    accessor: (group) => (toNumber(group.totalLag) > 0 ? "lagging" : "caught-up"),
+  },
 ];
 
 const columnHelper = createColumnHelper<DataTableFeatures, GroupRow>();
@@ -106,22 +128,26 @@ function LagPill({ row }: { row: GroupRow }) {
 function ConsumerGroupsPage() {
   const cluster = useClusterName();
   const navigate = Route.useNavigate();
-  const [{ q: term, state }, setSearch] = useQueryStates(groupsSearch);
+  const [search, setSearch] = useQueryStates(groupsSearch);
+  const { q: term } = search;
+  const filters = readFilters(FILTERS, search);
 
   const { data: groups = EMPTY_GROUPS, isPending, isError, error } = useGroupRows(cluster);
   const { data: health } = useClusterHealth(cluster);
   const now = useNow();
   const caption = laneCaption(health?.offsets, now);
 
-  const rows = useMemo(() => {
-    const needle = term.trim().toLowerCase();
+  function setFilters(rules: FilterRule[]) {
+    void setSearch(filterParams(FILTERS, rules));
+  }
 
-    return groups.filter((group) => {
-      if (state !== "all" && group.state !== state) return false;
-      if (needle && !group.id.toLowerCase().includes(needle)) return false;
-      return true;
-    });
-  }, [groups, term, state]);
+  const searched = useMemo(() => {
+    const needle = term.trim().toLowerCase();
+    if (!needle) return groups;
+    return groups.filter((group) => group.id.toLowerCase().includes(needle));
+  }, [groups, term]);
+
+  const rows = applyFilters(searched, FILTERS, filters);
 
   const totalLag = rows.reduce((sum, group) => sum + toNumber(group.totalLag), 0);
 
@@ -144,26 +170,7 @@ function ConsumerGroupsPage() {
               placeholder="Search consumer groups…"
             />
 
-            <Select
-              value={state}
-              items={STATE_ITEMS}
-              onValueChange={(value) =>
-                void setSearch({ state: groupsSearch.state.parse(String(value)) })
-              }
-            >
-              <SelectTrigger className="w-48">
-                <SelectValue placeholder="State" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {STATE_ITEMS.map((item) => (
-                    <SelectItem key={item.value} value={item.value}>
-                      {item.label}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
+            <FilterBar fields={FILTERS} rows={searched} value={filters} onChange={setFilters} />
           </>
         }
         loading={isPending}

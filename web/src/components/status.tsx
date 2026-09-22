@@ -57,7 +57,7 @@ export function Pill({
   );
 }
 
-const GROUP_TONE: Record<GroupState, Tone> = {
+export const GROUP_TONE: Record<GroupState, Tone> = {
   STABLE: "ok",
   EMPTY: "idle",
   PREPARING_REBALANCE: "warn",

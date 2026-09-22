@@ -1,13 +1,21 @@
 import { parseAsBoolean, parseAsString, parseAsStringLiteral } from "nuqs";
 
+import { parseAsFilter } from "@/components/data-table/filters";
 import type { GroupState } from "@/lib/api/types";
 
 const term = parseAsString.withDefault("");
 
+// Filter params: `a,b` matches any of the values, `!a,b` none of them.
+export const TOPIC_POLICIES = ["delete", "compact"] as const;
+export const TOPIC_HEALTH = ["under-replicated", "in-sync"] as const;
+export const TOPIC_ACTIVITY = ["active", "idle"] as const;
+
 export const topicsSearch = {
   q: term,
   internal: parseAsBoolean.withDefault(false),
-  policy: parseAsStringLiteral(["all", "delete", "compact"]).withDefault("all"),
+  policy: parseAsFilter(TOPIC_POLICIES),
+  health: parseAsFilter(TOPIC_HEALTH),
+  activity: parseAsFilter(TOPIC_ACTIVITY),
 };
 
 export const GROUP_STATES = [
@@ -18,9 +26,12 @@ export const GROUP_STATES = [
   "DEAD",
 ] as const satisfies readonly GroupState[];
 
+export const GROUP_LAG = ["lagging", "caught-up"] as const;
+
 export const groupsSearch = {
   q: term,
-  state: parseAsStringLiteral(["all", ...GROUP_STATES]).withDefault("all"),
+  state: parseAsFilter(GROUP_STATES),
+  lag: parseAsFilter(GROUP_LAG),
 };
 
 export const schemasSearch = {
@@ -35,9 +46,28 @@ export const ACL_RESOURCE_TYPES = [
   "DELEGATION_TOKEN",
 ] as const;
 
+export const ACL_OPERATIONS = [
+  "ALL",
+  "READ",
+  "WRITE",
+  "CREATE",
+  "DELETE",
+  "ALTER",
+  "DESCRIBE",
+  "CLUSTER_ACTION",
+  "DESCRIBE_CONFIGS",
+  "ALTER_CONFIGS",
+  "IDEMPOTENT_WRITE",
+] as const;
+export const ACL_PERMISSIONS = ["ALLOW", "DENY"] as const;
+export const ACL_PATTERNS = ["LITERAL", "PREFIXED"] as const;
+
 export const aclsSearch = {
   q: term,
-  resource: parseAsStringLiteral(["all", ...ACL_RESOURCE_TYPES]).withDefault("all"),
+  resource: parseAsFilter(ACL_RESOURCE_TYPES),
+  operation: parseAsFilter(ACL_OPERATIONS),
+  permission: parseAsFilter(ACL_PERMISSIONS),
+  pattern: parseAsFilter(ACL_PATTERNS),
 };
 
 export const loginSearch = {
