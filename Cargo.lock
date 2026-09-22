@@ -1524,6 +1524,7 @@ dependencies = [
  "openidconnect",
  "prost-reflect",
  "protox",
+ "protox-parse",
  "regex",
  "rust-embed",
  "schemreg",

@@ -68,6 +68,7 @@ schemreg = { version = "0.6", features = ["confluent", "avro"] }
 apache-avro = "0.21"
 prost-reflect = { version = "0.16", features = ["serde"] }
 protox = "0.9"
+protox-parse = "0.9"
 bytes = "1"
 hmac = "0.12"
 sha2 = "0.10"
