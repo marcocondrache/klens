@@ -1,25 +1,25 @@
 import { useMemo, type ReactNode } from "react";
-import { AlertTriangleIcon } from "lucide-react";
+import { ActivityIcon, AlertTriangleIcon, HeartPulseIcon, RecycleIcon } from "lucide-react";
 import { createFileRoute } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
 import { useQueryStates } from "nuqs";
 
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { DataTableColumnHeader } from "@/components/data-table/column-header";
 import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
+import { FilterBar } from "@/components/data-table/filter-bar";
+import {
+  applyFilters,
+  filterParams,
+  readFilters,
+  type FilterField,
+  type FilterRule,
+} from "@/components/data-table/filters";
 import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
-import { Pill } from "@/components/status";
+import { Pill, StatusDot } from "@/components/status";
 import { useNow } from "@/hooks/use-now";
 import { useClusterHealth, useTopicRows } from "@/lib/api/catalog";
 import { laneCaption, useClusterName } from "@/lib/clusters";
@@ -41,11 +41,41 @@ export const Route = createFileRoute("/cluster/$cluster/topics")({
   component: TopicsPage,
 });
 
-const POLICY_ITEMS = [
-  { value: "all", label: "All policies" },
-  { value: "delete", label: "delete" },
-  { value: "compact", label: "compact" },
-] as const;
+const FILTERS: Array<FilterField<TopicRow>> = [
+  {
+    id: "policy",
+    label: "Policy",
+    plural: "policies",
+    icon: RecycleIcon,
+    options: [
+      { value: "delete", label: "delete" },
+      { value: "compact", label: "compact" },
+    ],
+    accessor: (topic) => formatCleanupPolicy(topic.cleanupPolicy).split(","),
+  },
+  {
+    id: "health",
+    label: "Health",
+    plural: "states",
+    icon: HeartPulseIcon,
+    options: [
+      { value: "under-replicated", label: "Under-replicated", icon: <StatusDot tone="warn" /> },
+      { value: "in-sync", label: "In sync", icon: <StatusDot tone="ok" /> },
+    ],
+    accessor: (topic) => (topic.underReplicated ? "under-replicated" : "in-sync"),
+  },
+  {
+    id: "activity",
+    label: "Activity",
+    plural: "states",
+    icon: ActivityIcon,
+    options: [
+      { value: "active", label: "Producing", icon: <StatusDot tone="ok" /> },
+      { value: "idle", label: "Idle", icon: <StatusDot tone="idle" /> },
+    ],
+    accessor: (topic) => (isZero(topic.rate) ? "idle" : "active"),
+  },
+];
 
 const EMPTY_TOPICS: TopicRow[] = [];
 
@@ -144,24 +174,30 @@ const columns = columnHelper.columns([
 function TopicsPage() {
   const cluster = useClusterName();
   const navigate = Route.useNavigate();
-  const [{ q: term, internal: showInternal, policy }, setSearch] = useQueryStates(topicsSearch);
+  const [search, setSearch] = useQueryStates(topicsSearch);
+  const { q: term, internal: showInternal } = search;
+  const filters = readFilters(FILTERS, search);
 
   const { data: topics = EMPTY_TOPICS, isPending, isError, error } = useTopicRows(cluster);
   const { data: health } = useClusterHealth(cluster);
   const now = useNow();
   const caption = laneCaption(health?.topology, now);
 
-  const rows = useMemo(() => {
+  function setFilters(rules: FilterRule[]) {
+    void setSearch(filterParams(FILTERS, rules));
+  }
+
+  const searched = useMemo(() => {
     const needle = term.trim().toLowerCase();
 
     return topics.filter((topic) => {
       if (!showInternal && topic.internal) return false;
-      if (policy !== "all" && !formatCleanupPolicy(topic.cleanupPolicy).includes(policy))
-        return false;
       if (needle && !topic.name.toLowerCase().includes(needle)) return false;
       return true;
     });
-  }, [topics, term, showInternal, policy]);
+  }, [topics, term, showInternal]);
+
+  const rows = applyFilters(searched, FILTERS, filters);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
@@ -182,28 +218,9 @@ function TopicsPage() {
               placeholder="Search topics…"
             />
 
-            <Select
-              value={policy}
-              items={POLICY_ITEMS}
-              onValueChange={(value) =>
-                void setSearch({ policy: topicsSearch.policy.parse(String(value)) })
-              }
-            >
-              <SelectTrigger className="w-40">
-                <SelectValue placeholder="Cleanup policy" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {POLICY_ITEMS.map((item) => (
-                    <SelectItem key={item.value} value={item.value}>
-                      {item.label}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
+            <FilterBar fields={FILTERS} rows={searched} value={filters} onChange={setFilters} />
 
-            <Label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Label className="ml-auto flex items-center gap-2 text-sm text-muted-foreground">
               <Switch
                 size="sm"
                 checked={showInternal}
