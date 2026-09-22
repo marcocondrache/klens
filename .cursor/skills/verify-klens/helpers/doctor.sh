@@ -23,6 +23,8 @@ fi
 
 health="$(curl -sS -o /dev/null -w '%{http_code}' "$KLENS_VERIFY_URL/health")"
 [[ "$health" == "204" ]] || fail "GET /health returned $health, expected 204"
+prefixed="$(curl -sS -o /dev/null -w '%{http_code}' "$KLENS_VERIFY_URL/api/health")"
+[[ "$prefixed" == "204" ]] || fail "GET /api/health returned $prefixed, expected 204"
 
 me="$(curl -sS "$KLENS_VERIFY_URL/api/auth/me")"
 echo "$me" | grep -q '"enabled":false' || fail "/api/auth/me enabled is not false: $me"

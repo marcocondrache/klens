@@ -448,7 +448,7 @@ fn session_layer(secure: bool, key: Key) -> SessionLayer {
     SessionManagerLayer::new(MemoryStore::default())
         .with_name(SESSION_COOKIE)
         .with_http_only(true)
-        // Lax so the IdP redirect back to /api/auth/callback still sends the session.
+        // Lax so the IdP redirect back to /auth/callback still sends the session.
         .with_same_site(SameSite::Lax)
         .with_secure(secure)
         .with_path("/")
@@ -514,9 +514,18 @@ mod tests {
         app.oneshot(request).await.unwrap()
     }
 
+    async fn send_ui(app: axum::Router, request: Request<Body>) -> axum::http::Response<Body> {
+        tower::ServiceBuilder::new()
+            .map_request(crate::app::apply_ui_prefix)
+            .service(app)
+            .oneshot(request)
+            .await
+            .unwrap()
+    }
+
     fn api_request() -> Request<Body> {
         Request::builder()
-            .uri("/api/clusters")
+            .uri("/clusters")
             .body(Body::empty())
             .unwrap()
     }
@@ -544,7 +553,7 @@ mod tests {
             router.clone(),
             Request::builder()
                 .method("POST")
-                .uri("/api/auth/impersonate")
+                .uri("/auth/impersonate")
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(serde_json::to_vec(user).expect("user json")))
                 .unwrap(),
@@ -595,8 +604,18 @@ mod tests {
 
     #[tokio::test]
     async fn api_unauthorized_without_session() {
-        let response = send(app(AuthState::enabled_for_tests()), api_request()).await;
+        let router = app(AuthState::enabled_for_tests());
+        let response = send(router.clone(), api_request()).await;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        let prefixed = send_ui(
+            router,
+            Request::builder()
+                .uri("/api/clusters")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(prefixed.status(), StatusCode::UNAUTHORIZED);
 
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
@@ -629,6 +648,24 @@ mod tests {
         let response = send(
             app(AuthState::disabled()),
             Request::builder()
+                .uri("/auth/me")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["enabled"], false);
+        assert!(json["user"].is_null());
+    }
+
+    #[tokio::test]
+    async fn the_ui_prefix_strips_to_the_session_route() {
+        let response = send_ui(
+            app(AuthState::disabled()),
+            Request::builder()
                 .uri("/api/auth/me")
                 .body(Body::empty())
                 .unwrap(),
@@ -643,26 +680,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn auth_me_is_not_served_at_the_old_path() {
-        let response = send(
-            app(AuthState::disabled()),
-            Request::builder()
-                .uri("/auth/me")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
-
-        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        assert!(serde_json::from_slice::<serde_json::Value>(&body).is_err());
-    }
-
-    #[tokio::test]
     async fn me_reports_enabled_auth_without_user() {
         let response = send(
             app(AuthState::enabled_for_tests()),
             Request::builder()
-                .uri("/api/auth/me")
+                .uri("/auth/me")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -680,7 +702,7 @@ mod tests {
         let response = send(
             app(AuthState::disabled()),
             Request::builder()
-                .uri("/api/auth/login")
+                .uri("/auth/login")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -694,7 +716,7 @@ mod tests {
         let response = send(
             app(AuthState::enabled_for_tests()),
             Request::builder()
-                .uri("/api/auth/login")
+                .uri("/auth/login")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -718,7 +740,7 @@ mod tests {
         let missing = send(
             router.clone(),
             Request::builder()
-                .uri("/api/auth/callback?code=test-code&state=nope")
+                .uri("/auth/callback?code=test-code&state=nope")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -732,7 +754,7 @@ mod tests {
         let login = send(
             router.clone(),
             Request::builder()
-                .uri("/api/auth/login")
+                .uri("/auth/login")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -742,7 +764,7 @@ mod tests {
         let mismatched = send(
             router,
             Request::builder()
-                .uri("/api/auth/callback?code=test-code&state=wrong")
+                .uri("/auth/callback?code=test-code&state=wrong")
                 .header(header::COOKIE, cookies)
                 .body(Body::empty())
                 .unwrap(),
@@ -762,7 +784,7 @@ mod tests {
         let login = send(
             router.clone(),
             Request::builder()
-                .uri("/api/auth/login")
+                .uri("/auth/login")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -785,7 +807,7 @@ mod tests {
         let callback = send(
             router.clone(),
             Request::builder()
-                .uri(format!("/api/auth/callback?code=test-code&state={state}"))
+                .uri(format!("/auth/callback?code=test-code&state={state}"))
                 .header(header::COOKIE, cookies)
                 .body(Body::empty())
                 .unwrap(),
@@ -812,7 +834,7 @@ mod tests {
         let login = send(
             router.clone(),
             Request::builder()
-                .uri("/api/auth/login")
+                .uri("/auth/login")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -835,7 +857,7 @@ mod tests {
         let callback = send(
             router,
             Request::builder()
-                .uri(format!("/api/auth/callback?code=wrong&state={state}"))
+                .uri(format!("/auth/callback?code=wrong&state={state}"))
                 .header(header::COOKIE, cookies)
                 .body(Body::empty())
                 .unwrap(),
@@ -884,7 +906,7 @@ mod tests {
         let login = send(
             router.clone(),
             Request::builder()
-                .uri("/api/auth/login")
+                .uri("/auth/login")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -906,7 +928,7 @@ mod tests {
         let callback = send(
             router.clone(),
             Request::builder()
-                .uri(format!("/api/auth/callback?code={code}&state={state}"))
+                .uri(format!("/auth/callback?code={code}&state={state}"))
                 .header(header::COOKIE, cookies)
                 .body(Body::empty())
                 .unwrap(),
@@ -998,7 +1020,7 @@ mod tests {
         let response = send(
             router,
             Request::builder()
-                .uri("/api/auth/me")
+                .uri("/auth/me")
                 .header(header::COOKIE, cookie)
                 .body(Body::empty())
                 .unwrap(),
@@ -1031,7 +1053,7 @@ mod tests {
         let cookie = impersonate_cookie(&router, &user).await;
 
         let request = Request::builder()
-            .uri("/api/whoami")
+            .uri("/whoami")
             .header(header::COOKIE, cookie)
             .body(Body::empty())
             .unwrap();
@@ -1090,7 +1112,7 @@ mod tests {
         let cookie = impersonate_cookie(&router, &user).await;
 
         let request = Request::builder()
-            .uri("/api/clusters/local/topics/orders.created/records?limit=1&order=OLDEST")
+            .uri("/clusters/local/topics/orders.created/records?limit=1&order=OLDEST")
             .header(header::COOKIE, cookie)
             .body(Body::empty())
             .unwrap();

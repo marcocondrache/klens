@@ -28,7 +28,7 @@ dir = "web"
 run = "vp install"
 
 [tasks."web:dev"]
-description = "Run the Vite dev server (proxies /api and /health to :8080)"
+description = "Run the Vite dev server (proxies /api to :8080 and drops that prefix)"
 dir = "web"
 depends = ["web:install"]
 run = "vp dev"

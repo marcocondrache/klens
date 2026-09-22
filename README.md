@@ -45,8 +45,8 @@ By default the UI and JSON API are open to anyone who can reach the process.
 
 To require a login, add an OIDC provider to `config.yaml`. klens uses the
 authorization code flow with PKCE. Sessions use
-[axum-login](https://github.com/maxcountryman/axum-login). `/health` stays
-public. A process restart drops in-memory sessions and requires a new login.
+[axum-login](https://github.com/maxcountryman/axum-login). `/health` and
+`/ready` stay public. A process restart drops in-memory sessions and requires a new login.
 
 Set `auth.session_key` (or `KLENS_SESSION_KEY`, which takes precedence) to a
 base64 or plain secret of at least 32 bytes so the session cookie survives a
@@ -59,7 +59,7 @@ auth:
     issuer: https://keycloak.example.com/realms/klens
     client_id: klens
     client_secret: "..."
-    redirect_uri: http://localhost:8080/api/auth/callback
+    redirect_uri: http://localhost:8080/auth/callback
 ```
 
 Register `redirect_uri` with the identity provider. Without `roles`, any
@@ -88,7 +88,7 @@ auth:
     issuer: https://keycloak.example.com/realms/klens
     client_id: klens
     client_secret: "..."
-    redirect_uri: http://localhost:8080/api/auth/callback
+    redirect_uri: http://localhost:8080/auth/callback
   roles:
     # claim: groups
     definitions:

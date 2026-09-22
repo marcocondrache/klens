@@ -25,7 +25,7 @@ async fn sixty_four_bit_counters_cross_the_wire_as_strings() {
         .watermarks
         .commit(Arc::new(watermarks(at(1_000), &[("wide", 0, 0, huge)])));
 
-    let data = ok(&state, "/api/clusters/local/topics").await;
+    let data = ok(&state, "/clusters/local/topics").await;
     let row = &data["rows"][0];
 
     assert_eq!(row["retainedMessages"], huge.to_string());
@@ -35,7 +35,7 @@ async fn sixty_four_bit_counters_cross_the_wire_as_strings() {
 #[tokio::test]
 async fn topic_rows_project_counts_and_configs_without_touching_the_broker() {
     let (state, session) = seeded_with(FakeCluster::local());
-    let data = ok(&state, "/api/clusters/local/topics?sort=NAME").await;
+    let data = ok(&state, "/clusters/local/topics?sort=NAME").await;
     let rows = &data["rows"];
 
     assert_eq!(data["total"], 2);
@@ -56,7 +56,7 @@ async fn topic_rows_expose_the_latest_rate() {
     store.rates.set(&topic, 12.5);
     store.rates.set(&topic, 13.5);
 
-    let data = ok(&state, "/api/clusters/local/topics?sort=NAME").await;
+    let data = ok(&state, "/clusters/local/topics?sort=NAME").await;
     let rows = &data["rows"];
 
     assert_eq!(rows[0]["name"], "orders.created");
@@ -68,7 +68,7 @@ async fn topic_rows_expose_the_latest_rate() {
 #[tokio::test]
 async fn topic_rows_filter_by_name_before_paging() {
     let state = seeded();
-    let data = ok(&state, "/api/clusters/local/topics?contains=PAY").await;
+    let data = ok(&state, "/clusters/local/topics?contains=PAY").await;
 
     assert_eq!(data["total"], 1);
     assert_eq!(data["rows"][0]["name"], "payments.settled");
@@ -77,7 +77,7 @@ async fn topic_rows_filter_by_name_before_paging() {
 #[tokio::test]
 async fn topic_rows_page_by_key_and_report_the_unpaged_total() {
     let state = seeded();
-    let first = ok(&state, "/api/clusters/local/topics?limit=1").await;
+    let first = ok(&state, "/clusters/local/topics?limit=1").await;
 
     assert_eq!(first["total"], 2);
     assert_eq!(first["rows"][0]["name"], "orders.created");
@@ -85,7 +85,7 @@ async fn topic_rows_page_by_key_and_report_the_unpaged_total() {
 
     let second = ok(
         &state,
-        "/api/clusters/local/topics?limit=1&after=orders.created",
+        "/clusters/local/topics?limit=1&after=orders.created",
     )
     .await;
 
@@ -98,7 +98,7 @@ async fn topic_rows_sort_descending_on_the_requested_column() {
     let state = seeded();
     let data = ok(
         &state,
-        "/api/clusters/local/topics?sort=RETAINED_MESSAGES&desc=true",
+        "/clusters/local/topics?sort=RETAINED_MESSAGES&desc=true",
     )
     .await;
 
@@ -121,7 +121,7 @@ async fn topic_detail_flags_under_replication_per_partition() {
         Vec::new(),
     )));
 
-    let topic = ok(&state, "/api/clusters/local/topics/orders.created").await;
+    let topic = ok(&state, "/clusters/local/topics/orders.created").await;
 
     assert_eq!(topic["replicationFactor"], 2);
     assert_eq!(topic["underReplicated"], true);
@@ -137,7 +137,7 @@ async fn topic_detail_flags_under_replication_per_partition() {
 async fn a_missing_topic_is_not_found() {
     let (status, code) = failure(
         &seeded(),
-        "/api/clusters/local/topics/ghost",
+        "/clusters/local/topics/ghost",
         EffectiveAccess::Unrestricted,
     )
     .await;
@@ -149,7 +149,7 @@ async fn a_missing_topic_is_not_found() {
 #[tokio::test]
 async fn topic_groups_report_lag_on_that_topic_alone() {
     let state = seeded();
-    let data = ok(&state, "/api/clusters/local/topics/orders.created/groups").await;
+    let data = ok(&state, "/clusters/local/topics/orders.created/groups").await;
 
     assert_eq!(data[0]["id"], "order-processor");
     assert_eq!(data[0]["lagOnTopic"], "15");
@@ -158,7 +158,7 @@ async fn topic_groups_report_lag_on_that_topic_alone() {
 #[tokio::test]
 async fn topic_configs_come_from_the_lane_not_the_broker() {
     let (state, session) = seeded_with(FakeCluster::local());
-    let configs = ok(&state, "/api/clusters/local/topics/orders.created/configs").await;
+    let configs = ok(&state, "/clusters/local/topics/orders.created/configs").await;
 
     assert_eq!(configs[0]["name"], "cleanup.policy");
     assert_eq!(configs[0]["value"], "compact");
@@ -170,7 +170,7 @@ async fn topic_configs_come_from_the_lane_not_the_broker() {
 async fn topic_configs_for_an_unknown_topic_are_an_error() {
     let (status, code) = failure(
         &seeded(),
-        "/api/clusters/local/topics/ghost/configs",
+        "/clusters/local/topics/ghost/configs",
         EffectiveAccess::Unrestricted,
     )
     .await;
@@ -183,7 +183,7 @@ async fn topic_configs_for_an_unknown_topic_are_an_error() {
 async fn topic_configs_are_forbidden_without_the_configs_privilege() {
     let (status, code) = failure(
         &seeded(),
-        "/api/clusters/local/topics/orders.created/configs",
+        "/clusters/local/topics/orders.created/configs",
         viewer_everywhere(),
     )
     .await;
@@ -196,7 +196,7 @@ async fn topic_configs_are_forbidden_without_the_configs_privilege() {
 
 #[tokio::test]
 async fn topic_rows_stay_open_to_a_viewer() {
-    let topics = ok_as(&seeded(), "/api/clusters/local/topics", viewer_everywhere()).await;
+    let topics = ok_as(&seeded(), "/clusters/local/topics", viewer_everywhere()).await;
 
     assert_eq!(topics["total"], 2);
 }

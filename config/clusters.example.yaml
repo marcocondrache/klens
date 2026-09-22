@@ -93,7 +93,7 @@ clusters:
     #           strategy: mask       # the match becomes ***
 
 # Optional OpenID Connect login gate. When omitted, the UI and JSON API are
-# open to anyone who can reach the process. /health stays public either way.
+# open to anyone who can reach the process. /health and /ready stay public either way.
 #
 # Register redirect_uri with the identity provider. Without roles, any
 # authenticated user has the same access as an open deployment. With roles,
@@ -107,7 +107,7 @@ clusters:
 #     issuer: https://keycloak.example.com/realms/klens
 #     client_id: klens
 #     client_secret: ${OIDC_CLIENT_SECRET}
-#     redirect_uri: http://localhost:8080/api/auth/callback
+#     redirect_uri: http://localhost:8080/auth/callback
 #     # scopes: [openid, email, profile]
 #     # cookie_secure: false  # default: true when redirect_uri is https
 #   roles:

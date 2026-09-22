@@ -59,7 +59,7 @@ pub(super) fn viewer_everywhere() -> EffectiveAccess {
 }
 
 pub(super) fn api(state: AppState, access: EffectiveAccess, guard: SessionGuard) -> Router {
-    super::router()
+    super::api()
         .layer(middleware::from_fn(
             move |mut request: Request<Body>, next: Next| {
                 let access = access.clone();

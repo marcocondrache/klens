@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
 use axum::Router;
+use axum::extract::Request;
+use axum::http::uri::PathAndQuery;
 use axum::middleware;
 
 use crate::config::{ClusterIngestConfig, Config};
@@ -11,9 +13,27 @@ use crate::kafka::{
     ConfigEntry, KafkaError, RecordLimits, RecordPage, RecordQuery, SessionSet, read_page,
 };
 
-mod api;
+mod acls;
 pub(crate) mod auth;
+mod brokers;
+mod clusters;
+mod configs;
+mod context;
+mod error;
+mod groups;
 mod health;
+mod int64;
+mod paging;
+mod records;
+mod search;
+mod subjects;
+mod topics;
+mod typescript;
+mod updates;
+mod whoami;
+
+#[cfg(test)]
+mod harness;
 
 pub use auth::AuthState;
 
@@ -135,22 +155,63 @@ impl AppState {
     }
 }
 
-pub use api::typescript;
+pub use typescript::typescript;
+
+fn resources() -> Router<AppState> {
+    Router::new()
+        .merge(whoami::router())
+        .nest("/clusters", clusters::router())
+}
+
+fn public_routes() -> Router<AppState> {
+    Router::new()
+        .merge(health::router())
+        .nest("/auth", auth::router())
+}
+
+#[cfg(test)]
+fn api() -> Router<AppState> {
+    public_routes().merge(resources())
+}
 
 pub fn router(state: AppState) -> Router {
-    let api = api::router().route_layer(middleware::from_fn_with_state(
+    let resources = resources().route_layer(middleware::from_fn_with_state(
         state.clone(),
         auth::require_session,
     ));
     let auth_layer = state.auth.layer();
 
     Router::new()
-        .merge(api)
-        .nest("/api/auth", auth::router())
-        .merge(health::router())
+        .merge(public_routes())
+        .merge(resources)
         .with_state(state)
         .fallback(crate::server::web::serve)
         .layer(auth_layer)
+}
+
+pub(crate) fn apply_ui_prefix(mut request: Request) -> Request {
+    if let Some(uri) = without_api_prefix(request.uri()) {
+        *request.uri_mut() = uri;
+    }
+    request
+}
+
+fn without_api_prefix(uri: &axum::http::Uri) -> Option<axum::http::Uri> {
+    let path_and_query = uri.path_and_query()?;
+    let path = path_and_query.path();
+    let stripped = if path == "/api" {
+        "/".to_owned()
+    } else {
+        let rest = path.strip_prefix("/api/")?;
+        format!("/{rest}")
+    };
+    let rewritten = match path_and_query.query() {
+        Some(query) => format!("{stripped}?{query}"),
+        None => stripped,
+    };
+    let mut parts = uri.clone().into_parts();
+    parts.path_and_query = Some(PathAndQuery::from_maybe_shared(rewritten).ok()?);
+    axum::http::Uri::from_parts(parts).ok()
 }
 
 #[cfg(test)]
@@ -201,6 +262,18 @@ mod tests {
             "topology lane never called metadata"
         );
         assert_eq!(session.calls().acls(), 0);
+    }
+
+    #[test]
+    fn the_ui_prefix_strips_without_dropping_the_query() {
+        let uri = axum::http::Uri::from_static("/api/clusters/local/topics?limit=1");
+        let stripped = without_api_prefix(&uri).expect("prefixed");
+        assert_eq!(
+            stripped.path_and_query().unwrap().as_str(),
+            "/clusters/local/topics?limit=1"
+        );
+        assert!(without_api_prefix(&axum::http::Uri::from_static("/clusters")).is_none());
+        assert!(without_api_prefix(&axum::http::Uri::from_static("/apples")).is_none());
     }
 
     #[tokio::test]
