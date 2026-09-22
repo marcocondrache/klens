@@ -68,11 +68,11 @@ function AppLayout() {
   const topology = health?.topology;
 
   return (
-    <SidebarProvider className="h-svh">
+    <SidebarProvider defaultOpen={sidebarDefaultOpen()} className="h-svh">
       <AppSidebar />
       <SidebarInset className="min-w-0 overflow-hidden">
         <AppHeader onSearch={() => setPaletteOpen(true)} />
-        <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-4 md:p-6 md:group-has-data-[collapsible=icon]/sidebar-wrapper:px-8">
+        <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-4 md:p-6">
           {topology?.lastError ? (
             <Alert variant="destructive">
               <TriangleAlertIcon />
@@ -88,6 +88,11 @@ function AppLayout() {
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
     </SidebarProvider>
   );
+}
+
+/** Restores the state `SidebarProvider` persists in the `sidebar_state` cookie. */
+function sidebarDefaultOpen(): boolean {
+  return !document.cookie.split("; ").includes("sidebar_state=false");
 }
 
 function useRouteScope(): Scope {

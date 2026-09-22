@@ -1,7 +1,6 @@
-import { ChevronDownIcon } from "lucide-react";
+import { ChevronsUpDownIcon } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 
-import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,19 +9,34 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  useSidebar,
+} from "@/components/ui/sidebar";
 import { StatusDot } from "@/components/status";
-import { clusterTone, useClusterName } from "@/lib/clusters";
 import { useClusters } from "@/lib/api/catalog";
+import { clusterTone, useClusterName, type Tone } from "@/lib/clusters";
 import { clusterSectionTo, useActiveSection } from "@/lib/sections";
 
+const TONE_LABEL: Record<Tone, string> = {
+  ok: "Healthy",
+  warn: "Degraded",
+  error: "Unreachable",
+  idle: "Connecting",
+};
+
 export function ClusterSwitcher() {
+  const { isMobile, setOpenMobile } = useSidebar();
   const active = useClusterName();
   const { data: clusters = [] } = useClusters();
   const navigate = useNavigate();
   const section = useActiveSection();
-  const health = clusters.find((entry) => entry.cluster === active) ?? null;
+  const tone = clusterTone(clusters.find((entry) => entry.cluster === active));
 
   function switchTo(name: string) {
+    setOpenMobile(false);
     void navigate({
       to: section ? clusterSectionTo(section.segment) : "/cluster/$cluster",
       params: { cluster: name },
@@ -30,26 +44,50 @@ export function ClusterSwitcher() {
   }
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={<Button variant="outline" size="sm" className="max-w-64 font-medium" />}
-      >
-        <StatusDot tone={clusterTone(health)} />
-        <span className="truncate">{active}</span>
-        <ChevronDownIcon className="opacity-60" />
-      </DropdownMenuTrigger>
+    <SidebarMenu>
+      <SidebarMenuItem>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <SidebarMenuButton
+                size="lg"
+                className="data-open:bg-sidebar-accent data-open:text-sidebar-accent-foreground"
+              />
+            }
+          >
+            <div className="flex aspect-square size-8 items-center justify-center rounded-lg border bg-background">
+              <img src="/favicon.svg" alt="" className="size-5" />
+            </div>
+            <div className="grid flex-1 text-left text-sm leading-tight">
+              <span className="truncate font-medium">{active}</span>
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <StatusDot tone={tone} />
+                <span className="truncate">{TONE_LABEL[tone]}</span>
+              </span>
+            </div>
+            <ChevronsUpDownIcon className="ml-auto" />
+          </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="start" className="w-64">
-        <DropdownMenuRadioGroup value={active} onValueChange={switchTo}>
-          <DropdownMenuLabel className="text-xs text-muted-foreground">Clusters</DropdownMenuLabel>
-          {clusters.map((entry) => (
-            <DropdownMenuRadioItem key={entry.cluster} value={entry.cluster}>
-              <StatusDot tone={clusterTone(entry)} />
-              <span className="flex-1 truncate">{entry.cluster}</span>
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
+          <DropdownMenuContent
+            className="min-w-56"
+            align="start"
+            side={isMobile ? "bottom" : "right"}
+            sideOffset={4}
+          >
+            <DropdownMenuRadioGroup value={active} onValueChange={switchTo}>
+              <DropdownMenuLabel className="text-xs text-muted-foreground">
+                Clusters
+              </DropdownMenuLabel>
+              {clusters.map((entry) => (
+                <DropdownMenuRadioItem key={entry.cluster} value={entry.cluster}>
+                  <StatusDot tone={clusterTone(entry)} />
+                  <span className="flex-1 truncate">{entry.cluster}</span>
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </SidebarMenuItem>
+    </SidebarMenu>
   );
 }

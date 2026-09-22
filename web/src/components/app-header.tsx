@@ -17,10 +17,7 @@ import { Kbd } from "@/components/ui/kbd";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { ClusterSwitcher } from "@/components/cluster-switcher";
 import { ModeToggle } from "@/components/mode-toggle";
-import { UserMenu } from "@/components/user-menu";
-import { useAuth } from "@/hooks/use-auth";
 import { useClusterName } from "@/lib/clusters";
 import { formatModK } from "@/lib/keyboard";
 import { clusterSectionTo, useActiveSection } from "@/lib/sections";
@@ -41,7 +38,6 @@ export function AppHeader({ onSearch }: { onSearch: () => void }) {
   });
   const queryClient = useQueryClient();
   const fetching = useIsFetching() > 0;
-  const { data: auth } = useAuth();
   const section = useActiveSection();
 
   const crumbs: Crumb[] = [];
@@ -59,13 +55,12 @@ export function AppHeader({ onSearch }: { onSearch: () => void }) {
   }
 
   return (
-    <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b bg-background/95 px-3 backdrop-blur-md group-has-data-[collapsible=icon]/sidebar-wrapper:px-4">
-      <SidebarTrigger className="-ml-1 group-has-data-[collapsible=icon]/sidebar-wrapper:ml-0" />
-      <Separator orientation="vertical" className="mx-1 !h-4 my-auto" />
-
-      <ClusterSwitcher />
-
-      {crumbs.length ? <Separator orientation="vertical" className="mx-1 !h-4 my-auto" /> : null}
+    <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b bg-background/95 px-4 backdrop-blur-md">
+      <SidebarTrigger className="-ml-1" />
+      <Separator
+        orientation="vertical"
+        className="mr-2 data-vertical:h-4 data-vertical:self-auto"
+      />
 
       <Breadcrumb className="min-w-0">
         <BreadcrumbList className="flex-nowrap">
@@ -135,8 +130,6 @@ export function AppHeader({ onSearch }: { onSearch: () => void }) {
         </Tooltip>
 
         <ModeToggle />
-
-        {auth?.enabled && auth.user ? <UserMenu user={auth.user} /> : null}
       </div>
     </header>
   );
