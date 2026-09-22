@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { DownloadIcon, Maximize2Icon, Minimize2Icon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CopyButton } from "@/components/copy-button";
 import { JsonBlock } from "@/components/json-block";
@@ -55,24 +56,21 @@ export function PayloadView({
         <h3 className="text-sm font-medium text-muted-foreground">{label}</h3>
         <div className="flex items-center gap-1">
           {showPrettyToggle ? (
-            <div className="mr-1 flex rounded-lg border p-0.5">
-              <Button
-                variant={pretty ? "secondary" : "ghost"}
-                size="xs"
-                aria-pressed={pretty}
-                onClick={() => setPretty(true)}
-              >
-                Pretty
-              </Button>
-              <Button
-                variant={!pretty ? "secondary" : "ghost"}
-                size="xs"
-                aria-pressed={!pretty}
-                onClick={() => setPretty(false)}
-              >
-                Raw
-              </Button>
-            </div>
+            <ToggleGroup
+              value={pretty ? ["pretty"] : ["raw"]}
+              onValueChange={(next) => {
+                if (next[0] === "raw") setPretty(false);
+                if (next[0] === "pretty") setPretty(true);
+              }}
+              variant="outline"
+              size="sm"
+              spacing={0}
+              className="mr-1"
+              aria-label={`${label} format`}
+            >
+              <ToggleGroupItem value="pretty">Pretty</ToggleGroupItem>
+              <ToggleGroupItem value="raw">Raw</ToggleGroupItem>
+            </ToggleGroup>
           ) : null}
           {showCopy ? <CopyButton value={displayed} label={copyLabel} /> : null}
           {showDownload ? (
