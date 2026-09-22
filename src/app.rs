@@ -2,13 +2,16 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::middleware;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::config::{ClusterIngestConfig, Config};
+use crate::environment::MAX_LIVE_TAILS;
 use crate::kafka::ingest::Ingest;
 use crate::kafka::model::{AclListing, RegisteredSchema};
 use crate::kafka::store::{ClusterStore, StoreSet};
 use crate::kafka::{
-    ConfigEntry, KafkaError, RecordLimits, RecordPage, RecordQuery, SessionSet, read_page,
+    ConfigEntry, KafkaError, RecordLimits, RecordPage, RecordQuery, SessionSet, Tail, TailLimits,
+    TailQuery, read_page,
 };
 
 mod acls;
@@ -42,6 +45,8 @@ pub struct AppState {
     pub(crate) stores: Arc<StoreSet>,
     pub(crate) auth: AuthState,
     limits: RecordLimits,
+    tail_limits: TailLimits,
+    tails: Arc<Semaphore>,
     _ingest: Option<Arc<Ingest>>,
 }
 
@@ -60,7 +65,17 @@ impl AppState {
             sessions,
             auth,
             limits: RecordLimits::from_env(),
+            tail_limits: TailLimits::from_env(),
+            tails: Arc::new(Semaphore::new(*MAX_LIVE_TAILS)),
             _ingest: None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_tail_capacity(self, tails: usize) -> Self {
+        Self {
+            tails: Arc::new(Semaphore::new(tails)),
+            ..self
         }
     }
 
@@ -115,6 +130,26 @@ impl AppState {
             self.cluster(cluster)?,
             query,
             self.limits,
+        )
+        .await
+    }
+
+    /// A seat for one live tail, or `None` when every seat is taken. The tail
+    /// holds it for as long as it streams.
+    pub(crate) fn tail_permit(&self) -> Option<OwnedSemaphorePermit> {
+        Arc::clone(&self.tails).try_acquire_owned().ok()
+    }
+
+    pub(crate) async fn live_tail(
+        &self,
+        cluster: &str,
+        query: TailQuery,
+    ) -> Result<Tail, KafkaError> {
+        Tail::open(
+            self.sessions.session(cluster)?,
+            self.cluster(cluster)?,
+            query,
+            self.tail_limits,
         )
         .await
     }

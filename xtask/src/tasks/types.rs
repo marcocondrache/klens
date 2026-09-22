@@ -9,8 +9,8 @@ use klens::app::typescript::{
     GroupDetail, GroupMember, GroupOffset, GroupRow, GroupRowPage, GroupState, Identity, Int64,
     LaneHealth, MemberAssignment, PartitionRow, PrivilegeName, Record, RecordHeader, RecordOrder,
     RecordPage, ResyncReason, SchemaCompatibility, SchemaReference, SchemaType, SearchHit,
-    SearchKind, SubjectDetail, SubjectRow, SubjectRowsResult, TopicDetail, TopicGroupRow,
-    TopicRate, TopicRow, TopicRowPage, TopicSortField, Update,
+    SearchKind, SubjectDetail, SubjectRow, SubjectRowsResult, TailEvent, TailStart, TopicDetail,
+    TopicGroupRow, TopicRate, TopicRow, TopicRowPage, TopicSortField, Update,
 };
 
 pub fn run(sh: &Shell) -> xshell::Result<()> {
@@ -72,6 +72,8 @@ fn typescript() -> String {
         RecordHeader,
         Record,
         RecordPage,
+        TailStart,
+        TailEvent,
         SearchKind,
         SearchHit,
         TopicSortField,

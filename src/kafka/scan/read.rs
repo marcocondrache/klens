@@ -21,40 +21,43 @@ pub async fn read_page<S: ClusterSession + ?Sized>(
     let limit = limits.clamp_limit(query.limit)?;
     query.timestamps.validate()?;
 
-    let partitions = resolve_partitions(session, store, &query).await?;
+    let partitions = resolve_partitions(session, store, &query.topic, query.partition).await?;
     let watermarks = window_watermarks(session, &query, &partitions).await?;
 
     fetch_page(session, &query, &partitions, &watermarks, limit, limits).await
 }
 
-async fn resolve_partitions<S: ClusterSession + ?Sized>(
+/// The partitions a read covers: all of the topic's, or the one it named.
+pub(super) async fn resolve_partitions<S: ClusterSession + ?Sized>(
     session: &S,
     store: &ClusterStore,
-    query: &RecordQuery,
+    topic: &str,
+    partition: Option<i32>,
 ) -> Result<Vec<i32>, KafkaError> {
     if let Some(topology) = store.topology.load()
-        && let Some(topic) = topology.topics.get(query.topic.as_str())
+        && let Some(known) = topology.topics.get(topic)
     {
-        return select_partitions(store.name(), query, &topic.partitions);
+        return select_partitions(store.name(), topic, partition, &known.partitions);
     }
 
     store.topology.kick();
-    let topic = session.topic_metadata(&query.topic).await?;
+    let metadata = session.topic_metadata(topic).await?;
 
-    select_partitions(store.name(), query, &topic.partitions)
+    select_partitions(store.name(), topic, partition, &metadata.partitions)
 }
 
 fn select_partitions(
     cluster: &str,
-    query: &RecordQuery,
+    topic: &str,
+    partition: Option<i32>,
     partitions: &[PartitionMetadata],
 ) -> Result<Vec<i32>, KafkaError> {
-    match query.partition {
+    match partition {
         None => Ok(partitions.iter().map(|partition| partition.id).collect()),
         Some(id) if partitions.iter().any(|partition| partition.id == id) => Ok(vec![id]),
         Some(id) => Err(KafkaError::UnknownPartition {
             cluster: cluster.to_owned(),
-            topic: query.topic.clone(),
+            topic: topic.to_owned(),
             partition: id,
         }),
     }

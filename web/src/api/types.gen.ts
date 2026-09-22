@@ -125,6 +125,20 @@ complete: boolean,
  */
 obfuscated: boolean, nextCursor: string | null, prevCursor: string | null, };
 
+export type TailStart = { partition: number, offset: Int64, };
+
+export type TailEvent = { "type": "ready", start: Array<TailStart>, obfuscated: boolean, } | { "type": "records", 
+/**
+ * Oldest first.
+ */
+records: Array<Record>, 
+/**
+ * Records the tail read past without sending, to keep up with a busy
+ * topic. With a filter this is an upper bound: not every one of them
+ * would have matched.
+ */
+skipped: Int64, };
+
 export type SearchKind = "TOPIC" | "GROUP" | "NODE" | "SUBJECT";
 
 export type SearchHit = { kind: SearchKind, id: string, label: string, detail: string, };

@@ -8,6 +8,7 @@ pub mod plan;
 pub mod query;
 pub mod read;
 pub mod session;
+pub mod tail;
 
 use std::cmp::Ordering;
 

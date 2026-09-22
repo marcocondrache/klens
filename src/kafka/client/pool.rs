@@ -3,17 +3,16 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use krafka::client::KrafkaClient as KrafkaSharedClient;
-use krafka::consumer::{AutoOffsetReset, Consumer};
+use krafka::consumer::Consumer;
 
 use crate::environment::{
-    MAX_RECORD_LIMIT, MAX_RESPONSE_MB, SCAN_PACE_BOUND, SCAN_POOL_IDLE_TTL, SCAN_POOL_PER_TOPIC,
-    SCAN_POOL_TOTAL,
+    SCAN_PACE_BOUND, SCAN_POOL_IDLE_TTL, SCAN_POOL_PER_TOPIC, SCAN_POOL_TOTAL,
 };
 use crate::kafka::client::transport;
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::PartitionWindow;
 
-use super::scan::ScanLease;
+use super::scan::{ScanLease, reader};
 
 pub(super) struct ScanPool {
     client: KrafkaSharedClient,
@@ -94,7 +93,7 @@ impl ScanPoolInner {
 }
 
 /// Nothing waits on a retired consumer, so closing it is fire-and-forget.
-fn retire(consumer: Arc<Consumer>) {
+pub(super) fn retire(consumer: Arc<Consumer>) {
     tokio::spawn(async move {
         let _ = consumer.close().await;
     });
@@ -175,28 +174,13 @@ impl ScanPool {
         topic: &str,
         windows: &[PartitionWindow],
     ) -> Result<Consumer, KafkaError> {
-        let page_limit = i32::try_from(*MAX_RECORD_LIMIT).unwrap_or(i32::MAX);
+        // The broker releases the long poll exactly when the scan stops
+        // waiting for it, instead of holding a fetch nobody will read.
+        let start = windows
+            .iter()
+            .map(|window| (window.partition, window.start));
 
-        Ok(Consumer::builder()
-            .with_client(&self.client)
-            .enable_auto_commit(false)
-            .auto_offset_reset(AutoOffsetReset::Earliest)
-            // The broker releases the long poll exactly when the scan stops
-            // waiting for it, instead of holding a fetch nobody will read.
-            .fetch_max_wait(*SCAN_PACE_BOUND)
-            .max_poll_records(page_limit)
-            .max_buffered_records(page_limit.saturating_mul(2))
-            // krafka's 50 MB default is wider than the frame the connection
-            // now accepts, which would make a busy fetch unreadable.
-            .fetch_max_bytes(i32::try_from(*MAX_RESPONSE_MB / 2).unwrap_or(i32::MAX))
-            // With the window starts already known, the first assignment
-            // resolves no offsets.
-            .initial_offsets(
-                windows
-                    .iter()
-                    .map(|window| ((topic.to_owned(), window.partition), window.start))
-                    .collect(),
-            )
+        Ok(reader(&self.client, topic, start, *SCAN_PACE_BOUND)
             .build()
             .await?)
     }

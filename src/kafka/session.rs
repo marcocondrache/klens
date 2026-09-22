@@ -17,7 +17,8 @@ use crate::kafka::client::KafkaClient;
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
     AclListing, ClusterIdentity, CommittedOffset, ConfigEntry, GroupSnapshot, MetadataSnapshot,
-    PartitionWindow, RegisteredSchema, ScanConsumer, SchemaSubject, TopicMetadata, Watermarks,
+    PartitionWindow, RegisteredSchema, ScanConsumer, SchemaSubject, TailConsumer, TailPosition,
+    TopicMetadata, Watermarks,
 };
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
@@ -77,6 +78,14 @@ pub trait ClusterSession: Send + Sync + 'static {
         topic: &str,
         windows: &[PartitionWindow],
     ) -> Result<Box<dyn ScanConsumer>, KafkaError>;
+
+    /// Open a consumer that follows `topic` from `start` for as long as a
+    /// live tail holds it.
+    async fn open_tail(
+        &self,
+        topic: &str,
+        start: &[TailPosition],
+    ) -> Result<Box<dyn TailConsumer>, KafkaError>;
 
     /// Registry-aware payload decoding, when the cluster has a registry.
     ///

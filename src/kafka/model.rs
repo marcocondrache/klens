@@ -2,8 +2,8 @@
 //!
 //! The `kafka` module root re-exports the product subset. This barrel also
 //! has the raw broker snapshots ([`GroupSnapshot`], [`MetadataSnapshot`]) and
-//! the scan port types ([`ScanConsumer`], [`RawRecord`]) that `session` and
-//! the ingestion lanes use.
+//! the scan port types ([`ScanConsumer`], [`TailConsumer`], [`RawRecord`])
+//! that `session` and the ingestion lanes use.
 
 pub use crate::kafka::acl::{
     Acl, AclListing, AclOperation, AclPatternType, AclPermission, AclResourceType,
@@ -19,6 +19,7 @@ pub use crate::kafka::registry::{
 pub use crate::kafka::scan::plan::PartitionWindow;
 pub use crate::kafka::scan::query::{RecordOrder, RecordQuery, TimestampRange};
 pub use crate::kafka::scan::session::{RawRecord, ScanConsumer};
+pub use crate::kafka::scan::tail::{TailConsumer, TailPosition};
 pub use crate::kafka::scan::{Compression, Record, RecordHeader, RecordPage};
 pub use crate::kafka::store::{SearchHit, SearchKind};
 pub use crate::kafka::topic_config::{CleanupPolicy, ConfigEntry, ConfigSource};

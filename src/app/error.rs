@@ -1,5 +1,6 @@
 use axum::Json;
 use axum::http::StatusCode;
+use axum::response::sse::Event;
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 
@@ -12,6 +13,8 @@ pub(crate) enum ApiError {
     Access(AccessError),
     SessionExpired,
     Unauthorized,
+    /// Every live tail the process allows is already open.
+    TooManyTails,
 }
 
 impl ApiError {
@@ -21,12 +24,30 @@ impl ApiError {
             Self::Access(error) => error.code(),
             Self::SessionExpired => "SESSION_EXPIRED",
             Self::Unauthorized => "UNAUTHORIZED",
+            Self::TooManyTails => "TOO_MANY_TAILS",
+        }
+    }
+
+    /// The error as the last frame of an event stream, with the same body a
+    /// failed request carries.
+    pub(crate) fn event(&self) -> Event {
+        Event::default()
+            .event("error")
+            .json_data(self.body())
+            .expect("error body is serializable")
+    }
+
+    fn body(&self) -> ErrorBody<'_> {
+        ErrorBody {
+            error: self.to_string(),
+            code: self.code(),
         }
     }
 
     fn status(&self) -> StatusCode {
         match self {
             Self::SessionExpired | Self::Unauthorized => StatusCode::UNAUTHORIZED,
+            Self::TooManyTails => StatusCode::SERVICE_UNAVAILABLE,
             Self::Access(AccessError::Forbidden { .. }) => StatusCode::FORBIDDEN,
             Self::Access(AccessError::UnknownCluster(_)) => StatusCode::NOT_FOUND,
             Self::Kafka(error) => kafka_status(error),
@@ -59,6 +80,9 @@ impl std::fmt::Display for ApiError {
             Self::Access(error) => error.fmt(formatter),
             Self::SessionExpired => formatter.write_str("session is no longer valid"),
             Self::Unauthorized => formatter.write_str("unauthorized"),
+            Self::TooManyTails => {
+                formatter.write_str("too many live tails are open, try again later")
+            }
         }
     }
 }
@@ -89,10 +113,6 @@ struct ErrorBody<'a> {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let body = ErrorBody {
-            error: self.to_string(),
-            code: self.code(),
-        };
-        (self.status(), Json(body)).into_response()
+        (self.status(), Json(self.body())).into_response()
     }
 }
