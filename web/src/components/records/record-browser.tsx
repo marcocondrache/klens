@@ -169,9 +169,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
     hasNextPage,
   } = useRecords(cluster, query, can(cluster, "RECORDS"));
   const loadMore = useCallback(() => {
-    // The default cancels an in-flight page and starts another with the same
-    // cursor. A scroll to the loader remeasures before that flag updates.
-    void fetchNextPage({ cancelRefetch: false });
+    void fetchNextPage();
   }, [fetchNextPage]);
 
   const records = useMemo(() => {

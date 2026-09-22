@@ -110,38 +110,17 @@ export function RecordTable<TData extends RowData>({
   });
 
   const items = virtualizer.getVirtualItems();
-  // The loader is taller than the row estimate, so reaching it remeasures and
-  // re-runs this effect while isFetchingNextPage is still false.
-  const nextPageRequested = useRef(false);
+  const endIndex = items.length === 0 ? -1 : items[items.length - 1].index;
+  // getVirtualItems() is a new array whenever a row is measured. Follow
+  // whether the loader is last so that pass does not fetch again.
+  const reachedLoader = hasNextPage && (rows.length === 0 || endIndex === rows.length);
 
   useEffect(() => {
-    if (isFetchingNextPage) nextPageRequested.current = false;
-    if (
-      nextPageRequested.current ||
-      fetchNextPage == null ||
-      !hasNextPage ||
-      isFetchingNextPage ||
-      isFetchNextPageError
-    ) {
+    if (fetchNextPage == null || !reachedLoader || isFetchingNextPage || isFetchNextPageError) {
       return;
     }
-
-    const edge = items[items.length - 1];
-    const atLoader =
-      rows.length === 0 || (edge != null && getItemKey(edge.index) === LOAD_MORE_KEY);
-    if (!atLoader) return;
-
-    nextPageRequested.current = true;
     fetchNextPage();
-  }, [
-    fetchNextPage,
-    getItemKey,
-    hasNextPage,
-    isFetchNextPageError,
-    isFetchingNextPage,
-    items,
-    rows.length,
-  ]);
+  }, [fetchNextPage, isFetchNextPageError, isFetchingNextPage, reachedLoader]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
