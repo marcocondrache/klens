@@ -90,7 +90,7 @@ If you drive by hand, use these handles from this repo. Prefer them over coordin
 | Schema search | `input[data-search-hotkey]` placeholder `Search subjects…` |
 | ACLs page | `/cluster/local/acls`, heading `ACLs` |
 | ACL search | `input[data-search-hotkey]` placeholder `Search ACLs…` |
-| Auth off | `/login` redirects to `/`; no `Continue with SSO` |
+| Auth off | `/signed-out` redirects to `/`; no sign-in redirect to the IdP |
 
 The JSON API the UI uses (corroborate, do not substitute for the UI path):
 

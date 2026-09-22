@@ -48,11 +48,35 @@ export function resourceId(id: string): string {
     .join("/");
 }
 
+export const SIGNED_OUT_PATH = "/signed-out";
+
+const SIGN_IN_ATTEMPT_KEY = "klens.sign_in_attempt";
+const SIGN_IN_RETRY_MS = 10_000;
+
+/**
+ * Send the browser to the identity provider. A second attempt within a few seconds means the
+ * session did not stick, so stop on the signed-out page instead of looping through the IdP.
+ */
+export function redirectToSignIn(): void {
+  if (window.location.pathname === SIGNED_OUT_PATH) return;
+  const now = Date.now();
+  let last = 0;
+  try {
+    last = Number(window.sessionStorage.getItem(SIGN_IN_ATTEMPT_KEY)) || 0;
+    window.sessionStorage.setItem(SIGN_IN_ATTEMPT_KEY, String(now));
+  } catch {
+    // Without storage there is no loop guard; still sign in.
+  }
+  if (now - last < SIGN_IN_RETRY_MS) {
+    window.location.assign(`${SIGNED_OUT_PATH}?error=auth`);
+    return;
+  }
+  window.location.assign(apiPath("/auth/login"));
+}
+
 function redirectIfUnauthorized(status: number): void {
   if (status !== 401) return;
-  if (window.location.pathname !== "/login") {
-    window.location.assign("/login");
-  }
+  redirectToSignIn();
   throw new ApiError("Unauthorized", 401, "UNAUTHORIZED");
 }
 
@@ -178,7 +202,7 @@ function parseEvent(chunk: string): Update | null {
     const parsed = JSON.parse(data) as Update | { code?: string };
     if (parsed && typeof parsed === "object" && "type" in parsed) return parsed;
     if (parsed && typeof parsed === "object" && parsed.code === "SESSION_EXPIRED") {
-      if (window.location.pathname !== "/login") window.location.assign("/login");
+      redirectToSignIn();
     }
   } catch {
     // Keep-alive comments and truncated frames are not updates.
