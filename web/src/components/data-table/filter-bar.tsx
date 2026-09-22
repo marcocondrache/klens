@@ -24,8 +24,11 @@ import {
 
 interface FilterBarProps<TData> {
   fields: ReadonlyArray<FilterField<TData>>;
-  /** Rows before these filters apply; used for option counts. */
-  rows: TData[];
+  /**
+   * Rows before these filters apply; used for option counts. Omit when the
+   * filters run server side, and the menu shows each option's hint instead.
+   */
+  rows?: TData[];
   value: FilterRule[];
   onChange: (rules: FilterRule[]) => void;
 }
@@ -84,7 +87,7 @@ function OptionItems<TData>({
   onChange,
 }: FilterBarProps<TData> & { field: FilterField<TData> }) {
   const selected = value.find((rule) => rule.id === field.id)?.values ?? [];
-  const counts = facetCounts(rows, fields, value, field);
+  const counts = rows ? facetCounts(rows, fields, value, field) : null;
 
   function toggle(option: string, checked: boolean) {
     const next = checked
@@ -100,7 +103,9 @@ function OptionItems<TData>({
       onCheckedChange={(checked) => toggle(option.value, checked)}
     >
       {option.label}
-      <DropdownMenuShortcut>{counts.get(option.value) ?? 0}</DropdownMenuShortcut>
+      <DropdownMenuShortcut>
+        {counts ? (counts.get(option.value) ?? 0) : option.hint}
+      </DropdownMenuShortcut>
     </DropdownMenuCheckboxItem>
   ));
 }

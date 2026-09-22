@@ -1,16 +1,8 @@
 import { useState, type ReactNode } from "react";
-import { EyeOffIcon } from "lucide-react";
+import { EyeOffIcon, Rows3Icon } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
 
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Sheet,
   SheetContent,
@@ -21,24 +13,54 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { DataTableColumnHeader } from "@/components/data-table/column-header";
 import { type DataTableFeatures } from "@/components/data-table/features";
+import { FilterBar } from "@/components/data-table/filter-bar";
+import {
+  selectedOptions,
+  type FilterField,
+  type FilterRule,
+} from "@/components/data-table/filters";
 import { RecordTable } from "@/components/records/record-table";
 import { PayloadView } from "@/components/payload-view";
 import { SchemaPicker } from "@/components/schema-picker";
 import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
 import { useSubjectRows } from "@/lib/api/catalog";
-import { formatBytes, formatRelative, formatTimestamp } from "@/lib/format";
+import { formatBytes, formatCount, formatRelative, formatTimestamp } from "@/lib/format";
 import { recordId } from "@/lib/records";
 import type { KafkaRecord, TopicDetail } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
 export type RecordFilter = {
   term: string;
-  partition: number | null;
+  /** Filter-bar rules; they run server side. */
+  rules: FilterRule[];
   schemaId: number | null;
 };
 
-export const EMPTY_FILTER: RecordFilter = { term: "", partition: null, schemaId: null };
+export const EMPTY_FILTER: RecordFilter = { term: "", rules: [], schemaId: null };
+
+function partitionField(topic: TopicDetail): FilterField<KafkaRecord> {
+  return {
+    id: "partition",
+    label: "Partition",
+    plural: "partitions",
+    icon: Rows3Icon,
+    options: topic.partitions.map((partition) => ({
+      value: String(partition.id),
+      label: String(partition.id),
+      hint: formatCount(partition.retained),
+    })),
+    accessor: (record) => String(record.partition),
+  };
+}
+
+/** The partitions `filter` reads, or `null` for all of them. */
+export function filterPartitions(topic: TopicDetail, filter: RecordFilter) {
+  const field = partitionField(topic);
+  const rule = filter.rules.find((candidate) => candidate.id === field.id);
+  if (!rule) return null;
+  return selectedOptions(field, rule).map((option) => Number(option.value));
+}
 
 export type RecordSource = {
   records: KafkaRecord[];
@@ -188,13 +210,7 @@ export function RecordView({
   const selectedSchemaId =
     selectedRecord?.value == null ? null : (selectedRecord.schemaId ?? filter.schemaId);
 
-  const partitionItems = [
-    { value: "all", label: "All partitions" },
-    ...topic.partitions.map((part) => ({
-      value: String(part.id),
-      label: `Partition ${part.id}`,
-    })),
-  ];
+  const fields = [partitionField(topic)];
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -213,29 +229,11 @@ export function RecordView({
               placeholder="Search key or value…"
             />
 
-            <Select
-              value={filter.partition == null ? "all" : String(filter.partition)}
-              items={partitionItems}
-              onValueChange={(value) =>
-                onFilterChange({
-                  ...filter,
-                  partition: value === "all" ? null : Number(value),
-                })
-              }
-            >
-              <SelectTrigger className="w-36">
-                <SelectValue placeholder="Partition" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {partitionItems.map((item) => (
-                    <SelectItem key={item.value} value={item.value}>
-                      {item.label}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
+            <FilterBar
+              fields={fields}
+              value={filter.rules}
+              onChange={(rules) => onFilterChange({ ...filter, rules })}
+            />
 
             {controls}
 

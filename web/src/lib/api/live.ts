@@ -59,13 +59,16 @@ function sameTopic(previous: QueryKey | undefined, next: QueryKey) {
 }
 
 export function useRecords(cluster: string, query: RecordsFilter, enabled = true) {
+  // An empty partition list has nothing to scan.
+  const scans = query.partitions?.length !== 0;
+
   return useInfiniteQuery({
     queryKey: keys.records(cluster, query),
     queryFn: ({ pageParam }) =>
       get<RecordPage>(
         clusterPathname(cluster, "topics", encodeURIComponent(query.topic), "records"),
         {
-          partition: query.partition,
+          partition: query.partitions?.join(","),
           order: query.order,
           from: query.from,
           to: query.to,
@@ -78,7 +81,9 @@ export function useRecords(cluster: string, query: RecordsFilter, enabled = true
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.nextCursor,
     placeholderData: (previous, previousQuery) =>
-      sameTopic(previousQuery?.queryKey, keys.records(cluster, query)) ? previous : undefined,
-    enabled,
+      scans && sameTopic(previousQuery?.queryKey, keys.records(cluster, query))
+        ? previous
+        : undefined,
+    enabled: enabled && scans,
   });
 }

@@ -21,7 +21,7 @@ pub async fn read_page<S: ClusterSession + ?Sized>(
     let limit = limits.clamp_limit(query.limit)?;
     query.timestamps.validate()?;
 
-    let partitions = resolve_partitions(session, store, &query.topic, query.partition).await?;
+    let partitions = resolve_partitions(session, store, &query.topic, &query.partitions).await?;
     let watermarks = window_watermarks(session, &query, &partitions).await?;
 
     fetch_page(session, &query, &partitions, &watermarks, limit, limits).await
@@ -31,35 +31,45 @@ pub(super) async fn resolve_partitions<S: ClusterSession + ?Sized>(
     session: &S,
     store: &ClusterStore,
     topic: &str,
-    partition: Option<i32>,
+    partitions: &[i32],
 ) -> Result<Vec<i32>, KafkaError> {
     if let Some(topology) = store.topology.load()
         && let Some(known) = topology.topics.get(topic)
     {
-        return select_partitions(store.name(), topic, partition, &known.partitions);
+        return select_partitions(store.name(), topic, partitions, &known.partitions);
     }
 
     store.topology.kick();
     let metadata = session.topic_metadata(topic).await?;
 
-    select_partitions(store.name(), topic, partition, &metadata.partitions)
+    select_partitions(store.name(), topic, partitions, &metadata.partitions)
 }
 
 fn select_partitions(
     cluster: &str,
     topic: &str,
-    partition: Option<i32>,
+    wanted: &[i32],
     partitions: &[PartitionMetadata],
 ) -> Result<Vec<i32>, KafkaError> {
-    match partition {
-        None => Ok(partitions.iter().map(|partition| partition.id).collect()),
-        Some(id) if partitions.iter().any(|partition| partition.id == id) => Ok(vec![id]),
-        Some(id) => Err(KafkaError::UnknownPartition {
+    if wanted.is_empty() {
+        return Ok(partitions.iter().map(|partition| partition.id).collect());
+    }
+
+    if let Some(&id) = wanted
+        .iter()
+        .find(|&&id| !partitions.iter().any(|partition| partition.id == id))
+    {
+        return Err(KafkaError::UnknownPartition {
             cluster: cluster.to_owned(),
             topic: topic.to_owned(),
             partition: id,
-        }),
+        });
     }
+
+    let mut selected = wanted.to_vec();
+    selected.sort_unstable();
+    selected.dedup();
+    Ok(selected)
 }
 
 async fn window_watermarks<S: ClusterSession + ?Sized>(
@@ -130,7 +140,7 @@ mod tests {
     fn browse_query() -> RecordQuery {
         RecordQuery {
             topic: "orders.created".into(),
-            partition: None,
+            partitions: Vec::new(),
             filter: None,
             timestamps: TimestampRange::default(),
             limit: 50,
@@ -205,7 +215,7 @@ mod tests {
         assert_eq!(error.code(), "UNKNOWN_TOPIC");
 
         let mut partition = browse_query();
-        partition.partition = Some(7);
+        partition.partitions = vec![0, 7];
         let error = page(&session, &store, partition).await.unwrap_err();
         assert_eq!(error.code(), "UNKNOWN_PARTITION");
     }

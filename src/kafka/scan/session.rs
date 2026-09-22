@@ -488,7 +488,7 @@ pub async fn scan_once<S: ClusterSession + ?Sized>(
 
     let query = RecordQuery {
         topic: topic.to_owned(),
-        partition: None,
+        partitions: Vec::new(),
         filter: None,
         timestamps: TimestampRange::UNBOUNDED,
         limit: limit as i32,
@@ -561,7 +561,7 @@ mod tests {
     fn query() -> RecordQuery {
         RecordQuery {
             topic: "orders.created".into(),
-            partition: Some(0),
+            partitions: vec![0],
             filter: contains("hit"),
             timestamps: TimestampRange::UNBOUNDED,
             limit: 2,

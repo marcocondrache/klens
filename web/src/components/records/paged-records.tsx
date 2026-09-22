@@ -11,7 +11,12 @@ import {
 } from "@/components/ui/empty";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { RecordModeSwitch, type RecordMode } from "@/components/records/record-mode";
-import { RecordView, type RecordFilter, type RecordSource } from "@/components/records/record-view";
+import {
+  RecordView,
+  filterPartitions,
+  type RecordFilter,
+  type RecordSource,
+} from "@/components/records/record-view";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useRecords, type RecordsFilter } from "@/lib/api/live";
 import { apiErrorMessage } from "@/lib/api/client";
@@ -43,18 +48,19 @@ export function PagedRecords({
   const [to, setTo] = useState("");
 
   const needle = useDebouncedValue(filter.term.trim());
+  const partitions = useMemo(() => filterPartitions(topic, filter), [topic, filter]);
 
   const query = useMemo<RecordsFilter>(
     () => ({
       topic: topic.name,
-      partition: filter.partition,
+      partitions,
       order,
       from: fromDatetimeLocalValue(from),
       to: fromDatetimeLocalValue(to),
       filter: needle ? { contains: needle } : null,
       schemaId: filter.schemaId,
     }),
-    [topic.name, filter.partition, filter.schemaId, order, from, to, needle],
+    [topic.name, partitions, filter.schemaId, order, from, to, needle],
   );
 
   const {
@@ -161,7 +167,9 @@ export function PagedRecords({
                 ? "Nothing in the selected time range."
                 : filter.term
                   ? "Nothing matched your search in the scanned offsets."
-                  : "This topic has no records."}
+                  : partitions
+                    ? "Nothing in the selected partitions."
+                    : "This topic has no records."}
             </EmptyDescription>
           </EmptyHeader>
         </Empty>

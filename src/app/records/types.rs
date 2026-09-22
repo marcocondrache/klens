@@ -122,17 +122,34 @@ pub(crate) fn record_query(
             Some(cursor) => Some(RecordCursor::parse(cursor)?),
         },
         topic,
-        partition: params.partition,
+        partitions: parse_partitions(params.partition.as_deref())?,
         limit: params.limit,
         order: params.order.unwrap_or(RecordOrder::Newest).into(),
         schema_id: params.schema_id,
     })
 }
 
+fn parse_partitions(raw: Option<&str>) -> Result<Vec<i32>, QueryError> {
+    let Some(raw) = raw.map(str::trim).filter(|raw| !raw.is_empty()) else {
+        return Ok(Vec::new());
+    };
+
+    raw.split(',')
+        .map(|part| {
+            part.trim()
+                .parse::<i32>()
+                .ok()
+                .filter(|id| *id >= 0)
+                .ok_or(QueryError::InvalidPartition)
+        })
+        .collect()
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RecordParams {
-    pub partition: Option<i32>,
+    /// Comma-separated partition ids, such as `0,2`; absent reads them all.
+    pub partition: Option<String>,
     pub order: Option<RecordOrder>,
     pub from: Option<Timestamp>,
     pub to: Option<Timestamp>,
@@ -208,19 +225,20 @@ impl From<TailBatch> for TailEvent {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct TailParams {
-    pub partition: Option<i32>,
+    /// Comma-separated partition ids, such as `0,2`; absent follows them all.
+    pub partition: Option<String>,
     pub contains: Option<String>,
     pub schema_id: Option<i32>,
 }
 
-pub(crate) fn tail_query(topic: String, params: TailParams) -> TailQuery {
-    TailQuery {
+pub(crate) fn tail_query(topic: String, params: TailParams) -> Result<TailQuery, QueryError> {
+    Ok(TailQuery {
         filter: params
             .contains
             .as_deref()
             .and_then(crate::kafka::compile_contains_filter),
         topic,
-        partition: params.partition,
+        partitions: parse_partitions(params.partition.as_deref())?,
         schema_id: params.schema_id,
-    }
+    })
 }

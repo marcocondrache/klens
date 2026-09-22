@@ -5,6 +5,8 @@ export interface FilterOption {
   value: string;
   label: string;
   icon?: ReactNode;
+  /** Trailing menu text, shown when the bar has no rows to count. */
+  hint?: ReactNode;
 }
 
 export interface FilterField<TData, TId extends string = string> {
@@ -33,6 +35,11 @@ function rowMatches<TData>(row: TData, field: FilterField<TData>, rule: FilterRu
   const values: readonly string[] = typeof raw === "string" ? [raw] : raw;
   const hit = values.some((value) => rule.values.includes(value));
   return rule.negate ? !hit : hit;
+}
+
+/** The options a rule keeps: its values, or every other option when negated. */
+export function selectedOptions<TData>(field: FilterField<TData>, rule: FilterRule) {
+  return field.options.filter((option) => rule.values.includes(option.value) !== rule.negate);
 }
 
 export function applyFilters<TData>(

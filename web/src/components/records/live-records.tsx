@@ -12,7 +12,12 @@ import {
 } from "@/components/ui/empty";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { RecordModeSwitch, type RecordMode } from "@/components/records/record-mode";
-import { RecordView, type RecordFilter, type RecordSource } from "@/components/records/record-view";
+import {
+  RecordView,
+  filterPartitions,
+  type RecordFilter,
+  type RecordSource,
+} from "@/components/records/record-view";
 import { Pill } from "@/components/status";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { apiErrorMessage } from "@/lib/api/client";
@@ -50,17 +55,37 @@ export function LiveRecords({
   onModeChange,
 }: LiveRecordsProps) {
   const needle = useDebouncedValue(filter.term.trim());
+  const partitions = useMemo(() => filterPartitions(topic, filter), [topic, filter]);
 
   const tailFilter = useMemo<TailFilter>(
     () => ({
       topic: topic.name,
-      partition: filter.partition,
+      partitions,
       contains: needle || null,
       schemaId: filter.schemaId,
     }),
-    [topic.name, filter.partition, filter.schemaId, needle],
+    [topic.name, partitions, filter.schemaId, needle],
   );
   const tail = useTail(cluster, tailFilter);
+
+  const empty =
+    partitions?.length === 0
+      ? {
+          title: "No partitions to follow",
+          description:
+            "Every partition is excluded. Change the partition filter to follow the topic.",
+        }
+      : tail.paused
+        ? {
+            title: "Live tail paused",
+            description: "Resume to follow the topic from its current end.",
+          }
+        : tail.status === "error"
+          ? { title: "Live tail stopped", description: "Retry to follow the topic again." }
+          : {
+              title: "Waiting for records",
+              description: `Following ${topic.name} from its current end. New records show here as they arrive, newest first. The last ${formatNumber(TAIL_BUFFER)} stay on screen.`,
+            };
 
   const source: RecordSource = {
     records: tail.records,
@@ -138,20 +163,8 @@ export function LiveRecords({
             <EmptyMedia variant="icon">
               <RadioIcon />
             </EmptyMedia>
-            <EmptyTitle>
-              {tail.paused
-                ? "Live tail paused"
-                : tail.status === "error"
-                  ? "Live tail stopped"
-                  : "Waiting for records"}
-            </EmptyTitle>
-            <EmptyDescription>
-              {tail.paused
-                ? "Resume to follow the topic from its current end."
-                : tail.status === "error"
-                  ? "Retry to follow the topic again."
-                  : `Following ${topic.name} from its current end. New records show here as they arrive, newest first. The last ${formatNumber(TAIL_BUFFER)} stay on screen.`}
-            </EmptyDescription>
+            <EmptyTitle>{empty.title}</EmptyTitle>
+            <EmptyDescription>{empty.description}</EmptyDescription>
           </EmptyHeader>
         </Empty>
       }

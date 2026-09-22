@@ -2,7 +2,8 @@ import type { RecordOrder } from "./types";
 
 export type RecordsFilter = {
   topic: string;
-  partition: number | null;
+  /** `null` reads every partition; an empty list reads none. */
+  partitions: number[] | null;
   order: RecordOrder | null;
   from: string | null;
   to: string | null;
@@ -12,7 +13,8 @@ export type RecordsFilter = {
 
 export type TailFilter = {
   topic: string;
-  partition: number | null;
+  /** `null` follows every partition; an empty list follows none. */
+  partitions: number[] | null;
   contains: string | null;
   schemaId: number | null;
 };
