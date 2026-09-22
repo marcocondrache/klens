@@ -55,7 +55,10 @@ export function CommandPalette({
   }
 
   const { data: clusters = [] } = useClusters();
-  const { data: results = [], isFetching, isError, error } = useSearch(cluster, term);
+  const { data: results = [], isPending, isError, error } = useSearch(cluster, term);
+  // Keep Go to mounted until the first response. An empty list collapses the dialog to the input.
+  const showNavigation = !searching || isPending;
+  const hits = searching && !isPending ? results : [];
 
   function changeOpen(next: boolean) {
     if (!next) setTerm("");
@@ -86,12 +89,12 @@ export function CommandPalette({
             <CommandEmpty>{apiErrorMessage(error, "Search failed.")}</CommandEmpty>
           ) : null}
 
-          {searching && !isFetching && !isError && results.length === 0 ? (
+          {searching && !isPending && !isError && hits.length === 0 ? (
             <CommandEmpty>No matches in {cluster}.</CommandEmpty>
           ) : null}
 
           {RESULT_GROUPS.map(({ kind, heading }) => {
-            const items = results.filter((result) => result.kind === kind);
+            const items = hits.filter((result) => result.kind === kind);
             if (items.length === 0) return null;
 
             const Icon = RESULT_ICON[kind];
@@ -124,7 +127,7 @@ export function CommandPalette({
             );
           })}
 
-          {searching ? null : (
+          {showNavigation ? (
             <CommandGroup heading="Go to">
               {sections.map((section) => (
                 <CommandItem
@@ -144,9 +147,9 @@ export function CommandPalette({
                 </CommandItem>
               ))}
             </CommandGroup>
-          )}
+          ) : null}
 
-          {searching ? null : (
+          {showNavigation ? (
             <CommandGroup heading="Switch cluster">
               {clusters.map((entry) => (
                 <CommandItem
@@ -170,7 +173,7 @@ export function CommandPalette({
                 </CommandItem>
               ))}
             </CommandGroup>
-          )}
+          ) : null}
         </CommandList>
       </Command>
     </CommandDialog>

@@ -1,4 +1,4 @@
-import { useQuery, type Query } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, type Query } from "@tanstack/react-query";
 
 import type {
   BrokerRow,
@@ -138,5 +138,6 @@ export function useSearch(cluster: string, term: string) {
       }));
     },
     enabled: term.trim().length > 0,
+    placeholderData: keepPreviousData,
   });
 }
