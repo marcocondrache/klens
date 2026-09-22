@@ -50,22 +50,11 @@ export function resourceId(id: string): string {
 
 export const LOGIN_PATH = "/login";
 
-const SIGN_IN_ATTEMPT_KEY = "klens.sign_in_attempt";
-const SIGN_IN_RETRY_MS = 10_000;
-
-export function signInHref(): string {
-  const now = Date.now();
-  let last = 0;
-  try {
-    last = Number(window.sessionStorage.getItem(SIGN_IN_ATTEMPT_KEY)) || 0;
-    window.sessionStorage.setItem(SIGN_IN_ATTEMPT_KEY, String(now));
-  } catch {}
-  return now - last < SIGN_IN_RETRY_MS ? `${LOGIN_PATH}?error=auth` : apiPath("/auth/login");
-}
+export const SIGN_IN_PATH = apiPath("/auth/login");
 
 function redirectToSignIn(): void {
   if (window.location.pathname === LOGIN_PATH) return;
-  window.location.assign(signInHref());
+  window.location.assign(SIGN_IN_PATH);
 }
 
 function redirectIfUnauthorized(status: number): void {
