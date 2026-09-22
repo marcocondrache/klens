@@ -25,7 +25,6 @@ const columnHelper = createColumnHelper<DataTableFeatures, ConfigEntry>();
 const columns = columnHelper.columns([
   columnHelper.accessor("name", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Key" />,
-    meta: { label: "Key" },
     cell: ({ row }) => {
       const entry = row.original;
 
@@ -44,7 +43,7 @@ const columns = columnHelper.columns([
   }),
   columnHelper.accessor("value", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Value" />,
-    meta: { className: "whitespace-normal", label: "Value" },
+    meta: { className: "whitespace-normal" },
     cell: ({ row }) => {
       const entry = row.original;
 
@@ -67,7 +66,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Source" className="justify-end" />
     ),
-    meta: { align: "right", label: "Source" },
+    meta: { align: "right" },
     cell: ({ getValue }) => (
       <Pill tone={getValue() === "DEFAULT_CONFIG" ? "idle" : "brand"}>
         {SOURCE_LABEL[getValue()]}

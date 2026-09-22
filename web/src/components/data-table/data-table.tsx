@@ -1,11 +1,5 @@
 import { useState, type ReactNode } from "react";
-import {
-  useTable,
-  type ColumnDef,
-  type ColumnVisibilityState,
-  type RowData,
-  type SortingState,
-} from "@tanstack/react-table";
+import { useTable, type ColumnDef, type RowData, type SortingState } from "@tanstack/react-table";
 
 import { RefreshBar } from "@/components/refresh-bar";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -61,7 +55,6 @@ export function DataTable<TData extends RowData>({
   const [sorting, setSorting] = useState<SortingState>(
     defaultSort ? [{ id: defaultSort.id, desc: defaultSort.direction === "desc" }] : [],
   );
-  const [columnVisibility, setColumnVisibility] = useState<ColumnVisibilityState>({});
 
   const table = useTable({
     features,
@@ -71,15 +64,11 @@ export function DataTable<TData extends RowData>({
     enableMultiSort: false,
     sortDescFirst: false,
     onSortingChange: setSorting,
-    onColumnVisibilityChange: setColumnVisibility,
-    state: {
-      sorting,
-      columnVisibility,
-    },
+    state: { sorting },
   });
 
   const rows = table.getRowModel().rows;
-  const columnCount = table.getVisibleLeafColumns().length || columns.length;
+  const columnCount = table.getAllLeafColumns().length || columns.length;
 
   return (
     <div className={cn("flex flex-col gap-4", fill && "min-h-0 flex-1")}>
@@ -149,7 +138,7 @@ export function DataTable<TData extends RowData>({
                       onClick={onRowClick ? () => onRowClick(row.original) : undefined}
                       className={cn(onRowClick && "cursor-pointer")}
                     >
-                      {row.getVisibleCells().map((cell) => {
+                      {row.getAllCells().map((cell) => {
                         const meta = cell.column.columnDef.meta;
 
                         return (

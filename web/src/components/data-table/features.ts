@@ -1,5 +1,4 @@
 import {
-  columnVisibilityFeature,
   createSortedRowModel,
   metaHelper,
   rowSortingFeature,
@@ -13,11 +12,9 @@ export interface DataTableColumnMeta {
   align?: "left" | "right";
   className?: string;
   headerClassName?: string;
-  label?: string;
 }
 
 export const features = tableFeatures({
-  columnVisibilityFeature,
   rowSortingFeature,
   sortedRowModel: createSortedRowModel(),
   sortFns: {

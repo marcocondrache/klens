@@ -41,37 +41,30 @@ const columnHelper = createColumnHelper<DataTableFeatures, Acl>();
 const columns = columnHelper.columns([
   columnHelper.accessor("resourceType", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Resource" />,
-    meta: { label: "Resource" },
     cell: ({ getValue }) => <Pill>{formatEnumLabel(getValue())}</Pill>,
   }),
   columnHelper.accessor("resourceName", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Name" />,
-    meta: { label: "Name" },
     cell: ({ getValue }) => <span className="font-mono text-sm">{getValue()}</span>,
   }),
   columnHelper.accessor("patternType", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Pattern" />,
-    meta: { label: "Pattern" },
     cell: ({ getValue }) => formatEnumLabel(getValue()),
   }),
   columnHelper.accessor("principal", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Principal" />,
-    meta: { label: "Principal" },
     cell: ({ getValue }) => <span className="font-mono text-sm">{getValue()}</span>,
   }),
   columnHelper.accessor("host", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Host" />,
-    meta: { label: "Host" },
     cell: ({ getValue }) => <span className="font-mono text-sm">{getValue()}</span>,
   }),
   columnHelper.accessor("operation", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Operation" />,
-    meta: { label: "Operation" },
     cell: ({ getValue }) => formatEnumLabel(getValue()),
   }),
   columnHelper.accessor("permission", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Permission" />,
-    meta: { label: "Permission" },
     cell: ({ getValue }) => (
       <Pill tone={getValue() === "DENY" ? "warn" : "ok"}>{formatEnumLabel(getValue())}</Pill>
     ),

@@ -62,7 +62,6 @@ const columnHelper = createColumnHelper<DataTableFeatures, TopicRow>();
 const columns = columnHelper.columns([
   columnHelper.accessor("name", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Topic" />,
-    meta: { label: "Topic" },
     cell: ({ row }) => {
       const topic = row.original;
 
@@ -85,7 +84,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Parts" className="justify-end" />
     ),
-    meta: { align: "right", label: "Parts" },
+    meta: { align: "right" },
     cell: ({ getValue }) => getValue(),
   }),
   columnHelper.accessor("replicationFactor", {
@@ -93,14 +92,14 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="RF" className="justify-end" />
     ),
-    meta: { align: "right", label: "RF" },
+    meta: { align: "right" },
   }),
   columnHelper.accessor((topic) => toNumber(topic.retainedMessages), {
     id: "messages",
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Messages" className="justify-end" />
     ),
-    meta: { align: "right", label: "Messages" },
+    meta: { align: "right" },
     cell: ({ row }) =>
       emptyMetric(row.original.retainedMessages, formatNumber(row.original.retainedMessages)),
   }),
@@ -109,7 +108,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Msg/s" className="justify-end" />
     ),
-    meta: { align: "right", label: "Msg/s" },
+    meta: { align: "right" },
     cell: ({ getValue }) => emptyMetric(getValue(), formatThroughput(getValue())),
   }),
   columnHelper.accessor((topic) => toNumber(topic.retentionMs), {
@@ -117,7 +116,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Retention" className="justify-end" />
     ),
-    meta: { align: "right", label: "Retention" },
+    meta: { align: "right" },
     cell: ({ row }) => <span>{formatDuration(row.original.retentionMs)}</span>,
   }),
   columnHelper.accessor("cleanupPolicy", {
@@ -125,7 +124,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Policy" className="justify-end" />
     ),
-    meta: { align: "right", label: "Policy" },
+    meta: { align: "right" },
     cell: ({ getValue }) => (
       <Pill tone={isCompactCleanup(getValue()) ? "brand" : "idle"}>
         {formatCleanupPolicy(getValue())}
@@ -137,7 +136,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Groups" className="justify-end" />
     ),
-    meta: { align: "right", label: "Groups" },
+    meta: { align: "right" },
     cell: ({ getValue }) => emptyMetric(getValue(), getValue()),
   }),
 ]);

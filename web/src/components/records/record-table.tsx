@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import {
   useTable,
   type Column,
   type ColumnDef,
-  type ColumnVisibilityState,
   type Header,
   type ReactTable,
   type RowData,
@@ -70,7 +69,6 @@ export function RecordTable<TData extends RowData>({
   isFetchNextPageError = false,
 }: RecordTableProps<TData>) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [columnVisibility, setColumnVisibility] = useState<ColumnVisibilityState>({});
 
   const table = useTable({
     features,
@@ -78,15 +76,13 @@ export function RecordTable<TData extends RowData>({
     columns,
     getRowId,
     enableSorting: false,
-    onColumnVisibilityChange: setColumnVisibility,
-    state: { columnVisibility },
   });
 
   const rows = table.getRowModel().rows;
-  const visible = table.getVisibleLeafColumns();
+  const leafColumns = table.getAllLeafColumns();
   const gridTemplateColumns = useMemo(
-    () => visible.map((column) => COLUMN_TRACK[column.id] ?? "minmax(0,1fr)").join(" "),
-    [visible],
+    () => leafColumns.map((column) => COLUMN_TRACK[column.id] ?? "minmax(0,1fr)").join(" "),
+    [leafColumns],
   );
   const loaderCount = hasNextPage || isFetchingNextPage || isFetchNextPageError ? 1 : 0;
   const count = rows.length + loaderCount;
@@ -134,7 +130,7 @@ export function RecordTable<TData extends RowData>({
                 className="grid border-b px-0"
                 style={{ gridTemplateColumns }}
               >
-                {visible.map((column) => (
+                {leafColumns.map((column) => (
                   <div key={column.id} role="cell" className="px-2 py-2">
                     <Skeleton className="h-4 w-full max-w-32" />
                   </div>
@@ -210,7 +206,7 @@ export function RecordTable<TData extends RowData>({
                           )}
                         </div>
                       ) : row ? (
-                        row.getVisibleCells().map((cell) => {
+                        row.getAllCells().map((cell) => {
                           const meta = cell.column.columnDef.meta;
 
                           return (
