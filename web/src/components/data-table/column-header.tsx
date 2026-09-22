@@ -1,6 +1,6 @@
 import type { HTMLAttributes } from "react";
 import type { Column, RowData } from "@tanstack/react-table";
-import { ArrowDownIcon, ArrowUpIcon, ChevronsUpDownIcon, EyeOffIcon } from "lucide-react";
+import { ArrowDownIcon, ArrowUpIcon, ChevronsUpDownIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -8,7 +8,6 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
@@ -56,17 +55,6 @@ export function DataTableColumnHeader<TData extends RowData, TValue>({
               Desc
             </DropdownMenuItem>
           </DropdownMenuGroup>
-          {column.getCanHide() ? (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuGroup>
-                <DropdownMenuItem onClick={() => column.toggleVisibility(false)}>
-                  <EyeOffIcon />
-                  Hide
-                </DropdownMenuItem>
-              </DropdownMenuGroup>
-            </>
-          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
     </div>

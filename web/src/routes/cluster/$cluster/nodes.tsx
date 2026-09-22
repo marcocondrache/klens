@@ -24,7 +24,6 @@ const columnHelper = createColumnHelper<DataTableFeatures, BrokerRow>();
 const columns = columnHelper.columns([
   columnHelper.accessor("id", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="ID" />,
-    meta: { label: "ID" },
     cell: ({ row }) => {
       const broker = row.original;
 
@@ -43,7 +42,6 @@ const columns = columnHelper.columns([
   }),
   columnHelper.accessor("host", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Host" />,
-    meta: { label: "Host" },
     cell: ({ row }) => {
       const broker = row.original;
 
@@ -60,7 +58,6 @@ const columns = columnHelper.columns([
   columnHelper.accessor((broker) => broker.rack ?? "", {
     id: "rack",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Rack" />,
-    meta: { label: "Rack" },
     cell: ({ row }) =>
       row.original.rack ? (
         <span className="font-mono text-sm">{row.original.rack}</span>
@@ -73,7 +70,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Partitions" className="justify-end" />
     ),
-    meta: { align: "right", label: "Partitions" },
+    meta: { align: "right" },
     cell: ({ getValue }) => formatNumber(getValue()),
   }),
   columnHelper.accessor("leaderCount", {
@@ -81,7 +78,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Leaders" className="justify-end" />
     ),
-    meta: { align: "right", label: "Leaders" },
+    meta: { align: "right" },
     cell: ({ getValue }) => formatNumber(getValue()),
   }),
 ]);

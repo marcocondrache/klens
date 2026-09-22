@@ -50,12 +50,10 @@ const columnHelper = createColumnHelper<DataTableFeatures, GroupRow>();
 const columns = columnHelper.columns([
   columnHelper.accessor("id", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Group" />,
-    meta: { label: "Group" },
     cell: ({ getValue }) => <span className="font-mono text-sm">{getValue()}</span>,
   }),
   columnHelper.accessor("state", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="State" />,
-    meta: { label: "State" },
     cell: ({ getValue }) => <GroupStateBadge state={getValue()} />,
   }),
   columnHelper.accessor("memberCount", {
@@ -63,13 +61,12 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Members" className="justify-end" />
     ),
-    meta: { align: "right", label: "Members" },
+    meta: { align: "right" },
     cell: ({ getValue }) => getValue(),
   }),
   columnHelper.accessor((group) => group.topicNames.length, {
     id: "topics",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Topics" />,
-    meta: { label: "Topics" },
     cell: ({ row }) => (
       <span className="flex flex-wrap gap-1">
         {row.original.topicNames.slice(0, 1).map((topic) => (
@@ -88,7 +85,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Lag" className="justify-end" />
     ),
-    meta: { align: "right", label: "Lag" },
+    meta: { align: "right" },
     cell: ({ row }) => <LagPill row={row.original} />,
   }),
   columnHelper.accessor("coordinatorId", {
@@ -96,7 +93,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Coordinator" className="justify-end" />
     ),
-    meta: { align: "right", label: "Coordinator" },
+    meta: { align: "right" },
     cell: ({ getValue }) => <span className="numeric font-mono">broker {getValue()}</span>,
   }),
 ]);

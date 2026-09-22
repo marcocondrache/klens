@@ -41,19 +41,17 @@ const columnHelper = createColumnHelper<DataTableFeatures, SubjectRow>();
 const columns = columnHelper.columns([
   columnHelper.accessor("subject", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Subject" />,
-    meta: { label: "Subject" },
     cell: ({ getValue }) => <span className="font-mono text-sm">{getValue()}</span>,
   }),
   columnHelper.accessor("id", {
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="ID" className="justify-end" />
     ),
-    meta: { align: "right", label: "ID" },
+    meta: { align: "right" },
     cell: ({ getValue }) => <span className="numeric font-mono">{getValue()}</span>,
   }),
   columnHelper.accessor("type", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,
-    meta: { label: "Type" },
     cell: ({ getValue }) => <Pill tone="brand">{getValue()}</Pill>,
   }),
   columnHelper.accessor("latestVersion", {
@@ -61,7 +59,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Latest version" className="justify-end" />
     ),
-    meta: { align: "right", label: "Latest version" },
+    meta: { align: "right" },
     cell: ({ getValue }) => <span className="numeric font-mono">v{getValue()}</span>,
   }),
   columnHelper.accessor((subject) => subject.versions.length, {
@@ -69,14 +67,14 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Versions" className="justify-end" />
     ),
-    meta: { align: "right", label: "Versions" },
+    meta: { align: "right" },
     cell: ({ getValue }) => getValue(),
   }),
   columnHelper.accessor("compatibility", {
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Compatibility" className="justify-end" />
     ),
-    meta: { align: "right", label: "Compatibility" },
+    meta: { align: "right" },
     cell: ({ getValue }) => (
       <Pill tone={getValue() === "NONE" ? "warn" : "idle"}>{getValue()}</Pill>
     ),
