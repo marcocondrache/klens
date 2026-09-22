@@ -1,6 +1,13 @@
+use frizbee::{CaseMatching, Config, Matcher, Pattern};
+
 use super::tables::{SubjectTable, Topology};
 
 const MAX_HITS: usize = 20;
+
+/// Needle characters per tolerated typo: "oders" still finds "orders", while
+/// needles under four characters must match every character, since a typo in
+/// three letters would match nearly anything.
+const CHARS_PER_TYPO: usize = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchKind {
@@ -26,17 +33,20 @@ struct Entry {
     id: String,
     label: String,
     detail: String,
-    haystack: String,
 }
 
+/// Every searchable entity, with its match text kept in a parallel list so the
+/// matcher can scan it without touching the display fields.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SearchIndex {
     entries: Vec<Entry>,
+    haystacks: Vec<String>,
 }
 
 impl SearchIndex {
     pub fn build(topology: Option<&Topology>, subjects: Option<&SubjectTable>) -> Self {
         let mut entries = Vec::new();
+        let mut haystacks = Vec::new();
 
         if let Some(topology) = topology {
             for (name, topic) in &topology.topics {
@@ -45,8 +55,8 @@ impl SearchIndex {
                     id: name.to_string(),
                     label: name.to_string(),
                     detail: format!("{} partitions", topic.partitions.len()),
-                    haystack: name.to_lowercase(),
                 });
+                haystacks.push(name.to_string());
             }
             for (id, group) in &topology.groups {
                 entries.push(Entry {
@@ -54,8 +64,8 @@ impl SearchIndex {
                     id: id.to_string(),
                     label: id.to_string(),
                     detail: group.state.to_string(),
-                    haystack: id.to_lowercase(),
                 });
+                haystacks.push(id.to_string());
             }
             for (id, broker) in &topology.brokers {
                 entries.push(Entry {
@@ -63,8 +73,8 @@ impl SearchIndex {
                     id: id.to_string(),
                     label: format!("Broker {id}"),
                     detail: broker.host.clone(),
-                    haystack: format!("{id} {}", broker.host).to_lowercase(),
                 });
+                haystacks.push(format!("{id} {}", broker.host));
             }
         }
 
@@ -75,24 +85,36 @@ impl SearchIndex {
                     id: name.to_string(),
                     label: name.to_string(),
                     detail: format!("{} · v{}", subject.schema_type, subject.latest_version),
-                    haystack: name.to_lowercase(),
                 });
+                haystacks.push(name.to_string());
             }
         }
 
-        Self { entries }
+        Self { entries, haystacks }
     }
 
+    /// Fuzzy-matches `term` against every entry and returns the best hits,
+    /// highest score first. Whitespace separates atoms that must all match, and
+    /// fzf syntax narrows an atom: `^prefix`, `suffix$`, `'substring`, `!not`.
     pub fn search(&self, term: &str) -> Vec<SearchHit> {
-        let needle = term.trim().to_lowercase();
-        if needle.is_empty() {
+        let patterns: Vec<Pattern> = Pattern::parse_query(term)
+            .into_iter()
+            .map(|pattern| {
+                let typos = pattern.needle.chars().count() / CHARS_PER_TYPO;
+                pattern.max_typos(Some(u16::try_from(typos).unwrap_or(u16::MAX)))
+            })
+            .collect();
+        // A query of only negations would list the whole cluster.
+        if patterns.iter().all(|pattern| pattern.negated) {
             return Vec::new();
         }
 
-        self.entries
-            .iter()
-            .filter(|entry| entry.haystack.contains(&needle))
+        let config = Config::default().casing(CaseMatching::Ignore);
+        Matcher::from_patterns(&patterns, &config)
+            .match_list(&self.haystacks)
+            .into_iter()
             .take(MAX_HITS)
+            .map(|found| &self.entries[found.index as usize])
             .map(|entry| SearchHit {
                 kind: entry.kind,
                 id: entry.id.clone(),
@@ -168,23 +190,62 @@ mod tests {
         assert!(index().search("").is_empty());
     }
 
-    #[test]
-    fn results_are_capped() {
-        let topics = (0..50)
-            .map(|id| {
-                topic(
-                    &format!("orders-{id:02}"),
-                    vec![partition(0, vec![1], vec![1])],
-                )
-            })
+    fn topics(names: &[&str]) -> SearchIndex {
+        let topics = names
+            .iter()
+            .map(|name| topic(name, vec![partition(0, vec![1], vec![1])]))
             .collect();
         let topology = Topology::assemble(&metadata(topics), &[], &mut Interner::default());
+        SearchIndex::build(Some(&topology), None)
+    }
 
-        assert_eq!(
-            SearchIndex::build(Some(&topology), None)
-                .search("orders")
-                .len(),
-            MAX_HITS
-        );
+    fn labels(index: &SearchIndex, term: &str) -> Vec<String> {
+        index
+            .search(term)
+            .into_iter()
+            .map(|hit| hit.label)
+            .collect()
+    }
+
+    #[test]
+    fn closer_matches_rank_first() {
+        let index = topics(&["audit.orders", "order-events", "orders", "orders.created"]);
+        let hits = labels(&index, "orders");
+
+        assert_eq!(hits[0], "orders");
+        assert_eq!(hits[1], "orders.created");
+        assert_eq!(hits.last().map(String::as_str), Some("order-events"));
+    }
+
+    #[test]
+    fn matches_are_fuzzy_and_forgive_typos_in_longer_needles() {
+        let index = topics(&["billing.invoices", "payments", "user.profile.updated"]);
+
+        assert_eq!(labels(&index, "upu"), ["user.profile.updated"]);
+        assert_eq!(labels(&index, "invoces"), ["billing.invoices"]);
+        assert!(labels(&index, "pmx").is_empty());
+    }
+
+    #[test]
+    fn queries_combine_atoms_and_support_exclusions() {
+        let index = topics(&["orders", "payments.refunds", "prod.orders"]);
+
+        assert_eq!(labels(&index, "pay ref"), ["payments.refunds"]);
+        assert_eq!(labels(&index, "orders !prod"), ["orders"]);
+        assert_eq!(labels(&index, "^prod"), ["prod.orders"]);
+        assert!(labels(&index, "!orders").is_empty());
+    }
+
+    #[test]
+    fn results_are_capped_to_the_best_matches() {
+        let names: Vec<String> = (0..50)
+            .map(|id| format!("analytics.orders-{id:02}"))
+            .chain(["orders".to_owned()])
+            .collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let hits = labels(&topics(&names), "orders");
+
+        assert_eq!(hits.len(), MAX_HITS);
+        assert_eq!(hits[0], "orders");
     }
 }
