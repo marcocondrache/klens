@@ -5,8 +5,11 @@ use axum::{
 
 #[cfg(feature = "ui")]
 mod embedded {
+    use std::borrow::Cow;
+
     use super::*;
     use axum::{
+        body::Bytes,
         http::{HeaderValue, StatusCode, header},
         response::Html,
     };
@@ -26,11 +29,8 @@ mod embedded {
         match WebAssets::get(path) {
             Some(file) => {
                 let mime = mime_guess::from_path(path).first_or_octet_stream();
-                let mut response = (
-                    [(header::CONTENT_TYPE, mime.as_ref())],
-                    file.data.into_owned(),
-                )
-                    .into_response();
+                let mut response =
+                    ([(header::CONTENT_TYPE, mime.as_ref())], body(file.data)).into_response();
 
                 if path.starts_with("assets/") {
                     response.headers_mut().insert(
@@ -48,7 +48,7 @@ mod embedded {
     fn index() -> Response {
         match WebAssets::get("index.html") {
             Some(file) => {
-                let mut response = Html(file.data.into_owned()).into_response();
+                let mut response = Html(body(file.data)).into_response();
                 response.headers_mut().insert(
                     header::CACHE_CONTROL,
                     HeaderValue::from_static(crate::environment::INDEX_CACHE_CONTROL),
@@ -56,6 +56,13 @@ mod embedded {
                 response
             }
             None => StatusCode::NOT_FOUND.into_response(),
+        }
+    }
+
+    fn body(data: Cow<'static, [u8]>) -> Bytes {
+        match data {
+            Cow::Borrowed(data) => Bytes::from_static(data),
+            Cow::Owned(data) => Bytes::from(data),
         }
     }
 }
