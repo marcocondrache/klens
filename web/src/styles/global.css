@@ -64,15 +64,6 @@
   }
 }
 
-@keyframes shimmer {
-  0% {
-    background-position: 180% 0;
-  }
-  100% {
-    background-position: -180% 0;
-  }
-}
-
 :root {
   --radius: 0.875rem;
 
@@ -203,20 +194,4 @@
 @utility numeric {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
-}
-
-@layer components {
-  .loading-bar {
-    border-radius: var(--radius-md);
-    background-color: var(--muted);
-    background-image: linear-gradient(
-      90deg,
-      transparent,
-      color-mix(in oklch, var(--foreground) 14%, transparent),
-      transparent
-    );
-    background-size: 200% 100%;
-    background-repeat: no-repeat;
-    animation: shimmer 1.4s ease-in-out infinite;
-  }
 }
