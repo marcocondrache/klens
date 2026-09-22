@@ -26,6 +26,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { Item, ItemContent, ItemGroup, ItemTitle } from "@/components/ui/item";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { DataTableColumnHeader } from "@/components/data-table/column-header";
 import { type DataTableFeatures } from "@/components/data-table/features";
@@ -400,19 +401,24 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                   {selectedRecord.headers.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No headers.</p>
                   ) : (
-                    <div className="divide-y overflow-hidden rounded-md border">
+                    <ItemGroup className="gap-0 overflow-hidden rounded-lg border">
                       {selectedRecord.headers.map((header) => (
-                        <div
+                        <Item
                           key={header.key}
-                          className="flex items-start justify-between gap-3 px-3 py-2"
+                          size="sm"
+                          className="rounded-none border-b last:border-b-0"
                         >
-                          <span className="font-mono text-sm text-brand">{header.key}</span>
-                          <span className="max-w-[60%] font-mono text-sm break-all">
-                            {header.value}
-                          </span>
-                        </div>
+                          <ItemContent className="flex-row items-start justify-between gap-3">
+                            <ItemTitle className="font-mono font-normal text-brand">
+                              {header.key}
+                            </ItemTitle>
+                            <span className="max-w-[60%] font-mono text-sm break-all">
+                              {header.value}
+                            </span>
+                          </ItemContent>
+                        </Item>
                       ))}
-                    </div>
+                    </ItemGroup>
                   )}
                 </section>
 
@@ -441,9 +447,11 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
 
 function Meta({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="rounded-md border bg-muted/20 px-3 py-2">
-      <p className="text-sm text-muted-foreground">{label}</p>
-      <p className="numeric mt-0.5 font-mono text-sm">{value}</p>
-    </div>
+    <Item variant="outline" size="sm">
+      <ItemContent>
+        <ItemTitle className="font-normal text-muted-foreground">{label}</ItemTitle>
+        <div className="numeric font-mono text-sm">{value}</div>
+      </ItemContent>
+    </Item>
   );
 }

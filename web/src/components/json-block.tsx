@@ -17,7 +17,7 @@ export function JsonBlock({
   return (
     <div
       className={cn(
-        "json-block overflow-auto rounded-lg border bg-muted/30 p-3 font-mono text-sm leading-relaxed",
+        "json-block overflow-auto rounded-lg border p-3 font-mono text-sm leading-relaxed",
         wrap && "json-block-wrap",
         className,
       )}
