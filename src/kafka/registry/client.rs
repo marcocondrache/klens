@@ -113,16 +113,21 @@ impl SchemaRegistryClient {
         name: &str,
         global: &OnceCell<SchemaCompatibility>,
     ) -> Result<SchemaSubject, KafkaError> {
-        let versions = self
-            .registry
-            .get_versions(name)
-            .await
-            .map_err(|error| self.fail(error.to_string()))?;
-        let latest = self
-            .registry
-            .get_latest_schema(name)
-            .await
-            .map_err(|error| self.fail(error.to_string()))?;
+        let (versions, latest, compatibility) = tokio::try_join!(
+            async {
+                self.registry
+                    .get_versions(name)
+                    .await
+                    .map_err(|error| self.fail(error.to_string()))
+            },
+            async {
+                self.registry
+                    .get_latest_schema(name)
+                    .await
+                    .map_err(|error| self.fail(error.to_string()))
+            },
+            async { Ok(self.compatibility(name, global).await) },
+        )?;
 
         Ok(SchemaSubject {
             subject: name.to_owned(),
@@ -133,7 +138,7 @@ impl SchemaRegistryClient {
                 .map(SchemaVersion::as_i32)
                 .ok_or_else(|| self.fail("schema is missing version"))?,
             versions: versions.into_iter().map(SchemaVersion::as_i32).collect(),
-            compatibility: self.compatibility(name, global).await,
+            compatibility,
             schema: latest.schema.to_string(),
         })
     }

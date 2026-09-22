@@ -66,18 +66,11 @@ async fn window_watermarks<S: ClusterSession + ?Sized>(
     partitions: &[i32],
 ) -> Result<HashMap<i32, Watermarks>, KafkaError> {
     let wanted = HashMap::from_iter([(query.topic.clone(), partitions.to_vec())]);
-    let mut watermarks = session
-        .watermarks(&wanted)
-        .await?
-        .remove(&query.topic)
-        .unwrap_or_default();
-
     let start = query.timestamps.start_seek();
     let end = query.timestamps.end_seek();
-    if start.is_none() && end.is_none() {
-        return Ok(watermarks);
-    }
 
+    // The timestamp seeks do not depend on the watermarks, so all three
+    // broker round trips go out together.
     let seek = |timestamp: Option<i64>| async move {
         match timestamp {
             Some(timestamp) => session
@@ -87,7 +80,12 @@ async fn window_watermarks<S: ClusterSession + ?Sized>(
             None => Ok(None),
         }
     };
-    let (from_offsets, to_offsets) = tokio::try_join!(seek(start), seek(end))?;
+    let (mut by_topic, from_offsets, to_offsets) =
+        tokio::try_join!(session.watermarks(&wanted), seek(start), seek(end))?;
+    let mut watermarks = by_topic.remove(&query.topic).unwrap_or_default();
+    if start.is_none() && end.is_none() {
+        return Ok(watermarks);
+    }
 
     apply_timestamp_bounds(&mut watermarks, from_offsets.as_ref(), to_offsets.as_ref());
     Ok(watermarks)
