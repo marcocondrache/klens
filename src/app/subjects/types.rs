@@ -9,7 +9,7 @@ use super::super::clusters::LaneHealth;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub(crate) enum SchemaType {
+pub enum SchemaType {
     Avro,
     Json,
     Protobuf,
@@ -19,7 +19,7 @@ from_same_variants!(domain::SchemaType => SchemaType { Avro, Json, Protobuf });
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub(crate) enum SchemaCompatibility {
+pub enum SchemaCompatibility {
     Backward,
     Forward,
     Full,
@@ -35,7 +35,7 @@ from_same_variants!(domain::SchemaCompatibility => SchemaCompatibility {
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct SubjectRow {
+pub struct SubjectRow {
     pub subject: String,
     pub id: i32,
     #[serde(rename = "type")]
@@ -62,14 +62,14 @@ impl From<projections::SubjectRow> for SubjectRow {
 /// a registry with no subjects.
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct SubjectRowsResult {
+pub struct SubjectRowsResult {
     pub rows: Vec<SubjectRow>,
     pub source_health: LaneHealth,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct SchemaReference {
+pub struct SchemaReference {
     pub name: String,
     pub subject: String,
     pub version: i32,
@@ -87,7 +87,7 @@ impl From<domain::SchemaReference> for SchemaReference {
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct SubjectDetail {
+pub struct SubjectDetail {
     pub subject: String,
     pub version: i32,
     pub id: i32,

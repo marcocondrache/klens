@@ -10,7 +10,7 @@ use super::super::int64::Int64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub(crate) enum CleanupPolicy {
+pub enum CleanupPolicy {
     Delete,
     Compact,
     CompactDelete,
@@ -20,7 +20,7 @@ from_same_variants!(domain::CleanupPolicy => CleanupPolicy { Delete, Compact, Co
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct TopicRow {
+pub struct TopicRow {
     pub name: String,
     pub internal: bool,
     pub partition_count: i32,
@@ -57,7 +57,7 @@ impl From<projections::TopicRow> for TopicRow {
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct TopicRowPage {
+pub struct TopicRowPage {
     pub rows: Vec<TopicRow>,
     /// Rows matching the filter before paging, so a client can size its
     /// scrollbar without walking every page.
@@ -67,7 +67,7 @@ pub(crate) struct TopicRowPage {
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct PartitionRow {
+pub struct PartitionRow {
     pub id: i32,
     pub leader: i32,
     pub replicas: Vec<i32>,
@@ -95,7 +95,7 @@ impl From<projections::PartitionRow> for PartitionRow {
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct TopicDetail {
+pub struct TopicDetail {
     pub name: String,
     pub internal: bool,
     pub partitions: Vec<PartitionRow>,
@@ -130,7 +130,7 @@ impl From<projections::TopicDetail> for TopicDetail {
 /// Which groups read this topic, and how far behind they are on it alone.
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct TopicGroupRow {
+pub struct TopicGroupRow {
     pub id: String,
     pub state: GroupState,
     pub member_count: i32,
@@ -150,7 +150,7 @@ impl From<projections::TopicGroupRow> for TopicGroupRow {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub(crate) enum TopicSortField {
+pub enum TopicSortField {
     Name,
     Rate,
     RetainedMessages,

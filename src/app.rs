@@ -26,7 +26,8 @@ mod records;
 mod search;
 mod subjects;
 mod topics;
-mod typescript;
+#[cfg(feature = "typescript")]
+pub mod typescript;
 mod updates;
 mod whoami;
 
@@ -152,8 +153,6 @@ impl AppState {
             .await
     }
 }
-
-pub use typescript::typescript;
 
 fn resources() -> Router<AppState> {
     Router::new()

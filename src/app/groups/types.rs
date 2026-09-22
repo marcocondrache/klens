@@ -9,7 +9,7 @@ use super::super::int64::Int64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub(crate) enum GroupState {
+pub enum GroupState {
     Stable,
     Empty,
     PreparingRebalance,
@@ -27,7 +27,7 @@ from_same_variants!(domain::GroupState => GroupState {
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct MemberAssignment {
+pub struct MemberAssignment {
     pub topic: String,
     pub partitions: Vec<i32>,
 }
@@ -43,7 +43,7 @@ impl From<domain::MemberAssignment> for MemberAssignment {
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct GroupMember {
+pub struct GroupMember {
     pub id: String,
     pub client_id: String,
     pub host: String,
@@ -63,7 +63,7 @@ impl From<domain::GroupMember> for GroupMember {
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct GroupOffset {
+pub struct GroupOffset {
     pub topic: String,
     pub partition: i32,
     pub current_offset: Int64,
@@ -87,7 +87,7 @@ impl From<domain::GroupOffset> for GroupOffset {
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct GroupRow {
+pub struct GroupRow {
     pub id: String,
     pub state: GroupState,
     pub member_count: i32,
@@ -115,7 +115,7 @@ impl From<projections::GroupRow> for GroupRow {
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct GroupRowPage {
+pub struct GroupRowPage {
     pub rows: Vec<GroupRow>,
     pub total: i32,
     pub next_cursor: Option<String>,
@@ -123,7 +123,7 @@ pub(crate) struct GroupRowPage {
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct GroupDetail {
+pub struct GroupDetail {
     pub id: String,
     pub state: GroupState,
     pub protocol: String,

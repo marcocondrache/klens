@@ -8,7 +8,7 @@ use crate::kafka::model as domain;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[allow(clippy::enum_variant_names)]
-pub(crate) enum ConfigSource {
+pub enum ConfigSource {
     DynamicTopicConfig,
     DynamicBrokerConfig,
     StaticBrokerConfig,
@@ -28,7 +28,7 @@ impl From<domain::ConfigSource> for ConfigSource {
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ConfigEntry {
+pub struct ConfigEntry {
     pub name: String,
     pub value: Option<String>,
     pub source: ConfigSource,

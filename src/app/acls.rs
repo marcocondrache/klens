@@ -8,14 +8,12 @@ use crate::AppState;
 use super::context::Session;
 use super::error::ApiError;
 
-mod types;
+pub mod types;
 
 #[cfg(test)]
 mod tests;
 
-pub(crate) use types::{
-    Acl, AclAuthorizer, AclListing, AclOperation, AclPatternType, AclPermission, AclResourceType,
-};
+pub(crate) use types::AclListing;
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new().route("/", get(acls))

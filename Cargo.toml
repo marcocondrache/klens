@@ -9,6 +9,7 @@ ignored = ["cookie"]
 
 [features]
 ui = ["dep:rust-embed", "dep:mime_guess"]
+typescript = []
 
 [workspace]
 members = ["xtask"]
