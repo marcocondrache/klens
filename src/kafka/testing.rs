@@ -792,7 +792,7 @@ impl ClusterSession for FakeCluster {
     async fn committed_offsets(
         &self,
         group_id: &str,
-        _partitions: &[(String, i32)],
+        partitions: Option<&[(String, i32)]>,
     ) -> Result<Vec<CommittedOffset>, KafkaError> {
         self.inner
             .calls
@@ -828,7 +828,20 @@ impl ClusterSession for FakeCluster {
             .expect("groups")
             .iter()
             .find(|group| group.id == group_id)
-            .map(|group| group.committed.clone())
+            .map(|group| {
+                group
+                    .committed
+                    .iter()
+                    .filter(|offset| {
+                        partitions.is_none_or(|partitions| {
+                            partitions.iter().any(|(topic, partition)| {
+                                *topic == offset.topic && *partition == offset.partition
+                            })
+                        })
+                    })
+                    .cloned()
+                    .collect()
+            })
             .unwrap_or_default())
     }
 

@@ -215,10 +215,7 @@ impl OffsetLane {
             let session = Arc::clone(&session);
             let partitions = offset_fetch_partitions(topology, previous, &id);
             async move {
-                if partitions.is_empty() {
-                    return (id, Some(Vec::new()));
-                }
-                match session.committed_offsets(&id, &partitions).await {
+                match session.committed_offsets(&id, partitions.as_deref()).await {
                     Ok(committed) => (id, Some(committed)),
                     Err(error) => {
                         tracing::warn!(group = %id, %error, "offset fetch failed");
@@ -265,7 +262,7 @@ fn offset_fetch_partitions(
     topology: &Topology,
     previous: Option<&OffsetTable>,
     id: &str,
-) -> Vec<(String, i32)> {
+) -> Option<Vec<(String, i32)>> {
     let mut partitions: Vec<(String, i32)> = topology
         .group(id)
         .into_iter()
@@ -275,6 +272,9 @@ fn offset_fetch_partitions(
                 .map(|(topic, partition)| (topic.to_owned(), partition))
         })
         .collect();
+    if partitions.is_empty() {
+        return None;
+    }
 
     if let Some(offsets) = previous.and_then(|table| table.get(id)) {
         partitions.extend(
@@ -286,7 +286,7 @@ fn offset_fetch_partitions(
 
     partitions.sort();
     partitions.dedup();
-    partitions
+    Some(partitions)
 }
 
 fn stale_groups(topology: &Topology, previous: Option<&OffsetTable>) -> Vec<Arc<str>> {
