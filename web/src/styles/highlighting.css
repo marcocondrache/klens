@@ -2,9 +2,9 @@
   .json-block {
     --th-token: var(--foreground);
     --th-property: var(--brand);
-    --th-string: var(--chart-3);
-    --th-number: var(--chart-2);
-    --th-literal: var(--chart-4);
+    --th-string: var(--ok);
+    --th-number: var(--warn);
+    --th-literal: var(--primary);
     --th-comment: var(--muted-foreground);
   }
 

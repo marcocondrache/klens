@@ -9,6 +9,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { CopyButton } from "@/components/copy-button";
 import { DataTableColumnHeader } from "@/components/data-table/column-header";
 import { DataTable } from "@/components/data-table/data-table";
@@ -178,18 +179,28 @@ function SchemasPage() {
 
                 <div className="space-y-2">
                   <h3 className="text-sm font-medium text-muted-foreground">Versions</h3>
-                  <div className="flex flex-wrap gap-1.5">
+                  <ToggleGroup
+                    value={shownVersion != null ? [String(shownVersion)] : []}
+                    onValueChange={(next) => {
+                      const picked = next[0];
+                      if (picked != null) setVersion(Number(picked));
+                    }}
+                    variant="outline"
+                    size="sm"
+                    spacing={0}
+                    className="flex-wrap"
+                    aria-label="Schema version"
+                  >
                     {selected.versions.map((entry) => (
-                      <Pill
+                      <ToggleGroupItem
                         key={entry}
-                        tone={entry === shownVersion ? "brand" : "idle"}
-                        className="numeric cursor-pointer font-mono"
-                        onClick={() => setVersion(entry)}
+                        value={String(entry)}
+                        className="numeric font-mono"
                       >
                         v{entry}
-                      </Pill>
+                      </ToggleGroupItem>
                     ))}
-                  </div>
+                  </ToggleGroup>
                 </div>
               </div>
             </>
