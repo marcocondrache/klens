@@ -1,5 +1,5 @@
-use std::borrow::Cow;
 use std::collections::HashMap;
+use std::sync::OnceLock;
 
 use prost_reflect::{DescriptorPool, DynamicMessage, FileDescriptor, MessageDescriptor};
 use protox::Compiler;
@@ -9,6 +9,14 @@ use serde_json::Value;
 use thiserror::Error;
 
 const ROOT_FILE: &str = "schema.proto";
+
+/// Import path of Buf's protovalidate schema. Some registries store a copy
+/// whose CEL regexes contain `\.`, which protox reports as `invalid string
+/// escape`. [`BUNDLED_VALIDATE_SOURCE`] is protovalidate 1.2.2, with those
+/// regexes written as `\\.`.
+const BUNDLED_VALIDATE: &str = "buf/validate/validate.proto";
+
+const BUNDLED_VALIDATE_SOURCE: &str = include_str!("validate.proto");
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub(crate) enum ProtobufError {
@@ -39,11 +47,37 @@ struct MemoryResolver {
 
 impl FileResolver for MemoryResolver {
     fn open_file(&self, name: &str) -> Result<File, protox::Error> {
-        match self.files.get(name) {
-            Some(source) => File::from_source(name, source),
-            None => Err(protox::Error::file_not_found(name)),
+        let Some(source) = self.files.get(name) else {
+            return Err(protox::Error::file_not_found(name));
+        };
+        match File::from_source(name, source) {
+            Ok(file) => Ok(file),
+            Err(error) if use_bundled_validate(name, &error) => {
+                tracing::debug!(
+                    file = name,
+                    %error,
+                    "registry protobuf import has an unknown string escape; compiling bundled protovalidate"
+                );
+                Ok(bundled_validate())
+            }
+            Err(error) => Err(error),
         }
     }
+}
+
+fn use_bundled_validate(name: &str, error: &protox::Error) -> bool {
+    name == BUNDLED_VALIDATE && error.to_string() == "invalid string escape"
+}
+
+fn bundled_validate() -> File {
+    static PARSED: OnceLock<File> = OnceLock::new();
+    PARSED
+        .get_or_init(|| {
+            File::from_source(BUNDLED_VALIDATE, BUNDLED_VALIDATE_SOURCE).unwrap_or_else(|error| {
+                panic!("bundled protovalidate 1.2.2 failed to parse: {error}")
+            })
+        })
+        .clone()
 }
 
 impl ProtobufCodec {
@@ -52,12 +86,9 @@ impl ProtobufCodec {
         references: &[(String, String)],
     ) -> Result<Self, ProtobufError> {
         let mut files = HashMap::new();
-        files.insert(
-            ROOT_FILE.to_owned(),
-            source_for_compiler(schema).into_owned(),
-        );
+        files.insert(ROOT_FILE.to_owned(), schema.to_owned());
         for (name, source) in references {
-            files.insert(name.clone(), source_for_compiler(source).into_owned());
+            files.insert(name.clone(), source.clone());
         }
 
         let mut resolver = ChainFileResolver::new();
@@ -107,115 +138,6 @@ impl ProtobufCodec {
         }
         Ok(current)
     }
-}
-
-/// protox rejects unknown string escapes such as `\.`. Wire, which AKHQ uses
-/// through Confluent's protobuf parser, keeps the character after the
-/// backslash and continues. Drop that backslash so the same schema text
-/// still compiles. Valid escapes are copied through unchanged.
-fn source_for_compiler(source: &str) -> Cow<'_, str> {
-    let bytes = source.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut index = 0;
-    let mut changed = false;
-
-    while index < bytes.len() {
-        if bytes[index] == b'/' && bytes.get(index + 1) == Some(&b'/') {
-            let end = bytes[index..]
-                .iter()
-                .position(|&byte| byte == b'\n')
-                .map_or(bytes.len(), |offset| index + offset + 1);
-            out.extend_from_slice(&bytes[index..end]);
-            index = end;
-            continue;
-        }
-        if bytes[index] == b'/' && bytes.get(index + 1) == Some(&b'*') {
-            let end = bytes[index + 2..]
-                .windows(2)
-                .position(|pair| pair == b"*/")
-                .map_or(bytes.len(), |offset| index + 2 + offset + 2);
-            out.extend_from_slice(&bytes[index..end]);
-            index = end;
-            continue;
-        }
-        if bytes[index] == b'"' || bytes[index] == b'\'' {
-            let quote = bytes[index];
-            out.push(quote);
-            index += 1;
-            while index < bytes.len() {
-                if bytes[index] == quote {
-                    out.push(quote);
-                    index += 1;
-                    break;
-                }
-                if bytes[index] == b'\\' {
-                    if let Some(length) = valid_escape_len(&bytes[index..]) {
-                        out.extend_from_slice(&bytes[index..index + length]);
-                        index += length;
-                    } else {
-                        changed = true;
-                        index += 1;
-                    }
-                    continue;
-                }
-                out.push(bytes[index]);
-                index += 1;
-            }
-            continue;
-        }
-        out.push(bytes[index]);
-        index += 1;
-    }
-
-    if changed {
-        Cow::Owned(String::from_utf8(out).expect("dropping an ascii backslash keeps utf-8"))
-    } else {
-        Cow::Borrowed(source)
-    }
-}
-
-/// Length of a protobuf string escape starting at `bytes[0] == b'\\'`, when
-/// protox accepts it.
-fn valid_escape_len(bytes: &[u8]) -> Option<usize> {
-    if bytes.first() != Some(&b'\\') || bytes.len() < 2 {
-        return None;
-    }
-    match bytes[1] {
-        b'a' | b'b' | b'f' | b'n' | b'r' | b't' | b'v' | b'?' | b'\\' | b'\'' | b'"' => Some(2),
-        b'x' | b'X' => {
-            let digits = bytes[2..]
-                .iter()
-                .take(2)
-                .take_while(|byte| byte.is_ascii_hexdigit())
-                .count();
-            (digits > 0).then_some(2 + digits)
-        }
-        b'0'..=b'7' => {
-            let mut digits = 1;
-            while digits < 3
-                && bytes
-                    .get(1 + digits)
-                    .is_some_and(|byte| (b'0'..=b'7').contains(byte))
-            {
-                digits += 1;
-            }
-            let value =
-                u32::from_str_radix(std::str::from_utf8(&bytes[1..1 + digits]).ok()?, 8).ok()?;
-            (value <= 0xff).then_some(1 + digits)
-        }
-        b'u' => unicode_escape_len(bytes, 4),
-        b'U' => unicode_escape_len(bytes, 8),
-        _ => None,
-    }
-}
-
-fn unicode_escape_len(bytes: &[u8], digits: usize) -> Option<usize> {
-    let hex = bytes.get(2..2 + digits)?;
-    if !hex.iter().all(u8::is_ascii_hexdigit) {
-        return None;
-    }
-    let value = u32::from_str_radix(std::str::from_utf8(hex).ok()?, 16).ok()?;
-    char::from_u32(value).map(|_| 2 + digits)
 }
 
 fn nth_message(
@@ -312,25 +234,46 @@ mod tests {
     }
 
     #[test]
-    fn unknown_dot_escape_is_dropped_and_valid_escapes_stay() {
-        assert_eq!(
-            source_for_compiler(r#""com\.example""#).as_ref(),
-            r#""com.example""#
-        );
-        assert_eq!(
-            source_for_compiler(r#"'^[A-Za-z_]*(\.[A-Za-z_]*)*$'"#).as_ref(),
-            r#"'^[A-Za-z_]*(.[A-Za-z_]*)*$'"#
-        );
-        let valid = r#""a\\b\n\t\u0041\x2E\123""#;
-        assert_eq!(source_for_compiler(valid).as_ref(), valid);
-        assert_eq!(
-            source_for_compiler("// \\d in a comment\n").as_ref(),
-            "// \\d in a comment\n"
-        );
+    fn unknown_string_escape_in_a_user_schema_stays_an_error() {
+        let source = r#"
+            syntax = "proto2";
+            message Order {
+              optional string order_id = 1 [default = "(\.[A-Za-z_]"];
+            }
+        "#;
+        let Err(error) = ProtobufCodec::compile(source, &[]) else {
+            panic!("schema with an unknown string escape compiled");
+        };
+        assert_eq!(error.to_string(), "invalid string escape");
     }
 
     #[test]
-    fn compiles_an_imported_schema_with_an_unknown_dot_escape() {
+    fn a_parseable_registry_copy_of_protovalidate_is_kept() {
+        let validate = r#"
+            syntax = "proto3";
+            package buf.validate;
+            message OnlyInRegistry {
+              string code = 1;
+            }
+        "#;
+        let root = r#"
+            syntax = "proto3";
+            import "buf/validate/validate.proto";
+            message Order {
+              buf.validate.OnlyInRegistry status = 1;
+            }
+        "#;
+        let codec = ProtobufCodec::compile(
+            root,
+            &[("buf/validate/validate.proto".into(), validate.into())],
+        )
+        .unwrap();
+        let json = codec.decode_raw(b"\x0a\x06\x0a\x04OPEN").unwrap();
+        assert_eq!(json["status"]["code"], "OPEN");
+    }
+
+    #[test]
+    fn unreadable_protovalidate_import_uses_the_bundled_schema() {
         let validate = r#"
             syntax = "proto2";
             package buf.validate;
@@ -342,7 +285,7 @@ mod tests {
             syntax = "proto3";
             import "buf/validate/validate.proto";
             message Order {
-              string order_id = 1;
+              string order_id = 1 [(buf.validate.field).string.min_len = 1];
               int64 amount = 2;
             }
         "#;
