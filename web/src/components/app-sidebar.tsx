@@ -1,128 +1,73 @@
-import { Link, useMatchRoute } from "@tanstack/react-router";
+import type { ComponentProps } from "react";
+import { Link } from "@tanstack/react-router";
 
-import { Button } from "@/components/ui/button";
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
-  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { GithubIcon } from "@/components/icons";
-import { useClusterHealth } from "@/lib/api/catalog";
-import { RELEASE_URL, REPO_URL, VERSION } from "@/lib/build";
-import { useClusterName } from "@/lib/clusters";
-import { formatCount } from "@/lib/format";
+import { NavMain } from "@/components/nav-main";
+import { NavSecondary } from "@/components/nav-secondary";
+import { NavUser } from "@/components/nav-user";
 import { useAccess } from "@/hooks/use-access";
-import { clusterSectionTo, visibleSections, type ClusterSection } from "@/lib/sections";
+import { useAuth } from "@/hooks/use-auth";
+import { useClusterHealth } from "@/lib/api/catalog";
+import { REPO_URL } from "@/lib/build";
+import { useClusterName } from "@/lib/clusters";
+import { visibleSections } from "@/lib/sections";
 
-const ACTIVE_MARKER =
-  "relative data-active:before:absolute data-active:before:inset-y-1.5 data-active:before:-left-3 data-active:before:w-0.5 data-active:before:rounded-r-full data-active:before:bg-sidebar-primary";
+const NAV_SECONDARY = [{ title: "GitHub", url: REPO_URL, icon: <GithubIcon /> }];
 
-export function AppSidebar() {
+export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
   const cluster = useClusterName();
-  const matchRoute = useMatchRoute();
   const { can } = useAccess();
-  const sections = visibleSections(can(cluster, "ACLS"));
-
+  const { data: auth } = useAuth();
   const { data: health } = useClusterHealth(cluster);
 
-  const counts: Record<ClusterSection, number | undefined> = {
-    topics: health?.topology.updatedAt == null ? undefined : health.topicCount,
-    groups: health?.topology.updatedAt == null ? undefined : health.groupCount,
-    schemas: health?.subjects.updatedAt == null ? undefined : health.subjectCount,
-    nodes: health?.topology.updatedAt == null ? undefined : health.brokerCount,
-    acls: undefined,
-  };
+  const topology = health?.topology.updatedAt == null ? undefined : health;
+  const subjects = health?.subjects.updatedAt == null ? undefined : health;
 
   return (
-    <Sidebar collapsible="icon">
-      <SidebarHeader className="group-data-[collapsible=icon]:hidden">
-        <div className="flex h-14 items-center gap-2 px-3">
-          <img src="/favicon.svg" alt="" className="size-6" />
-          <span className="text-2xl font-semibold tracking-tight">klens</span>
-        </div>
+    <Sidebar collapsible="icon" {...props}>
+      <SidebarHeader>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              size="lg"
+              render={<Link to="/cluster/$cluster" params={{ cluster }} />}
+            >
+              <div className="flex aspect-square size-8 items-center justify-center">
+                <img src="/favicon.svg" alt="" className="size-5" />
+              </div>
+              <span className="truncate text-base font-semibold">klens</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarHeader>
-
       <SidebarContent>
-        <SidebarGroup className="px-3">
-          <SidebarGroupLabel>Cluster</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu className="gap-2">
-              {sections.map((section) => (
-                <SidebarMenuItem key={section.segment}>
-                  <SidebarMenuButton
-                    isActive={Boolean(
-                      matchRoute({
-                        to: clusterSectionTo(section.segment),
-                        params: { cluster },
-                        fuzzy: true,
-                      }),
-                    )}
-                    tooltip={section.label}
-                    className={ACTIVE_MARKER}
-                    render={<Link to={clusterSectionTo(section.segment)} params={{ cluster }} />}
-                  >
-                    <section.icon />
-                    <span>{section.label}</span>
-                  </SidebarMenuButton>
-                  {counts[section.segment] === undefined ? null : (
-                    <SidebarMenuBadge className="numeric text-muted-foreground">
-                      {formatCount(counts[section.segment] ?? 0)}
-                    </SidebarMenuBadge>
-                  )}
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        <NavMain
+          cluster={cluster}
+          sections={visibleSections(can(cluster, "ACLS"))}
+          counts={{
+            topics: topology?.topicCount,
+            groups: topology?.groupCount,
+            schemas: subjects?.subjectCount,
+            nodes: topology?.brokerCount,
+          }}
+        />
+        <NavSecondary items={NAV_SECONDARY} className="mt-auto" />
       </SidebarContent>
-
-      <SidebarFooter className="px-3 group-data-[collapsible=icon]:hidden">
-        <div className="flex items-center justify-between gap-2">
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <a
-                  href={RELEASE_URL}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex min-w-0 items-center text-xs text-muted-foreground transition-colors hover:text-foreground"
-                />
-              }
-            >
-              <span className="numeric truncate font-mono">v{VERSION}</span>
-            </TooltipTrigger>
-            <TooltipContent>GitHub release</TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  aria-label="Open repository"
-                  className="text-muted-foreground"
-                  render={<a href={REPO_URL} target="_blank" rel="noreferrer" />}
-                />
-              }
-            >
-              <GithubIcon className="size-3.5" />
-            </TooltipTrigger>
-            <TooltipContent>Repository</TooltipContent>
-          </Tooltip>
-        </div>
-      </SidebarFooter>
-
+      {auth?.enabled && auth.user ? (
+        <SidebarFooter>
+          <NavUser user={auth.user} />
+        </SidebarFooter>
+      ) : null}
       <SidebarRail />
     </Sidebar>
   );

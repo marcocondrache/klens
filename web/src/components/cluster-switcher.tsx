@@ -1,7 +1,6 @@
-import { ChevronDownIcon } from "lucide-react";
+import { ChevronsUpDownIcon } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 
-import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,16 +10,17 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { StatusDot } from "@/components/status";
-import { clusterTone, useClusterName } from "@/lib/clusters";
 import { useClusters } from "@/lib/api/catalog";
+import { clusterTone, useClusterName } from "@/lib/clusters";
 import { clusterSectionTo, useActiveSection } from "@/lib/sections";
 
+/** Breadcrumb root that shows the active cluster and switches between clusters. */
 export function ClusterSwitcher() {
   const active = useClusterName();
   const { data: clusters = [] } = useClusters();
   const navigate = useNavigate();
   const section = useActiveSection();
-  const health = clusters.find((entry) => entry.cluster === active) ?? null;
+  const tone = clusterTone(clusters.find((entry) => entry.cluster === active));
 
   function switchTo(name: string) {
     void navigate({
@@ -32,14 +32,16 @@ export function ClusterSwitcher() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        render={<Button variant="outline" size="sm" className="max-w-64 font-medium" />}
+        render={
+          <button className="flex min-w-0 items-center gap-1.5 rounded-md font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/50" />
+        }
       >
-        <StatusDot tone={clusterTone(health)} />
+        <StatusDot tone={tone} />
         <span className="truncate">{active}</span>
-        <ChevronDownIcon className="opacity-60" />
+        <ChevronsUpDownIcon data-icon="inline-end" className="size-3.5 text-muted-foreground" />
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="start" className="w-64">
+      <DropdownMenuContent align="start" className="min-w-56">
         <DropdownMenuRadioGroup value={active} onValueChange={switchTo}>
           <DropdownMenuLabel className="text-xs text-muted-foreground">Clusters</DropdownMenuLabel>
           {clusters.map((entry) => (
