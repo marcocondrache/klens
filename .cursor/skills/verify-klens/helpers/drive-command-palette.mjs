@@ -59,8 +59,29 @@ try {
   }
   notes.push(`idle selected ${JSON.stringify(idleSelected)}`);
 
-  await dialog.getByRole("combobox").fill(topic);
+  await page.evaluate(() => {
+    window.__paletteHeights = [];
+    const sample = () => {
+      const el = document.querySelector('[data-slot="dialog-content"]');
+      window.__paletteHeights.push(el ? Math.round(el.getBoundingClientRect().height) : 0);
+      window.__paletteRaf = requestAnimationFrame(sample);
+    };
+    sample();
+  });
+  await dialog.getByRole("combobox").pressSequentially(topic, { delay: 40 });
   await dialog.getByRole("option", { name: new RegExp(`^${topic}`) }).waitFor({ timeout: 15_000 });
+  const heights = await page.evaluate(() => {
+    cancelAnimationFrame(window.__paletteRaf);
+    return window.__paletteHeights;
+  });
+  const minHeight = heights.length === 0 ? 0 : Math.min(...heights);
+  // The input-only dialog is about 44px. A collapse between keystrokes fails this.
+  if (minHeight < 72) {
+    throw new Error(
+      `command palette collapsed while typing (min height ${minHeight}px, samples ${heights.length})`,
+    );
+  }
+  notes.push(`palette height min ${minHeight} samples ${heights.length}`);
 
   const afterSearch = (await selectedOptions().allInnerTexts()).map((text) => text.trim());
   if (afterSearch.length !== 1 || !afterSearch[0].startsWith(topic)) {

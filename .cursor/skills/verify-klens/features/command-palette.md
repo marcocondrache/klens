@@ -41,4 +41,4 @@ Preconditions:
 - Close the dialog and wait until it is hidden before the next open. `Control+K` toggles. A chord while the dialog is still closing closes it again.
 - The dialog title is `Search klens` and is visually hidden (`sr-only`). Query it by accessible name, not by visible text.
 - Results wait on `GET /api/clusters/{cluster}/search`. Wait for the topic row, not a fixed debounce sleep.
-- A query with no hits shows `No matches in local.` Typing hides Go to and Switch cluster so arrow keys stay on catalog hits.
+- A query with no hits shows `No matches in local.` Once a search has settled, typing hides Go to and Switch cluster so arrow keys stay on catalog hits. The list keeps the previous rows until the next response, so the dialog does not collapse to the input between keystrokes.
