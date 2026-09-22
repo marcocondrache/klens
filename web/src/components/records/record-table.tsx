@@ -12,22 +12,57 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 
 import { DataTableViewOptions } from "@/components/data-table/view-options";
 import { features, type DataTableFeatures } from "@/components/data-table/features";
+import { columnTracks } from "@/components/records/column-tracks";
 import { RefreshBar } from "@/components/refresh-bar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
+import { formatBytes, formatTimestamp } from "@/lib/format";
+import type { KafkaRecord } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
 const ROW_SIZE = 40;
 const LOAD_MORE_KEY = "load-more";
 
-const COLUMN_TRACK: Record<string, string> = {
-  partition: "4rem",
-  offset: "7rem",
-  key: "minmax(8rem,12rem)",
-  value: "minmax(0,1fr)",
-  size: "5rem",
-  timestamp: "11rem",
-};
+function sampleColumn(id: string, record: KafkaRecord) {
+  switch (id) {
+    case "partition":
+      return String(record.partition);
+    case "offset":
+      return String(record.offset);
+    case "key":
+      return record.key ?? "null";
+    case "size":
+      return formatBytes(record.sizeBytes);
+    case "timestamp":
+      return formatTimestamp(record.timestamp);
+    default:
+      return "";
+  }
+}
+
+function tracksFor<TData extends RowData>(
+  columns: Array<{ id: string; columnDef: { meta?: { label?: string } } }>,
+  data: TData[],
+) {
+  const labels: Record<string, string> = {};
+  const samples: Record<string, string[]> = {};
+  for (const column of columns) {
+    labels[column.id] = column.columnDef.meta?.label ?? column.id;
+    samples[column.id] = [];
+  }
+  for (const row of data) {
+    const record = row as KafkaRecord;
+    for (const column of columns) {
+      const text = sampleColumn(column.id, record);
+      if (text) samples[column.id].push(text);
+    }
+  }
+  return columnTracks(
+    columns.map((column) => column.id),
+    labels,
+    samples,
+  );
+}
 
 interface RecordTableProps<TData extends RowData> {
   columns: Array<ColumnDef<DataTableFeatures, TData>>;
@@ -85,10 +120,7 @@ export function RecordTable<TData extends RowData>({
 
   const rows = table.getRowModel().rows;
   const visible = table.getVisibleLeafColumns();
-  const gridTemplateColumns = useMemo(
-    () => visible.map((column) => COLUMN_TRACK[column.id] ?? "minmax(0,1fr)").join(" "),
-    [visible],
-  );
+  const gridTemplateColumns = useMemo(() => tracksFor(visible, data), [data, visible]);
   const loaderCount = hasNextPage || isFetchingNextPage || isFetchNextPageError ? 1 : 0;
   const count = rows.length + loaderCount;
 
@@ -222,7 +254,7 @@ export function RecordTable<TData extends RowData>({
                               key={cell.id}
                               role="cell"
                               className={cn(
-                                "px-2 py-2 align-middle text-sm whitespace-nowrap",
+                                "min-w-0 px-2 py-2 align-middle text-sm whitespace-nowrap",
                                 meta?.align === "right" && "text-right numeric",
                                 meta?.className,
                               )}
@@ -268,7 +300,7 @@ function HeaderRow<TData extends RowData>({
             key={header.id}
             role="columnheader"
             className={cn(
-              "h-10 px-2 text-left text-sm font-medium whitespace-nowrap text-foreground",
+              "h-10 min-w-0 overflow-hidden px-2 text-left text-sm font-medium whitespace-nowrap text-foreground",
               meta?.align === "right" && "text-right",
               meta?.headerClassName,
             )}

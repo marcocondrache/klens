@@ -77,14 +77,14 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Part" className="justify-end" />
     ),
-    meta: { align: "right", headerClassName: "w-16", label: "Part" },
+    meta: { align: "right", label: "Part" },
     cell: ({ getValue }) => <span className="numeric font-mono">{getValue()}</span>,
   }),
   columnHelper.accessor("offset", {
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Offset" className="justify-end" />
     ),
-    meta: { align: "right", headerClassName: "w-28", label: "Offset" },
+    meta: { align: "right", label: "Offset" },
     cell: ({ getValue }) => <span className="numeric font-mono">{getValue()}</span>,
   }),
   columnHelper.accessor((record) => record.key ?? "", {
@@ -92,7 +92,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => <DataTableColumnHeader column={column} title="Key" />,
     meta: { label: "Key" },
     cell: ({ row }) => (
-      <span className="block max-w-48 truncate font-mono text-sm text-brand">
+      <span className="block min-w-0 truncate font-mono text-sm text-brand">
         {row.original.key ?? "null"}
       </span>
     ),
@@ -102,7 +102,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => <DataTableColumnHeader column={column} title="Value" />,
     meta: { label: "Value" },
     cell: ({ row }) => (
-      <span className="block max-w-md truncate font-mono text-sm text-muted-foreground lg:max-w-2xl">
+      <span className="block min-w-0 truncate font-mono text-sm text-muted-foreground">
         {preview(row.original.value)}
       </span>
     ),
