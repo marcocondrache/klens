@@ -69,8 +69,6 @@ async fn window_watermarks<S: ClusterSession + ?Sized>(
     let start = query.timestamps.start_seek();
     let end = query.timestamps.end_seek();
 
-    // The timestamp seeks do not depend on the watermarks, so all three
-    // broker round trips go out together.
     let seek = |timestamp: Option<i64>| async move {
         match timestamp {
             Some(timestamp) => session
