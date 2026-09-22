@@ -268,8 +268,8 @@ function HeaderRow<TData extends RowData>({
             key={header.id}
             role="columnheader"
             className={cn(
-              "h-10 px-2 text-left text-sm font-medium whitespace-nowrap text-foreground",
-              meta?.align === "right" && "text-right",
+              "flex h-10 items-center px-2 text-left text-sm font-medium whitespace-nowrap text-foreground",
+              meta?.align === "right" && "justify-end text-right",
               meta?.headerClassName,
             )}
           >
