@@ -9,24 +9,25 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { Spinner } from "@/components/ui/spinner";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { CopyButton } from "@/components/copy-button";
 import { DataTableColumnHeader } from "@/components/data-table/column-header";
 import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
-import { JsonBlock } from "@/components/json-block";
 import { PageHeader } from "@/components/page-header";
+import { PayloadView } from "@/components/payload-view";
 import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
+import { useAccess } from "@/hooks/use-access";
 import { useNow } from "@/hooks/use-now";
+import { apiErrorMessage } from "@/lib/api/client";
 import { useSubjectRows } from "@/lib/api/catalog";
 import { useSubject } from "@/lib/api/live";
-import { laneCaption, useClusterName } from "@/lib/clusters";
-import { apiErrorMessage } from "@/lib/api/client";
-import { prettyJson } from "@/lib/format";
 import type { SubjectRow } from "@/lib/api/types";
+import { laneCaption, useClusterName } from "@/lib/clusters";
+import { isJson } from "@/lib/format";
 import { parseSchemasSearch } from "@/lib/route-search";
-import { useAccess } from "@/hooks/use-access";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/cluster/$cluster/schemas")({
   validateSearch: parseSchemasSearch,
@@ -82,12 +83,31 @@ const columns = columnHelper.columns([
   }),
 ]);
 
+function SchemaLoading() {
+  return (
+    <div
+      className="flex min-h-0 flex-1 items-center justify-center"
+      role="status"
+      aria-live="polite"
+    >
+      <Spinner className="size-6" aria-hidden />
+      <span className="sr-only">Loading schema…</span>
+    </div>
+  );
+}
+
+function schemaFilename(subject: string, version: number, schema: string) {
+  const base = subject.replaceAll("/", "-");
+  return `${base}-v${version}.${isJson(schema) ? "json" : "txt"}`;
+}
+
 function SchemasPage() {
   const cluster = useClusterName();
   const navigate = Route.useNavigate();
   const { q: term = "" } = Route.useSearch();
   const [selected, setSelected] = useState<SubjectRow | null>(null);
   const [version, setVersion] = useState<number | null>(null);
+  const [expanded, setExpanded] = useState(false);
   const { can } = useAccess();
   const canSchemaText = can(cluster, "SCHEMA_TEXT");
   const { data, isPending, isError, error } = useSubjectRows(cluster);
@@ -95,12 +115,12 @@ function SchemasPage() {
   const now = useNow();
   const caption = laneCaption(data?.sourceHealth, now);
 
-  const { data: detail, isPending: detailPending } = useSubject(
-    cluster,
-    selected?.subject ?? null,
-    version,
-    canSchemaText,
-  );
+  const {
+    data: detail,
+    isPending: detailPending,
+    isError: detailIsError,
+    error: detailError,
+  } = useSubject(cluster, selected?.subject ?? null, version, canSchemaText);
 
   function open(subject: SubjectRow) {
     setSelected(subject);
@@ -112,7 +132,6 @@ function SchemasPage() {
     if (!needle) return subjects;
     return subjects.filter((subject) => subject.subject.toLowerCase().includes(needle));
   }, [subjects, term]);
-  const schemaText = detail ? prettyJson(detail.schema) : "";
   const shownVersion = version ?? selected?.latestVersion;
 
   return (
@@ -149,8 +168,24 @@ function SchemasPage() {
         fill
       />
 
-      <Sheet open={selected !== null} onOpenChange={(isOpen) => !isOpen && setSelected(null)}>
-        <SheetContent side="right" className="w-full gap-0 sm:max-w-lg">
+      <Sheet
+        open={selected !== null}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) {
+            setSelected(null);
+            setExpanded(false);
+          }
+        }}
+      >
+        <SheetContent
+          side="right"
+          className={cn(
+            "w-full gap-0 data-[side=right]:w-full",
+            expanded
+              ? "data-[side=right]:sm:max-w-[min(90vw,56rem)]"
+              : "data-[side=right]:sm:max-w-2xl",
+          )}
+        >
           {selected ? (
             <>
               <SheetHeader className="border-b">
@@ -160,48 +195,59 @@ function SchemasPage() {
                 </SheetDescription>
               </SheetHeader>
 
-              <div className="flex-1 space-y-4 overflow-y-auto p-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-medium text-muted-foreground">Schema</h3>
-                  {canSchemaText && schemaText ? (
-                    <CopyButton value={schemaText} label="Copy schema" />
-                  ) : null}
-                </div>
+              <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-hidden p-4">
                 {!canSchemaText ? (
-                  <p className="text-sm text-muted-foreground">
+                  <p className="min-h-0 flex-1 text-sm text-muted-foreground">
                     Schema text is not available for your role.
                   </p>
+                ) : detail ? (
+                  <PayloadView
+                    key={`${selected.subject}@${detail.version}`}
+                    label="Schema"
+                    source={detail.schema}
+                    filename={schemaFilename(selected.subject, detail.version, detail.schema)}
+                    copyLabel="Copy schema"
+                    showDownload
+                    showExpand
+                    expanded={expanded}
+                    onExpandedChange={setExpanded}
+                    fill
+                  />
                 ) : detailPending ? (
-                  <p className="text-sm text-muted-foreground">Loading schema…</p>
-                ) : (
-                  <JsonBlock source={schemaText} />
-                )}
+                  <SchemaLoading />
+                ) : detailIsError ? (
+                  <p className="min-h-0 flex-1 text-sm text-muted-foreground">
+                    {apiErrorMessage(detailError, "Failed to load schema.")}
+                  </p>
+                ) : null}
 
-                <div className="space-y-2">
+                <section className="shrink-0 space-y-2">
                   <h3 className="text-sm font-medium text-muted-foreground">Versions</h3>
-                  <ToggleGroup
-                    value={shownVersion != null ? [String(shownVersion)] : []}
-                    onValueChange={(next) => {
-                      const picked = next[0];
-                      if (picked != null) setVersion(Number(picked));
-                    }}
-                    variant="outline"
-                    size="sm"
-                    spacing={0}
-                    className="flex-wrap"
-                    aria-label="Schema version"
-                  >
-                    {selected.versions.map((entry) => (
-                      <ToggleGroupItem
-                        key={entry}
-                        value={String(entry)}
-                        className="numeric font-mono"
-                      >
-                        v{entry}
-                      </ToggleGroupItem>
-                    ))}
-                  </ToggleGroup>
-                </div>
+                  <div className="max-h-32 overflow-y-auto">
+                    <ToggleGroup
+                      value={shownVersion != null ? [String(shownVersion)] : []}
+                      onValueChange={(next) => {
+                        const picked = next[0];
+                        if (picked != null) setVersion(Number(picked));
+                      }}
+                      variant="outline"
+                      size="sm"
+                      spacing={0}
+                      className="flex-wrap"
+                      aria-label="Schema version"
+                    >
+                      {selected.versions.map((entry) => (
+                        <ToggleGroupItem
+                          key={entry}
+                          value={String(entry)}
+                          className="numeric font-mono"
+                        >
+                          v{entry}
+                        </ToggleGroupItem>
+                      ))}
+                    </ToggleGroup>
+                  </div>
+                </section>
               </div>
             </>
           ) : null}
