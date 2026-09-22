@@ -56,7 +56,6 @@ export function CommandPalette({
 
   const { data: clusters = [] } = useClusters();
   const { data: results = [], isPending, isError, error } = useSearch(cluster, term);
-  // Keep Go to mounted until the first response. An empty list collapses the dialog to the input.
   const showNavigation = !searching || isPending;
   const hits = searching && !isPending ? results : [];
 
