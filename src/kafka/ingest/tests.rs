@@ -534,6 +534,38 @@ async fn an_empty_group_reports_the_lag_it_left_behind() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn an_active_group_fetches_only_what_it_consumes() {
+    let session = FakeCluster::local();
+    session.commit_offsets(
+        "order-processor",
+        vec![
+            CommittedOffset {
+                topic: "orders.created".into(),
+                partition: 0,
+                offset: 6,
+            },
+            CommittedOffset {
+                topic: "payments.settled".into(),
+                partition: 0,
+                offset: 3,
+            },
+        ],
+    );
+    let store = store(&session);
+    let lane = OffsetLane::new(port(&session));
+    let _lanes = catalog_lanes(&store, &session);
+    wait_for(|| store.watermarks.version() > 0, "watermark commit").await;
+
+    lane.sweep(&store).await;
+
+    assert_eq!(
+        store.group_row("order-processor").unwrap().topic_names,
+        ["orders.created"],
+        "a commit left behind on a topic the group no longer consumes is not fetched"
+    );
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_failed_group_degrades_alone_and_keeps_its_last_offsets() {
     let session = FakeCluster::local();
     let store = store(&session);
