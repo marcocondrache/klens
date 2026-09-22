@@ -54,11 +54,11 @@ const SIGN_IN_ATTEMPT_KEY = "klens.sign_in_attempt";
 const SIGN_IN_RETRY_MS = 10_000;
 
 /**
- * Send the browser to the identity provider. A second attempt within a few seconds means the
- * session did not stick, so stop on the signed-out page instead of looping through the IdP.
+ * Where to send a signed-out browser: the identity provider. A second attempt within a few
+ * seconds means the session did not stick, so stop on the signed-out page instead of looping
+ * through the IdP.
  */
-export function redirectToSignIn(): void {
-  if (window.location.pathname === SIGNED_OUT_PATH) return;
+export function signInHref(): string {
   const now = Date.now();
   let last = 0;
   try {
@@ -67,11 +67,12 @@ export function redirectToSignIn(): void {
   } catch {
     // Without storage there is no loop guard; still sign in.
   }
-  if (now - last < SIGN_IN_RETRY_MS) {
-    window.location.assign(`${SIGNED_OUT_PATH}?error=auth`);
-    return;
-  }
-  window.location.assign(apiPath("/auth/login"));
+  return now - last < SIGN_IN_RETRY_MS ? `${SIGNED_OUT_PATH}?error=auth` : apiPath("/auth/login");
+}
+
+function redirectToSignIn(): void {
+  if (window.location.pathname === SIGNED_OUT_PATH) return;
+  window.location.assign(signInHref());
 }
 
 function redirectIfUnauthorized(status: number): void {
