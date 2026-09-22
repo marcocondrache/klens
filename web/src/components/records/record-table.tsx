@@ -253,11 +253,10 @@ function HeaderRow<TData extends RowData>({
 }) {
   const headers = table.getHeaderGroups()[0]?.headers ?? [];
 
-  // overflow-hidden makes scrollbar-gutter reserve the same track as the body.
   return (
     <div
       role="row"
-      className="grid shrink-0 overflow-hidden border-b bg-background [scrollbar-gutter:stable]"
+      className="grid shrink-0 border-b bg-background [scrollbar-gutter:stable]"
       style={{ gridTemplateColumns }}
     >
       {headers.map((header: Header<DataTableFeatures, TData, unknown>) => {
