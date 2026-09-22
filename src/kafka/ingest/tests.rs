@@ -172,7 +172,7 @@ async fn a_new_topic_is_published_as_a_granular_delta() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn the_topology_lane_keeps_the_search_index_current() {
+async fn the_topology_lane_keeps_search_current() {
     let session = FakeCluster::local();
     let store = store(&session);
     let _lanes = idle_lanes(&store, &session);
@@ -185,7 +185,7 @@ async fn the_topology_lane_keeps_the_search_index_current() {
     assert_eq!(
         ids,
         vec!["orders.created", "order-processor", "orders.created-value"],
-        "topics, groups and subjects all reach the index"
+        "topics, groups and subjects are all searchable"
     );
 }
 
@@ -318,8 +318,36 @@ async fn the_subject_lane_stores_the_list_projection_only() {
     assert_eq!(rows[0].info.versions, vec![1, 2]);
     assert!(
         !store.search("orders.created-value").is_empty(),
-        "subjects join the search index"
+        "subjects are searchable"
     );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_new_subject_is_published_as_a_delta() {
+    let session = FakeCluster::local();
+    let store = store(&session);
+    let _lanes = idle_lanes(&store, &session);
+
+    wait_for(|| store.subjects.version() > 0, "subject commit").await;
+    let mut events = store.bus.subscribe();
+
+    session.set_subjects(vec![
+        crate::kafka::store::fixtures::subject("orders.created-value", 1, 2),
+        crate::kafka::store::fixtures::subject("payments-value", 2, 1),
+    ]);
+    store.subjects.kick();
+
+    let delta = settle(
+        || match events.try_recv() {
+            Ok(Change::Subjects(delta)) => Some(delta),
+            _ => None,
+        },
+        "subjects delta",
+    )
+    .await;
+
+    assert_eq!(delta.added, [Arc::from("payments-value")]);
+    assert_eq!(delta.version, store.subjects.version());
 }
 
 #[tokio::test(start_paused = true)]

@@ -177,8 +177,6 @@ pub(super) fn seed(store: &ClusterStore) {
         &[subject("orders.created-value", 1, 2)],
         &mut Interner::default(),
     )));
-
-    store.rebuild_search();
 }
 
 pub(super) fn seeded() -> AppState {

@@ -24,7 +24,7 @@ pub use projections::{
     TopicGroupRow, TopicRow,
 };
 pub use rates::RateStore;
-pub use search::{SearchHit, SearchIndex, SearchKind};
+pub use search::{SearchHit, SearchKind};
 pub use tables::{
     BrokerInfo, ConfigTable, GroupInfo, GroupOffsets, Interner, OffsetTable, SubjectInfo,
     SubjectTable, TopicInfo, Topology, WatermarkTable,
