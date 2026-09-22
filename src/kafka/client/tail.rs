@@ -142,10 +142,15 @@ mod tests {
             .unwrap();
         assert_eq!(read(&tail, 4).await, vec![0, 1, 2, 3]);
 
-        tail.seek(&[at(0, 3)]).await.unwrap();
+        tail.seek(&[at(0, 1)]).await.unwrap();
 
-        assert_eq!(tail.position(0).await, Some(3));
-        assert_eq!(read(&tail, 1).await, vec![3]);
+        assert_eq!(tail.position(0).await, Some(1));
+        assert_eq!(
+            tail.lag(0).await,
+            Some(3),
+            "the high watermark is still known"
+        );
+        assert_eq!(read(&tail, 3).await, vec![1, 2, 3]);
     }
 
     #[tokio::test]

@@ -1,6 +1,7 @@
 use axum::http::StatusCode;
 use serde_json::json;
 
+use crate::AppState;
 use crate::app::auth::SessionGuard;
 use crate::app::auth::access::EffectiveAccess;
 use crate::kafka::FakeCluster;
@@ -348,9 +349,22 @@ async fn an_expired_session_ends_the_tail_with_an_error_frame() {
     assert_eq!(frames[1].1["code"], "SESSION_EXPIRED");
 }
 
+/// A tail that should never have opened, as `(status, code)`. Checks the
+/// status before reading, since an open tail's body never ends.
+async fn refused(state: &AppState, path: &str, access: EffectiveAccess) -> (StatusCode, String) {
+    let response = open_stream(state, path, access, SessionGuard::open()).await;
+    let status = response.status();
+    assert_ne!(status, StatusCode::OK, "{path} opened a tail");
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    let json: serde_json::Value = serde_json::from_slice(&body).expect("json error");
+    (status, json["code"].as_str().expect("code").to_owned())
+}
+
 #[tokio::test]
 async fn a_tail_is_forbidden_without_the_records_privilege() {
-    let (status, code) = failure(&seeded(), TAIL, viewer_everywhere()).await;
+    let (status, code) = refused(&seeded(), TAIL, viewer_everywhere()).await;
 
     assert_eq!(
         (status, code.as_str()),
@@ -361,7 +375,7 @@ async fn a_tail_is_forbidden_without_the_records_privilege() {
 #[tokio::test]
 async fn tails_past_capacity_are_turned_away_until_one_closes() {
     let state = seeded().with_tail_capacity(1);
-    let (status, code) = failure(
+    let (status, code) = refused(
         &state,
         "/clusters/local/topics/ghost/records/tail",
         EffectiveAccess::Unrestricted,
@@ -382,7 +396,7 @@ async fn tails_past_capacity_are_turned_away_until_one_closes() {
     .await;
     assert_eq!(open.status(), StatusCode::OK);
 
-    let (status, code) = failure(&state, TAIL, EffectiveAccess::Unrestricted).await;
+    let (status, code) = refused(&state, TAIL, EffectiveAccess::Unrestricted).await;
     assert_eq!(
         (status, code.as_str()),
         (StatusCode::SERVICE_UNAVAILABLE, "TOO_MANY_TAILS")

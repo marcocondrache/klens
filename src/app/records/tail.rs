@@ -80,6 +80,9 @@ impl Follow {
                     return Some(state.end(error));
                 }
                 if batch.is_empty() {
+                    // An empty batch took a heartbeat to arrive; should one
+                    // ever come back at once, still let the runtime breathe.
+                    tokio::task::yield_now().await;
                     continue;
                 }
                 return Some((Ok(frame(&TailEvent::from(batch))), state));
