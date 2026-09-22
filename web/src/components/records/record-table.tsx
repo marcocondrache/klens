@@ -110,17 +110,29 @@ export function RecordTable<TData extends RowData>({
   });
 
   const items = virtualizer.getVirtualItems();
+  // The loader is taller than the row estimate, so reaching it remeasures and
+  // re-runs this effect while isFetchingNextPage is still false.
+  const nextPageRequested = useRef(false);
 
   useEffect(() => {
-    if (fetchNextPage == null || !hasNextPage || isFetchingNextPage || isFetchNextPageError) return;
-    if (rows.length === 0) {
-      fetchNextPage();
+    if (isFetchingNextPage) nextPageRequested.current = false;
+    if (
+      nextPageRequested.current ||
+      fetchNextPage == null ||
+      !hasNextPage ||
+      isFetchingNextPage ||
+      isFetchNextPageError
+    ) {
       return;
     }
 
     const edge = items[items.length - 1];
-    if (edge == null) return;
-    if (getItemKey(edge.index) === LOAD_MORE_KEY) fetchNextPage();
+    const atLoader =
+      rows.length === 0 || (edge != null && getItemKey(edge.index) === LOAD_MORE_KEY);
+    if (!atLoader) return;
+
+    nextPageRequested.current = true;
+    fetchNextPage();
   }, [
     fetchNextPage,
     getItemKey,
