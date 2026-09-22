@@ -15,7 +15,7 @@ function LoginPage() {
     <div className="grid min-h-svh lg:grid-cols-2">
       <div className="flex flex-col gap-4 p-6 md:p-10">
         <div className="flex items-center justify-between">
-          <a href="/" className="flex items-center gap-2 font-heading font-semibold tracking-tight">
+          <a href="/" className="flex items-center gap-2 font-semibold tracking-tight">
             <img src="/favicon.svg" alt="" className="size-6" />
             klens
           </a>

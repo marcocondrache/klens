@@ -91,7 +91,7 @@ export function LoginCover() {
       />
 
       <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-background via-background/70 to-transparent p-10 pt-24">
-        <p className="font-heading text-xl font-semibold tracking-tight text-foreground">
+        <p className="text-xl font-semibold tracking-tight text-foreground">
           Inspect a Kafka cluster
         </p>
         <p className="mt-1.5 max-w-md text-sm leading-relaxed text-muted-foreground">

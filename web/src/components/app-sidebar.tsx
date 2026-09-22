@@ -48,7 +48,7 @@ export function AppSidebar() {
       <SidebarHeader className="group-data-[collapsible=icon]:hidden">
         <div className="flex h-14 items-center gap-2 px-3">
           <img src="/favicon.svg" alt="" className="size-6" />
-          <span className="font-heading text-2xl font-semibold tracking-tight">klens</span>
+          <span className="text-2xl font-semibold tracking-tight">klens</span>
         </div>
       </SidebarHeader>
 
