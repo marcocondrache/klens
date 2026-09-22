@@ -111,8 +111,6 @@ export function RecordTable<TData extends RowData>({
 
   const items = virtualizer.getVirtualItems();
   const endIndex = items.length === 0 ? -1 : items[items.length - 1].index;
-  // getVirtualItems() is a new array whenever a row is measured. Follow
-  // whether the loader is last so that pass does not fetch again.
   const reachedLoader = hasNextPage && (rows.length === 0 || endIndex === rows.length);
 
   useEffect(() => {
