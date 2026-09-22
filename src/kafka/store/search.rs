@@ -1,4 +1,4 @@
-use frizbee::{CaseMatching, Config, Match, Matcher, Pattern};
+use frizbee::{CaseMatching, Config, Matcher, Pattern};
 
 use super::tables::{SubjectTable, Topology};
 
@@ -85,9 +85,8 @@ impl SearchIndex {
         Self { entries }
     }
 
-    /// Best matches first, keeping one row for each kind that matched.
-    /// A space means every word must match. Every four typed characters
-    /// allow one unmatched character.
+    /// Best matches first. A space means every word must match. Every four
+    /// typed characters allow one unmatched character.
     pub fn search(&self, term: &str) -> Vec<SearchHit> {
         let term = term.trim();
         if term.is_empty() || self.entries.is_empty() {
@@ -106,54 +105,12 @@ impl SearchIndex {
             .collect();
         let mut matcher =
             Matcher::from_patterns(&patterns, &Config::default().casing(CaseMatching::Ignore));
-        self.rank(&matcher.match_list(&haystacks))
-    }
-
-    /// The best hit of each kind is reserved, then the rest of the list is
-    /// filled by score. Topics are indexed first, so a plain top-20 cut
-    /// hides groups, brokers, and schemas whenever a prefix is common.
-    fn rank(&self, matched: &[Match]) -> Vec<SearchHit> {
-        let mut selected = vec![false; self.entries.len()];
-        let mut picked = Vec::with_capacity(MAX_HITS.min(matched.len()));
-        let mut seen = [false; 4];
-
-        for hit in matched {
-            if picked.len() == MAX_HITS {
-                break;
-            }
-            let index = hit.index as usize;
-            let kind = kind_slot(self.entries[index].kind);
-            if seen[kind] {
-                continue;
-            }
-            seen[kind] = true;
-            selected[index] = true;
-            picked.push(hit.index);
-        }
-
-        for hit in matched {
-            if picked.len() == MAX_HITS {
-                break;
-            }
-            let index = hit.index as usize;
-            if selected[index] {
-                continue;
-            }
-            selected[index] = true;
-            picked.push(hit.index);
-        }
-
-        picked.sort_by_key(|index| {
-            matched
-                .iter()
-                .position(|hit| hit.index == *index)
-                .unwrap_or(usize::MAX)
-        });
-
-        picked
+        matcher
+            .match_list(&haystacks)
             .into_iter()
-            .map(|index| {
-                let entry = &self.entries[index as usize];
+            .take(MAX_HITS)
+            .map(|hit| {
+                let entry = &self.entries[hit.index as usize];
                 SearchHit {
                     kind: entry.kind,
                     id: entry.id.clone(),
@@ -184,15 +141,6 @@ fn rank_patterns(term: &str) -> Vec<Pattern> {
 fn typo_budget(needle: &str) -> u16 {
     let chars = needle.chars().count() / 4;
     u16::try_from(chars).unwrap_or(u16::MAX)
-}
-
-fn kind_slot(kind: SearchKind) -> usize {
-    match kind {
-        SearchKind::Topic => 0,
-        SearchKind::Group => 1,
-        SearchKind::Node => 2,
-        SearchKind::Subject => 3,
-    }
 }
 
 #[cfg(test)]
@@ -285,7 +233,20 @@ mod tests {
     }
 
     #[test]
-    fn every_matching_kind_survives_the_cap() {
+    fn a_closer_name_outranks_an_earlier_kind() {
+        let topology = topology(
+            vec![topic("alpha-zeta", vec![partition(0, vec![1], vec![1])])],
+            vec![group("alpha", "alpha-zeta", vec![0])],
+        );
+
+        let hits = SearchIndex::build(Some(&topology), None).search("alpha");
+
+        assert_eq!(hits[0].kind, SearchKind::Group);
+        assert_eq!(hits[0].label, "alpha");
+    }
+
+    #[test]
+    fn the_cap_keeps_the_closest_names() {
         let topics = (0..30)
             .map(|id| {
                 topic(
@@ -296,17 +257,18 @@ mod tests {
             .collect();
         let topology = Topology::assemble(
             &metadata(topics),
-            &[group("alpha-worker", "alpha-00", vec![0])],
+            &[group("alphe-worker", "alpha-00", vec![0])],
             &mut Interner::default(),
         );
         let subjects =
-            SubjectTable::assemble(&[subject("alpha-value", 1, 1)], &mut Interner::default());
+            SubjectTable::assemble(&[subject("alpho-value", 1, 1)], &mut Interner::default());
         let hits = SearchIndex::build(Some(&topology), Some(&subjects)).search("alpha");
-        let kinds: Vec<SearchKind> = hits.iter().map(|hit| hit.kind).collect();
 
         assert_eq!(hits.len(), MAX_HITS);
-        assert!(kinds.contains(&SearchKind::Group), "{kinds:?}");
-        assert!(kinds.contains(&SearchKind::Subject), "{kinds:?}");
+        assert!(
+            hits.iter().all(|hit| hit.kind == SearchKind::Topic),
+            "{hits:?}"
+        );
     }
 
     #[test]
