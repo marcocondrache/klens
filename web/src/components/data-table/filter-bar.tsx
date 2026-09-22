@@ -121,7 +121,6 @@ function AddFilterMenu<TData>({ fields, rows, value, onChange }: FilterBarProps<
                       setSearch("");
                     }}
                   >
-                    <candidate.icon className="text-muted-foreground" />
                     {candidate.label}
                     <CommandShortcut>
                       <ChevronRightIcon className="size-3.5" />
@@ -144,7 +143,6 @@ function AddFilterMenu<TData>({ fields, rows, value, onChange }: FilterBarProps<
                               handleOpenChange(false);
                             }}
                           >
-                            {option.icon}
                             <span className="truncate">{option.label}</span>
                           </CommandItem>
                         ))}
@@ -199,7 +197,6 @@ function OptionList<TData>({
                 >
                   {checked ? <CheckIcon className="size-3" /> : null}
                 </span>
-                {option.icon}
                 <span className="truncate">{option.label}</span>
                 <CommandShortcut className="tracking-normal tabular-nums">
                   {counts.get(option.value) ?? 0}
