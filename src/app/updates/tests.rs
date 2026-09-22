@@ -107,7 +107,7 @@ async fn an_unscoped_subscriber_gets_the_whole_cluster_firehose() {
     let store = Arc::clone(state.cluster("local").expect("local cluster"));
     let response = open_updates(
         &state,
-        "/api/clusters/local/updates",
+        "/clusters/local/updates",
         EffectiveAccess::Unrestricted,
         SessionGuard::open(),
     )
@@ -133,7 +133,7 @@ async fn a_topic_scoped_subscriber_pays_only_for_its_own_topic() {
     let store = Arc::clone(state.cluster("local").expect("local cluster"));
     let response = open_updates(
         &state,
-        "/api/clusters/local/updates?topic=orders.created",
+        "/clusters/local/updates?topic=orders.created",
         EffectiveAccess::Unrestricted,
         SessionGuard::open(),
     )
@@ -155,7 +155,7 @@ async fn an_event_outside_the_scope_never_reaches_the_socket() {
     let store = Arc::clone(state.cluster("local").expect("local cluster"));
     let response = open_updates(
         &state,
-        "/api/clusters/local/updates?topic=payments.settled",
+        "/clusters/local/updates?topic=payments.settled",
         EffectiveAccess::Unrestricted,
         SessionGuard::open(),
     )
@@ -181,7 +181,7 @@ async fn an_unscoped_lag_wave_fans_out_one_update_per_group_without_offsets() {
     let store = Arc::clone(state.cluster("local").expect("local cluster"));
     let response = open_updates(
         &state,
-        "/api/clusters/local/updates",
+        "/clusters/local/updates",
         EffectiveAccess::Unrestricted,
         SessionGuard::open(),
     )
@@ -206,7 +206,7 @@ async fn a_group_scoped_subscriber_holds_an_interest_lease_for_the_stream() {
     let store = Arc::clone(state.cluster("local").expect("local cluster"));
     let response = open_updates(
         &state,
-        "/api/clusters/local/updates?group=order-processor",
+        "/clusters/local/updates?group=order-processor",
         EffectiveAccess::Unrestricted,
         SessionGuard::open(),
     )
@@ -235,7 +235,7 @@ async fn a_topology_delta_reaches_a_scoped_subscriber_only_when_it_names_its_top
     let store = Arc::clone(state.cluster("local").expect("local cluster"));
     let response = open_updates(
         &state,
-        "/api/clusters/local/updates?topic=orders.created",
+        "/clusters/local/updates?topic=orders.created",
         EffectiveAccess::Unrestricted,
         SessionGuard::open(),
     )
@@ -277,7 +277,7 @@ async fn falling_behind_the_bus_asks_the_client_to_refetch_instead_of_dropping_i
     let store = Arc::clone(state.cluster("local").expect("local cluster"));
     let response = open_updates(
         &state,
-        "/api/clusters/local/updates",
+        "/clusters/local/updates",
         EffectiveAccess::Unrestricted,
         SessionGuard::open(),
     )
@@ -297,7 +297,7 @@ async fn a_cluster_the_session_cannot_see_is_never_subscribable() {
     seed(state.cluster("payments").expect("payments cluster"));
     let (status, code) = failure(
         &state,
-        "/api/clusters/payments/updates",
+        "/clusters/payments/updates",
         granted(vec![viewer(only(&["local"]))]),
     )
     .await;
@@ -312,7 +312,7 @@ async fn a_session_that_expires_mid_stream_terminates_it() {
     let store = Arc::clone(state.cluster("local").expect("local cluster"));
     let response = open_updates(
         &state,
-        "/api/clusters/local/updates",
+        "/clusters/local/updates",
         EffectiveAccess::Unrestricted,
         SessionGuard::expired(),
     )

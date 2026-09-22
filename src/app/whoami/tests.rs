@@ -7,7 +7,7 @@ use super::super::harness::{admin, granted, ok, ok_as, only, state, two_clusters
 #[tokio::test]
 async fn whoami_reports_no_subject_when_auth_is_disabled() {
     let state = two_clusters();
-    let data = ok(&state, "/api/whoami").await;
+    let data = ok(&state, "/whoami").await;
 
     assert_eq!(data["subject"], Value::Null);
     assert_eq!(data["clusters"][0]["cluster"], "local");
@@ -27,7 +27,7 @@ async fn whoami_reports_no_subject_when_auth_is_disabled() {
 async fn whoami_resolves_each_cluster_against_its_own_grant() {
     let state = two_clusters();
     let access = granted(vec![admin(only(&["local"])), viewer(only(&["payments"]))]);
-    let data = ok_as(&state, "/api/whoami", access).await;
+    let data = ok_as(&state, "/whoami", access).await;
     let clusters = data["clusters"].as_array().expect("clusters");
 
     assert_eq!(clusters.len(), 2);
@@ -57,7 +57,7 @@ async fn whoami_unions_the_privileges_of_every_role_covering_a_cluster() {
             only(&["local"]),
         ),
     ]);
-    let data = ok_as(&state, "/api/whoami", access).await;
+    let data = ok_as(&state, "/whoami", access).await;
     let local = &data["clusters"][0];
 
     assert_eq!(local["roles"], serde_json::json!(["auditor", "operator"]));
@@ -72,7 +72,7 @@ async fn whoami_omits_clusters_the_session_cannot_see() {
     let state = two_clusters();
     let data = ok_as(
         &state,
-        "/api/whoami",
+        "/whoami",
         granted(vec![viewer(only(&["payments"]))]),
     )
     .await;

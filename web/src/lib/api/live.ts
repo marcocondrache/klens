@@ -8,7 +8,7 @@ import { keys, type RecordsFilter } from "./keys";
 export type { RecordsFilter };
 
 function clusterPathname(cluster: string, ...rest: string[]) {
-  return ["/api/clusters", encodeURIComponent(cluster), ...rest].join("/");
+  return ["/clusters", encodeURIComponent(cluster), ...rest].join("/");
 }
 
 export function useAcls(cluster: string, enabled = true) {
