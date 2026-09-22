@@ -20,7 +20,6 @@ import {
 import { cn } from "@/lib/utils";
 
 import { features, type DataTableFeatures } from "./features";
-import { DataTableViewOptions } from "./view-options";
 
 interface DataTableProps<TData extends RowData> {
   columns: Array<ColumnDef<DataTableFeatures, TData>>;
@@ -84,10 +83,9 @@ export function DataTable<TData extends RowData>({
 
   return (
     <div className={cn("flex flex-col gap-4", fill && "min-h-0 flex-1")}>
-      <div className={cn("flex flex-wrap items-center gap-3", fill && "shrink-0")}>
-        {toolbar}
-        <DataTableViewOptions table={table} />
-      </div>
+      {toolbar ? (
+        <div className={cn("flex flex-wrap items-center gap-3", fill && "shrink-0")}>{toolbar}</div>
+      ) : null}
       <div
         className={cn(
           "relative overflow-hidden rounded-md border",

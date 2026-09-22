@@ -10,7 +10,6 @@ import {
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
-import { DataTableViewOptions } from "@/components/data-table/view-options";
 import { features, type DataTableFeatures } from "@/components/data-table/features";
 import { RefreshBar } from "@/components/refresh-bar";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -122,10 +121,7 @@ export function RecordTable<TData extends RowData>({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
-      <div className="flex shrink-0 flex-wrap items-center gap-3">
-        {toolbar}
-        <DataTableViewOptions table={table} />
-      </div>
+      {toolbar ? <div className="flex shrink-0 flex-wrap items-center gap-3">{toolbar}</div> : null}
       <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border">
         {refreshing ? <RefreshBar className="absolute inset-x-0 top-0 z-20" /> : null}
         {loading || (rows.length === 0 && hasNextPage && error == null) ? (
