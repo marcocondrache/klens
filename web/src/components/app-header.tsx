@@ -17,6 +17,7 @@ import { Kbd } from "@/components/ui/kbd";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ClusterSwitcher } from "@/components/cluster-switcher";
 import { ModeToggle } from "@/components/mode-toggle";
 import { useClusterName } from "@/lib/clusters";
 import { formatModK } from "@/lib/keyboard";
@@ -63,6 +64,10 @@ export function AppHeader({ onSearch }: { onSearch: () => void }) {
 
         <Breadcrumb className="min-w-0">
           <BreadcrumbList className="flex-nowrap">
+            <BreadcrumbItem className="min-w-0">
+              <ClusterSwitcher />
+            </BreadcrumbItem>
+            {crumbs.length ? <BreadcrumbSeparator /> : null}
             {crumbs.map((crumb, index) => {
               const last = index === crumbs.length - 1;
 

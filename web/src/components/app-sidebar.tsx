@@ -1,14 +1,17 @@
 import type { ComponentProps } from "react";
 import { TagIcon } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar";
-import { ClusterSwitcher } from "@/components/cluster-switcher";
 import { GithubIcon } from "@/components/icons";
 import { NavMain } from "@/components/nav-main";
 import { NavSecondary } from "@/components/nav-secondary";
@@ -42,7 +45,19 @@ export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
   return (
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader>
-        <ClusterSwitcher />
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              size="lg"
+              render={<Link to="/cluster/$cluster" params={{ cluster }} />}
+            >
+              <div className="flex aspect-square size-8 items-center justify-center rounded-lg border bg-background">
+                <img src="/favicon.svg" alt="" className="size-5" />
+              </div>
+              <span className="truncate text-base font-semibold">klens</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
         <NavMain
