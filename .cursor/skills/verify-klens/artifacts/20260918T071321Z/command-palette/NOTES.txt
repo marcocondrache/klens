@@ -1,6 +1,0 @@
-landed http://127.0.0.1:18080/cluster/local/topics
-idle selected ["Topics"]
-search selected ["klens-verify-topics\n1 partitions"]
-arrowdown selected ["klens-verify-topics\n1 partitions"]
-enter opened http://127.0.0.1:18080/cluster/local/topics/klens-verify-topics
-empty state shown

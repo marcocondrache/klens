@@ -1,1 +1,0 @@
-no verify-1 cell; url=http://127.0.0.1:18080/cluster/local/topics/klens-verify-topics
