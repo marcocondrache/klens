@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
 
@@ -81,6 +81,47 @@ const columns = columnHelper.columns([
     ),
   }),
 ]);
+
+const SCHEMA_LINE_WIDTHS = [
+  "w-2/5",
+  "w-4/5",
+  "w-3/5",
+  "w-11/12",
+  "w-1/3",
+  "w-2/3",
+  "w-1/2",
+  "w-3/4",
+];
+
+function SchemaLoading() {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-2" role="status" aria-live="polite">
+      <div className="flex items-center justify-between gap-2">
+        <LoadingBar className="h-4 w-16" />
+        <div className="flex items-center gap-1">
+          <LoadingBar className="h-7 w-28" />
+          <LoadingBar className="size-6" />
+          <LoadingBar className="size-6" />
+          <LoadingBar className="size-6" />
+        </div>
+      </div>
+      <div className="min-h-0 flex-1 space-y-2.5 overflow-hidden rounded-lg border p-3">
+        {SCHEMA_LINE_WIDTHS.map((width, index) => (
+          <LoadingBar
+            key={width}
+            className={cn("h-3.5", width)}
+            style={{ animationDelay: `${index * 80}ms` }}
+          />
+        ))}
+      </div>
+      <span className="sr-only">Loading schema…</span>
+    </div>
+  );
+}
+
+function LoadingBar({ className, style }: { className?: string; style?: CSSProperties }) {
+  return <div className={cn("loading-bar motion-reduce:animate-none", className)} style={style} />;
+}
 
 function schemaFilename(subject: string, version: number, schema: string) {
   const base = subject.replaceAll("/", "-");
@@ -200,7 +241,7 @@ function SchemasPage() {
                     fill
                   />
                 ) : detailPending ? (
-                  <p className="min-h-0 flex-1 text-sm text-muted-foreground">Loading schema…</p>
+                  <SchemaLoading />
                 ) : detailIsError ? (
                   <p className="min-h-0 flex-1 text-sm text-muted-foreground">
                     {apiErrorMessage(detailError, "Failed to load schema.")}
