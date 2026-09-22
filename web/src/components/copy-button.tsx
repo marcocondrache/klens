@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+
+const ICON = "col-start-1 row-start-1 transition-[opacity,scale,filter] duration-200 ease-out";
 
 export function CopyButton({
   value,
@@ -17,6 +19,7 @@ export function CopyButton({
   size?: "icon-xs" | "icon-sm" | "icon";
 }) {
   const [copied, setCopied] = useState(false);
+  const timeout = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   async function copy() {
     try {
@@ -25,8 +28,9 @@ export function CopyButton({
       return;
     }
 
+    clearTimeout(timeout.current);
     setCopied(true);
-    setTimeout(() => setCopied(false), 1200);
+    timeout.current = setTimeout(() => setCopied(false), 1200);
   }
 
   return (
@@ -42,7 +46,10 @@ export function CopyButton({
           />
         }
       >
-        {copied ? <CheckIcon className="text-ok" /> : <CopyIcon />}
+        <span className="grid">
+          <CopyIcon className={cn(ICON, copied && "scale-50 opacity-0 blur-[2px]")} />
+          <CheckIcon className={cn(ICON, "text-ok", !copied && "scale-50 opacity-0 blur-[2px]")} />
+        </span>
       </TooltipTrigger>
       <TooltipContent>{copied ? "Copied" : label}</TooltipContent>
     </Tooltip>
