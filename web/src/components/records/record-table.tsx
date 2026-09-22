@@ -178,7 +178,7 @@ export function RecordTable<TData extends RowData>({
                       className={cn(
                         "absolute top-0 left-0 grid w-full border-b",
                         row && onRowClick && "cursor-pointer",
-                        row && "transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted",
+                        row && "hover:bg-muted/50 data-[state=selected]:bg-muted",
                       )}
                       style={{
                         gridTemplateColumns,

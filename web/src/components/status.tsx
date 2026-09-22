@@ -26,7 +26,7 @@ export function StatusDot({ tone, pulse = false }: { tone: Tone; pulse?: boolean
     <span className="relative inline-flex size-2 shrink-0">
       {pulse ? (
         <span
-          className={cn("absolute inset-0 animate-ping rounded-full opacity-60", TONE_BG[tone])}
+          className={cn("absolute inset-0 animate-ping rounded-full opacity-60 motion-reduce:hidden", TONE_BG[tone])}
         />
       ) : null}
       <span className={cn("relative size-2 rounded-full", TONE_BG[tone])} />
