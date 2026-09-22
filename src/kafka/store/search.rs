@@ -4,9 +4,6 @@ use super::tables::{SubjectTable, Topology};
 
 const MAX_HITS: usize = 20;
 
-/// Needle characters per tolerated typo: "ordrs" still finds "orders", while
-/// needles under four characters must match every character, since a typo in
-/// three letters would match nearly anything.
 const CHARS_PER_TYPO: usize = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,8 +32,6 @@ struct Entry {
     detail: String,
 }
 
-/// Every searchable entity, with its match text kept in a parallel list so the
-/// matcher can scan it without touching the display fields.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SearchIndex {
     entries: Vec<Entry>,
@@ -93,9 +88,6 @@ impl SearchIndex {
         Self { entries, haystacks }
     }
 
-    /// Fuzzy-matches `term` against every entry and returns the best hits,
-    /// highest score first. Whitespace separates atoms that must all match, and
-    /// fzf syntax narrows an atom: `^prefix`, `suffix$`, `'substring`, `!not`.
     pub fn search(&self, term: &str) -> Vec<SearchHit> {
         let patterns: Vec<Pattern> = Pattern::parse_query(term)
             .into_iter()
@@ -104,7 +96,6 @@ impl SearchIndex {
                 pattern.max_typos(Some(u16::try_from(typos).unwrap_or(u16::MAX)))
             })
             .collect();
-        // A query of only negations would list the whole cluster.
         if patterns.iter().all(|pattern| pattern.negated) {
             return Vec::new();
         }
