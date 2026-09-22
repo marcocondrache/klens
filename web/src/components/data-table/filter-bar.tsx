@@ -1,21 +1,15 @@
-import { useState, type KeyboardEvent } from "react";
-import { Combobox as ComboboxPrimitive } from "@base-ui/react";
-import { ListFilterIcon, XIcon } from "lucide-react";
+import { ChevronDownIcon, ListFilterIcon, XIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
-  Combobox,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxInput,
-  ComboboxItem,
-  ComboboxList,
-  ComboboxTrigger,
-} from "@/components/ui/combobox";
-import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuShortcut,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
@@ -36,24 +30,41 @@ interface FilterBarProps<TData> {
   onChange: (rules: FilterRule[]) => void;
 }
 
-export function FilterBar<TData>({ fields, rows, value, onChange }: FilterBarProps<TData>) {
+export function FilterBar<TData>(props: FilterBarProps<TData>) {
+  const { fields, value, onChange } = props;
+
   return (
     <>
-      <AddFilterMenu fields={fields} rows={rows} value={value} onChange={onChange} />
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button
+              variant="outline"
+              size={value.length > 0 ? "icon" : "default"}
+              aria-label="Add filter"
+            />
+          }
+        >
+          <ListFilterIcon />
+          {value.length > 0 ? null : "Filter"}
+        </DropdownMenuTrigger>
+        <DropdownMenuContent className="min-w-40">
+          {fields.map((field) => (
+            <DropdownMenuSub key={field.id}>
+              <DropdownMenuSubTrigger>{field.label}</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="min-w-40">
+                <OptionItems field={field} {...props} />
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
       {value.map((rule) => {
         const field = fields.find((candidate) => candidate.id === rule.id);
-        return field ? (
-          <FilterChip
-            key={rule.id}
-            field={field}
-            rule={rule}
-            fields={fields}
-            rows={rows}
-            value={value}
-            onChange={onChange}
-          />
-        ) : null;
+        return field ? <FilterChip key={rule.id} field={field} rule={rule} {...props} /> : null;
       })}
+
       {value.length > 0 ? (
         <Button variant="ghost" className="text-muted-foreground" onClick={() => onChange([])}>
           Clear
@@ -63,91 +74,34 @@ export function FilterBar<TData>({ fields, rows, value, onChange }: FilterBarPro
   );
 }
 
-/** Picks a field, then toggles its values, inside one combobox popup. */
-function AddFilterMenu<TData>({ fields, rows, value, onChange }: FilterBarProps<TData>) {
-  const [open, setOpen] = useState(false);
-  const [fieldId, setFieldId] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const field = fields.find((candidate) => candidate.id === fieldId);
-  const selected = field ? (value.find((rule) => rule.id === field.id)?.values ?? []) : [];
-  const counts = field ? facetCounts(rows, fields, value, field) : null;
+/** Checkbox items for a field's options, with how many rows each would match. */
+function OptionItems<TData>({
+  field,
+  fields,
+  rows,
+  value,
+  onChange,
+}: FilterBarProps<TData> & { field: FilterField<TData> }) {
+  const selected = value.find((rule) => rule.id === field.id)?.values ?? [];
+  const counts = facetCounts(rows, fields, value, field);
 
-  function handleOpenChange(next: boolean) {
-    setOpen(next);
-    if (!next) {
-      setFieldId(null);
-      setQuery("");
-    }
+  function toggle(option: string, checked: boolean) {
+    const next = checked
+      ? [...selected, option]
+      : selected.filter((existing) => existing !== option);
+    onChange(setFilterValues(value, field.id, next));
   }
 
-  function handleValueChange(next: string[]) {
-    if (field) {
-      onChange(setFilterValues(value, field.id, next));
-      return;
-    }
-    setFieldId(next.at(-1) ?? null);
-    setQuery("");
-  }
-
-  function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (field && event.key === "Backspace" && event.currentTarget.value === "") {
-      event.preventDefault();
-      setFieldId(null);
-    }
-  }
-
-  function label(item: string) {
-    if (field) return field.options.find((option) => option.value === item)?.label ?? item;
-    return fields.find((candidate) => candidate.id === item)?.label ?? item;
-  }
-
-  return (
-    <Combobox
-      multiple
-      autoHighlight
-      items={field ? field.options.map((option) => option.value) : fields.map(({ id }) => id)}
-      value={selected}
-      onValueChange={handleValueChange}
-      itemToStringLabel={label}
-      open={open}
-      onOpenChange={handleOpenChange}
-      inputValue={query}
-      onInputValueChange={setQuery}
+  return field.options.map((option) => (
+    <DropdownMenuCheckboxItem
+      key={option.value}
+      checked={selected.includes(option.value)}
+      onCheckedChange={(checked) => toggle(option.value, checked)}
     >
-      <ComboboxPrimitive.Trigger
-        render={
-          <Button
-            variant="outline"
-            size={value.length > 0 ? "icon" : "default"}
-            aria-label="Add filter"
-          />
-        }
-      >
-        <ListFilterIcon />
-        {value.length > 0 ? null : "Filter"}
-      </ComboboxPrimitive.Trigger>
-      <ComboboxContent className="min-w-56">
-        <ComboboxInput
-          showTrigger={false}
-          placeholder={field ? `${field.label}…` : "Filter…"}
-          onKeyDown={handleKeyDown}
-        />
-        <ComboboxEmpty>No matches.</ComboboxEmpty>
-        <ComboboxList>
-          {(item: string) => (
-            <ComboboxItem key={item} value={item}>
-              <span className="truncate">{label(item)}</span>
-              {counts ? <OptionCount count={counts.get(item) ?? 0} /> : null}
-            </ComboboxItem>
-          )}
-        </ComboboxList>
-      </ComboboxContent>
-    </Combobox>
-  );
-}
-
-function OptionCount({ count }: { count: number }) {
-  return <span className="ml-auto text-xs text-muted-foreground tabular-nums">{count}</span>;
+      {option.label}
+      <DropdownMenuShortcut>{counts.get(option.value) ?? 0}</DropdownMenuShortcut>
+    </DropdownMenuCheckboxItem>
+  ));
 }
 
 const SEGMENT =
@@ -156,13 +110,10 @@ const SEGMENT =
 function FilterChip<TData>({
   field,
   rule,
-  fields,
-  rows,
-  value,
-  onChange,
+  ...props
 }: FilterBarProps<TData> & { field: FilterField<TData>; rule: FilterRule }) {
+  const { value, onChange } = props;
   const selected = field.options.filter((option) => rule.values.includes(option.value));
-  const counts = facetCounts(rows, fields, value, field);
 
   function setNegate(negate: boolean) {
     onChange(value.map((existing) => (existing === rule ? { ...existing, negate } : existing)));
@@ -188,17 +139,8 @@ function FilterChip<TData>({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Combobox
-        multiple
-        autoHighlight
-        items={field.options.map((option) => option.value)}
-        value={rule.values}
-        onValueChange={(next) => onChange(setFilterValues(value, field.id, next))}
-        itemToStringLabel={(item) =>
-          field.options.find((option) => option.value === item)?.label ?? item
-        }
-      >
-        <ComboboxTrigger
+      <DropdownMenu>
+        <DropdownMenuTrigger
           aria-label={`${field.label} values`}
           className={cn(SEGMENT, "font-medium")}
         >
@@ -221,22 +163,12 @@ function FilterChip<TData>({
               {selected.length} {field.plural}
             </>
           )}
-        </ComboboxTrigger>
-        <ComboboxContent className="min-w-56">
-          <ComboboxInput showTrigger={false} placeholder={`${field.label}…`} />
-          <ComboboxEmpty>No matches.</ComboboxEmpty>
-          <ComboboxList>
-            {(item: string) => (
-              <ComboboxItem key={item} value={item}>
-                <span className="truncate">
-                  {field.options.find((option) => option.value === item)?.label}
-                </span>
-                <OptionCount count={counts.get(item) ?? 0} />
-              </ComboboxItem>
-            )}
-          </ComboboxList>
-        </ComboboxContent>
-      </Combobox>
+          <ChevronDownIcon className="size-3.5 text-muted-foreground" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent className="w-auto min-w-40">
+          <OptionItems field={field} {...props} />
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       <button
         type="button"
