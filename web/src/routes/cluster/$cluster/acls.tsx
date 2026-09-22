@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
+import { useQueryStates } from "nuqs";
 
 import {
   Select,
@@ -18,14 +19,13 @@ import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
 import { useAccess } from "@/hooks/use-access";
 import { useAcls } from "@/lib/api/live";
-import type { Acl, AclResourceType } from "@/lib/api/types";
+import type { Acl } from "@/lib/api/types";
 import { useClusterName } from "@/lib/clusters";
 import { apiErrorMessage } from "@/lib/api/client";
 import { formatEnumLabel } from "@/lib/format";
-import { ACL_RESOURCE_TYPES, parseAclsSearch } from "@/lib/route-search";
+import { ACL_RESOURCE_TYPES, aclsSearch } from "@/lib/route-search";
 
 export const Route = createFileRoute("/cluster/$cluster/acls")({
-  validateSearch: parseAclsSearch,
   component: AclsPage,
 });
 
@@ -89,32 +89,12 @@ function aclRowId(acl: Acl): string {
 
 function AclsPage() {
   const cluster = useClusterName();
-  const navigate = Route.useNavigate();
-  const { q: term = "", resource = "all" } = Route.useSearch();
+  const [{ q: term, resource }, setSearch] = useQueryStates(aclsSearch);
   const { can } = useAccess();
   const canAcls = can(cluster, "ACLS");
   const { data, isPending, isError, error } = useAcls(cluster, canAcls);
   const disabled = data?.authorizer === "DISABLED";
   const bindings = data?.bindings ?? EMPTY_BINDINGS;
-
-  function update(key: "q" | "resource", value: string | null) {
-    void navigate({
-      to: ".",
-      search: (prev) => {
-        const next = { ...prev };
-        if (value === null || value === "" || value === "all") {
-          delete next[key];
-        } else if (key === "q") {
-          next.q = value;
-        } else if (ACL_RESOURCE_TYPES.includes(value as AclResourceType)) {
-          next.resource = value as AclResourceType;
-        }
-        return next;
-      },
-      replace: true,
-      resetScroll: false,
-    });
-  }
 
   const rows = useMemo(() => {
     const needle = term.trim().toLowerCase();
@@ -158,14 +138,16 @@ function AclsPage() {
           <>
             <SearchField
               value={term}
-              onChange={(event) => update("q", event.target.value)}
+              onChange={(event) => void setSearch({ q: event.target.value })}
               placeholder="Search ACLs…"
             />
 
             <Select
               value={resource}
               items={RESOURCE_ITEMS}
-              onValueChange={(value) => update("resource", String(value))}
+              onValueChange={(value) =>
+                void setSearch({ resource: aclsSearch.resource.parse(String(value)) })
+              }
             >
               <SelectTrigger className="w-48">
                 <SelectValue placeholder="Resource" />

@@ -1,5 +1,6 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
+import { useQueryStates } from "nuqs";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CopyButton } from "@/components/copy-button";
@@ -13,10 +14,9 @@ import { catalogLookupMessage } from "@/lib/catalog-lookup";
 import { useClusterName } from "@/lib/clusters";
 import { formatCount, formatNumber, toNumber } from "@/lib/format";
 import type { GroupDetail, GroupMember, GroupOffset } from "@/lib/api/types";
-import { parseGroupDetailSearch } from "@/lib/route-search";
+import { groupDetailSearch } from "@/lib/route-search";
 
 export const Route = createFileRoute("/cluster/$cluster/groups_/$group")({
-  validateSearch: parseGroupDetailSearch,
   component: ConsumerGroupPage,
 });
 
@@ -96,26 +96,8 @@ function ConsumerGroupPage() {
   const cluster = useClusterName();
   const navigate = Route.useNavigate();
   const { group: groupId } = Route.useParams();
-  const { tab: tabParam } = Route.useSearch();
-  const tab = tabParam ?? "offsets";
+  const [{ tab }, setSearch] = useQueryStates(groupDetailSearch);
   const { data: group, isPending, isError, error } = useGroup(cluster, groupId);
-
-  function selectTab(value: string) {
-    void navigate({
-      to: ".",
-      search: (prev) => {
-        const next = { ...prev };
-        if (value === "members") {
-          next.tab = "members";
-        } else {
-          delete next.tab;
-        }
-        return next;
-      },
-      replace: true,
-      resetScroll: false,
-    });
-  }
 
   const lookup = catalogLookupMessage({
     isPending,
@@ -255,7 +237,9 @@ function ConsumerGroupPage() {
 
       <Tabs
         value={tab}
-        onValueChange={(value) => selectTab(String(value))}
+        onValueChange={(value) =>
+          void setSearch({ tab: groupDetailSearch.tab.parse(String(value)) })
+        }
         className="min-h-0 flex-1"
       >
         <TabsList variant="line" className="shrink-0">

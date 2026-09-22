@@ -3,10 +3,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { LoginCover } from "@/components/login-cover";
 import { LoginForm } from "@/components/login-form";
 import { ModeToggle } from "@/components/mode-toggle";
-import { parseLoginSearch } from "@/lib/route-search";
 
 export const Route = createFileRoute("/login")({
-  validateSearch: parseLoginSearch,
   component: LoginPage,
 });
 

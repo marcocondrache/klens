@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
+import { useQueryStates } from "nuqs";
 
 import {
   Select,
@@ -22,27 +23,18 @@ import { useClusterHealth, useGroupRows } from "@/lib/api/catalog";
 import { laneCaption, useClusterName } from "@/lib/clusters";
 import { apiErrorMessage } from "@/lib/api/client";
 import { formatCount, formatEnumLabel, formatNumber, toNumber } from "@/lib/format";
-import type { GroupRow, GroupState } from "@/lib/api/types";
-import { parseGroupsSearch } from "@/lib/route-search";
+import type { GroupRow } from "@/lib/api/types";
+import { GROUP_STATES, groupsSearch } from "@/lib/route-search";
 
 export const Route = createFileRoute("/cluster/$cluster/groups")({
-  validateSearch: parseGroupsSearch,
   component: ConsumerGroupsPage,
 });
 
 const EMPTY_GROUPS: GroupRow[] = [];
 
-const STATES: GroupState[] = [
-  "STABLE",
-  "EMPTY",
-  "PREPARING_REBALANCE",
-  "COMPLETING_REBALANCE",
-  "DEAD",
-];
-
 const STATE_ITEMS = [
   { value: "all", label: "All states" },
-  ...STATES.map((value) => ({ value, label: formatEnumLabel(value) })),
+  ...GROUP_STATES.map((value) => ({ value, label: formatEnumLabel(value) })),
 ];
 
 const columnHelper = createColumnHelper<DataTableFeatures, GroupRow>();
@@ -114,31 +106,12 @@ function LagPill({ row }: { row: GroupRow }) {
 function ConsumerGroupsPage() {
   const cluster = useClusterName();
   const navigate = Route.useNavigate();
-  const { q: term = "", state = "all" } = Route.useSearch();
+  const [{ q: term, state }, setSearch] = useQueryStates(groupsSearch);
 
   const { data: groups = EMPTY_GROUPS, isPending, isError, error } = useGroupRows(cluster);
   const { data: health } = useClusterHealth(cluster);
   const now = useNow();
   const caption = laneCaption(health?.offsets, now);
-
-  function update(key: "q" | "state", value: string | null) {
-    void navigate({
-      to: ".",
-      search: (prev) => {
-        const next = { ...prev };
-        if (value === null || value === "" || value === "all") {
-          delete next[key];
-        } else if (key === "q") {
-          next.q = value;
-        } else if (STATES.includes(value as (typeof STATES)[number])) {
-          next.state = value as (typeof STATES)[number];
-        }
-        return next;
-      },
-      replace: true,
-      resetScroll: false,
-    });
-  }
 
   const rows = useMemo(() => {
     const needle = term.trim().toLowerCase();
@@ -167,14 +140,16 @@ function ConsumerGroupsPage() {
           <>
             <SearchField
               value={term}
-              onChange={(event) => update("q", event.target.value)}
+              onChange={(event) => void setSearch({ q: event.target.value })}
               placeholder="Search consumer groups…"
             />
 
             <Select
               value={state}
               items={STATE_ITEMS}
-              onValueChange={(value) => update("state", String(value))}
+              onValueChange={(value) =>
+                void setSearch({ state: groupsSearch.state.parse(String(value)) })
+              }
             >
               <SelectTrigger className="w-48">
                 <SelectValue placeholder="State" />
