@@ -151,20 +151,20 @@ impl ClusterSession for KafkaClient {
     async fn committed_offsets(
         &self,
         group_id: &str,
-        partitions: &[(String, i32)],
+        partitions: Option<&[(String, i32)]>,
     ) -> Result<Vec<CommittedOffset>, KafkaError> {
-        if partitions.is_empty() {
+        if partitions.is_some_and(<[_]>::is_empty) {
             return Ok(Vec::new());
         }
 
-        let topics = partitions_by_topic(partitions);
-        let query = list_offset_query(&topics);
+        let topics = partitions.map(partitions_by_topic);
+        let query = topics.as_ref().map(list_offset_query);
         let listed = self
             .transport
             .admin
             .describe_consumer_group_offsets(
                 group_id,
-                Some(&query),
+                query.as_deref(),
                 OffsetVisibility::IncludeUnstable,
             )
             .await?;
@@ -458,7 +458,7 @@ mod tests {
         let broker = krafka::testing::FakeBroker::start().await.unwrap();
         let client = kafka_client(&broker.bootstrap_servers()).await;
         broker.clear_requests();
-        let offsets = client.committed_offsets("unused", &[]).await.unwrap();
+        let offsets = client.committed_offsets("unused", Some(&[])).await.unwrap();
         assert!(offsets.is_empty());
         assert!(client.watermarks(&HashMap::new()).await.unwrap().is_empty());
         assert!(
@@ -729,7 +729,32 @@ mod tests {
         let client = kafka_client(&broker.bootstrap_servers()).await;
         commit_krafka(&client, "orders-group", "orders", 1).await;
         let offsets = client
-            .committed_offsets("orders-group", &[("orders".into(), 0)])
+            .committed_offsets("orders-group", Some(&[("orders".into(), 0)]))
+            .await
+            .expect("offset fetch");
+
+        assert_eq!(
+            offsets,
+            vec![CommittedOffset {
+                topic: "orders".into(),
+                partition: 0,
+                offset: 1,
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn lists_every_committed_offset_without_a_partition_filter() {
+        let broker = krafka::testing::FakeBroker::start()
+            .await
+            .expect("fake broker");
+        assert!(broker.create_topic("orders", 1));
+        produce_krafka(&broker.bootstrap_servers(), "orders", 1).await;
+
+        let client = kafka_client(&broker.bootstrap_servers()).await;
+        commit_krafka(&client, "orders-group", "orders", 1).await;
+        let offsets = client
+            .committed_offsets("orders-group", None)
             .await
             .expect("offset fetch");
 
@@ -808,7 +833,7 @@ mod tests {
             let client = Arc::clone(&client);
             async move {
                 client
-                    .committed_offsets(&format!("g{index}"), &[("orders".into(), 0)])
+                    .committed_offsets(&format!("g{index}"), Some(&[("orders".into(), 0)]))
                     .await
             }
         });

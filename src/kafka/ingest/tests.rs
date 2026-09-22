@@ -507,6 +507,33 @@ async fn lag_is_computed_from_the_tables() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn an_empty_group_reports_the_lag_it_left_behind() {
+    let mut stopped = group(
+        "stopped-consumer",
+        "orders.created",
+        Vec::new(),
+        &[(0, 2), (1, 5)],
+    );
+    stopped.state = GroupState::Empty;
+    stopped.members.clear();
+    let session = FakeCluster::local().extra_group(stopped);
+    let store = store(&session);
+    let lane = OffsetLane::new(port(&session));
+    let _lanes = catalog_lanes(&store, &session);
+    wait_for(|| store.watermarks.version() > 0, "watermark commit").await;
+
+    lane.sweep(&store).await;
+
+    let row = store.group_row("stopped-consumer").unwrap();
+    assert_eq!(
+        (row.total_lag, row.lag_complete),
+        (6 + 3, true),
+        "a group with no members still has committed offsets to measure"
+    );
+    assert_eq!(row.topic_names, ["orders.created"]);
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_failed_group_degrades_alone_and_keeps_its_last_offsets() {
     let session = FakeCluster::local();
     let store = store(&session);
