@@ -51,14 +51,11 @@ export function applyFilters<TData>(
   return rows.filter((row) => active.every(({ field, rule }) => rowMatches(row, field, rule)));
 }
 
-export function toggleFilterValue(rules: FilterRule[], id: string, value: string): FilterRule[] {
+/** Replaces the values of the `id` rule, adding it or dropping it as needed. */
+export function setFilterValues(rules: FilterRule[], id: string, values: string[]): FilterRule[] {
   const existing = rules.find((rule) => rule.id === id);
-  if (!existing) return [...rules, { id, values: [value], negate: false }];
-
-  const values = existing.values.includes(value)
-    ? existing.values.filter((candidate) => candidate !== value)
-    : [...existing.values, value];
   if (values.length === 0) return rules.filter((rule) => rule !== existing);
+  if (!existing) return [...rules, { id, values, negate: false }];
   return rules.map((rule) => (rule === existing ? { ...rule, values } : rule));
 }
 

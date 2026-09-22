@@ -1,29 +1,29 @@
 import { useState, type KeyboardEvent } from "react";
-import { CheckIcon, ChevronDownIcon, ChevronRightIcon, ListFilterIcon, XIcon } from "lucide-react";
+import { Combobox as ComboboxPrimitive } from "@base-ui/react";
+import { ListFilterIcon, XIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-  CommandShortcut,
-} from "@/components/ui/command";
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxTrigger,
+} from "@/components/ui/combobox";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
 import {
   facetCounts,
   operatorLabel,
-  toggleFilterValue,
+  setFilterValues,
   type FilterField,
   type FilterRule,
 } from "./filters";
@@ -63,23 +63,58 @@ export function FilterBar<TData>({ fields, rows, value, onChange }: FilterBarPro
   );
 }
 
+/** Picks a field, then toggles its values, inside one combobox popup. */
 function AddFilterMenu<TData>({ fields, rows, value, onChange }: FilterBarProps<TData>) {
   const [open, setOpen] = useState(false);
   const [fieldId, setFieldId] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
+  const [query, setQuery] = useState("");
   const field = fields.find((candidate) => candidate.id === fieldId);
+  const selected = field ? (value.find((rule) => rule.id === field.id)?.values ?? []) : [];
+  const counts = field ? facetCounts(rows, fields, value, field) : null;
 
   function handleOpenChange(next: boolean) {
     setOpen(next);
     if (!next) {
       setFieldId(null);
-      setSearch("");
+      setQuery("");
     }
   }
 
+  function handleValueChange(next: string[]) {
+    if (field) {
+      onChange(setFilterValues(value, field.id, next));
+      return;
+    }
+    setFieldId(next.at(-1) ?? null);
+    setQuery("");
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (field && event.key === "Backspace" && event.currentTarget.value === "") {
+      event.preventDefault();
+      setFieldId(null);
+    }
+  }
+
+  function label(item: string) {
+    if (field) return field.options.find((option) => option.value === item)?.label ?? item;
+    return fields.find((candidate) => candidate.id === item)?.label ?? item;
+  }
+
   return (
-    <Popover open={open} onOpenChange={handleOpenChange}>
-      <PopoverTrigger
+    <Combobox
+      multiple
+      autoHighlight
+      items={field ? field.options.map((option) => option.value) : fields.map(({ id }) => id)}
+      value={selected}
+      onValueChange={handleValueChange}
+      itemToStringLabel={label}
+      open={open}
+      onOpenChange={handleOpenChange}
+      inputValue={query}
+      onInputValueChange={setQuery}
+    >
+      <ComboboxPrimitive.Trigger
         render={
           <Button
             variant="outline"
@@ -90,124 +125,29 @@ function AddFilterMenu<TData>({ fields, rows, value, onChange }: FilterBarProps<
       >
         <ListFilterIcon />
         {value.length > 0 ? null : "Filter"}
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-60 gap-0 p-0">
-        {field ? (
-          <OptionList
-            field={field}
-            fields={fields}
-            rows={rows}
-            value={value}
-            onChange={onChange}
-            onBack={() => setFieldId(null)}
-          />
-        ) : (
-          <Command>
-            <CommandInput
-              placeholder="Filter…"
-              value={search}
-              onValueChange={setSearch}
-              autoFocus
-            />
-            <CommandList>
-              <CommandEmpty>No matching filters.</CommandEmpty>
-              <CommandGroup>
-                {fields.map((candidate) => (
-                  <CommandItem
-                    key={candidate.id}
-                    value={candidate.label}
-                    onSelect={() => {
-                      setFieldId(candidate.id);
-                      setSearch("");
-                    }}
-                  >
-                    {candidate.label}
-                    <CommandShortcut>
-                      <ChevronRightIcon className="size-3.5" />
-                    </CommandShortcut>
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-              {search.trim()
-                ? fields.map((candidate) => {
-                    const rule = value.find((existing) => existing.id === candidate.id);
-                    return (
-                      <CommandGroup key={candidate.id} heading={candidate.label}>
-                        {candidate.options.map((option) => (
-                          <CommandItem
-                            key={option.value}
-                            value={`${candidate.label} ${option.label}`}
-                            data-checked={rule?.values.includes(option.value) || undefined}
-                            onSelect={() => {
-                              onChange(toggleFilterValue(value, candidate.id, option.value));
-                              handleOpenChange(false);
-                            }}
-                          >
-                            <span className="truncate">{option.label}</span>
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    );
-                  })
-                : null}
-            </CommandList>
-          </Command>
-        )}
-      </PopoverContent>
-    </Popover>
+      </ComboboxPrimitive.Trigger>
+      <ComboboxContent className="min-w-56">
+        <ComboboxInput
+          showTrigger={false}
+          placeholder={field ? `${field.label}…` : "Filter…"}
+          onKeyDown={handleKeyDown}
+        />
+        <ComboboxEmpty>No matches.</ComboboxEmpty>
+        <ComboboxList>
+          {(item: string) => (
+            <ComboboxItem key={item} value={item}>
+              <span className="truncate">{label(item)}</span>
+              {counts ? <OptionCount count={counts.get(item) ?? 0} /> : null}
+            </ComboboxItem>
+          )}
+        </ComboboxList>
+      </ComboboxContent>
+    </Combobox>
   );
 }
 
-function OptionList<TData>({
-  field,
-  onBack,
-  ...props
-}: FilterBarProps<TData> & { field: FilterField<TData>; onBack?: () => void }) {
-  const { fields, rows, value, onChange } = props;
-  const rule = value.find((existing) => existing.id === field.id);
-  const counts = facetCounts(rows, fields, value, field);
-
-  function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (onBack && event.key === "Backspace" && event.currentTarget.value === "") {
-      event.preventDefault();
-      onBack();
-    }
-  }
-
-  return (
-    <Command>
-      <CommandInput placeholder={`${field.label}…`} autoFocus onKeyDown={handleKeyDown} />
-      <CommandList>
-        <CommandEmpty>No matching {field.plural}.</CommandEmpty>
-        <CommandGroup>
-          {field.options.map((option) => {
-            const checked = rule?.values.includes(option.value) ?? false;
-            return (
-              <CommandItem
-                key={option.value}
-                value={option.label}
-                aria-checked={checked}
-                onSelect={() => onChange(toggleFilterValue(value, field.id, option.value))}
-              >
-                <span
-                  className={cn(
-                    "flex size-4 shrink-0 items-center justify-center rounded-[4px] border border-input transition-colors",
-                    checked && "border-primary bg-primary text-primary-foreground",
-                  )}
-                >
-                  {checked ? <CheckIcon className="size-3" /> : null}
-                </span>
-                <span className="truncate">{option.label}</span>
-                <CommandShortcut className="tracking-normal tabular-nums">
-                  {counts.get(option.value) ?? 0}
-                </CommandShortcut>
-              </CommandItem>
-            );
-          })}
-        </CommandGroup>
-      </CommandList>
-    </Command>
-  );
+function OptionCount({ count }: { count: number }) {
+  return <span className="ml-auto text-xs text-muted-foreground tabular-nums">{count}</span>;
 }
 
 const SEGMENT =
@@ -216,10 +156,13 @@ const SEGMENT =
 function FilterChip<TData>({
   field,
   rule,
-  ...props
+  fields,
+  rows,
+  value,
+  onChange,
 }: FilterBarProps<TData> & { field: FilterField<TData>; rule: FilterRule }) {
-  const { value, onChange } = props;
   const selected = field.options.filter((option) => rule.values.includes(option.value));
+  const counts = facetCounts(rows, fields, value, field);
 
   function setNegate(negate: boolean) {
     onChange(value.map((existing) => (existing === rule ? { ...existing, negate } : existing)));
@@ -245,8 +188,20 @@ function FilterChip<TData>({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Popover>
-        <PopoverTrigger className={cn(SEGMENT, "font-medium")}>
+      <Combobox
+        multiple
+        autoHighlight
+        items={field.options.map((option) => option.value)}
+        value={rule.values}
+        onValueChange={(next) => onChange(setFilterValues(value, field.id, next))}
+        itemToStringLabel={(item) =>
+          field.options.find((option) => option.value === item)?.label ?? item
+        }
+      >
+        <ComboboxTrigger
+          aria-label={`${field.label} values`}
+          className={cn(SEGMENT, "font-medium")}
+        >
           {selected.length === 1 ? (
             <>
               {selected[0].icon}
@@ -266,12 +221,22 @@ function FilterChip<TData>({
               {selected.length} {field.plural}
             </>
           )}
-          <ChevronDownIcon className="size-3.5 text-muted-foreground" />
-        </PopoverTrigger>
-        <PopoverContent align="start" className="w-60 gap-0 p-0">
-          <OptionList field={field} {...props} />
-        </PopoverContent>
-      </Popover>
+        </ComboboxTrigger>
+        <ComboboxContent className="min-w-56">
+          <ComboboxInput showTrigger={false} placeholder={`${field.label}…`} />
+          <ComboboxEmpty>No matches.</ComboboxEmpty>
+          <ComboboxList>
+            {(item: string) => (
+              <ComboboxItem key={item} value={item}>
+                <span className="truncate">
+                  {field.options.find((option) => option.value === item)?.label}
+                </span>
+                <OptionCount count={counts.get(item) ?? 0} />
+              </ComboboxItem>
+            )}
+          </ComboboxList>
+        </ComboboxContent>
+      </Combobox>
 
       <button
         type="button"
