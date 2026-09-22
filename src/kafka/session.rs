@@ -65,8 +65,6 @@ pub trait ClusterSession: Send + Sync + 'static {
 
     async fn groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError>;
 
-    /// `None` asks for every partition the group has committed, for a group
-    /// with no assignment to narrow the fetch to.
     async fn committed_offsets(
         &self,
         group_id: &str,

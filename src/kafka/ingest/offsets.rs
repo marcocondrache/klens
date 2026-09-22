@@ -258,13 +258,6 @@ impl OffsetLane {
     }
 }
 
-/// The partitions to ask the group coordinator about, or `None` for every
-/// partition the group has committed.
-///
-/// A group with no assignment, typically an `Empty` group whose consumers
-/// stopped, has nothing to narrow the fetch to, yet its committed offsets are
-/// exactly the lag worth seeing. Asking for all of them costs the same single
-/// `OffsetFetch` and also picks up offsets reset onto a new topic.
 fn offset_fetch_partitions(
     topology: &Topology,
     previous: Option<&OffsetTable>,
