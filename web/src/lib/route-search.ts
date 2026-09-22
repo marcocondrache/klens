@@ -28,7 +28,7 @@ export type AclsSearch = {
   resource?: AclResourceFilter;
 };
 
-export type SignedOutSearch = {
+export type LoginSearch = {
   error?: string;
 };
 
@@ -85,7 +85,7 @@ export function parseAclsSearch(search: Record<string, unknown>): AclsSearch {
   };
 }
 
-export function parseSignedOutSearch(search: Record<string, unknown>): SignedOutSearch {
+export function parseLoginSearch(search: Record<string, unknown>): LoginSearch {
   const error = optionalString(search.error);
   return error ? { error } : {};
 }

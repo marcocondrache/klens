@@ -416,8 +416,8 @@ async fn login_error(auth_session: &mut AuthSession, fail: LoginFail) -> Respons
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
     let location = match fail {
-        LoginFail::Auth => "/signed-out?error=auth",
-        LoginFail::Forbidden => "/signed-out?error=forbidden",
+        LoginFail::Auth => "/login?error=auth",
+        LoginFail::Forbidden => "/login?error=forbidden",
     };
     Redirect::to(location).into_response()
 }
@@ -711,7 +711,7 @@ mod tests {
         assert!(missing.status().is_redirection());
         assert_eq!(
             missing.headers().get(header::LOCATION).unwrap(),
-            "/signed-out?error=auth"
+            "/login?error=auth"
         );
 
         let login = send(
@@ -736,7 +736,7 @@ mod tests {
         assert!(mismatched.status().is_redirection());
         assert_eq!(
             mismatched.headers().get(header::LOCATION).unwrap(),
-            "/signed-out?error=auth"
+            "/login?error=auth"
         );
     }
 
@@ -830,7 +830,7 @@ mod tests {
         assert!(callback.status().is_redirection());
         assert_eq!(
             callback.headers().get(header::LOCATION).unwrap(),
-            "/signed-out?error=auth"
+            "/login?error=auth"
         );
     }
 
@@ -916,7 +916,7 @@ mod tests {
         assert!(callback.status().is_redirection());
         assert_eq!(
             callback.headers().get(header::LOCATION).unwrap(),
-            "/signed-out?error=forbidden"
+            "/login?error=forbidden"
         );
 
         let mut request = api_request();

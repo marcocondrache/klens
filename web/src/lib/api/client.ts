@@ -48,14 +48,14 @@ export function resourceId(id: string): string {
     .join("/");
 }
 
-export const SIGNED_OUT_PATH = "/signed-out";
+export const LOGIN_PATH = "/login";
 
 const SIGN_IN_ATTEMPT_KEY = "klens.sign_in_attempt";
 const SIGN_IN_RETRY_MS = 10_000;
 
 /**
  * Where to send a signed-out browser: the identity provider. A second attempt within a few
- * seconds means the session did not stick, so stop on the signed-out page instead of looping
+ * seconds means the session did not stick, so stop on the login page instead of looping
  * through the IdP.
  */
 export function signInHref(): string {
@@ -67,11 +67,11 @@ export function signInHref(): string {
   } catch {
     // Without storage there is no loop guard; still sign in.
   }
-  return now - last < SIGN_IN_RETRY_MS ? `${SIGNED_OUT_PATH}?error=auth` : apiPath("/auth/login");
+  return now - last < SIGN_IN_RETRY_MS ? `${LOGIN_PATH}?error=auth` : apiPath("/auth/login");
 }
 
 function redirectToSignIn(): void {
-  if (window.location.pathname === SIGNED_OUT_PATH) return;
+  if (window.location.pathname === LOGIN_PATH) return;
   window.location.assign(signInHref());
 }
 

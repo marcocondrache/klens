@@ -3,7 +3,7 @@ import { createRootRouteWithContext, Outlet, redirect } from "@tanstack/react-ro
 
 import { PageLoading } from "@/components/page-loading";
 import { authQuery } from "@/hooks/use-auth";
-import { signInHref, SIGNED_OUT_PATH } from "@/lib/api/client";
+import { LOGIN_PATH, signInHref } from "@/lib/api/client";
 import type { AuthMe } from "@/lib/auth";
 import { NotFoundPage } from "@/routes/-not-found";
 
@@ -18,12 +18,12 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     }
 
     const signedIn = !auth.enabled || auth.user != null;
-    const onSignedOut = location.pathname === SIGNED_OUT_PATH;
+    const onLogin = location.pathname === LOGIN_PATH;
 
-    if (signedIn && onSignedOut) {
+    if (signedIn && onLogin) {
       throw redirect({ to: "/", replace: true });
     }
-    if (!signedIn && !onSignedOut) {
+    if (!signedIn && !onLogin) {
       throw redirect({ href: signInHref(), reloadDocument: true });
     }
   },

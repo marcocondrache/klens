@@ -10,7 +10,7 @@
 
 import { Route as rootRouteImport } from "./routes/__root"
 import { Route as IndexRouteImport } from "./routes/index"
-import { Route as SignedOutRouteImport } from "./routes/signed-out"
+import { Route as LoginRouteImport } from "./routes/login"
 import { Route as ClusterClusterRouteImport } from "./routes/cluster/$cluster"
 import { Route as ClusterClusterIndexRouteImport } from "./routes/cluster/$cluster/index"
 import { Route as ClusterClusterAclsRouteImport } from "./routes/cluster/$cluster/acls"
@@ -27,9 +27,9 @@ const IndexRoute = IndexRouteImport.update({
   path: "/",
   getParentRoute: () => rootRouteImport,
 } as any)
-const SignedOutRoute = SignedOutRouteImport.update({
-  id: "/signed-out",
-  path: "/signed-out",
+const LoginRoute = LoginRouteImport.update({
+  id: "/login",
+  path: "/login",
   getParentRoute: () => rootRouteImport,
 } as any)
 const ClusterClusterRoute = ClusterClusterRouteImport.update({
@@ -87,7 +87,7 @@ const ClusterClusterTopicsTopicRoute =
 
 export interface FileRoutesByFullPath {
   "/": typeof IndexRoute
-  "/signed-out": typeof SignedOutRoute
+  "/login": typeof LoginRoute
   "/cluster/$cluster": typeof ClusterClusterRouteWithChildren
   "/cluster/$cluster/acls": typeof ClusterClusterAclsRoute
   "/cluster/$cluster/groups": typeof ClusterClusterGroupsRoute
@@ -101,7 +101,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   "/": typeof IndexRoute
-  "/signed-out": typeof SignedOutRoute
+  "/login": typeof LoginRoute
   "/cluster/$cluster/acls": typeof ClusterClusterAclsRoute
   "/cluster/$cluster/groups": typeof ClusterClusterGroupsRoute
   "/cluster/$cluster/nodes": typeof ClusterClusterNodesRoute
@@ -115,7 +115,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   "/": typeof IndexRoute
-  "/signed-out": typeof SignedOutRoute
+  "/login": typeof LoginRoute
   "/cluster/$cluster": typeof ClusterClusterRouteWithChildren
   "/cluster/$cluster/acls": typeof ClusterClusterAclsRoute
   "/cluster/$cluster/groups": typeof ClusterClusterGroupsRoute
@@ -131,7 +131,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | "/"
-    | "/signed-out"
+    | "/login"
     | "/cluster/$cluster"
     | "/cluster/$cluster/acls"
     | "/cluster/$cluster/groups"
@@ -145,7 +145,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | "/"
-    | "/signed-out"
+    | "/login"
     | "/cluster/$cluster/acls"
     | "/cluster/$cluster/groups"
     | "/cluster/$cluster/nodes"
@@ -158,7 +158,7 @@ export interface FileRouteTypes {
   id:
     | "__root__"
     | "/"
-    | "/signed-out"
+    | "/login"
     | "/cluster/$cluster"
     | "/cluster/$cluster/acls"
     | "/cluster/$cluster/groups"
@@ -173,7 +173,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  SignedOutRoute: typeof SignedOutRoute
+  LoginRoute: typeof LoginRoute
   ClusterClusterRoute: typeof ClusterClusterRouteWithChildren
 }
 
@@ -186,11 +186,11 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    "/signed-out": {
-      id: "/signed-out"
-      path: "/signed-out"
-      fullPath: "/signed-out"
-      preLoaderRoute: typeof SignedOutRouteImport
+    "/login": {
+      id: "/login"
+      path: "/login"
+      fullPath: "/login"
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     "/cluster/$cluster": {
@@ -296,7 +296,7 @@ const ClusterClusterRouteWithChildren = ClusterClusterRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  SignedOutRoute: SignedOutRoute,
+  LoginRoute: LoginRoute,
   ClusterClusterRoute: ClusterClusterRouteWithChildren,
 }
 export const routeTree = rootRouteImport
