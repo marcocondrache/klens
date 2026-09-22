@@ -30,6 +30,7 @@ export type AclsSearch = {
 
 export type LoginSearch = {
   error?: string;
+  from?: "callback";
 };
 
 export type TopicDetailSearch = {
@@ -87,7 +88,10 @@ export function parseAclsSearch(search: Record<string, unknown>): AclsSearch {
 
 export function parseLoginSearch(search: Record<string, unknown>): LoginSearch {
   const error = optionalString(search.error);
-  return error ? { error } : {};
+  return {
+    ...(error ? { error } : {}),
+    ...(search.from === "callback" ? { from: "callback" as const } : {}),
+  };
 }
 
 export function parseTopicDetailSearch(search: Record<string, unknown>): TopicDetailSearch {

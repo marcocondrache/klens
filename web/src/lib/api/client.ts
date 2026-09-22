@@ -48,11 +48,18 @@ export function resourceId(id: string): string {
     .join("/");
 }
 
+export const LOGIN_PATH = "/login";
+
+export const SIGN_IN_PATH = apiPath("/auth/login");
+
+function redirectToSignIn(): void {
+  if (window.location.pathname === LOGIN_PATH) return;
+  window.location.assign(SIGN_IN_PATH);
+}
+
 function redirectIfUnauthorized(status: number): void {
   if (status !== 401) return;
-  if (window.location.pathname !== "/login") {
-    window.location.assign("/login");
-  }
+  redirectToSignIn();
   throw new ApiError("Unauthorized", 401, "UNAUTHORIZED");
 }
 
@@ -178,7 +185,7 @@ function parseEvent(chunk: string): Update | null {
     const parsed = JSON.parse(data) as Update | { code?: string };
     if (parsed && typeof parsed === "object" && "type" in parsed) return parsed;
     if (parsed && typeof parsed === "object" && parsed.code === "SESSION_EXPIRED") {
-      if (window.location.pathname !== "/login") window.location.assign("/login");
+      redirectToSignIn();
     }
   } catch {
     // Keep-alive comments and truncated frames are not updates.
