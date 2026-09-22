@@ -26,12 +26,10 @@ const memberColumnHelper = createColumnHelper<DataTableFeatures, GroupMember>();
 const memberColumns = memberColumnHelper.columns([
   memberColumnHelper.accessor("clientId", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Client ID" />,
-    meta: { label: "Client ID" },
     cell: ({ getValue }) => <span className="font-mono text-sm">{getValue()}</span>,
   }),
   memberColumnHelper.accessor("id", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Member ID" />,
-    meta: { label: "Member ID" },
     cell: ({ row }) => (
       <span className="flex items-center gap-1">
         <span className="max-w-72 truncate font-mono text-sm">{row.original.id}</span>
@@ -41,12 +39,10 @@ const memberColumns = memberColumnHelper.columns([
   }),
   memberColumnHelper.accessor("host", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Host" />,
-    meta: { label: "Host" },
     cell: ({ getValue }) => <span className="font-mono text-sm">{getValue()}</span>,
   }),
   memberColumnHelper.accessor("assignments", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Assignments" />,
-    meta: { label: "Assignments" },
     cell: ({ row }) => (
       <span className="flex flex-wrap gap-1">
         {row.original.assignments.map((assignment) => (
@@ -66,7 +62,7 @@ const memberColumns = memberColumnHelper.columns([
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title="Partitions" className="justify-end" />
       ),
-      meta: { align: "right", label: "Partitions" },
+      meta: { align: "right" },
       cell: ({ getValue }) => getValue(),
     },
   ),
@@ -145,7 +141,6 @@ function ConsumerGroupPage() {
   const offsetColumns = offsetColumnHelper.columns([
     offsetColumnHelper.accessor("topic", {
       header: ({ column }) => <DataTableColumnHeader column={column} title="Topic" />,
-      meta: { label: "Topic" },
       cell: ({ getValue }) => (
         <Link
           to="/cluster/$cluster/topics/$topic"
@@ -161,7 +156,7 @@ function ConsumerGroupPage() {
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title="Partition" className="justify-end" />
       ),
-      meta: { align: "right", label: "Partition" },
+      meta: { align: "right" },
       cell: ({ getValue }) => <span className="numeric font-mono">{getValue()}</span>,
     }),
     offsetColumnHelper.accessor((offset) => toNumber(offset.currentOffset), {
@@ -169,7 +164,7 @@ function ConsumerGroupPage() {
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title="Committed" className="justify-end" />
       ),
-      meta: { align: "right", label: "Committed" },
+      meta: { align: "right" },
       cell: ({ row }) => formatNumber(row.original.currentOffset),
     }),
     offsetColumnHelper.accessor((offset) => toNumber(offset.endOffset), {
@@ -177,7 +172,7 @@ function ConsumerGroupPage() {
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title="End offset" className="justify-end" />
       ),
-      meta: { align: "right", label: "End offset" },
+      meta: { align: "right" },
       cell: ({ row }) => formatNumber(row.original.endOffset),
     }),
     offsetColumnHelper.accessor((offset) => toNumber(offset.lag), {
@@ -185,7 +180,7 @@ function ConsumerGroupPage() {
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title="Lag" className="justify-end" />
       ),
-      meta: { align: "right", label: "Lag" },
+      meta: { align: "right" },
       cell: ({ getValue, row }) => {
         const lag = getValue();
 
@@ -215,7 +210,7 @@ function ConsumerGroupPage() {
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title="Member" className="justify-end" />
       ),
-      meta: { align: "right", label: "Member" },
+      meta: { align: "right" },
       cell: ({ row }) =>
         row.original.memberId ? (
           <span className="font-mono text-sm">

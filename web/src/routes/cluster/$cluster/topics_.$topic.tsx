@@ -42,19 +42,18 @@ const partitionColumns = partitionColumnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Partition" className="justify-end" />
     ),
-    meta: { align: "right", label: "Partition" },
+    meta: { align: "right" },
     cell: ({ getValue }) => <span className="numeric font-mono">{getValue()}</span>,
   }),
   partitionColumnHelper.accessor("leader", {
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Leader" className="justify-end" />
     ),
-    meta: { align: "right", label: "Leader" },
+    meta: { align: "right" },
     cell: ({ getValue }) => <span className="numeric font-mono">{getValue()}</span>,
   }),
   partitionColumnHelper.accessor("replicas", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Replicas" />,
-    meta: { label: "Replicas" },
     cell: ({ row }) => (
       <span className="flex flex-wrap gap-1">
         {row.original.replicas.map((replica) => (
@@ -74,7 +73,7 @@ const partitionColumns = partitionColumnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="In sync" className="justify-end" />
     ),
-    meta: { align: "right", label: "In sync" },
+    meta: { align: "right" },
     cell: ({ row }) => (
       <span
         className={
@@ -92,7 +91,7 @@ const partitionColumns = partitionColumnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Low offset" className="justify-end" />
     ),
-    meta: { align: "right", label: "Low offset" },
+    meta: { align: "right" },
     cell: ({ row }) => formatNumber(row.original.lowWatermark),
   }),
   partitionColumnHelper.accessor((partition) => toNumber(partition.highWatermark), {
@@ -100,7 +99,7 @@ const partitionColumns = partitionColumnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="High offset" className="justify-end" />
     ),
-    meta: { align: "right", label: "High offset" },
+    meta: { align: "right" },
     cell: ({ row }) => formatNumber(row.original.highWatermark),
   }),
   partitionColumnHelper.accessor((partition) => toNumber(partition.retained), {
@@ -108,7 +107,7 @@ const partitionColumns = partitionColumnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Messages" className="justify-end" />
     ),
-    meta: { align: "right", label: "Messages" },
+    meta: { align: "right" },
     cell: ({ row }) => formatNumber(row.original.retained),
   }),
 ]);
@@ -116,12 +115,10 @@ const partitionColumns = partitionColumnHelper.columns([
 const groupColumns = groupColumnHelper.columns([
   groupColumnHelper.accessor("id", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Group" />,
-    meta: { label: "Group" },
     cell: ({ getValue }) => <span className="font-mono text-sm">{getValue()}</span>,
   }),
   groupColumnHelper.accessor("state", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="State" />,
-    meta: { label: "State" },
     cell: ({ getValue }) => <GroupStateBadge state={getValue()} />,
   }),
   groupColumnHelper.accessor("memberCount", {
@@ -129,7 +126,7 @@ const groupColumns = groupColumnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Members" className="justify-end" />
     ),
-    meta: { align: "right", label: "Members" },
+    meta: { align: "right" },
     cell: ({ getValue }) => getValue(),
   }),
   groupColumnHelper.accessor((group) => toNumber(group.lagOnTopic), {
@@ -137,7 +134,7 @@ const groupColumns = groupColumnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Lag on this topic" className="justify-end" />
     ),
-    meta: { align: "right", label: "Lag on this topic" },
+    meta: { align: "right" },
     cell: ({ row: groupRow }) => (
       <Pill tone={lagTone(toNumber(groupRow.original.lagOnTopic))} className="numeric font-mono">
         {formatNumber(groupRow.original.lagOnTopic)}
