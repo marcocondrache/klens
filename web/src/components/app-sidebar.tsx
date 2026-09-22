@@ -51,7 +51,7 @@ export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
               size="lg"
               render={<Link to="/cluster/$cluster" params={{ cluster }} />}
             >
-              <div className="flex aspect-square size-8 items-center justify-center rounded-lg border bg-background">
+              <div className="flex aspect-square size-8 items-center justify-center">
                 <img src="/favicon.svg" alt="" className="size-5" />
               </div>
               <span className="truncate text-base font-semibold">klens</span>
