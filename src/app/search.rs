@@ -9,12 +9,12 @@ use crate::AppState;
 use super::context::Session;
 use super::error::ApiError;
 
-mod types;
+pub mod types;
 
 #[cfg(test)]
 mod tests;
 
-pub(crate) use types::{SearchHit, SearchKind};
+pub(crate) use types::SearchHit;
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new().route("/", get(search))

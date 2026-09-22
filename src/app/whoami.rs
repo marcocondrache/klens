@@ -6,12 +6,12 @@ use crate::AppState;
 
 use super::context::Session;
 
-mod types;
+pub mod types;
 
 #[cfg(test)]
 mod tests;
 
-pub(crate) use types::{ClusterGrant, Identity, PrivilegeName};
+pub(crate) use types::{ClusterGrant, Identity};
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new().route("/whoami", get(whoami))

@@ -6,7 +6,7 @@ use crate::r#macro::from_same_variants;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub(crate) enum PrivilegeName {
+pub enum PrivilegeName {
     Records,
     Configs,
     SchemaText,
@@ -19,7 +19,7 @@ from_same_variants!(Privilege => PrivilegeName { Records, Configs, SchemaText, A
 /// does not raise this one.
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ClusterGrant {
+pub struct ClusterGrant {
     pub cluster: String,
     /// Names of the roles that granted this access, for tracing a privilege
     /// back to an IdP group mapping. Empty when no role table applies.
@@ -29,7 +29,7 @@ pub(crate) struct ClusterGrant {
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Identity {
+pub struct Identity {
     /// `null` when authentication is disabled.
     pub subject: Option<String>,
     pub clusters: Vec<ClusterGrant>,

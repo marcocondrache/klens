@@ -9,7 +9,7 @@ use super::super::int64::Int64;
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct TopicRate {
+pub struct TopicRate {
     pub topic: String,
     pub rate: f64,
 }
@@ -25,7 +25,7 @@ impl From<&store::TopicRate> for TopicRate {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub(crate) enum ResyncReason {
+pub enum ResyncReason {
     /// The client fell behind the change bus and missed events.
     Lagged,
 }
@@ -37,7 +37,7 @@ pub(crate) enum ResyncReason {
     rename_all = "camelCase",
     rename_all_fields = "camelCase"
 )]
-pub(crate) enum Update {
+pub enum Update {
     Watermarks {
         at: Timestamp,
         /// One `{topic, rate}` pair per topic, never catalog objects. A scoped

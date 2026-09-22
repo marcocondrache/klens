@@ -8,7 +8,7 @@ use crate::AppState;
 use super::context::Session;
 use super::error::ApiError;
 
-mod types;
+pub mod types;
 
 #[cfg(test)]
 mod tests;

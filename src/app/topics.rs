@@ -12,14 +12,12 @@ use super::context::Session;
 use super::error::ApiError;
 use super::paging::{name_matches, page};
 
-mod types;
+pub mod types;
 
 #[cfg(test)]
 mod tests;
 
-pub(crate) use types::{
-    CleanupPolicy, PartitionRow, TopicDetail, TopicGroupRow, TopicRow, TopicRowPage, TopicSortField,
-};
+pub(crate) use types::{TopicDetail, TopicGroupRow, TopicRow, TopicRowPage, TopicSortField};
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()

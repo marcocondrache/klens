@@ -21,7 +21,7 @@ use super::error::ApiError;
 use super::groups::GroupOffset;
 use super::int64::Int64;
 
-mod types;
+pub mod types;
 
 #[cfg(test)]
 mod tests;

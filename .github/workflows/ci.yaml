@@ -130,7 +130,7 @@ jobs:
       - name: Build
         run: cargo build --verbose
       - name: Run tests
-        run: cargo nextest run --verbose --no-tests=pass
+        run: cargo nextest run --workspace --verbose --no-tests=pass
 
   docs:
     needs: changes

@@ -11,14 +11,12 @@ use super::context::Session;
 use super::error::ApiError;
 use super::paging::{name_matches, page};
 
-mod types;
+pub mod types;
 
 #[cfg(test)]
 mod tests;
 
-pub(crate) use types::{
-    GroupDetail, GroupMember, GroupOffset, GroupRow, GroupRowPage, GroupState, MemberAssignment,
-};
+pub(crate) use types::{GroupDetail, GroupOffset, GroupRow, GroupRowPage, GroupState};
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()

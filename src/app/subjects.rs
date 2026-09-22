@@ -10,14 +10,12 @@ use crate::kafka::KafkaError;
 use super::context::Session;
 use super::error::ApiError;
 
-mod types;
+pub mod types;
 
 #[cfg(test)]
 mod tests;
 
-pub(crate) use types::{
-    SchemaCompatibility, SchemaReference, SchemaType, SubjectDetail, SubjectRow, SubjectRowsResult,
-};
+pub(crate) use types::{SubjectDetail, SubjectRow, SubjectRowsResult};
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()

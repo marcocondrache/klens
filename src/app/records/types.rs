@@ -10,7 +10,7 @@ use super::super::int64::Int64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub(crate) enum Compression {
+pub enum Compression {
     None,
     Gzip,
     Snappy,
@@ -22,7 +22,7 @@ from_same_variants!(domain::Compression => Compression { None, Gzip, Snappy, Lz4
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub(crate) enum RecordOrder {
+pub enum RecordOrder {
     Newest,
     Oldest,
 }
@@ -31,7 +31,7 @@ from_same_variants!(RecordOrder => domain::RecordOrder { Newest, Oldest });
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct RecordHeader {
+pub struct RecordHeader {
     pub key: String,
     pub value: String,
 }
@@ -47,7 +47,7 @@ impl From<domain::RecordHeader> for RecordHeader {
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Record {
+pub struct Record {
     pub topic: String,
     pub partition: i32,
     pub offset: Int64,
@@ -80,7 +80,7 @@ impl From<domain::Record> for Record {
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct RecordPage {
+pub struct RecordPage {
     pub records: Vec<Record>,
     /// False when the scan hit its deadline with windows still unread: the
     /// records are real, but the page is not everything the query matched.
