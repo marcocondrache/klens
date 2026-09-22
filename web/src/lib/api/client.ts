@@ -53,20 +53,13 @@ export const LOGIN_PATH = "/login";
 const SIGN_IN_ATTEMPT_KEY = "klens.sign_in_attempt";
 const SIGN_IN_RETRY_MS = 10_000;
 
-/**
- * Where to send a signed-out browser: the identity provider. A second attempt within a few
- * seconds means the session did not stick, so stop on the login page instead of looping
- * through the IdP.
- */
 export function signInHref(): string {
   const now = Date.now();
   let last = 0;
   try {
     last = Number(window.sessionStorage.getItem(SIGN_IN_ATTEMPT_KEY)) || 0;
     window.sessionStorage.setItem(SIGN_IN_ATTEMPT_KEY, String(now));
-  } catch {
-    // Without storage there is no loop guard; still sign in.
-  }
+  } catch {}
   return now - last < SIGN_IN_RETRY_MS ? `${LOGIN_PATH}?error=auth` : apiPath("/auth/login");
 }
 

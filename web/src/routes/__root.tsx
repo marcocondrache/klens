@@ -13,7 +13,6 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     try {
       auth = await context.queryClient.ensureQueryData(authQuery);
     } catch {
-      // Without auth state, let the API decide: a 401 still sends the browser to sign in.
       return;
     }
 
