@@ -1266,7 +1266,7 @@ mod tests {
                 issuer: https://keycloak.example.com/realms/klens
                 client_id: klens
                 client_secret: secret
-                redirect_uri: http://localhost:8080/auth/callback
+                redirect_uri: http://localhost:8080/api/auth/callback
             ",
         )
         .unwrap();
@@ -1275,7 +1275,7 @@ mod tests {
         assert_eq!(oidc.issuer, "https://keycloak.example.com/realms/klens");
         assert_eq!(oidc.client_id, "klens");
         assert_eq!(oidc.client_secret, "secret");
-        assert_eq!(oidc.redirect_uri, "http://localhost:8080/auth/callback");
+        assert_eq!(oidc.redirect_uri, "http://localhost:8080/api/auth/callback");
         assert_eq!(oidc.scopes, vec!["openid", "email", "profile"]);
         assert_eq!(oidc.cookie_secure, None);
         assert!(!oidc.cookie_secure());
@@ -1293,7 +1293,7 @@ mod tests {
                 issuer: https://idp.example
                 client_id: klens
                 client_secret: secret
-                redirect_uri: http://localhost:8080/auth/callback
+                redirect_uri: http://localhost:8080/api/auth/callback
               roles:
                 definitions:
                   admin: [records, configs, schema_text, acls]
@@ -1346,7 +1346,7 @@ mod tests {
                 issuer: https://idp.example
                 client_id: klens
                 client_secret: secret
-                redirect_uri: http://localhost:8080/auth/callback
+                redirect_uri: http://localhost:8080/api/auth/callback
               roles:
                 definitions:{definitions}
                 bindings:{bindings}
@@ -1484,7 +1484,7 @@ mod tests {
                 issuer: https://idp.example
                 client_id: klens
                 client_secret: secret
-                redirect_uri: https://klens.example/auth/callback
+                redirect_uri: https://klens.example/api/auth/callback
             ",
         )
         .unwrap();
@@ -1499,7 +1499,7 @@ mod tests {
                 issuer: https://idp.example
                 client_id: klens
                 client_secret: secret
-                redirect_uri: https://klens.example/auth/callback
+                redirect_uri: https://klens.example/api/auth/callback
                 cookie_secure: false
             ",
         )
@@ -1518,7 +1518,7 @@ mod tests {
                 issuer: https://idp.example
                 client_id: klens
                 client_secret: secret
-                redirect_uri: http://localhost:8080/auth/callback
+                redirect_uri: http://localhost:8080/api/auth/callback
                 scopes:
                   - email
             ",
@@ -1542,7 +1542,7 @@ mod tests {
                 issuer: not-a-url
                 client_id: klens
                 client_secret: secret
-                redirect_uri: http://localhost:8080/auth/callback
+                redirect_uri: http://localhost:8080/api/auth/callback
             ",
         )
         .unwrap();
@@ -1562,7 +1562,7 @@ mod tests {
                 issuer: https://idp.example
                 client_id: klens
                 client_secret: '   '
-                redirect_uri: http://localhost:8080/auth/callback
+                redirect_uri: http://localhost:8080/api/auth/callback
             ",
         )
         .unwrap();
@@ -1582,7 +1582,7 @@ mod tests {
                 issuer: https://idp.example
                 client_id: klens
                 client_secret: secret
-                redirect_uri: ftp://localhost/auth/callback
+                redirect_uri: ftp://localhost/api/auth/callback
             ",
         )
         .unwrap();
@@ -1973,7 +1973,7 @@ mod tests {
                 issuer: https://idp.example
                 client_id: klens
                 client_secret: ${OIDC_CLIENT_SECRET}
-                redirect_uri: https://klens.example/auth/callback
+                redirect_uri: https://klens.example/api/auth/callback
             ",
             &[
                 ("KAFKA_USERNAME", "admin"),
@@ -2006,7 +2006,7 @@ mod tests {
                 issuer: https://idp.example
                 client_id: klens
                 client_secret: ${OIDC_CLIENT_SECRET}
-                redirect_uri: https://klens.example/auth/callback
+                redirect_uri: https://klens.example/api/auth/callback
             ",
             &[],
         )
@@ -2039,7 +2039,7 @@ mod tests {
                 issuer: https://idp.example
                 client_id: klens
                 client_secret: ${{{secret_var}}}
-                redirect_uri: https://klens.example/auth/callback
+                redirect_uri: https://klens.example/api/auth/callback
             "
         );
         std::fs::write(&path, yaml).unwrap();

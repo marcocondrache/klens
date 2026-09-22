@@ -11,9 +11,27 @@ use crate::kafka::{
     ConfigEntry, KafkaError, RecordLimits, RecordPage, RecordQuery, SessionSet, read_page,
 };
 
-mod api;
+mod acls;
 pub(crate) mod auth;
+mod brokers;
+mod clusters;
+mod configs;
+mod context;
+mod error;
+mod groups;
 mod health;
+mod int64;
+mod paging;
+mod records;
+mod search;
+mod subjects;
+mod topics;
+mod typescript;
+mod updates;
+mod whoami;
+
+#[cfg(test)]
+mod harness;
 
 pub use auth::AuthState;
 
@@ -135,19 +153,33 @@ impl AppState {
     }
 }
 
-pub use api::typescript;
+pub use typescript::typescript;
+
+fn resources() -> Router<AppState> {
+    Router::new()
+        .merge(whoami::router())
+        .nest("/clusters", clusters::router())
+}
+
+fn auth_routes() -> Router<AppState> {
+    Router::new().nest("/auth", auth::router())
+}
+
+#[cfg(test)]
+fn api() -> Router<AppState> {
+    health::router().merge(auth_routes()).merge(resources())
+}
 
 pub fn router(state: AppState) -> Router {
-    let api = api::router().route_layer(middleware::from_fn_with_state(
+    let resources = resources().route_layer(middleware::from_fn_with_state(
         state.clone(),
         auth::require_session,
     ));
     let auth_layer = state.auth.layer();
 
     Router::new()
-        .merge(api)
-        .merge(auth::router())
         .merge(health::router())
+        .nest("/api", auth_routes().merge(resources))
         .with_state(state)
         .fallback(crate::server::web::serve)
         .layer(auth_layer)

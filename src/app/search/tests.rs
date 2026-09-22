@@ -5,7 +5,7 @@ use super::super::harness::{ok, seeded};
 #[tokio::test]
 async fn search_is_answered_from_the_prebuilt_index() {
     let state = seeded();
-    let data = ok(&state, "/api/clusters/local/search?q=orders").await;
+    let data = ok(&state, "/clusters/local/search?q=orders").await;
     let kinds: BTreeSet<&str> = data
         .as_array()
         .expect("hits")
