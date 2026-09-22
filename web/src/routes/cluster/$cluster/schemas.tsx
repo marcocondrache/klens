@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
+import { useQueryStates } from "nuqs";
 
 import {
   Sheet,
@@ -26,11 +27,10 @@ import { useSubject } from "@/lib/api/live";
 import type { SubjectRow } from "@/lib/api/types";
 import { laneCaption, useClusterName } from "@/lib/clusters";
 import { isJson } from "@/lib/format";
-import { parseSchemasSearch } from "@/lib/route-search";
+import { schemasSearch } from "@/lib/route-search";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/cluster/$cluster/schemas")({
-  validateSearch: parseSchemasSearch,
   component: SchemasPage,
 });
 
@@ -101,8 +101,7 @@ function schemaFilename(subject: string, version: number, schema: string) {
 
 function SchemasPage() {
   const cluster = useClusterName();
-  const navigate = Route.useNavigate();
-  const { q: term = "" } = Route.useSearch();
+  const [{ q: term }, setSearch] = useQueryStates(schemasSearch);
   const [selected, setSelected] = useState<SubjectRow | null>(null);
   const [version, setVersion] = useState<number | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -147,15 +146,7 @@ function SchemasPage() {
           <SearchField
             className="shrink-0"
             value={term}
-            onChange={(event) => {
-              const value = event.target.value;
-              void navigate({
-                to: ".",
-                search: value ? { q: value } : {},
-                replace: true,
-                resetScroll: false,
-              });
-            }}
+            onChange={(event) => void setSearch({ q: event.target.value })}
             placeholder="Search subjects…"
           />
         }

@@ -2,6 +2,7 @@ import { useMemo, type ReactNode } from "react";
 import { AlertTriangleIcon } from "lucide-react";
 import { createFileRoute } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
+import { useQueryStates } from "nuqs";
 
 import { Label } from "@/components/ui/label";
 import {
@@ -34,10 +35,9 @@ import {
 } from "@/lib/format";
 import type { Int64 } from "@/lib/format";
 import type { TopicRow } from "@/lib/api/types";
-import { parseTopicsSearch } from "@/lib/route-search";
+import { topicsSearch } from "@/lib/route-search";
 
 export const Route = createFileRoute("/cluster/$cluster/topics")({
-  validateSearch: parseTopicsSearch,
   component: TopicsPage,
 });
 
@@ -144,34 +144,12 @@ const columns = columnHelper.columns([
 function TopicsPage() {
   const cluster = useClusterName();
   const navigate = Route.useNavigate();
-  const { q: term = "", internal, policy = "all" } = Route.useSearch();
-  const showInternal = internal === "1";
+  const [{ q: term, internal: showInternal, policy }, setSearch] = useQueryStates(topicsSearch);
 
   const { data: topics = EMPTY_TOPICS, isPending, isError, error } = useTopicRows(cluster);
   const { data: health } = useClusterHealth(cluster);
   const now = useNow();
   const caption = laneCaption(health?.topology, now);
-
-  function update(key: "q" | "internal" | "policy", value: string | null) {
-    void navigate({
-      to: ".",
-      search: (prev) => {
-        const next = { ...prev };
-        if (value === null || value === "" || value === "all") {
-          delete next[key];
-        } else if (key === "internal") {
-          next.internal = "1";
-        } else if (key === "policy") {
-          if (value === "delete" || value === "compact") next.policy = value;
-        } else {
-          next.q = value;
-        }
-        return next;
-      },
-      replace: true,
-      resetScroll: false,
-    });
-  }
 
   const rows = useMemo(() => {
     const needle = term.trim().toLowerCase();
@@ -200,14 +178,16 @@ function TopicsPage() {
           <>
             <SearchField
               value={term}
-              onChange={(event) => update("q", event.target.value)}
+              onChange={(event) => void setSearch({ q: event.target.value })}
               placeholder="Search topics…"
             />
 
             <Select
               value={policy}
               items={POLICY_ITEMS}
-              onValueChange={(value) => update("policy", String(value))}
+              onValueChange={(value) =>
+                void setSearch({ policy: topicsSearch.policy.parse(String(value)) })
+              }
             >
               <SelectTrigger className="w-40">
                 <SelectValue placeholder="Cleanup policy" />
@@ -227,7 +207,7 @@ function TopicsPage() {
               <Switch
                 size="sm"
                 checked={showInternal}
-                onCheckedChange={(checked) => update("internal", checked ? "1" : null)}
+                onCheckedChange={(checked) => void setSearch({ internal: checked })}
               />
               Show internal
             </Label>

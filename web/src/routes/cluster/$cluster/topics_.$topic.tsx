@@ -1,6 +1,7 @@
 import { AlertTriangleIcon } from "lucide-react";
 import { createFileRoute } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
+import { useQueryStates } from "nuqs";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConfigTable } from "@/components/config-table";
@@ -26,11 +27,10 @@ import {
   toNumber,
 } from "@/lib/format";
 import type { PartitionRow, TopicDetail, TopicGroupRow } from "@/lib/api/types";
-import { parseTopicDetailSearch } from "@/lib/route-search";
+import { topicDetailSearch } from "@/lib/route-search";
 import { useAccess } from "@/hooks/use-access";
 
 export const Route = createFileRoute("/cluster/$cluster/topics_/$topic")({
-  validateSearch: parseTopicDetailSearch,
   component: TopicPage,
 });
 
@@ -158,7 +158,7 @@ function TopicPage() {
   const cluster = useClusterName();
   const navigate = Route.useNavigate();
   const { topic: topicName } = Route.useParams();
-  const { tab: tabParam } = Route.useSearch();
+  const [{ tab: tabParam }, setSearch] = useQueryStates(topicDetailSearch);
   const { can } = useAccess();
   const canRecords = can(cluster, "RECORDS");
   const canConfigs = can(cluster, "CONFIGS");
@@ -181,23 +181,6 @@ function TopicPage() {
   );
 
   const groupCount = detail?.groupCount ?? groups.length;
-
-  function selectTab(value: string) {
-    void navigate({
-      to: ".",
-      search: (prev) => {
-        const next = { ...prev };
-        if (value === "partitions" || value === "groups" || value === "config") {
-          next.tab = value;
-        } else {
-          delete next.tab;
-        }
-        return next;
-      },
-      replace: true,
-      resetScroll: false,
-    });
-  }
 
   const lookup = catalogLookupMessage({
     isPending,
@@ -243,7 +226,9 @@ function TopicPage() {
 
       <Tabs
         value={tab}
-        onValueChange={(value) => selectTab(String(value))}
+        onValueChange={(value) =>
+          void setSearch({ tab: topicDetailSearch.tab.parse(String(value)) })
+        }
         className="min-h-0 flex-1"
       >
         <TabsList variant="line" className="shrink-0">

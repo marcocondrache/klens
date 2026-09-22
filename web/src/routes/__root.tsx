@@ -1,5 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { createRootRouteWithContext, Outlet, redirect } from "@tanstack/react-router";
+import { NuqsAdapter } from "nuqs/adapters/tanstack-router";
 
 import { PageLoading } from "@/components/page-loading";
 import { authQuery } from "@/hooks/use-auth";
@@ -29,6 +30,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   pendingComponent: () => (
     <PageLoading title="Starting" description="Checking if you need to sign in." />
   ),
-  component: Outlet,
+  component: RootLayout,
   notFoundComponent: NotFoundPage,
 });
+
+function RootLayout() {
+  return (
+    <NuqsAdapter>
+      <Outlet />
+    </NuqsAdapter>
+  );
+}
