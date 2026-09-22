@@ -6,14 +6,14 @@ use crate::r#macro::from_same_variants;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub(crate) enum AclAuthorizer {
+pub enum AclAuthorizer {
     Enabled,
     Disabled,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub(crate) enum AclResourceType {
+pub enum AclResourceType {
     Topic,
     Group,
     Cluster,
@@ -31,7 +31,7 @@ from_same_variants!(domain::AclResourceType => AclResourceType {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub(crate) enum AclPatternType {
+pub enum AclPatternType {
     Literal,
     Prefixed,
 }
@@ -40,7 +40,7 @@ from_same_variants!(domain::AclPatternType => AclPatternType { Literal, Prefixed
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub(crate) enum AclOperation {
+pub enum AclOperation {
     All,
     Read,
     Write,
@@ -70,7 +70,7 @@ from_same_variants!(domain::AclOperation => AclOperation {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub(crate) enum AclPermission {
+pub enum AclPermission {
     Allow,
     Deny,
 }
@@ -79,7 +79,7 @@ from_same_variants!(domain::AclPermission => AclPermission { Allow, Deny });
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Acl {
+pub struct Acl {
     pub resource_type: AclResourceType,
     pub resource_name: String,
     pub pattern_type: AclPatternType,
@@ -105,7 +105,7 @@ impl From<domain::Acl> for Acl {
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct AclListing {
+pub struct AclListing {
     pub authorizer: AclAuthorizer,
     pub bindings: Vec<Acl>,
 }

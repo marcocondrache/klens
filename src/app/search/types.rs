@@ -6,7 +6,7 @@ use crate::r#macro::from_same_variants;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub(crate) enum SearchKind {
+pub enum SearchKind {
     Topic,
     Group,
     Node,
@@ -17,7 +17,7 @@ from_same_variants!(domain::SearchKind => SearchKind { Topic, Group, Node, Subje
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct SearchHit {
+pub struct SearchHit {
     pub kind: SearchKind,
     pub id: String,
     pub label: String,

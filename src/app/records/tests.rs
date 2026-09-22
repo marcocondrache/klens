@@ -6,7 +6,7 @@ use crate::kafka::card_record;
 use crate::kafka::model as domain;
 
 use super::super::harness::{failure, ok, seeded, seeded_with, viewer_everywhere};
-use super::Record;
+use super::types::Record;
 
 #[test]
 fn a_record_keeps_its_wire_schema_id() {

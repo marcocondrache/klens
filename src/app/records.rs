@@ -8,12 +8,12 @@ use crate::AppState;
 use super::context::Session;
 use super::error::ApiError;
 
-mod types;
+pub mod types;
 
 #[cfg(test)]
 mod tests;
 
-pub(crate) use types::{Compression, Record, RecordHeader, RecordOrder, RecordPage};
+pub(crate) use types::RecordPage;
 use types::{RecordParams, record_query};
 
 pub(crate) fn router() -> Router<AppState> {

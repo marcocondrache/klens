@@ -8,7 +8,7 @@ use super::super::int64::Int64;
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct LaneHealth {
+pub struct LaneHealth {
     pub updated_at: Option<Timestamp>,
     pub checked_at: Option<Timestamp>,
     pub last_error: Option<String>,
@@ -32,7 +32,7 @@ impl From<store::LaneHealth> for LaneHealth {
 /// Per-lane freshness and the counts a dashboard header needs.
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ClusterHealth {
+pub struct ClusterHealth {
     pub cluster: String,
     pub ready: bool,
     pub topology: LaneHealth,

@@ -35,7 +35,7 @@ bun run build
 
 ```sh
 cargo build --verbose
-cargo nextest run --verbose --no-tests=pass
+cargo nextest run --workspace --verbose --no-tests=pass
 ```
 
 ## docs

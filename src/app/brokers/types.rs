@@ -5,7 +5,7 @@ use crate::kafka::store::projections;
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct BrokerRow {
+pub struct BrokerRow {
     pub id: i32,
     pub host: String,
     pub port: i32,

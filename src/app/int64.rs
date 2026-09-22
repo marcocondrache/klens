@@ -11,7 +11,7 @@ use ts_rs::TS;
 /// crosses the wire intact. Input accepts either a string or an integer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, TS)]
 #[ts(type = "string")]
-pub(crate) struct Int64(i64);
+pub struct Int64(i64);
 
 impl Serialize for Int64 {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
