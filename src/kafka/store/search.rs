@@ -4,7 +4,7 @@ use super::tables::{SubjectTable, Topology};
 
 const MAX_HITS: usize = 20;
 
-/// Needle characters per tolerated typo: "oders" still finds "orders", while
+/// Needle characters per tolerated typo: "ordrs" still finds "orders", while
 /// needles under four characters must match every character, since a typo in
 /// three letters would match nearly anything.
 const CHARS_PER_TYPO: usize = 4;
