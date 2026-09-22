@@ -1,5 +1,4 @@
 import type { ComponentProps } from "react";
-import { TagIcon } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 
 import {
@@ -19,19 +18,11 @@ import { NavUser } from "@/components/nav-user";
 import { useAccess } from "@/hooks/use-access";
 import { useAuth } from "@/hooks/use-auth";
 import { useClusterHealth } from "@/lib/api/catalog";
-import { RELEASE_URL, REPO_URL, VERSION } from "@/lib/build";
+import { REPO_URL } from "@/lib/build";
 import { useClusterName } from "@/lib/clusters";
 import { visibleSections } from "@/lib/sections";
 
-const NAV_SECONDARY = [
-  { title: "Repository", url: REPO_URL, icon: <GithubIcon /> },
-  {
-    title: "Release notes",
-    url: RELEASE_URL,
-    icon: <TagIcon />,
-    label: <span className="numeric font-mono">v{VERSION}</span>,
-  },
-];
+const NAV_SECONDARY = [{ title: "GitHub", url: REPO_URL, icon: <GithubIcon /> }];
 
 export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
   const cluster = useClusterName();

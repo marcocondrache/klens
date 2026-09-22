@@ -12,7 +12,7 @@ export function NavSecondary({
   items,
   ...props
 }: {
-  items: { title: string; url: string; icon: ReactNode; label?: ReactNode }[];
+  items: { title: string; url: string; icon: ReactNode }[];
 } & ComponentProps<typeof SidebarGroup>) {
   return (
     <SidebarGroup {...props}>
@@ -26,7 +26,7 @@ export function NavSecondary({
                 render={<a href={item.url} target="_blank" rel="noreferrer" />}
               >
                 {item.icon}
-                <span>{item.label ?? item.title}</span>
+                <span>{item.title}</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           ))}
