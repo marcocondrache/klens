@@ -110,26 +110,15 @@ export function RecordTable<TData extends RowData>({
   });
 
   const items = virtualizer.getVirtualItems();
+  const endIndex = items.length === 0 ? -1 : items[items.length - 1].index;
+  const reachedLoader = hasNextPage && (rows.length === 0 || endIndex === rows.length);
 
   useEffect(() => {
-    if (fetchNextPage == null || !hasNextPage || isFetchingNextPage || isFetchNextPageError) return;
-    if (rows.length === 0) {
-      fetchNextPage();
+    if (fetchNextPage == null || !reachedLoader || isFetchingNextPage || isFetchNextPageError) {
       return;
     }
-
-    const edge = items[items.length - 1];
-    if (edge == null) return;
-    if (getItemKey(edge.index) === LOAD_MORE_KEY) fetchNextPage();
-  }, [
-    fetchNextPage,
-    getItemKey,
-    hasNextPage,
-    isFetchNextPageError,
-    isFetchingNextPage,
-    items,
-    rows.length,
-  ]);
+    fetchNextPage();
+  }, [fetchNextPage, isFetchNextPageError, isFetchingNextPage, reachedLoader]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
