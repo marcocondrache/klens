@@ -10,7 +10,7 @@ export type AuthMe = {
 };
 
 export async function fetchAuth(): Promise<AuthMe> {
-  const response = await fetch("/auth/me", { credentials: "include" });
+  const response = await fetch("/api/auth/me", { credentials: "include" });
   if (!response.ok) {
     throw new Error("Could not load authentication state");
   }
@@ -19,7 +19,7 @@ export async function fetchAuth(): Promise<AuthMe> {
 }
 
 export async function signOut(): Promise<void> {
-  await fetch("/auth/logout", { method: "POST", credentials: "include" });
+  await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
   window.location.assign("/login");
 }
 

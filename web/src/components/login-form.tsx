@@ -24,7 +24,7 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
           </AlertDescription>
         </Alert>
       ) : null}
-      <Button className="w-full" render={<a href="/auth/login" />}>
+      <Button className="w-full" render={<a href="/api/auth/login" />}>
         Continue with SSO
       </Button>
     </div>

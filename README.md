@@ -59,7 +59,7 @@ auth:
     issuer: https://keycloak.example.com/realms/klens
     client_id: klens
     client_secret: "..."
-    redirect_uri: http://localhost:8080/auth/callback
+    redirect_uri: http://localhost:8080/api/auth/callback
 ```
 
 Register `redirect_uri` with the identity provider. Without `roles`, any
@@ -88,7 +88,7 @@ auth:
     issuer: https://keycloak.example.com/realms/klens
     client_id: klens
     client_secret: "..."
-    redirect_uri: http://localhost:8080/auth/callback
+    redirect_uri: http://localhost:8080/api/auth/callback
   roles:
     # claim: groups
     definitions:

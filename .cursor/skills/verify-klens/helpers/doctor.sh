@@ -24,9 +24,9 @@ fi
 health="$(curl -sS -o /dev/null -w '%{http_code}' "$KLENS_VERIFY_URL/health")"
 [[ "$health" == "204" ]] || fail "GET /health returned $health, expected 204"
 
-me="$(curl -sS "$KLENS_VERIFY_URL/auth/me")"
-echo "$me" | grep -q '"enabled":false' || fail "/auth/me enabled is not false: $me"
-echo "$me" | grep -q '"user":null' || fail "/auth/me user is not null: $me"
+me="$(curl -sS "$KLENS_VERIFY_URL/api/auth/me")"
+echo "$me" | grep -q '"enabled":false' || fail "/api/auth/me enabled is not false: $me"
+echo "$me" | grep -q '"user":null' || fail "/api/auth/me user is not null: $me"
 
 html="$(curl -sS "$KLENS_VERIFY_URL/")"
 echo "$html" | grep -q '<title>klens</title>' || fail "GET / is missing <title>klens</title>"
