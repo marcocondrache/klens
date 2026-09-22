@@ -40,6 +40,29 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
       - name: Setup bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      # semantic-release only sees tags reachable from HEAD, so after a history
+      # rewrite it would restart at 1.0.0. Tags are immutable, so instead of
+      # moving the latest one, locally graft its rewritten twin (same tree)
+      # onto it. Replace refs are never pushed.
+      - name: Reattach the latest tag after history rewrites
+        run: |
+          latest="$(git tag -l 'v*' --sort=-v:refname | head -n1)"
+          if [[ -z "$latest" ]] || git merge-base --is-ancestor "$latest" HEAD; then
+            exit 0
+          fi
+
+          released="$(git rev-parse "$latest^{commit}")"
+          tree="$(git rev-parse "$released^{tree}")"
+          match="$(git log --format='%T %H' HEAD | awk -v tree="$tree" '$1 == tree && !found { print $2; found = 1 }')"
+          if [[ -z "$match" ]]; then
+            echo "::error::$latest is not on main and no commit on main has the same tree."
+            exit 1
+          fi
+
+          while read -r commit parents; do
+            [[ " $parents " == *" $match "* ]] || continue
+            git replace -f --graft "$commit" ${parents//$match/$released}
+          done < <(git rev-list --parents HEAD)
       - name: Bootstrap or release
         id: release
         env:
