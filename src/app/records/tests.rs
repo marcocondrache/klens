@@ -31,7 +31,7 @@ async fn records_are_read_live_through_the_scan_path() {
     let state = seeded();
     let data = ok(
         &state,
-        "/api/clusters/local/topics/orders.created/records?limit=3",
+        "/clusters/local/topics/orders.created/records?limit=3",
     )
     .await;
     let records = data["records"].as_array().expect("records");
@@ -52,7 +52,7 @@ async fn records_accept_rfc3339_timestamp_bounds() {
     let state = seeded();
     let data = ok(
         &state,
-        "/api/clusters/local/topics/orders.created/records?order=OLDEST&from=2023-11-14T22:13:23Z&to=2023-11-14T22:13:25Z",
+        "/clusters/local/topics/orders.created/records?order=OLDEST&from=2023-11-14T22:13:23Z&to=2023-11-14T22:13:25Z",
     )
     .await;
     let records = data["records"].as_array().expect("records");
@@ -70,7 +70,7 @@ async fn records_accept_rfc3339_timestamp_bounds() {
 async fn an_inverted_record_range_is_rejected() {
     let (status, code) = failure(
         &seeded(),
-        "/api/clusters/local/topics/orders.created/records?from=2023-11-14T22:13:25Z&to=2023-11-14T22:13:23Z",
+        "/clusters/local/topics/orders.created/records?from=2023-11-14T22:13:25Z&to=2023-11-14T22:13:23Z",
         EffectiveAccess::Unrestricted,
     )
     .await;
@@ -103,7 +103,7 @@ async fn an_obfuscated_topic_serves_tokens_instead_of_payloads() {
     .0;
     let data = ok(
         &state,
-        "/api/clusters/local/topics/orders.created/records?limit=3",
+        "/clusters/local/topics/orders.created/records?limit=3",
     )
     .await;
     let records = data["records"].as_array().expect("records");
@@ -140,7 +140,7 @@ async fn a_page_says_whether_a_rule_covers_its_topic() {
             .with_obfuscation(rules),
     )
     .0;
-    let path = "/api/clusters/local/topics/orders.created/records?limit=2";
+    let path = "/clusters/local/topics/orders.created/records?limit=2";
 
     assert_eq!(
         ok(&plain, path).await["obfuscated"],
@@ -181,7 +181,7 @@ async fn a_pattern_rule_tokens_a_topic_no_registry_ever_decodes() {
     .0;
     let data = ok(
         &state,
-        "/api/clusters/local/topics/orders.created/records?limit=3",
+        "/clusters/local/topics/orders.created/records?limit=3",
     )
     .await;
 
@@ -217,12 +217,12 @@ async fn an_obfuscated_topic_cannot_be_filtered_on_the_cleartext_it_hides() {
     .0;
     let hidden = ok(
         &state,
-        "/api/clusters/local/topics/orders.created/records?limit=3&contains=4111",
+        "/clusters/local/topics/orders.created/records?limit=3&contains=4111",
     )
     .await;
     let visible = ok(
         &state,
-        "/api/clusters/local/topics/orders.created/records?limit=3&contains=ord_1",
+        "/clusters/local/topics/orders.created/records?limit=3&contains=ord_1",
     )
     .await;
 
@@ -237,7 +237,7 @@ async fn an_obfuscated_topic_cannot_be_filtered_on_the_cleartext_it_hides() {
 async fn records_are_forbidden_without_the_records_privilege() {
     let (status, code) = failure(
         &seeded(),
-        "/api/clusters/local/topics/orders.created/records",
+        "/clusters/local/topics/orders.created/records",
         viewer_everywhere(),
     )
     .await;

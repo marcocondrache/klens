@@ -9,7 +9,7 @@ async fn an_invisible_cluster_is_not_found_rather_than_forbidden() {
     let state = two_clusters();
     let (status, code) = failure(
         &state,
-        "/api/clusters/payments",
+        "/clusters/payments",
         granted(vec![admin(only(&["local"]))]),
     )
     .await;
@@ -20,12 +20,7 @@ async fn an_invisible_cluster_is_not_found_rather_than_forbidden() {
 
 #[tokio::test]
 async fn a_cluster_nobody_configured_is_not_found() {
-    let (status, code) = failure(
-        &state(),
-        "/api/clusters/nope",
-        EffectiveAccess::Unrestricted,
-    )
-    .await;
+    let (status, code) = failure(&state(), "/clusters/nope", EffectiveAccess::Unrestricted).await;
 
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(code, "UNKNOWN_CLUSTER");
@@ -34,7 +29,7 @@ async fn a_cluster_nobody_configured_is_not_found() {
 #[tokio::test]
 async fn cluster_health_reports_per_lane_freshness_and_counts() {
     let state = seeded();
-    let health = &ok(&state, "/api/clusters").await[0];
+    let health = &ok(&state, "/clusters").await[0];
 
     assert_eq!(health["cluster"], "local");
     assert_eq!(health["ready"], true);
@@ -54,7 +49,7 @@ async fn cluster_health_reports_per_lane_freshness_and_counts() {
 
 #[tokio::test]
 async fn a_cluster_with_no_commits_yet_is_visible_but_not_ready() {
-    let health = &ok(&state(), "/api/clusters").await[0];
+    let health = &ok(&state(), "/clusters").await[0];
 
     assert_eq!(health["cluster"], "local");
     assert_eq!(health["ready"], false);

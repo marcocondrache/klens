@@ -1,7 +1,5 @@
-use axum::{
-    Router,
-    http::{Request, Response, header},
-};
+use axum::Router;
+use axum::http::{Request, Response, header};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;

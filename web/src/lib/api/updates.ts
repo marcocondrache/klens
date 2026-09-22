@@ -25,10 +25,8 @@ export function useUpdates(cluster: string, scope: Scope = {}) {
       return;
     }
 
-    return stream(
-      `/api/clusters/${encodeURIComponent(cluster)}/updates`,
-      { topic, group },
-      (update) => apply(queryClient, cluster, update),
+    return stream(`/clusters/${encodeURIComponent(cluster)}/updates`, { topic, group }, (update) =>
+      apply(queryClient, cluster, update),
     );
   }, [cluster, topic, group, queryClient]);
 }

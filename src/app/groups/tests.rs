@@ -7,7 +7,7 @@ use super::super::harness::{ok, ok_as, seeded, state, viewer_everywhere};
 #[tokio::test]
 async fn group_rows_join_commits_against_watermarks() {
     let state = seeded();
-    let data = ok(&state, "/api/clusters/local/groups").await;
+    let data = ok(&state, "/clusters/local/groups").await;
     let row = &data["rows"][0];
 
     assert_eq!(row["id"], "order-processor");
@@ -24,7 +24,7 @@ async fn opening_a_group_registers_interest_so_its_offsets_poll_faster() {
     let store = state.cluster("local").expect("local cluster");
     assert!(!store.interest.is_hot("order-processor"));
 
-    let group = ok(&state, "/api/clusters/local/groups/order-processor").await;
+    let group = ok(&state, "/clusters/local/groups/order-processor").await;
 
     assert_eq!(group["totalLag"], "15");
     assert_eq!(group["members"][0]["clientId"], "c1");
@@ -46,14 +46,14 @@ async fn a_group_id_with_a_slash_is_one_resource() {
         vec![group("billing/nightly", "orders.created", vec![0])],
     )));
 
-    let group = ok(&state, "/api/clusters/local/groups/billing/nightly").await;
+    let group = ok(&state, "/clusters/local/groups/billing/nightly").await;
 
     assert_eq!(group["id"], "billing/nightly");
 }
 
 #[tokio::test]
 async fn group_rows_stay_open_to_a_viewer() {
-    let groups = ok_as(&seeded(), "/api/clusters/local/groups", viewer_everywhere()).await;
+    let groups = ok_as(&seeded(), "/clusters/local/groups", viewer_everywhere()).await;
 
     assert_eq!(groups["total"], 1);
 }
