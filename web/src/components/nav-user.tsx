@@ -1,4 +1,4 @@
-import { EllipsisVerticalIcon, LogOutIcon } from "lucide-react";
+import { ChevronsUpDownIcon, LogOutIcon } from "lucide-react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -22,7 +22,17 @@ export function NavUser({ user }: { user: AuthUser }) {
   const { isMobile } = useSidebar();
   const name = displayName(user);
   const email = user.email?.trim();
-  const secondary = email && email !== name ? email : null;
+  const identity = (
+    <>
+      <Avatar>
+        <AvatarFallback>{initials(user)}</AvatarFallback>
+      </Avatar>
+      <div className="grid flex-1 text-left text-sm leading-tight">
+        <span className="truncate font-medium">{name}</span>
+        {email && email !== name ? <span className="truncate text-xs">{email}</span> : null}
+      </div>
+    </>
+  );
 
   return (
     <SidebarMenu>
@@ -36,44 +46,28 @@ export function NavUser({ user }: { user: AuthUser }) {
               />
             }
           >
-            <Avatar className="size-8 rounded-lg after:rounded-lg">
-              <AvatarFallback className="rounded-lg">{initials(user)}</AvatarFallback>
-            </Avatar>
-            <div className="grid flex-1 text-left text-sm leading-tight">
-              <span className="truncate font-medium">{name}</span>
-              {secondary ? (
-                <span className="truncate text-xs text-muted-foreground">{secondary}</span>
-              ) : null}
-            </div>
-            <EllipsisVerticalIcon className="ml-auto size-4" />
+            {identity}
+            <ChevronsUpDownIcon className="ml-auto" />
           </DropdownMenuTrigger>
 
           <DropdownMenuContent
-            className="min-w-56 rounded-lg"
+            className="min-w-56"
             side={isMobile ? "bottom" : "right"}
             align="end"
             sideOffset={4}
           >
             <DropdownMenuGroup>
-              <DropdownMenuLabel className="p-0 font-normal">
-                <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
-                  <Avatar className="size-8 rounded-lg after:rounded-lg">
-                    <AvatarFallback className="rounded-lg">{initials(user)}</AvatarFallback>
-                  </Avatar>
-                  <div className="grid flex-1 text-left text-sm leading-tight">
-                    <span className="truncate font-medium text-foreground">{name}</span>
-                    {secondary ? (
-                      <span className="truncate text-xs text-muted-foreground">{secondary}</span>
-                    ) : null}
-                  </div>
-                </div>
+              <DropdownMenuLabel className="p-0 font-normal text-foreground">
+                <div className="flex items-center gap-2 px-1 py-1.5">{identity}</div>
               </DropdownMenuLabel>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => void signOut()}>
-              <LogOutIcon />
-              Sign out
-            </DropdownMenuItem>
+            <DropdownMenuGroup>
+              <DropdownMenuItem onClick={() => void signOut()}>
+                <LogOutIcon />
+                Sign out
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
       </SidebarMenuItem>

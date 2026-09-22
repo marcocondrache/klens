@@ -2,7 +2,7 @@ import { Link, useMatchRoute } from "@tanstack/react-router";
 
 import {
   SidebarGroup,
-  SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuBadge,
   SidebarMenuButton,
@@ -26,32 +26,32 @@ export function NavMain({
 
   return (
     <SidebarGroup>
-      <SidebarGroupContent>
-        <SidebarMenu>
-          {sections.map((section) => {
-            const to = clusterSectionTo(section.segment);
-            const count = counts[section.segment];
+      <SidebarGroupLabel>Cluster</SidebarGroupLabel>
+      <SidebarMenu>
+        {sections.map((section) => {
+          const to = clusterSectionTo(section.segment);
+          const count = counts[section.segment];
 
-            return (
-              <SidebarMenuItem key={section.segment}>
-                <SidebarMenuButton
-                  isActive={Boolean(matchRoute({ to, params: { cluster }, fuzzy: true }))}
-                  onClick={() => setOpenMobile(false)}
-                  render={<Link to={to} params={{ cluster }} />}
-                >
-                  <section.icon />
-                  <span>{section.label}</span>
-                </SidebarMenuButton>
-                {count === undefined ? null : (
-                  <SidebarMenuBadge className="numeric text-muted-foreground">
-                    {formatCount(count)}
-                  </SidebarMenuBadge>
-                )}
-              </SidebarMenuItem>
-            );
-          })}
-        </SidebarMenu>
-      </SidebarGroupContent>
+          return (
+            <SidebarMenuItem key={section.segment}>
+              <SidebarMenuButton
+                isActive={Boolean(matchRoute({ to, params: { cluster }, fuzzy: true }))}
+                tooltip={section.label}
+                onClick={() => setOpenMobile(false)}
+                render={<Link to={to} params={{ cluster }} />}
+              >
+                <section.icon />
+                <span>{section.label}</span>
+              </SidebarMenuButton>
+              {count === undefined ? null : (
+                <SidebarMenuBadge className="numeric text-muted-foreground">
+                  {formatCount(count)}
+                </SidebarMenuBadge>
+              )}
+            </SidebarMenuItem>
+          );
+        })}
+      </SidebarMenu>
     </SidebarGroup>
   );
 }

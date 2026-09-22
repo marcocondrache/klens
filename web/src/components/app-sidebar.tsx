@@ -1,18 +1,15 @@
 import type { ComponentProps } from "react";
 import { TagIcon } from "lucide-react";
-import { Link } from "@tanstack/react-router";
 
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
+  SidebarRail,
 } from "@/components/ui/sidebar";
+import { ClusterSwitcher } from "@/components/cluster-switcher";
 import { GithubIcon } from "@/components/icons";
-import { NavClusters } from "@/components/nav-clusters";
 import { NavMain } from "@/components/nav-main";
 import { NavSecondary } from "@/components/nav-secondary";
 import { NavUser } from "@/components/nav-user";
@@ -26,9 +23,10 @@ import { visibleSections } from "@/lib/sections";
 const NAV_SECONDARY = [
   { title: "Repository", url: REPO_URL, icon: <GithubIcon /> },
   {
-    title: <span className="numeric font-mono">v{VERSION}</span>,
+    title: "Release notes",
     url: RELEASE_URL,
     icon: <TagIcon />,
+    label: <span className="numeric font-mono">v{VERSION}</span>,
   },
 ];
 
@@ -42,19 +40,9 @@ export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
   const subjects = health?.subjects.updatedAt == null ? undefined : health;
 
   return (
-    <Sidebar collapsible="offcanvas" {...props}>
+    <Sidebar collapsible="icon" {...props}>
       <SidebarHeader>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              className="data-[slot=sidebar-menu-button]:p-1.5!"
-              render={<Link to="/cluster/$cluster" params={{ cluster }} />}
-            >
-              <img src="/favicon.svg" alt="" className="size-5!" />
-              <span className="text-base font-semibold">klens</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
+        <ClusterSwitcher />
       </SidebarHeader>
       <SidebarContent>
         <NavMain
@@ -67,7 +55,6 @@ export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
             nodes: topology?.brokerCount,
           }}
         />
-        <NavClusters active={cluster} />
         <NavSecondary items={NAV_SECONDARY} className="mt-auto" />
       </SidebarContent>
       {auth?.enabled && auth.user ? (
@@ -75,6 +62,7 @@ export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
           <NavUser user={auth.user} />
         </SidebarFooter>
       ) : null}
+      <SidebarRail />
     </Sidebar>
   );
 }

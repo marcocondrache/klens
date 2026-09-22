@@ -12,17 +12,21 @@ export function NavSecondary({
   items,
   ...props
 }: {
-  items: { title: ReactNode; url: string; icon: ReactNode }[];
+  items: { title: string; url: string; icon: ReactNode; label?: ReactNode }[];
 } & ComponentProps<typeof SidebarGroup>) {
   return (
     <SidebarGroup {...props}>
       <SidebarGroupContent>
         <SidebarMenu>
           {items.map((item) => (
-            <SidebarMenuItem key={item.url}>
-              <SidebarMenuButton render={<a href={item.url} target="_blank" rel="noreferrer" />}>
+            <SidebarMenuItem key={item.title}>
+              <SidebarMenuButton
+                size="sm"
+                tooltip={item.title}
+                render={<a href={item.url} target="_blank" rel="noreferrer" />}
+              >
                 {item.icon}
-                <span>{item.title}</span>
+                <span>{item.label ?? item.title}</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           ))}
