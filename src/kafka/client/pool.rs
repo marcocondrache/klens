@@ -93,13 +93,6 @@ impl ScanPoolInner {
     }
 }
 
-/// A consumer on a connection of its own.
-///
-/// Kafka answers requests in order per connection, so a consumer on the
-/// cluster's shared connection holds up every admin and ingest request queued
-/// behind whatever it leaves there: its long polls, and on close the
-/// fetch-session close, which Redpanda never answers (an empty fetch with
-/// `max_wait_ms` 0), stalling the shared connection for good.
 pub(super) struct Reader {
     consumer: Consumer,
     client: KrafkaSharedClient,
@@ -129,14 +122,9 @@ impl Deref for Reader {
     }
 }
 
-/// How long a retired reader's close may wait on the broker before its
-/// connection is torn down anyway. Releasing the fetch session is a courtesy:
-/// a broker that never answers evicts the session on its own.
 const RETIRE_GRACE: Duration = Duration::from_secs(1);
 
-/// Nothing waits on a retired reader, so closing it is fire-and-forget. A
-/// close the broker never answers stalls only the reader's own connection,
-/// which goes with it.
+/// Nothing waits on a retired consumer, so closing it is fire-and-forget.
 pub(super) fn retire(reader: Arc<Reader>) {
     tokio::spawn(async move {
         let _ = tokio::time::timeout(RETIRE_GRACE, reader.consumer.close()).await;

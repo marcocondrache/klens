@@ -18,8 +18,6 @@ pub(super) struct Transport {
     pub(super) connector: Connector,
 }
 
-/// Everything a connection to the cluster is built from, kept so reader
-/// consumers can each open one of their own.
 #[derive(Clone)]
 pub(super) struct Connector {
     bootstrap_servers: String,
@@ -62,7 +60,6 @@ impl Connector {
         })
     }
 
-    /// A client with a connection pool of its own.
     pub(super) async fn connect(&self) -> Result<KrafkaSharedClient, KafkaError> {
         let mut builder = KrafkaSharedClient::builder(self.bootstrap_servers.clone())
             .client_id(self.client_id.clone())

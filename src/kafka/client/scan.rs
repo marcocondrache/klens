@@ -349,8 +349,6 @@ mod tests {
             .acquire("orders", &[window(0, 0, 1)])
             .await
             .unwrap();
-        // Stands in for the fetch-session close a retired consumer sends,
-        // which Redpanda never answers.
         let fetches = broker.request_count(ApiKey::Fetch);
         broker.on_once(ApiKey::Fetch, |_| Control::Silence);
         let _ = tokio::time::timeout(

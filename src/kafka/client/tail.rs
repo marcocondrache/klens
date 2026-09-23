@@ -103,8 +103,6 @@ mod tests {
         offsets
     }
 
-    /// Well inside the request timeout a request stuck behind an unanswered
-    /// one would run into.
     async fn answers_promptly(client: &KafkaClient) {
         let wanted = HashMap::from_iter([("orders".to_owned(), vec![0])]);
         tokio::time::timeout(Duration::from_secs(2), client.watermarks(&wanted))
@@ -189,8 +187,6 @@ mod tests {
             .await
             .unwrap();
 
-        // Stands in for the fetch-session close a closing tail sends, which
-        // Redpanda never answers.
         let fetches = broker.request_count(ApiKey::Fetch);
         broker.on_once(ApiKey::Fetch, |_| Control::Silence);
         let _ = tokio::time::timeout(
