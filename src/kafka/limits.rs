@@ -1,5 +1,8 @@
+use std::time::Duration;
+
 use crate::environment::{
     MAX_RECORD_LIMIT, RECORD_MIN_WINDOW, RECORD_SEARCH_WINDOW_MULTIPLIER, RECORD_WINDOW_MULTIPLIER,
+    SSE_KEEP_ALIVE, TAIL_BATCH_LIMIT, TAIL_INTERVAL,
 };
 use crate::kafka::error::QueryError;
 
@@ -46,5 +49,28 @@ impl RecordLimits {
         };
 
         (limit.saturating_mul(multiplier)).max(self.min_window) as i64
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TailLimits {
+    pub batch: usize,
+    pub interval: Duration,
+    pub heartbeat: Duration,
+    pub records: RecordLimits,
+}
+
+impl TailLimits {
+    pub fn from_env() -> Self {
+        Self {
+            batch: (*TAIL_BATCH_LIMIT).max(1),
+            interval: *TAIL_INTERVAL,
+            heartbeat: SSE_KEEP_ALIVE,
+            records: RecordLimits::from_env(),
+        }
+    }
+
+    pub fn backlog(&self, searching: bool) -> u64 {
+        self.records.window_take(self.batch, searching) as u64
     }
 }

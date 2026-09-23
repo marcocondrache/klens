@@ -49,6 +49,14 @@ impl<T> RecordBatch<T> {
         self.entries.len() >= self.limit
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    pub fn displaced(&self) -> usize {
+        self.seen - self.entries.len()
+    }
+
     /// Whether a record with this key could still reach the page.
     pub fn admits(&self, key: &SortKey) -> bool {
         if self.limit == 0 {
@@ -188,6 +196,23 @@ mod tests {
             assert!(!batch.admits(&key(0, 0, 0)));
             assert!(batch.into_sorted().is_empty());
         }
+    }
+
+    #[test]
+    fn a_full_batch_counts_what_it_let_go() {
+        let mut batch = RecordBatch::new(2, RecordOrder::Newest);
+        assert!(batch.is_empty());
+
+        batch.push(key(10, 0, 1), "a");
+        assert!(!batch.is_empty());
+        assert_eq!(batch.displaced(), 0);
+
+        batch.push(key(20, 0, 2), "b");
+        batch.push(key(30, 0, 3), "c");
+        batch.push(key(5, 0, 4), "d");
+
+        assert_eq!(batch.displaced(), 2, "one evicted, one never kept");
+        assert_eq!(batch.into_sorted(), vec!["c", "b"]);
     }
 
     #[test]

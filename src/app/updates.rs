@@ -1,7 +1,6 @@
 use std::collections::VecDeque;
 use std::convert::Infallible;
 use std::sync::Arc;
-use std::time::Duration;
 
 use axum::Router;
 use axum::extract::{Path, Query};
@@ -14,6 +13,7 @@ use tokio::sync::broadcast::error::RecvError;
 
 use crate::AppState;
 use crate::app::auth::SessionGuard;
+use crate::environment::SSE_KEEP_ALIVE;
 use crate::kafka::store::{Change, GroupOffsetsWave, InterestLease};
 
 use super::context::Session;
@@ -76,11 +76,7 @@ pub(crate) async fn updates(
     }
     .into_stream();
 
-    Ok(Sse::new(stream).keep_alive(
-        KeepAlive::new()
-            .interval(Duration::from_secs(15))
-            .text("keep-alive"),
-    ))
+    Ok(Sse::new(stream).keep_alive(KeepAlive::new().interval(SSE_KEEP_ALIVE).text("keep-alive")))
 }
 
 fn blank(value: Option<String>) -> Option<String> {
@@ -126,7 +122,7 @@ impl Stream {
                     Ok(change) => {
                         if let Some(error) = state.denied() {
                             state.done = true;
-                            return Some((Ok(error_event(&error)), state));
+                            return Some((Ok(error.event()), state));
                         }
                         state.pending.extend(project(&change, &state.scope));
                     }
@@ -148,14 +144,6 @@ fn event(update: &Update) -> Event {
     Event::default()
         .event(update.event())
         .data(serde_json::to_string(update).expect("update is serializable"))
-}
-
-fn error_event(error: &ApiError) -> Event {
-    let body = serde_json::json!({
-        "error": error.to_string(),
-        "code": error.code(),
-    });
-    Event::default().event("error").data(body.to_string())
 }
 
 fn names(values: &[Arc<str>]) -> Vec<String> {

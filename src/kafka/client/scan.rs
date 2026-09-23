@@ -3,12 +3,56 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use krafka::consumer::Consumer;
+use krafka::client::KrafkaClient as KrafkaSharedClient;
+use krafka::consumer::{AutoOffsetReset, Consumer, ConsumerBuilder, ConsumerRecord};
 
+use crate::environment::{MAX_RECORD_LIMIT, MAX_RESPONSE_MB};
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{Compression, PartitionWindow, RawRecord, ScanConsumer};
 
 use super::pool::{ScanPool, assign};
+
+pub(super) fn reader(
+    client: &KrafkaSharedClient,
+    topic: &str,
+    start: impl IntoIterator<Item = (i32, i64)>,
+    fetch_wait: Duration,
+) -> ConsumerBuilder {
+    let page_limit = i32::try_from(*MAX_RECORD_LIMIT).unwrap_or(i32::MAX);
+
+    Consumer::builder()
+        .with_client(client)
+        .enable_auto_commit(false)
+        .auto_offset_reset(AutoOffsetReset::Earliest)
+        .fetch_max_wait(fetch_wait)
+        .max_poll_records(page_limit)
+        .max_buffered_records(page_limit.saturating_mul(2))
+        // krafka's 50 MB default is wider than the frame the connection
+        // now accepts, which would make a busy fetch unreadable.
+        .fetch_max_bytes(i32::try_from(*MAX_RESPONSE_MB / 2).unwrap_or(i32::MAX))
+        // With the start offsets already known, the first assignment
+        // resolves no offsets.
+        .initial_offsets(
+            start
+                .into_iter()
+                .map(|(partition, offset)| ((topic.to_owned(), partition), offset))
+                .collect(),
+        )
+}
+
+pub(super) fn raw_record(message: ConsumerRecord) -> RawRecord {
+    RawRecord {
+        partition: message.partition,
+        offset: message.offset,
+        timestamp: message.timestamp,
+        key: message.key,
+        value: message.value,
+        headers: message.headers,
+        // krafka decodes batches before the consumer sees them and
+        // does not carry the batch's codec on the record.
+        compression: Compression::None,
+    }
+}
 
 pub(super) struct ScanLease {
     pool: Arc<ScanPool>,
@@ -61,20 +105,7 @@ impl ScanConsumer for ScanLease {
         // The scan bounds the page by its own deadline instead.
         let polled = self.poison(self.consumer.poll(budget).await.map_err(KafkaError::from))?;
 
-        Ok(polled
-            .into_iter()
-            .map(|message| RawRecord {
-                partition: message.partition,
-                offset: message.offset,
-                timestamp: message.timestamp,
-                key: message.key,
-                value: message.value,
-                headers: message.headers,
-                // krafka decodes batches before the consumer sees them and
-                // does not carry the batch's codec on the record.
-                compression: Compression::None,
-            })
-            .collect())
+        Ok(polled.into_iter().map(raw_record).collect())
     }
 
     async fn pause(&self, partitions: &[i32]) {
@@ -146,6 +177,29 @@ mod tests {
         })
         .await
         .expect("kafka client")
+    }
+
+    #[tokio::test]
+    async fn a_reader_asks_for_at_most_half_a_response_frame() {
+        let broker = FakeBroker::start().await.unwrap();
+        let client = client(&broker).await;
+
+        let config = reader(
+            &client.transport.client,
+            "orders",
+            [(0, 5)],
+            Duration::from_millis(250),
+        )
+        .build_config()
+        .unwrap();
+
+        assert_eq!(
+            config.fetch_max_bytes(),
+            i32::try_from(*MAX_RESPONSE_MB / 2).unwrap(),
+            "a fetch wider than the frame limit would be unreadable"
+        );
+        assert_eq!(config.fetch_max_wait(), Duration::from_millis(250));
+        assert_eq!(config.auto_offset_reset(), AutoOffsetReset::Earliest);
     }
 
     #[tokio::test]

@@ -8,7 +8,6 @@ use futures::StreamExt as _;
 use serde_json::Value;
 use tower::ServiceExt as _;
 
-use crate::AppState;
 use crate::app::auth::SessionGuard;
 use crate::app::auth::access::EffectiveAccess;
 use crate::kafka::store::bus::BUS_CAPACITY;
@@ -18,57 +17,16 @@ use crate::kafka::store::{
     TopologyDelta, WatermarksTick,
 };
 
-use super::super::harness::{api, failure, granted, only, seed, seeded, two_clusters, viewer};
-
-async fn open_updates(
-    state: &AppState,
-    path: &str,
-    access: EffectiveAccess,
-    guard: SessionGuard,
-) -> Response {
-    api(state.clone(), access, guard)
-        .oneshot(
-            Request::builder()
-                .uri(path)
-                .body(Body::empty())
-                .expect("request"),
-        )
-        .await
-        .expect("response")
-}
+use super::super::harness::{
+    failure, granted, only, open_stream, read_frames, seed, seeded, two_clusters, viewer,
+};
 
 async fn read_events(response: Response, count: usize) -> Vec<Value> {
-    assert_eq!(response.status(), StatusCode::OK, "updates did not open");
-    let mut stream = response.into_body().into_data_stream();
-    let mut buffer = String::new();
-    let mut events = Vec::new();
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
-
-    while events.len() < count {
-        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        assert!(
-            !remaining.is_zero(),
-            "timed out with {events:?} buffered {buffer}"
-        );
-        let chunk = tokio::time::timeout(remaining, stream.next())
-            .await
-            .expect("timeout")
-            .unwrap_or_else(|| panic!("stream ended after {} events: {buffer}", events.len()))
-            .expect("frame");
-        buffer.push_str(&String::from_utf8_lossy(&chunk));
-        while let Some(index) = buffer.find("\n\n") {
-            let frame = buffer[..index].to_owned();
-            buffer.drain(..index + 2);
-            let Some(data) = frame.lines().find_map(|line| line.strip_prefix("data:")) else {
-                continue;
-            };
-            events.push(
-                serde_json::from_str(data.trim())
-                    .unwrap_or_else(|error| panic!("sse data is not json ({error}): {data}")),
-            );
-        }
-    }
-    events
+    read_frames(response, count)
+        .await
+        .into_iter()
+        .map(|(_, data)| data)
+        .collect()
 }
 
 fn tick(topics: &[(&str, f64)]) -> Change {
@@ -105,7 +63,7 @@ fn wave(groups: &[(&str, i64)]) -> Change {
 async fn an_unscoped_subscriber_gets_the_whole_cluster_firehose() {
     let state = seeded();
     let store = Arc::clone(state.cluster("local").expect("local cluster"));
-    let response = open_updates(
+    let response = open_stream(
         &state,
         "/clusters/local/updates",
         EffectiveAccess::Unrestricted,
@@ -131,7 +89,7 @@ async fn an_unscoped_subscriber_gets_the_whole_cluster_firehose() {
 async fn a_topic_scoped_subscriber_pays_only_for_its_own_topic() {
     let state = seeded();
     let store = Arc::clone(state.cluster("local").expect("local cluster"));
-    let response = open_updates(
+    let response = open_stream(
         &state,
         "/clusters/local/updates?topic=orders.created",
         EffectiveAccess::Unrestricted,
@@ -153,7 +111,7 @@ async fn a_topic_scoped_subscriber_pays_only_for_its_own_topic() {
 async fn an_event_outside_the_scope_never_reaches_the_socket() {
     let state = seeded();
     let store = Arc::clone(state.cluster("local").expect("local cluster"));
-    let response = open_updates(
+    let response = open_stream(
         &state,
         "/clusters/local/updates?topic=payments.settled",
         EffectiveAccess::Unrestricted,
@@ -179,7 +137,7 @@ async fn an_event_outside_the_scope_never_reaches_the_socket() {
 async fn an_unscoped_lag_wave_fans_out_one_update_per_group_without_offsets() {
     let state = seeded();
     let store = Arc::clone(state.cluster("local").expect("local cluster"));
-    let response = open_updates(
+    let response = open_stream(
         &state,
         "/clusters/local/updates",
         EffectiveAccess::Unrestricted,
@@ -204,7 +162,7 @@ async fn an_unscoped_lag_wave_fans_out_one_update_per_group_without_offsets() {
 async fn a_group_scoped_subscriber_holds_an_interest_lease_for_the_stream() {
     let state = seeded();
     let store = Arc::clone(state.cluster("local").expect("local cluster"));
-    let response = open_updates(
+    let response = open_stream(
         &state,
         "/clusters/local/updates?group=order-processor",
         EffectiveAccess::Unrestricted,
@@ -233,7 +191,7 @@ async fn a_group_scoped_subscriber_holds_an_interest_lease_for_the_stream() {
 async fn a_topology_delta_reaches_a_scoped_subscriber_only_when_it_names_its_topic() {
     let state = seeded();
     let store = Arc::clone(state.cluster("local").expect("local cluster"));
-    let response = open_updates(
+    let response = open_stream(
         &state,
         "/clusters/local/updates?topic=orders.created",
         EffectiveAccess::Unrestricted,
@@ -275,7 +233,7 @@ async fn a_topology_delta_reaches_a_scoped_subscriber_only_when_it_names_its_top
 async fn falling_behind_the_bus_asks_the_client_to_refetch_instead_of_dropping_it() {
     let state = seeded();
     let store = Arc::clone(state.cluster("local").expect("local cluster"));
-    let response = open_updates(
+    let response = open_stream(
         &state,
         "/clusters/local/updates",
         EffectiveAccess::Unrestricted,
@@ -310,7 +268,7 @@ async fn a_cluster_the_session_cannot_see_is_never_subscribable() {
 async fn a_session_that_expires_mid_stream_terminates_it() {
     let state = seeded();
     let store = Arc::clone(state.cluster("local").expect("local cluster"));
-    let response = open_updates(
+    let response = open_stream(
         &state,
         "/clusters/local/updates",
         EffectiveAccess::Unrestricted,

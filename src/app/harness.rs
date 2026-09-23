@@ -1,10 +1,14 @@
 use std::sync::Arc;
 
+use std::time::Duration;
+
 use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::middleware::{self, Next};
+use axum::response::Response;
 use foldhash::HashMap;
+use futures::StreamExt as _;
 use serde_json::Value;
 use tower::ServiceExt as _;
 
@@ -104,6 +108,64 @@ pub(super) async fn call(
         })
     };
     (status, json)
+}
+
+pub(super) async fn open_stream(
+    state: &AppState,
+    path: &str,
+    access: EffectiveAccess,
+    guard: SessionGuard,
+) -> Response {
+    api(state.clone(), access, guard)
+        .oneshot(
+            Request::builder()
+                .uri(path)
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response")
+}
+
+pub(super) async fn read_frames(response: Response, count: usize) -> Vec<(String, Value)> {
+    assert_eq!(response.status(), StatusCode::OK, "stream did not open");
+    let mut stream = response.into_body().into_data_stream();
+    let mut buffer = String::new();
+    let mut events = Vec::new();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+
+    while events.len() < count {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        assert!(
+            !remaining.is_zero(),
+            "timed out with {events:?} buffered {buffer}"
+        );
+        let chunk = tokio::time::timeout(remaining, stream.next())
+            .await
+            .expect("timeout")
+            .unwrap_or_else(|| panic!("stream ended after {} events: {buffer}", events.len()))
+            .expect("frame");
+        buffer.push_str(&String::from_utf8_lossy(&chunk));
+        while let Some(index) = buffer.find("\n\n") {
+            let frame = buffer[..index].to_owned();
+            buffer.drain(..index + 2);
+            let Some(data) = frame.lines().find_map(|line| line.strip_prefix("data:")) else {
+                continue;
+            };
+            let name = frame
+                .lines()
+                .find_map(|line| line.strip_prefix("event:"))
+                .unwrap_or("message")
+                .trim()
+                .to_owned();
+            events.push((
+                name,
+                serde_json::from_str(data.trim())
+                    .unwrap_or_else(|error| panic!("sse data is not json ({error}): {data}")),
+            ));
+        }
+    }
+    events
 }
 
 pub(super) async fn ok(state: &AppState, path: &str) -> Value {

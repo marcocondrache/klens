@@ -8,6 +8,7 @@ mod groups;
 mod offsets;
 mod pool;
 mod scan;
+mod tail;
 mod transport;
 
 use std::sync::Arc;
@@ -27,7 +28,7 @@ use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
 use crate::kafka::group::{CommittedOffset, GroupSnapshot, is_internal_group};
 use crate::kafka::metadata::{MetadataSnapshot, TopicMetadata};
-use crate::kafka::model::{PartitionWindow, ScanConsumer};
+use crate::kafka::model::{PartitionWindow, ScanConsumer, TailConsumer, TailPosition};
 use crate::kafka::registry::client::SchemaRegistryClient;
 use crate::kafka::registry::decode::PayloadDecoder;
 use crate::kafka::registry::{RegisteredSchema, SchemaSubject};
@@ -41,6 +42,7 @@ use convert::committed_from_krafka;
 use groups::snapshots_from_descriptions;
 use offsets::{from_list_offsets, merge_watermark_offsets, partition_time_offsets};
 use pool::ScanPool;
+use tail::TailLease;
 
 /// Process-lifetime Kafka handle. All broker I/O for a cluster goes through here.
 ///
@@ -283,6 +285,16 @@ impl ClusterSession for KafkaClient {
         windows: &[PartitionWindow],
     ) -> Result<Box<dyn ScanConsumer>, KafkaError> {
         Ok(Box::new(self.scans.acquire(topic, windows).await?))
+    }
+
+    async fn open_tail(
+        &self,
+        topic: &str,
+        start: &[TailPosition],
+    ) -> Result<Box<dyn TailConsumer>, KafkaError> {
+        Ok(Box::new(
+            TailLease::open(&self.transport.client, topic, start).await?,
+        ))
     }
 
     fn payload_codec(&self) -> Option<Arc<dyn PayloadCodec>> {
@@ -844,7 +856,7 @@ mod tests {
         }
     }
 
-    async fn kafka_client(bootstrap: &str) -> KafkaClient {
+    pub(super) async fn kafka_client(bootstrap: &str) -> KafkaClient {
         KafkaClient::new(&ClusterConfig {
             name: "test".into(),
             bootstrap_servers: vec![bootstrap.to_owned()],

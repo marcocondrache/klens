@@ -137,6 +137,46 @@ pub static SCAN_PACE_BOUND: LazyLock<Duration> = lazy_env_parse!(
 pub static MAX_RECORD_LIMIT: LazyLock<usize> =
     lazy_env_parse!("KLENS_MAX_RECORD_LIMIT", usize, 500);
 
+/// How often a quiet event stream sends a keep-alive (15 seconds).
+pub const SSE_KEEP_ALIVE: Duration = Duration::from_secs(15);
+
+/// Most records one live-tail batch carries (default: 100).
+///
+/// A busy topic is sampled rather than streamed whole: each batch keeps the
+/// newest records it read and reports how many it passed over.
+///
+/// Override with `KLENS_TAIL_BATCH_LIMIT`.
+pub static TAIL_BATCH_LIMIT: LazyLock<usize> =
+    lazy_env_parse!("KLENS_TAIL_BATCH_LIMIT", usize, 100);
+
+/// Least time between two live-tail batches (default: 250 milliseconds).
+///
+/// With [`TAIL_BATCH_LIMIT`] this caps what one tail sends a browser.
+///
+/// Override with `KLENS_TAIL_INTERVAL_MS`.
+pub static TAIL_INTERVAL: LazyLock<Duration> =
+    lazy_env_parse!(millis, "KLENS_TAIL_INTERVAL_MS", Duration::from_millis(250));
+
+/// How long a live-tail fetch may park on the broker waiting for new records
+/// (default: 500 milliseconds).
+///
+/// Longer than [`SCAN_PACE_BOUND`] on purpose: a tail on a quiet topic spends
+/// its life waiting, and every release is another fetch round trip.
+///
+/// Override with `KLENS_TAIL_POLL_WAIT_MS`.
+pub static TAIL_POLL_WAIT: LazyLock<Duration> = lazy_env_parse!(
+    millis,
+    "KLENS_TAIL_POLL_WAIT_MS",
+    Duration::from_millis(500)
+);
+
+/// Live tails the process serves at once, across every cluster (default: 32).
+///
+/// Each one holds a consumer for as long as its browser stays connected.
+///
+/// Override with `KLENS_MAX_LIVE_TAILS`.
+pub static MAX_LIVE_TAILS: LazyLock<usize> = lazy_env_parse!("KLENS_MAX_LIVE_TAILS", usize, 32);
+
 /// How long a one-shot query keeps a consumer group in the fast offset tier
 /// (default: 30 seconds).
 ///

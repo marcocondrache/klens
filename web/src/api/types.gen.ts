@@ -125,6 +125,10 @@ complete: boolean,
  */
 obfuscated: boolean, nextCursor: string | null, prevCursor: string | null, };
 
+export type TailStart = { partition: number, offset: Int64, };
+
+export type TailEvent = { "type": "ready", start: Array<TailStart>, obfuscated: boolean, } | { "type": "records", records: Array<Record>, skipped: Int64, };
+
 export type SearchKind = "TOPIC" | "GROUP" | "NODE" | "SUBJECT";
 
 export type SearchHit = { kind: SearchKind, id: string, label: string, detail: string, };

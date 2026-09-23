@@ -20,7 +20,7 @@ use crate::kafka::group::{
     CommittedOffset, GroupMember, GroupSnapshot, GroupState, MemberAssignment,
 };
 use crate::kafka::metadata::{BrokerMetadata, MetadataSnapshot, PartitionMetadata, TopicMetadata};
-use crate::kafka::model::{PartitionWindow, RawRecord, ScanConsumer};
+use crate::kafka::model::{PartitionWindow, RawRecord, ScanConsumer, TailConsumer, TailPosition};
 use crate::kafka::registry::{RegisteredSchema, SchemaCompatibility, SchemaSubject, SchemaType};
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::{DecodedPayload, PayloadCodec, PayloadSlot, framed_schema_id};
@@ -59,6 +59,8 @@ struct Inner {
     watermark_growth: Mutex<Option<Arc<WatermarkGrowth>>>,
     assignments: Mutex<Vec<Vec<(i32, i64, i64)>>>,
     consumers: AtomicUsize,
+    tail_seeks: Mutex<Vec<Vec<(i32, i64)>>>,
+    tail_polls: AtomicUsize,
     codec: Arc<CountingCodec>,
     obfuscation: Mutex<Option<Arc<ObfuscationPolicy>>>,
     calls: SessionCalls,
@@ -230,6 +232,8 @@ impl FakeCluster {
                 watermark_growth: Mutex::new(None),
                 assignments: Mutex::new(Vec::new()),
                 consumers: AtomicUsize::new(0),
+                tail_seeks: Mutex::new(Vec::new()),
+                tail_polls: AtomicUsize::new(0),
                 codec: Arc::new(CountingCodec::default()),
                 obfuscation: Mutex::new(None),
                 calls: SessionCalls::default(),
@@ -486,6 +490,31 @@ impl FakeCluster {
             seed_topic(broker, "orders.created", &marks);
         }
         self
+    }
+
+    pub fn produce(&self, record: Record) {
+        let marks = {
+            let mut watermarks = self.inner.watermarks.lock().expect("watermarks");
+            let marks = watermarks
+                .entry(record.topic.clone())
+                .or_default()
+                .entry(record.partition)
+                .or_insert(Watermarks { low: 0, high: 0 });
+            marks.high = marks.high.max(record.offset + 1);
+            *marks
+        };
+        if let Some(broker) = self.inner.broker.get() {
+            apply_watermark(broker, &record.topic, record.partition, marks);
+        }
+        self.inner.records.lock().expect("records").push(record);
+    }
+
+    pub fn tail_seeks(&self) -> Vec<Vec<(i32, i64)>> {
+        self.inner.tail_seeks.lock().expect("tail seeks").clone()
+    }
+
+    pub fn tail_polls(&self) -> usize {
+        self.inner.tail_polls.load(Ordering::SeqCst)
     }
 
     pub fn add_partition(&self, topic: &str, id: i32, watermarks: Watermarks) {
@@ -863,6 +892,24 @@ impl ClusterSession for FakeCluster {
         Ok(Box::new(scan))
     }
 
+    async fn open_tail(
+        &self,
+        topic: &str,
+        start: &[TailPosition],
+    ) -> Result<Box<dyn TailConsumer>, KafkaError> {
+        self.inner.consumers.fetch_add(1, Ordering::SeqCst);
+        Ok(Box::new(FakeTail {
+            cluster: self.inner.clone(),
+            topic: topic.to_owned(),
+            positions: Mutex::new(
+                start
+                    .iter()
+                    .map(|position| (position.partition, position.offset))
+                    .collect(),
+            ),
+        }))
+    }
+
     fn payload_codec(&self) -> Option<Arc<dyn PayloadCodec>> {
         Some(self.inner.codec.clone())
     }
@@ -1027,6 +1074,89 @@ impl ScanConsumer for FakeScan {
     }
 
     async fn close(&self) {}
+}
+
+pub const FAKE_TAIL_POLL_RECORDS: usize = 4;
+
+struct FakeTail {
+    cluster: Arc<Inner>,
+    topic: String,
+    positions: Mutex<HashMap<i32, i64>>,
+}
+
+impl FakeTail {
+    fn take(&self) -> Vec<RawRecord> {
+        let mut positions = self.positions.lock().expect("positions");
+        let mut ready: Vec<RawRecord> = self
+            .cluster
+            .records
+            .lock()
+            .expect("records")
+            .iter()
+            .filter(|record| record.topic == self.topic)
+            .filter(|record| {
+                positions
+                    .get(&record.partition)
+                    .is_some_and(|position| record.offset >= *position)
+            })
+            .map(raw_record)
+            .collect();
+        ready.sort_by_key(|record| (record.partition, record.offset));
+        ready.truncate(FAKE_TAIL_POLL_RECORDS);
+
+        for record in &ready {
+            positions.insert(record.partition, record.offset + 1);
+        }
+        ready
+    }
+}
+
+#[async_trait]
+impl TailConsumer for FakeTail {
+    async fn poll(&self, budget: Duration) -> Result<Vec<RawRecord>, KafkaError> {
+        self.cluster.tail_polls.fetch_add(1, Ordering::SeqCst);
+        let ready = self.take();
+        if !ready.is_empty() || self.positions.lock().expect("positions").is_empty() {
+            return Ok(ready);
+        }
+        tokio::time::sleep(budget).await;
+        Ok(self.take())
+    }
+
+    async fn position(&self, partition: i32) -> Option<i64> {
+        self.positions
+            .lock()
+            .expect("positions")
+            .get(&partition)
+            .copied()
+    }
+
+    async fn lag(&self, partition: i32) -> Option<u64> {
+        let position = self.position(partition).await?;
+        let high = self
+            .cluster
+            .watermarks
+            .lock()
+            .expect("watermarks")
+            .get(&self.topic)?
+            .get(&partition)?
+            .high;
+        Some(high.saturating_sub(position).max(0) as u64)
+    }
+
+    async fn seek(&self, positions: &[TailPosition]) -> Result<(), KafkaError> {
+        self.cluster.tail_seeks.lock().expect("tail seeks").push(
+            positions
+                .iter()
+                .map(|position| (position.partition, position.offset))
+                .collect(),
+        );
+        let mut current = self.positions.lock().expect("positions");
+        for position in positions {
+            current.insert(position.partition, position.offset);
+        }
+        Ok(())
+    }
 }
 
 fn raw_record(record: &Record) -> RawRecord {

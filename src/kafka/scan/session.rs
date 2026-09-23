@@ -46,7 +46,7 @@ impl RawRecord {
         (key + value) as u64
     }
 
-    fn sort_key(&self) -> SortKey {
+    pub(super) fn sort_key(&self) -> SortKey {
         SortKey {
             timestamp: self.timestamp,
             partition: self.partition,
@@ -273,7 +273,7 @@ impl ScanSession {
     }
 }
 
-fn topic_obfuscator<S: ClusterSession + ?Sized>(
+pub(super) fn topic_obfuscator<S: ClusterSession + ?Sized>(
     session: &S,
     topic: &str,
 ) -> Option<Arc<TopicObfuscator>> {

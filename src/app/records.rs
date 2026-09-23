@@ -8,6 +8,7 @@ use crate::AppState;
 use super::context::Session;
 use super::error::ApiError;
 
+mod tail;
 pub mod types;
 
 #[cfg(test)]
@@ -17,7 +18,9 @@ pub(crate) use types::RecordPage;
 use types::{RecordParams, record_query};
 
 pub(crate) fn router() -> Router<AppState> {
-    Router::new().route("/", get(records))
+    Router::new()
+        .route("/", get(records))
+        .route("/tail", get(tail::tail))
 }
 
 async fn records(

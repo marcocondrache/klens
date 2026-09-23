@@ -1,11 +1,16 @@
 use axum::http::StatusCode;
+use serde_json::json;
 
+use crate::AppState;
+use crate::app::auth::SessionGuard;
 use crate::app::auth::access::EffectiveAccess;
 use crate::kafka::FakeCluster;
 use crate::kafka::card_record;
 use crate::kafka::model as domain;
 
-use super::super::harness::{failure, ok, seeded, seeded_with, viewer_everywhere};
+use super::super::harness::{
+    failure, ok, open_stream, read_frames, seeded, seeded_with, viewer_everywhere,
+};
 use super::types::Record;
 
 #[test]
@@ -246,4 +251,162 @@ async fn records_are_forbidden_without_the_records_privilege() {
         (status, code.as_str()),
         (StatusCode::FORBIDDEN, "FORBIDDEN")
     );
+}
+
+const TAIL: &str = "/clusters/local/topics/orders.created/records/tail";
+
+fn produced(partition: i32, offset: i64, key: &str) -> domain::Record {
+    domain::Record {
+        topic: "orders.created".into(),
+        partition,
+        offset,
+        timestamp: 1_700_000_100_000 + offset,
+        key: Some(key.into()),
+        value: None,
+        schema_id: None,
+        headers: Vec::new(),
+        size_bytes: key.len() as u64,
+        compression: domain::Compression::None,
+    }
+}
+
+#[tokio::test]
+async fn a_tail_announces_where_it_starts_then_streams_what_arrives() {
+    let (state, session) = seeded_with(FakeCluster::local());
+    let response = open_stream(
+        &state,
+        TAIL,
+        EffectiveAccess::Unrestricted,
+        SessionGuard::open(),
+    )
+    .await;
+    session.produce(produced(0, 8, "new"));
+
+    let frames = read_frames(response, 2).await;
+
+    assert_eq!(frames[0].0, "ready");
+    assert_eq!(
+        frames[0].1,
+        json!({
+            "type": "ready",
+            "start": [
+                { "partition": 0, "offset": "8" },
+                { "partition": 1, "offset": "8" },
+            ],
+            "obfuscated": false,
+        })
+    );
+    assert_eq!(frames[1].0, "records");
+    assert_eq!(frames[1].1["type"], "records");
+    assert_eq!(frames[1].1["skipped"], "0");
+    let records = frames[1].1["records"].as_array().expect("records");
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0]["offset"], "8");
+    assert_eq!(records[0]["key"], "new");
+}
+
+#[tokio::test]
+async fn a_tail_narrows_to_its_partition_and_filter() {
+    let (state, session) = seeded_with(FakeCluster::local());
+    let response = open_stream(
+        &state,
+        &format!("{TAIL}?partition=1&contains=hit"),
+        EffectiveAccess::Unrestricted,
+        SessionGuard::open(),
+    )
+    .await;
+    session.produce(produced(0, 8, "hit elsewhere"));
+    session.produce(produced(1, 8, "miss"));
+    session.produce(produced(1, 9, "hit"));
+
+    let frames = read_frames(response, 2).await;
+
+    assert_eq!(
+        frames[0].1["start"],
+        json!([{ "partition": 1, "offset": "8" }])
+    );
+    let records = frames[1].1["records"].as_array().expect("records");
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0]["partition"], 1);
+    assert_eq!(records[0]["key"], "hit");
+}
+
+#[tokio::test]
+async fn an_expired_session_ends_the_tail_with_an_error_frame() {
+    let (state, session) = seeded_with(FakeCluster::local());
+    let response = open_stream(
+        &state,
+        TAIL,
+        EffectiveAccess::Unrestricted,
+        SessionGuard::expired(),
+    )
+    .await;
+    session.produce(produced(0, 8, "unseen"));
+
+    let frames = read_frames(response, 2).await;
+
+    assert_eq!(frames[1].0, "error");
+    assert_eq!(frames[1].1["code"], "SESSION_EXPIRED");
+}
+
+async fn refused(state: &AppState, path: &str, access: EffectiveAccess) -> (StatusCode, String) {
+    let response = open_stream(state, path, access, SessionGuard::open()).await;
+    let status = response.status();
+    assert_ne!(status, StatusCode::OK, "{path} opened a tail");
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    let json: serde_json::Value = serde_json::from_slice(&body).expect("json error");
+    (status, json["code"].as_str().expect("code").to_owned())
+}
+
+#[tokio::test]
+async fn a_tail_is_forbidden_without_the_records_privilege() {
+    let (status, code) = refused(&seeded(), TAIL, viewer_everywhere()).await;
+
+    assert_eq!(
+        (status, code.as_str()),
+        (StatusCode::FORBIDDEN, "FORBIDDEN")
+    );
+}
+
+#[tokio::test]
+async fn tails_past_capacity_are_turned_away_until_one_closes() {
+    let state = seeded().with_tail_capacity(1);
+    let (status, code) = refused(
+        &state,
+        "/clusters/local/topics/ghost/records/tail",
+        EffectiveAccess::Unrestricted,
+    )
+    .await;
+    assert_eq!(
+        (status, code.as_str()),
+        (StatusCode::NOT_FOUND, "UNKNOWN_TOPIC"),
+        "a tail that never opened gives its seat back"
+    );
+
+    let open = open_stream(
+        &state,
+        TAIL,
+        EffectiveAccess::Unrestricted,
+        SessionGuard::open(),
+    )
+    .await;
+    assert_eq!(open.status(), StatusCode::OK);
+
+    let (status, code) = refused(&state, TAIL, EffectiveAccess::Unrestricted).await;
+    assert_eq!(
+        (status, code.as_str()),
+        (StatusCode::SERVICE_UNAVAILABLE, "TOO_MANY_TAILS")
+    );
+
+    drop(open);
+    let reopened = open_stream(
+        &state,
+        TAIL,
+        EffectiveAccess::Unrestricted,
+        SessionGuard::open(),
+    )
+    .await;
+    assert_eq!(reopened.status(), StatusCode::OK);
 }

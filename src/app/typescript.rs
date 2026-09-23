@@ -10,7 +10,9 @@ pub use super::groups::types::{
     GroupDetail, GroupMember, GroupOffset, GroupRow, GroupRowPage, GroupState, MemberAssignment,
 };
 pub use super::int64::Int64;
-pub use super::records::types::{Compression, Record, RecordHeader, RecordOrder, RecordPage};
+pub use super::records::types::{
+    Compression, Record, RecordHeader, RecordOrder, RecordPage, TailEvent, TailStart,
+};
 pub use super::search::types::{SearchHit, SearchKind};
 pub use super::subjects::types::{
     SchemaCompatibility, SchemaReference, SchemaType, SubjectDetail, SubjectRow, SubjectRowsResult,

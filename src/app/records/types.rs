@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::kafka::model as domain;
-use crate::kafka::{QueryError, RecordCursor};
+use crate::kafka::{QueryError, RecordCursor, Tail, TailBatch, TailPosition, TailQuery};
 use crate::r#macro::from_same_variants;
 
 use super::super::int64::Int64;
@@ -145,4 +145,82 @@ pub(crate) struct RecordParams {
 
 fn default_record_limit() -> i32 {
     50
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct TailStart {
+    pub partition: i32,
+    pub offset: Int64,
+}
+
+impl From<&TailPosition> for TailStart {
+    fn from(position: &TailPosition) -> Self {
+        Self {
+            partition: position.partition,
+            offset: position.offset.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum TailEvent {
+    Ready {
+        start: Vec<TailStart>,
+        obfuscated: bool,
+    },
+    Records {
+        records: Vec<Record>,
+        skipped: Int64,
+    },
+}
+
+impl TailEvent {
+    pub(crate) fn ready(tail: &Tail) -> Self {
+        Self::Ready {
+            start: tail.start().iter().map(TailStart::from).collect(),
+            obfuscated: tail.obfuscated(),
+        }
+    }
+
+    pub(crate) fn event(&self) -> &'static str {
+        match self {
+            Self::Ready { .. } => "ready",
+            Self::Records { .. } => "records",
+        }
+    }
+}
+
+impl From<TailBatch> for TailEvent {
+    fn from(batch: TailBatch) -> Self {
+        Self::Records {
+            records: batch.records.into_iter().map(Into::into).collect(),
+            skipped: batch.skipped.into(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TailParams {
+    pub partition: Option<i32>,
+    pub contains: Option<String>,
+    pub schema_id: Option<i32>,
+}
+
+pub(crate) fn tail_query(topic: String, params: TailParams) -> TailQuery {
+    TailQuery {
+        filter: params
+            .contains
+            .as_deref()
+            .and_then(crate::kafka::compile_contains_filter),
+        topic,
+        partition: params.partition,
+        schema_id: params.schema_id,
+    }
 }
