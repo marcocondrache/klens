@@ -13,7 +13,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { DataTableColumnHeader } from "@/components/data-table/column-header";
 import { type DataTableFeatures } from "@/components/data-table/features";
-import { FilterBar } from "@/components/data-table/filter-bar";
+import { FilterBar, type CustomFilter } from "@/components/data-table/filter-bar";
 import {
   selectedOptions,
   type FilterField,
@@ -177,7 +177,8 @@ type RecordViewProps = {
   source: RecordSource;
   filter: RecordFilter;
   onFilterChange: (filter: RecordFilter) => void;
-  controls?: ReactNode;
+  /** Mode-specific filters beside the partition filter. */
+  filters?: readonly CustomFilter[];
   actions?: ReactNode;
   notice?: ReactNode;
   emptyState: ReactNode;
@@ -189,7 +190,7 @@ export function RecordView({
   source,
   filter,
   onFilterChange,
-  controls,
+  filters,
   actions,
   notice,
   emptyState,
@@ -233,9 +234,8 @@ export function RecordView({
               fields={fields}
               value={filter.rules}
               onChange={(rules) => onFilterChange({ ...filter, rules })}
+              custom={filters}
             />
-
-            {controls}
 
             {showSchemaPicker ? (
               <SchemaPicker
