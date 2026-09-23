@@ -185,8 +185,6 @@ export function RecordView({
       : (records.find(
           (record) => record.partition === selected.partition && record.offset === selected.offset,
         ) ?? selected);
-  // A framed value names its own schema; the picker's override only reads the
-  // values that carry none.
   const selectedSchemaId =
     selectedRecord?.value == null ? null : (selectedRecord.schemaId ?? filter.schemaId);
 
@@ -377,7 +375,6 @@ export function RecordView({
 
 function SchemaLink({ cluster, topic, id }: { cluster: string; topic: string; id: number }) {
   const { data } = useSubjectRows(cluster);
-  // Several subjects can register the same schema; prefer the topic's own.
   const matches = data?.rows.filter((row) => row.id === id) ?? [];
   const subject = matches.find((row) => row.subject === `${topic}-value`) ?? matches[0];
 
