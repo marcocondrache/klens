@@ -94,7 +94,7 @@ export function DataTable<TData extends RowData>({
                       <TableHead
                         key={header.id}
                         className={cn(
-                          "h-9 bg-subtle px-3 text-xs font-medium text-muted-foreground first:pl-4 last:pr-4",
+                          "h-10 bg-subtle px-3 text-xs font-medium text-muted-foreground first:pl-4 last:pr-4",
                           fill && "sticky top-0 z-10 shadow-[inset_0_-1px_0_0_var(--color-border)]",
                           meta?.align === "right" && "text-right",
                           meta?.headerClassName,
@@ -112,7 +112,7 @@ export function DataTable<TData extends RowData>({
                 Array.from({ length: 6 }, (_, index) => (
                   <TableRow key={index} className="hover:bg-transparent">
                     {columns.map((_, columnIndex) => (
-                      <TableCell key={columnIndex} className="h-9 px-3 first:pl-4 last:pr-4">
+                      <TableCell key={columnIndex} className="h-10 px-3 first:pl-4 last:pr-4">
                         <Skeleton className="h-3.5 w-full max-w-28" />
                       </TableCell>
                     ))}
@@ -148,7 +148,7 @@ export function DataTable<TData extends RowData>({
                           <TableCell
                             key={cell.id}
                             className={cn(
-                              "h-9 px-3 py-1.5 first:pl-4 last:pr-4",
+                              "h-10 px-3 py-2 first:pl-4 last:pr-4",
                               meta?.align === "right" && "text-right numeric",
                               meta?.className,
                             )}

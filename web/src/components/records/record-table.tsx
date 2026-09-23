@@ -15,7 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 
-const ROW_SIZE = 36;
+const ROW_SIZE = 40;
 const LOAD_MORE_KEY = "load-more";
 
 const COLUMN_TRACK: Record<string, string> = {
@@ -131,7 +131,7 @@ export function RecordTable<TData extends RowData>({
                 style={{ gridTemplateColumns }}
               >
                 {leafColumns.map((column) => (
-                  <div key={column.id} role="cell" className="px-3 py-2.5 first:pl-4 last:pr-4">
+                  <div key={column.id} role="cell" className="px-3 py-3 first:pl-4 last:pr-4">
                     <Skeleton className="h-3.5 w-full max-w-28" />
                   </div>
                 ))}
@@ -215,7 +215,7 @@ export function RecordTable<TData extends RowData>({
                               key={cell.id}
                               role="cell"
                               className={cn(
-                                "px-3 py-2 align-middle text-sm whitespace-nowrap first:pl-4 last:pr-4",
+                                "px-3 py-2.5 align-middle text-sm whitespace-nowrap first:pl-4 last:pr-4",
                                 meta?.align === "right" && "text-right numeric",
                                 meta?.className,
                               )}
@@ -261,7 +261,7 @@ function HeaderRow<TData extends RowData>({
             key={header.id}
             role="columnheader"
             className={cn(
-              "flex h-9 items-center px-3 text-left text-xs font-medium whitespace-nowrap text-muted-foreground first:pl-4 last:pr-4",
+              "flex h-10 items-center px-3 text-left text-xs font-medium whitespace-nowrap text-muted-foreground first:pl-4 last:pr-4",
               meta?.align === "right" && "justify-end text-right",
               meta?.headerClassName,
             )}

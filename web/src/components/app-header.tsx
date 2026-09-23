@@ -76,10 +76,7 @@ export function AppHeader({ onSearch }: { onSearch: () => void }) {
                   <BreadcrumbItem className="min-w-0">
                     {last || !crumb.section ? (
                       <BreadcrumbPage
-                        className={cn(
-                          "truncate font-medium",
-                          crumb.mono && "font-mono text-[0.8rem]",
-                        )}
+                        className={cn("truncate font-medium", crumb.mono && "font-mono")}
                       >
                         {crumb.label}
                       </BreadcrumbPage>

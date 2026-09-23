@@ -430,7 +430,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                   {selectedRecord.headers.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No headers.</p>
                   ) : (
-                    <dl className="grid max-h-40 grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-6 overflow-y-auto rounded-lg border bg-subtle px-3 py-2 font-mono text-[0.8rem]">
+                    <dl className="grid max-h-40 grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-6 overflow-y-auto rounded-lg border bg-subtle px-3 py-2 font-mono text-sm">
                       {selectedRecord.headers.map((header) => (
                         <div key={header.key} className="contents">
                           <dt className="truncate py-1 text-muted-foreground">{header.key}</dt>
