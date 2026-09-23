@@ -26,6 +26,7 @@ fn cluster_routes() -> Router<AppState> {
         .route("/", get(cluster))
         .nest("/topics", super::topics::router())
         .nest("/groups", super::groups::router())
+        .nest("/group-offsets", super::group_offsets::router())
         .nest("/brokers", super::brokers::router())
         .nest("/subjects", super::subjects::router())
         .nest("/acls", super::acls::router())

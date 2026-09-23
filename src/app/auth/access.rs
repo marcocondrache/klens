@@ -13,10 +13,19 @@ pub enum Privilege {
     Configs,
     SchemaText,
     Acls,
+    ResetOffsets,
+    DeleteGroupOffsets,
 }
 
 impl Privilege {
-    pub const ALL: [Self; 4] = [Self::Records, Self::Configs, Self::SchemaText, Self::Acls];
+    pub const ALL: [Self; 6] = [
+        Self::Records,
+        Self::Configs,
+        Self::SchemaText,
+        Self::Acls,
+        Self::ResetOffsets,
+        Self::DeleteGroupOffsets,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -24,15 +33,19 @@ impl Privilege {
             Self::Configs => "configs",
             Self::SchemaText => "schemaText",
             Self::Acls => "acls",
+            Self::ResetOffsets => "resetOffsets",
+            Self::DeleteGroupOffsets => "deleteGroupOffsets",
         }
     }
 
-    const fn bit(self) -> u8 {
+    const fn bit(self) -> u32 {
         match self {
             Self::Records => 1 << 0,
             Self::Configs => 1 << 1,
             Self::SchemaText => 1 << 2,
             Self::Acls => 1 << 3,
+            Self::ResetOffsets => 1 << 4,
+            Self::DeleteGroupOffsets => 1 << 5,
         }
     }
 }
@@ -43,19 +56,32 @@ impl Display for Privilege {
     }
 }
 
-from_same_variants!(PrivilegeName => Privilege { Records, Configs, SchemaText, Acls });
+from_same_variants!(PrivilegeName => Privilege {
+    Records,
+    Configs,
+    SchemaText,
+    Acls,
+    ResetOffsets,
+    DeleteGroupOffsets,
+});
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct PrivilegeSet(u8);
+pub struct PrivilegeSet(u32);
 
 impl PrivilegeSet {
     pub const NONE: Self = Self(0);
-    pub const ALL: Self = Self(
+    pub const ALL: Self = Self::READS.union(Self::WRITES);
+    /// Privileges that only read the cluster. No cluster setting narrows them.
+    pub const READS: Self = Self(
         Privilege::Records.bit()
             | Privilege::Configs.bit()
             | Privilege::SchemaText.bit()
             | Privilege::Acls.bit(),
     );
+    /// Privileges that change the cluster. Each takes effect only where the
+    /// cluster opts in to it.
+    pub const WRITES: Self =
+        Self(Privilege::ResetOffsets.bit() | Privilege::DeleteGroupOffsets.bit());
 
     pub fn from_privileges(privileges: impl IntoIterator<Item = Privilege>) -> Self {
         privileges
@@ -67,8 +93,12 @@ impl PrivilegeSet {
         self.0 & privilege.bit() != 0
     }
 
-    pub fn union(self, other: Self) -> Self {
+    pub const fn union(self, other: Self) -> Self {
         Self(self.0 | other.0)
+    }
+
+    pub const fn intersection(self, other: Self) -> Self {
+        Self(self.0 & other.0)
     }
 
     pub fn iter(self) -> impl Iterator<Item = Privilege> {
@@ -212,6 +242,15 @@ impl<'a> ClusterAccess<'a> {
         self.privileges.iter().collect()
     }
 
+    /// Narrows this access to what the cluster itself accepts, whatever the
+    /// roles granted.
+    pub fn capped(self, ceiling: PrivilegeSet) -> Self {
+        Self {
+            privileges: self.privileges.intersection(ceiling),
+            ..self
+        }
+    }
+
     fn capability(&self, privilege: Privilege) -> Result<Capability<'a>, AccessError> {
         if self.allows(privilege) {
             Ok(Capability {
@@ -255,6 +294,12 @@ capability!(RecordsCap, records, Privilege::Records);
 capability!(ConfigsCap, configs, Privilege::Configs);
 capability!(SchemaTextCap, schema_text, Privilege::SchemaText);
 capability!(AclsCap, acls, Privilege::Acls);
+capability!(ResetOffsetsCap, reset_offsets, Privilege::ResetOffsets);
+capability!(
+    DeleteGroupOffsetsCap,
+    delete_group_offsets,
+    Privilege::DeleteGroupOffsets
+);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Identity<'a> {
@@ -395,6 +440,8 @@ mod tests {
         PrivilegeName::Configs,
         PrivilegeName::SchemaText,
         PrivilegeName::Acls,
+        PrivilegeName::ResetOffsets,
+        PrivilegeName::DeleteGroupOffsets,
     ];
 
     fn table(definitions: &[(&str, &[PrivilegeName])], bindings: Vec<RoleBinding>) -> AccessPolicy {
@@ -623,7 +670,7 @@ mod tests {
 
         assert_eq!(
             access.privileges_for("prod"),
-            Some(PrivilegeSet::ALL),
+            Some(PrivilegeSet::READS),
             "neither role contains the other; both apply"
         );
         assert_eq!(
@@ -694,6 +741,67 @@ mod tests {
             PrivilegeSet::ALL
         );
         assert!(PrivilegeSet::NONE.iter().next().is_none());
+    }
+
+    // The reverse of the production conversion, so the test below can ask
+    // the config how it classifies each privilege.
+    from_same_variants!(Privilege => PrivilegeName {
+        Records,
+        Configs,
+        SchemaText,
+        Acls,
+        ResetOffsets,
+        DeleteGroupOffsets,
+    });
+
+    #[test]
+    fn every_privilege_either_reads_or_writes() {
+        assert_eq!(
+            PrivilegeSet::READS.intersection(PrivilegeSet::WRITES),
+            PrivilegeSet::NONE
+        );
+        assert_eq!(
+            PrivilegeSet::READS.union(PrivilegeSet::WRITES),
+            PrivilegeSet::ALL
+        );
+        for privilege in Privilege::ALL {
+            assert_eq!(
+                PrivilegeSet::WRITES.contains(privilege),
+                PrivilegeName::from(privilege).is_write(),
+                "{privilege} is classified differently by the config"
+            );
+        }
+    }
+
+    #[test]
+    fn a_cluster_ceiling_narrows_even_unrestricted_access() {
+        let access = EffectiveAccess::Unrestricted;
+        let ceiling = PrivilegeSet::READS.union(set(&[Privilege::ResetOffsets]));
+        let staging = access.cluster("staging").unwrap().capped(ceiling);
+
+        assert!(staging.records().is_ok());
+        assert_eq!(staging.reset_offsets().unwrap().cluster(), "staging");
+        assert_eq!(
+            staging.delete_group_offsets().unwrap_err(),
+            AccessError::Forbidden {
+                cluster: "staging".into(),
+                privilege: Privilege::DeleteGroupOffsets,
+            }
+        );
+    }
+
+    #[test]
+    fn a_ceiling_never_adds_what_no_role_granted() {
+        let policy = table(
+            &[("viewer", &[PrivilegeName::Records])],
+            vec![binding(&["everyone"], "viewer", None)],
+        );
+        let access = admit(&policy, &["everyone"]).unwrap();
+        let prod = access.cluster("prod").unwrap().capped(PrivilegeSet::ALL);
+
+        assert!(prod.records().is_ok());
+        assert!(prod.reset_offsets().is_err());
+        assert_eq!(prod.privileges(), vec![Privilege::Records]);
     }
 
     #[test]

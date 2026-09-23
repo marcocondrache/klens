@@ -1,6 +1,7 @@
 mod client;
 mod registry;
 mod session;
+mod writes;
 
 mod metadata;
 mod topic_config;
@@ -29,6 +30,7 @@ pub use scan::filter::{CompiledFilter, contains as compile_contains_filter};
 pub use scan::read::read_page;
 pub use scan::tail::{Tail, TailBatch, TailPosition, TailQuery};
 pub use session::{ClusterSession, SessionSet};
+pub use writes::{ClusterWrites, OffsetMove, ResetScope, ResetTarget, plan_reset};
 
 #[cfg(test)]
 pub use testing::{FAKE_TAIL_POLL_RECORDS, FakeCluster, card_record};

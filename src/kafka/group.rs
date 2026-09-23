@@ -55,6 +55,14 @@ pub enum GroupState {
 }
 
 impl GroupState {
+    /// Whether consumers are attached, so the broker refuses offset writes.
+    pub fn has_members(self) -> bool {
+        match self {
+            Self::Stable | Self::PreparingRebalance | Self::CompletingRebalance => true,
+            Self::Empty | Self::Dead => false,
+        }
+    }
+
     pub fn parse(raw: &str) -> Self {
         let normalized: String = raw
             .chars()
@@ -174,5 +182,14 @@ mod tests {
         );
         assert_eq!(GroupState::parse("Dead"), GroupState::Dead);
         assert_eq!(GroupState::parse("whatever"), GroupState::Empty);
+    }
+
+    #[test]
+    fn only_an_empty_or_dead_group_is_free_of_members() {
+        assert!(GroupState::Stable.has_members());
+        assert!(GroupState::PreparingRebalance.has_members());
+        assert!(GroupState::CompletingRebalance.has_members());
+        assert!(!GroupState::Empty.has_members());
+        assert!(!GroupState::Dead.has_members());
     }
 }

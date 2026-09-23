@@ -59,6 +59,12 @@ impl From<u64> for Int64 {
     }
 }
 
+impl From<Int64> for i64 {
+    fn from(value: Int64) -> Self {
+        value.0
+    }
+}
+
 impl From<i32> for Int64 {
     fn from(value: i32) -> Self {
         Self(i64::from(value))

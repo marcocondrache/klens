@@ -188,6 +188,8 @@ pub enum PrivilegeName {
     Configs,
     SchemaText,
     Acls,
+    ResetOffsets,
+    DeleteGroupOffsets,
 }
 
 impl PrivilegeName {
@@ -197,6 +199,18 @@ impl PrivilegeName {
             Self::Configs => "configs",
             Self::SchemaText => "schema_text",
             Self::Acls => "acls",
+            Self::ResetOffsets => "reset_offsets",
+            Self::DeleteGroupOffsets => "delete_group_offsets",
+        }
+    }
+
+    /// Whether the privilege changes the cluster rather than reading it. A
+    /// write privilege only takes effect on a cluster that lists it in
+    /// `writes`.
+    pub fn is_write(self) -> bool {
+        match self {
+            Self::Records | Self::Configs | Self::SchemaText | Self::Acls => false,
+            Self::ResetOffsets | Self::DeleteGroupOffsets => true,
         }
     }
 }
@@ -362,6 +376,10 @@ pub struct ClusterConfig {
     pub properties: KafkaProperties,
     #[serde(default)]
     pub ingest: ClusterIngestConfig,
+    /// Write privileges this cluster accepts. Empty, the default, keeps the
+    /// cluster read-only whatever a role grants.
+    #[serde(default)]
+    pub writes: Vec<PrivilegeName>,
 }
 
 /// Per-cluster ingest cadence, in seconds. Omitted keys use the defaults.
@@ -506,6 +524,13 @@ impl ClusterConfig {
         }
 
         self.ingest.validate(&self.name)?;
+
+        if let Some(read) = self.writes.iter().find(|privilege| !privilege.is_write()) {
+            return Err(ConfigError::invalid_cluster(
+                self.name.clone(),
+                format!("writes lists '{read}', which is not a write privilege"),
+            ));
+        }
 
         Ok(())
     }
@@ -905,6 +930,63 @@ mod tests {
     }
 
     #[test]
+    fn a_cluster_is_read_only_unless_it_lists_writes() {
+        let cluster = parse_cluster(
+            "
+            name: prod
+            bootstrap_servers:
+              - kafka:9092
+            ",
+        )
+        .unwrap();
+
+        assert!(cluster.writes.is_empty());
+    }
+
+    #[test]
+    fn parses_the_write_privileges_a_cluster_accepts() {
+        let cluster = parse_cluster(
+            "
+            name: staging
+            bootstrap_servers:
+              - kafka:9092
+            writes: [reset_offsets, delete_group_offsets]
+            ",
+        )
+        .unwrap();
+
+        assert_eq!(
+            cluster.writes,
+            vec![
+                PrivilegeName::ResetOffsets,
+                PrivilegeName::DeleteGroupOffsets
+            ]
+        );
+        cluster.validate().unwrap();
+    }
+
+    #[test]
+    fn writes_rejects_a_read_privilege() {
+        let cluster = parse_cluster(
+            "
+            name: staging
+            bootstrap_servers:
+              - kafka:9092
+            writes: [reset_offsets, records]
+            ",
+        )
+        .unwrap();
+
+        let error = cluster.validate().unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("writes lists 'records', which is not a write privilege"),
+            "{error}"
+        );
+    }
+
+    #[test]
     fn rejects_unknown_ingest_keys() {
         let error = parse_cluster(
             "
@@ -1194,6 +1276,7 @@ mod tests {
             obfuscation: None,
             properties: KafkaProperties::default(),
             ingest: ClusterIngestConfig::default(),
+            writes: Vec::new(),
         };
 
         config.validate().unwrap();

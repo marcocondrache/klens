@@ -29,6 +29,7 @@ use crate::kafka::scan::payload::{DecodedPayload, PayloadCodec, PayloadSlot, fra
 use crate::kafka::scan::{Compression, Record, RecordHeader};
 use crate::kafka::session::ClusterSession;
 use crate::kafka::topic_config::{ConfigEntry, ConfigSource};
+use crate::kafka::writes::ClusterWrites;
 
 const SUBJECT_SCHEMA: &str =
     r#"{"type":"record","name":"Order","fields":[{"name":"orderId","type":"string"}]}"#;
@@ -67,8 +68,11 @@ struct Inner {
     tail_polls: AtomicUsize,
     codec: Arc<CountingCodec>,
     obfuscation: Mutex<Option<Arc<ObfuscationPolicy>>>,
+    write_rejection: Mutex<Option<WriteRejection>>,
     calls: SessionCalls,
 }
+
+type WriteRejection = fn(&str, &str) -> KafkaError;
 
 #[derive(Debug)]
 struct WatermarkGrowth {
@@ -235,6 +239,7 @@ impl FakeCluster {
                 tail_polls: AtomicUsize::new(0),
                 codec: Arc::new(CountingCodec::default()),
                 obfuscation: Mutex::new(None),
+                write_rejection: Mutex::new(None),
                 calls: SessionCalls::default(),
             }),
         }
@@ -402,6 +407,24 @@ impl FakeCluster {
         {
             group.committed = committed;
         }
+    }
+
+    /// Makes every group write fail the way the broker would, for example
+    /// when a consumer joined after the store last saw the group.
+    pub fn reject_writes(&self, rejection: WriteRejection) {
+        *self.inner.write_rejection.lock().expect("write rejection") = Some(rejection);
+    }
+
+    /// The group's committed offsets, as a write left them.
+    pub fn committed(&self, id: &str) -> Vec<CommittedOffset> {
+        self.inner
+            .groups
+            .lock()
+            .expect("groups")
+            .iter()
+            .find(|group| group.id == id)
+            .map(|group| group.committed.clone())
+            .unwrap_or_default()
     }
 
     pub fn set_topic_configs(&self, topic: &str, configs: Vec<ConfigEntry>) {
@@ -640,6 +663,75 @@ fn broker_watermarks(broker: &FakeBroker, topic: &str, partition: i32) -> Option
                 high: partition.next_offset,
             })
     })
+}
+
+#[async_trait]
+impl ClusterWrites for FakeCluster {
+    async fn commit_group_offsets(
+        &self,
+        group: &str,
+        offsets: &[CommittedOffset],
+    ) -> Result<(), KafkaError> {
+        self.inner.calls.group_writes.fetch_add(1, Ordering::SeqCst);
+        if let Some(reject) = *self.inner.write_rejection.lock().expect("write rejection") {
+            return Err(reject(&self.identity.name, group));
+        }
+
+        let mut groups = self.inner.groups.lock().expect("groups");
+        let snapshot = match groups.iter_mut().position(|existing| existing.id == group) {
+            Some(index) => &mut groups[index],
+            None => {
+                // Kafka creates a group the first time offsets are committed
+                // for it.
+                groups.push(GroupSnapshot {
+                    id: group.to_owned(),
+                    state: GroupState::Empty,
+                    protocol: String::new(),
+                    coordinator: 1,
+                    members: Vec::new(),
+                    committed: Vec::new(),
+                });
+                groups.last_mut().expect("just pushed")
+            }
+        };
+        for offset in offsets {
+            snapshot.committed.retain(|existing| {
+                existing.topic != offset.topic || existing.partition != offset.partition
+            });
+            snapshot.committed.push(offset.clone());
+        }
+        snapshot
+            .committed
+            .sort_by(|a, b| (&a.topic, a.partition).cmp(&(&b.topic, b.partition)));
+        Ok(())
+    }
+
+    async fn delete_group_offsets(
+        &self,
+        group: &str,
+        partitions: &[(String, i32)],
+    ) -> Result<(), KafkaError> {
+        self.inner.calls.group_writes.fetch_add(1, Ordering::SeqCst);
+        if let Some(reject) = *self.inner.write_rejection.lock().expect("write rejection") {
+            return Err(reject(&self.identity.name, group));
+        }
+
+        if let Some(snapshot) = self
+            .inner
+            .groups
+            .lock()
+            .expect("groups")
+            .iter_mut()
+            .find(|existing| existing.id == group)
+        {
+            snapshot.committed.retain(|offset| {
+                !partitions.iter().any(|(topic, partition)| {
+                    *topic == offset.topic && *partition == offset.partition
+                })
+            });
+        }
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -1231,6 +1323,7 @@ pub struct SessionCalls {
     offsets_in_flight: AtomicUsize,
     offsets_peak: AtomicUsize,
     acls: AtomicUsize,
+    group_writes: AtomicUsize,
 }
 
 impl SessionCalls {
@@ -1264,6 +1357,11 @@ impl SessionCalls {
 
     pub fn acls(&self) -> usize {
         self.acls.load(Ordering::SeqCst)
+    }
+
+    /// Group offset commits and deletes, including refused ones.
+    pub fn group_writes(&self) -> usize {
+        self.group_writes.load(Ordering::SeqCst)
     }
 }
 

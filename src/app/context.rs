@@ -29,7 +29,7 @@ impl ClusterHandle<'_> {
 
 impl Session {
     pub(crate) fn cluster<'a>(&'a self, name: &'a str) -> Result<ClusterHandle<'a>, ApiError> {
-        let access = self.access.cluster(name)?;
+        let access = self.state.cluster_access(&self.access, name)?;
         Ok(ClusterHandle {
             store: self.state.cluster(access.cluster())?,
             access,

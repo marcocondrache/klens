@@ -16,9 +16,10 @@ use crate::kafka::model::{
 };
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
+use crate::kafka::writes::ClusterWrites;
 
 #[async_trait]
-pub trait ClusterSession: Send + Sync + 'static {
+pub trait ClusterSession: ClusterWrites + Send + Sync + 'static {
     fn identity(&self) -> &ClusterIdentity;
 
     async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError>;
@@ -166,6 +167,7 @@ mod tests {
             obfuscation: None,
             properties: Default::default(),
             ingest: Default::default(),
+            writes: Vec::new(),
         }
     }
 
