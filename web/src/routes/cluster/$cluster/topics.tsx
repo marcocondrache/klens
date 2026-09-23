@@ -16,13 +16,13 @@ import {
   type FilterField,
   type FilterRule,
 } from "@/components/data-table/filters";
+import { LaneCaption } from "@/components/lane-caption";
 import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
 import { Pill, StatusDot } from "@/components/status";
-import { useNow } from "@/hooks/use-now";
 import { useSearchDraft } from "@/hooks/use-search-draft";
 import { useClusterHealth, useTopicRows } from "@/lib/api/catalog";
-import { laneCaption, useClusterName } from "@/lib/clusters";
+import { useClusterName } from "@/lib/clusters";
 import { apiErrorMessage } from "@/lib/api/client";
 import {
   formatCleanupPolicy,
@@ -194,8 +194,6 @@ function TopicsPage() {
 
   const { data: topics = EMPTY_TOPICS, isPending, isError, error } = useTopicRows(cluster);
   const { data: health } = useClusterHealth(cluster);
-  const now = useNow();
-  const caption = laneCaption(health?.topology, now);
 
   function setFilters(rules: FilterRule[]) {
     setSearch(filterParams(FILTERS, rules));
@@ -217,7 +215,12 @@ function TopicsPage() {
     <div className="flex min-h-0 flex-1 flex-col gap-5">
       <PageHeader
         title="Topics"
-        description={`${rows.length} of ${topics.length} topics${caption ? ` · ${caption}` : ""}`}
+        description={
+          <>
+            {rows.length} of {topics.length} topics
+            <LaneCaption lane={health?.topology} />
+          </>
+        }
       />
 
       <DataTable

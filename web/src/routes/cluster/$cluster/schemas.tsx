@@ -14,18 +14,18 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { DataTableColumnHeader } from "@/components/data-table/column-header";
 import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
+import { LaneCaption } from "@/components/lane-caption";
 import { PageHeader } from "@/components/page-header";
 import { PayloadView } from "@/components/payload-view";
 import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
 import { useAccess } from "@/hooks/use-access";
-import { useNow } from "@/hooks/use-now";
 import { useSearchDraft } from "@/hooks/use-search-draft";
 import { apiErrorMessage } from "@/lib/api/client";
 import { useSubjectRows } from "@/lib/api/catalog";
 import { useSubject } from "@/lib/api/live";
 import type { SubjectRow } from "@/lib/api/types";
-import { laneCaption, useClusterName } from "@/lib/clusters";
+import { useClusterName } from "@/lib/clusters";
 import { formatEnumLabel, isJson } from "@/lib/format";
 import { schemasSearch, searchDefaults } from "@/lib/route-search";
 import { cn } from "@/lib/utils";
@@ -147,8 +147,6 @@ function SchemasPage() {
   const { data, isPending, isError, error } = useSubjectRows(cluster);
   const subjects = data?.rows ?? EMPTY_SUBJECTS;
   const selected = subject ? (subjects.find((row) => row.subject === subject) ?? null) : null;
-  const now = useNow();
-  const caption = laneCaption(data?.sourceHealth, now);
 
   const {
     data: detail,
@@ -183,7 +181,12 @@ function SchemasPage() {
     <div className="flex min-h-0 flex-1 flex-col gap-5">
       <PageHeader
         title="Schema registry"
-        description={`${rows.length} subjects registered${caption ? ` · ${caption}` : ""}`}
+        description={
+          <>
+            {rows.length} subjects registered
+            <LaneCaption lane={data?.sourceHealth} />
+          </>
+        }
       />
 
       <DataTable
