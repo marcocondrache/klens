@@ -54,7 +54,7 @@ export function PayloadView({
       className={cn("flex min-h-0 flex-col gap-2", fill ? "flex-1 overflow-hidden" : "shrink-0")}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-medium text-muted-foreground">{label}</h3>
+        <h3 className="text-xs font-medium text-muted-foreground">{label}</h3>
         <div className="flex items-center gap-1">
           {showPrettyToggle ? (
             <ToggleGroup
@@ -66,7 +66,7 @@ export function PayloadView({
               variant="outline"
               size="sm"
               spacing={0}
-              className="mr-1"
+              className="mr-1 [&_[data-slot=toggle-group-item]]:h-6 [&_[data-slot=toggle-group-item]]:px-2 [&_[data-slot=toggle-group-item]]:text-xs"
               aria-label={`${label} format`}
             >
               <ToggleGroupItem value="pretty">Pretty</ToggleGroupItem>

@@ -14,6 +14,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { features, type DataTableFeatures } from "./features";
+import { CLICKABLE_ROW, clickableRowProps } from "./row-interaction";
 
 interface DataTableProps<TData extends RowData> {
   columns: Array<ColumnDef<DataTableFeatures, TData>>;
@@ -71,13 +72,13 @@ export function DataTable<TData extends RowData>({
   const columnCount = table.getAllLeafColumns().length || columns.length;
 
   return (
-    <div className={cn("flex flex-col gap-4", fill && "min-h-0 flex-1")}>
+    <div className={cn("flex flex-col gap-3", fill && "min-h-0 flex-1")}>
       {toolbar ? (
-        <div className={cn("flex flex-wrap items-center gap-3", fill && "shrink-0")}>{toolbar}</div>
+        <div className={cn("flex flex-wrap items-center gap-2", fill && "shrink-0")}>{toolbar}</div>
       ) : null}
       <div
         className={cn(
-          "relative overflow-hidden rounded-md border",
+          "relative overflow-hidden rounded-lg border",
           fill && "flex min-h-0 flex-1 flex-col",
         )}
       >
@@ -94,8 +95,8 @@ export function DataTable<TData extends RowData>({
                       <TableHead
                         key={header.id}
                         className={cn(
-                          fill &&
-                            "sticky top-0 z-10 bg-background shadow-[inset_0_-1px_0_0_var(--color-border)]",
+                          "h-10 bg-subtle px-3 text-xs font-medium text-muted-foreground first:pl-4 last:pr-4",
+                          fill && "sticky top-0 z-10 shadow-[inset_0_-1px_0_0_var(--color-border)]",
                           meta?.align === "right" && "text-right",
                           meta?.headerClassName,
                         )}
@@ -112,8 +113,8 @@ export function DataTable<TData extends RowData>({
                 Array.from({ length: 6 }, (_, index) => (
                   <TableRow key={index} className="hover:bg-transparent">
                     {columns.map((_, columnIndex) => (
-                      <TableCell key={columnIndex}>
-                        <Skeleton className="h-4 w-full max-w-32" />
+                      <TableCell key={columnIndex} className="h-10 px-3 first:pl-4 last:pr-4">
+                        <Skeleton className="h-3.5 w-full max-w-28" />
                       </TableCell>
                     ))}
                   </TableRow>
@@ -135,8 +136,11 @@ export function DataTable<TData extends RowData>({
                     <TableRow
                       key={row.id}
                       data-state={selected ? "selected" : undefined}
-                      onClick={onRowClick ? () => onRowClick(row.original) : undefined}
-                      className={cn(onRowClick && "cursor-pointer")}
+                      {...(onRowClick ? clickableRowProps(() => onRowClick(row.original)) : {})}
+                      className={cn(
+                        "group/row border-border/70 transition-colors duration-75",
+                        onRowClick && CLICKABLE_ROW,
+                      )}
                     >
                       {row.getAllCells().map((cell) => {
                         const meta = cell.column.columnDef.meta;
@@ -145,6 +149,7 @@ export function DataTable<TData extends RowData>({
                           <TableCell
                             key={cell.id}
                             className={cn(
+                              "h-10 px-3 py-2 first:pl-4 last:pr-4",
                               meta?.align === "right" && "text-right numeric",
                               meta?.className,
                             )}

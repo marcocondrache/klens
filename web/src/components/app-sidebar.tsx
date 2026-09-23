@@ -12,6 +12,7 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar";
 import { GithubIcon } from "@/components/icons";
+import { LogoMark } from "@/components/logo";
 import { NavMain } from "@/components/nav-main";
 import { NavSecondary } from "@/components/nav-secondary";
 import { NavUser } from "@/components/nav-user";
@@ -42,10 +43,12 @@ export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
               size="lg"
               render={<Link to="/cluster/$cluster" params={{ cluster }} />}
             >
-              <div className="flex aspect-square size-8 items-center justify-center">
-                <img src="/favicon.svg" alt="" className="size-5" />
+              <div className="flex aspect-square size-8 items-center justify-center text-sidebar-accent-foreground">
+                <LogoMark className="size-5!" />
               </div>
-              <span className="truncate text-base font-semibold">klens</span>
+              <span className="truncate text-base font-semibold tracking-[-0.02em] text-sidebar-accent-foreground">
+                klens
+              </span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

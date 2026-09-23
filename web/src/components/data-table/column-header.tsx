@@ -2,14 +2,6 @@ import type { HTMLAttributes } from "react";
 import type { Column, RowData } from "@tanstack/react-table";
 import { ArrowDownIcon, ArrowUpIcon, ChevronsUpDownIcon } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
 import { type DataTableFeatures } from "./features";
@@ -27,36 +19,39 @@ export function DataTableColumnHeader<TData extends RowData, TValue>({
   title,
   className,
 }: DataTableColumnHeaderProps<TData, TValue>) {
+  "use no memo";
+
+  const right = column.columnDef.meta?.align === "right";
+
   if (!column.getCanSort()) {
-    return <div className={cn(className)}>{title}</div>;
+    return <div className={cn(right && "text-right", className)}>{title}</div>;
   }
 
+  const sorted = column.getIsSorted();
+  const Icon =
+    sorted === "desc" ? ArrowDownIcon : sorted === "asc" ? ArrowUpIcon : ChevronsUpDownIcon;
+
   return (
-    <div className={cn("flex items-center gap-2", className)}>
-      <DropdownMenu>
-        <DropdownMenuTrigger render={<Button variant="ghost" size="sm" className="-ml-3" />}>
-          <span>{title}</span>
-          {column.getIsSorted() === "desc" ? (
-            <ArrowDownIcon data-icon="inline-end" />
-          ) : column.getIsSorted() === "asc" ? (
-            <ArrowUpIcon data-icon="inline-end" />
-          ) : (
-            <ChevronsUpDownIcon data-icon="inline-end" />
+    <div className={cn("flex", right && "justify-end", className)}>
+      <button
+        type="button"
+        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        aria-label={`Sort by ${title}`}
+        className={cn(
+          "group/sort -mx-1 inline-flex h-6 items-center gap-1 rounded-md px-1 outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50",
+          right && "flex-row-reverse",
+          sorted && "text-foreground",
+        )}
+      >
+        <span>{title}</span>
+        <Icon
+          aria-hidden
+          className={cn(
+            "size-3 shrink-0 transition-opacity",
+            sorted ? "text-brand opacity-100" : "opacity-0 group-hover/sort:opacity-60",
           )}
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start">
-          <DropdownMenuGroup>
-            <DropdownMenuItem onClick={() => column.toggleSorting(false)}>
-              <ArrowUpIcon />
-              Asc
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => column.toggleSorting(true)}>
-              <ArrowDownIcon />
-              Desc
-            </DropdownMenuItem>
-          </DropdownMenuGroup>
-        </DropdownMenuContent>
-      </DropdownMenu>
+        />
+      </button>
     </div>
   );
 }

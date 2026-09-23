@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
-    "@fontsource-variable/dm-sans": "^5.3.0",
+    "@fontsource-variable/geist": "^5.3.0",
     "@fontsource-variable/geist-mono": "^5.3.0",
     "@tailwindcss/vite": "^4.3.3",
     "@tanstack/highlight": "^0.1.0",

@@ -10,6 +10,7 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 import { features, type DataTableFeatures } from "@/components/data-table/features";
+import { CLICKABLE_ROW, clickableRowProps } from "@/components/data-table/row-interaction";
 import { RefreshBar } from "@/components/refresh-bar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
@@ -116,9 +117,9 @@ export function RecordTable<TData extends RowData>({
   }, [fetchNextPage, isFetchNextPageError, isFetchingNextPage, reachedLoader]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
-      {toolbar ? <div className="flex shrink-0 flex-wrap items-center gap-3">{toolbar}</div> : null}
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border">
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      {toolbar ? <div className="flex shrink-0 flex-wrap items-center gap-2">{toolbar}</div> : null}
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border">
         {refreshing ? <RefreshBar className="absolute inset-x-0 top-0 z-20" /> : null}
         {loading || (rows.length === 0 && hasNextPage && error == null) ? (
           <div role="table" className="text-sm">
@@ -127,12 +128,12 @@ export function RecordTable<TData extends RowData>({
               <div
                 key={index}
                 role="row"
-                className="grid border-b px-0"
+                className="grid border-b border-border/70 px-0"
                 style={{ gridTemplateColumns }}
               >
                 {leafColumns.map((column) => (
-                  <div key={column.id} role="cell" className="px-2 py-2">
-                    <Skeleton className="h-4 w-full max-w-32" />
+                  <div key={column.id} role="cell" className="px-3 py-3 first:pl-4 last:pr-4">
+                    <Skeleton className="h-3.5 w-full max-w-28" />
                   </div>
                 ))}
               </div>
@@ -174,11 +175,14 @@ export function RecordTable<TData extends RowData>({
                       data-index={item.index}
                       ref={virtualizer.measureElement}
                       data-state={row && selectedKey === row.id ? "selected" : undefined}
-                      onClick={row && onRowClick ? () => onRowClick(row.original) : undefined}
+                      {...(row && onRowClick
+                        ? clickableRowProps(() => onRowClick(row.original))
+                        : {})}
                       className={cn(
-                        "absolute top-0 left-0 grid w-full border-b",
-                        row && onRowClick && "cursor-pointer",
-                        row && "hover:bg-muted/50 data-[state=selected]:bg-muted",
+                        "group/row absolute top-0 left-0 grid w-full border-b border-border/70",
+                        row && onRowClick && CLICKABLE_ROW,
+                        row &&
+                          "transition-colors duration-75 hover:bg-muted/50 data-[state=selected]:bg-muted",
                       )}
                       style={{
                         gridTemplateColumns,
@@ -214,7 +218,7 @@ export function RecordTable<TData extends RowData>({
                               key={cell.id}
                               role="cell"
                               className={cn(
-                                "px-2 py-2 align-middle text-sm whitespace-nowrap",
+                                "px-3 py-2.5 align-middle text-sm whitespace-nowrap first:pl-4 last:pr-4",
                                 meta?.align === "right" && "text-right numeric",
                                 meta?.className,
                               )}
@@ -248,7 +252,7 @@ function HeaderRow<TData extends RowData>({
   return (
     <div
       role="row"
-      className="grid shrink-0 border-b bg-background [scrollbar-gutter:stable]"
+      className="grid shrink-0 border-b bg-subtle [scrollbar-gutter:stable]"
       style={{ gridTemplateColumns }}
     >
       {headers.map((header: Header<DataTableFeatures, TData, unknown>) => {
@@ -260,7 +264,7 @@ function HeaderRow<TData extends RowData>({
             key={header.id}
             role="columnheader"
             className={cn(
-              "flex h-10 items-center px-2 text-left text-sm font-medium whitespace-nowrap text-foreground",
+              "flex h-10 items-center px-3 text-left text-xs font-medium whitespace-nowrap text-muted-foreground first:pl-4 last:pr-4",
               meta?.align === "right" && "justify-end text-right",
               meta?.headerClassName,
             )}

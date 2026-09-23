@@ -26,7 +26,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { Item, ItemContent, ItemGroup, ItemTitle } from "@/components/ui/item";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { DataTableColumnHeader } from "@/components/data-table/column-header";
 import { type DataTableFeatures } from "@/components/data-table/features";
@@ -79,20 +78,25 @@ const columns = columnHelper.columns([
       <DataTableColumnHeader column={column} title="Part" className="justify-end" />
     ),
     meta: { align: "right", headerClassName: "w-16" },
-    cell: ({ getValue }) => <span className="numeric font-mono">{getValue()}</span>,
+    cell: ({ getValue }) => <span className="numeric text-muted-foreground">{getValue()}</span>,
   }),
   columnHelper.accessor("offset", {
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Offset" className="justify-end" />
     ),
     meta: { align: "right", headerClassName: "w-28" },
-    cell: ({ getValue }) => <span className="numeric font-mono">{getValue()}</span>,
+    cell: ({ getValue }) => <span className="numeric">{getValue()}</span>,
   }),
   columnHelper.accessor((record) => record.key ?? "", {
     id: "key",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Key" />,
     cell: ({ row }) => (
-      <span className="block max-w-48 truncate font-mono text-sm text-brand">
+      <span
+        className={cn(
+          "block max-w-48 truncate font-mono",
+          row.original.key == null && "text-muted-foreground/60 italic",
+        )}
+      >
         {row.original.key ?? "null"}
       </span>
     ),
@@ -101,7 +105,7 @@ const columns = columnHelper.columns([
     id: "value",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Value" />,
     cell: ({ row }) => (
-      <span className="block max-w-md truncate font-mono text-sm text-muted-foreground lg:max-w-2xl">
+      <span className="block truncate font-mono text-muted-foreground">
         {preview(row.original.value)}
       </span>
     ),
@@ -112,7 +116,9 @@ const columns = columnHelper.columns([
       <DataTableColumnHeader column={column} title="Size" className="justify-end" />
     ),
     meta: { align: "right" },
-    cell: ({ getValue }) => <span className="numeric">{formatBytes(getValue())}</span>,
+    cell: ({ getValue }) => (
+      <span className="numeric text-muted-foreground">{formatBytes(getValue())}</span>
+    ),
   }),
   columnHelper.accessor("timestamp", {
     header: ({ column }) => (
@@ -122,7 +128,11 @@ const columns = columnHelper.columns([
     sortFn: "datetime",
     cell: ({ getValue }) => (
       <Tooltip>
-        <TooltipTrigger render={<span className="numeric cursor-default whitespace-nowrap" />}>
+        <TooltipTrigger
+          render={
+            <span className="numeric cursor-default whitespace-nowrap text-muted-foreground" />
+          }
+        >
           {formatTimestamp(getValue())}
         </TooltipTrigger>
         <TooltipContent>{formatRelative(getValue())}</TooltipContent>
@@ -227,14 +237,15 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
         toolbar={
           <>
             <SearchField
+              className="min-w-48 flex-1"
               value={term}
               onChange={(event) => setTerm(event.target.value)}
               placeholder="Search key or value…"
             />
 
-            <InputGroup className="w-auto min-w-[13.5rem]">
+            <InputGroup className="w-auto bg-background dark:bg-input/20">
               <InputGroupAddon>
-                <ClockIcon />
+                <ClockIcon className="size-3.5!" />
               </InputGroupAddon>
               <InputGroupInput
                 type="datetime-local"
@@ -242,19 +253,18 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                 max={to || undefined}
                 onChange={(event) => setFrom(event.target.value)}
                 aria-label="From timestamp"
+                className={cn("w-44 pr-1", !from && "text-muted-foreground")}
               />
-            </InputGroup>
-
-            <InputGroup className="w-auto min-w-[13.5rem]">
-              <InputGroupAddon>
-                <span className="text-sm">to</span>
-              </InputGroupAddon>
+              <span aria-hidden className="text-muted-foreground/60">
+                →
+              </span>
               <InputGroupInput
                 type="datetime-local"
                 value={to}
                 min={from || undefined}
                 onChange={(event) => setTo(event.target.value)}
                 aria-label="To timestamp"
+                className={cn("w-44 pl-2", !to && "text-muted-foreground")}
               />
             </InputGroup>
 
@@ -263,7 +273,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
               items={partitionItems}
               onValueChange={(value) => setPartition(String(value))}
             >
-              <SelectTrigger className="w-40">
+              <SelectTrigger className="w-36">
                 <SelectValue placeholder="Partition" />
               </SelectTrigger>
               <SelectContent>
@@ -282,7 +292,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
               items={ORDER_ITEMS}
               onValueChange={(value) => setOrder(value as RecordOrder)}
             >
-              <SelectTrigger className="w-36">
+              <SelectTrigger className="w-28">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -359,19 +369,35 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
         >
           {selectedRecord ? (
             <>
-              <SheetHeader className="border-b">
-                <SheetTitle className="flex items-center gap-2 font-mono text-sm">
-                  {topic.name}[{selectedRecord.partition}]@{selectedRecord.offset}
+              <SheetHeader className="gap-1 border-b px-5 py-4 pr-12">
+                <SheetTitle className="flex min-w-0 items-center gap-2 font-mono text-sm font-medium">
+                  <span className="min-w-0 truncate">
+                    <span className="text-muted-foreground">{topic.name}</span>
+                    <span className="text-muted-foreground/60"> / </span>
+                    {selectedRecord.partition}
+                    <span className="text-muted-foreground/60"> @ </span>
+                    {selectedRecord.offset}
+                  </span>
                   {obfuscated ? <ObfuscatedBadge /> : null}
                 </SheetTitle>
                 <SheetDescription>
-                  {formatTimestamp(selectedRecord.timestamp)} ·{" "}
-                  {formatBytes(selectedRecord.sizeBytes)} ·{" "}
-                  {selectedRecord.compression.toLowerCase()}
+                  Produced {formatRelative(selectedRecord.timestamp)}
                 </SheetDescription>
               </SheetHeader>
 
-              <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-hidden p-4">
+              <dl className="grid shrink-0 grid-cols-3 gap-x-4 gap-y-3 border-b px-5 py-4">
+                <Meta label="Partition" value={selectedRecord.partition} />
+                <Meta label="Offset" value={selectedRecord.offset} />
+                <Meta label="Size" value={formatBytes(selectedRecord.sizeBytes)} />
+                <Meta
+                  label="Timestamp"
+                  value={formatTimestamp(selectedRecord.timestamp)}
+                  className="col-span-2"
+                />
+                <Meta label="Compression" value={selectedRecord.compression.toLowerCase()} />
+              </dl>
+
+              <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-hidden px-5 py-4">
                 <PayloadView
                   key={`key-${selectedRecord.partition}-${selectedRecord.offset}`}
                   label="Key"
@@ -395,44 +421,24 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                 />
 
                 <section className="shrink-0 space-y-2">
-                  <h3 className="text-sm font-medium text-muted-foreground">Headers</h3>
+                  <h3 className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                    Headers
+                    <span className="numeric text-muted-foreground/60">
+                      {selectedRecord.headers.length}
+                    </span>
+                  </h3>
                   {selectedRecord.headers.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No headers.</p>
                   ) : (
-                    <ItemGroup className="gap-0 overflow-hidden rounded-lg border">
+                    <dl className="grid max-h-40 grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-6 overflow-y-auto rounded-lg border bg-subtle px-3 py-2 font-mono text-sm">
                       {selectedRecord.headers.map((header) => (
-                        <Item
-                          key={header.key}
-                          size="sm"
-                          className="rounded-none border-b last:border-b-0"
-                        >
-                          <ItemContent className="flex-row items-start justify-between gap-3">
-                            <ItemTitle className="font-mono font-normal text-brand">
-                              {header.key}
-                            </ItemTitle>
-                            <span className="max-w-[60%] font-mono text-sm break-all">
-                              {header.value}
-                            </span>
-                          </ItemContent>
-                        </Item>
+                        <div key={header.key} className="contents">
+                          <dt className="truncate py-1 text-muted-foreground">{header.key}</dt>
+                          <dd className="py-1 break-all">{header.value}</dd>
+                        </div>
                       ))}
-                    </ItemGroup>
+                    </dl>
                   )}
-                </section>
-
-                <section className="shrink-0 space-y-2">
-                  <h3 className="text-sm font-medium text-muted-foreground">Metadata</h3>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <Meta label="Partition" value={String(selectedRecord.partition)} />
-                    <Meta label="Offset" value={String(selectedRecord.offset)} />
-                    <Meta label="Timestamp" value={formatTimestamp(selectedRecord.timestamp)} />
-                    <Meta label="Age" value={formatRelative(selectedRecord.timestamp)} />
-                    <Meta label="Size" value={formatBytes(selectedRecord.sizeBytes)} />
-                    <Meta
-                      label="Compression"
-                      value={<Pill>{selectedRecord.compression.toLowerCase()}</Pill>}
-                    />
-                  </div>
                 </section>
               </div>
             </>
@@ -443,13 +449,19 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
   );
 }
 
-function Meta({ label, value }: { label: string; value: React.ReactNode }) {
+function Meta({
+  label,
+  value,
+  className,
+}: {
+  label: string;
+  value: React.ReactNode;
+  className?: string;
+}) {
   return (
-    <Item variant="outline" size="sm">
-      <ItemContent>
-        <ItemTitle className="font-normal text-muted-foreground">{label}</ItemTitle>
-        <div className="numeric font-mono text-sm">{value}</div>
-      </ItemContent>
-    </Item>
+    <div className={cn("min-w-0 space-y-0.5", className)}>
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="numeric truncate text-sm">{value}</dd>
+    </div>
   );
 }

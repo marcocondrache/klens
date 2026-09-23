@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 
 import { ConfigTable } from "@/components/config-table";
 import { CopyButton } from "@/components/copy-button";
+import { Facts } from "@/components/facts";
 import { PageHeader } from "@/components/page-header";
 import { Pill } from "@/components/status";
 import { useBroker } from "@/lib/api/catalog";
@@ -18,16 +19,16 @@ export const Route = createFileRoute("/cluster/$cluster/nodes_/$id")({
 
 function BrokerFacts({ broker }: { broker: BrokerRow }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+    <Facts>
       <span className="inline-flex items-center gap-1">
         <span className="font-mono">
           {broker.host}:{broker.port}
         </span>
         <CopyButton value={`${broker.host}:${broker.port}`} label="Copy address" />
       </span>
-      <span className="numeric">{formatNumber(broker.partitionCount)} partitions</span>
-      <span className="numeric text-brand">{formatNumber(broker.leaderCount)} leaders</span>
-    </div>
+      <span>{formatNumber(broker.partitionCount)} partitions</span>
+      <span>{formatNumber(broker.leaderCount)} leaders</span>
+    </Facts>
   );
 }
 
@@ -55,7 +56,7 @@ function NodePage() {
             <>
               {broker.controller ? (
                 <Pill tone="brand">
-                  <CrownIcon className="size-3" />
+                  <CrownIcon />
                   controller
                 </Pill>
               ) : null}

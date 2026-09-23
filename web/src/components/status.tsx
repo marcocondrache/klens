@@ -1,4 +1,4 @@
-import type { ComponentProps } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 import type { GroupState } from "@/lib/api/types";
@@ -14,16 +14,24 @@ const TONE_BG: Record<Tone, string> = {
 };
 
 const TONE_PILL: Record<Tone, string> = {
-  ok: "border-ok/25 bg-ok/10 text-ok",
-  warn: "border-warn/25 bg-warn/10 text-warn",
-  error: "border-destructive/25 bg-destructive/10 text-destructive",
-  idle: "border-border bg-muted text-foreground/80",
-  brand: "border-brand/25 bg-brand/10 text-brand",
+  ok: "bg-ok/12 text-ok",
+  warn: "bg-warn/14 text-warn",
+  error: "bg-destructive/12 text-destructive",
+  idle: "bg-muted text-muted-foreground shadow-[inset_0_0_0_1px_var(--color-border)]",
+  brand: "bg-brand/12 text-brand",
+};
+
+export const TONE_TEXT: Record<Tone, string> = {
+  ok: "text-foreground",
+  warn: "text-warn",
+  error: "text-destructive",
+  idle: "text-muted-foreground",
+  brand: "text-brand",
 };
 
 export function StatusDot({ tone, pulse = false }: { tone: Tone; pulse?: boolean }) {
   return (
-    <span className="relative inline-flex size-2 shrink-0">
+    <span className="relative inline-flex size-2 shrink-0 items-center justify-center">
       {pulse ? (
         <span
           className={cn(
@@ -46,7 +54,7 @@ export function Pill({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 overflow-hidden rounded-4xl border px-2 py-0.5 text-sm font-medium whitespace-nowrap",
+        "inline-flex h-5 items-center gap-1 overflow-hidden rounded-md px-1.5 text-xs font-medium whitespace-nowrap [&_svg:not([class*='size-'])]:size-3",
         TONE_PILL[tone],
         className,
       )}
@@ -65,11 +73,29 @@ export const GROUP_TONE: Record<GroupState, Tone> = {
   DEAD: "error",
 };
 
+export function StatusLabel({
+  tone,
+  pulse = false,
+  children,
+  className,
+}: {
+  tone: Tone;
+  pulse?: boolean;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <span className={cn("inline-flex items-center gap-2 whitespace-nowrap", className)}>
+      <StatusDot tone={tone} pulse={pulse} />
+      {children}
+    </span>
+  );
+}
+
 export function GroupStateBadge({ state }: { state: GroupState }) {
   return (
-    <Pill tone={GROUP_TONE[state]}>
-      <StatusDot tone={GROUP_TONE[state]} />
+    <StatusLabel tone={GROUP_TONE[state]} pulse={GROUP_TONE[state] === "warn"}>
       {formatEnumLabel(state)}
-    </Pill>
+    </StatusLabel>
   );
 }

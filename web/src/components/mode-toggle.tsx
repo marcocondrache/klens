@@ -16,6 +16,7 @@ export function ModeToggle() {
             variant="ghost"
             size="icon-sm"
             aria-label="Toggle theme"
+            className="text-muted-foreground hover:text-foreground"
             onClick={() => setTheme(dark ? "light" : "dark")}
           />
         }

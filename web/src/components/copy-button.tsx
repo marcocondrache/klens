@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type MouseEvent } from "react";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -12,16 +12,19 @@ export function CopyButton({
   label = "Copy",
   className,
   size = "icon-xs",
+  reveal = false,
 }: {
   value: string;
   label?: string;
   className?: string;
   size?: "icon-xs" | "icon-sm" | "icon";
+  reveal?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const timeout = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  async function copy() {
+  async function copy(event: MouseEvent) {
+    event.stopPropagation();
     try {
       await navigator.clipboard.writeText(value);
     } catch {
@@ -42,7 +45,13 @@ export function CopyButton({
             size={size}
             onClick={copy}
             aria-label={label}
-            className={cn("text-muted-foreground hover:text-foreground", className)}
+            className={cn(
+              "text-muted-foreground hover:text-foreground",
+              reveal &&
+                "opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 data-popup-open:opacity-100",
+              copied && "opacity-100",
+              className,
+            )}
           />
         }
       >

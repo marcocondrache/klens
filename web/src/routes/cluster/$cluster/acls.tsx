@@ -17,7 +17,7 @@ import {
 } from "@/components/data-table/filters";
 import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
-import { Pill, StatusDot } from "@/components/status";
+import { Pill, StatusDot, StatusLabel } from "@/components/status";
 import { useAccess } from "@/hooks/use-access";
 import { useAcls } from "@/lib/api/live";
 import type { Acl } from "@/lib/api/types";
@@ -60,7 +60,7 @@ const FILTERS: Array<FilterField<Acl>> = [
     icon: ShieldIcon,
     options: [
       { value: "ALLOW", label: "Allow", icon: <StatusDot tone="ok" /> },
-      { value: "DENY", label: "Deny", icon: <StatusDot tone="warn" /> },
+      { value: "DENY", label: "Deny", icon: <StatusDot tone="error" /> },
     ],
     accessor: (acl) => acl.permission,
   },
@@ -83,19 +83,21 @@ const columns = columnHelper.columns([
   }),
   columnHelper.accessor("resourceName", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Name" />,
-    cell: ({ getValue }) => <span className="font-mono text-sm">{getValue()}</span>,
+    cell: ({ getValue }) => <span className="font-mono">{getValue()}</span>,
   }),
   columnHelper.accessor("patternType", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Pattern" />,
-    cell: ({ getValue }) => formatEnumLabel(getValue()),
+    cell: ({ getValue }) => (
+      <span className="text-muted-foreground">{formatEnumLabel(getValue())}</span>
+    ),
   }),
   columnHelper.accessor("principal", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Principal" />,
-    cell: ({ getValue }) => <span className="font-mono text-sm">{getValue()}</span>,
+    cell: ({ getValue }) => <span className="font-mono">{getValue()}</span>,
   }),
   columnHelper.accessor("host", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Host" />,
-    cell: ({ getValue }) => <span className="font-mono text-sm">{getValue()}</span>,
+    cell: ({ getValue }) => <span className="font-mono text-muted-foreground">{getValue()}</span>,
   }),
   columnHelper.accessor("operation", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Operation" />,
@@ -104,7 +106,9 @@ const columns = columnHelper.columns([
   columnHelper.accessor("permission", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Permission" />,
     cell: ({ getValue }) => (
-      <Pill tone={getValue() === "DENY" ? "warn" : "ok"}>{formatEnumLabel(getValue())}</Pill>
+      <StatusLabel tone={getValue() === "DENY" ? "error" : "ok"}>
+        {formatEnumLabel(getValue())}
+      </StatusLabel>
     ),
   }),
 ]);

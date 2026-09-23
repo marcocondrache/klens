@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { Spinner } from "@/components/ui/spinner";
+import { LogoMark } from "@/components/logo";
 
 export function PageLoading({
   title,
@@ -28,7 +28,7 @@ export function PageLoading({
       role="status"
       aria-live="polite"
     >
-      <Spinner className="size-6" aria-hidden />
+      <LogoMark className="size-8 motion-safe:animate-pulse" />
       <div className="max-w-sm space-y-1 text-center">
         <p className="text-sm font-medium">{title}</p>
         <p className="text-sm text-balance text-muted-foreground">

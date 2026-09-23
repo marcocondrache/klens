@@ -10,7 +10,7 @@ import { DataTableColumnHeader } from "@/components/data-table/column-header";
 import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
 import { SearchField } from "@/components/search-field";
-import { Pill } from "@/components/status";
+import { StatusLabel } from "@/components/status";
 import type { ConfigEntry } from "@/lib/api/types";
 
 const SOURCE_LABEL: Record<ConfigEntry["source"], string> = {
@@ -30,7 +30,7 @@ const columns = columnHelper.columns([
 
       return (
         <span className="flex items-center gap-1.5">
-          <span className="font-mono text-sm">{entry.name}</span>
+          <span className="font-mono">{entry.name}</span>
           {entry.readOnly ? (
             <Tooltip>
               <TooltipTrigger render={<LockIcon className="size-3 text-muted-foreground" />} />
@@ -54,10 +54,10 @@ const columns = columnHelper.columns([
         </span>
       ) : (
         <span className="flex items-center gap-1">
-          <span className="numeric font-mono text-sm break-all">
+          <span className="font-mono break-all text-muted-foreground">
             {entry.value === "" ? "—" : entry.value}
           </span>
-          {entry.value ? <CopyButton value={entry.value} label="Copy value" /> : null}
+          {entry.value ? <CopyButton value={entry.value} label="Copy value" reveal /> : null}
         </span>
       );
     },
@@ -67,11 +67,23 @@ const columns = columnHelper.columns([
       <DataTableColumnHeader column={column} title="Source" className="justify-end" />
     ),
     meta: { align: "right" },
-    cell: ({ getValue }) => (
-      <Pill tone={getValue() === "DEFAULT_CONFIG" ? "idle" : "brand"}>
-        {SOURCE_LABEL[getValue()]}
-      </Pill>
-    ),
+    cell: ({ getValue }) => {
+      const source = getValue();
+
+      if (source === "DYNAMIC_TOPIC_CONFIG" || source === "DYNAMIC_BROKER_CONFIG") {
+        return <StatusLabel tone="brand">{SOURCE_LABEL[source]}</StatusLabel>;
+      }
+
+      return (
+        <span
+          className={
+            source === "DEFAULT_CONFIG" ? "text-muted-foreground/60" : "text-muted-foreground"
+          }
+        >
+          {SOURCE_LABEL[source]}
+        </span>
+      );
+    },
   }),
 ]);
 
@@ -114,7 +126,7 @@ export function ConfigTable({
             placeholder="Filter configuration…"
           />
 
-          <Label className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Label className="flex items-center gap-2 text-sm font-normal text-muted-foreground">
             <Switch
               size="sm"
               checked={onlyOverrides}

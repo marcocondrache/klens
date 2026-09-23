@@ -26,7 +26,7 @@ import { useSubjectRows } from "@/lib/api/catalog";
 import { useSubject } from "@/lib/api/live";
 import type { SubjectRow } from "@/lib/api/types";
 import { laneCaption, useClusterName } from "@/lib/clusters";
-import { isJson } from "@/lib/format";
+import { formatEnumLabel, isJson } from "@/lib/format";
 import { schemasSearch } from "@/lib/route-search";
 import { cn } from "@/lib/utils";
 
@@ -41,18 +41,18 @@ const columnHelper = createColumnHelper<DataTableFeatures, SubjectRow>();
 const columns = columnHelper.columns([
   columnHelper.accessor("subject", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Subject" />,
-    cell: ({ getValue }) => <span className="font-mono text-sm">{getValue()}</span>,
+    cell: ({ getValue }) => <span className="font-mono">{getValue()}</span>,
   }),
   columnHelper.accessor("id", {
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="ID" className="justify-end" />
     ),
     meta: { align: "right" },
-    cell: ({ getValue }) => <span className="numeric font-mono">{getValue()}</span>,
+    cell: ({ getValue }) => <span className="numeric text-muted-foreground">{getValue()}</span>,
   }),
   columnHelper.accessor("type", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,
-    cell: ({ getValue }) => <Pill tone="brand">{getValue()}</Pill>,
+    cell: ({ getValue }) => <Pill>{formatEnumLabel(getValue())}</Pill>,
   }),
   columnHelper.accessor("latestVersion", {
     id: "version",
@@ -60,7 +60,7 @@ const columns = columnHelper.columns([
       <DataTableColumnHeader column={column} title="Latest version" className="justify-end" />
     ),
     meta: { align: "right" },
-    cell: ({ getValue }) => <span className="numeric font-mono">v{getValue()}</span>,
+    cell: ({ getValue }) => <span className="numeric">v{getValue()}</span>,
   }),
   columnHelper.accessor((subject) => subject.versions.length, {
     id: "versions",
@@ -76,7 +76,9 @@ const columns = columnHelper.columns([
     ),
     meta: { align: "right" },
     cell: ({ getValue }) => (
-      <Pill tone={getValue() === "NONE" ? "warn" : "idle"}>{getValue()}</Pill>
+      <span className={getValue() === "NONE" ? "text-warn" : "text-muted-foreground"}>
+        {formatEnumLabel(getValue())}
+      </span>
     ),
   }),
 ]);
@@ -177,14 +179,17 @@ function SchemasPage() {
         >
           {selected ? (
             <>
-              <SheetHeader className="border-b">
-                <SheetTitle className="font-mono text-sm">{selected.subject}</SheetTitle>
+              <SheetHeader className="gap-1 border-b px-5 py-4 pr-12">
+                <SheetTitle className="truncate font-mono text-sm font-medium">
+                  {selected.subject}
+                </SheetTitle>
                 <SheetDescription>
-                  {selected.type} · version {shownVersion} · {selected.compatibility}
+                  {formatEnumLabel(selected.type)} · version {shownVersion} ·{" "}
+                  {formatEnumLabel(selected.compatibility)} compatibility
                 </SheetDescription>
               </SheetHeader>
 
-              <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-hidden p-4">
+              <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-hidden px-5 py-4">
                 {!canSchemaText ? (
                   <p className="min-h-0 flex-1 text-sm text-muted-foreground">
                     Schema text is not available for your role.
@@ -211,7 +216,7 @@ function SchemasPage() {
                 ) : null}
 
                 <section className="shrink-0 space-y-2">
-                  <h3 className="text-sm font-medium text-muted-foreground">Versions</h3>
+                  <h3 className="text-xs font-medium text-muted-foreground">Versions</h3>
                   <div className="max-h-32 overflow-y-auto">
                     <ToggleGroup
                       value={shownVersion != null ? [String(shownVersion)] : []}

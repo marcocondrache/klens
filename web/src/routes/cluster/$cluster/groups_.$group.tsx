@@ -8,7 +8,10 @@ import { DataTableColumnHeader } from "@/components/data-table/column-header";
 import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
 import { PageHeader } from "@/components/page-header";
-import { GroupStateBadge, Pill } from "@/components/status";
+import { Facts } from "@/components/facts";
+import { GroupStateBadge, Pill, TONE_TEXT } from "@/components/status";
+import { lagTone } from "@/lib/tone";
+import { cn } from "@/lib/utils";
 import { useGroup } from "@/lib/api/catalog";
 import { catalogLookupMessage } from "@/lib/catalog-lookup";
 import { useClusterName } from "@/lib/clusters";
@@ -26,29 +29,29 @@ const memberColumnHelper = createColumnHelper<DataTableFeatures, GroupMember>();
 const memberColumns = memberColumnHelper.columns([
   memberColumnHelper.accessor("clientId", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Client ID" />,
-    cell: ({ getValue }) => <span className="font-mono text-sm">{getValue()}</span>,
+    cell: ({ getValue }) => <span className="font-mono">{getValue()}</span>,
   }),
   memberColumnHelper.accessor("id", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Member ID" />,
     cell: ({ row }) => (
       <span className="flex items-center gap-1">
-        <span className="max-w-72 truncate font-mono text-sm">{row.original.id}</span>
-        <CopyButton value={row.original.id} label="Copy member ID" />
+        <span className="max-w-72 truncate font-mono text-muted-foreground">{row.original.id}</span>
+        <CopyButton value={row.original.id} label="Copy member ID" reveal />
       </span>
     ),
   }),
   memberColumnHelper.accessor("host", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Host" />,
-    cell: ({ getValue }) => <span className="font-mono text-sm">{getValue()}</span>,
+    cell: ({ getValue }) => <span className="font-mono text-muted-foreground">{getValue()}</span>,
   }),
   memberColumnHelper.accessor("assignments", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Assignments" />,
     cell: ({ row }) => (
       <span className="flex flex-wrap gap-1">
         {row.original.assignments.map((assignment) => (
-          <Pill key={assignment.topic} className="font-mono">
+          <Pill key={assignment.topic} className="font-mono font-normal text-foreground">
             {assignment.topic}
-            <span className="text-muted-foreground">[{assignment.partitions.length}]</span>
+            <span className="text-muted-foreground">×{assignment.partitions.length}</span>
           </Pill>
         ))}
       </span>
@@ -80,15 +83,15 @@ function GroupFacts({
   partitions: number;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-      <span className="numeric">{members} members</span>
-      <span className="numeric">{topicCount} topics</span>
-      <span className="numeric">{partitions} assigned partitions</span>
-      <span className="numeric text-brand">
+    <Facts>
+      <span>{members} members</span>
+      <span>{topicCount} topics</span>
+      <span>{partitions} partitions</span>
+      <span className={cn("text-foreground", TONE_TEXT[lagTone(toNumber(group.totalLag))])}>
         {group.lagComplete ? "" : "≥ "}
         {formatCount(group.totalLag)} lag
       </span>
-    </div>
+    </Facts>
   );
 }
 
@@ -127,7 +130,7 @@ function ConsumerGroupPage() {
         <Link
           to="/cluster/$cluster/topics/$topic"
           params={{ cluster, topic: getValue() }}
-          className="font-mono text-sm hover:text-brand hover:underline"
+          className="font-mono outline-none"
           onClick={(event) => event.stopPropagation()}
         >
           {getValue()}
@@ -139,7 +142,7 @@ function ConsumerGroupPage() {
         <DataTableColumnHeader column={column} title="Partition" className="justify-end" />
       ),
       meta: { align: "right" },
-      cell: ({ getValue }) => <span className="numeric font-mono">{getValue()}</span>,
+      cell: ({ getValue }) => <span className="numeric">{getValue()}</span>,
     }),
     offsetColumnHelper.accessor((offset) => toNumber(offset.currentOffset), {
       id: "current",
@@ -147,7 +150,9 @@ function ConsumerGroupPage() {
         <DataTableColumnHeader column={column} title="Committed" className="justify-end" />
       ),
       meta: { align: "right" },
-      cell: ({ row }) => formatNumber(row.original.currentOffset),
+      cell: ({ row }) => (
+        <span className="text-muted-foreground">{formatNumber(row.original.currentOffset)}</span>
+      ),
     }),
     offsetColumnHelper.accessor((offset) => toNumber(offset.endOffset), {
       id: "end",
@@ -155,7 +160,9 @@ function ConsumerGroupPage() {
         <DataTableColumnHeader column={column} title="End offset" className="justify-end" />
       ),
       meta: { align: "right" },
-      cell: ({ row }) => formatNumber(row.original.endOffset),
+      cell: ({ row }) => (
+        <span className="text-muted-foreground">{formatNumber(row.original.endOffset)}</span>
+      ),
     }),
     offsetColumnHelper.accessor((offset) => toNumber(offset.lag), {
       id: "lag",
@@ -167,22 +174,21 @@ function ConsumerGroupPage() {
         const lag = getValue();
 
         return (
-          <span className="flex items-center justify-end gap-2">
-            <span className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
+          <span className="flex items-center justify-end gap-3">
+            <span className="h-1 w-20 overflow-hidden rounded-full bg-muted">
               <span
-                className={
-                  lag === 0
-                    ? "block h-full bg-ok/70"
-                    : lag > maxLag / 2
-                      ? "block h-full bg-destructive/70"
-                      : "block h-full bg-warn/70"
-                }
+                className={cn(
+                  "block h-full rounded-full",
+                  lag > maxLag / 2 ? "bg-destructive/80" : "bg-foreground/35",
+                )}
                 style={{
-                  width: `${Math.max(lag === 0 ? 0 : 4, (lag / maxLag) * 100)}%`,
+                  width: `${Math.max(lag === 0 ? 0 : 3, (lag / maxLag) * 100)}%`,
                 }}
               />
             </span>
-            <span className="numeric w-16 font-mono">{formatNumber(row.original.lag)}</span>
+            <span className={cn("numeric w-16", lag === 0 && "text-muted-foreground")}>
+              {formatNumber(row.original.lag)}
+            </span>
           </span>
         );
       },
@@ -195,11 +201,11 @@ function ConsumerGroupPage() {
       meta: { align: "right" },
       cell: ({ row }) =>
         row.original.memberId ? (
-          <span className="font-mono text-sm">
+          <span className="font-mono text-muted-foreground">
             {memberLabels.get(row.original.memberId) ?? row.original.memberId}
           </span>
         ) : (
-          <Pill tone="idle">unassigned</Pill>
+          <span className="text-muted-foreground/70">unassigned</span>
         ),
     }),
   ]);
@@ -217,7 +223,9 @@ function ConsumerGroupPage() {
         badges={
           group ? (
             <>
-              <GroupStateBadge state={group.state} />
+              <Pill className="gap-1.5 text-foreground">
+                <GroupStateBadge state={group.state} />
+              </Pill>
               {group.protocol ? <Pill>{group.protocol}</Pill> : null}
               <Pill>coordinator {group.coordinatorId}</Pill>
             </>
@@ -242,7 +250,10 @@ function ConsumerGroupPage() {
         }
         className="min-h-0 flex-1"
       >
-        <TabsList variant="line" className="shrink-0">
+        <TabsList
+          variant="line"
+          className="w-full shrink-0 justify-start gap-3 border-b [&>[data-slot=tabs-trigger]]:flex-none [&>[data-slot=tabs-trigger]]:after:bg-brand"
+        >
           <TabsTrigger value="offsets">
             Offsets
             <span className="numeric ml-1.5 text-muted-foreground">{offsets.length}</span>

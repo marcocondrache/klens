@@ -54,12 +54,12 @@ export function AppHeader({ onSearch }: { onSearch: () => void }) {
   }
 
   return (
-    <header className="flex h-16 shrink-0 items-center gap-2 border-b transition-[height] duration-200 ease-out group-has-data-[collapsible=icon]/sidebar-wrapper:h-12">
-      <div className="flex w-full min-w-0 items-center gap-2 px-4">
-        <SidebarTrigger className="-ml-1" />
+    <header className="flex h-12 shrink-0 items-center border-b">
+      <div className="flex w-full min-w-0 items-center gap-2 px-3 md:px-4">
+        <SidebarTrigger className="-ml-1 text-muted-foreground hover:text-foreground" />
         <Separator
           orientation="vertical"
-          className="mr-2 data-vertical:h-4 data-vertical:self-auto"
+          className="mr-1.5 data-vertical:h-4 data-vertical:self-auto"
         />
 
         <Breadcrumb className="min-w-0">
@@ -76,7 +76,7 @@ export function AppHeader({ onSearch }: { onSearch: () => void }) {
                   <BreadcrumbItem className="min-w-0">
                     {last || !crumb.section ? (
                       <BreadcrumbPage
-                        className={cn("truncate font-medium", crumb.mono && "font-mono text-sm")}
+                        className={cn("truncate font-medium", crumb.mono && "font-mono")}
                       >
                         {crumb.label}
                       </BreadcrumbPage>
@@ -101,11 +101,13 @@ export function AppHeader({ onSearch }: { onSearch: () => void }) {
             variant="outline"
             size="sm"
             onClick={onSearch}
-            className="hidden min-w-56 justify-start gap-2 text-muted-foreground sm:flex"
+            className="mr-1 hidden w-60 justify-start gap-2 bg-subtle font-normal text-muted-foreground shadow-none hover:text-foreground sm:flex dark:bg-input/20"
           >
             <SearchIcon />
-            <span>Search</span>
-            <Kbd className="ml-auto -mr-1.5">{formatModK()}</Kbd>
+            <span>Search…</span>
+            <Kbd className="ml-auto -mr-1 h-4.5 border bg-background px-1 text-[0.6875rem] dark:bg-transparent">
+              {formatModK()}
+            </Kbd>
           </Button>
 
           <Button
@@ -125,6 +127,7 @@ export function AppHeader({ onSearch }: { onSearch: () => void }) {
                   variant="ghost"
                   size="icon-sm"
                   aria-label="Refresh"
+                  className="text-muted-foreground hover:text-foreground"
                   onClick={() => queryClient.invalidateQueries()}
                 />
               }
