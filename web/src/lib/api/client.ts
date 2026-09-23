@@ -105,9 +105,9 @@ export async function getOrNull<T>(
   }
 }
 
-export const RETRY_ATTEMPTS = 8;
+const RETRY_ATTEMPTS = 8;
 
-export type EventFrame = { event: string; data: string };
+type EventFrame = { event: string; data: string };
 
 export function stream(
   path: string,
@@ -123,12 +123,12 @@ async function pump(url: string, signal: AbortSignal, onUpdate: (update: Update)
   let attempt = 0;
   while (!signal.aborted) {
     try {
-      const body = await openEvents(url, signal);
-      attempt = 0;
-      await readEvents(body, signal, (frame) => {
+      const frames = events(url, signal);
+      for await (const frame of frames) {
+        attempt = 0;
         const update = parseUpdate(frame);
         if (update) onUpdate(update);
-      });
+      }
     } catch (error) {
       if (signal.aborted) return;
       if (error instanceof ApiError && error.status === 401) return;
@@ -136,56 +136,39 @@ async function pump(url: string, signal: AbortSignal, onUpdate: (update: Update)
     }
     attempt += 1;
     if (attempt > RETRY_ATTEMPTS || signal.aborted) return;
-    await wait(retryDelay(attempt), signal);
+    await wait(Math.min(1000 * 2 ** (attempt - 1), 10_000), signal);
   }
 }
 
-export async function openEvents(
-  url: string,
+export async function* events(
+  path: string,
   signal: AbortSignal,
-): Promise<ReadableStream<Uint8Array>> {
-  const response = await fetch(url, {
+  query?: Record<string, QueryValue>,
+): AsyncGenerator<EventFrame> {
+  const response = await fetch(withQuery(apiPath(path), query), {
     credentials: "include",
     headers: { Accept: "text/event-stream" },
     signal,
   });
-  const body = response.body;
-  if (!response.ok || body == null) return fail(response);
-  return body;
-}
+  if (!response.ok || response.body == null) return fail(response);
 
-export function eventsUrl(path: string, query?: Record<string, QueryValue>): string {
-  return withQuery(apiPath(path), query);
-}
-
-export async function readEvents(
-  body: ReadableStream<Uint8Array>,
-  signal: AbortSignal,
-  onFrame: (frame: EventFrame) => void,
-) {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
   let buffer = "";
   try {
-    while (!signal.aborted) {
+    while (true) {
       const { value, done } = await reader.read();
       if (done) return;
-      buffer += decoder.decode(value, { stream: true });
-      buffer = drain(buffer, onFrame);
+      buffer += value;
+      const chunks = buffer.split("\n\n");
+      buffer = chunks.pop() ?? "";
+      for (const chunk of chunks) {
+        const frame = parseFrame(chunk);
+        if (frame) yield frame;
+      }
     }
   } finally {
     reader.releaseLock();
   }
-}
-
-function drain(buffer: string, onFrame: (frame: EventFrame) => void): string {
-  const chunks = buffer.split("\n\n");
-  const rest = chunks.pop() ?? "";
-  for (const chunk of chunks) {
-    const frame = parseFrame(chunk);
-    if (frame) onFrame(frame);
-  }
-  return rest;
 }
 
 function parseFrame(chunk: string): EventFrame | null {
@@ -213,22 +196,12 @@ function parseUpdate(frame: EventFrame): Update | null {
 }
 
 export function streamError(data: string): ApiError {
-  let message = "The stream ended with an error.";
-  let code: string | undefined;
-  try {
-    const body = JSON.parse(data) as { error?: unknown; code?: unknown };
-    if (typeof body.error === "string" && body.error) message = body.error;
-    if (typeof body.code === "string") code = body.code;
-  } catch {}
-  if (code === "SESSION_EXPIRED") redirectToSignIn();
-  return new ApiError(message, 0, code);
+  const body = JSON.parse(data) as { error: string; code: string };
+  if (body.code === "SESSION_EXPIRED") redirectToSignIn();
+  return new ApiError(body.error, 0, body.code);
 }
 
-export function retryDelay(attempt: number): number {
-  return Math.min(1000 * 2 ** (attempt - 1), 10_000);
-}
-
-export function wait(ms: number, signal: AbortSignal): Promise<void> {
+function wait(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     const timer = setTimeout(resolve, ms);
     signal.addEventListener(

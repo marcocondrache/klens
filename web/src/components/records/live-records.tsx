@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { BrushCleaningIcon, PauseIcon, PlayIcon, RadioIcon, TriangleAlertIcon } from "lucide-react";
 
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -61,8 +61,6 @@ type LiveRecordsProps = {
 };
 
 export function LiveRecords({ cluster, topic, filter, onFilterChange, actions }: LiveRecordsProps) {
-  const [paused, setPaused] = useState(false);
-
   const tailFilter = useMemo<TailFilter>(
     () => ({
       topic: topic.name,
@@ -72,7 +70,7 @@ export function LiveRecords({ cluster, topic, filter, onFilterChange, actions }:
     }),
     [topic.name, filter],
   );
-  const tail = useTail(cluster, tailFilter, !paused);
+  const tail = useTail(cluster, tailFilter);
 
   const source: RecordSource = {
     records: tail.records,
@@ -115,14 +113,14 @@ export function LiveRecords({ cluster, topic, filter, onFilterChange, actions }:
                 <Button
                   variant="outline"
                   size="icon"
-                  aria-label={paused ? "Resume live tail" : "Pause live tail"}
-                  onClick={() => setPaused((value) => !value)}
+                  aria-label={tail.paused ? "Resume live tail" : "Pause live tail"}
+                  onClick={tail.paused ? tail.resume : tail.pause}
                 />
               }
             >
-              {paused ? <PlayIcon /> : <PauseIcon />}
+              {tail.paused ? <PlayIcon /> : <PauseIcon />}
             </TooltipTrigger>
-            <TooltipContent>{paused ? "Resume" : "Pause"}</TooltipContent>
+            <TooltipContent>{tail.paused ? "Resume" : "Pause"}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger
@@ -150,14 +148,14 @@ export function LiveRecords({ cluster, topic, filter, onFilterChange, actions }:
               <RadioIcon />
             </EmptyMedia>
             <EmptyTitle>
-              {paused
+              {tail.paused
                 ? "Live tail paused"
                 : tail.status === "error"
                   ? "Live tail stopped"
                   : "Waiting for records"}
             </EmptyTitle>
             <EmptyDescription>
-              {paused
+              {tail.paused
                 ? "Resume to follow the topic from its current end."
                 : tail.status === "error"
                   ? "Retry to follow the topic again."
