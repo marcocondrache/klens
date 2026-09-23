@@ -31,7 +31,6 @@ import { recordId } from "@/lib/records";
 import type { KafkaRecord, TopicDetail } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
-/** What every record source filters on, however it reads the topic. */
 export type RecordFilter = {
   term: string;
   partition: number | null;
@@ -40,10 +39,8 @@ export type RecordFilter = {
 
 export const EMPTY_FILTER: RecordFilter = { term: "", partition: null, schemaId: null };
 
-/** Records to show, from wherever they come. The view reads nothing else. */
 export type RecordSource = {
   records: KafkaRecord[];
-  /** Changes when the records start over, so the table resets its scroll. */
   scope: string;
   obfuscated: boolean;
   loading: boolean;
@@ -145,11 +142,8 @@ type RecordViewProps = {
   source: RecordSource;
   filter: RecordFilter;
   onFilterChange: (filter: RecordFilter) => void;
-  /** Filters only this source understands, after the partition picker. */
   controls?: ReactNode;
-  /** Pinned to the end of the toolbar. */
   actions?: ReactNode;
-  /** Shown above the table, such as a partial scan or a stopped stream. */
   notice?: ReactNode;
   emptyState: ReactNode;
 };

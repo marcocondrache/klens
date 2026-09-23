@@ -60,7 +60,6 @@ type LiveRecordsProps = {
   actions?: React.ReactNode;
 };
 
-/** Follows a topic from its current end over the tail stream. */
 export function LiveRecords({ cluster, topic, filter, onFilterChange, actions }: LiveRecordsProps) {
   const [paused, setPaused] = useState(false);
 

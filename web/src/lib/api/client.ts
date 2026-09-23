@@ -107,7 +107,6 @@ export async function getOrNull<T>(
 
 export const RETRY_ATTEMPTS = 8;
 
-/** One server-sent event: its `event:` name and its joined `data:` lines. */
 export type EventFrame = { event: string; data: string };
 
 export function stream(
@@ -141,7 +140,6 @@ async function pump(url: string, signal: AbortSignal, onUpdate: (update: Update)
   }
 }
 
-/** Open an event stream. A refused request throws an `ApiError`. */
 export async function openEvents(
   url: string,
   signal: AbortSignal,
@@ -197,7 +195,6 @@ function parseFrame(chunk: string): EventFrame | null {
     if (line.startsWith("event:")) event = line.slice(6).trim();
     else if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
   }
-  // Keep-alive comments carry no data.
   if (data.length === 0) return null;
   return { event, data: data.join("\n") };
 }
@@ -210,12 +207,11 @@ function parseUpdate(frame: EventFrame): Update | null {
       redirectToSignIn();
     }
   } catch {
-    // A truncated frame is not an update.
+    // Keep-alive comments and truncated frames are not updates.
   }
   return null;
 }
 
-/** An `error` frame ends a stream. A lapsed session also sends the browser to sign in. */
 export function streamError(data: string): ApiError {
   let message = "The stream ended with an error.";
   let code: string | undefined;
@@ -223,9 +219,7 @@ export function streamError(data: string): ApiError {
     const body = JSON.parse(data) as { error?: unknown; code?: unknown };
     if (typeof body.error === "string" && body.error) message = body.error;
     if (typeof body.code === "string") code = body.code;
-  } catch {
-    // Keep the generic message.
-  }
+  } catch {}
   if (code === "SESSION_EXPIRED") redirectToSignIn();
   return new ApiError(message, 0, code);
 }

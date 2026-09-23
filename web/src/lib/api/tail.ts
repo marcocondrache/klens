@@ -25,10 +25,8 @@ export type TailFilter = {
 
 export type TailStatus = "idle" | "connecting" | "live" | "reconnecting" | "error";
 
-/** Newest records a tail keeps on screen. Older ones fall off the end. */
 export const TAIL_BUFFER = 1000;
 
-/** Typing in the search box reopens a tail, so wait for a pause first. */
 const OPEN_DELAY_MS = 300;
 
 type TailHandlers = {
@@ -59,11 +57,6 @@ function initial(scope: string, enabled: boolean): TailState {
   };
 }
 
-/**
- * Follow a topic from its current end. Records arrive oldest first and are
- * kept newest first, capped at {@link TAIL_BUFFER}. Turning `enabled` off
- * closes the stream but keeps what arrived; a new filter starts over.
- */
 export function useTail(cluster: string, filter: TailFilter, enabled = true) {
   const active = enabled && Boolean(cluster);
   const scope = JSON.stringify([cluster, filter]);
@@ -134,10 +127,6 @@ function apply(state: TailState, event: TailEvent): TailState {
   }
 }
 
-/**
- * Keep a tail open. A dropped connection reopens from the new end with
- * backoff. A refused request or an `error` frame ends it for good.
- */
 async function follow(url: string, signal: AbortSignal, handlers: TailHandlers) {
   let attempt = 0;
   while (!signal.aborted) {

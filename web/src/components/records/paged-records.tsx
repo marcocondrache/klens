@@ -40,7 +40,6 @@ type PagedRecordsProps = {
   actions?: React.ReactNode;
 };
 
-/** Pages through a topic with the records endpoint, in either direction. */
 export function PagedRecords({
   cluster,
   topic,
