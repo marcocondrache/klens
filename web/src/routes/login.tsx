@@ -4,8 +4,10 @@ import { LoginCover } from "@/components/login-cover";
 import { LoginForm } from "@/components/login-form";
 import { ModeToggle } from "@/components/mode-toggle";
 import { RELEASE_URL, REPO_URL, VERSION } from "@/lib/build";
+import { loginSearch } from "@/lib/route-search";
 
 export const Route = createFileRoute("/login")({
+  validateSearch: loginSearch,
   component: LoginPage,
 });
 

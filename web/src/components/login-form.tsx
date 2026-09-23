@@ -1,15 +1,15 @@
 import { CircleAlertIcon, KeyRoundIcon } from "lucide-react";
-import { useQueryStates } from "nuqs";
+import { useSearch } from "@tanstack/react-router";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { LogoMark } from "@/components/logo";
 import { SIGN_IN_PATH } from "@/lib/api/client";
-import { loginSearch } from "@/lib/route-search";
+import type { LoginSearch } from "@/lib/route-search";
 import { cn } from "@/lib/utils";
 
 export function LoginForm({ className, ...props }: React.ComponentProps<"div">) {
-  const [{ error, from }] = useQueryStates(loginSearch);
+  const { error, from } = useSearch({ from: "/login" });
   const alert = loginAlert(error, from);
 
   return (
@@ -37,8 +37,8 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
 }
 
 function loginAlert(
-  error: string | null,
-  from: "callback" | null,
+  error: LoginSearch["error"],
+  from: LoginSearch["from"],
 ): { title: string; description: string } | null {
   if (error === "forbidden") {
     return { title: "Access denied", description: "Your account is not assigned a klens role." };

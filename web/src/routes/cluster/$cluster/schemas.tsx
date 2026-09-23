@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, stripSearchParams } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
-import { useQueryStates } from "nuqs";
 
 import {
   Sheet,
@@ -21,16 +20,19 @@ import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
 import { useAccess } from "@/hooks/use-access";
 import { useNow } from "@/hooks/use-now";
+import { useSearchDraft } from "@/hooks/use-search-draft";
 import { apiErrorMessage } from "@/lib/api/client";
 import { useSubjectRows } from "@/lib/api/catalog";
 import { useSubject } from "@/lib/api/live";
 import type { SubjectRow } from "@/lib/api/types";
 import { laneCaption, useClusterName } from "@/lib/clusters";
 import { formatEnumLabel, isJson } from "@/lib/format";
-import { schemasSearch } from "@/lib/route-search";
+import { schemasSearch, searchDefaults } from "@/lib/route-search";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/cluster/$cluster/schemas")({
+  validateSearch: schemasSearch,
+  search: { middlewares: [stripSearchParams(searchDefaults(schemasSearch))] },
   component: SchemasPage,
 });
 
@@ -134,7 +136,11 @@ function schemaFilename(subject: string, version: number, schema: string) {
 
 function SchemasPage() {
   const cluster = useClusterName();
-  const [{ q: term }, setSearch] = useQueryStates(schemasSearch);
+  const navigate = Route.useNavigate();
+  const { q: term } = Route.useSearch();
+  const searchInput = useSearchDraft(term, (q) => {
+    void navigate({ search: { q }, replace: true });
+  });
   const [selected, setSelected] = useState<SubjectRow | null>(null);
   const [version, setVersion] = useState<number | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -176,12 +182,7 @@ function SchemasPage() {
         data={rows}
         getRowId={(subject) => subject.subject}
         toolbar={
-          <SearchField
-            className="shrink-0"
-            value={term}
-            onChange={(event) => void setSearch({ q: event.target.value })}
-            placeholder="Search subjects…"
-          />
+          <SearchField className="shrink-0" {...searchInput} placeholder="Search subjects…" />
         }
         loading={isPending}
         error={isError ? apiErrorMessage(error, "Failed to load schemas.") : undefined}
