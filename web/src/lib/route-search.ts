@@ -3,9 +3,6 @@ import * as z from "zod/mini";
 import { filterParam } from "@/components/data-table/filters";
 import type { GroupState } from "@/lib/api/types";
 
-// The router hands these schemas plain strings parsed from the URL, and typed
-// values from links and navigations; `catch` falls back on anything malformed.
-
 const term = z.catch(z._default(z.string(), ""), "");
 
 const flag = z.catch(
@@ -135,7 +132,6 @@ export function groupTab(value: unknown) {
   return z.parse(groupTabParam, value);
 }
 
-/** The values `stripSearchParams` keeps out of the URL. */
 export function searchDefaults<T extends z.ZodMiniType>(schema: T): z.output<T> {
   return z.parse(schema, {});
 }

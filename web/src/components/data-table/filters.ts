@@ -86,7 +86,6 @@ function encodeFilter({ values, negate }: FilterParam) {
   return `${negate ? "!" : ""}${values.join(",")}`;
 }
 
-/** Normalises a `a,b` (any of) or `!a,b` (none of) search param to the `allowed` values. */
 export function filterParam(allowed: readonly string[], raw: unknown): string | undefined {
   if (typeof raw !== "string") return undefined;
   const { values, negate } = decodeFilter(raw);
@@ -104,7 +103,6 @@ export function readFilters<TData>(
   });
 }
 
-/** The search update that replaces every field's param with `rules`. */
 export function filterParams<TData, TId extends string>(
   fields: ReadonlyArray<FilterField<TData, TId>>,
   rules: FilterRule[],
