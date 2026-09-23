@@ -10,7 +10,7 @@ use crate::environment::{MAX_RECORD_LIMIT, MAX_RESPONSE_MB};
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{Compression, PartitionWindow, RawRecord, ScanConsumer};
 
-use super::pool::{ScanPool, assign};
+use super::pool::{Reader, ScanPool, assign};
 
 pub(super) fn reader(
     client: &KrafkaSharedClient,
@@ -57,13 +57,13 @@ pub(super) fn raw_record(message: ConsumerRecord) -> RawRecord {
 pub(super) struct ScanLease {
     pool: Arc<ScanPool>,
     topic: String,
-    consumer: Arc<Consumer>,
+    consumer: Arc<Reader>,
     reusable: AtomicBool,
     released: AtomicBool,
 }
 
 impl ScanLease {
-    pub(super) fn new(pool: Arc<ScanPool>, topic: &str, consumer: Arc<Consumer>) -> Self {
+    pub(super) fn new(pool: Arc<ScanPool>, topic: &str, consumer: Arc<Reader>) -> Self {
         Self {
             pool,
             topic: topic.to_owned(),
@@ -133,8 +133,9 @@ impl Drop for ScanLease {
 
 #[cfg(test)]
 mod tests {
+    use foldhash::HashMap;
     use krafka::protocol::ApiKey;
-    use krafka::testing::FakeBroker;
+    use krafka::testing::{Control, FakeBroker};
 
     use super::*;
     use crate::kafka::client::KafkaClient;
@@ -327,5 +328,43 @@ mod tests {
             "pre-seeded window starts leave nothing for auto-offset-reset to ask"
         );
         scan.close().await;
+    }
+
+    #[tokio::test]
+    async fn a_scan_the_broker_stops_answering_holds_up_nothing_else() {
+        let broker = FakeBroker::start().await.unwrap();
+        assert!(broker.create_topic("orders", 1));
+        super::super::tests::produce_krafka(&broker.bootstrap_servers(), "orders", 1).await;
+        let client = client(&broker).await;
+        let wanted = HashMap::from_iter([("orders".to_owned(), vec![0])]);
+        let answers_promptly = || async {
+            tokio::time::timeout(Duration::from_secs(2), client.watermarks(&wanted))
+                .await
+                .expect("the cluster's requests are not queued behind the scan's")
+                .expect("watermarks");
+        };
+
+        let scan = client
+            .scans
+            .acquire("orders", &[window(0, 0, 1)])
+            .await
+            .unwrap();
+        let fetches = broker.request_count(ApiKey::Fetch);
+        broker.on_once(ApiKey::Fetch, |_| Control::Silence);
+        let _ = tokio::time::timeout(
+            Duration::from_millis(50),
+            scan.poll(Duration::from_millis(10)),
+        )
+        .await;
+        assert!(
+            broker
+                .wait_for_requests(ApiKey::Fetch, fetches + 1, Duration::from_secs(1))
+                .await
+        );
+
+        answers_promptly().await;
+        scan.reusable.store(false, Ordering::SeqCst);
+        scan.close().await;
+        answers_promptly().await;
     }
 }
