@@ -27,9 +27,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       throw redirect({ href: SIGN_IN_PATH, reloadDocument: true });
     }
   },
-  pendingComponent: () => (
-    <PageLoading title="Starting" description="Checking if you need to sign in." />
-  ),
+  pendingComponent: () => <PageLoading label="Checking your session…" />,
   component: RootLayout,
   notFoundComponent: NotFoundPage,
 });
