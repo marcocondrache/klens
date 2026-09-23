@@ -228,8 +228,6 @@ jobs:
         uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: stable
-      # Reuse the test job's dependency build, which main keeps warm; this
-      # job only runs on pull requests, so it would never find its own.
       - name: Cache cargo registry and build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
@@ -239,9 +237,6 @@ jobs:
         uses: taiki-e/install-action@cae505dda7470fdae7eaa037ede96f6478023a22 # nextest
       - name: Install cargo-mutants
         uses: taiki-e/install-action@c58f078df6f07a6a4e3ff407a758ce97c93691d1 # cargo-mutants
-      # rust-cache turns incremental compilation off, but each mutant is a
-      # small edit to the same crate: incremental rebuilds take ~5s instead
-      # of ~35s.
       - name: Run cargo-mutants on the pull request diff
         env:
           CARGO_INCREMENTAL: 1
