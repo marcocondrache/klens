@@ -1,22 +1,21 @@
 use std::collections::VecDeque;
-use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use krafka::client::KrafkaClient as KrafkaSharedClient;
-use krafka::consumer::{Consumer, ConsumerBuilder};
+use krafka::consumer::Consumer;
 
 use crate::environment::{
     SCAN_PACE_BOUND, SCAN_POOL_IDLE_TTL, SCAN_POOL_PER_TOPIC, SCAN_POOL_TOTAL,
 };
-use crate::kafka::client::transport::{self, Connector};
+use crate::kafka::client::transport;
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::PartitionWindow;
 
 use super::scan::{ScanLease, reader};
 
 pub(super) struct ScanPool {
-    connector: Connector,
+    client: KrafkaSharedClient,
     inner: Mutex<ScanPoolInner>,
 }
 
@@ -29,7 +28,7 @@ struct ScanPoolInner {
 
 struct Parked {
     topic: String,
-    consumer: Arc<Reader>,
+    consumer: Arc<Consumer>,
     since: Instant,
 }
 
@@ -46,7 +45,7 @@ impl ScanPoolInner {
     /// Newest match first: the most recently parked consumer has the
     /// freshest positions and metadata. Closed consumers found along the
     /// way are evicted.
-    fn take(&mut self, topic: &str, evicted: &mut Vec<Arc<Reader>>) -> Option<Arc<Reader>> {
+    fn take(&mut self, topic: &str, evicted: &mut Vec<Arc<Consumer>>) -> Option<Arc<Consumer>> {
         self.expire(evicted);
 
         while let Some(index) = self.parked.iter().rposition(|parked| parked.topic == topic) {
@@ -60,7 +59,7 @@ impl ScanPoolInner {
     }
 
     /// A consumer over either cap is evicted rather than parked.
-    fn park(&mut self, topic: &str, consumer: Arc<Reader>, evicted: &mut Vec<Arc<Reader>>) {
+    fn park(&mut self, topic: &str, consumer: Arc<Consumer>, evicted: &mut Vec<Arc<Consumer>>) {
         self.expire(evicted);
 
         let same_topic = self
@@ -81,7 +80,7 @@ impl ScanPoolInner {
     }
 
     /// The queue is sorted by age, so everything expired sits at the front.
-    fn expire(&mut self, evicted: &mut Vec<Arc<Reader>>) {
+    fn expire(&mut self, evicted: &mut Vec<Arc<Consumer>>) {
         while self
             .parked
             .front()
@@ -93,49 +92,17 @@ impl ScanPoolInner {
     }
 }
 
-pub(super) struct Reader {
-    consumer: Consumer,
-    client: KrafkaSharedClient,
-}
-
-impl Reader {
-    pub(super) async fn open(
-        connector: &Connector,
-        configure: impl FnOnce(&KrafkaSharedClient) -> ConsumerBuilder,
-    ) -> Result<Self, KafkaError> {
-        let client = connector.connect().await?;
-        match configure(&client).build().await {
-            Ok(consumer) => Ok(Self { consumer, client }),
-            Err(error) => {
-                client.pool().close_all().await;
-                Err(error.into())
-            }
-        }
-    }
-}
-
-impl Deref for Reader {
-    type Target = Consumer;
-
-    fn deref(&self) -> &Consumer {
-        &self.consumer
-    }
-}
-
-const RETIRE_GRACE: Duration = Duration::from_secs(1);
-
 /// Nothing waits on a retired consumer, so closing it is fire-and-forget.
-pub(super) fn retire(reader: Arc<Reader>) {
+pub(super) fn retire(consumer: Arc<Consumer>) {
     tokio::spawn(async move {
-        let _ = tokio::time::timeout(RETIRE_GRACE, reader.consumer.close()).await;
-        reader.client.pool().close_all().await;
+        let _ = consumer.close().await;
     });
 }
 
 impl ScanPool {
     pub(super) fn spawn(transport: &transport::Transport) -> Arc<Self> {
         let pool = Arc::new(Self {
-            connector: transport.connector.clone(),
+            client: transport.client.clone(),
             inner: Mutex::new(ScanPoolInner::new()),
         });
 
@@ -174,7 +141,7 @@ impl ScanPool {
         Ok(ScanLease::new(Arc::clone(self), topic, consumer))
     }
 
-    pub(super) fn release(&self, topic: &str, consumer: Arc<Reader>, reusable: bool) {
+    pub(super) fn release(&self, topic: &str, consumer: Arc<Consumer>, reusable: bool) {
         if !reusable {
             retire(consumer);
             return;
@@ -193,7 +160,7 @@ impl ScanPool {
             .count()
     }
 
-    fn with_idle<T>(&self, op: impl FnOnce(&mut ScanPoolInner, &mut Vec<Arc<Reader>>) -> T) -> T {
+    fn with_idle<T>(&self, op: impl FnOnce(&mut ScanPoolInner, &mut Vec<Arc<Consumer>>) -> T) -> T {
         let mut evicted = Vec::new();
         let result = op(&mut self.inner.lock().expect("scan pool"), &mut evicted);
         for consumer in evicted {
@@ -202,17 +169,20 @@ impl ScanPool {
         result
     }
 
-    async fn build(&self, topic: &str, windows: &[PartitionWindow]) -> Result<Reader, KafkaError> {
+    async fn build(
+        &self,
+        topic: &str,
+        windows: &[PartitionWindow],
+    ) -> Result<Consumer, KafkaError> {
         // The broker releases the long poll exactly when the scan stops
         // waiting for it, instead of holding a fetch nobody will read.
         let start = windows
             .iter()
             .map(|window| (window.partition, window.start));
 
-        Reader::open(&self.connector, |client| {
-            reader(client, topic, start, *SCAN_PACE_BOUND)
-        })
-        .await
+        Ok(reader(&self.client, topic, start, *SCAN_PACE_BOUND)
+            .build()
+            .await?)
     }
 }
 

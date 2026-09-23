@@ -1,16 +1,56 @@
+use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use krafka::consumer::AutoOffsetReset;
+use krafka::client::KrafkaClient as KrafkaSharedClient;
+use krafka::consumer::{AutoOffsetReset, Consumer, ConsumerBuilder};
 
 use crate::environment::TAIL_POLL_WAIT;
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{RawRecord, TailConsumer, TailPosition};
 
-use super::pool::{Reader, retire};
 use super::scan::{raw_record, reader};
 use super::transport::Connector;
+
+struct Reader {
+    consumer: Consumer,
+    client: KrafkaSharedClient,
+}
+
+impl Reader {
+    async fn open(
+        connector: &Connector,
+        configure: impl FnOnce(&KrafkaSharedClient) -> ConsumerBuilder,
+    ) -> Result<Self, KafkaError> {
+        let client = connector.connect().await?;
+        match configure(&client).build().await {
+            Ok(consumer) => Ok(Self { consumer, client }),
+            Err(error) => {
+                client.pool().close_all().await;
+                Err(error.into())
+            }
+        }
+    }
+}
+
+impl Deref for Reader {
+    type Target = Consumer;
+
+    fn deref(&self) -> &Consumer {
+        &self.consumer
+    }
+}
+
+const RETIRE_GRACE: Duration = Duration::from_secs(1);
+
+/// Nothing waits on a retired consumer, so closing it is fire-and-forget.
+fn retire(reader: Arc<Reader>) {
+    tokio::spawn(async move {
+        let _ = tokio::time::timeout(RETIRE_GRACE, reader.consumer.close()).await;
+        reader.client.pool().close_all().await;
+    });
+}
 
 pub(super) struct TailLease {
     topic: String,
