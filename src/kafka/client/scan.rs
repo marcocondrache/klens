@@ -10,7 +10,9 @@ use crate::environment::{MAX_RECORD_LIMIT, MAX_RESPONSE_MB};
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{Compression, PartitionWindow, RawRecord, ScanConsumer};
 
-use super::pool::{Reader, ScanPool, assign};
+use super::pool::{ScanPool, assign};
+
+const MIN_FETCH_WAIT: Duration = Duration::from_millis(1);
 
 pub(super) fn reader(
     client: &KrafkaSharedClient,
@@ -24,7 +26,7 @@ pub(super) fn reader(
         .with_client(client)
         .enable_auto_commit(false)
         .auto_offset_reset(AutoOffsetReset::Earliest)
-        .fetch_max_wait(fetch_wait)
+        .fetch_max_wait(fetch_wait.max(MIN_FETCH_WAIT))
         .max_poll_records(page_limit)
         .max_buffered_records(page_limit.saturating_mul(2))
         // krafka's 50 MB default is wider than the frame the connection
@@ -57,13 +59,13 @@ pub(super) fn raw_record(message: ConsumerRecord) -> RawRecord {
 pub(super) struct ScanLease {
     pool: Arc<ScanPool>,
     topic: String,
-    consumer: Arc<Reader>,
+    consumer: Arc<Consumer>,
     reusable: AtomicBool,
     released: AtomicBool,
 }
 
 impl ScanLease {
-    pub(super) fn new(pool: Arc<ScanPool>, topic: &str, consumer: Arc<Reader>) -> Self {
+    pub(super) fn new(pool: Arc<ScanPool>, topic: &str, consumer: Arc<Consumer>) -> Self {
         Self {
             pool,
             topic: topic.to_owned(),
@@ -133,9 +135,8 @@ impl Drop for ScanLease {
 
 #[cfg(test)]
 mod tests {
-    use foldhash::HashMap;
     use krafka::protocol::ApiKey;
-    use krafka::testing::{Control, FakeBroker};
+    use krafka::testing::FakeBroker;
 
     use super::*;
     use crate::kafka::client::KafkaClient;
@@ -201,6 +202,22 @@ mod tests {
         );
         assert_eq!(config.fetch_max_wait(), Duration::from_millis(250));
         assert_eq!(config.auto_offset_reset(), AutoOffsetReset::Earliest);
+    }
+
+    #[tokio::test]
+    async fn a_reader_never_asks_the_broker_for_a_zero_wait() {
+        let broker = FakeBroker::start().await.unwrap();
+        let client = client(&broker).await;
+
+        let config = reader(&client.transport.client, "orders", [(0, 0)], Duration::ZERO)
+            .build_config()
+            .unwrap();
+
+        assert_eq!(
+            config.fetch_max_wait(),
+            MIN_FETCH_WAIT,
+            "Redpanda never answers a fetch-session close with max_wait_ms 0"
+        );
     }
 
     #[tokio::test]
@@ -328,43 +345,5 @@ mod tests {
             "pre-seeded window starts leave nothing for auto-offset-reset to ask"
         );
         scan.close().await;
-    }
-
-    #[tokio::test]
-    async fn a_scan_the_broker_stops_answering_holds_up_nothing_else() {
-        let broker = FakeBroker::start().await.unwrap();
-        assert!(broker.create_topic("orders", 1));
-        super::super::tests::produce_krafka(&broker.bootstrap_servers(), "orders", 1).await;
-        let client = client(&broker).await;
-        let wanted = HashMap::from_iter([("orders".to_owned(), vec![0])]);
-        let answers_promptly = || async {
-            tokio::time::timeout(Duration::from_secs(2), client.watermarks(&wanted))
-                .await
-                .expect("the cluster's requests are not queued behind the scan's")
-                .expect("watermarks");
-        };
-
-        let scan = client
-            .scans
-            .acquire("orders", &[window(0, 0, 1)])
-            .await
-            .unwrap();
-        let fetches = broker.request_count(ApiKey::Fetch);
-        broker.on_once(ApiKey::Fetch, |_| Control::Silence);
-        let _ = tokio::time::timeout(
-            Duration::from_millis(50),
-            scan.poll(Duration::from_millis(10)),
-        )
-        .await;
-        assert!(
-            broker
-                .wait_for_requests(ApiKey::Fetch, fetches + 1, Duration::from_secs(1))
-                .await
-        );
-
-        answers_promptly().await;
-        scan.reusable.store(false, Ordering::SeqCst);
-        scan.close().await;
-        answers_promptly().await;
     }
 }

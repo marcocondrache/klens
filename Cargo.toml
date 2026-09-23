@@ -41,7 +41,7 @@ cookie = { version = "0.18", features = ["key-expansion"] }
 tower-sessions = { version = "0.14", features = ["memory-store", "signed"] }
 futures = "0.3"
 jiff = { version = "0.2", default-features = false, features = ["serde", "std"] }
-krafka = { git = "https://github.com/hupe1980/krafka", rev = "776ac3402150289fbcab989d81265af4c7f31eaa" }
+krafka = { git = "https://github.com/hupe1980/krafka", rev = "e6b154cef8dd0bfe7b2c8fadbf925c1e6494310f" }
 moka = { version = "0.12", features = ["future"] }
 mime_guess = { version = "2", optional = true }
 openidconnect = "4.0.1"
@@ -80,7 +80,7 @@ ts-rs = { version = "12.0.1", features = ["jiff-impl", "serde-compat"] }
 frizbee = "0.13"
 
 [dev-dependencies]
-krafka = { git = "https://github.com/hupe1980/krafka", rev = "776ac3402150289fbcab989d81265af4c7f31eaa", features = ["test-broker"] }
+krafka = { git = "https://github.com/hupe1980/krafka", rev = "e6b154cef8dd0bfe7b2c8fadbf925c1e6494310f", features = ["test-broker"] }
 tokio = { version = "1", features = ["test-util"] }
 wiremock = "0.6.5"
 
