@@ -1,3 +1,5 @@
+import { EventSourceParserStream, type EventSourceMessage } from "eventsource-parser/stream";
+
 import type { Update } from "@/api/types.gen";
 
 export class ApiError extends Error {
@@ -145,52 +147,33 @@ async function pump(url: string, signal: AbortSignal, onUpdate: (update: Update)
 }
 
 async function readEvents(
-  body: ReadableStream<Uint8Array>,
+  body: ReadableStream<BufferSource>,
   signal: AbortSignal,
   onUpdate: (update: Update) => void,
 ) {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
+  const reader = body
+    .pipeThrough(new TextDecoderStream())
+    .pipeThrough(new EventSourceParserStream())
+    .getReader();
   try {
     while (!signal.aborted) {
       const { value, done } = await reader.read();
       if (done) return;
-      buffer += decoder.decode(value, { stream: true });
-      buffer = drain(buffer, onUpdate);
+      dispatch(value, onUpdate);
     }
   } finally {
     reader.releaseLock();
   }
 }
 
-function drain(buffer: string, onUpdate: (update: Update) => void): string {
-  const chunks = buffer.split("\n\n");
-  const rest = chunks.pop() ?? "";
-  for (const chunk of chunks) {
-    const update = parseEvent(chunk);
-    if (update) onUpdate(update);
+/** The server names every event: `error` carries an `ApiError` body, the rest are updates. */
+function dispatch({ event, data }: EventSourceMessage, onUpdate: (update: Update) => void) {
+  if (event === "error") {
+    const { code } = JSON.parse(data) as { code?: string };
+    if (code === "SESSION_EXPIRED") redirectToSignIn();
+    return;
   }
-  return rest;
-}
-
-function parseEvent(chunk: string): Update | null {
-  const data = chunk
-    .split("\n")
-    .filter((line) => line.startsWith("data:"))
-    .map((line) => line.slice(5).trimStart())
-    .join("\n");
-  if (!data) return null;
-  try {
-    const parsed = JSON.parse(data) as Update | { code?: string };
-    if (parsed && typeof parsed === "object" && "type" in parsed) return parsed;
-    if (parsed && typeof parsed === "object" && parsed.code === "SESSION_EXPIRED") {
-      redirectToSignIn();
-    }
-  } catch {
-    // Keep-alive comments and truncated frames are not updates.
-  }
-  return null;
+  onUpdate(JSON.parse(data) as Update);
 }
 
 function wait(ms: number, signal: AbortSignal): Promise<void> {
