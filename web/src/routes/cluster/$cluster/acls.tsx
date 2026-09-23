@@ -1,7 +1,6 @@
 import { useMemo } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, stripSearchParams } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
-import { useQueryStates } from "nuqs";
 import { AsteriskIcon, BoxIcon, ShieldIcon, ZapIcon } from "lucide-react";
 
 import { DataTableColumnHeader } from "@/components/data-table/column-header";
@@ -19,14 +18,25 @@ import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
 import { Pill, StatusDot, StatusLabel } from "@/components/status";
 import { useAccess } from "@/hooks/use-access";
+import { useSearchDraft } from "@/hooks/use-search-draft";
 import { useAcls } from "@/lib/api/live";
 import type { Acl } from "@/lib/api/types";
 import { useClusterName } from "@/lib/clusters";
 import { apiErrorMessage } from "@/lib/api/client";
 import { formatEnumLabel } from "@/lib/format";
-import { ACL_OPERATIONS, ACL_PATTERNS, ACL_RESOURCE_TYPES, aclsSearch } from "@/lib/route-search";
+import {
+  ACL_OPERATIONS,
+  ACL_PATTERNS,
+  ACL_RESOURCE_TYPES,
+  aclsDefaults,
+  validateAclsSearch,
+  type AclFilter,
+  type AclsSearch,
+} from "@/lib/route-search";
 
 export const Route = createFileRoute("/cluster/$cluster/acls")({
+  validateSearch: validateAclsSearch,
+  search: { middlewares: [stripSearchParams(aclsDefaults)] },
   component: AclsPage,
 });
 
@@ -36,7 +46,7 @@ function enumOptions(values: readonly string[]) {
   return values.map((value) => ({ value, label: formatEnumLabel(value) }));
 }
 
-const FILTERS: Array<FilterField<Acl>> = [
+const FILTERS: Array<FilterField<Acl, AclFilter>> = [
   {
     id: "resource",
     label: "Resource",
@@ -131,9 +141,15 @@ function aclRowId(acl: Acl): string {
 
 function AclsPage() {
   const cluster = useClusterName();
-  const [search, setSearch] = useQueryStates(aclsSearch);
+  const navigate = Route.useNavigate();
+  const search = Route.useSearch();
   const { q: term } = search;
   const filters = readFilters(FILTERS, search);
+
+  function setSearch(patch: Partial<AclsSearch>) {
+    void navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true });
+  }
+  const searchInput = useSearchDraft(term, (q) => setSearch({ q }));
   const { can } = useAccess();
   const canAcls = can(cluster, "ACLS");
   const { data, isPending, isError, error } = useAcls(cluster, canAcls);
@@ -141,7 +157,7 @@ function AclsPage() {
   const bindings = data?.bindings ?? EMPTY_BINDINGS;
 
   function setFilters(rules: FilterRule[]) {
-    void setSearch(filterParams(FILTERS, rules));
+    setSearch(filterParams(FILTERS, rules));
   }
 
   const searched = useMemo(() => {
@@ -185,11 +201,7 @@ function AclsPage() {
         getRowId={aclRowId}
         toolbar={
           <>
-            <SearchField
-              value={term}
-              onChange={(event) => void setSearch({ q: event.target.value })}
-              placeholder="Search ACLs…"
-            />
+            <SearchField {...searchInput} placeholder="Search ACLs…" />
 
             <FilterBar fields={FILTERS} rows={searched} value={filters} onChange={setFilters} />
           </>

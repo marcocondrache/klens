@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
-import { createParser } from "nuqs";
 
 export interface FilterOption {
   value: string;
@@ -8,9 +7,9 @@ export interface FilterOption {
   icon?: ReactNode;
 }
 
-export interface FilterField<TData> {
+export interface FilterField<TData, TId extends string = string> {
   /** Doubles as the URL search key. */
-  id: string;
+  id: TId;
   label: string;
   plural: string;
   icon: LucideIcon;
@@ -76,21 +75,23 @@ export function facetCounts<TData>(
   return counts;
 }
 
-export type FilterParam = Omit<FilterRule, "id">;
+type FilterParam = Omit<FilterRule, "id">;
 
-/** A `a,b` (any of) or `!a,b` (none of) search param, limited to `allowed`. */
-export function parseAsFilter(allowed: readonly string[]) {
-  return createParser<FilterParam>({
-    parse(raw) {
-      const negate = raw.startsWith("!");
-      const values = [...new Set((negate ? raw.slice(1) : raw).split(","))].filter((value) =>
-        allowed.includes(value),
-      );
-      return values.length > 0 ? { values, negate } : null;
-    },
-    serialize: ({ values, negate }) => `${negate ? "!" : ""}${values.join(",")}`,
-    eq: (a, b) => a.negate === b.negate && a.values.join(",") === b.values.join(","),
-  });
+function decodeFilter(raw: string): FilterParam {
+  const negate = raw.startsWith("!");
+  return { values: (negate ? raw.slice(1) : raw).split(","), negate };
+}
+
+function encodeFilter({ values, negate }: FilterParam) {
+  return `${negate ? "!" : ""}${values.join(",")}`;
+}
+
+/** Normalises a `a,b` (any of) or `!a,b` (none of) search param to the `allowed` values. */
+export function filterParam(allowed: readonly string[], raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const { values, negate } = decodeFilter(raw);
+  const kept = [...new Set(values)].filter((value) => allowed.includes(value));
+  return kept.length > 0 ? encodeFilter({ values: kept, negate }) : undefined;
 }
 
 export function readFilters<TData>(
@@ -98,20 +99,20 @@ export function readFilters<TData>(
   search: Partial<Record<string, unknown>>,
 ): FilterRule[] {
   return fields.flatMap((field) => {
-    const param = search[field.id] as FilterParam | null | undefined;
-    return param ? [{ id: field.id, ...param }] : [];
+    const raw = search[field.id];
+    return typeof raw === "string" && raw !== "" ? [{ id: field.id, ...decodeFilter(raw) }] : [];
   });
 }
 
-/** The query-state update that replaces every field's param with `rules`. */
-export function filterParams<TData>(
-  fields: ReadonlyArray<FilterField<TData>>,
+/** The search update that replaces every field's param with `rules`. */
+export function filterParams<TData, TId extends string>(
+  fields: ReadonlyArray<FilterField<TData, TId>>,
   rules: FilterRule[],
-): Record<string, FilterParam | null> {
-  return Object.fromEntries(
-    fields.map((field) => {
-      const rule = rules.find((candidate) => candidate.id === field.id);
-      return [field.id, rule ? { values: rule.values, negate: rule.negate } : null];
-    }),
-  );
+): Record<TId, string | undefined> {
+  const params = {} as Record<TId, string | undefined>;
+  for (const field of fields) {
+    const rule = rules.find((candidate) => candidate.id === field.id);
+    params[field.id] = rule ? encodeFilter(rule) : undefined;
+  }
+  return params;
 }

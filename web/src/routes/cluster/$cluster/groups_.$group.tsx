@@ -1,6 +1,5 @@
-import { Link, createFileRoute } from "@tanstack/react-router";
+import { Link, createFileRoute, stripSearchParams } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
-import { useQueryStates } from "nuqs";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CopyButton } from "@/components/copy-button";
@@ -18,9 +17,11 @@ import { catalogLookupMessage } from "@/lib/catalog-lookup";
 import { useClusterName } from "@/lib/clusters";
 import { formatCount, formatNumber, toNumber } from "@/lib/format";
 import type { GroupDetail, GroupMember, GroupOffset } from "@/lib/api/types";
-import { groupDetailSearch } from "@/lib/route-search";
+import { groupDetailDefaults, groupTab, validateGroupDetailSearch } from "@/lib/route-search";
 
 export const Route = createFileRoute("/cluster/$cluster/groups_/$group")({
+  validateSearch: validateGroupDetailSearch,
+  search: { middlewares: [stripSearchParams(groupDetailDefaults)] },
   component: ConsumerGroupPage,
 });
 
@@ -100,7 +101,7 @@ function ConsumerGroupPage() {
   const cluster = useClusterName();
   const navigate = Route.useNavigate();
   const { group: groupId } = Route.useParams();
-  const [{ tab }, setSearch] = useQueryStates(groupDetailSearch);
+  const { tab } = Route.useSearch();
   const { data: group, isPending, isError, error } = useGroup(cluster, groupId);
 
   const lookup = catalogLookupMessage({
@@ -247,7 +248,7 @@ function ConsumerGroupPage() {
       <Tabs
         value={tab}
         onValueChange={(value) =>
-          void setSearch({ tab: groupDetailSearch.tab.parse(String(value)) })
+          void navigate({ search: { tab: groupTab(value) }, replace: true })
         }
         className="min-h-0 flex-1"
       >

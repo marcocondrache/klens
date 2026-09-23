@@ -1,7 +1,6 @@
 import { useMemo } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, stripSearchParams } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
-import { useQueryStates } from "nuqs";
 import { CircleDashedIcon, TimerIcon } from "lucide-react";
 
 import { DataTableColumnHeader } from "@/components/data-table/column-header";
@@ -20,21 +19,30 @@ import { SearchField } from "@/components/search-field";
 import { GROUP_TONE, GroupStateBadge, Pill, StatusDot, TONE_TEXT } from "@/components/status";
 import { lagTone } from "@/lib/tone";
 import { useNow } from "@/hooks/use-now";
+import { useSearchDraft } from "@/hooks/use-search-draft";
 import { useClusterHealth, useGroupRows } from "@/lib/api/catalog";
 import { laneCaption, useClusterName } from "@/lib/clusters";
 import { apiErrorMessage } from "@/lib/api/client";
 import { formatCount, formatEnumLabel, formatNumber, toNumber } from "@/lib/format";
 import type { GroupRow } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
-import { GROUP_STATES, groupsSearch } from "@/lib/route-search";
+import {
+  GROUP_STATES,
+  groupsDefaults,
+  validateGroupsSearch,
+  type GroupFilter,
+  type GroupsSearch,
+} from "@/lib/route-search";
 
 export const Route = createFileRoute("/cluster/$cluster/groups")({
+  validateSearch: validateGroupsSearch,
+  search: { middlewares: [stripSearchParams(groupsDefaults)] },
   component: ConsumerGroupsPage,
 });
 
 const EMPTY_GROUPS: GroupRow[] = [];
 
-const FILTERS: Array<FilterField<GroupRow>> = [
+const FILTERS: Array<FilterField<GroupRow, GroupFilter>> = [
   {
     id: "state",
     label: "State",
@@ -132,9 +140,14 @@ function LagValue({ row }: { row: GroupRow }) {
 function ConsumerGroupsPage() {
   const cluster = useClusterName();
   const navigate = Route.useNavigate();
-  const [search, setSearch] = useQueryStates(groupsSearch);
+  const search = Route.useSearch();
   const { q: term } = search;
   const filters = readFilters(FILTERS, search);
+
+  function setSearch(patch: Partial<GroupsSearch>) {
+    void navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true });
+  }
+  const searchInput = useSearchDraft(term, (q) => setSearch({ q }));
 
   const { data: groups = EMPTY_GROUPS, isPending, isError, error } = useGroupRows(cluster);
   const { data: health } = useClusterHealth(cluster);
@@ -142,7 +155,7 @@ function ConsumerGroupsPage() {
   const caption = laneCaption(health?.offsets, now);
 
   function setFilters(rules: FilterRule[]) {
-    void setSearch(filterParams(FILTERS, rules));
+    setSearch(filterParams(FILTERS, rules));
   }
 
   const searched = useMemo(() => {
@@ -168,11 +181,7 @@ function ConsumerGroupsPage() {
         getRowId={(group) => group.id}
         toolbar={
           <>
-            <SearchField
-              value={term}
-              onChange={(event) => void setSearch({ q: event.target.value })}
-              placeholder="Search consumer groups…"
-            />
+            <SearchField {...searchInput} placeholder="Search consumer groups…" />
 
             <FilterBar fields={FILTERS} rows={searched} value={filters} onChange={setFilters} />
           </>

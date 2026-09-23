@@ -1,8 +1,7 @@
 import { useMemo, type ReactNode } from "react";
 import { ActivityIcon, AlertTriangleIcon, HeartPulseIcon, RecycleIcon } from "lucide-react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, stripSearchParams } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
-import { useQueryStates } from "nuqs";
 
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -21,6 +20,7 @@ import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
 import { Pill, StatusDot } from "@/components/status";
 import { useNow } from "@/hooks/use-now";
+import { useSearchDraft } from "@/hooks/use-search-draft";
 import { useClusterHealth, useTopicRows } from "@/lib/api/catalog";
 import { laneCaption, useClusterName } from "@/lib/clusters";
 import { apiErrorMessage } from "@/lib/api/client";
@@ -35,13 +35,20 @@ import {
 } from "@/lib/format";
 import type { Int64 } from "@/lib/format";
 import type { TopicRow } from "@/lib/api/types";
-import { topicsSearch } from "@/lib/route-search";
+import {
+  topicsDefaults,
+  validateTopicsSearch,
+  type TopicFilter,
+  type TopicsSearch,
+} from "@/lib/route-search";
 
 export const Route = createFileRoute("/cluster/$cluster/topics")({
+  validateSearch: validateTopicsSearch,
+  search: { middlewares: [stripSearchParams(topicsDefaults)] },
   component: TopicsPage,
 });
 
-const FILTERS: Array<FilterField<TopicRow>> = [
+const FILTERS: Array<FilterField<TopicRow, TopicFilter>> = [
   {
     id: "policy",
     label: "Policy",
@@ -176,9 +183,14 @@ const columns = columnHelper.columns([
 function TopicsPage() {
   const cluster = useClusterName();
   const navigate = Route.useNavigate();
-  const [search, setSearch] = useQueryStates(topicsSearch);
+  const search = Route.useSearch();
   const { q: term, internal: showInternal } = search;
   const filters = readFilters(FILTERS, search);
+
+  function setSearch(patch: Partial<TopicsSearch>) {
+    void navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true });
+  }
+  const searchInput = useSearchDraft(term, (q) => setSearch({ q }));
 
   const { data: topics = EMPTY_TOPICS, isPending, isError, error } = useTopicRows(cluster);
   const { data: health } = useClusterHealth(cluster);
@@ -186,7 +198,7 @@ function TopicsPage() {
   const caption = laneCaption(health?.topology, now);
 
   function setFilters(rules: FilterRule[]) {
-    void setSearch(filterParams(FILTERS, rules));
+    setSearch(filterParams(FILTERS, rules));
   }
 
   const searched = useMemo(() => {
@@ -214,11 +226,7 @@ function TopicsPage() {
         getRowId={(topic) => topic.name}
         toolbar={
           <>
-            <SearchField
-              value={term}
-              onChange={(event) => void setSearch({ q: event.target.value })}
-              placeholder="Search topics…"
-            />
+            <SearchField {...searchInput} placeholder="Search topics…" />
 
             <FilterBar fields={FILTERS} rows={searched} value={filters} onChange={setFilters} />
 
@@ -226,7 +234,7 @@ function TopicsPage() {
               <Switch
                 size="sm"
                 checked={showInternal}
-                onCheckedChange={(checked) => void setSearch({ internal: checked })}
+                onCheckedChange={(checked) => setSearch({ internal: checked })}
               />
               Show internal
             </Label>
