@@ -38,7 +38,19 @@ build_ui() {
   fi
 
   [[ -f "$ROOT/static/index.html" ]] || die "web build did not write static/index.html"
+
+  local embed="$ROOT/src/server/web.rs"
+  local backup status
+  backup=$(mktemp)
+  cp "$embed" "$backup"
+  touch "$embed"
+  set +e
   (cd "$ROOT" && cargo build --locked --features ui)
+  status=$?
+  set -e
+  cp "$backup" "$embed"
+  rm -f "$backup"
+  [[ "$status" -eq 0 ]] || die "cargo build --locked --features ui failed"
 }
 
 container_runtime() {

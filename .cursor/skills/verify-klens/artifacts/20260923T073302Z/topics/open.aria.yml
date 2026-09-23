@@ -45,7 +45,7 @@
   - heading "klens-verify-topics Copy topic name" [level=1]:
     - text: klens-verify-topics
     - button "Copy topic name"
-  - text: delete RF 1 1 partitions 1 msgs retention 0 0/s
+  - text: delete RF 1 1 partitions 0 msgs retention 0 0/s
   - tablist:
     - tab "Data" [selected]
     - tab "Partitions 1"
@@ -73,13 +73,13 @@
         - columnheader "Size"
         - columnheader "Timestamp"
       - rowgroup:
-        - row "0 0 verify-1 hello-from-verify-klens 31 B 23 Sept 2026, 07:29:59":
+        - row "0 0 verify-1 hello-from-verify-klens 31 B 23 Sept 2026, 07:33:02":
           - cell "0"
           - cell "0"
           - cell "verify-1"
           - cell "hello-from-verify-klens"
           - cell "31 B"
-          - cell "23 Sept 2026, 07:29:59"
+          - cell "23 Sept 2026, 07:33:02"
 - heading "Search klens" [level=2]
 - paragraph: Jump to a topic, consumer group, broker, schema or section
 - region "Notifications alt+T"

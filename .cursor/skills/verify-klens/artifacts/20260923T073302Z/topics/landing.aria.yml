@@ -40,10 +40,10 @@
   - button "Refresh"
   - button "Toggle theme"
   - heading "Topics" [level=1]
-  - text: 1 of 1 topics · Updated 40s ago
+  - text: 1 of 1 topics · Updated 1s ago
   - group:
     - group
-    - textbox "Search topics…": klens-verify-topics
+    - textbox "Search topics…"
     - group: /
   - button "Add filter": Filter
   - switch "Show internal"
@@ -68,11 +68,11 @@
         - cell "Groups":
           - button "Groups"
     - rowgroup:
-      - row "klens-verify-topics 1 1 1 — 0 delete —":
+      - row "klens-verify-topics 1 1 — — 0 delete —":
         - cell "klens-verify-topics"
         - cell "1"
         - cell "1"
-        - cell "1"
+        - cell "—"
         - cell "—"
         - cell "0"
         - cell "delete"

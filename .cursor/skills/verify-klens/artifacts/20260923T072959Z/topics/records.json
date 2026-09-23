@@ -1,1 +1,0 @@
-{"records":[{"topic":"klens-verify-topics","partition":0,"offset":"0","timestamp":"2026-09-23T07:29:59.266Z","key":"verify-1","value":"hello-from-verify-klens","schemaId":null,"headers":[],"sizeBytes":"31","compression":"NONE"}],"complete":true,"obfuscated":false,"nextCursor":null,"prevCursor":null}

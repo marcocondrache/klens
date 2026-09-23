@@ -1,0 +1,1 @@
+{"rows":[{"name":"klens-verify-topics","internal":false,"partitionCount":1,"replicationFactor":1,"retainedMessages":"0","producedTotal":"0","rate":0.0,"retentionMs":"0","cleanupPolicy":"DELETE","groupCount":0,"underReplicated":false}],"total":1,"nextCursor":null}

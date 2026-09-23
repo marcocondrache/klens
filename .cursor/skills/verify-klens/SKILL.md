@@ -17,7 +17,7 @@ Read `features/README.md` before a drive. Drive one mapped feature end to end. U
 
 The helper does five things.
 
-1. It builds `web/` into `static/`, then runs `cargo build --locked --features ui`. `mise run web:build` is used when `mise` is on `PATH`. Otherwise it uses `bun` or `npm` in `web/`. The `ui` feature embeds `static/` only when `src/server/web.rs` compiles. If the page looks stale after a web edit, delete `target/debug/klens` and launch again.
+1. It builds `web/` into `static/`, then runs `cargo build --locked --features ui`. `mise run web:build` is used when `mise` is on `PATH`. Otherwise it uses `bun` or `npm` in `web/`. The `ui` feature embeds `static/` when `src/server/web.rs` compiles, so launch touches that file for the build and restores it afterward.
 2. It writes a config with no `auth` key. The process binds `127.0.0.1:18080`. The cluster name is `local` and the brokers are `127.0.0.1:9092`.
 3. It starts Redpanda only when port 9092 is closed. It prefers `mise run kafka:up` when `mise` and Docker or Podman are available. Otherwise it runs the same `rpk container start` flags as `mise.toml`. If there is no container runtime, and `rpk redpanda start` exists, it starts a local Redpanda process and records that PID.
 4. It creates topic `klens-verify-topics` and produces one record. The key is `verify-1`. The value is `hello-from-verify-klens`.
