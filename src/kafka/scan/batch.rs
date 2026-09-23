@@ -53,7 +53,6 @@ impl<T> RecordBatch<T> {
         self.entries.is_empty()
     }
 
-    /// Records pushed that the batch let go, because better ones filled it.
     pub fn displaced(&self) -> usize {
         self.seen - self.entries.len()
     }

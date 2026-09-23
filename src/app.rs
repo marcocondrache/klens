@@ -134,8 +134,6 @@ impl AppState {
         .await
     }
 
-    /// A seat for one live tail, or `None` when every seat is taken. The tail
-    /// holds it for as long as it streams.
     pub(crate) fn tail_permit(&self) -> Option<OwnedSemaphorePermit> {
         Arc::clone(&self.tails).try_acquire_owned().ok()
     }

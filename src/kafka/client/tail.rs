@@ -12,10 +12,6 @@ use crate::kafka::model::{RawRecord, TailConsumer, TailPosition};
 use super::pool::retire;
 use super::scan::{raw_record, reader};
 
-/// A consumer held by one live tail.
-///
-/// Not pooled: a tail keeps it for as long as its browser stays connected,
-/// then it is closed.
 pub(super) struct TailLease {
     topic: String,
     consumer: Arc<Consumer>,
@@ -31,8 +27,6 @@ impl TailLease {
             .iter()
             .map(|position| (position.partition, position.offset));
         let consumer = reader(client, topic, offsets, *TAIL_POLL_WAIT)
-            // A tail that falls off the log start belongs at the end, not
-            // back at the oldest record retention kept.
             .auto_offset_reset(AutoOffsetReset::Latest)
             .build()
             .await?;

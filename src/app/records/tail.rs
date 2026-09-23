@@ -15,12 +15,6 @@ use super::types::{TailEvent, TailParams, tail_query};
 
 type Events = BoxStream<'static, Result<Event, Infallible>>;
 
-/// Records produced to a topic from now on, as a `ready` frame followed by
-/// paced `records` frames.
-///
-/// Opening fails like any request: an unknown topic or a missing privilege
-/// never starts a stream. Once open, losing access or a broker error ends it
-/// with one `error` frame.
 pub(super) async fn tail(
     session: Session,
     Path((name, topic)): Path<(String, String)>,
@@ -60,7 +54,6 @@ struct Follow {
     guard: SessionGuard,
     cluster: String,
     done: bool,
-    /// Released, with the tail's consumer, when the browser goes away.
     _permit: OwnedSemaphorePermit,
 }
 
@@ -80,8 +73,6 @@ impl Follow {
                     return Some(state.end(error));
                 }
                 if batch.is_empty() {
-                    // An empty batch took a heartbeat to arrive; should one
-                    // ever come back at once, still let the runtime breathe.
                     tokio::task::yield_now().await;
                     continue;
                 }
@@ -96,8 +87,6 @@ impl Follow {
         (Ok(error.event()), self)
     }
 
-    /// Access is rechecked before every frame, and at least every heartbeat
-    /// on a quiet topic.
     fn denied(&self) -> Option<ApiError> {
         let Some(access) = self.guard.revalidate() else {
             return Some(ApiError::SessionExpired);

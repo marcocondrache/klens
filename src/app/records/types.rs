@@ -147,7 +147,6 @@ fn default_record_limit() -> i32 {
     50
 }
 
-/// Where a live tail began on one partition.
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct TailStart {
@@ -164,8 +163,6 @@ impl From<&TailPosition> for TailStart {
     }
 }
 
-/// One frame of a live tail. `type` is the discriminant the client switches
-/// on.
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(
     tag = "type",
@@ -173,19 +170,12 @@ impl From<&TailPosition> for TailStart {
     rename_all_fields = "camelCase"
 )]
 pub enum TailEvent {
-    /// Always the first frame. Every record at or past `start` on its
-    /// partition arrives in a later `records` frame, so a page read before
-    /// this frame can be joined to the tail without a gap.
     Ready {
         start: Vec<TailStart>,
         obfuscated: bool,
     },
     Records {
-        /// Oldest first.
         records: Vec<Record>,
-        /// Records the tail read past without sending, to keep up with a busy
-        /// topic. With a filter this is an upper bound: not every one of them
-        /// would have matched.
         skipped: Int64,
     },
 }

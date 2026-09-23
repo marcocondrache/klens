@@ -127,7 +127,6 @@ pub(super) async fn open_stream(
         .expect("response")
 }
 
-/// The next `count` server-sent events, as `(event name, JSON data)`.
 pub(super) async fn read_frames(response: Response, count: usize) -> Vec<(String, Value)> {
     assert_eq!(response.status(), StatusCode::OK, "stream did not open");
     let mut stream = response.into_body().into_data_stream();

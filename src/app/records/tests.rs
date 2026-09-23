@@ -349,8 +349,6 @@ async fn an_expired_session_ends_the_tail_with_an_error_frame() {
     assert_eq!(frames[1].1["code"], "SESSION_EXPIRED");
 }
 
-/// A tail that should never have opened, as `(status, code)`. Checks the
-/// status before reading, since an open tail's body never ends.
 async fn refused(state: &AppState, path: &str, access: EffectiveAccess) -> (StatusCode, String) {
     let response = open_stream(state, path, access, SessionGuard::open()).await;
     let status = response.status();

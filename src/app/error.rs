@@ -13,7 +13,6 @@ pub(crate) enum ApiError {
     Access(AccessError),
     SessionExpired,
     Unauthorized,
-    /// Every live tail the process allows is already open.
     TooManyTails,
 }
 
@@ -28,8 +27,6 @@ impl ApiError {
         }
     }
 
-    /// The error as the last frame of an event stream, with the same body a
-    /// failed request carries.
     pub(crate) fn event(&self) -> Event {
         Event::default()
             .event("error")

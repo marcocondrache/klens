@@ -27,7 +27,6 @@ pub async fn read_page<S: ClusterSession + ?Sized>(
     fetch_page(session, &query, &partitions, &watermarks, limit, limits).await
 }
 
-/// The partitions a read covers: all of the topic's, or the one it named.
 pub(super) async fn resolve_partitions<S: ClusterSession + ?Sized>(
     session: &S,
     store: &ClusterStore,

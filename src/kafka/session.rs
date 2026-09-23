@@ -79,8 +79,6 @@ pub trait ClusterSession: Send + Sync + 'static {
         windows: &[PartitionWindow],
     ) -> Result<Box<dyn ScanConsumer>, KafkaError>;
 
-    /// Open a consumer that follows `topic` from `start` for as long as a
-    /// live tail holds it.
     async fn open_tail(
         &self,
         topic: &str,

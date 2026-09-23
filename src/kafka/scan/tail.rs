@@ -1,21 +1,3 @@
-//! Live tail: follow the end of a topic and hand back paced batches of what
-//! arrives.
-//!
-//! A tail reuses the page scan's [`RecordPipeline`], so filters, schema
-//! decoding, and obfuscation behave exactly as they do on a page. What differs
-//! is how much work it may do. A browser can only show so much, so a tail
-//! never streams a busy topic whole:
-//!
-//! - one batch keeps at most [`TailLimits::batch`] records, the newest it read,
-//!   and a full batch rejects older records before they are decoded;
-//! - batches are at least [`TailLimits::interval`] apart, and nothing is
-//!   polled while a batch waits out that interval;
-//! - a partition that falls more than [`TailLimits::backlog`] behind its high
-//!   watermark skips ahead instead of reading records no batch would keep.
-//!
-//! Every record passed over by the last two is counted in
-//! [`TailBatch::skipped`].
-
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -36,22 +18,14 @@ use super::query::RecordOrder;
 use super::read::resolve_partitions;
 use super::session::{RawRecord, topic_obfuscator};
 
-/// A consumer that follows the end of a topic for as long as a tail lives.
-///
-/// Dropping it gives it up.
 #[async_trait]
 pub trait TailConsumer: Send + Sync {
-    /// Wait up to `budget` for new records.
     async fn poll(&self, budget: Duration) -> Result<Vec<RawRecord>, KafkaError>;
 
-    /// Next offset the consumer would deliver, if it knows one.
     async fn position(&self, partition: i32) -> Option<i64>;
 
-    /// Records between the position and the end of the log, as of the last
-    /// fetch.
     async fn lag(&self, partition: i32) -> Option<u64>;
 
-    /// Move partitions to new offsets, dropping anything read ahead for them.
     async fn seek(&self, positions: &[TailPosition]) -> Result<(), KafkaError>;
 }
 
@@ -75,13 +49,9 @@ impl TailQuery {
     }
 }
 
-/// What arrived since the previous batch, oldest first.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TailBatch {
     pub records: Vec<Record>,
-    /// Records read past without being sent: dropped from a full batch or
-    /// skipped over to keep up. With a filter, not all of them would have
-    /// matched, so this is an upper bound on what the batch left out.
     pub skipped: u64,
 }
 
@@ -102,8 +72,6 @@ pub struct Tail {
 }
 
 impl Tail {
-    /// Start following `query.topic` from each partition's current high
-    /// watermark: only records produced from now on are tailed.
     pub async fn open<S: ClusterSession + ?Sized>(
         session: &S,
         store: &ClusterStore,
@@ -148,7 +116,6 @@ impl Tail {
         })
     }
 
-    /// Where each partition's tail began.
     pub fn start(&self) -> &[TailPosition] {
         &self.start
     }
@@ -157,11 +124,6 @@ impl Tail {
         self.pipeline.obfuscated()
     }
 
-    /// Wait for the next batch.
-    ///
-    /// Returns as soon as something arrived and the interval since the last
-    /// batch has passed, or empty once a quiet topic has kept the tail waiting
-    /// for a heartbeat.
     pub async fn next(&mut self) -> Result<TailBatch, KafkaError> {
         let called = Instant::now();
         let quiet_until = called + self.limits.heartbeat;
@@ -181,8 +143,6 @@ impl Tail {
             let polled_at = Instant::now();
             let polled = self.consumer.poll(*TAIL_POLL_WAIT).await?;
             if polled.is_empty() {
-                // A consumer with nothing assigned answers at once; waiting
-                // out the poll keeps that from spinning.
                 sleep_until(polled_at + *TAIL_POLL_WAIT).await;
             }
             skipped += self.ingest(polled, &mut batch).await;
@@ -208,8 +168,6 @@ impl Tail {
         })
     }
 
-    /// Screen what one poll returned into `batch`. Returns how many records
-    /// the batch was too full to consider.
     async fn ingest(&self, polled: Vec<RawRecord>, batch: &mut RecordBatch<Kept>) -> u64 {
         let mut rejected = 0;
         let mut candidates = Vec::new();
@@ -234,10 +192,6 @@ impl Tail {
         rejected
     }
 
-    /// Move every partition more than a backlog behind its high watermark up
-    /// to one backlog behind it. Returns how many offsets that passed over.
-    ///
-    /// Lag comes from the last fetch, so this costs no broker call.
     async fn skip_ahead(&self) -> Result<u64, KafkaError> {
         let mut seeks = Vec::new();
         let mut skipped = 0;
@@ -509,8 +463,6 @@ mod tests {
         produce_run(&session, 8..41);
         let first = tail.next().await.unwrap();
 
-        // One poll read 8..12. With 29 records still behind the high
-        // watermark of 41, the tail jumps to 6 (the backlog) behind it.
         assert_eq!(FAKE_TAIL_POLL_RECORDS, 4);
         assert_eq!(session.tail_seeks(), vec![vec![(0, 35)]]);
         assert_eq!(keys(&first), vec![(0, 9), (0, 10), (0, 11)]);

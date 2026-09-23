@@ -492,8 +492,6 @@ impl FakeCluster {
         self
     }
 
-    /// Appends a record to its partition's log and moves the high watermark
-    /// past it, as a producer would.
     pub fn produce(&self, record: Record) {
         let marks = {
             let mut watermarks = self.inner.watermarks.lock().expect("watermarks");
@@ -511,7 +509,6 @@ impl FakeCluster {
         self.inner.records.lock().expect("records").push(record);
     }
 
-    /// Every `seek` a tail consumer made, as `(partition, offset)` lists.
     pub fn tail_seeks(&self) -> Vec<Vec<(i32, i64)>> {
         self.inner.tail_seeks.lock().expect("tail seeks").clone()
     }
@@ -1079,15 +1076,8 @@ impl ScanConsumer for FakeScan {
     async fn close(&self) {}
 }
 
-/// Most records one [`FakeTail`] poll returns, as `max.poll.records` would
-/// cap a real one.
 pub const FAKE_TAIL_POLL_RECORDS: usize = 4;
 
-/// Follows the records [`FakeCluster::produce`] appends.
-///
-/// A poll with nothing new waits out its whole budget, as a broker parking an
-/// empty fetch would, then looks once more. With nothing assigned it answers
-/// at once, as krafka does.
 struct FakeTail {
     cluster: Arc<Inner>,
     topic: String,

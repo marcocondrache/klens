@@ -52,19 +52,10 @@ impl RecordLimits {
     }
 }
 
-/// Pacing for a live tail.
-///
-/// Together these bound what one tail costs: at most `batch` records every
-/// `interval` reach the browser, and each partition reads at most one
-/// [`backlog`](Self::backlog) behind its high watermark.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TailLimits {
-    /// Most records one batch carries.
     pub batch: usize,
-    /// Least time between two batches.
     pub interval: Duration,
-    /// Longest a quiet tail waits before handing back an empty batch, so its
-    /// caller gets a turn to recheck access.
     pub heartbeat: Duration,
     pub records: RecordLimits,
 }
@@ -79,8 +70,6 @@ impl TailLimits {
         }
     }
 
-    /// How far a partition may fall behind its high watermark before the tail
-    /// skips ahead: the window a page of one batch would read.
     pub fn backlog(&self, searching: bool) -> u64 {
         self.records.window_take(self.batch, searching) as u64
     }

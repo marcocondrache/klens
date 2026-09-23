@@ -12,11 +12,6 @@ use crate::kafka::model::{Compression, PartitionWindow, RawRecord, ScanConsumer}
 
 use super::pool::{ScanPool, assign};
 
-/// A standalone, non-committing consumer on the shared transport, starting
-/// each of `start`'s partitions at the given offset.
-///
-/// `fetch_wait` is how long the broker may park a fetch with nothing to
-/// return.
 pub(super) fn reader(
     client: &KrafkaSharedClient,
     topic: &str,
