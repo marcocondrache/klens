@@ -44,7 +44,7 @@ export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
               render={<Link to="/cluster/$cluster" params={{ cluster }} />}
             >
               <div className="flex aspect-square size-8 items-center justify-center text-sidebar-accent-foreground">
-                <LogoMark className="size-[22px]!" />
+                <LogoMark className="size-5!" />
               </div>
               <span className="truncate text-base font-semibold tracking-[-0.02em] text-sidebar-accent-foreground">
                 klens
