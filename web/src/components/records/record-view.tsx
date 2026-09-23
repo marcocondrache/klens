@@ -32,7 +32,6 @@ import { cn } from "@/lib/utils";
 
 export type RecordFilter = {
   term: string;
-  /** Filter-bar rules; they run server side. */
   rules: FilterRule[];
   schemaId: number | null;
 };
@@ -54,7 +53,6 @@ function partitionField(topic: TopicDetail): FilterField<KafkaRecord> {
   };
 }
 
-/** The partitions `filter` reads, or `null` for all of them. */
 export function filterPartitions(topic: TopicDetail, filter: RecordFilter) {
   const field = partitionField(topic);
   const rule = filter.rules.find((candidate) => candidate.id === field.id);
@@ -177,7 +175,6 @@ type RecordViewProps = {
   source: RecordSource;
   filter: RecordFilter;
   onFilterChange: (filter: RecordFilter) => void;
-  /** Mode-specific filters beside the partition filter. */
   filters?: readonly CustomFilter[];
   actions?: ReactNode;
   notice?: ReactNode;

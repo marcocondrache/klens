@@ -16,7 +16,6 @@ const PRESETS = [
   { label: "Last 7 days", since: "7 days ago", ms: 7 * 86_400_000 },
 ] as const;
 
-/** Bounds as `datetime-local` values; empty is open-ended. */
 export type TimestampRange = { from: string; to: string };
 
 type State = TimestampRange & { preset: (typeof PRESETS)[number] | null };
@@ -41,7 +40,6 @@ function describe({ from, to, preset }: State) {
   return { operator: "is", value: "any time" };
 }
 
-/** A record timestamp range as a filter-bar filter: presets, or a custom range. */
 export function useTimestampFilter(): { range: TimestampRange; filter: CustomFilter } {
   const [state, setState] = useState<State>(EMPTY);
   const [editing, setEditing] = useState(false);

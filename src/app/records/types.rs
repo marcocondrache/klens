@@ -132,7 +132,6 @@ pub(crate) fn record_query(
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RecordParams {
-    /// Repeated for each partition to read; absent reads them all.
     #[serde(default)]
     pub partition: Vec<i32>,
     pub order: Option<RecordOrder>,
@@ -210,7 +209,6 @@ impl From<TailBatch> for TailEvent {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct TailParams {
-    /// Repeated for each partition to follow; absent follows them all.
     #[serde(default)]
     pub partition: Vec<i32>,
     pub contains: Option<String>,

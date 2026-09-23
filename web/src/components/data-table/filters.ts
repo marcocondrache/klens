@@ -5,7 +5,6 @@ export interface FilterOption {
   value: string;
   label: string;
   icon?: ReactNode;
-  /** Trailing menu text, shown when the bar has no rows to count. */
   hint?: ReactNode;
 }
 
@@ -37,7 +36,6 @@ function rowMatches<TData>(row: TData, field: FilterField<TData>, rule: FilterRu
   return rule.negate ? !hit : hit;
 }
 
-/** The options a rule keeps: its values, or every other option when negated. */
 export function selectedOptions<TData>(field: FilterField<TData>, rule: FilterRule) {
   return field.options.filter((option) => rule.values.includes(option.value) !== rule.negate);
 }

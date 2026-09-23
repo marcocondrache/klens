@@ -59,7 +59,6 @@ function sameTopic(previous: QueryKey | undefined, next: QueryKey) {
 }
 
 export function useRecords(cluster: string, query: RecordsFilter, enabled = true) {
-  // An empty partition list has nothing to scan.
   const scans = query.partitions?.length !== 0;
 
   return useInfiniteQuery({

@@ -25,25 +25,18 @@ import {
 
 interface FilterBarProps<TData> {
   fields: ReadonlyArray<FilterField<TData>>;
-  /**
-   * Rows before these filters apply; used for option counts. Omit when the
-   * filters run server side, and the menu shows each option's hint instead.
-   */
+  /** Rows before these filters apply; used for option counts. */
   rows?: TData[];
   value: FilterRule[];
   onChange: (rules: FilterRule[]) => void;
-  /** Filters that are not option sets, such as a time range. */
   custom?: readonly CustomFilter[];
 }
 
-/** A filter that brings its own menu and chip value. */
 export interface CustomFilter {
   id: string;
   label: string;
   icon: LucideIcon;
-  /** Items for its submenu in the add-filter menu. */
   menu: ReactNode;
-  /** The chip's segments after its label, or `null` while the filter is off. */
   chip: ReactNode;
   onClear: () => void;
 }
@@ -151,7 +144,6 @@ function OptionItems<TData>({
   ));
 }
 
-/** Class for an interactive segment inside a filter chip. */
 export const CHIP_SEGMENT =
   "flex h-full items-center gap-1.5 px-2 outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground";
 

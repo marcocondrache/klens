@@ -38,7 +38,6 @@ pub struct TailPosition {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TailQuery {
     pub topic: String,
-    /// Partitions to follow; empty follows every partition of the topic.
     pub partitions: Vec<i32>,
     pub filter: Option<CompiledFilter>,
     pub schema_id: Option<i32>,

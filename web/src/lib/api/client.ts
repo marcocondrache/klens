@@ -31,7 +31,6 @@ export function apiPath(path: string): string {
 }
 
 type QueryScalar = string | number | boolean;
-/** An array repeats its key, such as `?partition=0&partition=2`. */
 type QueryValue = QueryScalar | readonly QueryScalar[] | null | undefined;
 
 function withQuery(path: string, query?: Record<string, QueryValue>): string {

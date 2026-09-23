@@ -32,7 +32,6 @@ export function useTail(cluster: string, filter: TailFilter) {
       initialValue: EMPTY_TAIL,
       refetchMode: "append",
     }),
-    // An empty partition list has nothing to follow.
     enabled: !paused && filter.partitions?.length !== 0,
     staleTime: 0,
     retry: (_, error) => !(error instanceof ApiError),
