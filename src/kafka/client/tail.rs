@@ -2,34 +2,35 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use krafka::client::KrafkaClient as KrafkaSharedClient;
-use krafka::consumer::{AutoOffsetReset, Consumer};
+use krafka::consumer::AutoOffsetReset;
 
 use crate::environment::TAIL_POLL_WAIT;
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{RawRecord, TailConsumer, TailPosition};
 
-use super::pool::retire;
+use super::pool::{Reader, retire};
 use super::scan::{raw_record, reader};
+use super::transport::Connector;
 
 pub(super) struct TailLease {
     topic: String,
-    consumer: Arc<Consumer>,
+    consumer: Arc<Reader>,
 }
 
 impl TailLease {
     pub(super) async fn open(
-        client: &KrafkaSharedClient,
+        connector: &Connector,
         topic: &str,
         start: &[TailPosition],
     ) -> Result<Self, KafkaError> {
         let offsets = start
             .iter()
             .map(|position| (position.partition, position.offset));
-        let consumer = reader(client, topic, offsets, *TAIL_POLL_WAIT)
-            .auto_offset_reset(AutoOffsetReset::Latest)
-            .build()
-            .await?;
+        let consumer = Reader::open(connector, |client| {
+            reader(client, topic, offsets, *TAIL_POLL_WAIT)
+                .auto_offset_reset(AutoOffsetReset::Latest)
+        })
+        .await?;
         let consumer = Arc::new(consumer);
 
         let partitions = start.iter().map(|position| position.partition).collect();
@@ -77,11 +78,14 @@ impl Drop for TailLease {
 
 #[cfg(test)]
 mod tests {
+    use foldhash::HashMap;
     use krafka::protocol::ApiKey;
-    use krafka::testing::FakeBroker;
+    use krafka::testing::{Control, FakeBroker};
 
     use super::*;
+    use crate::kafka::client::KafkaClient;
     use crate::kafka::client::tests::{kafka_client, produce_krafka};
+    use crate::kafka::session::ClusterSession;
 
     fn at(partition: i32, offset: i64) -> TailPosition {
         TailPosition { partition, offset }
@@ -99,6 +103,16 @@ mod tests {
         offsets
     }
 
+    /// Well inside the request timeout a request stuck behind an unanswered
+    /// one would run into.
+    async fn answers_promptly(client: &KafkaClient) {
+        let wanted = HashMap::from_iter([("orders".to_owned(), vec![0])]);
+        tokio::time::timeout(Duration::from_secs(2), client.watermarks(&wanted))
+            .await
+            .expect("the cluster's requests are not queued behind the tail's")
+            .expect("watermarks");
+    }
+
     async fn orders(count: usize) -> FakeBroker {
         let broker = FakeBroker::start().await.unwrap();
         assert!(broker.create_topic("orders", 1));
@@ -112,7 +126,7 @@ mod tests {
         let client = kafka_client(&broker.bootstrap_servers()).await;
         broker.clear_requests();
 
-        let tail = TailLease::open(&client.transport.client, "orders", &[at(0, 2)])
+        let tail = TailLease::open(&client.transport.connector, "orders", &[at(0, 2)])
             .await
             .unwrap();
 
@@ -131,7 +145,7 @@ mod tests {
     async fn a_seek_moves_where_the_next_poll_reads() {
         let broker = orders(4).await;
         let client = kafka_client(&broker.bootstrap_servers()).await;
-        let tail = TailLease::open(&client.transport.client, "orders", &[at(0, 0)])
+        let tail = TailLease::open(&client.transport.connector, "orders", &[at(0, 0)])
             .await
             .unwrap();
         assert_eq!(read(&tail, 4).await, vec![0, 1, 2, 3]);
@@ -151,7 +165,7 @@ mod tests {
     async fn a_dropped_tail_closes_its_consumer() {
         let broker = orders(1).await;
         let client = kafka_client(&broker.bootstrap_servers()).await;
-        let tail = TailLease::open(&client.transport.client, "orders", &[at(0, 0)])
+        let tail = TailLease::open(&client.transport.connector, "orders", &[at(0, 0)])
             .await
             .unwrap();
         let consumer = Arc::clone(&tail.consumer);
@@ -165,5 +179,33 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
         panic!("a tail nobody holds must not keep its consumer open");
+    }
+
+    #[tokio::test]
+    async fn a_tail_the_broker_stops_answering_holds_up_nothing_else() {
+        let broker = orders(1).await;
+        let client = kafka_client(&broker.bootstrap_servers()).await;
+        let tail = TailLease::open(&client.transport.connector, "orders", &[at(0, 1)])
+            .await
+            .unwrap();
+
+        // Stands in for the fetch-session close a closing tail sends, which
+        // Redpanda never answers.
+        let fetches = broker.request_count(ApiKey::Fetch);
+        broker.on_once(ApiKey::Fetch, |_| Control::Silence);
+        let _ = tokio::time::timeout(
+            Duration::from_millis(50),
+            tail.poll(Duration::from_millis(10)),
+        )
+        .await;
+        assert!(
+            broker
+                .wait_for_requests(ApiKey::Fetch, fetches + 1, Duration::from_secs(1))
+                .await
+        );
+
+        answers_promptly(&client).await;
+        drop(tail);
+        answers_promptly(&client).await;
     }
 }

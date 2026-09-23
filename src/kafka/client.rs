@@ -293,7 +293,7 @@ impl ClusterSession for KafkaClient {
         start: &[TailPosition],
     ) -> Result<Box<dyn TailConsumer>, KafkaError> {
         Ok(Box::new(
-            TailLease::open(&self.transport.client, topic, start).await?,
+            TailLease::open(&self.transport.connector, topic, start).await?,
         ))
     }
 
