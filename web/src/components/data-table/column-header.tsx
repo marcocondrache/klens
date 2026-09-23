@@ -20,6 +20,9 @@ export function DataTableColumnHeader<TData extends RowData, TValue>({
   title,
   className,
 }: DataTableColumnHeaderProps<TData, TValue>) {
+  // `column` keeps its identity across sorts, so compiler memoization would freeze the sort state.
+  "use no memo";
+
   const right = column.columnDef.meta?.align === "right";
 
   if (!column.getCanSort()) {
@@ -34,7 +37,7 @@ export function DataTableColumnHeader<TData extends RowData, TValue>({
     <div className={cn("flex", right && "justify-end", className)}>
       <button
         type="button"
-        onClick={() => column.toggleSorting(sorted === "asc")}
+        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
         aria-label={`Sort by ${title}`}
         className={cn(
           "group/sort -mx-1 inline-flex h-6 items-center gap-1 rounded-md px-1 outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50",
