@@ -27,12 +27,12 @@ import { useSubject } from "@/lib/api/live";
 import type { SubjectRow } from "@/lib/api/types";
 import { laneCaption, useClusterName } from "@/lib/clusters";
 import { formatEnumLabel, isJson } from "@/lib/format";
-import { schemasDefaults, validateSchemasSearch } from "@/lib/route-search";
+import { schemasSearch, searchDefaults } from "@/lib/route-search";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/cluster/$cluster/schemas")({
-  validateSearch: validateSchemasSearch,
-  search: { middlewares: [stripSearchParams(schemasDefaults)] },
+  validateSearch: schemasSearch,
+  search: { middlewares: [stripSearchParams(searchDefaults(schemasSearch))] },
   component: SchemasPage,
 });
 

@@ -1,47 +1,54 @@
-import type { SearchSchemaInput } from "@tanstack/react-router";
+import * as z from "zod/mini";
 
 import { filterParam } from "@/components/data-table/filters";
 import type { GroupState } from "@/lib/api/types";
 
-type RawSearch = Record<string, unknown>;
+// The router hands these schemas plain strings parsed from the URL, and typed
+// values from links and navigations; `catch` falls back on anything malformed.
 
-/**
- * A `validateSearch` that accepts any subset of `T` from links and navigations,
- * leaving the fallbacks to `parse`.
- */
-function searchValidator<T>(parse: (search: RawSearch) => T) {
-  return (search: Partial<T> & SearchSchemaInput): T => parse(search as RawSearch);
-}
+const term = z.catch(z._default(z.string(), ""), "");
 
-function text(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
+const flag = z.catch(
+  z._default(
+    z.union([
+      z.boolean(),
+      z.pipe(
+        z.enum(["true", "false"]),
+        z.transform((value) => value === "true"),
+      ),
+    ]),
+    false,
+  ),
+  false,
+);
 
-function flag(value: unknown): boolean {
-  return value === true || value === "true";
-}
-
-function literal<T extends string>(allowed: readonly T[], value: unknown): T | undefined {
-  return allowed.find((candidate) => candidate === value);
+function oneOf<const T extends readonly [string, ...string[]]>(values: T) {
+  return z.catch(z.optional(z.enum(values)), undefined);
 }
 
 // Filter params: `a,b` matches any of the values, `!a,b` none of them.
+function filter(allowed: readonly string[]) {
+  const param = z.pipe(
+    z.string(),
+    z.transform((raw) => filterParam(allowed, raw)),
+  );
+  return z.catch(z.optional(param), undefined);
+}
+
 export const TOPIC_POLICIES = ["delete", "compact"] as const;
 export const TOPIC_HEALTH = ["under-replicated", "in-sync"] as const;
 export const TOPIC_ACTIVITY = ["active", "idle"] as const;
 
-export type TopicFilter = "policy" | "health" | "activity";
-export type TopicsSearch = { q: string; internal: boolean } & Partial<Record<TopicFilter, string>>;
+export const topicsSearch = z.object({
+  q: term,
+  internal: flag,
+  policy: filter(TOPIC_POLICIES),
+  health: filter(TOPIC_HEALTH),
+  activity: filter(TOPIC_ACTIVITY),
+});
 
-export const topicsDefaults = { q: "", internal: false };
-
-export const validateTopicsSearch = searchValidator<TopicsSearch>((search) => ({
-  q: text(search.q),
-  internal: flag(search.internal),
-  policy: filterParam(TOPIC_POLICIES, search.policy),
-  health: filterParam(TOPIC_HEALTH, search.health),
-  activity: filterParam(TOPIC_ACTIVITY, search.activity),
-}));
+export type TopicsSearch = z.output<typeof topicsSearch>;
+export type TopicFilter = Exclude<keyof TopicsSearch, "q" | "internal">;
 
 export const GROUP_STATES = [
   "STABLE",
@@ -53,24 +60,18 @@ export const GROUP_STATES = [
 
 export const GROUP_LAG = ["lagging", "caught-up"] as const;
 
-export type GroupFilter = "state" | "lag";
-export type GroupsSearch = { q: string } & Partial<Record<GroupFilter, string>>;
+export const groupsSearch = z.object({
+  q: term,
+  state: filter(GROUP_STATES),
+  lag: filter(GROUP_LAG),
+});
 
-export const groupsDefaults = { q: "" };
+export type GroupsSearch = z.output<typeof groupsSearch>;
+export type GroupFilter = Exclude<keyof GroupsSearch, "q">;
 
-export const validateGroupsSearch = searchValidator<GroupsSearch>((search) => ({
-  q: text(search.q),
-  state: filterParam(GROUP_STATES, search.state),
-  lag: filterParam(GROUP_LAG, search.lag),
-}));
-
-export type SchemasSearch = { q: string };
-
-export const schemasDefaults = { q: "" };
-
-export const validateSchemasSearch = searchValidator<SchemasSearch>((search) => ({
-  q: text(search.q),
-}));
+export const schemasSearch = z.object({
+  q: term,
+});
 
 export const ACL_RESOURCE_TYPES = [
   "TOPIC",
@@ -96,53 +97,48 @@ export const ACL_OPERATIONS = [
 export const ACL_PERMISSIONS = ["ALLOW", "DENY"] as const;
 export const ACL_PATTERNS = ["LITERAL", "PREFIXED"] as const;
 
-export type AclFilter = "resource" | "operation" | "permission" | "pattern";
-export type AclsSearch = { q: string } & Partial<Record<AclFilter, string>>;
+export const aclsSearch = z.object({
+  q: term,
+  resource: filter(ACL_RESOURCE_TYPES),
+  operation: filter(ACL_OPERATIONS),
+  permission: filter(ACL_PERMISSIONS),
+  pattern: filter(ACL_PATTERNS),
+});
 
-export const aclsDefaults = { q: "" };
+export type AclsSearch = z.output<typeof aclsSearch>;
+export type AclFilter = Exclude<keyof AclsSearch, "q">;
 
-export const validateAclsSearch = searchValidator<AclsSearch>((search) => ({
-  q: text(search.q),
-  resource: filterParam(ACL_RESOURCE_TYPES, search.resource),
-  operation: filterParam(ACL_OPERATIONS, search.operation),
-  permission: filterParam(ACL_PERMISSIONS, search.permission),
-  pattern: filterParam(ACL_PATTERNS, search.pattern),
-}));
+export const loginSearch = z.object({
+  error: z.catch(z.optional(z.string()), undefined),
+  from: oneOf(["callback"]),
+});
 
-export type LoginSearch = { error?: string; from?: "callback" };
+export type LoginSearch = z.output<typeof loginSearch>;
 
-export function validateLoginSearch(search: RawSearch): LoginSearch {
-  return {
-    error: text(search.error) || undefined,
-    from: literal(["callback"], search.from),
-  };
-}
+const topicTabParam = oneOf(["partitions", "groups", "config"]);
 
-export const TOPIC_TABS = ["partitions", "groups", "config"] as const;
-
-export type TopicDetailSearch = { tab?: (typeof TOPIC_TABS)[number] };
+export const topicDetailSearch = z.object({
+  tab: topicTabParam,
+});
 
 export function topicTab(value: unknown) {
-  return literal(TOPIC_TABS, value);
+  return z.parse(topicTabParam, value);
 }
 
-export function validateTopicDetailSearch(search: RawSearch): TopicDetailSearch {
-  return { tab: topicTab(search.tab) };
-}
+const groupTabParam = z.catch(z._default(z.enum(["offsets", "members"]), "offsets"), "offsets");
 
-export const GROUP_TABS = ["offsets", "members"] as const;
-
-export type GroupDetailSearch = { tab: (typeof GROUP_TABS)[number] };
-
-export const groupDetailDefaults = { tab: "offsets" as const };
+export const groupDetailSearch = z.object({
+  tab: groupTabParam,
+});
 
 export function groupTab(value: unknown) {
-  return literal(GROUP_TABS, value) ?? "offsets";
+  return z.parse(groupTabParam, value);
 }
 
-export const validateGroupDetailSearch = searchValidator<GroupDetailSearch>((search) => ({
-  tab: groupTab(search.tab),
-}));
+/** The values `stripSearchParams` keeps out of the URL. */
+export function searchDefaults<T extends z.ZodMiniType>(schema: T): z.output<T> {
+  return z.parse(schema, {});
+}
 
 export function parseSearch(searchStr: string): Record<string, string> {
   const query = searchStr.startsWith("?") ? searchStr.slice(1) : searchStr;

@@ -36,15 +36,15 @@ import {
 import type { Int64 } from "@/lib/format";
 import type { TopicRow } from "@/lib/api/types";
 import {
-  topicsDefaults,
-  validateTopicsSearch,
+  searchDefaults,
+  topicsSearch,
   type TopicFilter,
   type TopicsSearch,
 } from "@/lib/route-search";
 
 export const Route = createFileRoute("/cluster/$cluster/topics")({
-  validateSearch: validateTopicsSearch,
-  search: { middlewares: [stripSearchParams(topicsDefaults)] },
+  validateSearch: topicsSearch,
+  search: { middlewares: [stripSearchParams(searchDefaults(topicsSearch))] },
   component: TopicsPage,
 });
 

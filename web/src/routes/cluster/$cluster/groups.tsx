@@ -28,15 +28,15 @@ import type { GroupRow } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import {
   GROUP_STATES,
-  groupsDefaults,
-  validateGroupsSearch,
+  searchDefaults,
+  groupsSearch,
   type GroupFilter,
   type GroupsSearch,
 } from "@/lib/route-search";
 
 export const Route = createFileRoute("/cluster/$cluster/groups")({
-  validateSearch: validateGroupsSearch,
-  search: { middlewares: [stripSearchParams(groupsDefaults)] },
+  validateSearch: groupsSearch,
+  search: { middlewares: [stripSearchParams(searchDefaults(groupsSearch))] },
   component: ConsumerGroupsPage,
 });
 

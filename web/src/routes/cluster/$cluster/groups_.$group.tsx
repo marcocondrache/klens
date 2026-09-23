@@ -17,11 +17,11 @@ import { catalogLookupMessage } from "@/lib/catalog-lookup";
 import { useClusterName } from "@/lib/clusters";
 import { formatCount, formatNumber, toNumber } from "@/lib/format";
 import type { GroupDetail, GroupMember, GroupOffset } from "@/lib/api/types";
-import { groupDetailDefaults, groupTab, validateGroupDetailSearch } from "@/lib/route-search";
+import { groupDetailSearch, groupTab, searchDefaults } from "@/lib/route-search";
 
 export const Route = createFileRoute("/cluster/$cluster/groups_/$group")({
-  validateSearch: validateGroupDetailSearch,
-  search: { middlewares: [stripSearchParams(groupDetailDefaults)] },
+  validateSearch: groupDetailSearch,
+  search: { middlewares: [stripSearchParams(searchDefaults(groupDetailSearch))] },
   component: ConsumerGroupPage,
 });
 

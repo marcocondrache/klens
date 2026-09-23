@@ -27,12 +27,12 @@ import {
   toNumber,
 } from "@/lib/format";
 import type { PartitionRow, TopicDetail, TopicGroupRow } from "@/lib/api/types";
-import { topicTab, validateTopicDetailSearch } from "@/lib/route-search";
+import { topicTab, topicDetailSearch } from "@/lib/route-search";
 import { useAccess } from "@/hooks/use-access";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/cluster/$cluster/topics_/$topic")({
-  validateSearch: validateTopicDetailSearch,
+  validateSearch: topicDetailSearch,
   component: TopicPage,
 });
 

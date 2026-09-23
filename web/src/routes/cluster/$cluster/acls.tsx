@@ -28,15 +28,15 @@ import {
   ACL_OPERATIONS,
   ACL_PATTERNS,
   ACL_RESOURCE_TYPES,
-  aclsDefaults,
-  validateAclsSearch,
+  searchDefaults,
+  aclsSearch,
   type AclFilter,
   type AclsSearch,
 } from "@/lib/route-search";
 
 export const Route = createFileRoute("/cluster/$cluster/acls")({
-  validateSearch: validateAclsSearch,
-  search: { middlewares: [stripSearchParams(aclsDefaults)] },
+  validateSearch: aclsSearch,
+  search: { middlewares: [stripSearchParams(searchDefaults(aclsSearch))] },
   component: AclsPage,
 });
 
