@@ -176,13 +176,13 @@ mod tests {
             cluster: "staging",
             action: "group_offsets.reset",
             resource,
-            dry_run: true,
+            dry_run: false,
         }
     }
 
     #[test]
     fn a_write_is_audited_with_who_what_and_how_it_went() {
-        let ok = audited(audit("billing"), Ok(()));
+        let ok = audited(audit("billing").dry_run(true), Ok(()));
         let failed = audited(
             Audit {
                 subject: Some("alice"),
@@ -203,6 +203,7 @@ mod tests {
             assert!(ok.contains(field), "{field} missing from {ok}");
         }
         assert!(failed.contains("subject=\"alice\""), "{failed}");
+        assert!(failed.contains("dry_run=false"), "{failed}");
         assert!(failed.contains("outcome=\"failed\""), "{failed}");
         assert!(failed.contains("code=\"CROSS_SITE\""), "{failed}");
     }

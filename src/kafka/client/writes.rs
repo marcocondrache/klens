@@ -185,6 +185,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_failed_offset_delete_is_reported() {
+        let broker = krafka::testing::FakeBroker::start()
+            .await
+            .expect("fake broker");
+        assert!(broker.create_topic("orders", 1));
+        let client = kafka_client(&broker.bootstrap_servers()).await;
+
+        let result = client
+            .delete_group_offsets("orders-group", &[("orders".into(), 0)])
+            .await;
+
+        assert!(result.is_err(), "{result:?}");
+    }
+
+    #[tokio::test]
     async fn nothing_to_write_skips_kafka() {
         let broker = krafka::testing::FakeBroker::start()
             .await

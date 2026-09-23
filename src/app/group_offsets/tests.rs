@@ -393,6 +393,21 @@ async fn deleting_offsets_clears_one_topic() {
 }
 
 #[tokio::test]
+async fn deleting_offsets_refuses_an_empty_partition_list() {
+    let (state, cluster) = writable(idle_group());
+
+    let (status, body) = delete(
+        &state,
+        json!({ "group": GROUP, "topic": TOPIC, "partitions": [], "confirm": GROUP }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["code"], "INVALID_REQUEST");
+    assert_eq!(cluster.calls().group_writes(), 0);
+}
+
+#[tokio::test]
 async fn deleting_offsets_can_name_partitions() {
     let (state, cluster) = writable(idle_group());
 

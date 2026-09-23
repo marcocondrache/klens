@@ -70,15 +70,14 @@ pub struct PrivilegeSet(u32);
 
 impl PrivilegeSet {
     pub const NONE: Self = Self(0);
-    pub const ALL: Self = Self::READS.union(Self::WRITES);
+    pub const ALL: Self = Self((1 << Privilege::ALL.len()) - 1);
     pub const READS: Self = Self(
         Privilege::Records.bit()
             | Privilege::Configs.bit()
             | Privilege::SchemaText.bit()
             | Privilege::Acls.bit(),
     );
-    pub const WRITES: Self =
-        Self(Privilege::ResetOffsets.bit() | Privilege::DeleteGroupOffsets.bit());
+    pub const WRITES: Self = Self(Self::ALL.0 & !Self::READS.0);
 
     pub fn from_privileges(privileges: impl IntoIterator<Item = Privilege>) -> Self {
         privileges
