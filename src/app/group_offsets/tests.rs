@@ -272,7 +272,7 @@ async fn an_unknown_group_is_not_created_by_a_reset() {
 
     let (status, body) = reset(
         &state,
-        json!({ "group": "order-procesor", "topic": TOPIC, "to": { "kind": "earliest" } }),
+        json!({ "group": "order-auditor", "topic": TOPIC, "to": { "kind": "earliest" } }),
     )
     .await;
 
