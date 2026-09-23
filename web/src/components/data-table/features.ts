@@ -10,6 +10,7 @@ import {
 
 export interface DataTableColumnMeta {
   align?: "left" | "right";
+  width?: string;
   className?: string;
   headerClassName?: string;
 }

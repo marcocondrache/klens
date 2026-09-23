@@ -77,6 +77,7 @@ const columns = columnHelper.columns([
   }),
   columnHelper.accessor("state", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="State" />,
+    meta: { width: "12rem" },
     cell: ({ getValue }) => <GroupStateBadge state={getValue()} />,
   }),
   columnHelper.accessor("memberCount", {
@@ -84,7 +85,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Members" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "6rem" },
     cell: ({ getValue }) => getValue(),
   }),
   columnHelper.accessor((group) => group.topicNames.length, {
@@ -98,7 +99,7 @@ const columns = columnHelper.columns([
           </span>
         ))}
         {row.original.topicNames.length > 1 ? (
-          <Pill>+{row.original.topicNames.length - 1}</Pill>
+          <Pill className="shrink-0">+{row.original.topicNames.length - 1}</Pill>
         ) : null}
       </span>
     ),
@@ -108,7 +109,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Lag" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "9rem" },
     cell: ({ row }) => <LagValue row={row.original} />,
   }),
   columnHelper.accessor("coordinatorId", {
@@ -116,7 +117,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Coordinator" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "7.5rem" },
     cell: ({ getValue }) => (
       <span className="numeric text-muted-foreground">Broker {getValue()}</span>
     ),

@@ -49,11 +49,12 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="ID" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "6rem" },
     cell: ({ getValue }) => <span className="numeric text-muted-foreground">{getValue()}</span>,
   }),
   columnHelper.accessor("type", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,
+    meta: { width: "6.5rem" },
     cell: ({ getValue }) => <Pill>{formatEnumLabel(getValue())}</Pill>,
   }),
   columnHelper.accessor("latestVersion", {
@@ -61,7 +62,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Latest version" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "8rem" },
     cell: ({ getValue }) => <span className="numeric">v{getValue()}</span>,
   }),
   columnHelper.accessor((subject) => subject.versions.length, {
@@ -69,14 +70,14 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Versions" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "6rem" },
     cell: ({ getValue }) => getValue(),
   }),
   columnHelper.accessor("compatibility", {
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Compatibility" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "8rem" },
     cell: ({ getValue }) => (
       <span className={getValue() === "NONE" ? "text-warn" : "text-muted-foreground"}>
         {formatEnumLabel(getValue())}

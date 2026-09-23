@@ -24,6 +24,7 @@ const columnHelper = createColumnHelper<DataTableFeatures, BrokerRow>();
 const columns = columnHelper.columns([
   columnHelper.accessor("id", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="ID" />,
+    meta: { width: "10rem" },
     cell: ({ row }) => {
       const broker = row.original;
 
@@ -47,7 +48,7 @@ const columns = columnHelper.columns([
 
       return (
         <span className="flex items-center gap-1">
-          <span className="font-mono">
+          <span className="truncate font-mono">
             {broker.host}
             <span className="text-muted-foreground">:{broker.port}</span>
           </span>
@@ -59,6 +60,7 @@ const columns = columnHelper.columns([
   columnHelper.accessor((broker) => broker.rack ?? "", {
     id: "rack",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Rack" />,
+    meta: { width: "8rem" },
     cell: ({ row }) =>
       row.original.rack ? (
         <span className="font-mono text-muted-foreground">{row.original.rack}</span>
@@ -71,7 +73,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Partitions" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "7rem" },
     cell: ({ getValue }) => formatNumber(getValue()),
   }),
   columnHelper.accessor("leaderCount", {
@@ -79,7 +81,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Leaders" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "6.5rem" },
     cell: ({ getValue }) => formatNumber(getValue()),
   }),
 ]);

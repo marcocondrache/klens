@@ -1,5 +1,11 @@
 import { useRef, useState, type ReactNode } from "react";
-import { useTable, type ColumnDef, type RowData, type SortingState } from "@tanstack/react-table";
+import {
+  useTable,
+  type Column,
+  type ColumnDef,
+  type RowData,
+  type SortingState,
+} from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 import { RefreshBar } from "@/components/refresh-bar";
@@ -18,6 +24,7 @@ import { CLICKABLE_ROW, clickableRowProps } from "./row-interaction";
 import { SkeletonBar, skeletonRowStyle } from "./skeleton-bar";
 
 const ROW_SIZE = 40;
+const MIN_FLEX_WIDTH = "12rem";
 
 interface DataTableProps<TData extends RowData> {
   columns: Array<ColumnDef<DataTableFeatures, TData>>;
@@ -105,7 +112,18 @@ export function DataTable<TData extends RowData>({
       >
         {refreshing ? <RefreshBar className="absolute inset-x-0 top-0 z-20" /> : null}
         <div ref={scrollRef} className={cn(fill && "min-h-0 flex-1 overflow-auto")}>
-          <Table aria-busy={loading || refreshing || undefined}>
+          <Table
+            aria-busy={loading || refreshing || undefined}
+            className={cn(fill && "table-fixed")}
+            style={fill ? { minWidth: minTableWidth(leafColumns) } : undefined}
+          >
+            {fill ? (
+              <colgroup>
+                {leafColumns.map((column) => (
+                  <col key={column.id} style={{ width: column.columnDef.meta?.width }} />
+                ))}
+              </colgroup>
+            ) : null}
             <TableHeader className={cn(fill && "[&_tr]:border-b-0!")}>
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id}>
@@ -184,6 +202,7 @@ export function DataTable<TData extends RowData>({
                               key={cell.id}
                               className={cn(
                                 "h-10 px-3 py-2 first:pl-4 last:pr-4",
+                                fill && "overflow-hidden text-ellipsis",
                                 meta?.align === "right" && "text-right numeric",
                                 meta?.className,
                               )}
@@ -204,4 +223,11 @@ export function DataTable<TData extends RowData>({
       </div>
     </div>
   );
+}
+
+function minTableWidth<TData extends RowData>(
+  columns: Array<Column<DataTableFeatures, TData, unknown>>,
+) {
+  const widths = columns.map((column) => column.columnDef.meta?.width ?? MIN_FLEX_WIDTH);
+  return `calc(${widths.join(" + ")})`;
 }

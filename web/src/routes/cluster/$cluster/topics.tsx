@@ -104,10 +104,10 @@ const columns = columnHelper.columns([
 
       return (
         <span className="flex items-center gap-2">
-          <span className="font-mono">{topic.name}</span>
-          {topic.internal ? <Pill>internal</Pill> : null}
+          <span className="truncate font-mono">{topic.name}</span>
+          {topic.internal ? <Pill className="shrink-0">internal</Pill> : null}
           {topic.underReplicated ? (
-            <Pill tone="warn">
+            <Pill tone="warn" className="shrink-0">
               <AlertTriangleIcon />
               under-replicated
             </Pill>
@@ -121,7 +121,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Parts" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "5rem" },
     cell: ({ getValue }) => getValue(),
   }),
   columnHelper.accessor("replicationFactor", {
@@ -129,14 +129,14 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="RF" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "4rem" },
   }),
   columnHelper.accessor((topic) => toNumber(topic.retainedMessages), {
     id: "messages",
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Messages" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "9rem" },
     cell: ({ row }) =>
       emptyMetric(row.original.retainedMessages, formatNumber(row.original.retainedMessages)),
   }),
@@ -145,7 +145,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Msg/s" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "6rem" },
     cell: ({ getValue }) => emptyMetric(getValue(), formatThroughput(getValue())),
   }),
   columnHelper.accessor((topic) => toNumber(topic.retentionMs), {
@@ -153,7 +153,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Retention" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "7rem" },
     cell: ({ row }) => (
       <span className="text-muted-foreground">{formatDuration(row.original.retentionMs)}</span>
     ),
@@ -163,7 +163,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Policy" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "8rem" },
     cell: ({ getValue }) => (
       <span className={isCompactCleanup(getValue()) ? "text-foreground" : "text-muted-foreground"}>
         {formatCleanupPolicy(getValue())}
@@ -175,7 +175,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Groups" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "6rem" },
     cell: ({ getValue }) => emptyMetric(getValue(), getValue()),
   }),
 ]);
