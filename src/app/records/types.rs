@@ -122,7 +122,7 @@ pub(crate) fn record_query(
             Some(cursor) => Some(RecordCursor::parse(cursor)?),
         },
         topic,
-        partition: params.partition,
+        partitions: params.partition,
         limit: params.limit,
         order: params.order.unwrap_or(RecordOrder::Newest).into(),
         schema_id: params.schema_id,
@@ -132,7 +132,8 @@ pub(crate) fn record_query(
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RecordParams {
-    pub partition: Option<i32>,
+    #[serde(default)]
+    pub partition: Vec<i32>,
     pub order: Option<RecordOrder>,
     pub from: Option<Timestamp>,
     pub to: Option<Timestamp>,
@@ -208,7 +209,8 @@ impl From<TailBatch> for TailEvent {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct TailParams {
-    pub partition: Option<i32>,
+    #[serde(default)]
+    pub partition: Vec<i32>,
     pub contains: Option<String>,
     pub schema_id: Option<i32>,
 }
@@ -220,7 +222,7 @@ pub(crate) fn tail_query(topic: String, params: TailParams) -> TailQuery {
             .as_deref()
             .and_then(crate::kafka::compile_contains_filter),
         topic,
-        partition: params.partition,
+        partitions: params.partition,
         schema_id: params.schema_id,
     }
 }

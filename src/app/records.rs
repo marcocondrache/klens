@@ -1,7 +1,8 @@
 use axum::Json;
 use axum::Router;
-use axum::extract::{Path, Query};
+use axum::extract::Path;
 use axum::routing::get;
+use axum_extra::extract::Query;
 
 use crate::AppState;
 

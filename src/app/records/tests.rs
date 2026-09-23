@@ -85,6 +85,56 @@ async fn an_inverted_record_range_is_rejected() {
 }
 
 #[tokio::test]
+async fn records_can_be_read_from_a_set_of_partitions() {
+    let state = seeded();
+    let partitions = |data: serde_json::Value| {
+        let mut ids: Vec<_> = data["records"]
+            .as_array()
+            .expect("records")
+            .iter()
+            .map(|record| record["partition"].as_i64().expect("partition"))
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        ids
+    };
+
+    let one = ok(
+        &state,
+        "/clusters/local/topics/orders.created/records?partition=1",
+    )
+    .await;
+    let both = ok(
+        &state,
+        "/clusters/local/topics/orders.created/records?partition=1&partition=0",
+    )
+    .await;
+
+    assert_eq!(partitions(one), [1]);
+    assert_eq!(partitions(both), [0, 1]);
+}
+
+#[tokio::test]
+async fn a_malformed_partition_is_rejected() {
+    let records = "/clusters/local/topics/orders.created/records";
+    for path in [
+        format!("{records}?partition=one"),
+        format!("{records}?partition=0,1"),
+        format!("{TAIL}?partition=one"),
+    ] {
+        let response = open_stream(
+            &seeded(),
+            &path,
+            EffectiveAccess::Unrestricted,
+            SessionGuard::open(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{path}");
+    }
+}
+
+#[tokio::test]
 async fn an_obfuscated_topic_serves_tokens_instead_of_payloads() {
     let pan = "4111111111111111";
     let records = (0..3).map(|offset| card_record(offset, pan)).collect();
@@ -329,6 +379,28 @@ async fn a_tail_narrows_to_its_partition_and_filter() {
     assert_eq!(records.len(), 1);
     assert_eq!(records[0]["partition"], 1);
     assert_eq!(records[0]["key"], "hit");
+}
+
+#[tokio::test]
+async fn a_tail_follows_a_set_of_partitions() {
+    let (state, _) = seeded_with(FakeCluster::local());
+    let response = open_stream(
+        &state,
+        &format!("{TAIL}?partition=1&partition=0"),
+        EffectiveAccess::Unrestricted,
+        SessionGuard::open(),
+    )
+    .await;
+
+    let frames = read_frames(response, 1).await;
+
+    assert_eq!(
+        frames[0].1["start"],
+        json!([
+            { "partition": 0, "offset": "8" },
+            { "partition": 1, "offset": "8" },
+        ])
+    );
 }
 
 #[tokio::test]

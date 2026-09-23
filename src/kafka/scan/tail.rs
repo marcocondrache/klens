@@ -38,7 +38,7 @@ pub struct TailPosition {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TailQuery {
     pub topic: String,
-    pub partition: Option<i32>,
+    pub partitions: Vec<i32>,
     pub filter: Option<CompiledFilter>,
     pub schema_id: Option<i32>,
 }
@@ -78,7 +78,8 @@ impl Tail {
         query: TailQuery,
         limits: TailLimits,
     ) -> Result<Self, KafkaError> {
-        let partitions = resolve_partitions(session, store, &query.topic, query.partition).await?;
+        let partitions =
+            resolve_partitions(session, store, &query.topic, &query.partitions).await?;
         let wanted = HashMap::from_iter([(query.topic.clone(), partitions)]);
         let mut start: Vec<TailPosition> = session
             .watermarks(&wanted)
@@ -263,7 +264,7 @@ mod tests {
     fn query() -> TailQuery {
         TailQuery {
             topic: "orders.created".into(),
-            partition: None,
+            partitions: Vec::new(),
             filter: None,
             schema_id: None,
         }
@@ -340,7 +341,7 @@ mod tests {
     async fn a_tail_on_one_partition_follows_only_that_partition() {
         let session = FakeCluster::local();
         let mut named = query();
-        named.partition = Some(1);
+        named.partitions = vec![1];
         let mut tail = open(&session, named).await;
 
         assert_eq!(

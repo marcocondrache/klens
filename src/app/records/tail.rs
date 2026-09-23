@@ -1,7 +1,8 @@
 use std::convert::Infallible;
 
-use axum::extract::{Path, Query};
+use axum::extract::Path;
 use axum::response::sse::{Event, KeepAlive, KeepAliveStream, Sse};
+use axum_extra::extract::Query;
 use futures::stream::{self, BoxStream, StreamExt as _};
 use tokio::sync::OwnedSemaphorePermit;
 

@@ -24,7 +24,7 @@ impl RecordOrder {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordQuery {
     pub topic: String,
-    pub partition: Option<i32>,
+    pub partitions: Vec<i32>,
     pub filter: Option<CompiledFilter>,
     pub timestamps: TimestampRange,
     pub limit: i32,

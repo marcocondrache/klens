@@ -2,7 +2,7 @@ import type { RecordOrder } from "./types";
 
 export type RecordsFilter = {
   topic: string;
-  partition: number | null;
+  partitions: number[] | null;
   order: RecordOrder | null;
   from: string | null;
   to: string | null;
@@ -12,7 +12,7 @@ export type RecordsFilter = {
 
 export type TailFilter = {
   topic: string;
-  partition: number | null;
+  partitions: number[] | null;
   contains: string | null;
   schemaId: number | null;
 };

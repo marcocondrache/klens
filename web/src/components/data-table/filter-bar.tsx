@@ -1,4 +1,5 @@
-import { ChevronDownIcon, ListFilterIcon, XIcon } from "lucide-react";
+import type { ReactNode } from "react";
+import { ChevronDownIcon, ListFilterIcon, XIcon, type LucideIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -25,13 +26,25 @@ import {
 interface FilterBarProps<TData> {
   fields: ReadonlyArray<FilterField<TData>>;
   /** Rows before these filters apply; used for option counts. */
-  rows: TData[];
+  rows?: TData[];
   value: FilterRule[];
   onChange: (rules: FilterRule[]) => void;
+  custom?: readonly CustomFilter[];
+}
+
+export interface CustomFilter {
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  menu: ReactNode;
+  chip: ReactNode;
+  onClear: () => void;
 }
 
 export function FilterBar<TData>(props: FilterBarProps<TData>) {
-  const { fields, value, onChange } = props;
+  const { fields, value, onChange, custom = [] } = props;
+  const active = custom.filter((filter) => filter.chip != null);
+  const count = value.length + active.length;
 
   return (
     <>
@@ -40,14 +53,14 @@ export function FilterBar<TData>(props: FilterBarProps<TData>) {
           render={
             <Button
               variant="outline"
-              size={value.length > 0 ? "icon" : "default"}
+              size={count > 0 ? "icon" : "default"}
               aria-label="Add filter"
               className="font-normal text-muted-foreground hover:text-foreground aria-expanded:text-foreground"
             />
           }
         >
           <ListFilterIcon className="size-3.5" />
-          {value.length > 0 ? null : "Filter"}
+          {count > 0 ? null : "Filter"}
         </DropdownMenuTrigger>
         <DropdownMenuContent className="min-w-40">
           {fields.map((field) => (
@@ -58,6 +71,12 @@ export function FilterBar<TData>(props: FilterBarProps<TData>) {
               </DropdownMenuSubContent>
             </DropdownMenuSub>
           ))}
+          {custom.map((filter) => (
+            <DropdownMenuSub key={filter.id}>
+              <DropdownMenuSubTrigger>{filter.label}</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="min-w-40">{filter.menu}</DropdownMenuSubContent>
+            </DropdownMenuSub>
+          ))}
         </DropdownMenuContent>
       </DropdownMenu>
 
@@ -66,8 +85,26 @@ export function FilterBar<TData>(props: FilterBarProps<TData>) {
         return field ? <FilterChip key={rule.id} field={field} rule={rule} {...props} /> : null;
       })}
 
-      {value.length > 0 ? (
-        <Button variant="ghost" className="text-muted-foreground" onClick={() => onChange([])}>
+      {active.map((filter) => (
+        <ChipShell
+          key={filter.id}
+          label={filter.label}
+          icon={filter.icon}
+          onRemove={filter.onClear}
+        >
+          {filter.chip}
+        </ChipShell>
+      ))}
+
+      {count > 0 ? (
+        <Button
+          variant="ghost"
+          className="text-muted-foreground"
+          onClick={() => {
+            onChange([]);
+            for (const filter of active) filter.onClear();
+          }}
+        >
           Clear
         </Button>
       ) : null}
@@ -84,7 +121,7 @@ function OptionItems<TData>({
   onChange,
 }: FilterBarProps<TData> & { field: FilterField<TData> }) {
   const selected = value.find((rule) => rule.id === field.id)?.values ?? [];
-  const counts = facetCounts(rows, fields, value, field);
+  const counts = rows ? facetCounts(rows, fields, value, field) : null;
 
   function toggle(option: string, checked: boolean) {
     const next = checked
@@ -100,12 +137,14 @@ function OptionItems<TData>({
       onCheckedChange={(checked) => toggle(option.value, checked)}
     >
       {option.label}
-      <DropdownMenuShortcut>{counts.get(option.value) ?? 0}</DropdownMenuShortcut>
+      <DropdownMenuShortcut>
+        {counts ? (counts.get(option.value) ?? 0) : option.hint}
+      </DropdownMenuShortcut>
     </DropdownMenuCheckboxItem>
   ));
 }
 
-const SEGMENT =
+export const CHIP_SEGMENT =
   "flex h-full items-center gap-1.5 px-2 outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground";
 
 function FilterChip<TData>({
@@ -121,14 +160,13 @@ function FilterChip<TData>({
   }
 
   return (
-    <div className="flex h-8 items-center divide-x overflow-hidden rounded-lg border bg-background text-sm duration-150 animate-in fade-in-0 zoom-in-95 motion-reduce:animate-none dark:divide-input dark:border-input dark:bg-input/20">
-      <span className="flex h-full items-center gap-1.5 px-2.5 text-muted-foreground">
-        <field.icon className="size-3.5 shrink-0" />
-        {field.label}
-      </span>
-
+    <ChipShell
+      label={field.label}
+      icon={field.icon}
+      onRemove={() => onChange(value.filter((existing) => existing !== rule))}
+    >
       <DropdownMenu>
-        <DropdownMenuTrigger className={cn(SEGMENT, "text-muted-foreground")}>
+        <DropdownMenuTrigger className={cn(CHIP_SEGMENT, "text-muted-foreground")}>
           {operatorLabel(rule)}
         </DropdownMenuTrigger>
         <DropdownMenuContent className="w-auto">
@@ -143,7 +181,7 @@ function FilterChip<TData>({
       <DropdownMenu>
         <DropdownMenuTrigger
           aria-label={`${field.label} values`}
-          className={cn(SEGMENT, "font-medium")}
+          className={cn(CHIP_SEGMENT, "font-medium")}
         >
           {selected.length === 1 ? (
             <>
@@ -170,12 +208,35 @@ function FilterChip<TData>({
           <OptionItems field={field} {...props} />
         </DropdownMenuContent>
       </DropdownMenu>
+    </ChipShell>
+  );
+}
+
+function ChipShell({
+  label,
+  icon: Icon,
+  onRemove,
+  children,
+}: {
+  label: string;
+  icon: LucideIcon;
+  onRemove: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex h-8 items-center divide-x overflow-hidden rounded-lg border bg-background text-sm duration-150 animate-in fade-in-0 zoom-in-95 motion-reduce:animate-none dark:divide-input dark:border-input dark:bg-input/20">
+      <span className="flex h-full items-center gap-1.5 px-2.5 text-muted-foreground">
+        <Icon className="size-3.5 shrink-0" />
+        {label}
+      </span>
+
+      {children}
 
       <button
         type="button"
-        aria-label={`Remove ${field.label.toLowerCase()} filter`}
-        className={cn(SEGMENT, "text-muted-foreground")}
-        onClick={() => onChange(value.filter((existing) => existing !== rule))}
+        aria-label={`Remove ${label.toLowerCase()} filter`}
+        className={cn(CHIP_SEGMENT, "text-muted-foreground")}
+        onClick={onRemove}
       >
         <XIcon className="size-3.5" />
       </button>

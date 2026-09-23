@@ -32,7 +32,7 @@ export function useTail(cluster: string, filter: TailFilter) {
       initialValue: EMPTY_TAIL,
       refetchMode: "append",
     }),
-    enabled: !paused,
+    enabled: !paused && filter.partitions?.length !== 0,
     staleTime: 0,
     retry: (_, error) => !(error instanceof ApiError),
   });
@@ -61,7 +61,7 @@ async function* follow(
   yield { type: "connecting" };
 
   const path = `/clusters/${encodeURIComponent(cluster)}/topics/${encodeURIComponent(filter.topic)}/records/tail`;
-  const { partition, contains, schemaId } = filter;
+  const { partitions: partition, contains, schemaId } = filter;
   for await (const message of events(path, signal, { partition, contains, schemaId })) {
     if (message.event === "error") throw streamError(message.data);
     yield JSON.parse(message.data) as TailEvent;

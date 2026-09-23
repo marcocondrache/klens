@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { ClockIcon, TriangleAlertIcon } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -9,16 +9,20 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { RecordModeSwitch, type RecordMode } from "@/components/records/record-mode";
-import { RecordView, type RecordFilter, type RecordSource } from "@/components/records/record-view";
+import {
+  RecordView,
+  filterPartitions,
+  type RecordFilter,
+  type RecordSource,
+} from "@/components/records/record-view";
+import { useTimestampFilter } from "@/components/records/timestamp-filter";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useRecords, type RecordsFilter } from "@/lib/api/live";
 import { apiErrorMessage } from "@/lib/api/client";
 import type { KafkaRecord, RecordOrder, TopicDetail } from "@/lib/api/types";
 import { fromDatetimeLocalValue } from "@/lib/format";
 import { recordId } from "@/lib/records";
-import { cn } from "@/lib/utils";
 
 const EMPTY_RECORDS: KafkaRecord[] = [];
 
@@ -39,22 +43,23 @@ export function PagedRecords({
   order,
   onModeChange,
 }: PagedRecordsProps) {
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const timestamp = useTimestampFilter();
+  const { from, to } = timestamp.range;
 
   const needle = useDebouncedValue(filter.term.trim());
+  const partitions = useMemo(() => filterPartitions(topic, filter), [topic, filter]);
 
   const query = useMemo<RecordsFilter>(
     () => ({
       topic: topic.name,
-      partition: filter.partition,
+      partitions,
       order,
       from: fromDatetimeLocalValue(from),
       to: fromDatetimeLocalValue(to),
       filter: needle ? { contains: needle } : null,
       schemaId: filter.schemaId,
     }),
-    [topic.name, filter.partition, filter.schemaId, order, from, to, needle],
+    [topic.name, partitions, filter.schemaId, order, from, to, needle],
   );
 
   const {
@@ -123,32 +128,7 @@ export function PagedRecords({
           </Alert>
         ) : null
       }
-      controls={
-        <InputGroup className="w-auto bg-background dark:bg-input/20">
-          <InputGroupAddon>
-            <ClockIcon className="size-3.5!" />
-          </InputGroupAddon>
-          <InputGroupInput
-            type="datetime-local"
-            value={from}
-            max={to || undefined}
-            onChange={(event) => setFrom(event.target.value)}
-            aria-label="From timestamp"
-            className={cn("w-44 pr-1", !from && "text-muted-foreground")}
-          />
-          <span aria-hidden className="text-muted-foreground/60">
-            →
-          </span>
-          <InputGroupInput
-            type="datetime-local"
-            value={to}
-            min={from || undefined}
-            onChange={(event) => setTo(event.target.value)}
-            aria-label="To timestamp"
-            className={cn("w-44 pl-2", !to && "text-muted-foreground")}
-          />
-        </InputGroup>
-      }
+      filters={[timestamp.filter]}
       emptyState={
         <Empty className="py-10">
           <EmptyHeader>
@@ -161,7 +141,9 @@ export function PagedRecords({
                 ? "Nothing in the selected time range."
                 : filter.term
                   ? "Nothing matched your search in the scanned offsets."
-                  : "This topic has no records."}
+                  : partitions
+                    ? "Nothing in the selected partitions."
+                    : "This topic has no records."}
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
