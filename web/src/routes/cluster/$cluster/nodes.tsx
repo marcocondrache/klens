@@ -6,11 +6,11 @@ import { CopyButton } from "@/components/copy-button";
 import { DataTableColumnHeader } from "@/components/data-table/column-header";
 import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
+import { LaneCaption } from "@/components/lane-caption";
 import { PageHeader } from "@/components/page-header";
 import { Pill } from "@/components/status";
-import { useNow } from "@/hooks/use-now";
 import { useBrokerRows, useClusterHealth } from "@/lib/api/catalog";
-import { laneCaption, useClusterName } from "@/lib/clusters";
+import { useClusterName } from "@/lib/clusters";
 import { apiErrorMessage } from "@/lib/api/client";
 import { formatNumber } from "@/lib/format";
 import type { BrokerRow } from "@/lib/api/types";
@@ -24,6 +24,7 @@ const columnHelper = createColumnHelper<DataTableFeatures, BrokerRow>();
 const columns = columnHelper.columns([
   columnHelper.accessor("id", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="ID" />,
+    meta: { width: "10rem" },
     cell: ({ row }) => {
       const broker = row.original;
 
@@ -47,7 +48,7 @@ const columns = columnHelper.columns([
 
       return (
         <span className="flex items-center gap-1">
-          <span className="font-mono">
+          <span className="truncate font-mono">
             {broker.host}
             <span className="text-muted-foreground">:{broker.port}</span>
           </span>
@@ -59,6 +60,7 @@ const columns = columnHelper.columns([
   columnHelper.accessor((broker) => broker.rack ?? "", {
     id: "rack",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Rack" />,
+    meta: { width: "8rem" },
     cell: ({ row }) =>
       row.original.rack ? (
         <span className="font-mono text-muted-foreground">{row.original.rack}</span>
@@ -71,7 +73,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Partitions" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "7rem" },
     cell: ({ getValue }) => formatNumber(getValue()),
   }),
   columnHelper.accessor("leaderCount", {
@@ -79,7 +81,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Leaders" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "6.5rem" },
     cell: ({ getValue }) => formatNumber(getValue()),
   }),
 ]);
@@ -89,14 +91,17 @@ function NodesPage() {
   const navigate = Route.useNavigate();
   const { data: brokers = [], isPending, isError, error } = useBrokerRows(cluster);
   const { data: health } = useClusterHealth(cluster);
-  const now = useNow();
-  const caption = laneCaption(health?.topology, now);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
       <PageHeader
         title="Brokers"
-        description={`${brokers.length} brokers${caption ? ` · ${caption}` : ""}`}
+        description={
+          <>
+            {brokers.length} brokers
+            <LaneCaption lane={health?.topology} />
+          </>
+        }
       />
 
       <DataTable

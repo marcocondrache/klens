@@ -16,13 +16,13 @@ import {
   type FilterField,
   type FilterRule,
 } from "@/components/data-table/filters";
+import { LaneCaption } from "@/components/lane-caption";
 import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
 import { Pill, StatusDot } from "@/components/status";
-import { useNow } from "@/hooks/use-now";
 import { useSearchDraft } from "@/hooks/use-search-draft";
 import { useClusterHealth, useTopicRows } from "@/lib/api/catalog";
-import { laneCaption, useClusterName } from "@/lib/clusters";
+import { useClusterName } from "@/lib/clusters";
 import { apiErrorMessage } from "@/lib/api/client";
 import {
   formatCleanupPolicy,
@@ -104,10 +104,10 @@ const columns = columnHelper.columns([
 
       return (
         <span className="flex items-center gap-2">
-          <span className="font-mono">{topic.name}</span>
-          {topic.internal ? <Pill>internal</Pill> : null}
+          <span className="truncate font-mono">{topic.name}</span>
+          {topic.internal ? <Pill className="shrink-0">internal</Pill> : null}
           {topic.underReplicated ? (
-            <Pill tone="warn">
+            <Pill tone="warn" className="shrink-0">
               <AlertTriangleIcon />
               under-replicated
             </Pill>
@@ -121,7 +121,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Parts" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "5rem" },
     cell: ({ getValue }) => getValue(),
   }),
   columnHelper.accessor("replicationFactor", {
@@ -129,14 +129,14 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="RF" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "4rem" },
   }),
   columnHelper.accessor((topic) => toNumber(topic.retainedMessages), {
     id: "messages",
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Messages" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "9rem" },
     cell: ({ row }) =>
       emptyMetric(row.original.retainedMessages, formatNumber(row.original.retainedMessages)),
   }),
@@ -145,7 +145,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Msg/s" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "6rem" },
     cell: ({ getValue }) => emptyMetric(getValue(), formatThroughput(getValue())),
   }),
   columnHelper.accessor((topic) => toNumber(topic.retentionMs), {
@@ -153,7 +153,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Retention" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "7rem" },
     cell: ({ row }) => (
       <span className="text-muted-foreground">{formatDuration(row.original.retentionMs)}</span>
     ),
@@ -163,7 +163,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Policy" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "8rem" },
     cell: ({ getValue }) => (
       <span className={isCompactCleanup(getValue()) ? "text-foreground" : "text-muted-foreground"}>
         {formatCleanupPolicy(getValue())}
@@ -175,7 +175,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Groups" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "6rem" },
     cell: ({ getValue }) => emptyMetric(getValue(), getValue()),
   }),
 ]);
@@ -194,8 +194,6 @@ function TopicsPage() {
 
   const { data: topics = EMPTY_TOPICS, isPending, isError, error } = useTopicRows(cluster);
   const { data: health } = useClusterHealth(cluster);
-  const now = useNow();
-  const caption = laneCaption(health?.topology, now);
 
   function setFilters(rules: FilterRule[]) {
     setSearch(filterParams(FILTERS, rules));
@@ -217,7 +215,12 @@ function TopicsPage() {
     <div className="flex min-h-0 flex-1 flex-col gap-5">
       <PageHeader
         title="Topics"
-        description={`${rows.length} of ${topics.length} topics${caption ? ` · ${caption}` : ""}`}
+        description={
+          <>
+            {rows.length} of {topics.length} topics
+            <LaneCaption lane={health?.topology} />
+          </>
+        }
       />
 
       <DataTable

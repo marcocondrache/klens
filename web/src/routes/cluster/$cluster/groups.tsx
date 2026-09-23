@@ -14,14 +14,14 @@ import {
   type FilterField,
   type FilterRule,
 } from "@/components/data-table/filters";
+import { LaneCaption } from "@/components/lane-caption";
 import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
 import { GROUP_TONE, GroupStateBadge, Pill, StatusDot, TONE_TEXT } from "@/components/status";
 import { lagTone } from "@/lib/tone";
-import { useNow } from "@/hooks/use-now";
 import { useSearchDraft } from "@/hooks/use-search-draft";
 import { useClusterHealth, useGroupRows } from "@/lib/api/catalog";
-import { laneCaption, useClusterName } from "@/lib/clusters";
+import { useClusterName } from "@/lib/clusters";
 import { apiErrorMessage } from "@/lib/api/client";
 import { formatCount, formatEnumLabel, formatNumber, toNumber } from "@/lib/format";
 import type { GroupRow } from "@/lib/api/types";
@@ -77,6 +77,7 @@ const columns = columnHelper.columns([
   }),
   columnHelper.accessor("state", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="State" />,
+    meta: { width: "12rem" },
     cell: ({ getValue }) => <GroupStateBadge state={getValue()} />,
   }),
   columnHelper.accessor("memberCount", {
@@ -84,7 +85,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Members" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "6rem" },
     cell: ({ getValue }) => getValue(),
   }),
   columnHelper.accessor((group) => group.topicNames.length, {
@@ -98,7 +99,7 @@ const columns = columnHelper.columns([
           </span>
         ))}
         {row.original.topicNames.length > 1 ? (
-          <Pill>+{row.original.topicNames.length - 1}</Pill>
+          <Pill className="shrink-0">+{row.original.topicNames.length - 1}</Pill>
         ) : null}
       </span>
     ),
@@ -108,7 +109,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Lag" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "9rem" },
     cell: ({ row }) => <LagValue row={row.original} />,
   }),
   columnHelper.accessor("coordinatorId", {
@@ -116,7 +117,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Coordinator" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "7.5rem" },
     cell: ({ getValue }) => (
       <span className="numeric text-muted-foreground">Broker {getValue()}</span>
     ),
@@ -151,8 +152,6 @@ function ConsumerGroupsPage() {
 
   const { data: groups = EMPTY_GROUPS, isPending, isError, error } = useGroupRows(cluster);
   const { data: health } = useClusterHealth(cluster);
-  const now = useNow();
-  const caption = laneCaption(health?.offsets, now);
 
   function setFilters(rules: FilterRule[]) {
     setSearch(filterParams(FILTERS, rules));
@@ -172,7 +171,12 @@ function ConsumerGroupsPage() {
     <div className="flex min-h-0 flex-1 flex-col gap-5">
       <PageHeader
         title="Consumer groups"
-        description={`${rows.length} groups · ${formatCount(totalLag)} messages of lag${caption ? ` · ${caption}` : ""}`}
+        description={
+          <>
+            {rows.length} groups · {formatCount(totalLag)} messages of lag
+            <LaneCaption lane={health?.offsets} />
+          </>
+        }
       />
 
       <DataTable

@@ -14,18 +14,18 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { DataTableColumnHeader } from "@/components/data-table/column-header";
 import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
+import { LaneCaption } from "@/components/lane-caption";
 import { PageHeader } from "@/components/page-header";
 import { PayloadView } from "@/components/payload-view";
 import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
 import { useAccess } from "@/hooks/use-access";
-import { useNow } from "@/hooks/use-now";
 import { useSearchDraft } from "@/hooks/use-search-draft";
 import { apiErrorMessage } from "@/lib/api/client";
 import { useSubjectRows } from "@/lib/api/catalog";
 import { useSubject } from "@/lib/api/live";
 import type { SubjectRow } from "@/lib/api/types";
-import { laneCaption, useClusterName } from "@/lib/clusters";
+import { useClusterName } from "@/lib/clusters";
 import { formatEnumLabel, isJson } from "@/lib/format";
 import { schemasSearch, searchDefaults } from "@/lib/route-search";
 import { cn } from "@/lib/utils";
@@ -49,11 +49,12 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="ID" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "6rem" },
     cell: ({ getValue }) => <span className="numeric text-muted-foreground">{getValue()}</span>,
   }),
   columnHelper.accessor("type", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,
+    meta: { width: "6.5rem" },
     cell: ({ getValue }) => <Pill>{formatEnumLabel(getValue())}</Pill>,
   }),
   columnHelper.accessor("latestVersion", {
@@ -61,7 +62,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Latest version" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "8rem" },
     cell: ({ getValue }) => <span className="numeric">v{getValue()}</span>,
   }),
   columnHelper.accessor((subject) => subject.versions.length, {
@@ -69,14 +70,14 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Versions" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "6rem" },
     cell: ({ getValue }) => getValue(),
   }),
   columnHelper.accessor("compatibility", {
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Compatibility" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "8rem" },
     cell: ({ getValue }) => (
       <span className={getValue() === "NONE" ? "text-warn" : "text-muted-foreground"}>
         {formatEnumLabel(getValue())}
@@ -147,8 +148,6 @@ function SchemasPage() {
   const { data, isPending, isError, error } = useSubjectRows(cluster);
   const subjects = data?.rows ?? EMPTY_SUBJECTS;
   const selected = subject ? (subjects.find((row) => row.subject === subject) ?? null) : null;
-  const now = useNow();
-  const caption = laneCaption(data?.sourceHealth, now);
 
   const {
     data: detail,
@@ -183,7 +182,12 @@ function SchemasPage() {
     <div className="flex min-h-0 flex-1 flex-col gap-5">
       <PageHeader
         title="Schema registry"
-        description={`${rows.length} subjects registered${caption ? ` · ${caption}` : ""}`}
+        description={
+          <>
+            {rows.length} subjects registered
+            <LaneCaption lane={data?.sourceHealth} />
+          </>
+        }
       />
 
       <DataTable

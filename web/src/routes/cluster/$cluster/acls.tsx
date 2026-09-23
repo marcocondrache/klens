@@ -89,6 +89,7 @@ const columnHelper = createColumnHelper<DataTableFeatures, Acl>();
 const columns = columnHelper.columns([
   columnHelper.accessor("resourceType", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Resource" />,
+    meta: { width: "9rem" },
     cell: ({ getValue }) => <Pill>{formatEnumLabel(getValue())}</Pill>,
   }),
   columnHelper.accessor("resourceName", {
@@ -97,6 +98,7 @@ const columns = columnHelper.columns([
   }),
   columnHelper.accessor("patternType", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Pattern" />,
+    meta: { width: "6rem" },
     cell: ({ getValue }) => (
       <span className="text-muted-foreground">{formatEnumLabel(getValue())}</span>
     ),
@@ -107,14 +109,17 @@ const columns = columnHelper.columns([
   }),
   columnHelper.accessor("host", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Host" />,
+    meta: { width: "8rem" },
     cell: ({ getValue }) => <span className="font-mono text-muted-foreground">{getValue()}</span>,
   }),
   columnHelper.accessor("operation", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Operation" />,
+    meta: { width: "10rem" },
     cell: ({ getValue }) => formatEnumLabel(getValue()),
   }),
   columnHelper.accessor("permission", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Permission" />,
+    meta: { width: "7rem" },
     cell: ({ getValue }) => (
       <StatusLabel tone={getValue() === "DENY" ? "error" : "ok"}>
         {formatEnumLabel(getValue())}

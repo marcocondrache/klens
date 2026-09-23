@@ -52,9 +52,20 @@ export function formatThroughput(value: number, digits = 1) {
   return formatCount(value, digits);
 }
 
+const NUMBER_FORMAT = new Intl.NumberFormat("en-US");
+
+const TIMESTAMP_FORMAT = new Intl.DateTimeFormat("en-GB", {
+  year: "numeric",
+  month: "short",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+});
+
 export function formatNumber(value: Int64) {
   if (typeof value === "number") {
-    return value.toLocaleString("en-US");
+    return NUMBER_FORMAT.format(value);
   }
 
   const sign = value.startsWith("-") ? "-" : "";
@@ -99,14 +110,7 @@ export function fromDatetimeLocalValue(value: string) {
 }
 
 export function formatTimestamp(value: string | number) {
-  return new Date(value).toLocaleString("en-GB", {
-    year: "numeric",
-    month: "short",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
+  return TIMESTAMP_FORMAT.format(new Date(value));
 }
 
 export function formatRelative(value: string | number, now = Date.now()) {

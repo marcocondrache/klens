@@ -41,8 +41,11 @@ function apply(queryClient: QueryClient, cluster: string, update: Update): void 
         return rate === undefined ? row : { ...row, rate };
       });
 
-      for (const [name, rate] of rates) {
-        patchTopicDetailRate(queryClient, cluster, name, rate);
+      for (const name of cachedTopics(queryClient, cluster)) {
+        const rate = rates.get(name);
+        if (rate !== undefined) {
+          patchTopicDetailRate(queryClient, cluster, name, rate);
+        }
       }
       return;
     }
@@ -166,6 +169,15 @@ function patchGroupRows(
   queryClient.setQueryData(keys.groupRows(cluster), (rows: GroupRow[] | undefined) =>
     rows?.map((row) => (row.id === group ? patch(row) : row)),
   );
+}
+
+function cachedTopics(queryClient: QueryClient, cluster: string): string[] {
+  return queryClient
+    .getQueryCache()
+    .findAll({ queryKey: keys.topicRows(cluster) })
+    .flatMap(({ queryKey }) =>
+      queryKey.length === 4 && typeof queryKey[3] === "string" ? [queryKey[3]] : [],
+    );
 }
 
 function lagByTopic(offsets: GroupOffset[]): Map<string, number> {

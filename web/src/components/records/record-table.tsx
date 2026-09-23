@@ -16,7 +16,8 @@ import { RefreshBar } from "@/components/refresh-bar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-const ROW_SIZE = 40;
+const ROW_SIZE = 41;
+const SKELETON_ROW_SIZE = 40;
 const LOAD_MORE_KEY = "load-more";
 const LOADER_ROWS = 3;
 const SKELETON_ROWS = 14;
@@ -105,10 +106,9 @@ export function RecordTable<TData extends RowData>({
     count,
     getScrollElement: () => scrollRef.current,
     estimateSize: (index) =>
-      loaderCount && index === rows.length ? ROW_SIZE * LOADER_ROWS : ROW_SIZE,
+      loaderCount && index === rows.length ? SKELETON_ROW_SIZE * LOADER_ROWS : ROW_SIZE,
     getItemKey,
     overscan: 6,
-    measureElement: (element) => element.offsetHeight,
   });
 
   const items = virtualizer.getVirtualItems();

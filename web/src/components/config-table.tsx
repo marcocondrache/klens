@@ -30,10 +30,12 @@ const columns = columnHelper.columns([
 
       return (
         <span className="flex items-center gap-1.5">
-          <span className="font-mono">{entry.name}</span>
+          <span className="truncate font-mono">{entry.name}</span>
           {entry.readOnly ? (
             <Tooltip>
-              <TooltipTrigger render={<LockIcon className="size-3 text-muted-foreground" />} />
+              <TooltipTrigger
+                render={<LockIcon className="size-3 shrink-0 text-muted-foreground" />}
+              />
               <TooltipContent>Read-only</TooltipContent>
             </Tooltip>
           ) : null}
@@ -66,7 +68,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Source" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "9rem" },
     cell: ({ getValue }) => {
       const source = getValue();
 

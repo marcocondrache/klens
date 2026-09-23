@@ -44,14 +44,14 @@ const partitionColumns = partitionColumnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Partition" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "6rem" },
     cell: ({ getValue }) => <span className="numeric">{getValue()}</span>,
   }),
   partitionColumnHelper.accessor("leader", {
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Leader" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "6rem" },
     cell: ({ getValue }) => <span className="numeric">{getValue()}</span>,
   }),
   partitionColumnHelper.accessor("replicas", {
@@ -76,7 +76,7 @@ const partitionColumns = partitionColumnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="In sync" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "6rem" },
     cell: ({ row }) => (
       <span
         className={
@@ -94,7 +94,7 @@ const partitionColumns = partitionColumnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Low offset" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "9rem" },
     cell: ({ row }) => formatNumber(row.original.lowWatermark),
   }),
   partitionColumnHelper.accessor((partition) => toNumber(partition.highWatermark), {
@@ -102,7 +102,7 @@ const partitionColumns = partitionColumnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="High offset" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "9rem" },
     cell: ({ row }) => formatNumber(row.original.highWatermark),
   }),
   partitionColumnHelper.accessor((partition) => toNumber(partition.retained), {
@@ -110,7 +110,7 @@ const partitionColumns = partitionColumnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Messages" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "9rem" },
     cell: ({ row }) => formatNumber(row.original.retained),
   }),
 ]);
@@ -122,6 +122,7 @@ const groupColumns = groupColumnHelper.columns([
   }),
   groupColumnHelper.accessor("state", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="State" />,
+    meta: { width: "12rem" },
     cell: ({ getValue }) => <GroupStateBadge state={getValue()} />,
   }),
   groupColumnHelper.accessor("memberCount", {
@@ -129,7 +130,7 @@ const groupColumns = groupColumnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Members" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "6rem" },
     cell: ({ getValue }) => getValue(),
   }),
   groupColumnHelper.accessor((group) => toNumber(group.lagOnTopic), {
@@ -137,7 +138,7 @@ const groupColumns = groupColumnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Lag on this topic" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "9rem" },
     cell: ({ row: groupRow }) => {
       const lag = toNumber(groupRow.original.lagOnTopic);
 
