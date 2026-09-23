@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { RecordView, type RecordFilter, type RecordSource } from "@/components/records/record-view";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useRecords, type RecordsFilter } from "@/lib/api/live";
 import { apiErrorMessage } from "@/lib/api/client";
 import type { KafkaRecord, RecordOrder, TopicDetail } from "@/lib/api/types";
@@ -52,10 +53,10 @@ export function PagedRecords({
   const [to, setTo] = useState("");
   const [order, setOrder] = useState<RecordOrder>("NEWEST");
 
-  const query = useMemo<RecordsFilter>(() => {
-    const needle = filter.term.trim();
+  const needle = useDebouncedValue(filter.term.trim());
 
-    return {
+  const query = useMemo<RecordsFilter>(
+    () => ({
       topic: topic.name,
       partition: filter.partition,
       order,
@@ -63,14 +64,16 @@ export function PagedRecords({
       to: fromDatetimeLocalValue(to),
       filter: needle ? { contains: needle } : null,
       schemaId: filter.schemaId,
-    };
-  }, [topic.name, filter, order, from, to]);
+    }),
+    [topic.name, filter.partition, filter.schemaId, order, from, to, needle],
+  );
 
   const {
     data,
     isFetching,
     isFetchingNextPage,
     isFetchNextPageError,
+    isPlaceholderData,
     isError,
     error,
     fetchNextPage,
@@ -101,9 +104,10 @@ export function PagedRecords({
     obfuscated: data?.pages.some((page) => page.obfuscated) ?? false,
     loading: isFetching && !isFetchingNextPage && records.length === 0,
     refreshing: isFetching && !isFetchingNextPage && records.length > 0,
+    stale: isPlaceholderData,
     error: isError ? apiErrorMessage(error, "Failed to load records.") : undefined,
     pages: {
-      hasNextPage: Boolean(hasNextPage),
+      hasNextPage: Boolean(hasNextPage) && !isPlaceholderData,
       fetchNextPage: () => void fetchNextPage(),
       isFetchingNextPage,
       isFetchNextPageError,
@@ -119,7 +123,7 @@ export function PagedRecords({
       onFilterChange={onFilterChange}
       actions={actions}
       notice={
-        lastPage && !lastPage.complete ? (
+        lastPage && !lastPage.complete && !isPlaceholderData ? (
           <Alert>
             <TriangleAlertIcon />
             <AlertTitle>Partial scan</AlertTitle>

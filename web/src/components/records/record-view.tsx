@@ -44,6 +44,7 @@ export type RecordSource = {
   obfuscated: boolean;
   loading: boolean;
   refreshing: boolean;
+  stale?: boolean;
   error?: string;
   pages?: {
     hasNextPage: boolean;
@@ -251,6 +252,7 @@ export function RecordView({
         getRowId={recordId}
         loading={source.loading}
         refreshing={source.refreshing}
+        stale={source.stale}
         hasNextPage={source.pages?.hasNextPage}
         fetchNextPage={source.pages?.fetchNextPage}
         isFetchingNextPage={source.pages?.isFetchingNextPage}

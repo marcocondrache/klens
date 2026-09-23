@@ -13,8 +13,6 @@ export type TailStatus = "idle" | "connecting" | "live" | "reconnecting" | "erro
 
 export const TAIL_BUFFER = 1000;
 
-const OPEN_DELAY_MS = 300;
-
 type TailChunk = TailEvent | { type: "connecting" };
 
 type Tail = { records: KafkaRecord[]; skipped: number; obfuscated: boolean; ready: boolean };
@@ -61,7 +59,6 @@ async function* follow(
   signal: AbortSignal,
 ): AsyncGenerator<TailChunk> {
   yield { type: "connecting" };
-  await new Promise((resolve) => setTimeout(resolve, OPEN_DELAY_MS));
 
   const path = `/clusters/${encodeURIComponent(cluster)}/topics/${encodeURIComponent(filter.topic)}/records/tail`;
   const { partition, contains, schemaId } = filter;

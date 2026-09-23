@@ -13,6 +13,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { RecordView, type RecordFilter, type RecordSource } from "@/components/records/record-view";
 import { Pill, StatusLabel } from "@/components/status";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { apiErrorMessage } from "@/lib/api/client";
 import { TAIL_BUFFER, useTail, type TailFilter, type TailStatus } from "@/lib/api/tail";
 import type { TopicDetail } from "@/lib/api/types";
@@ -64,14 +65,16 @@ type LiveRecordsProps = {
 };
 
 export function LiveRecords({ cluster, topic, filter, onFilterChange, actions }: LiveRecordsProps) {
+  const needle = useDebouncedValue(filter.term.trim());
+
   const tailFilter = useMemo<TailFilter>(
     () => ({
       topic: topic.name,
       partition: filter.partition,
-      contains: filter.term.trim() || null,
+      contains: needle || null,
       schemaId: filter.schemaId,
     }),
-    [topic.name, filter],
+    [topic.name, filter.partition, filter.schemaId, needle],
   );
   const tail = useTail(cluster, tailFilter);
 
