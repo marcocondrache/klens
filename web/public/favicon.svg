@@ -1,13 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-label="klens">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="klens">
   <style>
-    .frame { stroke: #18181b; }
-    @media (prefers-color-scheme: dark) { .frame { stroke: #f4f4f5; } }
+    path, rect { fill: #18181b; }
+    @media (prefers-color-scheme: dark) { path, rect { fill: #f4f4f5; } }
   </style>
-  <g class="frame" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M10 23.6v-4.4a9.2 9.2 0 0 1 9.2-9.2h4.4"/>
-    <path d="M40.4 10h4.4a9.2 9.2 0 0 1 9.2 9.2v4.4"/>
-    <path d="M54 40.4v4.4a9.2 9.2 0 0 1-9.2 9.2h-4.4"/>
-    <path d="M23.6 54h-4.4a9.2 9.2 0 0 1-9.2-9.2v-4.4"/>
-  </g>
-  <line x1="23" y1="32" x2="41" y2="32" stroke="#F97316" stroke-width="8" stroke-linecap="round"/>
+  <path d="M32 3A37 37 0 0 1 32 61A37 37 0 0 1 32 3Z"/>
+  <rect x="2" y="29.5" width="14" height="5" rx="2.5"/>
+  <rect x="48" y="29.5" width="14" height="5" rx="2.5"/>
 </svg>

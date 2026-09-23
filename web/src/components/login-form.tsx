@@ -3,6 +3,7 @@ import { useQueryStates } from "nuqs";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { LogoMark } from "@/components/logo";
 import { SIGN_IN_PATH } from "@/lib/api/client";
 import { loginSearch } from "@/lib/route-search";
 import { cn } from "@/lib/utils";
@@ -13,6 +14,7 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
 
   return (
     <div className={cn("flex flex-col items-center gap-6 text-center", className)} {...props}>
+      <LogoMark className="mb-2 size-12" />
       <div className="space-y-1.5">
         <h1 className="text-xl font-semibold tracking-[-0.015em]">Sign in to klens</h1>
         <p className="text-sm text-balance text-muted-foreground">

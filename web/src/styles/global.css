@@ -213,21 +213,3 @@
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
 }
-
-@layer components {
-  .logo-stream-row {
-    animation: logo-stream linear infinite;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .logo-stream-row {
-      animation: none;
-    }
-  }
-}
-
-@keyframes logo-stream {
-  to {
-    transform: translateX(96px);
-  }
-}
