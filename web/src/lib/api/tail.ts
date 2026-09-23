@@ -12,6 +12,8 @@ import {
   streamError,
   wait,
 } from "./client";
+import { recordId } from "@/lib/records";
+
 import type { KafkaRecord } from "./types";
 
 export type TailFilter = {
@@ -55,10 +57,6 @@ function initial(scope: string, enabled: boolean): TailState {
     status: enabled ? "connecting" : "idle",
     error: null,
   };
-}
-
-export function recordId(record: KafkaRecord): string {
-  return `${record.partition}-${record.offset}`;
 }
 
 /**
