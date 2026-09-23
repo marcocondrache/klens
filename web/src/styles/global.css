@@ -6,7 +6,6 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* Geist Mono runs wide next to Geist; shrink it optically so identifiers sit on the same line. */
 @font-face {
   font-family: "Geist Mono Optical";
   font-style: normal;

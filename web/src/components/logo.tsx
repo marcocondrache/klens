@@ -2,7 +2,6 @@ import type { ComponentProps } from "react";
 
 import { cn } from "@/lib/utils";
 
-/** The klens mark: a bold ring, a lens seen face-on. Drawn in the brand color. */
 export function LogoMark({ className, ...props }: ComponentProps<"svg">) {
   return (
     <svg

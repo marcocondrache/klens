@@ -18,7 +18,6 @@ export function CopyButton({
   label?: string;
   className?: string;
   size?: "icon-xs" | "icon-sm" | "icon";
-  /** Hide until the surrounding table row is hovered or the button is focused. */
   reveal?: boolean;
 }) {
   const [copied, setCopied] = useState(false);

@@ -14,13 +14,11 @@ interface DataTableColumnHeaderProps<
   title: string;
 }
 
-/** Click to sort; the arrow only shows once the column is sorted, or on hover. */
 export function DataTableColumnHeader<TData extends RowData, TValue>({
   column,
   title,
   className,
 }: DataTableColumnHeaderProps<TData, TValue>) {
-  // `column` keeps its identity across sorts, so compiler memoization would freeze the sort state.
   "use no memo";
 
   const right = column.columnDef.meta?.align === "right";

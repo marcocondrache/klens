@@ -21,7 +21,6 @@ const TONE_PILL: Record<Tone, string> = {
   brand: "bg-brand/12 text-brand",
 };
 
-/** Text color for a value that carries a tone, like lag. `ok` stays neutral on purpose. */
 export const TONE_TEXT: Record<Tone, string> = {
   ok: "text-foreground",
   warn: "text-warn",
@@ -74,7 +73,6 @@ export const GROUP_TONE: Record<GroupState, Tone> = {
   DEAD: "error",
 };
 
-/** Status with a colored dot and a plain label, so a column of states stays calm. */
 export function StatusLabel({
   tone,
   pulse = false,

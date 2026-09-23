@@ -2,7 +2,6 @@ import { Children, Fragment, type ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
-/** A row of short facts under a page title, separated by quiet dots. */
 export function Facts({ children, className }: { children: ReactNode; className?: string }) {
   const items = Children.toArray(children).filter(Boolean);
 

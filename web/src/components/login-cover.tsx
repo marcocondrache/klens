@@ -1,4 +1,3 @@
-/** Quiet backdrop for the sign-in page: a faint grid that fades out from the center. */
 export function LoginCover() {
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
