@@ -10,6 +10,7 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 import { features, type DataTableFeatures } from "@/components/data-table/features";
+import { CLICKABLE_ROW, clickableRowProps } from "@/components/data-table/row-interaction";
 import { RefreshBar } from "@/components/refresh-bar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
@@ -174,10 +175,12 @@ export function RecordTable<TData extends RowData>({
                       data-index={item.index}
                       ref={virtualizer.measureElement}
                       data-state={row && selectedKey === row.id ? "selected" : undefined}
-                      onClick={row && onRowClick ? () => onRowClick(row.original) : undefined}
+                      {...(row && onRowClick
+                        ? clickableRowProps(() => onRowClick(row.original))
+                        : {})}
                       className={cn(
                         "group/row absolute top-0 left-0 grid w-full border-b border-border/70",
-                        row && onRowClick && "cursor-pointer",
+                        row && onRowClick && CLICKABLE_ROW,
                         row &&
                           "transition-colors duration-75 hover:bg-muted/50 data-[state=selected]:bg-muted",
                       )}

@@ -14,6 +14,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { features, type DataTableFeatures } from "./features";
+import { CLICKABLE_ROW, clickableRowProps } from "./row-interaction";
 
 interface DataTableProps<TData extends RowData> {
   columns: Array<ColumnDef<DataTableFeatures, TData>>;
@@ -135,10 +136,10 @@ export function DataTable<TData extends RowData>({
                     <TableRow
                       key={row.id}
                       data-state={selected ? "selected" : undefined}
-                      onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+                      {...(onRowClick ? clickableRowProps(() => onRowClick(row.original)) : {})}
                       className={cn(
                         "group/row border-border/70 transition-colors duration-75",
-                        onRowClick && "cursor-pointer",
+                        onRowClick && CLICKABLE_ROW,
                       )}
                     >
                       {row.getAllCells().map((cell) => {

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type MouseEvent } from "react";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -24,7 +24,8 @@ export function CopyButton({
   const [copied, setCopied] = useState(false);
   const timeout = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  async function copy() {
+  async function copy(event: MouseEvent) {
+    event.stopPropagation();
     try {
       await navigator.clipboard.writeText(value);
     } catch {

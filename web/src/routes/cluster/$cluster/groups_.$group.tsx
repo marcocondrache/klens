@@ -130,7 +130,7 @@ function ConsumerGroupPage() {
         <Link
           to="/cluster/$cluster/topics/$topic"
           params={{ cluster, topic: getValue() }}
-          className="font-mono underline-offset-4 hover:text-brand hover:underline"
+          className="font-mono outline-none"
           onClick={(event) => event.stopPropagation()}
         >
           {getValue()}
