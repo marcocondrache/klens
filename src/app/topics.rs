@@ -1,6 +1,5 @@
 use axum::Json;
 use axum::Router;
-use axum::extract::{Path, Query};
 use axum::routing::get;
 use serde::Deserialize;
 
@@ -10,6 +9,7 @@ use crate::kafka::KafkaError;
 use super::configs::ConfigEntry;
 use super::context::Session;
 use super::error::ApiError;
+use super::extract::{Path, Query};
 use super::paging::{name_matches, page};
 
 pub mod types;

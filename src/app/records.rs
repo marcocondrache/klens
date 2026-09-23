@@ -1,13 +1,12 @@
 use axum::Json;
 use axum::Router;
-use axum::extract::Path;
 use axum::routing::get;
-use axum_extra::extract::Query;
 
 use crate::AppState;
 
 use super::context::Session;
 use super::error::ApiError;
+use super::extract::{Path, Query};
 
 mod tail;
 pub mod types;

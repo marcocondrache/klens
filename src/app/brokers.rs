@@ -1,6 +1,5 @@
 use axum::Json;
 use axum::Router;
-use axum::extract::Path;
 use axum::routing::get;
 
 use crate::AppState;
@@ -8,6 +7,7 @@ use crate::AppState;
 use super::configs::ConfigEntry;
 use super::context::Session;
 use super::error::ApiError;
+use super::extract::Path;
 
 pub mod types;
 

@@ -1,8 +1,6 @@
 use std::convert::Infallible;
 
-use axum::extract::Path;
 use axum::response::sse::{Event, KeepAlive, KeepAliveStream, Sse};
-use axum_extra::extract::Query;
 use futures::stream::{self, BoxStream, StreamExt as _};
 use tokio::sync::OwnedSemaphorePermit;
 
@@ -12,6 +10,7 @@ use crate::kafka::Tail;
 
 use super::super::context::Session;
 use super::super::error::ApiError;
+use super::super::extract::{Path, Query};
 use super::types::{TailEvent, TailParams, tail_query};
 
 type Events = BoxStream<'static, Result<Event, Infallible>>;

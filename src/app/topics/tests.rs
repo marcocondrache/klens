@@ -147,6 +147,21 @@ async fn a_missing_topic_is_not_found() {
 }
 
 #[tokio::test]
+async fn a_malformed_topic_query_is_an_invalid_request() {
+    let (status, code) = failure(
+        &seeded(),
+        "/clusters/local/topics?limit=many",
+        EffectiveAccess::Unrestricted,
+    )
+    .await;
+
+    assert_eq!(
+        (status, code.as_str()),
+        (StatusCode::BAD_REQUEST, "INVALID_REQUEST")
+    );
+}
+
+#[tokio::test]
 async fn topic_groups_report_lag_on_that_topic_alone() {
     let state = seeded();
     let data = ok(&state, "/clusters/local/topics/orders.created/groups").await;
