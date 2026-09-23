@@ -66,8 +66,23 @@ export const groupsSearch = z.object({
 export type GroupsSearch = z.output<typeof groupsSearch>;
 export type GroupFilter = Exclude<keyof GroupsSearch, "q">;
 
+const version = z.catch(
+  z.optional(
+    z.union([
+      z.int().check(z.positive()),
+      z.pipe(
+        z.string().check(z.regex(/^[1-9]\d*$/)),
+        z.transform((value) => Number(value)),
+      ),
+    ]),
+  ),
+  undefined,
+);
+
 export const schemasSearch = z.object({
   q: term,
+  subject: z.catch(z.optional(z.string()), undefined),
+  version,
 });
 
 export const ACL_RESOURCE_TYPES = [

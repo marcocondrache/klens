@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { ClockIcon, EyeOffIcon, TriangleAlertIcon } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -34,6 +35,7 @@ import { PayloadView } from "@/components/payload-view";
 import { SchemaPicker } from "@/components/schema-picker";
 import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
+import { useSubjectRows } from "@/lib/api/catalog";
 import { useRecords, type RecordsFilter } from "@/lib/api/live";
 import { useAccess } from "@/hooks/use-access";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
@@ -211,6 +213,10 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
       : (records.find(
           (record) => record.partition === selected.partition && record.offset === selected.offset,
         ) ?? selected);
+  // A framed value names its own schema; the picker's override only reads the
+  // values that carry none.
+  const selectedSchemaId =
+    selectedRecord?.value == null ? null : (selectedRecord.schemaId ?? schemaId);
 
   const partitionItems = [
     { value: "all", label: "All partitions" },
@@ -393,10 +399,16 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                 <Meta label="Partition" value={selectedRecord.partition} />
                 <Meta label="Offset" value={selectedRecord.offset} />
                 <Meta label="Size" value={formatBytes(selectedRecord.sizeBytes)} />
+                <Meta label="Timestamp" value={formatTimestamp(selectedRecord.timestamp)} />
                 <Meta
-                  label="Timestamp"
-                  value={formatTimestamp(selectedRecord.timestamp)}
-                  className="col-span-2"
+                  label="Schema"
+                  value={
+                    selectedSchemaId != null ? (
+                      <SchemaLink cluster={cluster} topic={topic.name} id={selectedSchemaId} />
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )
+                  }
                 />
                 <Meta label="Compression" value={selectedRecord.compression.toLowerCase()} />
               </dl>
@@ -450,6 +462,37 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
         </SheetContent>
       </Sheet>
     </div>
+  );
+}
+
+function SchemaLink({ cluster, topic, id }: { cluster: string; topic: string; id: number }) {
+  const { data } = useSubjectRows(cluster);
+  // Several subjects can register the same schema; prefer the topic's own.
+  const matches = data?.rows.filter((row) => row.id === id) ?? [];
+  const subject = matches.find((row) => row.subject === `${topic}-value`) ?? matches[0];
+
+  if (subject == null) {
+    return id;
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Link
+            to="/cluster/$cluster/schemas"
+            params={{ cluster }}
+            search={{ subject: subject.subject, version: subject.latestVersion }}
+            className="text-primary underline-offset-4 outline-none hover:underline focus-visible:underline"
+          />
+        }
+      >
+        {id}
+      </TooltipTrigger>
+      <TooltipContent>
+        <span className="font-mono">{subject.subject}</span> · v{subject.latestVersion}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

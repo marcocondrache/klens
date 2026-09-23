@@ -137,17 +137,16 @@ function schemaFilename(subject: string, version: number, schema: string) {
 function SchemasPage() {
   const cluster = useClusterName();
   const navigate = Route.useNavigate();
-  const { q: term } = Route.useSearch();
+  const { q: term, subject, version } = Route.useSearch();
   const searchInput = useSearchDraft(term, (q) => {
-    void navigate({ search: { q }, replace: true });
+    void navigate({ search: (prev) => ({ ...prev, q }), replace: true });
   });
-  const [selected, setSelected] = useState<SubjectRow | null>(null);
-  const [version, setVersion] = useState<number | null>(null);
   const [expanded, setExpanded] = useState(false);
   const { can } = useAccess();
   const canSchemaText = can(cluster, "SCHEMA_TEXT");
   const { data, isPending, isError, error } = useSubjectRows(cluster);
   const subjects = data?.rows ?? EMPTY_SUBJECTS;
+  const selected = subject ? (subjects.find((row) => row.subject === subject) ?? null) : null;
   const now = useNow();
   const caption = laneCaption(data?.sourceHealth, now);
 
@@ -156,11 +155,21 @@ function SchemasPage() {
     isPending: detailPending,
     isError: detailIsError,
     error: detailError,
-  } = useSubject(cluster, selected?.subject ?? null, version, canSchemaText);
+  } = useSubject(cluster, selected?.subject ?? null, version ?? null, canSchemaText);
 
-  function open(subject: SubjectRow) {
-    setSelected(subject);
-    setVersion(null);
+  function open(row: SubjectRow) {
+    void navigate({
+      search: (prev) => ({ ...prev, subject: row.subject, version: undefined }),
+      replace: true,
+    });
+  }
+
+  function close() {
+    setExpanded(false);
+    void navigate({
+      search: (prev) => ({ ...prev, subject: undefined, version: undefined }),
+      replace: true,
+    });
   }
 
   const rows = useMemo(() => {
@@ -194,10 +203,7 @@ function SchemasPage() {
       <Sheet
         open={selected !== null}
         onOpenChange={(isOpen) => {
-          if (!isOpen) {
-            setSelected(null);
-            setExpanded(false);
-          }
+          if (!isOpen) close();
         }}
       >
         <SheetContent
@@ -254,7 +260,11 @@ function SchemasPage() {
                       value={shownVersion != null ? [String(shownVersion)] : []}
                       onValueChange={(next) => {
                         const picked = next[0];
-                        if (picked != null) setVersion(Number(picked));
+                        if (picked == null) return;
+                        void navigate({
+                          search: (prev) => ({ ...prev, version: Number(picked) }),
+                          replace: true,
+                        });
                       }}
                       variant="outline"
                       size="sm"
