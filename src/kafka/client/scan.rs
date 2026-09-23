@@ -280,6 +280,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_consumer_that_is_not_pooled_is_closed() {
+        let broker = FakeBroker::start().await.unwrap();
+        assert!(broker.create_topic("orders", 1));
+        super::super::tests::produce_krafka(&broker.bootstrap_servers(), "orders", 1).await;
+        let client = client(&broker).await;
+
+        let poisoned = client
+            .scans
+            .acquire("orders", &[window(0, 0, 1)])
+            .await
+            .unwrap();
+        let consumer = Arc::clone(&poisoned.consumer);
+        poisoned.reusable.store(false, Ordering::SeqCst);
+        poisoned.close().await;
+
+        for _ in 0..1_000 {
+            if consumer.is_closed() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        panic!("a consumer the pool does not keep must be closed");
+    }
+
+    #[tokio::test]
     async fn a_window_read_to_its_end_reports_its_position_and_no_lag() {
         let broker = FakeBroker::start().await.unwrap();
         assert!(broker.create_topic("orders", 1));
