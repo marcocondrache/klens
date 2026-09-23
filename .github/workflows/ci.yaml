@@ -125,6 +125,8 @@ jobs:
           toolchain: stable
       - name: Cache cargo registry and build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          shared-key: tests
       - name: Install nextest
         uses: taiki-e/install-action@cae505dda7470fdae7eaa037ede96f6478023a22 # nextest
       - name: Build
@@ -228,11 +230,16 @@ jobs:
           toolchain: stable
       - name: Cache cargo registry and build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          shared-key: tests
+          save-if: false
       - name: Install nextest
         uses: taiki-e/install-action@cae505dda7470fdae7eaa037ede96f6478023a22 # nextest
       - name: Install cargo-mutants
         uses: taiki-e/install-action@c58f078df6f07a6a4e3ff407a758ce97c93691d1 # cargo-mutants
       - name: Run cargo-mutants on the pull request diff
+        env:
+          CARGO_INCREMENTAL: 1
         run: cargo mutants --no-shuffle -vV --in-place --in-diff "${RUNNER_TEMP}/pr.diff"
       - name: Archive mutants.out
         if: always()
