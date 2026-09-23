@@ -399,21 +399,18 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
                 <Meta label="Partition" value={selectedRecord.partition} />
                 <Meta label="Offset" value={selectedRecord.offset} />
                 <Meta label="Size" value={formatBytes(selectedRecord.sizeBytes)} />
+                <Meta label="Timestamp" value={formatTimestamp(selectedRecord.timestamp)} />
                 <Meta
-                  label="Timestamp"
-                  value={formatTimestamp(selectedRecord.timestamp)}
-                  className="col-span-2"
+                  label="Schema"
+                  value={
+                    selectedSchemaId != null ? (
+                      <SchemaLink cluster={cluster} topic={topic.name} id={selectedSchemaId} />
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )
+                  }
                 />
                 <Meta label="Compression" value={selectedRecord.compression.toLowerCase()} />
-                {selectedSchemaId != null ? (
-                  <Meta
-                    label="Schema"
-                    value={
-                      <SchemaLink cluster={cluster} topic={topic.name} id={selectedSchemaId} />
-                    }
-                    className="col-span-3"
-                  />
-                ) : null}
               </dl>
 
               <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-hidden px-5 py-4">
@@ -475,24 +472,27 @@ function SchemaLink({ cluster, topic, id }: { cluster: string; topic: string; id
   const subject = matches.find((row) => row.subject === `${topic}-value`) ?? matches[0];
 
   if (subject == null) {
-    return <span className="text-muted-foreground">ID {id}</span>;
+    return id;
   }
 
   return (
-    <>
-      <Link
-        to="/cluster/$cluster/schemas"
-        params={{ cluster }}
-        search={{ subject: subject.subject, version: subject.latestVersion }}
-        className="font-mono text-primary underline-offset-4 outline-none hover:underline focus-visible:underline"
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Link
+            to="/cluster/$cluster/schemas"
+            params={{ cluster }}
+            search={{ subject: subject.subject, version: subject.latestVersion }}
+            className="text-primary underline-offset-4 outline-none hover:underline focus-visible:underline"
+          />
+        }
       >
-        {subject.subject}
-      </Link>
-      <span className="text-muted-foreground">
-        {" "}
-        · v{subject.latestVersion} · ID {id}
-      </span>
-    </>
+        {id}
+      </TooltipTrigger>
+      <TooltipContent>
+        <span className="font-mono">{subject.subject}</span> · v{subject.latestVersion}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
