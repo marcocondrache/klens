@@ -1,0 +1,82 @@
+- list:
+  - listitem:
+    - link "klens":
+      - /url: /cluster/local
+- text: Cluster
+- list:
+  - listitem:
+    - link "Topics":
+      - /url: /cluster/local/topics
+    - text: "1"
+  - listitem:
+    - link "Consumer Groups":
+      - /url: /cluster/local/groups
+    - text: "0"
+  - listitem:
+    - link "Schema Registry":
+      - /url: /cluster/local/schemas
+  - listitem:
+    - link "Brokers":
+      - /url: /cluster/local/nodes
+    - text: "1"
+  - listitem:
+    - link "ACLs":
+      - /url: /cluster/local/acls
+- list:
+  - listitem:
+    - link "GitHub":
+      - /url: https://github.com/marcocondrache/klens
+- button "Toggle Sidebar"
+- main:
+  - button "Toggle Sidebar"
+  - separator
+  - navigation "breadcrumb":
+    - list:
+      - listitem:
+        - button "local"
+      - listitem:
+        - link "Topics" [disabled]
+  - button "Search Ctrl+K"
+  - button "Refresh"
+  - button "Toggle theme"
+  - heading "Topics" [level=1]
+  - text: 1 of 1 topics · Updated 40s ago
+  - group:
+    - group
+    - textbox "Search topics…"
+    - group: /
+  - button "Add filter": Filter
+  - switch "Show internal"
+  - text: Show internal
+  - table:
+    - rowgroup:
+      - row "Topic Parts RF Messages Msg/s Retention Policy Groups":
+        - cell "Topic":
+          - button "Topic"
+        - cell "Parts":
+          - button "Parts"
+        - cell "RF":
+          - button "RF"
+        - cell "Messages":
+          - button "Messages"
+        - cell "Msg/s":
+          - button "Msg/s"
+        - cell "Retention":
+          - button "Retention"
+        - cell "Policy":
+          - button "Policy"
+        - cell "Groups":
+          - button "Groups"
+    - rowgroup:
+      - row "klens-verify-topics 1 1 1 — 0 delete —":
+        - cell "klens-verify-topics"
+        - cell "1"
+        - cell "1"
+        - cell "1"
+        - cell "—"
+        - cell "0"
+        - cell "delete"
+        - cell "—"
+- heading "Search klens" [level=2]
+- paragraph: Jump to a topic, consumer group, broker, schema or section
+- region "Notifications alt+T"

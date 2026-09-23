@@ -1,0 +1,6 @@
+feature: topics
+run: 20260923T072959Z
+url: http://127.0.0.1:18080/cluster/local/topics/klens-verify-topics
+login: /login redirected to the topics page and Continue with SSO was absent
+search: filtered to klens-verify-topics
+open: Data tab shows key verify-1 and value hello-from-verify-klens

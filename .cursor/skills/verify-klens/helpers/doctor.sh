@@ -24,7 +24,8 @@ fi
 [[ "$(http_code "$url/ready")" == "204" ]] || die "GET /ready is not 204"
 [[ "$(http_code "$url/")" == "200" ]] || die "GET / is not 200"
 
-python3 - "$url" "$RUN_DIR/topic" <<'PY'
+topic_name=$(tr -d '[:space:]' <"$RUN_DIR/topic")
+python3 - "$url" "$topic_name" <<'PY'
 import json
 import sys
 import urllib.error
