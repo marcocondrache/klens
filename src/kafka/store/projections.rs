@@ -534,6 +534,25 @@ mod tests {
     }
 
     #[test]
+    fn an_uncommitted_partition_with_no_watermark_flags_the_total_as_incomplete() {
+        let topology = topology();
+        let (id, group) = topology.groups.iter().next().unwrap();
+
+        let row = group_row(
+            id,
+            group,
+            Some(&offsets(at(1_000), &[("orders", 0, 90)])),
+            Some(&watermarks(at(1_000), &[("orders", 0, 20, 100)])),
+        );
+
+        assert_eq!(row.total_lag, 10);
+        assert!(
+            !row.lag_complete,
+            "partition 1 has neither a commit nor a watermark"
+        );
+    }
+
+    #[test]
     fn an_assigned_partition_that_never_committed_lags_by_the_whole_log() {
         let topology = topology();
         let (id, group) = topology.groups.iter().next().unwrap();

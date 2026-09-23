@@ -125,3 +125,31 @@ impl AuthnBackend for AuthBackend {
         Ok(self.live_user(user_id))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn user(exp: i64) -> SessionUser {
+        SessionUser::new("alice", None, None, Vec::new(), exp)
+    }
+
+    #[test]
+    fn a_live_user_is_read_in_place() {
+        let backend = AuthBackend::disabled();
+        let exp = Timestamp::now().as_second() + 60;
+        backend.remember(user(exp));
+
+        assert_eq!(backend.with_live_user("alice", |user| user.exp), Some(exp));
+        assert_eq!(backend.live_user("alice"), Some(user(exp)));
+    }
+
+    #[test]
+    fn an_expired_user_is_forgotten_on_read() {
+        let backend = AuthBackend::disabled();
+        backend.remember(user(Timestamp::now().as_second()));
+
+        assert_eq!(backend.live_user("alice"), None);
+        assert!(backend.users.lock().expect("auth user store").is_empty());
+    }
+}

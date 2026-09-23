@@ -77,10 +77,7 @@ fn candidates<'a>(
     topology: Option<&'a Topology>,
     subjects: Option<&'a SubjectTable>,
 ) -> Vec<Candidate<'a>> {
-    let capacity = topology.map_or(0, |topology| {
-        topology.topics.len() + topology.groups.len() + topology.brokers.len()
-    }) + subjects.map_or(0, |subjects| subjects.subjects.len());
-    let mut candidates = Vec::with_capacity(capacity);
+    let mut candidates = Vec::new();
 
     if let Some(topology) = topology {
         candidates.extend(
