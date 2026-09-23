@@ -1,6 +1,5 @@
 use axum::Json;
 use axum::Router;
-use axum::extract::{Path, Query};
 use axum::routing::get;
 use serde::Deserialize;
 
@@ -8,6 +7,7 @@ use crate::AppState;
 
 use super::context::Session;
 use super::error::ApiError;
+use super::extract::{Path, Query};
 
 pub mod types;
 

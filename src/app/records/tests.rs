@@ -122,15 +122,13 @@ async fn a_malformed_partition_is_rejected() {
         format!("{records}?partition=0,1"),
         format!("{TAIL}?partition=one"),
     ] {
-        let response = open_stream(
-            &seeded(),
-            &path,
-            EffectiveAccess::Unrestricted,
-            SessionGuard::open(),
-        )
-        .await;
+        let (status, code) = failure(&seeded(), &path, EffectiveAccess::Unrestricted).await;
 
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{path}");
+        assert_eq!(
+            (status, code.as_str()),
+            (StatusCode::BAD_REQUEST, "INVALID_REQUEST"),
+            "{path}"
+        );
     }
 }
 

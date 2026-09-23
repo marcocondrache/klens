@@ -28,7 +28,6 @@ indexmap = "2"
 axum = { version = "0.8", default-features = false, features = [
     "http1",
     "json",
-    "query",
     "tokio",
     "tracing",
 ] }

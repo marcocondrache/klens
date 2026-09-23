@@ -14,6 +14,7 @@ pub(crate) enum ApiError {
     SessionExpired,
     Unauthorized,
     TooManyTails,
+    InvalidRequest { status: StatusCode, message: String },
 }
 
 impl ApiError {
@@ -24,6 +25,7 @@ impl ApiError {
             Self::SessionExpired => "SESSION_EXPIRED",
             Self::Unauthorized => "UNAUTHORIZED",
             Self::TooManyTails => "TOO_MANY_TAILS",
+            Self::InvalidRequest { .. } => "INVALID_REQUEST",
         }
     }
 
@@ -45,6 +47,7 @@ impl ApiError {
         match self {
             Self::SessionExpired | Self::Unauthorized => StatusCode::UNAUTHORIZED,
             Self::TooManyTails => StatusCode::SERVICE_UNAVAILABLE,
+            Self::InvalidRequest { status, .. } => *status,
             Self::Access(AccessError::Forbidden { .. }) => StatusCode::FORBIDDEN,
             Self::Access(AccessError::UnknownCluster(_)) => StatusCode::NOT_FOUND,
             Self::Kafka(error) => kafka_status(error),
@@ -80,6 +83,7 @@ impl std::fmt::Display for ApiError {
             Self::TooManyTails => {
                 formatter.write_str("too many live tails are open, try again later")
             }
+            Self::InvalidRequest { message, .. } => formatter.write_str(message),
         }
     }
 }

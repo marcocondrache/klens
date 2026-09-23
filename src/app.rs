@@ -21,6 +21,7 @@ mod clusters;
 mod configs;
 mod context;
 mod error;
+mod extract;
 mod groups;
 mod health;
 mod int64;

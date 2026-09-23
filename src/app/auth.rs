@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
-use axum::extract::{Query, State};
+use axum::extract::State;
 use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use axum_extra::extract::Query;
 use axum_login::AuthManagerLayerBuilder;
 use base64::Engine as _;
 use jiff::Timestamp;

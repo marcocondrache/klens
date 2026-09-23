@@ -1,5 +1,7 @@
 use axum::http::StatusCode;
 
+use crate::app::auth::access::EffectiveAccess;
+
 use super::super::harness::{failure, ok, ok_as, seeded, viewer_everywhere};
 
 #[tokio::test]
@@ -18,6 +20,21 @@ async fn broker_configs_stay_live_because_no_lane_sweeps_them() {
     let configs = ok(&state, "/clusters/local/brokers/1/configs").await;
 
     assert_eq!(configs[0]["name"], "log.retention.hours");
+}
+
+#[tokio::test]
+async fn a_non_numeric_broker_id_is_an_invalid_request() {
+    let (status, code) = failure(
+        &seeded(),
+        "/clusters/local/brokers/one/configs",
+        EffectiveAccess::Unrestricted,
+    )
+    .await;
+
+    assert_eq!(
+        (status, code.as_str()),
+        (StatusCode::BAD_REQUEST, "INVALID_REQUEST")
+    );
 }
 
 #[tokio::test]

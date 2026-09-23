@@ -3,7 +3,6 @@ use std::convert::Infallible;
 use std::sync::Arc;
 
 use axum::Router;
-use axum::extract::{Path, Query};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::routing::get;
 use futures::stream::{BoxStream, StreamExt as _};
@@ -18,6 +17,7 @@ use crate::kafka::store::{Change, GroupOffsetsWave, InterestLease};
 
 use super::context::Session;
 use super::error::ApiError;
+use super::extract::{Path, Query};
 use super::groups::GroupOffset;
 use super::int64::Int64;
 
