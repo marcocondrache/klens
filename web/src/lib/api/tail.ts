@@ -65,11 +65,9 @@ async function* follow(
 
   const path = `/clusters/${encodeURIComponent(cluster)}/topics/${encodeURIComponent(filter.topic)}/records/tail`;
   const { partition, contains, schemaId } = filter;
-  for await (const frame of events(path, signal, { partition, contains, schemaId })) {
-    if (frame.event === "error") throw streamError(frame.data);
-    if (frame.event === "ready" || frame.event === "records") {
-      yield JSON.parse(frame.data) as TailEvent;
-    }
+  for await (const message of events(path, signal, { partition, contains, schemaId })) {
+    if (message.event === "error") throw streamError(message.data);
+    yield JSON.parse(message.data) as TailEvent;
   }
   throw new Error("The live tail connection closed.");
 }

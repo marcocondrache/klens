@@ -1,3 +1,6 @@
+import type { EventSourceMessage } from "eventsource-parser";
+import { EventSourceParserStream } from "eventsource-parser/stream";
+
 import type { Update } from "@/api/types.gen";
 
 export class ApiError extends Error {
@@ -107,27 +110,29 @@ export async function getOrNull<T>(
 
 const RETRY_ATTEMPTS = 8;
 
-type EventFrame = { event: string; data: string };
-
 export function stream(
   path: string,
   query: Record<string, QueryValue> | undefined,
   onUpdate: (update: Update) => void,
 ): () => void {
   const controller = new AbortController();
-  void pump(withQuery(apiPath(path), query), controller.signal, onUpdate);
+  void pump(path, query, controller.signal, onUpdate);
   return () => controller.abort();
 }
 
-async function pump(url: string, signal: AbortSignal, onUpdate: (update: Update) => void) {
+async function pump(
+  path: string,
+  query: Record<string, QueryValue> | undefined,
+  signal: AbortSignal,
+  onUpdate: (update: Update) => void,
+) {
   let attempt = 0;
   while (!signal.aborted) {
     try {
-      const frames = events(url, signal);
-      for await (const frame of frames) {
+      for await (const message of events(path, signal, query)) {
         attempt = 0;
-        const update = parseUpdate(frame);
-        if (update) onUpdate(update);
+        if (message.event === "error") throw streamError(message.data);
+        onUpdate(JSON.parse(message.data) as Update);
       }
     } catch (error) {
       if (signal.aborted) return;
@@ -144,7 +149,7 @@ export async function* events(
   path: string,
   signal: AbortSignal,
   query?: Record<string, QueryValue>,
-): AsyncGenerator<EventFrame> {
+): AsyncGenerator<EventSourceMessage> {
   const response = await fetch(withQuery(apiPath(path), query), {
     credentials: "include",
     headers: { Accept: "text/event-stream" },
@@ -152,47 +157,19 @@ export async function* events(
   });
   if (!response.ok || response.body == null) return fail(response);
 
-  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
-  let buffer = "";
+  const reader = response.body
+    .pipeThrough(new TextDecoderStream())
+    .pipeThrough(new EventSourceParserStream())
+    .getReader();
   try {
     while (true) {
       const { value, done } = await reader.read();
       if (done) return;
-      buffer += value;
-      const chunks = buffer.split("\n\n");
-      buffer = chunks.pop() ?? "";
-      for (const chunk of chunks) {
-        const frame = parseFrame(chunk);
-        if (frame) yield frame;
-      }
+      yield value;
     }
   } finally {
     reader.releaseLock();
   }
-}
-
-function parseFrame(chunk: string): EventFrame | null {
-  let event = "message";
-  const data: string[] = [];
-  for (const line of chunk.split("\n")) {
-    if (line.startsWith("event:")) event = line.slice(6).trim();
-    else if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
-  }
-  if (data.length === 0) return null;
-  return { event, data: data.join("\n") };
-}
-
-function parseUpdate(frame: EventFrame): Update | null {
-  try {
-    const parsed = JSON.parse(frame.data) as Update | { code?: string };
-    if (parsed && typeof parsed === "object" && "type" in parsed) return parsed;
-    if (parsed && typeof parsed === "object" && parsed.code === "SESSION_EXPIRED") {
-      redirectToSignIn();
-    }
-  } catch {
-    // Keep-alive comments and truncated frames are not updates.
-  }
-  return null;
 }
 
 export function streamError(data: string): ApiError {
