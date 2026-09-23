@@ -10,14 +10,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { RecordModeSwitch, type RecordMode } from "@/components/records/record-mode";
 import { RecordView, type RecordFilter, type RecordSource } from "@/components/records/record-view";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useRecords, type RecordsFilter } from "@/lib/api/live";
@@ -27,11 +20,6 @@ import { fromDatetimeLocalValue } from "@/lib/format";
 import { recordId } from "@/lib/records";
 import { cn } from "@/lib/utils";
 
-const ORDER_ITEMS = [
-  { value: "NEWEST", label: "Newest" },
-  { value: "OLDEST", label: "Oldest" },
-] as const;
-
 const EMPTY_RECORDS: KafkaRecord[] = [];
 
 type PagedRecordsProps = {
@@ -39,7 +27,8 @@ type PagedRecordsProps = {
   topic: TopicDetail;
   filter: RecordFilter;
   onFilterChange: (filter: RecordFilter) => void;
-  actions?: React.ReactNode;
+  order: RecordOrder;
+  onModeChange: (mode: RecordMode) => void;
 };
 
 export function PagedRecords({
@@ -47,11 +36,11 @@ export function PagedRecords({
   topic,
   filter,
   onFilterChange,
-  actions,
+  order,
+  onModeChange,
 }: PagedRecordsProps) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const [order, setOrder] = useState<RecordOrder>("NEWEST");
 
   const needle = useDebouncedValue(filter.term.trim());
 
@@ -121,7 +110,7 @@ export function PagedRecords({
       source={source}
       filter={filter}
       onFilterChange={onFilterChange}
-      actions={actions}
+      actions={<RecordModeSwitch value={order} onChange={onModeChange} />}
       notice={
         lastPage && !lastPage.complete && !isPlaceholderData ? (
           <Alert>
@@ -135,51 +124,30 @@ export function PagedRecords({
         ) : null
       }
       controls={
-        <>
-          <InputGroup className="w-auto bg-background dark:bg-input/20">
-            <InputGroupAddon>
-              <ClockIcon className="size-3.5!" />
-            </InputGroupAddon>
-            <InputGroupInput
-              type="datetime-local"
-              value={from}
-              max={to || undefined}
-              onChange={(event) => setFrom(event.target.value)}
-              aria-label="From timestamp"
-              className={cn("w-44 pr-1", !from && "text-muted-foreground")}
-            />
-            <span aria-hidden className="text-muted-foreground/60">
-              →
-            </span>
-            <InputGroupInput
-              type="datetime-local"
-              value={to}
-              min={from || undefined}
-              onChange={(event) => setTo(event.target.value)}
-              aria-label="To timestamp"
-              className={cn("w-44 pl-2", !to && "text-muted-foreground")}
-            />
-          </InputGroup>
-
-          <Select
-            value={order}
-            items={ORDER_ITEMS}
-            onValueChange={(value) => setOrder(value as RecordOrder)}
-          >
-            <SelectTrigger className="w-28">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {ORDER_ITEMS.map((item) => (
-                  <SelectItem key={item.value} value={item.value}>
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        </>
+        <InputGroup className="w-auto bg-background dark:bg-input/20">
+          <InputGroupAddon>
+            <ClockIcon className="size-3.5!" />
+          </InputGroupAddon>
+          <InputGroupInput
+            type="datetime-local"
+            value={from}
+            max={to || undefined}
+            onChange={(event) => setFrom(event.target.value)}
+            aria-label="From timestamp"
+            className={cn("w-44 pr-1", !from && "text-muted-foreground")}
+          />
+          <span aria-hidden className="text-muted-foreground/60">
+            →
+          </span>
+          <InputGroupInput
+            type="datetime-local"
+            value={to}
+            min={from || undefined}
+            onChange={(event) => setTo(event.target.value)}
+            aria-label="To timestamp"
+            className={cn("w-44 pl-2", !to && "text-muted-foreground")}
+          />
+        </InputGroup>
       }
       emptyState={
         <Empty className="py-10">

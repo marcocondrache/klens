@@ -11,36 +11,14 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { RecordModeSwitch, type RecordMode } from "@/components/records/record-mode";
 import { RecordView, type RecordFilter, type RecordSource } from "@/components/records/record-view";
-import { Pill, StatusLabel } from "@/components/status";
+import { Pill } from "@/components/status";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { apiErrorMessage } from "@/lib/api/client";
-import { TAIL_BUFFER, useTail, type TailFilter, type TailStatus } from "@/lib/api/tail";
+import { TAIL_BUFFER, useTail, type TailFilter } from "@/lib/api/tail";
 import type { TopicDetail } from "@/lib/api/types";
 import { formatNumber } from "@/lib/format";
-import type { Tone } from "@/lib/tone";
-
-const STATUS: Record<TailStatus, { label: string; tone: Tone }> = {
-  idle: { label: "Paused", tone: "idle" },
-  connecting: { label: "Connecting…", tone: "warn" },
-  live: { label: "Live", tone: "ok" },
-  reconnecting: { label: "Reconnecting…", tone: "warn" },
-  error: { label: "Stopped", tone: "error" },
-};
-
-function TailStatusLabel({ status }: { status: TailStatus }) {
-  const { label, tone } = STATUS[status];
-
-  return (
-    <StatusLabel
-      tone={tone}
-      pulse={status === "live"}
-      className="px-1 text-xs text-muted-foreground"
-    >
-      {label}
-    </StatusLabel>
-  );
-}
 
 function SkippedBadge({ skipped }: { skipped: number }) {
   return (
@@ -61,10 +39,16 @@ type LiveRecordsProps = {
   topic: TopicDetail;
   filter: RecordFilter;
   onFilterChange: (filter: RecordFilter) => void;
-  actions?: React.ReactNode;
+  onModeChange: (mode: RecordMode) => void;
 };
 
-export function LiveRecords({ cluster, topic, filter, onFilterChange, actions }: LiveRecordsProps) {
+export function LiveRecords({
+  cluster,
+  topic,
+  filter,
+  onFilterChange,
+  onModeChange,
+}: LiveRecordsProps) {
   const needle = useDebouncedValue(filter.term.trim());
 
   const tailFilter = useMemo<TailFilter>(
@@ -112,7 +96,6 @@ export function LiveRecords({ cluster, topic, filter, onFilterChange, actions }:
       actions={
         <>
           {tail.skipped > 0 ? <SkippedBadge skipped={tail.skipped} /> : null}
-          <TailStatusLabel status={tail.status} />
           <Tooltip>
             <TooltipTrigger
               render={
@@ -146,7 +129,7 @@ export function LiveRecords({ cluster, topic, filter, onFilterChange, actions }:
             </TooltipTrigger>
             <TooltipContent>Clear</TooltipContent>
           </Tooltip>
-          {actions}
+          <RecordModeSwitch value="LIVE" onChange={onModeChange} status={tail.status} />
         </>
       }
       emptyState={
