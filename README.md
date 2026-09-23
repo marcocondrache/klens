@@ -84,10 +84,9 @@ authenticated user has the same access as an open deployment.
 
 To restrict what signed-in users may do, add `roles`. A role is nothing but a
 name for a set of privileges, defined by you: there are no built-in roles. The
-read privileges are `records`, `configs`, `schema_text`, and `acls`. Write
-privileges are listed under [Writes](#writes). A role that lists none still
-sees the catalog (clusters, topics, groups, lag) but no payloads, live
-configs, schema bodies, or ACL bindings. Bindings map IdP groups
+privileges are `records`, `configs`, `schema_text`, and `acls`; a role that
+lists none still sees the catalog (clusters, topics, groups, lag) but no
+payloads, live configs, schema bodies, or ACL bindings. Bindings map IdP groups
 from the `claim` to those roles, and unmatched users cannot sign in. Omit
 `clusters` on a binding to allow every configured cluster.
 
@@ -125,64 +124,6 @@ auth:
       - groups: [security-team]
         role: auditor
 ```
-
-## Writes
-
-klens is read-only by default. A cluster accepts a write only if it lists that
-write under `writes`, and a signed-in user also needs a role that grants it.
-Each write is its own privilege, so you can grant exactly the ones you want:
-
-| Privilege              | Allows                                              |
-| ---------------------- | --------------------------------------------------- |
-| `reset_offsets`        | Move a consumer group's committed offsets           |
-| `delete_group_offsets` | Forget a consumer group's committed offsets (irreversible) |
-
-```yaml
-clusters:
-  - name: staging
-    bootstrap_servers: [kafka:9092]
-    writes: [reset_offsets, delete_group_offsets]
-```
-
-A role lists write privileges next to read ones, for example
-`operator: [records, configs, reset_offsets]`. Where a cluster doesn't list a
-write, no role can use it there, and `whoami` doesn't report it. Without
-authentication, anyone who can reach klens can use a cluster's `writes`, and
-klens logs a warning at startup for each such cluster.
-
-Every write attempt is logged under the `klens::audit` target with the subject,
-cluster, action, resource, and outcome. Payloads are never logged.
-
-Writes only accept requests from the page itself. Browsers mark every request
-with `Sec-Fetch-Site`, and a write marked as coming from another site gets
-`403 CROSS_SITE`. Clients that don't send that header, like `curl`, are
-checked on `Origin` instead, and only if they send one. A request body with an
-unknown field gets `INVALID_BODY` instead of being silently ignored.
-
-### Consumer group offsets
-
-`POST /api/clusters/{cluster}/group-offsets/reset` moves a group's committed
-offsets. The group must be known to klens and have no live members (otherwise
-`409 GROUP_NOT_EMPTY`). The group id goes in the body, since group ids may
-contain `/`.
-
-```json
-{ "group": "billing", "topic": "orders", "partitions": [0, 1],
-  "to": { "kind": "timestamp", "timestamp": "1700000000000" }, "dryRun": true }
-```
-
-`to` is one of `earliest`, `latest`, `timestamp` (the first record at or after
-that unix-ms time, or the end of the log), `offset`, or `shift` (`by`, relative
-to the committed offset; negative moves back). Each target is clamped to the
-partition's current log. Without `topic`, the reset covers every partition the
-group has committed on. Without `partitions`, it covers every partition of
-`topic`. A `dryRun` returns the same plan, each partition's current and target
-offset, without committing anything.
-
-`POST /api/clusters/{cluster}/group-offsets/delete` deletes the group's
-committed offsets on one `topic`, or only on the listed `partitions`. The topic
-itself may already be gone. This can't be undone, so `confirm` must repeat the
-group id exactly (otherwise `400 CONFIRMATION_REQUIRED`).
 
 ## Schema Registry
 
