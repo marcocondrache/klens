@@ -1,6 +1,5 @@
 use axum::Json;
 use axum::Router;
-use axum::extract::Path;
 use axum::routing::post;
 
 use crate::AppState;
@@ -9,7 +8,8 @@ use crate::kafka::{ClusterSession, KafkaError, OffsetMove, ResetScope, plan_rese
 
 use super::context::{ClusterHandle, Session};
 use super::error::ApiError;
-use super::writes::{Audit, JsonBody, confirm};
+use super::extract::{JsonBody, Path};
+use super::writes::{Audit, confirm};
 
 pub mod types;
 

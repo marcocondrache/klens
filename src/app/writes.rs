@@ -1,30 +1,12 @@
-use axum::Json;
-use axum::extract::{FromRequest, Request};
+use axum::extract::Request;
 use axum::http::{HeaderMap, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use serde::de::DeserializeOwned;
 
 use super::context::Session;
 use super::error::ApiError;
 
 const AUDIT_TARGET: &str = "klens::audit";
-
-pub(crate) struct JsonBody<T>(pub T);
-
-impl<T: DeserializeOwned, S: Send + Sync> FromRequest<S> for JsonBody<T> {
-    type Rejection = ApiError;
-
-    async fn from_request(request: Request, state: &S) -> Result<Self, Self::Rejection> {
-        match Json::<T>::from_request(request, state).await {
-            Ok(Json(body)) => Ok(Self(body)),
-            Err(rejection) => Err(ApiError::InvalidBody {
-                status: rejection.status(),
-                message: rejection.body_text(),
-            }),
-        }
-    }
-}
 
 pub(crate) fn confirm(given: &str, expected: &str, what: &'static str) -> Result<(), ApiError> {
     if given == expected {

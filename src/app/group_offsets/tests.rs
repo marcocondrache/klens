@@ -306,7 +306,7 @@ async fn a_misspelled_field_is_refused_rather_than_ignored() {
     .await;
 
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(body["code"], "INVALID_BODY");
+    assert_eq!(body["code"], "INVALID_REQUEST");
     assert!(
         body["error"]
             .as_str()
@@ -332,7 +332,7 @@ async fn a_body_that_is_not_json_answers_in_the_api_error_shape() {
     .await;
 
     assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
-    assert_eq!(body["code"], "INVALID_BODY");
+    assert_eq!(body["code"], "INVALID_REQUEST");
 }
 
 #[tokio::test]
