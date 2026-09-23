@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import {
   useTable,
   type Column,
@@ -11,13 +11,16 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 
 import { features, type DataTableFeatures } from "@/components/data-table/features";
 import { CLICKABLE_ROW, clickableRowProps } from "@/components/data-table/row-interaction";
+import { SkeletonBar, skeletonRowStyle } from "@/components/data-table/skeleton-bar";
 import { RefreshBar } from "@/components/refresh-bar";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Spinner } from "@/components/ui/spinner";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const ROW_SIZE = 40;
 const LOAD_MORE_KEY = "load-more";
+const LOADER_ROWS = 3;
+const SKELETON_ROWS = 14;
+const PREFETCH_ROWS = 20;
 
 const COLUMN_TRACK: Record<string, string> = {
   partition: "4rem",
@@ -37,6 +40,7 @@ interface RecordTableProps<TData extends RowData> {
   selectedKey?: string;
   loading?: boolean;
   refreshing?: boolean;
+  stale?: boolean;
   error?: ReactNode;
   emptyState?: ReactNode;
   hasNextPage?: boolean;
@@ -62,6 +66,7 @@ export function RecordTable<TData extends RowData>({
   selectedKey,
   loading = false,
   refreshing = false,
+  stale = false,
   error,
   emptyState,
   hasNextPage = false,
@@ -99,7 +104,8 @@ export function RecordTable<TData extends RowData>({
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => ROW_SIZE,
+    estimateSize: (index) =>
+      loaderCount && index === rows.length ? ROW_SIZE * LOADER_ROWS : ROW_SIZE,
     getItemKey,
     overscan: 6,
     measureElement: (element) => element.offsetHeight,
@@ -107,14 +113,14 @@ export function RecordTable<TData extends RowData>({
 
   const items = virtualizer.getVirtualItems();
   const endIndex = items.length === 0 ? -1 : items[items.length - 1].index;
-  const reachedLoader = hasNextPage && (rows.length === 0 || endIndex === rows.length);
+  const nearEnd = hasNextPage && (rows.length === 0 || endIndex >= rows.length - PREFETCH_ROWS);
 
   useEffect(() => {
-    if (fetchNextPage == null || !reachedLoader || isFetchingNextPage || isFetchNextPageError) {
+    if (fetchNextPage == null || !nearEnd || isFetchingNextPage || isFetchNextPageError) {
       return;
     }
     fetchNextPage();
-  }, [fetchNextPage, isFetchNextPageError, isFetchingNextPage, reachedLoader]);
+  }, [fetchNextPage, isFetchNextPageError, isFetchingNextPage, nearEnd]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -122,21 +128,16 @@ export function RecordTable<TData extends RowData>({
       <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border">
         {refreshing ? <RefreshBar className="absolute inset-x-0 top-0 z-20" /> : null}
         {loading || (rows.length === 0 && hasNextPage && error == null) ? (
-          <div role="table" className="text-sm">
+          <div role="table" aria-busy className="min-h-0 flex-1 overflow-hidden text-sm">
             <HeaderRow table={table} gridTemplateColumns={gridTemplateColumns} />
-            {Array.from({ length: 6 }, (_, index) => (
-              <div
+            {Array.from({ length: SKELETON_ROWS }, (_, index) => (
+              <SkeletonRow
                 key={index}
-                role="row"
-                className="grid border-b border-border/70 px-0"
-                style={{ gridTemplateColumns }}
-              >
-                {leafColumns.map((column) => (
-                  <div key={column.id} role="cell" className="px-3 py-3 first:pl-4 last:pr-4">
-                    <Skeleton className="h-3.5 w-full max-w-28" />
-                  </div>
-                ))}
-              </div>
+                row={index}
+                columns={leafColumns}
+                gridTemplateColumns={gridTemplateColumns}
+                style={skeletonRowStyle(index, SKELETON_ROWS)}
+              />
             ))}
           </div>
         ) : rows.length === 0 ? (
@@ -151,7 +152,11 @@ export function RecordTable<TData extends RowData>({
             </div>
           </div>
         ) : (
-          <div role="table" className="flex min-h-0 flex-1 flex-col text-sm">
+          <div
+            role="table"
+            aria-busy={refreshing || isFetchingNextPage || undefined}
+            className="flex min-h-0 flex-1 flex-col text-sm"
+          >
             <HeaderRow table={table} gridTemplateColumns={gridTemplateColumns} />
             <div
               ref={scrollRef}
@@ -165,8 +170,43 @@ export function RecordTable<TData extends RowData>({
                 style={{ height: virtualizer.getTotalSize() }}
               >
                 {items.map((item) => {
-                  const isLoader = getItemKey(item.index) === LOAD_MORE_KEY;
-                  const row = isLoader ? undefined : rows[item.index];
+                  if (getItemKey(item.index) === LOAD_MORE_KEY) {
+                    return (
+                      <div
+                        key={item.key}
+                        data-index={item.index}
+                        ref={virtualizer.measureElement}
+                        className="absolute top-0 left-0 w-full"
+                        style={{ transform: `translateY(${item.start}px)` }}
+                      >
+                        {isFetchNextPageError ? (
+                          <div role="row" className="border-b border-border/70">
+                            <div
+                              role="cell"
+                              className="flex h-10 items-center justify-center gap-2 text-sm text-muted-foreground"
+                            >
+                              Couldn't load more records.
+                              <Button variant="outline" size="xs" onClick={() => fetchNextPage?.()}>
+                                Retry
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          Array.from({ length: LOADER_ROWS }, (_, index) => (
+                            <SkeletonRow
+                              key={index}
+                              row={rows.length + index}
+                              columns={leafColumns}
+                              gridTemplateColumns={gridTemplateColumns}
+                              style={skeletonRowStyle(index, LOADER_ROWS)}
+                            />
+                          ))
+                        )}
+                      </div>
+                    );
+                  }
+
+                  const row = rows[item.index];
 
                   return (
                     <div
@@ -182,52 +222,33 @@ export function RecordTable<TData extends RowData>({
                         "group/row absolute top-0 left-0 grid w-full border-b border-border/70",
                         row && onRowClick && CLICKABLE_ROW,
                         row &&
-                          "transition-colors duration-75 hover:bg-muted/50 data-[state=selected]:bg-muted",
+                          "transition-[background-color,opacity] duration-75 hover:bg-muted/50 data-[state=selected]:bg-muted",
+                        stale && "opacity-50",
                       )}
                       style={{
                         gridTemplateColumns,
                         transform: `translateY(${item.start}px)`,
                       }}
                     >
-                      {isLoader ? (
-                        <div
-                          role="cell"
-                          className="col-span-full flex items-center justify-center gap-2 py-3 text-sm text-muted-foreground"
-                        >
-                          {isFetchNextPageError ? (
-                            <button
-                              type="button"
-                              className="underline-offset-2 hover:underline"
-                              onClick={() => fetchNextPage?.()}
-                            >
-                              Couldn't load more. Retry
-                            </button>
-                          ) : (
-                            <>
-                              <Spinner />
-                              Loading more…
-                            </>
-                          )}
-                        </div>
-                      ) : row ? (
-                        row.getAllCells().map((cell) => {
-                          const meta = cell.column.columnDef.meta;
+                      {row
+                        ? row.getAllCells().map((cell) => {
+                            const meta = cell.column.columnDef.meta;
 
-                          return (
-                            <div
-                              key={cell.id}
-                              role="cell"
-                              className={cn(
-                                "px-3 py-2.5 align-middle text-sm whitespace-nowrap first:pl-4 last:pr-4",
-                                meta?.align === "right" && "text-right numeric",
-                                meta?.className,
-                              )}
-                            >
-                              <table.FlexRender cell={cell} />
-                            </div>
-                          );
-                        })
-                      ) : null}
+                            return (
+                              <div
+                                key={cell.id}
+                                role="cell"
+                                className={cn(
+                                  "px-3 py-2.5 align-middle text-sm whitespace-nowrap first:pl-4 last:pr-4",
+                                  meta?.align === "right" && "text-right numeric",
+                                  meta?.className,
+                                )}
+                              >
+                                <table.FlexRender cell={cell} />
+                              </div>
+                            );
+                          })
+                        : null}
                     </div>
                   );
                 })}
@@ -273,6 +294,32 @@ function HeaderRow<TData extends RowData>({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function SkeletonRow<TData extends RowData>({
+  row,
+  columns,
+  gridTemplateColumns,
+  style,
+}: {
+  row: number;
+  columns: Array<Column<DataTableFeatures, TData, unknown>>;
+  gridTemplateColumns: string;
+  style?: CSSProperties;
+}) {
+  return (
+    <div
+      aria-hidden
+      className="grid h-10 items-center border-b border-border/70"
+      style={{ gridTemplateColumns, ...style }}
+    >
+      {columns.map((column, index) => (
+        <div key={column.id} className="px-3 first:pl-4 last:pr-4">
+          <SkeletonBar row={row} column={index} align={column.columnDef.meta?.align} />
+        </div>
+      ))}
     </div>
   );
 }

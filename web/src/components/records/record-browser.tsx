@@ -36,6 +36,7 @@ import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
 import { useRecords, type RecordsFilter } from "@/lib/api/live";
 import { useAccess } from "@/hooks/use-access";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { apiErrorMessage } from "@/lib/api/client";
 import { formatBytes, formatRelative, formatTimestamp, fromDatetimeLocalValue } from "@/lib/format";
 import type { KafkaRecord, RecordOrder, TopicDetail } from "@/lib/api/types";
@@ -153,10 +154,10 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
 
   const { can } = useAccess();
 
-  const query = useMemo<RecordsFilter>(() => {
-    const needle = term.trim();
+  const needle = useDebouncedValue(term.trim());
 
-    return {
+  const query = useMemo<RecordsFilter>(
+    () => ({
       topic: topic.name,
       partition: partition === "all" ? null : Number(partition),
       order,
@@ -164,14 +165,16 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
       to: fromDatetimeLocalValue(to),
       filter: needle ? { contains: needle } : null,
       schemaId,
-    };
-  }, [topic.name, partition, order, from, to, term, schemaId]);
+    }),
+    [topic.name, partition, order, from, to, needle, schemaId],
+  );
 
   const {
     data,
     isFetching,
     isFetchingNextPage,
     isFetchNextPageError,
+    isPlaceholderData,
     isError,
     error,
     fetchNextPage,
@@ -219,7 +222,7 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
-      {lastPage && !lastPage.complete ? (
+      {lastPage && !lastPage.complete && !isPlaceholderData ? (
         <Alert>
           <TriangleAlertIcon />
           <AlertTitle>Partial scan</AlertTitle>
@@ -321,7 +324,8 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
         getRowId={(record) => `${record.partition}-${record.offset}`}
         loading={isFetching && !isFetchingNextPage && records.length === 0}
         refreshing={isFetching && !isFetchingNextPage && records.length > 0}
-        hasNextPage={Boolean(hasNextPage)}
+        stale={isPlaceholderData}
+        hasNextPage={Boolean(hasNextPage) && !isPlaceholderData}
         fetchNextPage={loadMore}
         isFetchingNextPage={isFetchingNextPage}
         isFetchNextPageError={isFetchNextPageError}

@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, type QueryKey } from "@tanstack/react-query";
 
 import type { AclListing, ConfigEntry, RecordPage, SubjectDetail } from "@/api/types.gen";
 
@@ -54,6 +54,10 @@ export function useSubject(
 
 const RECORD_BATCH_SIZE = 50;
 
+function sameTopic(previous: QueryKey | undefined, next: QueryKey) {
+  return previous != null && previous.slice(0, 4).every((part, index) => part === next[index]);
+}
+
 export function useRecords(cluster: string, query: RecordsFilter, enabled = true) {
   return useInfiniteQuery({
     queryKey: keys.records(cluster, query),
@@ -73,6 +77,8 @@ export function useRecords(cluster: string, query: RecordsFilter, enabled = true
       ),
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.nextCursor,
+    placeholderData: (previous, previousQuery) =>
+      sameTopic(previousQuery?.queryKey, keys.records(cluster, query)) ? previous : undefined,
     enabled,
   });
 }
