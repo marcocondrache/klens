@@ -16,9 +16,7 @@ import { RefreshBar } from "@/components/refresh-bar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-/** A record row: `py-2.5` around a 20px line, plus its bottom border. */
 const ROW_SIZE = 41;
-/** Skeleton rows are `h-10` with the border inside. */
 const SKELETON_ROW_SIZE = 40;
 const LOAD_MORE_KEY = "load-more";
 const LOADER_ROWS = 3;

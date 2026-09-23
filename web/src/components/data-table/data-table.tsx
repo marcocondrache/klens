@@ -17,7 +17,6 @@ import { features, type DataTableFeatures } from "./features";
 import { CLICKABLE_ROW, clickableRowProps } from "./row-interaction";
 import { SkeletonBar, skeletonRowStyle } from "./skeleton-bar";
 
-/** An `h-10` cell. Collapsed borders sit inside it. */
 const ROW_SIZE = 40;
 
 interface DataTableProps<TData extends RowData> {
@@ -77,8 +76,6 @@ export function DataTable<TData extends RowData>({
   const columnCount = leafColumns.length || columns.length;
   const skeletonRows = fill ? 14 : 6;
 
-  // A filling table scrolls itself, so it only mounts the rows in view. Large
-  // catalogs would otherwise re-render thousands of rows on every live update.
   const scrollRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLTableRowElement>({
     count: rows.length,

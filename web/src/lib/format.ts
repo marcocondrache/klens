@@ -52,8 +52,6 @@ export function formatThroughput(value: number, digits = 1) {
   return formatCount(value, digits);
 }
 
-// `toLocaleString` builds a formatter on every call, which shows up when a table
-// formats a cell per row. These are built once.
 const NUMBER_FORMAT = new Intl.NumberFormat("en-US");
 
 const TIMESTAMP_FORMAT = new Intl.DateTimeFormat("en-GB", {

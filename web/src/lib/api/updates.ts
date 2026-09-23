@@ -41,7 +41,6 @@ function apply(queryClient: QueryClient, cluster: string, update: Update): void 
         return rate === undefined ? row : { ...row, rate };
       });
 
-      // A cluster-wide tick names every topic. Only the detail pages in the cache need it.
       for (const name of cachedTopics(queryClient, cluster)) {
         const rate = rates.get(name);
         if (rate !== undefined) {
