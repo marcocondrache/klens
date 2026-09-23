@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 
 import { LoginCover } from "@/components/login-cover";
 import { LoginForm } from "@/components/login-form";
+import { LogoStream } from "@/components/logo";
 import { ModeToggle } from "@/components/mode-toggle";
 import { RELEASE_URL, REPO_URL, VERSION } from "@/lib/build";
 
@@ -18,7 +19,8 @@ function LoginPage() {
         <ModeToggle />
       </header>
 
-      <main className="relative flex flex-1 items-center justify-center px-4 pb-24">
+      <main className="relative flex flex-1 flex-col items-center justify-center px-4 pb-24">
+        <LogoStream glow className="-mt-10 -mb-4 w-[min(36rem,100%)]" />
         <LoginForm className="w-full max-w-xs" />
       </main>
 

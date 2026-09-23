@@ -1,9 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-label="klens">
-  <g stroke="#F97316" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M8 22V14a6 6 0 0 1 6-6h8"/>
-    <path d="M42 8h8a6 6 0 0 1 6 6v8"/>
-    <path d="M56 42v8a6 6 0 0 1-6 6h-8"/>
-    <path d="M22 56h-8a6 6 0 0 1-6-6v-8"/>
+  <style>
+    .frame { stroke: #18181b; }
+    @media (prefers-color-scheme: dark) { .frame { stroke: #f4f4f5; } }
+  </style>
+  <g class="frame" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M10 23.6v-4.4a9.2 9.2 0 0 1 9.2-9.2h4.4"/>
+    <path d="M40.4 10h4.4a9.2 9.2 0 0 1 9.2 9.2v4.4"/>
+    <path d="M54 40.4v4.4a9.2 9.2 0 0 1-9.2 9.2h-4.4"/>
+    <path d="M23.6 54h-4.4a9.2 9.2 0 0 1-9.2-9.2v-4.4"/>
   </g>
-  <circle cx="32" cy="32" r="6.5" fill="#F97316"/>
+  <line x1="23" y1="32" x2="41" y2="32" stroke="#F97316" stroke-width="8" stroke-linecap="round"/>
 </svg>

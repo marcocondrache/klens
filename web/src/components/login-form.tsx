@@ -13,9 +13,6 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
 
   return (
     <div className={cn("flex flex-col items-center gap-6 text-center", className)} {...props}>
-      <div className="flex size-12 items-center justify-center rounded-xl border bg-card shadow-xs">
-        <img src="/favicon.svg" alt="" className="size-6" />
-      </div>
       <div className="space-y-1.5">
         <h1 className="text-xl font-semibold tracking-[-0.015em]">Sign in to klens</h1>
         <p className="text-sm text-balance text-muted-foreground">
