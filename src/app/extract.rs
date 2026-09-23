@@ -1,7 +1,3 @@
-//! Request extractors whose rejections are [`ApiError`]s, so a malformed path
-//! or query string answers with the same `{error, code}` body as every other
-//! failure instead of axum's plain-text rejection.
-
 use axum::extract::FromRequestParts;
 use axum::extract::rejection::PathRejection;
 use axum::http::request::Parts;
@@ -10,8 +6,6 @@ use serde::de::DeserializeOwned;
 
 use super::error::ApiError;
 
-/// Query string extractor. Built on `axum_extra`'s, so a repeated key such as
-/// `?partition=0&partition=1` fills a `Vec`.
 pub(crate) struct Query<T>(pub T);
 
 impl<T, S> FromRequestParts<S> for Query<T>
