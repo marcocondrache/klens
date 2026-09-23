@@ -20,8 +20,14 @@ export function RecordBrowser({ cluster, topic }: { cluster: string; topic: Topi
       filter={filter}
       onFilterChange={setFilter}
       actions={
-        <Toggle variant="outline" pressed={live} onPressedChange={setLive} aria-label="Live tail">
-          <RadioIcon />
+        <Toggle
+          variant="outline"
+          pressed={live}
+          onPressedChange={setLive}
+          aria-label="Live tail"
+          className="bg-background font-normal text-muted-foreground hover:text-foreground data-pressed:border-brand/40 data-pressed:bg-brand/10 data-pressed:text-brand dark:bg-input/20"
+        >
+          <RadioIcon className="size-3.5" />
           Live
         </Toggle>
       }

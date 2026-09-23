@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/empty";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { RecordView, type RecordFilter, type RecordSource } from "@/components/records/record-view";
-import { Pill, StatusDot } from "@/components/status";
+import { Pill, StatusLabel } from "@/components/status";
 import { apiErrorMessage } from "@/lib/api/client";
 import { TAIL_BUFFER, useTail, type TailFilter, type TailStatus } from "@/lib/api/tail";
 import type { TopicDetail } from "@/lib/api/types";
@@ -27,14 +27,17 @@ const STATUS: Record<TailStatus, { label: string; tone: Tone }> = {
   error: { label: "Stopped", tone: "error" },
 };
 
-function TailStatusPill({ status }: { status: TailStatus }) {
+function TailStatusLabel({ status }: { status: TailStatus }) {
   const { label, tone } = STATUS[status];
 
   return (
-    <Pill tone={tone}>
-      <StatusDot tone={tone} pulse={status === "live"} />
+    <StatusLabel
+      tone={tone}
+      pulse={status === "live"}
+      className="px-1 text-xs text-muted-foreground"
+    >
       {label}
-    </Pill>
+    </StatusLabel>
   );
 }
 
@@ -106,19 +109,20 @@ export function LiveRecords({ cluster, topic, filter, onFilterChange, actions }:
       actions={
         <>
           {tail.skipped > 0 ? <SkippedBadge skipped={tail.skipped} /> : null}
-          <TailStatusPill status={tail.status} />
+          <TailStatusLabel status={tail.status} />
           <Tooltip>
             <TooltipTrigger
               render={
                 <Button
-                  variant="outline"
+                  variant="ghost"
                   size="icon"
+                  className="text-muted-foreground hover:text-foreground"
                   aria-label={tail.paused ? "Resume live tail" : "Pause live tail"}
                   onClick={tail.paused ? tail.resume : tail.pause}
                 />
               }
             >
-              {tail.paused ? <PlayIcon /> : <PauseIcon />}
+              {tail.paused ? <PlayIcon className="size-3.5" /> : <PauseIcon className="size-3.5" />}
             </TooltipTrigger>
             <TooltipContent>{tail.paused ? "Resume" : "Pause"}</TooltipContent>
           </Tooltip>
@@ -126,15 +130,16 @@ export function LiveRecords({ cluster, topic, filter, onFilterChange, actions }:
             <TooltipTrigger
               render={
                 <Button
-                  variant="outline"
+                  variant="ghost"
                   size="icon"
+                  className="text-muted-foreground hover:text-foreground"
                   aria-label="Clear records"
                   disabled={tail.records.length === 0 && tail.skipped === 0}
                   onClick={tail.clear}
                 />
               }
             >
-              <BrushCleaningIcon />
+              <BrushCleaningIcon className="size-3.5" />
             </TooltipTrigger>
             <TooltipContent>Clear</TooltipContent>
           </Tooltip>

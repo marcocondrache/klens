@@ -24,6 +24,7 @@ import { apiErrorMessage } from "@/lib/api/client";
 import type { KafkaRecord, RecordOrder, TopicDetail } from "@/lib/api/types";
 import { fromDatetimeLocalValue } from "@/lib/format";
 import { recordId } from "@/lib/records";
+import { cn } from "@/lib/utils";
 
 const ORDER_ITEMS = [
   { value: "NEWEST", label: "Newest" },
@@ -131,9 +132,9 @@ export function PagedRecords({
       }
       controls={
         <>
-          <InputGroup className="w-auto min-w-[13.5rem]">
+          <InputGroup className="w-auto bg-background dark:bg-input/20">
             <InputGroupAddon>
-              <ClockIcon />
+              <ClockIcon className="size-3.5!" />
             </InputGroupAddon>
             <InputGroupInput
               type="datetime-local"
@@ -141,19 +142,18 @@ export function PagedRecords({
               max={to || undefined}
               onChange={(event) => setFrom(event.target.value)}
               aria-label="From timestamp"
+              className={cn("w-44 pr-1", !from && "text-muted-foreground")}
             />
-          </InputGroup>
-
-          <InputGroup className="w-auto min-w-[13.5rem]">
-            <InputGroupAddon>
-              <span className="text-sm">to</span>
-            </InputGroupAddon>
+            <span aria-hidden className="text-muted-foreground/60">
+              →
+            </span>
             <InputGroupInput
               type="datetime-local"
               value={to}
               min={from || undefined}
               onChange={(event) => setTo(event.target.value)}
               aria-label="To timestamp"
+              className={cn("w-44 pl-2", !to && "text-muted-foreground")}
             />
           </InputGroup>
 
@@ -162,7 +162,7 @@ export function PagedRecords({
             items={ORDER_ITEMS}
             onValueChange={(value) => setOrder(value as RecordOrder)}
           >
-            <SelectTrigger className="w-36">
+            <SelectTrigger className="w-28">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
