@@ -1,5 +1,3 @@
-import { EventSourceParserStream, type EventSourceMessage } from "eventsource-parser/stream";
-
 import type { Update } from "@/api/types.gen";
 
 export class ApiError extends Error {
@@ -107,7 +105,10 @@ export async function getOrNull<T>(
   }
 }
 
-const RETRY_ATTEMPTS = 8;
+export const RETRY_ATTEMPTS = 8;
+
+/** One server-sent event: its `event:` name and its joined `data:` lines. */
+export type EventFrame = { event: string; data: string };
 
 export function stream(
   path: string,
@@ -123,18 +124,12 @@ async function pump(url: string, signal: AbortSignal, onUpdate: (update: Update)
   let attempt = 0;
   while (!signal.aborted) {
     try {
-      const response = await fetch(url, {
-        credentials: "include",
-        headers: { Accept: "text/event-stream" },
-        signal,
-      });
-      const body = response.body;
-      if (!response.ok || body == null) {
-        await fail(response);
-        return;
-      }
+      const body = await openEvents(url, signal);
       attempt = 0;
-      await readEvents(body, signal, onUpdate);
+      await readEvents(body, signal, (frame) => {
+        const update = parseUpdate(frame);
+        if (update) onUpdate(update);
+      });
     } catch (error) {
       if (signal.aborted) return;
       if (error instanceof ApiError && error.status === 401) return;
@@ -142,41 +137,104 @@ async function pump(url: string, signal: AbortSignal, onUpdate: (update: Update)
     }
     attempt += 1;
     if (attempt > RETRY_ATTEMPTS || signal.aborted) return;
-    await wait(Math.min(1000 * 2 ** (attempt - 1), 10_000), signal);
+    await wait(retryDelay(attempt), signal);
   }
 }
 
-async function readEvents(
-  body: ReadableStream<BufferSource>,
+/** Open an event stream. A refused request throws an `ApiError`. */
+export async function openEvents(
+  url: string,
   signal: AbortSignal,
-  onUpdate: (update: Update) => void,
+): Promise<ReadableStream<Uint8Array>> {
+  const response = await fetch(url, {
+    credentials: "include",
+    headers: { Accept: "text/event-stream" },
+    signal,
+  });
+  const body = response.body;
+  if (!response.ok || body == null) return fail(response);
+  return body;
+}
+
+export function eventsUrl(path: string, query?: Record<string, QueryValue>): string {
+  return withQuery(apiPath(path), query);
+}
+
+export async function readEvents(
+  body: ReadableStream<Uint8Array>,
+  signal: AbortSignal,
+  onFrame: (frame: EventFrame) => void,
 ) {
-  const reader = body
-    .pipeThrough(new TextDecoderStream())
-    .pipeThrough(new EventSourceParserStream())
-    .getReader();
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
   try {
     while (!signal.aborted) {
       const { value, done } = await reader.read();
       if (done) return;
-      dispatch(value, onUpdate);
+      buffer += decoder.decode(value, { stream: true });
+      buffer = drain(buffer, onFrame);
     }
   } finally {
     reader.releaseLock();
   }
 }
 
-/** The server names every event: `error` carries an `ApiError` body, the rest are updates. */
-function dispatch({ event, data }: EventSourceMessage, onUpdate: (update: Update) => void) {
-  if (event === "error") {
-    const { code } = JSON.parse(data) as { code?: string };
-    if (code === "SESSION_EXPIRED") redirectToSignIn();
-    return;
+function drain(buffer: string, onFrame: (frame: EventFrame) => void): string {
+  const chunks = buffer.split("\n\n");
+  const rest = chunks.pop() ?? "";
+  for (const chunk of chunks) {
+    const frame = parseFrame(chunk);
+    if (frame) onFrame(frame);
   }
-  onUpdate(JSON.parse(data) as Update);
+  return rest;
 }
 
-function wait(ms: number, signal: AbortSignal): Promise<void> {
+function parseFrame(chunk: string): EventFrame | null {
+  let event = "message";
+  const data: string[] = [];
+  for (const line of chunk.split("\n")) {
+    if (line.startsWith("event:")) event = line.slice(6).trim();
+    else if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
+  }
+  // Keep-alive comments carry no data.
+  if (data.length === 0) return null;
+  return { event, data: data.join("\n") };
+}
+
+function parseUpdate(frame: EventFrame): Update | null {
+  try {
+    const parsed = JSON.parse(frame.data) as Update | { code?: string };
+    if (parsed && typeof parsed === "object" && "type" in parsed) return parsed;
+    if (parsed && typeof parsed === "object" && parsed.code === "SESSION_EXPIRED") {
+      redirectToSignIn();
+    }
+  } catch {
+    // A truncated frame is not an update.
+  }
+  return null;
+}
+
+/** An `error` frame ends a stream. A lapsed session also sends the browser to sign in. */
+export function streamError(data: string): ApiError {
+  let message = "The stream ended with an error.";
+  let code: string | undefined;
+  try {
+    const body = JSON.parse(data) as { error?: unknown; code?: unknown };
+    if (typeof body.error === "string" && body.error) message = body.error;
+    if (typeof body.code === "string") code = body.code;
+  } catch {
+    // Keep the generic message.
+  }
+  if (code === "SESSION_EXPIRED") redirectToSignIn();
+  return new ApiError(message, 0, code);
+}
+
+export function retryDelay(attempt: number): number {
+  return Math.min(1000 * 2 ** (attempt - 1), 10_000);
+}
+
+export function wait(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     const timer = setTimeout(resolve, ms);
     signal.addEventListener(
