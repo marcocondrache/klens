@@ -50,7 +50,7 @@ export function DataTableColumnHeader<TData extends RowData, TValue>({
           aria-hidden
           className={cn(
             "size-3 shrink-0 transition-opacity",
-            sorted ? "opacity-100" : "opacity-0 group-hover/sort:opacity-60",
+            sorted ? "text-brand opacity-100" : "opacity-0 group-hover/sort:opacity-60",
           )}
         />
       </button>

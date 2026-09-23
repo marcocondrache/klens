@@ -2,7 +2,7 @@ import type { ComponentProps } from "react";
 
 import { cn } from "@/lib/utils";
 
-/** The klens mark: a bold ring, a lens seen face-on. Drawn in the text color. */
+/** The klens mark: a bold ring, a lens seen face-on. Drawn in the brand color. */
 export function LogoMark({ className, ...props }: ComponentProps<"svg">) {
   return (
     <svg
@@ -12,7 +12,7 @@ export function LogoMark({ className, ...props }: ComponentProps<"svg">) {
       className={cn("size-5 shrink-0", className)}
       {...props}
     >
-      <circle cx="32" cy="32" r="21" stroke="currentColor" strokeWidth="14" />
+      <circle cx="32" cy="32" r="21" stroke="var(--brand)" strokeWidth="14" />
     </svg>
   );
 }

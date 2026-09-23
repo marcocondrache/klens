@@ -38,6 +38,7 @@ export function NavMain({
                 isActive={Boolean(matchRoute({ to, params: { cluster }, fuzzy: true }))}
                 tooltip={section.label}
                 onClick={() => setOpenMobile(false)}
+                className="data-active:[&_svg]:text-brand"
                 render={<Link to={to} params={{ cluster }} />}
               >
                 <section.icon />

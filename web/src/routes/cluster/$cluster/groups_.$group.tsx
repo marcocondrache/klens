@@ -130,7 +130,7 @@ function ConsumerGroupPage() {
         <Link
           to="/cluster/$cluster/topics/$topic"
           params={{ cluster, topic: getValue() }}
-          className="font-mono underline-offset-4 hover:underline"
+          className="font-mono underline-offset-4 hover:text-brand hover:underline"
           onClick={(event) => event.stopPropagation()}
         >
           {getValue()}
@@ -252,7 +252,7 @@ function ConsumerGroupPage() {
       >
         <TabsList
           variant="line"
-          className="w-full shrink-0 justify-start gap-3 border-b [&>[data-slot=tabs-trigger]]:flex-none"
+          className="w-full shrink-0 justify-start gap-3 border-b [&>[data-slot=tabs-trigger]]:flex-none [&>[data-slot=tabs-trigger]]:after:bg-brand"
         >
           <TabsTrigger value="offsets">
             Offsets

@@ -246,7 +246,7 @@ function TopicPage() {
       >
         <TabsList
           variant="line"
-          className="w-full shrink-0 justify-start gap-3 border-b [&>[data-slot=tabs-trigger]]:flex-none"
+          className="w-full shrink-0 justify-start gap-3 border-b [&>[data-slot=tabs-trigger]]:flex-none [&>[data-slot=tabs-trigger]]:after:bg-brand"
         >
           {canRecords ? <TabsTrigger value="data">Data</TabsTrigger> : null}
           <TabsTrigger value="partitions">
