@@ -43,16 +43,6 @@ impl GroupSnapshot {
         })
     }
 
-    pub fn assigned_partitions(&self) -> Vec<(String, i32)> {
-        let mut partitions: Vec<(String, i32)> = self
-            .assigned_partition_refs()
-            .map(|(topic, partition)| (topic.to_owned(), partition))
-            .collect();
-        partitions.sort();
-        partitions.dedup();
-        partitions
-    }
-
     pub fn member_for(&self, topic: &str, partition: i32) -> Option<&str> {
         self.members
             .iter()

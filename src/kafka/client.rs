@@ -193,7 +193,7 @@ impl ClusterSession for KafkaClient {
         )?;
         Ok(merge_watermark_offsets(
             &from_list_offsets(beginning.into_iter().map(list_offset_parts)),
-            &from_list_offsets(end.into_iter().map(list_offset_parts)),
+            from_list_offsets(end.into_iter().map(list_offset_parts)),
         ))
     }
 

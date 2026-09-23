@@ -10,6 +10,10 @@ async fn a_schema_body_is_fetched_on_demand_rather_than_kept_in_the_lane() {
     let subject = ok(&state, "/clusters/local/subjects/orders.created-value").await;
 
     assert_eq!(subject["subject"], "orders.created-value");
+    assert_eq!(
+        subject["version"], 2,
+        "no version asked resolves to the latest"
+    );
     assert_eq!(subject["type"], "AVRO");
     assert!(
         subject["schema"]

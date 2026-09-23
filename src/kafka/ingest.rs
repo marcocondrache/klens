@@ -111,10 +111,7 @@ impl Ingest {
     /// Builds a store per session and starts every lane against it.
     pub fn bootstrap(sessions: Vec<Arc<dyn ClusterSession>>) -> (Arc<StoreSet>, Self) {
         let stores = Arc::new(StoreSet::new(
-            sessions
-                .iter()
-                .map(|session| session.identity().clone())
-                .collect::<Vec<_>>(),
+            sessions.iter().map(|session| session.identity().clone()),
         ));
         let clusters: Vec<(
             Arc<ClusterStore>,

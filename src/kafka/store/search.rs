@@ -209,7 +209,7 @@ mod tests {
             .iter()
             .map(|name| topic(name, vec![partition(0, vec![1], vec![1])]))
             .collect();
-        Topology::assemble(&metadata(topics), &[], &mut Interner::default())
+        Topology::assemble(metadata(topics), Vec::new(), &mut Interner::default())
     }
 
     fn labels(topology: &Topology, term: &str) -> Vec<String> {

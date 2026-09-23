@@ -57,14 +57,12 @@ async fn subject(
         None => latest_version(&cluster, &subject)?,
     };
 
-    Ok(Json(SubjectDetail::new(
-        subject.clone(),
-        version,
-        session
-            .state
-            .live_subject_schema(capability.cluster(), &subject, version)
-            .await?,
-    )))
+    let schema = session
+        .state
+        .live_subject_schema(capability.cluster(), &subject, version)
+        .await?;
+
+    Ok(Json(SubjectDetail::new(subject, version, schema)))
 }
 
 fn latest_version(
@@ -73,10 +71,9 @@ fn latest_version(
 ) -> Result<i32, ApiError> {
     cluster
         .store
-        .subject_rows()
-        .into_iter()
-        .find(|row| row.subject.as_ref() == subject)
-        .map(|row| row.info.latest_version)
+        .subjects
+        .load()
+        .and_then(|subjects| subjects.get(subject).map(|info| info.latest_version))
         .ok_or_else(|| {
             KafkaError::UnknownSubject {
                 cluster: cluster.name().to_owned(),

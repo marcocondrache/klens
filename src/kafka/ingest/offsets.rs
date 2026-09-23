@@ -12,7 +12,8 @@ use crate::kafka::group::CommittedOffset;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::store::projections::group_offsets;
 use crate::kafka::store::{
-    Change, ClusterStore, GroupLagUpdate, GroupOffsets, GroupOffsetsWave, OffsetTable, Topology,
+    Change, ClusterStore, GroupInfo, GroupLagUpdate, GroupOffsets, GroupOffsetsWave, OffsetTable,
+    Topology,
 };
 
 use super::runner::floor;
@@ -107,7 +108,7 @@ impl OffsetLane {
             return Wave::default();
         }
 
-        let fetched = self.fetch(&topology, previous.as_deref(), &due).await;
+        let mut fetched = self.fetch(&topology, previous.as_deref(), &due).await;
         let now = Timestamp::now();
 
         let mut groups: HashMap<Arc<str>, Arc<GroupOffsets>> =
@@ -116,7 +117,7 @@ impl OffsetLane {
         let mut failed = Vec::new();
 
         for id in topology.groups.keys() {
-            match fetched.get(id) {
+            match fetched.remove(id) {
                 Some(None) => {
                     failed.push(Arc::clone(id));
                     if let Some(stale) = previous.as_ref().and_then(|table| table.get(id)) {
@@ -129,7 +130,7 @@ impl OffsetLane {
                         Arc::clone(id),
                         Arc::new(GroupOffsets {
                             sampled_at: now,
-                            committed: committed.clone(),
+                            committed,
                         }),
                     );
                 }
@@ -263,30 +264,27 @@ fn offset_fetch_partitions(
     previous: Option<&OffsetTable>,
     id: &str,
 ) -> Option<Vec<(String, i32)>> {
-    let mut partitions: Vec<(String, i32)> = topology
+    let mut partitions: Vec<(&str, i32)> = topology
         .group(id)
         .into_iter()
-        .flat_map(|group| {
-            group
-                .assigned_partition_refs()
-                .map(|(topic, partition)| (topic.to_owned(), partition))
-        })
+        .flat_map(GroupInfo::assigned_partition_refs)
         .collect();
     if partitions.is_empty() {
         return None;
     }
 
     if let Some(offsets) = previous.and_then(|table| table.get(id)) {
-        partitions.extend(
-            offsets
-                .partitions()
-                .map(|(topic, partition)| (topic.to_owned(), partition)),
-        );
+        partitions.extend(offsets.partitions());
     }
 
-    partitions.sort();
+    partitions.sort_unstable();
     partitions.dedup();
-    Some(partitions)
+    Some(
+        partitions
+            .into_iter()
+            .map(|(topic, partition)| (topic.to_owned(), partition))
+            .collect(),
+    )
 }
 
 fn stale_groups(topology: &Topology, previous: Option<&OffsetTable>) -> Vec<Arc<str>> {

@@ -97,8 +97,8 @@ impl OidcFlow for Oidc {
             .client
             .authorize_url(
                 CoreAuthenticationFlow::AuthorizationCode,
-                move || csrf.clone(),
-                move || nonce.clone(),
+                move || csrf,
+                move || nonce,
             )
             .set_pkce_challenge(pkce_challenge);
 

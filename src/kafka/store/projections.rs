@@ -1,3 +1,4 @@
+use std::collections::hash_map::Entry;
 use std::sync::Arc;
 
 use foldhash::{HashMap, HashMapExt};
@@ -222,18 +223,18 @@ pub fn group_offsets(
             .map(|marks: Watermarks| marks.high)
     };
 
-    let mut seen: HashMap<(String, i32), GroupOffset> = HashMap::new();
+    let committed = offsets
+        .map(|offsets| offsets.committed.as_slice())
+        .unwrap_or_default();
+    let mut seen: HashMap<(&str, i32), GroupOffset> = HashMap::with_capacity(committed.len());
     let mut complete = true;
 
-    for committed in offsets
-        .map(|offsets| offsets.committed.as_slice())
-        .unwrap_or_default()
-    {
+    for committed in committed {
         let end = end(&committed.topic, committed.partition);
         let (lag, known) = lag_of(committed.offset, end);
         complete &= known;
         seen.insert(
-            (committed.topic.clone(), committed.partition),
+            (committed.topic.as_str(), committed.partition),
             GroupOffset {
                 topic: committed.topic.clone(),
                 partition: committed.partition,
@@ -248,23 +249,19 @@ pub fn group_offsets(
     }
 
     for (topic, partition) in group.assigned_partition_refs() {
-        let key = (topic.to_owned(), partition);
-        if seen.contains_key(&key) {
+        let Entry::Vacant(slot) = seen.entry((topic, partition)) else {
             continue;
-        }
+        };
         let end = end(topic, partition);
         complete &= end.is_some();
-        seen.insert(
-            key,
-            GroupOffset {
-                topic: topic.to_owned(),
-                partition,
-                current_offset: 0,
-                end_offset: end.unwrap_or(0),
-                lag: end.unwrap_or(0).max(0),
-                member_id: group.member_for(topic, partition).map(ToOwned::to_owned),
-            },
-        );
+        slot.insert(GroupOffset {
+            topic: topic.to_owned(),
+            partition,
+            current_offset: 0,
+            end_offset: end.unwrap_or(0),
+            lag: end.unwrap_or(0).max(0),
+            member_id: group.member_for(topic, partition).map(ToOwned::to_owned),
+        });
     }
 
     let mut offsets: Vec<GroupOffset> = seen.into_values().collect();
@@ -335,8 +332,8 @@ pub fn topic_group_row(
 }
 
 pub fn broker_rows(topology: &Topology) -> Vec<BrokerRow> {
-    let mut partition_counts: HashMap<i32, i32> = HashMap::new();
-    let mut leader_counts: HashMap<i32, i32> = HashMap::new();
+    let mut partition_counts: HashMap<i32, i32> = HashMap::with_capacity(topology.brokers.len());
+    let mut leader_counts: HashMap<i32, i32> = HashMap::with_capacity(topology.brokers.len());
     for partition in topology
         .topics
         .values()
@@ -381,10 +378,10 @@ pub fn offsets_for<'a>(offsets: Option<&'a OffsetTable>, group: &str) -> Option<
 }
 
 fn unique_topics(offsets: &[GroupOffset]) -> Vec<String> {
-    let mut topics: Vec<String> = offsets.iter().map(|offset| offset.topic.clone()).collect();
-    topics.sort();
+    let mut topics: Vec<&str> = offsets.iter().map(|offset| offset.topic.as_str()).collect();
+    topics.sort_unstable();
     topics.dedup();
-    topics
+    topics.into_iter().map(ToOwned::to_owned).collect()
 }
 
 #[cfg(test)]
@@ -533,6 +530,25 @@ mod tests {
         assert!(
             !row.lag_complete,
             "unknown partitions must not read as zero lag"
+        );
+    }
+
+    #[test]
+    fn an_uncommitted_partition_with_no_watermark_flags_the_total_as_incomplete() {
+        let topology = topology();
+        let (id, group) = topology.groups.iter().next().unwrap();
+
+        let row = group_row(
+            id,
+            group,
+            Some(&offsets(at(1_000), &[("orders", 0, 90)])),
+            Some(&watermarks(at(1_000), &[("orders", 0, 20, 100)])),
+        );
+
+        assert_eq!(row.total_lag, 10);
+        assert!(
+            !row.lag_complete,
+            "partition 1 has neither a commit nor a watermark"
         );
     }
 
