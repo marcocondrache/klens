@@ -1,4 +1,5 @@
-import { EventSourceParserStream, type EventSourceMessage } from "eventsource-parser/stream";
+import type { EventSourceMessage } from "eventsource-parser";
+import { EventSourceParserStream } from "eventsource-parser/stream";
 
 import type { Update } from "@/api/types.gen";
 
@@ -115,26 +116,24 @@ export function stream(
   onUpdate: (update: Update) => void,
 ): () => void {
   const controller = new AbortController();
-  void pump(withQuery(apiPath(path), query), controller.signal, onUpdate);
+  void pump(path, query, controller.signal, onUpdate);
   return () => controller.abort();
 }
 
-async function pump(url: string, signal: AbortSignal, onUpdate: (update: Update) => void) {
+async function pump(
+  path: string,
+  query: Record<string, QueryValue> | undefined,
+  signal: AbortSignal,
+  onUpdate: (update: Update) => void,
+) {
   let attempt = 0;
   while (!signal.aborted) {
     try {
-      const response = await fetch(url, {
-        credentials: "include",
-        headers: { Accept: "text/event-stream" },
-        signal,
-      });
-      const body = response.body;
-      if (!response.ok || body == null) {
-        await fail(response);
-        return;
+      for await (const message of events(path, signal, query)) {
+        attempt = 0;
+        if (message.event === "error") throw streamError(message.data);
+        onUpdate(JSON.parse(message.data) as Update);
       }
-      attempt = 0;
-      await readEvents(body, signal, onUpdate);
     } catch (error) {
       if (signal.aborted) return;
       if (error instanceof ApiError && error.status === 401) return;
@@ -146,34 +145,37 @@ async function pump(url: string, signal: AbortSignal, onUpdate: (update: Update)
   }
 }
 
-async function readEvents(
-  body: ReadableStream<BufferSource>,
+export async function* events(
+  path: string,
   signal: AbortSignal,
-  onUpdate: (update: Update) => void,
-) {
-  const reader = body
+  query?: Record<string, QueryValue>,
+): AsyncGenerator<EventSourceMessage> {
+  const response = await fetch(withQuery(apiPath(path), query), {
+    credentials: "include",
+    headers: { Accept: "text/event-stream" },
+    signal,
+  });
+  if (!response.ok || response.body == null) return fail(response);
+
+  const reader = response.body
     .pipeThrough(new TextDecoderStream())
     .pipeThrough(new EventSourceParserStream())
     .getReader();
   try {
-    while (!signal.aborted) {
+    while (true) {
       const { value, done } = await reader.read();
       if (done) return;
-      dispatch(value, onUpdate);
+      yield value;
     }
   } finally {
     reader.releaseLock();
   }
 }
 
-/** The server names every event: `error` carries an `ApiError` body, the rest are updates. */
-function dispatch({ event, data }: EventSourceMessage, onUpdate: (update: Update) => void) {
-  if (event === "error") {
-    const { code } = JSON.parse(data) as { code?: string };
-    if (code === "SESSION_EXPIRED") redirectToSignIn();
-    return;
-  }
-  onUpdate(JSON.parse(data) as Update);
+export function streamError(data: string): ApiError {
+  const body = JSON.parse(data) as { error: string; code: string };
+  if (body.code === "SESSION_EXPIRED") redirectToSignIn();
+  return new ApiError(body.error, 0, body.code);
 }
 
 function wait(ms: number, signal: AbortSignal): Promise<void> {

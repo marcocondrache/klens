@@ -10,6 +10,13 @@ export type RecordsFilter = {
   schemaId: number | null;
 };
 
+export type TailFilter = {
+  topic: string;
+  partition: number | null;
+  contains: string | null;
+  schemaId: number | null;
+};
+
 export const keys = {
   whoami: () => ["whoami"] as const,
   clusters: () => ["clusters"] as const,
@@ -39,4 +46,6 @@ export const keys = {
 
   acls: (cluster: string) => ["cluster", cluster, "acls"] as const,
   search: (cluster: string, term: string) => ["cluster", cluster, "search", term] as const,
+
+  tail: (cluster: string, filter: TailFilter) => ["tail", cluster, filter] as const,
 };
