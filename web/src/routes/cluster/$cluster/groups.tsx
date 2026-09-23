@@ -17,7 +17,7 @@ import {
 } from "@/components/data-table/filters";
 import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
-import { GROUP_TONE, GroupStateBadge, Pill, StatusDot } from "@/components/status";
+import { GROUP_TONE, GroupStateBadge, Pill, StatusDot, TONE_TEXT } from "@/components/status";
 import { lagTone } from "@/lib/tone";
 import { useNow } from "@/hooks/use-now";
 import { useClusterHealth, useGroupRows } from "@/lib/api/catalog";
@@ -25,6 +25,7 @@ import { laneCaption, useClusterName } from "@/lib/clusters";
 import { apiErrorMessage } from "@/lib/api/client";
 import { formatCount, formatEnumLabel, formatNumber, toNumber } from "@/lib/format";
 import type { GroupRow } from "@/lib/api/types";
+import { cn } from "@/lib/utils";
 import { GROUP_STATES, groupsSearch } from "@/lib/route-search";
 
 export const Route = createFileRoute("/cluster/$cluster/groups")({
@@ -64,7 +65,7 @@ const columnHelper = createColumnHelper<DataTableFeatures, GroupRow>();
 const columns = columnHelper.columns([
   columnHelper.accessor("id", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Group" />,
-    cell: ({ getValue }) => <span className="font-mono text-sm">{getValue()}</span>,
+    cell: ({ getValue }) => <span className="font-mono">{getValue()}</span>,
   }),
   columnHelper.accessor("state", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="State" />,
@@ -82,11 +83,11 @@ const columns = columnHelper.columns([
     id: "topics",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Topics" />,
     cell: ({ row }) => (
-      <span className="flex flex-wrap gap-1">
+      <span className="flex items-center gap-1.5">
         {row.original.topicNames.slice(0, 1).map((topic) => (
-          <Pill key={topic} className="font-mono">
+          <span key={topic} className="truncate font-mono text-muted-foreground">
             {topic}
-          </Pill>
+          </span>
         ))}
         {row.original.topicNames.length > 1 ? (
           <Pill>+{row.original.topicNames.length - 1}</Pill>
@@ -100,7 +101,7 @@ const columns = columnHelper.columns([
       <DataTableColumnHeader column={column} title="Lag" className="justify-end" />
     ),
     meta: { align: "right" },
-    cell: ({ row }) => <LagPill row={row.original} />,
+    cell: ({ row }) => <LagValue row={row.original} />,
   }),
   columnHelper.accessor("coordinatorId", {
     id: "coordinator",
@@ -108,20 +109,23 @@ const columns = columnHelper.columns([
       <DataTableColumnHeader column={column} title="Coordinator" className="justify-end" />
     ),
     meta: { align: "right" },
-    cell: ({ getValue }) => <span className="numeric font-mono">broker {getValue()}</span>,
+    cell: ({ getValue }) => (
+      <span className="numeric text-muted-foreground">Broker {getValue()}</span>
+    ),
   }),
 ]);
 
-function LagPill({ row }: { row: GroupRow }) {
+function LagValue({ row }: { row: GroupRow }) {
+  const lag = toNumber(row.totalLag);
+
   return (
-    <Pill
-      tone={lagTone(toNumber(row.totalLag))}
-      className="numeric font-mono"
+    <span
+      className={cn("numeric", lag === 0 ? "text-muted-foreground" : TONE_TEXT[lagTone(lag)])}
       title={row.lagComplete ? undefined : "Some partitions have no watermark yet"}
     >
       {row.lagComplete ? "" : "≥ "}
       {formatNumber(row.totalLag)}
-    </Pill>
+    </span>
   );
 }
 

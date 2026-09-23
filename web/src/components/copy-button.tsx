@@ -12,11 +12,14 @@ export function CopyButton({
   label = "Copy",
   className,
   size = "icon-xs",
+  reveal = false,
 }: {
   value: string;
   label?: string;
   className?: string;
   size?: "icon-xs" | "icon-sm" | "icon";
+  /** Hide until the surrounding table row is hovered or the button is focused. */
+  reveal?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const timeout = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -42,7 +45,13 @@ export function CopyButton({
             size={size}
             onClick={copy}
             aria-label={label}
-            className={cn("text-muted-foreground hover:text-foreground", className)}
+            className={cn(
+              "text-muted-foreground hover:text-foreground",
+              reveal &&
+                "opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 data-popup-open:opacity-100",
+              copied && "opacity-100",
+              className,
+            )}
           />
         }
       >

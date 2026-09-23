@@ -69,10 +69,10 @@ function AppLayout() {
 
   return (
     <SidebarProvider defaultOpen={sidebarDefaultOpen()} className="h-svh">
-      <AppSidebar />
-      <SidebarInset className="min-w-0 overflow-hidden">
+      <AppSidebar variant="inset" />
+      <SidebarInset className="min-h-0 min-w-0 overflow-hidden md:peer-data-[variant=inset]:rounded-lg md:peer-data-[variant=inset]:border md:peer-data-[variant=inset]:shadow-xs">
         <AppHeader onSearch={() => setPaletteOpen(true)} />
-        <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-4 md:p-6">
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4 md:px-6 md:py-5">
           {topology?.lastError ? (
             <Alert variant="destructive">
               <TriangleAlertIcon />

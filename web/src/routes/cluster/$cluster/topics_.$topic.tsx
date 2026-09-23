@@ -11,7 +11,8 @@ import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
 import { PageHeader } from "@/components/page-header";
 import { RecordBrowser } from "@/components/records/record-browser";
-import { GroupStateBadge, Pill } from "@/components/status";
+import { Facts } from "@/components/facts";
+import { GroupStateBadge, Pill, StatusDot, TONE_TEXT } from "@/components/status";
 import { lagTone } from "@/lib/tone";
 import { useTopic, useTopicGroups } from "@/lib/api/catalog";
 import { catalogLookupMessage } from "@/lib/catalog-lookup";
@@ -23,12 +24,12 @@ import {
   formatDuration,
   formatNumber,
   formatThroughput,
-  isCompactCleanup,
   toNumber,
 } from "@/lib/format";
 import type { PartitionRow, TopicDetail, TopicGroupRow } from "@/lib/api/types";
 import { topicDetailSearch } from "@/lib/route-search";
 import { useAccess } from "@/hooks/use-access";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/cluster/$cluster/topics_/$topic")({
   component: TopicPage,
@@ -43,14 +44,14 @@ const partitionColumns = partitionColumnHelper.columns([
       <DataTableColumnHeader column={column} title="Partition" className="justify-end" />
     ),
     meta: { align: "right" },
-    cell: ({ getValue }) => <span className="numeric font-mono">{getValue()}</span>,
+    cell: ({ getValue }) => <span className="numeric">{getValue()}</span>,
   }),
   partitionColumnHelper.accessor("leader", {
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Leader" className="justify-end" />
     ),
     meta: { align: "right" },
-    cell: ({ getValue }) => <span className="numeric font-mono">{getValue()}</span>,
+    cell: ({ getValue }) => <span className="numeric">{getValue()}</span>,
   }),
   partitionColumnHelper.accessor("replicas", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Replicas" />,
@@ -60,7 +61,8 @@ const partitionColumns = partitionColumnHelper.columns([
           <Pill
             key={replica}
             tone={row.original.isr.includes(replica) ? "idle" : "error"}
-            className="numeric font-mono"
+            className="numeric min-w-5 justify-center"
+            title={row.original.isr.includes(replica) ? "In sync" : "Out of sync"}
           >
             {replica}
           </Pill>
@@ -78,8 +80,8 @@ const partitionColumns = partitionColumnHelper.columns([
       <span
         className={
           row.original.isr.length < row.original.replicas.length
-            ? "numeric font-mono text-warn"
-            : "numeric font-mono"
+            ? "numeric text-warn"
+            : "numeric text-muted-foreground"
         }
       >
         {row.original.isr.length}/{row.original.replicas.length}
@@ -115,7 +117,7 @@ const partitionColumns = partitionColumnHelper.columns([
 const groupColumns = groupColumnHelper.columns([
   groupColumnHelper.accessor("id", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Group" />,
-    cell: ({ getValue }) => <span className="font-mono text-sm">{getValue()}</span>,
+    cell: ({ getValue }) => <span className="font-mono">{getValue()}</span>,
   }),
   groupColumnHelper.accessor("state", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="State" />,
@@ -135,22 +137,35 @@ const groupColumns = groupColumnHelper.columns([
       <DataTableColumnHeader column={column} title="Lag on this topic" className="justify-end" />
     ),
     meta: { align: "right" },
-    cell: ({ row: groupRow }) => (
-      <Pill tone={lagTone(toNumber(groupRow.original.lagOnTopic))} className="numeric font-mono">
-        {formatNumber(groupRow.original.lagOnTopic)}
-      </Pill>
-    ),
+    cell: ({ row: groupRow }) => {
+      const lag = toNumber(groupRow.original.lagOnTopic);
+
+      return (
+        <span
+          className={cn("numeric", lag === 0 ? "text-muted-foreground" : TONE_TEXT[lagTone(lag)])}
+        >
+          {formatNumber(groupRow.original.lagOnTopic)}
+        </span>
+      );
+    },
   }),
 ]);
 
 function TopicFacts({ detail }: { detail: TopicDetail }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-      <span className="numeric">{detail.partitions.length} partitions</span>
-      <span className="numeric">{formatCount(detail.retainedMessages)} msgs</span>
-      <span className="numeric">retention {formatDuration(detail.retentionMs)}</span>
-      <span className="numeric text-brand">{formatThroughput(detail.rate)}/s</span>
-    </div>
+    <Facts>
+      <span>{detail.partitions.length} partitions</span>
+      <span>{formatCount(detail.retainedMessages)} messages</span>
+      <span>{formatDuration(detail.retentionMs)} retention</span>
+      {detail.rate > 0 ? (
+        <span className="inline-flex items-center gap-1.5 text-foreground">
+          <StatusDot tone="brand" pulse />
+          {formatThroughput(detail.rate)} msg/s
+        </span>
+      ) : (
+        <span>idle</span>
+      )}
+    </Facts>
   );
 }
 
@@ -208,13 +223,11 @@ function TopicPage() {
           detail ? (
             <>
               {detail.internal ? <Pill>internal</Pill> : null}
-              <Pill tone={isCompactCleanup(detail.cleanupPolicy) ? "brand" : "idle"}>
-                {formatCleanupPolicy(detail.cleanupPolicy)}
-              </Pill>
+              <Pill>{formatCleanupPolicy(detail.cleanupPolicy)}</Pill>
               <Pill>RF {detail.replicationFactor}</Pill>
               {detail.underReplicated ? (
                 <Pill tone="warn">
-                  <AlertTriangleIcon className="size-3" />
+                  <AlertTriangleIcon />
                   under-replicated
                 </Pill>
               ) : null}
@@ -231,7 +244,10 @@ function TopicPage() {
         }
         className="min-h-0 flex-1"
       >
-        <TabsList variant="line" className="shrink-0">
+        <TabsList
+          variant="line"
+          className="w-full shrink-0 justify-start gap-3 border-b [&>[data-slot=tabs-trigger]]:flex-none"
+        >
           {canRecords ? <TabsTrigger value="data">Data</TabsTrigger> : null}
           <TabsTrigger value="partitions">
             Partitions

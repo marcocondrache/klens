@@ -15,13 +15,13 @@ export function PageHeader({
   mono?: boolean;
 }) {
   return (
-    <div className="flex flex-wrap items-start justify-between gap-4">
+    <div className="flex shrink-0 flex-wrap items-end justify-between gap-4">
       <div className="min-w-0 space-y-1">
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex min-h-7 flex-wrap items-center gap-2">
           <h1
             className={cn(
-              "truncate text-2xl font-semibold tracking-tight",
-              mono && "font-mono text-xl",
+              "truncate text-xl font-semibold tracking-[-0.015em]",
+              mono && "font-mono text-lg tracking-[-0.02em]",
             )}
           >
             {title}

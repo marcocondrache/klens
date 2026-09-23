@@ -12,13 +12,13 @@ export function SearchField({
   className?: string;
 }) {
   return (
-    <InputGroup className={cn("w-full max-w-sm", className)}>
+    <InputGroup className={cn("w-full max-w-72 bg-background dark:bg-input/20", className)}>
       <InputGroupAddon>
-        <SearchIcon />
+        <SearchIcon className="size-3.5!" />
       </InputGroupAddon>
       <InputGroupInput data-search-hotkey {...props} />
       <InputGroupAddon align="inline-end">
-        <Kbd>/</Kbd>
+        <Kbd className="h-4.5 min-w-4.5 border bg-transparent text-[0.6875rem]">/</Kbd>
       </InputGroupAddon>
     </InputGroup>
   );

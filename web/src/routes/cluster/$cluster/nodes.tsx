@@ -29,10 +29,10 @@ const columns = columnHelper.columns([
 
       return (
         <span className="flex items-center gap-2">
-          <span className="numeric font-mono font-medium">{broker.id}</span>
+          <span className="numeric font-medium">{broker.id}</span>
           {broker.controller ? (
             <Pill tone="brand">
-              <CrownIcon className="size-3" />
+              <CrownIcon />
               controller
             </Pill>
           ) : null}
@@ -47,10 +47,11 @@ const columns = columnHelper.columns([
 
       return (
         <span className="flex items-center gap-1">
-          <span className="font-mono text-sm">
-            {broker.host}:{broker.port}
+          <span className="font-mono">
+            {broker.host}
+            <span className="text-muted-foreground">:{broker.port}</span>
           </span>
-          <CopyButton value={`${broker.host}:${broker.port}`} label="Copy address" />
+          <CopyButton value={`${broker.host}:${broker.port}`} label="Copy address" reveal />
         </span>
       );
     },
@@ -60,9 +61,9 @@ const columns = columnHelper.columns([
     header: ({ column }) => <DataTableColumnHeader column={column} title="Rack" />,
     cell: ({ row }) =>
       row.original.rack ? (
-        <span className="font-mono text-sm">{row.original.rack}</span>
+        <span className="font-mono text-muted-foreground">{row.original.rack}</span>
       ) : (
-        <span className="text-muted-foreground">—</span>
+        <span className="text-muted-foreground/60">—</span>
       ),
   }),
   columnHelper.accessor("partitionCount", {

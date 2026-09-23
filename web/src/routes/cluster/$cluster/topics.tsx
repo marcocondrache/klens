@@ -81,7 +81,7 @@ const EMPTY_TOPICS: TopicRow[] = [];
 
 function emptyMetric(value: Int64, display: ReactNode) {
   if (isZero(value)) {
-    return <span className="text-muted-foreground">—</span>;
+    return <span className="text-muted-foreground/60">—</span>;
   }
 
   return display;
@@ -97,11 +97,11 @@ const columns = columnHelper.columns([
 
       return (
         <span className="flex items-center gap-2">
-          <span className="font-mono text-sm">{topic.name}</span>
+          <span className="font-mono">{topic.name}</span>
           {topic.internal ? <Pill>internal</Pill> : null}
           {topic.underReplicated ? (
             <Pill tone="warn">
-              <AlertTriangleIcon className="size-3" />
+              <AlertTriangleIcon />
               under-replicated
             </Pill>
           ) : null}
@@ -147,7 +147,9 @@ const columns = columnHelper.columns([
       <DataTableColumnHeader column={column} title="Retention" className="justify-end" />
     ),
     meta: { align: "right" },
-    cell: ({ row }) => <span>{formatDuration(row.original.retentionMs)}</span>,
+    cell: ({ row }) => (
+      <span className="text-muted-foreground">{formatDuration(row.original.retentionMs)}</span>
+    ),
   }),
   columnHelper.accessor("cleanupPolicy", {
     id: "policy",
@@ -156,9 +158,9 @@ const columns = columnHelper.columns([
     ),
     meta: { align: "right" },
     cell: ({ getValue }) => (
-      <Pill tone={isCompactCleanup(getValue()) ? "brand" : "idle"}>
+      <span className={isCompactCleanup(getValue()) ? "text-foreground" : "text-muted-foreground"}>
         {formatCleanupPolicy(getValue())}
-      </Pill>
+      </span>
     ),
   }),
   columnHelper.accessor("groupCount", {
@@ -220,7 +222,7 @@ function TopicsPage() {
 
             <FilterBar fields={FILTERS} rows={searched} value={filters} onChange={setFilters} />
 
-            <Label className="ml-auto flex items-center gap-2 text-sm text-muted-foreground">
+            <Label className="ml-auto flex items-center gap-2 text-sm font-normal text-muted-foreground">
               <Switch
                 size="sm"
                 checked={showInternal}

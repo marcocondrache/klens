@@ -42,10 +42,11 @@ export function FilterBar<TData>(props: FilterBarProps<TData>) {
               variant="outline"
               size={value.length > 0 ? "icon" : "default"}
               aria-label="Add filter"
+              className="font-normal text-muted-foreground hover:text-foreground aria-expanded:text-foreground"
             />
           }
         >
-          <ListFilterIcon />
+          <ListFilterIcon className="size-3.5" />
           {value.length > 0 ? null : "Filter"}
         </DropdownMenuTrigger>
         <DropdownMenuContent className="min-w-40">
@@ -120,9 +121,9 @@ function FilterChip<TData>({
   }
 
   return (
-    <div className="flex h-8 items-center divide-x overflow-hidden rounded-lg border bg-background text-sm duration-150 animate-in fade-in-0 zoom-in-95 motion-reduce:animate-none dark:divide-input dark:border-input dark:bg-input/30">
+    <div className="flex h-8 items-center divide-x overflow-hidden rounded-lg border bg-background text-sm duration-150 animate-in fade-in-0 zoom-in-95 motion-reduce:animate-none dark:divide-input dark:border-input dark:bg-input/20">
       <span className="flex h-full items-center gap-1.5 px-2.5 text-muted-foreground">
-        <field.icon className="size-4 shrink-0" />
+        <field.icon className="size-3.5 shrink-0" />
         {field.label}
       </span>
 
