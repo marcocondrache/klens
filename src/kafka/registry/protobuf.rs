@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use prost_reflect::{DescriptorPool, DynamicMessage, FileDescriptor, MessageDescriptor};
+use prost_reflect::{DynamicMessage, MessageDescriptor};
 use protox::Compiler;
 use protox::file::{ChainFileResolver, File, FileResolver, GoogleFileResolver};
 use schemreg::decode_protobuf_message_indexes;
@@ -29,7 +29,7 @@ pub(crate) enum ProtobufError {
 
 #[derive(Clone)]
 pub(crate) struct ProtobufCodec {
-    pool: DescriptorPool,
+    messages: Option<Vec<MessageDescriptor>>,
 }
 
 struct MemoryResolver {
@@ -67,7 +67,10 @@ impl ProtobufCodec {
             .map_err(|error| ProtobufError::Compile(error.to_string()))?;
 
         Ok(Self {
-            pool: compiler.descriptor_pool(),
+            messages: compiler
+                .descriptor_pool()
+                .get_file_by_name(ROOT_FILE)
+                .map(|root| root.messages().collect()),
         })
     }
 
@@ -88,16 +91,11 @@ impl ProtobufCodec {
         serde_json::to_value(&message).map_err(|error| ProtobufError::Json(error.to_string()))
     }
 
-    fn root_file(&self) -> Result<FileDescriptor, ProtobufError> {
-        self.pool
-            .get_file_by_name(ROOT_FILE)
-            .ok_or(ProtobufError::MissingRoot)
-    }
-
     fn message_at(&self, indexes: &[u32]) -> Result<MessageDescriptor, ProtobufError> {
         let mut indexes = indexes.iter().copied();
         let first = indexes.next().ok_or(ProtobufError::EmptyIndexPath)?;
-        let mut current = nth_message(self.root_file()?.messages(), first, "file")?;
+        let roots = self.messages.as_deref().ok_or(ProtobufError::MissingRoot)?;
+        let mut current = nth_message(roots.iter().cloned(), first, "file")?;
         for index in indexes {
             current = nth_message(current.child_messages(), index, "nested message")?;
         }

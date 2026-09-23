@@ -17,7 +17,7 @@ pub struct TopicRate {
 impl From<&store::TopicRate> for TopicRate {
     fn from(rate: &store::TopicRate) -> Self {
         Self {
-            topic: rate.topic.to_string(),
+            topic: String::from(&*rate.topic),
             rate: rate.rate,
         }
     }

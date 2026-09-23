@@ -40,15 +40,20 @@ impl WatermarkLane {
         store: &ClusterStore,
         topology: &Topology,
     ) -> HashMap<String, Vec<i32>> {
-        let mut wanted: HashMap<String, Vec<i32>> = HashMap::new();
-        for (topic, partition) in topology.partition_pairs() {
-            wanted.entry(topic.to_string()).or_default().push(partition);
+        let mut wanted: HashMap<String, Vec<i32>> = HashMap::with_capacity(topology.topics.len());
+        for (name, topic) in &topology.topics {
+            wanted.insert(name.to_string(), topic.partition_ids());
         }
 
         if let Some(offsets) = store.offsets.load() {
             for group in offsets.groups.values() {
                 for (topic, partition) in group.partitions() {
-                    wanted.entry(topic.to_owned()).or_default().push(partition);
+                    match wanted.get_mut(topic) {
+                        Some(partitions) => partitions.push(partition),
+                        None => {
+                            wanted.insert(topic.to_owned(), vec![partition]);
+                        }
+                    }
                 }
             }
         }

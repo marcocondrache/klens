@@ -10,7 +10,7 @@ use super::configs::ConfigEntry;
 use super::context::Session;
 use super::error::ApiError;
 use super::extract::{Path, Query};
-use super::paging::{name_matches, page};
+use super::paging::{name_filter, page};
 
 pub mod types;
 
@@ -50,11 +50,12 @@ async fn topics(
     Query(query): Query<TopicQuery>,
 ) -> Result<Json<TopicRowPage>, ApiError> {
     let cluster = session.cluster(&name)?;
+    let matches = name_filter(query.contains.as_deref());
     let mut rows: Vec<_> = cluster
         .store
         .topic_rows()
         .into_iter()
-        .filter(|row| name_matches(query.contains.as_deref(), &row.name))
+        .filter(|row| matches(&row.name))
         .collect();
     sort_topics(
         &mut rows,
@@ -63,9 +64,7 @@ async fn topics(
     );
 
     let total = rows.len() as i32;
-    let (rows, next_cursor) = page(rows, query.after.as_deref(), query.limit, |row| {
-        row.name.to_string()
-    });
+    let (rows, next_cursor) = page(rows, query.after.as_deref(), query.limit, |row| &row.name);
 
     Ok(Json(TopicRowPage {
         rows: rows.into_iter().map(TopicRow::from).collect(),

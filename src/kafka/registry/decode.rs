@@ -208,12 +208,11 @@ impl PayloadDecoder {
                 None => continue,
             };
 
-            let raw = slot.raw.clone();
-            match self.decode_body(resolved, framing, &raw).await {
+            match self.decode_body(resolved, framing, &slot.raw).await {
                 Ok(json) => {
                     slot.decoded = Some(DecodedPayload::decoded(
-                        raw.clone(),
-                        framed_schema_id(&raw),
+                        slot.raw.clone(),
+                        framed_schema_id(&slot.raw),
                         json,
                     ));
                 }
@@ -230,18 +229,18 @@ impl PayloadDecoder {
         framing: Framing,
         raw: &Bytes,
     ) -> Result<Value, DecodeError> {
-        let body = raw.slice(framing.payload_start.min(raw.len())..);
+        let body = &raw[framing.payload_start.min(raw.len())..];
 
         match resolved {
             Resolved::Missing => Err(DecodeError::missing("schema id not found in registry")),
-            Resolved::Json => serde_json::from_slice(&body).map_err(DecodeError::failed),
+            Resolved::Json => serde_json::from_slice(body).map_err(DecodeError::failed),
             Resolved::Avro => {
                 // The decoder reads the identifier off the wire prefix, so an
                 // override has to be handed bytes that carry one.
                 let framed = if framing.has_wire_prefix {
                     raw.clone()
                 } else {
-                    encode_wire_format(framing.key, &body)
+                    encode_wire_format(framing.key, body)
                 };
                 let value = self
                     .avro
@@ -251,9 +250,9 @@ impl PayloadDecoder {
                 Value::try_from(value).map_err(DecodeError::failed)
             }
             Resolved::Protobuf(codec) => if framing.has_wire_prefix {
-                codec.decode_framed(&body)
+                codec.decode_framed(body)
             } else {
-                codec.decode_raw(&body)
+                codec.decode_raw(body)
             }
             .map_err(DecodeError::from),
         }

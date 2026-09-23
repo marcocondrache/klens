@@ -55,7 +55,7 @@ impl LaneSource for TopologyLane {
             }
             None => Interner::default(),
         };
-        Ok(Some(Topology::assemble(&meta, &groups, &mut interner)))
+        Ok(Some(Topology::assemble(meta, groups, &mut interner)))
     }
 
     fn diff(&self, previous: Option<&Topology>, next: &Topology) -> Option<TopologyDelta> {

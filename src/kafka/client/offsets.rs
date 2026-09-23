@@ -30,21 +30,22 @@ pub fn partition_time_offsets(
 /// skipped rather than reported as negative message counts.
 pub fn merge_watermark_offsets(
     beginning: &HashMap<(String, i32), Option<i64>>,
-    end: &HashMap<(String, i32), Option<i64>>,
+    end: HashMap<(String, i32), Option<i64>>,
 ) -> HashMap<String, HashMap<i32, Watermarks>> {
     let mut out: HashMap<String, HashMap<i32, Watermarks>> = HashMap::new();
     for (key, high) in end {
-        let Some(high) = *high else {
+        let Some(high) = high else {
             continue;
         };
         // Empty partitions often return only the last offset.
-        let low = beginning.get(key).copied().flatten().unwrap_or(high);
+        let low = beginning.get(&key).copied().flatten().unwrap_or(high);
         if high < low {
             continue;
         }
-        out.entry(key.0.clone())
+        let (topic, partition) = key;
+        out.entry(topic)
             .or_default()
-            .insert(key.1, Watermarks { low, high });
+            .insert(partition, Watermarks { low, high });
     }
     out
 }
@@ -98,7 +99,7 @@ mod tests {
         ]);
 
         assert_eq!(
-            merge_watermark_offsets(&beginning, &end),
+            merge_watermark_offsets(&beginning, end),
             HashMap::from_iter([
                 (
                     "orders".into(),

@@ -81,7 +81,7 @@ pub fn group(id: &str, topic: &str, partitions: Vec<i32>) -> GroupSnapshot {
 }
 
 pub fn topology(topics: Vec<TopicMetadata>, groups: Vec<GroupSnapshot>) -> Topology {
-    Topology::assemble(&metadata(topics), &groups, &mut Interner::default())
+    Topology::assemble(metadata(topics), groups, &mut Interner::default())
 }
 
 pub fn at(millis: i64) -> Timestamp {

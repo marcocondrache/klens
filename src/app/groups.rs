@@ -9,7 +9,7 @@ use crate::kafka::KafkaError;
 use super::context::Session;
 use super::error::ApiError;
 use super::extract::{Path, Query};
-use super::paging::{name_matches, page};
+use super::paging::{name_filter, page};
 
 pub mod types;
 
@@ -38,17 +38,16 @@ async fn groups(
     Query(query): Query<PageQuery>,
 ) -> Result<Json<GroupRowPage>, ApiError> {
     let cluster = session.cluster(&name)?;
+    let matches = name_filter(query.contains.as_deref());
     let rows: Vec<_> = cluster
         .store
         .group_rows()
         .into_iter()
-        .filter(|row| name_matches(query.contains.as_deref(), &row.id))
+        .filter(|row| matches(&row.id))
         .collect();
 
     let total = rows.len() as i32;
-    let (rows, next_cursor) = page(rows, query.after.as_deref(), query.limit, |row| {
-        row.id.to_string()
-    });
+    let (rows, next_cursor) = page(rows, query.after.as_deref(), query.limit, |row| &row.id);
 
     Ok(Json(GroupRowPage {
         rows: rows.into_iter().map(GroupRow::from).collect(),

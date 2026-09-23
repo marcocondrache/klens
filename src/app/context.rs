@@ -44,10 +44,10 @@ impl FromRequestParts<AppState> for Session {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        let Some(access) = parts.extensions.get::<EffectiveAccess>().cloned() else {
+        let Some(access) = parts.extensions.remove::<EffectiveAccess>() else {
             return Err(ApiError::Unauthorized);
         };
-        let Some(guard) = parts.extensions.get::<SessionGuard>().cloned() else {
+        let Some(guard) = parts.extensions.remove::<SessionGuard>() else {
             return Err(ApiError::Unauthorized);
         };
         Ok(Self {

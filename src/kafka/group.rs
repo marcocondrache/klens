@@ -44,13 +44,13 @@ impl GroupSnapshot {
     }
 
     pub fn assigned_partitions(&self) -> Vec<(String, i32)> {
-        let mut partitions: Vec<(String, i32)> = self
-            .assigned_partition_refs()
-            .map(|(topic, partition)| (topic.to_owned(), partition))
-            .collect();
-        partitions.sort();
+        let mut partitions: Vec<(&str, i32)> = self.assigned_partition_refs().collect();
+        partitions.sort_unstable();
         partitions.dedup();
         partitions
+            .into_iter()
+            .map(|(topic, partition)| (topic.to_owned(), partition))
+            .collect()
     }
 
     pub fn member_for(&self, topic: &str, partition: i32) -> Option<&str> {

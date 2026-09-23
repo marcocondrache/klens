@@ -34,7 +34,9 @@ pub(super) fn two_clusters() -> AppState {
 }
 
 pub(super) fn only(clusters: &[&str]) -> ClusterScope {
-    ClusterScope::Only(clusters.iter().map(|name| (*name).to_owned()).collect())
+    ClusterScope::Only(Arc::new(
+        clusters.iter().map(|name| (*name).to_owned()).collect(),
+    ))
 }
 
 pub(super) fn granted(grants: Vec<(&str, PrivilegeSet, ClusterScope)>) -> EffectiveAccess {

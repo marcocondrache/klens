@@ -52,9 +52,17 @@ impl AuthBackend {
     }
 
     pub(crate) fn live_user(&self, subject: &str) -> Option<SessionUser> {
+        self.with_live_user(subject, SessionUser::clone)
+    }
+
+    pub(crate) fn with_live_user<T>(
+        &self,
+        subject: &str,
+        read: impl FnOnce(&SessionUser) -> T,
+    ) -> Option<T> {
         let mut users = self.users.lock().expect("auth user store");
         match users.get(subject) {
-            Some(user) if user.exp > Timestamp::now().as_second() => Some(user.clone()),
+            Some(user) if user.exp > Timestamp::now().as_second() => Some(read(user)),
             Some(_) => {
                 users.remove(subject);
                 None

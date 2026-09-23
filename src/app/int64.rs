@@ -15,7 +15,7 @@ pub struct Int64(i64);
 
 impl Serialize for Int64 {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.0.to_string())
+        serializer.collect_str(&self.0)
     }
 }
 

@@ -149,7 +149,7 @@ impl RecordPipeline {
             return Vec::new();
         }
 
-        let mut slots = Vec::new();
+        let mut slots = Vec::with_capacity(records.len() * 2);
         let mut candidates = Vec::with_capacity(records.len());
         for raw in records {
             let key = push_slot(&mut slots, raw.key.clone(), None);
@@ -158,7 +158,7 @@ impl RecordPipeline {
         }
 
         let mut decoded = self.decode(slots).await;
-        let mut kept = Vec::new();
+        let mut kept = Vec::with_capacity(candidates.len());
         for candidate in candidates {
             let mut key = candidate.key.and_then(|index| decoded[index].take());
             let mut value = candidate.value.and_then(|index| decoded[index].take());
@@ -180,7 +180,7 @@ impl RecordPipeline {
     }
 
     pub async fn decode_deferred(&self, page: Vec<Kept>) -> Vec<DecodedRecord> {
-        let mut slots = Vec::new();
+        let mut slots = Vec::with_capacity(page.len() * 2);
         let staged: Vec<Stage> = page
             .into_iter()
             .map(|kept| match kept.kind {

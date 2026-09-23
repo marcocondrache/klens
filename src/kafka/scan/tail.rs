@@ -101,15 +101,16 @@ impl Tail {
         .await
         .map_err(|_| KafkaError::Timeout)??;
 
+        let backlog = limits.backlog(query.searching());
         Ok(Self {
             consumer,
             pipeline: RecordPipeline::new(
                 session.payload_codec(),
-                query.filter.clone(),
+                query.filter,
                 topic_obfuscator(session, &query.topic),
                 query.schema_id,
             ),
-            backlog: limits.backlog(query.searching()),
+            backlog,
             topic: query.topic,
             start,
             limits,
@@ -155,7 +156,7 @@ impl Tail {
         skipped += batch.displaced() as u64;
 
         let mut records = self.pipeline.decode_deferred(batch.into_sorted()).await;
-        records.sort_by(|left, right| {
+        records.sort_unstable_by(|left, right| {
             left.raw()
                 .sort_key()
                 .cmp_for_order(&right.raw().sort_key(), RecordOrder::Oldest)

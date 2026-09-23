@@ -114,18 +114,18 @@ pub struct Topology {
 
 impl Topology {
     pub fn assemble(
-        meta: &MetadataSnapshot,
-        groups: &[GroupSnapshot],
+        meta: MetadataSnapshot,
+        groups: Vec<GroupSnapshot>,
         interner: &mut Interner,
     ) -> Self {
         let brokers = meta
             .brokers
-            .iter()
+            .into_iter()
             .map(|broker| {
                 (
                     broker.id,
                     BrokerInfo {
-                        host: broker.host.clone(),
+                        host: broker.host,
                         port: broker.port,
                         rack: None,
                     },
@@ -135,13 +135,13 @@ impl Topology {
 
         let topics: BTreeMap<Arc<str>, TopicInfo> = meta
             .topics
-            .iter()
+            .into_iter()
             .map(|topic| {
                 (
                     interner.intern(&topic.name),
                     TopicInfo {
                         internal: topic.internal,
-                        partitions: topic.partitions.clone(),
+                        partitions: topic.partitions,
                     },
                 )
             })
@@ -151,22 +151,22 @@ impl Topology {
         let mut assembled = BTreeMap::new();
         for group in groups {
             let id = interner.intern(&group.id);
-            let mut consumed: Vec<Arc<str>> = group
-                .consumed_topics()
-                .map(|topic| interner.intern(topic))
-                .collect();
-            consumed.sort();
+            let mut consumed: Vec<&str> = group.consumed_topics().collect();
+            consumed.sort_unstable();
             consumed.dedup();
             for topic in consumed {
-                topic_groups.entry(topic).or_default().push(Arc::clone(&id));
+                topic_groups
+                    .entry(interner.intern(topic))
+                    .or_default()
+                    .push(Arc::clone(&id));
             }
             assembled.insert(
                 id,
                 GroupInfo {
                     state: group.state,
-                    protocol: group.protocol.clone(),
+                    protocol: group.protocol,
                     coordinator: group.coordinator,
-                    members: group.members.clone(),
+                    members: group.members,
                 },
             );
         }
@@ -175,7 +175,7 @@ impl Topology {
         }
 
         Self {
-            cluster_id: meta.cluster_id.clone(),
+            cluster_id: meta.cluster_id,
             controller: None,
             brokers,
             topics,
@@ -204,18 +204,6 @@ impl Topology {
             Some((key, _)) => Arc::clone(key),
             None => Arc::from(name),
         }
-    }
-
-    pub fn partition_pairs(&self) -> Vec<(Arc<str>, i32)> {
-        self.topics
-            .iter()
-            .flat_map(|(name, topic)| {
-                topic
-                    .partitions
-                    .iter()
-                    .map(move |partition| (Arc::clone(name), partition.id))
-            })
-            .collect()
     }
 
     pub fn partition_count(&self) -> i32 {
@@ -370,7 +358,7 @@ mod tests {
             group("audit", "orders", vec![0]),
         ];
 
-        let topology = Topology::assemble(&meta, &groups, &mut Interner::default());
+        let topology = Topology::assemble(meta, groups, &mut Interner::default());
 
         assert_eq!(
             topology.groups_for_topic("orders"),
@@ -385,7 +373,7 @@ mod tests {
     #[test]
     fn topology_interns_topic_names_across_tables() {
         let meta = metadata(vec![topic("orders", vec![partition(0, vec![1], vec![1])])]);
-        let topology = Topology::assemble(&meta, &[], &mut Interner::default());
+        let topology = Topology::assemble(meta, Vec::new(), &mut Interner::default());
 
         let key = topology.intern_topic("orders");
         let (stored, _) = topology.topics.get_key_value("orders").unwrap();
@@ -404,8 +392,8 @@ mod tests {
         }];
 
         let topology = Topology::assemble(
-            &metadata(vec![topic("orders", vec![partition(0, vec![1], vec![1])])]),
-            &[snapshot],
+            metadata(vec![topic("orders", vec![partition(0, vec![1], vec![1])])]),
+            vec![snapshot],
             &mut Interner::default(),
         );
 

@@ -77,7 +77,10 @@ fn candidates<'a>(
     topology: Option<&'a Topology>,
     subjects: Option<&'a SubjectTable>,
 ) -> Vec<Candidate<'a>> {
-    let mut candidates = Vec::new();
+    let capacity = topology.map_or(0, |topology| {
+        topology.topics.len() + topology.groups.len() + topology.brokers.len()
+    }) + subjects.map_or(0, |subjects| subjects.subjects.len());
+    let mut candidates = Vec::with_capacity(capacity);
 
     if let Some(topology) = topology {
         candidates.extend(
@@ -209,7 +212,7 @@ mod tests {
             .iter()
             .map(|name| topic(name, vec![partition(0, vec![1], vec![1])]))
             .collect();
-        Topology::assemble(&metadata(topics), &[], &mut Interner::default())
+        Topology::assemble(metadata(topics), Vec::new(), &mut Interner::default())
     }
 
     fn labels(topology: &Topology, term: &str) -> Vec<String> {

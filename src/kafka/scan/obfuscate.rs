@@ -366,10 +366,10 @@ fn walk(
 
 /// What a leaf hashes as: a string hashes its contents and anything else its
 /// JSON text, so one value tokens the same however a rule reached it.
-fn leaf_text(value: &serde_json::Value) -> String {
+fn leaf_text(value: &serde_json::Value) -> Cow<'_, str> {
     match value {
-        serde_json::Value::String(text) => text.clone(),
-        other => other.to_string(),
+        serde_json::Value::String(text) => Cow::Borrowed(text),
+        other => Cow::Owned(other.to_string()),
     }
 }
 

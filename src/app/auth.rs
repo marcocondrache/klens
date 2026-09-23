@@ -83,7 +83,7 @@ impl SessionUser {
 #[derive(Clone)]
 pub struct AuthState {
     backend: AuthBackend,
-    policy: AccessPolicy,
+    policy: Arc<AccessPolicy>,
     session_layer: SessionLayer,
 }
 
@@ -91,7 +91,7 @@ impl AuthState {
     pub fn disabled() -> Self {
         Self {
             backend: AuthBackend::disabled(),
-            policy: AccessPolicy::disabled(),
+            policy: Arc::new(AccessPolicy::disabled()),
             session_layer: session_layer(false, Key::generate()),
         }
     }
@@ -116,7 +116,7 @@ impl AuthState {
     ) -> Self {
         Self {
             backend: AuthBackend::enabled(flow),
-            policy,
+            policy: Arc::new(policy),
             session_layer: session_layer(oidc.cookie_secure(), key),
         }
     }
@@ -171,8 +171,10 @@ impl SessionGuard {
         let Some(subject) = &self.subject else {
             return (!self.auth.is_enabled()).then_some(EffectiveAccess::Unrestricted);
         };
-        let user = self.auth.backend.live_user(subject)?;
-        self.auth.access_from_user(&user)
+        self.auth
+            .backend
+            .with_live_user(subject, |user| self.auth.access_from_user(user))
+            .flatten()
     }
 
     pub fn subject(&self) -> Option<&str> {
@@ -259,7 +261,7 @@ impl From<SessionUser> for AuthUserResponse {
 }
 
 async fn me(State(state): State<AppState>, auth_session: AuthSession) -> impl IntoResponse {
-    let user = auth_session.user.clone().and_then(|user| {
+    let user = auth_session.user.and_then(|user| {
         state.auth.access_from_user(&user)?;
         Some(AuthUserResponse::from(user))
     });
@@ -498,7 +500,7 @@ mod tests {
         pub(crate) fn enabled_for_tests_with(flow: FakeOidc, policy: AccessPolicy) -> Self {
             Self {
                 backend: AuthBackend::enabled(Arc::new(flow)),
-                policy,
+                policy: Arc::new(policy),
                 session_layer: session_layer(false, Key::generate()),
             }
         }

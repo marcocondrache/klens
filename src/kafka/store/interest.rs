@@ -72,12 +72,20 @@ impl InterestRegistry {
     /// Recorded by one-shot queries. Expires after the TTL, so opening a
     /// group page keeps it fresh for a while after the request finishes.
     pub fn touch_group(&self, id: &str) {
+        let now = Instant::now();
         let mut groups = self.groups.lock().expect("interest registry lock");
-        let key = match groups.get_key_value(id) {
-            Some((key, _)) => Arc::clone(key),
-            None => Arc::from(id),
-        };
-        groups.entry(key).or_default().touched_at = Some(Instant::now());
+        match groups.get_mut(id) {
+            Some(state) => state.touched_at = Some(now),
+            None => {
+                groups.insert(
+                    Arc::from(id),
+                    InterestState {
+                        touched_at: Some(now),
+                        ..InterestState::default()
+                    },
+                );
+            }
+        }
     }
 
     pub fn hot_groups(&self) -> HashSet<Arc<str>> {

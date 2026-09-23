@@ -81,7 +81,7 @@ impl PrivilegeSet {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ClusterScope {
     All,
-    Only(BTreeSet<String>),
+    Only(Arc<BTreeSet<String>>),
 }
 
 impl ClusterScope {
@@ -95,7 +95,7 @@ impl ClusterScope {
     fn from_list(clusters: Option<&[String]>) -> Self {
         match clusters {
             None => Self::All,
-            Some(names) => Self::Only(names.iter().cloned().collect()),
+            Some(names) => Self::Only(Arc::new(names.iter().cloned().collect())),
         }
     }
 }
@@ -353,15 +353,13 @@ impl RoleTable {
     }
 
     fn resolve(&self, groups: &[String]) -> Option<Vec<Grant>> {
-        let present: BTreeSet<&str> = groups.iter().map(String::as_str).collect();
         let grants: Vec<Grant> = self
             .bindings
             .iter()
             .filter(|binding| {
-                binding
-                    .groups
+                groups
                     .iter()
-                    .any(|group| present.contains(group.as_str()))
+                    .any(|group| binding.groups.contains(group.as_str()))
             })
             .map(|binding| Grant {
                 role_name: Arc::clone(&binding.role_name),

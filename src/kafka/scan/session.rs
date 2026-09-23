@@ -436,7 +436,7 @@ pub async fn fetch_page<S: ClusterSession + ?Sized>(
         return Err(KafkaError::Timeout);
     }
 
-    kept.sort_by(|left, right| {
+    kept.sort_unstable_by(|left, right| {
         left.raw()
             .sort_key()
             .cmp_for_order(&right.raw().sort_key(), order)

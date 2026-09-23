@@ -147,7 +147,7 @@ fn event(update: &Update) -> Event {
 }
 
 fn names(values: &[Arc<str>]) -> Vec<String> {
-    values.iter().map(|value| value.to_string()).collect()
+    values.iter().map(|value| String::from(&**value)).collect()
 }
 
 fn project(change: &Change, scope: &Scope) -> Vec<Update> {
@@ -237,7 +237,7 @@ fn lag_update(
 ) -> Update {
     Update::GroupLag {
         at: wave.at,
-        group: update.group.to_string(),
+        group: String::from(&*update.group),
         lag: Int64::from(update.total_lag),
         lag_complete: update.lag_complete,
         offsets: match offsets {
