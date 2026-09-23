@@ -46,7 +46,7 @@ export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
               <div className="flex aspect-square size-8 items-center justify-center text-sidebar-accent-foreground">
                 <LogoMark className="size-5!" />
               </div>
-              <span className="truncate text-base font-semibold tracking-[-0.02em] text-sidebar-accent-foreground">
+              <span className="truncate text-base font-semibold tracking-[-0.02em] text-sidebar-accent-foreground [text-box:trim-both_cap_alphabetic]">
                 klens
               </span>
             </SidebarMenuButton>
