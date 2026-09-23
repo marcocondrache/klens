@@ -1,7 +1,8 @@
 use std::convert::Infallible;
 
-use axum::extract::{Path, Query};
+use axum::extract::Path;
 use axum::response::sse::{Event, KeepAlive, KeepAliveStream, Sse};
+use axum_extra::extract::Query;
 use futures::stream::{self, BoxStream, StreamExt as _};
 use tokio::sync::OwnedSemaphorePermit;
 
@@ -26,9 +27,11 @@ pub(super) async fn tail(
         .records()?
         .cluster()
         .to_owned();
-    let query = tail_query(topic, params)?;
     let permit = session.state.tail_permit().ok_or(ApiError::TooManyTails)?;
-    let tail = session.state.live_tail(&cluster, query).await?;
+    let tail = session
+        .state
+        .live_tail(&cluster, tail_query(topic, params))
+        .await?;
 
     let ready = frame(&TailEvent::ready(&tail));
     let follow = Follow {

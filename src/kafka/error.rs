@@ -81,9 +81,6 @@ pub enum QueryError {
 
     #[error("timestampFrom must not be after timestampTo")]
     InvertedTimestampRange,
-
-    #[error("partition must be a comma-separated list of partition ids")]
-    InvalidPartition,
 }
 
 impl QueryError {
@@ -92,7 +89,6 @@ impl QueryError {
             Self::LimitTooSmall => "LIMIT_TOO_SMALL",
             Self::InvalidCursor => "INVALID_CURSOR",
             Self::InvertedTimestampRange => "INVERTED_TIMESTAMP_RANGE",
-            Self::InvalidPartition => "INVALID_PARTITION",
         }
     }
 }

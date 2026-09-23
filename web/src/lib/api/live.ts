@@ -68,7 +68,7 @@ export function useRecords(cluster: string, query: RecordsFilter, enabled = true
       get<RecordPage>(
         clusterPathname(cluster, "topics", encodeURIComponent(query.topic), "records"),
         {
-          partition: query.partitions?.join(","),
+          partition: query.partitions,
           order: query.order,
           from: query.from,
           to: query.to,

@@ -30,14 +30,16 @@ export function apiPath(path: string): string {
   return `/api${path}`;
 }
 
-type QueryValue = string | number | boolean | null | undefined;
+type QueryScalar = string | number | boolean;
+/** An array repeats its key, such as `?partition=0&partition=2`. */
+type QueryValue = QueryScalar | readonly QueryScalar[] | null | undefined;
 
 function withQuery(path: string, query?: Record<string, QueryValue>): string {
   if (!query) return path;
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) {
     if (value == null || value === "") continue;
-    params.set(key, String(value));
+    for (const item of Array.isArray(value) ? value : [value]) params.append(key, String(item));
   }
   const text = params.toString();
   return text ? `${path}?${text}` : path;

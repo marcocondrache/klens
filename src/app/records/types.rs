@@ -122,34 +122,19 @@ pub(crate) fn record_query(
             Some(cursor) => Some(RecordCursor::parse(cursor)?),
         },
         topic,
-        partitions: parse_partitions(params.partition.as_deref())?,
+        partitions: params.partition,
         limit: params.limit,
         order: params.order.unwrap_or(RecordOrder::Newest).into(),
         schema_id: params.schema_id,
     })
 }
 
-fn parse_partitions(raw: Option<&str>) -> Result<Vec<i32>, QueryError> {
-    let Some(raw) = raw.map(str::trim).filter(|raw| !raw.is_empty()) else {
-        return Ok(Vec::new());
-    };
-
-    raw.split(',')
-        .map(|part| {
-            part.trim()
-                .parse::<i32>()
-                .ok()
-                .filter(|id| *id >= 0)
-                .ok_or(QueryError::InvalidPartition)
-        })
-        .collect()
-}
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RecordParams {
-    /// Comma-separated partition ids, such as `0,2`; absent reads them all.
-    pub partition: Option<String>,
+    /// Repeated for each partition to read; absent reads them all.
+    #[serde(default)]
+    pub partition: Vec<i32>,
     pub order: Option<RecordOrder>,
     pub from: Option<Timestamp>,
     pub to: Option<Timestamp>,
@@ -225,20 +210,21 @@ impl From<TailBatch> for TailEvent {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct TailParams {
-    /// Comma-separated partition ids, such as `0,2`; absent follows them all.
-    pub partition: Option<String>,
+    /// Repeated for each partition to follow; absent follows them all.
+    #[serde(default)]
+    pub partition: Vec<i32>,
     pub contains: Option<String>,
     pub schema_id: Option<i32>,
 }
 
-pub(crate) fn tail_query(topic: String, params: TailParams) -> Result<TailQuery, QueryError> {
-    Ok(TailQuery {
+pub(crate) fn tail_query(topic: String, params: TailParams) -> TailQuery {
+    TailQuery {
         filter: params
             .contains
             .as_deref()
             .and_then(crate::kafka::compile_contains_filter),
         topic,
-        partitions: parse_partitions(params.partition.as_deref())?,
+        partitions: params.partition,
         schema_id: params.schema_id,
-    })
+    }
 }

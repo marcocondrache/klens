@@ -106,7 +106,7 @@ async fn records_can_be_read_from_a_set_of_partitions() {
     .await;
     let both = ok(
         &state,
-        "/clusters/local/topics/orders.created/records?partition=1,0",
+        "/clusters/local/topics/orders.created/records?partition=1&partition=0",
     )
     .await;
 
@@ -115,17 +115,22 @@ async fn records_can_be_read_from_a_set_of_partitions() {
 }
 
 #[tokio::test]
-async fn a_malformed_partition_list_is_rejected() {
-    for partition in ["one", "0,,1", "-1"] {
-        let (status, code) = failure(
+async fn a_malformed_partition_is_rejected() {
+    let records = "/clusters/local/topics/orders.created/records";
+    for path in [
+        format!("{records}?partition=one"),
+        format!("{records}?partition=0,1"),
+        format!("{TAIL}?partition=one"),
+    ] {
+        let response = open_stream(
             &seeded(),
-            &format!("/clusters/local/topics/orders.created/records?partition={partition}"),
+            &path,
             EffectiveAccess::Unrestricted,
+            SessionGuard::open(),
         )
         .await;
 
-        assert_eq!(status, StatusCode::BAD_REQUEST, "{partition}");
-        assert_eq!(code, "INVALID_PARTITION", "{partition}");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{path}");
     }
 }
 
@@ -381,7 +386,7 @@ async fn a_tail_follows_a_set_of_partitions() {
     let (state, _) = seeded_with(FakeCluster::local());
     let response = open_stream(
         &state,
-        &format!("{TAIL}?partition=1,0"),
+        &format!("{TAIL}?partition=1&partition=0"),
         EffectiveAccess::Unrestricted,
         SessionGuard::open(),
     )
@@ -395,21 +400,6 @@ async fn a_tail_follows_a_set_of_partitions() {
             { "partition": 0, "offset": "8" },
             { "partition": 1, "offset": "8" },
         ])
-    );
-}
-
-#[tokio::test]
-async fn a_tail_on_a_malformed_partition_list_is_rejected() {
-    let (status, code) = refused(
-        &seeded(),
-        &format!("{TAIL}?partition=0,x"),
-        EffectiveAccess::Unrestricted,
-    )
-    .await;
-
-    assert_eq!(
-        (status, code.as_str()),
-        (StatusCode::BAD_REQUEST, "INVALID_PARTITION")
     );
 }
 

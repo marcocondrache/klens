@@ -62,8 +62,7 @@ async function* follow(
   yield { type: "connecting" };
 
   const path = `/clusters/${encodeURIComponent(cluster)}/topics/${encodeURIComponent(filter.topic)}/records/tail`;
-  const { partitions, contains, schemaId } = filter;
-  const partition = partitions?.join(",");
+  const { partitions: partition, contains, schemaId } = filter;
   for await (const message of events(path, signal, { partition, contains, schemaId })) {
     if (message.event === "error") throw streamError(message.data);
     yield JSON.parse(message.data) as TailEvent;
