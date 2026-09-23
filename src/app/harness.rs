@@ -112,7 +112,6 @@ pub(super) async fn call(
     (status, json)
 }
 
-/// Sends a JSON body the way the web UI does, from the same origin.
 pub(super) async fn post(
     state: &AppState,
     path: &str,

@@ -55,7 +55,6 @@ pub enum GroupState {
 }
 
 impl GroupState {
-    /// Whether consumers are attached, so the broker refuses offset writes.
     pub fn has_members(self) -> bool {
         match self {
             Self::Stable | Self::PreparingRebalance | Self::CompletingRebalance => true,

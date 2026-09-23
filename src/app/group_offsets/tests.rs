@@ -44,8 +44,6 @@ fn idle_group() -> GroupSnapshot {
     }
 }
 
-/// A cluster that accepts both group offset writes, whose store and broker
-/// both see `group`.
 fn writable(group: GroupSnapshot) -> (AppState, FakeCluster) {
     let cluster = FakeCluster::local();
     cluster.put_group(group.clone());
@@ -301,7 +299,6 @@ async fn partitions_without_a_topic_are_refused() {
 async fn a_misspelled_field_is_refused_rather_than_ignored() {
     let (state, cluster) = writable(idle_group());
 
-    // `dryrun` would otherwise be dropped and the reset applied for real.
     let (status, body) = reset(
         &state,
         json!({ "group": GROUP, "topic": TOPIC, "to": { "kind": "earliest" }, "dryrun": true }),

@@ -1,5 +1,3 @@
-//! Broker writes for [`KafkaClient`].
-
 use async_trait::async_trait;
 use foldhash::HashMap;
 
@@ -75,12 +73,8 @@ impl ClusterWrites for KafkaClient {
     }
 }
 
-/// Maps the error code krafka reports for one group write (the broker's
-/// error name, such as `NonEmptyGroup`) to the error the API answers with.
 fn rejection(cluster: &str, group: &str, code: &str) -> KafkaError {
     match code {
-        // Every way the broker says the group is still in use: it has
-        // members, is mid-rebalance, or a member subscribes to the topic.
         "NonEmptyGroup"
         | "UnknownMemberId"
         | "IllegalGeneration"

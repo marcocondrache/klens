@@ -204,9 +204,6 @@ impl PrivilegeName {
         }
     }
 
-    /// Whether the privilege changes the cluster rather than reading it. A
-    /// write privilege only takes effect on a cluster that lists it in
-    /// `writes`.
     pub fn is_write(self) -> bool {
         match self {
             Self::Records | Self::Configs | Self::SchemaText | Self::Acls => false,
@@ -376,8 +373,6 @@ pub struct ClusterConfig {
     pub properties: KafkaProperties,
     #[serde(default)]
     pub ingest: ClusterIngestConfig,
-    /// Write privileges this cluster accepts. Empty, the default, keeps the
-    /// cluster read-only whatever a role grants.
     #[serde(default)]
     pub writes: Vec<PrivilegeName>,
 }

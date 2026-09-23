@@ -1,8 +1,3 @@
-//! Consumer group offset writes.
-//!
-//! Group ids may contain `/`, so these routes carry the group in the body
-//! rather than after `/groups/`, where a catch-all already reads it.
-
 use axum::Json;
 use axum::Router;
 use axum::extract::Path;
@@ -109,8 +104,6 @@ async fn delete_offsets(
             .into());
         }
         Some(partitions) => partitions.clone(),
-        // The topic itself may already be gone: clearing the offsets it left
-        // behind is exactly what this is for, so it is not looked up.
         None => kafka
             .committed_offsets(&request.group, None)
             .await?
@@ -136,8 +129,6 @@ async fn delete_offsets(
     })
 }
 
-/// A group the store has seen, so a typo is refused rather than creating a
-/// new group on commit.
 fn known_group(cluster: &ClusterHandle<'_>, group: &str) -> Result<GroupRow, ApiError> {
     cluster.store.group_row(group).ok_or_else(|| {
         KafkaError::UnknownGroup {

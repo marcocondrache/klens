@@ -4,27 +4,21 @@ use ts_rs::TS;
 use crate::app::int64::Int64;
 use crate::kafka::{OffsetMove, ResetTarget};
 
-/// Moves a consumer group's committed offsets. The group must have no live
-/// members unless `dryRun` is set.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ResetOffsetsRequest {
     pub group: String,
-    /// Omitted, the reset covers every partition the group has committed on.
     #[serde(default)]
     #[ts(optional)]
     pub topic: Option<String>,
-    /// Partitions of `topic`. Omitted, every partition of the topic.
     #[serde(default)]
     #[ts(optional)]
     pub partitions: Option<Vec<i32>>,
     pub to: ResetTo,
-    /// Plan the reset without committing anything.
     #[serde(default)]
     pub dry_run: bool,
 }
 
-/// Where each partition moves. Targets are clamped to the partition's log.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, TS)]
 #[serde(
     tag = "kind",
@@ -35,17 +29,9 @@ pub struct ResetOffsetsRequest {
 pub enum ResetTo {
     Earliest,
     Latest,
-    /// First record at or after this unix-ms time, or the log end.
-    Timestamp {
-        timestamp: Int64,
-    },
-    Offset {
-        offset: Int64,
-    },
-    /// Relative to the committed offset. Negative moves back.
-    Shift {
-        by: Int64,
-    },
+    Timestamp { timestamp: Int64 },
+    Offset { offset: Int64 },
+    Shift { by: Int64 },
 }
 
 impl From<ResetTo> for ResetTarget {
@@ -64,7 +50,6 @@ impl From<ResetTo> for ResetTarget {
 #[serde(rename_all = "camelCase")]
 pub struct OffsetReset {
     pub group: String,
-    /// False for a dry run.
     pub applied: bool,
     pub partitions: Vec<OffsetChange>,
 }
@@ -74,7 +59,6 @@ pub struct OffsetReset {
 pub struct OffsetChange {
     pub topic: String,
     pub partition: i32,
-    /// `null` when the group had never committed on this partition.
     pub current: Option<Int64>,
     pub target: Int64,
 }
@@ -90,14 +74,11 @@ impl From<OffsetMove> for OffsetChange {
     }
 }
 
-/// Forgets a group's committed offsets on one topic. Irreversible, so
-/// `confirm` must repeat the group id.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DeleteOffsetsRequest {
     pub group: String,
     pub topic: String,
-    /// Omitted, every partition the group has committed on in `topic`.
     #[serde(default)]
     #[ts(optional)]
     pub partitions: Option<Vec<i32>>,

@@ -409,13 +409,10 @@ impl FakeCluster {
         }
     }
 
-    /// Makes every group write fail the way the broker would, for example
-    /// when a consumer joined after the store last saw the group.
     pub fn reject_writes(&self, rejection: WriteRejection) {
         *self.inner.write_rejection.lock().expect("write rejection") = Some(rejection);
     }
 
-    /// The group's committed offsets, as a write left them.
     pub fn committed(&self, id: &str) -> Vec<CommittedOffset> {
         self.inner
             .groups
@@ -681,8 +678,6 @@ impl ClusterWrites for FakeCluster {
         let snapshot = match groups.iter_mut().position(|existing| existing.id == group) {
             Some(index) => &mut groups[index],
             None => {
-                // Kafka creates a group the first time offsets are committed
-                // for it.
                 groups.push(GroupSnapshot {
                     id: group.to_owned(),
                     state: GroupState::Empty,
@@ -1359,7 +1354,6 @@ impl SessionCalls {
         self.acls.load(Ordering::SeqCst)
     }
 
-    /// Group offset commits and deletes, including refused ones.
     pub fn group_writes(&self) -> usize {
         self.group_writes.load(Ordering::SeqCst)
     }

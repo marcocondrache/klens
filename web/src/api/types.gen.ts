@@ -74,37 +74,13 @@ export type GroupDetail = { id: string, state: GroupState, protocol: string, coo
 
 export type ResetTo = { "kind": "earliest" } | { "kind": "latest" } | { "kind": "timestamp", timestamp: Int64, } | { "kind": "offset", offset: Int64, } | { "kind": "shift", by: Int64, };
 
-export type ResetOffsetsRequest = { group: string, 
-/**
- * Omitted, the reset covers every partition the group has committed on.
- */
-topic?: string, 
-/**
- * Partitions of `topic`. Omitted, every partition of the topic.
- */
-partitions?: Array<number>, to: ResetTo, 
-/**
- * Plan the reset without committing anything.
- */
-dryRun: boolean, };
+export type ResetOffsetsRequest = { group: string, topic?: string, partitions?: Array<number>, to: ResetTo, dryRun: boolean, };
 
-export type OffsetChange = { topic: string, partition: number, 
-/**
- * `null` when the group had never committed on this partition.
- */
-current: Int64 | null, target: Int64, };
+export type OffsetChange = { topic: string, partition: number, current: Int64 | null, target: Int64, };
 
-export type OffsetReset = { group: string, 
-/**
- * False for a dry run.
- */
-applied: boolean, partitions: Array<OffsetChange>, };
+export type OffsetReset = { group: string, applied: boolean, partitions: Array<OffsetChange>, };
 
-export type DeleteOffsetsRequest = { group: string, topic: string, 
-/**
- * Omitted, every partition the group has committed on in `topic`.
- */
-partitions?: Array<number>, confirm: string, };
+export type DeleteOffsetsRequest = { group: string, topic: string, partitions?: Array<number>, confirm: string, };
 
 export type DeletedOffsets = { group: string, topic: string, partitions: Array<number>, };
 

@@ -71,15 +71,12 @@ pub struct PrivilegeSet(u32);
 impl PrivilegeSet {
     pub const NONE: Self = Self(0);
     pub const ALL: Self = Self::READS.union(Self::WRITES);
-    /// Privileges that only read the cluster. No cluster setting narrows them.
     pub const READS: Self = Self(
         Privilege::Records.bit()
             | Privilege::Configs.bit()
             | Privilege::SchemaText.bit()
             | Privilege::Acls.bit(),
     );
-    /// Privileges that change the cluster. Each takes effect only where the
-    /// cluster opts in to it.
     pub const WRITES: Self =
         Self(Privilege::ResetOffsets.bit() | Privilege::DeleteGroupOffsets.bit());
 
@@ -242,8 +239,6 @@ impl<'a> ClusterAccess<'a> {
         self.privileges.iter().collect()
     }
 
-    /// Narrows this access to what the cluster itself accepts, whatever the
-    /// roles granted.
     pub fn capped(self, ceiling: PrivilegeSet) -> Self {
         Self {
             privileges: self.privileges.intersection(ceiling),
@@ -743,8 +738,6 @@ mod tests {
         assert!(PrivilegeSet::NONE.iter().next().is_none());
     }
 
-    // The reverse of the production conversion, so the test below can ask
-    // the config how it classifies each privilege.
     from_same_variants!(Privilege => PrivilegeName {
         Records,
         Configs,

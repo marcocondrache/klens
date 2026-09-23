@@ -54,8 +54,6 @@ pub struct AppState {
     limits: RecordLimits,
     tail_limits: TailLimits,
     tails: Arc<Semaphore>,
-    /// Write privileges each cluster accepts. A cluster missing here is
-    /// read-only.
     writes: Arc<HashMap<String, PrivilegeSet>>,
     _ingest: Option<Arc<Ingest>>,
 }
@@ -82,8 +80,6 @@ impl AppState {
         }
     }
 
-    /// Opens each cluster to the writes its config lists. Without this call
-    /// every cluster stays read-only.
     pub fn with_writes_from(self, config: &Config) -> Self {
         let writes: HashMap<String, PrivilegeSet> = config
             .clusters
@@ -174,8 +170,6 @@ impl AppState {
         self.stores.cluster(name)
     }
 
-    /// What `access` may do on `cluster`, narrowed to the writes the cluster
-    /// accepts. Every privilege check goes through here.
     pub(crate) fn cluster_access<'a>(
         &self,
         access: &'a EffectiveAccess,

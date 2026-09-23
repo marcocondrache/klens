@@ -1,9 +1,3 @@
-//! Turning a consumer group offset reset into exact offsets.
-//!
-//! Kafka only commits exact offsets. "Earliest", "a point in time" and "back
-//! ten records" are resolved here against live watermarks, so a dry run and
-//! the real reset compute the same plan.
-
 use foldhash::{HashMap, HashMapExt};
 
 use crate::kafka::error::KafkaError;
@@ -11,26 +5,18 @@ use crate::kafka::group::CommittedOffset;
 use crate::kafka::metadata::Watermarks;
 use crate::kafka::session::ClusterSession;
 
-/// Where a reset moves each partition. Every target is clamped to the
-/// partition's current log, the way `kafka-consumer-groups` does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResetTarget {
     Earliest,
     Latest,
-    /// The first record at or after this unix-ms time, or the log end when
-    /// there is none.
     Timestamp(i64),
     Offset(i64),
-    /// Relative to the committed offset. Negative moves back.
     Shift(i64),
 }
 
-/// Which partitions a reset covers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResetScope {
-    /// Every partition the group has committed an offset on.
     Committed,
-    /// These partitions of one topic, or all of them when `None`.
     Topic {
         topic: String,
         partitions: Option<Vec<i32>>,
@@ -41,7 +27,6 @@ pub enum ResetScope {
 pub struct OffsetMove {
     pub topic: String,
     pub partition: i32,
-    /// `None` when the group has never committed on this partition.
     pub current: Option<i64>,
     pub target: i64,
 }
@@ -56,8 +41,6 @@ impl OffsetMove {
     }
 }
 
-/// Resolves `target` for every partition in `scope`, ordered by topic and
-/// partition. Reads live state and writes nothing.
 pub async fn plan_reset(
     session: &dyn ClusterSession,
     group: &str,
@@ -291,8 +274,6 @@ mod tests {
 
     #[tokio::test]
     async fn a_timestamp_finds_the_first_record_at_or_after_it() {
-        // The fixture writes offset n at 1_700_000_000_000 + n seconds, odd
-        // offsets to partition 0 and even ones to partition 1.
         let plan = plan(topic(None), ResetTarget::Timestamp(1_700_000_004_500))
             .await
             .unwrap();

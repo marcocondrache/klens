@@ -1,7 +1,3 @@
-//! What every write endpoint shares: the body extractor, the confirmation
-//! check for irreversible writes, the audit log, and the guard against
-//! cross-site requests.
-
 use axum::Json;
 use axum::extract::{FromRequest, Request};
 use axum::http::{HeaderMap, header};
@@ -12,10 +8,8 @@ use serde::de::DeserializeOwned;
 use super::context::Session;
 use super::error::ApiError;
 
-/// Log target for the audit trail: one event per write attempt.
 const AUDIT_TARGET: &str = "klens::audit";
 
-/// A JSON request body whose rejections answer in the API's error shape.
 pub(crate) struct JsonBody<T>(pub T);
 
 impl<T: DeserializeOwned, S: Send + Sync> FromRequest<S> for JsonBody<T> {
@@ -32,8 +26,6 @@ impl<T: DeserializeOwned, S: Send + Sync> FromRequest<S> for JsonBody<T> {
     }
 }
 
-/// Irreversible writes carry the name of what they destroy, so a stray
-/// request or a slipped click cannot run one.
 pub(crate) fn confirm(given: &str, expected: &str, what: &'static str) -> Result<(), ApiError> {
     if given == expected {
         Ok(())
@@ -42,7 +34,6 @@ pub(crate) fn confirm(given: &str, expected: &str, what: &'static str) -> Result
     }
 }
 
-/// One write attempt, logged under [`AUDIT_TARGET`] whatever its outcome.
 pub(crate) struct Audit<'a> {
     pub subject: Option<&'a str>,
     pub cluster: &'a str,
@@ -71,7 +62,6 @@ impl<'a> Audit<'a> {
         Self { dry_run, ..self }
     }
 
-    /// Logs the outcome and hands it back unchanged. Never logs payloads.
     pub(crate) fn record<T>(self, outcome: Result<T, ApiError>) -> Result<T, ApiError> {
         let subject = self.subject.unwrap_or("anonymous");
         match &outcome {
@@ -80,7 +70,6 @@ impl<'a> Audit<'a> {
                 subject,
                 cluster = self.cluster,
                 action = self.action,
-                // Debug-quoted: a group id may hold a newline.
                 resource = ?self.resource,
                 dry_run = self.dry_run,
                 outcome = "ok",
@@ -102,13 +91,6 @@ impl<'a> Audit<'a> {
     }
 }
 
-/// Refuses a request that could change something when a browser says another
-/// site sent it.
-///
-/// `SameSite=Lax` keeps the session cookie off cross-site POSTs, but with
-/// authentication off there is no cookie to withhold. Browsers mark every
-/// request with `Sec-Fetch-Site`; older ones only send `Origin`, which must
-/// then match the host. A request with neither did not come from a web page.
 pub(crate) async fn reject_cross_site(request: Request, next: Next) -> Response {
     if request.method().is_safe() || same_site(request.headers()) {
         return next.run(request).await;

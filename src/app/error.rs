@@ -14,19 +14,9 @@ pub(crate) enum ApiError {
     SessionExpired,
     Unauthorized,
     TooManyTails,
-    InvalidRequest {
-        status: StatusCode,
-        message: String,
-    },
-    /// The request body is missing, not JSON, or not the expected shape.
-    InvalidBody {
-        status: StatusCode,
-        message: String,
-    },
-    /// An irreversible write whose `confirm` does not repeat the resource
-    /// name, such as the group id.
+    InvalidRequest { status: StatusCode, message: String },
+    InvalidBody { status: StatusCode, message: String },
     ConfirmationRequired(&'static str),
-    /// A browser request to change something, sent from another site.
     CrossSite,
 }
 
