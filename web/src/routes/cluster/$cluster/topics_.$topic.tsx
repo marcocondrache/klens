@@ -12,6 +12,7 @@ import { type DataTableFeatures } from "@/components/data-table/features";
 import { PageHeader } from "@/components/page-header";
 import { RecordBrowser } from "@/components/records/record-browser";
 import { Facts } from "@/components/facts";
+import { TabCount } from "@/components/tab-count";
 import { GroupStateBadge, Pill, StatusDot, TONE_TEXT } from "@/components/status";
 import { lagTone } from "@/lib/tone";
 import { useTopic, useTopicGroups } from "@/lib/api/catalog";
@@ -195,8 +196,6 @@ function TopicPage() {
     tab === "groups",
   );
 
-  const groupCount = detail?.groupCount ?? groups.length;
-
   const lookup = catalogLookupMessage({
     isPending,
     isError,
@@ -251,13 +250,11 @@ function TopicPage() {
           {canRecords ? <TabsTrigger value="data">Data</TabsTrigger> : null}
           <TabsTrigger value="partitions">
             Partitions
-            <span className="numeric ml-1.5 text-muted-foreground">
-              {detail?.partitions.length ?? 0}
-            </span>
+            <TabCount value={detail?.partitions.length} />
           </TabsTrigger>
           <TabsTrigger value="groups">
             Consumer groups
-            <span className="numeric ml-1.5 text-muted-foreground">{groupCount}</span>
+            <TabCount value={detail?.groupCount} />
           </TabsTrigger>
           {canConfigs ? <TabsTrigger value="config">Configuration</TabsTrigger> : null}
         </TabsList>

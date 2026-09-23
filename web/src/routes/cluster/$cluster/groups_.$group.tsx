@@ -9,6 +9,7 @@ import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
 import { PageHeader } from "@/components/page-header";
 import { Facts } from "@/components/facts";
+import { TabCount } from "@/components/tab-count";
 import { GroupStateBadge, Pill, TONE_TEXT } from "@/components/status";
 import { lagTone } from "@/lib/tone";
 import { cn } from "@/lib/utils";
@@ -256,11 +257,11 @@ function ConsumerGroupPage() {
         >
           <TabsTrigger value="offsets">
             Offsets
-            <span className="numeric ml-1.5 text-muted-foreground">{offsets.length}</span>
+            <TabCount value={isPending ? undefined : offsets.length} />
           </TabsTrigger>
           <TabsTrigger value="members">
             Members
-            <span className="numeric ml-1.5 text-muted-foreground">{members.length}</span>
+            <TabCount value={isPending ? undefined : members.length} />
           </TabsTrigger>
         </TabsList>
 
