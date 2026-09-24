@@ -122,7 +122,6 @@ export type AclFilter = Exclude<keyof AclsSearch, "q">;
 
 export const loginSearch = z.object({
   error: z.catch(z.optional(z.string()), undefined),
-  from: oneOf(["callback"]),
 });
 
 export type LoginSearch = z.output<typeof loginSearch>;

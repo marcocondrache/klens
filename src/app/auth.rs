@@ -397,7 +397,7 @@ async fn callback(
     }
 
     tracing::info!(sub = %user.sub, "oidc login succeeded");
-    Redirect::to("/login?from=callback").into_response()
+    Redirect::to("/").into_response()
 }
 
 async fn logout(mut auth_session: AuthSession) -> impl IntoResponse {
@@ -781,10 +781,7 @@ mod tests {
         .await;
 
         assert!(callback.status().is_redirection());
-        assert_eq!(
-            callback.headers().get(header::LOCATION).unwrap(),
-            "/login?from=callback"
-        );
+        assert_eq!(callback.headers().get(header::LOCATION).unwrap(), "/");
         let session_cookie = cookie_header(&callback);
         assert!(session_cookie.contains(SESSION_COOKIE));
 

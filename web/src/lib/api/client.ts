@@ -52,18 +52,11 @@ export function resourceId(id: string): string {
     .join("/");
 }
 
-export const LOGIN_PATH = "/login";
-
-export const SIGN_IN_PATH = apiPath("/auth/login");
-
-function redirectToSignIn(): void {
-  if (window.location.pathname === LOGIN_PATH) return;
-  window.location.assign(SIGN_IN_PATH);
-}
-
 function redirectIfUnauthorized(status: number): void {
   if (status !== 401) return;
-  redirectToSignIn();
+  if (window.location.pathname !== "/login") {
+    window.location.assign("/login");
+  }
   throw new ApiError("Unauthorized", 401, "UNAUTHORIZED");
 }
 
@@ -175,7 +168,9 @@ export async function* events(
 
 export function streamError(data: string): ApiError {
   const body = JSON.parse(data) as { error: string; code: string };
-  if (body.code === "SESSION_EXPIRED") redirectToSignIn();
+  if (body.code === "SESSION_EXPIRED" && window.location.pathname !== "/login") {
+    window.location.assign("/login");
+  }
   return new ApiError(body.error, 0, body.code);
 }
 
