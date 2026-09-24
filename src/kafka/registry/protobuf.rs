@@ -113,13 +113,7 @@ fn nth_message(
         .ok_or(ProtobufError::IndexOutOfRange { index, scope })
 }
 
-/// Drops the backslash from escapes protox doesn't know, such as `\.`.
-///
-/// Confluent's registry renders schemas through Wire, which prints option
-/// strings without escaping them, so regexes like those in buf's
-/// `validate.proto` come back with escapes that protoc and protox reject.
-/// Wire reads such an escape as the bare character. Outside string literals
-/// a backslash can only sit in a comment, where dropping it is harmless.
+// Wire-based registries serve escapes like `\.` that protox rejects; should be fixed upstream.
 fn drop_unknown_escapes(source: &str) -> String {
     let mut kept = String::with_capacity(source.len());
     let mut chars = source.chars();
