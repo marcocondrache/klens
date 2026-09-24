@@ -1,0 +1,15 @@
+[changelog]
+body = """
+{% for commit in commits %}
+* {{ commit.raw_message | split(pat="\n") | first }} ({{ commit.id }})
+{%- endfor %}
+"""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = false
+commit_parsers = [{ message = ".*" }]
+
+[bump]
+initial_tag = "v0.1.0"
