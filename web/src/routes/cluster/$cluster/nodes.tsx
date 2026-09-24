@@ -91,10 +91,15 @@ function NodesPage() {
   const cluster = useClusterName();
   const navigate = Route.useNavigate();
   const { can } = useAccess();
-  // The broker page only adds live configs, so without that grant there is nowhere to go.
-  const canConfigs = can(cluster, "CONFIGS");
   const { data: brokers = [], isPending, isError, error } = useBrokerRows(cluster);
   const { data: health } = useClusterHealth(cluster);
+
+  function openBroker(broker: BrokerRow) {
+    void navigate({
+      to: "/cluster/$cluster/nodes/$id",
+      params: { cluster, id: String(broker.id) },
+    });
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
@@ -115,16 +120,7 @@ function NodesPage() {
         loading={isPending}
         error={isError ? apiErrorMessage(error, "Failed to load brokers.") : undefined}
         defaultSort={{ id: "id", direction: "asc" }}
-        onRowClick={
-          canConfigs
-            ? (broker) => {
-                void navigate({
-                  to: "/cluster/$cluster/nodes/$id",
-                  params: { cluster, id: String(broker.id) },
-                });
-              }
-            : undefined
-        }
+        onRowClick={can(cluster, "CONFIGS") ? openBroker : undefined}
         fill
       />
     </div>
