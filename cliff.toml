@@ -1,21 +1,10 @@
 [changelog]
 body = """
-{%- set repo = "https://github.com/marcocondrache/klens" -%}
-{% if version -%}
-  {% if previous.version -%}
-    ## [{{ version | trim_start_matches(pat="v") }}]({{ repo }}/compare/{{ previous.version }}...{{ version }}) ({{ timestamp | date(format="%Y-%m-%d") }})
-  {% else -%}
-    ## {{ version | trim_start_matches(pat="v") }} ({{ timestamp | date(format="%Y-%m-%d") }})
-  {% endif -%}
-{% endif -%}
 {% for group, commits in commits | group_by(attribute="group") %}
 ### {{ group | striptags | trim }}
 {% for commit in commits %}
-* {% if commit.scope %}**{{ commit.scope }}:** {% endif %}\
-  {% if commit.breaking %}[**breaking**] {% endif %}\
-  {{ commit.message | split(pat="\n") | first | trim }} \
-  ([{{ commit.id | truncate(length=7, end="") }}]({{ repo }}/commit/{{ commit.id }}))\
-{% endfor %}
+* {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | split(pat="\n") | first }} ({{ commit.id }})
+{%- endfor %}
 {% endfor %}
 """
 trim = true
@@ -23,25 +12,11 @@ trim = true
 [git]
 conventional_commits = true
 filter_unconventional = true
-split_commits = false
-protect_breaking_commits = true
-filter_commits = true
-tag_pattern = "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
-topo_order = false
-sort_commits = "oldest"
-commit_preprocessors = [
-  { pattern = '\(#([0-9]+)\)', replace = "([#${1}](https://github.com/marcocondrache/klens/issues/${1}))" },
-]
 commit_parsers = [
-  { message = "^feat", group = "<!-- 0 -->Features" },
-  { message = "^fix", group = "<!-- 1 -->Bug Fixes" },
-  { message = "^perf", group = "<!-- 2 -->Performance Improvements" },
-  { message = "^revert", group = "<!-- 3 -->Reverts" },
-  { field = "breaking", pattern = "true", group = "<!-- 4 -->Breaking Changes" },
+  { field = "breaking", pattern = "true", group = "<!-- 0 -->Breaking Changes" },
+  { message = "^feat", group = "<!-- 1 -->Features" },
+  { message = "^fix", group = "<!-- 2 -->Bug Fixes" },
+  { message = "^perf", group = "<!-- 3 -->Performance Improvements" },
+  { message = "^revert", group = "<!-- 4 -->Reverts" },
   { body = ".*", skip = true },
 ]
-
-[bump]
-initial_tag = "v0.1.0"
-features_always_bump_minor = true
-breaking_always_bump_major = true
