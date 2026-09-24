@@ -1,5 +1,5 @@
 import { CrownIcon } from "lucide-react";
-import { createFileRoute } from "@tanstack/react-router";
+import { Navigate, createFileRoute } from "@tanstack/react-router";
 
 import { ConfigTable } from "@/components/config-table";
 import { CopyButton } from "@/components/copy-button";
@@ -37,7 +37,7 @@ function NodePage() {
   const { id } = Route.useParams();
   const brokerId = Number(id);
 
-  const { can } = useAccess();
+  const { ready, can } = useAccess();
   const canConfigs = can(cluster, "CONFIGS");
   const { data: broker } = useBroker(cluster, brokerId);
   const { data: configs = [], isPending: configsPending } = useBrokerConfigs(
@@ -45,6 +45,10 @@ function NodePage() {
     brokerId,
     canConfigs,
   );
+
+  if (ready && !canConfigs) {
+    return <Navigate to="/cluster/$cluster/nodes" params={{ cluster }} replace />;
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
@@ -66,13 +70,7 @@ function NodePage() {
         }
       />
 
-      {canConfigs ? (
-        <ConfigTable entries={configs} loading={configsPending} fill />
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          Live broker configuration is not available for your role.
-        </p>
-      )}
+      <ConfigTable entries={configs} loading={configsPending} fill />
     </div>
   );
 }

@@ -47,11 +47,17 @@ export function CommandPalette({
   const section = useActiveSection();
   const { can } = useAccess();
   const sections = visibleSections(can(cluster, "ACLS"));
+  const canBrokerPage = can(cluster, "CONFIGS");
   const [term, setTerm] = useState("");
   const searching = term.trim().length > 0;
 
-  function goHref(href: string) {
-    void navigate({ href });
+  function goHit(hit: SearchHit) {
+    // Without live configs the broker page has nothing to show, so land on the broker list.
+    if (hit.kind === "NODE" && !canBrokerPage) {
+      void navigate({ to: "/cluster/$cluster/nodes", params: { cluster } });
+      return;
+    }
+    void navigate({ href: hit.href });
   }
 
   const { data: clusters = [] } = useClusters();
@@ -105,7 +111,7 @@ export function CommandPalette({
                   <CommandItem
                     key={result.href}
                     value={result.href}
-                    onSelect={() => run(() => goHref(result.href))}
+                    onSelect={() => run(() => goHit(result))}
                     className="min-w-0"
                   >
                     <Icon className="text-muted-foreground" />
