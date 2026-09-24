@@ -49,8 +49,6 @@ jobs:
             exit 0
           fi
 
-          # Release tags point at a version-bump commit on top of SHA that no
-          # branch carries, so the plain history walk never sees them.
           next="$(git cliff --unreleased --bumped-version)"
 
           if git rev-parse -q --verify "refs/tags/${next}" >/dev/null; then
