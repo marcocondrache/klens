@@ -52,12 +52,7 @@ jobs:
           next="$(git cliff --bumped-version)"
 
           if git rev-parse -q --verify "refs/tags/${next}" >/dev/null; then
-            if git merge-base --is-ancestor "${next}" "${SHA}"; then
-              echo "Nothing to release since ${next}."
-              echo "new_release_published=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-            echo "::error::${next} already exists but is not an ancestor of ${SHA}."
+            echo "::error::${next} already exists."
             exit 1
           fi
 
