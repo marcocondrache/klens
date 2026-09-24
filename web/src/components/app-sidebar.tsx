@@ -11,19 +11,15 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar";
-import { GithubIcon } from "@/components/icons";
+import { BuildLinks } from "@/components/build-links";
 import { LogoMark } from "@/components/logo";
 import { NavMain } from "@/components/nav-main";
-import { NavSecondary } from "@/components/nav-secondary";
 import { NavUser } from "@/components/nav-user";
 import { useAccess } from "@/hooks/use-access";
 import { useAuth } from "@/hooks/use-auth";
 import { useClusterHealth } from "@/lib/api/catalog";
-import { REPO_URL } from "@/lib/build";
 import { useClusterName } from "@/lib/clusters";
 import { visibleSections } from "@/lib/sections";
-
-const NAV_SECONDARY = [{ title: "GitHub", url: REPO_URL, icon: <GithubIcon /> }];
 
 export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
   const cluster = useClusterName();
@@ -65,14 +61,11 @@ export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
             nodes: topology?.brokerCount,
           }}
         />
-        {/* Signed in, the account menu carries the link; a lone row above it looks orphaned. */}
-        {user ? null : <NavSecondary items={NAV_SECONDARY} className="mt-auto" />}
       </SidebarContent>
-      {user ? (
-        <SidebarFooter>
-          <NavUser user={user} />
-        </SidebarFooter>
-      ) : null}
+      <SidebarFooter>
+        {user ? <NavUser user={user} /> : null}
+        <BuildLinks className="py-1 group-data-[collapsible=icon]:hidden" />
+      </SidebarFooter>
       <SidebarRail />
     </Sidebar>
   );
