@@ -1,6 +1,6 @@
 [package]
 name = "klens"
-version = "0.1.0"
+version = "0.0.0-dev"
 edition = "2024"
 publish = false
 

@@ -33,7 +33,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          persist-credentials: false
+          persist-credentials: true
           ref: ${{ github.event.workflow_run.head_sha }}
       - name: Install git-cliff
         uses: taiki-e/install-action@38b1fd13a590e3952f526bee6fb646afed8301a1 # git-cliff
@@ -49,7 +49,7 @@ jobs:
             exit 0
           fi
 
-          next="$(git cliff --bumped-version)"
+          next="$(git cliff --unreleased --bumped-version)"
 
           if git rev-parse -q --verify "refs/tags/${next}" >/dev/null; then
             echo "::error::${next} already exists."
@@ -59,13 +59,33 @@ jobs:
           notes="${RUNNER_TEMP}/release-notes.md"
           errors="${RUNNER_TEMP}/release-errors.txt"
           git cliff --unreleased --strip all --output "${notes}"
-          until gh release create "${next}" \
-            --target "${SHA}" \
-            --title "${next}" \
-            --notes-file "${notes}" 2> "${errors}"; do
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          tag_release() {
+            local version="${1#v}"
+            git checkout --quiet --detach "${SHA}"
+            sed -i "0,/^version = .*/s//version = \"${version}\"/" Cargo.toml
+            sed -i "/^name = \"klens\"$/{n;s/^version = .*/version = \"${version}\"/}" Cargo.lock
+            git commit --quiet --all --message "chore(release): ${1}"
+            git tag "${1}"
+          }
+
+          while true; do
+            tag_release "${next}"
+            if git push --quiet origin "refs/tags/${next}" 2> "${errors}" &&
+              gh release create "${next}" \
+                --verify-tag \
+                --title "${next}" \
+                --notes-file "${notes}" 2> "${errors}"; then
+              break
+            fi
             cat "${errors}" >&2
-            grep -q 'used by an immutable release' "${errors}" || exit 1
+            grep -q 'immutable release' "${errors}" || exit 1
             echo "::warning::${next} belonged to a deleted immutable release, trying the next patch."
+            git push --quiet --delete origin "refs/tags/${next}" || true
+            git tag --delete "${next}"
             IFS=. read -r major minor patch <<< "${next#v}"
             next="v${major}.${minor}.$((patch + 1))"
           done
