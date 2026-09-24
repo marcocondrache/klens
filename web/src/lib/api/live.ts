@@ -19,11 +19,11 @@ export function useAcls(cluster: string, enabled = true) {
   });
 }
 
-export function useBrokerConfigs(cluster: string, id: number, enabled = true) {
+export function useBrokerConfigs(cluster: string, id: number) {
   return useQuery({
     queryKey: keys.brokerConfigs(cluster, id),
     queryFn: () => get<ConfigEntry[]>(clusterPathname(cluster, "brokers", String(id), "configs")),
-    enabled: enabled && Number.isFinite(id),
+    enabled: Number.isFinite(id),
   });
 }
 

@@ -1,5 +1,5 @@
 import { CrownIcon } from "lucide-react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 import { ConfigTable } from "@/components/config-table";
 import { CopyButton } from "@/components/copy-button";
@@ -8,12 +8,18 @@ import { PageHeader } from "@/components/page-header";
 import { Pill } from "@/components/status";
 import { useBroker } from "@/lib/api/catalog";
 import { useBrokerConfigs } from "@/lib/api/live";
-import { useAccess } from "@/hooks/use-access";
+import { hasPrivilege, whoamiQuery } from "@/hooks/use-access";
 import { useClusterName } from "@/lib/clusters";
 import { formatNumber } from "@/lib/format";
 import type { BrokerRow } from "@/lib/api/types";
 
 export const Route = createFileRoute("/cluster/$cluster/nodes_/$id")({
+  beforeLoad: async ({ context, params }) => {
+    const identity = await context.queryClient.ensureQueryData(whoamiQuery).catch(() => undefined);
+    if (!hasPrivilege(identity, params.cluster, "CONFIGS")) {
+      throw redirect({ to: "/cluster/$cluster/nodes", params, replace: true });
+    }
+  },
   component: NodePage,
 });
 
@@ -37,14 +43,8 @@ function NodePage() {
   const { id } = Route.useParams();
   const brokerId = Number(id);
 
-  const { can } = useAccess();
-  const canConfigs = can(cluster, "CONFIGS");
   const { data: broker } = useBroker(cluster, brokerId);
-  const { data: configs = [], isPending: configsPending } = useBrokerConfigs(
-    cluster,
-    brokerId,
-    canConfigs,
-  );
+  const { data: configs = [], isPending: configsPending } = useBrokerConfigs(cluster, brokerId);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
@@ -66,13 +66,7 @@ function NodePage() {
         }
       />
 
-      {canConfigs ? (
-        <ConfigTable entries={configs} loading={configsPending} fill />
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          Live broker configuration is not available for your role.
-        </p>
-      )}
+      <ConfigTable entries={configs} loading={configsPending} fill />
     </div>
   );
 }

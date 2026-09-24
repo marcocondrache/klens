@@ -9,6 +9,7 @@ import { type DataTableFeatures } from "@/components/data-table/features";
 import { LaneCaption } from "@/components/lane-caption";
 import { PageHeader } from "@/components/page-header";
 import { Pill } from "@/components/status";
+import { useAccess } from "@/hooks/use-access";
 import { useBrokerRows, useClusterHealth } from "@/lib/api/catalog";
 import { useClusterName } from "@/lib/clusters";
 import { apiErrorMessage } from "@/lib/api/client";
@@ -89,8 +90,16 @@ const columns = columnHelper.columns([
 function NodesPage() {
   const cluster = useClusterName();
   const navigate = Route.useNavigate();
+  const { can } = useAccess();
   const { data: brokers = [], isPending, isError, error } = useBrokerRows(cluster);
   const { data: health } = useClusterHealth(cluster);
+
+  function openBroker(broker: BrokerRow) {
+    void navigate({
+      to: "/cluster/$cluster/nodes/$id",
+      params: { cluster, id: String(broker.id) },
+    });
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
@@ -111,12 +120,7 @@ function NodesPage() {
         loading={isPending}
         error={isError ? apiErrorMessage(error, "Failed to load brokers.") : undefined}
         defaultSort={{ id: "id", direction: "asc" }}
-        onRowClick={(broker) => {
-          void navigate({
-            to: "/cluster/$cluster/nodes/$id",
-            params: { cluster, id: String(broker.id) },
-          });
-        }}
+        onRowClick={can(cluster, "CONFIGS") ? openBroker : undefined}
         fill
       />
     </div>
