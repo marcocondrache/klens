@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 
+import { BuildLinks } from "@/components/build-links";
 import { LoginCover } from "@/components/login-cover";
 import { LoginForm } from "@/components/login-form";
 import { ModeToggle } from "@/components/mode-toggle";
-import { RELEASE_URL, REPO_URL, VERSION } from "@/lib/build";
 import { loginSearch } from "@/lib/route-search";
 
 export const Route = createFileRoute("/login")({
@@ -24,21 +24,8 @@ function LoginPage() {
         <LoginForm className="w-full max-w-xs" />
       </main>
 
-      <footer className="relative flex items-center justify-center gap-2 p-6 text-xs text-muted-foreground">
-        <a
-          href={RELEASE_URL}
-          target="_blank"
-          rel="noreferrer"
-          className="numeric hover:text-foreground"
-        >
-          v{VERSION}
-        </a>
-        <span aria-hidden className="text-muted-foreground/40">
-          ·
-        </span>
-        <a href={REPO_URL} target="_blank" rel="noreferrer" className="hover:text-foreground">
-          GitHub
-        </a>
+      <footer className="relative p-6">
+        <BuildLinks />
       </footer>
     </div>
   );
