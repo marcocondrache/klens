@@ -39,7 +39,7 @@ struct MemoryResolver {
 impl FileResolver for MemoryResolver {
     fn open_file(&self, name: &str) -> Result<File, protox::Error> {
         match self.files.get(name) {
-            Some(source) => File::from_source(name, source),
+            Some(source) => File::from_source(name, &drop_unknown_escapes(source)),
             None => Err(protox::Error::file_not_found(name)),
         }
     }
@@ -111,6 +111,24 @@ fn nth_message(
     messages
         .nth(index as usize)
         .ok_or(ProtobufError::IndexOutOfRange { index, scope })
+}
+
+// Wire-based registries serve escapes like `\.` that protox rejects; should be fixed upstream.
+fn drop_unknown_escapes(source: &str) -> String {
+    let mut kept = String::with_capacity(source.len());
+    let mut chars = source.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            kept.push(c);
+            continue;
+        }
+        let Some(escaped) = chars.next() else { break };
+        if r#"abfnrtv?\'"01234567xXuU"#.contains(escaped) {
+            kept.push('\\');
+        }
+        kept.push(escaped);
+    }
+    kept
 }
 
 #[cfg(test)]
@@ -194,6 +212,49 @@ mod tests {
         let payload = indexed(&[0], b"\x0a\x06\x0a\x04OPEN");
         let json: serde_json::Value = codec.decode_framed(&payload).unwrap();
         assert_eq!(json["status"]["code"], "OPEN");
+    }
+
+    #[test]
+    fn compiles_references_with_escapes_protox_rejects() {
+        // A rule from buf's validate.proto as Confluent's registry serves it.
+        let validate = r#"
+            syntax = "proto2";
+            package buf.validate;
+            import "google/protobuf/descriptor.proto";
+            message Rule {
+                optional string expression = 3;
+            }
+            message StringRules {
+                optional bool protobuf_fqn = 37 [(predefined) = {
+                    expression: "this.matches('^[A-Za-z_][A-Za-z_0-9]*(\.[A-Za-z_][A-Za-z_0-9]*)*$')"
+                }];
+            }
+            extend google.protobuf.FieldOptions {
+                optional Rule predefined = 1160;
+            }
+        "#;
+        let root = r#"
+            syntax = "proto3";
+            import "buf/validate/validate.proto";
+            message Metric {
+                string id = 1;
+            }
+        "#;
+        let codec = ProtobufCodec::compile(
+            root,
+            &[("buf/validate/validate.proto".into(), validate.into())],
+        )
+        .unwrap();
+        let json: serde_json::Value = codec.decode_raw(b"\x0a\x02ab").unwrap();
+        assert_eq!(json["id"], "ab");
+    }
+
+    #[test]
+    fn drops_the_backslash_only_from_escapes_protox_rejects() {
+        assert_eq!(
+            drop_unknown_escapes(r#"x = "(\.[a-z]+)\d \\. \" \' \n \x2e \056 .";"#),
+            r#"x = "(.[a-z]+)d \\. \" \' \n \x2e \056 .";"#
+        );
     }
 
     #[test]
