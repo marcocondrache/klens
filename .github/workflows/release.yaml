@@ -43,19 +43,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          # CI runs on main can finish out of order: a newer commit's release
-          # may already include this one.
           if [[ -n "$(git tag --list 'v*' --contains "${SHA}")" ]]; then
             echo "${SHA} is already part of a release."
             echo "new_release_published=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          # With no v* tag yet, git-cliff falls back to bump.initial_tag in cliff.toml.
           next="$(git cliff --bumped-version)"
 
-          # git-cliff answers with the latest tag when nothing since it cuts a
-          # release (only chore, refactor, docs, ...), which includes reruns.
           if git rev-parse -q --verify "refs/tags/${next}" >/dev/null; then
             if git merge-base --is-ancestor "${next}" "${SHA}"; then
               echo "Nothing to release since ${next}."
