@@ -57,11 +57,18 @@ jobs:
           fi
 
           notes="${RUNNER_TEMP}/release-notes.md"
-          git cliff --unreleased --tag "${next}" --strip all --output "${notes}"
-          gh release create "${next}" \
+          errors="${RUNNER_TEMP}/release-errors.txt"
+          git cliff --unreleased --strip all --output "${notes}"
+          until gh release create "${next}" \
             --target "${SHA}" \
             --title "${next}" \
-            --notes-file "${notes}"
+            --notes-file "${notes}" 2> "${errors}"; do
+            cat "${errors}" >&2
+            grep -q 'used by an immutable release' "${errors}" || exit 1
+            echo "::warning::${next} belonged to a deleted immutable release, trying the next patch."
+            IFS=. read -r major minor patch <<< "${next#v}"
+            next="v${major}.${minor}.$((patch + 1))"
+          done
 
           echo "new_release_published=true" >> "$GITHUB_OUTPUT"
           echo "new_release_version=${next#v}" >> "$GITHUB_OUTPUT"
