@@ -347,8 +347,6 @@ fn partitions_by_topic(partitions: &[(String, i32)]) -> HashMap<String, Vec<i32>
     topics
 }
 
-/// krafka rejects the whole request if any one topic name is illegal, so
-/// those are left out rather than failing every partition alongside them.
 fn list_offset_query(topics: &HashMap<String, Vec<i32>>) -> Vec<(&str, &[i32])> {
     topics
         .iter()

@@ -101,9 +101,6 @@ fn assignments_from_krafka(assigned: Vec<TopicPartitionAssignment>) -> Vec<Membe
         .collect()
 }
 
-/// Some clients commit offsets under an empty or otherwise illegal topic
-/// name. Kafka keeps them, but krafka refuses such a name in any request, so
-/// one of them would fail every later batch it joins.
 pub(super) fn committed_from_krafka(entries: Vec<GroupOffsetEntry>) -> Vec<CommittedOffset> {
     entries
         .into_iter()
