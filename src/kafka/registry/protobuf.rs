@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use prost_reflect::{DynamicMessage, MessageDescriptor};
@@ -39,7 +40,7 @@ struct MemoryResolver {
 impl FileResolver for MemoryResolver {
     fn open_file(&self, name: &str) -> Result<File, protox::Error> {
         match self.files.get(name) {
-            Some(source) => File::from_source(name, source),
+            Some(source) => File::from_source(name, &drop_unknown_escapes(source)),
             None => Err(protox::Error::file_not_found(name)),
         }
     }
@@ -111,6 +112,68 @@ fn nth_message(
     messages
         .nth(index as usize)
         .ok_or(ProtobufError::IndexOutOfRange { index, scope })
+}
+
+/// Drops the backslash from string-literal escapes protox doesn't know, such
+/// as `\.`, reading them the way Wire does.
+///
+/// Confluent's registry renders schemas through Wire, which prints option
+/// strings without escaping them, so regexes like those in buf's
+/// `validate.proto` come back with escapes that protoc and protox reject.
+fn drop_unknown_escapes(source: &str) -> Cow<'_, str> {
+    let bytes = source.as_bytes();
+    let mut scan = bytes.iter().copied().enumerate();
+    let mut quote = None;
+    let mut unknown = Vec::new();
+
+    while let Some((at, byte)) = scan.next() {
+        match (quote, byte, bytes.get(at + 1).copied()) {
+            (None, b'/', Some(b'/')) => {
+                scan.find(|&(_, byte)| byte == b'\n');
+            }
+            (None, b'/', Some(b'*')) => {
+                scan.next();
+                scan.find(|&(end, _)| bytes[end..].starts_with(b"*/"));
+                scan.next();
+            }
+            (None, b'"' | b'\'', _) => quote = Some(byte),
+            (Some(open), _, _) if byte == open || byte == b'\n' => quote = None,
+            (Some(_), b'\\', _) if is_escape(&bytes[at + 1..]) => {
+                scan.next();
+            }
+            (Some(_), b'\\', _) => unknown.push(at),
+            _ => {}
+        }
+    }
+
+    if unknown.is_empty() {
+        return Cow::Borrowed(source);
+    }
+    let mut kept = String::with_capacity(source.len());
+    let mut from = 0;
+    for backslash in unknown {
+        kept.push_str(&source[from..backslash]);
+        from = backslash + 1;
+    }
+    kept.push_str(&source[from..]);
+    Cow::Owned(kept)
+}
+
+/// Whether a backslash followed by `rest` starts an escape sequence protox
+/// knows.
+fn is_escape(rest: &[u8]) -> bool {
+    let hex = |digits: usize| {
+        rest.get(1..=digits)
+            .is_some_and(|run| run.iter().all(u8::is_ascii_hexdigit))
+    };
+    match rest.first() {
+        Some(b'a' | b'b' | b'f' | b'n' | b'r' | b't' | b'v' | b'?' | b'\\' | b'\'' | b'"') => true,
+        Some(b'0'..=b'7') => true,
+        Some(b'x' | b'X') => hex(1),
+        Some(b'u') => hex(4),
+        Some(b'U') => hex(8),
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -194,6 +257,65 @@ mod tests {
         let payload = indexed(&[0], b"\x0a\x06\x0a\x04OPEN");
         let json: serde_json::Value = codec.decode_framed(&payload).unwrap();
         assert_eq!(json["status"]["code"], "OPEN");
+    }
+
+    #[test]
+    fn compiles_references_with_escapes_protox_rejects() {
+        // A rule from buf's validate.proto as Confluent's registry serves it.
+        let validate = r#"
+            syntax = "proto2";
+            package buf.validate;
+            import "google/protobuf/descriptor.proto";
+            message Rule {
+                optional string expression = 3;
+            }
+            message StringRules {
+                optional bool protobuf_fqn = 37 [(predefined) = {
+                    expression: "this.matches('^[A-Za-z_][A-Za-z_0-9]*(\.[A-Za-z_][A-Za-z_0-9]*)*$')"
+                }];
+            }
+            extend google.protobuf.FieldOptions {
+                optional Rule predefined = 1160;
+            }
+        "#;
+        let root = r#"
+            syntax = "proto3";
+            import "buf/validate/validate.proto";
+            message Metric {
+                string id = 1;
+            }
+        "#;
+        let codec = ProtobufCodec::compile(
+            root,
+            &[("buf/validate/validate.proto".into(), validate.into())],
+        )
+        .unwrap();
+        let json: serde_json::Value = codec.decode_raw(b"\x0a\x02ab").unwrap();
+        assert_eq!(json["id"], "ab");
+    }
+
+    #[test]
+    fn drops_the_backslash_only_from_escapes_protox_rejects() {
+        for (source, expected) in [
+            (
+                r#"x = "^\.[a-z]+(\.[a-z]+)*$";"#,
+                r#"x = "^.[a-z]+(.[a-z]+)*$";"#,
+            ),
+            (
+                r#"x = '\d it\'s "\w" \u{2e}';"#,
+                r#"x = 'd it\'s "w" u{2e}';"#,
+            ),
+            (
+                r#"x = "\\. \" \' \x2e \056 \u002e \U0000002e \a\?";"#,
+                r#"x = "\\. \" \' \x2e \056 \u002e \U0000002e \a\?";"#,
+            ),
+            (
+                "// it's \\.\n/* \" \\. */ x = \"\\.\"; // it's \\.",
+                "// it's \\.\n/* \" \\. */ x = \".\"; // it's \\.",
+            ),
+        ] {
+            assert_eq!(drop_unknown_escapes(source), expected);
+        }
     }
 
     #[test]
