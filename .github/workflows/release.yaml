@@ -17,15 +17,13 @@ defaults:
     shell: bash -euxo pipefail {0}
 
 jobs:
-  semantic-release:
-    name: semantic-release
+  release:
+    name: release
     if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
-      issues: write
-      pull-requests: write
     outputs:
       new_release_published: ${{ steps.release.outputs.new_release_published }}
       new_release_version: ${{ steps.release.outputs.new_release_version }}
@@ -35,43 +33,53 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          persist-credentials: true
+          persist-credentials: false
           ref: ${{ github.event.workflow_run.head_sha }}
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Setup bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-      - name: Bootstrap or release
+      - name: Install git-cliff
+        uses: taiki-e/install-action@38b1fd13a590e3952f526bee6fb646afed8301a1 # git-cliff
+      - name: Release
         id: release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          git checkout -B main
-
-          if [[ -z "$(git tag -l 'v*')" ]]; then
-            gh release create v0.1.0 \
-              --target "${{ github.event.workflow_run.head_sha }}" \
-              --title "v0.1.0" \
-              --notes "Initial release."
-            echo "new_release_published=true" >> "$GITHUB_OUTPUT"
-            echo "new_release_version=0.1.0" >> "$GITHUB_OUTPUT"
+          # CI runs on main can finish out of order: a newer commit's release
+          # may already include this one.
+          if [[ -n "$(git tag --list 'v*' --contains "${SHA}")" ]]; then
+            echo "${SHA} is already part of a release."
+            echo "new_release_published=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          PREFIX="${RUNNER_TEMP}/semantic-release"
-          mkdir -p "$PREFIX"
-          bun add --cwd "$PREFIX" \
-            semantic-release@25.0.9 \
-            @semantic-release/exec@7.1.0 \
-            @semantic-release/github@12.0.9 \
-            conventional-changelog-conventionalcommits@9.3.1 # writer@8 until semantic-release ships writer@9
-          export NODE_PATH="$PREFIX/node_modules${NODE_PATH:+:$NODE_PATH}"
-          bun "$PREFIX/node_modules/semantic-release/bin/semantic-release.js"
+          # With no v* tag yet, git-cliff falls back to bump.initial_tag in cliff.toml.
+          next="$(git cliff --bumped-version)"
+
+          # git-cliff answers with the latest tag when nothing since it cuts a
+          # release (only chore, refactor, docs, ...), which includes reruns.
+          if git rev-parse -q --verify "refs/tags/${next}" >/dev/null; then
+            if git merge-base --is-ancestor "${next}" "${SHA}"; then
+              echo "Nothing to release since ${next}."
+              echo "new_release_published=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "::error::${next} already exists but is not an ancestor of ${SHA}."
+            exit 1
+          fi
+
+          notes="${RUNNER_TEMP}/release-notes.md"
+          git cliff --unreleased --tag "${next}" --strip all --output "${notes}"
+          gh release create "${next}" \
+            --target "${SHA}" \
+            --title "${next}" \
+            --notes-file "${notes}"
+
+          echo "new_release_published=true" >> "$GITHUB_OUTPUT"
+          echo "new_release_version=${next#v}" >> "$GITHUB_OUTPUT"
 
   publish-image:
     name: publish
-    needs: semantic-release
-    if: needs.semantic-release.outputs.new_release_published == 'true'
+    needs: release
+    if: needs.release.outputs.new_release_published == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -82,16 +90,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: v${{ needs.semantic-release.outputs.new_release_version }}
+          ref: v${{ needs.release.outputs.new_release_version }}
       - uses: ./.github/actions/docker
         with:
-          version: ${{ needs.semantic-release.outputs.new_release_version }}
+          version: ${{ needs.release.outputs.new_release_version }}
           gh-token: ${{ secrets.GITHUB_TOKEN }}
 
   publish-chart:
     name: publish chart
-    needs: semantic-release
-    if: needs.semantic-release.outputs.new_release_published == 'true'
+    needs: release
+    if: needs.release.outputs.new_release_published == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -101,7 +109,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: v${{ needs.semantic-release.outputs.new_release_version }}
+          ref: v${{ needs.release.outputs.new_release_version }}
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
       - name: Log in to GHCR
@@ -112,7 +120,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Package and push the chart
         env:
-          VERSION: ${{ needs.semantic-release.outputs.new_release_version }}
+          VERSION: ${{ needs.release.outputs.new_release_version }}
         run: |
           dest="${RUNNER_TEMP}/chart"
           mkdir -p "$dest"
