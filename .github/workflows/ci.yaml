@@ -128,7 +128,7 @@ jobs:
         with:
           shared-key: tests
       - name: Install nextest
-        uses: taiki-e/install-action@4765db214858792ed289a2b5e543daf93d682a48 # nextest
+        uses: taiki-e/install-action@45fceba0fc176f41d2aee1ca9d6598ba628eea62 # nextest
       - name: Build
         run: cargo build --verbose
       - name: Run tests
@@ -187,7 +187,7 @@ jobs:
         with:
           toolchain: stable
       - name: Install cargo-audit
-        uses: taiki-e/install-action@e005faa9b83a29644003a1db5f758f5b74c6e489 # cargo-audit
+        uses: taiki-e/install-action@2d571382c7b464af7ff376ea32ba22cae327e9b6 # cargo-audit
       - name: Audit dependencies
         run: cargo audit
 
@@ -205,7 +205,7 @@ jobs:
         with:
           toolchain: stable
       - name: Install cargo-machete
-        uses: taiki-e/install-action@ee48562b893a70de347992ed45dae172cd7ffb3b # cargo-machete
+        uses: taiki-e/install-action@2f75f91d6c808d4bd9fc98a266f521904cf3ae80 # cargo-machete
       - name: Check unused dependencies
         run: cargo machete
 
@@ -234,9 +234,9 @@ jobs:
           shared-key: tests
           save-if: false
       - name: Install nextest
-        uses: taiki-e/install-action@4765db214858792ed289a2b5e543daf93d682a48 # nextest
+        uses: taiki-e/install-action@45fceba0fc176f41d2aee1ca9d6598ba628eea62 # nextest
       - name: Install cargo-mutants
-        uses: taiki-e/install-action@096f04c38d8f7f6e836e779ffe8436a87da15026 # cargo-mutants
+        uses: taiki-e/install-action@e0956f9d9dbb1e627ef0de00822045c6cd14c74e # cargo-mutants
       - name: Run cargo-mutants on the pull request diff
         env:
           CARGO_INCREMENTAL: 1
