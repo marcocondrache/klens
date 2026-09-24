@@ -5,6 +5,7 @@ use krafka::admin::{
     GroupOffsetEntry, TopicPartitionAssignment,
 };
 use krafka::metadata::{ClusterMetadata, TopicInfo as KrafkaTopicInfo};
+use krafka::protocol::validate_topic_name;
 
 use crate::kafka::group::{
     CommittedOffset, GroupMember, GroupSnapshot, GroupState, MemberAssignment,
@@ -103,14 +104,16 @@ fn assignments_from_krafka(assigned: Vec<TopicPartitionAssignment>) -> Vec<Membe
 pub(super) fn committed_from_krafka(entries: Vec<GroupOffsetEntry>) -> Vec<CommittedOffset> {
     entries
         .into_iter()
-        .filter_map(|entry| {
-            (entry.committed_offset >= 0).then_some(CommittedOffset {
-                topic: entry.topic,
-                partition: entry.partition,
-                offset: entry.committed_offset,
-            })
-        })
+        .filter_map(|entry| committed_offset(entry.topic, entry.partition, entry.committed_offset))
         .collect()
+}
+
+fn committed_offset(topic: String, partition: i32, offset: i64) -> Option<CommittedOffset> {
+    (offset >= 0 && validate_topic_name(&topic).is_ok()).then_some(CommittedOffset {
+        topic,
+        partition,
+        offset,
+    })
 }
 
 impl From<KrafkaConfigEntry> for ConfigEntry {
@@ -149,5 +152,20 @@ mod tests {
         assert_eq!(ConfigSource::from_krafka(0), ConfigSource::Default);
         assert_eq!(ConfigSource::from_krafka(6), ConfigSource::Default);
         assert_eq!(ConfigSource::from_krafka(-1), ConfigSource::Default);
+    }
+
+    #[test]
+    fn committed_offsets_drop_unset_offsets_and_illegal_topic_names() {
+        assert_eq!(
+            committed_offset("orders".into(), 1, 0),
+            Some(CommittedOffset {
+                topic: "orders".into(),
+                partition: 1,
+                offset: 0,
+            })
+        );
+        assert_eq!(committed_offset("orders".into(), 1, -1), None);
+        assert_eq!(committed_offset(String::new(), 1, 7), None);
+        assert_eq!(committed_offset("bad/name".into(), 1, 7), None);
     }
 }

@@ -155,12 +155,11 @@ impl ClusterSession for KafkaClient {
         group_id: &str,
         partitions: Option<&[(String, i32)]>,
     ) -> Result<Vec<CommittedOffset>, KafkaError> {
-        if partitions.is_some_and(<[_]>::is_empty) {
-            return Ok(Vec::new());
-        }
-
         let topics = partitions.map(partitions_by_topic);
         let query = topics.as_ref().map(list_offset_query);
+        if query.as_ref().is_some_and(Vec::is_empty) {
+            return Ok(Vec::new());
+        }
         let listed = self
             .transport
             .admin
@@ -178,11 +177,11 @@ impl ClusterSession for KafkaClient {
         &self,
         topics: &HashMap<String, Vec<i32>>,
     ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError> {
-        if topics.is_empty() {
+        let query = list_offset_query(topics);
+        if query.is_empty() {
             return Ok(HashMap::new());
         }
 
-        let query = list_offset_query(topics);
         let (beginning, end) = tokio::try_join!(
             self.transport
                 .admin
@@ -351,6 +350,7 @@ fn partitions_by_topic(partitions: &[(String, i32)]) -> HashMap<String, Vec<i32>
 fn list_offset_query(topics: &HashMap<String, Vec<i32>>) -> Vec<(&str, &[i32])> {
     topics
         .iter()
+        .filter(|(topic, _)| krafka::protocol::validate_topic_name(topic).is_ok())
         .map(|(topic, partitions)| (topic.as_str(), partitions.as_slice()))
         .collect()
 }
@@ -557,6 +557,40 @@ mod tests {
             .await
             .expect("time offsets");
         assert_eq!(offsets.get(&0), Some(&Some(0)));
+    }
+
+    #[tokio::test]
+    async fn an_illegal_topic_name_does_not_fail_the_other_watermarks() {
+        let broker = krafka::testing::FakeBroker::start()
+            .await
+            .expect("fake broker");
+        assert!(broker.create_topic("orders", 1));
+        produce_krafka(&broker.bootstrap_servers(), "orders", 1).await;
+
+        let client = kafka_client(&broker.bootstrap_servers()).await;
+        let mut topics = wanted("orders", &[0]);
+        topics.insert(String::new(), vec![0]);
+
+        let marks = client.watermarks(&topics).await.expect("watermarks");
+        assert_eq!(marks["orders"][&0], Watermarks { low: 0, high: 1 });
+        assert!(!marks.contains_key(""));
+
+        broker.clear_requests();
+        assert!(
+            client
+                .watermarks(&wanted("", &[0]))
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            client
+                .committed_offsets("unused", Some(&[(String::new(), 0)]))
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(broker.requests().is_empty());
     }
 
     #[tokio::test]
