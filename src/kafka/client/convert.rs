@@ -5,6 +5,7 @@ use krafka::admin::{
     GroupOffsetEntry, TopicPartitionAssignment,
 };
 use krafka::metadata::{ClusterMetadata, TopicInfo as KrafkaTopicInfo};
+use krafka::protocol::validate_topic_name;
 
 use crate::kafka::group::{
     CommittedOffset, GroupMember, GroupSnapshot, GroupState, MemberAssignment,
@@ -100,15 +101,17 @@ fn assignments_from_krafka(assigned: Vec<TopicPartitionAssignment>) -> Vec<Membe
         .collect()
 }
 
+/// Some clients commit offsets under an empty or otherwise illegal topic
+/// name. Kafka keeps them, but krafka refuses such a name in any request, so
+/// one of them would fail every later batch it joins.
 pub(super) fn committed_from_krafka(entries: Vec<GroupOffsetEntry>) -> Vec<CommittedOffset> {
     entries
         .into_iter()
-        .filter_map(|entry| {
-            (entry.committed_offset >= 0).then_some(CommittedOffset {
-                topic: entry.topic,
-                partition: entry.partition,
-                offset: entry.committed_offset,
-            })
+        .filter(|entry| entry.committed_offset >= 0 && validate_topic_name(&entry.topic).is_ok())
+        .map(|entry| CommittedOffset {
+            topic: entry.topic,
+            partition: entry.partition,
+            offset: entry.committed_offset,
         })
         .collect()
 }
