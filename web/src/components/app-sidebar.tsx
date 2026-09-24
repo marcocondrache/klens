@@ -30,6 +30,7 @@ export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
   const { can } = useAccess();
   const { data: auth } = useAuth();
   const { data: health } = useClusterHealth(cluster);
+  const user = auth?.enabled ? auth.user : null;
 
   const topology = health?.topology.updatedAt == null ? undefined : health;
   const subjects = health?.subjects.updatedAt == null ? undefined : health;
@@ -64,11 +65,12 @@ export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
             nodes: topology?.brokerCount,
           }}
         />
-        <NavSecondary items={NAV_SECONDARY} className="mt-auto" />
+        {/* Signed in, the account menu carries the link; a lone row above it looks orphaned. */}
+        {user ? null : <NavSecondary items={NAV_SECONDARY} className="mt-auto" />}
       </SidebarContent>
-      {auth?.enabled && auth.user ? (
+      {user ? (
         <SidebarFooter>
-          <NavUser user={auth.user} />
+          <NavUser user={user} />
         </SidebarFooter>
       ) : null}
       <SidebarRail />

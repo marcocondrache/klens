@@ -1,5 +1,6 @@
 import { ChevronsUpDownIcon, LogOutIcon } from "lucide-react";
 
+import { GithubIcon } from "@/components/icons";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -17,6 +18,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { displayName, initials, signOut, type AuthUser } from "@/lib/auth";
+import { REPO_URL } from "@/lib/build";
 
 export function NavUser({ user }: { user: AuthUser }) {
   const { isMobile } = useSidebar();
@@ -60,6 +62,13 @@ export function NavUser({ user }: { user: AuthUser }) {
               <DropdownMenuLabel className="p-0 font-normal text-foreground">
                 <div className="flex items-center gap-2 px-1 py-1.5">{identity}</div>
               </DropdownMenuLabel>
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              <DropdownMenuItem render={<a href={REPO_URL} target="_blank" rel="noreferrer" />}>
+                <GithubIcon />
+                GitHub
+              </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
