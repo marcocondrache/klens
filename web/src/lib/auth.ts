@@ -1,4 +1,4 @@
-import { apiPath } from "@/lib/api/client";
+import { apiPath, LOGIN_PATH } from "@/lib/api/client";
 
 export type AuthUser = {
   sub: string;
@@ -22,7 +22,7 @@ export async function fetchAuth(): Promise<AuthMe> {
 
 export async function signOut(): Promise<void> {
   await fetch(apiPath("/auth/logout"), { method: "POST", credentials: "include" });
-  window.location.assign("/login");
+  window.location.assign(LOGIN_PATH);
 }
 
 export function displayName(user: AuthUser): string {

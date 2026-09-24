@@ -4,12 +4,13 @@ import { useSearch } from "@tanstack/react-router";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { LogoMark } from "@/components/logo";
-import { apiPath } from "@/lib/api/client";
+import { SIGN_IN_PATH } from "@/lib/api/client";
+import type { LoginSearch } from "@/lib/route-search";
 import { cn } from "@/lib/utils";
 
 export function LoginForm({ className, ...props }: React.ComponentProps<"div">) {
-  const { error } = useSearch({ from: "/login" });
-  const forbidden = error === "forbidden";
+  const { error, from } = useSearch({ from: "/login" });
+  const alert = loginAlert(error, from);
 
   return (
     <div className={cn("flex flex-col items-center gap-6 text-center", className)} {...props}>
@@ -20,21 +21,37 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
           Inspect topics, records, consumer groups, brokers, and schemas.
         </p>
       </div>
-      {error ? (
+      {alert ? (
         <Alert variant="destructive" className="text-left">
           <CircleAlertIcon />
-          <AlertTitle>{forbidden ? "Access denied" : "Sign-in failed"}</AlertTitle>
-          <AlertDescription>
-            {forbidden
-              ? "Your account is not assigned a klens role."
-              : "Try again, or check the identity provider."}
-          </AlertDescription>
+          <AlertTitle>{alert.title}</AlertTitle>
+          <AlertDescription>{alert.description}</AlertDescription>
         </Alert>
       ) : null}
-      <Button size="lg" className="w-full" render={<a href={apiPath("/auth/login")} />}>
+      <Button size="lg" className="w-full" render={<a href={SIGN_IN_PATH} />}>
         <KeyRoundIcon data-icon="inline-start" />
         Continue with SSO
       </Button>
     </div>
   );
+}
+
+function loginAlert(
+  error: LoginSearch["error"],
+  from: LoginSearch["from"],
+): { title: string; description: string } | null {
+  if (error === "forbidden") {
+    return { title: "Access denied", description: "Your account is not assigned a klens role." };
+  }
+  if (error) {
+    return { title: "Sign-in failed", description: "Try again, or check the identity provider." };
+  }
+  if (from === "callback") {
+    return {
+      title: "Session not kept",
+      description:
+        "The identity provider signed you in, but klens did not keep the session. Check that the session cookie reaches klens.",
+    };
+  }
+  return null;
 }
