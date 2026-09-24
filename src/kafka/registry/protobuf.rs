@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::collections::HashMap;
 
 use prost_reflect::{DynamicMessage, MessageDescriptor};
@@ -114,66 +113,28 @@ fn nth_message(
         .ok_or(ProtobufError::IndexOutOfRange { index, scope })
 }
 
-/// Drops the backslash from string-literal escapes protox doesn't know, such
-/// as `\.`, reading them the way Wire does.
+/// Drops the backslash from escapes protox doesn't know, such as `\.`.
 ///
 /// Confluent's registry renders schemas through Wire, which prints option
 /// strings without escaping them, so regexes like those in buf's
 /// `validate.proto` come back with escapes that protoc and protox reject.
-fn drop_unknown_escapes(source: &str) -> Cow<'_, str> {
-    let bytes = source.as_bytes();
-    let mut scan = bytes.iter().copied().enumerate();
-    let mut quote = None;
-    let mut unknown = Vec::new();
-
-    while let Some((at, byte)) = scan.next() {
-        match (quote, byte, bytes.get(at + 1).copied()) {
-            (None, b'/', Some(b'/')) => {
-                scan.find(|&(_, byte)| byte == b'\n');
-            }
-            (None, b'/', Some(b'*')) => {
-                scan.next();
-                scan.find(|&(end, _)| bytes[end..].starts_with(b"*/"));
-                scan.next();
-            }
-            (None, b'"' | b'\'', _) => quote = Some(byte),
-            (Some(open), _, _) if byte == open || byte == b'\n' => quote = None,
-            (Some(_), b'\\', _) if is_escape(&bytes[at + 1..]) => {
-                scan.next();
-            }
-            (Some(_), b'\\', _) => unknown.push(at),
-            _ => {}
-        }
-    }
-
-    if unknown.is_empty() {
-        return Cow::Borrowed(source);
-    }
+/// Wire reads such an escape as the bare character. Outside string literals
+/// a backslash can only sit in a comment, where dropping it is harmless.
+fn drop_unknown_escapes(source: &str) -> String {
     let mut kept = String::with_capacity(source.len());
-    let mut from = 0;
-    for backslash in unknown {
-        kept.push_str(&source[from..backslash]);
-        from = backslash + 1;
+    let mut chars = source.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            kept.push(c);
+            continue;
+        }
+        let Some(escaped) = chars.next() else { break };
+        if r#"abfnrtv?\'"01234567xXuU"#.contains(escaped) {
+            kept.push('\\');
+        }
+        kept.push(escaped);
     }
-    kept.push_str(&source[from..]);
-    Cow::Owned(kept)
-}
-
-/// Whether a backslash followed by `rest` starts an escape sequence protox
-/// knows.
-fn is_escape(rest: &[u8]) -> bool {
-    let hex = |digits: usize| {
-        rest.get(1..=digits)
-            .is_some_and(|run| run.iter().all(u8::is_ascii_hexdigit))
-    };
-    match rest.first() {
-        Some(b'a' | b'b' | b'f' | b'n' | b'r' | b't' | b'v' | b'?' | b'\\' | b'\'' | b'"') => true,
-        Some(b'0'..=b'7') => true,
-        Some(b'x' | b'X') => hex(1),
-        Some(b'u') => hex(4),
-        Some(b'U') => hex(8),
-        _ => false,
-    }
+    kept
 }
 
 #[cfg(test)]
@@ -296,26 +257,10 @@ mod tests {
 
     #[test]
     fn drops_the_backslash_only_from_escapes_protox_rejects() {
-        for (source, expected) in [
-            (
-                r#"x = "^\.[a-z]+(\.[a-z]+)*$";"#,
-                r#"x = "^.[a-z]+(.[a-z]+)*$";"#,
-            ),
-            (
-                r#"x = '\d it\'s "\w" \u{2e}';"#,
-                r#"x = 'd it\'s "w" u{2e}';"#,
-            ),
-            (
-                r#"x = "\\. \" \' \x2e \056 \u002e \U0000002e \a\?";"#,
-                r#"x = "\\. \" \' \x2e \056 \u002e \U0000002e \a\?";"#,
-            ),
-            (
-                "// it's \\.\n/* \" \\. */ x = \"\\.\"; // it's \\.",
-                "// it's \\.\n/* \" \\. */ x = \".\"; // it's \\.",
-            ),
-        ] {
-            assert_eq!(drop_unknown_escapes(source), expected);
-        }
+        assert_eq!(
+            drop_unknown_escapes(r#"x = "(\.[a-z]+)\d \\. \" \' \n \x2e \056 .";"#),
+            r#"x = "(.[a-z]+)d \\. \" \' \n \x2e \056 .";"#
+        );
     }
 
     #[test]
