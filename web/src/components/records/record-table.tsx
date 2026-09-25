@@ -3,7 +3,6 @@ import {
   useTable,
   type Column,
   type ColumnDef,
-  type ColumnSizingState,
   type Header,
   type ReactTable,
   type RowData,
@@ -12,9 +11,8 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 
 import {
   ColumnResizeHandle,
-  MIN_COLUMN_WIDTH,
-  RESIZING_CLASS,
   resizedWidth,
+  resizeOptions,
 } from "@/components/data-table/column-resize";
 import { features, type DataTableFeatures } from "@/components/data-table/features";
 import { CLICKABLE_ROW, clickableRowProps } from "@/components/data-table/row-interaction";
@@ -38,7 +36,6 @@ const COLUMN_TRACK: Record<string, string> = {
   size: "5rem",
   timestamp: "11rem",
 };
-const FILL_COLUMN = "value";
 
 interface RecordTableProps<TData extends RowData> {
   columns: Array<ColumnDef<DataTableFeatures, TData>>;
@@ -91,15 +88,15 @@ export function RecordTable<TData extends RowData>({
     columns,
     getRowId,
     enableSorting: false,
-    columnResizeMode: "onChange",
-    defaultColumn: { minSize: MIN_COLUMN_WIDTH },
+    ...resizeOptions,
   });
 
   const rows = table.getRowModel().rows;
   const leafColumns = table.getAllLeafColumns();
-  const columnSizing = table.state.columnSizing;
-  const resizingColumn = table.state.columnResizing.isResizingColumn;
-  const gridTemplateColumns = gridTracks(leafColumns, columnSizing);
+  const sizing = table.state.columnSizing;
+  const gridTemplateColumns = leafColumns
+    .map((column) => resizedWidth(column, sizing) ?? COLUMN_TRACK[column.id] ?? "minmax(0,1fr)")
+    .join(" ");
   const loaderCount = hasNextPage || isFetchingNextPage || isFetchNextPageError ? 1 : 0;
   const count = rows.length + loaderCount;
 
@@ -169,10 +166,7 @@ export function RecordTable<TData extends RowData>({
             <div
               ref={scrollRef}
               data-slot="table-container"
-              className={cn(
-                "min-h-0 flex-1 overflow-auto [scrollbar-gutter:stable]",
-                resizingColumn && RESIZING_CLASS,
-              )}
+              className="min-h-0 flex-1 overflow-auto [scrollbar-gutter:stable]"
             >
               <HeaderRow table={table} gridTemplateColumns={gridTemplateColumns} sticky />
               <div
@@ -273,19 +267,6 @@ export function RecordTable<TData extends RowData>({
   );
 }
 
-function gridTracks<TData extends RowData>(
-  columns: Array<Column<DataTableFeatures, TData, unknown>>,
-  sizing: ColumnSizingState,
-) {
-  return columns
-    .map((column) => {
-      const resized = resizedWidth(column, sizing);
-      if (column.id === FILL_COLUMN) return `minmax(${resized ?? "0px"},1fr)`;
-      return resized ?? COLUMN_TRACK[column.id] ?? "minmax(0,1fr)";
-    })
-    .join(" ");
-}
-
 function HeaderRow<TData extends RowData>({
   table,
   gridTemplateColumns,
@@ -296,11 +277,6 @@ function HeaderRow<TData extends RowData>({
   sticky?: boolean;
 }) {
   const headers = table.getHeaderGroups()[0]?.headers ?? [];
-  const resizingColumn = table.state.columnResizing.isResizingColumn;
-  const flexColumnIds = table
-    .getAllLeafColumns()
-    .filter((column) => !/^[\d.]+rem$/.test(COLUMN_TRACK[column.id] ?? ""))
-    .map((column) => column.id);
 
   return (
     <div
@@ -319,7 +295,6 @@ function HeaderRow<TData extends RowData>({
           <div
             key={header.id}
             role="columnheader"
-            data-column-id={column.id}
             className={cn(
               "relative flex h-10 items-center px-3 text-left text-xs font-medium whitespace-nowrap text-muted-foreground first:pl-4 last:pr-4",
               meta?.align === "right" && "justify-end text-right",
@@ -327,15 +302,7 @@ function HeaderRow<TData extends RowData>({
             )}
           >
             {header.isPlaceholder ? null : <table.FlexRender header={header} />}
-            {column.getCanResize() ? (
-              <ColumnResizeHandle
-                table={table}
-                header={header}
-                active={resizingColumn === column.id}
-                fillColumnId={FILL_COLUMN}
-                flexColumnIds={flexColumnIds}
-              />
-            ) : null}
+            {column.id === "value" ? null : <ColumnResizeHandle header={header} />}
           </div>
         );
       })}
