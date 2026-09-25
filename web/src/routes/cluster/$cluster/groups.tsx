@@ -181,6 +181,7 @@ function ConsumerGroupsPage() {
 
       <DataTable
         columns={columns}
+        storageKey="groups"
         data={rows}
         getRowId={(group) => group.id}
         toolbar={

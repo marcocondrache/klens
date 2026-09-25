@@ -117,6 +117,7 @@ export function ConfigTable({
   return (
     <DataTable
       columns={columns}
+      storageKey="configs"
       data={rows}
       getRowId={(entry) => entry.name}
       toolbar={

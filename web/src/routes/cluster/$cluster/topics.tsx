@@ -225,6 +225,7 @@ function TopicsPage() {
 
       <DataTable
         columns={columns}
+        storageKey="topics"
         data={rows}
         getRowId={(topic) => topic.name}
         toolbar={

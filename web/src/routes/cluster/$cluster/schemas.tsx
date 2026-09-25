@@ -192,6 +192,7 @@ function SchemasPage() {
 
       <DataTable
         columns={columns}
+        storageKey="schemas"
         data={rows}
         getRowId={(subject) => subject.subject}
         toolbar={

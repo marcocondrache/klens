@@ -115,6 +115,7 @@ function NodesPage() {
 
       <DataTable
         columns={columns}
+        storageKey="nodes"
         data={brokers}
         getRowId={(broker) => String(broker.id)}
         loading={isPending}

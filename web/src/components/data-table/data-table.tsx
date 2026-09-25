@@ -3,6 +3,7 @@ import {
   useTable,
   type Column,
   type ColumnDef,
+  type ColumnSizingState,
   type RowData,
   type SortingState,
 } from "@tanstack/react-table";
@@ -19,6 +20,14 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
+import {
+  ColumnResizeHandle,
+  MIN_COLUMN_WIDTH,
+  RESIZING_CLASS,
+  readColumnSizing,
+  resizedWidth,
+  usePersistColumnSizing,
+} from "./column-resize";
 import { features, type DataTableFeatures } from "./features";
 import { CLICKABLE_ROW, clickableRowProps } from "./row-interaction";
 import { SkeletonBar, skeletonRowStyle } from "./skeleton-bar";
@@ -39,6 +48,8 @@ interface DataTableProps<TData extends RowData> {
   emptyState?: ReactNode;
   defaultSort?: { id: string; direction: "asc" | "desc" };
   fill?: boolean;
+  /** Remembers resized column widths under this key. Columns resize only when `fill` is set. */
+  storageKey?: string;
 }
 
 function tablePlaceholder(content: ReactNode) {
@@ -62,10 +73,13 @@ export function DataTable<TData extends RowData>({
   emptyState,
   defaultSort,
   fill = false,
+  storageKey,
 }: DataTableProps<TData>) {
   const [sorting, setSorting] = useState<SortingState>(
     defaultSort ? [{ id: defaultSort.id, desc: defaultSort.direction === "desc" }] : [],
   );
+
+  const [initialColumnSizing] = useState(() => readColumnSizing(storageKey));
 
   const table = useTable({
     features,
@@ -75,6 +89,10 @@ export function DataTable<TData extends RowData>({
     enableMultiSort: false,
     sortDescFirst: false,
     onSortingChange: setSorting,
+    enableColumnResizing: fill,
+    columnResizeMode: "onChange",
+    defaultColumn: { minSize: MIN_COLUMN_WIDTH },
+    initialState: { columnSizing: initialColumnSizing },
     state: { sorting },
   });
 
@@ -82,6 +100,15 @@ export function DataTable<TData extends RowData>({
   const leafColumns = table.getAllLeafColumns();
   const columnCount = leafColumns.length || columns.length;
   const skeletonRows = fill ? 14 : 6;
+
+  const columnSizing = table.state.columnSizing;
+  const resizingColumn = table.state.columnResizing.isResizingColumn;
+  usePersistColumnSizing(storageKey, columnSizing, resizingColumn !== false);
+  const flexColumnIds = leafColumns
+    .filter((column) => column.columnDef.meta?.width == null)
+    .map((column) => column.id);
+  const fillColumnId = flexColumnIds.at(-1);
+  const layout = fill ? columnLayout(leafColumns, columnSizing, fillColumnId) : null;
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLTableRowElement>({
@@ -111,16 +138,21 @@ export function DataTable<TData extends RowData>({
         )}
       >
         {refreshing ? <RefreshBar className="absolute inset-x-0 top-0 z-20" /> : null}
-        <div ref={scrollRef} className={cn(fill && "min-h-0 flex-1 overflow-auto")}>
+        <div
+          ref={scrollRef}
+          className={cn(fill && "min-h-0 flex-1 overflow-auto", resizingColumn && RESIZING_CLASS)}
+        >
           <Table
             aria-busy={loading || refreshing || undefined}
             className={cn(fill && "table-fixed")}
-            style={fill ? { minWidth: minTableWidth(leafColumns) } : undefined}
+            style={
+              layout ? { minWidth: `calc(${layout.map((c) => c.min).join(" + ")})` } : undefined
+            }
           >
-            {fill ? (
+            {layout ? (
               <colgroup>
-                {leafColumns.map((column) => (
-                  <col key={column.id} style={{ width: column.columnDef.meta?.width }} />
+                {layout.map((column) => (
+                  <col key={column.id} style={{ width: column.width }} />
                 ))}
               </colgroup>
             ) : null}
@@ -133,14 +165,24 @@ export function DataTable<TData extends RowData>({
                     return (
                       <TableHead
                         key={header.id}
+                        data-column-id={header.column.id}
                         className={cn(
-                          "h-10 bg-subtle px-3 text-xs font-medium text-muted-foreground first:pl-4 last:pr-4",
+                          "relative h-10 bg-subtle px-3 text-xs font-medium text-muted-foreground first:pl-4 last:pr-4",
                           fill && "sticky top-0 z-10 shadow-[inset_0_-1px_0_0_var(--color-border)]",
                           meta?.align === "right" && "text-right",
                           meta?.headerClassName,
                         )}
                       >
                         {header.isPlaceholder ? null : <table.FlexRender header={header} />}
+                        {header.column.getCanResize() ? (
+                          <ColumnResizeHandle
+                            table={table}
+                            header={header}
+                            active={resizingColumn === header.column.id}
+                            fillColumnId={fillColumnId}
+                            flexColumnIds={flexColumnIds}
+                          />
+                        ) : null}
                       </TableHead>
                     );
                   })}
@@ -225,9 +267,22 @@ export function DataTable<TData extends RowData>({
   );
 }
 
-function minTableWidth<TData extends RowData>(
+/**
+ * Width and minimum width of each column. The fill column takes whatever width is
+ * left, so resizing it sets its minimum and scrolls the table once it outgrows the view.
+ */
+function columnLayout<TData extends RowData>(
   columns: Array<Column<DataTableFeatures, TData, unknown>>,
+  sizing: ColumnSizingState,
+  fillColumnId: string | undefined,
 ) {
-  const widths = columns.map((column) => column.columnDef.meta?.width ?? MIN_FLEX_WIDTH);
-  return `calc(${widths.join(" + ")})`;
+  return columns.map((column) => {
+    const resized = resizedWidth(column, sizing);
+    if (column.id === fillColumnId) {
+      return { id: column.id, width: undefined, min: resized ?? MIN_FLEX_WIDTH };
+    }
+
+    const width = resized ?? column.columnDef.meta?.width;
+    return { id: column.id, width, min: width ?? MIN_FLEX_WIDTH };
+  });
 }

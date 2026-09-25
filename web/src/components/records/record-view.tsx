@@ -217,6 +217,7 @@ export function RecordView({
       <RecordTable
         key={source.scope}
         columns={columns}
+        storageKey="records"
         data={records}
         toolbar={
           <>

@@ -271,6 +271,7 @@ function ConsumerGroupPage() {
         <TabsContent value="offsets" className="mt-4 flex min-h-0 flex-col">
           <DataTable
             columns={offsetColumns}
+            storageKey="group-offsets"
             data={offsets}
             getRowId={(offset) => `${offset.topic}-${offset.partition}`}
             loading={isPending}
@@ -288,6 +289,7 @@ function ConsumerGroupPage() {
         <TabsContent value="members" className="mt-4 flex min-h-0 flex-col">
           <DataTable
             columns={memberColumns}
+            storageKey="group-members"
             data={members}
             getRowId={(member) => member.id}
             loading={isPending}

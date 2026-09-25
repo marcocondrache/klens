@@ -1,14 +1,30 @@
-import { useCallback, useEffect, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import {
   useTable,
   type Column,
   type ColumnDef,
+  type ColumnSizingState,
   type Header,
   type ReactTable,
   type RowData,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
+import {
+  ColumnResizeHandle,
+  MIN_COLUMN_WIDTH,
+  RESIZING_CLASS,
+  readColumnSizing,
+  resizedWidth,
+  usePersistColumnSizing,
+} from "@/components/data-table/column-resize";
 import { features, type DataTableFeatures } from "@/components/data-table/features";
 import { CLICKABLE_ROW, clickableRowProps } from "@/components/data-table/row-interaction";
 import { SkeletonBar, skeletonRowStyle } from "@/components/data-table/skeleton-bar";
@@ -31,6 +47,7 @@ const COLUMN_TRACK: Record<string, string> = {
   size: "5rem",
   timestamp: "11rem",
 };
+const FILL_COLUMN = "value";
 
 interface RecordTableProps<TData extends RowData> {
   columns: Array<ColumnDef<DataTableFeatures, TData>>;
@@ -48,6 +65,7 @@ interface RecordTableProps<TData extends RowData> {
   fetchNextPage?: () => void;
   isFetchingNextPage?: boolean;
   isFetchNextPageError?: boolean;
+  storageKey?: string;
 }
 
 function tablePlaceholder(content: ReactNode) {
@@ -74,8 +92,10 @@ export function RecordTable<TData extends RowData>({
   fetchNextPage,
   isFetchingNextPage = false,
   isFetchNextPageError = false,
+  storageKey,
 }: RecordTableProps<TData>) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [initialColumnSizing] = useState(() => readColumnSizing(storageKey));
 
   const table = useTable({
     features,
@@ -83,14 +103,17 @@ export function RecordTable<TData extends RowData>({
     columns,
     getRowId,
     enableSorting: false,
+    columnResizeMode: "onChange",
+    defaultColumn: { minSize: MIN_COLUMN_WIDTH },
+    initialState: { columnSizing: initialColumnSizing },
   });
 
   const rows = table.getRowModel().rows;
   const leafColumns = table.getAllLeafColumns();
-  const gridTemplateColumns = useMemo(
-    () => leafColumns.map((column) => COLUMN_TRACK[column.id] ?? "minmax(0,1fr)").join(" "),
-    [leafColumns],
-  );
+  const columnSizing = table.state.columnSizing;
+  const resizingColumn = table.state.columnResizing.isResizingColumn;
+  usePersistColumnSizing(storageKey, columnSizing, resizingColumn !== false);
+  const gridTemplateColumns = gridTracks(leafColumns, columnSizing);
   const loaderCount = hasNextPage || isFetchingNextPage || isFetchNextPageError ? 1 : 0;
   const count = rows.length + loaderCount;
 
@@ -157,12 +180,15 @@ export function RecordTable<TData extends RowData>({
             aria-busy={refreshing || isFetchingNextPage || undefined}
             className="flex min-h-0 flex-1 flex-col text-sm"
           >
-            <HeaderRow table={table} gridTemplateColumns={gridTemplateColumns} />
             <div
               ref={scrollRef}
               data-slot="table-container"
-              className="min-h-0 flex-1 overflow-auto [scrollbar-gutter:stable]"
+              className={cn(
+                "min-h-0 flex-1 overflow-auto [scrollbar-gutter:stable]",
+                resizingColumn && RESIZING_CLASS,
+              )}
             >
+              <HeaderRow table={table} gridTemplateColumns={gridTemplateColumns} sticky />
               <div
                 role="rowgroup"
                 data-slot="table-body"
@@ -219,7 +245,7 @@ export function RecordTable<TData extends RowData>({
                         ? clickableRowProps(() => onRowClick(row.original))
                         : {})}
                       className={cn(
-                        "group/row absolute top-0 left-0 grid w-full border-b border-border/70",
+                        "group/row absolute top-0 left-0 grid w-full min-w-min border-b border-border/70",
                         row && onRowClick && CLICKABLE_ROW,
                         row &&
                           "transition-[background-color,opacity] duration-75 hover:bg-muted/50 data-[state=selected]:bg-muted",
@@ -261,19 +287,43 @@ export function RecordTable<TData extends RowData>({
   );
 }
 
+/** Grid tracks for the columns. The fill column's resized width is its minimum. */
+function gridTracks<TData extends RowData>(
+  columns: Array<Column<DataTableFeatures, TData, unknown>>,
+  sizing: ColumnSizingState,
+) {
+  return columns
+    .map((column) => {
+      const resized = resizedWidth(column, sizing);
+      if (column.id === FILL_COLUMN) return `minmax(${resized ?? "0px"},1fr)`;
+      return resized ?? COLUMN_TRACK[column.id] ?? "minmax(0,1fr)";
+    })
+    .join(" ");
+}
+
 function HeaderRow<TData extends RowData>({
   table,
   gridTemplateColumns,
+  sticky = false,
 }: {
   table: ReactTable<DataTableFeatures, TData>;
   gridTemplateColumns: string;
+  sticky?: boolean;
 }) {
   const headers = table.getHeaderGroups()[0]?.headers ?? [];
+  const resizingColumn = table.state.columnResizing.isResizingColumn;
+  const flexColumnIds = table
+    .getAllLeafColumns()
+    .filter((column) => !/^[\d.]+rem$/.test(COLUMN_TRACK[column.id] ?? ""))
+    .map((column) => column.id);
 
   return (
     <div
       role="row"
-      className="grid shrink-0 border-b bg-subtle [scrollbar-gutter:stable]"
+      className={cn(
+        "grid min-w-min shrink-0 border-b bg-subtle [scrollbar-gutter:stable]",
+        sticky && "sticky top-0 z-10",
+      )}
       style={{ gridTemplateColumns }}
     >
       {headers.map((header: Header<DataTableFeatures, TData, unknown>) => {
@@ -284,13 +334,23 @@ function HeaderRow<TData extends RowData>({
           <div
             key={header.id}
             role="columnheader"
+            data-column-id={column.id}
             className={cn(
-              "flex h-10 items-center px-3 text-left text-xs font-medium whitespace-nowrap text-muted-foreground first:pl-4 last:pr-4",
+              "relative flex h-10 items-center px-3 text-left text-xs font-medium whitespace-nowrap text-muted-foreground first:pl-4 last:pr-4",
               meta?.align === "right" && "justify-end text-right",
               meta?.headerClassName,
             )}
           >
             {header.isPlaceholder ? null : <table.FlexRender header={header} />}
+            {column.getCanResize() ? (
+              <ColumnResizeHandle
+                table={table}
+                header={header}
+                active={resizingColumn === column.id}
+                fillColumnId={FILL_COLUMN}
+                flexColumnIds={flexColumnIds}
+              />
+            ) : null}
           </div>
         );
       })}
@@ -312,7 +372,7 @@ function SkeletonRow<TData extends RowData>({
   return (
     <div
       aria-hidden
-      className="grid h-10 items-center border-b border-border/70"
+      className="grid h-10 min-w-min items-center border-b border-border/70"
       style={{ gridTemplateColumns, ...style }}
     >
       {columns.map((column, index) => (
