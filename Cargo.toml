@@ -31,7 +31,7 @@ axum = { version = "0.8", default-features = false, features = [
     "tokio",
     "tracing",
 ] }
-axum-extra = { version = "0.12", default-features = false, features = ["query"] }
+axum-extra = { version = "0.12", default-features = false, features = ["query", "with-rejection"] }
 axum-login = "0.18"
 # Pulled in only for `key-expansion`, which is what gives
 # `tower_sessions::cookie::Key::derive_from` (HKDF) so a configured session

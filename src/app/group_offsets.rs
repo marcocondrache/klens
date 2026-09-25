@@ -1,6 +1,7 @@
 use axum::Json;
 use axum::Router;
 use axum::routing::post;
+use axum_extra::extract::WithRejection;
 
 use crate::AppState;
 use crate::kafka::store::GroupRow;
@@ -8,7 +9,7 @@ use crate::kafka::{ClusterSession, KafkaError, OffsetMove, ResetScope, plan_rese
 
 use super::context::{ClusterHandle, Session};
 use super::error::ApiError;
-use super::extract::{JsonBody, Path};
+use super::extract::Path;
 use super::writes::{Audit, confirm};
 
 pub mod types;
@@ -27,7 +28,7 @@ pub(crate) fn router() -> Router<AppState> {
 async fn reset(
     session: Session,
     Path(name): Path<String>,
-    JsonBody(request): JsonBody<ResetOffsetsRequest>,
+    WithRejection(Json(request), _): WithRejection<Json<ResetOffsetsRequest>, ApiError>,
 ) -> Result<Json<OffsetReset>, ApiError> {
     Audit::new(&session, &name, "group_offsets.reset", &request.group)
         .dry_run(request.dry_run)
@@ -78,7 +79,7 @@ async fn reset_offsets(
 async fn delete(
     session: Session,
     Path(name): Path<String>,
-    JsonBody(request): JsonBody<DeleteOffsetsRequest>,
+    WithRejection(Json(request), _): WithRejection<Json<DeleteOffsetsRequest>, ApiError>,
 ) -> Result<Json<DeletedOffsets>, ApiError> {
     Audit::new(&session, &name, "group_offsets.delete", &request.group)
         .record(delete_offsets(&session, &name, &request).await)

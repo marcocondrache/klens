@@ -1,5 +1,5 @@
+use axum::extract::FromRequestParts;
 use axum::extract::rejection::{JsonRejection, PathRejection};
-use axum::extract::{FromRequest, FromRequestParts, Request};
 use axum::http::request::Parts;
 use axum_extra::extract::QueryRejection;
 use serde::de::DeserializeOwned;
@@ -34,21 +34,6 @@ where
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         let axum::extract::Path(value) =
             axum::extract::Path::from_request_parts(parts, state).await?;
-        Ok(Self(value))
-    }
-}
-
-pub(crate) struct JsonBody<T>(pub T);
-
-impl<T, S> FromRequest<S> for JsonBody<T>
-where
-    T: DeserializeOwned,
-    S: Send + Sync,
-{
-    type Rejection = ApiError;
-
-    async fn from_request(request: Request, state: &S) -> Result<Self, Self::Rejection> {
-        let axum::Json(value) = axum::Json::from_request(request, state).await?;
         Ok(Self(value))
     }
 }
