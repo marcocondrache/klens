@@ -24,9 +24,7 @@ import {
   ColumnResizeHandle,
   MIN_COLUMN_WIDTH,
   RESIZING_CLASS,
-  readColumnSizing,
   resizedWidth,
-  usePersistColumnSizing,
 } from "./column-resize";
 import { features, type DataTableFeatures } from "./features";
 import { CLICKABLE_ROW, clickableRowProps } from "./row-interaction";
@@ -48,8 +46,6 @@ interface DataTableProps<TData extends RowData> {
   emptyState?: ReactNode;
   defaultSort?: { id: string; direction: "asc" | "desc" };
   fill?: boolean;
-  /** Remembers resized column widths under this key. Columns resize only when `fill` is set. */
-  storageKey?: string;
 }
 
 function tablePlaceholder(content: ReactNode) {
@@ -73,13 +69,10 @@ export function DataTable<TData extends RowData>({
   emptyState,
   defaultSort,
   fill = false,
-  storageKey,
 }: DataTableProps<TData>) {
   const [sorting, setSorting] = useState<SortingState>(
     defaultSort ? [{ id: defaultSort.id, desc: defaultSort.direction === "desc" }] : [],
   );
-
-  const [initialColumnSizing] = useState(() => readColumnSizing(storageKey));
 
   const table = useTable({
     features,
@@ -92,7 +85,6 @@ export function DataTable<TData extends RowData>({
     enableColumnResizing: fill,
     columnResizeMode: "onChange",
     defaultColumn: { minSize: MIN_COLUMN_WIDTH },
-    initialState: { columnSizing: initialColumnSizing },
     state: { sorting },
   });
 
@@ -103,7 +95,6 @@ export function DataTable<TData extends RowData>({
 
   const columnSizing = table.state.columnSizing;
   const resizingColumn = table.state.columnResizing.isResizingColumn;
-  usePersistColumnSizing(storageKey, columnSizing, resizingColumn !== false);
   const flexColumnIds = leafColumns
     .filter((column) => column.columnDef.meta?.width == null)
     .map((column) => column.id);
@@ -267,10 +258,6 @@ export function DataTable<TData extends RowData>({
   );
 }
 
-/**
- * Width and minimum width of each column. The fill column takes whatever width is
- * left, so resizing it sets its minimum and scrolls the table once it outgrows the view.
- */
 function columnLayout<TData extends RowData>(
   columns: Array<Column<DataTableFeatures, TData, unknown>>,
   sizing: ColumnSizingState,

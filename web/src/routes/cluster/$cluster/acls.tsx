@@ -202,7 +202,6 @@ function AclsPage() {
 
       <DataTable
         columns={columns}
-        storageKey="acls"
         data={rows}
         getRowId={aclRowId}
         toolbar={

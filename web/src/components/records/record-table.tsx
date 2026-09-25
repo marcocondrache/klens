@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import {
   useTable,
   type Column,
@@ -21,9 +14,7 @@ import {
   ColumnResizeHandle,
   MIN_COLUMN_WIDTH,
   RESIZING_CLASS,
-  readColumnSizing,
   resizedWidth,
-  usePersistColumnSizing,
 } from "@/components/data-table/column-resize";
 import { features, type DataTableFeatures } from "@/components/data-table/features";
 import { CLICKABLE_ROW, clickableRowProps } from "@/components/data-table/row-interaction";
@@ -65,7 +56,6 @@ interface RecordTableProps<TData extends RowData> {
   fetchNextPage?: () => void;
   isFetchingNextPage?: boolean;
   isFetchNextPageError?: boolean;
-  storageKey?: string;
 }
 
 function tablePlaceholder(content: ReactNode) {
@@ -92,10 +82,8 @@ export function RecordTable<TData extends RowData>({
   fetchNextPage,
   isFetchingNextPage = false,
   isFetchNextPageError = false,
-  storageKey,
 }: RecordTableProps<TData>) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [initialColumnSizing] = useState(() => readColumnSizing(storageKey));
 
   const table = useTable({
     features,
@@ -105,14 +93,12 @@ export function RecordTable<TData extends RowData>({
     enableSorting: false,
     columnResizeMode: "onChange",
     defaultColumn: { minSize: MIN_COLUMN_WIDTH },
-    initialState: { columnSizing: initialColumnSizing },
   });
 
   const rows = table.getRowModel().rows;
   const leafColumns = table.getAllLeafColumns();
   const columnSizing = table.state.columnSizing;
   const resizingColumn = table.state.columnResizing.isResizingColumn;
-  usePersistColumnSizing(storageKey, columnSizing, resizingColumn !== false);
   const gridTemplateColumns = gridTracks(leafColumns, columnSizing);
   const loaderCount = hasNextPage || isFetchingNextPage || isFetchNextPageError ? 1 : 0;
   const count = rows.length + loaderCount;
@@ -287,7 +273,6 @@ export function RecordTable<TData extends RowData>({
   );
 }
 
-/** Grid tracks for the columns. The fill column's resized width is its minimum. */
 function gridTracks<TData extends RowData>(
   columns: Array<Column<DataTableFeatures, TData, unknown>>,
   sizing: ColumnSizingState,

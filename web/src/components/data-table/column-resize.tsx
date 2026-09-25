@@ -1,4 +1,4 @@
-import { useEffect, type KeyboardEvent, type MouseEvent, type TouchEvent } from "react";
+import { type KeyboardEvent, type MouseEvent, type TouchEvent } from "react";
 import type { Column, ColumnSizingState, Header, ReactTable, RowData } from "@tanstack/react-table";
 
 import type { DataTableFeatures } from "./features";
@@ -6,51 +6,9 @@ import type { DataTableFeatures } from "./features";
 export const MIN_COLUMN_WIDTH = 48;
 
 const KEYBOARD_STEP = 16;
-const STORAGE_PREFIX = "klens:column-sizing:";
 
 export const RESIZING_CLASS = "cursor-col-resize select-none [&_*]:cursor-col-resize";
 
-/** Column widths the user saved for the table, or none when nothing valid is stored. */
-export function readColumnSizing(storageKey: string | undefined): ColumnSizingState {
-  if (!storageKey) return {};
-
-  try {
-    const stored: unknown = JSON.parse(localStorage.getItem(STORAGE_PREFIX + storageKey) ?? "{}");
-    if (typeof stored !== "object" || stored === null) return {};
-
-    return Object.fromEntries(
-      Object.entries(stored).filter(
-        (entry): entry is [string, number] =>
-          typeof entry[1] === "number" && Number.isFinite(entry[1]) && entry[1] >= 0,
-      ),
-    );
-  } catch {
-    return {};
-  }
-}
-
-/** Saves the widths once a drag ends, so a resize writes storage once rather than per frame. */
-export function usePersistColumnSizing(
-  storageKey: string | undefined,
-  sizing: ColumnSizingState,
-  resizing: boolean,
-) {
-  useEffect(() => {
-    if (!storageKey || resizing) return;
-
-    try {
-      if (Object.keys(sizing).length === 0) {
-        localStorage.removeItem(STORAGE_PREFIX + storageKey);
-      } else {
-        localStorage.setItem(STORAGE_PREFIX + storageKey, JSON.stringify(sizing));
-      }
-    } catch {
-      // Storage can be full or blocked; the widths still apply for this visit.
-    }
-  }, [storageKey, sizing, resizing]);
-}
-
-/** The user's width for a column as a CSS length, or undefined when they never resized it. */
 export function resizedWidth<TData extends RowData>(
   column: Column<DataTableFeatures, TData, unknown>,
   sizing: ColumnSizingState,
@@ -64,16 +22,10 @@ interface ColumnResizeHandleProps<TData extends RowData> {
   table: ReactTable<DataTableFeatures, TData>;
   header: Header<DataTableFeatures, TData, unknown>;
   active: boolean;
-  /** Column that takes the leftover width. Its size is a minimum, not a fixed width. */
   fillColumnId?: string;
-  /** Columns without a fixed width, which are pinned when the fill column is dragged. */
   flexColumnIds?: string[];
 }
 
-/**
- * Drag handle on a header cell's right edge. The cell and its siblings must carry
- * `data-column-id` so the drag can start from the widths the browser actually rendered.
- */
 export function ColumnResizeHandle<TData extends RowData>({
   table,
   header,
@@ -87,9 +39,6 @@ export function ColumnResizeHandle<TData extends RowData>({
   const minSize = column.columnDef.minSize ?? MIN_COLUMN_WIDTH;
   const sizing = table.state.columnSizing;
 
-  // Rem widths and flex columns have no pixel size until the first drag, so read them
-  // off the DOM. Dragging the fill column also pins the other flex columns, otherwise
-  // they would share its growth and the edge would lag behind the pointer.
   function pinRenderedWidths(handle: HTMLElement) {
     const row = handle.closest("[data-column-id]")?.parentElement;
     if (!row) return;
@@ -116,7 +65,6 @@ export function ColumnResizeHandle<TData extends RowData>({
     pinRenderedWidths(event.currentTarget);
     header.getResizeHandler()(event);
 
-    // A click without a drag should leave the layout alone rather than pin widths.
     const restoreIfUnmoved = (end: Event) => {
       for (const type of endEvents) document.removeEventListener(type, restoreIfUnmoved);
       const endX =

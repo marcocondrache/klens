@@ -269,7 +269,6 @@ function TopicPage() {
         <TabsContent value="partitions" className="mt-4 flex min-h-0 flex-col">
           <DataTable
             columns={partitionColumns}
-            storageKey="topic-partitions"
             data={detail?.partitions ?? []}
             getRowId={(partition) => String(partition.id)}
             loading={isPending}
@@ -281,7 +280,6 @@ function TopicPage() {
         <TabsContent value="groups" className="mt-4 flex min-h-0 flex-col">
           <DataTable
             columns={groupColumns}
-            storageKey="topic-groups"
             data={groups}
             getRowId={(group) => group.id}
             loading={groupsPending}
