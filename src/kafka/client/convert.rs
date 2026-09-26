@@ -140,8 +140,8 @@ impl ConfigSource {
     fn from_krafka(source: i8) -> Self {
         match source {
             1 => Self::DynamicTopic,
-            3 => Self::DynamicBroker,
-            5 => Self::StaticBroker,
+            2 | 3 => Self::DynamicBroker,
+            4 => Self::StaticBroker,
             _ => Self::Default,
         }
     }
@@ -154,8 +154,10 @@ mod tests {
     #[test]
     fn config_source_maps_kafka_describe_codes() {
         assert_eq!(ConfigSource::from_krafka(1), ConfigSource::DynamicTopic);
+        assert_eq!(ConfigSource::from_krafka(2), ConfigSource::DynamicBroker);
         assert_eq!(ConfigSource::from_krafka(3), ConfigSource::DynamicBroker);
-        assert_eq!(ConfigSource::from_krafka(5), ConfigSource::StaticBroker);
+        assert_eq!(ConfigSource::from_krafka(4), ConfigSource::StaticBroker);
+        assert_eq!(ConfigSource::from_krafka(5), ConfigSource::Default);
         assert_eq!(ConfigSource::from_krafka(0), ConfigSource::Default);
         assert_eq!(ConfigSource::from_krafka(6), ConfigSource::Default);
         assert_eq!(ConfigSource::from_krafka(-1), ConfigSource::Default);
