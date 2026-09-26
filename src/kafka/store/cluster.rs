@@ -162,7 +162,7 @@ impl ClusterStore {
     pub fn group_detail(&self, id: &str) -> Option<GroupDetail> {
         let topology = self.topology.load()?;
         let (key, group) = topology.groups.get_key_value(id)?;
-        self.interest.touch_group(id);
+        self.interest.touch_group(key);
         Some(projections::group_detail(
             key,
             group,

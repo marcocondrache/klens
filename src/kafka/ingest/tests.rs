@@ -277,10 +277,18 @@ async fn the_config_lane_populates_the_config_table() {
 #[tokio::test(start_paused = true)]
 async fn a_changed_config_names_only_the_topic_that_moved() {
     let session = FakeCluster::local().extra_topic("payments", 1, 4);
+    session.set_topic_configs(
+        "payments",
+        vec![crate::kafka::store::fixtures::config(
+            "cleanup.policy",
+            "delete",
+        )],
+    );
     let store = store(&session);
     let _lanes = idle_lanes(&store, &session);
 
     wait_for(|| store.configs.version() > 0, "config commit").await;
+    let unchanged = Arc::clone(&store.configs.load().unwrap().topics["payments"]);
     let mut events = store.bus.subscribe();
 
     session.set_topic_configs(
@@ -302,6 +310,13 @@ async fn a_changed_config_names_only_the_topic_that_moved() {
     .await;
 
     assert_eq!(delta.topics, [Arc::from("orders.created")]);
+    assert!(
+        Arc::ptr_eq(
+            &store.configs.load().unwrap().topics["payments"],
+            &unchanged
+        ),
+        "an unchanged topic keeps sharing its entries"
+    );
 }
 
 #[tokio::test(start_paused = true)]

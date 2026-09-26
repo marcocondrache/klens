@@ -446,7 +446,7 @@ mod tests {
         let configs = ConfigTable {
             topics: HashMap::from_iter([(
                 Arc::from("orders"),
-                Arc::new(vec![
+                Arc::from([
                     config("cleanup.policy", "compact"),
                     config("retention.ms", "604800000"),
                 ]),

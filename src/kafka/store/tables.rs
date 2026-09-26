@@ -282,12 +282,12 @@ impl OffsetTable {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ConfigTable {
-    pub topics: HashMap<Arc<str>, Arc<Vec<ConfigEntry>>>,
+    pub topics: HashMap<Arc<str>, Arc<[ConfigEntry]>>,
 }
 
 impl ConfigTable {
     pub fn get(&self, topic: &str) -> Option<&[ConfigEntry]> {
-        self.topics.get(topic).map(|entries| entries.as_slice())
+        self.topics.get(topic).map(|entries| &**entries)
     }
 }
 

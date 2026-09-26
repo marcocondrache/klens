@@ -192,7 +192,7 @@ impl ClusterSession for KafkaClient {
         )?;
         Ok(merge_watermark_offsets(
             &from_list_offsets(beginning.into_iter().map(list_offset_parts)),
-            from_list_offsets(end.into_iter().map(list_offset_parts)),
+            end.into_iter().map(list_offset_parts),
         ))
     }
 
@@ -211,9 +211,9 @@ impl ClusterSession for KafkaClient {
             .admin
             .list_offsets(&[(topic, partitions)], OffsetSpec::Timestamp(timestamp))
             .await?;
-        Ok(partition_time_offsets(from_list_offsets(
+        Ok(partition_time_offsets(
             listed.into_iter().map(list_offset_parts),
-        )))
+        ))
     }
 
     async fn topic_configs(

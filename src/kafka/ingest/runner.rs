@@ -51,34 +51,36 @@ pub trait LaneSource: Send + Sync + 'static {
 /// leaves its table empty so projections can report the source as
 /// unavailable rather than as an empty cluster.
 pub async fn run<S: LaneSource>(store: Arc<ClusterStore>, source: S) {
-    let cluster = store.name().to_owned();
-    let lane = source.name();
-
     loop {
-        let previous = source.lane(&store).load();
-        let started = Instant::now();
-
-        match source.fetch(&store, previous.as_ref()).await {
-            Ok(next) => {
-                if let Some(next) = next
-                    && let Some(delta) = source.diff(previous.as_deref(), &next)
-                {
-                    let next = Arc::new(next);
-                    let version = source.lane(&store).commit(Arc::clone(&next));
-                    source.publish(&store, version, previous.as_ref(), &next, delta);
-                    tracing::debug!(cluster = %cluster, lane, version, "lane committed");
-                }
-                source.lane(&store).record_poll(started.elapsed(), None);
-            }
-            Err(error) => {
-                source
-                    .lane(&store)
-                    .record_poll(started.elapsed(), Some(error.to_string()));
-                tracing::warn!(cluster = %cluster, lane, %error, "lane poll failed");
-            }
-        }
-
+        poll(&store, &source).await;
         source.lane(&store).wait(source.interval()).await;
+    }
+}
+
+async fn poll<S: LaneSource>(store: &ClusterStore, source: &S) {
+    let cluster = store.name();
+    let lane = source.name();
+    let previous = source.lane(store).load();
+    let started = Instant::now();
+
+    match source.fetch(store, previous.as_ref()).await {
+        Ok(next) => {
+            if let Some(next) = next
+                && let Some(delta) = source.diff(previous.as_deref(), &next)
+            {
+                let next = Arc::new(next);
+                let version = source.lane(store).commit(Arc::clone(&next));
+                source.publish(store, version, previous.as_ref(), &next, delta);
+                tracing::debug!(cluster = %cluster, lane, version, "lane committed");
+            }
+            source.lane(store).record_poll(started.elapsed(), None);
+        }
+        Err(error) => {
+            source
+                .lane(store)
+                .record_poll(started.elapsed(), Some(error.to_string()));
+            tracing::warn!(cluster = %cluster, lane, %error, "lane poll failed");
+        }
     }
 }
 
@@ -279,6 +281,26 @@ mod tests {
                 .partitions
                 .len(),
             2
+        );
+        task.abort();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_replaced_table_is_freed_while_the_lane_sleeps() {
+        let store = cluster("local");
+        let source = Scripted::new(vec![Ok(orders(1)), Ok(orders(2))]);
+        let task = tokio::spawn(run(Arc::clone(&store), Arc::clone(&source)));
+
+        poll_until(&source, 1).await;
+        let first = Arc::downgrade(&store.topology.load().unwrap());
+        store.topology.kick();
+        poll_until(&source, 2).await;
+        tokio::task::yield_now().await;
+
+        assert_eq!(store.topology.version(), 2);
+        assert!(
+            first.upgrade().is_none(),
+            "the replaced table outlived its commit"
         );
         task.abort();
     }

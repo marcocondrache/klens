@@ -56,14 +56,14 @@ impl LaneSource for ConfigLane {
         let names: Vec<&str> = topology.topics.keys().map(AsRef::as_ref).collect();
         let mut fetched = self.session.topic_configs(&names).await?;
 
-        let topics: HashMap<Arc<str>, Arc<Vec<crate::kafka::topic_config::ConfigEntry>>> = topology
+        let topics: HashMap<Arc<str>, Arc<[crate::kafka::topic_config::ConfigEntry]>> = topology
             .topics
             .keys()
             .filter_map(|name| {
                 let entries = fetched.remove(name.as_ref())?;
                 let entries = match previous.and_then(|table| table.topics.get(name)) {
-                    Some(existing) if existing.as_slice() == entries => Arc::clone(existing),
-                    _ => Arc::new(entries),
+                    Some(existing) if **existing == *entries => Arc::clone(existing),
+                    _ => Arc::from(entries),
                 };
                 Some((Arc::clone(name), entries))
             })

@@ -71,14 +71,14 @@ impl InterestRegistry {
 
     /// Recorded by one-shot queries. Expires after the TTL, so opening a
     /// group page keeps it fresh for a while after the request finishes.
-    pub fn touch_group(&self, id: &str) {
+    pub fn touch_group(&self, id: &Arc<str>) {
         let now = Instant::now();
         let mut groups = self.groups.lock().expect("interest registry lock");
         match groups.get_mut(id) {
             Some(state) => state.touched_at = Some(now),
             None => {
                 groups.insert(
-                    Arc::from(id),
+                    Arc::clone(id),
                     InterestState {
                         touched_at: Some(now),
                         ..InterestState::default()
@@ -177,7 +177,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_touch_expires_after_the_ttl() {
         let interest = InterestRegistry::with_ttl(Duration::from_secs(30));
-        interest.touch_group("billing");
+        interest.touch_group(&Arc::from("billing"));
         assert!(interest.is_hot("billing"));
 
         tokio::time::advance(Duration::from_secs(29)).await;
@@ -191,7 +191,7 @@ mod tests {
     async fn expired_entries_do_not_accumulate() {
         let interest = InterestRegistry::with_ttl(Duration::from_secs(1));
         for index in 0..100 {
-            interest.touch_group(&format!("group-{index}"));
+            interest.touch_group(&Arc::from(format!("group-{index}")));
         }
         tokio::time::advance(Duration::from_secs(2)).await;
 

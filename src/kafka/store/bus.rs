@@ -279,10 +279,10 @@ mod tests {
                 .map(|(name, policy)| {
                     (
                         Arc::from(name),
-                        Arc::new(vec![config("cleanup.policy", policy)]),
+                        Arc::from([config("cleanup.policy", policy)]),
                     )
                 })
-                .collect::<HashMap<Arc<str>, Arc<Vec<ConfigEntry>>>>(),
+                .collect::<HashMap<Arc<str>, Arc<[ConfigEntry]>>>(),
         }
     }
 
