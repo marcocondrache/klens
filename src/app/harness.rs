@@ -230,7 +230,7 @@ pub(super) fn seed(store: &ClusterStore) {
     store.configs.commit(Arc::new(ConfigTable {
         topics: HashMap::from_iter([(
             Arc::from("orders.created"),
-            Arc::new(vec![
+            Arc::from([
                 config("cleanup.policy", "compact"),
                 config("retention.ms", "604800000"),
             ]),
