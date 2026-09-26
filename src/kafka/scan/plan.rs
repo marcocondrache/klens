@@ -8,7 +8,6 @@ use crate::kafka::metadata::Watermarks;
 use super::cursor::{CursorDirection, RecordCursor};
 use super::query::RecordOrder;
 
-/// A half-open partition offset range: `start` is inclusive, `end` exclusive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PartitionWindow {
     pub partition: i32,
@@ -22,11 +21,6 @@ impl PartitionWindow {
     }
 }
 
-/// Ordering decides which end of the log the window starts from: newest walks
-/// back from the high watermark, oldest forward from the low watermark.
-///
-/// `walk` is the scan's direction, which is the query's order for a forward
-/// page and its opposite for a backward one.
 pub fn plan_windows(
     partitions: &[i32],
     watermarks: &HashMap<i32, Watermarks>,
@@ -94,11 +88,6 @@ fn resume_offset(
     }
 }
 
-/// Resume point for continuing the same walk past this page.
-///
-/// `None` means the log (within the current watermark bounds) is exhausted.
-/// `covered` is what the scan actually read, which is the planned window
-/// unless a deadline cut the pass short.
 pub fn advance_cursor(
     walk: RecordOrder,
     covered: &[PartitionWindow],
@@ -167,10 +156,6 @@ pub fn advance_cursor(
     cursor_from(offsets, order, direction)
 }
 
-/// The page's near edge: where a walk in the opposite direction resumes.
-///
-/// Derived from the kept records alone — the scan never read the other side,
-/// so there is no window edge to fall back on.
 pub fn rewind_cursor(
     walk: RecordOrder,
     watermarks: &HashMap<i32, Watermarks>,

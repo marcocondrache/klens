@@ -7,13 +7,9 @@ use arc_swap::ArcSwapOption;
 use jiff::Timestamp;
 use tokio::sync::Notify;
 
-/// Freshness and failure state for one ingestion lane.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LaneHealth {
-    /// When the lane last committed a table, i.e. when the data last moved.
     pub updated_at: Option<Timestamp>,
-    /// When the lane last completed a fetch, whether or not it changed
-    /// anything. A lane whose data is stable stays fresh here.
     pub checked_at: Option<Timestamp>,
     pub last_error: Option<String>,
     pub last_poll_ms: Option<u64>,
@@ -25,7 +21,6 @@ impl LaneHealth {
     }
 }
 
-/// An immutable table behind a swappable pointer.
 pub struct Lane<T> {
     table: ArcSwapOption<T>,
     version: AtomicU64,
@@ -66,7 +61,6 @@ impl<T> Lane<T> {
         self.version.load(Ordering::Acquire)
     }
 
-    /// True once the lane has committed at least one table.
     pub fn ready(&self) -> bool {
         self.version() > 0
     }
@@ -91,12 +85,10 @@ impl<T> Lane<T> {
         self.health.read().expect("lane health lock").clone()
     }
 
-    /// Wake the lane runner before its interval elapses.
     pub fn kick(&self) {
         self.kick.notify_one();
     }
 
-    /// Sleep for `interval`, returning early on a kick.
     pub async fn wait(&self, interval: Duration) {
         tokio::select! {
             () = tokio::time::sleep(interval) => {}

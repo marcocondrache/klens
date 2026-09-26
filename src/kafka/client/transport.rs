@@ -7,7 +7,7 @@ use krafka::network::TransportConfig;
 
 use crate::config::{ClusterConfig, SaslMechanism, SecurityConfig, SecurityProtocol, TlsConfig};
 use crate::environment::{
-    CLIENT_ID_PREFIX, MAX_IN_FLIGHT_REQUESTS, MAX_RESPONSE_MB, REQUEST_TIMEOUT,
+    CLIENT_ID_PREFIX, MAX_IN_FLIGHT_REQUESTS, MAX_RESPONSE_BYTES, REQUEST_TIMEOUT,
     SOCKET_CONNECTION_SETUP_TIMEOUT_MS,
 };
 use crate::kafka::error::KafkaError;
@@ -53,7 +53,7 @@ impl Connector {
             connect_timeout,
             transport: TransportConfig::builder()
                 .max_in_flight_requests(*MAX_IN_FLIGHT_REQUESTS)
-                .max_response_size(*MAX_RESPONSE_MB)
+                .max_response_size(*MAX_RESPONSE_BYTES)
                 .tcp_nodelay(true)
                 .build()?,
             auth: krafka_auth(config)?,
@@ -92,7 +92,6 @@ pub(super) async fn connect(config: &ClusterConfig) -> Result<Transport, KafkaEr
     })
 }
 
-/// `None` is plaintext. A SASL protocol with no `sasl` block is an error.
 fn krafka_auth(cluster: &ClusterConfig) -> Result<Option<AuthConfig>, KafkaError> {
     let Some(security) = &cluster.security else {
         return Ok(None);

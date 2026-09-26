@@ -56,8 +56,6 @@ impl TopicInfo {
             .collect()
     }
 
-    /// Replicas of the first partition, which is how Kafka reports a topic's
-    /// replication factor.
     pub fn replication_factor(&self) -> i32 {
         self.partitions
             .first()
@@ -232,7 +230,6 @@ impl WatermarkTable {
         self.marks.get(topic)
     }
 
-    /// Messages ever produced to `topic`, ignoring retention.
     pub fn produced(&self, topic: &str) -> i64 {
         self.marks
             .get(topic)
@@ -240,7 +237,6 @@ impl WatermarkTable {
             .unwrap_or(0)
     }
 
-    /// Messages currently retained by `topic`.
     pub fn retained(&self, topic: &str) -> i64 {
         self.marks
             .get(topic)

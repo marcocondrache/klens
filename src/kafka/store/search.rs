@@ -16,8 +16,6 @@ pub enum SearchKind {
     Subject,
 }
 
-/// One typeahead result: what it is, what to navigate to, and a one-line
-/// detail the UI shows next to the name.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchHit {
     pub kind: SearchKind,

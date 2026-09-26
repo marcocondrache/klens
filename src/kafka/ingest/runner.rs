@@ -7,11 +7,9 @@ use tokio::time::Instant;
 use crate::kafka::error::KafkaError;
 use crate::kafka::store::{ClusterStore, Lane};
 
-/// One ingestion lane: fetch, diff, commit, publish.
 #[async_trait]
 pub trait LaneSource: Send + Sync + 'static {
     type Table: Send + Sync + 'static;
-    /// What the lane publishes when the table moved.
     type Delta: Send + 'static;
 
     fn name(&self) -> &'static str;
@@ -20,20 +18,14 @@ pub trait LaneSource: Send + Sync + 'static {
 
     fn lane<'a>(&self, store: &'a ClusterStore) -> &'a Lane<Self::Table>;
 
-    /// `None` means there is nothing to do this round — typically because an
-    /// upstream lane has not committed yet. The runner records health and
-    /// leaves the table alone rather than committing an empty successor.
     async fn fetch(
         &self,
         store: &ClusterStore,
         previous: Option<&Arc<Self::Table>>,
     ) -> Result<Option<Self::Table>, KafkaError>;
 
-    /// `None` means nothing observable changed: the runner records health and
-    /// commits nothing, so the version stays put and no event is published.
     fn diff(&self, previous: Option<&Self::Table>, next: &Self::Table) -> Option<Self::Delta>;
 
-    /// Runs after the successor is committed.
     fn publish(
         &self,
         store: &ClusterStore,
@@ -44,12 +36,6 @@ pub trait LaneSource: Send + Sync + 'static {
     );
 }
 
-/// Drives one lane until the task is aborted.
-///
-/// A failed fetch keeps the last table served and surfaces through
-/// [`crate::kafka::store::LaneHealth`]; a lane that has never succeeded
-/// leaves its table empty so projections can report the source as
-/// unavailable rather than as an empty cluster.
 pub async fn run<S: LaneSource>(store: Arc<ClusterStore>, source: S) {
     loop {
         poll(&store, &source).await;
@@ -82,12 +68,6 @@ async fn poll<S: LaneSource>(store: &ClusterStore, source: &S) {
             tracing::warn!(cluster = %cluster, lane, %error, "lane poll failed");
         }
     }
-}
-
-/// Poll intervals below this are rejected so a misconfigured deployment
-/// cannot hammer the brokers.
-pub fn floor(interval: Duration) -> Duration {
-    interval.max(Duration::from_secs(1))
 }
 
 #[cfg(test)]
@@ -186,12 +166,6 @@ mod tests {
             tokio::task::yield_now().await;
         }
         panic!("lane never reached {polls} polls");
-    }
-
-    #[test]
-    fn the_poll_floor_rejects_sub_second_intervals() {
-        assert_eq!(floor(Duration::from_millis(50)), Duration::from_secs(1));
-        assert_eq!(floor(Duration::from_secs(30)), Duration::from_secs(30));
     }
 
     #[tokio::test(start_paused = true)]

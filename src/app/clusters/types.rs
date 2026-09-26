@@ -29,7 +29,6 @@ impl From<store::LaneHealth> for LaneHealth {
     }
 }
 
-/// Per-lane freshness and the counts a dashboard header needs.
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ClusterHealth {

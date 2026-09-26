@@ -1,8 +1,3 @@
-//! Long-lived broker adapter.
-//!
-//! One [`KafkaClient`] per cluster. Callers use domain types only. Production
-//! [`ClusterSession`] is this type. All broker I/O goes through krafka.
-
 mod convert;
 mod groups;
 mod offsets;
@@ -43,9 +38,6 @@ use offsets::{from_list_offsets, merge_watermark_offsets, partition_time_offsets
 use pool::ScanPool;
 use tail::TailLease;
 
-/// Process-lifetime Kafka handle. All broker I/O for a cluster goes through here.
-///
-/// Construction connects the shared transport and creates its admin client.
 pub struct KafkaClient {
     identity: ClusterIdentity,
     consume_timeout: Duration,
@@ -148,7 +140,6 @@ impl ClusterSession for KafkaClient {
         ))
     }
 
-    /// Committed offsets for a group we are not a member of.
     async fn committed_offsets(
         &self,
         group_id: &str,
@@ -171,7 +162,6 @@ impl ClusterSession for KafkaClient {
         Ok(committed_from_krafka(listed))
     }
 
-    /// Low and high watermarks. Does not refetch cluster metadata.
     async fn watermarks(
         &self,
         topics: &HashMap<String, Vec<i32>>,

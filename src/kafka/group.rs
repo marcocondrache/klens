@@ -1,7 +1,3 @@
-//! Raw broker group state.
-
-/// Raw consumer group state as reported by the broker, before end offsets are
-/// joined in to compute lag.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GroupSnapshot {
     pub id: String,
@@ -13,8 +9,6 @@ pub struct GroupSnapshot {
 }
 
 impl GroupSnapshot {
-    /// Topics the group touches, whether through a live assignment or a
-    /// committed offset left behind by a previous member.
     pub fn consumed_topics(&self) -> impl Iterator<Item = &str> {
         self.members
             .iter()

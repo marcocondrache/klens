@@ -7,10 +7,8 @@ use crate::kafka::error::KafkaError;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::store::{Change, ClusterStore, Interner, Lane, SubjectTable, SubjectsDelta};
 
-use super::runner::{LaneSource, floor};
+use super::runner::LaneSource;
 
-/// The Schema Registry list projection: subject, id, type, versions,
-/// compatibility.
 pub struct SubjectLane {
     session: Arc<dyn ClusterSession>,
     interval: Duration,
@@ -18,10 +16,7 @@ pub struct SubjectLane {
 
 impl SubjectLane {
     pub fn with_interval(session: Arc<dyn ClusterSession>, interval: Duration) -> Self {
-        Self {
-            session,
-            interval: floor(interval),
-        }
+        Self { session, interval }
     }
 }
 

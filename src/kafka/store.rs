@@ -1,5 +1,3 @@
-//! The normalized, versioned read model.
-
 pub mod bus;
 pub mod cluster;
 pub mod interest;

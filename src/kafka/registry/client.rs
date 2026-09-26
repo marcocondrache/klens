@@ -16,7 +16,6 @@ const MAX_CACHED_SCHEMAS: usize = 10_000;
 
 pub(crate) type Registry = CachedSchemaRegistry<ConfluentSchemaRegistry>;
 
-/// Catalog port for a Confluent-compatible Schema Registry.
 #[derive(Clone)]
 pub struct SchemaRegistryClient {
     cluster: String,
@@ -180,9 +179,6 @@ impl SchemaRegistryClient {
     }
 }
 
-/// Whether the registry is saying "nothing is configured here" rather than
-/// failing.
-///
 /// Confluent reports a subject with no compatibility override as `40408`, which
 /// is a 404 the crate does not classify as not-found because it is not about a
 /// missing subject. Registries that do not implement the code answer a bare

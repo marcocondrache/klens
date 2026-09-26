@@ -9,10 +9,8 @@ use crate::kafka::error::KafkaError;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::store::{Change, ClusterStore, ConfigTable, ConfigsDelta, Lane};
 
-use super::runner::{LaneSource, floor};
+use super::runner::LaneSource;
 
-/// One `DescribeConfigs` over every topic, on the slowest cadence of any
-/// lane.
 pub struct ConfigLane {
     session: Arc<dyn ClusterSession>,
     interval: Duration,
@@ -20,10 +18,7 @@ pub struct ConfigLane {
 
 impl ConfigLane {
     pub fn with_interval(session: Arc<dyn ClusterSession>, interval: Duration) -> Self {
-        Self {
-            session,
-            interval: floor(interval),
-        }
+        Self { session, interval }
     }
 }
 

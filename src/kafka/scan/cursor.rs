@@ -1,12 +1,3 @@
-//! ```text
-//! cursor     := "v2" ":" order ":" dir ":" boundaries
-//! order      := "n" | "o"
-//! dir        := "f" | "b"
-//! boundaries := partition ":" offset { "," partition ":" offset }
-//! ```
-//!
-//! An omitted partition is exhausted in that direction and must not restart.
-
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 
@@ -16,12 +7,9 @@ use super::query::RecordOrder;
 
 const VERSION: &str = "v2";
 
-/// Which way a page walks relative to the query's order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CursorDirection {
-    /// The next page in the query's order.
     Forward,
-    /// The previous page: the same order, walked back toward the near edge.
     Backward,
 }
 
@@ -34,12 +22,6 @@ impl CursorDirection {
     }
 }
 
-/// Per-partition resume offsets for a record browse.
-///
-/// The offsets are read in terms of the *walk* the cursor implies
-/// ([`RecordCursor::walk`]): an oldest-first walk treats each value as the
-/// next start offset, a newest-first walk as the exclusive end of the next
-/// window.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordCursor {
     pub order: RecordOrder,
@@ -60,7 +42,6 @@ impl RecordCursor {
         }
     }
 
-    /// The order the scan actually walks the log in.
     pub fn walk(&self) -> RecordOrder {
         walk_order(self.order, self.direction)
     }
@@ -105,7 +86,6 @@ impl RecordCursor {
         })
     }
 
-    /// A cursor only means anything against the order it was minted for.
     pub fn validate_for(&self, order: RecordOrder) -> Result<(), QueryError> {
         if self.order == order {
             Ok(())

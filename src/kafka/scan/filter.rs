@@ -5,7 +5,6 @@ use crate::kafka::scan::payload::DecodedPayload;
 #[derive(Debug, Clone, Copy)]
 pub struct RawField<'a> {
     pub bytes: &'a [u8],
-    /// Whether a registry decode would change what these bytes say.
     pub framed: bool,
 }
 
@@ -16,7 +15,6 @@ pub enum Verdict {
     NeedsPayload,
 }
 
-/// Case-insensitive substring over key and value text.
 #[derive(Clone, PartialEq, Eq)]
 pub struct CompiledFilter {
     needle: String,
@@ -61,7 +59,6 @@ impl CompiledFilter {
     }
 }
 
-/// Compile the substring filter. Whitespace-only input means no predicate.
 pub fn contains(needle: &str) -> Option<CompiledFilter> {
     let trimmed = needle.trim();
     if trimmed.is_empty() {

@@ -10,10 +10,6 @@ use super::tables::{ConfigTable, GroupInfo, SubjectTable, TopicInfo, Topology};
 
 pub const BUS_CAPACITY: usize = 256;
 
-/// A typed delta from one ingestion lane.
-///
-/// Granular enough for a client to apply to its cache instead of refetching
-/// whole catalogs.
 #[derive(Debug, Clone)]
 pub enum Change {
     Topology(Arc<TopologyDelta>),
@@ -87,7 +83,6 @@ impl TopologyDelta {
 pub struct WatermarksTick {
     pub version: u64,
     pub at: Timestamp,
-    /// Messages per second per topic, from the high-watermark delta.
     pub rates: Vec<TopicRate>,
 }
 
@@ -123,8 +118,6 @@ impl GroupOffsetsWave {
 pub struct GroupLagUpdate {
     pub group: Arc<str>,
     pub total_lag: i64,
-    /// False when a committed partition had no watermark to join against, so
-    /// the total understates the real lag.
     pub lag_complete: bool,
     pub offsets: Vec<GroupOffset>,
 }
@@ -184,8 +177,6 @@ impl SubjectsDelta {
     }
 }
 
-/// Per-cluster broadcast of lane deltas. Cluster A's ticks never wake cluster
-/// B's subscribers.
 #[derive(Debug)]
 pub struct ChangeBus {
     sender: broadcast::Sender<Change>,

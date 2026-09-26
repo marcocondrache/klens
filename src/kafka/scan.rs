@@ -58,12 +58,6 @@ impl Record {
     }
 }
 
-/// One page of a browse.
-///
-/// `complete` is false when the scan hit its deadline with windows still
-/// unread: the records are real, but the page is not everything the query
-/// would have matched. `next_cursor` then resumes where the scan stopped
-/// rather than where the page ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordPage {
     pub records: Vec<Record>,

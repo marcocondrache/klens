@@ -34,8 +34,6 @@ pub struct RecordQuery {
 }
 
 impl RecordQuery {
-    /// Which way the scan walks the log, which is the query's order unless a
-    /// cursor asked for the previous page.
     pub fn walk(&self) -> RecordOrder {
         self.cursor.as_ref().map_or(self.order, RecordCursor::walk)
     }
@@ -51,7 +49,6 @@ impl RecordQuery {
     }
 }
 
-/// UTC bounds for a record browse. Either side may be unbounded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TimestampRange {
     start: Bound<Timestamp>,

@@ -1,5 +1,3 @@
-//! API types for `cargo xtask types`. The generator lives in `xtask`.
-
 pub use super::acls::types::{
     Acl, AclAuthorizer, AclListing, AclOperation, AclPatternType, AclPermission, AclResourceType,
 };

@@ -49,7 +49,6 @@ pub fn topic(name: &str, partitions: Vec<PartitionMetadata>) -> TopicMetadata {
     }
 }
 
-/// A single-broker cluster carrying the given topics.
 pub fn metadata(topics: Vec<TopicMetadata>) -> MetadataSnapshot {
     MetadataSnapshot {
         cluster_id: Some("test-cluster".into()),

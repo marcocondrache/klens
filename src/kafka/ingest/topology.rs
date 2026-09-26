@@ -7,10 +7,8 @@ use crate::kafka::error::KafkaError;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::store::{Change, ClusterStore, Interner, Lane, Topology, TopologyDelta};
 
-use super::runner::{LaneSource, floor};
+use super::runner::LaneSource;
 
-/// Metadata plus consumer-group membership, the slowest-moving shape in the
-/// cluster.
 pub struct TopologyLane {
     session: Arc<dyn ClusterSession>,
     interval: Duration,
@@ -18,10 +16,7 @@ pub struct TopologyLane {
 
 impl TopologyLane {
     pub fn with_interval(session: Arc<dyn ClusterSession>, interval: Duration) -> Self {
-        Self {
-            session,
-            interval: floor(interval),
-        }
+        Self { session, interval }
     }
 }
 

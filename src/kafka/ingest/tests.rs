@@ -14,8 +14,6 @@ use crate::kafka::store::fixtures::identity;
 use crate::kafka::store::{Change, ClusterStore};
 use crate::kafka::testing::FakeCluster;
 
-/// Long enough that no lane ever fires on its own; tests drive polls with
-/// `kick`.
 const IDLE: Duration = Duration::from_secs(600);
 
 fn store(session: &FakeCluster) -> Arc<ClusterStore> {

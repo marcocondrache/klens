@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use krafka::client::KrafkaClient as KrafkaSharedClient;
 use krafka::consumer::{AutoOffsetReset, Consumer, ConsumerBuilder, ConsumerRecord};
 
-use crate::environment::{MAX_RECORD_LIMIT, MAX_RESPONSE_MB};
+use crate::environment::{MAX_RECORD_LIMIT, MAX_RESPONSE_BYTES};
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{Compression, PartitionWindow, RawRecord, ScanConsumer};
 
@@ -31,9 +31,7 @@ pub(super) fn reader(
         .max_buffered_records(page_limit.saturating_mul(2))
         // krafka's 50 MB default is wider than the frame the connection
         // now accepts, which would make a busy fetch unreadable.
-        .fetch_max_bytes(i32::try_from(*MAX_RESPONSE_MB / 2).unwrap_or(i32::MAX))
-        // With the start offsets already known, the first assignment
-        // resolves no offsets.
+        .fetch_max_bytes(i32::try_from(*MAX_RESPONSE_BYTES / 2).unwrap_or(i32::MAX))
         .initial_offsets(
             start
                 .into_iter()
@@ -101,10 +99,6 @@ impl ScanConsumer for ScanLease {
     }
 
     async fn poll(&self, budget: Duration) -> Result<Vec<RawRecord>, KafkaError> {
-        // The budget is how long the broker may park the fetch, not a cap on
-        // the round trip that carries it back: on a link slower than the
-        // budget, cutting the poll off here would discard every response.
-        // The scan bounds the page by its own deadline instead.
         let polled = self.poison(self.consumer.poll(budget).await.map_err(KafkaError::from))?;
 
         Ok(polled.into_iter().map(raw_record).collect())
@@ -197,7 +191,7 @@ mod tests {
 
         assert_eq!(
             config.fetch_max_bytes(),
-            i32::try_from(*MAX_RESPONSE_MB / 2).unwrap(),
+            i32::try_from(*MAX_RESPONSE_BYTES / 2).unwrap(),
             "a fetch wider than the frame limit would be unreadable"
         );
         assert_eq!(config.fetch_max_wait(), Duration::from_millis(250));

@@ -1,15 +1,3 @@
-//! Configured obfuscation of record keys, values, and headers.
-//!
-//! Rules are compiled once at boot ([`ObfuscationPolicy::compile`]) and then
-//! evaluated per record: one topic lookup per page, and `O(path)` pointer
-//! chasing per rule per record. A cluster without rules never builds a policy
-//! at all, so the unconfigured path is a single `Option` check.
-//!
-//! The transform runs inside the scan, *before* any filter sees a payload, so
-//! filters match what the response shows. Without that ordering a filter is
-//! an oracle: an operator recovers a masked card number by extending a
-//! `contains` prefix one digit at a time.
-
 use std::borrow::Cow;
 use std::fmt::Write as _;
 use std::sync::Arc;
@@ -27,11 +15,8 @@ use crate::config::{
 
 use super::payload::DecodedPayload;
 
-/// Marks a value the user is looking at a token of, not the value itself.
 const TOKEN_PREFIX: &str = "kx:";
 
-/// Bytes of the HMAC tag a token carries. 64 bits is far past birthday
-/// collisions at page scale while staying short enough to read.
 const TOKEN_BYTES: usize = 8;
 
 const REGEX_SIZE_LIMIT: usize = 1024 * 1024;
@@ -48,19 +33,15 @@ pub enum ObfuscationError {
     InvalidPattern { pattern: String, reason: String },
 }
 
-/// Which half of a record a transform is running on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Field {
     Key,
     Value,
 }
 
-/// Every cluster rule, indexed by topic.
 #[derive(Debug)]
 pub struct ObfuscationPolicy {
     exact: HashMap<Box<str>, Arc<TopicObfuscator>>,
-    /// Longest prefix first, so the most specific rule wins. Overlapping
-    /// rules are a config error, so the order only matters for determinism.
     prefixes: Vec<(Box<str>, Arc<TopicObfuscator>)>,
 }
 
@@ -126,7 +107,6 @@ impl ObfuscationPolicy {
         Ok(Self { exact, prefixes })
     }
 
-    /// One lookup per page: a scan reads a single topic.
     pub fn for_topic(&self, topic: &str) -> Option<Arc<TopicObfuscator>> {
         if let Some(obfuscator) = self.exact.get(topic) {
             return Some(Arc::clone(obfuscator));
@@ -139,7 +119,6 @@ impl ObfuscationPolicy {
     }
 }
 
-/// Everything one topic's records go through.
 #[derive(Debug)]
 pub struct TopicObfuscator {
     fields: Vec<CompiledField>,
@@ -152,8 +131,6 @@ pub struct TopicObfuscator {
 }
 
 impl TopicObfuscator {
-    /// Whether keys or values are rewritten, which is what makes filtering
-    /// the raw bytes an oracle.
     pub fn hides_payload(&self) -> bool {
         !self.fields.is_empty()
             || !self.patterns.is_empty()
@@ -161,8 +138,6 @@ impl TopicObfuscator {
             || self.value.is_some()
     }
 
-    /// Mask configured header values in place, before anything renders or
-    /// filters them.
     pub fn mask_headers(&self, headers: &mut [(Bytes, Option<Bytes>)]) {
         if self.headers.is_empty() {
             return;
@@ -179,11 +154,6 @@ impl TopicObfuscator {
         }
     }
 
-    /// Rewrite one decoded field in place.
-    ///
-    /// Runs before the payload's text is ever rendered, so the render happens
-    /// once and already sees tokens. `drop` on a whole field clears it: the
-    /// record then reports no key, or no value.
     pub fn apply(&self, field: Field, slot: &mut Option<DecodedPayload>) {
         let whole = match field {
             Field::Key => self.key,
@@ -205,8 +175,6 @@ impl TopicObfuscator {
                     rule.apply(json, self.hasher.as_deref());
                 }
             }
-            // A value that never became JSON cannot be walked, so field rules
-            // would silently miss: fail closed instead.
             None if field == Field::Value
                 && !self.fields.is_empty()
                 && self.unparsed == UnparsedPolicy::Mask =>
@@ -255,7 +223,6 @@ impl TopicObfuscator {
     }
 }
 
-/// A dotted path, pre-split once.
 #[derive(Debug)]
 struct CompiledField {
     path: Box<[Box<str>]>,
@@ -321,11 +288,6 @@ fn replace_literal<'a>(regex: &Regex, text: &'a str, replacement: &'static str) 
     regex.replace_all(text, regex::NoExpand(replacement))
 }
 
-/// Walk one compiled path into the tree, rewriting what it lands on.
-///
-/// An array met on the way fans out over its elements, so `items.sku` covers
-/// `items[0].sku`, `items[1].sku`, and so on. A path that does not exist
-/// costs the walk and nothing else.
 fn walk(
     value: &mut serde_json::Value,
     path: &[Box<str>],
@@ -364,8 +326,6 @@ fn walk(
     }
 }
 
-/// What a leaf hashes as: a string hashes its contents and anything else its
-/// JSON text, so one value tokens the same however a rule reached it.
 fn leaf_text(value: &serde_json::Value) -> Cow<'_, str> {
     match value {
         serde_json::Value::String(text) => Cow::Borrowed(text),
@@ -373,10 +333,6 @@ fn leaf_text(value: &serde_json::Value) -> Cow<'_, str> {
     }
 }
 
-/// A token, or a mask when no key material exists.
-///
-/// Compilation rejects hashing without a secret, so the fallback is only ever
-/// the fail-closed answer to a bug.
 fn token(value: &str, hasher: Option<&KeyedHasher>) -> String {
     match hasher {
         Some(hasher) => hasher.token(value),
@@ -384,11 +340,6 @@ fn token(value: &str, hasher: Option<&KeyedHasher>) -> String {
     }
 }
 
-/// HMAC-SHA256, truncated.
-///
-/// Keyed because the inputs obfuscation protects are low entropy: an unkeyed
-/// hash of a phone number or an email is a rainbow-table lookup, while a
-/// keyed one needs the secret before enumeration means anything.
 pub struct KeyedHasher {
     mac: Hmac<Sha256>,
 }
@@ -404,14 +355,10 @@ impl std::fmt::Debug for KeyedHasher {
 impl KeyedHasher {
     pub fn new(secret: &[u8]) -> Self {
         Self {
-            // HMAC accepts a key of any length: longer keys are hashed down,
-            // shorter ones zero-padded.
             mac: Hmac::<Sha256>::new_from_slice(secret).expect("hmac accepts any key length"),
         }
     }
 
-    /// `kx:` plus 16 hex characters. Equal inputs give equal tokens for as
-    /// long as the secret lives, which is what keeps records correlatable.
     pub fn token(&self, value: &str) -> String {
         let mut mac = self.mac.clone();
         mac.update(value.as_bytes());

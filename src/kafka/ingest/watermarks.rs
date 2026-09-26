@@ -14,7 +14,7 @@ use crate::kafka::store::{
     Change, ClusterStore, Lane, TopicRate, Topology, WatermarkTable, WatermarksTick,
 };
 
-use super::runner::{LaneSource, floor};
+use super::runner::LaneSource;
 
 pub struct WatermarkLane {
     session: Arc<dyn ClusterSession>,
@@ -28,7 +28,7 @@ impl WatermarkLane {
     pub fn with_interval(session: Arc<dyn ClusterSession>, interval: Duration) -> Self {
         Self {
             session,
-            interval: floor(interval),
+            interval,
             idle_heartbeat: *IDLE_HEARTBEAT,
             max_sample_gap: *MAX_SAMPLE_GAP,
             committed_at: Mutex::new(None),
@@ -150,11 +150,6 @@ impl LaneSource for WatermarkLane {
     }
 }
 
-/// Produce rate per topic from the high-watermark delta.
-///
-/// `elapsed` is `None` when there is no usable baseline: the first sample, or
-/// a gap too long to divide by. A shrinking high watermark means the log was
-/// truncated; that clamps to zero rather than reporting a negative rate.
 fn rates_between(
     previous: Option<&WatermarkTable>,
     next: &WatermarkTable,

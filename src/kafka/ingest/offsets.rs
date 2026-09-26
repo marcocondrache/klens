@@ -16,12 +16,6 @@ use crate::kafka::store::{
     Topology,
 };
 
-use super::runner::floor;
-
-/// Committed offsets, on a tiered schedule rather than a fixed interval.
-///
-/// Groups someone is looking at refresh fast; everything else refreshes
-/// slowly.
 pub struct OffsetLane {
     session: Arc<dyn ClusterSession>,
     tick: Duration,
@@ -31,8 +25,6 @@ pub struct OffsetLane {
     attempted_at: Mutex<HashMap<Arc<str>, Instant>>,
 }
 
-/// One scheduler pass: the groups that came due, fetched together and
-/// committed as a single table successor.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Wave {
     pub refreshed: Vec<Arc<str>>,
@@ -51,18 +43,18 @@ impl OffsetLane {
         let ingest = ClusterIngestConfig::default();
         Self {
             session,
-            tick: floor(Duration::from_secs(ingest.offset_tick_secs)),
-            fast: floor(Duration::from_secs(ingest.fast_offset_secs)),
-            slow: floor(Duration::from_secs(ingest.slow_offset_secs)),
+            tick: Duration::from_secs(ingest.offset_tick_secs),
+            fast: Duration::from_secs(ingest.fast_offset_secs),
+            slow: Duration::from_secs(ingest.slow_offset_secs),
             concurrency: (*OFFSET_FETCH_CONCURRENCY).max(1),
             attempted_at: Mutex::new(HashMap::new()),
         }
     }
 
     pub fn with_tiers(mut self, tick: Duration, fast: Duration, slow: Duration) -> Self {
-        self.tick = floor(tick);
-        self.fast = floor(fast);
-        self.slow = floor(slow);
+        self.tick = tick;
+        self.fast = fast;
+        self.slow = slow;
         self
     }
 
@@ -71,7 +63,6 @@ impl OffsetLane {
         self
     }
 
-    /// Drives the scheduler until the task is aborted.
     pub async fn run(self, store: Arc<ClusterStore>) {
         let cluster = store.name().to_owned();
         loop {

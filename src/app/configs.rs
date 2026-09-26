@@ -1,5 +1,3 @@
-//! Topic and broker config rows share this wire shape.
-
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 

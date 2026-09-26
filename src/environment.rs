@@ -16,10 +16,8 @@ pub static CONFIG_PATH: LazyLock<String> =
 pub static LOG_LEVEL: LazyLock<String> =
     lazy_env_parse!("KLENS_LOG_LEVEL", String, || "info".to_owned());
 
-/// OIDC scopes requested when the config does not set `auth.oidc.scopes`.
 pub const DEFAULT_OIDC_SCOPES: &[&str] = &["openid", "email", "profile"];
 
-/// Signed session cookie name used by axum-login / tower-sessions.
 pub const SESSION_COOKIE: &str = "klens_session";
 
 /// How long OIDC PKCE/CSRF state stays in the session (default: 10 minutes).
@@ -35,7 +33,6 @@ pub static LOGIN_MAX_AGE_SECS: LazyLock<i64> =
 pub static MAX_SESSION_SECS: LazyLock<i64> =
     lazy_env_parse!("KLENS_MAX_SESSION_SECS", i64, 12 * 60 * 60);
 
-/// Versioned prefix mixed into the session auth hash.
 pub const SESSION_COOKIE_KEY_PREFIX: &str = "klens-session-v1";
 
 /// Signing key for the session cookie, as base64 or raw text of at least
@@ -48,14 +45,11 @@ pub const SESSION_COOKIE_KEY_PREFIX: &str = "klens-session-v1";
 pub static SESSION_KEY: LazyLock<Option<String>> =
     LazyLock::new(|| std::env::var("KLENS_SESSION_KEY").ok());
 
-/// Shortest accepted session signing key. `cookie::Key::derive_from` panics
-/// below this.
+/// `cookie::Key::derive_from` panics below this.
 pub const MIN_SESSION_KEY_BYTES: usize = 32;
 
-/// Prefix for Kafka `client.id` values (`klens-<cluster>[-<role>]`).
 pub const CLIENT_ID_PREFIX: &str = "klens";
 
-/// Prefix for consumer groups created by klens itself.
 pub const INTERNAL_GROUP_PREFIX: &str = "klens.internal.";
 
 /// TCP connect timeout for the Kafka client (default: 10 seconds).
@@ -92,12 +86,12 @@ pub static CONSUME_TIMEOUT: LazyLock<Duration> =
 pub static MAX_IN_FLIGHT_REQUESTS: LazyLock<usize> =
     lazy_env_parse!("KLENS_MAX_IN_FLIGHT_REQUESTS", usize, 32);
 
-/// Largest broker response frame the client will accept, in MiB
-/// (default: 32).
+/// Largest broker response frame the client will accept, in bytes
+/// (default: 32 MiB).
 ///
-/// Override with `KLENS_MAX_RESPONSE_MB`.
-pub static MAX_RESPONSE_MB: LazyLock<usize> =
-    lazy_env_parse!("KLENS_MAX_RESPONSE_MB", usize, 32 * 1024 * 1024);
+/// Override with `KLENS_MAX_RESPONSE_MB` (MiB).
+pub static MAX_RESPONSE_BYTES: LazyLock<usize> =
+    lazy_env_parse!(mib, "KLENS_MAX_RESPONSE_MB", 32 * 1024 * 1024);
 
 /// Idle scan consumers kept per topic (default: 2).
 ///
@@ -122,8 +116,6 @@ pub static SCAN_POOL_IDLE_TTL: LazyLock<Duration> = lazy_env_parse!(
 /// How long one scan poll waits, and how long the broker may park the fetch
 /// (default: 100 milliseconds).
 ///
-/// Same duration on purpose: the broker must release when the scan moves on.
-///
 /// Override with `KLENS_SCAN_PACE_BOUND_MS`.
 pub static SCAN_PACE_BOUND: LazyLock<Duration> = lazy_env_parse!(
     millis,
@@ -137,13 +129,9 @@ pub static SCAN_PACE_BOUND: LazyLock<Duration> = lazy_env_parse!(
 pub static MAX_RECORD_LIMIT: LazyLock<usize> =
     lazy_env_parse!("KLENS_MAX_RECORD_LIMIT", usize, 500);
 
-/// How often a quiet event stream sends a keep-alive (15 seconds).
 pub const SSE_KEEP_ALIVE: Duration = Duration::from_secs(15);
 
 /// Most records one live-tail batch carries (default: 100).
-///
-/// A busy topic is sampled rather than streamed whole: each batch keeps the
-/// newest records it read and reports how many it passed over.
 ///
 /// Override with `KLENS_TAIL_BATCH_LIMIT`.
 pub static TAIL_BATCH_LIMIT: LazyLock<usize> =
@@ -151,17 +139,12 @@ pub static TAIL_BATCH_LIMIT: LazyLock<usize> =
 
 /// Least time between two live-tail batches (default: 250 milliseconds).
 ///
-/// With [`TAIL_BATCH_LIMIT`] this caps what one tail sends a browser.
-///
 /// Override with `KLENS_TAIL_INTERVAL_MS`.
 pub static TAIL_INTERVAL: LazyLock<Duration> =
     lazy_env_parse!(millis, "KLENS_TAIL_INTERVAL_MS", Duration::from_millis(250));
 
 /// How long a live-tail fetch may park on the broker waiting for new records
 /// (default: 500 milliseconds).
-///
-/// Longer than [`SCAN_PACE_BOUND`] on purpose: a tail on a quiet topic spends
-/// its life waiting, and every release is another fetch round trip.
 ///
 /// Override with `KLENS_TAIL_POLL_WAIT_MS`.
 pub static TAIL_POLL_WAIT: LazyLock<Duration> = lazy_env_parse!(
@@ -171,8 +154,6 @@ pub static TAIL_POLL_WAIT: LazyLock<Duration> = lazy_env_parse!(
 );
 
 /// Live tails the process serves at once, across every cluster (default: 32).
-///
-/// Each one holds a consumer for as long as its browser stays connected.
 ///
 /// Override with `KLENS_MAX_LIVE_TAILS`.
 pub static MAX_LIVE_TAILS: LazyLock<usize> = lazy_env_parse!("KLENS_MAX_LIVE_TAILS", usize, 32);
@@ -198,10 +179,6 @@ pub static SUBJECT_FETCH_CONCURRENCY: LazyLock<usize> =
 
 /// How long a schema id the registry does not know stays cached as missing
 /// (default: 60 seconds).
-///
-/// Resolved schemas are cached for the process lifetime because a registered
-/// schema is immutable. A missing one is not: registering it later must not
-/// leave every record rendering as raw bytes forever.
 ///
 /// Override with `KLENS_MISSING_SCHEMA_TTL` (seconds).
 pub static MISSING_SCHEMA_TTL: LazyLock<Duration> = lazy_env_parse!(
@@ -244,8 +221,6 @@ pub static RECORD_WINDOW_MULTIPLIER: LazyLock<usize> =
 pub static RECORD_MIN_WINDOW: LazyLock<usize> =
     lazy_env_parse!("KLENS_RECORD_MIN_WINDOW", usize, 4);
 
-/// Cache-Control for hashed UI assets (1 year, immutable).
 pub const STATIC_ASSET_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
 
-/// Cache-Control for `index.html` so clients pick up new asset hashes.
 pub const INDEX_CACHE_CONTROL: &str = "no-cache";
