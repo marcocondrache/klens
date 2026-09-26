@@ -149,7 +149,8 @@ const columns = columnHelper.columns([
     cell: ({ getValue }) => emptyMetric(getValue(), formatThroughput(getValue())),
   }),
   columnHelper.accessor(
-    (topic) => (topic.retentionMs === null ? Number.POSITIVE_INFINITY : toNumber(topic.retentionMs)),
+    (topic) =>
+      topic.retentionMs === null ? Number.POSITIVE_INFINITY : toNumber(topic.retentionMs),
     {
       id: "retention",
       header: ({ column }) => (
@@ -161,9 +162,7 @@ const columns = columnHelper.columns([
           return <PendingValue label="Fetching topic configs" className="ml-auto block" />;
         }
         return (
-          <span className="text-muted-foreground">
-            {formatDuration(row.original.retentionMs)}
-          </span>
+          <span className="text-muted-foreground">{formatDuration(row.original.retentionMs)}</span>
         );
       },
     },
