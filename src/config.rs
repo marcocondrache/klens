@@ -513,6 +513,66 @@ impl ClusterConfig {
 
 pub const MIN_OBFUSCATION_SECRET_BYTES: usize = 32;
 
+/// Secret bytes configured as base64 or raw text. Base64 wins only when it
+/// decodes to at least `MIN` bytes, so a passphrase that happens to be valid
+/// base64 is still taken as written.
+#[derive(Clone, PartialEq, Eq)]
+pub struct KeyMaterial<const MIN: usize>(Box<[u8]>);
+
+#[derive(Debug, Error, PartialEq, Eq)]
+#[error("must decode to at least {min} bytes, got {got}")]
+pub struct ShortKeyMaterial {
+    min: usize,
+    got: usize,
+}
+
+impl<const MIN: usize> KeyMaterial<MIN> {
+    /// Blank input is `None`, an unset key rather than a short one.
+    pub fn parse(raw: &str) -> Result<Option<Self>, ShortKeyMaterial> {
+        let raw = raw.trim();
+        if raw.is_empty() {
+            return Ok(None);
+        }
+
+        let bytes = match base64::Engine::decode(&base64::engine::general_purpose::STANDARD, raw) {
+            Ok(decoded) if decoded.len() >= MIN => decoded,
+            _ => raw.as_bytes().to_vec(),
+        };
+
+        if bytes.len() < MIN {
+            return Err(ShortKeyMaterial {
+                min: MIN,
+                got: bytes.len(),
+            });
+        }
+
+        Ok(Some(Self(bytes.into_boxed_slice())))
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl<const MIN: usize> std::fmt::Debug for KeyMaterial<MIN> {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("KeyMaterial")
+            .finish_non_exhaustive()
+    }
+}
+
+fn deserialize_obfuscation_secret<'de, D>(
+    deserializer: D,
+) -> Result<Option<KeyMaterial<MIN_OBFUSCATION_SECRET_BYTES>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer)?
+        .map_or(Ok(None), |raw| KeyMaterial::parse(&raw))
+        .map_err(|error| serde::de::Error::custom(format!("obfuscation secret {error}")))
+}
+
 pub const OBFUSCATION_MASK: &str = "***";
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -521,8 +581,8 @@ pub struct ObfuscationConfig {
     /// Key for `hash` tokens, as base64 or raw text of at least 32 bytes.
     /// Required as soon as one rule hashes. Rotating it changes every token,
     /// so correlation across the rotation is lost.
-    #[serde(default)]
-    pub secret: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_obfuscation_secret")]
+    pub secret: Option<KeyMaterial<MIN_OBFUSCATION_SECRET_BYTES>>,
     pub rules: Vec<ObfuscationRule>,
 }
 
@@ -644,20 +704,6 @@ impl<'a> TopicPattern<'a> {
 }
 
 impl ObfuscationConfig {
-    pub fn secret_bytes(&self) -> Option<Vec<u8>> {
-        let secret = self
-            .secret
-            .as_deref()
-            .map(str::trim)
-            .filter(|secret| !secret.is_empty())?;
-
-        let decoded = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, secret);
-        Some(match decoded {
-            Ok(bytes) if bytes.len() >= MIN_OBFUSCATION_SECRET_BYTES => bytes,
-            _ => secret.as_bytes().to_vec(),
-        })
-    }
-
     pub(crate) fn validate(&self, cluster: &str) -> Result<(), ConfigError> {
         let fail = |reason: String| Err(ConfigError::invalid_cluster(cluster, reason));
 
@@ -665,17 +711,7 @@ impl ObfuscationConfig {
             return fail("obfuscation rules must not be empty".to_owned());
         }
 
-        match self.secret_bytes() {
-            Some(bytes) if bytes.len() < MIN_OBFUSCATION_SECRET_BYTES => {
-                return fail(format!(
-                    "obfuscation secret must decode to at least {MIN_OBFUSCATION_SECRET_BYTES} bytes, got {}",
-                    bytes.len()
-                ));
-            }
-            _ => {}
-        }
-
-        let hashed = self.secret_bytes().is_some();
+        let hashed = self.secret.is_some();
         let mut selectors: Vec<TopicPattern<'_>> = Vec::new();
 
         for rule in &self.rules {

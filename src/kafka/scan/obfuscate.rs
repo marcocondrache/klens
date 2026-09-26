@@ -48,8 +48,9 @@ pub struct ObfuscationPolicy {
 impl ObfuscationPolicy {
     pub fn compile(config: &ObfuscationConfig) -> Result<Self, ObfuscationError> {
         let hasher = config
-            .secret_bytes()
-            .map(|secret| Arc::new(KeyedHasher::new(&secret)));
+            .secret
+            .as_ref()
+            .map(|secret| Arc::new(KeyedHasher::new(secret.as_bytes())));
 
         let mut exact: HashMap<Box<str>, Arc<TopicObfuscator>> = HashMap::new();
         let mut prefixes: Vec<(Box<str>, Arc<TopicObfuscator>)> = Vec::new();

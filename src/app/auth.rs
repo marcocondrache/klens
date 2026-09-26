@@ -8,7 +8,6 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use axum_extra::extract::Query;
 use axum_login::AuthManagerLayerBuilder;
-use base64::Engine as _;
 use jiff::Timestamp;
 use openidconnect::{CsrfToken, Nonce, PkceCodeChallenge};
 use serde::{Deserialize, Serialize};
@@ -19,7 +18,7 @@ use tower_sessions::service::SignedCookie;
 use tower_sessions::{Expiry, SessionManagerLayer};
 
 use crate::AppState;
-use crate::config::AuthConfig;
+use crate::config::{AuthConfig, KeyMaterial};
 use crate::environment::{
     LOGIN_MAX_AGE_SECS, MIN_SESSION_KEY_BYTES, SESSION_COOKIE, SESSION_COOKIE_KEY_PREFIX,
     SESSION_KEY,
@@ -462,7 +461,13 @@ fn session_layer(secure: bool, key: Key) -> SessionLayer {
 }
 
 fn signing_key(configured: Option<&str>) -> anyhow::Result<Key> {
-    let Some(secret) = configured.map(str::trim).filter(|value| !value.is_empty()) else {
+    let secret = configured
+        .map(KeyMaterial::<MIN_SESSION_KEY_BYTES>::parse)
+        .transpose()
+        .map_err(|error| anyhow::anyhow!("session key {error}"))?
+        .flatten();
+
+    let Some(secret) = secret else {
         tracing::warn!(
             "no session key configured; sessions will not survive a restart. \
              set KLENS_SESSION_KEY or auth.session_key"
@@ -470,18 +475,7 @@ fn signing_key(configured: Option<&str>) -> anyhow::Result<Key> {
         return Ok(Key::generate());
     };
 
-    let bytes = match base64::engine::general_purpose::STANDARD.decode(secret) {
-        Ok(decoded) if decoded.len() >= MIN_SESSION_KEY_BYTES => decoded,
-        _ => secret.as_bytes().to_vec(),
-    };
-
-    anyhow::ensure!(
-        bytes.len() >= MIN_SESSION_KEY_BYTES,
-        "session key must decode to at least {MIN_SESSION_KEY_BYTES} bytes, got {}",
-        bytes.len()
-    );
-
-    Ok(Key::derive_from(&bytes))
+    Ok(Key::derive_from(secret.as_bytes()))
 }
 
 #[cfg(test)]
@@ -489,6 +483,7 @@ mod tests {
     use axum::body::{Body, to_bytes};
     use axum::http::StatusCode;
     use axum::http::{Request, header};
+    use base64::Engine as _;
     use tower::ServiceExt;
 
     use super::oidc::FakeOidc;
