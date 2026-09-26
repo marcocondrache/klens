@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use tower_sessions::cookie::time::Duration;
 use tower_sessions::cookie::{Key, SameSite};
 use tower_sessions::service::SignedCookie;
-use tower_sessions::{Expiry, MemoryStore, SessionManagerLayer};
+use tower_sessions::{Expiry, SessionManagerLayer};
 
 use crate::AppState;
 use crate::config::AuthConfig;
@@ -27,15 +27,17 @@ use crate::environment::{
 pub(crate) mod access;
 mod backend;
 mod oidc;
+mod store;
 
 use access::{AccessPolicy, EffectiveAccess, Identity};
 use backend::{AuthBackend, OidcCredentials};
 use oidc::{Oidc, OidcFlow};
+use store::ExpiringStore;
 
 const LOGIN_PENDING_KEY: &str = "klens.login_pending";
 
 type AuthSession = axum_login::AuthSession<AuthBackend>;
-type SessionLayer = SessionManagerLayer<MemoryStore, SignedCookie>;
+type SessionLayer = SessionManagerLayer<ExpiringStore, SignedCookie>;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub(crate) struct SessionUser {
@@ -131,7 +133,7 @@ impl AuthState {
 
     pub(crate) fn layer(
         &self,
-    ) -> axum_login::AuthManagerLayer<AuthBackend, MemoryStore, SignedCookie> {
+    ) -> axum_login::AuthManagerLayer<AuthBackend, ExpiringStore, SignedCookie> {
         AuthManagerLayerBuilder::new(self.backend.clone(), self.session_layer.clone()).build()
     }
 
@@ -448,7 +450,7 @@ struct LoginPending {
 }
 
 fn session_layer(secure: bool, key: Key) -> SessionLayer {
-    SessionManagerLayer::new(MemoryStore::default())
+    SessionManagerLayer::new(ExpiringStore::default())
         .with_name(SESSION_COOKIE)
         .with_http_only(true)
         // Lax so the IdP redirect back to /api/auth/callback still sends the session.
