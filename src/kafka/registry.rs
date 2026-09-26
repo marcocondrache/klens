@@ -71,7 +71,6 @@ pub struct SchemaSubject {
     pub latest_version: i32,
     pub versions: Vec<i32>,
     pub compatibility: SchemaCompatibility,
-    pub schema: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -139,7 +139,6 @@ impl SchemaRegistryClient {
                 .ok_or_else(|| self.fail("schema is missing version"))?,
             versions: versions.into_iter().map(SchemaVersion::as_i32).collect(),
             compatibility,
-            schema: latest.schema.to_string(),
         })
     }
 
@@ -309,7 +308,6 @@ mod tests {
         assert_eq!(subject.versions, vec![1, 2, 3]);
         assert_eq!(subject.schema_type, SchemaType::Avro);
         assert_eq!(subject.compatibility, SchemaCompatibility::Full);
-        assert_eq!(subject.schema, r#""string""#);
     }
 
     #[tokio::test]

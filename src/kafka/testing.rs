@@ -29,6 +29,9 @@ use crate::kafka::session::ClusterSession;
 use crate::kafka::topic_config::{ConfigEntry, ConfigSource};
 use crate::kafka::watermarks::Watermarks;
 
+const SUBJECT_SCHEMA: &str =
+    r#"{"type":"record","name":"Order","fields":[{"name":"orderId","type":"string"}]}"#;
+
 #[derive(Clone)]
 pub struct FakeCluster {
     identity: ClusterIdentity,
@@ -201,9 +204,6 @@ impl FakeCluster {
             latest_version: 2,
             versions: vec![1, 2],
             compatibility: SchemaCompatibility::Backward,
-            schema:
-                r#"{"type":"record","name":"Order","fields":[{"name":"orderId","type":"string"}]}"#
-                    .into(),
         }];
 
         Self {
@@ -948,7 +948,7 @@ impl ClusterSession for FakeCluster {
             .map(|registered| RegisteredSchema {
                 id: registered.id,
                 schema_type: registered.schema_type,
-                schema: registered.schema.clone(),
+                schema: SUBJECT_SCHEMA.to_owned(),
                 references: Vec::new(),
             })
             .ok_or_else(|| KafkaError::UnknownSubject {
