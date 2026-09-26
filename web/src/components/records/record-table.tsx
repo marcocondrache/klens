@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import {
   useTable,
   type Column,
@@ -9,6 +9,11 @@ import {
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
+import {
+  ColumnResizeHandle,
+  resizedWidth,
+  resizeOptions,
+} from "@/components/data-table/column-resize";
 import { features, type DataTableFeatures } from "@/components/data-table/features";
 import { CLICKABLE_ROW, clickableRowProps } from "@/components/data-table/row-interaction";
 import { SkeletonBar, skeletonRowStyle } from "@/components/data-table/skeleton-bar";
@@ -83,14 +88,15 @@ export function RecordTable<TData extends RowData>({
     columns,
     getRowId,
     enableSorting: false,
+    ...resizeOptions,
   });
 
   const rows = table.getRowModel().rows;
   const leafColumns = table.getAllLeafColumns();
-  const gridTemplateColumns = useMemo(
-    () => leafColumns.map((column) => COLUMN_TRACK[column.id] ?? "minmax(0,1fr)").join(" "),
-    [leafColumns],
-  );
+  const sizing = table.state.columnSizing;
+  const gridTemplateColumns = leafColumns
+    .map((column) => resizedWidth(column, sizing) ?? COLUMN_TRACK[column.id] ?? "minmax(0,1fr)")
+    .join(" ");
   const loaderCount = hasNextPage || isFetchingNextPage || isFetchNextPageError ? 1 : 0;
   const count = rows.length + loaderCount;
 
@@ -157,12 +163,12 @@ export function RecordTable<TData extends RowData>({
             aria-busy={refreshing || isFetchingNextPage || undefined}
             className="flex min-h-0 flex-1 flex-col text-sm"
           >
-            <HeaderRow table={table} gridTemplateColumns={gridTemplateColumns} />
             <div
               ref={scrollRef}
               data-slot="table-container"
               className="min-h-0 flex-1 overflow-auto [scrollbar-gutter:stable]"
             >
+              <HeaderRow table={table} gridTemplateColumns={gridTemplateColumns} sticky />
               <div
                 role="rowgroup"
                 data-slot="table-body"
@@ -219,7 +225,7 @@ export function RecordTable<TData extends RowData>({
                         ? clickableRowProps(() => onRowClick(row.original))
                         : {})}
                       className={cn(
-                        "group/row absolute top-0 left-0 grid w-full border-b border-border/70",
+                        "group/row absolute top-0 left-0 grid w-full min-w-min border-b border-border/70",
                         row && onRowClick && CLICKABLE_ROW,
                         row &&
                           "transition-[background-color,opacity] duration-75 hover:bg-muted/50 data-[state=selected]:bg-muted",
@@ -264,16 +270,21 @@ export function RecordTable<TData extends RowData>({
 function HeaderRow<TData extends RowData>({
   table,
   gridTemplateColumns,
+  sticky = false,
 }: {
   table: ReactTable<DataTableFeatures, TData>;
   gridTemplateColumns: string;
+  sticky?: boolean;
 }) {
   const headers = table.getHeaderGroups()[0]?.headers ?? [];
 
   return (
     <div
       role="row"
-      className="grid shrink-0 border-b bg-subtle [scrollbar-gutter:stable]"
+      className={cn(
+        "grid min-w-min shrink-0 border-b bg-subtle [scrollbar-gutter:stable]",
+        sticky && "sticky top-0 z-10",
+      )}
       style={{ gridTemplateColumns }}
     >
       {headers.map((header: Header<DataTableFeatures, TData, unknown>) => {
@@ -285,12 +296,13 @@ function HeaderRow<TData extends RowData>({
             key={header.id}
             role="columnheader"
             className={cn(
-              "flex h-10 items-center px-3 text-left text-xs font-medium whitespace-nowrap text-muted-foreground first:pl-4 last:pr-4",
+              "relative flex h-10 items-center px-3 text-left text-xs font-medium whitespace-nowrap text-muted-foreground first:pl-4 last:pr-4",
               meta?.align === "right" && "justify-end text-right",
               meta?.headerClassName,
             )}
           >
             {header.isPlaceholder ? null : <table.FlexRender header={header} />}
+            {column.id === "value" ? null : <ColumnResizeHandle header={header} />}
           </div>
         );
       })}
@@ -312,7 +324,7 @@ function SkeletonRow<TData extends RowData>({
   return (
     <div
       aria-hidden
-      className="grid h-10 items-center border-b border-border/70"
+      className="grid h-10 min-w-min items-center border-b border-border/70"
       style={{ gridTemplateColumns, ...style }}
     >
       {columns.map((column, index) => (
