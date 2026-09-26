@@ -27,7 +27,7 @@ use crate::kafka::acl::AclListing;
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
 use crate::kafka::group::{CommittedOffset, GroupSnapshot, is_internal_group};
-use crate::kafka::metadata::{MetadataSnapshot, TopicMetadata};
+use crate::kafka::metadata::{MetadataSnapshot, TopicMetadata, Watermarks};
 use crate::kafka::model::{PartitionWindow, ScanConsumer, TailConsumer, TailPosition};
 use crate::kafka::registry::client::SchemaRegistryClient;
 use crate::kafka::registry::decode::PayloadDecoder;
@@ -36,7 +36,6 @@ use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::topic_config::ConfigEntry;
-use crate::kafka::watermarks::Watermarks;
 
 use convert::committed_from_krafka;
 use groups::snapshots_from_descriptions;

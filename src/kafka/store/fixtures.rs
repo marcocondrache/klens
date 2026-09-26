@@ -9,10 +9,11 @@ use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::group::{
     CommittedOffset, GroupMember, GroupSnapshot, GroupState, MemberAssignment,
 };
-use crate::kafka::metadata::{BrokerMetadata, MetadataSnapshot, PartitionMetadata, TopicMetadata};
+use crate::kafka::metadata::{
+    BrokerMetadata, MetadataSnapshot, PartitionMetadata, TopicMetadata, Watermarks,
+};
 use crate::kafka::registry::{SchemaCompatibility, SchemaSubject, SchemaType};
 use crate::kafka::topic_config::{ConfigEntry, ConfigSource};
-use crate::kafka::watermarks::Watermarks;
 
 pub fn identity(name: &str) -> ClusterIdentity {
     ClusterIdentity {

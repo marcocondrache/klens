@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use foldhash::{HashMap, HashMapExt};
 
 use crate::kafka::limits::RecordLimits;
-use crate::kafka::watermarks::Watermarks;
+use crate::kafka::metadata::Watermarks;
 
 use super::cursor::{CursorDirection, RecordCursor};
 use super::query::RecordOrder;

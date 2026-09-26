@@ -11,8 +11,8 @@ use tokio::time::{Instant, timeout_at};
 use crate::environment::SCAN_PACE_BOUND;
 use crate::kafka::error::KafkaError;
 use crate::kafka::limits::RecordLimits;
+use crate::kafka::metadata::Watermarks;
 use crate::kafka::session::ClusterSession;
-use crate::kafka::watermarks::Watermarks;
 
 use super::batch::{RecordBatch, SortKey};
 use super::cursor::CursorDirection;

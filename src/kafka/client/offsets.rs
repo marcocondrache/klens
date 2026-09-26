@@ -1,6 +1,6 @@
 use foldhash::{HashMap, HashMapExt};
 
-use crate::kafka::watermarks::Watermarks;
+use crate::kafka::metadata::Watermarks;
 
 /// `None` means the broker returned Kafka's invalid-offset sentinel.
 pub fn from_list_offsets(

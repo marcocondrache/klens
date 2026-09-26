@@ -2,10 +2,9 @@ use foldhash::HashMap;
 
 use crate::kafka::error::KafkaError;
 use crate::kafka::limits::RecordLimits;
-use crate::kafka::metadata::PartitionMetadata;
+use crate::kafka::metadata::{PartitionMetadata, Watermarks};
 use crate::kafka::session::ClusterSession;
 use crate::kafka::store::ClusterStore;
-use crate::kafka::watermarks::Watermarks;
 
 use super::RecordPage;
 use super::plan::apply_timestamp_bounds;
