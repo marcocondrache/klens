@@ -99,3 +99,17 @@ export function GroupStateBadge({ state }: { state: GroupState }) {
     </StatusLabel>
   );
 }
+
+export function PendingValue({ label, className }: { label: string; className?: string }) {
+  return (
+    <span
+      role="status"
+      aria-label={label}
+      title={label}
+      className={cn(
+        "inline-block h-3 w-12 animate-pulse rounded-sm bg-muted align-middle",
+        className,
+      )}
+    />
+  );
+}

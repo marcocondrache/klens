@@ -12,7 +12,7 @@ import { PageHeader } from "@/components/page-header";
 import { RecordBrowser } from "@/components/records/record-browser";
 import { Facts } from "@/components/facts";
 import { TabCount } from "@/components/tab-count";
-import { GroupStateBadge, Pill, StatusDot, TONE_TEXT } from "@/components/status";
+import { GroupStateBadge, PendingValue, Pill, StatusDot, TONE_TEXT } from "@/components/status";
 import { lagTone } from "@/lib/tone";
 import { useTopic, useTopicGroups } from "@/lib/api/catalog";
 import { catalogLookupMessage } from "@/lib/catalog-lookup";
@@ -133,24 +133,30 @@ const groupColumns = groupColumnHelper.columns([
     meta: { align: "right", width: "6rem" },
     cell: ({ getValue }) => getValue(),
   }),
-  groupColumnHelper.accessor((group) => toNumber(group.lagOnTopic), {
-    id: "lag",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Lag on this topic" className="justify-end" />
-    ),
-    meta: { align: "right", width: "9rem" },
-    cell: ({ row: groupRow }) => {
-      const lag = toNumber(groupRow.original.lagOnTopic);
+  groupColumnHelper.accessor(
+    (group) => (group.lagOnTopic === null ? -1 : toNumber(group.lagOnTopic)),
+    {
+      id: "lag",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Lag on this topic" className="justify-end" />
+      ),
+      meta: { align: "right", width: "9rem" },
+      cell: ({ row: groupRow }) => {
+        if (groupRow.original.lagOnTopic === null) {
+          return <PendingValue label="Fetching committed offsets" className="ml-auto block" />;
+        }
+        const lag = toNumber(groupRow.original.lagOnTopic);
 
-      return (
-        <span
-          className={cn("numeric", lag === 0 ? "text-muted-foreground" : TONE_TEXT[lagTone(lag)])}
-        >
-          {formatNumber(groupRow.original.lagOnTopic)}
-        </span>
-      );
+        return (
+          <span
+            className={cn("numeric", lag === 0 ? "text-muted-foreground" : TONE_TEXT[lagTone(lag)])}
+          >
+            {formatNumber(groupRow.original.lagOnTopic)}
+          </span>
+        );
+      },
     },
-  }),
+  ),
 ]);
 
 function TopicFacts({ detail }: { detail: TopicDetail }) {

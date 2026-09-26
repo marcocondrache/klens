@@ -72,7 +72,7 @@ pub struct GroupRow {
     pub state: GroupState,
     pub member_count: i32,
     pub topic_names: Vec<String>,
-    pub total_lag: i64,
+    pub total_lag: Option<i64>,
     /// False when a committed partition had no watermark to join against.
     pub lag_complete: bool,
     pub coordinator_id: i32,
@@ -86,7 +86,7 @@ pub struct GroupDetail {
     pub coordinator_id: i32,
     pub members: Vec<GroupMember>,
     pub offsets: Vec<GroupOffset>,
-    pub total_lag: i64,
+    pub total_lag: Option<i64>,
     pub lag_complete: bool,
 }
 
@@ -95,7 +95,7 @@ pub struct TopicGroupRow {
     pub id: Arc<str>,
     pub state: GroupState,
     pub member_count: i32,
-    pub lag_on_topic: i64,
+    pub lag_on_topic: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -132,11 +132,8 @@ pub struct ClusterHealthView {
     pub offline_partitions: i32,
 }
 
-fn lag_of(committed: i64, end: Option<i64>) -> (i64, bool) {
-    match end {
-        Some(end) => ((end - committed).max(0), true),
-        None => (0, false),
-    }
+fn lag_of(committed: Option<i64>, end: Option<i64>) -> Option<i64> {
+    Some((end? - committed?).max(0))
 }
 
 pub fn topic_row(
@@ -216,31 +213,29 @@ pub fn group_offsets(
     group: &GroupInfo,
     offsets: Option<&GroupOffsets>,
     watermarks: Option<&WatermarkTable>,
-) -> (Vec<GroupOffset>, i64, bool) {
+) -> (Vec<GroupOffset>, Option<i64>, bool) {
     let end = |topic: &str, partition: i32| {
         watermarks
             .and_then(|table| table.get(topic, partition))
             .map(|marks: Watermarks| marks.high)
     };
 
+    let fetched = offsets.is_some();
     let committed = offsets
         .map(|offsets| offsets.committed.as_slice())
         .unwrap_or_default();
     let mut seen: HashMap<(&str, i32), GroupOffset> = HashMap::with_capacity(committed.len());
-    let mut complete = true;
 
     for committed in committed {
         let end = end(&committed.topic, committed.partition);
-        let (lag, known) = lag_of(committed.offset, end);
-        complete &= known;
         seen.insert(
             (committed.topic.as_str(), committed.partition),
             GroupOffset {
                 topic: committed.topic.clone(),
                 partition: committed.partition,
-                current_offset: committed.offset,
-                end_offset: end.unwrap_or(committed.offset),
-                lag,
+                current_offset: Some(committed.offset),
+                end_offset: end,
+                lag: lag_of(Some(committed.offset), end),
                 member_id: group
                     .member_for(&committed.topic, committed.partition)
                     .map(ToOwned::to_owned),
@@ -253,13 +248,13 @@ pub fn group_offsets(
             continue;
         };
         let end = end(topic, partition);
-        complete &= end.is_some();
+        let current = fetched.then_some(0);
         slot.insert(GroupOffset {
             topic: topic.to_owned(),
             partition,
-            current_offset: 0,
-            end_offset: end.unwrap_or(0),
-            lag: end.unwrap_or(0).max(0),
+            current_offset: current,
+            end_offset: end,
+            lag: lag_of(current, end),
             member_id: group.member_for(topic, partition).map(ToOwned::to_owned),
         });
     }
@@ -270,7 +265,8 @@ pub fn group_offsets(
             .cmp(&right.topic)
             .then(left.partition.cmp(&right.partition))
     });
-    let total = offsets.iter().map(|offset| offset.lag).sum();
+    let complete = offsets.iter().all(|offset| offset.lag.is_some());
+    let total = fetched.then(|| offsets.iter().filter_map(|offset| offset.lag).sum());
     (offsets, total, complete)
 }
 
@@ -318,16 +314,19 @@ pub fn topic_group_row(
     offsets: Option<&GroupOffsets>,
     watermarks: Option<&WatermarkTable>,
 ) -> TopicGroupRow {
+    let fetched = offsets.is_some();
     let (offsets, _, _) = group_offsets(group, offsets, watermarks);
     TopicGroupRow {
         id: Arc::clone(id),
         state: group.state,
         member_count: group.members.len() as i32,
-        lag_on_topic: offsets
-            .iter()
-            .filter(|offset| offset.topic == topic)
-            .map(|offset| offset.lag)
-            .sum(),
+        lag_on_topic: fetched.then(|| {
+            offsets
+                .iter()
+                .filter(|offset| offset.topic == topic)
+                .filter_map(|offset| offset.lag)
+                .sum()
+        }),
     }
 }
 
@@ -490,7 +489,7 @@ mod tests {
             Some(&marks()),
         );
 
-        assert_eq!(row.total_lag, 40, "10 behind + 30 behind");
+        assert_eq!(row.total_lag, Some(40), "10 behind + 30 behind");
         assert!(row.lag_complete);
         assert_eq!(row.member_count, 1);
         assert_eq!(row.topic_names, vec!["orders"]);
@@ -509,7 +508,8 @@ mod tests {
         );
 
         assert_eq!(
-            row.total_lag, 50,
+            row.total_lag,
+            Some(50),
             "partition 0 clamps to 0, partition 1 never committed"
         );
     }
@@ -526,7 +526,7 @@ mod tests {
             Some(&watermarks(at(1_000), &[])),
         );
 
-        assert_eq!(row.total_lag, 0);
+        assert_eq!(row.total_lag, Some(0));
         assert!(
             !row.lag_complete,
             "unknown partitions must not read as zero lag"
@@ -545,7 +545,7 @@ mod tests {
             Some(&watermarks(at(1_000), &[("orders", 0, 20, 100)])),
         );
 
-        assert_eq!(row.total_lag, 10);
+        assert_eq!(row.total_lag, Some(10));
         assert!(
             !row.lag_complete,
             "partition 1 has neither a commit nor a watermark"
@@ -557,11 +557,11 @@ mod tests {
         let topology = topology();
         let (id, group) = topology.groups.iter().next().unwrap();
 
-        let detail = group_detail(id, group, None, Some(&marks()));
+        let detail = group_detail(id, group, Some(&offsets(at(1_000), &[])), Some(&marks()));
 
-        assert_eq!(detail.total_lag, 150);
+        assert_eq!(detail.total_lag, Some(150));
         assert_eq!(detail.offsets.len(), 2);
-        assert_eq!(detail.offsets[0].current_offset, 0);
+        assert_eq!(detail.offsets[0].current_offset, Some(0));
         assert_eq!(detail.offsets[0].member_id.as_deref(), Some("billing-m1"));
     }
 
@@ -579,8 +579,9 @@ mod tests {
         let (id, group) = topology.groups.iter().next().unwrap();
         let marks = watermarks(at(1_000), &[("orders", 0, 0, 10), ("payments", 0, 0, 900)]);
 
-        let row = topic_group_row(id, "orders", group, None, Some(&marks));
-        assert_eq!(row.lag_on_topic, 10);
+        let fetched = offsets(at(1_000), &[]);
+        let row = topic_group_row(id, "orders", group, Some(&fetched), Some(&marks));
+        assert_eq!(row.lag_on_topic, Some(10));
         assert_eq!(row.member_count, 1);
     }
 

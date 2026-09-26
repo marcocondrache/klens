@@ -123,9 +123,9 @@ pub struct CommittedOffset {
 pub struct GroupOffset {
     pub topic: String,
     pub partition: i32,
-    pub current_offset: i64,
-    pub end_offset: i64,
-    pub lag: i64,
+    pub current_offset: Option<i64>,
+    pub end_offset: Option<i64>,
+    pub lag: Option<i64>,
     pub member_id: Option<String>,
 }
 
