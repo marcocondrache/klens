@@ -62,26 +62,48 @@ pub fn plan_windows(
         .collect()
 }
 
-pub fn advance_cursor(
+pub fn walk_start(
     walk: RecordOrder,
+    partitions: &[i32],
+    watermarks: &HashMap<i32, Watermarks>,
+) -> Remaining {
+    let offsets = partitions
+        .iter()
+        .filter_map(|&partition| {
+            let marks = watermarks.get(&partition)?;
+            let near_end = match walk {
+                RecordOrder::Oldest => marks.low,
+                RecordOrder::Newest => marks.high,
+            };
+            Some((partition, near_end))
+        })
+        .collect();
+
+    Remaining::walking(walk, offsets)
+}
+
+pub fn advance_cursor(
+    from: &Remaining,
     covered: &[PartitionWindow],
     watermarks: &HashMap<i32, Watermarks>,
     kept: &[(i32, i64)],
     limit: usize,
     order: RecordOrder,
 ) -> Option<RecordCursor> {
+    let walk = from.walk();
     let returned = (kept.len() >= limit).then(|| past_furthest(walk, kept));
-    let next = covered.iter().map(|window| {
+    let mut next = from.offsets().clone();
+    for window in covered {
         let (near, far) = match walk {
             RecordOrder::Oldest => (window.start, window.end),
             RecordOrder::Newest => (window.end, window.start),
         };
-        let next = match &returned {
+        let offset = match &returned {
             Some(returned) => returned.get(&window.partition).copied().unwrap_or(near),
             None => far,
         };
-        (window.partition, next)
-    });
+        next.insert(window.partition, offset);
+    }
 
     cursor_from(order, walk, next, watermarks)
 }
@@ -119,6 +141,9 @@ fn past_furthest(walk: RecordOrder, kept: &[(i32, i64)]) -> HashMap<i32, i64> {
     edges
 }
 
+/// Keeps a partition the walk ran out of at the offset where it ran out, so a
+/// walk back from this cursor stops there rather than at a far end that has
+/// moved since.
 fn cursor_from(
     order: RecordOrder,
     walk: RecordOrder,
@@ -127,15 +152,17 @@ fn cursor_from(
 ) -> Option<RecordCursor> {
     let offsets: BTreeMap<i32, i64> = offsets
         .into_iter()
-        .filter(|&(partition, offset)| {
-            watermarks.get(&partition).is_some_and(|marks| match walk {
-                RecordOrder::Oldest => offset < marks.high,
-                RecordOrder::Newest => offset > marks.low,
-            })
-        })
+        .filter(|(partition, _)| watermarks.contains_key(partition))
         .collect();
+    let unread = offsets.iter().any(|(partition, &offset)| {
+        let marks = &watermarks[partition];
+        match walk {
+            RecordOrder::Oldest => offset.max(marks.low) < marks.high,
+            RecordOrder::Newest => offset.min(marks.high) > marks.low,
+        }
+    });
 
-    (!offsets.is_empty()).then(|| RecordCursor {
+    unread.then(|| RecordCursor {
         order,
         remaining: Remaining::walking(walk, offsets),
     })
@@ -216,7 +243,21 @@ mod tests {
         kept: &[(i32, i64)],
         limit: usize,
     ) -> Option<RecordCursor> {
-        advance_cursor(walk, covered, watermarks, kept, limit, walk)
+        let from = covered
+            .iter()
+            .map(|window| match walk {
+                RecordOrder::Oldest => (window.partition, window.start),
+                RecordOrder::Newest => (window.partition, window.end),
+            })
+            .collect();
+        advance_cursor(
+            &Remaining::walking(walk, from),
+            covered,
+            watermarks,
+            kept,
+            limit,
+            walk,
+        )
     }
 
     #[test]
@@ -503,7 +544,94 @@ mod tests {
     }
 
     #[test]
-    fn a_partition_the_cursor_exhausted_walks_back_from_its_far_end() {
+    fn a_fresh_walk_starts_every_partition_at_its_near_end() {
+        let watermarks = HashMap::from_iter([
+            (0, Watermarks { low: 10, high: 40 }),
+            (1, Watermarks { low: 0, high: 0 }),
+        ]);
+
+        assert_eq!(
+            walk_start(RecordOrder::Oldest, &[0, 1, 2], &watermarks),
+            starting(&[(0, 10), (1, 0)])
+        );
+        assert_eq!(
+            walk_start(RecordOrder::Newest, &[0, 1, 2], &watermarks),
+            ending(&[(0, 40), (1, 0)])
+        );
+    }
+
+    #[test]
+    fn a_partition_the_walk_ran_out_of_stays_where_it_ran_out() {
+        let watermarks = HashMap::from_iter([
+            (0, Watermarks { low: 0, high: 40 }),
+            (1, Watermarks { low: 0, high: 20 }),
+        ]);
+
+        let cursor = advance(
+            RecordOrder::Oldest,
+            &[window(0, 10, 20), window(1, 10, 20)],
+            &watermarks,
+            &[],
+            2,
+        )
+        .unwrap();
+
+        assert_eq!(cursor.remaining, starting(&[(0, 20), (1, 20)]));
+    }
+
+    #[test]
+    fn a_partition_without_a_window_keeps_its_place() {
+        let watermarks = HashMap::from_iter([
+            (0, Watermarks { low: 0, high: 40 }),
+            (1, Watermarks { low: 0, high: 20 }),
+        ]);
+
+        let cursor = advance_cursor(
+            &starting(&[(0, 10), (1, 20)]),
+            &[window(0, 10, 20)],
+            &watermarks,
+            &[],
+            2,
+            RecordOrder::Oldest,
+        )
+        .unwrap();
+
+        assert_eq!(cursor.remaining, starting(&[(0, 20), (1, 20)]));
+    }
+
+    #[test]
+    fn an_offset_the_low_watermark_passed_has_nothing_left_to_read() {
+        assert!(
+            advance_cursor(
+                &starting(&[(0, 2)]),
+                &[],
+                &marks(5, 5),
+                &[],
+                2,
+                RecordOrder::Oldest,
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn a_partition_the_cursor_ran_out_of_walks_back_from_where_it_ran_out() {
+        let watermarks = HashMap::from_iter([
+            (0, Watermarks { low: 10, high: 40 }),
+            (1, Watermarks { low: 10, high: 40 }),
+        ]);
+        let opened = RecordCursor {
+            order: RecordOrder::Oldest,
+            remaining: starting(&[(0, 20), (1, 25)]),
+        };
+
+        let cursor = rewind_cursor(&opened, &[0, 1], &watermarks).unwrap();
+
+        assert_eq!(cursor.remaining, ending(&[(0, 20), (1, 25)]));
+    }
+
+    #[test]
+    fn a_partition_missing_from_the_cursor_walks_back_from_its_far_end() {
         let watermarks = HashMap::from_iter([
             (0, Watermarks { low: 10, high: 40 }),
             (1, Watermarks { low: 10, high: 40 }),
