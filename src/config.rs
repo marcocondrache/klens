@@ -513,6 +513,62 @@ impl ClusterConfig {
 
 pub const MIN_OBFUSCATION_SECRET_BYTES: usize = 32;
 
+#[derive(Clone, PartialEq, Eq)]
+pub struct KeyMaterial<const MIN: usize>(Box<[u8]>);
+
+#[derive(Debug, Error, PartialEq, Eq)]
+#[error("must decode to at least {min} bytes, got {got}")]
+pub struct ShortKeyMaterial {
+    min: usize,
+    got: usize,
+}
+
+impl<const MIN: usize> KeyMaterial<MIN> {
+    pub fn parse(raw: &str) -> Result<Option<Self>, ShortKeyMaterial> {
+        let raw = raw.trim();
+        if raw.is_empty() {
+            return Ok(None);
+        }
+
+        let bytes = match base64::Engine::decode(&base64::engine::general_purpose::STANDARD, raw) {
+            Ok(decoded) if decoded.len() >= MIN => decoded,
+            _ => raw.as_bytes().to_vec(),
+        };
+
+        if bytes.len() < MIN {
+            return Err(ShortKeyMaterial {
+                min: MIN,
+                got: bytes.len(),
+            });
+        }
+
+        Ok(Some(Self(bytes.into_boxed_slice())))
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl<const MIN: usize> std::fmt::Debug for KeyMaterial<MIN> {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("KeyMaterial")
+            .finish_non_exhaustive()
+    }
+}
+
+fn deserialize_obfuscation_secret<'de, D>(
+    deserializer: D,
+) -> Result<Option<KeyMaterial<MIN_OBFUSCATION_SECRET_BYTES>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer)?
+        .map_or(Ok(None), |raw| KeyMaterial::parse(&raw))
+        .map_err(|error| serde::de::Error::custom(format!("obfuscation secret {error}")))
+}
+
 pub const OBFUSCATION_MASK: &str = "***";
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -521,8 +577,8 @@ pub struct ObfuscationConfig {
     /// Key for `hash` tokens, as base64 or raw text of at least 32 bytes.
     /// Required as soon as one rule hashes. Rotating it changes every token,
     /// so correlation across the rotation is lost.
-    #[serde(default)]
-    pub secret: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_obfuscation_secret")]
+    pub secret: Option<KeyMaterial<MIN_OBFUSCATION_SECRET_BYTES>>,
     pub rules: Vec<ObfuscationRule>,
 }
 
@@ -644,20 +700,6 @@ impl<'a> TopicPattern<'a> {
 }
 
 impl ObfuscationConfig {
-    pub fn secret_bytes(&self) -> Option<Vec<u8>> {
-        let secret = self
-            .secret
-            .as_deref()
-            .map(str::trim)
-            .filter(|secret| !secret.is_empty())?;
-
-        let decoded = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, secret);
-        Some(match decoded {
-            Ok(bytes) if bytes.len() >= MIN_OBFUSCATION_SECRET_BYTES => bytes,
-            _ => secret.as_bytes().to_vec(),
-        })
-    }
-
     pub(crate) fn validate(&self, cluster: &str) -> Result<(), ConfigError> {
         let fail = |reason: String| Err(ConfigError::invalid_cluster(cluster, reason));
 
@@ -665,17 +707,7 @@ impl ObfuscationConfig {
             return fail("obfuscation rules must not be empty".to_owned());
         }
 
-        match self.secret_bytes() {
-            Some(bytes) if bytes.len() < MIN_OBFUSCATION_SECRET_BYTES => {
-                return fail(format!(
-                    "obfuscation secret must decode to at least {MIN_OBFUSCATION_SECRET_BYTES} bytes, got {}",
-                    bytes.len()
-                ));
-            }
-            _ => {}
-        }
-
-        let hashed = self.secret_bytes().is_some();
+        let hashed = self.secret.is_some();
         let mut selectors: Vec<TopicPattern<'_>> = Vec::new();
 
         for rule in &self.rules {
@@ -1713,7 +1745,7 @@ mod tests {
         );
     }
 
-    fn obfuscated(rules: &str) -> Result<(), ConfigError> {
+    fn obfuscated(rules: &str) -> Result<(), String> {
         let yaml = format!(
             "
             name: payments
@@ -1725,8 +1757,9 @@ mod tests {
         );
 
         parse_cluster(&yaml)
-            .expect("obfuscation config parses")
+            .map_err(|error| error.to_string())?
             .validate()
+            .map_err(|error| error.to_string())
     }
 
     #[test]
@@ -1766,6 +1799,86 @@ mod tests {
                 .to_string()
                 .contains("secret must decode to at least 32 bytes")
         );
+    }
+
+    #[test]
+    fn a_secret_is_base64_only_when_it_decodes_to_enough_bytes() {
+        obfuscated(
+            "
+              secret: BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=
+              rules:
+                - topics: [cards]
+                  value: hash
+            ",
+        )
+        .expect("base64 of 32 bytes");
+
+        let error = obfuscated(
+            "
+              secret: BwcHBwcHBwcHBwcHBwcHBw==
+              rules:
+                - topics: [cards]
+                  value: hash
+            ",
+        )
+        .unwrap_err();
+
+        assert!(
+            error.contains("obfuscation secret must decode to at least 32 bytes, got 24"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_short_secret_reports_its_length() {
+        let error = obfuscated(
+            "
+              secret: short
+              rules:
+                - topics: [cards]
+                  value: mask
+            ",
+        )
+        .unwrap_err();
+
+        assert!(
+            error.contains("obfuscation secret must decode to at least 32 bytes, got 5"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn debug_output_hides_the_key_bytes() {
+        let key = KeyMaterial::<32>::parse("0123456789abcdef0123456789abcdef")
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(format!("{key:?}"), "KeyMaterial { .. }");
+    }
+
+    #[test]
+    fn a_blank_secret_counts_as_absent() {
+        obfuscated(
+            "
+              secret: '   '
+              rules:
+                - topics: [cards]
+                  value: mask
+            ",
+        )
+        .expect("blank secret without hashing");
+
+        let error = obfuscated(
+            "
+              secret: '   '
+              rules:
+                - topics: [cards]
+                  value: hash
+            ",
+        )
+        .unwrap_err();
+
+        assert!(error.contains("hash strategy requires a secret"), "{error}");
     }
 
     #[test]
