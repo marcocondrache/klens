@@ -19,10 +19,10 @@ use crate::kafka::store::fixtures::{
     at, config, group, offsets, partition, subject, topic, topology, watermarks,
 };
 use crate::kafka::store::{ClusterStore, ConfigTable, Interner, OffsetTable, SubjectTable};
-use crate::kafka::{FakeCluster, SessionSet};
+use crate::kafka::{Clusters, FakeCluster};
 
 pub(super) fn with(sessions: Vec<FakeCluster>) -> AppState {
-    AppState::new(Arc::new(SessionSet::from_sessions(sessions)))
+    AppState::new(Arc::new(Clusters::from_sessions(sessions)))
 }
 
 pub(super) fn state() -> AppState {

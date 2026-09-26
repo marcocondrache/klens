@@ -14,7 +14,7 @@ pub use bus::{
     Change, ChangeBus, ConfigsDelta, GroupLagUpdate, GroupOffsetsWave, SubjectsDelta, TopicRate,
     TopologyDelta, WatermarksTick,
 };
-pub use cluster::{ClusterStore, StoreSet};
+pub use cluster::ClusterStore;
 pub use interest::{InterestLease, InterestRegistry};
 pub use lane::{Lane, LaneHealth};
 pub use projections::{

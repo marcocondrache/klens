@@ -31,12 +31,12 @@ mod tests {
     use crate::AppState;
     use crate::app::router;
     use crate::kafka::store::fixtures::{partition, topic, topology};
-    use crate::kafka::{FakeCluster, SessionSet};
+    use crate::kafka::{Clusters, FakeCluster};
 
     fn state() -> AppState {
-        AppState::new(Arc::new(SessionSet::from_sessions(vec![
-            FakeCluster::local(),
-        ])))
+        AppState::new(Arc::new(Clusters::from_sessions(
+            vec![FakeCluster::local()],
+        )))
     }
 
     async fn status(state: AppState, path: &str) -> StatusCode {

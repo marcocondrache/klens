@@ -12,6 +12,6 @@ pub use config::{
     RoleBinding, RolesConfig, SaslConfig, SaslMechanism, SchemaRegistryConfig, SecurityConfig,
     SecurityProtocol, TlsConfig,
 };
-pub use kafka::{KafkaError, SessionSet};
+pub use kafka::{Clusters, KafkaError};
 pub use server::serve;
 pub use telemetry::{Telemetry, filter_from_value};

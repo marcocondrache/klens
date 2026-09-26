@@ -37,10 +37,10 @@ async fn clusters(session: Session) -> Json<Vec<ClusterHealth>> {
     Json(
         session
             .state
-            .stores
+            .clusters
             .iter()
-            .filter(|store| session.access.can_see_cluster(store.name()))
-            .map(|store| ClusterHealth::from(store.health()))
+            .filter(|cluster| session.access.can_see_cluster(cluster.name()))
+            .map(|cluster| ClusterHealth::from(cluster.store.health()))
             .collect(),
     )
 }

@@ -5,12 +5,10 @@ use tokio::sync::broadcast::error::TryRecvError;
 use tokio::task::JoinSet;
 
 use super::*;
-use crate::config::ClusterIngestConfig;
 use crate::kafka::group::{
     CommittedOffset, GroupMember, GroupSnapshot, GroupState, MemberAssignment,
 };
 use crate::kafka::session::ClusterSession;
-use crate::kafka::store::fixtures::identity;
 use crate::kafka::store::{Change, ClusterStore};
 use crate::kafka::testing::FakeCluster;
 
@@ -722,11 +720,11 @@ async fn downstream_lanes_wait_for_topology_instead_of_committing_nothing() {
 async fn every_lane_runs_per_cluster_and_stops_with_the_ingest() {
     let prod = FakeCluster::named("prod");
     let staging = FakeCluster::named("staging");
-    let (stores, lanes) = Ingest::bootstrap(vec![port(&prod), port(&staging)]);
+    let clusters = Clusters::from_sessions(vec![prod.clone(), staging]);
+    let lanes = Ingest::start(&clusters);
 
     assert_eq!(lanes.lane_count(), 10, "five lanes per cluster");
-    wait_for(|| stores.ready(), "both clusters ready").await;
-    assert_eq!(stores.names().collect::<Vec<_>>(), vec!["prod", "staging"]);
+    wait_for(|| clusters.ready(), "both clusters ready").await;
 
     drop(lanes);
     tokio::task::yield_now().await;
@@ -745,20 +743,10 @@ async fn every_lane_runs_per_cluster_and_stops_with_the_ingest() {
 async fn one_cluster_never_wakes_another() {
     let prod = FakeCluster::named("prod");
     let staging = FakeCluster::named("staging");
-    let prod_store = Arc::new(ClusterStore::new(identity("prod")));
-    let staging_store = Arc::new(ClusterStore::new(identity("staging")));
-    let _lanes = Ingest::start([
-        (
-            Arc::clone(&prod_store),
-            port(&prod),
-            ClusterIngestConfig::default(),
-        ),
-        (
-            Arc::clone(&staging_store),
-            port(&staging),
-            ClusterIngestConfig::default(),
-        ),
-    ]);
+    let clusters = Clusters::from_sessions(vec![prod.clone(), staging]);
+    let _lanes = Ingest::start(&clusters);
+    let prod_store = &clusters.get("prod").unwrap().store;
+    let staging_store = &clusters.get("staging").unwrap().store;
 
     wait_for(|| prod_store.ready() && staging_store.ready(), "both ready").await;
     let mut staging_events = staging_store.bus.subscribe();
