@@ -145,8 +145,6 @@ mod tests {
     use super::*;
     use schemreg::encode_protobuf_wire_format;
 
-    /// The message-index prefix on its own: the wire helper always emits a
-    /// schema prefix, and `decode_framed` is handed the bytes after it.
     fn indexed(indexes: &[u32], payload: &[u8]) -> Vec<u8> {
         encode_protobuf_wire_format(0u32, indexes, payload)[schemreg::PREFIX_LEN_V0..].to_vec()
     }
@@ -233,7 +231,6 @@ mod tests {
 
     #[test]
     fn compiles_references_with_escapes_protox_rejects() {
-        // A rule from buf's validate.proto as Confluent's registry serves it.
         let validate = r#"
             syntax = "proto2";
             package buf.validate;

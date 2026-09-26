@@ -101,10 +101,6 @@ impl ScanConsumer for ScanLease {
     }
 
     async fn poll(&self, budget: Duration) -> Result<Vec<RawRecord>, KafkaError> {
-        // The budget is how long the broker may park the fetch, not a cap on
-        // the round trip that carries it back: on a link slower than the
-        // budget, cutting the poll off here would discard every response.
-        // The scan bounds the page by its own deadline instead.
         let polled = self.poison(self.consumer.poll(budget).await.map_err(KafkaError::from))?;
 
         Ok(polled.into_iter().map(raw_record).collect())

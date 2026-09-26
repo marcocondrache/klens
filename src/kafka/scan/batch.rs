@@ -57,7 +57,6 @@ impl<T> RecordBatch<T> {
         self.seen - self.entries.len()
     }
 
-    /// Whether a record with this key could still reach the page.
     pub fn admits(&self, key: &SortKey) -> bool {
         if self.limit == 0 {
             return false;
@@ -92,7 +91,6 @@ impl<T> RecordBatch<T> {
         }
     }
 
-    /// The retained records, best first.
     pub fn into_sorted(self) -> Vec<T> {
         self.entries
             .into_sorted_vec()

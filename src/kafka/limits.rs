@@ -6,10 +6,6 @@ use crate::environment::{
 };
 use crate::kafka::error::QueryError;
 
-/// Bounds on record browse queries and the windows they plan.
-///
-/// Defaults come from [`crate::environment`]; carrying them in a value keeps
-/// the planning code testable at any configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RecordLimits {
     pub max_limit: usize,
@@ -36,11 +32,6 @@ impl RecordLimits {
         Ok((limit as usize).min(self.max_limit))
     }
 
-    /// Searching widens the window because most records read are discarded by
-    /// the filter before they reach the page.
-    ///
-    /// The window is *per partition*, not split across them: one partition can
-    /// own an entire page when timestamps are uneven.
     pub fn window_take(&self, limit: usize, searching: bool) -> i64 {
         let multiplier = if searching {
             self.search_window_multiplier

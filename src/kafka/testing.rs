@@ -70,8 +70,6 @@ struct Inner {
     calls: SessionCalls,
 }
 
-/// Grows the high watermark of partition 0 by `step` more on every read, so a
-/// rate or lag test sees the log advance without producing records.
 #[derive(Debug)]
 struct WatermarkGrowth {
     step: i64,
@@ -258,8 +256,6 @@ impl FakeCluster {
         self
     }
 
-    /// Delays every watermark read. One call covers every requested
-    /// partition, so a batched read of N topics still costs one delay.
     pub fn with_watermark_delay(self, delay: Duration) -> Self {
         *self.inner.watermark_delay.lock().expect("watermark delay") = delay;
         self
@@ -270,15 +266,11 @@ impl FakeCluster {
         self
     }
 
-    /// Holds every committed-offset fetch open long enough for a scheduler
-    /// wave to overlap.
     pub fn with_offsets_delay(self, delay: Duration) -> Self {
         *self.inner.offsets_delay.lock().expect("offsets delay") = delay;
         self
     }
 
-    /// Compile obfuscation rules from the YAML a config file would carry,
-    /// validation included.
     pub fn with_obfuscation(self, yaml: &str) -> Self {
         let config: ObfuscationConfig =
             serde_yaml_ng::from_str(yaml).expect("obfuscation config parses");
@@ -297,8 +289,6 @@ impl FakeCluster {
         self
     }
 
-    /// Advances the high watermark of partition 0 by a further `step` on every
-    /// read. The first read is unchanged, so the first rate sample is still 0.
     pub fn with_growing_watermarks(self, step: i64) -> Self {
         *self
             .inner
@@ -326,19 +316,16 @@ impl FakeCluster {
         self
     }
 
-    /// Store an enabled listing. Replaces the default seed.
     pub fn with_acls(self, bindings: Vec<Acl>) -> Self {
         *self.inner.acls.lock().expect("acls") = AclListing::Enabled(bindings);
         self
     }
 
-    /// Store [`AclListing::Disabled`]. The ACL route then returns authorizer DISABLED.
     pub fn with_security_disabled(self) -> Self {
         *self.inner.acls.lock().expect("acls") = AclListing::Disabled;
         self
     }
 
-    /// Fail `acls()` with [`KafkaError::Admin`].
     pub fn with_acls_error(self, message: impl Into<String>) -> Self {
         *self.inner.acls_error.lock().expect("acls error") = Some(message.into());
         self
@@ -388,8 +375,6 @@ impl FakeCluster {
         self
     }
 
-    /// Adds or replaces a group after construction, so a lane can observe the
-    /// roster change between polls.
     pub fn put_group(&self, group: GroupSnapshot) {
         let mut groups = self.inner.groups.lock().expect("groups");
         match groups.iter_mut().find(|existing| existing.id == group.id) {
@@ -431,7 +416,6 @@ impl FakeCluster {
         *self.inner.subjects.lock().expect("subjects") = subjects;
     }
 
-    /// Fails or heals `metadata()` after construction.
     pub fn set_metadata_error(&self, error: Option<&str>) {
         *self.inner.metadata_error.lock().expect("metadata error") = error.map(str::to_owned);
     }
@@ -570,7 +554,6 @@ impl FakeCluster {
         }
     }
 
-    /// Removes a topic from metadata, as a deletion would.
     pub fn remove_topic(&self, name: &str) {
         self.inner
             .metadata
@@ -1184,16 +1167,11 @@ fn raw_record(record: &Record) -> RawRecord {
     }
 }
 
-/// A Confluent-framed payload, as the `String` a fixture [`Record`] carries.
-///
-/// Only ids below 128 stay valid UTF-8, which is all a fixture needs.
 fn framed(schema_id: u32, body: &str) -> String {
     String::from_utf8(schemreg::encode_wire_format(schema_id, body.as_bytes()).to_vec())
         .expect("a small schema id frames as utf-8")
 }
 
-/// A record the codec decodes into a tree obfuscation rules can walk: a
-/// framed value with a card, and a header worth masking.
 pub fn card_record(offset: i64, pan: &str) -> Record {
     Record {
         topic: "orders.created".into(),
@@ -1215,8 +1193,6 @@ pub fn card_record(offset: i64, pan: &str) -> Record {
     }
 }
 
-/// Stands in for a registry: framed payloads whose body is JSON decode, and
-/// everything else is left to fall back to its raw bytes.
 #[derive(Default)]
 struct CountingCodec {
     decoded: AtomicUsize,
@@ -1244,8 +1220,6 @@ impl PayloadCodec for CountingCodec {
     }
 }
 
-/// How many times the engine, poller or ingestion lanes called each
-/// [`ClusterSession`] method.
 #[derive(Debug, Default)]
 pub struct SessionCalls {
     metadata: AtomicUsize,
@@ -1284,7 +1258,6 @@ impl SessionCalls {
         self.committed_offsets.load(Ordering::SeqCst)
     }
 
-    /// The most committed-offset fetches that were ever open at once.
     pub fn committed_offsets_peak(&self) -> usize {
         self.offsets_peak.load(Ordering::SeqCst)
     }

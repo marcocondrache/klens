@@ -9,8 +9,6 @@ use crate::kafka::store::{Change, ClusterStore, Interner, Lane, SubjectTable, Su
 
 use super::runner::{LaneSource, floor};
 
-/// The Schema Registry list projection: subject, id, type, versions,
-/// compatibility.
 pub struct SubjectLane {
     session: Arc<dyn ClusterSession>,
     interval: Duration,

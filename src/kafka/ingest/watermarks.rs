@@ -150,11 +150,6 @@ impl LaneSource for WatermarkLane {
     }
 }
 
-/// Produce rate per topic from the high-watermark delta.
-///
-/// `elapsed` is `None` when there is no usable baseline: the first sample, or
-/// a gap too long to divide by. A shrinking high watermark means the log was
-/// truncated; that clamps to zero rather than reporting a negative rate.
 fn rates_between(
     previous: Option<&WatermarkTable>,
     next: &WatermarkTable,

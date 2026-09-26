@@ -2,7 +2,6 @@ use foldhash::{HashMap, HashMapExt};
 
 use crate::kafka::metadata::Watermarks;
 
-/// `None` means the broker returned Kafka's invalid-offset sentinel.
 pub fn from_list_offsets(
     results: impl IntoIterator<Item = (String, i32, i64)>,
 ) -> HashMap<(String, i32), Option<i64>> {
@@ -26,8 +25,6 @@ pub fn partition_time_offsets(
         .collect()
 }
 
-/// Partitions missing a high offset are dropped, and inverted pairs are
-/// skipped rather than reported as negative message counts.
 pub fn merge_watermark_offsets(
     beginning: &HashMap<(String, i32), Option<i64>>,
     end: impl IntoIterator<Item = (String, i32, i64)>,
@@ -38,7 +35,6 @@ pub fn merge_watermark_offsets(
             continue;
         }
         let key = (topic, partition);
-        // Empty partitions often return only the last offset.
         let low = beginning.get(&key).copied().flatten().unwrap_or(high);
         if high < low {
             continue;

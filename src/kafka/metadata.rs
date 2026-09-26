@@ -1,5 +1,3 @@
-/// Raw cluster metadata as reported by the broker, before watermarks,
-/// configs or consumer groups are folded in.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MetadataSnapshot {
     pub cluster_id: Option<String>,
@@ -88,7 +86,6 @@ impl PartitionMetadata {
     }
 }
 
-/// A partition's low and high offsets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Watermarks {
     pub low: i64,

@@ -1,18 +1,3 @@
-//! Kafka I/O, the versioned read model, and live record reads.
-//!
-//! Open these first.
-//!
-//! - [`ClusterSession`] is the per-cluster I/O port and [`SessionSet`] holds
-//!   one per configured cluster. `client` is the broker adapter
-//!   ([`KafkaClient`]). `registry` is Schema Registry. `testing` is the
-//!   in-memory session.
-//! - Raw broker snapshots live in `metadata` (with partition `Watermarks`),
-//!   `group` (`GroupSnapshot`), and `topic_config`.
-//! - [`store`] is the read model: normalized tables behind versioned lanes,
-//!   read-time projections, latest topic rates, and a
-//!   per-cluster change bus. [`ingest`] fills it from five independent
-//!   per-cluster loops.
-
 mod client;
 mod registry;
 mod session;

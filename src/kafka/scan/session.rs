@@ -27,7 +27,6 @@ use super::Record;
 
 const MAX_FILTER_PASSES: usize = 64;
 
-/// A record exactly as it came off the wire.
 #[derive(Debug, Clone)]
 pub struct RawRecord {
     pub partition: i32,
@@ -55,42 +54,25 @@ impl RawRecord {
     }
 }
 
-/// A consumer scoped to a single page request.
-///
-/// It arrives already assigned to the page's first windows; a filter scan
-/// that needs another pass re-points it with [`reassign`](Self::reassign).
 #[async_trait]
 pub trait ScanConsumer: Send + Sync {
-    /// Point the consumer at these windows' start offsets, replacing the
-    /// previous assignment and resuming anything paused by an earlier pass.
     async fn reassign(&self, windows: &[PartitionWindow]) -> Result<(), KafkaError>;
 
     async fn poll(&self, budget: Duration) -> Result<Vec<RawRecord>, KafkaError>;
 
-    /// Stop fetching a partition whose window is finished.
     async fn pause(&self, partitions: &[i32]);
 
-    /// Next offset the consumer would read, if it knows one.
     async fn position(&self, partition: i32) -> Option<i64>;
 
-    /// Records left between the position and the end of the log, if known.
     async fn lag(&self, partition: i32) -> Option<u64>;
 
-    /// Give the consumer up. Whether that closes it or returns it to a pool
-    /// is the session's business.
     async fn close(&self);
 }
 
-/// What one pass actually managed to read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScanOutcome {
-    /// Per planned window, the range the cursor may advance over. A window
-    /// the deadline cut short collapses to its pre-pass boundary so the next
-    /// page re-reads it rather than skipping it.
     pub covered: Vec<PartitionWindow>,
-    /// Whether every planned window was read to its end.
     pub complete: bool,
-    /// Whether at least one window was read to its end.
     pub scanned: bool,
 }
 
@@ -118,7 +100,6 @@ impl Assignment {
 }
 
 impl ScanSession {
-    /// Open a consumer already assigned to `windows`.
     pub async fn open<S: ClusterSession + ?Sized>(
         session: &S,
         query: &RecordQuery,
@@ -151,10 +132,6 @@ impl ScanSession {
         self.consumer.close().await;
     }
 
-    /// Read one plan's windows, keeping matches in `batch`.
-    ///
-    /// Returns when every window is finished or the deadline passes; a
-    /// deadline is not an error here, it is reported through the outcome.
     async fn run(
         &self,
         windows: &[PartitionWindow],
@@ -282,7 +259,7 @@ pub(super) fn topic_obfuscator<S: ClusterSession + ?Sized>(
         .and_then(|policy| policy.for_topic(topic))
 }
 
-/// Active half-open offset ranges. Kafka can jump over offsets in compacted logs.
+/// Kafka can jump over offsets in compacted logs.
 struct WindowScan {
     remaining: HashMap<i32, Range<i64>>,
     completed: HashSet<i32>,
@@ -355,11 +332,6 @@ fn abandoned(window: &PartitionWindow, walk: RecordOrder) -> PartitionWindow {
     }
 }
 
-/// Fetch one page.
-///
-/// Running out of time is not fatal: whatever the heap holds is returned
-/// with `complete: false` and a cursor that resumes at the last fully
-/// scanned window edge.
 pub async fn fetch_page<S: ClusterSession + ?Sized>(
     session: &S,
     query: &RecordQuery,

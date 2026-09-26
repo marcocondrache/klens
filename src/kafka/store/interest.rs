@@ -52,8 +52,6 @@ impl InterestRegistry {
         }
     }
 
-    /// Held for a live subscription's lifetime. Dropping it releases the fast
-    /// tier immediately, so a disconnected client stops costing broker calls.
     pub fn lease_group(&self, id: &str) -> InterestLease {
         let mut groups = self.groups.lock().expect("interest registry lock");
         let key = match groups.get_key_value(id) {
@@ -69,8 +67,6 @@ impl InterestRegistry {
         }
     }
 
-    /// Recorded by one-shot queries. Expires after the TTL, so opening a
-    /// group page keeps it fresh for a while after the request finishes.
     pub fn touch_group(&self, id: &Arc<str>) {
         let now = Instant::now();
         let mut groups = self.groups.lock().expect("interest registry lock");
@@ -109,7 +105,6 @@ impl InterestRegistry {
     }
 }
 
-/// Releases its group's fast-tier claim on drop.
 #[derive(Debug)]
 pub struct InterestLease {
     groups: Groups,

@@ -1,20 +1,3 @@
-//! The ingestion lanes that fill the [store](crate::kafka::store).
-//!
-//! Five independent per-cluster loops, each fetching at its own cadence,
-//! diffing against the previous table, swapping it, and publishing a typed
-//! delta.
-//!
-//! Cadences default to [`crate::config::ClusterIngestConfig`] and can be
-//! overridden per cluster.
-//!
-//! | Lane       | Cadence  | Emits                                     |
-//! | ---------- | -------- | ----------------------------------------- |
-//! | Topology   | ~10s     | added / removed / changed topics & groups |
-//! | Watermarks | ~3s      | per-topic produce rates                   |
-//! | Offsets    | adaptive | per-group committed offsets and lag       |
-//! | Configs    | ~60s     | changed topic configs                     |
-//! | Subjects   | ~30s     | registry listing changes                  |
-
 pub mod configs;
 pub mod offsets;
 pub mod runner;
@@ -38,8 +21,6 @@ pub use subjects::SubjectLane;
 pub use topology::TopologyLane;
 pub use watermarks::WatermarkLane;
 
-/// Owns every lane task. Dropping it aborts them, so a store and its
-/// ingestion have the same lifetime.
 pub struct Ingest {
     tasks: JoinSet<()>,
 }
@@ -108,7 +89,6 @@ impl Ingest {
         Self { tasks }
     }
 
-    /// Builds a store per session and starts every lane against it.
     pub fn bootstrap(sessions: Vec<Arc<dyn ClusterSession>>) -> (Arc<StoreSet>, Self) {
         let stores = Arc::new(StoreSet::new(
             sessions.iter().map(|session| session.identity().clone()),

@@ -4,9 +4,6 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use schemreg::{SchemaId, decode_wire_prefix};
 
-/// One key or value, decoded at most once.
-///
-/// `json` is `Some` only for payloads a registry codec understood.
 #[derive(Debug)]
 pub struct DecodedPayload {
     raw: Bytes,
@@ -16,7 +13,6 @@ pub struct DecodedPayload {
 }
 
 impl DecodedPayload {
-    /// A payload no registry codec claimed: the text is the raw bytes.
     pub fn raw(raw: Bytes) -> Self {
         let schema_id = framed_schema_id(&raw);
         Self {
@@ -27,7 +23,6 @@ impl DecodedPayload {
         }
     }
 
-    /// A payload a registry codec decoded into structured JSON.
     pub fn decoded(raw: Bytes, schema_id: Option<i32>, json: serde_json::Value) -> Self {
         Self {
             raw,
@@ -41,8 +36,6 @@ impl DecodedPayload {
         &self.raw
     }
 
-    /// Schema id read off the Confluent frame, not from an override: an
-    /// override says how to read bytes that carry no id of their own.
     pub fn schema_id(&self) -> Option<i32> {
         self.schema_id
     }
@@ -51,10 +44,6 @@ impl DecodedPayload {
         self.json.as_ref()
     }
 
-    /// The decoded tree, for in-place rewriting.
-    ///
-    /// Any text rendered so far is dropped, so the next read renders the tree
-    /// as it now stands.
     pub fn json_mut(&mut self) -> Option<&mut serde_json::Value> {
         if self.json.is_some() {
             self.text.take();
@@ -62,10 +51,6 @@ impl DecodedPayload {
         self.json.as_mut()
     }
 
-    /// Replace the whole payload with `text`, forgetting the decode.
-    ///
-    /// The raw bytes go with it: nothing downstream may reach the original
-    /// value once it has been replaced.
     pub fn replace(&mut self, text: String) {
         self.raw = Bytes::new();
         self.json = None;
@@ -98,8 +83,6 @@ impl DecodedPayload {
 
 pub struct PayloadSlot {
     pub raw: Bytes,
-    /// Explicit schema id for bytes that carry no Confluent frame. Wire ids
-    /// always win.
     pub override_id: Option<i32>,
     pub decoded: Option<DecodedPayload>,
 }
@@ -113,7 +96,6 @@ impl PayloadSlot {
         }
     }
 
-    /// The decode, or the raw bytes when the codec declined or was absent.
     pub fn take(self) -> DecodedPayload {
         match self.decoded {
             Some(decoded) => decoded,
@@ -122,14 +104,11 @@ impl PayloadSlot {
     }
 }
 
-/// Registry-aware decoding, batched.
 #[async_trait]
 pub trait PayloadCodec: Send + Sync {
     async fn decode_batch(&self, slots: &mut [PayloadSlot]);
 }
 
-/// Schema id from a Confluent wire-format prefix, if the bytes carry one.
-///
 /// A v1 prefix names a 16-byte GUID rather than a numeric id, so a payload
 /// can be framed — and decodable — while reporting `None` here.
 pub fn framed_schema_id(bytes: &[u8]) -> Option<i32> {
@@ -137,7 +116,6 @@ pub fn framed_schema_id(bytes: &[u8]) -> Option<i32> {
     i32::try_from(SchemaId::as_u32(key.as_id()?)).ok()
 }
 
-/// Whether these bytes need a registry round trip before they mean anything.
 pub fn needs_decode(bytes: &[u8], override_id: Option<i32>) -> bool {
     decode_wire_prefix(bytes).is_ok() || override_id.is_some()
 }

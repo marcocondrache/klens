@@ -9,8 +9,6 @@ use crate::kafka::store::{Change, ClusterStore, Interner, Lane, Topology, Topolo
 
 use super::runner::{LaneSource, floor};
 
-/// Metadata plus consumer-group membership, the slowest-moving shape in the
-/// cluster.
 pub struct TopologyLane {
     session: Arc<dyn ClusterSession>,
     interval: Duration,

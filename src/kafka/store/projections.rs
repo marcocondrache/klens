@@ -19,10 +19,7 @@ pub struct TopicRow {
     pub internal: bool,
     pub partition_count: i32,
     pub replication_factor: i32,
-    /// Messages currently in the log (`Σ high − low`).
     pub retained_messages: i64,
-    /// Messages ever produced (`Σ high`). Not the display default: it
-    /// overstates a retention-truncated topic.
     pub produced_total: i64,
     pub rate: f64,
     pub retention_ms: i64,
@@ -73,7 +70,6 @@ pub struct GroupRow {
     pub member_count: i32,
     pub topic_names: Vec<String>,
     pub total_lag: Option<i64>,
-    /// False when a committed partition had no watermark to join against.
     pub lag_complete: bool,
     pub coordinator_id: i32,
 }

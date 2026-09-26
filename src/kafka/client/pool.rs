@@ -42,9 +42,6 @@ impl ScanPoolInner {
         }
     }
 
-    /// Newest match first: the most recently parked consumer has the
-    /// freshest positions and metadata. Closed consumers found along the
-    /// way are evicted.
     fn take(&mut self, topic: &str, evicted: &mut Vec<Arc<Consumer>>) -> Option<Arc<Consumer>> {
         self.expire(evicted);
 
@@ -58,7 +55,6 @@ impl ScanPoolInner {
         None
     }
 
-    /// A consumer over either cap is evicted rather than parked.
     fn park(&mut self, topic: &str, consumer: Arc<Consumer>, evicted: &mut Vec<Arc<Consumer>>) {
         self.expire(evicted);
 
@@ -79,7 +75,6 @@ impl ScanPoolInner {
         });
     }
 
-    /// The queue is sorted by age, so everything expired sits at the front.
     fn expire(&mut self, evicted: &mut Vec<Arc<Consumer>>) {
         while self
             .parked
@@ -92,7 +87,6 @@ impl ScanPoolInner {
     }
 }
 
-/// Nothing waits on a retired consumer, so closing it is fire-and-forget.
 pub(super) fn retire(consumer: Arc<Consumer>) {
     tokio::spawn(async move {
         let _ = consumer.close().await;
@@ -174,8 +168,6 @@ impl ScanPool {
         topic: &str,
         windows: &[PartitionWindow],
     ) -> Result<Consumer, KafkaError> {
-        // The broker releases the long poll exactly when the scan stops
-        // waiting for it, instead of holding a fetch nobody will read.
         let start = windows
             .iter()
             .map(|window| (window.partition, window.start));

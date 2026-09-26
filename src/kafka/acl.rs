@@ -1,11 +1,3 @@
-//! Cluster ACL bindings as stored rows.
-//!
-//! [`Acl`] is one DescribeAcls binding after sentinels are stripped.
-//! [`AclListing`] is the session result: either those rows, or authorizer-off.
-//! krafka `AclBinding` / `AclFilter` / `DescribeAclsResult` stay in this
-//! module and in `client`. They are not on [`super::session::ClusterSession`]
-//! or in the HTTP API.
-
 use krafka::admin::DescribeAclsResult;
 use krafka::error::{ErrorCode, KrafkaError};
 use krafka::protocol::{
@@ -16,10 +8,6 @@ use tracing::warn;
 
 use crate::kafka::error::KafkaError;
 
-/// One stored ACL binding. Every enum field is a concrete stored value.
-///
-/// Invariant: no variant on this type is a filter or decode sentinel
-/// (`Any`, `Unknown`). Construction goes through [`Acl::try_from`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Acl {
     pub resource_type: AclResourceType,
@@ -31,9 +19,6 @@ pub struct Acl {
     pub permission: AclPermission,
 }
 
-/// Resource kinds a broker stores on a binding.
-///
-/// Invariant: `Any` and `Unknown` are not members.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AclResourceType {
     Topic,
@@ -43,18 +28,12 @@ pub enum AclResourceType {
     DelegationToken,
 }
 
-/// Pattern a stored binding uses.
-///
-/// Invariant: `Any` and `Unknown` are not members.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AclPatternType {
     Literal,
     Prefixed,
 }
 
-/// Operation a stored binding grants or denies.
-///
-/// `All` is a real stored operation. `Any` / `Unknown` are not members.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AclOperation {
     All,
@@ -70,20 +49,12 @@ pub enum AclOperation {
     IdempotentWrite,
 }
 
-/// Permission a stored binding carries.
-///
-/// Invariant: `Any` and `Unknown` are not members.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AclPermission {
     Allow,
     Deny,
 }
 
-/// Outcome of describing ACLs on one cluster.
-///
-/// Invariant: `Disabled` has no bindings. `Enabled` may be empty (authorizer
-/// on, no rows). Callers must not invent `Enabled` after a security-disabled
-/// broker answer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AclListing {
     Enabled(Vec<Acl>),
@@ -91,10 +62,6 @@ pub enum AclListing {
 }
 
 impl AclListing {
-    /// Map a krafka describe result or transport error into a listing.
-    ///
-    /// This is the only SECURITY_DISABLED / binding-parse policy.
-    /// `AppState` and the HTTP handlers do not repeat it.
     pub fn from_admin_result(
         cluster: &str,
         result: Result<DescribeAclsResult, KrafkaError>,
@@ -153,7 +120,6 @@ impl AclListing {
 impl TryFrom<AclBinding> for Acl {
     type Error = SentinelAcl;
 
-    /// Reject `Any` / `Unknown` on any enum field.
     fn try_from(binding: AclBinding) -> Result<Self, SentinelAcl> {
         Ok(Self {
             resource_type: AclResourceType::try_from(binding.resource_type)?,
@@ -233,16 +199,13 @@ impl TryFrom<WirePermission> for AclPermission {
     }
 }
 
-/// A DescribeAcls row that still carried a filter/decode sentinel.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SentinelAcl {
     pub field: &'static str,
 }
 
-/// krafka 0.23 compatibility matcher for authorizer-off.
-///
-/// Matches the broker error-code name and the Kafka protocol default text.
-/// Does not match prose such as "authorizer is not configured".
+/// krafka's `DescribeAclsResult` carries the broker error only as text: the
+/// error-code name or the Kafka protocol default message.
 fn is_security_disabled_text(message: &str) -> bool {
     let lower = message.to_ascii_lowercase();
     lower.contains("securitydisabled")

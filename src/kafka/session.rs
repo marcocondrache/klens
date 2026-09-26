@@ -1,9 +1,3 @@
-//! Per-cluster Kafka I/O port.
-//!
-//! Everything that talks to a broker goes through [`ClusterSession`], and
-//! [`SessionSet`] holds one per configured cluster. Production is
-//! [`super::client::KafkaClient`]. Tests use an in-memory fake cluster.
-
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -23,33 +17,19 @@ use crate::kafka::model::{
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
 
-/// Per-cluster Kafka I/O. Matches [`super::client::KafkaClient`].
 #[async_trait]
 pub trait ClusterSession: Send + Sync + 'static {
     fn identity(&self) -> &ClusterIdentity;
 
-    /// Every topic and broker in the cluster.
     async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError>;
 
-    /// One topic's partitions, served from the client's cache when it is
-    /// fresh.
     async fn topic_metadata(&self, topic: &str) -> Result<TopicMetadata, KafkaError>;
 
-    /// Low and high watermarks for the given partitions, grouped by topic.
-    ///
-    /// The caller supplies partitions from a metadata snapshot it already
-    /// has. This method does not refetch cluster metadata. Implementations
-    /// shard the request by cached leader.
     async fn watermarks(
         &self,
         topics: &HashMap<String, Vec<i32>>,
     ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError>;
 
-    /// Earliest offset at or after `timestamp` (unix ms) for each answered
-    /// partition.
-    ///
-    /// `None` is Kafka's invalid offset (nothing at or after that time). A
-    /// missing key means the broker omitted that partition.
     async fn offsets_for_times(
         &self,
         topic: &str,
@@ -72,7 +52,6 @@ pub trait ClusterSession: Send + Sync + 'static {
         partitions: Option<&[(String, i32)]>,
     ) -> Result<Vec<CommittedOffset>, KafkaError>;
 
-    /// Open a consumer for one page request, already assigned to `windows`.
     async fn open_scan(
         &self,
         topic: &str,
@@ -85,17 +64,10 @@ pub trait ClusterSession: Send + Sync + 'static {
         start: &[TailPosition],
     ) -> Result<Box<dyn TailConsumer>, KafkaError>;
 
-    /// Registry-aware payload decoding, when the cluster has a registry.
-    ///
-    /// `None` means payloads are returned as-is.
     fn payload_codec(&self) -> Option<Arc<dyn PayloadCodec>> {
         None
     }
 
-    /// Obfuscation rules for this cluster, compiled at startup.
-    ///
-    /// `None` means records leave the process exactly as they came off the
-    /// wire.
     fn obfuscation(&self) -> Option<Arc<ObfuscationPolicy>> {
         None
     }
@@ -129,13 +101,11 @@ pub trait ClusterSession: Send + Sync + 'static {
     }
 }
 
-/// Every configured cluster's I/O port, in config order.
 pub struct SessionSet {
     sessions: IndexMap<String, Arc<dyn ClusterSession>>,
 }
 
 impl SessionSet {
-    /// Connects one client per configured cluster, in parallel.
     pub async fn from_config(config: &Config) -> Result<Self, KafkaError> {
         Ok(Self::from_sessions(
             try_join_all(config.clusters.iter().map(KafkaClient::new)).await?,

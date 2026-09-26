@@ -11,8 +11,6 @@ use crate::kafka::store::{Change, ClusterStore, ConfigTable, ConfigsDelta, Lane}
 
 use super::runner::{LaneSource, floor};
 
-/// One `DescribeConfigs` over every topic, on the slowest cadence of any
-/// lane.
 pub struct ConfigLane {
     session: Arc<dyn ClusterSession>,
     interval: Duration,

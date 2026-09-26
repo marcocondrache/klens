@@ -43,11 +43,6 @@ struct Scope {
     group: Option<String>,
 }
 
-/// Every lane delta for one cluster, optionally narrowed to one topic or group.
-///
-/// A scoped subscriber pays only for its own page: the all-topics watermark
-/// firehose exists for list pages, and even that carries one `{topic, rate}`
-/// pair per topic rather than catalog objects.
 pub(crate) async fn updates(
     session: Session,
     Path(cluster): Path<String>,

@@ -1,10 +1,3 @@
-//! Flat re-export of Kafka domain types for the rest of the crate.
-//!
-//! The `kafka` module root re-exports the product subset. This barrel also
-//! has the raw broker snapshots ([`GroupSnapshot`], [`MetadataSnapshot`]) and
-//! the scan port types ([`ScanConsumer`], [`RawRecord`]) that `session` and
-//! the ingestion lanes use.
-
 pub use crate::kafka::acl::{
     Acl, AclListing, AclOperation, AclPatternType, AclPermission, AclResourceType,
 };

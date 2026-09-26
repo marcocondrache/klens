@@ -405,7 +405,6 @@ impl ClusterIngestConfig {
     }
 }
 
-/// Supported Kafka transport overrides. Timeout values are in milliseconds.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct KafkaProperties {
@@ -499,17 +498,10 @@ impl ClusterConfig {
     }
 }
 
-/// Minimum key material for `hash` tokens, matching the session key bar.
 pub const MIN_OBFUSCATION_SECRET_BYTES: usize = 32;
 
-/// The token every `mask` rule writes, and the `unparsed` fallback.
 pub const OBFUSCATION_MASK: &str = "***";
 
-/// Server-side obfuscation of record keys, values, and headers.
-///
-/// Rules are compiled once at boot and applied inside the scan, before any
-/// filter runs, so a filter can never be used as an oracle for a field the
-/// response hides.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ObfuscationConfig {
@@ -593,8 +585,6 @@ impl ObfuscationStrategy {
     }
 }
 
-/// A topic selector: an exact name, or everything under a trailing-`*`
-/// prefix.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TopicPattern<'a> {
     Exact(&'a str),
@@ -621,7 +611,6 @@ impl<'a> TopicPattern<'a> {
         }
     }
 
-    /// Whether both selectors can ever name the same topic.
     fn overlaps(self, other: Self) -> bool {
         match (self, other) {
             (Self::Exact(left), Self::Exact(right)) => left == right,
@@ -642,8 +631,6 @@ impl<'a> TopicPattern<'a> {
 }
 
 impl ObfuscationConfig {
-    /// Key material for `hash` tokens: base64 when it decodes to enough
-    /// bytes, otherwise the literal text. Mirrors the session key.
     pub fn secret_bytes(&self) -> Option<Vec<u8>> {
         let secret = self
             .secret

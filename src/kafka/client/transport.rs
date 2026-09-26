@@ -92,7 +92,6 @@ pub(super) async fn connect(config: &ClusterConfig) -> Result<Transport, KafkaEr
     })
 }
 
-/// `None` is plaintext. A SASL protocol with no `sasl` block is an error.
 fn krafka_auth(cluster: &ClusterConfig) -> Result<Option<AuthConfig>, KafkaError> {
     let Some(security) = &cluster.security else {
         return Ok(None);

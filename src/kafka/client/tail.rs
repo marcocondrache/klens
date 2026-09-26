@@ -44,7 +44,6 @@ impl Deref for Reader {
 
 const RETIRE_GRACE: Duration = Duration::from_secs(1);
 
-/// Nothing waits on a retired consumer, so closing it is fire-and-forget.
 fn retire(reader: Arc<Reader>) {
     tokio::spawn(async move {
         let _ = tokio::time::timeout(RETIRE_GRACE, reader.consumer.close()).await;

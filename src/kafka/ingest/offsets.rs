@@ -31,8 +31,6 @@ pub struct OffsetLane {
     attempted_at: Mutex<HashMap<Arc<str>, Instant>>,
 }
 
-/// One scheduler pass: the groups that came due, fetched together and
-/// committed as a single table successor.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Wave {
     pub refreshed: Vec<Arc<str>>,
@@ -71,7 +69,6 @@ impl OffsetLane {
         self
     }
 
-    /// Drives the scheduler until the task is aborted.
     pub async fn run(self, store: Arc<ClusterStore>) {
         let cluster = store.name().to_owned();
         loop {

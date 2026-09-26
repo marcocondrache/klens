@@ -17,7 +17,6 @@ use super::rates::RateStore;
 use super::search::{self, SearchHit};
 use super::tables::{ConfigTable, OffsetTable, SubjectTable, Topology, WatermarkTable};
 
-/// The normalized read model for one cluster.
 pub struct ClusterStore {
     pub identity: ClusterIdentity,
     pub topology: Lane<Topology>,
@@ -62,7 +61,6 @@ impl ClusterStore {
         &self.identity.name
     }
 
-    /// A cluster is ready once its topology lane has committed at least once.
     pub fn ready(&self) -> bool {
         self.topology.ready()
     }
@@ -268,7 +266,6 @@ impl ClusterStore {
     }
 }
 
-/// Every configured cluster's store, in config order.
 #[derive(Debug, Default)]
 pub struct StoreSet {
     clusters: IndexMap<String, Arc<ClusterStore>>,
@@ -301,7 +298,6 @@ impl StoreSet {
         self.clusters.values()
     }
 
-    /// Readiness: every configured cluster's topology lane has committed.
     pub fn ready(&self) -> bool {
         self.clusters.values().all(|store| store.ready())
     }

@@ -32,7 +32,6 @@ pub enum CleanupPolicy {
 }
 
 impl CleanupPolicy {
-    /// Parses Kafka's comma-separated `cleanup.policy`.
     pub fn parse(value: &str) -> Self {
         let mut compact = false;
         let mut delete = false;
@@ -53,7 +52,6 @@ impl CleanupPolicy {
     }
 }
 
-/// Falls back to Kafka's defaults when the broker did not report them.
 pub fn topic_config_values(entries: Option<&[ConfigEntry]>) -> (CleanupPolicy, i64) {
     let entries = entries.unwrap_or(&[]);
     let cleanup_policy = ConfigEntry::lookup(entries, "cleanup.policy")

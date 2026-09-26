@@ -1,5 +1,3 @@
-//! The single place krafka types cross into the Kafka domain model.
-//!
 //! Collected `Vec`s are shrunk because `collect` reuses the wider krafka
 //! allocation in place, and the store keeps them for as long as they live.
 
@@ -139,7 +137,6 @@ impl From<KrafkaConfigEntry> for ConfigEntry {
 }
 
 impl ConfigSource {
-    /// Kafka `DescribeConfigs` `config_source` (v1+).
     fn from_krafka(source: i8) -> Self {
         match source {
             1 => Self::DynamicTopic,

@@ -70,7 +70,6 @@ impl KafkaError {
     }
 }
 
-/// A record query rejected before any Kafka call is made.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum QueryError {
     #[error("limit must be at least 1")]

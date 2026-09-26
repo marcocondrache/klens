@@ -1,5 +1,3 @@
-/// Lazily parse an environment variable, falling back to a default if the
-/// variable is unset or the value cannot be parsed.
 macro_rules! lazy_env_parse {
     ($key:expr, $t:ty, || $default:expr) => {
         std::sync::LazyLock::new(|| {
@@ -39,12 +37,6 @@ macro_rules! lazy_env_parse {
 
 pub(crate) use lazy_env_parse;
 
-/// Generate a `From` between two enums whose variants have the same names.
-///
-/// The variants are listed rather than inferred so the generated `match` stays
-/// exhaustive: a new variant on the source enum fails to compile until it is
-/// added here. Enums whose variant names differ (`ConfigSource`) stay
-/// hand-written.
 macro_rules! from_same_variants {
     ($src:ty => $dst:ty { $($variant:ident),+ $(,)? }) => {
         impl From<$src> for $dst {
