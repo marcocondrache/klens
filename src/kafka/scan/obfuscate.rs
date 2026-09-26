@@ -167,19 +167,19 @@ impl TopicObfuscator {
             return;
         };
 
-        if let Some(json) = payload.json_mut() {
+        if let Some(json) = payload.edit_json() {
             for rule in &self.fields {
                 rule.apply(json);
             }
         } else if self.masks_undecoded(field) {
-            payload.replace(OBFUSCATION_MASK.to_owned());
+            payload.redact_with(OBFUSCATION_MASK.to_owned());
         }
 
         match whole {
-            Some(CompiledStrategy::Mask) => payload.replace(OBFUSCATION_MASK.to_owned()),
+            Some(CompiledStrategy::Mask) => payload.redact_with(OBFUSCATION_MASK.to_owned()),
             Some(CompiledStrategy::Hash(hasher)) => {
                 let token = hasher.token(payload.text());
-                payload.replace(token);
+                payload.redact_with(token);
             }
             Some(CompiledStrategy::Drop) => {}
             None => self.rewrite_matches(payload),
@@ -203,7 +203,7 @@ impl TopicObfuscator {
         }
 
         if let Cow::Owned(text) = text {
-            payload.replace(text);
+            payload.redact_with(text);
         }
     }
 }
@@ -400,11 +400,7 @@ mod tests {
     }
 
     fn decoded(json: serde_json::Value) -> Option<DecodedPayload> {
-        Some(DecodedPayload::decoded(
-            Bytes::from(json.to_string()),
-            Some(7),
-            json,
-        ))
+        Some(DecodedPayload::decoded(Bytes::from(json.to_string()), json))
     }
 
     fn raw(text: &str) -> Option<DecodedPayload> {

@@ -56,7 +56,7 @@ impl DecodedRecord {
     }
 
     pub fn into_record(self, topic: &str) -> Record {
-        let schema_id = self.value.as_ref().and_then(DecodedPayload::schema_id);
+        let schema_id = self.value.as_ref().and_then(DecodedPayload::wire_schema_id);
         let headers = self
             .raw
             .headers
@@ -110,7 +110,7 @@ pub struct RecordPipeline {
     codec: Option<Arc<dyn PayloadCodec>>,
     filter: Option<CompiledFilter>,
     obfuscator: Option<Arc<TopicObfuscator>>,
-    schema_id: Option<i32>,
+    fallback_schema_id: Option<i32>,
 }
 
 impl RecordPipeline {
@@ -118,13 +118,13 @@ impl RecordPipeline {
         codec: Option<Arc<dyn PayloadCodec>>,
         filter: Option<CompiledFilter>,
         obfuscator: Option<Arc<TopicObfuscator>>,
-        schema_id: Option<i32>,
+        fallback_schema_id: Option<i32>,
     ) -> Self {
         Self {
             codec,
             filter,
             obfuscator,
-            schema_id,
+            fallback_schema_id,
         }
     }
 
@@ -153,7 +153,7 @@ impl RecordPipeline {
         let mut candidates = Vec::with_capacity(records.len());
         for raw in records {
             let key = push_slot(&mut slots, raw.key.clone(), None);
-            let value = push_slot(&mut slots, raw.value.clone(), self.schema_id);
+            let value = push_slot(&mut slots, raw.value.clone(), self.fallback_schema_id);
             candidates.push(Candidate { raw, key, value });
         }
 
@@ -190,7 +190,7 @@ impl RecordPipeline {
                 Kind::Decoded(record) => Stage::Decoded(record),
                 Kind::Pending(raw) => {
                     let key = push_slot(&mut slots, raw.key.clone(), None);
-                    let value = push_slot(&mut slots, raw.value.clone(), self.schema_id);
+                    let value = push_slot(&mut slots, raw.value.clone(), self.fallback_schema_id);
                     Stage::Pending { raw, key, value }
                 }
             })
@@ -221,7 +221,7 @@ impl RecordPipeline {
         } else {
             PayloadView::Raw {
                 key: self.field(raw.key.as_deref(), None),
-                value: self.field(raw.value.as_deref(), self.schema_id),
+                value: self.field(raw.value.as_deref(), self.fallback_schema_id),
             }
         }
     }
@@ -244,10 +244,14 @@ impl RecordPipeline {
         slots.into_iter().map(|slot| Some(slot.take())).collect()
     }
 
-    fn field<'a>(&self, bytes: Option<&'a [u8]>, override_id: Option<i32>) -> Option<RawField<'a>> {
+    fn field<'a>(
+        &self,
+        bytes: Option<&'a [u8]>,
+        fallback_schema_id: Option<i32>,
+    ) -> Option<RawField<'a>> {
         bytes.map(|bytes| RawField {
             bytes,
-            framed: self.codec.is_some() && needs_decode(bytes, override_id),
+            framed: self.codec.is_some() && needs_decode(bytes, fallback_schema_id),
         })
     }
 }
@@ -264,10 +268,10 @@ enum Stage {
 fn push_slot(
     slots: &mut Vec<PayloadSlot>,
     bytes: Option<Bytes>,
-    override_id: Option<i32>,
+    fallback_schema_id: Option<i32>,
 ) -> Option<usize> {
     bytes.map(|bytes| {
-        slots.push(PayloadSlot::new(bytes, override_id));
+        slots.push(PayloadSlot::new(bytes, fallback_schema_id));
         slots.len() - 1
     })
 }

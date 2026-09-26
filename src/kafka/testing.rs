@@ -25,7 +25,7 @@ use crate::kafka::metadata::{
 use crate::kafka::model::{PartitionWindow, RawRecord, ScanConsumer, TailConsumer, TailPosition};
 use crate::kafka::registry::{RegisteredSchema, SchemaCompatibility, SchemaSubject, SchemaType};
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
-use crate::kafka::scan::payload::{DecodedPayload, PayloadCodec, PayloadSlot, framed_schema_id};
+use crate::kafka::scan::payload::{DecodedPayload, PayloadCodec, PayloadSlot};
 use crate::kafka::scan::{Compression, RecordHeader};
 use crate::kafka::session::ClusterSession;
 use crate::kafka::topic_config::{ConfigEntry, ConfigSource};
@@ -1218,11 +1218,7 @@ impl PayloadCodec for CountingCodec {
                 continue;
             };
 
-            slot.decoded = Some(DecodedPayload::decoded(
-                slot.raw.clone(),
-                framed_schema_id(&slot.raw),
-                json,
-            ));
+            slot.decoded = Some(DecodedPayload::decoded(slot.raw.clone(), json));
         }
     }
 }
