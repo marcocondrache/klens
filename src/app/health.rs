@@ -29,15 +29,9 @@ mod tests {
     use tower::ServiceExt;
 
     use crate::AppState;
+    use crate::app::harness::{state, store_of};
     use crate::app::router;
     use crate::kafka::store::fixtures::{partition, topic, topology};
-    use crate::kafka::{Clusters, FakeCluster};
-
-    fn state() -> AppState {
-        AppState::new(Arc::new(Clusters::from_sessions(
-            vec![FakeCluster::local()],
-        )))
-    }
 
     async fn status(state: AppState, path: &str) -> StatusCode {
         router(state)
@@ -55,16 +49,10 @@ mod tests {
             StatusCode::SERVICE_UNAVAILABLE
         );
 
-        state
-            .clusters
-            .get("local")
-            .unwrap()
-            .store
-            .topology
-            .commit(Arc::new(topology(
-                vec![topic("ready", vec![partition(0, vec![1], vec![1])])],
-                Vec::new(),
-            )));
+        store_of(&state, "local").topology.commit(Arc::new(topology(
+            vec![topic("ready", vec![partition(0, vec![1], vec![1])])],
+            Vec::new(),
+        )));
 
         assert_eq!(status(state, "/ready").await, StatusCode::NO_CONTENT);
     }

@@ -21,7 +21,6 @@ pub(super) async fn tail(
     Query(params): Query<TailParams>,
 ) -> Result<Sse<KeepAliveStream<Events>>, ApiError> {
     let records = session.cluster(&name)?.records()?;
-    let cluster = records.name().to_owned();
     let permit = session.state.tail_permit().ok_or(ApiError::TooManyTails)?;
     let tail = records.tail(tail_query(topic, params)).await?;
 
@@ -29,7 +28,7 @@ pub(super) async fn tail(
     let follow = Follow {
         tail,
         guard: session.guard,
-        cluster,
+        cluster: name,
         done: false,
         _permit: permit,
     };

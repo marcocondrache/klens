@@ -6,7 +6,7 @@ mod r#macro;
 pub mod server;
 pub mod telemetry;
 
-pub use app::{AppState, AuthState, router};
+pub use app::{AppState, AuthState, Limits, router};
 pub use config::{
     AuthConfig, ClusterConfig, ClusterIngestConfig, Config, ConfigError, OidcConfig, PrivilegeName,
     RoleBinding, RolesConfig, SaslConfig, SaslMechanism, SchemaRegistryConfig, SecurityConfig,

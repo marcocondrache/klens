@@ -67,12 +67,6 @@ pub(crate) struct Granted<'a, Cap> {
     limits: TailLimits,
 }
 
-impl<Cap> Granted<'_, Cap> {
-    pub(crate) fn name(&self) -> &str {
-        self.cluster.name()
-    }
-}
-
 impl Granted<'_, RecordsCap> {
     pub(crate) async fn read(&self, query: RecordQuery) -> Result<RecordPage, KafkaError> {
         self.cluster.records(query, self.limits.records).await

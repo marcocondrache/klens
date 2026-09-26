@@ -739,6 +739,40 @@ async fn every_lane_runs_per_cluster_and_stops_with_the_ingest() {
     );
 }
 
+#[tokio::test]
+async fn ingestion_fills_the_stores_the_api_projects_from() {
+    let clusters = Clusters::from_sessions(vec![FakeCluster::local()]);
+    let _lanes = Ingest::start(&clusters);
+    let store = &clusters.get("local").unwrap().store;
+
+    wait_for(
+        || clusters.ready() && !store.subject_rows().is_empty(),
+        "catalog and subjects",
+    )
+    .await;
+
+    assert_eq!(store.topic_rows()[0].name.as_ref(), "orders.created");
+    assert_eq!(
+        store.subject_rows()[0].subject.as_ref(),
+        "orders.created-value"
+    );
+}
+
+#[tokio::test]
+async fn ingestion_never_describes_acls() {
+    let session = FakeCluster::local();
+    let clusters = Clusters::from_sessions(vec![session.clone()]);
+    let _lanes = Ingest::start(&clusters);
+
+    wait_for(|| clusters.ready(), "topology commit").await;
+
+    assert!(
+        session.calls().metadata() > 0,
+        "topology lane never called metadata"
+    );
+    assert_eq!(session.calls().acls(), 0);
+}
+
 #[tokio::test(start_paused = true)]
 async fn one_cluster_never_wakes_another() {
     let prod = FakeCluster::named("prod");
