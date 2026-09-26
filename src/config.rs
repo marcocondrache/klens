@@ -83,13 +83,26 @@ impl Config {
     }
 
     pub fn load(path: impl AsRef<Path>) -> Result<Self, ConfigError> {
-        let path = path.as_ref();
+        Self::load_with_env(path.as_ref(), |name| std::env::var(name))
+    }
+
+    fn load_with_env(
+        path: &Path,
+        env: impl Fn(&str) -> Result<String, VarError>,
+    ) -> Result<Self, ConfigError> {
         let raw = std::fs::read_to_string(path).map_err(|source| ConfigError::Read {
             path: path.to_owned(),
             source,
         })?;
+        Self::parse(path, &raw, env)
+    }
 
-        let expanded = shellexpand::env_with_context(&raw, |name| std::env::var(name).map(Some))
+    fn parse(
+        path: &Path,
+        raw: &str,
+        env: impl Fn(&str) -> Result<String, VarError>,
+    ) -> Result<Self, ConfigError> {
+        let expanded = shellexpand::env_with_context(raw, |name| env(name).map(Some))
             .map(Cow::into_owned)
             .map_err(|source| ConfigError::Expand {
                 path: path.to_owned(),
@@ -1920,24 +1933,16 @@ mod tests {
         .unwrap();
     }
 
-    fn load_yaml(yaml: &str, vars: &[(&str, &str)]) -> Result<Config, ConfigError> {
-        let vars: HashMap<&str, &str> = vars.iter().copied().collect();
-        let expanded = shellexpand::env_with_context(yaml, |name| match vars.get(name) {
-            Some(value) => Ok(Some(*value)),
-            None => Err(std::env::VarError::NotPresent),
-        })
-        .map_err(|source| ConfigError::Expand {
-            path: PathBuf::from("test.yaml"),
-            source,
-        })?;
+    fn env_from(vars: &[(&str, &str)]) -> impl Fn(&str) -> Result<String, VarError> {
+        let vars: HashMap<String, String> = vars
+            .iter()
+            .map(|(name, value)| (name.to_string(), value.to_string()))
+            .collect();
+        move |name| vars.get(name).cloned().ok_or(VarError::NotPresent)
+    }
 
-        let config: Config =
-            serde_yaml_ng::from_str(&expanded).map_err(|source| ConfigError::Parse {
-                path: PathBuf::from("test.yaml"),
-                source,
-            })?;
-        config.validate()?;
-        Ok(config)
+    fn load_yaml(yaml: &str, vars: &[(&str, &str)]) -> Result<Config, ConfigError> {
+        Config::parse(Path::new("test.yaml"), yaml, env_from(vars))
     }
 
     #[test]
@@ -2008,42 +2013,32 @@ mod tests {
 
     #[test]
     fn load_from_file_expands_environment() {
-        static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        let _guard = ENV_LOCK.lock().unwrap();
-
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let secret_var = format!("KLENS_TEST_OIDC_{nonce}");
-        let path = std::env::temp_dir().join(format!("{secret_var}.yaml"));
-        let yaml = format!(
-            "
+        let path = std::env::temp_dir().join(format!("klens-test-{nonce}.yaml"));
+        let yaml = "
             bind: 127.0.0.1:8080
             clusters: []
             auth:
               oidc:
                 issuer: https://idp.example
                 client_id: klens
-                client_secret: ${{{secret_var}}}
+                client_secret: ${OIDC_CLIENT_SECRET}
                 redirect_uri: https://klens.example/api/auth/callback
-            "
-        );
+            ";
         std::fs::write(&path, yaml).unwrap();
-        struct Cleanup<'a>(&'a Path, &'a str);
+        struct Cleanup<'a>(&'a Path);
         impl Drop for Cleanup<'_> {
             fn drop(&mut self) {
                 let _ = std::fs::remove_file(self.0);
-                // SAFETY: serialized by ENV_LOCK for the lifetime of this test.
-                unsafe { std::env::remove_var(self.1) };
             }
         }
-        let _cleanup = Cleanup(&path, &secret_var);
+        let _cleanup = Cleanup(&path);
 
-        // SAFETY: serialized by ENV_LOCK; this variable name is unique to the test.
-        unsafe { std::env::set_var(&secret_var, "from-env") };
-
-        let config = Config::load(&path).unwrap();
+        let config =
+            Config::load_with_env(&path, env_from(&[("OIDC_CLIENT_SECRET", "from-env")])).unwrap();
         assert_eq!(config.auth.unwrap().oidc.client_secret, "from-env");
     }
 }
