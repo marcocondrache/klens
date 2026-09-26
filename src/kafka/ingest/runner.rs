@@ -70,12 +70,6 @@ async fn poll<S: LaneSource>(store: &ClusterStore, source: &S) {
     }
 }
 
-/// Poll intervals below this are rejected so a misconfigured deployment
-/// cannot hammer the brokers.
-pub fn floor(interval: Duration) -> Duration {
-    interval.max(Duration::from_secs(1))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,12 +166,6 @@ mod tests {
             tokio::task::yield_now().await;
         }
         panic!("lane never reached {polls} polls");
-    }
-
-    #[test]
-    fn the_poll_floor_rejects_sub_second_intervals() {
-        assert_eq!(floor(Duration::from_millis(50)), Duration::from_secs(1));
-        assert_eq!(floor(Duration::from_secs(30)), Duration::from_secs(30));
     }
 
     #[tokio::test(start_paused = true)]
