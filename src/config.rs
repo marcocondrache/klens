@@ -1848,6 +1848,15 @@ mod tests {
     }
 
     #[test]
+    fn debug_output_hides_the_key_bytes() {
+        let key = KeyMaterial::<32>::parse("0123456789abcdef0123456789abcdef")
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(format!("{key:?}"), "KeyMaterial { .. }");
+    }
+
+    #[test]
     fn a_blank_secret_counts_as_absent() {
         obfuscated(
             "
