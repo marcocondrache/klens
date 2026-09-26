@@ -24,6 +24,15 @@ macro_rules! lazy_env_parse {
                 .unwrap_or($default)
         })
     };
+    (mib, $key:expr, $default:expr) => {
+        std::sync::LazyLock::new(|| {
+            std::env::var($key)
+                .ok()
+                .and_then(|s| s.parse::<usize>().ok())
+                .map(|mib| mib * 1024 * 1024)
+                .unwrap_or($default)
+        })
+    };
     (millis, $key:expr, $default:expr) => {
         std::sync::LazyLock::new(|| {
             std::env::var($key)

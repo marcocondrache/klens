@@ -86,12 +86,12 @@ pub static CONSUME_TIMEOUT: LazyLock<Duration> =
 pub static MAX_IN_FLIGHT_REQUESTS: LazyLock<usize> =
     lazy_env_parse!("KLENS_MAX_IN_FLIGHT_REQUESTS", usize, 32);
 
-/// Largest broker response frame the client will accept, in MiB
-/// (default: 32).
+/// Largest broker response frame the client will accept, in bytes
+/// (default: 32 MiB).
 ///
-/// Override with `KLENS_MAX_RESPONSE_MB`.
-pub static MAX_RESPONSE_MB: LazyLock<usize> =
-    lazy_env_parse!("KLENS_MAX_RESPONSE_MB", usize, 32 * 1024 * 1024);
+/// Override with `KLENS_MAX_RESPONSE_MB` (MiB).
+pub static MAX_RESPONSE_BYTES: LazyLock<usize> =
+    lazy_env_parse!(mib, "KLENS_MAX_RESPONSE_MB", 32 * 1024 * 1024);
 
 /// Idle scan consumers kept per topic (default: 2).
 ///
