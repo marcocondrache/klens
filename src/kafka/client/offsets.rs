@@ -18,11 +18,11 @@ pub fn from_list_offsets(
 }
 
 pub fn partition_time_offsets(
-    listed: HashMap<(String, i32), Option<i64>>,
+    listed: impl IntoIterator<Item = (String, i32, i64)>,
 ) -> HashMap<i32, Option<i64>> {
     listed
         .into_iter()
-        .map(|((_, partition), offset)| (partition, offset))
+        .map(|(_, partition, offset)| (partition, (offset >= 0).then_some(offset)))
         .collect()
 }
 
@@ -30,13 +30,14 @@ pub fn partition_time_offsets(
 /// skipped rather than reported as negative message counts.
 pub fn merge_watermark_offsets(
     beginning: &HashMap<(String, i32), Option<i64>>,
-    end: HashMap<(String, i32), Option<i64>>,
+    end: impl IntoIterator<Item = (String, i32, i64)>,
 ) -> HashMap<String, HashMap<i32, Watermarks>> {
     let mut out: HashMap<String, HashMap<i32, Watermarks>> = HashMap::new();
-    for (key, high) in end {
-        let Some(high) = high else {
+    for (topic, partition, high) in end {
+        if high < 0 {
             continue;
-        };
+        }
+        let key = (topic, partition);
         // Empty partitions often return only the last offset.
         let low = beginning.get(&key).copied().flatten().unwrap_or(high);
         if high < low {
@@ -68,12 +69,7 @@ mod tests {
 
     #[test]
     fn partition_time_offsets_keeps_only_what_the_broker_returned() {
-        let listed = HashMap::from_iter([
-            (("orders".into(), 0), Some(12)),
-            (("orders".into(), 2), None),
-        ]);
-
-        let offsets = partition_time_offsets(listed);
+        let offsets = partition_time_offsets([("orders".into(), 0, 12), ("orders".into(), 2, -1)]);
         assert_eq!(offsets.get(&0), Some(&Some(12)));
         assert_eq!(offsets.get(&2), Some(&None));
         assert!(!offsets.contains_key(&1));
@@ -89,14 +85,14 @@ mod tests {
             (("payments".into(), 1), None),
             (("logs".into(), 0), Some(3)),
         ]);
-        let end = HashMap::from_iter([
-            (("orders".into(), 0), Some(0)),
-            (("orders".into(), 1), Some(5)),
-            (("orders".into(), 2), Some(12)),
-            (("payments".into(), 0), None),
-            (("payments".into(), 1), Some(9)),
-            (("logs".into(), 0), Some(9)),
-        ]);
+        let end = [
+            ("orders".into(), 0, 0),
+            ("orders".into(), 1, 5),
+            ("orders".into(), 2, 12),
+            ("payments".into(), 0, -1),
+            ("payments".into(), 1, 9),
+            ("logs".into(), 0, 9),
+        ];
 
         assert_eq!(
             merge_watermark_offsets(&beginning, end),
