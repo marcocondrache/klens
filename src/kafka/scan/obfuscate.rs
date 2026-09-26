@@ -1013,5 +1013,6 @@ mod tests {
         };
 
         assert_eq!(token(raw), token(&encoded));
+        assert_eq!(token(raw), KeyedHasher::new(raw.as_bytes()).token("4111"));
     }
 }

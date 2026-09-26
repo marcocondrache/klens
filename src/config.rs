@@ -1713,7 +1713,7 @@ mod tests {
         );
     }
 
-    fn obfuscated(rules: &str) -> Result<(), ConfigError> {
+    fn obfuscated(rules: &str) -> Result<(), String> {
         let yaml = format!(
             "
             name: payments
@@ -1725,8 +1725,9 @@ mod tests {
         );
 
         parse_cluster(&yaml)
-            .expect("obfuscation config parses")
+            .map_err(|error| error.to_string())?
             .validate()
+            .map_err(|error| error.to_string())
     }
 
     #[test]
@@ -1766,6 +1767,77 @@ mod tests {
                 .to_string()
                 .contains("secret must decode to at least 32 bytes")
         );
+    }
+
+    #[test]
+    fn a_secret_is_base64_only_when_it_decodes_to_enough_bytes() {
+        obfuscated(
+            "
+              secret: BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=
+              rules:
+                - topics: [cards]
+                  value: hash
+            ",
+        )
+        .expect("base64 of 32 bytes");
+
+        let error = obfuscated(
+            "
+              secret: BwcHBwcHBwcHBwcHBwcHBw==
+              rules:
+                - topics: [cards]
+                  value: hash
+            ",
+        )
+        .unwrap_err();
+
+        assert!(
+            error.contains("obfuscation secret must decode to at least 32 bytes, got 24"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_short_secret_reports_its_length() {
+        let error = obfuscated(
+            "
+              secret: short
+              rules:
+                - topics: [cards]
+                  value: mask
+            ",
+        )
+        .unwrap_err();
+
+        assert!(
+            error.contains("obfuscation secret must decode to at least 32 bytes, got 5"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_blank_secret_counts_as_absent() {
+        obfuscated(
+            "
+              secret: '   '
+              rules:
+                - topics: [cards]
+                  value: mask
+            ",
+        )
+        .expect("blank secret without hashing");
+
+        let error = obfuscated(
+            "
+              secret: '   '
+              rules:
+                - topics: [cards]
+                  value: hash
+            ",
+        )
+        .unwrap_err();
+
+        assert!(error.contains("hash strategy requires a secret"), "{error}");
     }
 
     #[test]

@@ -992,9 +992,44 @@ mod tests {
     }
 
     #[test]
+    fn a_base64_session_key_and_its_raw_text_derive_the_same_key() {
+        let raw = "0123456789abcdef0123456789abcdef";
+        let encoded = base64::engine::general_purpose::STANDARD.encode(raw);
+        let expected = Key::derive_from(raw.as_bytes());
+
+        assert_eq!(
+            signing_key(Some(raw)).expect("raw").signing(),
+            expected.signing()
+        );
+        assert_eq!(
+            signing_key(Some(&encoded)).expect("base64").signing(),
+            expected.signing()
+        );
+        assert_eq!(
+            signing_key(Some(&format!("  {raw}\n")))
+                .expect("padded")
+                .signing(),
+            expected.signing()
+        );
+    }
+
+    #[test]
     fn a_short_session_key_is_rejected_rather_than_silently_padded() {
         let error = signing_key(Some("too-short")).expect_err("short key");
-        assert!(error.to_string().contains("at least"), "{error}");
+        assert_eq!(
+            error.to_string(),
+            "session key must decode to at least 32 bytes, got 9"
+        );
+    }
+
+    #[test]
+    fn a_session_key_that_decodes_short_is_measured_as_text() {
+        let encoded = base64::engine::general_purpose::STANDARD.encode([7u8; 16]);
+        let error = signing_key(Some(&encoded)).expect_err("short decode");
+        assert_eq!(
+            error.to_string(),
+            "session key must decode to at least 32 bytes, got 24"
+        );
     }
 
     #[test]
