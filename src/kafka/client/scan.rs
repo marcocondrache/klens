@@ -98,8 +98,8 @@ impl ScanConsumer for ScanLease {
         self.poison(assign(&self.consumer, &self.topic, windows).await)
     }
 
-    async fn poll(&self, budget: Duration) -> Result<Vec<RawRecord>, KafkaError> {
-        let polled = self.poison(self.consumer.poll(budget).await.map_err(KafkaError::from))?;
+    async fn poll(&self, max_wait: Duration) -> Result<Vec<RawRecord>, KafkaError> {
+        let polled = self.poison(self.consumer.poll(max_wait).await.map_err(KafkaError::from))?;
 
         Ok(polled.into_iter().map(raw_record).collect())
     }

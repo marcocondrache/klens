@@ -58,7 +58,7 @@ impl RawRecord {
 pub trait ScanConsumer: Send + Sync {
     async fn reassign(&self, windows: &[PartitionWindow]) -> Result<(), KafkaError>;
 
-    async fn poll(&self, budget: Duration) -> Result<Vec<RawRecord>, KafkaError>;
+    async fn poll(&self, max_wait: Duration) -> Result<Vec<RawRecord>, KafkaError>;
 
     async fn pause(&self, partitions: &[i32]);
 
@@ -165,10 +165,10 @@ impl ScanSession {
                 break;
             }
 
-            let budget = deadline
+            let max_wait = deadline
                 .saturating_duration_since(now)
                 .min(*SCAN_PACE_BOUND);
-            let Ok(polled) = timeout_at(deadline, self.consumer.poll(budget)).await else {
+            let Ok(polled) = timeout_at(deadline, self.consumer.poll(max_wait)).await else {
                 break;
             };
 

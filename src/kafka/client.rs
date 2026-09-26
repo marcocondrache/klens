@@ -699,7 +699,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_round_trip_slower_than_the_poll_budget_still_delivers() {
+    async fn a_round_trip_slower_than_the_poll_max_wait_still_delivers() {
         let broker = krafka::testing::FakeBroker::start().await.unwrap();
         assert!(broker.create_topic("orders", 1));
         produce_krafka(&broker.bootstrap_servers(), "orders", 2).await;

@@ -1027,10 +1027,10 @@ impl ScanConsumer for FakeScan {
         Ok(())
     }
 
-    async fn poll(&self, budget: Duration) -> Result<Vec<RawRecord>, KafkaError> {
+    async fn poll(&self, max_wait: Duration) -> Result<Vec<RawRecord>, KafkaError> {
         let owed = *self.owed.lock().expect("owed");
         if !owed.is_zero() {
-            let slice = owed.min(budget);
+            let slice = owed.min(max_wait);
             tokio::time::sleep(slice).await;
             *self.owed.lock().expect("owed") = owed - slice;
             if slice < owed {
@@ -1109,13 +1109,13 @@ impl FakeTail {
 
 #[async_trait]
 impl TailConsumer for FakeTail {
-    async fn poll(&self, budget: Duration) -> Result<Vec<RawRecord>, KafkaError> {
+    async fn poll(&self, max_wait: Duration) -> Result<Vec<RawRecord>, KafkaError> {
         self.cluster.tail_polls.fetch_add(1, Ordering::SeqCst);
         let ready = self.take();
         if !ready.is_empty() || self.positions.lock().expect("positions").is_empty() {
             return Ok(ready);
         }
-        tokio::time::sleep(budget).await;
+        tokio::time::sleep(max_wait).await;
         Ok(self.take())
     }
 
