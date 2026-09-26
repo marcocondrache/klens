@@ -33,8 +33,6 @@ use crate::kafka::topic_config::{ConfigEntry, ConfigSource};
 const SUBJECT_SCHEMA: &str =
     r#"{"type":"record","name":"Order","fields":[{"name":"orderId","type":"string"}]}"#;
 
-/// A record as it sits on the fake broker's log: raw wire bytes, the same
-/// shape `RawRecord` carries, rather than the decoded text a scan produces.
 #[derive(Debug, Clone)]
 pub struct FixtureRecord {
     pub topic: String,
