@@ -5,34 +5,11 @@ use serde_json::Value;
 
 use crate::app::auth::access::EffectiveAccess;
 use crate::kafka::FakeCluster;
-use crate::kafka::store::fixtures::{
-    at, offline_partition, partition, topic, topology, watermarks,
-};
+use crate::kafka::store::fixtures::{offline_partition, partition, topic, topology};
 
 use super::super::harness::{
     failure, ok, ok_as, seeded, seeded_with, state, store_of, viewer_everywhere,
 };
-
-#[tokio::test]
-async fn sixty_four_bit_counters_cross_the_wire_as_strings() {
-    let state = state();
-    let store = store_of(&state, "local");
-    let huge = 9_007_199_254_740_993_i64;
-
-    store.topology.commit(Arc::new(topology(
-        vec![topic("wide", vec![partition(0, vec![1], vec![1])])],
-        Vec::new(),
-    )));
-    store
-        .watermarks
-        .commit(Arc::new(watermarks(at(1_000), &[("wide", 0, 0, huge)])));
-
-    let data = ok(&state, "/clusters/local/topics").await;
-    let row = &data["rows"][0];
-
-    assert_eq!(row["retainedMessages"], huge.to_string());
-    assert_eq!(row["producedTotal"], huge.to_string());
-}
 
 #[tokio::test]
 async fn topic_rows_project_counts_and_configs_without_touching_the_broker() {
@@ -43,9 +20,9 @@ async fn topic_rows_project_counts_and_configs_without_touching_the_broker() {
     assert_eq!(data["total"], 2);
     assert_eq!(rows[0]["name"], "orders.created");
     assert_eq!(rows[0]["partitionCount"], 2);
-    assert_eq!(rows[0]["retainedMessages"], "150");
+    assert_eq!(rows[0]["retainedMessages"], 150);
     assert_eq!(rows[0]["cleanupPolicy"], "COMPACT");
-    assert_eq!(rows[0]["retentionMs"], "604800000");
+    assert_eq!(rows[0]["retentionMs"], 604_800_000);
     assert_eq!(rows[0]["groupCount"], 1);
     assert_eq!(session.calls().metadata(), 0);
 }
@@ -173,7 +150,7 @@ async fn topic_groups_report_lag_on_that_topic_alone() {
     let data = ok(&state, "/clusters/local/topics/orders.created/groups").await;
 
     assert_eq!(data[0]["id"], "order-processor");
-    assert_eq!(data[0]["lagOnTopic"], "15");
+    assert_eq!(data[0]["lagOnTopic"], 15);
 }
 
 #[tokio::test]

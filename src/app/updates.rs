@@ -18,7 +18,6 @@ use super::context::Session;
 use super::error::ApiError;
 use super::extract::{Path, Query};
 use super::groups::GroupOffset;
-use super::int64::Int64;
 
 pub mod types;
 
@@ -188,7 +187,7 @@ fn project(change: &Change, scope: &Scope) -> Vec<Update> {
                 return Vec::new();
             }
             vec![Update::Topology {
-                version: delta.version.into(),
+                version: delta.version,
                 added_topics: names(&delta.added_topics),
                 removed_topics: names(&delta.removed_topics),
                 changed_topics: names(&delta.changed_topics),
@@ -210,13 +209,13 @@ fn project(change: &Change, scope: &Scope) -> Vec<Update> {
                 }
             };
             vec![Update::Configs {
-                version: delta.version.into(),
+                version: delta.version,
                 topics,
             }]
         }
 
         Change::Subjects(delta) => vec![Update::Subjects {
-            version: delta.version.into(),
+            version: delta.version,
             added: names(&delta.added),
             removed: names(&delta.removed),
             changed: names(&delta.changed),
@@ -232,7 +231,7 @@ fn lag_update(
     Update::GroupLag {
         at: wave.at,
         group: String::from(&*update.group),
-        lag: Int64::from(update.total_lag),
+        lag: update.total_lag,
         lag_complete: update.lag_complete,
         offsets: match offsets {
             true => update

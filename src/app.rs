@@ -17,7 +17,6 @@ mod error;
 mod extract;
 mod groups;
 mod health;
-mod int64;
 mod paging;
 mod records;
 mod search;

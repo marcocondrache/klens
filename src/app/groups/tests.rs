@@ -14,7 +14,7 @@ async fn group_rows_join_commits_against_watermarks() {
     assert_eq!(row["state"], "STABLE");
     assert_eq!(row["memberCount"], 1);
     assert_eq!(row["topicNames"], serde_json::json!(["orders.created"]));
-    assert_eq!(row["totalLag"], "15");
+    assert_eq!(row["totalLag"], 15);
     assert_eq!(row["lagComplete"], true);
 }
 
@@ -26,11 +26,11 @@ async fn opening_a_group_registers_interest_so_its_offsets_poll_faster() {
 
     let group = ok(&state, "/clusters/local/groups/order-processor").await;
 
-    assert_eq!(group["totalLag"], "15");
+    assert_eq!(group["totalLag"], 15);
     assert_eq!(group["members"][0]["clientId"], "c1");
-    assert_eq!(group["offsets"][0]["currentOffset"], "90");
-    assert_eq!(group["offsets"][0]["endOffset"], "100");
-    assert_eq!(group["offsets"][0]["lag"], "10");
+    assert_eq!(group["offsets"][0]["currentOffset"], 90);
+    assert_eq!(group["offsets"][0]["endOffset"], 100);
+    assert_eq!(group["offsets"][0]["lag"], 10);
     assert!(store.interest.is_hot("order-processor"));
 }
 
@@ -84,7 +84,7 @@ async fn a_group_whose_offsets_were_never_fetched_has_unknown_lag() {
         group["offsets"][0]["currentOffset"],
         serde_json::Value::Null
     );
-    assert_eq!(group["offsets"][0]["endOffset"], "100");
+    assert_eq!(group["offsets"][0]["endOffset"], 100);
     assert_eq!(group["offsets"][0]["lag"], serde_json::Value::Null);
     assert_eq!(topic_groups[0]["lagOnTopic"], serde_json::Value::Null);
 }

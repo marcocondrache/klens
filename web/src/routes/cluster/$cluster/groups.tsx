@@ -30,7 +30,7 @@ import { useSearchDraft } from "@/hooks/use-search-draft";
 import { useClusterHealth, useGroupRows } from "@/lib/api/catalog";
 import { useClusterName } from "@/lib/clusters";
 import { apiErrorMessage } from "@/lib/api/client";
-import { formatCount, formatEnumLabel, formatNumber, toNumber } from "@/lib/format";
+import { formatCount, formatEnumLabel, formatNumber } from "@/lib/format";
 import type { GroupRow } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import {
@@ -72,7 +72,7 @@ const FILTERS: Array<FilterField<GroupRow, GroupFilter>> = [
       { value: "caught-up", label: "Caught up", icon: <StatusDot tone="ok" /> },
     ],
     accessor: (group) =>
-      group.totalLag === null ? [] : toNumber(group.totalLag) > 0 ? "lagging" : "caught-up",
+      group.totalLag === null ? [] : group.totalLag > 0 ? "lagging" : "caught-up",
   },
 ];
 
@@ -112,7 +112,7 @@ const columns = columnHelper.columns([
       </span>
     ),
   }),
-  columnHelper.accessor((group) => (group.totalLag === null ? -1 : toNumber(group.totalLag)), {
+  columnHelper.accessor((group) => group.totalLag ?? -1, {
     id: "lag",
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Lag" className="justify-end" />
@@ -136,7 +136,7 @@ function LagValue({ row }: { row: GroupRow }) {
   if (row.totalLag === null) {
     return <PendingValue label="Fetching committed offsets" className="ml-auto block" />;
   }
-  const lag = toNumber(row.totalLag);
+  const lag = row.totalLag;
 
   return (
     <span
@@ -144,7 +144,7 @@ function LagValue({ row }: { row: GroupRow }) {
       title={row.lagComplete ? undefined : "Some partitions have no watermark yet"}
     >
       {row.lagComplete ? "" : "≥ "}
-      {formatNumber(row.totalLag)}
+      {formatNumber(lag)}
     </span>
   );
 }
@@ -177,10 +177,7 @@ function ConsumerGroupsPage() {
   const rows = applyFilters(searched, FILTERS, filters);
 
   const lagPending = rows.some((group) => group.totalLag === null);
-  const totalLag = rows.reduce(
-    (sum, group) => sum + (group.totalLag === null ? 0 : toNumber(group.totalLag)),
-    0,
-  );
+  const totalLag = rows.reduce((sum, group) => sum + (group.totalLag ?? 0), 0);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">

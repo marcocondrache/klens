@@ -5,7 +5,6 @@ use ts_rs::TS;
 use crate::kafka::store;
 
 use super::super::groups::GroupOffset;
-use super::super::int64::Int64;
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -47,12 +46,12 @@ pub enum Update {
     GroupLag {
         at: Timestamp,
         group: String,
-        lag: Int64,
+        lag: i64,
         lag_complete: bool,
         offsets: Vec<GroupOffset>,
     },
     Topology {
-        version: Int64,
+        version: u64,
         added_topics: Vec<String>,
         removed_topics: Vec<String>,
         changed_topics: Vec<String>,
@@ -62,11 +61,11 @@ pub enum Update {
         brokers_changed: bool,
     },
     Configs {
-        version: Int64,
+        version: u64,
         topics: Vec<String>,
     },
     Subjects {
-        version: Int64,
+        version: u64,
         added: Vec<String>,
         removed: Vec<String>,
         changed: Vec<String>,
