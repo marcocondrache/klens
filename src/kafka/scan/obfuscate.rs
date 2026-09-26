@@ -167,19 +167,12 @@ impl TopicObfuscator {
             return;
         };
 
-        match payload.json_mut() {
-            Some(json) => {
-                for rule in &self.fields {
-                    rule.apply(json);
-                }
+        if let Some(json) = payload.json_mut() {
+            for rule in &self.fields {
+                rule.apply(json);
             }
-            None if field == Field::Value
-                && !self.fields.is_empty()
-                && self.unparsed == UnparsedPolicy::Mask =>
-            {
-                payload.replace(OBFUSCATION_MASK.to_owned());
-            }
-            None => {}
+        } else if self.masks_undecoded(field) {
+            payload.replace(OBFUSCATION_MASK.to_owned());
         }
 
         match whole {
@@ -191,6 +184,10 @@ impl TopicObfuscator {
             Some(CompiledStrategy::Drop) => {}
             None => self.rewrite_matches(payload),
         }
+    }
+
+    fn masks_undecoded(&self, field: Field) -> bool {
+        field == Field::Value && !self.fields.is_empty() && self.unparsed == UnparsedPolicy::Mask
     }
 
     fn rewrite_matches(&self, payload: &mut DecodedPayload) {
@@ -648,6 +645,24 @@ mod tests {
         obfuscator.apply(Field::Value, &mut value);
 
         assert_eq!(value.expect("value").into_text(), "***");
+    }
+
+    #[test]
+    fn a_value_that_never_decoded_is_left_alone_when_the_topic_has_no_field_rules() {
+        let obfuscator = policy(
+            "
+            rules:
+              - topics: [payments]
+                key: mask
+            ",
+        )
+        .for_topic("payments")
+        .expect("rule");
+
+        let mut value = raw("unframed bytes");
+        obfuscator.apply(Field::Value, &mut value);
+
+        assert_eq!(value.expect("value").into_text(), "unframed bytes");
     }
 
     #[test]
