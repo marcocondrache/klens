@@ -17,7 +17,7 @@ use crate::kafka::session::ClusterSession;
 use super::batch::{RecordBatch, SortKey};
 use super::cursor::CursorDirection;
 use super::obfuscate::TopicObfuscator;
-use super::pipeline::{DecodedRecord, Kept, RecordPipeline, Screen};
+use super::pipeline::{Kept, RecordPipeline, Screen};
 use super::plan::{PartitionWindow, advance_cursor, plan_windows, rewind_cursor};
 use super::query::{RecordOrder, RecordQuery};
 use super::{Compression, RecordPage};
@@ -378,7 +378,7 @@ pub async fn fetch_page<S: ClusterSession + ?Sized>(
         }
 
         let remaining = limit - kept.len();
-        let mut batch = RecordBatch::new(remaining, walk);
+        let mut batch = RecordBatch::new(remaining, order, direction);
         let outcome = scan.run(&windows, &mut batch, deadline).await?;
         complete &= outcome.complete;
         scanned |= outcome.scanned;
@@ -420,14 +420,12 @@ pub async fn fetch_page<S: ClusterSession + ?Sized>(
     let obfuscated = scan.obfuscated();
     scan.close().await;
 
-    let near = rewind_cursor(
-        walk,
-        watermarks,
-        &edges(kept.iter().map(DecodedRecord::raw)),
-        order,
-    );
+    let near = query
+        .cursor
+        .as_ref()
+        .and_then(|opened| rewind_cursor(opened, partitions, watermarks));
     let (next_cursor, prev_cursor) = match direction {
-        CursorDirection::Forward => (cursor, query.cursor.as_ref().and(near)),
+        CursorDirection::Forward => (cursor, near),
         CursorDirection::Backward => (near, cursor),
     };
 
@@ -473,7 +471,7 @@ pub async fn scan_once<S: ClusterSession + ?Sized>(
 
     let deadline = Instant::now() + session.consume_timeout();
     let scan = ScanSession::open(session, &query, order, deadline, windows).await?;
-    let mut batch = RecordBatch::new(limit, order);
+    let mut batch = RecordBatch::new(limit, order, CursorDirection::Forward);
     let outcome = scan.run(windows, &mut batch, deadline).await;
     let page = scan.pipeline.decode_deferred(batch.into_sorted()).await;
     scan.close().await;
@@ -874,7 +872,7 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn oldest_pages_forward_to_the_end_and_back_over_the_partitions_it_last_showed() {
+    async fn oldest_pages_forward_to_the_end_and_back_over_every_record() {
         let (forward, backward) = page_through(RecordOrder::Oldest).await;
 
         assert_eq!(
@@ -886,22 +884,34 @@ mod tests {
                     Some("v2:o:f:0:2"),
                     Some("v2:o:b:0:1,1:1")
                 ),
-                page(&[(0, 2), (0, 3)], Some("v2:o:f:0:4"), Some("v2:o:b:0:2")),
-                page(&[(0, 4)], None, Some("v2:o:b:0:4")),
+                page(
+                    &[(0, 2), (0, 3)],
+                    Some("v2:o:f:0:4"),
+                    Some("v2:o:b:0:2,1:2")
+                ),
+                page(&[(0, 4)], None, Some("v2:o:b:0:4,1:2")),
             ]
         );
         assert_eq!(
             backward,
             vec![
-                page(&[(0, 2), (0, 3)], Some("v2:o:f:0:4"), Some("v2:o:b:0:2")),
-                page(&[(0, 0), (0, 1)], Some("v2:o:f:0:2"), None),
-            ],
-            "the last page's edge back omits partition 1, so its records never return"
+                page(
+                    &[(0, 2), (0, 3)],
+                    Some("v2:o:f:0:4"),
+                    Some("v2:o:b:0:2,1:2")
+                ),
+                page(
+                    &[(0, 1), (1, 1)],
+                    Some("v2:o:f:0:2"),
+                    Some("v2:o:b:0:1,1:1")
+                ),
+                page(&[(0, 0), (1, 0)], Some("v2:o:f:0:1,1:1"), None),
+            ]
         );
     }
 
     #[tokio::test(start_paused = true)]
-    async fn newest_pages_forward_to_the_end_and_back_over_the_partitions_it_last_showed() {
+    async fn newest_pages_forward_to_the_end_and_back_over_every_record() {
         let (forward, backward) = page_through(RecordOrder::Newest).await;
 
         assert_eq!(
@@ -914,13 +924,20 @@ mod tests {
                     Some("v2:n:b:0:3")
                 ),
                 page(&[(1, 1), (0, 0)], Some("v2:n:f:1:1"), Some("v2:n:b:0:1")),
-                page(&[(1, 0)], None, Some("v2:n:b:1:1")),
+                page(&[(1, 0)], None, Some("v2:n:b:0:0,1:1")),
             ]
         );
         assert_eq!(
             backward,
-            vec![page(&[(1, 1)], Some("v2:n:f:1:1"), None)],
-            "the last page's edge back omits partition 0, so its records never return"
+            vec![
+                page(&[(1, 1), (0, 0)], Some("v2:n:f:1:1"), Some("v2:n:b:0:1")),
+                page(
+                    &[(0, 2), (0, 1)],
+                    Some("v2:n:f:0:1,1:2"),
+                    Some("v2:n:b:0:3")
+                ),
+                page(&[(0, 4), (0, 3)], Some("v2:n:f:0:3,1:2"), None),
+            ]
         );
     }
 

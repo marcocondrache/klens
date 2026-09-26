@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 
+use super::cursor::CursorDirection;
 use super::query::RecordOrder;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,21 +27,30 @@ impl SortKey {
                 .then(self.offset.cmp(&other.offset)),
         }
     }
+
+    fn rank(&self, other: &Self, order: RecordOrder, direction: CursorDirection) -> Ordering {
+        match direction {
+            CursorDirection::Forward => self.cmp_for_order(other, order),
+            CursorDirection::Backward => other.cmp_for_order(self, order),
+        }
+    }
 }
 
 pub struct RecordBatch<T> {
     entries: BinaryHeap<Entry<T>>,
     limit: usize,
     order: RecordOrder,
+    direction: CursorDirection,
     seen: usize,
 }
 
 impl<T> RecordBatch<T> {
-    pub fn new(limit: usize, order: RecordOrder) -> Self {
+    pub fn new(limit: usize, order: RecordOrder, direction: CursorDirection) -> Self {
         Self {
             entries: BinaryHeap::new(),
             limit,
             order,
+            direction,
             seen: 0,
         }
     }
@@ -66,7 +76,7 @@ impl<T> RecordBatch<T> {
         }
         self.entries
             .peek()
-            .is_none_or(|worst| key.cmp_for_order(&worst.key, self.order) == Ordering::Less)
+            .is_none_or(|worst| key.rank(&worst.key, self.order, self.direction) == Ordering::Less)
     }
 
     pub fn push(&mut self, key: SortKey, value: T) {
@@ -78,6 +88,7 @@ impl<T> RecordBatch<T> {
             key,
             value,
             order: self.order,
+            direction: self.direction,
             sequence: self.seen,
         };
         self.seen += 1;
@@ -104,13 +115,14 @@ struct Entry<T> {
     key: SortKey,
     value: T,
     order: RecordOrder,
+    direction: CursorDirection,
     sequence: usize,
 }
 
 impl<T> Ord for Entry<T> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.key
-            .cmp_for_order(&other.key, self.order)
+            .rank(&other.key, self.order, self.direction)
             .then(self.sequence.cmp(&other.sequence))
     }
 }
@@ -147,7 +159,7 @@ mod tests {
             (RecordOrder::Newest, vec![50, 40, 30]),
             (RecordOrder::Oldest, vec![10, 20, 30]),
         ] {
-            let mut batch = RecordBatch::new(3, order);
+            let mut batch = RecordBatch::new(3, order, CursorDirection::Forward);
             for timestamp in [30, 10, 50, 20, 40] {
                 batch.push(key(timestamp, 0, timestamp), timestamp);
             }
@@ -161,7 +173,21 @@ mod tests {
             (RecordOrder::Newest, vec![(0, 3), (0, 1), (1, 4)]),
             (RecordOrder::Oldest, vec![(0, 1), (0, 3), (1, 2)]),
         ] {
-            let mut batch = RecordBatch::new(3, order);
+            let mut batch = RecordBatch::new(3, order, CursorDirection::Forward);
+            for (partition, offset) in [(1, 2), (0, 1), (1, 4), (0, 3), (2, 0)] {
+                batch.push(key(100, partition, offset), (partition, offset));
+            }
+            assert_eq!(batch.into_sorted(), expected);
+        }
+    }
+
+    #[test]
+    fn a_backward_batch_keeps_the_ties_its_order_puts_last() {
+        for (order, expected) in [
+            (RecordOrder::Newest, vec![(2, 0), (1, 2), (1, 4)]),
+            (RecordOrder::Oldest, vec![(2, 0), (1, 4), (1, 2)]),
+        ] {
+            let mut batch = RecordBatch::new(3, order, CursorDirection::Backward);
             for (partition, offset) in [(1, 2), (0, 1), (1, 4), (0, 3), (2, 0)] {
                 batch.push(key(100, partition, offset), (partition, offset));
             }
@@ -172,7 +198,7 @@ mod tests {
     #[test]
     fn exact_ties_preserve_input_order() {
         for order in [RecordOrder::Newest, RecordOrder::Oldest] {
-            let mut batch = RecordBatch::new(3, order);
+            let mut batch = RecordBatch::new(3, order, CursorDirection::Forward);
             for value in ["first", "second", "third", "fourth"] {
                 batch.push(key(100, 0, 1), value);
             }
@@ -185,8 +211,12 @@ mod tests {
     #[test]
     fn empty_and_zero_capacity_batches_are_empty() {
         for order in [RecordOrder::Newest, RecordOrder::Oldest] {
-            assert!(RecordBatch::<i64>::new(10, order).into_sorted().is_empty());
-            let mut batch = RecordBatch::new(0, order);
+            assert!(
+                RecordBatch::<i64>::new(10, order, CursorDirection::Forward)
+                    .into_sorted()
+                    .is_empty()
+            );
+            let mut batch = RecordBatch::new(0, order, CursorDirection::Forward);
             for offset in 0..100 {
                 batch.push(key(offset, 0, offset), offset);
                 assert!(batch.entries.is_empty());
@@ -198,7 +228,7 @@ mod tests {
 
     #[test]
     fn a_full_batch_counts_what_it_let_go() {
-        let mut batch = RecordBatch::new(2, RecordOrder::Newest);
+        let mut batch = RecordBatch::new(2, RecordOrder::Newest, CursorDirection::Forward);
         assert!(batch.is_empty());
 
         batch.push(key(10, 0, 1), "a");
@@ -215,7 +245,7 @@ mod tests {
 
     #[test]
     fn an_underfilled_batch_admits_everything() {
-        let mut batch = RecordBatch::new(2, RecordOrder::Newest);
+        let mut batch = RecordBatch::new(2, RecordOrder::Newest, CursorDirection::Forward);
         assert!(batch.admits(&key(0, 0, 0)));
         batch.push(key(100, 0, 1), "a");
         assert!(batch.admits(&key(0, 0, 0)));
@@ -224,7 +254,7 @@ mod tests {
 
     #[test]
     fn a_full_batch_only_admits_records_better_than_its_worst() {
-        let mut batch = RecordBatch::new(2, RecordOrder::Newest);
+        let mut batch = RecordBatch::new(2, RecordOrder::Newest, CursorDirection::Forward);
         batch.push(key(100, 0, 1), "a");
         batch.push(key(90, 0, 2), "b");
 
@@ -239,7 +269,7 @@ mod tests {
 
     #[test]
     fn admits_follows_the_batch_order() {
-        let mut batch = RecordBatch::new(1, RecordOrder::Oldest);
+        let mut batch = RecordBatch::new(1, RecordOrder::Oldest, CursorDirection::Forward);
         batch.push(key(100, 0, 1), "a");
 
         assert!(batch.admits(&key(50, 0, 2)));
@@ -263,7 +293,7 @@ mod tests {
             let expected: Vec<usize> = sorted.iter().map(|(_, index)| *index).collect();
 
             for limit in [0, 1, 7, 128, records.len(), records.len() + 1] {
-                let mut batch = RecordBatch::new(limit, order);
+                let mut batch = RecordBatch::new(limit, order, CursorDirection::Forward);
                 for (index, (key, value)) in records.iter().enumerate() {
                     batch.push(*key, *value);
                     assert_eq!(batch.entries.len(), limit.min(index + 1));
