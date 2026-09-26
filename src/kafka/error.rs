@@ -28,6 +28,11 @@ pub enum KafkaError {
         partition: i32,
     },
 
+    #[error(
+        "invalid topic name '{0}': use 1 to 249 of a-z, A-Z, 0-9, '.', '_', and '-', and not '.' or '..'"
+    )]
+    InvalidTopicName(String),
+
     #[error("invalid record query: {0}")]
     InvalidQuery(#[from] QueryError),
 
@@ -36,6 +41,9 @@ pub enum KafkaError {
 
     #[error("kafka admin request failed: {0}")]
     Admin(String),
+
+    #[error("kafka rejected the change: {0}")]
+    Rejected(String),
 
     #[error("failed to describe broker {id} configs: {message}")]
     BrokerConfigs { id: i32, message: String },
@@ -59,9 +67,11 @@ impl KafkaError {
             Self::UnknownBroker { .. } => "UNKNOWN_BROKER",
             Self::UnknownSubject { .. } => "UNKNOWN_SUBJECT",
             Self::UnknownPartition { .. } => "UNKNOWN_PARTITION",
+            Self::InvalidTopicName(_) => "INVALID_TOPIC_NAME",
             Self::InvalidQuery(query) => query.code(),
             Self::Timeout => "TIMEOUT",
             Self::Admin(_) => "ADMIN",
+            Self::Rejected(_) => "REJECTED",
             Self::BrokerConfigs { .. } => "BROKER_CONFIGS",
             Self::SchemaRegistry { .. } => "SCHEMA_REGISTRY",
             Self::Obfuscation { .. } => "OBFUSCATION",

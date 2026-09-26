@@ -14,6 +14,7 @@ pub(crate) enum ApiError {
     SessionExpired,
     Unauthorized,
     TooManyTails,
+    CrossOrigin,
     InvalidRequest { status: StatusCode, message: String },
 }
 
@@ -25,6 +26,7 @@ impl ApiError {
             Self::SessionExpired => "SESSION_EXPIRED",
             Self::Unauthorized => "UNAUTHORIZED",
             Self::TooManyTails => "TOO_MANY_TAILS",
+            Self::CrossOrigin => "CROSS_ORIGIN",
             Self::InvalidRequest { .. } => "INVALID_REQUEST",
         }
     }
@@ -47,6 +49,7 @@ impl ApiError {
         match self {
             Self::SessionExpired | Self::Unauthorized => StatusCode::UNAUTHORIZED,
             Self::TooManyTails => StatusCode::SERVICE_UNAVAILABLE,
+            Self::CrossOrigin => StatusCode::FORBIDDEN,
             Self::InvalidRequest { status, .. } => *status,
             Self::Access(AccessError::Forbidden { .. }) => StatusCode::FORBIDDEN,
             Self::Access(AccessError::UnknownCluster(_)) => StatusCode::NOT_FOUND,
@@ -63,7 +66,8 @@ fn kafka_status(error: &KafkaError) -> StatusCode {
         | KafkaError::UnknownBroker { .. }
         | KafkaError::UnknownSubject { .. }
         | KafkaError::UnknownPartition { .. } => StatusCode::NOT_FOUND,
-        KafkaError::InvalidQuery(_) => StatusCode::BAD_REQUEST,
+        KafkaError::InvalidTopicName(_) | KafkaError::InvalidQuery(_) => StatusCode::BAD_REQUEST,
+        KafkaError::Rejected(_) => StatusCode::UNPROCESSABLE_ENTITY,
         KafkaError::Timeout => StatusCode::GATEWAY_TIMEOUT,
         KafkaError::Admin(_)
         | KafkaError::BrokerConfigs { .. }
@@ -82,6 +86,9 @@ impl std::fmt::Display for ApiError {
             Self::Unauthorized => formatter.write_str("unauthorized"),
             Self::TooManyTails => {
                 formatter.write_str("too many live tails are open, try again later")
+            }
+            Self::CrossOrigin => {
+                formatter.write_str("changes are only accepted from the klens origin")
             }
             Self::InvalidRequest { message, .. } => formatter.write_str(message),
         }

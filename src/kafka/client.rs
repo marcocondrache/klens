@@ -24,6 +24,7 @@ use krafka::admin::{
 use crate::config::ClusterConfig;
 use crate::environment::CONSUME_TIMEOUT;
 use crate::kafka::acl::AclListing;
+use crate::kafka::admin::NewTopic;
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
 use crate::kafka::group::{CommittedOffset, GroupSnapshot, is_internal_group};
@@ -43,6 +44,9 @@ use groups::snapshots_from_descriptions;
 use offsets::{from_list_offsets, merge_watermark_offsets, partition_time_offsets};
 use pool::ScanPool;
 use tail::TailLease;
+
+const BROKER_DEFAULT_PARTITIONS: i32 = -1;
+const BROKER_DEFAULT_REPLICATION: i16 = -1;
 
 /// Process-lifetime Kafka handle. All broker I/O for a cluster goes through here.
 ///
@@ -337,6 +341,37 @@ impl ClusterSession for KafkaClient {
             self.transport.admin.describe_acls(AclFilter::all()).await,
         )
     }
+
+    async fn create_topic(&self, topic: &NewTopic) -> Result<(), KafkaError> {
+        let request = topic.configs.iter().fold(
+            krafka::admin::NewTopic::new(
+                topic.name(),
+                topic
+                    .partitions
+                    .map_or(BROKER_DEFAULT_PARTITIONS, |count| i32::from(count.get())),
+                topic
+                    .replication_factor
+                    .map_or(BROKER_DEFAULT_REPLICATION, |factor| i16::from(factor.get())),
+            )?,
+            |request, (key, value)| request.with_config(key, value),
+        );
+        let timeout = self.transport.admin.request_timeout();
+        let results = self
+            .transport
+            .admin
+            .create_topics(vec![request], timeout, false)
+            .await?;
+
+        match results.into_iter().next() {
+            Some(result) => result
+                .error
+                .map_or(Ok(()), |error| Err(KafkaError::Rejected(error))),
+            None => Err(KafkaError::Admin(format!(
+                "broker returned no result for topic '{}'",
+                topic.name()
+            ))),
+        }
+    }
 }
 
 fn partitions_by_topic(partitions: &[(String, i32)]) -> HashMap<String, Vec<i32>> {
@@ -409,6 +444,34 @@ mod tests {
         fn as_string(&self) -> String {
             String::from_utf8_lossy(&self.0.lock().expect("log buf")).into_owned()
         }
+    }
+
+    #[tokio::test]
+    async fn create_topic_reaches_the_controller_and_reports_a_refusal() {
+        let broker = krafka::testing::FakeBroker::start()
+            .await
+            .expect("fake broker");
+        let client = kafka_client(&broker.bootstrap_servers()).await;
+        let mut topic = NewTopic::new("orders".into()).unwrap();
+        topic.partitions = std::num::NonZeroU16::new(3);
+
+        client.create_topic(&topic).await.expect("created");
+        let again = client.create_topic(&topic).await.unwrap_err();
+
+        assert_eq!(
+            client
+                .topic_metadata("orders")
+                .await
+                .unwrap()
+                .partitions
+                .len(),
+            3
+        );
+        assert_eq!(again.code(), "REJECTED");
+        assert_eq!(
+            again.to_string(),
+            "kafka rejected the change: topic already exists"
+        );
     }
 
     #[tokio::test]
@@ -498,6 +561,7 @@ mod tests {
                 ..Default::default()
             },
             ingest: Default::default(),
+            read_only: true,
         })
         .await
         .unwrap();
@@ -899,6 +963,7 @@ mod tests {
             obfuscation: None,
             properties: Default::default(),
             ingest: Default::default(),
+            read_only: true,
         })
         .await
         .expect("kafka client")

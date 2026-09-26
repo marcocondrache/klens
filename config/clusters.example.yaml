@@ -32,6 +32,10 @@ clusters:
     #   request_timeout_ms: 10000
     #   connect_timeout_ms: 10000
 
+    # Clusters are read-only unless this is false. A read-only cluster caps
+    # every session at read privileges, whatever its roles grant.
+    # read_only: false
+
     # Optional ingest cadence, in seconds. Omitted keys use the defaults
     # below. Values must be at least 1.
     # ingest:
@@ -99,7 +103,8 @@ clusters:
 # authenticated user has the same access as an open deployment. With roles,
 # unmatched users cannot sign in. A role is a name for a set of privileges:
 # each role grants exactly the privileges it lists, out of records, configs,
-# schema_text, and acls. An empty list still sees the catalog. Omit clusters
+# schema_text, acls, and manage_topics. An empty list still sees the catalog.
+# manage_topics only counts on a cluster with read_only: false. Omit clusters
 # on a binding to allow every configured cluster.
 #
 # auth:
@@ -113,7 +118,7 @@ clusters:
 #   roles:
 #     # claim: groups
 #     definitions:
-#       admin: [records, configs, schema_text, acls]
+#       admin: [records, configs, schema_text, acls, manage_topics]
 #       viewer: []  # catalog only: clusters, topics, groups — no payloads
 #       operator: [records, configs]
 #       auditor: [acls, schema_text]

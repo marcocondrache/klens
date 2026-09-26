@@ -19,6 +19,7 @@ pub fn identity(name: &str) -> ClusterIdentity {
         name: name.to_owned(),
         bootstrap_servers: vec!["localhost:9092".into()],
         security_protocol: SecurityProtocol::Plaintext,
+        read_only: true,
     }
 }
 

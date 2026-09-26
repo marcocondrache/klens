@@ -22,6 +22,7 @@ mod topic_config;
 mod watermarks;
 
 mod acl;
+mod admin;
 mod cluster;
 mod group;
 mod limits;

@@ -18,7 +18,8 @@ pub use super::subjects::types::{
     SchemaCompatibility, SchemaReference, SchemaType, SubjectDetail, SubjectRow, SubjectRowsResult,
 };
 pub use super::topics::types::{
-    CleanupPolicy, PartitionRow, TopicDetail, TopicGroupRow, TopicRow, TopicRowPage, TopicSortField,
+    CleanupPolicy, CreateTopic, PartitionRow, TopicDetail, TopicGroupRow, TopicRow, TopicRowPage,
+    TopicSortField,
 };
 pub use super::updates::types::{ResyncReason, TopicRate, Update};
 pub use super::whoami::types::{ClusterGrant, Identity, PrivilegeName};

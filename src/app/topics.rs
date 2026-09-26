@@ -1,15 +1,17 @@
 use axum::Json;
 use axum::Router;
+use axum::http::StatusCode;
 use axum::routing::get;
 use serde::Deserialize;
 
 use crate::AppState;
 use crate::kafka::KafkaError;
+use crate::kafka::model::NewTopic;
 
 use super::configs::ConfigEntry;
 use super::context::Session;
 use super::error::ApiError;
-use super::extract::{Path, Query};
+use super::extract::{self, Path, Query};
 use super::paging::{name_filter, page};
 
 pub mod types;
@@ -17,11 +19,13 @@ pub mod types;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use types::{TopicDetail, TopicGroupRow, TopicRow, TopicRowPage, TopicSortField};
+pub(crate) use types::{
+    CreateTopic, TopicDetail, TopicGroupRow, TopicRow, TopicRowPage, TopicSortField,
+};
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
-        .route("/", get(topics))
+        .route("/", get(topics).post(create_topic))
         .nest("/{topic}", topic_routes())
 }
 
@@ -71,6 +75,20 @@ async fn topics(
         total,
         next_cursor,
     }))
+}
+
+async fn create_topic(
+    session: Session,
+    Path(name): Path<String>,
+    extract::Json(request): extract::Json<CreateTopic>,
+) -> Result<StatusCode, ApiError> {
+    let cluster = session.cluster(&name)?;
+    let capability = cluster.access.manage_topics()?;
+    let topic = NewTopic::try_from(request)?;
+    let outcome = session.state.create_topic(capability, &topic).await;
+    session.audit(capability.cluster(), "topic.create", topic.name(), &outcome);
+    outcome?;
+    Ok(StatusCode::CREATED)
 }
 
 async fn topic(

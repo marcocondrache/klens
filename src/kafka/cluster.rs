@@ -5,6 +5,7 @@ pub struct ClusterIdentity {
     pub name: String,
     pub bootstrap_servers: Vec<String>,
     pub security_protocol: SecurityProtocol,
+    pub read_only: bool,
 }
 
 impl From<&ClusterConfig> for ClusterIdentity {
@@ -17,6 +18,7 @@ impl From<&ClusterConfig> for ClusterIdentity {
                 .as_ref()
                 .map(|security| security.protocol)
                 .unwrap_or(SecurityProtocol::Plaintext),
+            read_only: config.read_only,
         }
     }
 }
@@ -35,6 +37,7 @@ mod tests {
             obfuscation: None,
             properties: Default::default(),
             ingest: Default::default(),
+            read_only: true,
         });
 
         assert_eq!(identity.name, "local");

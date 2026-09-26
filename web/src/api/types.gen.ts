@@ -2,7 +2,7 @@
 
 export type Int64 = string;
 
-export type PrivilegeName = "RECORDS" | "CONFIGS" | "SCHEMA_TEXT" | "ACLS";
+export type PrivilegeName = "RECORDS" | "CONFIGS" | "SCHEMA_TEXT" | "ACLS" | "MANAGE_TOPICS";
 
 export type ClusterGrant = { cluster: string, 
 /**
@@ -44,6 +44,12 @@ export type TopicRowPage = { rows: Array<TopicRow>,
  * scrollbar without walking every page.
  */
 total: number, nextCursor: string | null, };
+
+export type CreateTopic = { name: string, partitions?: number, replicationFactor?: number, 
+/**
+ * Topic-level overrides such as `retention.ms`.
+ */
+configs: { [key in string]: string }, };
 
 export type PartitionRow = { id: number, leader: number, replicas: Array<number>, isr: Array<number>, lowWatermark: Int64, highWatermark: Int64, retained: Int64, underReplicated: boolean, };
 

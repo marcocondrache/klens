@@ -8,6 +8,7 @@
 pub use crate::kafka::acl::{
     Acl, AclListing, AclOperation, AclPatternType, AclPermission, AclResourceType,
 };
+pub use crate::kafka::admin::NewTopic;
 pub use crate::kafka::cluster::ClusterIdentity;
 pub use crate::kafka::group::{
     CommittedOffset, GroupMember, GroupOffset, GroupSnapshot, GroupState, MemberAssignment,

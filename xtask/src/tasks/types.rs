@@ -6,11 +6,12 @@ use xshell::Shell;
 use klens::app::typescript::{
     Acl, AclAuthorizer, AclListing, AclOperation, AclPatternType, AclPermission, AclResourceType,
     BrokerRow, CleanupPolicy, ClusterGrant, ClusterHealth, Compression, ConfigEntry, ConfigSource,
-    GroupDetail, GroupMember, GroupOffset, GroupRow, GroupRowPage, GroupState, Identity, Int64,
-    LaneHealth, MemberAssignment, PartitionRow, PrivilegeName, Record, RecordHeader, RecordOrder,
-    RecordPage, ResyncReason, SchemaCompatibility, SchemaReference, SchemaType, SearchHit,
-    SearchKind, SubjectDetail, SubjectRow, SubjectRowsResult, TailEvent, TailStart, TopicDetail,
-    TopicGroupRow, TopicRate, TopicRow, TopicRowPage, TopicSortField, Update,
+    CreateTopic, GroupDetail, GroupMember, GroupOffset, GroupRow, GroupRowPage, GroupState,
+    Identity, Int64, LaneHealth, MemberAssignment, PartitionRow, PrivilegeName, Record,
+    RecordHeader, RecordOrder, RecordPage, ResyncReason, SchemaCompatibility, SchemaReference,
+    SchemaType, SearchHit, SearchKind, SubjectDetail, SubjectRow, SubjectRowsResult, TailEvent,
+    TailStart, TopicDetail, TopicGroupRow, TopicRate, TopicRow, TopicRowPage, TopicSortField,
+    Update,
 };
 
 pub fn run(sh: &Shell) -> xshell::Result<()> {
@@ -41,6 +42,7 @@ fn typescript() -> String {
         CleanupPolicy,
         TopicRow,
         TopicRowPage,
+        CreateTopic,
         PartitionRow,
         TopicDetail,
         GroupState,

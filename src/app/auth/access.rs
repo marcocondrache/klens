@@ -13,10 +13,17 @@ pub enum Privilege {
     Configs,
     SchemaText,
     Acls,
+    ManageTopics,
 }
 
 impl Privilege {
-    pub const ALL: [Self; 4] = [Self::Records, Self::Configs, Self::SchemaText, Self::Acls];
+    pub const ALL: [Self; 5] = [
+        Self::Records,
+        Self::Configs,
+        Self::SchemaText,
+        Self::Acls,
+        Self::ManageTopics,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -24,6 +31,7 @@ impl Privilege {
             Self::Configs => "configs",
             Self::SchemaText => "schemaText",
             Self::Acls => "acls",
+            Self::ManageTopics => "manageTopics",
         }
     }
 
@@ -33,6 +41,7 @@ impl Privilege {
             Self::Configs => 1 << 1,
             Self::SchemaText => 1 << 2,
             Self::Acls => 1 << 3,
+            Self::ManageTopics => 1 << 4,
         }
     }
 }
@@ -43,19 +52,20 @@ impl Display for Privilege {
     }
 }
 
-from_same_variants!(PrivilegeName => Privilege { Records, Configs, SchemaText, Acls });
+from_same_variants!(PrivilegeName => Privilege { Records, Configs, SchemaText, Acls, ManageTopics });
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PrivilegeSet(u8);
 
 impl PrivilegeSet {
     pub const NONE: Self = Self(0);
-    pub const ALL: Self = Self(
+    pub const READ: Self = Self(
         Privilege::Records.bit()
             | Privilege::Configs.bit()
             | Privilege::SchemaText.bit()
             | Privilege::Acls.bit(),
     );
+    pub const ALL: Self = Self(Self::READ.0 | Privilege::ManageTopics.bit());
 
     pub fn from_privileges(privileges: impl IntoIterator<Item = Privilege>) -> Self {
         privileges
@@ -69,6 +79,10 @@ impl PrivilegeSet {
 
     pub fn union(self, other: Self) -> Self {
         Self(self.0 | other.0)
+    }
+
+    pub fn intersection(self, other: Self) -> Self {
+        Self(self.0 & other.0)
     }
 
     pub fn iter(self) -> impl Iterator<Item = Privilege> {
@@ -204,6 +218,13 @@ impl<'a> ClusterAccess<'a> {
         names
     }
 
+    pub fn capped(self, ceiling: PrivilegeSet) -> Self {
+        Self {
+            privileges: self.privileges.intersection(ceiling),
+            ..self
+        }
+    }
+
     pub fn allows(&self, privilege: Privilege) -> bool {
         self.privileges.contains(privilege)
     }
@@ -255,6 +276,7 @@ capability!(RecordsCap, records, Privilege::Records);
 capability!(ConfigsCap, configs, Privilege::Configs);
 capability!(SchemaTextCap, schema_text, Privilege::SchemaText);
 capability!(AclsCap, acls, Privilege::Acls);
+capability!(ManageTopicsCap, manage_topics, Privilege::ManageTopics);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Identity<'a> {
@@ -395,6 +417,7 @@ mod tests {
         PrivilegeName::Configs,
         PrivilegeName::SchemaText,
         PrivilegeName::Acls,
+        PrivilegeName::ManageTopics,
     ];
 
     fn table(definitions: &[(&str, &[PrivilegeName])], bindings: Vec<RoleBinding>) -> AccessPolicy {
@@ -623,7 +646,7 @@ mod tests {
 
         assert_eq!(
             access.privileges_for("prod"),
-            Some(PrivilegeSet::ALL),
+            Some(PrivilegeSet::READ),
             "neither role contains the other; both apply"
         );
         assert_eq!(
@@ -675,6 +698,39 @@ mod tests {
         );
         let groups: Vec<String> = (0..MAX_GROUPS + 1).map(|i| format!("g{i}")).collect();
         assert_eq!(policy.admit(&Identity { groups: &groups }), None);
+    }
+
+    #[test]
+    fn a_ceiling_caps_even_an_unrestricted_session() {
+        let access = EffectiveAccess::Unrestricted;
+        let capped = access.cluster("prod").unwrap().capped(PrivilegeSet::READ);
+
+        assert_eq!(
+            capped.privileges(),
+            vec![
+                Privilege::Records,
+                Privilege::Configs,
+                Privilege::SchemaText,
+                Privilege::Acls
+            ]
+        );
+        assert_eq!(
+            capped.manage_topics().unwrap_err(),
+            AccessError::Forbidden {
+                cluster: "prod".to_owned(),
+                privilege: Privilege::ManageTopics,
+            }
+        );
+        assert_eq!(
+            access
+                .cluster("prod")
+                .unwrap()
+                .capped(PrivilegeSet::ALL)
+                .manage_topics()
+                .unwrap()
+                .cluster(),
+            "prod"
+        );
     }
 
     #[test]

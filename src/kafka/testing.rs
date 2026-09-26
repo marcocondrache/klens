@@ -14,6 +14,7 @@ use crate::config::{ObfuscationConfig, SecurityProtocol};
 use crate::kafka::acl::{
     Acl, AclListing, AclOperation, AclPatternType, AclPermission, AclResourceType,
 };
+use crate::kafka::admin::NewTopic;
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
 use crate::kafka::group::{
@@ -83,6 +84,7 @@ impl FakeCluster {
             name: "local".into(),
             bootstrap_servers: vec!["localhost:9092".into()],
             security_protocol: SecurityProtocol::Plaintext,
+            read_only: true,
         };
 
         let metadata = MetadataSnapshot {
@@ -570,6 +572,16 @@ impl FakeCluster {
     }
 
     /// Removes a topic from metadata, as a deletion would.
+    pub fn writable(self) -> Self {
+        Self {
+            identity: ClusterIdentity {
+                read_only: false,
+                ..self.identity
+            },
+            ..self
+        }
+    }
+
     pub fn remove_topic(&self, name: &str) {
         self.inner
             .metadata
@@ -964,6 +976,59 @@ impl ClusterSession for FakeCluster {
             return Err(KafkaError::Admin(message.clone()));
         }
         Ok(self.inner.acls.lock().expect("acls").clone())
+    }
+
+    async fn create_topic(&self, topic: &NewTopic) -> Result<(), KafkaError> {
+        let mut metadata = self.inner.metadata.lock().expect("metadata");
+        if metadata
+            .topics
+            .iter()
+            .any(|known| known.name == topic.name())
+        {
+            return Err(KafkaError::Rejected(format!(
+                "Topic '{}' already exists.",
+                topic.name()
+            )));
+        }
+
+        let partitions = topic.partitions.map_or(1, |count| i32::from(count.get()));
+        metadata.topics.push(TopicMetadata {
+            name: topic.name().to_owned(),
+            internal: false,
+            partitions: (0..partitions)
+                .map(|id| PartitionMetadata {
+                    id,
+                    leader: 1,
+                    replicas: vec![1],
+                    isr: vec![1],
+                })
+                .collect(),
+        });
+        self.inner.watermarks.lock().expect("watermarks").insert(
+            topic.name().to_owned(),
+            (0..partitions)
+                .map(|id| (id, Watermarks { low: 0, high: 0 }))
+                .collect(),
+        );
+        self.inner
+            .topic_configs
+            .lock()
+            .expect("topic configs")
+            .insert(
+                topic.name().to_owned(),
+                topic
+                    .configs
+                    .iter()
+                    .map(|(name, value)| ConfigEntry {
+                        name: name.clone(),
+                        value: Some(value.clone()),
+                        source: ConfigSource::DynamicTopic,
+                        read_only: false,
+                        sensitive: false,
+                    })
+                    .collect(),
+            );
+        Ok(())
     }
 }
 

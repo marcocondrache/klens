@@ -175,6 +175,7 @@ pub enum PrivilegeName {
     Configs,
     SchemaText,
     Acls,
+    ManageTopics,
 }
 
 impl PrivilegeName {
@@ -184,6 +185,7 @@ impl PrivilegeName {
             Self::Configs => "configs",
             Self::SchemaText => "schema_text",
             Self::Acls => "acls",
+            Self::ManageTopics => "manage_topics",
         }
     }
 }
@@ -349,6 +351,14 @@ pub struct ClusterConfig {
     pub properties: KafkaProperties,
     #[serde(default)]
     pub ingest: ClusterIngestConfig,
+    /// Caps every session at read privileges on this cluster, whatever its
+    /// roles grant.
+    #[serde(default = "default_read_only")]
+    pub read_only: bool,
+}
+
+fn default_read_only() -> bool {
+    true
 }
 
 /// Per-cluster ingest cadence, in seconds. Omitted keys use the defaults.
@@ -1185,6 +1195,17 @@ mod tests {
     }
 
     #[test]
+    fn a_cluster_is_read_only_unless_the_config_says_otherwise() {
+        let omitted = parse_cluster("{name: local, bootstrap_servers: [localhost:9092]}").unwrap();
+        let writable =
+            parse_cluster("{name: local, bootstrap_servers: [localhost:9092], read_only: false}")
+                .unwrap();
+
+        assert!(omitted.read_only);
+        assert!(!writable.read_only);
+    }
+
+    #[test]
     fn validation_accepts_plaintext_without_sasl() {
         let config = ClusterConfig {
             name: "local".to_owned(),
@@ -1194,6 +1215,7 @@ mod tests {
             obfuscation: None,
             properties: KafkaProperties::default(),
             ingest: ClusterIngestConfig::default(),
+            read_only: true,
         };
 
         config.validate().unwrap();

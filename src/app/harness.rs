@@ -86,13 +86,35 @@ pub(super) async fn call(
     access: EffectiveAccess,
     guard: SessionGuard,
 ) -> (StatusCode, Value) {
+    send(
+        state,
+        Request::builder()
+            .uri(path)
+            .body(Body::empty())
+            .expect("request"),
+        access,
+        guard,
+    )
+    .await
+}
+
+pub(super) fn post(path: &str, body: Value) -> Request<Body> {
+    Request::builder()
+        .method("POST")
+        .uri(path)
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .expect("request")
+}
+
+pub(super) async fn send(
+    state: &AppState,
+    request: Request<Body>,
+    access: EffectiveAccess,
+    guard: SessionGuard,
+) -> (StatusCode, Value) {
     let response = api(state.clone(), access, guard)
-        .oneshot(
-            Request::builder()
-                .uri(path)
-                .body(Body::empty())
-                .expect("request"),
-        )
+        .oneshot(request)
         .await
         .expect("response");
     let status = response.status();
@@ -241,6 +263,10 @@ pub(super) fn seed(store: &ClusterStore) {
         &[subject("orders.created-value", 1, 2)],
         &mut Interner::default(),
     )));
+}
+
+pub(super) fn writable() -> (AppState, FakeCluster) {
+    seeded_with(FakeCluster::local().writable())
 }
 
 pub(super) fn seeded() -> AppState {

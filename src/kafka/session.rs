@@ -17,8 +17,8 @@ use crate::kafka::client::KafkaClient;
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
     AclListing, ClusterIdentity, CommittedOffset, ConfigEntry, GroupSnapshot, MetadataSnapshot,
-    PartitionWindow, RegisteredSchema, ScanConsumer, SchemaSubject, TailConsumer, TailPosition,
-    TopicMetadata, Watermarks,
+    NewTopic, PartitionWindow, RegisteredSchema, ScanConsumer, SchemaSubject, TailConsumer,
+    TailPosition, TopicMetadata, Watermarks,
 };
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
@@ -124,6 +124,9 @@ pub trait ClusterSession: Send + Sync + 'static {
         Ok(AclListing::Enabled(Vec::new()))
     }
 
+    /// A broker that answers and refuses is [`KafkaError::Rejected`].
+    async fn create_topic(&self, topic: &NewTopic) -> Result<(), KafkaError>;
+
     fn consume_timeout(&self) -> Duration {
         *crate::environment::CONSUME_TIMEOUT
     }
@@ -202,6 +205,7 @@ mod tests {
             obfuscation: None,
             properties: Default::default(),
             ingest: Default::default(),
+            read_only: true,
         }
     }
 

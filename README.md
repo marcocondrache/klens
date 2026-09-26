@@ -84,9 +84,11 @@ authenticated user has the same access as an open deployment.
 
 To restrict what signed-in users may do, add `roles`. A role is nothing but a
 name for a set of privileges, defined by you: there are no built-in roles. The
-privileges are `records`, `configs`, `schema_text`, and `acls`; a role that
-lists none still sees the catalog (clusters, topics, groups, lag) but no
-payloads, live configs, schema bodies, or ACL bindings. Bindings map IdP groups
+read privileges are `records`, `configs`, `schema_text`, and `acls`; a role
+that lists none still sees the catalog (clusters, topics, groups, lag) but no
+payloads, live configs, schema bodies, or ACL bindings. `manage_topics` lets a
+role create topics, and only counts on a cluster that accepts changes (see
+[Changes](#changes)). Bindings map IdP groups
 from the `claim` to those roles, and unmatched users cannot sign in. Omit
 `clusters` on a binding to allow every configured cluster.
 
@@ -109,9 +111,9 @@ auth:
   roles:
     # claim: groups
     definitions:
-      admin: [records, configs, schema_text, acls]
+      admin: [records, configs, schema_text, acls, manage_topics]
       viewer: [] # catalog only
-      operator: [records, configs]
+      operator: [records, configs, manage_topics]
       auditor: [acls, schema_text]
     bindings:
       - groups: [klens-admins]
@@ -124,6 +126,33 @@ auth:
       - groups: [security-team]
         role: auditor
 ```
+
+## Changes
+
+Every cluster is read-only unless its config says otherwise. A read-only
+cluster caps every session at read privileges, whatever its roles grant, so an
+open deployment (no `auth`, or `auth` without `roles`) cannot change anything.
+Set `read_only: false` on a cluster to accept changes there:
+
+```yaml
+clusters:
+  - name: dev
+    bootstrap_servers: [localhost:9092]
+    read_only: false
+```
+
+On a writable cluster, a session with `manage_topics` can create a topic with
+`POST /api/clusters/{cluster}/topics`. The body is a JSON object with `name`,
+optional `partitions` and `replicationFactor` (the broker's defaults when
+omitted), and optional `configs`, such as `{"retention.ms": "86400000"}`. The
+answer is `201` with no body. A broker refusal, such as a topic that already
+exists, is `422 REJECTED` with the broker's message.
+
+klens refuses a change that a browser sends from another origin, going by
+`Sec-Fetch-Site`, or by `Origin` against `Host` when the browser sends no
+`Sec-Fetch-Site`. Every change that reaches a broker is logged under the
+`klens::audit` target with the session subject, cluster, action, target, and
+outcome.
 
 ## Schema Registry
 

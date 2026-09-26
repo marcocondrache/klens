@@ -5,7 +5,8 @@ use axum::http::request::Parts;
 
 use crate::AppState;
 use crate::app::auth::SessionGuard;
-use crate::app::auth::access::{ClusterAccess, EffectiveAccess};
+use crate::app::auth::access::{ClusterAccess, EffectiveAccess, PrivilegeSet};
+use crate::kafka::KafkaError;
 use crate::kafka::store::ClusterStore;
 
 use super::error::ApiError;
@@ -30,10 +31,48 @@ impl ClusterHandle<'_> {
 impl Session {
     pub(crate) fn cluster<'a>(&'a self, name: &'a str) -> Result<ClusterHandle<'a>, ApiError> {
         let access = self.access.cluster(name)?;
+        let store = self.state.cluster(access.cluster())?;
+        let ceiling = if store.identity.read_only {
+            PrivilegeSet::READ
+        } else {
+            PrivilegeSet::ALL
+        };
         Ok(ClusterHandle {
-            store: self.state.cluster(access.cluster())?,
-            access,
+            access: access.capped(ceiling),
+            store,
         })
+    }
+}
+
+impl Session {
+    pub(crate) fn audit<T>(
+        &self,
+        cluster: &str,
+        action: &'static str,
+        target: &str,
+        outcome: &Result<T, KafkaError>,
+    ) {
+        let subject = self.guard.subject().unwrap_or("anonymous");
+        match outcome {
+            Ok(_) => tracing::info!(
+                target: "klens::audit",
+                subject,
+                cluster,
+                action,
+                target,
+                "change applied"
+            ),
+            Err(error) => tracing::warn!(
+                target: "klens::audit",
+                subject,
+                cluster,
+                action,
+                target,
+                code = error.code(),
+                %error,
+                "change failed"
+            ),
+        }
     }
 }
 

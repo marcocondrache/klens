@@ -176,6 +176,7 @@ mod tests {
             obfuscation: None,
             properties: Default::default(),
             ingest: Default::default(),
+            read_only: true,
         })
         .await
         .expect("kafka client")

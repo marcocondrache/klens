@@ -4,10 +4,11 @@ use axum::Router;
 use axum::middleware;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
+use crate::app::auth::access::ManageTopicsCap;
 use crate::config::{ClusterIngestConfig, Config};
 use crate::environment::MAX_LIVE_TAILS;
 use crate::kafka::ingest::Ingest;
-use crate::kafka::model::{AclListing, RegisteredSchema};
+use crate::kafka::model::{AclListing, NewTopic, RegisteredSchema};
 use crate::kafka::store::{ClusterStore, StoreSet};
 use crate::kafka::{
     ConfigEntry, KafkaError, RecordLimits, RecordPage, RecordQuery, SessionSet, Tail, TailLimits,
@@ -25,6 +26,7 @@ mod extract;
 mod groups;
 mod health;
 mod int64;
+mod origin;
 mod paging;
 mod records;
 mod search;
@@ -171,6 +173,17 @@ impl AppState {
         self.sessions.session(cluster)?.broker_configs(id).await
     }
 
+    pub(crate) async fn create_topic(
+        &self,
+        capability: ManageTopicsCap<'_>,
+        topic: &NewTopic,
+    ) -> Result<(), KafkaError> {
+        let cluster = capability.cluster();
+        self.sessions.session(cluster)?.create_topic(topic).await?;
+        self.cluster(cluster)?.topology.kick();
+        Ok(())
+    }
+
     pub(crate) async fn live_acls(&self, cluster: &str) -> Result<AclListing, KafkaError> {
         self.sessions.session(cluster)?.acls().await
     }
@@ -192,6 +205,7 @@ fn resources() -> Router<AppState> {
     Router::new()
         .merge(whoami::router())
         .nest("/clusters", clusters::router())
+        .route_layer(middleware::from_fn(origin::reject_cross_origin))
 }
 
 fn auth_routes() -> Router<AppState> {

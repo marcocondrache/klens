@@ -1,15 +1,21 @@
 use std::sync::Arc;
+use std::time::Duration;
 
-use axum::http::StatusCode;
-use serde_json::Value;
+use axum::body::Body;
+use axum::http::{Request, StatusCode};
+use serde_json::{Value, json};
 
-use crate::app::auth::access::EffectiveAccess;
-use crate::kafka::FakeCluster;
+use crate::app::auth::SessionGuard;
+use crate::app::auth::access::{EffectiveAccess, PrivilegeSet};
 use crate::kafka::store::fixtures::{
     at, offline_partition, partition, topic, topology, watermarks,
 };
+use crate::kafka::{ClusterSession, FakeCluster};
 
-use super::super::harness::{failure, ok, ok_as, seeded, seeded_with, state, viewer_everywhere};
+use super::super::harness::{
+    failure, granted, ok, ok_as, post, seeded, seeded_with, send, state, viewer_everywhere,
+    writable,
+};
 
 #[tokio::test]
 async fn sixty_four_bit_counters_cross_the_wire_as_strings() {
@@ -214,4 +220,230 @@ async fn topic_rows_stay_open_to_a_viewer() {
     let topics = ok_as(&seeded(), "/clusters/local/topics", viewer_everywhere()).await;
 
     assert_eq!(topics["total"], 2);
+}
+
+async fn create(
+    state: &crate::AppState,
+    request: Request<Body>,
+    access: EffectiveAccess,
+) -> (StatusCode, Value) {
+    send(state, request, access, SessionGuard::open()).await
+}
+
+async fn broker_topics(session: &FakeCluster) -> Vec<(String, usize)> {
+    let mut topics: Vec<_> = session
+        .metadata()
+        .await
+        .expect("metadata")
+        .topics
+        .into_iter()
+        .map(|topic| (topic.name, topic.partitions.len()))
+        .collect();
+    topics.sort();
+    topics
+}
+
+#[tokio::test]
+async fn creating_a_topic_reaches_the_broker_and_wakes_the_topology_lane() {
+    let (state, session) = writable();
+    let body = json!({
+        "name": "orders.refunded",
+        "partitions": 3,
+        "replicationFactor": 1,
+        "configs": { "retention.ms": "86400000" },
+    });
+
+    let (status, json) = create(
+        &state,
+        post("/clusters/local/topics", body),
+        EffectiveAccess::Unrestricted,
+    )
+    .await;
+
+    assert_eq!((status, json), (StatusCode::CREATED, Value::Null));
+    assert_eq!(
+        broker_topics(&session).await,
+        vec![
+            ("orders.created".to_owned(), 2),
+            ("orders.refunded".to_owned(), 3)
+        ]
+    );
+    assert_eq!(
+        session.topic_configs(&["orders.refunded"]).await.unwrap()["orders.refunded"][0].value,
+        Some("86400000".to_owned())
+    );
+    let lane = &state.cluster("local").unwrap().topology;
+    assert!(
+        tokio::time::timeout(Duration::from_secs(1), lane.wait(Duration::from_secs(3600)))
+            .await
+            .is_ok(),
+        "the topology lane was kicked"
+    );
+}
+
+#[tokio::test]
+async fn a_read_only_cluster_refuses_topic_creation_even_for_an_unrestricted_session() {
+    let (state, session) = seeded_with(FakeCluster::local());
+
+    let (status, json) = create(
+        &state,
+        post(
+            "/clusters/local/topics",
+            json!({ "name": "orders.refunded" }),
+        ),
+        EffectiveAccess::Unrestricted,
+    )
+    .await;
+
+    assert_eq!(
+        (status, json["code"].as_str()),
+        (StatusCode::FORBIDDEN, Some("FORBIDDEN"))
+    );
+    assert_eq!(
+        broker_topics(&session).await,
+        vec![("orders.created".to_owned(), 2)]
+    );
+}
+
+#[tokio::test]
+async fn topic_creation_needs_the_manage_topics_privilege() {
+    let (state, session) = writable();
+    let reader = granted(vec![(
+        "reader",
+        PrivilegeSet::READ,
+        crate::app::auth::access::ClusterScope::All,
+    )]);
+
+    let (status, json) = create(
+        &state,
+        post(
+            "/clusters/local/topics",
+            json!({ "name": "orders.refunded" }),
+        ),
+        reader,
+    )
+    .await;
+
+    assert_eq!(
+        (status, json["code"].as_str()),
+        (StatusCode::FORBIDDEN, Some("FORBIDDEN"))
+    );
+    assert_eq!(
+        broker_topics(&session).await,
+        vec![("orders.created".to_owned(), 2)]
+    );
+}
+
+#[tokio::test]
+async fn an_existing_topic_comes_back_as_the_broker_refusal() {
+    let (state, _) = writable();
+
+    let (status, json) = create(
+        &state,
+        post(
+            "/clusters/local/topics",
+            json!({ "name": "orders.created" }),
+        ),
+        EffectiveAccess::Unrestricted,
+    )
+    .await;
+
+    assert_eq!(
+        (status, json),
+        (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            json!({
+                "code": "REJECTED",
+                "error": "kafka rejected the change: Topic 'orders.created' already exists.",
+            })
+        )
+    );
+}
+
+#[tokio::test]
+async fn a_topic_create_request_is_parsed_before_the_broker_sees_it() {
+    let (state, session) = writable();
+    let cases = [
+        (
+            json!({ "name": "orders created" }),
+            StatusCode::BAD_REQUEST,
+            "INVALID_TOPIC_NAME",
+        ),
+        (
+            json!({ "name": "orders.refunded", "partitions": 0 }),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INVALID_REQUEST",
+        ),
+        (
+            json!({ "name": "orders.refunded", "replicationFactor": 256 }),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INVALID_REQUEST",
+        ),
+        (
+            json!({ "name": "orders.refunded", "replicas": 3 }),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INVALID_REQUEST",
+        ),
+    ];
+
+    for (body, expected_status, expected_code) in cases {
+        let (status, json) = create(
+            &state,
+            post("/clusters/local/topics", body.clone()),
+            EffectiveAccess::Unrestricted,
+        )
+        .await;
+        assert_eq!(
+            (status, json["code"].as_str()),
+            (expected_status, Some(expected_code)),
+            "{body}"
+        );
+    }
+
+    let without_content_type = Request::builder()
+        .method("POST")
+        .uri("/clusters/local/topics")
+        .body(Body::from(json!({ "name": "orders.refunded" }).to_string()))
+        .unwrap();
+    let (status, json) = create(&state, without_content_type, EffectiveAccess::Unrestricted).await;
+    assert_eq!(
+        (status, json["code"].as_str()),
+        (StatusCode::UNSUPPORTED_MEDIA_TYPE, Some("INVALID_REQUEST"))
+    );
+
+    assert_eq!(
+        broker_topics(&session).await,
+        vec![("orders.created".to_owned(), 2)]
+    );
+}
+
+#[tokio::test]
+async fn a_cross_site_write_is_refused_but_a_cross_site_read_is_not() {
+    let (state, session) = writable();
+    let mut request = post(
+        "/clusters/local/topics",
+        json!({ "name": "orders.refunded" }),
+    );
+    request
+        .headers_mut()
+        .insert("sec-fetch-site", "cross-site".parse().unwrap());
+
+    let (status, json) = create(&state, request, EffectiveAccess::Unrestricted).await;
+
+    assert_eq!(
+        (status, json["code"].as_str()),
+        (StatusCode::FORBIDDEN, Some("CROSS_ORIGIN"))
+    );
+    assert_eq!(
+        broker_topics(&session).await,
+        vec![("orders.created".to_owned(), 2)]
+    );
+
+    let read = Request::builder()
+        .uri("/clusters/local/topics")
+        .header("sec-fetch-site", "cross-site")
+        .body(Body::empty())
+        .unwrap();
+    let (status, _) = create(&state, read, EffectiveAccess::Unrestricted).await;
+    assert_eq!(status, StatusCode::OK);
 }

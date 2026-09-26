@@ -23,7 +23,7 @@ async fn whoami(session: Session) -> Json<Identity> {
         .visible_clusters(session.state.stores.names())
         .into_iter()
         .filter_map(|name| {
-            let access = session.access.cluster(name).ok()?;
+            let access = session.cluster(name).ok()?.access;
             Some(ClusterGrant {
                 cluster: name.to_owned(),
                 roles: access

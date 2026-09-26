@@ -1,5 +1,10 @@
+use std::collections::BTreeMap;
+use std::num::{NonZeroU8, NonZeroU16};
+
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
+
+use crate::kafka::{KafkaError, model::NewTopic};
 
 use crate::kafka::model as domain;
 use crate::kafka::store::projections;
@@ -17,6 +22,31 @@ pub enum CleanupPolicy {
 }
 
 from_same_variants!(domain::CleanupPolicy => CleanupPolicy { Delete, Compact, CompactDelete });
+
+#[derive(Debug, Clone, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CreateTopic {
+    pub name: String,
+    #[ts(optional)]
+    pub partitions: Option<NonZeroU16>,
+    #[ts(optional)]
+    pub replication_factor: Option<NonZeroU8>,
+    /// Topic-level overrides such as `retention.ms`.
+    #[serde(default)]
+    pub configs: BTreeMap<String, String>,
+}
+
+impl TryFrom<CreateTopic> for NewTopic {
+    type Error = KafkaError;
+
+    fn try_from(request: CreateTopic) -> Result<Self, Self::Error> {
+        let mut topic = Self::new(request.name)?;
+        topic.partitions = request.partitions;
+        topic.replication_factor = request.replication_factor;
+        topic.configs = request.configs;
+        Ok(topic)
+    }
+}
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
