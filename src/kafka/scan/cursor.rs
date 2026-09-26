@@ -19,8 +19,6 @@ pub struct RecordCursor {
     pub remaining: Remaining,
 }
 
-/// Each partition's boundary between read and unread records. A partition
-/// missing from the map has nothing left to read in this walk.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Remaining {
     From(BTreeMap<i32, i64>),
