@@ -14,7 +14,7 @@ use crate::kafka::cluster::{Cluster, Clusters};
 
 pub use configs::ConfigLane;
 pub use offsets::{OffsetLane, Wave};
-pub use runner::{LaneSource, run};
+pub use runner::{Fetch, LaneSource, run};
 pub use subjects::SubjectLane;
 pub use topology::TopologyLane;
 pub use watermarks::WatermarkLane;
