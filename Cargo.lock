@@ -1532,7 +1532,7 @@ dependencies = [
 
 [[package]]
 name = "klens"
-version = "0.0.0-dev"
+version = "0.69.16"
 dependencies = [
  "anyhow",
  "apache-avro",
