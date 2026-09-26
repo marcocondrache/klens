@@ -134,6 +134,5 @@ pub fn subject(name: &str, id: i32, latest: i32) -> SchemaSubject {
         latest_version: latest,
         versions: (1..=latest).collect(),
         compatibility: SchemaCompatibility::Backward,
-        schema: r#"{"type":"string"}"#.to_owned(),
     }
 }

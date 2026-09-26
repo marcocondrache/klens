@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use prost_reflect::prost_types::FileDescriptorProto;
 use prost_reflect::{DynamicMessage, MessageDescriptor};
 use protox::Compiler;
 use protox::file::{ChainFileResolver, File, FileResolver, GoogleFileResolver};
@@ -39,10 +40,18 @@ struct MemoryResolver {
 impl FileResolver for MemoryResolver {
     fn open_file(&self, name: &str) -> Result<File, protox::Error> {
         match self.files.get(name) {
-            Some(source) => File::from_source(name, &drop_unknown_escapes(source)),
+            Some(source) => {
+                File::from_source(name, &drop_unknown_escapes(source)).map(without_source_spans)
+            }
             None => Err(protox::Error::file_not_found(name)),
         }
     }
+}
+
+fn without_source_spans(file: File) -> File {
+    let mut file: FileDescriptorProto = file.into();
+    file.source_code_info = None;
+    File::from_file_descriptor_proto(file)
 }
 
 impl ProtobufCodec {
@@ -157,6 +166,14 @@ mod tests {
             int32 n = 1;
         }
     "#;
+
+    #[test]
+    fn compiled_pools_keep_no_source_spans() {
+        let codec = ProtobufCodec::compile(ORDER, &[]).unwrap();
+        let root = codec.messages.as_deref().unwrap()[0].parent_file();
+
+        assert_eq!(root.file_descriptor_proto().source_code_info, None);
+    }
 
     #[test]
     fn decodes_first_message_to_json() {
