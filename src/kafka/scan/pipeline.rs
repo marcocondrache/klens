@@ -169,6 +169,9 @@ impl RecordPipeline {
             {
                 continue;
             }
+            key.iter_mut()
+                .chain(value.iter_mut())
+                .for_each(DecodedPayload::drop_tree_if_rendered);
 
             kept.push(Kept::decoded(DecodedRecord {
                 raw: candidate.raw,

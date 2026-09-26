@@ -79,6 +79,12 @@ impl DecodedPayload {
         })
     }
 
+    pub fn drop_tree_if_rendered(&mut self) {
+        if self.text.get().is_some() {
+            self.json = None;
+        }
+    }
+
     pub fn into_text(self) -> String {
         match self.text.into_inner() {
             Some(text) => text,
@@ -200,6 +206,23 @@ mod tests {
         let slot = PayloadSlot::new(Bytes::from_static(b"plain"), None);
 
         assert_eq!(slot.take().text(), "plain");
+    }
+
+    #[test]
+    fn a_tree_is_dropped_only_once_its_text_is_rendered() {
+        let mut payload = DecodedPayload::decoded(
+            framed(7, b"..."),
+            Some(7),
+            serde_json::json!({"status": "FAILED"}),
+        );
+
+        payload.drop_tree_if_rendered();
+        assert!(payload.json().is_some(), "nothing rendered yet");
+
+        assert_eq!(payload.text(), r#"{"status":"FAILED"}"#);
+        payload.drop_tree_if_rendered();
+        assert!(payload.json().is_none());
+        assert_eq!(payload.into_text(), r#"{"status":"FAILED"}"#);
     }
 
     #[test]
