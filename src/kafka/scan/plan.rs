@@ -86,14 +86,27 @@ pub fn advance_cursor(
     cursor_from(order, walk, next, watermarks)
 }
 
+/// The page `cursor` opened starts where it points, so walking back resumes
+/// every partition there. A partition it no longer lists was fully shown
+/// before the page, so the walk back starts from that partition's far end.
 pub fn rewind_cursor(
-    walk: RecordOrder,
+    cursor: &RecordCursor,
+    partitions: &[i32],
     watermarks: &HashMap<i32, Watermarks>,
-    kept: &[(i32, i64)],
-    order: RecordOrder,
 ) -> Option<RecordCursor> {
-    let back = walk.flipped();
-    cursor_from(order, back, past_furthest(back, kept), watermarks)
+    let walk = cursor.walk();
+    let boundaries = cursor.remaining.offsets();
+    let back = partitions.iter().filter_map(|&partition| {
+        let marks = watermarks.get(&partition)?;
+        let far_end = match walk {
+            RecordOrder::Oldest => marks.high,
+            RecordOrder::Newest => marks.low,
+        };
+        let boundary = boundaries.get(&partition).copied().unwrap_or(far_end);
+        Some((partition, boundary))
+    });
+
+    cursor_from(cursor.order, walk.flipped(), back, watermarks)
 }
 
 fn past_furthest(walk: RecordOrder, kept: &[(i32, i64)]) -> HashMap<i32, i64> {
@@ -465,13 +478,7 @@ mod tests {
 
     #[test]
     fn the_near_edge_of_a_newest_page_points_at_the_newer_side() {
-        let cursor = rewind_cursor(
-            RecordOrder::Newest,
-            &marks(10, 100),
-            &[(0, 39), (0, 35)],
-            RecordOrder::Newest,
-        )
-        .unwrap();
+        let cursor = rewind_cursor(&cursor(Remaining::Before, 40), &[0], &marks(10, 100)).unwrap();
 
         assert_eq!(cursor.remaining, starting(&[(0, 40)]));
         assert_eq!(cursor.direction(), CursorDirection::Backward);
@@ -479,51 +486,43 @@ mod tests {
 
     #[test]
     fn the_near_edge_of_an_oldest_page_points_at_the_older_side() {
-        let cursor = rewind_cursor(
-            RecordOrder::Oldest,
-            &marks(10, 100),
-            &[(0, 14), (0, 20)],
-            RecordOrder::Oldest,
-        )
-        .unwrap();
+        let cursor = rewind_cursor(&cursor(Remaining::From, 14), &[0], &marks(10, 100)).unwrap();
 
         assert_eq!(cursor.remaining, ending(&[(0, 14)]));
         assert_eq!(cursor.direction(), CursorDirection::Backward);
     }
 
     #[test]
-    fn there_is_no_near_edge_at_the_end_of_the_log() {
-        assert!(
-            rewind_cursor(
-                RecordOrder::Newest,
-                &marks(10, 40),
-                &[(0, 39)],
-                RecordOrder::Newest,
-            )
-            .is_none()
-        );
-        assert!(
-            rewind_cursor(
-                RecordOrder::Oldest,
-                &marks(10, 40),
-                &[(0, 10)],
-                RecordOrder::Oldest,
-            )
-            .is_none()
-        );
+    fn the_near_edge_of_a_backward_page_points_forward() {
+        let backward = RecordCursor {
+            order: RecordOrder::Newest,
+            remaining: starting(&[(0, 20)]),
+        };
+
+        let cursor = rewind_cursor(&backward, &[0], &marks(10, 100)).unwrap();
+
+        assert_eq!(cursor.remaining, ending(&[(0, 20)]));
+        assert_eq!(cursor.direction(), CursorDirection::Forward);
     }
 
     #[test]
-    fn an_empty_page_has_no_near_edge() {
-        assert!(
-            rewind_cursor(
-                RecordOrder::Newest,
-                &marks(10, 40),
-                &[],
-                RecordOrder::Newest,
-            )
-            .is_none()
-        );
+    fn a_partition_the_cursor_exhausted_walks_back_from_its_far_end() {
+        let watermarks = HashMap::from_iter([
+            (0, Watermarks { low: 10, high: 40 }),
+            (1, Watermarks { low: 10, high: 40 }),
+        ]);
+
+        let newest = rewind_cursor(&cursor(Remaining::Before, 20), &[0, 1], &watermarks).unwrap();
+        let oldest = rewind_cursor(&cursor(Remaining::From, 20), &[0, 1], &watermarks).unwrap();
+
+        assert_eq!(newest.remaining, starting(&[(0, 20), (1, 10)]));
+        assert_eq!(oldest.remaining, ending(&[(0, 20), (1, 40)]));
+    }
+
+    #[test]
+    fn there_is_no_near_edge_at_the_start_of_the_log() {
+        assert!(rewind_cursor(&cursor(Remaining::Before, 40), &[0], &marks(10, 40)).is_none());
+        assert!(rewind_cursor(&cursor(Remaining::From, 10), &[0], &marks(10, 40)).is_none());
     }
 
     #[test]

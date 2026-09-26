@@ -12,6 +12,7 @@ use crate::kafka::store::ClusterStore;
 
 use super::Record;
 use super::batch::RecordBatch;
+use super::cursor::CursorDirection;
 use super::filter::CompiledFilter;
 use super::pipeline::{Kept, RecordPipeline, Screen};
 use super::query::RecordOrder;
@@ -133,7 +134,11 @@ impl Tail {
             .flushed
             .map_or(called, |flushed| flushed + self.limits.interval);
 
-        let mut batch = RecordBatch::new(self.limits.batch, RecordOrder::Newest);
+        let mut batch = RecordBatch::new(
+            self.limits.batch,
+            RecordOrder::Newest,
+            CursorDirection::Forward,
+        );
         let mut skipped = 0;
         while batch.is_empty() {
             if Instant::now() >= quiet_until {

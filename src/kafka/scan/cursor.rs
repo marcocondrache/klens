@@ -40,7 +40,7 @@ impl Remaining {
         }
     }
 
-    fn offsets(&self) -> &BTreeMap<i32, i64> {
+    pub fn offsets(&self) -> &BTreeMap<i32, i64> {
         match self {
             Self::From(offsets) | Self::Before(offsets) => offsets,
         }
