@@ -168,7 +168,7 @@ mod tests {
     }
 
     #[test]
-    fn only_framed_or_overridden_bytes_need_a_registry() {
+    fn only_framed_bytes_or_a_fallback_id_need_a_registry() {
         assert!(!needs_decode(b"plain", None));
         assert!(needs_decode(b"plain", Some(7)));
         assert!(needs_decode(&framed(7, b"body"), None));
@@ -206,7 +206,7 @@ mod tests {
     }
 
     #[test]
-    fn replacing_a_payload_drops_its_bytes_and_its_tree() {
+    fn redacting_a_payload_drops_its_bytes_and_its_tree() {
         let mut payload =
             DecodedPayload::decoded(framed(7, b"..."), serde_json::json!({"pan": "4111"}));
         assert_eq!(payload.text(), r#"{"pan":"4111"}"#);
