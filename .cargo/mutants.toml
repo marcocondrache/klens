@@ -1,5 +1,9 @@
 # Schema: https://json.schemastore.org/cargo-mutants-config.json
 test_tool = "nextest"
 
-# Only compiled with the `ui` feature, which needs the built web bundle.
-exclude_globs = ["src/server/web.rs"]
+exclude_globs = [
+    # Only compiled with the `ui` feature, which needs the built web bundle.
+    "src/server/web.rs",
+    # Only wires the process together at startup; no test runs `main`.
+    "src/main.rs",
+]
