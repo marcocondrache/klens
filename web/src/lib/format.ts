@@ -3,12 +3,6 @@ import type { CleanupPolicy } from "@/lib/api/types";
 const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB", "PB"];
 const COUNT_UNITS = ["", "K", "M", "B", "T"];
 
-export type Int64 = string | number;
-
-export function toNumber(value: Int64): number {
-  return typeof value === "number" ? value : Number(value);
-}
-
 export function formatEnumLabel(value: string) {
   return value
     .split("_")
@@ -25,8 +19,7 @@ export function isCompactCleanup(policy: CleanupPolicy) {
   return policy === "COMPACT" || policy === "COMPACT_DELETE";
 }
 
-export function formatBytes(value: Int64, digits = 1) {
-  const bytes = toNumber(value);
+export function formatBytes(bytes: number, digits = 1) {
   if (bytes === 0) return "0 B";
 
   const exponent = Math.min(Math.floor(Math.log10(Math.abs(bytes)) / 3), BYTE_UNITS.length - 1);
@@ -35,8 +28,7 @@ export function formatBytes(value: Int64, digits = 1) {
   return `${scaled.toFixed(exponent === 0 ? 0 : digits)} ${BYTE_UNITS[exponent]}`;
 }
 
-export function formatCount(value: Int64, digits = 1) {
-  const count = toNumber(value);
+export function formatCount(count: number, digits = 1) {
   if (Math.abs(count) < 1000) return String(count);
 
   const exponent = Math.min(Math.floor(Math.log10(Math.abs(count)) / 3), COUNT_UNITS.length - 1);
@@ -63,26 +55,11 @@ const TIMESTAMP_FORMAT = new Intl.DateTimeFormat("en-GB", {
   second: "2-digit",
 });
 
-export function formatNumber(value: Int64) {
-  if (typeof value === "number") {
-    return NUMBER_FORMAT.format(value);
-  }
-
-  const sign = value.startsWith("-") ? "-" : "";
-  const digits = sign ? value.slice(1) : value;
-  if (!/^\d+$/.test(digits)) {
-    return value;
-  }
-
-  return sign + digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+export function formatNumber(value: number) {
+  return NUMBER_FORMAT.format(value);
 }
 
-export function isZero(value: Int64) {
-  return typeof value === "number" ? value === 0 : /^-?0+$/.test(value);
-}
-
-export function formatDuration(value: Int64) {
-  const ms = toNumber(value);
+export function formatDuration(ms: number) {
   if (ms < 0) return "infinite";
   if (ms === 0) return "0";
 

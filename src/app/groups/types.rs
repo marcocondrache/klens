@@ -5,8 +5,6 @@ use crate::kafka::model as domain;
 use crate::kafka::store::projections;
 use crate::r#macro::from_same_variants;
 
-use super::super::int64::Int64;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum GroupState {
@@ -66,9 +64,9 @@ impl From<domain::GroupMember> for GroupMember {
 pub struct GroupOffset {
     pub topic: String,
     pub partition: i32,
-    pub current_offset: Option<Int64>,
-    pub end_offset: Option<Int64>,
-    pub lag: Option<Int64>,
+    pub current_offset: Option<i64>,
+    pub end_offset: Option<i64>,
+    pub lag: Option<i64>,
     pub member_id: Option<String>,
 }
 
@@ -77,9 +75,9 @@ impl From<domain::GroupOffset> for GroupOffset {
         Self {
             topic: offset.topic,
             partition: offset.partition,
-            current_offset: offset.current_offset.map(Into::into),
-            end_offset: offset.end_offset.map(Into::into),
-            lag: offset.lag.map(Into::into),
+            current_offset: offset.current_offset,
+            end_offset: offset.end_offset,
+            lag: offset.lag,
             member_id: offset.member_id,
         }
     }
@@ -93,7 +91,7 @@ pub struct GroupRow {
     pub member_count: i32,
     pub topic_names: Vec<String>,
     /// Null until the group's committed offsets are first fetched.
-    pub total_lag: Option<Int64>,
+    pub total_lag: Option<i64>,
     /// False when a committed partition had no watermark to join against, so
     /// the total understates the real lag.
     pub lag_complete: bool,
@@ -107,7 +105,7 @@ impl From<projections::GroupRow> for GroupRow {
             state: row.state.into(),
             member_count: row.member_count,
             topic_names: row.topic_names,
-            total_lag: row.total_lag.map(Into::into),
+            total_lag: row.total_lag,
             lag_complete: row.lag_complete,
             coordinator_id: row.coordinator_id,
         }
@@ -131,7 +129,7 @@ pub struct GroupDetail {
     pub coordinator_id: i32,
     pub members: Vec<GroupMember>,
     pub offsets: Vec<GroupOffset>,
-    pub total_lag: Option<Int64>,
+    pub total_lag: Option<i64>,
     pub lag_complete: bool,
 }
 
@@ -144,7 +142,7 @@ impl From<projections::GroupDetail> for GroupDetail {
             coordinator_id: detail.coordinator_id,
             members: detail.members.into_iter().map(Into::into).collect(),
             offsets: detail.offsets.into_iter().map(Into::into).collect(),
-            total_lag: detail.total_lag.map(Into::into),
+            total_lag: detail.total_lag,
             lag_complete: detail.lag_complete,
         }
     }

@@ -47,7 +47,7 @@ async fn records_are_read_live_through_the_scan_path() {
 
     assert_eq!(records.len(), 3);
     assert_eq!(records[0]["topic"], "orders.created");
-    assert_eq!(records[0]["sizeBytes"], "24");
+    assert_eq!(records[0]["sizeBytes"], 24);
     assert_eq!(records[0]["compression"], "NONE");
     records[0]["timestamp"]
         .as_str()
@@ -67,10 +67,10 @@ async fn records_accept_rfc3339_timestamp_bounds() {
     let records = data["records"].as_array().expect("records");
     let offsets: Vec<_> = records
         .iter()
-        .map(|record| record["offset"].as_str().expect("offset"))
+        .map(|record| record["offset"].as_i64().expect("offset"))
         .collect();
 
-    assert_eq!(offsets, ["3", "4", "5"]);
+    assert_eq!(offsets, [3, 4, 5]);
     assert_eq!(records[0]["timestamp"], "2023-11-14T22:13:23Z");
     assert_eq!(records[2]["timestamp"], "2023-11-14T22:13:25Z");
 }
@@ -342,18 +342,18 @@ async fn a_tail_announces_where_it_starts_then_streams_what_arrives() {
         json!({
             "type": "ready",
             "start": [
-                { "partition": 0, "offset": "8" },
-                { "partition": 1, "offset": "8" },
+                { "partition": 0, "offset": 8 },
+                { "partition": 1, "offset": 8 },
             ],
             "obfuscated": false,
         })
     );
     assert_eq!(frames[1].0, "records");
     assert_eq!(frames[1].1["type"], "records");
-    assert_eq!(frames[1].1["skipped"], "0");
+    assert_eq!(frames[1].1["skipped"], 0);
     let records = frames[1].1["records"].as_array().expect("records");
     assert_eq!(records.len(), 1);
-    assert_eq!(records[0]["offset"], "8");
+    assert_eq!(records[0]["offset"], 8);
     assert_eq!(records[0]["key"], "new");
 }
 
@@ -375,7 +375,7 @@ async fn a_tail_narrows_to_its_partition_and_filter() {
 
     assert_eq!(
         frames[0].1["start"],
-        json!([{ "partition": 1, "offset": "8" }])
+        json!([{ "partition": 1, "offset": 8 }])
     );
     let records = frames[1].1["records"].as_array().expect("records");
     assert_eq!(records.len(), 1);
@@ -399,8 +399,8 @@ async fn a_tail_follows_a_set_of_partitions() {
     assert_eq!(
         frames[0].1["start"],
         json!([
-            { "partition": 0, "offset": "8" },
-            { "partition": 1, "offset": "8" },
+            { "partition": 0, "offset": 8 },
+            { "partition": 1, "offset": 8 },
         ])
     );
 }
