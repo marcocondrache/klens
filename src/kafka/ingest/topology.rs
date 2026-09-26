@@ -7,7 +7,7 @@ use crate::kafka::error::KafkaError;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::store::{Change, ClusterStore, Interner, Lane, Topology, TopologyDelta};
 
-use super::runner::LaneSource;
+use super::runner::{Fetch, LaneSource};
 
 pub struct TopologyLane {
     session: Arc<dyn ClusterSession>,
@@ -41,7 +41,7 @@ impl LaneSource for TopologyLane {
         &self,
         _store: &ClusterStore,
         previous: Option<&Arc<Topology>>,
-    ) -> Result<Option<Topology>, KafkaError> {
+    ) -> Result<Fetch<Topology>, KafkaError> {
         let (meta, groups) = tokio::try_join!(self.session.metadata(), self.session.groups())?;
 
         let mut interner = match previous {
@@ -50,7 +50,11 @@ impl LaneSource for TopologyLane {
             }
             None => Interner::default(),
         };
-        Ok(Some(Topology::assemble(meta, groups, &mut interner)))
+        Ok(Fetch::Ready(Topology::assemble(
+            meta,
+            groups,
+            &mut interner,
+        )))
     }
 
     fn diff(&self, previous: Option<&Topology>, next: &Topology) -> Option<TopologyDelta> {

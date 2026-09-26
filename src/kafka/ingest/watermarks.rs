@@ -14,7 +14,7 @@ use crate::kafka::store::{
     Change, ClusterStore, Lane, TopicRate, Topology, WatermarkTable, WatermarksTick,
 };
 
-use super::runner::LaneSource;
+use super::runner::{Fetch, LaneSource};
 
 pub struct WatermarkLane {
     session: Arc<dyn ClusterSession>,
@@ -96,9 +96,9 @@ impl LaneSource for WatermarkLane {
         &self,
         store: &ClusterStore,
         _previous: Option<&Arc<WatermarkTable>>,
-    ) -> Result<Option<WatermarkTable>, KafkaError> {
+    ) -> Result<Fetch<WatermarkTable>, KafkaError> {
         let Some(topology) = store.topology.load() else {
-            return Ok(None);
+            return Ok(Fetch::AwaitingUpstream);
         };
 
         let wanted = self.wanted_partitions(store, &topology);
@@ -108,7 +108,7 @@ impl LaneSource for WatermarkLane {
             .into_iter()
             .map(|(topic, partitions)| (topology.intern_topic(&topic), partitions))
             .collect();
-        Ok(Some(WatermarkTable::new(Timestamp::now(), marks)))
+        Ok(Fetch::Ready(WatermarkTable::new(Timestamp::now(), marks)))
     }
 
     fn diff(&self, previous: Option<&WatermarkTable>, next: &WatermarkTable) -> Option<()> {

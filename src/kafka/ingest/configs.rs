@@ -9,7 +9,7 @@ use crate::kafka::error::KafkaError;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::store::{Change, ClusterStore, ConfigTable, ConfigsDelta, Lane};
 
-use super::runner::LaneSource;
+use super::runner::{Fetch, LaneSource};
 
 pub struct ConfigLane {
     session: Arc<dyn ClusterSession>,
@@ -43,9 +43,9 @@ impl LaneSource for ConfigLane {
         &self,
         store: &ClusterStore,
         previous: Option<&Arc<ConfigTable>>,
-    ) -> Result<Option<ConfigTable>, KafkaError> {
+    ) -> Result<Fetch<ConfigTable>, KafkaError> {
         let Some(topology) = store.topology.load() else {
-            return Ok(None);
+            return Ok(Fetch::AwaitingUpstream);
         };
 
         let names: Vec<&str> = topology.topics.keys().map(AsRef::as_ref).collect();
@@ -64,7 +64,7 @@ impl LaneSource for ConfigLane {
             })
             .collect();
 
-        Ok(Some(ConfigTable { topics }))
+        Ok(Fetch::Ready(ConfigTable { topics }))
     }
 
     fn diff(&self, previous: Option<&ConfigTable>, next: &ConfigTable) -> Option<ConfigsDelta> {
