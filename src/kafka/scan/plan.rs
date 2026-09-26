@@ -86,16 +86,13 @@ pub fn advance_cursor(
     cursor_from(order, walk, next, watermarks)
 }
 
-/// The page `cursor` opened starts where it points, so walking back resumes
-/// every partition there. A partition it no longer lists was fully shown
-/// before the page, so the walk back starts from that partition's far end.
 pub fn rewind_cursor(
-    cursor: &RecordCursor,
+    opened: &RecordCursor,
     partitions: &[i32],
     watermarks: &HashMap<i32, Watermarks>,
 ) -> Option<RecordCursor> {
-    let walk = cursor.walk();
-    let boundaries = cursor.remaining.offsets();
+    let walk = opened.walk();
+    let boundaries = opened.remaining.offsets();
     let back = partitions.iter().filter_map(|&partition| {
         let marks = watermarks.get(&partition)?;
         let far_end = match walk {
@@ -106,7 +103,7 @@ pub fn rewind_cursor(
         Some((partition, boundary))
     });
 
-    cursor_from(cursor.order, walk.flipped(), back, watermarks)
+    cursor_from(opened.order, walk.flipped(), back, watermarks)
 }
 
 fn past_furthest(walk: RecordOrder, kept: &[(i32, i64)]) -> HashMap<i32, i64> {
