@@ -13,37 +13,51 @@ pub enum CursorDirection {
     Backward,
 }
 
-impl CursorDirection {
-    pub fn flipped(self) -> Self {
-        match self {
-            Self::Forward => Self::Backward,
-            Self::Backward => Self::Forward,
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordCursor {
     pub order: RecordOrder,
-    pub direction: CursorDirection,
-    pub offsets: BTreeMap<i32, i64>,
+    pub remaining: Remaining,
 }
 
-impl RecordCursor {
-    pub fn new(
-        order: RecordOrder,
-        direction: CursorDirection,
-        offsets: BTreeMap<i32, i64>,
-    ) -> Self {
-        Self {
-            order,
-            direction,
-            offsets,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Remaining {
+    From(BTreeMap<i32, i64>),
+    Before(BTreeMap<i32, i64>),
+}
+
+impl Remaining {
+    pub fn walking(walk: RecordOrder, offsets: BTreeMap<i32, i64>) -> Self {
+        match walk {
+            RecordOrder::Oldest => Self::From(offsets),
+            RecordOrder::Newest => Self::Before(offsets),
         }
     }
 
     pub fn walk(&self) -> RecordOrder {
-        walk_order(self.order, self.direction)
+        match self {
+            Self::From(_) => RecordOrder::Oldest,
+            Self::Before(_) => RecordOrder::Newest,
+        }
+    }
+
+    fn offsets(&self) -> &BTreeMap<i32, i64> {
+        match self {
+            Self::From(offsets) | Self::Before(offsets) => offsets,
+        }
+    }
+}
+
+impl RecordCursor {
+    pub fn walk(&self) -> RecordOrder {
+        self.remaining.walk()
+    }
+
+    pub fn direction(&self) -> CursorDirection {
+        if self.walk() == self.order {
+            CursorDirection::Forward
+        } else {
+            CursorDirection::Backward
+        }
     }
 
     pub fn parse(value: &str) -> Result<Self, QueryError> {
@@ -60,9 +74,9 @@ impl RecordCursor {
             "o" => RecordOrder::Oldest,
             _ => return Err(QueryError::InvalidCursor),
         };
-        let direction = match direction {
-            "f" => CursorDirection::Forward,
-            "b" => CursorDirection::Backward,
+        let walk = match direction {
+            "f" => order,
+            "b" => order.flipped(),
             _ => return Err(QueryError::InvalidCursor),
         };
 
@@ -81,8 +95,7 @@ impl RecordCursor {
 
         Ok(Self {
             order,
-            direction,
-            offsets,
+            remaining: Remaining::walking(walk, offsets),
         })
     }
 
@@ -99,25 +112,18 @@ impl RecordCursor {
     }
 }
 
-pub fn walk_order(order: RecordOrder, direction: CursorDirection) -> RecordOrder {
-    match direction {
-        CursorDirection::Forward => order,
-        CursorDirection::Backward => order.flipped(),
-    }
-}
-
 impl Display for RecordCursor {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         let order = match self.order {
             RecordOrder::Newest => "n",
             RecordOrder::Oldest => "o",
         };
-        let direction = match self.direction {
+        let direction = match self.direction() {
             CursorDirection::Forward => "f",
             CursorDirection::Backward => "b",
         };
         write!(formatter, "{VERSION}:{order}:{direction}:")?;
-        for (index, (partition, offset)) in self.offsets.iter().enumerate() {
+        for (index, (partition, offset)) in self.remaining.offsets().iter().enumerate() {
             let separator = if index == 0 { "" } else { "," };
             write!(formatter, "{separator}{partition}:{offset}")?;
         }
@@ -134,17 +140,35 @@ mod tests {
         let cursor = RecordCursor::parse("v2:n:f:1:8,0:15").unwrap();
 
         assert_eq!(cursor.order, RecordOrder::Newest);
-        assert_eq!(cursor.direction, CursorDirection::Forward);
-        assert_eq!(cursor.offsets, BTreeMap::from([(0, 15), (1, 8)]));
+        assert_eq!(cursor.direction(), CursorDirection::Forward);
+        assert_eq!(
+            cursor.remaining,
+            Remaining::Before(BTreeMap::from([(0, 15), (1, 8)]))
+        );
         assert_eq!(cursor.encode(), "v2:n:f:0:15,1:8");
         assert_eq!(RecordCursor::parse(&cursor.encode()).unwrap(), cursor);
+    }
+
+    #[test]
+    fn every_order_and_direction_round_trips_byte_for_byte() {
+        for (token, walk) in [
+            ("v2:n:f:0:40,3:7", RecordOrder::Newest),
+            ("v2:n:b:0:40,3:7", RecordOrder::Oldest),
+            ("v2:o:f:0:40,3:7", RecordOrder::Oldest),
+            ("v2:o:b:0:40,3:7", RecordOrder::Newest),
+        ] {
+            let cursor = RecordCursor::parse(token).unwrap();
+
+            assert_eq!(cursor.walk(), walk, "{token}");
+            assert_eq!(cursor.encode(), token);
+        }
     }
 
     #[test]
     fn an_empty_boundary_list_round_trips() {
         let cursor = RecordCursor::parse("v2:o:b:").unwrap();
 
-        assert!(cursor.offsets.is_empty());
+        assert_eq!(cursor.remaining, Remaining::Before(BTreeMap::new()));
         assert_eq!(cursor.encode(), "v2:o:b:");
         assert_eq!(RecordCursor::parse("v2:o:b").unwrap(), cursor);
     }

@@ -20,7 +20,7 @@ use super::session::{RawRecord, topic_obfuscator};
 
 #[async_trait]
 pub trait TailConsumer: Send + Sync {
-    async fn poll(&self, budget: Duration) -> Result<Vec<RawRecord>, KafkaError>;
+    async fn poll(&self, max_wait: Duration) -> Result<Vec<RawRecord>, KafkaError>;
 
     async fn position(&self, partition: i32) -> Option<i64>;
 

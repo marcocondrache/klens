@@ -87,8 +87,8 @@ impl TailLease {
 
 #[async_trait]
 impl TailConsumer for TailLease {
-    async fn poll(&self, budget: Duration) -> Result<Vec<RawRecord>, KafkaError> {
-        let polled = self.consumer.poll(budget).await?;
+    async fn poll(&self, max_wait: Duration) -> Result<Vec<RawRecord>, KafkaError> {
+        let polled = self.consumer.poll(max_wait).await?;
         Ok(polled.into_iter().map(raw_record).collect())
     }
 

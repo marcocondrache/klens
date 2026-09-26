@@ -5,7 +5,7 @@ use foldhash::{HashMap, HashMapExt};
 use crate::kafka::limits::RecordLimits;
 use crate::kafka::metadata::Watermarks;
 
-use super::cursor::{CursorDirection, RecordCursor};
+use super::cursor::{RecordCursor, Remaining};
 use super::query::RecordOrder;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,61 +31,35 @@ pub fn plan_windows(
     limits: RecordLimits,
 ) -> Vec<PartitionWindow> {
     let take = limits.window_take(limit, searching);
+    let remaining = cursor.map(|cursor| &cursor.remaining);
 
     partitions
         .iter()
-        .filter_map(|partition| {
-            let marks = watermarks.get(partition)?;
-            let resume = resume_offset(cursor, *partition, marks, walk);
-
-            let (start, end) = match walk {
-                RecordOrder::Newest => {
-                    let end = resume.min(marks.high).max(marks.low);
-                    let remaining = (end - marks.low).max(0);
-                    let take = take.min(remaining);
-                    if take == 0 {
-                        return None;
-                    }
-                    (end - take, end)
-                }
-                RecordOrder::Oldest => {
-                    let start = resume.max(marks.low).min(marks.high);
-                    let remaining = (marks.high - start).max(0);
-                    let take = take.min(remaining);
-                    if take == 0 {
-                        return None;
-                    }
-                    (start, start + take)
-                }
+        .filter_map(|&partition| {
+            let marks = watermarks.get(&partition)?;
+            let ending_at = |end: i64| {
+                let end = end.min(marks.high).max(marks.low);
+                (end - take.min(end - marks.low), end)
+            };
+            let starting_at = |start: i64| {
+                let start = start.max(marks.low).min(marks.high);
+                (start, start + take.min(marks.high - start))
             };
 
-            Some(PartitionWindow {
-                partition: *partition,
+            let (start, end) = match (remaining, walk) {
+                (None, RecordOrder::Newest) => ending_at(marks.high),
+                (None, RecordOrder::Oldest) => starting_at(marks.low),
+                (Some(Remaining::Before(ends)), _) => ending_at(*ends.get(&partition)?),
+                (Some(Remaining::From(starts)), _) => starting_at(*starts.get(&partition)?),
+            };
+            let window = PartitionWindow {
+                partition,
                 start,
                 end,
-            })
+            };
+            (!window.is_empty()).then_some(window)
         })
         .collect()
-}
-
-fn resume_offset(
-    cursor: Option<&RecordCursor>,
-    partition: i32,
-    marks: &Watermarks,
-    walk: RecordOrder,
-) -> i64 {
-    match (cursor, walk) {
-        (None, RecordOrder::Newest) => marks.high,
-        (None, RecordOrder::Oldest) => marks.low,
-        (Some(cursor), RecordOrder::Newest) => {
-            cursor.offsets.get(&partition).copied().unwrap_or(marks.low)
-        }
-        (Some(cursor), RecordOrder::Oldest) => cursor
-            .offsets
-            .get(&partition)
-            .copied()
-            .unwrap_or(marks.high),
-    }
 }
 
 pub fn advance_cursor(
@@ -95,65 +69,21 @@ pub fn advance_cursor(
     kept: &[(i32, i64)],
     limit: usize,
     order: RecordOrder,
-    direction: CursorDirection,
 ) -> Option<RecordCursor> {
-    let filled = kept.len() >= limit;
-    let mut returned: HashMap<i32, i64> = HashMap::new();
-    if filled {
-        for (partition, offset) in kept {
-            let offset = match walk {
-                RecordOrder::Oldest => offset + 1,
-                RecordOrder::Newest => *offset,
-            };
-            returned
-                .entry(*partition)
-                .and_modify(|current| {
-                    *current = match walk {
-                        RecordOrder::Oldest => (*current).max(offset),
-                        RecordOrder::Newest => (*current).min(offset),
-                    };
-                })
-                .or_insert(offset);
-        }
-    }
-
-    let mut offsets = BTreeMap::new();
-    for window in covered {
-        let Some(marks) = watermarks.get(&window.partition) else {
-            continue;
+    let returned = (kept.len() >= limit).then(|| past_furthest(walk, kept));
+    let next = covered.iter().map(|window| {
+        let (near, far) = match walk {
+            RecordOrder::Oldest => (window.start, window.end),
+            RecordOrder::Newest => (window.end, window.start),
         };
+        let next = match &returned {
+            Some(returned) => returned.get(&window.partition).copied().unwrap_or(near),
+            None => far,
+        };
+        (window.partition, next)
+    });
 
-        match walk {
-            RecordOrder::Oldest => {
-                let next = if filled {
-                    returned
-                        .get(&window.partition)
-                        .copied()
-                        .unwrap_or(window.start)
-                } else {
-                    window.end
-                };
-                if next < marks.high {
-                    offsets.insert(window.partition, next);
-                }
-            }
-            RecordOrder::Newest => {
-                let next = if filled {
-                    returned
-                        .get(&window.partition)
-                        .copied()
-                        .unwrap_or(window.end)
-                } else {
-                    window.start
-                };
-                if next > marks.low {
-                    offsets.insert(window.partition, next);
-                }
-            }
-        }
-    }
-
-    cursor_from(offsets, order, direction)
+    cursor_from(order, walk, next, watermarks)
 }
 
 pub fn rewind_cursor(
@@ -161,54 +91,44 @@ pub fn rewind_cursor(
     watermarks: &HashMap<i32, Watermarks>,
     kept: &[(i32, i64)],
     order: RecordOrder,
-    direction: CursorDirection,
 ) -> Option<RecordCursor> {
-    let mut edges: HashMap<i32, i64> = HashMap::new();
-    for (partition, offset) in kept {
-        edges
-            .entry(*partition)
-            .and_modify(|current| {
-                *current = match walk {
-                    RecordOrder::Newest => (*current).max(*offset),
-                    RecordOrder::Oldest => (*current).min(*offset),
-                };
-            })
-            .or_insert(*offset);
-    }
+    let back = walk.flipped();
+    cursor_from(order, back, past_furthest(back, kept), watermarks)
+}
 
-    let mut offsets = BTreeMap::new();
-    for (partition, offset) in edges {
-        let Some(marks) = watermarks.get(&partition) else {
-            continue;
+fn past_furthest(walk: RecordOrder, kept: &[(i32, i64)]) -> HashMap<i32, i64> {
+    let mut edges = HashMap::new();
+    for &(partition, offset) in kept {
+        let (past, further): (i64, fn(i64, i64) -> i64) = match walk {
+            RecordOrder::Oldest => (offset + 1, i64::max),
+            RecordOrder::Newest => (offset, i64::min),
         };
-        match walk {
-            RecordOrder::Newest => {
-                let next = offset + 1;
-                if next < marks.high {
-                    offsets.insert(partition, next);
-                }
-            }
-            RecordOrder::Oldest => {
-                if offset > marks.low {
-                    offsets.insert(partition, offset);
-                }
-            }
-        }
+        let edge = edges.entry(partition).or_insert(past);
+        *edge = further(*edge, past);
     }
-
-    cursor_from(offsets, order, direction)
+    edges
 }
 
 fn cursor_from(
-    offsets: BTreeMap<i32, i64>,
     order: RecordOrder,
-    direction: CursorDirection,
+    walk: RecordOrder,
+    offsets: impl IntoIterator<Item = (i32, i64)>,
+    watermarks: &HashMap<i32, Watermarks>,
 ) -> Option<RecordCursor> {
-    if offsets.is_empty() {
-        None
-    } else {
-        Some(RecordCursor::new(order, direction, offsets))
-    }
+    let offsets: BTreeMap<i32, i64> = offsets
+        .into_iter()
+        .filter(|&(partition, offset)| {
+            watermarks.get(&partition).is_some_and(|marks| match walk {
+                RecordOrder::Oldest => offset < marks.high,
+                RecordOrder::Newest => offset > marks.low,
+            })
+        })
+        .collect();
+
+    (!offsets.is_empty()).then(|| RecordCursor {
+        order,
+        remaining: Remaining::walking(walk, offsets),
+    })
 }
 
 pub fn apply_timestamp_bounds(
@@ -240,6 +160,7 @@ pub fn apply_timestamp_bounds(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kafka::scan::cursor::CursorDirection;
 
     fn limits() -> RecordLimits {
         RecordLimits {
@@ -254,12 +175,20 @@ mod tests {
         HashMap::from_iter([(0, Watermarks { low, high })])
     }
 
-    fn cursor(partition: i32, offset: i64) -> RecordCursor {
-        RecordCursor::new(
-            RecordOrder::Newest,
-            CursorDirection::Forward,
-            BTreeMap::from([(partition, offset)]),
-        )
+    fn cursor(remaining: fn(BTreeMap<i32, i64>) -> Remaining, offset: i64) -> RecordCursor {
+        let remaining = remaining(BTreeMap::from([(0, offset)]));
+        RecordCursor {
+            order: remaining.walk(),
+            remaining,
+        }
+    }
+
+    fn ending(offsets: &[(i32, i64)]) -> Remaining {
+        Remaining::Before(BTreeMap::from_iter(offsets.iter().copied()))
+    }
+
+    fn starting(offsets: &[(i32, i64)]) -> Remaining {
+        Remaining::From(BTreeMap::from_iter(offsets.iter().copied()))
     }
 
     fn window(partition: i32, start: i64, end: i64) -> PartitionWindow {
@@ -277,15 +206,7 @@ mod tests {
         kept: &[(i32, i64)],
         limit: usize,
     ) -> Option<RecordCursor> {
-        advance_cursor(
-            walk,
-            covered,
-            watermarks,
-            kept,
-            limit,
-            walk,
-            CursorDirection::Forward,
-        )
+        advance_cursor(walk, covered, watermarks, kept, limit, walk)
     }
 
     #[test]
@@ -324,7 +245,7 @@ mod tests {
             RecordOrder::Newest,
             5,
             false,
-            Some(&cursor(0, 35)),
+            Some(&cursor(Remaining::Before, 35)),
             limits(),
         );
         assert_eq!(windows, vec![window(0, 25, 35)]);
@@ -338,7 +259,7 @@ mod tests {
             RecordOrder::Oldest,
             5,
             false,
-            Some(&cursor(0, 15)),
+            Some(&cursor(Remaining::From, 15)),
             limits(),
         );
         assert_eq!(windows, vec![window(0, 15, 25)]);
@@ -352,7 +273,7 @@ mod tests {
             RecordOrder::Newest,
             5,
             false,
-            Some(&cursor(0, 10)),
+            Some(&cursor(Remaining::Before, 10)),
             limits(),
         );
         let oldest = plan_windows(
@@ -361,7 +282,7 @@ mod tests {
             RecordOrder::Oldest,
             5,
             false,
-            Some(&cursor(0, 40)),
+            Some(&cursor(Remaining::From, 40)),
             limits(),
         );
         assert!(newest.is_empty());
@@ -378,7 +299,7 @@ mod tests {
             2,
         )
         .unwrap();
-        assert_eq!(cursor.offsets[&0], 15);
+        assert_eq!(cursor.remaining, starting(&[(0, 15)]));
     }
 
     #[test]
@@ -391,7 +312,7 @@ mod tests {
             2,
         )
         .unwrap();
-        assert_eq!(cursor.offsets[&0], 35);
+        assert_eq!(cursor.remaining, ending(&[(0, 35)]));
     }
 
     #[test]
@@ -447,7 +368,7 @@ mod tests {
             RecordOrder::Newest,
             5,
             false,
-            Some(&cursor(0, 20)),
+            Some(&cursor(Remaining::Before, 20)),
             limits(),
         );
 
@@ -469,8 +390,7 @@ mod tests {
             2,
         )
         .unwrap();
-        assert_eq!(cursor.offsets[&0], 35);
-        assert_eq!(cursor.offsets[&1], 40);
+        assert_eq!(cursor.remaining, ending(&[(0, 35), (1, 40)]));
     }
 
     #[test]
@@ -510,7 +430,7 @@ mod tests {
             2,
         )
         .unwrap();
-        assert_eq!(cursor.offsets[&0], 120);
+        assert_eq!(cursor.remaining, ending(&[(0, 120)]));
     }
 
     #[test]
@@ -523,7 +443,7 @@ mod tests {
             3,
         )
         .unwrap();
-        assert_eq!(cursor.offsets[&0], 420);
+        assert_eq!(cursor.remaining, ending(&[(0, 420)]));
     }
 
     #[test]
@@ -537,7 +457,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            cursor.offsets[&0], 36,
+            cursor.remaining,
+            ending(&[(0, 36)]),
             "the unread older half is not skipped"
         );
     }
@@ -549,12 +470,11 @@ mod tests {
             &marks(10, 100),
             &[(0, 39), (0, 35)],
             RecordOrder::Newest,
-            CursorDirection::Backward,
         )
         .unwrap();
 
-        assert_eq!(cursor.offsets[&0], 40);
-        assert_eq!(cursor.walk(), RecordOrder::Oldest);
+        assert_eq!(cursor.remaining, starting(&[(0, 40)]));
+        assert_eq!(cursor.direction(), CursorDirection::Backward);
     }
 
     #[test]
@@ -564,12 +484,11 @@ mod tests {
             &marks(10, 100),
             &[(0, 14), (0, 20)],
             RecordOrder::Oldest,
-            CursorDirection::Backward,
         )
         .unwrap();
 
-        assert_eq!(cursor.offsets[&0], 14);
-        assert_eq!(cursor.walk(), RecordOrder::Newest);
+        assert_eq!(cursor.remaining, ending(&[(0, 14)]));
+        assert_eq!(cursor.direction(), CursorDirection::Backward);
     }
 
     #[test]
@@ -580,7 +499,6 @@ mod tests {
                 &marks(10, 40),
                 &[(0, 39)],
                 RecordOrder::Newest,
-                CursorDirection::Backward,
             )
             .is_none()
         );
@@ -590,7 +508,6 @@ mod tests {
                 &marks(10, 40),
                 &[(0, 10)],
                 RecordOrder::Oldest,
-                CursorDirection::Backward,
             )
             .is_none()
         );
@@ -604,7 +521,6 @@ mod tests {
                 &marks(10, 40),
                 &[],
                 RecordOrder::Newest,
-                CursorDirection::Backward,
             )
             .is_none()
         );
