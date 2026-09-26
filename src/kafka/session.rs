@@ -88,13 +88,7 @@ pub trait ClusterSession: Send + Sync + 'static {
         })
     }
 
-    /// All ACL bindings the broker will describe, or authorizer-off.
-    ///
-    /// Default is an enabled empty list (session has no ACL source).
-    /// Production always uses `AclFilter::all()`; this method takes no filter.
-    async fn acls(&self) -> Result<AclListing, KafkaError> {
-        Ok(AclListing::Enabled(Vec::new()))
-    }
+    async fn acls(&self) -> Result<AclListing, KafkaError>;
 
     fn consume_timeout(&self) -> Duration {
         *crate::environment::CONSUME_TIMEOUT
