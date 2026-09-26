@@ -29,7 +29,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Dropping the ingest aborts its lanes, so it lives as long as the server.
     let _ingest = Ingest::start(&clusters);
-    let state = AppState::new(clusters, auth, Limits::from_env());
+    let state = AppState::new(clusters, auth, Limits::from_env()).with_writes_from(&config);
 
     klens::serve(router(state), config.bind).await
 }

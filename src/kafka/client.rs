@@ -5,6 +5,7 @@ mod pool;
 mod scan;
 mod tail;
 mod transport;
+mod writes;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -487,6 +488,7 @@ mod tests {
                 ..Default::default()
             },
             ingest: Default::default(),
+            writes: Vec::new(),
         })
         .await
         .unwrap();
@@ -888,6 +890,7 @@ mod tests {
             obfuscation: None,
             properties: Default::default(),
             ingest: Default::default(),
+            writes: Vec::new(),
         })
         .await
         .expect("kafka client")

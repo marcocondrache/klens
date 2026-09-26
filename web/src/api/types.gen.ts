@@ -2,7 +2,7 @@
 
 export type Int64 = string;
 
-export type PrivilegeName = "RECORDS" | "CONFIGS" | "SCHEMA_TEXT" | "ACLS";
+export type PrivilegeName = "RECORDS" | "CONFIGS" | "SCHEMA_TEXT" | "ACLS" | "RESET_OFFSETS" | "DELETE_GROUP_OFFSETS";
 
 export type ClusterGrant = { cluster: string, 
 /**
@@ -79,6 +79,18 @@ lagComplete: boolean, coordinatorId: number, };
 export type GroupRowPage = { rows: Array<GroupRow>, total: number, nextCursor: string | null, };
 
 export type GroupDetail = { id: string, state: GroupState, protocol: string, coordinatorId: number, members: Array<GroupMember>, offsets: Array<GroupOffset>, totalLag: Int64 | null, lagComplete: boolean, };
+
+export type ResetTo = { "kind": "earliest" } | { "kind": "latest" } | { "kind": "timestamp", timestamp: Int64, } | { "kind": "offset", offset: Int64, } | { "kind": "shift", by: Int64, };
+
+export type ResetOffsetsRequest = { group: string, topic?: string, partitions?: Array<number>, to: ResetTo, dryRun: boolean, };
+
+export type OffsetChange = { topic: string, partition: number, current: Int64 | null, target: Int64, };
+
+export type OffsetReset = { group: string, applied: boolean, partitions: Array<OffsetChange>, };
+
+export type DeleteOffsetsRequest = { group: string, topic: string, partitions?: Array<number>, confirm: string, };
+
+export type DeletedOffsets = { group: string, topic: string, partitions: Array<number>, };
 
 export type TopicGroupRow = { id: string, state: GroupState, memberCount: number, lagOnTopic: Int64 | null, };
 

@@ -4,6 +4,9 @@ pub use super::acls::types::{
 pub use super::brokers::types::BrokerRow;
 pub use super::clusters::types::{ClusterHealth, LaneHealth};
 pub use super::configs::{ConfigEntry, ConfigSource};
+pub use super::group_offsets::types::{
+    DeleteOffsetsRequest, DeletedOffsets, OffsetChange, OffsetReset, ResetOffsetsRequest, ResetTo,
+};
 pub use super::groups::types::{
     GroupDetail, GroupMember, GroupOffset, GroupRow, GroupRowPage, GroupState, MemberAssignment,
 };

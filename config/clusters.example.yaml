@@ -43,6 +43,14 @@ clusters:
     #   fast_offset_secs: 2
     #   slow_offset_secs: 20
 
+    # Optional writes this cluster accepts. Omitted or empty, the default, keeps
+    # it read-only whatever a role grants. Signed-in users also need a role
+    # granting the same privilege. Without auth, anyone who can reach klens may
+    # use them.
+    # writes:
+    #   - reset_offsets          # move a consumer group's committed offsets
+    #   - delete_group_offsets   # forget them (irreversible)
+
     # Optional Confluent-compatible Schema Registry. When omitted, the Schemas
     # page is empty for this cluster.
     #
@@ -99,7 +107,8 @@ clusters:
 # authenticated user has the same access as an open deployment. With roles,
 # unmatched users cannot sign in. A role is a name for a set of privileges:
 # each role grants exactly the privileges it lists, out of records, configs,
-# schema_text, and acls. An empty list still sees the catalog. Omit clusters
+# schema_text, and acls, plus the write privileges a cluster lists under
+# writes. An empty list still sees the catalog. Omit clusters
 # on a binding to allow every configured cluster.
 #
 # auth:
@@ -115,7 +124,7 @@ clusters:
 #     definitions:
 #       admin: [records, configs, schema_text, acls]
 #       viewer: []  # catalog only: clusters, topics, groups — no payloads
-#       operator: [records, configs]
+#       operator: [records, configs, reset_offsets]
 #       auditor: [acls, schema_text]
 #     bindings:
 #       - groups: [klens-admins]

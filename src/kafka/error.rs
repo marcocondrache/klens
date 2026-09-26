@@ -31,6 +31,15 @@ pub enum KafkaError {
     #[error("invalid record query: {0}")]
     InvalidQuery(#[from] QueryError),
 
+    #[error("invalid request: {0}")]
+    InvalidRequest(String),
+
+    #[error("group '{group}' in cluster '{cluster}' has active members; stop its consumers first")]
+    GroupNotEmpty { cluster: String, group: String },
+
+    #[error("kafka denied the request: {0}")]
+    Denied(String),
+
     #[error("kafka request timed out")]
     Timeout,
 
@@ -60,6 +69,9 @@ impl KafkaError {
             Self::UnknownSubject { .. } => "UNKNOWN_SUBJECT",
             Self::UnknownPartition { .. } => "UNKNOWN_PARTITION",
             Self::InvalidQuery(query) => query.code(),
+            Self::InvalidRequest(_) => "INVALID_REQUEST",
+            Self::GroupNotEmpty { .. } => "GROUP_NOT_EMPTY",
+            Self::Denied(_) => "KAFKA_DENIED",
             Self::Timeout => "TIMEOUT",
             Self::Admin(_) => "ADMIN",
             Self::BrokerConfigs { .. } => "BROKER_CONFIGS",
@@ -155,6 +167,22 @@ mod tests {
         assert_eq!(
             KafkaError::InvalidQuery(QueryError::InvertedTimestampRange).code(),
             "INVERTED_TIMESTAMP_RANGE"
+        );
+        assert_eq!(
+            KafkaError::InvalidRequest("bad".into()).code(),
+            "INVALID_REQUEST"
+        );
+        assert_eq!(
+            KafkaError::GroupNotEmpty {
+                cluster: "local".into(),
+                group: "g".into(),
+            }
+            .code(),
+            "GROUP_NOT_EMPTY"
+        );
+        assert_eq!(
+            KafkaError::Denied("GroupAuthorizationFailed".into()).code(),
+            "KAFKA_DENIED"
         );
         assert_eq!(KafkaError::Timeout.code(), "TIMEOUT");
         assert_eq!(KafkaError::Admin("broker down".into()).code(), "ADMIN");

@@ -170,6 +170,7 @@ mod tests {
             obfuscation: None,
             properties: Default::default(),
             ingest: Default::default(),
+            writes: Vec::new(),
         })
         .await
         .expect("kafka client")

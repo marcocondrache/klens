@@ -15,6 +15,8 @@ pub(crate) enum ApiError {
     Unauthorized,
     TooManyTails,
     InvalidRequest { status: StatusCode, message: String },
+    ConfirmationRequired(&'static str),
+    CrossSite,
 }
 
 impl ApiError {
@@ -26,6 +28,8 @@ impl ApiError {
             Self::Unauthorized => "UNAUTHORIZED",
             Self::TooManyTails => "TOO_MANY_TAILS",
             Self::InvalidRequest { .. } => "INVALID_REQUEST",
+            Self::ConfirmationRequired(_) => "CONFIRMATION_REQUIRED",
+            Self::CrossSite => "CROSS_SITE",
         }
     }
 
@@ -48,6 +52,8 @@ impl ApiError {
             Self::SessionExpired | Self::Unauthorized => StatusCode::UNAUTHORIZED,
             Self::TooManyTails => StatusCode::SERVICE_UNAVAILABLE,
             Self::InvalidRequest { status, .. } => *status,
+            Self::ConfirmationRequired(_) => StatusCode::BAD_REQUEST,
+            Self::CrossSite => StatusCode::FORBIDDEN,
             Self::Access(AccessError::Forbidden { .. }) => StatusCode::FORBIDDEN,
             Self::Access(AccessError::UnknownCluster(_)) => StatusCode::NOT_FOUND,
             Self::Kafka(error) => kafka_status(error),
@@ -63,7 +69,9 @@ fn kafka_status(error: &KafkaError) -> StatusCode {
         | KafkaError::UnknownBroker { .. }
         | KafkaError::UnknownSubject { .. }
         | KafkaError::UnknownPartition { .. } => StatusCode::NOT_FOUND,
-        KafkaError::InvalidQuery(_) => StatusCode::BAD_REQUEST,
+        KafkaError::InvalidQuery(_) | KafkaError::InvalidRequest(_) => StatusCode::BAD_REQUEST,
+        KafkaError::GroupNotEmpty { .. } => StatusCode::CONFLICT,
+        KafkaError::Denied(_) => StatusCode::FORBIDDEN,
         KafkaError::Timeout => StatusCode::GATEWAY_TIMEOUT,
         KafkaError::Admin(_)
         | KafkaError::BrokerConfigs { .. }
@@ -84,6 +92,12 @@ impl std::fmt::Display for ApiError {
                 formatter.write_str("too many live tails are open, try again later")
             }
             Self::InvalidRequest { message, .. } => formatter.write_str(message),
+            Self::ConfirmationRequired(what) => {
+                write!(formatter, "confirm must repeat the {what} exactly")
+            }
+            Self::CrossSite => {
+                formatter.write_str("requests from another site may not change anything")
+            }
         }
     }
 }

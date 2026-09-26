@@ -1,5 +1,5 @@
 use axum::extract::FromRequestParts;
-use axum::extract::rejection::PathRejection;
+use axum::extract::rejection::{JsonRejection, PathRejection};
 use axum::http::request::Parts;
 use axum_extra::extract::QueryRejection;
 use serde::de::DeserializeOwned;
@@ -40,6 +40,15 @@ where
 
 impl From<QueryRejection> for ApiError {
     fn from(rejection: QueryRejection) -> Self {
+        Self::InvalidRequest {
+            status: rejection.status(),
+            message: rejection.body_text(),
+        }
+    }
+}
+
+impl From<JsonRejection> for ApiError {
+    fn from(rejection: JsonRejection) -> Self {
         Self::InvalidRequest {
             status: rejection.status(),
             message: rejection.body_text(),

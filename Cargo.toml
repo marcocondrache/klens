@@ -31,7 +31,7 @@ axum = { version = "0.8", default-features = false, features = [
     "tokio",
     "tracing",
 ] }
-axum-extra = { version = "0.12", default-features = false, features = ["query"] }
+axum-extra = { version = "0.12", default-features = false, features = ["query", "with-rejection"] }
 axum-login = "0.18"
 # Pulled in only for `key-expansion`, which is what gives
 # `tower_sessions::cookie::Key::derive_from` (HKDF) so a configured session
@@ -75,7 +75,7 @@ sha2 = "0.10"
 regex = "1.13"
 arc-swap = "1.9.2"
 foldhash = "0.2.0"
-ts-rs = { version = "12.0.1", features = ["jiff-impl", "serde-compat"] }
+ts-rs = { version = "12.0.1", features = ["jiff-impl", "serde-compat", "no-serde-warnings"] }
 frizbee = "0.13"
 
 [dev-dependencies]

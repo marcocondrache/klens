@@ -129,6 +129,48 @@ pub(super) async fn call(
     (status, json)
 }
 
+pub(super) async fn post(
+    state: &AppState,
+    path: &str,
+    body: Value,
+    access: EffectiveAccess,
+) -> (StatusCode, Value) {
+    send(
+        state,
+        Request::builder()
+            .method("POST")
+            .uri(path)
+            .header("content-type", "application/json")
+            .header("sec-fetch-site", "same-origin")
+            .body(Body::from(body.to_string()))
+            .expect("request"),
+        access,
+    )
+    .await
+}
+
+pub(super) async fn send(
+    state: &AppState,
+    request: Request<Body>,
+    access: EffectiveAccess,
+) -> (StatusCode, Value) {
+    let response = api(state.clone(), access, SessionGuard::open())
+        .oneshot(request)
+        .await
+        .expect("response");
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    let json = serde_json::from_slice(&bytes).unwrap_or_else(|error| {
+        panic!(
+            "body is not json ({error}): {}",
+            String::from_utf8_lossy(&bytes)
+        )
+    });
+    (status, json)
+}
+
 pub(super) async fn open_stream(
     state: &AppState,
     path: &str,
