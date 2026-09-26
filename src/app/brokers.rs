@@ -41,11 +41,10 @@ async fn broker_configs(
     session: Session,
     Path((name, id)): Path<(String, i32)>,
 ) -> Result<Json<Vec<ConfigEntry>>, ApiError> {
-    let capability = session.cluster(&name)?.access.configs()?;
+    let configs = session.cluster(&name)?.configs()?;
     Ok(Json(
-        session
-            .state
-            .live_broker_configs(capability.cluster(), id)
+        configs
+            .broker_configs(id)
             .await?
             .into_iter()
             .map(ConfigEntry::from)

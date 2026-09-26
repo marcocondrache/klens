@@ -106,12 +106,12 @@ async fn topic_configs(
     Path((name, topic)): Path<(String, String)>,
 ) -> Result<Json<Vec<ConfigEntry>>, ApiError> {
     let cluster = session.cluster(&name)?;
-    let capability = cluster.access.configs()?;
+    cluster.access.configs()?;
     cluster
         .store
         .topic_configs(&topic)
         .map(|entries| Json(entries.into_iter().map(ConfigEntry::from).collect()))
-        .ok_or_else(|| unknown_topic(capability.cluster(), &topic))
+        .ok_or_else(|| unknown_topic(cluster.name(), &topic))
 }
 
 fn unknown_topic(cluster: &str, topic: &str) -> ApiError {

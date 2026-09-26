@@ -18,7 +18,7 @@ use crate::kafka::store::{
 };
 
 use super::super::harness::{
-    failure, granted, only, open_stream, read_frames, seed, seeded, two_clusters, viewer,
+    failure, granted, only, open_stream, read_frames, seed, seeded, store_of, two_clusters, viewer,
 };
 
 async fn read_events(response: Response, count: usize) -> Vec<Value> {
@@ -62,7 +62,7 @@ fn wave(groups: &[(&str, i64)]) -> Change {
 #[tokio::test]
 async fn an_unscoped_subscriber_gets_the_whole_cluster_firehose() {
     let state = seeded();
-    let store = Arc::clone(state.cluster("local").expect("local cluster"));
+    let store = Arc::clone(store_of(&state, "local"));
     let response = open_stream(
         &state,
         "/clusters/local/updates",
@@ -88,7 +88,7 @@ async fn an_unscoped_subscriber_gets_the_whole_cluster_firehose() {
 #[tokio::test]
 async fn a_topic_scoped_subscriber_pays_only_for_its_own_topic() {
     let state = seeded();
-    let store = Arc::clone(state.cluster("local").expect("local cluster"));
+    let store = Arc::clone(store_of(&state, "local"));
     let response = open_stream(
         &state,
         "/clusters/local/updates?topic=orders.created",
@@ -110,7 +110,7 @@ async fn a_topic_scoped_subscriber_pays_only_for_its_own_topic() {
 #[tokio::test]
 async fn an_event_outside_the_scope_never_reaches_the_socket() {
     let state = seeded();
-    let store = Arc::clone(state.cluster("local").expect("local cluster"));
+    let store = Arc::clone(store_of(&state, "local"));
     let response = open_stream(
         &state,
         "/clusters/local/updates?topic=payments.settled",
@@ -136,7 +136,7 @@ async fn an_event_outside_the_scope_never_reaches_the_socket() {
 #[tokio::test]
 async fn an_unscoped_lag_wave_fans_out_one_update_per_group_without_offsets() {
     let state = seeded();
-    let store = Arc::clone(state.cluster("local").expect("local cluster"));
+    let store = Arc::clone(store_of(&state, "local"));
     let response = open_stream(
         &state,
         "/clusters/local/updates",
@@ -161,7 +161,7 @@ async fn an_unscoped_lag_wave_fans_out_one_update_per_group_without_offsets() {
 #[tokio::test]
 async fn a_group_scoped_subscriber_holds_an_interest_lease_for_the_stream() {
     let state = seeded();
-    let store = Arc::clone(state.cluster("local").expect("local cluster"));
+    let store = Arc::clone(store_of(&state, "local"));
     let response = open_stream(
         &state,
         "/clusters/local/updates?group=order-processor",
@@ -190,7 +190,7 @@ async fn a_group_scoped_subscriber_holds_an_interest_lease_for_the_stream() {
 #[tokio::test]
 async fn a_topology_delta_reaches_a_scoped_subscriber_only_when_it_names_its_topic() {
     let state = seeded();
-    let store = Arc::clone(state.cluster("local").expect("local cluster"));
+    let store = Arc::clone(store_of(&state, "local"));
     let response = open_stream(
         &state,
         "/clusters/local/updates?topic=orders.created",
@@ -232,7 +232,7 @@ async fn a_topology_delta_reaches_a_scoped_subscriber_only_when_it_names_its_top
 #[tokio::test]
 async fn falling_behind_the_bus_asks_the_client_to_refetch_instead_of_dropping_it() {
     let state = seeded();
-    let store = Arc::clone(state.cluster("local").expect("local cluster"));
+    let store = Arc::clone(store_of(&state, "local"));
     let response = open_stream(
         &state,
         "/clusters/local/updates",
@@ -252,7 +252,7 @@ async fn falling_behind_the_bus_asks_the_client_to_refetch_instead_of_dropping_i
 #[tokio::test]
 async fn a_cluster_the_session_cannot_see_is_never_subscribable() {
     let state = two_clusters();
-    seed(state.cluster("payments").expect("payments cluster"));
+    seed(store_of(&state, "payments"));
     let (status, code) = failure(
         &state,
         "/clusters/payments/updates",
@@ -267,7 +267,7 @@ async fn a_cluster_the_session_cannot_see_is_never_subscribable() {
 #[tokio::test]
 async fn a_session_that_expires_mid_stream_terminates_it() {
     let state = seeded();
-    let store = Arc::clone(state.cluster("local").expect("local cluster"));
+    let store = Arc::clone(store_of(&state, "local"));
     let response = open_stream(
         &state,
         "/clusters/local/updates",

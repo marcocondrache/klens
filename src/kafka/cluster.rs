@@ -6,6 +6,10 @@ use indexmap::IndexMap;
 use crate::config::{ClusterConfig, ClusterIngestConfig, Config, SecurityProtocol};
 use crate::kafka::client::KafkaClient;
 use crate::kafka::error::KafkaError;
+use crate::kafka::limits::{RecordLimits, TailLimits};
+use crate::kafka::model::{ConfigEntry, RecordPage, RecordQuery};
+use crate::kafka::scan::read::read_page;
+use crate::kafka::scan::tail::{Tail, TailQuery};
 use crate::kafka::session::ClusterSession;
 use crate::kafka::store::ClusterStore;
 
@@ -49,6 +53,31 @@ impl Cluster {
 
     pub fn name(&self) -> &str {
         self.store.name()
+    }
+
+    pub async fn records(
+        &self,
+        query: RecordQuery,
+        limits: RecordLimits,
+    ) -> Result<RecordPage, KafkaError> {
+        read_page(self.session.as_ref(), &self.store, query, limits).await
+    }
+
+    pub async fn tail(&self, query: TailQuery, limits: TailLimits) -> Result<Tail, KafkaError> {
+        Tail::open(self.session.as_ref(), &self.store, query, limits).await
+    }
+
+    pub async fn broker_configs(&self, id: i32) -> Result<Vec<ConfigEntry>, KafkaError> {
+        if let Some(topology) = self.store.topology.load()
+            && !topology.brokers.contains_key(&id)
+        {
+            return Err(KafkaError::UnknownBroker {
+                cluster: self.name().to_owned(),
+                id,
+            });
+        }
+
+        self.session.broker_configs(id).await
     }
 }
 

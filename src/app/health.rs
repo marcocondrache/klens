@@ -14,7 +14,7 @@ async fn health() -> StatusCode {
 }
 
 async fn ready(State(state): State<AppState>) -> StatusCode {
-    if state.is_ready() {
+    if state.clusters.ready() {
         StatusCode::NO_CONTENT
     } else {
         StatusCode::SERVICE_UNAVAILABLE
@@ -56,8 +56,10 @@ mod tests {
         );
 
         state
-            .cluster("local")
+            .clusters
+            .get("local")
             .unwrap()
+            .store
             .topology
             .commit(Arc::new(topology(
                 vec![topic("ready", vec![partition(0, vec![1], vec![1])])],

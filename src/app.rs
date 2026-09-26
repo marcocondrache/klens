@@ -6,12 +6,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::environment::MAX_LIVE_TAILS;
 use crate::kafka::ingest::Ingest;
-use crate::kafka::model::{AclListing, RegisteredSchema};
-use crate::kafka::store::ClusterStore;
-use crate::kafka::{
-    Clusters, ConfigEntry, KafkaError, RecordLimits, RecordPage, RecordQuery, Tail, TailLimits,
-    TailQuery, read_page,
-};
+use crate::kafka::{Clusters, TailLimits};
 
 mod acls;
 pub(crate) mod auth;
@@ -41,10 +36,10 @@ pub use auth::AuthState;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub(crate) clusters: Arc<Clusters>,
-    pub(crate) auth: AuthState,
-    limits: RecordLimits,
-    tail_limits: TailLimits,
+    clusters: Arc<Clusters>,
+    auth: AuthState,
+    /// Sizes live tails; its `records` also bounds one-shot record pages.
+    limits: TailLimits,
     tails: Arc<Semaphore>,
     _ingest: Option<Arc<Ingest>>,
 }
@@ -62,8 +57,7 @@ impl AppState {
         Self {
             clusters,
             auth,
-            limits: RecordLimits::from_env(),
-            tail_limits: TailLimits::from_env(),
+            limits: TailLimits::from_env(),
             tails: Arc::new(Semaphore::new(*MAX_LIVE_TAILS)),
             _ingest: None,
         }
@@ -84,75 +78,8 @@ impl AppState {
         }
     }
 
-    pub(crate) fn cluster(&self, name: &str) -> Result<&Arc<ClusterStore>, KafkaError> {
-        Ok(&self.clusters.get(name)?.store)
-    }
-
-    pub(crate) fn is_ready(&self) -> bool {
-        self.clusters.ready()
-    }
-
-    pub(crate) async fn live_records(
-        &self,
-        cluster: &str,
-        query: RecordQuery,
-    ) -> Result<RecordPage, KafkaError> {
-        let cluster = self.clusters.get(cluster)?;
-        read_page(cluster.session.as_ref(), &cluster.store, query, self.limits).await
-    }
-
     pub(crate) fn tail_permit(&self) -> Option<OwnedSemaphorePermit> {
         Arc::clone(&self.tails).try_acquire_owned().ok()
-    }
-
-    pub(crate) async fn live_tail(
-        &self,
-        cluster: &str,
-        query: TailQuery,
-    ) -> Result<Tail, KafkaError> {
-        let cluster = self.clusters.get(cluster)?;
-        Tail::open(
-            cluster.session.as_ref(),
-            &cluster.store,
-            query,
-            self.tail_limits,
-        )
-        .await
-    }
-
-    pub(crate) async fn live_broker_configs(
-        &self,
-        cluster: &str,
-        id: i32,
-    ) -> Result<Vec<ConfigEntry>, KafkaError> {
-        let cluster = self.clusters.get(cluster)?;
-        if let Some(topology) = cluster.store.topology.load()
-            && !topology.brokers.contains_key(&id)
-        {
-            return Err(KafkaError::UnknownBroker {
-                cluster: cluster.name().to_owned(),
-                id,
-            });
-        }
-
-        cluster.session.broker_configs(id).await
-    }
-
-    pub(crate) async fn live_acls(&self, cluster: &str) -> Result<AclListing, KafkaError> {
-        self.clusters.get(cluster)?.session.acls().await
-    }
-
-    pub(crate) async fn live_subject_schema(
-        &self,
-        cluster: &str,
-        subject: &str,
-        version: i32,
-    ) -> Result<RegisteredSchema, KafkaError> {
-        self.clusters
-            .get(cluster)?
-            .session
-            .subject_schema(subject, version)
-            .await
     }
 }
 
@@ -209,11 +136,18 @@ mod tests {
         .with_ingest();
 
         wait_until(|| {
-            state.is_ready() && !state.cluster("local").unwrap().subject_rows().is_empty()
+            state.clusters.ready()
+                && !state
+                    .clusters
+                    .get("local")
+                    .unwrap()
+                    .store
+                    .subject_rows()
+                    .is_empty()
         })
         .await;
 
-        let store = state.cluster("local").unwrap();
+        let store = &state.clusters.get("local").unwrap().store;
         assert_eq!(store.topic_rows()[0].name.as_ref(), "orders.created");
         assert_eq!(
             store.subject_rows()[0].subject.as_ref(),
@@ -227,7 +161,7 @@ mod tests {
         let state =
             AppState::new(Arc::new(Clusters::from_sessions(vec![session.clone()]))).with_ingest();
 
-        wait_until(|| state.is_ready()).await;
+        wait_until(|| state.clusters.ready()).await;
 
         assert!(
             session.calls().metadata() > 0,
@@ -242,7 +176,7 @@ mod tests {
             vec![FakeCluster::local()],
         )));
 
-        assert!(!state.is_ready());
-        assert!(state.cluster("ghost").is_err());
+        assert!(!state.clusters.ready());
+        assert!(state.clusters.get("ghost").is_err());
     }
 }

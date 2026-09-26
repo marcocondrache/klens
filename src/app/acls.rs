@@ -20,8 +20,6 @@ pub(crate) fn router() -> Router<AppState> {
 }
 
 async fn acls(session: Session, Path(name): Path<String>) -> Result<Json<AclListing>, ApiError> {
-    let capability = session.cluster(&name)?.access.acls()?;
-    Ok(Json(AclListing::from(
-        session.state.live_acls(capability.cluster()).await?,
-    )))
+    let acls = session.cluster(&name)?.acls()?;
+    Ok(Json(AclListing::from(acls.list().await?)))
 }

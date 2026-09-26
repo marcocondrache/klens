@@ -25,6 +25,14 @@ pub(super) fn with(sessions: Vec<FakeCluster>) -> AppState {
     AppState::new(Arc::new(Clusters::from_sessions(sessions)))
 }
 
+pub(super) fn store_of<'a>(state: &'a AppState, cluster: &str) -> &'a Arc<ClusterStore> {
+    &state
+        .clusters
+        .get(cluster)
+        .expect("configured cluster")
+        .store
+}
+
 pub(super) fn state() -> AppState {
     with(vec![FakeCluster::local()])
 }
@@ -249,6 +257,6 @@ pub(super) fn seeded() -> AppState {
 
 pub(super) fn seeded_with(session: FakeCluster) -> (AppState, FakeCluster) {
     let state = with(vec![session.clone()]);
-    seed(state.cluster("local").expect("local cluster"));
+    seed(store_of(&state, "local"));
     (state, session)
 }
