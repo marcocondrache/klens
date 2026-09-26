@@ -8,15 +8,9 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use crate::app::auth::access::{
     AccessError, ClusterAccess, EffectiveAccess, Privilege, PrivilegeSet,
 };
-use crate::config::{ClusterIngestConfig, Config};
+use crate::config::Config;
 use crate::environment::MAX_LIVE_TAILS;
-use crate::kafka::ingest::Ingest;
-use crate::kafka::model::{AclListing, RegisteredSchema};
-use crate::kafka::store::{ClusterStore, StoreSet};
-use crate::kafka::{
-    ConfigEntry, KafkaError, RecordLimits, RecordPage, RecordQuery, SessionSet, Tail, TailLimits,
-    TailQuery, read_page,
-};
+use crate::kafka::{Clusters, TailLimits};
 
 mod acls;
 pub(crate) mod auth;
@@ -48,35 +42,21 @@ pub use auth::AuthState;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub(crate) sessions: Arc<SessionSet>,
-    pub(crate) stores: Arc<StoreSet>,
-    pub(crate) auth: AuthState,
-    limits: RecordLimits,
-    tail_limits: TailLimits,
+    clusters: Arc<Clusters>,
+    auth: AuthState,
+    limits: TailLimits,
     tails: Arc<Semaphore>,
     writes: Arc<HashMap<String, PrivilegeSet>>,
-    _ingest: Option<Arc<Ingest>>,
 }
 
 impl AppState {
-    pub fn new(sessions: Arc<SessionSet>) -> Self {
-        Self::build(sessions, AuthState::disabled())
-    }
-
-    pub fn with_auth(sessions: Arc<SessionSet>, auth: AuthState) -> Self {
-        Self::build(sessions, auth)
-    }
-
-    fn build(sessions: Arc<SessionSet>, auth: AuthState) -> Self {
+    pub fn new(clusters: Clusters, auth: AuthState, limits: Limits) -> Self {
         Self {
-            stores: Arc::new(StoreSet::new(sessions.identities())),
-            sessions,
+            clusters: Arc::new(clusters),
             auth,
-            limits: RecordLimits::from_env(),
-            tail_limits: TailLimits::from_env(),
-            tails: Arc::new(Semaphore::new(*MAX_LIVE_TAILS)),
+            limits: limits.tail,
+            tails: Arc::new(Semaphore::new(limits.live_tails)),
             writes: Arc::default(),
-            _ingest: None,
         }
     }
 
@@ -125,51 +105,6 @@ impl AppState {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn with_tail_capacity(self, tails: usize) -> Self {
-        Self {
-            tails: Arc::new(Semaphore::new(tails)),
-            ..self
-        }
-    }
-
-    pub fn with_ingest(self) -> Self {
-        self.ingest_with(|_| ClusterIngestConfig::default())
-    }
-
-    pub fn with_ingest_from(self, config: &Config) -> Self {
-        self.ingest_with(|name| {
-            config
-                .clusters
-                .iter()
-                .find(|cluster| cluster.name.trim() == name)
-                .map(|cluster| cluster.ingest)
-                .unwrap_or_default()
-        })
-    }
-
-    fn ingest_with(self, ingest: impl Fn(&str) -> ClusterIngestConfig) -> Self {
-        let clusters = self
-            .sessions
-            .sessions()
-            .into_iter()
-            .filter_map(|session| {
-                let store = self.stores.get(&session.identity().name)?;
-                let ingest = ingest(&session.identity().name);
-                Some((Arc::clone(store), session, ingest))
-            })
-            .collect::<Vec<_>>();
-
-        Self {
-            _ingest: Some(Arc::new(Ingest::start(clusters))),
-            ..self
-        }
-    }
-
-    pub(crate) fn cluster(&self, name: &str) -> Result<&Arc<ClusterStore>, KafkaError> {
-        self.stores.cluster(name)
-    }
-
     pub(crate) fn cluster_access<'a>(
         &self,
         access: &'a EffectiveAccess,
@@ -181,74 +116,26 @@ impl AppState {
             .capped(PrivilegeSet::READS.union(writes.intersection(PrivilegeSet::WRITES))))
     }
 
-    pub(crate) fn is_ready(&self) -> bool {
-        self.stores.ready()
-    }
-
-    pub(crate) async fn live_records(
-        &self,
-        cluster: &str,
-        query: RecordQuery,
-    ) -> Result<RecordPage, KafkaError> {
-        read_page(
-            self.sessions.session(cluster)?,
-            self.cluster(cluster)?,
-            query,
-            self.limits,
-        )
-        .await
-    }
-
     pub(crate) fn tail_permit(&self) -> Option<OwnedSemaphorePermit> {
         Arc::clone(&self.tails).try_acquire_owned().ok()
     }
+}
 
-    pub(crate) async fn live_tail(
-        &self,
-        cluster: &str,
-        query: TailQuery,
-    ) -> Result<Tail, KafkaError> {
-        Tail::open(
-            self.sessions.session(cluster)?,
-            self.cluster(cluster)?,
-            query,
-            self.tail_limits,
-        )
-        .await
-    }
+/// How much one request may read, and how many live tails run at once.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Limits {
+    /// Sizes live tails; its `records` also bounds one-shot record pages.
+    pub tail: TailLimits,
+    /// Live tails served at once, across every cluster.
+    pub live_tails: usize,
+}
 
-    pub(crate) async fn live_broker_configs(
-        &self,
-        cluster: &str,
-        id: i32,
-    ) -> Result<Vec<ConfigEntry>, KafkaError> {
-        let store = self.cluster(cluster)?;
-        if let Some(topology) = store.topology.load()
-            && !topology.brokers.contains_key(&id)
-        {
-            return Err(KafkaError::UnknownBroker {
-                cluster: cluster.to_owned(),
-                id,
-            });
+impl Limits {
+    pub fn from_env() -> Self {
+        Self {
+            tail: TailLimits::from_env(),
+            live_tails: *MAX_LIVE_TAILS,
         }
-
-        self.sessions.session(cluster)?.broker_configs(id).await
-    }
-
-    pub(crate) async fn live_acls(&self, cluster: &str) -> Result<AclListing, KafkaError> {
-        self.sessions.session(cluster)?.acls().await
-    }
-
-    pub(crate) async fn live_subject_schema(
-        &self,
-        cluster: &str,
-        subject: &str,
-        version: i32,
-    ) -> Result<RegisteredSchema, KafkaError> {
-        self.sessions
-            .session(cluster)?
-            .subject_schema(subject, version)
-            .await
     }
 }
 
@@ -292,55 +179,10 @@ pub fn router(state: AppState) -> Router {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::ClusterConfig;
+    use crate::config::{ClusterConfig, PrivilegeName};
     use crate::kafka::FakeCluster;
 
-    async fn wait_until(predicate: impl Fn() -> bool) {
-        for _ in 0..1_000 {
-            if predicate() {
-                return;
-            }
-            tokio::task::yield_now().await;
-        }
-        panic!("condition not met");
-    }
-
-    #[tokio::test]
-    async fn ingestion_fills_the_store_the_api_projects_from() {
-        let state = AppState::new(Arc::new(SessionSet::from_sessions(vec![
-            FakeCluster::local(),
-        ])))
-        .with_ingest();
-
-        wait_until(|| {
-            state.is_ready() && !state.cluster("local").unwrap().subject_rows().is_empty()
-        })
-        .await;
-
-        let store = state.cluster("local").unwrap();
-        assert_eq!(store.topic_rows()[0].name.as_ref(), "orders.created");
-        assert_eq!(
-            store.subject_rows()[0].subject.as_ref(),
-            "orders.created-value"
-        );
-    }
-
-    #[tokio::test]
-    async fn ingestion_never_describes_acls() {
-        let session = FakeCluster::local();
-        let state =
-            AppState::new(Arc::new(SessionSet::from_sessions(vec![session.clone()]))).with_ingest();
-
-        wait_until(|| state.is_ready()).await;
-
-        assert!(
-            session.calls().metadata() > 0,
-            "topology lane never called metadata"
-        );
-        assert_eq!(session.calls().acls(), 0);
-    }
-
-    fn cluster_config(name: &str, writes: Vec<crate::config::PrivilegeName>) -> ClusterConfig {
+    fn cluster_config(name: &str, writes: Vec<PrivilegeName>) -> ClusterConfig {
         ClusterConfig {
             name: name.to_owned(),
             bootstrap_servers: vec!["localhost:9092".to_owned()],
@@ -348,15 +190,21 @@ mod tests {
             schema_registry: None,
             obfuscation: None,
             properties: Default::default(),
-            ingest: ClusterIngestConfig::default(),
+            ingest: Default::default(),
             writes,
         }
     }
 
+    fn state(clusters: Vec<FakeCluster>) -> AppState {
+        AppState::new(
+            Clusters::from_sessions(clusters),
+            AuthState::disabled(),
+            Limits::from_env(),
+        )
+    }
+
     #[test]
     fn each_cluster_accepts_only_the_writes_its_config_lists() {
-        use crate::config::PrivilegeName;
-
         let config = Config {
             bind: "127.0.0.1:8080".parse().expect("bind"),
             log_level: "info".to_owned(),
@@ -366,11 +214,8 @@ mod tests {
             ],
             auth: None,
         };
-        let state = AppState::new(Arc::new(SessionSet::from_sessions(vec![
-            FakeCluster::local(),
-            FakeCluster::named("payments"),
-        ])))
-        .with_writes_from(&config);
+        let state = state(vec![FakeCluster::local(), FakeCluster::named("payments")])
+            .with_writes_from(&config);
         let access = EffectiveAccess::Unrestricted;
 
         let local = state.cluster_access(&access, "local").expect("local");
@@ -387,9 +232,7 @@ mod tests {
 
     #[test]
     fn a_state_built_without_config_is_read_only() {
-        let state = AppState::new(Arc::new(SessionSet::from_sessions(vec![
-            FakeCluster::local(),
-        ])));
+        let state = state(vec![FakeCluster::local()]);
 
         let local = state
             .cluster_access(&EffectiveAccess::Unrestricted, "local")
@@ -399,15 +242,5 @@ mod tests {
             local.privileges(),
             PrivilegeSet::READS.iter().collect::<Vec<_>>()
         );
-    }
-
-    #[tokio::test]
-    async fn a_state_without_ingestion_never_becomes_ready() {
-        let state = AppState::new(Arc::new(SessionSet::from_sessions(vec![
-            FakeCluster::local(),
-        ])));
-
-        assert!(!state.is_ready());
-        assert!(state.cluster("ghost").is_err());
     }
 }

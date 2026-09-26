@@ -12,6 +12,7 @@ use crate::kafka::store::ClusterStore;
 
 use super::Record;
 use super::batch::RecordBatch;
+use super::cursor::CursorDirection;
 use super::filter::CompiledFilter;
 use super::pipeline::{Kept, RecordPipeline, Screen};
 use super::query::RecordOrder;
@@ -20,7 +21,7 @@ use super::session::{RawRecord, topic_obfuscator};
 
 #[async_trait]
 pub trait TailConsumer: Send + Sync {
-    async fn poll(&self, budget: Duration) -> Result<Vec<RawRecord>, KafkaError>;
+    async fn poll(&self, max_wait: Duration) -> Result<Vec<RawRecord>, KafkaError>;
 
     async fn position(&self, partition: i32) -> Option<i64>;
 
@@ -133,7 +134,11 @@ impl Tail {
             .flushed
             .map_or(called, |flushed| flushed + self.limits.interval);
 
-        let mut batch = RecordBatch::new(self.limits.batch, RecordOrder::Newest);
+        let mut batch = RecordBatch::new(
+            self.limits.batch,
+            RecordOrder::Newest,
+            CursorDirection::Forward,
+        );
         let mut skipped = 0;
         while batch.is_empty() {
             if Instant::now() >= quiet_until {
@@ -228,12 +233,14 @@ impl Tail {
 mod tests {
     use std::sync::Arc;
 
+    use bytes::Bytes;
+
     use super::*;
     use crate::kafka::limits::RecordLimits;
     use crate::kafka::scan::Compression;
     use crate::kafka::scan::filter::contains;
     use crate::kafka::store::fixtures::{identity, partition, topic, topology};
-    use crate::kafka::testing::{FAKE_TAIL_POLL_RECORDS, FakeCluster, card_record};
+    use crate::kafka::testing::{FAKE_TAIL_POLL_RECORDS, FakeCluster, FixtureRecord, card_record};
 
     const LIMITS: TailLimits = TailLimits {
         batch: 3,
@@ -247,17 +254,17 @@ mod tests {
         },
     };
 
-    fn record(partition: i32, offset: i64, timestamp: i64, key: &str) -> Record {
-        Record {
+    fn record(partition: i32, offset: i64, timestamp: i64, key: impl Into<Bytes>) -> FixtureRecord {
+        let key = key.into();
+        FixtureRecord {
             topic: "orders.created".into(),
             partition,
             offset,
             timestamp,
-            key: Some(key.to_owned()),
-            value: None,
-            schema_id: None,
-            headers: Vec::new(),
             size_bytes: key.len() as u64,
+            key: Some(key),
+            value: None,
+            headers: Vec::new(),
             compression: Compression::None,
         }
     }
@@ -278,7 +285,7 @@ mod tests {
 
     fn produce_run(session: &FakeCluster, offsets: std::ops::Range<i64>) {
         for offset in offsets {
-            session.produce(record(0, offset, offset, &format!("ord_{offset}")));
+            session.produce(record(0, offset, offset, format!("ord_{offset}")));
         }
     }
 
@@ -303,7 +310,18 @@ mod tests {
         );
         assert!(
             !TailBatch {
-                records: vec![record(0, 0, 0, "k")],
+                records: vec![Record {
+                    topic: "orders.created".into(),
+                    partition: 0,
+                    offset: 0,
+                    timestamp: 0,
+                    key: Some("k".into()),
+                    value: None,
+                    schema_id: None,
+                    headers: Vec::new(),
+                    size_bytes: 1,
+                    compression: Compression::None,
+                }],
                 skipped: 0,
             }
             .is_empty()

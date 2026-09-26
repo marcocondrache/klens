@@ -17,7 +17,7 @@ use crate::kafka::session::ClusterSession;
 use super::batch::{RecordBatch, SortKey};
 use super::cursor::CursorDirection;
 use super::obfuscate::TopicObfuscator;
-use super::pipeline::{DecodedRecord, Kept, RecordPipeline, Screen};
+use super::pipeline::{Kept, RecordPipeline, Screen};
 use super::plan::{PartitionWindow, advance_cursor, plan_windows, rewind_cursor};
 use super::query::{RecordOrder, RecordQuery};
 use super::{Compression, RecordPage};
@@ -58,7 +58,7 @@ impl RawRecord {
 pub trait ScanConsumer: Send + Sync {
     async fn reassign(&self, windows: &[PartitionWindow]) -> Result<(), KafkaError>;
 
-    async fn poll(&self, budget: Duration) -> Result<Vec<RawRecord>, KafkaError>;
+    async fn poll(&self, max_wait: Duration) -> Result<Vec<RawRecord>, KafkaError>;
 
     async fn pause(&self, partitions: &[i32]);
 
@@ -165,10 +165,10 @@ impl ScanSession {
                 break;
             }
 
-            let budget = deadline
+            let max_wait = deadline
                 .saturating_duration_since(now)
                 .min(*SCAN_PACE_BOUND);
-            let Ok(polled) = timeout_at(deadline, self.consumer.poll(budget)).await else {
+            let Ok(polled) = timeout_at(deadline, self.consumer.poll(max_wait)).await else {
                 break;
             };
 
@@ -378,7 +378,7 @@ pub async fn fetch_page<S: ClusterSession + ?Sized>(
         }
 
         let remaining = limit - kept.len();
-        let mut batch = RecordBatch::new(remaining, walk);
+        let mut batch = RecordBatch::new(remaining, order, direction);
         let outcome = scan.run(&windows, &mut batch, deadline).await?;
         complete &= outcome.complete;
         scanned |= outcome.scanned;
@@ -392,7 +392,6 @@ pub async fn fetch_page<S: ClusterSession + ?Sized>(
             &edges(found.iter().map(Kept::raw)),
             remaining,
             order,
-            direction,
         );
         if kept.is_empty() {
             kept = found;
@@ -421,15 +420,12 @@ pub async fn fetch_page<S: ClusterSession + ?Sized>(
     let obfuscated = scan.obfuscated();
     scan.close().await;
 
-    let near = rewind_cursor(
-        walk,
-        watermarks,
-        &edges(kept.iter().map(DecodedRecord::raw)),
-        order,
-        direction.flipped(),
-    );
+    let near = query
+        .cursor
+        .as_ref()
+        .and_then(|opened| rewind_cursor(opened, partitions, watermarks));
     let (next_cursor, prev_cursor) = match direction {
-        CursorDirection::Forward => (cursor, query.cursor.as_ref().and(near)),
+        CursorDirection::Forward => (cursor, near),
         CursorDirection::Backward => (near, cursor),
     };
 
@@ -475,7 +471,7 @@ pub async fn scan_once<S: ClusterSession + ?Sized>(
 
     let deadline = Instant::now() + session.consume_timeout();
     let scan = ScanSession::open(session, &query, order, deadline, windows).await?;
-    let mut batch = RecordBatch::new(limit, order);
+    let mut batch = RecordBatch::new(limit, order, CursorDirection::Forward);
     let outcome = scan.run(windows, &mut batch, deadline).await;
     let page = scan.pipeline.decode_deferred(batch.into_sorted()).await;
     scan.close().await;
@@ -494,11 +490,10 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
-    use crate::kafka::scan::Record;
-    use crate::kafka::scan::cursor::RecordCursor;
+    use crate::kafka::scan::cursor::{RecordCursor, Remaining};
     use crate::kafka::scan::filter::{CompiledFilter, contains};
     use crate::kafka::scan::query::TimestampRange;
-    use crate::kafka::testing::{FakeCluster, card_record};
+    use crate::kafka::testing::{FakeCluster, FixtureRecord, card_record, framed};
 
     const LIMITS: RecordLimits = RecordLimits {
         max_limit: 500,
@@ -507,17 +502,17 @@ mod tests {
         search_window_multiplier: 2,
     };
 
-    fn stored(partition: i32, offset: i64, key: &str) -> Record {
-        Record {
+    fn stored(partition: i32, offset: i64, key: impl Into<Bytes>) -> FixtureRecord {
+        let key = key.into();
+        FixtureRecord {
             topic: "orders.created".into(),
             partition,
             offset,
             timestamp: offset,
-            key: Some(key.to_owned()),
+            size_bytes: key.len() as u64,
+            key: Some(key),
             value: None,
             headers: Vec::new(),
-            schema_id: None,
-            size_bytes: key.len() as u64,
             compression: Compression::None,
         }
     }
@@ -653,8 +648,8 @@ mod tests {
         assert_eq!(
             RecordCursor::parse(page.next_cursor.as_deref().unwrap())
                 .unwrap()
-                .offsets,
-            BTreeMap::from([(0, 13)])
+                .remaining,
+            Remaining::From(BTreeMap::from([(0, 13)]))
         );
     }
 
@@ -679,11 +674,10 @@ mod tests {
     async fn an_exhausted_cursor_never_opens_a_consumer() {
         let session = delayed(&[], Duration::from_secs(11));
         let mut query = query();
-        query.cursor = Some(RecordCursor::new(
-            RecordOrder::Oldest,
-            CursorDirection::Forward,
-            BTreeMap::from([(0, 8)]),
-        ));
+        query.cursor = Some(RecordCursor {
+            order: RecordOrder::Oldest,
+            remaining: Remaining::From(BTreeMap::from([(0, 8)])),
+        });
         let started = Instant::now();
 
         let page = fetch_page(&session, &query, &[0], &marks(0, 8), 2, LIMITS)
@@ -712,8 +706,8 @@ mod tests {
         assert_eq!(
             RecordCursor::parse(page.next_cursor.as_deref().unwrap())
                 .unwrap()
-                .offsets,
-            BTreeMap::from([(0, 4)]),
+                .remaining,
+            Remaining::From(BTreeMap::from([(0, 4)])),
             "the abandoned window is re-read, not skipped"
         );
     }
@@ -746,7 +740,10 @@ mod tests {
         assert!(page.has_more());
         assert_eq!(session.assigned_windows().len(), MAX_FILTER_PASSES);
         let cursor = RecordCursor::parse(page.next_cursor.as_deref().unwrap()).unwrap();
-        assert_eq!(cursor.offsets, BTreeMap::from([(0, 256)]));
+        assert_eq!(
+            cursor.remaining,
+            Remaining::From(BTreeMap::from([(0, 256)]))
+        );
 
         query.cursor = Some(cursor);
         let next = fetch_page(&session, &query, &[0], &marks(0, 260), 2, LIMITS)
@@ -762,11 +759,10 @@ mod tests {
         let session = delayed(&[0, 1, 2, 3], Duration::from_millis(1));
         let mut query = query();
         query.filter = None;
-        query.cursor = Some(RecordCursor::new(
-            RecordOrder::Oldest,
-            CursorDirection::Forward,
-            BTreeMap::from([(0, 2)]),
-        ));
+        query.cursor = Some(RecordCursor {
+            order: RecordOrder::Oldest,
+            remaining: Remaining::From(BTreeMap::from([(0, 2)])),
+        });
 
         let page = fetch_page(&session, &query, &[0], &marks(0, 8), 2, LIMITS)
             .await
@@ -774,8 +770,11 @@ mod tests {
 
         assert_eq!(offsets(&page), vec![2, 3]);
         let previous = RecordCursor::parse(page.prev_cursor.as_deref().unwrap()).unwrap();
-        assert_eq!(previous.direction, CursorDirection::Backward);
-        assert_eq!(previous.offsets, BTreeMap::from([(0, 2)]));
+        assert_eq!(previous.direction(), CursorDirection::Backward);
+        assert_eq!(
+            previous.remaining,
+            Remaining::Before(BTreeMap::from([(0, 2)]))
+        );
     }
 
     #[tokio::test(start_paused = true)]
@@ -798,11 +797,10 @@ mod tests {
         let mut query = query();
         query.filter = None;
         query.order = RecordOrder::Newest;
-        query.cursor = Some(RecordCursor::new(
-            RecordOrder::Newest,
-            CursorDirection::Backward,
-            BTreeMap::from([(0, 2)]),
-        ));
+        query.cursor = Some(RecordCursor {
+            order: RecordOrder::Newest,
+            remaining: Remaining::From(BTreeMap::from([(0, 2)])),
+        });
 
         let page = fetch_page(&session, &query, &[0], &marks(0, 6), 2, LIMITS)
             .await
@@ -815,13 +813,137 @@ mod tests {
         );
         assert_eq!(offsets(&page), vec![3, 2], "still newest-first");
         let next = RecordCursor::parse(page.next_cursor.as_deref().unwrap()).unwrap();
-        assert_eq!(next.direction, CursorDirection::Forward);
-        assert_eq!(next.offsets, BTreeMap::from([(0, 2)]));
+        assert_eq!(next.direction(), CursorDirection::Forward);
+        assert_eq!(next.remaining, Remaining::Before(BTreeMap::from([(0, 2)])));
+    }
+
+    type Page = (Vec<(i32, i64)>, Option<String>, Option<String>);
+
+    async fn page_through(order: RecordOrder) -> (Vec<Page>, Vec<Page>) {
+        let records = (0..5)
+            .map(|offset| stored(0, offset, "p0"))
+            .chain((0..2).map(|offset| stored(1, offset, "p1")))
+            .collect();
+        let session = FakeCluster::local()
+            .with_orders_records(records)
+            .with_consume_timeout(Duration::from_secs(10));
+        let watermarks = HashMap::from_iter([
+            (0, Watermarks { low: 0, high: 5 }),
+            (1, Watermarks { low: 0, high: 2 }),
+        ]);
+        let mut query = query();
+        query.filter = None;
+        query.order = order;
+        query.partitions = vec![0, 1];
+
+        let mut fetch = async |cursor: Option<&String>| -> Page {
+            query.cursor = cursor.map(|token| RecordCursor::parse(token).unwrap());
+            let page = fetch_page(&session, &query, &[0, 1], &watermarks, 2, LIMITS)
+                .await
+                .unwrap();
+            let records = page
+                .records
+                .iter()
+                .map(|record| (record.partition, record.offset))
+                .collect();
+            (records, page.next_cursor, page.prev_cursor)
+        };
+
+        let mut forward = vec![fetch(None).await];
+        while let Some(next) = forward.last().unwrap().1.clone() {
+            forward.push(fetch(Some(&next)).await);
+        }
+        let mut backward = Vec::new();
+        let mut prev = forward.last().unwrap().2.clone();
+        while let Some(token) = prev {
+            let page = fetch(Some(&token)).await;
+            prev = page.2.clone();
+            backward.push(page);
+        }
+        (forward, backward)
+    }
+
+    fn page(records: &[(i32, i64)], next: Option<&str>, prev: Option<&str>) -> Page {
+        (
+            records.to_vec(),
+            next.map(str::to_owned),
+            prev.map(str::to_owned),
+        )
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn oldest_pages_forward_to_the_end_and_back_over_every_record() {
+        let (forward, backward) = page_through(RecordOrder::Oldest).await;
+
+        assert_eq!(
+            forward,
+            vec![
+                page(&[(0, 0), (1, 0)], Some("v2:o:f:0:1,1:1"), None),
+                page(
+                    &[(0, 1), (1, 1)],
+                    Some("v2:o:f:0:2"),
+                    Some("v2:o:b:0:1,1:1")
+                ),
+                page(
+                    &[(0, 2), (0, 3)],
+                    Some("v2:o:f:0:4"),
+                    Some("v2:o:b:0:2,1:2")
+                ),
+                page(&[(0, 4)], None, Some("v2:o:b:0:4,1:2")),
+            ]
+        );
+        assert_eq!(
+            backward,
+            vec![
+                page(
+                    &[(0, 2), (0, 3)],
+                    Some("v2:o:f:0:4"),
+                    Some("v2:o:b:0:2,1:2")
+                ),
+                page(
+                    &[(0, 1), (1, 1)],
+                    Some("v2:o:f:0:2"),
+                    Some("v2:o:b:0:1,1:1")
+                ),
+                page(&[(0, 0), (1, 0)], Some("v2:o:f:0:1,1:1"), None),
+            ]
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn newest_pages_forward_to_the_end_and_back_over_every_record() {
+        let (forward, backward) = page_through(RecordOrder::Newest).await;
+
+        assert_eq!(
+            forward,
+            vec![
+                page(&[(0, 4), (0, 3)], Some("v2:n:f:0:3,1:2"), None),
+                page(
+                    &[(0, 2), (0, 1)],
+                    Some("v2:n:f:0:1,1:2"),
+                    Some("v2:n:b:0:3")
+                ),
+                page(&[(1, 1), (0, 0)], Some("v2:n:f:1:1"), Some("v2:n:b:0:1")),
+                page(&[(1, 0)], None, Some("v2:n:b:0:0,1:1")),
+            ]
+        );
+        assert_eq!(
+            backward,
+            vec![
+                page(&[(1, 1), (0, 0)], Some("v2:n:f:1:1"), Some("v2:n:b:0:1")),
+                page(
+                    &[(0, 2), (0, 1)],
+                    Some("v2:n:f:0:1,1:2"),
+                    Some("v2:n:b:0:3")
+                ),
+                page(&[(0, 4), (0, 3)], Some("v2:n:f:0:3,1:2"), None),
+            ]
+        );
     }
 
     #[tokio::test(start_paused = true)]
     async fn a_filter_skips_decoding_records_that_cannot_reach_the_page() {
-        let records: Vec<Record> = (0..8).map(|offset| stored(0, offset, "hit")).collect();
+        let records: Vec<FixtureRecord> = (0..8).map(|offset| stored(0, offset, "hit")).collect();
         let session = FakeCluster::local()
             .with_orders_records(records)
             .with_consume_timeout(Duration::from_secs(10));
@@ -837,6 +959,37 @@ mod tests {
             session.decoded_payloads(),
             2,
             "the heap fills after two records and rejects the rest before decoding"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_schema_id_past_the_ascii_range_survives_the_wire_frame() {
+        let record = FixtureRecord {
+            topic: "orders.created".into(),
+            partition: 0,
+            offset: 0,
+            timestamp: 0,
+            key: Some(Bytes::from_static(b"ord_0")),
+            value: Some(framed(300, r#"{"orderId":"ord_0"}"#)),
+            headers: Vec::new(),
+            size_bytes: 0,
+            compression: Compression::None,
+        };
+        let session = FakeCluster::local()
+            .with_orders_records(vec![record])
+            .with_consume_timeout(Duration::from_secs(10));
+        let mut query = query();
+        query.filter = None;
+
+        let page = fetch_page(&session, &query, &[0], &marks(0, 1), 2, LIMITS)
+            .await
+            .unwrap();
+
+        assert_eq!(page.records.len(), 1);
+        assert_eq!(page.records[0].schema_id, Some(300));
+        assert_eq!(
+            page.records[0].value.as_deref(),
+            Some(r#"{"orderId":"ord_0"}"#)
         );
     }
 
@@ -931,7 +1084,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_value_the_codec_declined_is_masked_rather_than_served_raw() {
         let mut unframed = card_record(0, PAN);
-        unframed.value = Some(format!(r#"{{"card":{{"number":"{PAN}"}}}}"#));
+        unframed.value = Some(format!(r#"{{"card":{{"number":"{PAN}"}}}}"#).into());
 
         let session = FakeCluster::local()
             .with_orders_records(vec![unframed])
@@ -960,7 +1113,7 @@ mod tests {
         let records = (0..4)
             .map(|offset| {
                 let mut record = card_record(offset, PAN);
-                record.value = Some(format!("charged {PAN} on order {offset}"));
+                record.value = Some(format!("charged {PAN} on order {offset}").into());
                 record
             })
             .collect();

@@ -41,7 +41,7 @@ impl RecordQuery {
     pub fn direction(&self) -> CursorDirection {
         self.cursor
             .as_ref()
-            .map_or(CursorDirection::Forward, |cursor| cursor.direction)
+            .map_or(CursorDirection::Forward, RecordCursor::direction)
     }
 
     pub fn searching(&self) -> bool {

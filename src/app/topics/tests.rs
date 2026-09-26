@@ -9,12 +9,14 @@ use crate::kafka::store::fixtures::{
     at, offline_partition, partition, topic, topology, watermarks,
 };
 
-use super::super::harness::{failure, ok, ok_as, seeded, seeded_with, state, viewer_everywhere};
+use super::super::harness::{
+    failure, ok, ok_as, seeded, seeded_with, state, store_of, viewer_everywhere,
+};
 
 #[tokio::test]
 async fn sixty_four_bit_counters_cross_the_wire_as_strings() {
     let state = state();
-    let store = state.cluster("local").expect("local cluster");
+    let store = store_of(&state, "local");
     let huge = 9_007_199_254_740_993_i64;
 
     store.topology.commit(Arc::new(topology(
@@ -51,7 +53,7 @@ async fn topic_rows_project_counts_and_configs_without_touching_the_broker() {
 #[tokio::test]
 async fn topic_rows_expose_the_latest_rate() {
     let state = seeded();
-    let store = state.cluster("local").expect("local cluster");
+    let store = store_of(&state, "local");
     let topic: Arc<str> = Arc::from("orders.created");
     store.rates.set(&topic, 12.5);
     store.rates.set(&topic, 13.5);
@@ -109,7 +111,7 @@ async fn topic_rows_sort_descending_on_the_requested_column() {
 #[tokio::test]
 async fn topic_detail_flags_under_replication_per_partition() {
     let state = state();
-    let store = state.cluster("local").expect("local cluster");
+    let store = store_of(&state, "local");
     store.topology.commit(Arc::new(topology(
         vec![topic(
             "orders.created",
@@ -126,7 +128,11 @@ async fn topic_detail_flags_under_replication_per_partition() {
     assert_eq!(topic["replicationFactor"], 2);
     assert_eq!(topic["underReplicated"], true);
     assert_eq!(topic["rate"], 0.0);
-    assert_eq!(topic["retentionMs"], "0");
+    assert_eq!(
+        topic["retentionMs"],
+        Value::Null,
+        "retention is unknown before the configs lane fetches this topic"
+    );
     assert_eq!(topic["cleanupPolicy"], "DELETE");
     assert_eq!(topic["partitions"][0]["underReplicated"], false);
     assert_eq!(topic["partitions"][1]["underReplicated"], true);

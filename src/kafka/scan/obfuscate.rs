@@ -48,42 +48,42 @@ pub struct ObfuscationPolicy {
 impl ObfuscationPolicy {
     pub fn compile(config: &ObfuscationConfig) -> Result<Self, ObfuscationError> {
         let hasher = config
-            .secret_bytes()
-            .map(|secret| Arc::new(KeyedHasher::new(&secret)));
+            .secret
+            .as_ref()
+            .map(|secret| Arc::new(KeyedHasher::new(secret.as_bytes())));
 
         let mut exact: HashMap<Box<str>, Arc<TopicObfuscator>> = HashMap::new();
         let mut prefixes: Vec<(Box<str>, Arc<TopicObfuscator>)> = Vec::new();
 
         for rule in &config.rules {
+            let strategy = |strategy| CompiledStrategy::compile(strategy, hasher.as_ref());
+
             let fields = rule
                 .fields
                 .iter()
-                .map(|field| CompiledField::compile(&field.path, field.strategy))
+                .map(|field| CompiledField::compile(&field.path, strategy(field.strategy)?))
                 .collect::<Result<Vec<_>, _>>()?;
 
             let patterns = rule
                 .patterns
                 .iter()
-                .map(|pattern| CompiledPattern::compile(&pattern.regex, pattern.strategy))
+                .map(|pattern| {
+                    CompiledPattern::compile(&pattern.regex, strategy(pattern.strategy)?)
+                })
                 .collect::<Result<Vec<_>, _>>()?;
 
             let obfuscator = Arc::new(TopicObfuscator {
                 fields,
                 patterns,
-                key: rule.key,
-                value: rule.value,
+                key: rule.key.map(strategy).transpose()?,
+                value: rule.value.map(strategy).transpose()?,
                 headers: rule
                     .headers
                     .iter()
                     .map(|header| header.as_str().into())
                     .collect(),
                 unparsed: rule.unparsed,
-                hasher: hasher.clone(),
             });
-
-            if obfuscator.hashes() && obfuscator.hasher.is_none() {
-                return Err(ObfuscationError::MissingSecret);
-            }
 
             for topic in &rule.topics {
                 match TopicPattern::parse(topic).map_err(|reason| {
@@ -123,11 +123,10 @@ impl ObfuscationPolicy {
 pub struct TopicObfuscator {
     fields: Vec<CompiledField>,
     patterns: Vec<CompiledPattern>,
-    key: Option<ObfuscationStrategy>,
-    value: Option<ObfuscationStrategy>,
+    key: Option<CompiledStrategy>,
+    value: Option<CompiledStrategy>,
     headers: Vec<Box<str>>,
     unparsed: UnparsedPolicy,
-    hasher: Option<Arc<KeyedHasher>>,
 }
 
 impl TopicObfuscator {
@@ -156,11 +155,11 @@ impl TopicObfuscator {
 
     pub fn apply(&self, field: Field, slot: &mut Option<DecodedPayload>) {
         let whole = match field {
-            Field::Key => self.key,
-            Field::Value => self.value,
+            Field::Key => self.key.as_ref(),
+            Field::Value => self.value.as_ref(),
         };
 
-        if whole == Some(ObfuscationStrategy::Drop) {
+        if matches!(whole, Some(CompiledStrategy::Drop)) {
             *slot = None;
             return;
         }
@@ -169,30 +168,27 @@ impl TopicObfuscator {
             return;
         };
 
-        match payload.json_mut() {
-            Some(json) => {
-                for rule in &self.fields {
-                    rule.apply(json, self.hasher.as_deref());
-                }
+        if let Some(json) = payload.edit_json() {
+            for rule in &self.fields {
+                rule.apply(json);
             }
-            None if field == Field::Value
-                && !self.fields.is_empty()
-                && self.unparsed == UnparsedPolicy::Mask =>
-            {
-                payload.replace(OBFUSCATION_MASK.to_owned());
-            }
-            None => {}
+        } else if self.masks_undecoded(field) {
+            payload.redact_with(OBFUSCATION_MASK.to_owned());
         }
 
         match whole {
-            Some(ObfuscationStrategy::Mask) => payload.replace(OBFUSCATION_MASK.to_owned()),
-            Some(ObfuscationStrategy::Hash) => {
-                let token = token(payload.text(), self.hasher.as_deref());
-                payload.replace(token);
+            Some(CompiledStrategy::Mask) => payload.redact_with(OBFUSCATION_MASK.to_owned()),
+            Some(CompiledStrategy::Hash(hasher)) => {
+                let token = hasher.token(payload.text());
+                payload.redact_with(token);
             }
-            Some(ObfuscationStrategy::Drop) => {}
+            Some(CompiledStrategy::Drop) => {}
             None => self.rewrite_matches(payload),
         }
+    }
+
+    fn masks_undecoded(&self, field: Field) -> bool {
+        field == Field::Value && !self.fields.is_empty() && self.unparsed == UnparsedPolicy::Mask
     }
 
     fn rewrite_matches(&self, payload: &mut DecodedPayload) {
@@ -202,35 +198,47 @@ impl TopicObfuscator {
 
         let mut text = Cow::Borrowed(payload.text());
         for pattern in &self.patterns {
-            if let Cow::Owned(rewritten) = pattern.apply(text.as_ref(), self.hasher.as_deref()) {
+            if let Cow::Owned(rewritten) = pattern.apply(text.as_ref()) {
                 text = Cow::Owned(rewritten);
             }
         }
 
         if let Cow::Owned(text) = text {
-            payload.replace(text);
+            payload.redact_with(text);
         }
     }
+}
 
-    fn hashes(&self) -> bool {
-        self.fields
-            .iter()
-            .map(|field| field.strategy)
-            .chain(self.patterns.iter().map(|pattern| pattern.strategy))
-            .chain(self.key)
-            .chain(self.value)
-            .any(|strategy| strategy == ObfuscationStrategy::Hash)
+#[derive(Debug)]
+enum CompiledStrategy {
+    Mask,
+    Hash(Arc<KeyedHasher>),
+    Drop,
+}
+
+impl CompiledStrategy {
+    fn compile(
+        strategy: ObfuscationStrategy,
+        hasher: Option<&Arc<KeyedHasher>>,
+    ) -> Result<Self, ObfuscationError> {
+        Ok(match strategy {
+            ObfuscationStrategy::Mask => Self::Mask,
+            ObfuscationStrategy::Drop => Self::Drop,
+            ObfuscationStrategy::Hash => {
+                Self::Hash(Arc::clone(hasher.ok_or(ObfuscationError::MissingSecret)?))
+            }
+        })
     }
 }
 
 #[derive(Debug)]
 struct CompiledField {
     path: Box<[Box<str>]>,
-    strategy: ObfuscationStrategy,
+    strategy: CompiledStrategy,
 }
 
 impl CompiledField {
-    fn compile(path: &str, strategy: ObfuscationStrategy) -> Result<Self, ObfuscationError> {
+    fn compile(path: &str, strategy: CompiledStrategy) -> Result<Self, ObfuscationError> {
         if path.trim().is_empty() || path.split('.').any(str::is_empty) {
             return Err(ObfuscationError::InvalidPath {
                 path: path.to_owned(),
@@ -243,19 +251,19 @@ impl CompiledField {
         })
     }
 
-    fn apply(&self, json: &mut serde_json::Value, hasher: Option<&KeyedHasher>) {
-        walk(json, &self.path, self.strategy, hasher);
+    fn apply(&self, json: &mut serde_json::Value) {
+        walk(json, &self.path, &self.strategy);
     }
 }
 
 #[derive(Debug)]
 struct CompiledPattern {
     regex: Regex,
-    strategy: ObfuscationStrategy,
+    strategy: CompiledStrategy,
 }
 
 impl CompiledPattern {
-    fn compile(source: &str, strategy: ObfuscationStrategy) -> Result<Self, ObfuscationError> {
+    fn compile(source: &str, strategy: CompiledStrategy) -> Result<Self, ObfuscationError> {
         let invalid = |reason: String| ObfuscationError::InvalidPattern {
             pattern: source.to_owned(),
             reason,
@@ -273,13 +281,13 @@ impl CompiledPattern {
         Ok(Self { regex, strategy })
     }
 
-    fn apply<'a>(&self, text: &'a str, hasher: Option<&KeyedHasher>) -> Cow<'a, str> {
-        match self.strategy {
-            ObfuscationStrategy::Mask => replace_literal(&self.regex, text, OBFUSCATION_MASK),
-            ObfuscationStrategy::Drop => replace_literal(&self.regex, text, ""),
-            ObfuscationStrategy::Hash => self
+    fn apply<'a>(&self, text: &'a str) -> Cow<'a, str> {
+        match &self.strategy {
+            CompiledStrategy::Mask => replace_literal(&self.regex, text, OBFUSCATION_MASK),
+            CompiledStrategy::Drop => replace_literal(&self.regex, text, ""),
+            CompiledStrategy::Hash(hasher) => self
                 .regex
-                .replace_all(text, |captures: &Captures<'_>| token(&captures[0], hasher)),
+                .replace_all(text, |captures: &Captures<'_>| hasher.token(&captures[0])),
         }
     }
 }
@@ -288,12 +296,7 @@ fn replace_literal<'a>(regex: &Regex, text: &'a str, replacement: &'static str) 
     regex.replace_all(text, regex::NoExpand(replacement))
 }
 
-fn walk(
-    value: &mut serde_json::Value,
-    path: &[Box<str>],
-    strategy: ObfuscationStrategy,
-    hasher: Option<&KeyedHasher>,
-) {
+fn walk(value: &mut serde_json::Value, path: &[Box<str>], strategy: &CompiledStrategy) {
     let Some((head, rest)) = path.split_first() else {
         return;
     };
@@ -301,25 +304,27 @@ fn walk(
     match value {
         serde_json::Value::Array(items) => {
             for item in items {
-                walk(item, path, strategy, hasher);
+                walk(item, path, strategy);
             }
         }
         serde_json::Value::Object(fields) if rest.is_empty() => match strategy {
-            ObfuscationStrategy::Drop => {
+            CompiledStrategy::Drop => {
                 fields.remove(head.as_ref());
             }
-            _ => {
+            CompiledStrategy::Mask => {
                 if let Some(found) = fields.get_mut(head.as_ref()) {
-                    *found = serde_json::Value::String(match strategy {
-                        ObfuscationStrategy::Hash => token(&leaf_text(found), hasher),
-                        _ => OBFUSCATION_MASK.to_owned(),
-                    });
+                    *found = serde_json::Value::String(OBFUSCATION_MASK.to_owned());
+                }
+            }
+            CompiledStrategy::Hash(hasher) => {
+                if let Some(found) = fields.get_mut(head.as_ref()) {
+                    *found = serde_json::Value::String(hasher.token(&leaf_text(found)));
                 }
             }
         },
         serde_json::Value::Object(fields) => {
             if let Some(found) = fields.get_mut(head.as_ref()) {
-                walk(found, rest, strategy, hasher);
+                walk(found, rest, strategy);
             }
         }
         _ => {}
@@ -330,13 +335,6 @@ fn leaf_text(value: &serde_json::Value) -> Cow<'_, str> {
     match value {
         serde_json::Value::String(text) => Cow::Borrowed(text),
         other => Cow::Owned(other.to_string()),
-    }
-}
-
-fn token(value: &str, hasher: Option<&KeyedHasher>) -> String {
-    match hasher {
-        Some(hasher) => hasher.token(value),
-        None => OBFUSCATION_MASK.to_owned(),
     }
 }
 
@@ -403,11 +401,7 @@ mod tests {
     }
 
     fn decoded(json: serde_json::Value) -> Option<DecodedPayload> {
-        Some(DecodedPayload::decoded(
-            Bytes::from(json.to_string()),
-            Some(7),
-            json,
-        ))
+        Some(DecodedPayload::decoded(Bytes::from(json.to_string()), json))
     }
 
     fn raw(text: &str) -> Option<DecodedPayload> {
@@ -445,6 +439,15 @@ mod tests {
         assert_eq!(masked["customer"]["email"], "***");
         assert_eq!(masked["customer"]["id"], 42);
         assert_eq!(masked["amount"], 9.5);
+    }
+
+    #[test]
+    fn a_token_is_the_prefixed_truncated_hmac_of_the_value() {
+        let obfuscator = payments().for_topic("payments.authorized").expect("rule");
+
+        let masked = apply(&obfuscator, serde_json::json!({"card": {"number": "4111"}}));
+
+        assert_eq!(masked["card"]["number"], "kx:d1310646e2a90174");
     }
 
     #[test]
@@ -639,6 +642,24 @@ mod tests {
         obfuscator.apply(Field::Value, &mut value);
 
         assert_eq!(value.expect("value").into_text(), "***");
+    }
+
+    #[test]
+    fn a_value_that_never_decoded_is_left_alone_when_the_topic_has_no_field_rules() {
+        let obfuscator = policy(
+            "
+            rules:
+              - topics: [payments]
+                key: mask
+            ",
+        )
+        .for_topic("payments")
+        .expect("rule");
+
+        let mut value = raw("unframed bytes");
+        obfuscator.apply(Field::Value, &mut value);
+
+        assert_eq!(value.expect("value").into_text(), "unframed bytes");
     }
 
     #[test]
@@ -960,6 +981,20 @@ mod tests {
     }
 
     #[test]
+    fn hashing_a_whole_field_without_a_secret_does_not_compile() {
+        let error = ObfuscationPolicy::compile(&config(
+            "
+            rules:
+              - topics: [payments]
+                key: hash
+            ",
+        ))
+        .unwrap_err();
+
+        assert_eq!(error, ObfuscationError::MissingSecret);
+    }
+
+    #[test]
     fn empty_path_segments_do_not_compile() {
         let error = ObfuscationPolicy::compile(&config(
             "
@@ -1013,5 +1048,6 @@ mod tests {
         };
 
         assert_eq!(token(raw), token(&encoded));
+        assert_eq!(token(raw), KeyedHasher::new(raw.as_bytes()).token("4111"));
     }
 }

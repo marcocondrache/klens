@@ -20,7 +20,7 @@ pub(crate) fn router() -> Router<AppState> {
 async fn whoami(session: Session) -> Json<Identity> {
     let clusters = session
         .access
-        .visible_clusters(session.state.stores.names())
+        .visible_clusters(session.state.clusters.names())
         .into_iter()
         .filter_map(|name| {
             let access = session.state.cluster_access(&session.access, name).ok()?;

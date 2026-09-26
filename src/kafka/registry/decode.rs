@@ -18,7 +18,7 @@ use super::client::{Registry, SchemaRegistryClient, references};
 use super::protobuf::{ProtobufCodec, ProtobufError};
 use crate::environment::{MISSING_SCHEMA_TTL, SUBJECT_FETCH_CONCURRENCY};
 use crate::kafka::model::{SchemaReference, SchemaType};
-use crate::kafka::scan::payload::{DecodedPayload, PayloadCodec, PayloadSlot, framed_schema_id};
+use crate::kafka::scan::payload::{DecodedPayload, PayloadCodec, PayloadSlot};
 
 const MAX_CACHED_SCHEMAS: u64 = 10_000;
 
@@ -39,7 +39,7 @@ impl Framing {
             });
         }
 
-        let id = u32::try_from(slot.override_id?).ok()?;
+        let id = u32::try_from(slot.fallback_schema_id?).ok()?;
         Some(Self {
             key: SchemaKey::Id(SchemaId::new(id)),
             payload_start: 0,
@@ -210,11 +210,7 @@ impl PayloadDecoder {
 
             match self.decode_body(resolved, framing, &slot.raw).await {
                 Ok(json) => {
-                    slot.decoded = Some(DecodedPayload::decoded(
-                        slot.raw.clone(),
-                        framed_schema_id(&slot.raw),
-                        json,
-                    ));
+                    slot.decoded = Some(DecodedPayload::decoded(slot.raw.clone(), json));
                 }
                 Err(error) => *failure = Some((framing.key, error)),
             }
@@ -302,7 +298,7 @@ impl From<ProtobufError> for DecodeError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DecodedField {
     pub text: String,
-    pub schema_id: Option<i32>,
+    pub wire_schema_id: Option<i32>,
 }
 
 #[cfg(test)]
@@ -311,20 +307,34 @@ impl PayloadDecoder {
         self.decode_with(bytes, None).await.text
     }
 
-    pub(crate) async fn decode_with(&self, bytes: &[u8], override_id: Option<i32>) -> DecodedField {
-        let mut slots = [PayloadSlot::new(Bytes::copy_from_slice(bytes), override_id)];
+    pub(crate) async fn decode_with(
+        &self,
+        bytes: &[u8],
+        fallback_schema_id: Option<i32>,
+    ) -> DecodedField {
+        let mut slots = [PayloadSlot::new(
+            Bytes::copy_from_slice(bytes),
+            fallback_schema_id,
+        )];
         self.decode_batch(&mut slots).await;
         let [slot] = slots;
         let decoded = slot.take();
 
         DecodedField {
-            schema_id: decoded.schema_id(),
+            wire_schema_id: decoded.wire_schema_id(),
             text: decoded.into_text(),
         }
     }
 
-    async fn decode_failure(&self, bytes: &[u8], override_id: Option<i32>) -> Option<DecodeError> {
-        let mut slots = [PayloadSlot::new(Bytes::copy_from_slice(bytes), override_id)];
+    async fn decode_failure(
+        &self,
+        bytes: &[u8],
+        fallback_schema_id: Option<i32>,
+    ) -> Option<DecodeError> {
+        let mut slots = [PayloadSlot::new(
+            Bytes::copy_from_slice(bytes),
+            fallback_schema_id,
+        )];
         let failures = self.decode_slots(&mut slots).await;
         failures
             .into_iter()
@@ -688,7 +698,7 @@ mod tests {
         let value: serde_json::Value = serde_json::from_str(&decoded.text).unwrap();
         assert_eq!(value["orderId"], "abc");
         assert_eq!(value["amount"], "42");
-        assert_eq!(decoded.schema_id, None);
+        assert_eq!(decoded.wire_schema_id, None);
     }
 
     #[tokio::test]
@@ -739,7 +749,7 @@ mod tests {
 
         assert_eq!(value["orderId"], "abc");
         assert_eq!(value["amount"], 42);
-        assert_eq!(decoded.schema_id, None);
+        assert_eq!(decoded.wire_schema_id, None);
         assert!(
             !decode_bytes(&payload)
                 .to_ascii_lowercase()
@@ -762,7 +772,7 @@ mod tests {
         let value: serde_json::Value = serde_json::from_str(&decoded.text).unwrap();
 
         assert_eq!(value["orderId"], "abc");
-        assert_eq!(decoded.schema_id, Some(12));
+        assert_eq!(decoded.wire_schema_id, Some(12));
     }
 
     #[tokio::test]
@@ -772,7 +782,7 @@ mod tests {
         let raw = b"????";
         let decoded = decoder(&server.uri()).decode_with(raw, Some(12)).await;
         assert_eq!(decoded.text, decode_bytes(raw));
-        assert_eq!(decoded.schema_id, None);
+        assert_eq!(decoded.wire_schema_id, None);
     }
 
     #[tokio::test]
@@ -783,7 +793,7 @@ mod tests {
         let raw = b"not-json";
         let decoded = decoder(&server.uri()).decode_with(raw, Some(99)).await;
         assert_eq!(decoded.text, decode_bytes(raw));
-        assert_eq!(decoded.schema_id, None);
+        assert_eq!(decoded.wire_schema_id, None);
     }
 
     #[tokio::test]

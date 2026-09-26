@@ -7,6 +7,11 @@ use tokio::time::Instant;
 use crate::kafka::error::KafkaError;
 use crate::kafka::store::{ClusterStore, Lane};
 
+pub enum Fetch<T> {
+    Ready(T),
+    Awaiting,
+}
+
 #[async_trait]
 pub trait LaneSource: Send + Sync + 'static {
     type Table: Send + Sync + 'static;
@@ -22,7 +27,7 @@ pub trait LaneSource: Send + Sync + 'static {
         &self,
         store: &ClusterStore,
         previous: Option<&Arc<Self::Table>>,
-    ) -> Result<Option<Self::Table>, KafkaError>;
+    ) -> Result<Fetch<Self::Table>, KafkaError>;
 
     fn diff(&self, previous: Option<&Self::Table>, next: &Self::Table) -> Option<Self::Delta>;
 
@@ -50,8 +55,8 @@ async fn poll<S: LaneSource>(store: &ClusterStore, source: &S) {
     let started = Instant::now();
 
     match source.fetch(store, previous.as_ref()).await {
-        Ok(next) => {
-            if let Some(next) = next
+        Ok(fetched) => {
+            if let Fetch::Ready(next) = fetched
                 && let Some(delta) = source.diff(previous.as_deref(), &next)
             {
                 let next = Arc::new(next);
@@ -81,12 +86,12 @@ mod tests {
 
     struct Scripted {
         polls: AtomicUsize,
-        script: Mutex<Vec<Result<Topology, String>>>,
+        script: Mutex<Vec<Result<Fetch<Topology>, String>>>,
         publishes: AtomicUsize,
     }
 
     impl Scripted {
-        fn new(script: Vec<Result<Topology, String>>) -> Arc<Self> {
+        fn new(script: Vec<Result<Fetch<Topology>, String>>) -> Arc<Self> {
             Arc::new(Self {
                 polls: AtomicUsize::new(0),
                 script: Mutex::new(script),
@@ -116,13 +121,17 @@ mod tests {
             &self,
             _store: &ClusterStore,
             _previous: Option<&Arc<Topology>>,
-        ) -> Result<Option<Topology>, KafkaError> {
+        ) -> Result<Fetch<Topology>, KafkaError> {
             let index = self.polls.fetch_add(1, Ordering::SeqCst);
             let script = self.script.lock().expect("script");
-            match script.get(index).or_else(|| script.last()) {
-                Some(Ok(topology)) => Ok(Some(topology.clone())),
-                Some(Err(message)) => Err(KafkaError::Admin(message.clone())),
-                None => Ok(None),
+            match script
+                .get(index)
+                .or_else(|| script.last())
+                .expect("a scripted lane needs at least one step")
+            {
+                Ok(Fetch::Ready(topology)) => Ok(Fetch::Ready(topology.clone())),
+                Ok(Fetch::Awaiting) => Ok(Fetch::Awaiting),
+                Err(message) => Err(KafkaError::Admin(message.clone())),
             }
         }
 
@@ -171,7 +180,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_no_change_poll_commits_nothing_and_publishes_nothing() {
         let store = cluster("local");
-        let source = Scripted::new(vec![Ok(orders(1))]);
+        let source = Scripted::new(vec![Ok(Fetch::Ready(orders(1)))]);
         let task = tokio::spawn(run(Arc::clone(&store), Arc::clone(&source)));
 
         poll_until(&source, 1).await;
@@ -194,7 +203,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_failed_poll_keeps_serving_the_last_table() {
         let store = cluster("local");
-        let source = Scripted::new(vec![Ok(orders(1)), Err("broker down".into())]);
+        let source = Scripted::new(vec![Ok(Fetch::Ready(orders(1))), Err("broker down".into())]);
         let task = tokio::spawn(run(Arc::clone(&store), Arc::clone(&source)));
 
         poll_until(&source, 1).await;
@@ -212,6 +221,30 @@ mod tests {
             store.topology.health().last_error.as_deref(),
             Some("kafka admin request failed: broker down")
         );
+        task.abort();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_poll_awaiting_upstream_commits_nothing_but_counts_as_a_success() {
+        let store = cluster("local");
+        let source = Scripted::new(vec![
+            Ok(Fetch::Ready(orders(1))),
+            Err("broker down".into()),
+            Ok(Fetch::Awaiting),
+        ]);
+        let task = tokio::spawn(run(Arc::clone(&store), Arc::clone(&source)));
+
+        poll_until(&source, 1).await;
+        store.topology.kick();
+        poll_until(&source, 2).await;
+        store.topology.kick();
+        poll_until(&source, 3).await;
+        tokio::task::yield_now().await;
+
+        assert_eq!(store.topology.version(), 1);
+        assert_eq!(source.publishes.load(Ordering::SeqCst), 1);
+        assert_eq!(store.topology.load().unwrap().topics.len(), 1);
+        assert_eq!(store.topology.health().last_error, None);
         task.abort();
     }
 
@@ -235,7 +268,10 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_change_commits_and_publishes_once() {
         let store = cluster("local");
-        let source = Scripted::new(vec![Ok(orders(1)), Ok(orders(2))]);
+        let source = Scripted::new(vec![
+            Ok(Fetch::Ready(orders(1))),
+            Ok(Fetch::Ready(orders(2))),
+        ]);
         let task = tokio::spawn(run(Arc::clone(&store), Arc::clone(&source)));
 
         poll_until(&source, 1).await;
@@ -262,7 +298,10 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_replaced_table_is_freed_while_the_lane_sleeps() {
         let store = cluster("local");
-        let source = Scripted::new(vec![Ok(orders(1)), Ok(orders(2))]);
+        let source = Scripted::new(vec![
+            Ok(Fetch::Ready(orders(1))),
+            Ok(Fetch::Ready(orders(2))),
+        ]);
         let task = tokio::spawn(run(Arc::clone(&store), Arc::clone(&source)));
 
         poll_until(&source, 1).await;
@@ -282,7 +321,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn the_lane_sleeps_for_its_interval_between_polls() {
         let store = cluster("local");
-        let source = Scripted::new(vec![Ok(orders(1))]);
+        let source = Scripted::new(vec![Ok(Fetch::Ready(orders(1)))]);
         let task = tokio::spawn(run(Arc::clone(&store), Arc::clone(&source)));
 
         poll_until(&source, 1).await;

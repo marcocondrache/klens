@@ -25,14 +25,27 @@ use crate::kafka::metadata::{
 use crate::kafka::model::{PartitionWindow, RawRecord, ScanConsumer, TailConsumer, TailPosition};
 use crate::kafka::registry::{RegisteredSchema, SchemaCompatibility, SchemaSubject, SchemaType};
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
-use crate::kafka::scan::payload::{DecodedPayload, PayloadCodec, PayloadSlot, framed_schema_id};
-use crate::kafka::scan::{Compression, Record, RecordHeader};
+use crate::kafka::scan::payload::{DecodedPayload, PayloadCodec, PayloadSlot};
+use crate::kafka::scan::{Compression, RecordHeader};
 use crate::kafka::session::ClusterSession;
 use crate::kafka::topic_config::{ConfigEntry, ConfigSource};
 use crate::kafka::writes::ClusterWrites;
 
 const SUBJECT_SCHEMA: &str =
     r#"{"type":"record","name":"Order","fields":[{"name":"orderId","type":"string"}]}"#;
+
+#[derive(Debug, Clone)]
+pub struct FixtureRecord {
+    pub topic: String,
+    pub partition: i32,
+    pub offset: i64,
+    pub timestamp: i64,
+    pub key: Option<Bytes>,
+    pub value: Option<Bytes>,
+    pub headers: Vec<RecordHeader>,
+    pub size_bytes: u64,
+    pub compression: Compression,
+}
 
 #[derive(Clone)]
 pub struct FakeCluster {
@@ -47,7 +60,7 @@ struct Inner {
     topic_configs: Mutex<HashMap<String, Vec<ConfigEntry>>>,
     broker_configs: Mutex<HashMap<i32, Vec<ConfigEntry>>>,
     groups: Mutex<Vec<GroupSnapshot>>,
-    records: Mutex<Vec<Record>>,
+    records: Mutex<Vec<FixtureRecord>>,
     subjects: Mutex<Vec<SchemaSubject>>,
     acls: Mutex<AclListing>,
     metadata_error: Mutex<Option<String>>,
@@ -183,14 +196,13 @@ impl FakeCluster {
         }];
 
         let records = (0..8)
-            .map(|offset| Record {
+            .map(|offset| FixtureRecord {
                 topic: "orders.created".into(),
                 partition: i32::from(offset % 2 == 0),
                 offset: i64::from(offset),
                 timestamp: 1_700_000_000_000 + i64::from(offset) * 1_000,
-                key: Some(format!("ord_{offset}")),
-                value: Some(format!(r#"{{"orderId":"ord_{offset}"}}"#)),
-                schema_id: None,
+                key: Some(format!("ord_{offset}").into()),
+                value: Some(format!(r#"{{"orderId":"ord_{offset}"}}"#).into()),
                 headers: vec![RecordHeader {
                     key: "source".into(),
                     value: "checkout".into(),
@@ -444,7 +456,7 @@ impl FakeCluster {
         *self.inner.offsets_error.lock().expect("offsets error") = error.map(str::to_owned);
     }
 
-    pub fn with_orders_records(self, records: Vec<Record>) -> Self {
+    pub fn with_orders_records(self, records: Vec<FixtureRecord>) -> Self {
         let mut highs = HashMap::<i32, i64>::new();
         for record in &records {
             let high = highs.entry(record.partition).or_insert(0);
@@ -497,7 +509,7 @@ impl FakeCluster {
         self
     }
 
-    pub fn produce(&self, record: Record) {
+    pub fn produce(&self, record: FixtureRecord) {
         let marks = {
             let mut watermarks = self.inner.watermarks.lock().expect("watermarks");
             let marks = watermarks
@@ -1102,10 +1114,10 @@ impl ScanConsumer for FakeScan {
         Ok(())
     }
 
-    async fn poll(&self, budget: Duration) -> Result<Vec<RawRecord>, KafkaError> {
+    async fn poll(&self, max_wait: Duration) -> Result<Vec<RawRecord>, KafkaError> {
         let owed = *self.owed.lock().expect("owed");
         if !owed.is_zero() {
-            let slice = owed.min(budget);
+            let slice = owed.min(max_wait);
             tokio::time::sleep(slice).await;
             *self.owed.lock().expect("owed") = owed - slice;
             if slice < owed {
@@ -1184,13 +1196,13 @@ impl FakeTail {
 
 #[async_trait]
 impl TailConsumer for FakeTail {
-    async fn poll(&self, budget: Duration) -> Result<Vec<RawRecord>, KafkaError> {
+    async fn poll(&self, max_wait: Duration) -> Result<Vec<RawRecord>, KafkaError> {
         self.cluster.tail_polls.fetch_add(1, Ordering::SeqCst);
         let ready = self.take();
         if !ready.is_empty() || self.positions.lock().expect("positions").is_empty() {
             return Ok(ready);
         }
-        tokio::time::sleep(budget).await;
+        tokio::time::sleep(max_wait).await;
         Ok(self.take())
     }
 
@@ -1230,16 +1242,13 @@ impl TailConsumer for FakeTail {
     }
 }
 
-fn raw_record(record: &Record) -> RawRecord {
+fn raw_record(record: &FixtureRecord) -> RawRecord {
     RawRecord {
         partition: record.partition,
         offset: record.offset,
         timestamp: record.timestamp,
-        key: record.key.as_ref().map(|key| Bytes::from(key.clone())),
-        value: record
-            .value
-            .as_ref()
-            .map(|value| Bytes::from(value.clone())),
+        key: record.key.clone(),
+        value: record.value.clone(),
         headers: record
             .headers
             .iter()
@@ -1254,18 +1263,17 @@ fn raw_record(record: &Record) -> RawRecord {
     }
 }
 
-fn framed(schema_id: u32, body: &str) -> String {
-    String::from_utf8(schemreg::encode_wire_format(schema_id, body.as_bytes()).to_vec())
-        .expect("a small schema id frames as utf-8")
+pub fn framed(schema_id: u32, body: &str) -> Bytes {
+    schemreg::encode_wire_format(schema_id, body.as_bytes())
 }
 
-pub fn card_record(offset: i64, pan: &str) -> Record {
-    Record {
+pub fn card_record(offset: i64, pan: &str) -> FixtureRecord {
+    FixtureRecord {
         topic: "orders.created".into(),
         partition: 0,
         offset,
         timestamp: 1_700_000_000_000 + offset,
-        key: Some(format!("ord_{offset}")),
+        key: Some(format!("ord_{offset}").into()),
         value: Some(framed(
             7,
             &format!(r#"{{"orderId":"ord_{offset}","card":{{"number":"{pan}","cvv":"123"}}}}"#),
@@ -1274,7 +1282,6 @@ pub fn card_record(offset: i64, pan: &str) -> Record {
             key: "x-user-id".into(),
             value: "ada".into(),
         }],
-        schema_id: None,
         size_bytes: 0,
         compression: Compression::None,
     }
@@ -1298,11 +1305,7 @@ impl PayloadCodec for CountingCodec {
                 continue;
             };
 
-            slot.decoded = Some(DecodedPayload::decoded(
-                slot.raw.clone(),
-                framed_schema_id(&slot.raw),
-                json,
-            ));
+            slot.decoded = Some(DecodedPayload::decoded(slot.raw.clone(), json));
         }
     }
 }

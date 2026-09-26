@@ -28,11 +28,8 @@ async fn records(
     Path((name, topic)): Path<(String, String)>,
     Query(params): Query<RecordParams>,
 ) -> Result<Json<RecordPage>, ApiError> {
-    let capability = session.cluster(&name)?.access.records()?;
+    let records = session.cluster(&name)?.records()?;
     Ok(Json(RecordPage::from(
-        session
-            .state
-            .live_records(capability.cluster(), record_query(topic, params)?)
-            .await?,
+        records.read(record_query(topic, params)?).await?,
     )))
 }

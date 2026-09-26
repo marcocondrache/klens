@@ -4,5 +4,6 @@ test_tool = "nextest"
 exclude_globs = [
     # Only compiled with the `ui` feature, which needs the built web bundle.
     "src/server/web.rs",
+    # Only wires the process together at startup; no test runs `main`.
     "src/main.rs",
 ]

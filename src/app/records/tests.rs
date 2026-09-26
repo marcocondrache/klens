@@ -2,14 +2,18 @@ use axum::http::StatusCode;
 use serde_json::json;
 
 use crate::AppState;
+use crate::app::Limits;
 use crate::app::auth::SessionGuard;
 use crate::app::auth::access::EffectiveAccess;
 use crate::kafka::FakeCluster;
+use crate::kafka::FixtureRecord;
 use crate::kafka::card_record;
 use crate::kafka::model as domain;
+use bytes::Bytes;
 
 use super::super::harness::{
-    failure, ok, open_stream, read_frames, seeded, seeded_with, viewer_everywhere,
+    failure, ok, open_stream, read_frames, seed, seeded, seeded_with, store_of, viewer_everywhere,
+    with_limits,
 };
 use super::types::Record;
 
@@ -211,7 +215,7 @@ async fn a_pattern_rule_tokens_a_topic_no_registry_ever_decodes() {
     let records = (0..3)
         .map(|offset| {
             let mut record = card_record(offset, pan);
-            record.value = Some(format!("charged {pan} for ada@example.com"));
+            record.value = Some(format!("charged {pan} for ada@example.com").into());
             record
         })
         .collect();
@@ -303,17 +307,17 @@ async fn records_are_forbidden_without_the_records_privilege() {
 
 const TAIL: &str = "/clusters/local/topics/orders.created/records/tail";
 
-fn produced(partition: i32, offset: i64, key: &str) -> domain::Record {
-    domain::Record {
+fn produced(partition: i32, offset: i64, key: impl Into<Bytes>) -> FixtureRecord {
+    let key = key.into();
+    FixtureRecord {
         topic: "orders.created".into(),
         partition,
         offset,
         timestamp: 1_700_000_100_000 + offset,
-        key: Some(key.into()),
-        value: None,
-        schema_id: None,
-        headers: Vec::new(),
         size_bytes: key.len() as u64,
+        key: Some(key),
+        value: None,
+        headers: Vec::new(),
         compression: domain::Compression::None,
     }
 }
@@ -442,7 +446,14 @@ async fn a_tail_is_forbidden_without_the_records_privilege() {
 
 #[tokio::test]
 async fn tails_past_capacity_are_turned_away_until_one_closes() {
-    let state = seeded().with_tail_capacity(1);
+    let state = with_limits(
+        vec![FakeCluster::local()],
+        Limits {
+            live_tails: 1,
+            ..Limits::from_env()
+        },
+    );
+    seed(store_of(&state, "local"));
     let (status, code) = refused(
         &state,
         "/clusters/local/topics/ghost/records/tail",

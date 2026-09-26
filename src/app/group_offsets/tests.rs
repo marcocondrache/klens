@@ -10,7 +10,7 @@ use crate::kafka::model::{CommittedOffset, GroupSnapshot, GroupState};
 use crate::kafka::store::fixtures::{group, partition, topic, topology};
 use crate::kafka::{FakeCluster, KafkaError};
 
-use super::super::harness::{granted, ok, post, send, viewer, with};
+use super::super::harness::{granted, ok, post, send, store_of, viewer, with};
 
 const RESET: &str = "/clusters/local/group-offsets/reset";
 const DELETE: &str = "/clusters/local/group-offsets/delete";
@@ -51,20 +51,16 @@ fn writable(group: GroupSnapshot) -> (AppState, FakeCluster) {
         "local",
         &[Privilege::ResetOffsets, Privilege::DeleteGroupOffsets],
     );
-    state
-        .cluster("local")
-        .expect("local cluster")
-        .topology
-        .commit(Arc::new(topology(
-            vec![topic(
-                TOPIC,
-                vec![
-                    partition(0, vec![1], vec![1]),
-                    partition(1, vec![1], vec![1]),
-                ],
-            )],
-            vec![group],
-        )));
+    store_of(&state, "local").topology.commit(Arc::new(topology(
+        vec![topic(
+            TOPIC,
+            vec![
+                partition(0, vec![1], vec![1]),
+                partition(1, vec![1], vec![1]),
+            ],
+        )],
+        vec![group],
+    )));
     (state, cluster)
 }
 

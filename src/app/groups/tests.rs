@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::kafka::store::fixtures::{at, group, partition, topic, topology, watermarks};
 
-use super::super::harness::{ok, ok_as, seeded, state, viewer_everywhere};
+use super::super::harness::{ok, ok_as, seeded, state, store_of, viewer_everywhere};
 
 #[tokio::test]
 async fn group_rows_join_commits_against_watermarks() {
@@ -21,7 +21,7 @@ async fn group_rows_join_commits_against_watermarks() {
 #[tokio::test]
 async fn opening_a_group_registers_interest_so_its_offsets_poll_faster() {
     let state = seeded();
-    let store = state.cluster("local").expect("local cluster");
+    let store = store_of(&state, "local");
     assert!(!store.interest.is_hot("order-processor"));
 
     let group = ok(&state, "/clusters/local/groups/order-processor").await;
@@ -37,7 +37,7 @@ async fn opening_a_group_registers_interest_so_its_offsets_poll_faster() {
 #[tokio::test]
 async fn a_group_id_with_a_slash_is_one_resource() {
     let state = state();
-    let store = state.cluster("local").expect("local cluster");
+    let store = store_of(&state, "local");
     store.topology.commit(Arc::new(topology(
         vec![topic(
             "orders.created",
@@ -61,7 +61,7 @@ async fn group_rows_stay_open_to_a_viewer() {
 #[tokio::test]
 async fn a_group_whose_offsets_were_never_fetched_has_unknown_lag() {
     let state = state();
-    let store = state.cluster("local").expect("local cluster");
+    let store = store_of(&state, "local");
     store.topology.commit(Arc::new(topology(
         vec![topic(
             "orders.created",

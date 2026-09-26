@@ -36,7 +36,11 @@ retainedMessages: Int64,
  * Messages ever produced (`Σ high`). Overstates a retention-truncated
  * topic, so it is not the display default.
  */
-producedTotal: Int64, rate: number, retentionMs: Int64, cleanupPolicy: CleanupPolicy, groupCount: number, underReplicated: boolean, };
+producedTotal: Int64, rate: number, 
+/**
+ * Null until the topic's configs report a `retention.ms` value.
+ */
+retentionMs: Int64 | null, cleanupPolicy: CleanupPolicy, groupCount: number, underReplicated: boolean, };
 
 export type TopicRowPage = { rows: Array<TopicRow>, 
 /**
@@ -47,7 +51,11 @@ total: number, nextCursor: string | null, };
 
 export type PartitionRow = { id: number, leader: number, replicas: Array<number>, isr: Array<number>, lowWatermark: Int64, highWatermark: Int64, retained: Int64, underReplicated: boolean, };
 
-export type TopicDetail = { name: string, internal: boolean, partitions: Array<PartitionRow>, replicationFactor: number, retainedMessages: Int64, producedTotal: Int64, rate: number, retentionMs: Int64, cleanupPolicy: CleanupPolicy, groupCount: number, underReplicated: boolean, };
+export type TopicDetail = { name: string, internal: boolean, partitions: Array<PartitionRow>, replicationFactor: number, retainedMessages: Int64, producedTotal: Int64, rate: number, 
+/**
+ * Null until the topic's configs report a `retention.ms` value.
+ */
+retentionMs: Int64 | null, cleanupPolicy: CleanupPolicy, groupCount: number, underReplicated: boolean, };
 
 export type GroupState = "STABLE" | "EMPTY" | "PREPARING_REBALANCE" | "COMPLETING_REBALANCE" | "DEAD";
 

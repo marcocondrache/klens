@@ -51,16 +51,13 @@ async fn subject(
     Query(query): Query<VersionQuery>,
 ) -> Result<Json<SubjectDetail>, ApiError> {
     let cluster = session.cluster(&name)?;
-    let capability = cluster.access.schema_text()?;
+    let schema_text = cluster.schema_text()?;
     let version = match query.version {
         Some(version) => version,
         None => latest_version(&cluster, &subject)?,
     };
 
-    let schema = session
-        .state
-        .live_subject_schema(capability.cluster(), &subject, version)
-        .await?;
+    let schema = schema_text.subject_schema(&subject, version).await?;
 
     Ok(Json(SubjectDetail::new(subject, version, schema)))
 }

@@ -5,7 +5,7 @@ use axum_extra::extract::WithRejection;
 
 use crate::AppState;
 use crate::kafka::store::GroupRow;
-use crate::kafka::{ClusterSession, KafkaError, OffsetMove, ResetScope, plan_reset};
+use crate::kafka::{KafkaError, OffsetMove, ResetScope};
 
 use super::context::{ClusterHandle, Session};
 use super::error::ApiError;
@@ -42,7 +42,7 @@ async fn reset_offsets(
     request: &ResetOffsetsRequest,
 ) -> Result<OffsetReset, ApiError> {
     let cluster = session.cluster(name)?;
-    let capability = cluster.access.reset_offsets()?;
+    let granted = cluster.reset_offsets()?;
     let group = known_group(&cluster, &request.group)?;
     if !request.dry_run && group.state.has_members() {
         return Err(group_not_empty(&cluster, &request.group));
@@ -60,12 +60,13 @@ async fn reset_offsets(
             partitions: partitions.clone(),
         },
     };
-    let kafka = kafka(session, capability.cluster())?;
-    let plan = plan_reset(kafka, &request.group, &scope, request.to.into()).await?;
+    let plan = granted
+        .plan(&request.group, &scope, request.to.into())
+        .await?;
 
     if !request.dry_run {
         let offsets: Vec<_> = plan.iter().map(OffsetMove::committed).collect();
-        kafka.commit_group_offsets(&request.group, &offsets).await?;
+        granted.commit(&request.group, &offsets).await?;
         cluster.store.offsets.kick();
     }
 
@@ -92,11 +93,10 @@ async fn delete_offsets(
     request: &DeleteOffsetsRequest,
 ) -> Result<DeletedOffsets, ApiError> {
     let cluster = session.cluster(name)?;
-    let capability = cluster.access.delete_group_offsets()?;
+    let granted = cluster.delete_group_offsets()?;
     known_group(&cluster, &request.group)?;
     confirm(&request.confirm, &request.group, "group id")?;
 
-    let kafka = kafka(session, capability.cluster())?;
     let mut partitions = match &request.partitions {
         Some(partitions) if partitions.is_empty() => {
             return Err(KafkaError::InvalidRequest(
@@ -105,13 +105,11 @@ async fn delete_offsets(
             .into());
         }
         Some(partitions) => partitions.clone(),
-        None => kafka
-            .committed_offsets(&request.group, None)
-            .await?
-            .into_iter()
-            .filter(|offset| offset.topic == request.topic)
-            .map(|offset| offset.partition)
-            .collect(),
+        None => {
+            granted
+                .committed_partitions(&request.group, &request.topic)
+                .await?
+        }
     };
     partitions.sort_unstable();
     partitions.dedup();
@@ -120,7 +118,7 @@ async fn delete_offsets(
         .iter()
         .map(|partition| (request.topic.clone(), *partition))
         .collect();
-    kafka.delete_group_offsets(&request.group, &refs).await?;
+    granted.delete(&request.group, &refs).await?;
     cluster.store.offsets.kick();
 
     Ok(DeletedOffsets {
@@ -146,8 +144,4 @@ fn group_not_empty(cluster: &ClusterHandle<'_>, group: &str) -> ApiError {
         group: group.to_owned(),
     }
     .into()
-}
-
-fn kafka<'a>(session: &'a Session, cluster: &str) -> Result<&'a dyn ClusterSession, ApiError> {
-    Ok(session.state.sessions.session(cluster)?)
 }
