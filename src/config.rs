@@ -513,9 +513,6 @@ impl ClusterConfig {
 
 pub const MIN_OBFUSCATION_SECRET_BYTES: usize = 32;
 
-/// Secret bytes configured as base64 or raw text. Base64 wins only when it
-/// decodes to at least `MIN` bytes, so a passphrase that happens to be valid
-/// base64 is still taken as written.
 #[derive(Clone, PartialEq, Eq)]
 pub struct KeyMaterial<const MIN: usize>(Box<[u8]>);
 
@@ -527,7 +524,6 @@ pub struct ShortKeyMaterial {
 }
 
 impl<const MIN: usize> KeyMaterial<MIN> {
-    /// Blank input is `None`, an unset key rather than a short one.
     pub fn parse(raw: &str) -> Result<Option<Self>, ShortKeyMaterial> {
         let raw = raw.trim();
         if raw.is_empty() {
