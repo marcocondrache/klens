@@ -52,14 +52,13 @@ impl CleanupPolicy {
     }
 }
 
-pub fn topic_config_values(entries: Option<&[ConfigEntry]>) -> (CleanupPolicy, i64) {
+pub fn topic_config_values(entries: Option<&[ConfigEntry]>) -> (CleanupPolicy, Option<i64>) {
     let entries = entries.unwrap_or(&[]);
     let cleanup_policy = ConfigEntry::lookup(entries, "cleanup.policy")
         .map(CleanupPolicy::parse)
         .unwrap_or(CleanupPolicy::Delete);
-    let retention_ms = ConfigEntry::lookup(entries, "retention.ms")
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(0);
+    let retention_ms =
+        ConfigEntry::lookup(entries, "retention.ms").and_then(|value| value.parse().ok());
     (cleanup_policy, retention_ms)
 }
 
@@ -78,10 +77,10 @@ mod tests {
     }
 
     #[test]
-    fn topic_config_values_fall_back_to_kafka_defaults() {
+    fn topic_config_values_default_to_delete_and_unknown_retention() {
         assert_eq!(
             topic_config_values(None),
-            (CleanupPolicy::Delete, 0),
+            (CleanupPolicy::Delete, None),
             "no config reported"
         );
 
@@ -94,7 +93,7 @@ mod tests {
         }];
         assert_eq!(
             topic_config_values(Some(&entries)),
-            (CleanupPolicy::Delete, 604_800_000)
+            (CleanupPolicy::Delete, Some(604_800_000))
         );
     }
 }

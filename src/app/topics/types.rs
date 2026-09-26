@@ -31,7 +31,8 @@ pub struct TopicRow {
     /// topic, so it is not the display default.
     pub produced_total: Int64,
     pub rate: f64,
-    pub retention_ms: Int64,
+    /// Null until the topic's configs report a `retention.ms` value.
+    pub retention_ms: Option<Int64>,
     pub cleanup_policy: CleanupPolicy,
     pub group_count: i32,
     pub under_replicated: bool,
@@ -47,7 +48,7 @@ impl From<projections::TopicRow> for TopicRow {
             retained_messages: row.retained_messages.into(),
             produced_total: row.produced_total.into(),
             rate: row.rate,
-            retention_ms: row.retention_ms.into(),
+            retention_ms: row.retention_ms.map(Into::into),
             cleanup_policy: row.cleanup_policy.into(),
             group_count: row.group_count,
             under_replicated: row.under_replicated,
@@ -103,7 +104,8 @@ pub struct TopicDetail {
     pub retained_messages: Int64,
     pub produced_total: Int64,
     pub rate: f64,
-    pub retention_ms: Int64,
+    /// Null until the topic's configs report a `retention.ms` value.
+    pub retention_ms: Option<Int64>,
     pub cleanup_policy: CleanupPolicy,
     pub group_count: i32,
     pub under_replicated: bool,
@@ -119,7 +121,7 @@ impl From<projections::TopicDetail> for TopicDetail {
             retained_messages: detail.retained_messages.into(),
             produced_total: detail.produced_total.into(),
             rate: detail.rate,
-            retention_ms: detail.retention_ms.into(),
+            retention_ms: detail.retention_ms.map(Into::into),
             cleanup_policy: detail.cleanup_policy.into(),
             group_count: detail.group_count,
             under_replicated: detail.under_replicated,

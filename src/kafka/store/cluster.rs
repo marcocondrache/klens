@@ -330,7 +330,10 @@ mod tests {
 
         let orders = store.topic_detail("orders").expect("orders exists");
         assert_eq!(orders.rate, 7.5);
-        assert_eq!(orders.retention_ms, 0);
+        assert_eq!(
+            orders.retention_ms, None,
+            "retention is unknown before the configs lane fetches this topic"
+        );
         assert_eq!(
             orders.cleanup_policy,
             crate::kafka::topic_config::CleanupPolicy::Delete
