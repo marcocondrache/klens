@@ -12,6 +12,7 @@ use base64::Engine as _;
 use jiff::Timestamp;
 use openidconnect::{CsrfToken, Nonce, PkceCodeChallenge};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tower_sessions::cookie::time::Duration;
 use tower_sessions::cookie::{Key, SameSite};
 use tower_sessions::service::SignedCookie;
@@ -48,7 +49,7 @@ pub(crate) struct SessionUser {
     #[serde(default)]
     pub groups: Vec<String>,
     #[serde(skip)]
-    auth_hash: Vec<u8>,
+    auth_hash: [u8; 32],
 }
 
 impl SessionUser {
@@ -65,20 +66,20 @@ impl SessionUser {
             name,
             groups,
             exp,
-            auth_hash: Vec::new(),
+            auth_hash: [0; 32],
         };
         user.refresh_auth_hash();
         user
     }
 
     fn refresh_auth_hash(&mut self) {
-        self.auth_hash = format!(
+        self.auth_hash = Sha256::digest(format!(
             "{SESSION_COOKIE_KEY_PREFIX}|{}|{}|{}",
             self.sub,
             self.exp,
             self.groups.join("\0")
-        )
-        .into_bytes();
+        ))
+        .into();
     }
 }
 
@@ -506,6 +507,35 @@ mod tests {
                 session_layer: session_layer(false, Key::generate()),
             }
         }
+    }
+
+    #[test]
+    fn the_session_hash_follows_every_claim_it_binds() {
+        use axum_login::AuthUser as _;
+
+        let user = |sub: &str, groups: &[&str], exp| {
+            SessionUser::new(
+                sub,
+                None,
+                None,
+                groups.iter().map(|g| g.to_string()).collect(),
+                exp,
+            )
+        };
+        let base = user("alice", &["ops"], 100);
+
+        assert_eq!(
+            base.session_auth_hash(),
+            user("alice", &["ops"], 100).session_auth_hash()
+        );
+        for changed in [
+            user("bob", &["ops"], 100),
+            user("alice", &["ops", "admin"], 100),
+            user("alice", &["ops"], 200),
+        ] {
+            assert_ne!(base.session_auth_hash(), changed.session_auth_hash());
+        }
+        assert_eq!(base.session_auth_hash().len(), 32);
     }
 
     fn app(auth: AuthState) -> axum::Router {
