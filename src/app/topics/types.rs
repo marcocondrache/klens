@@ -134,7 +134,7 @@ pub struct TopicGroupRow {
     pub id: String,
     pub state: GroupState,
     pub member_count: i32,
-    pub lag_on_topic: Int64,
+    pub lag_on_topic: Option<Int64>,
 }
 
 impl From<projections::TopicGroupRow> for TopicGroupRow {
@@ -143,7 +143,7 @@ impl From<projections::TopicGroupRow> for TopicGroupRow {
             id: row.id.to_string(),
             state: row.state.into(),
             member_count: row.member_count,
-            lag_on_topic: row.lag_on_topic.into(),
+            lag_on_topic: row.lag_on_topic.map(Into::into),
         }
     }
 }

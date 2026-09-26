@@ -55,9 +55,13 @@ export type MemberAssignment = { topic: string, partitions: Array<number>, };
 
 export type GroupMember = { id: string, clientId: string, host: string, assignments: Array<MemberAssignment>, };
 
-export type GroupOffset = { topic: string, partition: number, currentOffset: Int64, endOffset: Int64, lag: Int64, memberId: string | null, };
+export type GroupOffset = { topic: string, partition: number, currentOffset: Int64 | null, endOffset: Int64 | null, lag: Int64 | null, memberId: string | null, };
 
-export type GroupRow = { id: string, state: GroupState, memberCount: number, topicNames: Array<string>, totalLag: Int64, 
+export type GroupRow = { id: string, state: GroupState, memberCount: number, topicNames: Array<string>, 
+/**
+ * Null until the group's committed offsets are first fetched.
+ */
+totalLag: Int64 | null, 
 /**
  * False when a committed partition had no watermark to join against, so
  * the total understates the real lag.
@@ -66,9 +70,9 @@ lagComplete: boolean, coordinatorId: number, };
 
 export type GroupRowPage = { rows: Array<GroupRow>, total: number, nextCursor: string | null, };
 
-export type GroupDetail = { id: string, state: GroupState, protocol: string, coordinatorId: number, members: Array<GroupMember>, offsets: Array<GroupOffset>, totalLag: Int64, lagComplete: boolean, };
+export type GroupDetail = { id: string, state: GroupState, protocol: string, coordinatorId: number, members: Array<GroupMember>, offsets: Array<GroupOffset>, totalLag: Int64 | null, lagComplete: boolean, };
 
-export type TopicGroupRow = { id: string, state: GroupState, memberCount: number, lagOnTopic: Int64, };
+export type TopicGroupRow = { id: string, state: GroupState, memberCount: number, lagOnTopic: Int64 | null, };
 
 export type BrokerRow = { id: number, host: string, port: number, rack: string | null, controller: boolean, partitionCount: number, leaderCount: number, };
 

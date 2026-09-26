@@ -80,7 +80,10 @@ async fn a_group_whose_offsets_were_never_fetched_has_unknown_lag() {
 
     assert_eq!(rows["rows"][0]["totalLag"], serde_json::Value::Null);
     assert_eq!(group["totalLag"], serde_json::Value::Null);
-    assert_eq!(group["offsets"][0]["currentOffset"], serde_json::Value::Null);
+    assert_eq!(
+        group["offsets"][0]["currentOffset"],
+        serde_json::Value::Null
+    );
     assert_eq!(group["offsets"][0]["endOffset"], "100");
     assert_eq!(group["offsets"][0]["lag"], serde_json::Value::Null);
     assert_eq!(topic_groups[0]["lagOnTopic"], serde_json::Value::Null);

@@ -17,7 +17,14 @@ import {
 import { LaneCaption } from "@/components/lane-caption";
 import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
-import { GROUP_TONE, GroupStateBadge, Pill, StatusDot, TONE_TEXT } from "@/components/status";
+import {
+  GROUP_TONE,
+  GroupStateBadge,
+  PendingValue,
+  Pill,
+  StatusDot,
+  TONE_TEXT,
+} from "@/components/status";
 import { lagTone } from "@/lib/tone";
 import { useSearchDraft } from "@/hooks/use-search-draft";
 import { useClusterHealth, useGroupRows } from "@/lib/api/catalog";
@@ -64,7 +71,8 @@ const FILTERS: Array<FilterField<GroupRow, GroupFilter>> = [
       { value: "lagging", label: "Lagging", icon: <StatusDot tone="warn" /> },
       { value: "caught-up", label: "Caught up", icon: <StatusDot tone="ok" /> },
     ],
-    accessor: (group) => (toNumber(group.totalLag) > 0 ? "lagging" : "caught-up"),
+    accessor: (group) =>
+      group.totalLag === null ? [] : toNumber(group.totalLag) > 0 ? "lagging" : "caught-up",
   },
 ];
 
@@ -104,7 +112,7 @@ const columns = columnHelper.columns([
       </span>
     ),
   }),
-  columnHelper.accessor((group) => toNumber(group.totalLag), {
+  columnHelper.accessor((group) => (group.totalLag === null ? -1 : toNumber(group.totalLag)), {
     id: "lag",
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Lag" className="justify-end" />
@@ -125,6 +133,9 @@ const columns = columnHelper.columns([
 ]);
 
 function LagValue({ row }: { row: GroupRow }) {
+  if (row.totalLag === null) {
+    return <PendingValue label="Fetching committed offsets" className="ml-auto block" />;
+  }
   const lag = toNumber(row.totalLag);
 
   return (
@@ -165,7 +176,11 @@ function ConsumerGroupsPage() {
 
   const rows = applyFilters(searched, FILTERS, filters);
 
-  const totalLag = rows.reduce((sum, group) => sum + toNumber(group.totalLag), 0);
+  const lagPending = rows.some((group) => group.totalLag === null);
+  const totalLag = rows.reduce(
+    (sum, group) => sum + (group.totalLag === null ? 0 : toNumber(group.totalLag)),
+    0,
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
@@ -173,7 +188,8 @@ function ConsumerGroupsPage() {
         title="Consumer groups"
         description={
           <>
-            {rows.length} groups · {formatCount(totalLag)} messages of lag
+            {rows.length} groups · {lagPending ? "≥ " : ""}
+            {formatCount(totalLag)} messages of lag
             <LaneCaption lane={health?.offsets} />
           </>
         }

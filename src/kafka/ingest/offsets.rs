@@ -243,11 +243,13 @@ impl OffsetLane {
             .iter()
             .filter_map(|id| {
                 let group = topology.group(id)?;
-                let (offsets, total_lag, lag_complete) = group_offsets(
+                let (offsets, Some(total_lag), lag_complete) = group_offsets(
                     group,
                     offsets.get(id).map(Arc::as_ref),
                     watermarks.as_deref(),
-                );
+                ) else {
+                    return None;
+                };
                 Some(GroupLagUpdate {
                     group: Arc::clone(id),
                     total_lag,

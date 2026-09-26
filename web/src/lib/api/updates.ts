@@ -183,7 +183,7 @@ function cachedTopics(queryClient: QueryClient, cluster: string): string[] {
 function lagByTopic(offsets: GroupOffset[]): Map<string, number> {
   const totals = new Map<string, number>();
   for (const offset of offsets) {
-    totals.set(offset.topic, (totals.get(offset.topic) ?? 0) + Number(offset.lag));
+    totals.set(offset.topic, (totals.get(offset.topic) ?? 0) + Number(offset.lag ?? 0));
   }
   return totals;
 }

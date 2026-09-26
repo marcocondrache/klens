@@ -498,7 +498,10 @@ async fn lag_is_computed_from_the_tables() {
 
     lane.sweep(&store).await;
 
-    assert_eq!(store.group_row("order-processor").unwrap().total_lag, 5);
+    assert_eq!(
+        store.group_row("order-processor").unwrap().total_lag,
+        Some(5)
+    );
     assert_eq!(
         session.calls().committed_offsets(),
         1,
@@ -527,7 +530,7 @@ async fn an_empty_group_reports_the_lag_it_left_behind() {
     let row = store.group_row("stopped-consumer").unwrap();
     assert_eq!(
         (row.total_lag, row.lag_complete),
-        (6 + 3, true),
+        (Some(6 + 3), true),
         "a group with no members still has committed offsets to measure"
     );
     assert_eq!(row.topic_names, ["orders.created"]);

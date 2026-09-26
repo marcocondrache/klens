@@ -66,9 +66,9 @@ impl From<domain::GroupMember> for GroupMember {
 pub struct GroupOffset {
     pub topic: String,
     pub partition: i32,
-    pub current_offset: Int64,
-    pub end_offset: Int64,
-    pub lag: Int64,
+    pub current_offset: Option<Int64>,
+    pub end_offset: Option<Int64>,
+    pub lag: Option<Int64>,
     pub member_id: Option<String>,
 }
 
@@ -77,9 +77,9 @@ impl From<domain::GroupOffset> for GroupOffset {
         Self {
             topic: offset.topic,
             partition: offset.partition,
-            current_offset: offset.current_offset.into(),
-            end_offset: offset.end_offset.into(),
-            lag: offset.lag.into(),
+            current_offset: offset.current_offset.map(Into::into),
+            end_offset: offset.end_offset.map(Into::into),
+            lag: offset.lag.map(Into::into),
             member_id: offset.member_id,
         }
     }
@@ -92,7 +92,8 @@ pub struct GroupRow {
     pub state: GroupState,
     pub member_count: i32,
     pub topic_names: Vec<String>,
-    pub total_lag: Int64,
+    /// Null until the group's committed offsets are first fetched.
+    pub total_lag: Option<Int64>,
     /// False when a committed partition had no watermark to join against, so
     /// the total understates the real lag.
     pub lag_complete: bool,
@@ -106,7 +107,7 @@ impl From<projections::GroupRow> for GroupRow {
             state: row.state.into(),
             member_count: row.member_count,
             topic_names: row.topic_names,
-            total_lag: row.total_lag.into(),
+            total_lag: row.total_lag.map(Into::into),
             lag_complete: row.lag_complete,
             coordinator_id: row.coordinator_id,
         }
@@ -130,7 +131,7 @@ pub struct GroupDetail {
     pub coordinator_id: i32,
     pub members: Vec<GroupMember>,
     pub offsets: Vec<GroupOffset>,
-    pub total_lag: Int64,
+    pub total_lag: Option<Int64>,
     pub lag_complete: bool,
 }
 
@@ -143,7 +144,7 @@ impl From<projections::GroupDetail> for GroupDetail {
             coordinator_id: detail.coordinator_id,
             members: detail.members.into_iter().map(Into::into).collect(),
             offsets: detail.offsets.into_iter().map(Into::into).collect(),
-            total_lag: detail.total_lag.into(),
+            total_lag: detail.total_lag.map(Into::into),
             lag_complete: detail.lag_complete,
         }
     }

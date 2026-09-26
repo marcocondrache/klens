@@ -9,13 +9,13 @@ import { type DataTableFeatures } from "@/components/data-table/features";
 import { PageHeader } from "@/components/page-header";
 import { Facts } from "@/components/facts";
 import { TabCount } from "@/components/tab-count";
-import { GroupStateBadge, Pill, TONE_TEXT } from "@/components/status";
+import { GroupStateBadge, PendingValue, Pill, TONE_TEXT } from "@/components/status";
 import { lagTone } from "@/lib/tone";
 import { cn } from "@/lib/utils";
 import { useGroup } from "@/lib/api/catalog";
 import { catalogLookupMessage } from "@/lib/catalog-lookup";
 import { useClusterName } from "@/lib/clusters";
-import { formatCount, formatNumber, toNumber } from "@/lib/format";
+import { formatCount, formatNumber, toNumber, type Int64 } from "@/lib/format";
 import type { GroupDetail, GroupMember, GroupOffset } from "@/lib/api/types";
 import { groupDetailSearch, groupTab, searchDefaults } from "@/lib/route-search";
 
@@ -75,6 +75,17 @@ const memberColumns = memberColumnHelper.columns([
   ),
 ]);
 
+function knownOffset(value: Int64 | null) {
+  return value === null ? -1 : toNumber(value);
+}
+
+function OffsetValue({ value, label }: { value: Int64 | null; label: string }) {
+  if (value === null) {
+    return <PendingValue label={label} className="ml-auto block" />;
+  }
+  return <span className="text-muted-foreground">{formatNumber(value)}</span>;
+}
+
 function GroupFacts({
   group,
   members,
@@ -91,10 +102,14 @@ function GroupFacts({
       <span>{members} members</span>
       <span>{topicCount} topics</span>
       <span>{partitions} partitions</span>
-      <span className={cn("text-foreground", TONE_TEXT[lagTone(toNumber(group.totalLag))])}>
-        {group.lagComplete ? "" : "≥ "}
-        {formatCount(group.totalLag)} lag
-      </span>
+      {group.totalLag === null ? (
+        <PendingValue label="Fetching committed offsets" />
+      ) : (
+        <span className={cn("text-foreground", TONE_TEXT[lagTone(toNumber(group.totalLag))])}>
+          {group.lagComplete ? "" : "≥ "}
+          {formatCount(group.totalLag)} lag
+        </span>
+      )}
     </Facts>
   );
 }
@@ -120,7 +135,10 @@ function ConsumerGroupPage() {
 
   const offsets = group?.offsets ?? [];
   const members = group?.members ?? [];
-  const maxLag = Math.max(1, ...offsets.map((offset) => toNumber(offset.lag)));
+  const maxLag = Math.max(
+    1,
+    ...offsets.flatMap((offset) => (offset.lag === null ? [] : [toNumber(offset.lag)])),
+  );
   const memberLabels = new Map(members.map((member) => [member.id, member.clientId] as const));
   const topicCount = new Set([
     ...offsets.map((offset) => offset.topic),
@@ -148,33 +166,36 @@ function ConsumerGroupPage() {
       meta: { align: "right", width: "6rem" },
       cell: ({ getValue }) => <span className="numeric">{getValue()}</span>,
     }),
-    offsetColumnHelper.accessor((offset) => toNumber(offset.currentOffset), {
+    offsetColumnHelper.accessor((offset) => knownOffset(offset.currentOffset), {
       id: "current",
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title="Committed" className="justify-end" />
       ),
       meta: { align: "right", width: "9rem" },
       cell: ({ row }) => (
-        <span className="text-muted-foreground">{formatNumber(row.original.currentOffset)}</span>
+        <OffsetValue value={row.original.currentOffset} label="Fetching committed offsets" />
       ),
     }),
-    offsetColumnHelper.accessor((offset) => toNumber(offset.endOffset), {
+    offsetColumnHelper.accessor((offset) => knownOffset(offset.endOffset), {
       id: "end",
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title="End offset" className="justify-end" />
       ),
       meta: { align: "right", width: "9rem" },
       cell: ({ row }) => (
-        <span className="text-muted-foreground">{formatNumber(row.original.endOffset)}</span>
+        <OffsetValue value={row.original.endOffset} label="Sampling the watermark" />
       ),
     }),
-    offsetColumnHelper.accessor((offset) => toNumber(offset.lag), {
+    offsetColumnHelper.accessor((offset) => knownOffset(offset.lag), {
       id: "lag",
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title="Lag" className="justify-end" />
       ),
       meta: { align: "right", width: "12rem" },
       cell: ({ getValue, row }) => {
+        if (row.original.lag === null) {
+          return <PendingValue label="Lag is not known yet" className="ml-auto block" />;
+        }
         const lag = getValue();
 
         return (
