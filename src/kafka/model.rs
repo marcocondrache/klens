@@ -12,7 +12,7 @@ pub use crate::kafka::cluster::ClusterIdentity;
 pub use crate::kafka::group::{
     CommittedOffset, GroupMember, GroupOffset, GroupSnapshot, GroupState, MemberAssignment,
 };
-pub use crate::kafka::metadata::{MetadataSnapshot, TopicMetadata};
+pub use crate::kafka::metadata::{MetadataSnapshot, TopicMetadata, Watermarks};
 pub use crate::kafka::registry::{
     RegisteredSchema, SchemaCompatibility, SchemaReference, SchemaSubject, SchemaType,
 };
@@ -23,4 +23,3 @@ pub use crate::kafka::scan::tail::{TailConsumer, TailPosition};
 pub use crate::kafka::scan::{Compression, Record, RecordHeader, RecordPage};
 pub use crate::kafka::store::{SearchHit, SearchKind};
 pub use crate::kafka::topic_config::{CleanupPolicy, ConfigEntry, ConfigSource};
-pub use crate::kafka::watermarks::Watermarks;

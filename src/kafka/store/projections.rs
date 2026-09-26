@@ -4,8 +4,8 @@ use std::sync::Arc;
 use foldhash::{HashMap, HashMapExt};
 
 use crate::kafka::group::{GroupMember, GroupOffset, GroupState};
+use crate::kafka::metadata::Watermarks;
 use crate::kafka::topic_config::{CleanupPolicy, topic_config_values};
-use crate::kafka::watermarks::Watermarks;
 
 use super::lane::LaneHealth;
 use super::tables::{

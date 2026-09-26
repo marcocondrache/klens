@@ -5,10 +5,9 @@ use foldhash::{HashMap, HashMapExt, HashSet};
 use jiff::Timestamp;
 
 use crate::kafka::group::{CommittedOffset, GroupMember, GroupSnapshot, GroupState};
-use crate::kafka::metadata::{MetadataSnapshot, PartitionMetadata};
+use crate::kafka::metadata::{MetadataSnapshot, PartitionMetadata, Watermarks};
 use crate::kafka::registry::{SchemaCompatibility, SchemaSubject, SchemaType};
 use crate::kafka::topic_config::ConfigEntry;
-use crate::kafka::watermarks::Watermarks;
 
 #[derive(Debug, Default)]
 pub struct Interner {

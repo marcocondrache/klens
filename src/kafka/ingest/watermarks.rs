@@ -8,11 +8,11 @@ use tokio::time::Instant;
 
 use crate::environment::{IDLE_HEARTBEAT, MAX_SAMPLE_GAP};
 use crate::kafka::error::KafkaError;
+use crate::kafka::metadata::Watermarks;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::store::{
     Change, ClusterStore, Lane, TopicRate, Topology, WatermarkTable, WatermarksTick,
 };
-use crate::kafka::watermarks::Watermarks;
 
 use super::runner::{LaneSource, floor};
 
