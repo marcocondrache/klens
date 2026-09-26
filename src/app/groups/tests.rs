@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::kafka::store::fixtures::{group, partition, topic, topology};
+use crate::kafka::store::fixtures::{at, group, partition, topic, topology, watermarks};
 
 use super::super::harness::{ok, ok_as, seeded, state, viewer_everywhere};
 
@@ -56,4 +56,32 @@ async fn group_rows_stay_open_to_a_viewer() {
     let groups = ok_as(&seeded(), "/clusters/local/groups", viewer_everywhere()).await;
 
     assert_eq!(groups["total"], 1);
+}
+
+#[tokio::test]
+async fn a_group_whose_offsets_were_never_fetched_has_unknown_lag() {
+    let state = state();
+    let store = state.cluster("local").expect("local cluster");
+    store.topology.commit(Arc::new(topology(
+        vec![topic(
+            "orders.created",
+            vec![partition(0, vec![1], vec![1])],
+        )],
+        vec![group("order-processor", "orders.created", vec![0])],
+    )));
+    store.watermarks.commit(Arc::new(watermarks(
+        at(1_000),
+        &[("orders.created", 0, 0, 100)],
+    )));
+
+    let rows = ok(&state, "/clusters/local/groups").await;
+    let group = ok(&state, "/clusters/local/groups/order-processor").await;
+    let topic_groups = ok(&state, "/clusters/local/topics/orders.created/groups").await;
+
+    assert_eq!(rows["rows"][0]["totalLag"], serde_json::Value::Null);
+    assert_eq!(group["totalLag"], serde_json::Value::Null);
+    assert_eq!(group["offsets"][0]["currentOffset"], serde_json::Value::Null);
+    assert_eq!(group["offsets"][0]["endOffset"], "100");
+    assert_eq!(group["offsets"][0]["lag"], serde_json::Value::Null);
+    assert_eq!(topic_groups[0]["lagOnTopic"], serde_json::Value::Null);
 }
