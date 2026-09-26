@@ -7,26 +7,25 @@ use schemreg::{SchemaId, decode_wire_prefix};
 #[derive(Debug)]
 pub struct DecodedPayload {
     raw: Bytes,
-    schema_id: Option<i32>,
+    wire_schema_id: Option<i32>,
     json: Option<serde_json::Value>,
     text: OnceCell<String>,
 }
 
 impl DecodedPayload {
     pub fn raw(raw: Bytes) -> Self {
-        let schema_id = framed_schema_id(&raw);
         Self {
+            wire_schema_id: framed_schema_id(&raw),
             raw,
-            schema_id,
             json: None,
             text: OnceCell::new(),
         }
     }
 
-    pub fn decoded(raw: Bytes, schema_id: Option<i32>, json: serde_json::Value) -> Self {
+    pub fn decoded(raw: Bytes, json: serde_json::Value) -> Self {
         Self {
+            wire_schema_id: framed_schema_id(&raw),
             raw,
-            schema_id,
             json: Some(json),
             text: OnceCell::new(),
         }
@@ -36,22 +35,22 @@ impl DecodedPayload {
         &self.raw
     }
 
-    pub fn schema_id(&self) -> Option<i32> {
-        self.schema_id
+    pub fn wire_schema_id(&self) -> Option<i32> {
+        self.wire_schema_id
     }
 
     pub fn json(&self) -> Option<&serde_json::Value> {
         self.json.as_ref()
     }
 
-    pub fn json_mut(&mut self) -> Option<&mut serde_json::Value> {
+    pub fn edit_json(&mut self) -> Option<&mut serde_json::Value> {
         if self.json.is_some() {
             self.text.take();
         }
         self.json.as_mut()
     }
 
-    pub fn replace(&mut self, text: String) {
+    pub fn redact_with(&mut self, text: String) {
         self.raw = Bytes::new();
         self.json = None;
         self.text = OnceCell::from(text);
@@ -83,15 +82,15 @@ impl DecodedPayload {
 
 pub struct PayloadSlot {
     pub raw: Bytes,
-    pub override_id: Option<i32>,
+    pub fallback_schema_id: Option<i32>,
     pub decoded: Option<DecodedPayload>,
 }
 
 impl PayloadSlot {
-    pub fn new(raw: Bytes, override_id: Option<i32>) -> Self {
+    pub fn new(raw: Bytes, fallback_schema_id: Option<i32>) -> Self {
         Self {
             raw,
-            override_id,
+            fallback_schema_id,
             decoded: None,
         }
     }
@@ -111,13 +110,13 @@ pub trait PayloadCodec: Send + Sync {
 
 /// A v1 prefix names a 16-byte GUID rather than a numeric id, so a payload
 /// can be framed — and decodable — while reporting `None` here.
-pub fn framed_schema_id(bytes: &[u8]) -> Option<i32> {
+fn framed_schema_id(bytes: &[u8]) -> Option<i32> {
     let (key, _) = decode_wire_prefix(bytes).ok()?;
     i32::try_from(SchemaId::as_u32(key.as_id()?)).ok()
 }
 
-pub fn needs_decode(bytes: &[u8], override_id: Option<i32>) -> bool {
-    decode_wire_prefix(bytes).is_ok() || override_id.is_some()
+pub fn needs_decode(bytes: &[u8], fallback_schema_id: Option<i32>) -> bool {
+    decode_wire_prefix(bytes).is_ok() || fallback_schema_id.is_some()
 }
 
 fn render_raw(bytes: &[u8]) -> String {
@@ -138,7 +137,7 @@ mod tests {
         let payload = DecodedPayload::raw(Bytes::from_static(b"ord_1"));
 
         assert_eq!(payload.text(), "ord_1");
-        assert_eq!(payload.schema_id(), None);
+        assert_eq!(payload.wire_schema_id(), None);
         assert!(payload.json().is_none());
     }
 
@@ -146,16 +145,22 @@ mod tests {
     fn a_framed_payload_reports_its_wire_schema_id_even_undecoded() {
         let payload = DecodedPayload::raw(framed(7, b"junk"));
 
-        assert_eq!(payload.schema_id(), Some(7));
+        assert_eq!(payload.wire_schema_id(), Some(7));
+    }
+
+    #[test]
+    fn a_decoded_payload_reports_only_the_id_on_its_wire_prefix() {
+        let prefixed = DecodedPayload::decoded(framed(7, b"..."), serde_json::json!({}));
+        let bare = DecodedPayload::decoded(Bytes::from_static(b"{}"), serde_json::json!({}));
+
+        assert_eq!(prefixed.wire_schema_id(), Some(7));
+        assert_eq!(bare.wire_schema_id(), None);
     }
 
     #[test]
     fn decoded_payloads_render_from_json_once() {
-        let payload = DecodedPayload::decoded(
-            framed(7, b"..."),
-            Some(7),
-            serde_json::json!({"status": "FAILED"}),
-        );
+        let payload =
+            DecodedPayload::decoded(framed(7, b"..."), serde_json::json!({"status": "FAILED"}));
 
         assert_eq!(payload.text(), r#"{"status":"FAILED"}"#);
         assert_eq!(payload.text(), r#"{"status":"FAILED"}"#);
@@ -163,7 +168,7 @@ mod tests {
     }
 
     #[test]
-    fn only_framed_or_overridden_bytes_need_a_registry() {
+    fn only_framed_bytes_or_a_fallback_id_need_a_registry() {
         assert!(!needs_decode(b"plain", None));
         assert!(needs_decode(b"plain", Some(7)));
         assert!(needs_decode(&framed(7, b"body"), None));
@@ -188,11 +193,8 @@ mod tests {
 
     #[test]
     fn a_tree_is_dropped_only_once_its_text_is_rendered() {
-        let mut payload = DecodedPayload::decoded(
-            framed(7, b"..."),
-            Some(7),
-            serde_json::json!({"status": "FAILED"}),
-        );
+        let mut payload =
+            DecodedPayload::decoded(framed(7, b"..."), serde_json::json!({"status": "FAILED"}));
 
         payload.drop_tree_if_rendered();
         assert!(payload.json().is_some(), "nothing rendered yet");
@@ -204,21 +206,18 @@ mod tests {
     }
 
     #[test]
-    fn replacing_a_payload_drops_its_bytes_and_its_tree() {
-        let mut payload = DecodedPayload::decoded(
-            framed(7, b"..."),
-            Some(7),
-            serde_json::json!({"pan": "4111"}),
-        );
+    fn redacting_a_payload_drops_its_bytes_and_its_tree() {
+        let mut payload =
+            DecodedPayload::decoded(framed(7, b"..."), serde_json::json!({"pan": "4111"}));
         assert_eq!(payload.text(), r#"{"pan":"4111"}"#);
 
-        payload.replace("***".to_owned());
+        payload.redact_with("***".to_owned());
 
         assert_eq!(payload.text(), "***");
         assert!(payload.json().is_none());
         assert!(payload.bytes().is_empty());
         assert_eq!(
-            payload.schema_id(),
+            payload.wire_schema_id(),
             Some(7),
             "metadata still describes the wire record"
         );
@@ -226,14 +225,11 @@ mod tests {
 
     #[test]
     fn mutating_the_tree_invalidates_an_already_rendered_text() {
-        let mut payload = DecodedPayload::decoded(
-            framed(7, b"..."),
-            Some(7),
-            serde_json::json!({"pan": "4111"}),
-        );
+        let mut payload =
+            DecodedPayload::decoded(framed(7, b"..."), serde_json::json!({"pan": "4111"}));
         assert_eq!(payload.text(), r#"{"pan":"4111"}"#);
 
-        payload.json_mut().expect("tree")["pan"] = serde_json::json!("***");
+        payload.edit_json().expect("tree")["pan"] = serde_json::json!("***");
 
         assert_eq!(payload.text(), r#"{"pan":"***"}"#);
     }

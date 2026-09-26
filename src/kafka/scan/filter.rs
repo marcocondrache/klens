@@ -151,7 +151,6 @@ mod tests {
         let filter = contains("FAILED").expect("needle");
         let decoded = DecodedPayload::decoded(
             Bytes::from_static(b"\0\0\0\0\x07"),
-            Some(7),
             serde_json::json!({"status": "failed"}),
         );
 
