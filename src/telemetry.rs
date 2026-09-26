@@ -1,6 +1,6 @@
 use std::io::IsTerminal;
 
-use tracing_appender::non_blocking::WorkerGuard;
+use tracing_appender::non_blocking::{NonBlockingBuilder, WorkerGuard};
 use tracing_subscriber::{
     EnvFilter, filter::ParseError, layer::SubscriberExt, util::SubscriberInitExt,
 };
@@ -12,7 +12,11 @@ pub struct Telemetry {
 impl Telemetry {
     pub fn init(filter: &str, target: &str) -> anyhow::Result<Self> {
         let filter = filter_from_value(filter, target)?;
-        let (writer, guard) = tracing_appender::non_blocking(std::io::stdout());
+        // The default 128k-line queue is allocated and touched up front, about
+        // 4 MB resident. Lines past the limit are dropped either way.
+        let (writer, guard) = NonBlockingBuilder::default()
+            .buffered_lines_limit(8_192)
+            .finish(std::io::stdout());
         let layer = tracing_subscriber::fmt::layer()
             .with_ansi(cfg!(debug_assertions) && std::io::stdout().is_terminal());
 

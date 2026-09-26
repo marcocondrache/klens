@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use std::convert::Infallible;
 use std::sync::Arc;
 
@@ -69,7 +68,7 @@ pub(crate) async fn updates(
             .map(|group| store.interest.lease_group(group)),
         events: store.bus.subscribe(),
         guard: session.guard,
-        pending: VecDeque::new(),
+        pending: Vec::new().into_iter(),
         cluster,
         scope,
         done: false,
@@ -89,7 +88,7 @@ struct Stream {
     events: Receiver<Change>,
     _lease: Option<InterestLease>,
     guard: SessionGuard,
-    pending: VecDeque<Update>,
+    pending: std::vec::IntoIter<Update>,
     cluster: String,
     scope: Scope,
     done: bool,
@@ -102,7 +101,7 @@ impl Stream {
                 if state.done {
                     return None;
                 }
-                if let Some(update) = state.pending.pop_front() {
+                if let Some(update) = state.pending.next() {
                     return Some((Ok(event(&update)), state));
                 }
 
@@ -124,7 +123,7 @@ impl Stream {
                             state.done = true;
                             return Some((Ok(error.event()), state));
                         }
-                        state.pending.extend(project(&change, &state.scope));
+                        state.pending = project(&change, &state.scope).into_iter();
                     }
                 }
             }
