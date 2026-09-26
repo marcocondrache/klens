@@ -45,7 +45,7 @@ impl LaneSource for ConfigLane {
         previous: Option<&Arc<ConfigTable>>,
     ) -> Result<Fetch<ConfigTable>, KafkaError> {
         let Some(topology) = store.topology.load() else {
-            return Ok(Fetch::AwaitingUpstream);
+            return Ok(Fetch::Awaiting);
         };
 
         let names: Vec<&str> = topology.topics.keys().map(AsRef::as_ref).collect();

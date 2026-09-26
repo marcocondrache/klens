@@ -9,7 +9,7 @@ use crate::kafka::store::{ClusterStore, Lane};
 
 pub enum Fetch<T> {
     Ready(T),
-    AwaitingUpstream,
+    Awaiting,
 }
 
 #[async_trait]
@@ -130,7 +130,7 @@ mod tests {
                 .expect("a scripted lane needs at least one step")
             {
                 Ok(Fetch::Ready(topology)) => Ok(Fetch::Ready(topology.clone())),
-                Ok(Fetch::AwaitingUpstream) => Ok(Fetch::AwaitingUpstream),
+                Ok(Fetch::Awaiting) => Ok(Fetch::Awaiting),
                 Err(message) => Err(KafkaError::Admin(message.clone())),
             }
         }
@@ -230,7 +230,7 @@ mod tests {
         let source = Scripted::new(vec![
             Ok(Fetch::Ready(orders(1))),
             Err("broker down".into()),
-            Ok(Fetch::AwaitingUpstream),
+            Ok(Fetch::Awaiting),
         ]);
         let task = tokio::spawn(run(Arc::clone(&store), Arc::clone(&source)));
 

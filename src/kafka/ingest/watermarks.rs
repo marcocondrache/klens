@@ -98,7 +98,7 @@ impl LaneSource for WatermarkLane {
         _previous: Option<&Arc<WatermarkTable>>,
     ) -> Result<Fetch<WatermarkTable>, KafkaError> {
         let Some(topology) = store.topology.load() else {
-            return Ok(Fetch::AwaitingUpstream);
+            return Ok(Fetch::Awaiting);
         };
 
         let wanted = self.wanted_partitions(store, &topology);
