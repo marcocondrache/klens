@@ -20,23 +20,15 @@ pub(super) async fn tail(
     Path((name, topic)): Path<(String, String)>,
     Query(params): Query<TailParams>,
 ) -> Result<Sse<KeepAliveStream<Events>>, ApiError> {
-    let cluster = session
-        .cluster(&name)?
-        .access
-        .records()?
-        .cluster()
-        .to_owned();
+    let records = session.cluster(&name)?.records()?;
     let permit = session.state.tail_permit().ok_or(ApiError::TooManyTails)?;
-    let tail = session
-        .state
-        .live_tail(&cluster, tail_query(topic, params))
-        .await?;
+    let tail = records.tail(tail_query(topic, params)).await?;
 
     let ready = frame(&TailEvent::ready(&tail));
     let follow = Follow {
         tail,
         guard: session.guard,
-        cluster,
+        cluster: name,
         done: false,
         _permit: permit,
     };

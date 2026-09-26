@@ -1,9 +1,4 @@
-use std::sync::Arc;
-
-use indexmap::IndexMap;
-
 use crate::kafka::cluster::ClusterIdentity;
-use crate::kafka::error::KafkaError;
 use crate::kafka::topic_config::ConfigEntry;
 
 use super::bus::ChangeBus;
@@ -266,45 +261,10 @@ impl ClusterStore {
     }
 }
 
-#[derive(Debug, Default)]
-pub struct StoreSet {
-    clusters: IndexMap<String, Arc<ClusterStore>>,
-}
-
-impl StoreSet {
-    pub fn new(identities: impl IntoIterator<Item = ClusterIdentity>) -> Self {
-        Self {
-            clusters: identities
-                .into_iter()
-                .map(|identity| (identity.name.clone(), Arc::new(ClusterStore::new(identity))))
-                .collect(),
-        }
-    }
-
-    pub fn get(&self, name: &str) -> Option<&Arc<ClusterStore>> {
-        self.clusters.get(name)
-    }
-
-    pub fn cluster(&self, name: &str) -> Result<&Arc<ClusterStore>, KafkaError> {
-        self.get(name)
-            .ok_or_else(|| KafkaError::UnknownCluster(name.to_owned()))
-    }
-
-    pub fn names(&self) -> impl Iterator<Item = &str> {
-        self.clusters.keys().map(String::as_str)
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = &Arc<ClusterStore>> {
-        self.clusters.values()
-    }
-
-    pub fn ready(&self) -> bool {
-        self.clusters.values().all(|store| store.ready())
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use foldhash::HashMap;
 
@@ -484,28 +444,5 @@ mod tests {
         assert_eq!(health.subject_count, 0);
         assert!(health.topology.healthy());
         assert_eq!(health.subjects.last_error.as_deref(), Some("registry down"));
-    }
-
-    #[test]
-    fn a_store_set_keeps_config_order_and_gates_readiness() {
-        let stores = StoreSet::new([identity("prod"), identity("staging")]);
-
-        assert_eq!(stores.names().collect::<Vec<_>>(), vec!["prod", "staging"]);
-        assert!(stores.cluster("ghost").is_err());
-        assert!(!stores.ready());
-
-        stores
-            .cluster("prod")
-            .unwrap()
-            .topology
-            .commit(Arc::new(Topology::default()));
-        assert!(!stores.ready(), "one cluster is not the whole set");
-
-        stores
-            .cluster("staging")
-            .unwrap()
-            .topology
-            .commit(Arc::new(Topology::default()));
-        assert!(stores.ready());
     }
 }

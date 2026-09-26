@@ -1,9 +1,8 @@
-use std::sync::Arc;
-
 use anyhow::Context;
-use klens::app::{AppState, router};
+use klens::app::{AppState, AuthState, Limits, router};
 use klens::config::Config;
-use klens::kafka::SessionSet;
+use klens::kafka::Clusters;
+use klens::kafka::ingest::Ingest;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -11,15 +10,16 @@ async fn main() -> anyhow::Result<()> {
     let _telemetry =
         klens::telemetry::Telemetry::init(&config.log_level, env!("CARGO_CRATE_NAME"))?;
 
-    let sessions = Arc::new(
-        SessionSet::from_config(&config)
-            .await
-            .context("failed to connect to the configured kafka clusters")?,
+    let clusters = Clusters::connect(&config)
+        .await
+        .context("failed to connect to the configured kafka clusters")?;
+
+    tracing::info!(
+        clusters = ?clusters.names().collect::<Vec<_>>(),
+        "configured kafka clusters"
     );
 
-    tracing::info!(clusters = ?sessions.names(), "configured kafka clusters");
-
-    let auth = klens::app::AuthState::from_config(config.auth.as_ref())
+    let auth = AuthState::from_config(config.auth.as_ref())
         .await
         .context("failed to initialize authentication")?;
 
@@ -27,7 +27,9 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("oidc authentication enabled");
     }
 
-    let state = AppState::with_auth(sessions, auth).with_ingest_from(&config);
+    // Dropping the ingest aborts its lanes, so it lives as long as the server.
+    let _ingest = Ingest::start(&clusters);
+    let state = AppState::new(clusters, auth, Limits::from_env());
 
     klens::serve(router(state), config.bind).await
 }

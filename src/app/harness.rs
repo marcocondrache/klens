@@ -13,16 +13,33 @@ use serde_json::Value;
 use tower::ServiceExt as _;
 
 use crate::AppState;
-use crate::app::auth::SessionGuard;
+use crate::app::Limits;
 use crate::app::auth::access::{ClusterScope, EffectiveAccess, Grant, PrivilegeSet};
+use crate::app::auth::{AuthState, SessionGuard};
 use crate::kafka::store::fixtures::{
     at, config, group, offsets, partition, subject, topic, topology, watermarks,
 };
 use crate::kafka::store::{ClusterStore, ConfigTable, Interner, OffsetTable, SubjectTable};
-use crate::kafka::{FakeCluster, SessionSet};
+use crate::kafka::{Clusters, FakeCluster};
 
 pub(super) fn with(sessions: Vec<FakeCluster>) -> AppState {
-    AppState::new(Arc::new(SessionSet::from_sessions(sessions)))
+    with_limits(sessions, Limits::from_env())
+}
+
+pub(super) fn with_limits(sessions: Vec<FakeCluster>, limits: Limits) -> AppState {
+    AppState::new(
+        Clusters::from_sessions(sessions),
+        AuthState::disabled(),
+        limits,
+    )
+}
+
+pub(super) fn store_of<'a>(state: &'a AppState, cluster: &str) -> &'a Arc<ClusterStore> {
+    &state
+        .clusters
+        .get(cluster)
+        .expect("configured cluster")
+        .store
 }
 
 pub(super) fn state() -> AppState {
@@ -249,6 +266,6 @@ pub(super) fn seeded() -> AppState {
 
 pub(super) fn seeded_with(session: FakeCluster) -> (AppState, FakeCluster) {
     let state = with(vec![session.clone()]);
-    seed(state.cluster("local").expect("local cluster"));
+    seed(store_of(&state, "local"));
     (state, session)
 }

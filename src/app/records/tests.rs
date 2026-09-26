@@ -2,6 +2,7 @@ use axum::http::StatusCode;
 use serde_json::json;
 
 use crate::AppState;
+use crate::app::Limits;
 use crate::app::auth::SessionGuard;
 use crate::app::auth::access::EffectiveAccess;
 use crate::kafka::FakeCluster;
@@ -9,7 +10,8 @@ use crate::kafka::card_record;
 use crate::kafka::model as domain;
 
 use super::super::harness::{
-    failure, ok, open_stream, read_frames, seeded, seeded_with, viewer_everywhere,
+    failure, ok, open_stream, read_frames, seed, seeded, seeded_with, store_of, viewer_everywhere,
+    with_limits,
 };
 use super::types::Record;
 
@@ -442,7 +444,14 @@ async fn a_tail_is_forbidden_without_the_records_privilege() {
 
 #[tokio::test]
 async fn tails_past_capacity_are_turned_away_until_one_closes() {
-    let state = seeded().with_tail_capacity(1);
+    let state = with_limits(
+        vec![FakeCluster::local()],
+        Limits {
+            live_tails: 1,
+            ..Limits::from_env()
+        },
+    );
+    seed(store_of(&state, "local"));
     let (status, code) = refused(
         &state,
         "/clusters/local/topics/ghost/records/tail",

@@ -23,6 +23,21 @@ async fn broker_configs_stay_live_because_no_lane_sweeps_them() {
 }
 
 #[tokio::test]
+async fn configs_for_a_broker_the_topology_does_not_list_are_not_asked_for() {
+    let (status, code) = failure(
+        &seeded(),
+        "/clusters/local/brokers/9/configs",
+        EffectiveAccess::Unrestricted,
+    )
+    .await;
+
+    assert_eq!(
+        (status, code.as_str()),
+        (StatusCode::NOT_FOUND, "UNKNOWN_BROKER")
+    );
+}
+
+#[tokio::test]
 async fn a_non_numeric_broker_id_is_an_invalid_request() {
     let (status, code) = failure(
         &seeded(),

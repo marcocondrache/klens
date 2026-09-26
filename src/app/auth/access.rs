@@ -212,11 +212,9 @@ impl<'a> ClusterAccess<'a> {
         self.privileges.iter().collect()
     }
 
-    fn capability(&self, privilege: Privilege) -> Result<Capability<'a>, AccessError> {
+    fn check(&self, privilege: Privilege) -> Result<(), AccessError> {
         if self.allows(privilege) {
-            Ok(Capability {
-                cluster: self.cluster,
-            })
+            Ok(())
         } else {
             Err(AccessError::Forbidden {
                 cluster: self.cluster.to_owned(),
@@ -226,26 +224,17 @@ impl<'a> ClusterAccess<'a> {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-struct Capability<'a> {
-    cluster: &'a str,
-}
-
+/// Each token proves one privilege was checked; only [`ClusterAccess`] can
+/// make one.
 macro_rules! capability {
     ($(#[$meta:meta])* $token:ident, $method:ident, $privilege:expr) => {
         $(#[$meta])*
         #[derive(Clone, Copy, Debug)]
-        pub struct $token<'a>(Capability<'a>);
+        pub struct $token(());
 
-        impl<'a> $token<'a> {
-            pub fn cluster(&self) -> &'a str {
-                self.0.cluster
-            }
-        }
-
-        impl<'a> ClusterAccess<'a> {
-            pub fn $method(&self) -> Result<$token<'a>, AccessError> {
-                self.capability($privilege).map($token)
+        impl ClusterAccess<'_> {
+            pub fn $method(&self) -> Result<$token, AccessError> {
+                self.check($privilege).map(|()| $token(()))
             }
         }
     };
@@ -472,7 +461,7 @@ mod tests {
 
         let prod = access.cluster("prod").unwrap();
         assert_eq!(prod.role_names(), vec!["admin"]);
-        assert_eq!(prod.records().unwrap().cluster(), "prod");
+        assert!(prod.records().is_ok());
         assert!(prod.configs().is_ok());
         assert!(prod.schema_text().is_ok());
         assert!(prod.acls().is_ok());
