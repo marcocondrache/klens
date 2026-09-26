@@ -107,10 +107,10 @@ mod tests {
 
     use super::*;
     use crate::kafka::RecordCursor;
-    use crate::kafka::model::{Record, RecordOrder, TimestampRange};
+    use crate::kafka::model::{RecordOrder, TimestampRange};
     use crate::kafka::scan::Compression;
     use crate::kafka::store::fixtures::{identity, partition, topic, topology};
-    use crate::kafka::testing::FakeCluster;
+    use crate::kafka::testing::{FakeCluster, FixtureRecord};
     use jiff::Timestamp;
 
     fn unix_datetime(ms: i64) -> Timestamp {
@@ -149,15 +149,14 @@ mod tests {
         }
     }
 
-    fn browse_record(partition: i32, offset: i64, timestamp: i64) -> Record {
-        Record {
+    fn browse_record(partition: i32, offset: i64, timestamp: i64) -> FixtureRecord {
+        FixtureRecord {
             topic: "orders.created".into(),
             partition,
             offset,
             timestamp,
-            key: Some(format!("p{partition}-{offset}")),
+            key: Some(format!("p{partition}-{offset}").into()),
             value: None,
-            schema_id: None,
             headers: Vec::new(),
             size_bytes: 0,
             compression: Compression::None,
@@ -327,18 +326,20 @@ mod tests {
     #[tokio::test]
     async fn filtered_records_fill_the_requested_limit() {
         let records = (0..500)
-            .map(|offset| Record {
+            .map(|offset| FixtureRecord {
                 topic: "orders.created".into(),
                 partition: 0,
                 offset,
                 timestamp: offset,
-                key: Some(if offset % 40 == 0 {
-                    format!("hit-{offset}")
-                } else {
-                    format!("miss-{offset}")
-                }),
+                key: Some(
+                    if offset % 40 == 0 {
+                        format!("hit-{offset}")
+                    } else {
+                        format!("miss-{offset}")
+                    }
+                    .into(),
+                ),
                 value: None,
-                schema_id: None,
                 headers: Vec::new(),
                 size_bytes: 0,
                 compression: Compression::None,

@@ -32,4 +32,4 @@ pub use scan::tail::{Tail, TailBatch, TailPosition, TailQuery};
 pub use session::ClusterSession;
 
 #[cfg(test)]
-pub use testing::{FAKE_TAIL_POLL_RECORDS, FakeCluster, card_record};
+pub use testing::{FAKE_TAIL_POLL_RECORDS, FakeCluster, FixtureRecord, card_record, framed};
