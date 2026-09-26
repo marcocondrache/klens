@@ -19,7 +19,7 @@ import {
 import { LaneCaption } from "@/components/lane-caption";
 import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
-import { Pill, StatusDot } from "@/components/status";
+import { PendingValue, Pill, StatusDot } from "@/components/status";
 import { useSearchDraft } from "@/hooks/use-search-draft";
 import { useClusterHealth, useTopicRows } from "@/lib/api/catalog";
 import { useClusterName } from "@/lib/clusters";
@@ -148,16 +148,26 @@ const columns = columnHelper.columns([
     meta: { align: "right", width: "6rem" },
     cell: ({ getValue }) => emptyMetric(getValue(), formatThroughput(getValue())),
   }),
-  columnHelper.accessor((topic) => toNumber(topic.retentionMs), {
-    id: "retention",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Retention" className="justify-end" />
-    ),
-    meta: { align: "right", width: "7rem" },
-    cell: ({ row }) => (
-      <span className="text-muted-foreground">{formatDuration(row.original.retentionMs)}</span>
-    ),
-  }),
+  columnHelper.accessor(
+    (topic) => (topic.retentionMs === null ? Number.POSITIVE_INFINITY : toNumber(topic.retentionMs)),
+    {
+      id: "retention",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Retention" className="justify-end" />
+      ),
+      meta: { align: "right", width: "7rem" },
+      cell: ({ row }) => {
+        if (row.original.retentionMs === null) {
+          return <PendingValue label="Fetching topic configs" className="ml-auto block" />;
+        }
+        return (
+          <span className="text-muted-foreground">
+            {formatDuration(row.original.retentionMs)}
+          </span>
+        );
+      },
+    },
+  ),
   columnHelper.accessor("cleanupPolicy", {
     id: "policy",
     header: ({ column }) => (

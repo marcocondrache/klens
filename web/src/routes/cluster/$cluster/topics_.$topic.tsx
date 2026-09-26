@@ -164,7 +164,11 @@ function TopicFacts({ detail }: { detail: TopicDetail }) {
     <Facts>
       <span>{detail.partitions.length} partitions</span>
       <span>{formatCount(detail.retainedMessages)} messages</span>
-      <span>{formatDuration(detail.retentionMs)} retention</span>
+      {detail.retentionMs === null ? (
+        <PendingValue label="Fetching topic configs" />
+      ) : (
+        <span>{formatDuration(detail.retentionMs)} retention</span>
+      )}
       {detail.rate > 0 ? (
         <span className="inline-flex items-center gap-1.5 text-foreground">
           <StatusDot tone="brand" pulse />

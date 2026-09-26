@@ -262,12 +262,25 @@ async fn the_config_lane_populates_the_config_table() {
     wait_for(|| store.configs.version() > 0, "config commit").await;
 
     let row = store.topic_row("orders.created").expect("orders exists");
-    assert_eq!(row.retention_ms, 604_800_000);
+    assert_eq!(row.retention_ms, Some(604_800_000));
     assert_eq!(
         store.topic_configs("orders.created").unwrap().len(),
         2,
         "configs are served from the table, not a live describe"
     );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_topic_whose_configs_were_never_fetched_has_unknown_retention() {
+    let session = FakeCluster::local();
+    let store = store(&session);
+    let _lanes = catalog_lanes(&store, &session);
+
+    wait_for(|| store.ready(), "topology commit").await;
+
+    let row = store.topic_row("orders.created").expect("orders exists");
+    assert_eq!(row.retention_ms, None);
+    assert_eq!(store.topic_configs("orders.created"), None);
 }
 
 #[tokio::test(start_paused = true)]
