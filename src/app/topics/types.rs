@@ -31,8 +31,7 @@ pub struct TopicRow {
     /// topic, so it is not the display default.
     pub produced_total: Int64,
     pub rate: f64,
-    /// Null until the topic's configs have been fetched, or if they carry
-    /// no `retention.ms` entry.
+    /// Null until the topic's configs report a `retention.ms` value.
     pub retention_ms: Option<Int64>,
     pub cleanup_policy: CleanupPolicy,
     pub group_count: i32,
@@ -105,8 +104,7 @@ pub struct TopicDetail {
     pub retained_messages: Int64,
     pub produced_total: Int64,
     pub rate: f64,
-    /// Null until the topic's configs have been fetched, or if they carry
-    /// no `retention.ms` entry.
+    /// Null until the topic's configs report a `retention.ms` value.
     pub retention_ms: Option<Int64>,
     pub cleanup_policy: CleanupPolicy,
     pub group_count: i32,

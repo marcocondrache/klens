@@ -38,8 +38,7 @@ retainedMessages: Int64,
  */
 producedTotal: Int64, rate: number, 
 /**
- * Null until the topic's configs have been fetched, or if they carry
- * no `retention.ms` entry.
+ * Null until the topic's configs report a `retention.ms` value.
  */
 retentionMs: Int64 | null, cleanupPolicy: CleanupPolicy, groupCount: number, underReplicated: boolean, };
 
@@ -54,8 +53,7 @@ export type PartitionRow = { id: number, leader: number, replicas: Array<number>
 
 export type TopicDetail = { name: string, internal: boolean, partitions: Array<PartitionRow>, replicationFactor: number, retainedMessages: Int64, producedTotal: Int64, rate: number, 
 /**
- * Null until the topic's configs have been fetched, or if they carry
- * no `retention.ms` entry.
+ * Null until the topic's configs report a `retention.ms` value.
  */
 retentionMs: Int64 | null, cleanupPolicy: CleanupPolicy, groupCount: number, underReplicated: boolean, };
 

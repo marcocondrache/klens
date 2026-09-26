@@ -22,8 +22,6 @@ pub struct TopicRow {
     pub retained_messages: i64,
     pub produced_total: i64,
     pub rate: f64,
-    /// Null until the topic's configs have been fetched, or if they carry
-    /// no `retention.ms` entry.
     pub retention_ms: Option<i64>,
     pub cleanup_policy: CleanupPolicy,
     pub group_count: i32,
@@ -59,8 +57,6 @@ pub struct TopicDetail {
     pub retained_messages: i64,
     pub produced_total: i64,
     pub rate: f64,
-    /// Null until the topic's configs have been fetched, or if they carry
-    /// no `retention.ms` entry.
     pub retention_ms: Option<i64>,
     pub cleanup_policy: CleanupPolicy,
     pub group_count: i32,

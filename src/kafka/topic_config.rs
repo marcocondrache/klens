@@ -77,7 +77,7 @@ mod tests {
     }
 
     #[test]
-    fn topic_config_values_fall_back_to_kafka_defaults() {
+    fn topic_config_values_default_to_delete_and_unknown_retention() {
         assert_eq!(
             topic_config_values(None),
             (CleanupPolicy::Delete, None),
