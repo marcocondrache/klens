@@ -1,4 +1,7 @@
 //! The single place krafka types cross into the Kafka domain model.
+//!
+//! Collected `Vec`s are shrunk because `collect` reuses the wider krafka
+//! allocation in place, and the store keeps them for as long as they live.
 
 use krafka::admin::{
     ConfigEntry as KrafkaConfigEntry, ConsumerGroupDescription, ConsumerGroupMember,
@@ -61,16 +64,19 @@ impl TopicMetadata {
 
 impl GroupSnapshot {
     pub(super) fn from_krafka(description: ConsumerGroupDescription) -> Self {
+        let mut members: Vec<GroupMember> = description
+            .members
+            .into_iter()
+            .map(GroupMember::from_krafka)
+            .collect();
+        members.shrink_to_fit();
+
         Self {
             id: description.group_id,
             state: GroupState::parse(&description.state),
             protocol: description.assignor.unwrap_or_default(),
             coordinator: 0,
-            members: description
-                .members
-                .into_iter()
-                .map(GroupMember::from_krafka)
-                .collect(),
+            members,
             committed: Vec::new(),
         }
     }
@@ -91,21 +97,25 @@ impl GroupMember {
 }
 
 fn assignments_from_krafka(assigned: Vec<TopicPartitionAssignment>) -> Vec<MemberAssignment> {
-    assigned
+    let mut assignments: Vec<MemberAssignment> = assigned
         .into_iter()
         .filter(|assignment| !assignment.topic_name.is_empty())
         .map(|assignment| MemberAssignment {
             topic: assignment.topic_name,
             partitions: assignment.partitions,
         })
-        .collect()
+        .collect();
+    assignments.shrink_to_fit();
+    assignments
 }
 
 pub(super) fn committed_from_krafka(entries: Vec<GroupOffsetEntry>) -> Vec<CommittedOffset> {
-    entries
+    let mut committed: Vec<CommittedOffset> = entries
         .into_iter()
         .filter_map(|entry| committed_offset(entry.topic, entry.partition, entry.committed_offset))
-        .collect()
+        .collect();
+    committed.shrink_to_fit();
+    committed
 }
 
 fn committed_offset(topic: String, partition: i32, offset: i64) -> Option<CommittedOffset> {
