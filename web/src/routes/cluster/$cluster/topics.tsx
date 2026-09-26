@@ -30,10 +30,7 @@ import {
   formatNumber,
   formatThroughput,
   isCompactCleanup,
-  isZero,
-  toNumber,
 } from "@/lib/format";
-import type { Int64 } from "@/lib/format";
 import type { TopicRow } from "@/lib/api/types";
 import {
   searchDefaults,
@@ -80,14 +77,14 @@ const FILTERS: Array<FilterField<TopicRow, TopicFilter>> = [
       { value: "active", label: "Producing", icon: <StatusDot tone="ok" /> },
       { value: "idle", label: "Idle", icon: <StatusDot tone="idle" /> },
     ],
-    accessor: (topic) => (isZero(topic.rate) ? "idle" : "active"),
+    accessor: (topic) => (topic.rate === 0 ? "idle" : "active"),
   },
 ];
 
 const EMPTY_TOPICS: TopicRow[] = [];
 
-function emptyMetric(value: Int64, display: ReactNode) {
-  if (isZero(value)) {
+function emptyMetric(value: number, display: ReactNode) {
+  if (value === 0) {
     return <span className="text-muted-foreground/60">—</span>;
   }
 
@@ -131,14 +128,13 @@ const columns = columnHelper.columns([
     ),
     meta: { align: "right", width: "4rem" },
   }),
-  columnHelper.accessor((topic) => toNumber(topic.retainedMessages), {
+  columnHelper.accessor("retainedMessages", {
     id: "messages",
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Messages" className="justify-end" />
     ),
     meta: { align: "right", width: "9rem" },
-    cell: ({ row }) =>
-      emptyMetric(row.original.retainedMessages, formatNumber(row.original.retainedMessages)),
+    cell: ({ getValue }) => emptyMetric(getValue(), formatNumber(getValue())),
   }),
   columnHelper.accessor("rate", {
     id: "rate",
@@ -148,25 +144,21 @@ const columns = columnHelper.columns([
     meta: { align: "right", width: "6rem" },
     cell: ({ getValue }) => emptyMetric(getValue(), formatThroughput(getValue())),
   }),
-  columnHelper.accessor(
-    (topic) =>
-      topic.retentionMs === null ? Number.POSITIVE_INFINITY : toNumber(topic.retentionMs),
-    {
-      id: "retention",
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Retention" className="justify-end" />
-      ),
-      meta: { align: "right", width: "7rem" },
-      cell: ({ row }) => {
-        if (row.original.retentionMs === null) {
-          return <PendingValue label="Fetching topic configs" className="ml-auto block" />;
-        }
-        return (
-          <span className="text-muted-foreground">{formatDuration(row.original.retentionMs)}</span>
-        );
-      },
+  columnHelper.accessor((topic) => topic.retentionMs ?? Number.POSITIVE_INFINITY, {
+    id: "retention",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Retention" className="justify-end" />
+    ),
+    meta: { align: "right", width: "7rem" },
+    cell: ({ row }) => {
+      if (row.original.retentionMs === null) {
+        return <PendingValue label="Fetching topic configs" className="ml-auto block" />;
+      }
+      return (
+        <span className="text-muted-foreground">{formatDuration(row.original.retentionMs)}</span>
+      );
     },
-  ),
+  }),
   columnHelper.accessor("cleanupPolicy", {
     id: "policy",
     header: ({ column }) => (

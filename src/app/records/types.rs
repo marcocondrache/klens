@@ -6,8 +6,6 @@ use crate::kafka::model as domain;
 use crate::kafka::{QueryError, RecordCursor, Tail, TailBatch, TailPosition, TailQuery};
 use crate::r#macro::from_same_variants;
 
-use super::super::int64::Int64;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Compression {
@@ -50,13 +48,13 @@ impl From<domain::RecordHeader> for RecordHeader {
 pub struct Record {
     pub topic: String,
     pub partition: i32,
-    pub offset: Int64,
+    pub offset: i64,
     pub timestamp: Timestamp,
     pub key: Option<String>,
     pub value: Option<String>,
     pub schema_id: Option<i32>,
     pub headers: Vec<RecordHeader>,
-    pub size_bytes: Int64,
+    pub size_bytes: u64,
     pub compression: Compression,
 }
 
@@ -65,14 +63,14 @@ impl From<domain::Record> for Record {
         Self {
             topic: record.topic,
             partition: record.partition,
-            offset: record.offset.into(),
+            offset: record.offset,
             timestamp: Timestamp::from_millisecond(record.timestamp)
                 .unwrap_or(Timestamp::UNIX_EPOCH),
             key: record.key,
             value: record.value,
             schema_id: record.schema_id,
             headers: record.headers.into_iter().map(Into::into).collect(),
-            size_bytes: record.size_bytes.into(),
+            size_bytes: record.size_bytes,
             compression: record.compression.into(),
         }
     }
@@ -152,14 +150,14 @@ fn default_record_limit() -> i32 {
 #[serde(rename_all = "camelCase")]
 pub struct TailStart {
     pub partition: i32,
-    pub offset: Int64,
+    pub offset: i64,
 }
 
 impl From<&TailPosition> for TailStart {
     fn from(position: &TailPosition) -> Self {
         Self {
             partition: position.partition,
-            offset: position.offset.into(),
+            offset: position.offset,
         }
     }
 }
@@ -177,7 +175,7 @@ pub enum TailEvent {
     },
     Records {
         records: Vec<Record>,
-        skipped: Int64,
+        skipped: u64,
     },
 }
 
@@ -201,7 +199,7 @@ impl From<TailBatch> for TailEvent {
     fn from(batch: TailBatch) -> Self {
         Self::Records {
             records: batch.records.into_iter().map(Into::into).collect(),
-            skipped: batch.skipped.into(),
+            skipped: batch.skipped,
         }
     }
 }
