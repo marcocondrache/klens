@@ -392,7 +392,7 @@ pub async fn fetch_page<S: ClusterSession + ?Sized>(
     let scan = ScanSession::open(session, query, walk, deadline, &windows).await?;
 
     let max_passes = if searching { MAX_FILTER_PASSES } else { 1 };
-    let mut kept: Vec<Kept> = Vec::with_capacity(limit);
+    let mut kept: Vec<Kept> = Vec::new();
     let mut complete = true;
     let mut scanned = false;
 
@@ -422,7 +422,11 @@ pub async fn fetch_page<S: ClusterSession + ?Sized>(
             order,
             direction,
         );
-        kept.extend(found);
+        if kept.is_empty() {
+            kept = found;
+        } else {
+            kept.extend(found);
+        }
 
         let stalled = next == cursor;
         cursor = next;
