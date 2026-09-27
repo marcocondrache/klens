@@ -8,18 +8,6 @@ use crate::r#macro::from_same_variants;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum Compression {
-    None,
-    Gzip,
-    Snappy,
-    Lz4,
-    Zstd,
-}
-
-from_same_variants!(domain::Compression => Compression { None, Gzip, Snappy, Lz4, Zstd });
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RecordOrder {
     Newest,
     Oldest,
@@ -55,7 +43,6 @@ pub struct Record {
     pub schema_id: Option<i32>,
     pub headers: Vec<RecordHeader>,
     pub size_bytes: u64,
-    pub compression: Compression,
 }
 
 impl From<domain::Record> for Record {
@@ -71,7 +58,6 @@ impl From<domain::Record> for Record {
             schema_id: record.schema_id,
             headers: record.headers.into_iter().map(Into::into).collect(),
             size_bytes: record.size_bytes,
-            compression: record.compression.into(),
         }
     }
 }

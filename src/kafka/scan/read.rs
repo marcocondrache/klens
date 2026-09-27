@@ -108,7 +108,6 @@ mod tests {
     use super::*;
     use crate::kafka::RecordCursor;
     use crate::kafka::model::{RecordOrder, TimestampRange};
-    use crate::kafka::scan::Compression;
     use crate::kafka::store::fixtures::{identity, partition, topic, topology};
     use crate::kafka::testing::{FakeCluster, FixtureRecord};
     use jiff::Timestamp;
@@ -159,7 +158,6 @@ mod tests {
             value: None,
             headers: Vec::new(),
             size_bytes: 0,
-            compression: Compression::None,
         }
     }
 
@@ -342,7 +340,6 @@ mod tests {
                 value: None,
                 headers: Vec::new(),
                 size_bytes: 0,
-                compression: Compression::None,
             })
             .collect();
 

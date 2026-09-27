@@ -58,7 +58,6 @@ fn group(id: &str, topic: &str, partitions: Vec<i32>, committed: &[(i32, i64)]) 
         id: id.to_owned(),
         state: GroupState::Stable,
         protocol: "range".into(),
-        coordinator: 1,
         members: vec![GroupMember {
             id: format!("{id}-m1"),
             client_id: "c1".into(),

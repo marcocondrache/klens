@@ -313,7 +313,6 @@ export function RecordView({
                     )
                   }
                 />
-                <Meta label="Compression" value={selectedRecord.compression.toLowerCase()} />
               </dl>
 
               <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-hidden px-5 py-4">

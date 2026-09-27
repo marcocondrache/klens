@@ -65,9 +65,9 @@ totalLag: number | null,
  * False when a committed partition had no watermark to join against, so
  * the total understates the real lag.
  */
-lagComplete: boolean, coordinatorId: number, };
+lagComplete: boolean, };
 
-export type GroupDetail = { id: string, state: GroupState, protocol: string, coordinatorId: number, members: Array<GroupMember>, offsets: Array<GroupOffset>, totalLag: number | null, lagComplete: boolean, };
+export type GroupDetail = { id: string, state: GroupState, protocol: string, members: Array<GroupMember>, offsets: Array<GroupOffset>, totalLag: number | null, lagComplete: boolean, };
 
 export type TopicGroupRow = { id: string, state: GroupState, memberCount: number, lagOnTopic: number | null, };
 
@@ -103,13 +103,11 @@ export type Acl = { resourceType: AclResourceType, resourceName: string, pattern
 
 export type AclListing = { authorizer: AclAuthorizer, bindings: Array<Acl>, };
 
-export type Compression = "NONE" | "GZIP" | "SNAPPY" | "LZ4" | "ZSTD";
-
 export type RecordOrder = "NEWEST" | "OLDEST";
 
 export type RecordHeader = { key: string, value: string, };
 
-export type Record = { topic: string, partition: number, offset: number, timestamp: string, key: string | null, value: string | null, schemaId: number | null, headers: Array<RecordHeader>, sizeBytes: number, compression: Compression, };
+export type Record = { topic: string, partition: number, offset: number, timestamp: string, key: string | null, value: string | null, schemaId: number | null, headers: Array<RecordHeader>, sizeBytes: number, };
 
 export type RecordPage = { records: Array<Record>, 
 /**

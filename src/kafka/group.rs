@@ -3,7 +3,6 @@ pub struct GroupSnapshot {
     pub id: String,
     pub state: GroupState,
     pub protocol: String,
-    pub coordinator: i32,
     pub members: Vec<GroupMember>,
     pub committed: Vec<CommittedOffset>,
 }
@@ -114,7 +113,6 @@ mod tests {
             id: "g".into(),
             state: GroupState::Stable,
             protocol: "range".into(),
-            coordinator: 1,
             members: vec![GroupMember {
                 id: "m1".into(),
                 client_id: "c1".into(),

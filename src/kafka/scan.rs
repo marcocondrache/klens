@@ -15,15 +15,6 @@ use std::cmp::Ordering;
 use batch::SortKey;
 use query::RecordOrder;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Compression {
-    None,
-    Gzip,
-    Snappy,
-    Lz4,
-    Zstd,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordHeader {
     pub key: String,
@@ -41,7 +32,6 @@ pub struct Record {
     pub schema_id: Option<i32>,
     pub headers: Vec<RecordHeader>,
     pub size_bytes: u64,
-    pub compression: Compression,
 }
 
 impl Record {
@@ -98,7 +88,6 @@ mod tests {
             schema_id: None,
             headers: Vec::new(),
             size_bytes: 0,
-            compression: Compression::None,
         }
     }
 

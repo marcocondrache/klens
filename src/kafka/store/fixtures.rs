@@ -66,7 +66,6 @@ pub fn group(id: &str, topic: &str, partitions: Vec<i32>) -> GroupSnapshot {
         id: id.into(),
         state: GroupState::Stable,
         protocol: "range".into(),
-        coordinator: 1,
         members: vec![GroupMember {
             id: format!("{id}-m1"),
             client_id: "c1".into(),
