@@ -87,6 +87,29 @@ async fn an_inverted_record_range_is_rejected() {
 }
 
 #[tokio::test]
+async fn a_cursor_only_pages_the_order_that_minted_it() {
+    let state = seeded();
+    let records = "/clusters/local/topics/orders.created/records";
+    let first = ok(&state, &format!("{records}?order=OLDEST&limit=2")).await;
+    let cursor = first["nextCursor"].as_str().expect("next cursor");
+
+    ok(
+        &state,
+        &format!("{records}?order=OLDEST&limit=2&cursor={cursor}"),
+    )
+    .await;
+    let (status, code) = failure(
+        &state,
+        &format!("{records}?order=NEWEST&limit=2&cursor={cursor}"),
+        EffectiveAccess::Unrestricted,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(code, "INVALID_CURSOR");
+}
+
+#[tokio::test]
 async fn records_can_be_read_from_a_set_of_partitions() {
     let state = seeded();
     let partitions = |data: serde_json::Value| {

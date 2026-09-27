@@ -413,8 +413,8 @@ pub async fn fetch_page<S: ClusterSession + ?Sized>(
             .collect(),
         complete,
         obfuscated,
-        next_cursor: next_cursor.map(|cursor| cursor.encode()),
-        prev_cursor: prev_cursor.map(|cursor| cursor.encode()),
+        next_cursor: next_cursor.map(|cursor| cursor.to_string()),
+        prev_cursor: prev_cursor.map(|cursor| cursor.to_string()),
     })
 }
 
