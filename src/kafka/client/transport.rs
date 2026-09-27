@@ -6,7 +6,9 @@ use krafka::client::KrafkaClient as KrafkaSharedClient;
 use krafka::network::TransportConfig;
 use secrecy::ExposeSecret;
 
-use crate::config::{ClusterConfig, SaslConfig, SaslMechanism, SecurityConfig, TlsConfig};
+use crate::config::{
+    ClusterConfig, ClusterName, SaslConfig, SaslMechanism, SecurityConfig, TlsConfig,
+};
 use crate::environment::{
     CLIENT_ID_PREFIX, MAX_IN_FLIGHT_REQUESTS, MAX_RESPONSE_BYTES, REQUEST_TIMEOUT,
     SOCKET_CONNECTION_SETUP_TIMEOUT_MS,
@@ -30,7 +32,7 @@ pub(super) struct Connector {
 }
 
 impl Connector {
-    fn new(config: &ClusterConfig) -> Result<Self, KafkaError> {
+    fn new(name: &ClusterName, config: &ClusterConfig) -> Result<Self, KafkaError> {
         let properties = &config.properties;
         let connect_timeout = Duration::from_millis(
             properties
@@ -45,7 +47,7 @@ impl Connector {
         let client_id = properties
             .client_id
             .clone()
-            .unwrap_or_else(|| format!("{CLIENT_ID_PREFIX}-{}", config.name));
+            .unwrap_or_else(|| format!("{CLIENT_ID_PREFIX}-{name}"));
 
         Ok(Self {
             bootstrap_servers: config.bootstrap_servers.join(","),
@@ -76,8 +78,11 @@ impl Connector {
     }
 }
 
-pub(super) async fn connect(config: &ClusterConfig) -> Result<Transport, KafkaError> {
-    let connector = Connector::new(config)?;
+pub(super) async fn connect(
+    name: &ClusterName,
+    config: &ClusterConfig,
+) -> Result<Transport, KafkaError> {
+    let connector = Connector::new(name, config)?;
     let client = connector.connect().await?;
     let admin = KrafkaAdmin::builder()
         .with_client(&client)
@@ -136,7 +141,7 @@ fn krafka_tls(tls: &TlsConfig) -> KrafkaTlsConfig {
         krafka_tls = krafka_tls.with_ca_cert(ca_cert.to_string_lossy());
     }
 
-    if let Some(client) = &tls.client_cert {
+    if let Some(client) = &tls.client {
         krafka_tls = krafka_tls
             .with_client_cert(client.cert.to_string_lossy(), client.key.to_string_lossy());
     }
@@ -157,7 +162,6 @@ mod tests {
         let broker = krafka::testing::FakeBroker::start().await.unwrap();
         let mut cluster = cluster(
             "
-            name: local
             bootstrap_servers:
               - localhost:9092
             properties:
@@ -169,7 +173,7 @@ mod tests {
 
         cluster.bootstrap_servers = vec![broker.bootstrap_servers()];
         // Building succeeds only if request_timeout is raised to the connect timeout.
-        let transport = connect(&cluster).await.unwrap();
+        let transport = connect(&"local".parse().unwrap(), &cluster).await.unwrap();
         assert!(
             broker
                 .requests()
@@ -185,13 +189,12 @@ mod tests {
     fn the_default_client_id_uses_the_trimmed_cluster_name() {
         let cluster = cluster(
             "
-            name: '  local  '
             bootstrap_servers:
               - localhost:9092
             ",
         );
 
-        let connector = Connector::new(&cluster).unwrap();
+        let connector = Connector::new(&"  local  ".parse().unwrap(), &cluster).unwrap();
         assert_eq!(connector.client_id, "klens-local");
     }
 
@@ -199,7 +202,6 @@ mod tests {
     fn krafka_auth_is_none_for_plaintext() {
         let cluster = cluster(
             "
-            name: local
             bootstrap_servers:
               - localhost:9092
             ",
@@ -212,7 +214,6 @@ mod tests {
     fn krafka_auth_builds_scram_ssl_settings() {
         let cluster = cluster(
             "
-            name: secure
             bootstrap_servers:
               - broker:9092
             security:
@@ -223,8 +224,9 @@ mod tests {
                 password: {value: secret}
               tls:
                 ca_cert: /etc/ca.pem
-                client_cert: /etc/client.pem
-                client_key: /etc/client.key
+                client:
+                  cert: /etc/client.pem
+                  key: /etc/client.key
                 insecure_skip_verify: true
             ",
         );
@@ -252,7 +254,6 @@ mod tests {
     fn krafka_auth_builds_ssl_only_settings() {
         let cluster = cluster(
             "
-            name: secure
             bootstrap_servers:
               - broker:9092
             security:

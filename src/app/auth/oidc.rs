@@ -48,7 +48,7 @@ pub(crate) struct Oidc {
 }
 
 impl Oidc {
-    pub(crate) async fn discover(config: &OidcConfig, groups_claim: &str) -> anyhow::Result<Self> {
+    pub(crate) async fn discover(config: &OidcConfig) -> anyhow::Result<Self> {
         let http = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .build()
@@ -77,7 +77,7 @@ impl Oidc {
                 .into_iter()
                 .map(Scope::new)
                 .collect(),
-            groups_claim: groups_claim.to_owned(),
+            groups_claim: config.groups_claim.clone(),
         })
     }
 }

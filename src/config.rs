@@ -1,10 +1,12 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
+use std::hash::Hash;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
+use indexmap::IndexMap;
 use openidconnect::{IssuerUrl, RedirectUrl};
 use regex::{Regex, RegexBuilder};
 use secrecy::{ExposeSecret, SecretString};
@@ -30,17 +32,6 @@ pub enum ConfigError {
         #[source]
         source: serde_yaml_ng::Error,
     },
-    #[error("invalid configuration for cluster '{cluster}': {reason}")]
-    InvalidCluster { cluster: String, reason: String },
-}
-
-impl ConfigError {
-    pub(crate) fn invalid_cluster(cluster: impl Into<String>, reason: impl Into<String>) -> Self {
-        Self::InvalidCluster {
-            cluster: cluster.into(),
-            reason: reason.into(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -50,8 +41,8 @@ pub struct Config {
     pub bind: SocketAddr,
     #[serde(default = "default_log_level")]
     pub log_level: String,
-    #[serde(default, deserialize_with = "unique_clusters")]
-    pub clusters: Vec<ClusterConfig>,
+    #[serde(default, deserialize_with = "clusters")]
+    pub clusters: UniqueMap<ClusterName, ClusterConfig>,
     #[serde(default)]
     pub auth: Option<AuthConfig>,
 }
@@ -91,19 +82,93 @@ impl Config {
     }
 }
 
-fn unique_clusters<'de, D: Deserializer<'de>>(
+fn clusters<'de, D: Deserializer<'de>>(
     deserializer: D,
-) -> Result<Vec<ClusterConfig>, D::Error> {
-    deserializer.deserialize_seq(Checked::new(
-        "a list of clusters",
-        |clusters: Vec<ClusterConfig>| {
-            let mut seen = HashSet::with_capacity(clusters.len());
-            if let Some(duplicate) = clusters.iter().find(|cluster| !seen.insert(&cluster.name)) {
-                return Err(format!("duplicate cluster name '{}'", duplicate.name));
+) -> Result<UniqueMap<ClusterName, ClusterConfig>, D::Error> {
+    UniqueMap::deserialize_checked(deserializer, "cluster name", Ok)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UniqueMap<K: Hash + Eq, V>(IndexMap<K, V>);
+
+impl<K: Hash + Eq, V> Default for UniqueMap<K, V> {
+    fn default() -> Self {
+        Self(IndexMap::new())
+    }
+}
+
+impl<K: Hash + Eq, V> UniqueMap<K, V> {
+    pub fn iter(&self) -> indexmap::map::Iter<'_, K, V> {
+        self.0.iter()
+    }
+
+    pub fn get(&self, key: &K) -> Option<&V> {
+        self.0.get(key)
+    }
+
+    pub fn keys(&self) -> indexmap::map::Keys<'_, K, V> {
+        self.0.keys()
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    fn deserialize_checked<'de, D, T>(
+        deserializer: D,
+        noun: &'static str,
+        convert: fn(Self) -> Result<T, String>,
+    ) -> Result<T, D::Error>
+    where
+        D: Deserializer<'de>,
+        K: Deserialize<'de> + Display,
+        V: Deserialize<'de>,
+    {
+        deserializer.deserialize_map(UniqueMapVisitor { noun, convert })
+    }
+}
+
+#[cfg(test)]
+impl<K: Hash + Eq, V> FromIterator<(K, V)> for UniqueMap<K, V> {
+    fn from_iter<I: IntoIterator<Item = (K, V)>>(entries: I) -> Self {
+        Self(entries.into_iter().collect())
+    }
+}
+
+struct UniqueMapVisitor<K: Hash + Eq, V, T> {
+    noun: &'static str,
+    convert: fn(UniqueMap<K, V>) -> Result<T, String>,
+}
+
+impl<'de, K, V, T> Visitor<'de> for UniqueMapVisitor<K, V, T>
+where
+    K: Deserialize<'de> + Hash + Eq + Display,
+    V: Deserialize<'de>,
+{
+    type Value = T;
+
+    fn expecting(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "a map keyed by {}", self.noun)
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<T, A::Error> {
+        let mut entries = IndexMap::new();
+        while let Some(key) = map.next_key::<K>()? {
+            if entries.contains_key(&key) {
+                return Err(de::Error::custom(format!(
+                    "duplicate {} '{key}'",
+                    self.noun
+                )));
             }
-            Ok(clusters)
-        },
-    ))
+            let value = map.next_value()?;
+            entries.insert(key, value);
+        }
+        (self.convert)(UniqueMap(entries)).map_err(de::Error::custom)
+    }
 }
 
 /// Converts `Raw` into `T` inside the visitor. serde_yaml_ng gives an error
@@ -211,134 +276,76 @@ fn some_names<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Vec<S
 #[serde(deny_unknown_fields)]
 pub struct AuthConfig {
     pub oidc: OidcConfig,
-    #[serde(default)]
-    pub roles: Option<RolesConfig>,
+    #[serde(default, deserialize_with = "roles")]
+    pub roles: Option<UniqueMap<String, RoleConfig>>,
     /// Signing key for the session cookie, as base64 or raw text of at least
     /// 32 bytes. Without one, every restart invalidates every session.
     #[serde(default)]
     pub session_key: Option<KeyMaterial<MIN_SESSION_KEY_BYTES>>,
 }
 
-const MAX_ROLE_DEFINITIONS: usize = 64;
+const MAX_ROLES: usize = 64;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RolesConfig {
-    pub claim: String,
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RoleConfig {
+    #[serde(deserialize_with = "privileges")]
+    pub privileges: Vec<PrivilegeName>,
+    #[serde(default)]
     pub bindings: Vec<RoleBinding>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RoleBinding {
+    #[serde(deserialize_with = "names")]
     pub groups: Vec<String>,
-    pub role: Role,
+    #[serde(default, deserialize_with = "some_names")]
     pub clusters: Option<Vec<String>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Role {
-    pub name: String,
-    pub privileges: Vec<PrivilegeName>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawRolesConfig {
-    #[serde(default = "default_groups_claim", deserialize_with = "non_blank")]
-    claim: String,
-    #[serde(deserialize_with = "role_definitions")]
-    definitions: BTreeMap<String, Vec<PrivilegeName>>,
-    #[serde(deserialize_with = "non_empty")]
-    bindings: Vec<RawRoleBinding>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawRoleBinding {
-    #[serde(deserialize_with = "names")]
-    groups: Vec<String>,
-    role: String,
-    #[serde(default, deserialize_with = "some_names")]
-    clusters: Option<Vec<String>>,
-}
-
-pub fn default_groups_claim() -> String {
-    "groups".to_owned()
-}
-
-impl<'de> Deserialize<'de> for RolesConfig {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_map(Checked::new("role settings", Self::from_raw))
-    }
-}
-
-impl RolesConfig {
-    fn from_raw(raw: RawRolesConfig) -> Result<Self, String> {
-        let bindings = raw
-            .bindings
-            .into_iter()
-            .map(|binding| binding.resolve(&raw.definitions))
-            .collect::<Result<_, _>>()?;
-
-        Ok(Self {
-            claim: raw.claim,
-            bindings,
-        })
-    }
-}
-
-impl RawRoleBinding {
-    fn resolve(
-        self,
-        definitions: &BTreeMap<String, Vec<PrivilegeName>>,
-    ) -> Result<RoleBinding, String> {
-        let privileges = definitions
-            .get(&self.role)
-            .ok_or_else(|| format!("binding references unknown role '{}'", self.role))?;
-
-        Ok(RoleBinding {
-            groups: self.groups,
-            role: Role {
-                privileges: privileges.clone(),
-                name: self.role,
-            },
-            clusters: self.clusters,
-        })
-    }
-}
-
-fn role_definitions<'de, D: Deserializer<'de>>(
+fn roles<'de, D: Deserializer<'de>>(
     deserializer: D,
-) -> Result<BTreeMap<String, Vec<PrivilegeName>>, D::Error> {
-    deserializer.deserialize_map(Checked::new(
-        "a map of role names to privileges",
-        |definitions: BTreeMap<String, Vec<PrivilegeName>>| {
-            if definitions.is_empty() {
+) -> Result<Option<UniqueMap<String, RoleConfig>>, D::Error> {
+    UniqueMap::deserialize_checked(
+        deserializer,
+        "role name",
+        |roles: UniqueMap<String, RoleConfig>| {
+            if roles.is_empty() {
                 return Err(EMPTY.to_owned());
             }
-
-            if definitions.len() > MAX_ROLE_DEFINITIONS {
-                return Err(format!(
-                    "too many role definitions (at most {MAX_ROLE_DEFINITIONS})"
-                ));
+            if roles.len() > MAX_ROLES {
+                return Err(format!("too many roles (at most {MAX_ROLES})"));
             }
-
-            for (role, privileges) in &definitions {
-                if role.trim().is_empty() {
-                    return Err("role definition name must not be empty".to_owned());
-                }
-
-                let mut seen = HashSet::with_capacity(privileges.len());
-                if let Some(repeated) = privileges
-                    .iter()
-                    .find(|privilege| !seen.insert(**privilege))
-                {
-                    return Err(format!("role '{role}' lists '{repeated}' more than once"));
-                }
+            if roles.keys().any(|name| name.trim().is_empty()) {
+                return Err("role name must not be empty".to_owned());
             }
+            if roles.iter().all(|(_, role)| role.bindings.is_empty()) {
+                return Err("at least one role must have bindings".to_owned());
+            }
+            Ok(Some(roles))
+        },
+    )
+}
 
-            Ok(definitions)
+fn privileges<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<PrivilegeName>, D::Error> {
+    deserializer.deserialize_seq(Checked::new(
+        "a list of privileges",
+        |privileges: Vec<PrivilegeName>| {
+            let mut seen = HashSet::with_capacity(privileges.len());
+            if let Some(repeated) = privileges
+                .iter()
+                .find(|privilege| !seen.insert(**privilege))
+            {
+                return Err(format!("'{repeated}' is listed more than once"));
+            }
+            Ok(privileges)
         },
     ))
+}
+
+fn default_groups_claim() -> String {
+    "groups".to_owned()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
@@ -382,6 +389,8 @@ pub struct OidcConfig {
     pub redirect_uri: RedirectUrl,
     #[serde(default = "default_scopes", deserialize_with = "non_blank_items")]
     pub scopes: Vec<String>,
+    #[serde(default = "default_groups_claim", deserialize_with = "non_blank")]
+    pub groups_claim: String,
     #[serde(default)]
     pub cookie_secure: Option<bool>,
 }
@@ -442,33 +451,21 @@ fn redirect_url<'de, D: Deserializer<'de>>(deserializer: D) -> Result<RedirectUr
     }))
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ClusterConfig {
-    pub name: ClusterName,
-    pub bootstrap_servers: Vec<String>,
-    pub security: SecurityConfig,
-    pub schema_registry: Option<SchemaRegistryConfig>,
-    pub obfuscation: Option<ObfuscationConfig>,
-    pub properties: KafkaProperties,
-    pub ingest: ClusterIngestConfig,
-}
-
-#[derive(Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RawClusterConfig {
-    name: ClusterName,
+pub struct ClusterConfig {
     #[serde(deserialize_with = "non_empty")]
-    bootstrap_servers: Vec<String>,
+    pub bootstrap_servers: Vec<String>,
     #[serde(default, deserialize_with = "in_place")]
-    security: SecurityConfig,
+    pub security: SecurityConfig,
     #[serde(default)]
-    schema_registry: Option<SchemaRegistryConfig>,
+    pub schema_registry: Option<SchemaRegistryConfig>,
     #[serde(default)]
-    obfuscation: Option<ObfuscationConfig>,
+    pub obfuscation: Option<ObfuscationConfig>,
     #[serde(default)]
-    properties: KafkaProperties,
-    #[serde(default)]
-    ingest: ClusterIngestConfig,
+    pub properties: KafkaProperties,
+    #[serde(default, deserialize_with = "ingest")]
+    pub ingest: ClusterIngestConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -497,29 +494,25 @@ impl Default for ClusterIngestConfig {
     }
 }
 
-impl ClusterIngestConfig {
-    fn validate(&self, cluster: &str) -> Result<(), ConfigError> {
-        let fields = [
-            ("ingest.topology_secs", self.topology_secs),
-            ("ingest.watermark_secs", self.watermark_secs),
-            ("ingest.config_secs", self.config_secs),
-            ("ingest.subjects_secs", self.subjects_secs),
-            ("ingest.offset_tick_secs", self.offset_tick_secs),
-            ("ingest.fast_offset_secs", self.fast_offset_secs),
-            ("ingest.slow_offset_secs", self.slow_offset_secs),
-        ];
-
-        for (field, secs) in fields {
-            if secs < 1 {
-                return Err(ConfigError::invalid_cluster(
-                    cluster,
-                    format!("{field} must be at least 1"),
-                ));
+fn ingest<'de, D: Deserializer<'de>>(deserializer: D) -> Result<ClusterIngestConfig, D::Error> {
+    deserializer.deserialize_map(Checked::new(
+        "ingest intervals",
+        |ingest: ClusterIngestConfig| {
+            let fields = [
+                ("topology_secs", ingest.topology_secs),
+                ("watermark_secs", ingest.watermark_secs),
+                ("config_secs", ingest.config_secs),
+                ("subjects_secs", ingest.subjects_secs),
+                ("offset_tick_secs", ingest.offset_tick_secs),
+                ("fast_offset_secs", ingest.fast_offset_secs),
+                ("slow_offset_secs", ingest.slow_offset_secs),
+            ];
+            if let Some((field, _)) = fields.iter().find(|(_, secs)| *secs < 1) {
+                return Err(format!("{field} must be at least 1"));
             }
-        }
-
-        Ok(())
-    }
+            Ok(ingest)
+        },
+    ))
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
@@ -530,77 +523,22 @@ pub struct KafkaProperties {
     pub connect_timeout_ms: Option<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SchemaRegistryConfig {
+    #[serde(deserialize_with = "http_url")]
     pub url: Url,
+    #[serde(default)]
     pub auth: Option<BasicAuth>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BasicAuth {
-    pub username: String,
-    pub password: Secret,
-}
-
-#[derive(Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RawSchemaRegistryConfig {
-    #[serde(deserialize_with = "http_url")]
-    url: Url,
-    #[serde(default)]
-    username: Option<String>,
-    #[serde(default)]
-    password: Option<Secret>,
-}
-
-impl<'de> Deserialize<'de> for SchemaRegistryConfig {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_map(Checked::new("schema registry settings", Self::from_raw))
-    }
-}
-
-impl SchemaRegistryConfig {
-    fn from_raw(raw: RawSchemaRegistryConfig) -> Result<Self, String> {
-        let auth = match (raw.username, raw.password) {
-            (None, None) => None,
-            (Some(username), Some(password)) => {
-                if username.trim().is_empty() {
-                    return Err("username must not be empty".to_owned());
-                }
-                if password.expose_secret().is_empty() {
-                    return Err("password must not be empty".to_owned());
-                }
-                Some(BasicAuth { username, password })
-            }
-            _ => return Err("username and password must be set together".to_owned()),
-        };
-
-        Ok(Self { url: raw.url, auth })
-    }
-}
-
-impl<'de> Deserialize<'de> for ClusterConfig {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_map(Checked::new("cluster settings", Self::from_raw))
-    }
-}
-
-impl ClusterConfig {
-    fn from_raw(raw: RawClusterConfig) -> Result<Self, String> {
-        raw.ingest
-            .validate(raw.name.as_str())
-            .map_err(|error| error.to_string())?;
-
-        Ok(Self {
-            name: raw.name,
-            bootstrap_servers: raw.bootstrap_servers,
-            security: raw.security,
-            schema_registry: raw.schema_registry,
-            obfuscation: raw.obfuscation,
-            properties: raw.properties,
-            ingest: raw.ingest,
-        })
-    }
+pub struct BasicAuth {
+    #[serde(deserialize_with = "non_blank")]
+    pub username: String,
+    #[serde(deserialize_with = "non_empty_secret")]
+    pub password: Secret,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -841,6 +779,15 @@ impl<'de, const MIN: usize> Deserialize<'de> for KeyMaterial<MIN> {
             Self::parse(secret.expose_secret()).map_err(|error| error.to_string())
         }))
     }
+}
+
+fn non_empty_secret<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Secret, D::Error> {
+    deserializer.deserialize_any(SecretVisitor(|secret| {
+        if secret.expose_secret().is_empty() {
+            return Err(EMPTY.to_owned());
+        }
+        Ok(secret)
+    }))
 }
 
 fn non_blank_secret<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Secret, D::Error> {
@@ -1265,52 +1212,19 @@ pub struct SaslConfig {
     pub password: Secret,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct TlsConfig {
     pub ca_cert: Option<PathBuf>,
-    pub client_cert: Option<ClientCert>,
+    pub client: Option<ClientCert>,
     pub insecure_skip_verify: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ClientCert {
     pub cert: PathBuf,
     pub key: PathBuf,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawTlsConfig {
-    #[serde(default)]
-    ca_cert: Option<PathBuf>,
-    #[serde(default)]
-    client_cert: Option<PathBuf>,
-    #[serde(default)]
-    client_key: Option<PathBuf>,
-    #[serde(default)]
-    insecure_skip_verify: bool,
-}
-
-impl<'de> Deserialize<'de> for TlsConfig {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_map(Checked::new("TLS settings", Self::from_raw))
-    }
-}
-
-impl TlsConfig {
-    fn from_raw(raw: RawTlsConfig) -> Result<Self, String> {
-        let client_cert = match (raw.client_cert, raw.client_key) {
-            (Some(cert), Some(key)) => Some(ClientCert { cert, key }),
-            (None, None) => None,
-            _ => return Err("client_cert and client_key must be set together".to_owned()),
-        };
-
-        Ok(Self {
-            ca_cert: raw.ca_cert,
-            client_cert,
-            insecure_skip_verify: raw.insecure_skip_verify,
-        })
-    }
 }
 
 #[cfg(test)]
@@ -1339,10 +1253,10 @@ mod tests {
             "
             bind: 0.0.0.0:8080
             clusters:
-              - name: local
+              local:
                 bootstrap_servers:
                   - localhost:9092
-              - name: staging
+              staging:
                 bootstrap_servers:
                   - broker-1:9092
                   - broker-2:9092
@@ -1350,24 +1264,55 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(config.clusters.len(), 2);
-        assert_eq!(config.clusters[0].name.as_str(), "local");
-        assert_eq!(config.clusters[1].name.as_str(), "staging");
+        assert_eq!(cluster_names(&config), vec!["local", "staging"]);
+        let staging = config.clusters.get(&"staging".parse().unwrap()).unwrap();
+        assert_eq!(
+            staging.bootstrap_servers,
+            vec!["broker-1:9092", "broker-2:9092"]
+        );
         assert_eq!(config.bind, "0.0.0.0:8080".parse().unwrap());
         assert_eq!(config.log_level, "info");
         assert_eq!(config.auth, None);
         assert_eq!(
-            config.clusters[0].ingest,
+            staging.ingest,
             ClusterIngestConfig::default(),
             "omitted ingest uses the documented defaults"
         );
+    }
+
+    fn cluster_names(config: &Config) -> Vec<&str> {
+        config.clusters.keys().map(ClusterName::as_str).collect()
+    }
+
+    #[test]
+    fn clusters_keep_file_order() {
+        let config = parse_config(
+            "
+            bind: 127.0.0.1:8080
+            clusters:
+              zeta: {bootstrap_servers: [zeta:9092]}
+              alpha: {bootstrap_servers: [alpha:9092]}
+              mid: {bootstrap_servers: [mid:9092]}
+            ",
+        )
+        .unwrap();
+
+        assert_eq!(cluster_names(&config), vec!["zeta", "alpha", "mid"]);
+    }
+
+    #[test]
+    fn clusters_may_be_empty_or_omitted() {
+        let empty = parse_config("bind: 127.0.0.1:8080\nclusters: {}").unwrap();
+        let omitted = parse_config("bind: 127.0.0.1:8080").unwrap();
+
+        assert_eq!(empty.clusters.len(), 0);
+        assert!(omitted.clusters.is_empty());
     }
 
     #[test]
     fn parses_cluster_ingest_overrides_and_fills_omitted_keys() {
         let cluster = parse_cluster(
             "
-            name: prod
             bootstrap_servers:
               - kafka:9092
             ingest:
@@ -1390,7 +1335,6 @@ mod tests {
     fn rejects_unknown_ingest_keys() {
         let error = parse_cluster(
             "
-            name: prod
             bootstrap_servers:
               - kafka:9092
             ingest:
@@ -1404,20 +1348,21 @@ mod tests {
 
     #[test]
     fn rejects_sub_second_ingest_intervals() {
-        let error = cluster_error(
+        let error = config_error(
             "
-            name: prod
-            bootstrap_servers:
-              - kafka:9092
-            ingest:
-              topology_secs: 0
+            bind: 127.0.0.1:8080
+            clusters:
+              prod:
+                bootstrap_servers:
+                  - kafka:9092
+                ingest:
+                  topology_secs: 0
             ",
         );
 
         assert_eq!(
             error,
-            "invalid configuration for cluster 'prod': ingest.topology_secs must be at least 1 \
-             at line 2 column 13"
+            "clusters.prod.ingest: topology_secs must be at least 1 at line 8 column 19"
         );
     }
 
@@ -1427,7 +1372,7 @@ mod tests {
             "
             bind: 127.0.0.1:8080
             catalog_poll_interval_secs: 15
-            clusters: []
+            clusters: {}
             ",
         )
         .unwrap_err();
@@ -1445,7 +1390,7 @@ mod tests {
             "
             bind: 127.0.0.1:3000
             log_level: debug
-            clusters: []
+            clusters: {}
             ",
         )
         .unwrap();
@@ -1459,7 +1404,7 @@ mod tests {
         assert!(
             parse_config(
                 "
-            clusters: []
+            clusters: {}
             "
             )
             .is_err()
@@ -1472,7 +1417,7 @@ mod tests {
             parse_config(
                 "
             bind: not-an-address
-            clusters: []
+            clusters: {}
             "
             )
             .is_err()
@@ -1483,14 +1428,12 @@ mod tests {
     fn parses_minimal_cluster() {
         let config = parse_cluster(
             "
-            name: local
             bootstrap_servers:
               - localhost:9092
             ",
         )
         .unwrap();
 
-        assert_eq!(config.name.as_str(), "local");
         assert_eq!(config.bootstrap_servers, vec!["localhost:9092"]);
         assert_eq!(config.security, SecurityConfig::Plaintext {});
         assert_eq!(config.schema_registry, None);
@@ -1501,7 +1444,6 @@ mod tests {
     fn parses_bootstrap_server_list() {
         let config = parse_cluster(
             "
-            name: local
             bootstrap_servers:
               - broker-1:9092
               - broker-2:9092
@@ -1519,7 +1461,6 @@ mod tests {
     fn parses_full_security_settings() {
         let config = parse_cluster(
             "
-            name: secure
             bootstrap_servers:
               - broker:9092
             security:
@@ -1530,8 +1471,9 @@ mod tests {
                 password: {value: secret}
               tls:
                 ca_cert: /etc/ca.pem
-                client_cert: /etc/client.pem
-                client_key: /etc/client.key
+                client:
+                  cert: /etc/client.pem
+                  key: /etc/client.key
                 insecure_skip_verify: true
             properties:
               request_timeout_ms: 10000
@@ -1550,7 +1492,7 @@ mod tests {
             tls,
             TlsConfig {
                 ca_cert: Some("/etc/ca.pem".into()),
-                client_cert: Some(ClientCert {
+                client: Some(ClientCert {
                     cert: "/etc/client.pem".into(),
                     key: "/etc/client.key".into(),
                 }),
@@ -1565,7 +1507,6 @@ mod tests {
         assert!(
             parse_cluster(
                 "
-            name: local
             bootstrap_servers:
               - localhost:9092
             bogus: true
@@ -1579,7 +1520,6 @@ mod tests {
     fn parses_typed_kafka_properties() {
         let config = parse_cluster(
             "
-            name: local
             bootstrap_servers: [localhost:9092]
             properties:
               client_id: browser
@@ -1639,7 +1579,7 @@ mod tests {
             parse_config(
                 "
             bind: 127.0.0.1:8080
-            clusters: []
+            clusters: {}
             bogus: true
             "
             )
@@ -1652,7 +1592,6 @@ mod tests {
         assert!(
             parse_cluster(
                 "
-            name: local
             bootstrap_servers: localhost:9092
             "
             )
@@ -1664,14 +1603,13 @@ mod tests {
     fn rejects_empty_bootstrap_servers() {
         let error = cluster_error(
             "
-            name: local
             bootstrap_servers: []
             ",
         );
 
         assert_eq!(
             error,
-            "bootstrap_servers: must not be empty at line 3 column 32"
+            "bootstrap_servers: must not be empty at line 2 column 32"
         );
     }
 
@@ -1679,7 +1617,6 @@ mod tests {
     fn accepts_plaintext_without_sasl() {
         let config = parse_cluster(
             "
-            name: local
             bootstrap_servers:
               - localhost:9092
             security:
@@ -1695,7 +1632,6 @@ mod tests {
     fn a_tls_block_defaults_when_omitted() {
         let config = parse_cluster(
             "
-            name: local
             bootstrap_servers:
               - localhost:9092
             security:
@@ -1716,7 +1652,6 @@ mod tests {
     fn requires_sasl_for_sasl_protocols() {
         let error = cluster_error(
             "
-            name: local
             bootstrap_servers:
               - localhost:9092
             security:
@@ -1724,14 +1659,13 @@ mod tests {
             ",
         );
 
-        assert_eq!(error, "security: missing field `sasl` at line 6 column 15");
+        assert_eq!(error, "security: missing field `sasl` at line 5 column 15");
     }
 
     #[test]
     fn rejects_blocks_the_protocol_does_not_use() {
         let error = cluster_error(
             "
-            name: local
             bootstrap_servers:
               - localhost:9092
             security:
@@ -1742,12 +1676,11 @@ mod tests {
         );
         assert_eq!(
             error,
-            "security: unknown field `tls`, there are no fields at line 6 column 15"
+            "security: unknown field `tls`, there are no fields at line 5 column 15"
         );
 
         let error = cluster_error(
             "
-            name: local
             bootstrap_servers:
               - localhost:9092
             security:
@@ -1760,67 +1693,76 @@ mod tests {
         );
         assert_eq!(
             error,
-            "security: unknown field `sasl`, expected `tls` at line 6 column 15"
+            "security: unknown field `sasl`, expected `tls` at line 5 column 15"
         );
     }
 
     #[test]
-    fn requires_client_cert_and_key_together() {
+    fn a_client_cert_needs_its_key() {
         let error = cluster_error(
             "
-            name: local
             bootstrap_servers:
               - localhost:9092
             security:
               protocol: SSL
               tls:
-                client_cert: /etc/client.pem
+                client:
+                  cert: /etc/client.pem
             ",
         );
 
-        assert_eq!(
-            error,
-            "security: client_cert and client_key must be set together at line 6 column 15"
-        );
+        assert_eq!(error, "security: missing field `key` at line 5 column 15");
     }
 
     #[test]
     fn a_cluster_name_is_trimmed_and_must_not_be_blank() {
-        let config = parse_cluster(
+        let config = parse_config(
             "
-            name: '  local  '
-            bootstrap_servers:
-              - localhost:9092
+            bind: 127.0.0.1:8080
+            clusters:
+              '  local  ': {bootstrap_servers: [localhost:9092]}
             ",
         )
         .unwrap();
-        assert_eq!(config.name.as_str(), "local");
+        assert_eq!(cluster_names(&config), vec!["local"]);
 
-        let error = cluster_error(
-            "
-            name: '   '
-            bootstrap_servers:
-              - localhost:9092
-            ",
-        );
-        assert_eq!(error, "name: must not be empty at line 2 column 19");
-    }
-
-    #[test]
-    fn rejects_duplicate_cluster_names() {
         let error = config_error(
             "
             bind: 127.0.0.1:8080
             clusters:
-              - name: local
-                bootstrap_servers:
-                  - localhost:9092
-              - name: ' local '
-                bootstrap_servers:
-                  - localhost:9093
+              '   ': {bootstrap_servers: [localhost:9092]}
             ",
         );
+        assert_eq!(error, "clusters: must not be empty at line 4 column 15");
+    }
 
+    #[test]
+    fn rejects_a_repeated_cluster_name() {
+        let error = config_error(
+            "
+            bind: 127.0.0.1:8080
+            clusters:
+              local:
+                bootstrap_servers: [localhost:9092]
+              staging:
+                bootstrap_servers: [staging:9092]
+              local:
+                bootstrap_servers: [localhost:9093]
+            ",
+        );
+        assert_eq!(
+            error,
+            "clusters: duplicate cluster name 'local' at line 4 column 15"
+        );
+
+        let error = config_error(
+            "
+            bind: 127.0.0.1:8080
+            clusters:
+              local: {bootstrap_servers: [localhost:9092]}
+              ' local ': {bootstrap_servers: [localhost:9093]}
+            ",
+        );
         assert_eq!(
             error,
             "clusters: duplicate cluster name 'local' at line 4 column 15"
@@ -1832,7 +1774,7 @@ mod tests {
         let config = parse_config(
             "
             bind: 127.0.0.1:8080
-            clusters: []
+            clusters: {}
             auth:
               oidc:
                 issuer: https://keycloak.example.com/realms/klens
@@ -1860,11 +1802,11 @@ mod tests {
     }
 
     #[test]
-    fn parses_role_definitions_and_bindings() {
+    fn parses_roles_and_their_bindings() {
         let config = parse_config(
             "
             bind: 127.0.0.1:8080
-            clusters: []
+            clusters: {}
             auth:
               oidc:
                 issuer: https://idp.example
@@ -1872,146 +1814,166 @@ mod tests {
                 client_secret: {value: secret}
                 redirect_uri: http://localhost:8080/api/auth/callback
               roles:
-                definitions:
-                  admin: [records, configs, schema_text, acls]
-                  viewer: []
-                  operator: [records, configs]
-                bindings:
-                  - groups: [klens-admins]
-                    role: admin
-                  - groups: [payments-viewers]
-                    role: viewer
-                    clusters: [payments]
+                admin:
+                  privileges: [records, configs, schema_text, acls]
+                  bindings:
+                    - groups: [klens-admins]
+                    - groups: [kafka-operators]
+                      clusters: [staging, dev]
+                viewer:
+                  privileges: []
+                  bindings:
+                    - groups: [payments-viewers]
+                      clusters: [payments]
+                auditor:
+                  privileges: [acls]
             ",
         )
         .unwrap();
 
         let roles = config.auth.unwrap().roles.unwrap();
         assert_eq!(
-            roles,
-            RolesConfig {
-                claim: "groups".to_owned(),
-                bindings: vec![
-                    RoleBinding {
-                        groups: vec!["klens-admins".to_owned()],
-                        role: Role {
-                            name: "admin".to_owned(),
-                            privileges: vec![
-                                PrivilegeName::Records,
-                                PrivilegeName::Configs,
-                                PrivilegeName::SchemaText,
-                                PrivilegeName::Acls,
-                            ],
-                        },
-                        clusters: None,
+            roles.iter().collect::<Vec<_>>(),
+            vec![
+                (
+                    &"admin".to_owned(),
+                    &RoleConfig {
+                        privileges: vec![
+                            PrivilegeName::Records,
+                            PrivilegeName::Configs,
+                            PrivilegeName::SchemaText,
+                            PrivilegeName::Acls,
+                        ],
+                        bindings: vec![
+                            RoleBinding {
+                                groups: vec!["klens-admins".to_owned()],
+                                clusters: None,
+                            },
+                            RoleBinding {
+                                groups: vec!["kafka-operators".to_owned()],
+                                clusters: Some(vec!["staging".to_owned(), "dev".to_owned()]),
+                            },
+                        ],
                     },
-                    RoleBinding {
-                        groups: vec!["payments-viewers".to_owned()],
-                        role: Role {
-                            name: "viewer".to_owned(),
-                            privileges: vec![],
-                        },
-                        clusters: Some(vec!["payments".to_owned()]),
+                ),
+                (
+                    &"viewer".to_owned(),
+                    &RoleConfig {
+                        privileges: vec![],
+                        bindings: vec![RoleBinding {
+                            groups: vec!["payments-viewers".to_owned()],
+                            clusters: Some(vec!["payments".to_owned()]),
+                        }],
                     },
-                ],
-            }
+                ),
+                (
+                    &"auditor".to_owned(),
+                    &RoleConfig {
+                        privileges: vec![PrivilegeName::Acls],
+                        bindings: vec![],
+                    },
+                ),
+            ]
         );
     }
 
-    fn parse_roles(definitions: &str, bindings: &str) -> Result<Config, String> {
+    fn parse_roles(roles: &str) -> Result<Config, String> {
         parse_config(&format!(
             "
             bind: 127.0.0.1:8080
-            clusters: []
+            clusters: {{}}
             auth:
               oidc:
                 issuer: https://idp.example
                 client_id: klens
                 client_secret: {{value: secret}}
                 redirect_uri: http://localhost:8080/api/auth/callback
-              roles:
-                definitions:{definitions}
-                bindings:{bindings}
+              roles:{roles}
             "
         ))
         .map_err(|error| error.to_string())
     }
 
     #[test]
-    fn rejects_empty_role_bindings() {
-        let error = parse_roles("\n                  admin: [records]", " []").unwrap_err();
-
-        assert_eq!(
-            error,
-            "auth.roles.bindings: must not be empty at line 13 column 27"
-        );
-    }
-
-    #[test]
-    fn rejects_empty_role_definitions() {
+    fn rejects_roles_that_bind_nobody() {
         let error = parse_roles(
-            " {}",
             "
-                  - groups: [klens-admins]
-                    role: admin",
+                admin:
+                  privileges: [records]
+                viewer:
+                  privileges: []
+                  bindings: []",
         )
         .unwrap_err();
 
         assert_eq!(
             error,
-            "auth.roles.definitions: must not be empty at line 11 column 30"
+            "auth.roles: at least one role must have bindings at line 11 column 17"
         );
     }
 
     #[test]
-    fn rejects_a_blank_role_definition_name() {
+    fn rejects_empty_roles() {
+        let error = parse_roles(" {}").unwrap_err();
+
+        assert_eq!(error, "auth.roles: must not be empty at line 10 column 22");
+    }
+
+    #[test]
+    fn rejects_a_blank_role_name() {
         let error = parse_roles(
             "
-                  \"  \": [records]",
-            "
-                  - groups: [klens-admins]
-                    role: \"  \"",
+                \"  \":
+                  privileges: [records]
+                  bindings:
+                    - groups: [klens-admins]",
         )
         .unwrap_err();
 
         assert_eq!(
             error,
-            "auth.roles.definitions: role definition name must not be empty at line 12 column 19"
+            "auth.roles: role name must not be empty at line 11 column 17"
         );
     }
 
     #[test]
-    fn rejects_a_repeated_privilege_in_a_definition() {
+    fn rejects_a_repeated_role_name() {
         let error = parse_roles(
             "
-                  operator: [records, configs, records]",
-            "
-                  - groups: [kafka-operators]
-                    role: operator",
+                admin:
+                  privileges: [records, configs, schema_text, acls]
+                  bindings:
+                    - groups: [klens-admins]
+                viewer:
+                  privileges: []
+                admin:
+                  privileges: []
+                  bindings:
+                    - groups: [everyone]",
         )
         .unwrap_err();
 
         assert_eq!(
             error,
-            "auth.roles.definitions: role 'operator' lists 'records' more than once \
-             at line 12 column 19"
+            "auth.roles: duplicate role name 'admin' at line 11 column 17"
         );
     }
 
     #[test]
-    fn rejects_a_binding_naming_an_undefined_role() {
+    fn rejects_a_repeated_privilege_in_a_role() {
         let error = parse_roles(
             "
-                  operator: [records]",
-            "
-                  - groups: [kafka-operators]
-                    role: unknown-role",
+                operator:
+                  privileges: [records, configs, records]
+                  bindings:
+                    - groups: [kafka-operators]",
         )
         .unwrap_err();
 
         assert_eq!(
             error,
-            "auth.roles: binding references unknown role 'unknown-role' at line 11 column 17"
+            "auth.roles.operator.privileges: 'records' is listed more than once \
+             at line 12 column 31"
         );
     }
 
@@ -2020,108 +1982,96 @@ mod tests {
         let cases = [
             (
                 "
-                  - groups: []
-                    role: operator",
-                "auth.roles.bindings[0].groups: must not be empty at line 14 column 29",
+                    - groups: []",
+                "auth.roles.operator.bindings[0].groups: must not be empty at line 14 column 31",
             ),
             (
                 "
-                  - groups: [ops, ' ']
-                    role: operator",
-                "auth.roles.bindings[0].groups: must not contain empty values \
-                 at line 14 column 29",
+                    - groups: [ops, ' ']",
+                "auth.roles.operator.bindings[0].groups: must not contain empty values \
+                 at line 14 column 31",
             ),
             (
                 "
-                  - groups: [ops]
-                    role: operator
-                    clusters: []",
-                "auth.roles.bindings[0].clusters: must not be empty at line 16 column 31",
+                    - groups: [ops]
+                      clusters: []",
+                "auth.roles.operator.bindings[0].clusters: must not be empty at line 15 column 33",
             ),
             (
                 "
-                  - groups: [ops]
-                    role: operator
-                    clusters: [prod, '']",
-                "auth.roles.bindings[0].clusters: must not contain empty values \
-                 at line 16 column 31",
+                    - groups: [ops]
+                      clusters: [prod, '']",
+                "auth.roles.operator.bindings[0].clusters: must not contain empty values \
+                 at line 15 column 33",
             ),
         ];
 
         for (bindings, expected) in cases {
-            let error = parse_roles(
+            let error = parse_roles(&format!(
                 "
-                  operator: [records]",
-                bindings,
-            )
+                operator:
+                  privileges: [records]
+                  bindings:{bindings}"
+            ))
             .unwrap_err();
             assert_eq!(error, expected);
         }
     }
 
-    #[test]
-    fn rejects_a_blank_roles_claim() {
-        let error = parse_config(
+    fn groups_claim(oidc_extra: &str) -> Result<String, String> {
+        parse_config(&format!(
             "
             bind: 127.0.0.1:8080
             auth:
               oidc:
                 issuer: https://idp.example
                 client_id: klens
-                client_secret: {value: secret}
-                redirect_uri: http://localhost:8080/api/auth/callback
-              roles:
-                claim: ' '
-                definitions:
-                  admin: [records]
-                bindings:
-                  - groups: [klens-admins]
-                    role: admin
-            ",
-        )
-        .unwrap_err()
-        .to_string();
+                client_secret: {{value: secret}}
+                redirect_uri: http://localhost:8080/api/auth/callback{oidc_extra}
+            "
+        ))
+        .map(|config| config.auth.unwrap().oidc.groups_claim)
+        .map_err(|error| error.to_string())
+    }
 
+    #[test]
+    fn the_groups_claim_defaults_to_groups_and_can_be_renamed() {
+        assert_eq!(groups_claim("").unwrap(), "groups");
         assert_eq!(
-            error,
-            "auth.roles.claim: must not be empty at line 10 column 24"
+            groups_claim("\n                groups_claim: roles").unwrap(),
+            "roles"
         );
     }
 
     #[test]
-    fn rejects_too_many_role_definitions() {
-        let definitions: String = (0..=MAX_ROLE_DEFINITIONS)
-            .map(|index| format!("\n                  role{index}: [records]"))
+    fn rejects_a_blank_groups_claim() {
+        let error = groups_claim("\n                groups_claim: ' '").unwrap_err();
+
+        assert_eq!(
+            error,
+            "auth.oidc.groups_claim: must not be empty at line 9 column 31"
+        );
+    }
+
+    #[test]
+    fn rejects_too_many_roles() {
+        let roles: String = (0..=MAX_ROLES)
+            .map(|index| {
+                format!(
+                    "
+                role{index}:
+                  privileges: [records]
+                  bindings:
+                    - groups: [group{index}]"
+                )
+            })
             .collect();
-        let error = parse_roles(
-            &definitions,
-            "
-                  - groups: [klens-admins]
-                    role: role0",
-        )
-        .unwrap_err();
+        let error = parse_roles(&roles).unwrap_err();
 
         assert_eq!(
             error,
-            "auth.roles.definitions: too many role definitions (at most 64) at line 12 column 19"
+            "auth.roles: too many roles (at most 64) at line 11 column 17"
         );
-    }
-
-    #[test]
-    fn allows_definitions_no_binding_uses() {
-        let config = parse_roles(
-            "
-                  admin: [records, configs, schema_text, acls]
-                  auditor: [acls, schema_text]",
-            "
-                  - groups: [klens-admins]
-                    role: admin",
-        )
-        .unwrap();
-
-        let roles = config.auth.unwrap().roles.unwrap();
-        assert_eq!(roles.bindings.len(), 1);
-        assert_eq!(roles.bindings[0].role.name, "admin");
     }
 
     #[test]
@@ -2129,7 +2079,7 @@ mod tests {
         let https = parse_config(
             "
             bind: 127.0.0.1:8080
-            clusters: []
+            clusters: {}
             auth:
               oidc:
                 issuer: https://idp.example
@@ -2144,7 +2094,7 @@ mod tests {
         let forced = parse_config(
             "
             bind: 127.0.0.1:8080
-            clusters: []
+            clusters: {}
             auth:
               oidc:
                 issuer: https://idp.example
@@ -2163,7 +2113,7 @@ mod tests {
         let config = parse_config(
             "
             bind: 127.0.0.1:8080
-            clusters: []
+            clusters: {}
             auth:
               oidc:
                 issuer: https://idp.example
@@ -2186,7 +2136,7 @@ mod tests {
         config_error(&format!(
             "
             bind: 127.0.0.1:8080
-            clusters: []
+            clusters: {{}}
             auth:
               oidc:
                 issuer: {issuer}
@@ -2304,13 +2254,13 @@ mod tests {
     fn parses_schema_registry_settings() {
         let config = parse_cluster(
             "
-            name: local
             bootstrap_servers:
               - localhost:9092
             schema_registry:
               url: http://localhost:8081
-              username: user
-              password: {value: secret}
+              auth:
+                username: user
+                password: {value: secret}
             ",
         )
         .unwrap();
@@ -2331,7 +2281,6 @@ mod tests {
     fn rejects_invalid_schema_registry_url() {
         let error = cluster_error(
             "
-            name: local
             bootstrap_servers:
               - localhost:9092
             schema_registry:
@@ -2342,14 +2291,13 @@ mod tests {
         assert_eq!(
             error,
             "schema_registry.url: not a valid URL: relative URL without a base \
-             at line 6 column 20"
+             at line 5 column 20"
         );
     }
 
     fn registry_error(credentials: &str) -> String {
         cluster_error(&format!(
             "
-            name: local
             bootstrap_servers:
               - localhost:9092
             schema_registry:
@@ -2359,23 +2307,25 @@ mod tests {
     }
 
     #[test]
-    fn rejects_mismatched_schema_registry_auth() {
+    fn registry_auth_needs_both_credentials() {
         let error = registry_error(
             "
-              username: user",
+              auth:
+                username: user",
         );
         assert_eq!(
             error,
-            "schema_registry: username and password must be set together at line 6 column 15"
+            "schema_registry.auth: missing field `password` at line 7 column 17"
         );
 
         let error = registry_error(
             "
-              password: {value: secret}",
+              auth:
+                password: {value: secret}",
         );
         assert_eq!(
             error,
-            "schema_registry: username and password must be set together at line 6 column 15"
+            "schema_registry.auth: missing field `username` at line 7 column 17"
         );
     }
 
@@ -2383,22 +2333,24 @@ mod tests {
     fn rejects_blank_schema_registry_credentials() {
         let error = registry_error(
             "
-              username: ' '
-              password: {value: secret}",
+              auth:
+                username: ' '
+                password: {value: secret}",
         );
         assert_eq!(
             error,
-            "schema_registry: username must not be empty at line 6 column 15"
+            "schema_registry.auth.username: must not be empty at line 7 column 27"
         );
 
         let error = registry_error(
             "
-              username: user
-              password: {value: ''}",
+              auth:
+                username: user
+                password: {value: ''}",
         );
         assert_eq!(
             error,
-            "schema_registry: password must not be empty at line 6 column 15"
+            "schema_registry.auth.password: must not be empty at line 8 column 27"
         );
     }
 
@@ -2406,7 +2358,6 @@ mod tests {
     fn parses_obfuscation_rules() {
         let config = parse_cluster(
             "
-            name: payments
             bootstrap_servers:
               - broker:9092
             obfuscation:
@@ -2460,7 +2411,6 @@ mod tests {
     fn obfuscation_fails_closed_on_values_that_never_decode() {
         let config = parse_cluster(
             "
-            name: payments
             bootstrap_servers:
               - broker:9092
             obfuscation:
@@ -2482,7 +2432,6 @@ mod tests {
     fn obfuscated(rules: &str) -> Result<(), String> {
         let yaml = format!(
             "
-            name: payments
             bootstrap_servers:
               - broker:9092
             obfuscation:
@@ -2516,7 +2465,7 @@ mod tests {
         )
         .unwrap_err();
 
-        let expected = "obfuscation: hash strategy requires a secret at line 7 column 15";
+        let expected = "obfuscation: hash strategy requires a secret at line 6 column 15";
         assert_eq!(fields, expected);
         assert_eq!(whole_key, expected);
     }
@@ -2621,7 +2570,7 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             error,
-            "obfuscation.rules: must not be empty at line 7 column 22"
+            "obfuscation.rules: must not be empty at line 6 column 22"
         );
 
         let error = obfuscated(
@@ -2634,7 +2583,7 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             error,
-            "obfuscation.rules[0].topics: must not be empty at line 8 column 27"
+            "obfuscation.rules[0].topics: must not be empty at line 7 column 27"
         );
 
         let error = obfuscated(
@@ -2647,7 +2596,7 @@ mod tests {
         assert_eq!(
             error,
             "obfuscation: rule for 'cards, audit.*' must set at least one of fields, key, \
-             value, headers or patterns at line 7 column 15"
+             value, headers or patterns at line 6 column 15"
         );
     }
 
@@ -2666,7 +2615,7 @@ mod tests {
         assert_eq!(
             error,
             "obfuscation.rules[0].fields[0].path: field path 'card..number' must not have \
-             empty segments at line 10 column 29"
+             empty segments at line 9 column 29"
         );
 
         let error = obfuscated(
@@ -2680,7 +2629,7 @@ mod tests {
         assert_eq!(
             error,
             "obfuscation.rules[0].topics[0]: topic 'pay*ments': '*' is only allowed as the \
-             last character at line 8 column 28"
+             last character at line 7 column 28"
         );
 
         let error = obfuscated(
@@ -2693,7 +2642,7 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             error,
-            "obfuscation.rules[0].headers: must not contain empty values at line 9 column 28"
+            "obfuscation.rules[0].headers: must not contain empty values at line 8 column 28"
         );
     }
 
@@ -2726,7 +2675,7 @@ mod tests {
         assert_eq!(
             error,
             "obfuscation.rules[0].patterns[0].regex: pattern must not be empty \
-             at line 10 column 30"
+             at line 9 column 30"
         );
     }
 
@@ -2734,7 +2683,6 @@ mod tests {
     fn a_pattern_compiles_at_load() {
         let config = parse_cluster(
             r"
-            name: logs
             bootstrap_servers: [broker:9092]
             obfuscation:
               rules:
@@ -2770,7 +2718,7 @@ mod tests {
             error,
             "obfuscation.rules[0].patterns[0].regex: invalid pattern '[unclosed': \
              regex parse error:\n    [unclosed\n    ^\nerror: unclosed character class \
-             at line 10 column 30"
+             at line 9 column 30"
         );
     }
 
@@ -2789,7 +2737,7 @@ mod tests {
 
         assert_eq!(
             error,
-            r"obfuscation.rules[0].patterns[0].regex: invalid pattern '\d*': it matches the empty string at line 10 column 30"
+            r"obfuscation.rules[0].patterns[0].regex: invalid pattern '\d*': it matches the empty string at line 9 column 30"
         );
     }
 
@@ -2808,7 +2756,7 @@ mod tests {
 
         assert_eq!(
             error,
-            "obfuscation: hash strategy requires a secret at line 7 column 15"
+            "obfuscation: hash strategy requires a secret at line 6 column 15"
         );
     }
 
@@ -2837,7 +2785,7 @@ mod tests {
                 error,
                 format!(
                     "obfuscation: topics '{second}' and '{first}' match the same topics; \
-                     a topic must be covered by exactly one rule at line 7 column 15"
+                     a topic must be covered by exactly one rule at line 6 column 15"
                 )
             );
         }

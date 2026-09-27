@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
-use crate::config::{PrivilegeName, RolesConfig, default_groups_claim};
+use crate::config::{PrivilegeName, RoleConfig, UniqueMap};
 use crate::r#macro::from_same_variants;
 
 const MAX_GROUPS: usize = 64;
@@ -252,7 +252,6 @@ pub struct Identity<'a> {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RoleTable {
-    pub groups_claim: String,
     bindings: Vec<CompiledBinding>,
 }
 
@@ -267,7 +266,7 @@ struct CompiledBinding {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AccessPolicy {
     Disabled,
-    Open { groups_claim: String },
+    Open,
     Bound(RoleTable),
 }
 
@@ -276,30 +275,16 @@ impl AccessPolicy {
         Self::Disabled
     }
 
-    pub fn open() -> Self {
-        Self::Open {
-            groups_claim: default_groups_claim(),
-        }
-    }
-
-    pub fn from_roles(roles: Option<&RolesConfig>) -> Self {
+    pub fn from_roles(roles: Option<&UniqueMap<String, RoleConfig>>) -> Self {
         match roles {
-            None => Self::open(),
-            Some(config) => Self::Bound(RoleTable::compile(config)),
-        }
-    }
-
-    pub fn groups_claim(&self) -> &str {
-        match self {
-            Self::Disabled => "groups",
-            Self::Open { groups_claim } => groups_claim,
-            Self::Bound(table) => &table.groups_claim,
+            None => Self::Open,
+            Some(roles) => Self::Bound(RoleTable::compile(roles)),
         }
     }
 
     pub fn admit(&self, identity: &Identity<'_>) -> Option<EffectiveAccess> {
         match self {
-            Self::Disabled | Self::Open { .. } => Some(EffectiveAccess::Unrestricted),
+            Self::Disabled | Self::Open => Some(EffectiveAccess::Unrestricted),
             Self::Bound(table) => {
                 if identity.groups.len() > MAX_GROUPS {
                     return None;
@@ -311,19 +296,21 @@ impl AccessPolicy {
 }
 
 impl RoleTable {
-    fn compile(config: &RolesConfig) -> Self {
+    fn compile(roles: &UniqueMap<String, RoleConfig>) -> Self {
         Self {
-            groups_claim: config.claim.clone(),
-            bindings: config
-                .bindings
+            bindings: roles
                 .iter()
-                .map(|binding| CompiledBinding {
-                    groups: binding.groups.iter().cloned().collect(),
-                    role_name: Arc::from(binding.role.name.as_str()),
-                    privileges: PrivilegeSet::from_privileges(
-                        binding.role.privileges.iter().copied().map(Privilege::from),
-                    ),
-                    scope: ClusterScope::from_list(binding.clusters.as_deref()),
+                .flat_map(|(name, role)| {
+                    let role_name: Arc<str> = Arc::from(name.as_str());
+                    let privileges = PrivilegeSet::from_privileges(
+                        role.privileges.iter().copied().map(Privilege::from),
+                    );
+                    role.bindings.iter().map(move |binding| CompiledBinding {
+                        groups: binding.groups.iter().cloned().collect(),
+                        role_name: Arc::clone(&role_name),
+                        privileges,
+                        scope: ClusterScope::from_list(binding.clusters.as_deref()),
+                    })
                 })
                 .collect(),
         }
@@ -365,7 +352,7 @@ pub fn groups_from_json(value: &serde_json::Value, claim: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{PrivilegeName, Role, RoleBinding, RolesConfig};
+    use crate::config::{PrivilegeName, RoleBinding, RoleConfig};
 
     const EVERYTHING: &[PrivilegeName] = &[
         PrivilegeName::Records,
@@ -381,32 +368,30 @@ mod tests {
     }
 
     fn table(definitions: &[(&str, &[PrivilegeName])], bindings: Vec<Bound<'_>>) -> AccessPolicy {
-        AccessPolicy::from_roles(Some(&RolesConfig {
-            claim: "groups".into(),
-            bindings: bindings
-                .into_iter()
-                .map(|bound| {
-                    let (name, privileges) = definitions
+        let roles = definitions
+            .iter()
+            .map(|(name, privileges)| {
+                let role = RoleConfig {
+                    privileges: privileges.to_vec(),
+                    bindings: bindings
                         .iter()
-                        .find(|(name, _)| *name == bound.role)
-                        .expect("a test binds a defined role");
-                    RoleBinding {
-                        groups: bound
-                            .groups
-                            .iter()
-                            .map(|group| (*group).to_owned())
-                            .collect(),
-                        role: Role {
-                            name: (*name).to_owned(),
-                            privileges: privileges.to_vec(),
-                        },
-                        clusters: bound
-                            .clusters
-                            .map(|names| names.iter().map(|name| (*name).to_owned()).collect()),
-                    }
-                })
-                .collect(),
-        }))
+                        .filter(|bound| bound.role == *name)
+                        .map(|bound| RoleBinding {
+                            groups: bound
+                                .groups
+                                .iter()
+                                .map(|group| (*group).to_owned())
+                                .collect(),
+                            clusters: bound
+                                .clusters
+                                .map(|names| names.iter().map(|name| (*name).to_owned()).collect()),
+                        })
+                        .collect(),
+                };
+                ((*name).to_owned(), role)
+            })
+            .collect();
+        AccessPolicy::from_roles(Some(&roles))
     }
 
     fn binding<'a>(

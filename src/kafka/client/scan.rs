@@ -159,15 +159,17 @@ mod tests {
     }
 
     async fn client(broker: &FakeBroker) -> KafkaClient {
-        KafkaClient::new(&crate::config::ClusterConfig {
-            name: "test".parse().unwrap(),
-            bootstrap_servers: vec![broker.bootstrap_servers()],
-            security: Default::default(),
-            schema_registry: None,
-            obfuscation: None,
-            properties: Default::default(),
-            ingest: Default::default(),
-        })
+        KafkaClient::new(
+            &"test".parse().unwrap(),
+            &crate::config::ClusterConfig {
+                bootstrap_servers: vec![broker.bootstrap_servers()],
+                security: Default::default(),
+                schema_registry: None,
+                obfuscation: None,
+                properties: Default::default(),
+                ingest: Default::default(),
+            },
+        )
         .await
         .expect("kafka client")
     }
