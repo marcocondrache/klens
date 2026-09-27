@@ -14,32 +14,16 @@ pub enum Screen {
     NeedsPayload,
 }
 
-pub struct Kept {
-    kind: Kind,
-}
-
-enum Kind {
+pub enum Kept {
     Pending(RawRecord),
     Decoded(DecodedRecord),
 }
 
 impl Kept {
-    pub fn pending(raw: RawRecord) -> Self {
-        Self {
-            kind: Kind::Pending(raw),
-        }
-    }
-
-    fn decoded(record: DecodedRecord) -> Self {
-        Self {
-            kind: Kind::Decoded(record),
-        }
-    }
-
     pub fn raw(&self) -> &RawRecord {
-        match &self.kind {
-            Kind::Pending(raw) => raw,
-            Kind::Decoded(record) => record.raw(),
+        match self {
+            Self::Pending(raw) => raw,
+            Self::Decoded(record) => record.raw(),
         }
     }
 }
@@ -84,27 +68,6 @@ impl DecodedRecord {
     }
 }
 
-enum PayloadView<'a> {
-    Raw {
-        key: Option<RawField<'a>>,
-        value: Option<RawField<'a>>,
-    },
-    Obfuscated,
-}
-
-impl<'a> PayloadView<'a> {
-    fn verdict(self, filter: &CompiledFilter) -> Option<Screen> {
-        match self {
-            PayloadView::Obfuscated => Some(Screen::NeedsPayload),
-            PayloadView::Raw { key, value } => match filter.on_raw(key, value) {
-                Verdict::Fail => None,
-                Verdict::Pass => Some(Screen::Deferred),
-                Verdict::NeedsPayload => Some(Screen::NeedsPayload),
-            },
-        }
-    }
-}
-
 pub struct RecordPipeline {
     codec: Option<Arc<dyn PayloadCodec>>,
     filter: Option<CompiledFilter>,
@@ -140,7 +103,21 @@ impl RecordPipeline {
             return Some(Screen::Deferred);
         };
 
-        self.payload_view(raw).verdict(filter)
+        if self
+            .obfuscator
+            .as_ref()
+            .is_some_and(|obfuscator| obfuscator.hides_payload())
+        {
+            return Some(Screen::NeedsPayload);
+        }
+
+        let key = self.field(raw.key.as_deref(), None);
+        let value = self.field(raw.value.as_deref(), self.fallback_schema_id);
+        match filter.on_raw(key, value) {
+            Verdict::Fail => None,
+            Verdict::Pass => Some(Screen::Deferred),
+            Verdict::NeedsPayload => Some(Screen::NeedsPayload),
+        }
     }
 
     pub async fn decode_and_filter(&self, records: Vec<RawRecord>) -> Vec<Kept> {
@@ -172,7 +149,7 @@ impl RecordPipeline {
                 .chain(value.iter_mut())
                 .for_each(DecodedPayload::drop_tree_if_rendered);
 
-            kept.push(Kept::decoded(DecodedRecord {
+            kept.push(Kept::Decoded(DecodedRecord {
                 raw: candidate.raw,
                 key,
                 value,
@@ -185,9 +162,9 @@ impl RecordPipeline {
         let mut slots = Vec::with_capacity(page.len() * 2);
         let staged: Vec<Stage> = page
             .into_iter()
-            .map(|kept| match kept.kind {
-                Kind::Decoded(record) => Stage::Decoded(record),
-                Kind::Pending(raw) => {
+            .map(|kept| match kept {
+                Kept::Decoded(record) => Stage::Decoded(record),
+                Kept::Pending(raw) => {
                     let key = push_slot(&mut slots, raw.key.clone(), None);
                     let value = push_slot(&mut slots, raw.value.clone(), self.fallback_schema_id);
                     Stage::Pending { raw, key, value }
@@ -208,21 +185,6 @@ impl RecordPipeline {
                 }
             })
             .collect()
-    }
-
-    fn payload_view<'a>(&'a self, raw: &'a RawRecord) -> PayloadView<'a> {
-        if self
-            .obfuscator
-            .as_ref()
-            .is_some_and(|obfuscator| obfuscator.hides_payload())
-        {
-            PayloadView::Obfuscated
-        } else {
-            PayloadView::Raw {
-                key: self.field(raw.key.as_deref(), None),
-                value: self.field(raw.value.as_deref(), self.fallback_schema_id),
-            }
-        }
     }
 
     fn obfuscate(&self, key: &mut Option<DecodedPayload>, value: &mut Option<DecodedPayload>) {

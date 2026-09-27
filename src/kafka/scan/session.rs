@@ -188,7 +188,7 @@ impl ScanSession {
 
             match self.pipeline.screen(&mut raw) {
                 None => continue,
-                Some(Screen::Deferred) => batch.push(sort, Kept::pending(raw)),
+                Some(Screen::Deferred) => batch.push(sort, Kept::Pending(raw)),
                 Some(Screen::NeedsPayload) => candidates.push(raw),
             }
         }
