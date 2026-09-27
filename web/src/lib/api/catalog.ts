@@ -4,11 +4,11 @@ import type {
   BrokerRow,
   ClusterHealth,
   GroupDetail,
-  GroupRowPage,
+  GroupRow,
   SubjectRowsResult,
   TopicDetail,
   TopicGroupRow,
-  TopicRowPage,
+  TopicRow,
 } from "@/api/types.gen";
 import { clusterPath } from "@/lib/clusters";
 
@@ -62,10 +62,7 @@ export function useClusterHealth(cluster: string) {
 export function useTopicRows(cluster: string) {
   return useQuery({
     queryKey: keys.topicRows(cluster),
-    queryFn: async () => {
-      const page = await get<TopicRowPage>(clusterPathname(cluster, "topics"));
-      return page.rows;
-    },
+    queryFn: () => get<TopicRow[]>(clusterPathname(cluster, "topics")),
   });
 }
 
@@ -89,10 +86,7 @@ export function useTopicGroups(cluster: string, topic: string, enabled = true) {
 export function useGroupRows(cluster: string) {
   return useQuery({
     queryKey: keys.groupRows(cluster),
-    queryFn: async () => {
-      const page = await get<GroupRowPage>(clusterPathname(cluster, "groups"));
-      return page.rows;
-    },
+    queryFn: () => get<GroupRow[]>(clusterPathname(cluster, "groups")),
   });
 }
 

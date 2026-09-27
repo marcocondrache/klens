@@ -47,8 +47,8 @@
     color: var(--th-token);
   }
 
-  .json-block-wrap pre.th-code,
-  .json-block-wrap pre.th-code > code {
+  .json-block pre.th-code,
+  .json-block pre.th-code > code {
     white-space: pre-wrap;
     overflow-wrap: break-word;
   }

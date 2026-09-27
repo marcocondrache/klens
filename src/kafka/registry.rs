@@ -52,17 +52,6 @@ impl From<schemreg::CompatibilityLevel> for SchemaCompatibility {
     }
 }
 
-impl std::fmt::Display for SchemaCompatibility {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::Backward => "BACKWARD",
-            Self::Forward => "FORWARD",
-            Self::Full => "FULL",
-            Self::None => "NONE",
-        })
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SchemaSubject {
     pub subject: String,

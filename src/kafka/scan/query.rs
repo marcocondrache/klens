@@ -1,5 +1,3 @@
-use std::ops::{Bound, RangeBounds};
-
 use jiff::Timestamp;
 
 use crate::kafka::error::QueryError;
@@ -49,96 +47,41 @@ impl RecordQuery {
     }
 }
 
+/// Both ends are inclusive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TimestampRange {
-    start: Bound<Timestamp>,
-    end: Bound<Timestamp>,
+    from: Option<Timestamp>,
+    to: Option<Timestamp>,
 }
 
 impl TimestampRange {
     pub const UNBOUNDED: Self = Self {
-        start: Bound::Unbounded,
-        end: Bound::Unbounded,
+        from: None,
+        to: None,
     };
 
     pub fn new(from: Option<Timestamp>, to: Option<Timestamp>) -> Result<Self, QueryError> {
-        match (from, to) {
-            (None, None) => Self::UNBOUNDED,
-            (Some(from), None) => Self::from_bounds(from..),
-            (None, Some(to)) => Self::from_bounds(..=to),
-            (Some(from), Some(to)) => Self::from_bounds(from..=to),
+        if let (Some(from), Some(to)) = (from, to)
+            && from > to
+        {
+            return Err(QueryError::InvertedTimestampRange);
         }
-        .validate()
-    }
-
-    pub fn from_bounds(range: impl RangeBounds<Timestamp>) -> Self {
-        Self {
-            start: copy_bound(range.start_bound()),
-            end: copy_bound(range.end_bound()),
-        }
-    }
-
-    pub fn validate(self) -> Result<Self, QueryError> {
-        match (self.start, self.end) {
-            (
-                Bound::Included(from) | Bound::Excluded(from),
-                Bound::Included(to) | Bound::Excluded(to),
-            ) if from > to => Err(QueryError::InvertedTimestampRange),
-            _ => Ok(self),
-        }
+        Ok(Self { from, to })
     }
 
     pub fn start_seek(self) -> Option<i64> {
-        timestamp_seek(self.start, false)
+        self.from.map(Timestamp::as_millisecond)
     }
 
+    /// Kafka seeks to the first offset at or after a timestamp, so the end
+    /// seeks one millisecond past it to keep records stamped `to`.
     pub fn end_seek(self) -> Option<i64> {
-        timestamp_seek(self.end, true)
-    }
-}
-
-impl Default for TimestampRange {
-    fn default() -> Self {
-        Self::UNBOUNDED
-    }
-}
-
-impl RangeBounds<Timestamp> for TimestampRange {
-    fn start_bound(&self) -> Bound<&Timestamp> {
-        self.start.as_ref()
-    }
-
-    fn end_bound(&self) -> Bound<&Timestamp> {
-        self.end.as_ref()
-    }
-}
-
-fn copy_bound(bound: Bound<&Timestamp>) -> Bound<Timestamp> {
-    match bound {
-        Bound::Included(value) => Bound::Included(*value),
-        Bound::Excluded(value) => Bound::Excluded(*value),
-        Bound::Unbounded => Bound::Unbounded,
-    }
-}
-
-/// Kafka seeks to the first offset at or after a timestamp, so an exclusive
-/// bound is expressed by shifting one millisecond.
-fn timestamp_seek(bound: Bound<Timestamp>, is_end: bool) -> Option<i64> {
-    match (bound, is_end) {
-        (Bound::Unbounded, _) => None,
-        (Bound::Included(timestamp), false) | (Bound::Excluded(timestamp), true) => {
-            Some(timestamp.as_millisecond())
-        }
-        (Bound::Included(timestamp), true) | (Bound::Excluded(timestamp), false) => {
-            Some(timestamp.as_millisecond().saturating_add(1))
-        }
+        self.to.map(|to| to.as_millisecond().saturating_add(1))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::ops::{Bound, RangeBounds};
-
     use super::*;
 
     fn unix_datetime(ms: i64) -> Timestamp {
@@ -153,17 +96,7 @@ mod tests {
         assert!(TimestampRange::new(Some(late), Some(early)).is_err());
         assert!(TimestampRange::new(Some(early), Some(early)).is_ok());
         assert!(TimestampRange::new(Some(early), None).is_ok());
-        assert!(
-            TimestampRange::from_bounds((Bound::Included(late), Bound::Included(early)))
-                .validate()
-                .is_err()
-        );
-        assert!(
-            TimestampRange::from_bounds(early..=early)
-                .validate()
-                .is_ok()
-        );
-        assert!(TimestampRange::from_bounds(early..).validate().is_ok());
+        assert!(TimestampRange::new(None, Some(early)).is_ok());
     }
 
     #[test]
@@ -180,31 +113,19 @@ mod tests {
     }
 
     #[test]
-    fn maps_std_ranges_to_kafka_seek_times() {
-        let start = unix_datetime(10);
-        let end = unix_datetime(20);
-        let inside = unix_datetime(19);
-        let after = unix_datetime(21);
+    fn maps_inclusive_bounds_to_kafka_seek_times() {
+        let start = Some(unix_datetime(10));
+        let end = Some(unix_datetime(20));
 
-        let inclusive = TimestampRange::from_bounds(start..=end);
-        assert_eq!(inclusive.start_bound(), Bound::Included(&start));
-        assert_eq!(inclusive.end_bound(), Bound::Included(&end));
-        assert_eq!(inclusive.start_seek(), Some(10));
-        assert_eq!(inclusive.end_seek(), Some(21));
-        assert!(inclusive.contains(&start));
-        assert!(inclusive.contains(&end));
-        assert!(!inclusive.contains(&after));
+        let both = TimestampRange::new(start, end).unwrap();
+        assert_eq!(both.start_seek(), Some(10));
+        assert_eq!(both.end_seek(), Some(21));
 
-        let exclusive_end = TimestampRange::from_bounds(start..end);
-        assert_eq!(exclusive_end.end_seek(), Some(20));
-        assert!(exclusive_end.contains(&inside));
-        assert!(!exclusive_end.contains(&end));
-
-        let from = TimestampRange::from_bounds(start..);
+        let from = TimestampRange::new(start, None).unwrap();
         assert_eq!(from.start_seek(), Some(10));
         assert_eq!(from.end_seek(), None);
 
-        let to = TimestampRange::from_bounds(..=end);
+        let to = TimestampRange::new(None, end).unwrap();
         assert_eq!(to.start_seek(), None);
         assert_eq!(to.end_seek(), Some(21));
     }
@@ -213,6 +134,9 @@ mod tests {
     fn unbounded_seeks_nowhere() {
         assert_eq!(TimestampRange::UNBOUNDED.start_seek(), None);
         assert_eq!(TimestampRange::UNBOUNDED.end_seek(), None);
-        assert_eq!(TimestampRange::default(), TimestampRange::UNBOUNDED);
+        assert_eq!(
+            TimestampRange::new(None, None).unwrap(),
+            TimestampRange::UNBOUNDED
+        );
     }
 }

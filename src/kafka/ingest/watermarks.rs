@@ -3,7 +3,6 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use jiff::Timestamp;
 use tokio::time::Instant;
 
 use crate::environment::{IDLE_HEARTBEAT, MAX_SAMPLE_GAP};
@@ -108,7 +107,7 @@ impl LaneSource for WatermarkLane {
             .into_iter()
             .map(|(topic, partitions)| (topology.intern_topic(&topic), partitions))
             .collect();
-        Ok(Fetch::Ready(WatermarkTable::new(Timestamp::now(), marks)))
+        Ok(Fetch::Ready(WatermarkTable { marks }))
     }
 
     fn diff(&self, previous: Option<&WatermarkTable>, next: &WatermarkTable) -> Option<()> {
@@ -123,7 +122,6 @@ impl LaneSource for WatermarkLane {
     fn publish(
         &self,
         store: &ClusterStore,
-        version: u64,
         previous: Option<&Arc<WatermarkTable>>,
         next: &Arc<WatermarkTable>,
         (): (),
@@ -142,11 +140,7 @@ impl LaneSource for WatermarkLane {
 
         store
             .bus
-            .publish(Change::Watermarks(Arc::new(WatermarksTick {
-                version,
-                at: next.sampled_at,
-                rates,
-            })));
+            .publish(Change::Watermarks(Arc::new(WatermarksTick { rates })));
     }
 }
 
@@ -195,7 +189,7 @@ fn round_rate(value: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kafka::store::fixtures::{at, watermarks};
+    use crate::kafka::store::fixtures::watermarks;
 
     fn rates(
         previous: Option<&WatermarkTable>,
@@ -214,14 +208,14 @@ mod tests {
 
     #[test]
     fn the_first_sample_has_no_rate_to_report() {
-        let next = watermarks(at(1_000), &[("orders", 0, 0, 100)]);
+        let next = watermarks(&[("orders", 0, 0, 100)]);
         assert_eq!(rates(None, &next, None), vec![("orders".into(), 0.0)]);
     }
 
     #[test]
     fn the_rate_is_the_high_watermark_delta_over_elapsed_time() {
-        let previous = watermarks(at(1_000), &[("orders", 0, 0, 10), ("orders", 1, 0, 10)]);
-        let next = watermarks(at(3_000), &[("orders", 0, 0, 30), ("orders", 1, 0, 20)]);
+        let previous = watermarks(&[("orders", 0, 0, 10), ("orders", 1, 0, 10)]);
+        let next = watermarks(&[("orders", 0, 0, 30), ("orders", 1, 0, 20)]);
 
         assert_eq!(
             rates(Some(&previous), &next, secs(2)),
@@ -231,8 +225,8 @@ mod tests {
 
     #[test]
     fn a_truncated_log_reports_zero_rather_than_a_negative_rate() {
-        let previous = watermarks(at(1_000), &[("orders", 0, 0, 800)]);
-        let next = watermarks(at(3_000), &[("orders", 0, 700, 800)]);
+        let previous = watermarks(&[("orders", 0, 0, 800)]);
+        let next = watermarks(&[("orders", 0, 700, 800)]);
 
         assert_eq!(
             rates(Some(&previous), &next, secs(2)),
@@ -242,8 +236,8 @@ mod tests {
 
     #[test]
     fn a_stale_previous_sample_is_not_divided_by() {
-        let previous = watermarks(at(1_000), &[("orders", 0, 0, 10)]);
-        let next = watermarks(at(61_000), &[("orders", 0, 0, 100_000)]);
+        let previous = watermarks(&[("orders", 0, 0, 10)]);
+        let next = watermarks(&[("orders", 0, 0, 100_000)]);
 
         assert_eq!(
             rates(Some(&previous), &next, None),
@@ -254,8 +248,8 @@ mod tests {
 
     #[test]
     fn a_new_partition_contributes_nothing_on_its_first_appearance() {
-        let previous = watermarks(at(1_000), &[("orders", 0, 0, 10)]);
-        let next = watermarks(at(3_000), &[("orders", 0, 0, 10), ("orders", 1, 0, 5_000)]);
+        let previous = watermarks(&[("orders", 0, 0, 10)]);
+        let next = watermarks(&[("orders", 0, 0, 10), ("orders", 1, 0, 5_000)]);
 
         assert_eq!(
             rates(Some(&previous), &next, secs(2)),
@@ -266,8 +260,8 @@ mod tests {
 
     #[test]
     fn rates_are_reported_per_topic_in_name_order() {
-        let previous = watermarks(at(1_000), &[("payments", 0, 0, 0), ("orders", 0, 0, 0)]);
-        let next = watermarks(at(2_000), &[("payments", 0, 0, 4), ("orders", 0, 0, 2)]);
+        let previous = watermarks(&[("payments", 0, 0, 0), ("orders", 0, 0, 0)]);
+        let next = watermarks(&[("payments", 0, 0, 4), ("orders", 0, 0, 2)]);
 
         assert_eq!(
             rates(Some(&previous), &next, secs(1)),
@@ -277,8 +271,8 @@ mod tests {
 
     #[test]
     fn rates_round_to_thousandths() {
-        let previous = watermarks(at(0), &[("orders", 0, 0, 0)]);
-        let next = watermarks(at(3_000), &[("orders", 0, 0, 1)]);
+        let previous = watermarks(&[("orders", 0, 0, 0)]);
+        let next = watermarks(&[("orders", 0, 0, 1)]);
 
         assert_eq!(
             rates(Some(&previous), &next, secs(3)),

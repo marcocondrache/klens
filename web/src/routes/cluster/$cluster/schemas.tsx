@@ -201,7 +201,6 @@ function SchemasPage() {
         error={isError ? apiErrorMessage(error, "Failed to load schemas.") : undefined}
         defaultSort={{ id: "subject", direction: "asc" }}
         onRowClick={open}
-        fill
       />
 
       <Sheet

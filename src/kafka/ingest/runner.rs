@@ -34,7 +34,6 @@ pub trait LaneSource: Send + Sync + 'static {
     fn publish(
         &self,
         store: &ClusterStore,
-        version: u64,
         previous: Option<&Arc<Self::Table>>,
         next: &Arc<Self::Table>,
         delta: Self::Delta,
@@ -61,7 +60,7 @@ async fn poll<S: LaneSource>(store: &ClusterStore, source: &S) {
             {
                 let next = Arc::new(next);
                 let version = source.lane(store).commit(Arc::clone(&next));
-                source.publish(store, version, previous.as_ref(), &next, delta);
+                source.publish(store, previous.as_ref(), &next, delta);
                 tracing::debug!(cluster = %cluster, lane, version, "lane committed");
             }
             source.lane(store).record_poll(started.elapsed(), None);
@@ -142,7 +141,6 @@ mod tests {
         fn publish(
             &self,
             _store: &ClusterStore,
-            _version: u64,
             _previous: Option<&Arc<Topology>>,
             _next: &Arc<Topology>,
             (): (),
@@ -282,12 +280,7 @@ mod tests {
         assert_eq!(store.topology.version(), 2);
         assert_eq!(source.publishes.load(Ordering::SeqCst), 2);
         assert_eq!(
-            store
-                .topology
-                .load()
-                .unwrap()
-                .topic("orders")
-                .unwrap()
+            store.topology.load().unwrap().topics["orders"]
                 .partitions
                 .len(),
             2

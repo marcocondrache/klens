@@ -8,7 +8,7 @@ use krafka::consumer::{AutoOffsetReset, Consumer, ConsumerBuilder, ConsumerRecor
 
 use crate::environment::{MAX_RECORD_LIMIT, MAX_RESPONSE_BYTES};
 use crate::kafka::error::KafkaError;
-use crate::kafka::model::{Compression, PartitionWindow, RawRecord, ScanConsumer};
+use crate::kafka::model::{PartitionWindow, RawRecord, ScanConsumer};
 
 use super::pool::{ScanPool, assign};
 
@@ -48,9 +48,6 @@ pub(super) fn raw_record(message: ConsumerRecord) -> RawRecord {
         key: message.key,
         value: message.value,
         headers: message.headers,
-        // krafka decodes batches before the consumer sees them and
-        // does not carry the batch's codec on the record.
-        compression: Compression::None,
     }
 }
 

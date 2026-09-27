@@ -188,7 +188,7 @@ impl Tail {
 
             match self.pipeline.screen(&mut raw) {
                 None => continue,
-                Some(Screen::Deferred) => batch.push(sort, Kept::pending(raw)),
+                Some(Screen::Deferred) => batch.push(sort, Kept::Pending(raw)),
                 Some(Screen::NeedsPayload) => candidates.push(raw),
             }
         }
@@ -237,7 +237,6 @@ mod tests {
 
     use super::*;
     use crate::kafka::limits::RecordLimits;
-    use crate::kafka::scan::Compression;
     use crate::kafka::scan::filter::contains;
     use crate::kafka::store::fixtures::{identity, partition, topic, topology};
     use crate::kafka::testing::{FAKE_TAIL_POLL_RECORDS, FakeCluster, FixtureRecord, card_record};
@@ -265,7 +264,6 @@ mod tests {
             key: Some(key),
             value: None,
             headers: Vec::new(),
-            compression: Compression::None,
         }
     }
 
@@ -320,7 +318,6 @@ mod tests {
                     schema_id: None,
                     headers: Vec::new(),
                     size_bytes: 1,
-                    compression: Compression::None,
                 }],
                 skipped: 0,
             }

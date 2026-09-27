@@ -71,7 +71,6 @@ pub struct GroupRow {
     pub topic_names: Vec<String>,
     pub total_lag: Option<i64>,
     pub lag_complete: bool,
-    pub coordinator_id: i32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,7 +78,6 @@ pub struct GroupDetail {
     pub id: Arc<str>,
     pub state: GroupState,
     pub protocol: String,
-    pub coordinator_id: i32,
     pub members: Vec<GroupMember>,
     pub offsets: Vec<GroupOffset>,
     pub total_lag: Option<i64>,
@@ -280,7 +278,6 @@ pub fn group_row(
         topic_names: unique_topics(&offsets),
         total_lag,
         lag_complete,
-        coordinator_id: group.coordinator,
     }
 }
 
@@ -295,7 +292,6 @@ pub fn group_detail(
         id: Arc::clone(id),
         state: group.state,
         protocol: group.protocol.clone(),
-        coordinator_id: group.coordinator,
         members: group.members.clone(),
         offsets,
         total_lag,
@@ -384,7 +380,7 @@ mod tests {
     use super::*;
     use crate::kafka::group::MemberAssignment;
     use crate::kafka::store::fixtures::{
-        at, config, group as group_snapshot, offline_partition, offsets, partition, topic,
+        config, group as group_snapshot, offline_partition, offsets, partition, topic,
         topology as build_topology, watermarks,
     };
 
@@ -402,7 +398,7 @@ mod tests {
     }
 
     fn marks() -> WatermarkTable {
-        watermarks(at(1_000), &[("orders", 0, 20, 100), ("orders", 1, 0, 50)])
+        watermarks(&[("orders", 0, 20, 100), ("orders", 1, 0, 50)])
     }
 
     #[test]
@@ -486,7 +482,7 @@ mod tests {
         let row = group_row(
             id,
             group,
-            Some(&offsets(at(1_000), &[("orders", 0, 90), ("orders", 1, 20)])),
+            Some(&offsets(&[("orders", 0, 90), ("orders", 1, 20)])),
             Some(&marks()),
         );
 
@@ -504,7 +500,7 @@ mod tests {
         let row = group_row(
             id,
             group,
-            Some(&offsets(at(1_000), &[("orders", 0, 500)])),
+            Some(&offsets(&[("orders", 0, 500)])),
             Some(&marks()),
         );
 
@@ -523,8 +519,8 @@ mod tests {
         let row = group_row(
             id,
             group,
-            Some(&offsets(at(1_000), &[("orders", 0, 90)])),
-            Some(&watermarks(at(1_000), &[])),
+            Some(&offsets(&[("orders", 0, 90)])),
+            Some(&watermarks(&[])),
         );
 
         assert_eq!(row.total_lag, Some(0));
@@ -542,8 +538,8 @@ mod tests {
         let row = group_row(
             id,
             group,
-            Some(&offsets(at(1_000), &[("orders", 0, 90)])),
-            Some(&watermarks(at(1_000), &[("orders", 0, 20, 100)])),
+            Some(&offsets(&[("orders", 0, 90)])),
+            Some(&watermarks(&[("orders", 0, 20, 100)])),
         );
 
         assert_eq!(row.total_lag, Some(10));
@@ -558,7 +554,7 @@ mod tests {
         let topology = topology();
         let (id, group) = topology.groups.iter().next().unwrap();
 
-        let detail = group_detail(id, group, Some(&offsets(at(1_000), &[])), Some(&marks()));
+        let detail = group_detail(id, group, Some(&offsets(&[])), Some(&marks()));
 
         assert_eq!(detail.total_lag, Some(150));
         assert_eq!(detail.offsets.len(), 2);
@@ -578,9 +574,9 @@ mod tests {
             vec![snapshot],
         );
         let (id, group) = topology.groups.iter().next().unwrap();
-        let marks = watermarks(at(1_000), &[("orders", 0, 0, 10), ("payments", 0, 0, 900)]);
+        let marks = watermarks(&[("orders", 0, 0, 10), ("payments", 0, 0, 900)]);
 
-        let fetched = offsets(at(1_000), &[]);
+        let fetched = offsets(&[]);
         let row = topic_group_row(id, "orders", group, Some(&fetched), Some(&marks));
         assert_eq!(row.lag_on_topic, Some(10));
         assert_eq!(row.member_count, 1);

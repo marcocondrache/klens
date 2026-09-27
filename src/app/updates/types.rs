@@ -1,5 +1,4 @@
-use jiff::Timestamp;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use ts_rs::TS;
 
 use crate::kafka::store;
@@ -22,13 +21,6 @@ impl From<&store::TopicRate> for TopicRate {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ResyncReason {
-    /// The client fell behind the change bus and missed events.
-    Lagged,
-}
-
 /// One lane delta. `type` is the discriminant the client switches on.
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(
@@ -38,20 +30,17 @@ pub enum ResyncReason {
 )]
 pub enum Update {
     Watermarks {
-        at: Timestamp,
         /// One `{topic, rate}` pair per topic, never catalog objects. A scoped
         /// subscriber gets only its topic.
         topics: Vec<TopicRate>,
     },
     GroupLag {
-        at: Timestamp,
         group: String,
         lag: i64,
         lag_complete: bool,
         offsets: Vec<GroupOffset>,
     },
     Topology {
-        version: u64,
         added_topics: Vec<String>,
         removed_topics: Vec<String>,
         changed_topics: Vec<String>,
@@ -61,18 +50,16 @@ pub enum Update {
         brokers_changed: bool,
     },
     Configs {
-        version: u64,
         topics: Vec<String>,
     },
+    /// Sent when any subject is added, removed or changed. Added subjects are
+    /// not listed: the client refetches the subject list either way.
     Subjects {
-        version: u64,
-        added: Vec<String>,
         removed: Vec<String>,
         changed: Vec<String>,
     },
-    Resync {
-        reason: ResyncReason,
-    },
+    /// The client fell behind the change bus and missed events.
+    Resync,
 }
 
 impl Update {
@@ -83,7 +70,7 @@ impl Update {
             Self::Topology { .. } => "topology",
             Self::Configs { .. } => "configs",
             Self::Subjects { .. } => "subjects",
-            Self::Resync { .. } => "resync",
+            Self::Resync => "resync",
         }
     }
 }

@@ -92,11 +92,9 @@ const columns = columnHelper.columns([
 export function ConfigTable({
   entries,
   loading = false,
-  fill = false,
 }: {
   entries: ConfigEntry[];
   loading?: boolean;
-  fill?: boolean;
 }) {
   const [term, setTerm] = useState("");
   const [onlyOverrides, setOnlyOverrides] = useState(false);
@@ -140,7 +138,6 @@ export function ConfigTable({
       }
       loading={loading}
       defaultSort={{ id: "name", direction: "asc" }}
-      fill={fill}
     />
   );
 }

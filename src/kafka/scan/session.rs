@@ -1,5 +1,5 @@
 use std::ops::Range;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use foldhash::{HashMap, HashSet, HashSetExt};
@@ -14,13 +14,13 @@ use crate::kafka::limits::RecordLimits;
 use crate::kafka::metadata::Watermarks;
 use crate::kafka::session::ClusterSession;
 
+use super::RecordPage;
 use super::batch::{RecordBatch, SortKey};
 use super::cursor::CursorDirection;
 use super::obfuscate::TopicObfuscator;
 use super::pipeline::{Kept, RecordPipeline, Screen};
 use super::plan::{PartitionWindow, advance_cursor, plan_windows, rewind_cursor, walk_start};
 use super::query::{RecordOrder, RecordQuery};
-use super::{Compression, RecordPage};
 
 #[cfg(test)]
 use super::Record;
@@ -35,7 +35,6 @@ pub struct RawRecord {
     pub key: Option<Bytes>,
     pub value: Option<Bytes>,
     pub headers: Vec<(Bytes, Option<Bytes>)>,
-    pub compression: Compression,
 }
 
 impl RawRecord {
@@ -80,23 +79,7 @@ pub struct ScanSession {
     consumer: Box<dyn ScanConsumer>,
     pipeline: RecordPipeline,
     walk: RecordOrder,
-    assigned: Mutex<Assignment>,
-}
-
-struct Assignment(Vec<PartitionWindow>);
-
-impl Assignment {
-    fn from_open(windows: &[PartitionWindow]) -> Self {
-        Self(windows.to_vec())
-    }
-
-    fn needs_reassign(&self, windows: &[PartitionWindow]) -> bool {
-        self.0 != windows
-    }
-
-    fn retarget(&mut self, windows: &[PartitionWindow]) {
-        self.0 = windows.to_vec();
-    }
+    assigned: Vec<PartitionWindow>,
 }
 
 impl ScanSession {
@@ -120,7 +103,7 @@ impl ScanSession {
                 query.schema_id,
             ),
             walk,
-            assigned: Mutex::new(Assignment::from_open(windows)),
+            assigned: windows.to_vec(),
         })
     }
 
@@ -133,7 +116,7 @@ impl ScanSession {
     }
 
     async fn run(
-        &self,
+        &mut self,
         windows: &[PartitionWindow],
         batch: &mut RecordBatch<Kept>,
         deadline: Instant,
@@ -143,20 +126,12 @@ impl ScanSession {
             return Ok(scan.outcome(windows, self.walk));
         }
 
-        if self
-            .assigned
-            .lock()
-            .expect("scan assignment")
-            .needs_reassign(windows)
-        {
+        if self.assigned != windows {
             match timeout_at(deadline, self.consumer.reassign(windows)).await {
                 Ok(assigned) => assigned?,
                 Err(_) => return Ok(scan.outcome(windows, self.walk)),
             }
-            self.assigned
-                .lock()
-                .expect("scan assignment")
-                .retarget(windows);
+            self.assigned = windows.to_vec();
         }
 
         while !scan.remaining.is_empty() {
@@ -213,7 +188,7 @@ impl ScanSession {
 
             match self.pipeline.screen(&mut raw) {
                 None => continue,
-                Some(Screen::Deferred) => batch.push(sort, Kept::pending(raw)),
+                Some(Screen::Deferred) => batch.push(sort, Kept::Pending(raw)),
                 Some(Screen::NeedsPayload) => candidates.push(raw),
             }
         }
@@ -361,7 +336,7 @@ pub async fn fetch_page<S: ClusterSession + ?Sized>(
     }
 
     let deadline = Instant::now() + session.consume_timeout();
-    let scan = ScanSession::open(session, query, walk, deadline, &windows).await?;
+    let mut scan = ScanSession::open(session, query, walk, deadline, &windows).await?;
 
     let max_passes = if searching { MAX_FILTER_PASSES } else { 1 };
     let fresh = walk_start(walk, partitions, watermarks);
@@ -438,8 +413,8 @@ pub async fn fetch_page<S: ClusterSession + ?Sized>(
             .collect(),
         complete,
         obfuscated,
-        next_cursor: next_cursor.map(|cursor| cursor.encode()),
-        prev_cursor: prev_cursor.map(|cursor| cursor.encode()),
+        next_cursor: next_cursor.map(|cursor| cursor.to_string()),
+        prev_cursor: prev_cursor.map(|cursor| cursor.to_string()),
     })
 }
 
@@ -472,7 +447,7 @@ pub async fn scan_once<S: ClusterSession + ?Sized>(
     };
 
     let deadline = Instant::now() + session.consume_timeout();
-    let scan = ScanSession::open(session, &query, order, deadline, windows).await?;
+    let mut scan = ScanSession::open(session, &query, order, deadline, windows).await?;
     let mut batch = RecordBatch::new(limit, order, CursorDirection::Forward);
     let outcome = scan.run(windows, &mut batch, deadline).await;
     let page = scan.pipeline.decode_deferred(batch.into_sorted()).await;
@@ -515,7 +490,6 @@ mod tests {
             key: Some(key),
             value: None,
             headers: Vec::new(),
-            compression: Compression::None,
         }
     }
 
@@ -1017,7 +991,6 @@ mod tests {
             value: Some(framed(300, r#"{"orderId":"ord_0"}"#)),
             headers: Vec::new(),
             size_bytes: 0,
-            compression: Compression::None,
         };
         let session = FakeCluster::local()
             .with_orders_records(vec![record])

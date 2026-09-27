@@ -105,14 +105,14 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Part" className="justify-end" />
     ),
-    meta: { align: "right", headerClassName: "w-16" },
+    meta: { align: "right" },
     cell: ({ getValue }) => <span className="numeric text-muted-foreground">{getValue()}</span>,
   }),
   columnHelper.accessor("offset", {
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Offset" className="justify-end" />
     ),
-    meta: { align: "right", headerClassName: "w-28" },
+    meta: { align: "right" },
     cell: ({ getValue }) => <span className="numeric">{getValue()}</span>,
   }),
   columnHelper.accessor((record) => record.key ?? "", {
@@ -153,7 +153,6 @@ const columns = columnHelper.columns([
       <DataTableColumnHeader column={column} title="Timestamp" className="justify-end" />
     ),
     meta: { align: "right" },
-    sortFn: "datetime",
     cell: ({ getValue }) => (
       <Tooltip>
         <TooltipTrigger
@@ -313,7 +312,6 @@ export function RecordView({
                     )
                   }
                 />
-                <Meta label="Compression" value={selectedRecord.compression.toLowerCase()} />
               </dl>
 
               <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-hidden px-5 py-4">
@@ -398,17 +396,9 @@ function SchemaLink({ cluster, topic, id }: { cluster: string; topic: string; id
   );
 }
 
-function Meta({
-  label,
-  value,
-  className,
-}: {
-  label: string;
-  value: React.ReactNode;
-  className?: string;
-}) {
+function Meta({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className={cn("min-w-0 space-y-0.5", className)}>
+    <div className="min-w-0 space-y-0.5">
       <dt className="text-xs text-muted-foreground">{label}</dt>
       <dd className="numeric truncate text-sm">{value}</dd>
     </div>

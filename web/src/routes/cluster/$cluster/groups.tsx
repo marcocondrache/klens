@@ -120,16 +120,6 @@ const columns = columnHelper.columns([
     meta: { align: "right", width: "9rem" },
     cell: ({ row }) => <LagValue row={row.original} />,
   }),
-  columnHelper.accessor("coordinatorId", {
-    id: "coordinator",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Coordinator" className="justify-end" />
-    ),
-    meta: { align: "right", width: "7.5rem" },
-    cell: ({ getValue }) => (
-      <span className="numeric text-muted-foreground">Broker {getValue()}</span>
-    ),
-  }),
 ]);
 
 function LagValue({ row }: { row: GroupRow }) {
@@ -212,7 +202,6 @@ function ConsumerGroupsPage() {
             params: { cluster, group: group.id },
           });
         }}
-        fill
       />
     </div>
   );

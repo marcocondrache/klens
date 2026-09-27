@@ -1,22 +1,20 @@
 use axum::Json;
 use axum::Router;
 use axum::routing::get;
-use serde::Deserialize;
 
 use crate::AppState;
 use crate::kafka::KafkaError;
 
 use super::context::Session;
 use super::error::ApiError;
-use super::extract::{Path, Query};
-use super::paging::{name_filter, page};
+use super::extract::Path;
 
 pub mod types;
 
 #[cfg(test)]
 mod tests;
 
-pub(crate) use types::{GroupDetail, GroupOffset, GroupRow, GroupRowPage, GroupState};
+pub(crate) use types::{GroupDetail, GroupOffset, GroupRow, GroupState};
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
@@ -25,35 +23,19 @@ pub(crate) fn router() -> Router<AppState> {
         .route("/{*group}", get(group))
 }
 
-#[derive(Debug, Default, Deserialize)]
-struct PageQuery {
-    contains: Option<String>,
-    after: Option<String>,
-    limit: Option<i32>,
-}
-
 async fn groups(
     session: Session,
     Path(name): Path<String>,
-    Query(query): Query<PageQuery>,
-) -> Result<Json<GroupRowPage>, ApiError> {
+) -> Result<Json<Vec<GroupRow>>, ApiError> {
     let cluster = session.cluster(&name)?;
-    let matches = name_filter(query.contains.as_deref());
-    let rows: Vec<_> = cluster
-        .store
-        .group_rows()
-        .into_iter()
-        .filter(|row| matches(&row.id))
-        .collect();
-
-    let total = rows.len() as i32;
-    let (rows, next_cursor) = page(rows, query.after.as_deref(), query.limit, |row| &row.id);
-
-    Ok(Json(GroupRowPage {
-        rows: rows.into_iter().map(GroupRow::from).collect(),
-        total,
-        next_cursor,
-    }))
+    Ok(Json(
+        cluster
+            .store
+            .group_rows()
+            .into_iter()
+            .map(GroupRow::from)
+            .collect(),
+    ))
 }
 
 async fn group(

@@ -2,7 +2,6 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use foldhash::{HashMap, HashMapExt, HashSet};
-use jiff::Timestamp;
 
 use crate::kafka::group::{CommittedOffset, GroupMember, GroupSnapshot, GroupState};
 use crate::kafka::metadata::{MetadataSnapshot, PartitionMetadata, Watermarks};
@@ -45,10 +44,6 @@ pub struct TopicInfo {
 }
 
 impl TopicInfo {
-    pub fn partition(&self, id: i32) -> Option<&PartitionMetadata> {
-        self.partitions.iter().find(|partition| partition.id == id)
-    }
-
     pub fn partition_ids(&self) -> Vec<i32> {
         self.partitions
             .iter()
@@ -74,7 +69,6 @@ impl TopicInfo {
 pub struct GroupInfo {
     pub state: GroupState,
     pub protocol: String,
-    pub coordinator: i32,
     pub members: Vec<GroupMember>,
 }
 
@@ -162,7 +156,6 @@ impl Topology {
                 GroupInfo {
                     state: group.state,
                     protocol: group.protocol,
-                    coordinator: group.coordinator,
                     members: group.members,
                 },
             );
@@ -179,10 +172,6 @@ impl Topology {
             groups: assembled,
             topic_groups,
         }
-    }
-
-    pub fn topic(&self, name: &str) -> Option<&TopicInfo> {
-        self.topics.get(name)
     }
 
     pub fn group(&self, id: &str) -> Option<&GroupInfo> {
@@ -213,21 +202,12 @@ impl Topology {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WatermarkTable {
-    pub sampled_at: Timestamp,
     pub marks: HashMap<Arc<str>, HashMap<i32, Watermarks>>,
 }
 
 impl WatermarkTable {
-    pub fn new(sampled_at: Timestamp, marks: HashMap<Arc<str>, HashMap<i32, Watermarks>>) -> Self {
-        Self { sampled_at, marks }
-    }
-
     pub fn get(&self, topic: &str, partition: i32) -> Option<Watermarks> {
         self.marks.get(topic)?.get(&partition).copied()
-    }
-
-    pub fn topic(&self, topic: &str) -> Option<&HashMap<i32, Watermarks>> {
-        self.marks.get(topic)
     }
 
     pub fn produced(&self, topic: &str) -> i64 {
@@ -252,7 +232,6 @@ impl WatermarkTable {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GroupOffsets {
-    pub sampled_at: Timestamp,
     pub committed: Vec<CommittedOffset>,
 }
 
@@ -361,7 +340,7 @@ mod tests {
         );
         assert!(topology.groups_for_topic("payments").is_empty());
         assert!(topology.groups_for_topic("ghost").is_empty());
-        assert_eq!(topology.topic("orders").unwrap().replication_factor(), 2);
+        assert_eq!(topology.topics["orders"].replication_factor(), 2);
         assert_eq!(topology.partition_count(), 2);
     }
 
@@ -397,16 +376,15 @@ mod tests {
 
     #[test]
     fn watermark_totals_split_retained_from_produced() {
-        let table = WatermarkTable::new(
-            Timestamp::UNIX_EPOCH,
-            HashMap::from_iter([(
+        let table = WatermarkTable {
+            marks: HashMap::from_iter([(
                 Arc::from("orders"),
                 HashMap::from_iter([
                     (0, Watermarks { low: 40, high: 100 }),
                     (1, Watermarks { low: 0, high: 10 }),
                 ]),
             )]),
-        );
+        };
 
         assert_eq!(table.produced("orders"), 110);
         assert_eq!(table.retained("orders"), 70);

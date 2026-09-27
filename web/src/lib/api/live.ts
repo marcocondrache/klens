@@ -58,7 +58,7 @@ function sameTopic(previous: QueryKey | undefined, next: QueryKey) {
   return previous != null && previous.slice(0, 4).every((part, index) => part === next[index]);
 }
 
-export function useRecords(cluster: string, query: RecordsFilter, enabled = true) {
+export function useRecords(cluster: string, query: RecordsFilter) {
   const scans = query.partitions?.length !== 0;
 
   return useInfiniteQuery({
@@ -83,6 +83,6 @@ export function useRecords(cluster: string, query: RecordsFilter, enabled = true
       scans && sameTopic(previousQuery?.queryKey, keys.records(cluster, query))
         ? previous
         : undefined,
-    enabled: enabled && scans,
+    enabled: scans,
   });
 }

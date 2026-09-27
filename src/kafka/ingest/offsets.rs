@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use foldhash::{HashMap, HashMapExt, HashSet};
 use futures::StreamExt;
-use jiff::Timestamp;
 use tokio::time::Instant;
 
 use crate::config::ClusterIngestConfig;
@@ -100,7 +99,6 @@ impl OffsetLane {
         }
 
         let mut fetched = self.fetch(&topology, previous.as_deref(), &due).await;
-        let now = Timestamp::now();
 
         let mut groups: HashMap<Arc<str>, Arc<GroupOffsets>> =
             HashMap::with_capacity(topology.groups.len());
@@ -117,13 +115,7 @@ impl OffsetLane {
                 }
                 Some(Some(committed)) => {
                     refreshed.push(Arc::clone(id));
-                    groups.insert(
-                        Arc::clone(id),
-                        Arc::new(GroupOffsets {
-                            sampled_at: now,
-                            committed,
-                        }),
-                    );
+                    groups.insert(Arc::clone(id), Arc::new(GroupOffsets { committed }));
                 }
                 None => {
                     if let Some(kept) = previous.as_ref().and_then(|table| table.get(id)) {
@@ -135,15 +127,13 @@ impl OffsetLane {
 
         self.retain(&topology);
         let next = Arc::new(OffsetTable { groups });
-        let version = store.offsets.commit(Arc::clone(&next));
+        store.offsets.commit(Arc::clone(&next));
 
         let updates = self.lag_updates(store, &topology, &next, &refreshed);
         if !updates.is_empty() {
             store
                 .bus
                 .publish(Change::GroupOffsets(Arc::new(GroupOffsetsWave {
-                    version,
-                    at: now,
                     groups: updates,
                 })));
         }

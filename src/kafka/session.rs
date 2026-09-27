@@ -60,33 +60,19 @@ pub trait ClusterSession: Send + Sync + 'static {
         start: &[TailPosition],
     ) -> Result<Box<dyn TailConsumer>, KafkaError>;
 
-    fn payload_codec(&self) -> Option<Arc<dyn PayloadCodec>> {
-        None
-    }
+    fn payload_codec(&self) -> Option<Arc<dyn PayloadCodec>>;
 
-    fn obfuscation(&self) -> Option<Arc<ObfuscationPolicy>> {
-        None
-    }
+    fn obfuscation(&self) -> Option<Arc<ObfuscationPolicy>>;
 
-    async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
-        Ok(Vec::new())
-    }
+    async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError>;
 
     async fn subject_schema(
         &self,
         subject: &str,
         version: i32,
-    ) -> Result<RegisteredSchema, KafkaError> {
-        Err(KafkaError::UnknownSubject {
-            cluster: self.identity().name.clone(),
-            subject: subject.to_owned(),
-            version,
-        })
-    }
+    ) -> Result<RegisteredSchema, KafkaError>;
 
     async fn acls(&self) -> Result<AclListing, KafkaError>;
 
-    fn consume_timeout(&self) -> Duration {
-        *crate::environment::CONSUME_TIMEOUT
-    }
+    fn consume_timeout(&self) -> Duration;
 }

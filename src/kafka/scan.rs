@@ -10,20 +10,6 @@ pub mod read;
 pub mod session;
 pub mod tail;
 
-use std::cmp::Ordering;
-
-use batch::SortKey;
-use query::RecordOrder;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Compression {
-    None,
-    Gzip,
-    Snappy,
-    Lz4,
-    Zstd,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordHeader {
     pub key: String,
@@ -41,21 +27,6 @@ pub struct Record {
     pub schema_id: Option<i32>,
     pub headers: Vec<RecordHeader>,
     pub size_bytes: u64,
-    pub compression: Compression,
-}
-
-impl Record {
-    pub fn sort_key(&self) -> SortKey {
-        SortKey {
-            timestamp: self.timestamp,
-            partition: self.partition,
-            offset: self.offset,
-        }
-    }
-
-    pub fn cmp_for_order(&self, other: &Self, order: RecordOrder) -> Ordering {
-        self.sort_key().cmp_for_order(&other.sort_key(), order)
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,49 +57,6 @@ impl RecordPage {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn record(timestamp: i64, partition: i32, offset: i64) -> Record {
-        Record {
-            topic: "orders".to_owned(),
-            partition,
-            offset,
-            timestamp,
-            key: None,
-            value: None,
-            schema_id: None,
-            headers: Vec::new(),
-            size_bytes: 0,
-            compression: Compression::None,
-        }
-    }
-
-    #[test]
-    fn newest_orders_by_timestamp_then_partition_then_offset() {
-        assert_eq!(
-            record(200, 0, 1).cmp_for_order(&record(100, 0, 1), RecordOrder::Newest),
-            Ordering::Less
-        );
-        assert_eq!(
-            record(100, 0, 9).cmp_for_order(&record(100, 1, 0), RecordOrder::Newest),
-            Ordering::Less
-        );
-        assert_eq!(
-            record(100, 0, 9).cmp_for_order(&record(100, 0, 8), RecordOrder::Newest),
-            Ordering::Less
-        );
-    }
-
-    #[test]
-    fn oldest_is_the_mirror_of_newest() {
-        assert_eq!(
-            record(100, 0, 1).cmp_for_order(&record(200, 0, 1), RecordOrder::Oldest),
-            Ordering::Less
-        );
-        assert_eq!(
-            record(100, 0, 8).cmp_for_order(&record(100, 0, 9), RecordOrder::Oldest),
-            Ordering::Less
-        );
-    }
 
     #[test]
     fn an_empty_page_is_complete_and_has_no_edges() {

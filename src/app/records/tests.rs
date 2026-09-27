@@ -29,7 +29,6 @@ fn a_record_keeps_its_wire_schema_id() {
         schema_id: Some(12),
         headers: Vec::new(),
         size_bytes: 2,
-        compression: domain::Compression::None,
     };
 
     assert_eq!(Record::from(record).schema_id, Some(12));
@@ -48,7 +47,6 @@ async fn records_are_read_live_through_the_scan_path() {
     assert_eq!(records.len(), 3);
     assert_eq!(records[0]["topic"], "orders.created");
     assert_eq!(records[0]["sizeBytes"], 24);
-    assert_eq!(records[0]["compression"], "NONE");
     records[0]["timestamp"]
         .as_str()
         .expect("timestamp")
@@ -86,6 +84,29 @@ async fn an_inverted_record_range_is_rejected() {
 
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(code, "INVERTED_TIMESTAMP_RANGE");
+}
+
+#[tokio::test]
+async fn a_cursor_only_pages_the_order_that_minted_it() {
+    let state = seeded();
+    let records = "/clusters/local/topics/orders.created/records";
+    let first = ok(&state, &format!("{records}?order=OLDEST&limit=2")).await;
+    let cursor = first["nextCursor"].as_str().expect("next cursor");
+
+    ok(
+        &state,
+        &format!("{records}?order=OLDEST&limit=2&cursor={cursor}"),
+    )
+    .await;
+    let (status, code) = failure(
+        &state,
+        &format!("{records}?order=NEWEST&limit=2&cursor={cursor}"),
+        EffectiveAccess::Unrestricted,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(code, "INVALID_CURSOR");
 }
 
 #[tokio::test]
@@ -318,7 +339,6 @@ fn produced(partition: i32, offset: i64, key: impl Into<Bytes>) -> FixtureRecord
         key: Some(key),
         value: None,
         headers: Vec::new(),
-        compression: domain::Compression::None,
     }
 }
 

@@ -40,13 +40,6 @@ producedTotal: number, rate: number,
  */
 retentionMs: number | null, cleanupPolicy: CleanupPolicy, groupCount: number, underReplicated: boolean, };
 
-export type TopicRowPage = { rows: Array<TopicRow>, 
-/**
- * Rows matching the filter before paging, so a client can size its
- * scrollbar without walking every page.
- */
-total: number, nextCursor: string | null, };
-
 export type PartitionRow = { id: number, leader: number, replicas: Array<number>, isr: Array<number>, lowWatermark: number, highWatermark: number, retained: number, underReplicated: boolean, };
 
 export type TopicDetail = { name: string, internal: boolean, partitions: Array<PartitionRow>, replicationFactor: number, retainedMessages: number, producedTotal: number, rate: number, 
@@ -72,11 +65,9 @@ totalLag: number | null,
  * False when a committed partition had no watermark to join against, so
  * the total understates the real lag.
  */
-lagComplete: boolean, coordinatorId: number, };
+lagComplete: boolean, };
 
-export type GroupRowPage = { rows: Array<GroupRow>, total: number, nextCursor: string | null, };
-
-export type GroupDetail = { id: string, state: GroupState, protocol: string, coordinatorId: number, members: Array<GroupMember>, offsets: Array<GroupOffset>, totalLag: number | null, lagComplete: boolean, };
+export type GroupDetail = { id: string, state: GroupState, protocol: string, members: Array<GroupMember>, offsets: Array<GroupOffset>, totalLag: number | null, lagComplete: boolean, };
 
 export type TopicGroupRow = { id: string, state: GroupState, memberCount: number, lagOnTopic: number | null, };
 
@@ -112,13 +103,11 @@ export type Acl = { resourceType: AclResourceType, resourceName: string, pattern
 
 export type AclListing = { authorizer: AclAuthorizer, bindings: Array<Acl>, };
 
-export type Compression = "NONE" | "GZIP" | "SNAPPY" | "LZ4" | "ZSTD";
-
 export type RecordOrder = "NEWEST" | "OLDEST";
 
 export type RecordHeader = { key: string, value: string, };
 
-export type Record = { topic: string, partition: number, offset: number, timestamp: string, key: string | null, value: string | null, schemaId: number | null, headers: Array<RecordHeader>, sizeBytes: number, compression: Compression, };
+export type Record = { topic: string, partition: number, offset: number, timestamp: string, key: string | null, value: string | null, schemaId: number | null, headers: Array<RecordHeader>, sizeBytes: number, };
 
 export type RecordPage = { records: Array<Record>, 
 /**
@@ -143,16 +132,12 @@ export type SearchKind = "TOPIC" | "GROUP" | "NODE" | "SUBJECT";
 
 export type SearchHit = { kind: SearchKind, id: string, label: string, detail: string, };
 
-export type TopicSortField = "NAME" | "RATE" | "RETAINED_MESSAGES" | "PARTITIONS" | "GROUPS";
-
 export type TopicRate = { topic: string, rate: number, };
 
-export type ResyncReason = "LAGGED";
-
-export type Update = { "type": "watermarks", at: string, 
+export type Update = { "type": "watermarks", 
 /**
  * One `{topic, rate}` pair per topic, never catalog objects. A scoped
  * subscriber gets only its topic.
  */
-topics: Array<TopicRate>, } | { "type": "groupLag", at: string, group: string, lag: number, lagComplete: boolean, offsets: Array<GroupOffset>, } | { "type": "topology", version: number, addedTopics: Array<string>, removedTopics: Array<string>, changedTopics: Array<string>, addedGroups: Array<string>, removedGroups: Array<string>, changedGroups: Array<string>, brokersChanged: boolean, } | { "type": "configs", version: number, topics: Array<string>, } | { "type": "subjects", version: number, added: Array<string>, removed: Array<string>, changed: Array<string>, } | { "type": "resync", reason: ResyncReason, };
+topics: Array<TopicRate>, } | { "type": "groupLag", group: string, lag: number, lagComplete: boolean, offsets: Array<GroupOffset>, } | { "type": "topology", addedTopics: Array<string>, removedTopics: Array<string>, changedTopics: Array<string>, addedGroups: Array<string>, removedGroups: Array<string>, changedGroups: Array<string>, brokersChanged: boolean, } | { "type": "configs", topics: Array<string>, } | { "type": "subjects", removed: Array<string>, changed: Array<string>, } | { "type": "resync" };
 

@@ -61,12 +61,10 @@ impl LaneSource for SubjectLane {
     fn publish(
         &self,
         store: &ClusterStore,
-        version: u64,
         _previous: Option<&Arc<SubjectTable>>,
         _next: &Arc<SubjectTable>,
-        mut delta: SubjectsDelta,
+        delta: SubjectsDelta,
     ) {
-        delta.version = version;
         store.bus.publish(Change::Subjects(Arc::new(delta)));
     }
 }

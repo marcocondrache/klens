@@ -18,7 +18,6 @@ pub async fn read_page<S: ClusterSession + ?Sized>(
     limits: RecordLimits,
 ) -> Result<RecordPage, KafkaError> {
     let limit = limits.clamp_limit(query.limit)?;
-    query.timestamps.validate()?;
 
     let partitions = resolve_partitions(session, store, &query.topic, &query.partitions).await?;
     let watermarks = window_watermarks(session, &query, &partitions).await?;
@@ -102,13 +101,11 @@ async fn window_watermarks<S: ClusterSession + ?Sized>(
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Bound;
     use std::sync::Arc;
 
     use super::*;
     use crate::kafka::RecordCursor;
     use crate::kafka::model::{RecordOrder, TimestampRange};
-    use crate::kafka::scan::Compression;
     use crate::kafka::store::fixtures::{identity, partition, topic, topology};
     use crate::kafka::testing::{FakeCluster, FixtureRecord};
     use jiff::Timestamp;
@@ -141,7 +138,7 @@ mod tests {
             topic: "orders.created".into(),
             partitions: Vec::new(),
             filter: None,
-            timestamps: TimestampRange::default(),
+            timestamps: TimestampRange::UNBOUNDED,
             limit: 50,
             order: RecordOrder::Oldest,
             cursor: None,
@@ -159,7 +156,6 @@ mod tests {
             value: None,
             headers: Vec::new(),
             size_bytes: 0,
-            compression: Compression::None,
         }
     }
 
@@ -233,27 +229,17 @@ mod tests {
             assert_eq!(session.calls().metadata(), 0);
             assert_eq!(session.calls().watermarks(), 0);
         }
-
-        let mut query = browse_query();
-        query.timestamps = TimestampRange::from_bounds((
-            Bound::Included(unix_datetime(2)),
-            Bound::Included(unix_datetime(1)),
-        ));
-
-        let error = page(&session, &store, query).await.unwrap_err();
-
-        assert_eq!(error.code(), "INVERTED_TIMESTAMP_RANGE");
-        assert_eq!(session.calls().metadata(), 0);
-        assert_eq!(session.calls().watermarks(), 0);
     }
 
     #[tokio::test]
     async fn records_filter_by_timestamp_range() {
         let session = FakeCluster::local();
         let mut query = browse_query();
-        query.timestamps = TimestampRange::from_bounds(
-            unix_datetime(1_700_000_000_000 + 3_000)..=unix_datetime(1_700_000_000_000 + 5_000),
-        );
+        query.timestamps = TimestampRange::new(
+            Some(unix_datetime(1_700_000_000_000 + 3_000)),
+            Some(unix_datetime(1_700_000_000_000 + 5_000)),
+        )
+        .unwrap();
 
         let page = page(&session, &ingested_store(), query).await.unwrap();
         let keys: Vec<_> = page
@@ -270,7 +256,8 @@ mod tests {
     async fn a_timestamp_window_after_the_log_is_empty() {
         let session = FakeCluster::local();
         let mut query = browse_query();
-        query.timestamps = TimestampRange::from_bounds(unix_datetime(1_800_000_000_000)..);
+        query.timestamps =
+            TimestampRange::new(Some(unix_datetime(1_800_000_000_000)), None).unwrap();
 
         let page = page(&session, &ingested_store(), query).await.unwrap();
 
@@ -342,7 +329,6 @@ mod tests {
                 value: None,
                 headers: Vec::new(),
                 size_bytes: 0,
-                compression: Compression::None,
             })
             .collect();
 
