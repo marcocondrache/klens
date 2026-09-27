@@ -253,7 +253,6 @@ function TopicsPage() {
             params: { cluster, topic: topic.name },
           });
         }}
-        fill
       />
     </div>
   );

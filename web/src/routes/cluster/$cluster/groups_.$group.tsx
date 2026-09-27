@@ -298,7 +298,6 @@ function ConsumerGroupPage() {
                 params: { cluster, topic: offset.topic },
               });
             }}
-            fill
           />
         </TabsContent>
 
@@ -313,7 +312,6 @@ function ConsumerGroupPage() {
                 This group has no active members.
               </p>
             }
-            fill
           />
         </TabsContent>
       </Tabs>

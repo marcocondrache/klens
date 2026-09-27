@@ -215,7 +215,6 @@ function AclsPage() {
         error={isError ? apiErrorMessage(error, "Failed to load ACLs.") : undefined}
         emptyState={disabled ? "Authorization is disabled on this cluster." : "No ACL bindings."}
         defaultSort={{ id: "resourceName", direction: "asc" }}
-        fill
       />
     </div>
   );

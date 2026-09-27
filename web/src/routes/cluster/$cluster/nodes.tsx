@@ -121,7 +121,6 @@ function NodesPage() {
         error={isError ? apiErrorMessage(error, "Failed to load brokers.") : undefined}
         defaultSort={{ id: "id", direction: "asc" }}
         onRowClick={can(cluster, "CONFIGS") ? openBroker : undefined}
-        fill
       />
     </div>
   );

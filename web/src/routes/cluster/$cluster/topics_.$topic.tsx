@@ -279,7 +279,6 @@ function TopicPage() {
             getRowId={(partition) => String(partition.id)}
             loading={isPending}
             defaultSort={{ id: "id", direction: "asc" }}
-            fill
           />
         </TabsContent>
 
@@ -300,13 +299,12 @@ function TopicPage() {
                 No consumer group is subscribed to this topic.
               </p>
             }
-            fill
           />
         </TabsContent>
 
         {canConfigs ? (
           <TabsContent value="config" className="mt-4 flex min-h-0 flex-col">
-            <ConfigTable entries={configs} loading={configsPending} fill />
+            <ConfigTable entries={configs} loading={configsPending} />
           </TabsContent>
         ) : null}
       </Tabs>
