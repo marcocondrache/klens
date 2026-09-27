@@ -316,7 +316,8 @@ mod tests {
 
     #[test]
     fn try_from_rejects_sentinels_in_every_enum_position() {
-        let cases: [(fn(&mut AclBinding), &str); 8] = [
+        type Mutate = fn(&mut AclBinding);
+        let cases: [(Mutate, &str); 8] = [
             (
                 |binding| binding.resource_type = WireResource::Any,
                 "resource_type",
