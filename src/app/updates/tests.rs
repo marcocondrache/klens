@@ -31,7 +31,6 @@ async fn read_events(response: Response, count: usize) -> Vec<Value> {
 
 fn tick(topics: &[(&str, f64)]) -> Change {
     Change::Watermarks(Arc::new(WatermarksTick {
-        version: 1,
         at: at(1_000),
         rates: topics
             .iter()
@@ -45,7 +44,6 @@ fn tick(topics: &[(&str, f64)]) -> Change {
 
 fn wave(groups: &[(&str, i64)]) -> Change {
     Change::GroupOffsets(Arc::new(GroupOffsetsWave {
-        version: 1,
         at: at(1_000),
         groups: groups
             .iter()

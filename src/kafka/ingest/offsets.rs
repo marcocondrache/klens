@@ -135,14 +135,13 @@ impl OffsetLane {
 
         self.retain(&topology);
         let next = Arc::new(OffsetTable { groups });
-        let version = store.offsets.commit(Arc::clone(&next));
+        store.offsets.commit(Arc::clone(&next));
 
         let updates = self.lag_updates(store, &topology, &next, &refreshed);
         if !updates.is_empty() {
             store
                 .bus
                 .publish(Change::GroupOffsets(Arc::new(GroupOffsetsWave {
-                    version,
                     at: now,
                     groups: updates,
                 })));

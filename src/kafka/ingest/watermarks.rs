@@ -123,7 +123,7 @@ impl LaneSource for WatermarkLane {
     fn publish(
         &self,
         store: &ClusterStore,
-        version: u64,
+        _version: u64,
         previous: Option<&Arc<WatermarkTable>>,
         next: &Arc<WatermarkTable>,
         (): (),
@@ -143,7 +143,6 @@ impl LaneSource for WatermarkLane {
         store
             .bus
             .publish(Change::Watermarks(Arc::new(WatermarksTick {
-                version,
                 at: next.sampled_at,
                 rates,
             })));

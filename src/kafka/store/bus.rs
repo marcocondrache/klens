@@ -81,7 +81,6 @@ impl TopologyDelta {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WatermarksTick {
-    pub version: u64,
     pub at: Timestamp,
     pub rates: Vec<TopicRate>,
 }
@@ -103,7 +102,6 @@ pub struct TopicRate {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GroupOffsetsWave {
-    pub version: u64,
     pub at: Timestamp,
     pub groups: Vec<GroupLagUpdate>,
 }
