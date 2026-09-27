@@ -968,7 +968,7 @@ mod tests {
     }
 
     fn key(raw: &str) -> KeyMaterial<MIN_SESSION_KEY_BYTES> {
-        KeyMaterial::parse(raw).expect("session key")
+        KeyMaterial::from_base64_or_text(raw).expect("session key")
     }
 
     #[test]
