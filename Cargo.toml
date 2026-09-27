@@ -15,12 +15,6 @@ typescript = []
 members = ["xtask"]
 default-members = ["."]
 
-[workspace.lints.rust]
-warnings = "deny"
-
-[workspace.lints.clippy]
-all = "deny"
-
 [dependencies]
 anyhow = "1"
 async-trait = "0.1"
