@@ -19,7 +19,7 @@ Or via HTTPRoute hostnames:
 {{- end }}
 {{- end }}
 
-{{- if and (not .Values.existingConfigMap) (eq (len (.Values.config.clusters | default list)) 0) }}
+{{- if and (not .Values.existingConfigMap) (eq (len (.Values.config.clusters | default dict)) 0) }}
 
 No clusters are defined yet. Add them under `config.clusters`, or set
 `existingConfigMap`. Empty clusters start and become ready immediately.

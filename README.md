@@ -91,9 +91,10 @@ To restrict what signed-in users may do, add `roles`. A role is nothing but a
 name for a set of privileges, defined by you: there are no built-in roles. The
 privileges are `records`, `configs`, `schema_text`, and `acls`; a role that
 lists none still sees the catalog (clusters, topics, groups, lag) but no
-payloads, live configs, schema bodies, or ACL bindings. Bindings map IdP groups
-from the `claim` to those roles, and unmatched users cannot sign in. Omit
-`clusters` on a binding to allow every configured cluster.
+payloads, live configs, schema bodies, or ACL bindings. A role's `bindings`
+name the IdP groups that hold it, read from the ID token claim that
+`oidc.groups_claim` names (default `groups`). Unmatched users cannot sign in.
+Omit `clusters` on a binding to allow every configured cluster.
 
 Bindings are evaluated per cluster: a user's privileges on a cluster are the
 union of the roles bound to their groups **whose scope covers that cluster**.
@@ -111,23 +112,25 @@ auth:
     client_id: klens
     client_secret: { env: OIDC_CLIENT_SECRET }
     redirect_uri: http://localhost:8080/api/auth/callback
+    # groups_claim: groups
   roles:
-    # claim: groups
-    definitions:
-      admin: [records, configs, schema_text, acls]
-      viewer: [] # catalog only
-      operator: [records, configs]
-      auditor: [acls, schema_text]
-    bindings:
-      - groups: [klens-admins]
-        role: admin
-      - groups: [klens-viewers]
-        role: viewer
-      - groups: [kafka-operators]
-        role: operator
-        clusters: [staging, dev]
-      - groups: [security-team]
-        role: auditor
+    admin:
+      privileges: [records, configs, schema_text, acls]
+      bindings:
+        - groups: [klens-admins]
+    viewer:
+      privileges: [] # catalog only
+      bindings:
+        - groups: [klens-viewers]
+    operator:
+      privileges: [records, configs]
+      bindings:
+        - groups: [kafka-operators]
+          clusters: [staging, dev]
+    auditor:
+      privileges: [acls, schema_text]
+      bindings:
+        - groups: [security-team]
 ```
 
 ## Schema Registry
@@ -139,8 +142,9 @@ Protobuf payloads decode to JSON when a registry is configured.
 ```yaml
 schema_registry:
   url: http://localhost:8081
-  # username: user
-  # password: { env: SCHEMA_REGISTRY_PASSWORD }
+  # auth:
+  #   username: user
+  #   password: { env: SCHEMA_REGISTRY_PASSWORD }
 ```
 
 Credentials may only travel over plaintext `http://` when the host is loopback.

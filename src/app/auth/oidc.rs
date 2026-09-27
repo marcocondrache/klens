@@ -5,8 +5,8 @@ use openidconnect::core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetada
 use openidconnect::reqwest;
 use openidconnect::{
     AccessTokenHash, AuthorizationCode, ClientId, ClientSecret, CsrfToken, EndpointMaybeSet,
-    EndpointNotSet, EndpointSet, IssuerUrl, Nonce, OAuth2TokenResponse, PkceCodeChallenge,
-    PkceCodeVerifier, RedirectUrl, Scope, TokenResponse,
+    EndpointNotSet, EndpointSet, Nonce, OAuth2TokenResponse, PkceCodeChallenge, PkceCodeVerifier,
+    Scope, TokenResponse,
 };
 use secrecy::ExposeSecret;
 
@@ -48,23 +48,17 @@ pub(crate) struct Oidc {
 }
 
 impl Oidc {
-    pub(crate) async fn discover(config: &OidcConfig, groups_claim: &str) -> anyhow::Result<Self> {
+    pub(crate) async fn discover(config: &OidcConfig) -> anyhow::Result<Self> {
         let http = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .context("failed to build oidc http client")?;
 
-        let issuer = IssuerUrl::new(config.issuer.clone())
-            .map_err(|error| anyhow!("invalid oidc issuer: {error}"))?;
-
         tracing::info!(issuer = %config.issuer, "discovering oidc provider");
 
-        let metadata = CoreProviderMetadata::discover_async(issuer, &http)
+        let metadata = CoreProviderMetadata::discover_async(config.issuer.clone(), &http)
             .await
             .map_err(|error| anyhow!("oidc provider discovery failed: {error}"))?;
-
-        let redirect = RedirectUrl::new(config.redirect_uri.clone())
-            .map_err(|error| anyhow!("invalid oidc redirect_uri: {error}"))?;
 
         let client = CoreClient::from_provider_metadata(
             metadata,
@@ -73,7 +67,7 @@ impl Oidc {
                 config.client_secret.expose_secret().to_owned(),
             )),
         )
-        .set_redirect_uri(redirect);
+        .set_redirect_uri(config.redirect_uri.clone());
 
         Ok(Self {
             client,
@@ -83,7 +77,7 @@ impl Oidc {
                 .into_iter()
                 .map(Scope::new)
                 .collect(),
-            groups_claim: groups_claim.to_owned(),
+            groups_claim: config.groups_claim.clone(),
         })
     }
 }

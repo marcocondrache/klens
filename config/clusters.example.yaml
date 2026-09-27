@@ -9,8 +9,9 @@
 bind: 0.0.0.0:8080
 log_level: info
 
+# Clusters by name, shown in the UI in this order. Each name appears once.
 clusters:
-  - name: local
+  local:
     bootstrap_servers:
       - localhost:9092
 
@@ -23,8 +24,9 @@ clusters:
     #     password: {env: KAFKA_PASSWORD}
     #   tls:
     #     ca_cert: /path/to/ca.pem
-    #     client_cert: /path/to/client.pem
-    #     client_key: /path/to/client.key
+    #     client:
+    #       cert: /path/to/client.pem
+    #       key: /path/to/client.key
     #     insecure_skip_verify: false
 
     # Optional Kafka transport overrides. Timeouts are unsigned millisecond numbers.
@@ -53,8 +55,9 @@ clusters:
     # reached over `https://`, otherwise startup fails for this cluster.
     schema_registry:
       url: http://localhost:8081
-      # username: klens
-      # password: {env: SCHEMA_REGISTRY_PASSWORD}
+      # auth:
+      #   username: klens
+      #   password: {env: SCHEMA_REGISTRY_PASSWORD}
 
     # Optional server-side obfuscation. Rules are per topic, compiled at boot,
     # and applied before filters run, so a filter can only ever match what the
@@ -101,8 +104,9 @@ clusters:
 # authenticated user has the same access as an open deployment. With roles,
 # unmatched users cannot sign in. A role is a name for a set of privileges:
 # each role grants exactly the privileges it lists, out of records, configs,
-# schema_text, and acls. An empty list still sees the catalog. Omit clusters
-# on a binding to allow every configured cluster.
+# schema_text, and acls. An empty list still sees the catalog. A role's
+# bindings name the groups that hold it. Omit clusters on a binding to allow
+# every configured cluster.
 #
 # auth:
 #   oidc:
@@ -112,20 +116,22 @@ clusters:
 #     redirect_uri: http://localhost:8080/api/auth/callback
 #     # scopes: [openid, email, profile]
 #     # cookie_secure: false  # default: true when redirect_uri is https
+#     # groups_claim: groups  # the ID token claim that lists a user's groups
 #   roles:
-#     # claim: groups
-#     definitions:
-#       admin: [records, configs, schema_text, acls]
-#       viewer: []  # catalog only: clusters, topics, groups — no payloads
-#       operator: [records, configs]
-#       auditor: [acls, schema_text]
-#     bindings:
-#       - groups: [klens-admins]
-#         role: admin
-#       - groups: [klens-viewers]
-#         role: viewer
-#       - groups: [kafka-operators]
-#         role: operator
-#         clusters: [staging, dev]
-#       - groups: [security-team]
-#         role: auditor
+#     admin:
+#       privileges: [records, configs, schema_text, acls]
+#       bindings:
+#         - groups: [klens-admins]
+#     viewer:
+#       privileges: []  # catalog only: clusters, topics, groups, no payloads
+#       bindings:
+#         - groups: [klens-viewers]
+#     operator:
+#       privileges: [records, configs]
+#       bindings:
+#         - groups: [kafka-operators]
+#           clusters: [staging, dev]
+#     auditor:
+#       privileges: [acls, schema_text]
+#       bindings:
+#         - groups: [security-team]

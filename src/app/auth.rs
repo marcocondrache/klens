@@ -101,7 +101,7 @@ impl AuthState {
             Some(config) => {
                 let policy = AccessPolicy::from_roles(config.roles.as_ref());
                 let key = signing_key(config.session_key.as_ref());
-                let flow = Oidc::discover(&config.oidc, policy.groups_claim()).await?;
+                let flow = Oidc::discover(&config.oidc).await?;
                 Ok(Self::enabled(Arc::new(flow), &config.oidc, policy, key))
             }
         }
@@ -483,7 +483,7 @@ mod tests {
 
     impl AuthState {
         pub(crate) fn enabled_for_tests() -> Self {
-            Self::enabled_for_tests_with(FakeOidc::default(), AccessPolicy::open())
+            Self::enabled_for_tests_with(FakeOidc::default(), AccessPolicy::Open)
         }
 
         pub(crate) fn enabled_for_tests_with(flow: FakeOidc, policy: AccessPolicy) -> Self {
@@ -872,18 +872,19 @@ mod tests {
         bound("viewer", &[], "klens-viewers")
     }
 
-    fn bound(role: &str, privileges: &[crate::config::PrivilegeName], group: &str) -> AccessPolicy {
-        AccessPolicy::from_roles(Some(&crate::config::RolesConfig {
-            claim: "groups".into(),
-            definitions: [(role.to_owned(), privileges.to_vec())]
-                .into_iter()
-                .collect(),
+    fn bound(
+        role_name: &str,
+        privileges: &[crate::config::PrivilegeName],
+        group: &str,
+    ) -> AccessPolicy {
+        let role = crate::config::RoleConfig {
+            privileges: privileges.to_vec(),
             bindings: vec![crate::config::RoleBinding {
                 groups: vec![group.to_owned()],
-                role: role.to_owned(),
                 clusters: None,
             }],
-        }))
+        };
+        AccessPolicy::from_roles(Some(&[(role_name.to_owned(), role)].into_iter().collect()))
     }
 
     async fn login_and_callback(

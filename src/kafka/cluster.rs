@@ -3,7 +3,7 @@ use std::sync::Arc;
 use futures::future::try_join_all;
 use indexmap::IndexMap;
 
-use crate::config::{ClusterConfig, ClusterIngestConfig, Config, SecurityProtocol};
+use crate::config::{ClusterConfig, ClusterIngestConfig, ClusterName, Config, SecurityProtocol};
 use crate::kafka::client::KafkaClient;
 use crate::kafka::error::KafkaError;
 use crate::kafka::limits::{RecordLimits, TailLimits};
@@ -20,16 +20,12 @@ pub struct ClusterIdentity {
     pub security_protocol: SecurityProtocol,
 }
 
-impl From<&ClusterConfig> for ClusterIdentity {
-    fn from(config: &ClusterConfig) -> Self {
+impl ClusterIdentity {
+    pub fn new(name: &ClusterName, config: &ClusterConfig) -> Self {
         Self {
-            name: config.name.trim().to_owned(),
+            name: name.to_string(),
             bootstrap_servers: config.bootstrap_servers.clone(),
-            security_protocol: config
-                .security
-                .as_ref()
-                .map(|security| security.protocol)
-                .unwrap_or(SecurityProtocol::Plaintext),
+            security_protocol: config.security.protocol(),
         }
     }
 }
@@ -88,12 +84,18 @@ pub struct Clusters {
 
 impl Clusters {
     pub async fn connect(config: &Config) -> Result<Self, KafkaError> {
-        let sessions = try_join_all(config.clusters.iter().map(KafkaClient::new)).await?;
+        let sessions = try_join_all(
+            config
+                .clusters
+                .iter()
+                .map(|(name, cluster)| KafkaClient::new(name, cluster)),
+        )
+        .await?;
         Ok(Self::from_clusters(
             sessions
                 .into_iter()
-                .zip(&config.clusters)
-                .map(|(session, config)| Cluster::new(Arc::new(session), config.ingest)),
+                .zip(config.clusters.iter())
+                .map(|(session, (_, cluster))| Cluster::new(Arc::new(session), cluster.ingest)),
         ))
     }
 
@@ -139,11 +141,10 @@ mod tests {
     use crate::kafka::store::Topology;
     use crate::kafka::testing::FakeCluster;
 
-    fn cluster_config(name: &str) -> ClusterConfig {
+    fn cluster_config() -> ClusterConfig {
         ClusterConfig {
-            name: name.to_owned(),
             bootstrap_servers: vec!["localhost:9092".to_owned()],
-            security: None,
+            security: Default::default(),
             schema_registry: None,
             obfuscation: None,
             properties: Default::default(),
@@ -151,18 +152,21 @@ mod tests {
         }
     }
 
-    fn config(clusters: Vec<ClusterConfig>) -> Config {
+    fn config(clusters: Vec<(&str, ClusterConfig)>) -> Config {
         Config {
             bind: "127.0.0.1:8080".parse().unwrap(),
             log_level: "info".into(),
-            clusters,
+            clusters: clusters
+                .into_iter()
+                .map(|(name, cluster)| (name.parse().unwrap(), cluster))
+                .collect(),
             auth: None,
         }
     }
 
     #[test]
     fn identity_trims_the_configured_name_and_defaults_the_protocol() {
-        let identity = ClusterIdentity::from(&cluster_config("  local  "));
+        let identity = ClusterIdentity::new(&"  local  ".parse().unwrap(), &cluster_config());
 
         assert_eq!(identity.name, "local");
         assert_eq!(identity.security_protocol, SecurityProtocol::Plaintext);
@@ -175,12 +179,14 @@ mod tests {
 
         let first = FakeBroker::start().await.unwrap();
         let second = FakeBroker::start().await.unwrap();
-        let mut b = cluster_config("b");
+        let mut b = cluster_config();
         b.bootstrap_servers = vec![first.bootstrap_servers()];
-        let mut a = cluster_config("a");
+        let mut a = cluster_config();
         a.bootstrap_servers = vec![second.bootstrap_servers()];
 
-        let clusters = Clusters::connect(&config(vec![b, a])).await.unwrap();
+        let clusters = Clusters::connect(&config(vec![("b", b), ("a", a)]))
+            .await
+            .unwrap();
 
         assert_eq!(clusters.names().collect::<Vec<_>>(), vec!["b", "a"]);
         assert!(first.request_count(ApiKey::Metadata) > 0);
@@ -193,14 +199,16 @@ mod tests {
 
         let first = FakeBroker::start().await.unwrap();
         let second = FakeBroker::start().await.unwrap();
-        let mut fast = cluster_config("fast");
+        let mut fast = cluster_config();
         fast.bootstrap_servers = vec![first.bootstrap_servers()];
         fast.ingest.topology_secs = 1;
-        let mut slow = cluster_config("slow");
+        let mut slow = cluster_config();
         slow.bootstrap_servers = vec![second.bootstrap_servers()];
         slow.ingest.topology_secs = 600;
 
-        let clusters = Clusters::connect(&config(vec![fast, slow])).await.unwrap();
+        let clusters = Clusters::connect(&config(vec![("fast", fast), ("slow", slow)]))
+            .await
+            .unwrap();
 
         assert_eq!(clusters.get("fast").unwrap().ingest.topology_secs, 1);
         assert_eq!(clusters.get("slow").unwrap().ingest.topology_secs, 600);
@@ -208,10 +216,10 @@ mod tests {
 
     #[tokio::test]
     async fn connect_returns_connection_errors() {
-        let mut cluster = cluster_config("invalid");
+        let mut cluster = cluster_config();
         cluster.bootstrap_servers.clear();
 
-        let result = Clusters::connect(&config(vec![cluster])).await;
+        let result = Clusters::connect(&config(vec![("invalid", cluster)])).await;
 
         assert!(matches!(result, Err(KafkaError::Krafka(_))));
     }

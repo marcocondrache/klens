@@ -16,7 +16,7 @@ use krafka::admin::{
     OffsetSpec, OffsetVisibility,
 };
 
-use crate::config::ClusterConfig;
+use crate::config::{ClusterConfig, ClusterName};
 use crate::environment::CONSUME_TIMEOUT;
 use crate::kafka::acl::AclListing;
 use crate::kafka::cluster::ClusterIdentity;
@@ -56,8 +56,8 @@ impl std::fmt::Debug for KafkaClient {
 }
 
 impl KafkaClient {
-    pub async fn new(config: &ClusterConfig) -> Result<Self, KafkaError> {
-        let identity = ClusterIdentity::from(config);
+    pub async fn new(name: &ClusterName, config: &ClusterConfig) -> Result<Self, KafkaError> {
+        let identity = ClusterIdentity::new(name, config);
         let schema_registry = config
             .schema_registry
             .as_ref()
@@ -70,17 +70,9 @@ impl KafkaClient {
         let obfuscation = config
             .obfuscation
             .as_ref()
-            .map(|rules| {
-                ObfuscationPolicy::compile(rules)
-                    .map(Arc::new)
-                    .map_err(|error| KafkaError::Obfuscation {
-                        cluster: identity.name.clone(),
-                        message: error.to_string(),
-                    })
-            })
-            .transpose()?;
+            .map(|rules| Arc::new(ObfuscationPolicy::compile(rules)));
 
-        let transport = transport::connect(config).await?;
+        let transport = transport::connect(name, config).await?;
 
         Ok(Self {
             identity,
@@ -475,19 +467,21 @@ mod tests {
     #[tokio::test]
     async fn broker_io_is_bounded_by_the_configured_request_timeout() {
         let broker = krafka::testing::FakeBroker::start().await.unwrap();
-        let client = KafkaClient::new(&ClusterConfig {
-            name: "test".into(),
-            bootstrap_servers: vec![broker.bootstrap_servers()],
-            security: None,
-            schema_registry: None,
-            obfuscation: None,
-            properties: crate::config::KafkaProperties {
-                request_timeout_ms: Some(100),
-                connect_timeout_ms: Some(100),
-                ..Default::default()
+        let client = KafkaClient::new(
+            &"test".parse().unwrap(),
+            &ClusterConfig {
+                bootstrap_servers: vec![broker.bootstrap_servers()],
+                security: Default::default(),
+                schema_registry: None,
+                obfuscation: None,
+                properties: crate::config::KafkaProperties {
+                    request_timeout_ms: Some(100),
+                    connect_timeout_ms: Some(100),
+                    ..Default::default()
+                },
+                ingest: Default::default(),
             },
-            ingest: Default::default(),
-        })
+        )
         .await
         .unwrap();
         assert_eq!(
@@ -887,15 +881,17 @@ mod tests {
     }
 
     pub(super) async fn kafka_client(bootstrap: &str) -> KafkaClient {
-        KafkaClient::new(&ClusterConfig {
-            name: "test".into(),
-            bootstrap_servers: vec![bootstrap.to_owned()],
-            security: None,
-            schema_registry: None,
-            obfuscation: None,
-            properties: Default::default(),
-            ingest: Default::default(),
-        })
+        KafkaClient::new(
+            &"test".parse().unwrap(),
+            &ClusterConfig {
+                bootstrap_servers: vec![bootstrap.to_owned()],
+                security: Default::default(),
+                schema_registry: None,
+                obfuscation: None,
+                properties: Default::default(),
+                ingest: Default::default(),
+            },
+        )
         .await
         .expect("kafka client")
     }
