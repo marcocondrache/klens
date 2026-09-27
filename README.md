@@ -1,10 +1,10 @@
 # klens
 
-A Kafka UI for inspecting topics, messages, consumer groups, and more.
+A web UI for Kafka. Browse topics, records, consumer groups, brokers, schemas,
+and ACLs across one or more clusters.
 
-It is a small Rust service with a web UI, not a Kafka platform. Point it at one
-or more clusters, then browse topics, brokers, consumer groups, and schemas from
-a single process.
+klens is one Rust binary that serves the UI and a JSON API. It can tail a topic
+live, hide fields in records, and restrict access by OIDC group.
 
 ## Install
 

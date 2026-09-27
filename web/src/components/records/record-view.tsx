@@ -89,10 +89,9 @@ function ObfuscatedBadge() {
         Obfuscated
       </TooltipTrigger>
       <TooltipContent className="block max-w-80 py-2 leading-relaxed">
-        A rule on this cluster hides fields on this topic. Protected fields show as *** or as kx:
-        tokens. The same value always gets the same token. A masked number shows as text. A value
-        the schema registry could not decode is hidden entirely. Search matches this masked view,
-        not the original bytes.
+        An obfuscation rule hides fields on this topic. Hidden fields show as *** or as a kx: token,
+        and equal values get equal tokens. Values the schema registry could not decode are hidden
+        whole. Search sees this view, not the original data.
       </TooltipContent>
     </Tooltip>
   );

@@ -184,7 +184,7 @@ function SchemasPage() {
         title="Schema registry"
         description={
           <>
-            {rows.length} subjects registered
+            {rows.length} subjects
             <LaneCaption lane={data?.sourceHealth} />
           </>
         }
@@ -233,7 +233,7 @@ function SchemasPage() {
               <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-hidden px-5 py-4">
                 {!canSchemaText ? (
                   <p className="min-h-0 flex-1 text-sm text-muted-foreground">
-                    Schema text is not available for your role.
+                    Your role cannot view schema text.
                   </p>
                 ) : detail ? (
                   <PayloadView

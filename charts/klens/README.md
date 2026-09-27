@@ -4,7 +4,7 @@
 ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square)
 ![AppVersion](https://img.shields.io/static/v1?label=AppVersion&message=0.51.0&color=informational&style=flat-square)
 
-Kafka UI for inspecting topics, messages, consumer groups, and schemas
+Web UI for browsing Kafka topics, records, consumer groups, and schemas
 
 **Homepage:** <https://github.com/marcocondrache/klens>
 

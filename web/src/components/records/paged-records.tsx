@@ -122,8 +122,8 @@ export function PagedRecords({
             <TriangleAlertIcon />
             <AlertTitle>Partial scan</AlertTitle>
             <AlertDescription>
-              The scan timed out before it read every matching offset. These records match. Keep
-              scrolling to continue.
+              The scan timed out before it reached every offset, so more matches may exist. Scroll
+              to keep scanning.
             </AlertDescription>
           </Alert>
         ) : null

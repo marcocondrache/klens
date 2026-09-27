@@ -1,6 +1,6 @@
 apiVersion: v2
 name: klens
-description: Kafka UI for inspecting topics, messages, consumer groups, and schemas
+description: Web UI for browsing Kafka topics, records, consumer groups, and schemas
 type: application
 kubeVersion: ">=1.25.0-0"
 version: 0.1.0
