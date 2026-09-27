@@ -245,8 +245,7 @@ async fn falling_behind_the_bus_asks_the_client_to_refetch_instead_of_dropping_i
     }
     let events = read_events(response, 1).await;
 
-    assert_eq!(events[0]["type"], "resync");
-    assert_eq!(events[0]["reason"], "LAGGED");
+    assert_eq!(events[0], serde_json::json!({ "type": "resync" }));
 }
 
 #[tokio::test]

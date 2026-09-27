@@ -134,12 +134,10 @@ export type SearchHit = { kind: SearchKind, id: string, label: string, detail: s
 
 export type TopicRate = { topic: string, rate: number, };
 
-export type ResyncReason = "LAGGED";
-
 export type Update = { "type": "watermarks", at: string, 
 /**
  * One `{topic, rate}` pair per topic, never catalog objects. A scoped
  * subscriber gets only its topic.
  */
-topics: Array<TopicRate>, } | { "type": "groupLag", at: string, group: string, lag: number, lagComplete: boolean, offsets: Array<GroupOffset>, } | { "type": "topology", version: number, addedTopics: Array<string>, removedTopics: Array<string>, changedTopics: Array<string>, addedGroups: Array<string>, removedGroups: Array<string>, changedGroups: Array<string>, brokersChanged: boolean, } | { "type": "configs", version: number, topics: Array<string>, } | { "type": "subjects", version: number, added: Array<string>, removed: Array<string>, changed: Array<string>, } | { "type": "resync", reason: ResyncReason, };
+topics: Array<TopicRate>, } | { "type": "groupLag", at: string, group: string, lag: number, lagComplete: boolean, offsets: Array<GroupOffset>, } | { "type": "topology", version: number, addedTopics: Array<string>, removedTopics: Array<string>, changedTopics: Array<string>, addedGroups: Array<string>, removedGroups: Array<string>, changedGroups: Array<string>, brokersChanged: boolean, } | { "type": "configs", version: number, topics: Array<string>, } | { "type": "subjects", version: number, added: Array<string>, removed: Array<string>, changed: Array<string>, } | { "type": "resync" };
 

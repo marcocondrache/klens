@@ -7,7 +7,7 @@ use klens::app::typescript::{
     Acl, AclAuthorizer, AclListing, AclOperation, AclPatternType, AclPermission, AclResourceType,
     BrokerRow, CleanupPolicy, ClusterGrant, ClusterHealth, ConfigEntry, ConfigSource, GroupDetail,
     GroupMember, GroupOffset, GroupRow, GroupState, Identity, LaneHealth, MemberAssignment,
-    PartitionRow, PrivilegeName, Record, RecordHeader, RecordOrder, RecordPage, ResyncReason,
+    PartitionRow, PrivilegeName, Record, RecordHeader, RecordOrder, RecordPage,
     SchemaCompatibility, SchemaReference, SchemaType, SearchHit, SearchKind, SubjectDetail,
     SubjectRow, SubjectRowsResult, TailEvent, TailStart, TopicDetail, TopicGroupRow, TopicRate,
     TopicRow, Update,
@@ -74,7 +74,6 @@ fn typescript() -> String {
         SearchKind,
         SearchHit,
         TopicRate,
-        ResyncReason,
         Update,
     );
     out

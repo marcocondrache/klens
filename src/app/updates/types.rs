@@ -1,5 +1,5 @@
 use jiff::Timestamp;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use ts_rs::TS;
 
 use crate::kafka::store;
@@ -20,13 +20,6 @@ impl From<&store::TopicRate> for TopicRate {
             rate: rate.rate,
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ResyncReason {
-    /// The client fell behind the change bus and missed events.
-    Lagged,
 }
 
 /// One lane delta. `type` is the discriminant the client switches on.
@@ -70,9 +63,8 @@ pub enum Update {
         removed: Vec<String>,
         changed: Vec<String>,
     },
-    Resync {
-        reason: ResyncReason,
-    },
+    /// The client fell behind the change bus and missed events.
+    Resync,
 }
 
 impl Update {
@@ -83,7 +75,7 @@ impl Update {
             Self::Topology { .. } => "topology",
             Self::Configs { .. } => "configs",
             Self::Subjects { .. } => "subjects",
-            Self::Resync { .. } => "resync",
+            Self::Resync => "resync",
         }
     }
 }

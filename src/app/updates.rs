@@ -24,7 +24,7 @@ pub mod types;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use types::{ResyncReason, TopicRate, Update};
+pub(crate) use types::{TopicRate, Update};
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new().route("/", get(updates))
@@ -107,10 +107,7 @@ impl Stream {
                             missed,
                             "subscriber lagged the change bus"
                         );
-                        let update = Update::Resync {
-                            reason: ResyncReason::Lagged,
-                        };
-                        return Some((Ok(event(&update)), state));
+                        return Some((Ok(event(&Update::Resync)), state));
                     }
                     Ok(change) => {
                         if let Some(error) = state.denied() {
