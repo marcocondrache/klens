@@ -95,6 +95,7 @@ pub(crate) fn record_query(
     topic: String,
     params: RecordParams,
 ) -> Result<domain::RecordQuery, QueryError> {
+    let order = params.order.unwrap_or(RecordOrder::Newest).into();
     Ok(domain::RecordQuery {
         timestamps: domain::TimestampRange::new(params.from, params.to)?,
         filter: params
@@ -103,12 +104,16 @@ pub(crate) fn record_query(
             .and_then(crate::kafka::compile_contains_filter),
         cursor: match params.cursor.as_deref().map(str::trim) {
             None | Some("") => None,
-            Some(cursor) => Some(RecordCursor::parse(cursor)?),
+            Some(cursor) => {
+                let cursor = RecordCursor::parse(cursor)?;
+                cursor.validate_for(order)?;
+                Some(cursor)
+            }
         },
         topic,
         partitions: params.partition,
         limit: params.limit,
-        order: params.order.unwrap_or(RecordOrder::Newest).into(),
+        order,
         schema_id: params.schema_id,
     })
 }

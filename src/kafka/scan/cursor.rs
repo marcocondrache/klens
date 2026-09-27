@@ -106,10 +106,6 @@ impl RecordCursor {
             Err(QueryError::InvalidCursor)
         }
     }
-
-    pub fn encode(&self) -> String {
-        self.to_string()
-    }
 }
 
 impl Display for RecordCursor {
@@ -145,8 +141,8 @@ mod tests {
             cursor.remaining,
             Remaining::Before(BTreeMap::from([(0, 15), (1, 8)]))
         );
-        assert_eq!(cursor.encode(), "v2:n:f:0:15,1:8");
-        assert_eq!(RecordCursor::parse(&cursor.encode()).unwrap(), cursor);
+        assert_eq!(cursor.to_string(), "v2:n:f:0:15,1:8");
+        assert_eq!(RecordCursor::parse(&cursor.to_string()).unwrap(), cursor);
     }
 
     #[test]
@@ -160,7 +156,7 @@ mod tests {
             let cursor = RecordCursor::parse(token).unwrap();
 
             assert_eq!(cursor.walk(), walk, "{token}");
-            assert_eq!(cursor.encode(), token);
+            assert_eq!(cursor.to_string(), token);
         }
     }
 
@@ -169,7 +165,7 @@ mod tests {
         let cursor = RecordCursor::parse("v2:o:b:").unwrap();
 
         assert_eq!(cursor.remaining, Remaining::Before(BTreeMap::new()));
-        assert_eq!(cursor.encode(), "v2:o:b:");
+        assert_eq!(cursor.to_string(), "v2:o:b:");
         assert_eq!(RecordCursor::parse("v2:o:b").unwrap(), cursor);
     }
 
