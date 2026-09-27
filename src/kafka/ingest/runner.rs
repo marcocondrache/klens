@@ -282,12 +282,7 @@ mod tests {
         assert_eq!(store.topology.version(), 2);
         assert_eq!(source.publishes.load(Ordering::SeqCst), 2);
         assert_eq!(
-            store
-                .topology
-                .load()
-                .unwrap()
-                .topic("orders")
-                .unwrap()
+            store.topology.load().unwrap().topics["orders"]
                 .partitions
                 .len(),
             2

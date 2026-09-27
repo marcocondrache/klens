@@ -16,15 +16,11 @@ import type {
 
 export type Scope = { topic?: string; group?: string };
 
-export function useUpdates(cluster: string, scope: Scope = {}) {
+export function useUpdates(cluster: string, scope: Scope) {
   const queryClient = useQueryClient();
   const { topic, group } = scope;
 
   useEffect(() => {
-    if (!cluster) {
-      return;
-    }
-
     return stream(`/clusters/${encodeURIComponent(cluster)}/updates`, { topic, group }, (update) =>
       apply(queryClient, cluster, update),
     );
@@ -74,9 +70,7 @@ function apply(queryClient: QueryClient, cluster: string, update: Update): void 
         queryClient.setQueryData(
           keys.topicGroups(cluster, name),
           (rows: TopicGroupRow[] | undefined) =>
-            rows?.map((row) =>
-              row.id === update.group ? { ...row, lagOnTopic: String(lagOnTopic) } : row,
-            ),
+            rows?.map((row) => (row.id === update.group ? { ...row, lagOnTopic } : row)),
         );
       }
       return;
@@ -183,7 +177,7 @@ function cachedTopics(queryClient: QueryClient, cluster: string): string[] {
 function lagByTopic(offsets: GroupOffset[]): Map<string, number> {
   const totals = new Map<string, number>();
   for (const offset of offsets) {
-    totals.set(offset.topic, (totals.get(offset.topic) ?? 0) + Number(offset.lag ?? 0));
+    totals.set(offset.topic, (totals.get(offset.topic) ?? 0) + (offset.lag ?? 0));
   }
   return totals;
 }

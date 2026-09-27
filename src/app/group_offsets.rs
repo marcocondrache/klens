@@ -4,7 +4,7 @@ use axum::routing::post;
 use axum_extra::extract::WithRejection;
 
 use crate::AppState;
-use crate::kafka::store::GroupRow;
+use crate::kafka::store::projections::GroupRow;
 use crate::kafka::{KafkaError, OffsetMove, ResetScope};
 
 use super::context::{ClusterHandle, Session};

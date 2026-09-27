@@ -45,10 +45,6 @@ pub struct TopicInfo {
 }
 
 impl TopicInfo {
-    pub fn partition(&self, id: i32) -> Option<&PartitionMetadata> {
-        self.partitions.iter().find(|partition| partition.id == id)
-    }
-
     pub fn partition_ids(&self) -> Vec<i32> {
         self.partitions
             .iter()
@@ -74,7 +70,6 @@ impl TopicInfo {
 pub struct GroupInfo {
     pub state: GroupState,
     pub protocol: String,
-    pub coordinator: i32,
     pub members: Vec<GroupMember>,
 }
 
@@ -162,7 +157,6 @@ impl Topology {
                 GroupInfo {
                     state: group.state,
                     protocol: group.protocol,
-                    coordinator: group.coordinator,
                     members: group.members,
                 },
             );
@@ -179,10 +173,6 @@ impl Topology {
             groups: assembled,
             topic_groups,
         }
-    }
-
-    pub fn topic(&self, name: &str) -> Option<&TopicInfo> {
-        self.topics.get(name)
     }
 
     pub fn group(&self, id: &str) -> Option<&GroupInfo> {
@@ -224,10 +214,6 @@ impl WatermarkTable {
 
     pub fn get(&self, topic: &str, partition: i32) -> Option<Watermarks> {
         self.marks.get(topic)?.get(&partition).copied()
-    }
-
-    pub fn topic(&self, topic: &str) -> Option<&HashMap<i32, Watermarks>> {
-        self.marks.get(topic)
     }
 
     pub fn produced(&self, topic: &str) -> i64 {
@@ -361,7 +347,7 @@ mod tests {
         );
         assert!(topology.groups_for_topic("payments").is_empty());
         assert!(topology.groups_for_topic("ghost").is_empty());
-        assert_eq!(topology.topic("orders").unwrap().replication_factor(), 2);
+        assert_eq!(topology.topics["orders"].replication_factor(), 2);
         assert_eq!(topology.partition_count(), 2);
     }
 

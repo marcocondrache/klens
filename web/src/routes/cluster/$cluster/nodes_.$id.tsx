@@ -66,7 +66,7 @@ function NodePage() {
         }
       />
 
-      <ConfigTable entries={configs} loading={configsPending} fill />
+      <ConfigTable entries={configs} loading={configsPending} />
     </div>
   );
 }

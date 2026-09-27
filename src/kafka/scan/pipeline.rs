@@ -76,7 +76,6 @@ impl DecodedRecord {
             offset: self.raw.offset,
             timestamp: self.raw.timestamp.max(0),
             size_bytes: self.raw.size_bytes(),
-            compression: self.raw.compression,
             key: self.key.map(DecodedPayload::into_text),
             value: self.value.map(DecodedPayload::into_text),
             schema_id,

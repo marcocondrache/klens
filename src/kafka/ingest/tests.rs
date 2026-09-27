@@ -58,7 +58,6 @@ fn group(id: &str, topic: &str, partitions: Vec<i32>, committed: &[(i32, i64)]) 
         id: id.to_owned(),
         state: GroupState::Stable,
         protocol: "range".into(),
-        coordinator: 1,
         members: vec![GroupMember {
             id: format!("{id}-m1"),
             client_id: "c1".into(),
@@ -104,10 +103,7 @@ async fn the_topology_lane_assembles_brokers_topics_and_groups() {
     let topology = store.topology.load().expect("topology");
     assert_eq!(topology.cluster_id.as_deref(), Some("test-cluster"));
     assert_eq!(topology.brokers.len(), 1);
-    assert_eq!(
-        topology.topic("orders.created").unwrap().partitions.len(),
-        2
-    );
+    assert_eq!(topology.topics["orders.created"].partitions.len(), 2);
     assert_eq!(
         topology.groups_for_topic("orders.created"),
         [Arc::from("order-processor")],
@@ -687,7 +683,7 @@ async fn a_deleted_topic_loses_its_rate() {
             store
                 .topology
                 .load()
-                .is_some_and(|topology| topology.topic("payments").is_none())
+                .is_some_and(|topology| !topology.topics.contains_key("payments"))
         },
         "topic removal",
     )

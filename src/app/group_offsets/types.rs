@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::app::int64::Int64;
 use crate::kafka::{OffsetMove, ResetTarget};
 
 #[derive(Debug, Clone, Deserialize, TS)]
@@ -29,9 +28,9 @@ pub struct ResetOffsetsRequest {
 pub enum ResetTo {
     Earliest,
     Latest,
-    Timestamp { timestamp: Int64 },
-    Offset { offset: Int64 },
-    Shift { by: Int64 },
+    Timestamp { timestamp: i64 },
+    Offset { offset: i64 },
+    Shift { by: i64 },
 }
 
 impl From<ResetTo> for ResetTarget {
@@ -39,9 +38,9 @@ impl From<ResetTo> for ResetTarget {
         match to {
             ResetTo::Earliest => Self::Earliest,
             ResetTo::Latest => Self::Latest,
-            ResetTo::Timestamp { timestamp } => Self::Timestamp(timestamp.into()),
-            ResetTo::Offset { offset } => Self::Offset(offset.into()),
-            ResetTo::Shift { by } => Self::Shift(by.into()),
+            ResetTo::Timestamp { timestamp } => Self::Timestamp(timestamp),
+            ResetTo::Offset { offset } => Self::Offset(offset),
+            ResetTo::Shift { by } => Self::Shift(by),
         }
     }
 }
@@ -59,8 +58,8 @@ pub struct OffsetReset {
 pub struct OffsetChange {
     pub topic: String,
     pub partition: i32,
-    pub current: Option<Int64>,
-    pub target: Int64,
+    pub current: Option<i64>,
+    pub target: i64,
 }
 
 impl From<OffsetMove> for OffsetChange {
@@ -68,8 +67,8 @@ impl From<OffsetMove> for OffsetChange {
         Self {
             topic: step.topic,
             partition: step.partition,
-            current: step.current.map(Int64::from),
-            target: step.target.into(),
+            current: step.current,
+            target: step.target,
         }
     }
 }

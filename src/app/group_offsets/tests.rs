@@ -30,7 +30,6 @@ fn idle_group() -> GroupSnapshot {
         id: GROUP.into(),
         state: GroupState::Empty,
         protocol: String::new(),
-        coordinator: 1,
         members: Vec::new(),
         committed: vec![
             committed(0, 6),
@@ -105,8 +104,8 @@ async fn a_dry_run_plans_the_reset_and_writes_nothing() {
             "group": GROUP,
             "applied": false,
             "partitions": [
-                { "topic": TOPIC, "partition": 0, "current": "6", "target": "0" },
-                { "topic": TOPIC, "partition": 1, "current": "5", "target": "0" },
+                { "topic": TOPIC, "partition": 0, "current": 6, "target": 0 },
+                { "topic": TOPIC, "partition": 1, "current": 5, "target": 0 },
             ],
         })
     );
@@ -120,7 +119,7 @@ async fn a_reset_commits_the_plan() {
 
     let (status, body) = reset(
         &state,
-        json!({ "group": GROUP, "topic": TOPIC, "partitions": [1], "to": { "kind": "shift", "by": "-2" } }),
+        json!({ "group": GROUP, "topic": TOPIC, "partitions": [1], "to": { "kind": "shift", "by": -2 } }),
     )
     .await;
 
@@ -128,7 +127,7 @@ async fn a_reset_commits_the_plan() {
     assert_eq!(body["applied"], true);
     assert_eq!(
         body["partitions"],
-        json!([{ "topic": TOPIC, "partition": 1, "current": "5", "target": "3" }])
+        json!([{ "topic": TOPIC, "partition": 1, "current": 5, "target": 3 }])
     );
     assert_eq!(
         offsets(&cluster),
@@ -185,7 +184,7 @@ async fn a_dry_run_still_plans_for_a_consuming_group() {
     .await;
 
     assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(body["partitions"][0]["target"], "8");
+    assert_eq!(body["partitions"][0]["target"], 8);
 }
 
 #[tokio::test]

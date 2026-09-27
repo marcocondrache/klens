@@ -90,7 +90,7 @@ export function PayloadView({
           ) : null}
         </div>
       </div>
-      <JsonBlock source={displayed} wrap className={fill ? "min-h-0 flex-1" : "max-h-40"} />
+      <JsonBlock source={displayed} className={fill ? "min-h-0 flex-1" : "max-h-40"} />
     </div>
   );
 }

@@ -23,8 +23,6 @@ mod extract;
 mod group_offsets;
 mod groups;
 mod health;
-mod int64;
-mod paging;
 mod records;
 mod search;
 mod subjects;

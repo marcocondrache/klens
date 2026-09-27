@@ -29,18 +29,7 @@ export function visibleSections(canAcls: boolean): Section[] {
 }
 
 export function clusterSectionTo(section: ClusterSection) {
-  switch (section) {
-    case "topics":
-      return "/cluster/$cluster/topics" as const;
-    case "groups":
-      return "/cluster/$cluster/groups" as const;
-    case "schemas":
-      return "/cluster/$cluster/schemas" as const;
-    case "nodes":
-      return "/cluster/$cluster/nodes" as const;
-    case "acls":
-      return "/cluster/$cluster/acls" as const;
-  }
+  return `/cluster/$cluster/${section}` as const;
 }
 
 export function useActiveSection() {

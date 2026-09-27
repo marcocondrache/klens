@@ -24,9 +24,9 @@ use crate::kafka::metadata::{
 };
 use crate::kafka::model::{PartitionWindow, RawRecord, ScanConsumer, TailConsumer, TailPosition};
 use crate::kafka::registry::{RegisteredSchema, SchemaCompatibility, SchemaSubject, SchemaType};
+use crate::kafka::scan::RecordHeader;
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::{DecodedPayload, PayloadCodec, PayloadSlot};
-use crate::kafka::scan::{Compression, RecordHeader};
 use crate::kafka::session::ClusterSession;
 use crate::kafka::topic_config::{ConfigEntry, ConfigSource};
 use crate::kafka::writes::ClusterWrites;
@@ -44,7 +44,6 @@ pub struct FixtureRecord {
     pub value: Option<Bytes>,
     pub headers: Vec<RecordHeader>,
     pub size_bytes: u64,
-    pub compression: Compression,
 }
 
 #[derive(Clone)]
@@ -63,14 +62,8 @@ struct Inner {
     records: Mutex<Vec<FixtureRecord>>,
     subjects: Mutex<Vec<SchemaSubject>>,
     acls: Mutex<AclListing>,
-    metadata_error: Mutex<Option<String>>,
     subjects_error: Mutex<Option<String>>,
-    configs_error: Mutex<Option<String>>,
     offsets_error: Mutex<Option<String>>,
-    acls_error: Mutex<Option<String>>,
-    serve_subjects: Mutex<bool>,
-    metadata_delay: Mutex<Duration>,
-    watermark_delay: Mutex<Duration>,
     records_delay: Mutex<Duration>,
     offsets_delay: Mutex<Duration>,
     consume_timeout: Mutex<Option<Duration>>,
@@ -171,7 +164,6 @@ impl FakeCluster {
             id: "order-processor".into(),
             state: GroupState::Stable,
             protocol: "range".into(),
-            coordinator: 1,
             members: vec![GroupMember {
                 id: "member-1".into(),
                 client_id: "orders".into(),
@@ -208,7 +200,6 @@ impl FakeCluster {
                     value: "checkout".into(),
                 }],
                 size_bytes: 24,
-                compression: Compression::None,
             })
             .collect();
 
@@ -233,14 +224,8 @@ impl FakeCluster {
                 records: Mutex::new(records),
                 subjects: Mutex::new(subjects),
                 acls: Mutex::new(AclListing::Enabled(local_acls())),
-                metadata_error: Mutex::new(None),
                 subjects_error: Mutex::new(None),
-                configs_error: Mutex::new(None),
                 offsets_error: Mutex::new(None),
-                acls_error: Mutex::new(None),
-                serve_subjects: Mutex::new(true),
-                metadata_delay: Mutex::new(Duration::ZERO),
-                watermark_delay: Mutex::new(Duration::ZERO),
                 records_delay: Mutex::new(Duration::ZERO),
                 offsets_delay: Mutex::new(Duration::ZERO),
                 consume_timeout: Mutex::new(None),
@@ -261,21 +246,6 @@ impl FakeCluster {
         let mut cluster = Self::local();
         cluster.identity.name = name.to_owned();
         cluster
-    }
-
-    pub fn unreachable(self) -> Self {
-        *self.inner.metadata_error.lock().expect("metadata error") = Some("broker down".into());
-        self
-    }
-
-    pub fn with_metadata_delay(self, delay: Duration) -> Self {
-        *self.inner.metadata_delay.lock().expect("metadata delay") = delay;
-        self
-    }
-
-    pub fn with_watermark_delay(self, delay: Duration) -> Self {
-        *self.inner.watermark_delay.lock().expect("watermark delay") = delay;
-        self
     }
 
     pub fn with_records_delay(self, delay: Duration) -> Self {
@@ -320,40 +290,6 @@ impl FakeCluster {
 
     pub fn with_subjects_error(self, message: impl Into<String>) -> Self {
         *self.inner.subjects_error.lock().expect("subjects error") = Some(message.into());
-        self
-    }
-
-    pub fn without_subjects(self) -> Self {
-        *self.inner.serve_subjects.lock().expect("serve subjects") = false;
-        self
-    }
-
-    pub fn with_configs_error(self, message: impl Into<String>) -> Self {
-        *self.inner.configs_error.lock().expect("configs error") = Some(message.into());
-        self
-    }
-
-    pub fn with_acls(self, bindings: Vec<Acl>) -> Self {
-        *self.inner.acls.lock().expect("acls") = AclListing::Enabled(bindings);
-        self
-    }
-
-    pub fn with_security_disabled(self) -> Self {
-        *self.inner.acls.lock().expect("acls") = AclListing::Disabled;
-        self
-    }
-
-    pub fn with_acls_error(self, message: impl Into<String>) -> Self {
-        *self.inner.acls_error.lock().expect("acls error") = Some(message.into());
-        self
-    }
-
-    pub fn with_topic_configs(self, topic: impl Into<String>, configs: Vec<ConfigEntry>) -> Self {
-        self.inner
-            .topic_configs
-            .lock()
-            .expect("topic configs")
-            .insert(topic.into(), configs);
         self
     }
 
@@ -446,10 +382,6 @@ impl FakeCluster {
 
     pub fn set_subjects(&self, subjects: Vec<SchemaSubject>) {
         *self.inner.subjects.lock().expect("subjects") = subjects;
-    }
-
-    pub fn set_metadata_error(&self, error: Option<&str>) {
-        *self.inner.metadata_error.lock().expect("metadata error") = error.map(str::to_owned);
     }
 
     pub fn set_offsets_error(&self, error: Option<&str>) {
@@ -564,28 +496,6 @@ impl FakeCluster {
         }
     }
 
-    pub fn drop_partition(&self, topic: &str, id: i32) {
-        {
-            let mut metadata = self.inner.metadata.lock().expect("metadata");
-            if let Some(meta) = metadata
-                .topics
-                .iter_mut()
-                .find(|topic_meta| topic_meta.name == topic)
-            {
-                meta.partitions.retain(|partition| partition.id != id);
-            }
-        }
-        if let Some(marks) = self
-            .inner
-            .watermarks
-            .lock()
-            .expect("watermarks")
-            .get_mut(topic)
-        {
-            marks.remove(&id);
-        }
-    }
-
     pub fn remove_topic(&self, name: &str) {
         self.inner
             .metadata
@@ -694,7 +604,6 @@ impl ClusterWrites for FakeCluster {
                     id: group.to_owned(),
                     state: GroupState::Empty,
                     protocol: String::new(),
-                    coordinator: 1,
                     members: Vec::new(),
                     committed: Vec::new(),
                 });
@@ -757,13 +666,6 @@ impl ClusterSession for FakeCluster {
 
     async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError> {
         self.inner.calls.metadata.fetch_add(1, Ordering::SeqCst);
-        let delay = *self.inner.metadata_delay.lock().expect("metadata delay");
-        if !delay.is_zero() {
-            tokio::time::sleep(delay).await;
-        }
-        if let Some(message) = &*self.inner.metadata_error.lock().expect("metadata error") {
-            return Err(KafkaError::Admin(message.clone()));
-        }
         Ok(self.inner.metadata.lock().expect("metadata").clone())
     }
 
@@ -772,13 +674,6 @@ impl ClusterSession for FakeCluster {
             .calls
             .topic_metadata
             .fetch_add(1, Ordering::SeqCst);
-        let delay = *self.inner.metadata_delay.lock().expect("metadata delay");
-        if !delay.is_zero() {
-            tokio::time::sleep(delay).await;
-        }
-        if let Some(message) = &*self.inner.metadata_error.lock().expect("metadata error") {
-            return Err(KafkaError::Admin(message.clone()));
-        }
         self.inner
             .metadata
             .lock()
@@ -796,10 +691,6 @@ impl ClusterSession for FakeCluster {
         topics: &HashMap<String, Vec<i32>>,
     ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError> {
         self.inner.calls.watermarks.fetch_add(1, Ordering::SeqCst);
-        let delay = *self.inner.watermark_delay.lock().expect("watermark delay");
-        if !delay.is_zero() {
-            tokio::time::sleep(delay).await;
-        }
 
         let broker = self.broker().await;
         let growth = self
@@ -870,9 +761,6 @@ impl ClusterSession for FakeCluster {
             .calls
             .topic_configs
             .fetch_add(1, Ordering::SeqCst);
-        if let Some(message) = &*self.inner.configs_error.lock().expect("configs error") {
-            return Err(KafkaError::Admin(message.clone()));
-        }
         let configs = self.inner.topic_configs.lock().expect("topic configs");
         Ok(topics
             .iter()
@@ -897,7 +785,6 @@ impl ClusterSession for FakeCluster {
     }
 
     async fn groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
-        self.inner.calls.groups.fetch_add(1, Ordering::SeqCst);
         Ok(self.inner.groups.lock().expect("groups").clone())
     }
 
@@ -1002,9 +889,6 @@ impl ClusterSession for FakeCluster {
     }
 
     async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
-        if !*self.inner.serve_subjects.lock().expect("serve subjects") {
-            return Ok(Vec::new());
-        }
         if let Some(message) = &*self.inner.subjects_error.lock().expect("subjects error") {
             return Err(KafkaError::SchemaRegistry {
                 cluster: self.identity.name.clone(),
@@ -1043,9 +927,6 @@ impl ClusterSession for FakeCluster {
 
     async fn acls(&self) -> Result<AclListing, KafkaError> {
         self.inner.calls.acls.fetch_add(1, Ordering::SeqCst);
-        if let Some(message) = &*self.inner.acls_error.lock().expect("acls error") {
-            return Err(KafkaError::Admin(message.clone()));
-        }
         Ok(self.inner.acls.lock().expect("acls").clone())
     }
 }
@@ -1259,7 +1140,6 @@ fn raw_record(record: &FixtureRecord) -> RawRecord {
                 )
             })
             .collect(),
-        compression: record.compression,
     }
 }
 
@@ -1283,7 +1163,6 @@ pub fn card_record(offset: i64, pan: &str) -> FixtureRecord {
             value: "ada".into(),
         }],
         size_bytes: 0,
-        compression: Compression::None,
     }
 }
 
@@ -1315,7 +1194,6 @@ pub struct SessionCalls {
     metadata: AtomicUsize,
     topic_metadata: AtomicUsize,
     watermarks: AtomicUsize,
-    groups: AtomicUsize,
     topic_configs: AtomicUsize,
     committed_offsets: AtomicUsize,
     offsets_in_flight: AtomicUsize,
@@ -1335,10 +1213,6 @@ impl SessionCalls {
 
     pub fn watermarks(&self) -> usize {
         self.watermarks.load(Ordering::SeqCst)
-    }
-
-    pub fn groups(&self) -> usize {
-        self.groups.load(Ordering::SeqCst)
     }
 
     pub fn topic_configs(&self) -> usize {

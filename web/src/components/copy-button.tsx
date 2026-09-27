@@ -10,13 +10,11 @@ const ICON = "col-start-1 row-start-1 transition-[opacity,scale,filter] duration
 export function CopyButton({
   value,
   label = "Copy",
-  className,
   size = "icon-xs",
   reveal = false,
 }: {
   value: string;
   label?: string;
-  className?: string;
   size?: "icon-xs" | "icon-sm" | "icon";
   reveal?: boolean;
 }) {
@@ -50,7 +48,6 @@ export function CopyButton({
               reveal &&
                 "opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 data-popup-open:opacity-100",
               copied && "opacity-100",
-              className,
             )}
           />
         }

@@ -9,7 +9,6 @@ import {
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
-import { RefreshBar } from "@/components/refresh-bar";
 import {
   Table,
   TableBody,
@@ -27,6 +26,7 @@ import { SkeletonBar, skeletonRowStyle } from "./skeleton-bar";
 
 const ROW_SIZE = 40;
 const MIN_FLEX_WIDTH = "12rem";
+const SKELETON_ROWS = 14;
 
 interface DataTableProps<TData extends RowData> {
   columns: Array<ColumnDef<DataTableFeatures, TData>>;
@@ -34,13 +34,10 @@ interface DataTableProps<TData extends RowData> {
   getRowId: (row: TData) => string;
   toolbar?: ReactNode;
   onRowClick?: (row: TData) => void;
-  selectedKey?: string;
   loading?: boolean;
-  refreshing?: boolean;
   error?: ReactNode;
   emptyState?: ReactNode;
   defaultSort?: { id: string; direction: "asc" | "desc" };
-  fill?: boolean;
 }
 
 function tablePlaceholder(content: ReactNode) {
@@ -57,13 +54,10 @@ export function DataTable<TData extends RowData>({
   getRowId,
   toolbar,
   onRowClick,
-  selectedKey,
   loading = false,
-  refreshing = false,
   error,
   emptyState,
   defaultSort,
-  fill = false,
 }: DataTableProps<TData>) {
   const [sorting, setSorting] = useState<SortingState>(
     defaultSort ? [{ id: defaultSort.id, desc: defaultSort.direction === "desc" }] : [],
@@ -84,7 +78,6 @@ export function DataTable<TData extends RowData>({
   const rows = table.getRowModel().rows;
   const leafColumns = table.getAllLeafColumns();
   const columnCount = leafColumns.length || columns.length;
-  const skeletonRows = fill ? 14 : 6;
   const sizing = table.state.columnSizing;
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -94,41 +87,29 @@ export function DataTable<TData extends RowData>({
     estimateSize: () => ROW_SIZE,
     getItemKey: (index) => rows[index].id,
     overscan: 10,
-    enabled: fill,
   });
-  const virtualRows = fill ? virtualizer.getVirtualItems() : null;
-  const visibleRows = virtualRows ? virtualRows.map((item) => rows[item.index]) : rows;
-  const padTop = virtualRows?.length ? virtualRows[0].start : 0;
-  const padBottom = virtualRows?.length
+  const virtualRows = virtualizer.getVirtualItems();
+  const padTop = virtualRows.length ? virtualRows[0].start : 0;
+  const padBottom = virtualRows.length
     ? virtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end
     : 0;
 
   return (
-    <div className={cn("flex flex-col gap-3", fill && "min-h-0 flex-1")}>
-      {toolbar ? (
-        <div className={cn("flex flex-wrap items-center gap-2", fill && "shrink-0")}>{toolbar}</div>
-      ) : null}
-      <div
-        className={cn(
-          "relative overflow-hidden rounded-lg border",
-          fill && "flex min-h-0 flex-1 flex-col",
-        )}
-      >
-        {refreshing ? <RefreshBar className="absolute inset-x-0 top-0 z-20" /> : null}
-        <div ref={scrollRef} className={cn(fill && "min-h-0 flex-1 overflow-auto")}>
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      {toolbar ? <div className="flex shrink-0 flex-wrap items-center gap-2">{toolbar}</div> : null}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border">
+        <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
           <Table
-            aria-busy={loading || refreshing || undefined}
-            className={cn(fill && "table-fixed")}
-            style={fill ? { minWidth: minTableWidth(leafColumns, sizing) } : undefined}
+            aria-busy={loading || undefined}
+            className="table-fixed"
+            style={{ minWidth: minTableWidth(leafColumns, sizing) }}
           >
-            {fill ? (
-              <colgroup>
-                {leafColumns.map((column) => (
-                  <col key={column.id} style={{ width: columnWidth(column, sizing) }} />
-                ))}
-              </colgroup>
-            ) : null}
-            <TableHeader className={cn(fill && "[&_tr]:border-b-0!")}>
+            <colgroup>
+              {leafColumns.map((column) => (
+                <col key={column.id} style={{ width: columnWidth(column, sizing) }} />
+              ))}
+            </colgroup>
+            <TableHeader className="[&_tr]:border-b-0!">
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id}>
                   {headerGroup.headers.map((header) => {
@@ -138,14 +119,12 @@ export function DataTable<TData extends RowData>({
                       <TableHead
                         key={header.id}
                         className={cn(
-                          "relative h-10 bg-subtle px-3 text-xs font-medium text-muted-foreground first:pl-4 last:pr-4",
-                          fill && "sticky top-0 z-10 shadow-[inset_0_-1px_0_0_var(--color-border)]",
+                          "sticky top-0 z-10 h-10 bg-subtle px-3 text-xs font-medium text-muted-foreground shadow-[inset_0_-1px_0_0_var(--color-border)] first:pl-4 last:pr-4",
                           meta?.align === "right" && "text-right",
-                          meta?.headerClassName,
                         )}
                       >
                         {header.isPlaceholder ? null : <table.FlexRender header={header} />}
-                        {fill && meta?.width ? <ColumnResizeHandle header={header} /> : null}
+                        {meta?.width ? <ColumnResizeHandle header={header} /> : null}
                       </TableHead>
                     );
                   })}
@@ -154,12 +133,12 @@ export function DataTable<TData extends RowData>({
             </TableHeader>
             <TableBody>
               {loading ? (
-                Array.from({ length: skeletonRows }, (_, index) => (
+                Array.from({ length: SKELETON_ROWS }, (_, index) => (
                   <TableRow
                     key={index}
                     aria-hidden
                     className="border-border/70 hover:bg-transparent"
-                    style={skeletonRowStyle(index, skeletonRows)}
+                    style={skeletonRowStyle(index, SKELETON_ROWS)}
                   >
                     {leafColumns.map((column, columnIndex) => (
                       <TableCell key={column.id} className="h-10 px-3 py-2 first:pl-4 last:pr-4">
@@ -184,15 +163,14 @@ export function DataTable<TData extends RowData>({
               ) : (
                 <>
                   {padTop > 0 ? <tr aria-hidden style={{ height: padTop }} /> : null}
-                  {visibleRows.map((row, index) => {
-                    const selected = selectedKey === row.id;
+                  {virtualRows.map((item) => {
+                    const row = rows[item.index];
 
                     return (
                       <TableRow
                         key={row.id}
-                        data-index={virtualRows?.[index].index}
-                        ref={virtualRows ? virtualizer.measureElement : undefined}
-                        data-state={selected ? "selected" : undefined}
+                        data-index={item.index}
+                        ref={virtualizer.measureElement}
                         {...(onRowClick ? clickableRowProps(() => onRowClick(row.original)) : {})}
                         className={cn(
                           "group/row border-border/70 transition-colors duration-75",
@@ -206,8 +184,7 @@ export function DataTable<TData extends RowData>({
                             <TableCell
                               key={cell.id}
                               className={cn(
-                                "h-10 px-3 py-2 first:pl-4 last:pr-4",
-                                fill && "overflow-hidden text-ellipsis",
+                                "h-10 overflow-hidden px-3 py-2 text-ellipsis first:pl-4 last:pr-4",
                                 meta?.align === "right" && "text-right numeric",
                                 meta?.className,
                               )}
