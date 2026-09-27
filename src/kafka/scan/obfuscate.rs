@@ -311,7 +311,7 @@ mod tests {
     use super::*;
 
     fn config(yaml: &str) -> ObfuscationConfig {
-        serde_yaml_ng::from_str(yaml).expect("obfuscation config")
+        serde_saphyr::from_str(yaml).expect("obfuscation config")
     }
 
     fn policy(yaml: &str) -> ObfuscationPolicy {

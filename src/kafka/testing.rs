@@ -255,7 +255,7 @@ impl FakeCluster {
 
     pub fn with_obfuscation(self, yaml: &str) -> Self {
         let config: ObfuscationConfig =
-            serde_yaml_ng::from_str(yaml).expect("obfuscation config parses");
+            serde_saphyr::from_str(yaml).expect("obfuscation config parses");
 
         *self.inner.obfuscation.lock().expect("obfuscation") =
             Some(Arc::new(ObfuscationPolicy::compile(&config)));

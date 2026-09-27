@@ -11,8 +11,8 @@ use indexmap::IndexMap;
 use openidconnect::{IssuerUrl, RedirectUrl};
 use regex::{Regex, RegexBuilder};
 use secrecy::{ExposeSecret, SecretString};
-use serde::de::value::{MapAccessDeserializer, SeqAccessDeserializer, StrDeserializer};
-use serde::de::{self, MapAccess, SeqAccess, Visitor};
+use serde::de::value::MapAccessDeserializer;
+use serde::de::{self, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer};
 use thiserror::Error;
 use url::Url;
@@ -31,12 +31,18 @@ pub enum ConfigError {
         #[source]
         source: std::io::Error,
     },
-    #[error("failed to parse config file {}: {source}", path.display())]
-    Parse {
-        path: PathBuf,
-        #[source]
-        source: serde_yaml_ng::Error,
-    },
+    #[error("failed to parse config file {}: {error}", path.display())]
+    Parse { path: PathBuf, error: ParseError },
+}
+
+/// A parse error that renders only the message meant for a config author.
+#[derive(Debug)]
+pub struct ParseError(Box<serde_saphyr::Error>);
+
+impl Display for ParseError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&describe(&self.0))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -46,8 +52,8 @@ pub struct Config {
     pub bind: SocketAddr,
     #[serde(default = "default_log_level")]
     pub log_level: String,
-    #[serde(default, deserialize_with = "clusters")]
-    pub clusters: UniqueMap<ClusterName, ClusterConfig>,
+    #[serde(default)]
+    pub clusters: IndexMap<ClusterName, ClusterConfig>,
     #[serde(default)]
     pub auth: Option<AuthConfig>,
     #[serde(default)]
@@ -78,197 +84,63 @@ impl Config {
     }
 
     fn parse(path: &Path, raw: &str) -> Result<Self, ConfigError> {
-        serde_yaml_ng::from_str(raw).map_err(|source| ConfigError::Parse {
+        from_yaml(raw).map_err(|error| ConfigError::Parse {
             path: path.to_owned(),
-            source,
+            error: ParseError(Box::new(error)),
         })
     }
 }
 
-fn clusters<'de, D: Deserializer<'de>>(
-    deserializer: D,
-) -> Result<UniqueMap<ClusterName, ClusterConfig>, D::Error> {
-    UniqueMap::deserialize_checked(deserializer, "cluster name", Ok)
+/// Snippets are off because they print the lines around an error, which can
+/// hold secrets.
+fn from_yaml<'de, T: Deserialize<'de>>(raw: &'de str) -> Result<T, serde_saphyr::Error> {
+    serde_saphyr::from_str_with_options(raw, serde_saphyr::options! { with_snippet: false })
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UniqueMap<K: Hash + Eq, V>(IndexMap<K, V>);
-
-impl<K: Hash + Eq, V> Default for UniqueMap<K, V> {
-    fn default() -> Self {
-        Self(IndexMap::new())
-    }
-}
-
-impl<K: Hash + Eq, V> UniqueMap<K, V> {
-    pub fn iter(&self) -> indexmap::map::Iter<'_, K, V> {
-        self.0.iter()
-    }
-
-    pub fn get(&self, key: &K) -> Option<&V> {
-        self.0.get(key)
-    }
-
-    pub fn keys(&self) -> indexmap::map::Keys<'_, K, V> {
-        self.0.keys()
-    }
-
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    fn deserialize_checked<'de, D, T>(
-        deserializer: D,
-        noun: &'static str,
-        convert: fn(Self) -> Result<T, String>,
-    ) -> Result<T, D::Error>
-    where
-        D: Deserializer<'de>,
-        K: Deserialize<'de> + Display,
-        V: Deserialize<'de>,
-    {
-        deserializer.deserialize_map(UniqueMapVisitor { noun, convert })
-    }
-}
-
-#[cfg(test)]
-impl<K: Hash + Eq, V> FromIterator<(K, V)> for UniqueMap<K, V> {
-    fn from_iter<I: IntoIterator<Item = (K, V)>>(entries: I) -> Self {
-        Self(entries.into_iter().collect())
-    }
-}
-
-struct UniqueMapVisitor<K: Hash + Eq, V, T> {
-    noun: &'static str,
-    convert: fn(UniqueMap<K, V>) -> Result<T, String>,
-}
-
-impl<'de, K, V, T> Visitor<'de> for UniqueMapVisitor<K, V, T>
-where
-    K: Deserialize<'de> + Hash + Eq + Display,
-    V: Deserialize<'de>,
-{
-    type Value = T;
-
-    fn expecting(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "a map keyed by {}", self.noun)
-    }
-
-    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<T, A::Error> {
-        let mut entries = IndexMap::new();
-        while let Some(key) = map.next_key::<K>()? {
-            if entries.contains_key(&key) {
-                return Err(de::Error::custom(format!(
-                    "duplicate {} '{key}'",
-                    self.noun
-                )));
-            }
-            let value = map.next_value()?;
-            entries.insert(key, value);
-        }
-        (self.convert)(UniqueMap(entries)).map_err(de::Error::custom)
-    }
-}
-
-/// Converts `Raw` into `T` inside the visitor. serde_yaml_ng gives an error
-/// the path and line of the value whose deserializer is running when it is
-/// raised, so a check run after `Raw::deserialize` returns would report the
-/// parent's location instead.
-struct Checked<Raw, T> {
-    expecting: &'static str,
-    convert: fn(Raw) -> Result<T, String>,
-}
-
-impl<Raw, T> Checked<Raw, T> {
-    fn new(expecting: &'static str, convert: fn(Raw) -> Result<T, String>) -> Self {
-        Self { expecting, convert }
-    }
-}
-
-impl<'de, Raw: Deserialize<'de>, T> Visitor<'de> for Checked<Raw, T> {
-    type Value = T;
-
-    fn expecting(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(self.expecting)
-    }
-
-    fn visit_str<E: de::Error>(self, value: &str) -> Result<T, E> {
-        let raw = Raw::deserialize(StrDeserializer::<E>::new(value))?;
-        (self.convert)(raw).map_err(E::custom)
-    }
-
-    fn visit_seq<A: SeqAccess<'de>>(self, seq: A) -> Result<T, A::Error> {
-        let raw = Raw::deserialize(SeqAccessDeserializer::new(seq))?;
-        (self.convert)(raw).map_err(de::Error::custom)
-    }
-
-    fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<T, A::Error> {
-        let raw = Raw::deserialize(MapAccessDeserializer::new(map))?;
-        (self.convert)(raw).map_err(de::Error::custom)
-    }
+/// The default formatter writes for the developer calling the parser, such as
+/// "set DuplicateKeyPolicy in Options", which a config author cannot act on.
+fn describe(error: &serde_saphyr::Error) -> String {
+    error.render_with_formatter(&serde_saphyr::UserMessageFormatter)
 }
 
 const EMPTY: &str = "must not be empty";
 
 const EMPTY_VALUES: &str = "must not contain empty values";
 
-/// Deserializes a map-shaped `T` inside a visitor, for an internally tagged
-/// enum whose variant is built from buffered content after its own
-/// deserializer has returned.
-fn in_place<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
-    deserializer: D,
-) -> Result<T, D::Error> {
-    deserializer.deserialize_map(Checked::new("a map", Ok))
-}
-
 fn non_empty<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
 where
     D: Deserializer<'de>,
     T: Deserialize<'de>,
 {
-    deserializer.deserialize_seq(Checked::new("a non-empty list", |items: Vec<T>| {
-        if items.is_empty() {
-            return Err(EMPTY.to_owned());
-        }
-        Ok(items)
-    }))
+    let items = Vec::deserialize(deserializer)?;
+    if items.is_empty() {
+        return Err(de::Error::custom(EMPTY));
+    }
+    Ok(items)
 }
 
 fn non_blank<'de, D: Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
-    deserializer.deserialize_str(Checked::new("a string", |value: String| {
-        if value.trim().is_empty() {
-            return Err(EMPTY.to_owned());
-        }
-        Ok(value)
-    }))
+    let value = String::deserialize(deserializer)?;
+    if value.trim().is_empty() {
+        return Err(de::Error::custom(EMPTY));
+    }
+    Ok(value)
 }
 
 fn non_blank_items<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<String>, D::Error> {
-    deserializer.deserialize_seq(Checked::new("a list of strings", |items: Vec<String>| {
-        if items.iter().any(|item| item.trim().is_empty()) {
-            return Err(EMPTY_VALUES.to_owned());
-        }
-        Ok(items)
-    }))
+    let items = Vec::<String>::deserialize(deserializer)?;
+    if items.iter().any(|item| item.trim().is_empty()) {
+        return Err(de::Error::custom(EMPTY_VALUES));
+    }
+    Ok(items)
 }
 
 fn names<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<String>, D::Error> {
-    deserializer.deserialize_seq(Checked::new(
-        "a non-empty list of names",
-        |names: Vec<String>| {
-            if names.is_empty() {
-                return Err(EMPTY.to_owned());
-            }
-            if names.iter().any(|name| name.trim().is_empty()) {
-                return Err(EMPTY_VALUES.to_owned());
-            }
-            Ok(names)
-        },
-    ))
+    let names = non_blank_items(deserializer)?;
+    if names.is_empty() {
+        return Err(de::Error::custom(EMPTY));
+    }
+    Ok(names)
 }
 
 fn some_names<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Vec<String>>, D::Error> {
@@ -280,7 +152,7 @@ fn some_names<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Vec<S
 pub struct AuthConfig {
     pub oidc: OidcConfig,
     #[serde(default, deserialize_with = "roles")]
-    pub roles: Option<UniqueMap<String, RoleConfig>>,
+    pub roles: Option<IndexMap<String, RoleConfig>>,
     #[serde(default)]
     pub session_key: Option<KeyMaterial<MIN_SESSION_KEY_BYTES>>,
     #[serde(
@@ -322,42 +194,34 @@ pub struct RoleBinding {
 
 fn roles<'de, D: Deserializer<'de>>(
     deserializer: D,
-) -> Result<Option<UniqueMap<String, RoleConfig>>, D::Error> {
-    UniqueMap::deserialize_checked(
-        deserializer,
-        "role name",
-        |roles: UniqueMap<String, RoleConfig>| {
-            if roles.is_empty() {
-                return Err(EMPTY.to_owned());
-            }
-            if roles.len() > MAX_ROLES {
-                return Err(format!("too many roles (at most {MAX_ROLES})"));
-            }
-            if roles.keys().any(|name| name.trim().is_empty()) {
-                return Err("role name must not be empty".to_owned());
-            }
-            if roles.iter().all(|(_, role)| role.bindings.is_empty()) {
-                return Err("at least one role must have bindings".to_owned());
-            }
-            Ok(Some(roles))
-        },
-    )
+) -> Result<Option<IndexMap<String, RoleConfig>>, D::Error> {
+    let roles = IndexMap::<String, RoleConfig>::deserialize(deserializer)?;
+    let problem = if roles.is_empty() {
+        EMPTY.to_owned()
+    } else if roles.len() > MAX_ROLES {
+        format!("too many roles (at most {MAX_ROLES})")
+    } else if roles.keys().any(|name| name.trim().is_empty()) {
+        "role name must not be empty".to_owned()
+    } else if roles.iter().all(|(_, role)| role.bindings.is_empty()) {
+        "at least one role must have bindings".to_owned()
+    } else {
+        return Ok(Some(roles));
+    };
+    Err(de::Error::custom(problem))
 }
 
 fn privileges<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<PrivilegeName>, D::Error> {
-    deserializer.deserialize_seq(Checked::new(
-        "a list of privileges",
-        |privileges: Vec<PrivilegeName>| {
-            let mut seen = HashSet::with_capacity(privileges.len());
-            if let Some(repeated) = privileges
-                .iter()
-                .find(|privilege| !seen.insert(**privilege))
-            {
-                return Err(format!("'{repeated}' is listed more than once"));
-            }
-            Ok(privileges)
-        },
-    ))
+    let privileges = Vec::<PrivilegeName>::deserialize(deserializer)?;
+    let mut seen = HashSet::with_capacity(privileges.len());
+    if let Some(repeated) = privileges
+        .iter()
+        .find(|privilege| !seen.insert(**privilege))
+    {
+        return Err(de::Error::custom(format!(
+            "'{repeated}' is listed more than once"
+        )));
+    }
+    Ok(privileges)
 }
 
 fn default_groups_claim() -> String {
@@ -435,8 +299,6 @@ impl OidcConfig {
     }
 }
 
-const HTTP_URL: &str = "an http or https URL";
-
 fn parse_http_url(value: &str) -> Result<Url, String> {
     let parsed = Url::parse(value).map_err(|error| format!("not a valid URL: {error}"))?;
 
@@ -452,21 +314,29 @@ fn parse_http_url(value: &str) -> Result<Url, String> {
 }
 
 fn http_url<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Url, D::Error> {
-    deserializer.deserialize_str(Checked::new(HTTP_URL, |raw: String| parse_http_url(&raw)))
+    parse_http_url(&String::deserialize(deserializer)?).map_err(de::Error::custom)
 }
 
 fn issuer_url<'de, D: Deserializer<'de>>(deserializer: D) -> Result<IssuerUrl, D::Error> {
-    deserializer.deserialize_str(Checked::new(HTTP_URL, |raw: String| {
-        parse_http_url(&raw)?;
-        IssuerUrl::new(raw).map_err(|error| error.to_string())
-    }))
+    let raw = String::deserialize(deserializer)?;
+    parse_http_url(&raw).map_err(de::Error::custom)?;
+    IssuerUrl::new(raw).map_err(de::Error::custom)
 }
 
 fn redirect_url<'de, D: Deserializer<'de>>(deserializer: D) -> Result<RedirectUrl, D::Error> {
-    deserializer.deserialize_str(Checked::new(HTTP_URL, |raw: String| {
-        parse_http_url(&raw)?;
-        RedirectUrl::new(raw).map_err(|error| error.to_string())
-    }))
+    let raw = String::deserialize(deserializer)?;
+    parse_http_url(&raw).map_err(de::Error::custom)?;
+    RedirectUrl::new(raw).map_err(de::Error::custom)
+}
+
+fn parsed<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: FromStr<Err = String>,
+{
+    String::deserialize(deserializer)?
+        .parse()
+        .map_err(de::Error::custom)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -559,10 +429,14 @@ impl ClusterName {
 impl FromStr for ClusterName {
     type Err = String;
 
-    fn from_str(raw: &str) -> Result<Self, String> {
-        let name = raw.trim();
+    fn from_str(name: &str) -> Result<Self, String> {
         if name.is_empty() {
             return Err(EMPTY.to_owned());
+        }
+        if name.trim() != name {
+            return Err(format!(
+                "cluster name '{name}' must not start or end with whitespace"
+            ));
         }
         Ok(Self(name.to_owned()))
     }
@@ -576,7 +450,7 @@ impl Display for ClusterName {
 
 impl<'de> Deserialize<'de> for ClusterName {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_str(Checked::new("a cluster name", |raw: String| raw.parse()))
+        parsed(deserializer)
     }
 }
 
@@ -648,49 +522,48 @@ impl std::fmt::Debug for Secret {
 
 impl<'de> Deserialize<'de> for Secret {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_any(SecretVisitor(Ok))
+        deserializer
+            .deserialize_any(SecretVisitor)?
+            .resolve()
+            .map_err(de::Error::custom)
     }
 }
 
 const PLAIN_SECRET: &str =
     "a secret must name its source: {value: ...}, {env: NAME} or {file: PATH}";
 
-/// Resolves the source and applies the conversion inside `visit_map`, so an
-/// error carries the field's path. Rejects scalars itself because serde's
-/// default errors quote the offending value, which here is the secret.
-struct SecretVisitor<T>(fn(Secret) -> Result<T, String>);
+/// Rejects scalars itself because serde's default errors quote the offending
+/// value, which here is the secret.
+struct SecretVisitor;
 
-impl<'de, T> Visitor<'de> for SecretVisitor<T> {
-    type Value = T;
+impl<'de> Visitor<'de> for SecretVisitor {
+    type Value = SecretSource;
 
     fn expecting(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(PLAIN_SECRET)
     }
 
-    fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<T, A::Error> {
-        let secret = SecretSource::deserialize(MapAccessDeserializer::new(map))?
-            .resolve()
-            .map_err(de::Error::custom)?;
-        (self.0)(secret).map_err(de::Error::custom)
+    fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<SecretSource, A::Error> {
+        SecretSource::deserialize(MapAccessDeserializer::new(map))
     }
 
-    fn visit_str<E: de::Error>(self, _: &str) -> Result<T, E> {
+    fn visit_str<E: de::Error>(self, _: &str) -> Result<SecretSource, E> {
         Err(E::custom(PLAIN_SECRET))
     }
 
-    fn visit_bool<E: de::Error>(self, _: bool) -> Result<T, E> {
+    fn visit_bool<E: de::Error>(self, _: bool) -> Result<SecretSource, E> {
         Err(E::custom(PLAIN_SECRET))
     }
 
-    fn visit_i64<E: de::Error>(self, _: i64) -> Result<T, E> {
+    fn visit_i64<E: de::Error>(self, _: i64) -> Result<SecretSource, E> {
         Err(E::custom(PLAIN_SECRET))
     }
 
-    fn visit_u64<E: de::Error>(self, _: u64) -> Result<T, E> {
+    fn visit_u64<E: de::Error>(self, _: u64) -> Result<SecretSource, E> {
         Err(E::custom(PLAIN_SECRET))
     }
 
-    fn visit_f64<E: de::Error>(self, _: f64) -> Result<T, E> {
+    fn visit_f64<E: de::Error>(self, _: f64) -> Result<SecretSource, E> {
         Err(E::custom(PLAIN_SECRET))
     }
 }
@@ -781,28 +654,24 @@ impl<const MIN: usize> std::fmt::Debug for KeyMaterial<MIN> {
 
 impl<'de, const MIN: usize> Deserialize<'de> for KeyMaterial<MIN> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_any(SecretVisitor(|secret| {
-            Self::parse(secret.expose_secret()).map_err(|error| error.to_string())
-        }))
+        Self::parse(Secret::deserialize(deserializer)?.expose_secret()).map_err(de::Error::custom)
     }
 }
 
 fn non_empty_secret<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Secret, D::Error> {
-    deserializer.deserialize_any(SecretVisitor(|secret| {
-        if secret.expose_secret().is_empty() {
-            return Err(EMPTY.to_owned());
-        }
-        Ok(secret)
-    }))
+    let secret = Secret::deserialize(deserializer)?;
+    if secret.expose_secret().is_empty() {
+        return Err(de::Error::custom(EMPTY));
+    }
+    Ok(secret)
 }
 
 fn non_blank_secret<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Secret, D::Error> {
-    deserializer.deserialize_any(SecretVisitor(|secret| {
-        if secret.expose_secret().trim().is_empty() {
-            return Err(EMPTY.to_owned());
-        }
-        Ok(secret)
-    }))
+    let secret = Secret::deserialize(deserializer)?;
+    if secret.expose_secret().trim().is_empty() {
+        return Err(de::Error::custom(EMPTY));
+    }
+    Ok(secret)
 }
 
 pub const OBFUSCATION_MASK: &str = "***";
@@ -811,7 +680,8 @@ const REGEX_SIZE_LIMIT: usize = 1024 * 1024;
 
 pub type ObfuscationKey = KeyMaterial<MIN_OBFUSCATION_SECRET_BYTES>;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(try_from = "RawObfuscationConfig")]
 pub struct ObfuscationConfig {
     pub rules: Vec<ObfuscationRule>,
 }
@@ -825,14 +695,10 @@ struct RawObfuscationConfig {
     rules: Vec<RawObfuscationRule>,
 }
 
-impl<'de> Deserialize<'de> for ObfuscationConfig {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_map(Checked::new("obfuscation settings", Self::from_raw))
-    }
-}
+impl TryFrom<RawObfuscationConfig> for ObfuscationConfig {
+    type Error = String;
 
-impl ObfuscationConfig {
-    fn from_raw(raw: RawObfuscationConfig) -> Result<Self, String> {
+    fn try_from(raw: RawObfuscationConfig) -> Result<Self, String> {
         let mut covered: Vec<&TopicPattern> = Vec::new();
         for rule in &raw.rules {
             for topic in &rule.topics {
@@ -1045,10 +911,7 @@ impl Display for TopicPattern {
 
 impl<'de> Deserialize<'de> for TopicPattern {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_str(Checked::new(
-            "a topic name or a trailing-* prefix",
-            |raw: String| raw.parse(),
-        ))
+        parsed(deserializer)
     }
 }
 
@@ -1078,9 +941,7 @@ impl FromStr for FieldPath {
 
 impl<'de> Deserialize<'de> for FieldPath {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_str(Checked::new("a dotted field path", |raw: String| {
-            raw.parse()
-        }))
+        parsed(deserializer)
     }
 }
 
@@ -1126,8 +987,32 @@ impl FromStr for PatternRegex {
 
 impl<'de> Deserialize<'de> for PatternRegex {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_str(Checked::new("a regex", |raw: String| raw.parse()))
+        parsed(deserializer)
     }
+}
+
+/// Reads an internally tagged enum from inside the map visitor. serde buffers
+/// a tagged enum's content and builds the variant afterwards, so an error from
+/// the variant would otherwise point at the enclosing key instead of the line
+/// that caused it.
+fn in_place<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
+    deserializer: D,
+) -> Result<T, D::Error> {
+    struct InPlace<T>(std::marker::PhantomData<T>);
+
+    impl<'de, T: Deserialize<'de>> Visitor<'de> for InPlace<T> {
+        type Value = T;
+
+        fn expecting(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("a map")
+        }
+
+        fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<T, A::Error> {
+            T::deserialize(MapAccessDeserializer::new(map))
+        }
+    }
+
+    deserializer.deserialize_any(InPlace(std::marker::PhantomData))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1237,20 +1122,20 @@ pub struct ClientCert {
 mod tests {
     use super::*;
 
-    fn parse_cluster(yaml: &str) -> Result<ClusterConfig, serde_yaml_ng::Error> {
-        serde_yaml_ng::from_str(yaml)
+    fn parse_cluster(yaml: &str) -> Result<ClusterConfig, serde_saphyr::Error> {
+        from_yaml(yaml)
     }
 
-    fn parse_config(yaml: &str) -> Result<Config, serde_yaml_ng::Error> {
-        serde_yaml_ng::from_str(yaml)
+    fn parse_config(yaml: &str) -> Result<Config, serde_saphyr::Error> {
+        from_yaml(yaml)
     }
 
     fn cluster_error(yaml: &str) -> String {
-        parse_cluster(yaml).unwrap_err().to_string()
+        describe(&parse_cluster(yaml).unwrap_err())
     }
 
     fn config_error(yaml: &str) -> String {
-        parse_config(yaml).unwrap_err().to_string()
+        describe(&parse_config(yaml).unwrap_err())
     }
 
     #[test]
@@ -1271,7 +1156,10 @@ mod tests {
         .unwrap();
 
         assert_eq!(cluster_names(&config), vec!["local", "staging"]);
-        let staging = config.clusters.get(&"staging".parse().unwrap()).unwrap();
+        let staging = config
+            .clusters
+            .get(&"staging".parse::<ClusterName>().unwrap())
+            .unwrap();
         assert_eq!(
             staging.bootstrap_servers,
             vec!["broker-1:9092", "broker-2:9092"]
@@ -1371,10 +1259,7 @@ mod tests {
             ",
         );
 
-        assert_eq!(
-            error,
-            "clusters.prod.ingest.topology: must be at least 1s, got 500ms at line 8 column 29"
-        );
+        assert_eq!(error, "must be at least 1s, got 500ms at line 8, column 29");
     }
 
     #[test]
@@ -1554,9 +1439,11 @@ mod tests {
 
     #[test]
     fn kafka_properties_reject_duplicate_timeouts() {
-        assert!(
-            serde_yaml_ng::from_str::<KafkaProperties>("request_timeout: 5s\nrequest_timeout: 6s")
-                .is_err()
+        let error = from_yaml::<KafkaProperties>("request_timeout: 5s\nrequest_timeout: 6s");
+
+        assert_eq!(
+            describe(&error.unwrap_err()),
+            "duplicate mapping key: request_timeout not allowed here at line 2, column 1"
         );
     }
 
@@ -1581,7 +1468,7 @@ mod tests {
             "bootstrap_servers: localhost:9092",
         ] {
             assert!(
-                serde_yaml_ng::from_str::<KafkaProperties>(yaml).is_err(),
+                from_yaml::<KafkaProperties>(yaml).is_err(),
                 "accepted invalid properties: {yaml}"
             );
         }
@@ -1621,10 +1508,7 @@ mod tests {
             ",
         );
 
-        assert_eq!(
-            error,
-            "bootstrap_servers: must not be empty at line 2 column 32"
-        );
+        assert_eq!(error, "must not be empty at line 2, column 32");
     }
 
     #[test]
@@ -1673,7 +1557,7 @@ mod tests {
             ",
         );
 
-        assert_eq!(error, "security: missing field `sasl` at line 5 column 15");
+        assert_eq!(error, "missing field `sasl` at line 5, column 15");
     }
 
     #[test]
@@ -1690,7 +1574,7 @@ mod tests {
         );
         assert_eq!(
             error,
-            "security: unknown field `tls`, there are no fields at line 5 column 15"
+            "unknown field `tls`, expected one of  at line 6, column 15"
         );
 
         let error = cluster_error(
@@ -1707,7 +1591,7 @@ mod tests {
         );
         assert_eq!(
             error,
-            "security: unknown field `sasl`, expected `tls` at line 5 column 15"
+            "unknown field `sasl`, expected one of tls at line 6, column 15"
         );
     }
 
@@ -1725,29 +1609,31 @@ mod tests {
             ",
         );
 
-        assert_eq!(error, "security: missing field `key` at line 5 column 15");
+        assert_eq!(error, "missing field `key` at line 6, column 15");
     }
 
     #[test]
-    fn a_cluster_name_is_trimmed_and_must_not_be_blank() {
-        let config = parse_config(
+    fn a_cluster_name_must_not_be_empty_or_padded() {
+        let error = config_error(
             "
             bind: 127.0.0.1:8080
             clusters:
               '  local  ': {bootstrap_servers: [localhost:9092]}
             ",
-        )
-        .unwrap();
-        assert_eq!(cluster_names(&config), vec!["local"]);
+        );
+        assert_eq!(
+            error,
+            "cluster name '  local  ' must not start or end with whitespace at line 4, column 15"
+        );
 
         let error = config_error(
             "
             bind: 127.0.0.1:8080
             clusters:
-              '   ': {bootstrap_servers: [localhost:9092]}
+              '': {bootstrap_servers: [localhost:9092]}
             ",
         );
-        assert_eq!(error, "clusters: must not be empty at line 4 column 15");
+        assert_eq!(error, "must not be empty at line 4, column 15");
     }
 
     #[test]
@@ -1766,7 +1652,20 @@ mod tests {
         );
         assert_eq!(
             error,
-            "clusters: duplicate cluster name 'local' at line 4 column 15"
+            "duplicate mapping key: local not allowed here at line 8, column 15"
+        );
+
+        let error = config_error(
+            "
+            bind: 127.0.0.1:8080
+            clusters:
+              local: {bootstrap_servers: [localhost:9092]}
+              'local': {bootstrap_servers: [localhost:9093]}
+            ",
+        );
+        assert_eq!(
+            error,
+            "duplicate mapping key: local not allowed here at line 5, column 15"
         );
 
         let error = config_error(
@@ -1779,7 +1678,7 @@ mod tests {
         );
         assert_eq!(
             error,
-            "clusters: duplicate cluster name 'local' at line 4 column 15"
+            "cluster name ' local ' must not start or end with whitespace at line 5, column 15"
         );
     }
 
@@ -1905,7 +1804,7 @@ mod tests {
               roles:{roles}
             "
         ))
-        .map_err(|error| error.to_string())
+        .map_err(|error| describe(&error))
     }
 
     #[test]
@@ -1922,7 +1821,7 @@ mod tests {
 
         assert_eq!(
             error,
-            "auth.roles: at least one role must have bindings at line 11 column 17"
+            "at least one role must have bindings at line 11, column 17"
         );
     }
 
@@ -1930,7 +1829,7 @@ mod tests {
     fn rejects_empty_roles() {
         let error = parse_roles(" {}").unwrap_err();
 
-        assert_eq!(error, "auth.roles: must not be empty at line 10 column 22");
+        assert_eq!(error, "must not be empty at line 10, column 22");
     }
 
     #[test]
@@ -1944,10 +1843,7 @@ mod tests {
         )
         .unwrap_err();
 
-        assert_eq!(
-            error,
-            "auth.roles: role name must not be empty at line 11 column 17"
-        );
+        assert_eq!(error, "role name must not be empty at line 11, column 17");
     }
 
     #[test]
@@ -1969,7 +1865,7 @@ mod tests {
 
         assert_eq!(
             error,
-            "auth.roles: duplicate role name 'admin' at line 11 column 17"
+            "duplicate mapping key: admin not allowed here at line 17, column 17"
         );
     }
 
@@ -1986,8 +1882,8 @@ mod tests {
 
         assert_eq!(
             error,
-            "auth.roles.operator.privileges: 'records' is listed more than once \
-             at line 12 column 31"
+            "'records' is listed more than once \
+             at line 12, column 31"
         );
     }
 
@@ -1997,26 +1893,26 @@ mod tests {
             (
                 "
                     - groups: []",
-                "auth.roles.operator.bindings[0].groups: must not be empty at line 14 column 31",
+                "must not be empty at line 14, column 31",
             ),
             (
                 "
                     - groups: [ops, ' ']",
-                "auth.roles.operator.bindings[0].groups: must not contain empty values \
-                 at line 14 column 31",
+                "must not contain empty values \
+                 at line 14, column 31",
             ),
             (
                 "
                     - groups: [ops]
                       clusters: []",
-                "auth.roles.operator.bindings[0].clusters: must not be empty at line 15 column 33",
+                "must not be empty at line 15, column 33",
             ),
             (
                 "
                     - groups: [ops]
                       clusters: [prod, '']",
-                "auth.roles.operator.bindings[0].clusters: must not contain empty values \
-                 at line 15 column 33",
+                "must not contain empty values \
+                 at line 15, column 33",
             ),
         ];
 
@@ -2045,7 +1941,7 @@ mod tests {
             "
         ))
         .map(|config| config.auth.unwrap().oidc.groups_claim)
-        .map_err(|error| error.to_string())
+        .map_err(|error| describe(&error))
     }
 
     #[test]
@@ -2061,10 +1957,7 @@ mod tests {
     fn rejects_a_blank_groups_claim() {
         let error = groups_claim("\n                groups_claim: ' '").unwrap_err();
 
-        assert_eq!(
-            error,
-            "auth.oidc.groups_claim: must not be empty at line 9 column 31"
-        );
+        assert_eq!(error, "must not be empty at line 9, column 31");
     }
 
     #[test]
@@ -2082,10 +1975,7 @@ mod tests {
             .collect();
         let error = parse_roles(&roles).unwrap_err();
 
-        assert_eq!(
-            error,
-            "auth.roles: too many roles (at most 64) at line 11 column 17"
-        );
+        assert_eq!(error, "too many roles (at most 64) at line 11, column 17");
     }
 
     #[test]
@@ -2107,24 +1997,35 @@ mod tests {
     }
 
     #[test]
-    fn a_list_where_a_map_belongs_names_what_it_expected() {
+    fn a_value_of_the_wrong_shape_is_rejected_where_it_is() {
         let error = config_error(
             "
             bind: 127.0.0.1:8080
             clusters: [local]
             ",
         );
-        assert!(
-            error.contains("invalid type: sequence, expected a map keyed by cluster name"),
-            "{error}"
-        );
+        assert_eq!(error, "expected mapping start at line 3, column 23");
 
         let error = cluster_error(
             "
             bootstrap_servers: 5
             ",
         );
-        assert!(error.contains("expected a non-empty list"), "{error}");
+        assert_eq!(error, "expected sequence start at line 2, column 32");
+    }
+
+    #[test]
+    fn a_security_block_must_be_a_map() {
+        let error = cluster_error(
+            "
+            bootstrap_servers: [localhost:9092]
+            security: 5
+            ",
+        );
+        assert_eq!(
+            error,
+            "invalid type: integer `5`, expected a map at line 3, column 13"
+        );
     }
 
     #[test]
@@ -2230,8 +2131,8 @@ mod tests {
 
         assert_eq!(
             error,
-            "auth.oidc.issuer: not a valid URL: relative URL without a base \
-             at line 6 column 25"
+            "not a valid URL: relative URL without a base \
+             at line 6, column 25"
         );
     }
 
@@ -2244,10 +2145,7 @@ mod tests {
             "http://localhost:8080/api/auth/callback",
         );
 
-        assert_eq!(
-            error,
-            "auth.oidc.client_secret: must not be empty at line 8 column 32"
-        );
+        assert_eq!(error, "must not be empty at line 8, column 32");
     }
 
     #[test]
@@ -2259,10 +2157,7 @@ mod tests {
             "http://localhost:8080/api/auth/callback",
         );
 
-        assert_eq!(
-            error,
-            "auth.oidc.client_id: must not be empty at line 7 column 28"
-        );
+        assert_eq!(error, "must not be empty at line 7, column 28");
     }
 
     #[test]
@@ -2280,10 +2175,7 @@ mod tests {
             ",
         );
 
-        assert_eq!(
-            error,
-            "auth.oidc.scopes: must not contain empty values at line 9 column 25"
-        );
+        assert_eq!(error, "must not contain empty values at line 9, column 25");
     }
 
     #[test]
@@ -2316,10 +2208,7 @@ mod tests {
             "ftp://localhost/api/auth/callback",
         );
 
-        assert_eq!(
-            error,
-            "auth.oidc.redirect_uri: must be an http or https URL at line 9 column 31"
-        );
+        assert_eq!(error, "must be an http or https URL at line 9, column 31");
     }
 
     #[test]
@@ -2362,8 +2251,8 @@ mod tests {
 
         assert_eq!(
             error,
-            "schema_registry.url: not a valid URL: relative URL without a base \
-             at line 5 column 20"
+            "not a valid URL: relative URL without a base \
+             at line 5, column 20"
         );
     }
 
@@ -2385,20 +2274,14 @@ mod tests {
               auth:
                 username: user",
         );
-        assert_eq!(
-            error,
-            "schema_registry.auth: missing field `password` at line 7 column 17"
-        );
+        assert_eq!(error, "missing field `password` at line 7, column 17");
 
         let error = registry_error(
             "
               auth:
                 password: {value: secret}",
         );
-        assert_eq!(
-            error,
-            "schema_registry.auth: missing field `username` at line 7 column 17"
-        );
+        assert_eq!(error, "missing field `username` at line 7, column 17");
     }
 
     #[test]
@@ -2409,10 +2292,7 @@ mod tests {
                 username: ' '
                 password: {value: secret}",
         );
-        assert_eq!(
-            error,
-            "schema_registry.auth.username: must not be empty at line 7 column 27"
-        );
+        assert_eq!(error, "must not be empty at line 7, column 27");
 
         let error = registry_error(
             "
@@ -2420,10 +2300,7 @@ mod tests {
                 username: user
                 password: {value: ''}",
         );
-        assert_eq!(
-            error,
-            "schema_registry.auth.password: must not be empty at line 8 column 27"
-        );
+        assert_eq!(error, "must not be empty at line 8, column 27");
     }
 
     #[test]
@@ -2513,7 +2390,7 @@ mod tests {
 
         parse_cluster(&yaml)
             .map(drop)
-            .map_err(|error| error.to_string())
+            .map_err(|error| describe(&error))
     }
 
     #[test]
@@ -2537,7 +2414,7 @@ mod tests {
         )
         .unwrap_err();
 
-        let expected = "obfuscation: hash strategy requires a secret at line 6 column 15";
+        let expected = "hash strategy requires a secret at line 6, column 15";
         assert_eq!(fields, expected);
         assert_eq!(whole_key, expected);
     }
@@ -2554,10 +2431,9 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(
-            error
-                .to_string()
-                .contains("secret: must decode to at least 32 bytes")
+        assert_eq!(
+            error,
+            "must decode to at least 32 bytes, got 5 at line 6, column 23"
         );
     }
 
@@ -2583,9 +2459,9 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(
-            error.contains("secret: must decode to at least 32 bytes, got 24"),
-            "{error}"
+        assert_eq!(
+            error,
+            "must decode to at least 32 bytes, got 24 at line 6, column 23"
         );
     }
 
@@ -2601,9 +2477,9 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(
-            error.contains("secret: must decode to at least 32 bytes, got 5"),
-            "{error}"
+        assert_eq!(
+            error,
+            "must decode to at least 32 bytes, got 5 at line 6, column 23"
         );
     }
 
@@ -2626,9 +2502,9 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(
-            error.contains("secret: must decode to at least 32 bytes, got 0"),
-            "{error}"
+        assert_eq!(
+            error,
+            "must decode to at least 32 bytes, got 0 at line 6, column 23"
         );
     }
 
@@ -2640,10 +2516,7 @@ mod tests {
             ",
         )
         .unwrap_err();
-        assert_eq!(
-            error,
-            "obfuscation.rules: must not be empty at line 6 column 22"
-        );
+        assert_eq!(error, "must not be empty at line 6, column 22");
 
         let error = obfuscated(
             "
@@ -2653,10 +2526,7 @@ mod tests {
             ",
         )
         .unwrap_err();
-        assert_eq!(
-            error,
-            "obfuscation.rules[0].topics: must not be empty at line 7 column 27"
-        );
+        assert_eq!(error, "must not be empty at line 7, column 27");
 
         let error = obfuscated(
             "
@@ -2667,8 +2537,8 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             error,
-            "obfuscation: rule for 'cards, audit.*' must set at least one of fields, key, \
-             value, headers or patterns at line 6 column 15"
+            "rule for 'cards, audit.*' must set at least one of fields, key, \
+             value, headers or patterns at line 6, column 15"
         );
     }
 
@@ -2686,8 +2556,8 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             error,
-            "obfuscation.rules[0].fields[0].path: field path 'card..number' must not have \
-             empty segments at line 9 column 29"
+            "field path 'card..number' must not have \
+             empty segments at line 9, column 29"
         );
 
         let error = obfuscated(
@@ -2700,8 +2570,8 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             error,
-            "obfuscation.rules[0].topics[0]: topic 'pay*ments': '*' is only allowed as the \
-             last character at line 7 column 28"
+            "topic 'pay*ments': '*' is only allowed as the \
+             last character at line 7, column 28"
         );
 
         let error = obfuscated(
@@ -2712,10 +2582,7 @@ mod tests {
             ",
         )
         .unwrap_err();
-        assert_eq!(
-            error,
-            "obfuscation.rules[0].headers: must not contain empty values at line 8 column 28"
-        );
+        assert_eq!(error, "must not contain empty values at line 8, column 28");
     }
 
     #[test]
@@ -2746,8 +2613,8 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             error,
-            "obfuscation.rules[0].patterns[0].regex: pattern must not be empty \
-             at line 9 column 30"
+            "pattern must not be empty \
+             at line 9, column 30"
         );
     }
 
@@ -2788,9 +2655,9 @@ mod tests {
 
         assert_eq!(
             error,
-            "obfuscation.rules[0].patterns[0].regex: invalid pattern '[unclosed': \
-             regex parse error:\n    [unclosed\n    ^\nerror: unclosed character class \
-             at line 9 column 30"
+            "invalid pattern '[unclosed': \
+             regex parse error:\\n    [unclosed\\n    ^\\nerror: unclosed character class \
+             at line 9, column 30"
         );
     }
 
@@ -2809,7 +2676,7 @@ mod tests {
 
         assert_eq!(
             error,
-            r"obfuscation.rules[0].patterns[0].regex: invalid pattern '\d*': it matches the empty string at line 9 column 30"
+            r"invalid pattern '\d*': it matches the empty string at line 9, column 30"
         );
     }
 
@@ -2828,7 +2695,7 @@ mod tests {
 
         assert_eq!(
             error,
-            "obfuscation: hash strategy requires a secret at line 6 column 15"
+            "hash strategy requires a secret at line 6, column 15"
         );
     }
 
@@ -2856,8 +2723,8 @@ mod tests {
             assert_eq!(
                 error,
                 format!(
-                    "obfuscation: topics '{second}' and '{first}' match the same topics; \
-                     a topic must be covered by exactly one rule at line 6 column 15"
+                    "topics '{second}' and '{first}' match the same topics; \
+                     a topic must be covered by exactly one rule at line 6, column 15"
                 )
             );
         }
@@ -2966,40 +2833,58 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_secret_source_names_the_field_and_source() {
-        let error = client_secret("{env: KLENS_TEST_UNSET_VARIABLE}").unwrap_err();
-        assert!(error.contains("test.yaml"), "{error}");
-        assert!(error.contains("auth.oidc.client_secret"), "{error}");
-        assert!(
-            error.contains("environment variable KLENS_TEST_UNSET_VARIABLE is not set"),
-            "{error}"
+    fn a_missing_secret_source_names_the_file_line_and_source() {
+        assert_eq!(
+            client_secret("{env: KLENS_TEST_UNSET_VARIABLE}").unwrap_err(),
+            "failed to parse config file test.yaml: environment variable \
+             KLENS_TEST_UNSET_VARIABLE is not set at line 7, column 32"
         );
 
-        let error = client_secret("{file: /nonexistent/klens-secret}").unwrap_err();
-        assert!(
-            error.contains("failed to read secret file /nonexistent/klens-secret"),
-            "{error}"
+        assert_eq!(
+            client_secret("{file: /nonexistent/klens-secret}").unwrap_err(),
+            "failed to parse config file test.yaml: failed to read secret file \
+             /nonexistent/klens-secret: No such file or directory (os error 2) \
+             at line 7, column 32"
         );
     }
 
     #[test]
     fn a_plain_secret_is_rejected_without_echoing_it() {
-        for source in ["hunter2", "123456", "{value: 123456}"] {
-            let error = client_secret(source).unwrap_err();
-            assert!(!error.contains("hunter2"), "{error}");
-            assert!(!error.contains("123456"), "{error}");
-            assert!(error.contains("auth.oidc.client_secret"), "{error}");
-        }
-
-        assert!(
-            client_secret("hunter2")
-                .unwrap_err()
-                .contains("a secret must name its source")
+        let unnamed = "failed to parse config file test.yaml: a secret must name its source: \
+                       {value: ...}, {env: NAME} or {file: PATH} at line 7, column 32";
+        assert_eq!(client_secret("hunter2").unwrap_err(), unnamed);
+        assert_eq!(client_secret("123456").unwrap_err(), unnamed);
+        assert_eq!(
+            client_secret("{value: 123456}").unwrap_err(),
+            "failed to parse config file test.yaml: a secret value must be a string; quote it \
+             at line 7, column 40"
         );
-        assert!(
-            client_secret("{value: 123456}")
-                .unwrap_err()
-                .contains("a secret value must be a string")
+    }
+
+    #[test]
+    fn an_error_next_to_a_secret_does_not_print_it() {
+        let error = load_yaml(
+            "
+            bind: 127.0.0.1:8080
+            clusters:
+              local:
+                bootstrap_servers: [localhost:9092]
+                security:
+                  protocol: SASL_PLAINTEXT
+                  sasl:
+                    mechanism: PLAIN
+                    username: admin
+                    password: {value: hunter2}
+                    bogus: true
+            ",
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert_eq!(
+            error,
+            "failed to parse config file test.yaml: unknown field `bogus`, expected one of \
+             mechanism, username, password at line 8, column 19"
         );
     }
 
@@ -3063,9 +2948,10 @@ mod tests {
         .unwrap_err()
         .to_string();
 
-        assert!(
-            error.contains("auth.session_key: must decode to at least 32 bytes, got 9"),
-            "{error}"
+        assert_eq!(
+            error,
+            "failed to parse config file test.yaml: must decode to at least 32 bytes, got 9 \
+             at line 4, column 28"
         );
     }
 

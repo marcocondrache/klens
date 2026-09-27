@@ -182,8 +182,8 @@ mod tests {
     }
 
     #[test]
-    fn identity_trims_the_configured_name_and_defaults_the_protocol() {
-        let identity = ClusterIdentity::new(&"  local  ".parse().unwrap(), &cluster_config());
+    fn identity_uses_the_configured_name_and_defaults_the_protocol() {
+        let identity = ClusterIdentity::new(&"local".parse().unwrap(), &cluster_config());
 
         assert_eq!(identity.name, "local");
         assert_eq!(identity.security_protocol, SecurityProtocol::Plaintext);

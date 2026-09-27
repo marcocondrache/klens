@@ -2,7 +2,9 @@ use std::collections::BTreeSet;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
-use crate::config::{PrivilegeName, RoleConfig, UniqueMap};
+use indexmap::IndexMap;
+
+use crate::config::{PrivilegeName, RoleConfig};
 use crate::r#macro::from_same_variants;
 
 const MAX_GROUPS: usize = 64;
@@ -275,7 +277,7 @@ impl AccessPolicy {
         Self::Disabled
     }
 
-    pub fn from_roles(roles: Option<&UniqueMap<String, RoleConfig>>) -> Self {
+    pub fn from_roles(roles: Option<&IndexMap<String, RoleConfig>>) -> Self {
         match roles {
             None => Self::Open,
             Some(roles) => Self::Bound(RoleTable::compile(roles)),
@@ -296,7 +298,7 @@ impl AccessPolicy {
 }
 
 impl RoleTable {
-    fn compile(roles: &UniqueMap<String, RoleConfig>) -> Self {
+    fn compile(roles: &IndexMap<String, RoleConfig>) -> Self {
         Self {
             bindings: roles
                 .iter()
