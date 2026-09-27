@@ -219,7 +219,6 @@ async fn a_topology_delta_reaches_a_scoped_subscriber_only_when_it_names_its_top
     let events = read_events(response, 1).await;
 
     assert_eq!(events[0]["type"], "topology");
-    assert_eq!(events[0]["version"], 5);
     assert_eq!(events[0]["addedTopics"], serde_json::json!([]));
     assert_eq!(
         events[0]["changedTopics"],

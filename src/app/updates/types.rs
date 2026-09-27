@@ -1,4 +1,3 @@
-use jiff::Timestamp;
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -31,20 +30,17 @@ impl From<&store::TopicRate> for TopicRate {
 )]
 pub enum Update {
     Watermarks {
-        at: Timestamp,
         /// One `{topic, rate}` pair per topic, never catalog objects. A scoped
         /// subscriber gets only its topic.
         topics: Vec<TopicRate>,
     },
     GroupLag {
-        at: Timestamp,
         group: String,
         lag: i64,
         lag_complete: bool,
         offsets: Vec<GroupOffset>,
     },
     Topology {
-        version: u64,
         added_topics: Vec<String>,
         removed_topics: Vec<String>,
         changed_topics: Vec<String>,
@@ -54,12 +50,11 @@ pub enum Update {
         brokers_changed: bool,
     },
     Configs {
-        version: u64,
         topics: Vec<String>,
     },
+    /// Sent when any subject is added, removed or changed. Added subjects are
+    /// not listed: the client refetches the subject list either way.
     Subjects {
-        version: u64,
-        added: Vec<String>,
         removed: Vec<String>,
         changed: Vec<String>,
     },
