@@ -10,8 +10,8 @@ use tokio::sync::broadcast::Receiver;
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::AppState;
+use crate::app::SSE_KEEP_ALIVE;
 use crate::app::auth::SessionGuard;
-use crate::environment::SSE_KEEP_ALIVE;
 use crate::kafka::store::{Change, InterestLease};
 
 use super::context::Session;

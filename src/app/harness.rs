@@ -23,7 +23,7 @@ use crate::kafka::store::{ClusterStore, ConfigTable, Interner, OffsetTable, Subj
 use crate::kafka::{Clusters, FakeCluster};
 
 pub(super) fn with(sessions: Vec<FakeCluster>) -> AppState {
-    with_limits(sessions, Limits::from_env())
+    with_limits(sessions, Limits::new(&crate::config::Tuning::default()))
 }
 
 pub(super) fn with_limits(sessions: Vec<FakeCluster>, limits: Limits) -> AppState {

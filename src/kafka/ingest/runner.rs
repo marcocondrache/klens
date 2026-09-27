@@ -80,6 +80,7 @@ mod tests {
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    use crate::config::IngestTuning;
     use crate::kafka::store::Topology;
     use crate::kafka::store::fixtures::{identity, partition, topic, topology};
 
@@ -150,7 +151,10 @@ mod tests {
     }
 
     fn cluster(name: &str) -> Arc<ClusterStore> {
-        Arc::new(ClusterStore::new(identity(name)))
+        Arc::new(ClusterStore::new(
+            identity(name),
+            IngestTuning::default().interest_ttl,
+        ))
     }
 
     fn orders(partitions: usize) -> Topology {

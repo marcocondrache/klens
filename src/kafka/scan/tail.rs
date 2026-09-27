@@ -4,7 +4,6 @@ use async_trait::async_trait;
 use foldhash::HashMap;
 use tokio::time::{Instant, sleep_until, timeout};
 
-use crate::environment::TAIL_POLL_WAIT;
 use crate::kafka::error::KafkaError;
 use crate::kafka::limits::TailLimits;
 use crate::kafka::session::ClusterSession;
@@ -148,9 +147,9 @@ impl Tail {
                 });
             }
             let polled_at = Instant::now();
-            let polled = self.consumer.poll(*TAIL_POLL_WAIT).await?;
+            let polled = self.consumer.poll(self.limits.poll_wait).await?;
             if polled.is_empty() {
-                sleep_until(polled_at + *TAIL_POLL_WAIT).await;
+                sleep_until(polled_at + self.limits.poll_wait).await;
             }
             skipped += self.ingest(polled, &mut batch).await;
             skipped += self.skip_ahead().await?;
@@ -231,11 +230,13 @@ impl Tail {
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroUsize;
     use std::sync::Arc;
 
     use bytes::Bytes;
 
     use super::*;
+    use crate::config::IngestTuning;
     use crate::kafka::limits::RecordLimits;
     use crate::kafka::scan::filter::contains;
     use crate::kafka::store::fixtures::{identity, partition, topic, topology};
@@ -244,9 +245,10 @@ mod tests {
     const LIMITS: TailLimits = TailLimits {
         batch: 3,
         interval: Duration::from_secs(1),
+        poll_wait: Duration::from_millis(500),
         heartbeat: Duration::from_secs(15),
         records: RecordLimits {
-            max_limit: 500,
+            max_limit: NonZeroUsize::new(500).unwrap(),
             min_window: 1,
             window_multiplier: 2,
             search_window_multiplier: 4,
@@ -277,7 +279,7 @@ mod tests {
     }
 
     async fn open(session: &FakeCluster, query: TailQuery) -> Tail {
-        let store = ClusterStore::new(identity("local"));
+        let store = ClusterStore::new(identity("local"), IngestTuning::default().interest_ttl);
         Tail::open(session, &store, query, LIMITS).await.unwrap()
     }
 
@@ -526,7 +528,7 @@ mod tests {
     #[tokio::test]
     async fn a_tail_with_nothing_assigned_waits_out_each_poll() {
         let session = FakeCluster::local();
-        let store = ClusterStore::new(identity("local"));
+        let store = ClusterStore::new(identity("local"), IngestTuning::default().interest_ttl);
         store.topology.commit(Arc::new(topology(
             vec![topic("unwritten", vec![partition(0, vec![1], vec![1])])],
             Vec::new(),
@@ -558,7 +560,7 @@ mod tests {
     async fn an_obfuscated_topic_is_tailed_as_tokens() {
         let session = FakeCluster::local().with_obfuscation(
             "
-            secret: 0123456789abcdef0123456789abcdef
+            secret: {value: 0123456789abcdef0123456789abcdef}
             rules:
               - topics: ['orders.*']
                 fields:

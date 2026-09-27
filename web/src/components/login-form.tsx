@@ -41,7 +41,7 @@ function loginAlert(
   from: LoginSearch["from"],
 ): { title: string; description: string } | null {
   if (error === "forbidden") {
-    return { title: "Access denied", description: "Your account is not assigned a klens role." };
+    return { title: "Access denied", description: "Your account has no klens role." };
   }
   if (error) {
     return { title: "Sign-in failed", description: "Try again, or check the identity provider." };

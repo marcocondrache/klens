@@ -5,17 +5,16 @@ use std::time::{Duration, Instant};
 use krafka::client::KrafkaClient as KrafkaSharedClient;
 use krafka::consumer::Consumer;
 
-use crate::environment::{
-    SCAN_PACE_BOUND, SCAN_POOL_IDLE_TTL, SCAN_POOL_PER_TOPIC, SCAN_POOL_TOTAL,
-};
+use crate::config::ScanTuning;
 use crate::kafka::client::transport;
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::PartitionWindow;
 
-use super::scan::{ScanLease, reader};
+use super::scan::{ReaderConfig, ScanLease, reader};
 
 pub(super) struct ScanPool {
     client: KrafkaSharedClient,
+    reader: ReaderConfig,
     inner: Mutex<ScanPoolInner>,
 }
 
@@ -33,12 +32,12 @@ struct Parked {
 }
 
 impl ScanPoolInner {
-    fn new() -> Self {
+    fn new(tuning: &ScanTuning) -> Self {
         Self {
             parked: VecDeque::new(),
-            max_per_topic: (*SCAN_POOL_PER_TOPIC).max(1),
-            max_total: (*SCAN_POOL_TOTAL).max(1),
-            ttl: *SCAN_POOL_IDLE_TTL,
+            max_per_topic: tuning.pool_per_topic.get(),
+            max_total: tuning.pool_total.get(),
+            ttl: tuning.pool_idle_ttl,
         }
     }
 
@@ -94,10 +93,15 @@ pub(super) fn retire(consumer: Arc<Consumer>) {
 }
 
 impl ScanPool {
-    pub(super) fn spawn(transport: &transport::Transport) -> Arc<Self> {
+    pub(super) fn spawn(
+        transport: &transport::Transport,
+        tuning: &ScanTuning,
+        reader: ReaderConfig,
+    ) -> Arc<Self> {
         let pool = Arc::new(Self {
             client: transport.client.clone(),
-            inner: Mutex::new(ScanPoolInner::new()),
+            reader,
+            inner: Mutex::new(ScanPoolInner::new(tuning)),
         });
 
         let weak = Arc::downgrade(&pool);
@@ -172,7 +176,7 @@ impl ScanPool {
             .iter()
             .map(|window| (window.partition, window.start));
 
-        Ok(reader(&self.client, topic, start, *SCAN_PACE_BOUND)
+        Ok(reader(&self.client, topic, start, self.reader)
             .build()
             .await?)
     }

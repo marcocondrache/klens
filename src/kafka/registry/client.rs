@@ -5,10 +5,10 @@ use schemreg::{
     CachedSchemaRegistry, ConfluentSchemaRegistry, RetryPolicy, Schema, SchemaId, SchemaRegError,
     SchemaRegistryClient as _, SchemaVersion,
 };
+use secrecy::ExposeSecret;
 use tokio::sync::OnceCell;
 
-use crate::config::SchemaRegistryConfig;
-use crate::environment::{SCHEMA_REGISTRY_TIMEOUT, SUBJECT_FETCH_CONCURRENCY};
+use crate::config::{SchemaRegistryConfig, SchemaRegistryTuning};
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{RegisteredSchema, SchemaCompatibility, SchemaReference, SchemaSubject};
 
@@ -20,22 +20,24 @@ pub(crate) type Registry = CachedSchemaRegistry<ConfluentSchemaRegistry>;
 pub struct SchemaRegistryClient {
     cluster: String,
     registry: Arc<Registry>,
+    fetch_concurrency: usize,
 }
 
 impl SchemaRegistryClient {
     pub fn new(
         cluster: impl Into<String>,
         config: &SchemaRegistryConfig,
+        tuning: &SchemaRegistryTuning,
     ) -> Result<Self, KafkaError> {
         let cluster = cluster.into();
 
         let mut builder = ConfluentSchemaRegistry::builder()
             .url(config.url.as_str())
-            .request_timeout(*SCHEMA_REGISTRY_TIMEOUT)
+            .request_timeout(tuning.timeout)
             .retry_policy(RetryPolicy::none());
 
-        if let (Some(username), Some(password)) = (&config.username, &config.password) {
-            builder = builder.basic_auth(username, password);
+        if let Some(auth) = &config.auth {
+            builder = builder.basic_auth(&auth.username, auth.password.expose_secret());
         }
 
         let inner = builder
@@ -51,11 +53,16 @@ impl SchemaRegistryClient {
                 inner,
                 MAX_CACHED_SCHEMAS,
             )),
+            fetch_concurrency: tuning.subject_fetch_concurrency.get(),
         })
     }
 
     pub(crate) fn registry(&self) -> &Arc<Registry> {
         &self.registry
+    }
+
+    pub(crate) fn fetch_concurrency(&self) -> usize {
+        self.fetch_concurrency
     }
 
     pub(crate) fn fail(&self, message: impl Into<String>) -> KafkaError {
@@ -85,7 +92,7 @@ impl SchemaRegistryClient {
                     loaded.ok()
                 }
             })
-            .buffer_unordered(*SUBJECT_FETCH_CONCURRENCY)
+            .buffer_unordered(self.fetch_concurrency)
             .filter_map(std::future::ready)
             .collect()
             .await;
@@ -207,15 +214,15 @@ pub(crate) fn references(references: &[schemreg::SchemaReference]) -> Vec<Schema
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::BasicAuth;
     use crate::kafka::model::SchemaType;
     use wiremock::matchers::{method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn config(url: &str) -> SchemaRegistryConfig {
         SchemaRegistryConfig {
-            url: url.to_owned(),
-            username: None,
-            password: None,
+            url: url.parse().unwrap(),
+            auth: None,
         }
     }
 
@@ -274,8 +281,20 @@ mod tests {
             .await;
     }
 
+    #[test]
+    fn subject_fetches_run_as_wide_as_tuning_allows() {
+        let tuning = SchemaRegistryTuning {
+            subject_fetch_concurrency: std::num::NonZeroUsize::new(3).unwrap(),
+            ..SchemaRegistryTuning::default()
+        };
+        let client =
+            SchemaRegistryClient::new("local", &config("http://localhost:8081"), &tuning).unwrap();
+
+        assert_eq!(client.fetch_concurrency(), 3);
+    }
+
     fn client(url: &str) -> SchemaRegistryClient {
-        SchemaRegistryClient::new("local", &config(url)).unwrap()
+        SchemaRegistryClient::new("local", &config(url), &SchemaRegistryTuning::default()).unwrap()
     }
 
     #[tokio::test]
@@ -491,10 +510,13 @@ mod tests {
         let client = SchemaRegistryClient::new(
             "local",
             &SchemaRegistryConfig {
-                url: server.uri(),
-                username: Some("user".into()),
-                password: Some("secret".into()),
+                url: server.uri().parse().unwrap(),
+                auth: Some(BasicAuth {
+                    username: "user".into(),
+                    password: "secret".into(),
+                }),
             },
+            &SchemaRegistryTuning::default(),
         )
         .unwrap();
         client.subjects().await.unwrap();

@@ -4,7 +4,7 @@
 ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square)
 ![AppVersion](https://img.shields.io/static/v1?label=AppVersion&message=0.51.0&color=informational&style=flat-square)
 
-Kafka UI for inspecting topics, messages, consumer groups, and schemas
+Web UI for browsing Kafka topics, records, consumer groups, and schemas
 
 **Homepage:** <https://github.com/marcocondrache/klens>
 
@@ -24,8 +24,11 @@ helm install klens ./charts/klens -n klens --create-namespace -f my-values.yaml
 ```
 
 Put Kafka and OIDC credentials in `secret.existingSecret` or `secret.stringData`.
-Reference them in `config` as `${VAR}`. Mount Kafka PEM files with `volumes`
+Reference them in `config` as `{env: VAR}`. Mount Kafka PEM files with `volumes`
 and `volumeMounts`. Set a Secret `defaultMode` of 0400 on the client key.
+
+Set timeouts, pool sizes, and limits under `config.tuning`. The chart sets
+`KLENS_CONFIG_PATH`, and klens reads no other environment variable of its own.
 
 `bind` must be a SocketAddr the Service can reach. A loopback address fails render.
 A `config.bind` port that does not match `service.port` also fails render.
@@ -61,7 +64,7 @@ Kubernetes: `>=1.25.0-0`
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity rules for pod scheduling (templated). |
-| config | object | `{"bind":"0.0.0.0:8080","clusters":[],"log_level":"info"}` | klens config file as a map. The binary validates this YAML, not the chart. Lane cadence is per cluster (`clusters[].ingest`). |
+| config | object | `{"bind":"0.0.0.0:8080","clusters":{},"log_level":"info"}` | klens config file as a map. The binary validates this YAML, not the chart. `clusters` maps each cluster name to its settings. Lane cadence is per cluster (`clusters.<name>.ingest`). Timeouts, pool sizes, and limits go under `tuning`. |
 | deploymentAnnotations | object | `{}` | Annotations added to the Deployment. |
 | env | object | `{}` | Extra environment variables as a map (templated). |
 | envFrom | list | `[]` | Extra envFrom sources (templated). |

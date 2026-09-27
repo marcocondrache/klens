@@ -2,13 +2,52 @@
 #
 # Copy this file to config.yaml and adjust it for your environment.
 #
-# Values may reference environment variables, so secrets can stay out of this
-# file: ${VAR}, $VAR, ${VAR:-default}. Use $$ for a literal dollar sign.
+# Every secret names where to read it, so secrets can stay out of this file:
+# {value: ...} inline, {env: NAME} from an environment variable, or
+# {file: PATH} from a file such as a mounted Kubernetes secret. A trailing
+# newline in a secret file is dropped.
+#
+# Durations are strings such as 250ms, 10s, or 1h 30m.
 bind: 0.0.0.0:8080
 log_level: info
 
+# Optional timeouts, pool sizes, and limits for every cluster. Omitted keys
+# use the defaults below.
+# tuning:
+#   kafka:
+#     connect_timeout: 10s
+#     request_timeout: 10s        # raised to connect_timeout if smaller
+#     consume_timeout: 5s
+#     max_in_flight_requests: 32
+#     max_response_mib: 32
+#   schema_registry:
+#     timeout: 5s
+#     subject_fetch_concurrency: 8
+#     missing_schema_ttl: 60s
+#   scan:
+#     pool_per_topic: 2
+#     pool_total: 16
+#     pool_idle_ttl: 60s
+#     poll_wait: 100ms
+#   records:
+#     max_limit: 500
+#     window_multiplier: 2
+#     search_window_multiplier: 8
+#     min_window: 4
+#   tail:
+#     batch_limit: 100
+#     interval: 250ms
+#     poll_wait: 500ms
+#     max_live: 32
+#   ingest:
+#     interest_ttl: 30s
+#     offset_fetch_concurrency: 32
+#     idle_heartbeat: 15s
+#     max_sample_gap: 15s
+
+# Clusters by name, shown in the UI in this order. Each name appears once.
 clusters:
-  - name: local
+  local:
     bootstrap_servers:
       - localhost:9092
 
@@ -17,31 +56,32 @@ clusters:
     #   protocol: SASL_SSL
     #   sasl:
     #     mechanism: SCRAM-SHA-512
-    #     username: ${KAFKA_USERNAME}
-    #     password: ${KAFKA_PASSWORD}
+    #     username: klens
+    #     password: {env: KAFKA_PASSWORD}
     #   tls:
     #     ca_cert: /path/to/ca.pem
-    #     client_cert: /path/to/client.pem
-    #     client_key: /path/to/client.key
+    #     client:
+    #       cert: /path/to/client.pem
+    #       key: /path/to/client.key
     #     insecure_skip_verify: false
 
-    # Optional Kafka transport overrides. Timeouts are unsigned millisecond numbers.
-    # request_timeout_ms is raised to connect_timeout_ms if smaller.
+    # Optional Kafka transport overrides. The timeouts override tuning.kafka
+    # for this cluster. request_timeout is raised to connect_timeout if smaller.
     # properties:
     #   client_id: klens-local
-    #   request_timeout_ms: 10000
-    #   connect_timeout_ms: 10000
+    #   request_timeout: 10s
+    #   connect_timeout: 10s
 
-    # Optional ingest cadence, in seconds. Omitted keys use the defaults
-    # below. Values must be at least 1.
+    # Optional ingest cadence. Omitted keys use the defaults below. Values
+    # must be at least 1s.
     # ingest:
-    #   topology_secs: 10
-    #   watermark_secs: 3
-    #   config_secs: 60
-    #   subjects_secs: 30
-    #   offset_tick_secs: 1
-    #   fast_offset_secs: 2
-    #   slow_offset_secs: 20
+    #   topology: 10s
+    #   watermark: 3s
+    #   config: 60s
+    #   subjects: 30s
+    #   offset_tick: 1s
+    #   fast_offset: 2s
+    #   slow_offset: 20s
 
     # Optional writes this cluster accepts. Omitted or empty, the default, keeps
     # it read-only whatever a role grants. Signed-in users also need a role
@@ -59,8 +99,9 @@ clusters:
     # reached over `https://`, otherwise startup fails for this cluster.
     schema_registry:
       url: http://localhost:8081
-      # username: ${SCHEMA_REGISTRY_USERNAME}
-      # password: ${SCHEMA_REGISTRY_PASSWORD}
+      # auth:
+      #   username: klens
+      #   password: {env: SCHEMA_REGISTRY_PASSWORD}
 
     # Optional server-side obfuscation. Rules are per topic, compiled at boot,
     # and applied before filters run, so a filter can only ever match what the
@@ -69,7 +110,7 @@ clusters:
     # obfuscation:
     #   # Required as soon as one rule hashes. Base64 or plain text, 32+ bytes.
     #   # Rotating it changes every token.
-    #   secret: ${KLENS_OBFUSCATION_SECRET}
+    #   secret: {env: KLENS_OBFUSCATION_SECRET}
     #   rules:
     #     # Field rules walk the JSON a registry decode produced. An array met
     #     # on the path fans out, so items.sku covers every element's sku.
@@ -108,31 +149,36 @@ clusters:
 # unmatched users cannot sign in. A role is a name for a set of privileges:
 # each role grants exactly the privileges it lists, out of records, configs,
 # schema_text, and acls, plus the write privileges a cluster lists under
-# writes. An empty list still sees the catalog. Omit clusters
-# on a binding to allow every configured cluster.
+# writes. An empty list still sees the catalog. A role's
+# bindings name the groups that hold it. Omit clusters on a binding to allow
+# every configured cluster.
 #
 # auth:
 #   oidc:
 #     issuer: https://keycloak.example.com/realms/klens
 #     client_id: klens
-#     client_secret: ${OIDC_CLIENT_SECRET}
+#     client_secret: {env: OIDC_CLIENT_SECRET}
 #     redirect_uri: http://localhost:8080/api/auth/callback
 #     # scopes: [openid, email, profile]
 #     # cookie_secure: false  # default: true when redirect_uri is https
+#     # groups_claim: groups  # the ID token claim that lists a user's groups
+#   # login_max_age: 10m  # how long a login may take at the provider
+#   # max_session: 12h    # session cap, even if the ID token lasts longer
 #   roles:
-#     # claim: groups
-#     definitions:
-#       admin: [records, configs, schema_text, acls]
-#       viewer: []  # catalog only: clusters, topics, groups — no payloads
-#       operator: [records, configs, reset_offsets]
-#       auditor: [acls, schema_text]
-#     bindings:
-#       - groups: [klens-admins]
-#         role: admin
-#       - groups: [klens-viewers]
-#         role: viewer
-#       - groups: [kafka-operators]
-#         role: operator
-#         clusters: [staging, dev]
-#       - groups: [security-team]
-#         role: auditor
+#     admin:
+#       privileges: [records, configs, schema_text, acls]
+#       bindings:
+#         - groups: [klens-admins]
+#     viewer:
+#       privileges: []  # catalog only: clusters, topics, groups, no payloads
+#       bindings:
+#         - groups: [klens-viewers]
+#     operator:
+#       privileges: [records, configs, reset_offsets]
+#       bindings:
+#         - groups: [kafka-operators]
+#           clusters: [staging, dev]
+#     auditor:
+#       privileges: [acls, schema_text]
+#       bindings:
+#         - groups: [security-team]

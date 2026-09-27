@@ -106,13 +106,21 @@ pub struct GroupOffset {
     pub member_id: Option<String>,
 }
 
+const INTERNAL_GROUP_PREFIX: &str = "klens.internal.";
+
 pub fn is_internal_group(id: &str) -> bool {
-    id.starts_with(crate::environment::INTERNAL_GROUP_PREFIX)
+    id.starts_with(INTERNAL_GROUP_PREFIX)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_klens_groups_are_internal() {
+        assert!(is_internal_group("klens.internal.scan-1"));
+        assert!(!is_internal_group("orders-consumer"));
+    }
 
     #[test]
     fn membership_and_consumed_topics() {

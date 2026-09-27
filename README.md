@@ -1,10 +1,10 @@
 # klens
 
-A Kafka UI for inspecting topics, messages, consumer groups, and more.
+A web UI for Kafka. Browse topics, records, consumer groups, brokers, schemas,
+and ACLs across one or more clusters.
 
-It is a small Rust service with a web UI, not a Kafka platform. Point it at one
-or more clusters, then browse topics, brokers, consumer groups, and schemas from
-a single process.
+klens is one Rust binary that serves the UI and a JSON API. It can tail a topic
+live, hide fields in records, and restrict access by OIDC group.
 
 ## Install
 
@@ -32,12 +32,70 @@ helm install klens oci://ghcr.io/marcocondrache/charts/klens \
 `config` is the same YAML the process loads here. The chart also lives in
 [`charts/klens`](charts/klens) if you want to install from a checkout.
 
+Every secret in the config names where to read it: `{value: ...}` inline,
+`{env: NAME}` from an environment variable, or `{file: PATH}` from a file such
+as a mounted Kubernetes secret. A trailing newline in a secret file is dropped.
+A plain string where a secret belongs fails at startup.
+
 Every page reads a background projection of each cluster, refreshed by
 independent lanes. Override a cluster's cadence with `ingest` on that cluster
-(`topology_secs` 10, `watermark_secs` 3, `config_secs` 60, `subjects_secs` 30,
-`offset_tick_secs` 1, `fast_offset_secs` 2, `slow_offset_secs` 20). Values are
-seconds and must be at least 1. Offsets use the fast interval for groups
-someone is looking at and the slow interval for the rest.
+(`topology` 10s, `watermark` 3s, `config` 60s, `subjects` 30s, `offset_tick`
+1s, `fast_offset` 2s, `slow_offset` 20s). Each value must be at least `1s`.
+Offsets use the fast interval for groups someone is looking at and the slow
+interval for the rest.
+
+## Configuration
+
+klens loads `config.yaml` from its working directory. Set `KLENS_CONFIG_PATH`
+to load another file. klens reads no other environment variable, apart from
+the ones a secret names with `{env: NAME}`.
+
+Durations are strings such as `250ms`, `10s`, `1h 30m`, or ISO 8601 `PT10S`.
+A bad value stops startup with its line and column, for example
+`must not be negative, got -5s at line 12, column 15`. Unknown keys fail the
+same way.
+
+Timeouts, pool sizes, and limits live under `tuning`. Every key is optional.
+This block lists the defaults:
+
+```yaml
+tuning:
+  kafka:
+    connect_timeout: 10s
+    request_timeout: 10s # raised to connect_timeout if smaller
+    consume_timeout: 5s # how long one record page or tail open may read
+    max_in_flight_requests: 32 # per broker connection
+    max_response_mib: 32 # largest broker response frame
+  schema_registry:
+    timeout: 5s
+    subject_fetch_concurrency: 8
+    missing_schema_ttl: 60s # how long an unknown schema id stays cached
+  scan:
+    pool_per_topic: 2 # idle scan consumers kept per topic
+    pool_total: 16 # idle scan consumers kept across all topics
+    pool_idle_ttl: 60s # at least 1s
+    poll_wait: 100ms # longest single scan poll
+  records:
+    max_limit: 500 # most records one page may request
+    window_multiplier: 2
+    search_window_multiplier: 8 # used while a `contains` search runs
+    min_window: 4 # fewest offsets read from each partition
+  tail:
+    batch_limit: 100
+    interval: 250ms
+    poll_wait: 500ms
+    max_live: 32
+  ingest:
+    interest_ttl: 30s # how long a viewed group stays in the fast offset tier
+    offset_fetch_concurrency: 32
+    idle_heartbeat: 15s # an idle topic's rate drops to zero after this
+    max_sample_gap: 15s # older watermark samples do not count toward a rate
+```
+
+`clusters.<name>.properties.request_timeout` and `connect_timeout` override
+`tuning.kafka` for one cluster. Counts must be at least 1, except
+`records.window_multiplier`, `records.search_window_multiplier`,
+`records.min_window`, and `tail.max_live`.
 
 ## Live tail
 
@@ -49,11 +107,11 @@ is `ready` and names each partition's start offset. After that, `records` frames
 arrive oldest first.
 
 A tail samples a busy topic rather than streaming all of it. Each frame carries
-at most `KLENS_TAIL_BATCH_LIMIT` (100) of the newest records, and frames are at
-least `KLENS_TAIL_INTERVAL_MS` (250) apart. A partition that falls too far
-behind skips ahead. `skipped` counts what was passed over. Each tail holds its
-own consumer, and `KLENS_MAX_LIVE_TAILS` (32) caps how many run at once. Past
-that cap, a new tail gets `503 TOO_MANY_TAILS`.
+at most `tuning.tail.batch_limit` (100) of the newest records, and frames are
+at least `tuning.tail.interval` (`250ms`) apart. A partition that falls too
+far behind skips ahead. `skipped` counts what was passed over. Each tail holds
+its own consumer, and `tuning.tail.max_live` (32) caps how many run at once.
+Past that cap, a new tail gets `503 TOO_MANY_TAILS`.
 
 ## Authentication
 
@@ -65,18 +123,22 @@ authorization code flow with PKCE. Sessions use
 live routes are under `/api`. `/health` and `/ready` stay public. A process
 restart drops in-memory sessions and requires a new login.
 
-Set `auth.session_key` (or `KLENS_SESSION_KEY`, which takes precedence) to a
-base64 or plain secret of at least 32 bytes so the session cookie survives a
-restart. Without one, klens generates a key per boot and every deploy logs
-everyone out.
+Set `auth.session_key` to a base64 or plain secret of at least 32 bytes so
+the session cookie survives a restart. Without one, klens generates a key per
+boot and every deploy logs everyone out.
+
+A login must come back from the provider within `auth.login_max_age` (`10m`).
+A session ends when the ID token expires or after `auth.max_session` (`12h`),
+whichever comes first.
 
 ```yaml
 auth:
   oidc:
     issuer: https://keycloak.example.com/realms/klens
     client_id: klens
-    client_secret: "..."
+    client_secret: { env: OIDC_CLIENT_SECRET }
     redirect_uri: http://localhost:8080/api/auth/callback
+  session_key: { env: KLENS_SESSION_KEY }
 ```
 
 Register `redirect_uri` with the identity provider. Without `roles`, any
@@ -86,9 +148,10 @@ To restrict what signed-in users may do, add `roles`. A role is nothing but a
 name for a set of privileges, defined by you: there are no built-in roles. The
 privileges are `records`, `configs`, `schema_text`, and `acls`; a role that
 lists none still sees the catalog (clusters, topics, groups, lag) but no
-payloads, live configs, schema bodies, or ACL bindings. Bindings map IdP groups
-from the `claim` to those roles, and unmatched users cannot sign in. Omit
-`clusters` on a binding to allow every configured cluster.
+payloads, live configs, schema bodies, or ACL bindings. A role's `bindings`
+name the IdP groups that hold it, read from the ID token claim that
+`oidc.groups_claim` names (default `groups`). Unmatched users cannot sign in.
+Omit `clusters` on a binding to allow every configured cluster.
 
 Bindings are evaluated per cluster: a user's privileges on a cluster are the
 union of the roles bound to their groups **whose scope covers that cluster**.
@@ -104,25 +167,27 @@ auth:
   oidc:
     issuer: https://keycloak.example.com/realms/klens
     client_id: klens
-    client_secret: "..."
+    client_secret: { env: OIDC_CLIENT_SECRET }
     redirect_uri: http://localhost:8080/api/auth/callback
+    # groups_claim: groups
   roles:
-    # claim: groups
-    definitions:
-      admin: [records, configs, schema_text, acls]
-      viewer: [] # catalog only
-      operator: [records, configs]
-      auditor: [acls, schema_text]
-    bindings:
-      - groups: [klens-admins]
-        role: admin
-      - groups: [klens-viewers]
-        role: viewer
-      - groups: [kafka-operators]
-        role: operator
-        clusters: [staging, dev]
-      - groups: [security-team]
-        role: auditor
+    admin:
+      privileges: [records, configs, schema_text, acls]
+      bindings:
+        - groups: [klens-admins]
+    viewer:
+      privileges: [] # catalog only
+      bindings:
+        - groups: [klens-viewers]
+    operator:
+      privileges: [records, configs]
+      bindings:
+        - groups: [kafka-operators]
+          clusters: [staging, dev]
+    auditor:
+      privileges: [acls, schema_text]
+      bindings:
+        - groups: [security-team]
 ```
 
 ## Schema Registry
@@ -134,8 +199,9 @@ Protobuf payloads decode to JSON when a registry is configured.
 ```yaml
 schema_registry:
   url: http://localhost:8081
-  # username: user
-  # password: secret
+  # auth:
+  #   username: user
+  #   password: { env: SCHEMA_REGISTRY_PASSWORD }
 ```
 
 Credentials may only travel over plaintext `http://` when the host is loopback.
@@ -152,7 +218,7 @@ before anything is rendered.
 ```yaml
 obfuscation:
   # Required as soon as one rule hashes. Base64 or plain text, 32 bytes or more.
-  secret: ${KLENS_OBFUSCATION_SECRET}
+  secret: { env: KLENS_OBFUSCATION_SECRET }
   rules:
     # Field rules walk the JSON a registry decode produced.
     - topics: ["payments.*"] # exact name, or a trailing-* prefix

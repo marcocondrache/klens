@@ -15,16 +15,10 @@ typescript = []
 members = ["xtask"]
 default-members = ["."]
 
-[workspace.lints.rust]
-warnings = "deny"
-
-[workspace.lints.clippy]
-all = "deny"
-
 [dependencies]
 anyhow = "1"
 async-trait = "0.1"
-indexmap = "2"
+indexmap = { version = "2", features = ["serde"] }
 axum = { version = "0.8", default-features = false, features = [
     "http1",
     "json",
@@ -45,10 +39,10 @@ moka = { version = "0.12", features = ["future"] }
 mime_guess = { version = "2", optional = true }
 openidconnect = "4.0.1"
 rust-embed = { version = "8", optional = true }
+secrecy = { version = "0.10", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-serde_yaml_ng = "0.10"
-shellexpand = { version = "3.1", default-features = false, features = ["base-0"] }
+serde-saphyr = "1.3"
 thiserror = "2"
 tokio = { version = "1", features = [
     "macros",
@@ -73,6 +67,7 @@ bytes = "1"
 hmac = "0.12"
 sha2 = "0.10"
 regex = "1.13"
+aho-corasick = "1.1"
 arc-swap = "1.9.2"
 foldhash = "0.2.0"
 ts-rs = { version = "12.0.1", features = ["jiff-impl", "serde-compat", "no-serde-warnings"] }

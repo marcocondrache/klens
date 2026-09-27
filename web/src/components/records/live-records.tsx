@@ -32,8 +32,8 @@ function SkippedBadge({ skipped }: { skipped: number }) {
         {formatNumber(skipped)} skipped
       </TooltipTrigger>
       <TooltipContent className="block max-w-80 py-2 leading-relaxed">
-        This topic produces faster than a live tail shows. The tail samples it: each update keeps
-        the newest records and passes over the rest.
+        This topic produces faster than the tail can show. Each update keeps the newest records and
+        skips the rest.
       </TooltipContent>
     </Tooltip>
   );
@@ -72,19 +72,18 @@ export function LiveRecords({
     partitions?.length === 0
       ? {
           title: "No partitions to follow",
-          description:
-            "Every partition is excluded. Change the partition filter to follow the topic.",
+          description: "The partition filter excludes every partition.",
         }
       : tail.paused
         ? {
             title: "Live tail paused",
-            description: "Resume to follow the topic from its current end.",
+            description: "Resume to follow new records. Records produced while paused are missed.",
           }
         : tail.status === "error"
-          ? { title: "Live tail stopped", description: "Retry to follow the topic again." }
+          ? { title: "Live tail stopped", description: "Retry to reconnect." }
           : {
               title: "Waiting for records",
-              description: `Following ${topic.name} from its current end. New records show here as they arrive, newest first. The last ${formatNumber(TAIL_BUFFER)} stay on screen.`,
+              description: `New records appear here as they arrive, newest first. Only the last ${formatNumber(TAIL_BUFFER)} are kept.`,
             };
 
   const source: RecordSource = {

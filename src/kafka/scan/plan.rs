@@ -196,12 +196,14 @@ pub fn apply_timestamp_bounds(
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroUsize;
+
     use super::*;
     use crate::kafka::scan::cursor::CursorDirection;
 
     fn limits() -> RecordLimits {
         RecordLimits {
-            max_limit: 500,
+            max_limit: NonZeroUsize::new(500).unwrap(),
             min_window: 4,
             window_multiplier: 2,
             search_window_multiplier: 8,

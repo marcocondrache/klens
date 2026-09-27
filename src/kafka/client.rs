@@ -17,8 +17,7 @@ use krafka::admin::{
     OffsetSpec, OffsetVisibility,
 };
 
-use crate::config::ClusterConfig;
-use crate::environment::CONSUME_TIMEOUT;
+use crate::config::{ClusterConfig, ClusterName, Tuning};
 use crate::kafka::acl::AclListing;
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
@@ -37,11 +36,14 @@ use convert::committed_from_krafka;
 use groups::snapshots_from_descriptions;
 use offsets::{from_list_offsets, merge_watermark_offsets, partition_time_offsets};
 use pool::ScanPool;
+use scan::ReaderConfig;
 use tail::TailLease;
 
 pub struct KafkaClient {
     identity: ClusterIdentity,
     consume_timeout: Duration,
+    scan_poll_wait: Duration,
+    tail_reader: ReaderConfig,
     transport: transport::Transport,
     scans: Arc<ScanPool>,
     schema_registry: Option<Arc<PayloadDecoder>>,
@@ -57,36 +59,43 @@ impl std::fmt::Debug for KafkaClient {
 }
 
 impl KafkaClient {
-    pub async fn new(config: &ClusterConfig) -> Result<Self, KafkaError> {
-        let identity = ClusterIdentity::from(config);
+    pub async fn new(
+        name: &ClusterName,
+        config: &ClusterConfig,
+        tuning: &Tuning,
+    ) -> Result<Self, KafkaError> {
+        let identity = ClusterIdentity::new(name, config);
         let schema_registry = config
             .schema_registry
             .as_ref()
             .map(|registry| {
-                SchemaRegistryClient::new(identity.name.clone(), registry)
-                    .map(|client| Arc::new(PayloadDecoder::new(client)))
+                SchemaRegistryClient::new(identity.name.clone(), registry, &tuning.schema_registry)
+                    .map(|client| {
+                        Arc::new(PayloadDecoder::new(
+                            client,
+                            tuning.schema_registry.missing_schema_ttl,
+                        ))
+                    })
             })
             .transpose()?;
 
         let obfuscation = config
             .obfuscation
             .as_ref()
-            .map(|rules| {
-                ObfuscationPolicy::compile(rules)
-                    .map(Arc::new)
-                    .map_err(|error| KafkaError::Obfuscation {
-                        cluster: identity.name.clone(),
-                        message: error.to_string(),
-                    })
-            })
-            .transpose()?;
+            .map(|rules| Arc::new(ObfuscationPolicy::compile(rules)));
 
-        let transport = transport::connect(config).await?;
+        let transport = transport::connect(name, config, &tuning.kafka).await?;
 
         Ok(Self {
             identity,
-            consume_timeout: *CONSUME_TIMEOUT,
-            scans: ScanPool::spawn(&transport),
+            consume_timeout: tuning.kafka.consume_timeout,
+            scan_poll_wait: tuning.scan.poll_wait,
+            tail_reader: ReaderConfig::new(tuning, tuning.tail.poll_wait),
+            scans: ScanPool::spawn(
+                &transport,
+                &tuning.scan,
+                ReaderConfig::new(tuning, tuning.scan.poll_wait),
+            ),
             transport,
             schema_registry,
             obfuscation,
@@ -102,6 +111,10 @@ impl ClusterSession for KafkaClient {
 
     fn consume_timeout(&self) -> Duration {
         self.consume_timeout
+    }
+
+    fn scan_poll_wait(&self) -> Duration {
+        self.scan_poll_wait
     }
 
     async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError> {
@@ -282,7 +295,7 @@ impl ClusterSession for KafkaClient {
         start: &[TailPosition],
     ) -> Result<Box<dyn TailConsumer>, KafkaError> {
         Ok(Box::new(
-            TailLease::open(&self.transport.connector, topic, start).await?,
+            TailLease::open(&self.transport.connector, topic, start, self.tail_reader).await?,
         ))
     }
 
@@ -356,7 +369,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use crate::config::ClusterConfig;
-    use crate::environment::SCAN_PACE_BOUND;
     use crate::kafka::group::MemberAssignment;
     use crate::kafka::model::{PartitionWindow, RecordOrder};
     use crate::kafka::scan::session::scan_once;
@@ -474,22 +486,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_scan_poll_wait_comes_from_tuning() {
+        let broker = krafka::testing::FakeBroker::start().await.unwrap();
+        let mut tuning = Tuning::default();
+        tuning.scan.poll_wait = Duration::from_millis(250);
+        let client = KafkaClient::new(
+            &"test".parse().unwrap(),
+            &ClusterConfig {
+                bootstrap_servers: vec![broker.bootstrap_servers()],
+                security: Default::default(),
+                schema_registry: None,
+                obfuscation: None,
+                properties: Default::default(),
+                ingest: Default::default(),
+                writes: Vec::new(),
+            },
+            &tuning,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(client.scan_poll_wait(), Duration::from_millis(250));
+        client.transport.admin.close().await;
+        client.transport.client.pool().close_all().await;
+    }
+
+    #[tokio::test]
     async fn broker_io_is_bounded_by_the_configured_request_timeout() {
         let broker = krafka::testing::FakeBroker::start().await.unwrap();
-        let client = KafkaClient::new(&ClusterConfig {
-            name: "test".into(),
-            bootstrap_servers: vec![broker.bootstrap_servers()],
-            security: None,
-            schema_registry: None,
-            obfuscation: None,
-            properties: crate::config::KafkaProperties {
-                request_timeout_ms: Some(100),
-                connect_timeout_ms: Some(100),
-                ..Default::default()
+        let client = KafkaClient::new(
+            &"test".parse().unwrap(),
+            &ClusterConfig {
+                bootstrap_servers: vec![broker.bootstrap_servers()],
+                security: Default::default(),
+                schema_registry: None,
+                obfuscation: None,
+                properties: crate::config::KafkaProperties {
+                    request_timeout: Some(Duration::from_millis(100)),
+                    connect_timeout: Some(Duration::from_millis(100)),
+                    ..Default::default()
+                },
+                ingest: Default::default(),
+                writes: Vec::new(),
             },
-            ingest: Default::default(),
-            writes: Vec::new(),
-        })
+            &Tuning::default(),
+        )
         .await
         .unwrap();
         assert_eq!(
@@ -713,8 +754,9 @@ mod tests {
         assert!(broker.create_topic("orders", 1));
         produce_krafka(&broker.bootstrap_servers(), "orders", 2).await;
         let client = kafka_client(&broker.bootstrap_servers()).await;
-        broker.on(krafka::protocol::ApiKey::Fetch, |_| {
-            krafka::testing::Control::Delay(*SCAN_PACE_BOUND * 3)
+        let slow = client.scan_poll_wait * 3;
+        broker.on(krafka::protocol::ApiKey::Fetch, move |_| {
+            krafka::testing::Control::Delay(slow)
         });
 
         let records = scan_once(
@@ -889,16 +931,19 @@ mod tests {
     }
 
     pub(super) async fn kafka_client(bootstrap: &str) -> KafkaClient {
-        KafkaClient::new(&ClusterConfig {
-            name: "test".into(),
-            bootstrap_servers: vec![bootstrap.to_owned()],
-            security: None,
-            schema_registry: None,
-            obfuscation: None,
-            properties: Default::default(),
-            ingest: Default::default(),
-            writes: Vec::new(),
-        })
+        KafkaClient::new(
+            &"test".parse().unwrap(),
+            &ClusterConfig {
+                bootstrap_servers: vec![bootstrap.to_owned()],
+                security: Default::default(),
+                schema_registry: None,
+                obfuscation: None,
+                properties: Default::default(),
+                ingest: Default::default(),
+                writes: Vec::new(),
+            },
+            &Tuning::default(),
+        )
         .await
         .expect("kafka client")
     }

@@ -21,11 +21,11 @@ fullnameOverride: ""
 # -- Mount an existing ConfigMap with a `config.yaml` key instead of the inline `config`.
 existingConfigMap: ""
 
-# -- klens config file as a map. The binary validates this YAML, not the chart. Lane cadence is per cluster (`clusters[].ingest`).
+# -- klens config file as a map. The binary validates this YAML, not the chart. `clusters` maps each cluster name to its settings. Lane cadence is per cluster (`clusters.<name>.ingest`). Timeouts, pool sizes, and limits go under `tuning`.
 config:
   bind: 0.0.0.0:8080
   log_level: info
-  clusters: []
+  clusters: {}
 
 # -- Extra environment variables as a map (templated).
 env: {}

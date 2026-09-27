@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::Router;
 use axum::middleware;
@@ -8,8 +9,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use crate::app::auth::access::{
     AccessError, ClusterAccess, EffectiveAccess, Privilege, PrivilegeSet,
 };
-use crate::config::Config;
-use crate::environment::MAX_LIVE_TAILS;
+use crate::config::{Config, Tuning};
 use crate::kafka::{Clusters, TailLimits};
 
 mod acls;
@@ -38,6 +38,8 @@ mod harness;
 
 pub use auth::AuthState;
 
+pub(crate) const SSE_KEEP_ALIVE: Duration = Duration::from_secs(15);
+
 #[derive(Clone)]
 pub struct AppState {
     clusters: Arc<Clusters>,
@@ -62,12 +64,12 @@ impl AppState {
         let writes: HashMap<String, PrivilegeSet> = config
             .clusters
             .iter()
-            .filter(|cluster| !cluster.writes.is_empty())
-            .map(|cluster| {
+            .filter(|(_, cluster)| !cluster.writes.is_empty())
+            .map(|(name, cluster)| {
                 let privileges = PrivilegeSet::from_privileges(
                     cluster.writes.iter().copied().map(Privilege::from),
                 );
-                (cluster.name.trim().to_owned(), privileges)
+                (name.as_str().to_owned(), privileges)
             })
             .collect();
 
@@ -129,10 +131,16 @@ pub struct Limits {
 }
 
 impl Limits {
-    pub fn from_env() -> Self {
+    pub fn new(tuning: &Tuning) -> Self {
         Self {
-            tail: TailLimits::from_env(),
-            live_tails: *MAX_LIVE_TAILS,
+            tail: TailLimits {
+                batch: tuning.tail.batch_limit.get(),
+                interval: tuning.tail.interval,
+                poll_wait: tuning.tail.poll_wait,
+                heartbeat: SSE_KEEP_ALIVE,
+                records: tuning.records,
+            },
+            live_tails: tuning.tail.max_live,
         }
     }
 }
@@ -180,11 +188,10 @@ mod tests {
     use crate::config::{ClusterConfig, PrivilegeName};
     use crate::kafka::FakeCluster;
 
-    fn cluster_config(name: &str, writes: Vec<PrivilegeName>) -> ClusterConfig {
+    fn cluster_config(writes: Vec<PrivilegeName>) -> ClusterConfig {
         ClusterConfig {
-            name: name.to_owned(),
             bootstrap_servers: vec!["localhost:9092".to_owned()],
-            security: None,
+            security: Default::default(),
             schema_registry: None,
             obfuscation: None,
             properties: Default::default(),
@@ -197,7 +204,7 @@ mod tests {
         AppState::new(
             Clusters::from_sessions(clusters),
             AuthState::disabled(),
-            Limits::from_env(),
+            Limits::new(&Tuning::default()),
         )
     }
 
@@ -206,11 +213,15 @@ mod tests {
         let config = Config {
             bind: "127.0.0.1:8080".parse().expect("bind"),
             log_level: "info".to_owned(),
-            clusters: vec![
-                cluster_config(" local ", vec![PrivilegeName::ResetOffsets]),
-                cluster_config("payments", Vec::new()),
-            ],
+            clusters: [
+                ("local", cluster_config(vec![PrivilegeName::ResetOffsets])),
+                ("payments", cluster_config(Vec::new())),
+            ]
+            .into_iter()
+            .map(|(name, cluster)| (name.parse().expect("name"), cluster))
+            .collect(),
             auth: None,
+            tuning: Tuning::default(),
         };
         let state = state(vec![FakeCluster::local(), FakeCluster::named("payments")])
             .with_writes_from(&config);

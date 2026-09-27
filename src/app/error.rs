@@ -76,7 +76,6 @@ fn kafka_status(error: &KafkaError) -> StatusCode {
         KafkaError::Admin(_)
         | KafkaError::BrokerConfigs { .. }
         | KafkaError::SchemaRegistry { .. }
-        | KafkaError::Obfuscation { .. }
         | KafkaError::Krafka(_) => StatusCode::BAD_GATEWAY,
     }
 }

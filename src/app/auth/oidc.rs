@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::{Context, anyhow};
 use async_trait::async_trait;
 use jiff::Timestamp;
@@ -5,9 +7,10 @@ use openidconnect::core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetada
 use openidconnect::reqwest;
 use openidconnect::{
     AccessTokenHash, AuthorizationCode, ClientId, ClientSecret, CsrfToken, EndpointMaybeSet,
-    EndpointNotSet, EndpointSet, IssuerUrl, Nonce, OAuth2TokenResponse, PkceCodeChallenge,
-    PkceCodeVerifier, RedirectUrl, Scope, TokenResponse,
+    EndpointNotSet, EndpointSet, Nonce, OAuth2TokenResponse, PkceCodeChallenge, PkceCodeVerifier,
+    Scope, TokenResponse,
 };
+use secrecy::ExposeSecret;
 
 type DiscoveredClient = CoreClient<
     EndpointSet,
@@ -44,33 +47,33 @@ pub(crate) struct Oidc {
     client: DiscoveredClient,
     scopes: Vec<Scope>,
     groups_claim: String,
+    max_session_secs: i64,
 }
 
 impl Oidc {
-    pub(crate) async fn discover(config: &OidcConfig, groups_claim: &str) -> anyhow::Result<Self> {
+    pub(crate) async fn discover(
+        config: &OidcConfig,
+        max_session: Duration,
+    ) -> anyhow::Result<Self> {
         let http = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .context("failed to build oidc http client")?;
 
-        let issuer = IssuerUrl::new(config.issuer.clone())
-            .map_err(|error| anyhow!("invalid oidc issuer: {error}"))?;
-
         tracing::info!(issuer = %config.issuer, "discovering oidc provider");
 
-        let metadata = CoreProviderMetadata::discover_async(issuer, &http)
+        let metadata = CoreProviderMetadata::discover_async(config.issuer.clone(), &http)
             .await
             .map_err(|error| anyhow!("oidc provider discovery failed: {error}"))?;
-
-        let redirect = RedirectUrl::new(config.redirect_uri.clone())
-            .map_err(|error| anyhow!("invalid oidc redirect_uri: {error}"))?;
 
         let client = CoreClient::from_provider_metadata(
             metadata,
             ClientId::new(config.client_id.clone()),
-            Some(ClientSecret::new(config.client_secret.clone())),
+            Some(ClientSecret::new(
+                config.client_secret.expose_secret().to_owned(),
+            )),
         )
-        .set_redirect_uri(redirect);
+        .set_redirect_uri(config.redirect_uri.clone());
 
         Ok(Self {
             client,
@@ -80,7 +83,8 @@ impl Oidc {
                 .into_iter()
                 .map(Scope::new)
                 .collect(),
-            groups_claim: groups_claim.to_owned(),
+            groups_claim: config.groups_claim.clone(),
+            max_session_secs: i64::try_from(max_session.as_secs()).unwrap_or(i64::MAX),
         })
     }
 }
@@ -159,7 +163,7 @@ impl OidcFlow for Oidc {
         let exp = claims
             .expiration()
             .timestamp()
-            .min(now + *crate::environment::MAX_SESSION_SECS);
+            .min(now.saturating_add(self.max_session_secs));
         if exp <= now {
             return Err(anyhow!("oidc ID token has expired"));
         }

@@ -5,8 +5,6 @@ use foldhash::{HashMap, HashMapExt, HashSet};
 
 use tokio::time::Instant;
 
-use crate::environment::INTEREST_TTL;
-
 #[derive(Debug, Default)]
 struct InterestState {
     leases: usize,
@@ -34,18 +32,8 @@ pub struct InterestRegistry {
     ttl: Duration,
 }
 
-impl Default for InterestRegistry {
-    fn default() -> Self {
-        Self::with_ttl(*INTEREST_TTL)
-    }
-}
-
 impl InterestRegistry {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_ttl(ttl: Duration) -> Self {
+    pub fn new(ttl: Duration) -> Self {
         Self {
             groups: Arc::new(Mutex::new(HashMap::new())),
             ttl,
@@ -130,14 +118,14 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn nothing_is_hot_until_someone_looks() {
-        let interest = InterestRegistry::new();
+        let interest = InterestRegistry::new(Duration::from_secs(30));
         assert!(interest.hot_groups().is_empty());
         assert!(!interest.is_hot("billing"));
     }
 
     #[tokio::test(start_paused = true)]
     async fn a_lease_keeps_a_group_hot_until_it_is_dropped() {
-        let interest = InterestRegistry::with_ttl(Duration::from_secs(30));
+        let interest = InterestRegistry::new(Duration::from_secs(30));
         let lease = interest.lease_group("billing");
 
         tokio::time::advance(Duration::from_secs(3_600)).await;
@@ -152,7 +140,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn overlapping_leases_release_independently() {
-        let interest = InterestRegistry::new();
+        let interest = InterestRegistry::new(Duration::from_secs(30));
         let first = interest.lease_group("billing");
         let second = interest.lease_group("billing");
 
@@ -165,7 +153,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_touch_expires_after_the_ttl() {
-        let interest = InterestRegistry::with_ttl(Duration::from_secs(30));
+        let interest = InterestRegistry::new(Duration::from_secs(30));
         interest.touch_group(&Arc::from("billing"));
         assert!(interest.is_hot("billing"));
 
@@ -178,7 +166,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn expired_entries_do_not_accumulate() {
-        let interest = InterestRegistry::with_ttl(Duration::from_secs(1));
+        let interest = InterestRegistry::new(Duration::from_secs(1));
         for index in 0..100 {
             interest.touch_group(&Arc::from(format!("group-{index}")));
         }

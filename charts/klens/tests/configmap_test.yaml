@@ -13,7 +13,7 @@ tests:
           pattern: "bind: 0.0.0.0:8080"
       - matchRegex:
           path: data["config.yaml"]
-          pattern: "clusters: \\[\\]"
+          pattern: "clusters: \\{\\}"
 
   - it: renders nothing when an existing ConfigMap is provided
     set:
@@ -26,13 +26,13 @@ tests:
     set:
       config.bind: "0.0.0.0:8080"
       config.clusters:
-        - name: "{{ .Release.Namespace }}"
+        "{{ .Release.Namespace }}":
           bootstrap_servers:
             - kafka.{{ .Release.Namespace }}.svc:9092
     asserts:
       - matchRegex:
           path: data["config.yaml"]
-          pattern: "name: ['\"]?NAMESPACE['\"]?"
+          pattern: "['\"]?NAMESPACE['\"]?:"
       - matchRegex:
           path: data["config.yaml"]
           pattern: "kafka.NAMESPACE.svc:9092"

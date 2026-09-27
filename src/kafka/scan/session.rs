@@ -8,7 +8,6 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use tokio::time::{Instant, timeout_at};
 
-use crate::environment::SCAN_PACE_BOUND;
 use crate::kafka::error::KafkaError;
 use crate::kafka::limits::RecordLimits;
 use crate::kafka::metadata::Watermarks;
@@ -79,6 +78,7 @@ pub struct ScanSession {
     consumer: Box<dyn ScanConsumer>,
     pipeline: RecordPipeline,
     walk: RecordOrder,
+    poll_wait: Duration,
     assigned: Vec<PartitionWindow>,
 }
 
@@ -103,6 +103,7 @@ impl ScanSession {
                 query.schema_id,
             ),
             walk,
+            poll_wait: session.scan_poll_wait(),
             assigned: windows.to_vec(),
         })
     }
@@ -140,9 +141,7 @@ impl ScanSession {
                 break;
             }
 
-            let max_wait = deadline
-                .saturating_duration_since(now)
-                .min(*SCAN_PACE_BOUND);
+            let max_wait = deadline.saturating_duration_since(now).min(self.poll_wait);
             let Ok(polled) = timeout_at(deadline, self.consumer.poll(max_wait)).await else {
                 break;
             };
@@ -465,6 +464,7 @@ pub async fn scan_once<S: ClusterSession + ?Sized>(
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::num::NonZeroUsize;
 
     use super::*;
     use crate::kafka::scan::cursor::{RecordCursor, Remaining};
@@ -473,7 +473,7 @@ mod tests {
     use crate::kafka::testing::{FakeCluster, FixtureRecord, card_record, framed};
 
     const LIMITS: RecordLimits = RecordLimits {
-        max_limit: 500,
+        max_limit: NonZeroUsize::new(500).unwrap(),
         min_window: 1,
         window_multiplier: 2,
         search_window_multiplier: 2,
@@ -1013,7 +1013,7 @@ mod tests {
     const PAN: &str = "4111111111111111";
 
     const RULES: &str = "
-        secret: 0123456789abcdef0123456789abcdef
+        secret: {value: 0123456789abcdef0123456789abcdef}
         rules:
           - topics: ['orders.*']
             headers: ['x-user-id']
@@ -1118,7 +1118,7 @@ mod tests {
     }
 
     const PATTERNS: &str = r"
-        secret: 0123456789abcdef0123456789abcdef
+        secret: {value: 0123456789abcdef0123456789abcdef}
         rules:
           - topics: ['orders.*']
             patterns:

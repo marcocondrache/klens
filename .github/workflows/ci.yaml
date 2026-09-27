@@ -16,6 +16,9 @@ defaults:
   run:
     shell: bash -euxo pipefail {0}
 
+env:
+  CARGO_PROFILE_DEV_DEBUG: 0
+
 jobs:
   changes:
     name: changes
@@ -28,6 +31,7 @@ jobs:
       rust: ${{ steps.filter.outputs.rust == 'true' || steps.filter.outputs.ci == 'true' }}
       web: ${{ steps.filter.outputs.web == 'true' || steps.filter.outputs.ci == 'true' }}
       helm: ${{ steps.filter.outputs.helm == 'true' || steps.filter.outputs.ci == 'true' }}
+      docker: ${{ steps.filter.outputs.docker == 'true' || steps.filter.outputs.ci == 'true' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -44,11 +48,15 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.cargo/**'
+              - 'web/src/api/types.gen.ts'
             web:
               - 'web/**'
               - 'Cargo.toml'
             helm:
               - 'charts/**'
+            docker:
+              - 'Dockerfile'
+              - '.dockerignore'
             ci:
               - '.github/workflows/ci.yaml'
 
@@ -67,7 +75,7 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all --check
       - name: Check for typos
-        uses: crate-ci/typos@00f422f3b19c57bc6338715ebfe3316d38768461 # main
+        uses: crate-ci/typos@00f422f3b19c57bc6338715ebfe3316d38768461 # v1.50.3
 
   clippy:
     needs: changes
@@ -84,8 +92,12 @@ jobs:
           components: clippy
       - name: Cache cargo registry and build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Stub the web bundle
+        run: mkdir -p static
       - name: Run clippy
-        run: cargo clippy --all -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
   web:
     needs: changes
@@ -127,12 +139,11 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           shared-key: tests
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install nextest
         uses: taiki-e/install-action@23d41aa71228a2692ee31bb433f070fd4bdc6661 # nextest
-      - name: Build
-        run: cargo build --verbose
       - name: Run tests
-        run: cargo nextest run --workspace --verbose --no-tests=pass
+        run: cargo nextest run --workspace --locked
 
   docs:
     needs: changes
@@ -148,10 +159,14 @@ jobs:
           toolchain: stable
       - name: Cache cargo registry and build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Stub the web bundle
+        run: mkdir -p static
       - name: Check documentation
         env:
           RUSTDOCFLAGS: -D warnings
-        run: cargo doc --no-deps --document-private-items
+        run: cargo doc --no-deps --document-private-items --all-features --locked
 
   helm:
     name: helm
@@ -172,6 +187,24 @@ jobs:
         run: |
           helm plugin install https://github.com/helm-unittest/helm-unittest --version "${HELM_UNITTEST_VERSION}" --verify=false
           helm unittest charts/klens
+
+  docker:
+    name: docker
+    needs: changes
+    if: needs.changes.outputs.docker == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - name: Build the image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          push: false
+          cache-from: type=gha
 
   audit:
     name: audit
@@ -215,15 +248,17 @@ jobs:
     if: github.event_name == 'pull_request' && needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          fetch-depth: 0
-      - name: Fetch pull request base
-        run: git fetch --no-tags origin "${{ github.base_ref }}"
+          fetch-depth: 2
       - name: Diff against the pull request base
-        run: git diff "origin/${{ github.base_ref }}.." > "${RUNNER_TEMP}/pr.diff"
+        run: git diff HEAD^1 HEAD > "${RUNNER_TEMP}/pr.diff"
       - name: Install Rust
         uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
@@ -240,18 +275,21 @@ jobs:
       - name: Run cargo-mutants on the pull request diff
         env:
           CARGO_INCREMENTAL: 1
-        run: cargo mutants --no-shuffle -vV --in-place --in-diff "${RUNNER_TEMP}/pr.diff"
+        run: >-
+          cargo mutants --no-shuffle -vV --in-place
+          --in-diff "${RUNNER_TEMP}/pr.diff"
+          --shard "${{ matrix.shard }}/${{ strategy.job-total }}"
       - name: Archive mutants.out
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: mutants.out
+          name: mutants.out-${{ matrix.shard }}
           path: mutants.out
           if-no-files-found: ignore
 
   tests_pass:
     name: tests pass
-    needs: [changes, style, clippy, web, test, docs, audit, machete, helm, mutants]
+    needs: [changes, style, clippy, web, test, docs, audit, machete, helm, docker, mutants]
     if: always()
     runs-on: ubuntu-latest
     steps:

@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::topic_config::ConfigEntry;
 
@@ -38,7 +40,7 @@ impl std::fmt::Debug for ClusterStore {
 }
 
 impl ClusterStore {
-    pub fn new(identity: ClusterIdentity) -> Self {
+    pub fn new(identity: ClusterIdentity, interest_ttl: Duration) -> Self {
         Self {
             identity,
             topology: Lane::new(),
@@ -48,7 +50,7 @@ impl ClusterStore {
             subjects: Lane::new(),
             rates: RateStore::new(),
             bus: ChangeBus::new(),
-            interest: InterestRegistry::new(),
+            interest: InterestRegistry::new(interest_ttl),
         }
     }
 
@@ -260,13 +262,14 @@ mod tests {
     use super::*;
     use foldhash::HashMap;
 
+    use crate::config::IngestTuning;
     use crate::kafka::store::fixtures::{
         group, identity, offsets, partition, subject, topic, topology, watermarks,
     };
     use crate::kafka::store::tables::{GroupOffsets, Interner};
 
     fn seeded() -> ClusterStore {
-        let store = ClusterStore::new(identity("local"));
+        let store = ClusterStore::new(identity("local"), IngestTuning::default().interest_ttl);
         let topology = topology(
             vec![
                 topic("orders", vec![partition(0, vec![1], vec![1])]),
@@ -291,7 +294,7 @@ mod tests {
 
     #[test]
     fn an_empty_store_is_not_ready_and_projects_nothing() {
-        let store = ClusterStore::new(identity("local"));
+        let store = ClusterStore::new(identity("local"), IngestTuning::default().interest_ttl);
 
         assert!(!store.ready());
         assert!(store.topic_rows().is_empty());
