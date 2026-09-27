@@ -5,9 +5,8 @@ use std::sync::Arc;
 use bytes::Bytes;
 use foldhash::{HashMap, HashMapExt};
 use hmac::{Hmac, Mac};
-use regex::{Captures, Regex, RegexBuilder};
+use regex::{Captures, Regex};
 use sha2::Sha256;
-use thiserror::Error;
 
 use crate::config::{
     OBFUSCATION_MASK, ObfuscationConfig, ObfuscationStrategy, TopicPattern, UnparsedPolicy,
@@ -18,20 +17,6 @@ use super::payload::DecodedPayload;
 const TOKEN_PREFIX: &str = "kx:";
 
 const TOKEN_BYTES: usize = 8;
-
-const REGEX_SIZE_LIMIT: usize = 1024 * 1024;
-
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub enum ObfuscationError {
-    #[error("the hash strategy requires a secret")]
-    MissingSecret,
-    #[error("invalid topic '{pattern}': {reason}")]
-    InvalidTopic { pattern: String, reason: String },
-    #[error("invalid field path '{path}'")]
-    InvalidPath { path: String },
-    #[error("invalid pattern '{pattern}': {reason}")]
-    InvalidPattern { pattern: String, reason: String },
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Field {
@@ -46,37 +31,30 @@ pub struct ObfuscationPolicy {
 }
 
 impl ObfuscationPolicy {
-    pub fn compile(config: &ObfuscationConfig) -> Result<Self, ObfuscationError> {
-        let hasher = config
-            .secret
-            .as_ref()
-            .map(|secret| Arc::new(KeyedHasher::new(secret.as_bytes())));
-
+    pub fn compile(config: &ObfuscationConfig) -> Self {
         let mut exact: HashMap<Box<str>, Arc<TopicObfuscator>> = HashMap::new();
         let mut prefixes: Vec<(Box<str>, Arc<TopicObfuscator>)> = Vec::new();
 
         for rule in &config.rules {
-            let strategy = |strategy| CompiledStrategy::compile(strategy, hasher.as_ref());
-
-            let fields = rule
-                .fields
-                .iter()
-                .map(|field| CompiledField::compile(&field.path, strategy(field.strategy)?))
-                .collect::<Result<Vec<_>, _>>()?;
-
-            let patterns = rule
-                .patterns
-                .iter()
-                .map(|pattern| {
-                    CompiledPattern::compile(&pattern.regex, strategy(pattern.strategy)?)
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-
             let obfuscator = Arc::new(TopicObfuscator {
-                fields,
-                patterns,
-                key: rule.key.map(strategy).transpose()?,
-                value: rule.value.map(strategy).transpose()?,
+                fields: rule
+                    .fields
+                    .iter()
+                    .map(|field| CompiledField {
+                        path: field.path.segments().map(Box::from).collect(),
+                        strategy: CompiledStrategy::compile(&field.strategy),
+                    })
+                    .collect(),
+                patterns: rule
+                    .patterns
+                    .iter()
+                    .map(|pattern| CompiledPattern {
+                        regex: pattern.regex.as_regex().clone(),
+                        strategy: CompiledStrategy::compile(&pattern.strategy),
+                    })
+                    .collect(),
+                key: rule.key.as_ref().map(CompiledStrategy::compile),
+                value: rule.value.as_ref().map(CompiledStrategy::compile),
                 headers: rule
                     .headers
                     .iter()
@@ -86,25 +64,18 @@ impl ObfuscationPolicy {
             });
 
             for topic in &rule.topics {
-                match TopicPattern::parse(topic).map_err(|reason| {
-                    ObfuscationError::InvalidTopic {
-                        pattern: topic.clone(),
-                        reason,
-                    }
-                })? {
+                match topic {
                     TopicPattern::Exact(name) => {
-                        exact.insert(name.into(), Arc::clone(&obfuscator));
+                        exact.insert(name.as_str().into(), Arc::clone(&obfuscator));
                     }
                     TopicPattern::Prefix(prefix) => {
-                        prefixes.push((prefix.into(), Arc::clone(&obfuscator)));
+                        prefixes.push((prefix.as_str().into(), Arc::clone(&obfuscator)));
                     }
                 }
             }
         }
 
-        prefixes.sort_by_key(|(prefix, _)| std::cmp::Reverse(prefix.len()));
-
-        Ok(Self { exact, prefixes })
+        Self { exact, prefixes }
     }
 
     pub fn for_topic(&self, topic: &str) -> Option<Arc<TopicObfuscator>> {
@@ -212,22 +183,17 @@ impl TopicObfuscator {
 #[derive(Debug)]
 enum CompiledStrategy {
     Mask,
-    Hash(Arc<KeyedHasher>),
+    Hash(KeyedHasher),
     Drop,
 }
 
 impl CompiledStrategy {
-    fn compile(
-        strategy: ObfuscationStrategy,
-        hasher: Option<&Arc<KeyedHasher>>,
-    ) -> Result<Self, ObfuscationError> {
-        Ok(match strategy {
+    fn compile(strategy: &ObfuscationStrategy) -> Self {
+        match strategy {
             ObfuscationStrategy::Mask => Self::Mask,
             ObfuscationStrategy::Drop => Self::Drop,
-            ObfuscationStrategy::Hash => {
-                Self::Hash(Arc::clone(hasher.ok_or(ObfuscationError::MissingSecret)?))
-            }
-        })
+            ObfuscationStrategy::Hash(key) => Self::Hash(KeyedHasher::new(key.as_bytes())),
+        }
     }
 }
 
@@ -238,19 +204,6 @@ struct CompiledField {
 }
 
 impl CompiledField {
-    fn compile(path: &str, strategy: CompiledStrategy) -> Result<Self, ObfuscationError> {
-        if path.trim().is_empty() || path.split('.').any(str::is_empty) {
-            return Err(ObfuscationError::InvalidPath {
-                path: path.to_owned(),
-            });
-        }
-
-        Ok(Self {
-            path: path.split('.').map(Box::from).collect(),
-            strategy,
-        })
-    }
-
     fn apply(&self, json: &mut serde_json::Value) {
         walk(json, &self.path, &self.strategy);
     }
@@ -263,24 +216,6 @@ struct CompiledPattern {
 }
 
 impl CompiledPattern {
-    fn compile(source: &str, strategy: CompiledStrategy) -> Result<Self, ObfuscationError> {
-        let invalid = |reason: String| ObfuscationError::InvalidPattern {
-            pattern: source.to_owned(),
-            reason,
-        };
-
-        let regex = RegexBuilder::new(source)
-            .size_limit(REGEX_SIZE_LIMIT)
-            .build()
-            .map_err(|error| invalid(error.to_string()))?;
-
-        if regex.is_match("") {
-            return Err(invalid("it matches the empty string".to_owned()));
-        }
-
-        Ok(Self { regex, strategy })
-    }
-
     fn apply<'a>(&self, text: &'a str) -> Cow<'a, str> {
         match &self.strategy {
             CompiledStrategy::Mask => replace_literal(&self.regex, text, OBFUSCATION_MASK),
@@ -380,7 +315,7 @@ mod tests {
     }
 
     fn policy(yaml: &str) -> ObfuscationPolicy {
-        ObfuscationPolicy::compile(&config(yaml)).expect("compiled policy")
+        ObfuscationPolicy::compile(&config(yaml))
     }
 
     fn payments() -> ObfuscationPolicy {
@@ -876,57 +811,6 @@ mod tests {
     }
 
     #[test]
-    fn a_pattern_that_does_not_compile_does_not_compile_the_policy() {
-        let error = ObfuscationPolicy::compile(&config(
-            "
-            rules:
-              - topics: ['app.logs']
-                patterns:
-                  - regex: '[unclosed'
-                    strategy: mask
-            ",
-        ))
-        .unwrap_err();
-
-        assert!(matches!(error, ObfuscationError::InvalidPattern { .. }));
-    }
-
-    #[test]
-    fn a_pattern_that_matches_everywhere_at_once_does_not_compile() {
-        let error = ObfuscationPolicy::compile(&config(
-            r"
-            rules:
-              - topics: ['app.logs']
-                patterns:
-                  - regex: '\d*'
-                    strategy: mask
-            ",
-        ))
-        .unwrap_err();
-
-        assert_eq!(
-            error.to_string(),
-            r"invalid pattern '\d*': it matches the empty string"
-        );
-    }
-
-    #[test]
-    fn hashing_in_a_pattern_without_a_secret_does_not_compile() {
-        let error = ObfuscationPolicy::compile(&config(
-            r"
-            rules:
-              - topics: ['app.logs']
-                patterns:
-                  - regex: '\d{13,19}'
-                    strategy: hash
-            ",
-        ))
-        .unwrap_err();
-
-        assert_eq!(error, ObfuscationError::MissingSecret);
-    }
-
-    #[test]
     fn topics_match_exactly_or_by_prefix_and_nothing_else() {
         let policy = policy(
             "
@@ -941,87 +825,6 @@ mod tests {
         assert!(policy.for_topic("audit.raw").is_some());
         assert!(policy.for_topic("audit.rawer").is_none());
         assert!(policy.for_topic("orders.created").is_none());
-    }
-
-    #[test]
-    fn the_longest_matching_prefix_wins() {
-        let policy = policy(
-            "
-            rules:
-              - topics: ['payments.*']
-                value: mask
-              - topics: ['payments.eu.*']
-                value: drop
-            ",
-        );
-
-        let mut value = raw("body");
-        policy
-            .for_topic("payments.eu.cards")
-            .expect("rule")
-            .apply(Field::Value, &mut value);
-
-        assert!(value.is_none(), "the eu rule, not the payments rule");
-    }
-
-    #[test]
-    fn hashing_without_a_secret_does_not_compile() {
-        let error = ObfuscationPolicy::compile(&config(
-            "
-            rules:
-              - topics: [payments]
-                fields:
-                  - path: card.number
-                    strategy: hash
-            ",
-        ))
-        .unwrap_err();
-
-        assert_eq!(error, ObfuscationError::MissingSecret);
-    }
-
-    #[test]
-    fn hashing_a_whole_field_without_a_secret_does_not_compile() {
-        let error = ObfuscationPolicy::compile(&config(
-            "
-            rules:
-              - topics: [payments]
-                key: hash
-            ",
-        ))
-        .unwrap_err();
-
-        assert_eq!(error, ObfuscationError::MissingSecret);
-    }
-
-    #[test]
-    fn empty_path_segments_do_not_compile() {
-        let error = ObfuscationPolicy::compile(&config(
-            "
-            rules:
-              - topics: [payments]
-                fields:
-                  - path: card..number
-                    strategy: mask
-            ",
-        ))
-        .unwrap_err();
-
-        assert!(matches!(error, ObfuscationError::InvalidPath { .. }));
-    }
-
-    #[test]
-    fn a_star_in_the_middle_of_a_topic_does_not_compile() {
-        let error = ObfuscationPolicy::compile(&config(
-            "
-            rules:
-              - topics: ['pay*ments']
-                value: mask
-            ",
-        ))
-        .unwrap_err();
-
-        assert!(matches!(error, ObfuscationError::InvalidTopic { .. }));
     }
 
     #[test]

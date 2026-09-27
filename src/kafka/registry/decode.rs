@@ -416,9 +416,8 @@ mod tests {
 
     fn config(url: &str) -> SchemaRegistryConfig {
         SchemaRegistryConfig {
-            url: url.to_owned(),
-            username: None,
-            password: None,
+            url: url.parse().unwrap(),
+            auth: None,
         }
     }
 

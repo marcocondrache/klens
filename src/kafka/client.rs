@@ -70,15 +70,7 @@ impl KafkaClient {
         let obfuscation = config
             .obfuscation
             .as_ref()
-            .map(|rules| {
-                ObfuscationPolicy::compile(rules)
-                    .map(Arc::new)
-                    .map_err(|error| KafkaError::Obfuscation {
-                        cluster: identity.name.clone(),
-                        message: error.to_string(),
-                    })
-            })
-            .transpose()?;
+            .map(|rules| Arc::new(ObfuscationPolicy::compile(rules)));
 
         let transport = transport::connect(config).await?;
 
@@ -476,9 +468,9 @@ mod tests {
     async fn broker_io_is_bounded_by_the_configured_request_timeout() {
         let broker = krafka::testing::FakeBroker::start().await.unwrap();
         let client = KafkaClient::new(&ClusterConfig {
-            name: "test".into(),
+            name: "test".parse().unwrap(),
             bootstrap_servers: vec![broker.bootstrap_servers()],
-            security: None,
+            security: Default::default(),
             schema_registry: None,
             obfuscation: None,
             properties: crate::config::KafkaProperties {
@@ -888,9 +880,9 @@ mod tests {
 
     pub(super) async fn kafka_client(bootstrap: &str) -> KafkaClient {
         KafkaClient::new(&ClusterConfig {
-            name: "test".into(),
+            name: "test".parse().unwrap(),
             bootstrap_servers: vec![bootstrap.to_owned()],
-            security: None,
+            security: Default::default(),
             schema_registry: None,
             obfuscation: None,
             properties: Default::default(),

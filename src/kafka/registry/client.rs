@@ -35,8 +35,8 @@ impl SchemaRegistryClient {
             .request_timeout(*SCHEMA_REGISTRY_TIMEOUT)
             .retry_policy(RetryPolicy::none());
 
-        if let (Some(username), Some(password)) = (&config.username, &config.password) {
-            builder = builder.basic_auth(username, password.expose_secret());
+        if let Some(auth) = &config.auth {
+            builder = builder.basic_auth(&auth.username, auth.password.expose_secret());
         }
 
         let inner = builder
@@ -208,15 +208,15 @@ pub(crate) fn references(references: &[schemreg::SchemaReference]) -> Vec<Schema
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::BasicAuth;
     use crate::kafka::model::SchemaType;
     use wiremock::matchers::{method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn config(url: &str) -> SchemaRegistryConfig {
         SchemaRegistryConfig {
-            url: url.to_owned(),
-            username: None,
-            password: None,
+            url: url.parse().unwrap(),
+            auth: None,
         }
     }
 
@@ -492,9 +492,11 @@ mod tests {
         let client = SchemaRegistryClient::new(
             "local",
             &SchemaRegistryConfig {
-                url: server.uri(),
-                username: Some("user".into()),
-                password: Some("secret".into()),
+                url: server.uri().parse().unwrap(),
+                auth: Some(BasicAuth {
+                    username: "user".into(),
+                    password: "secret".into(),
+                }),
             },
         )
         .unwrap();

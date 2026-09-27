@@ -6,7 +6,7 @@ use krafka::client::KrafkaClient as KrafkaSharedClient;
 use krafka::network::TransportConfig;
 use secrecy::ExposeSecret;
 
-use crate::config::{ClusterConfig, SaslMechanism, SecurityConfig, SecurityProtocol, TlsConfig};
+use crate::config::{ClusterConfig, SaslConfig, SaslMechanism, SecurityConfig, TlsConfig};
 use crate::environment::{
     CLIENT_ID_PREFIX, MAX_IN_FLIGHT_REQUESTS, MAX_RESPONSE_BYTES, REQUEST_TIMEOUT,
     SOCKET_CONNECTION_SETUP_TIMEOUT_MS,
@@ -57,7 +57,7 @@ impl Connector {
                 .max_response_size(*MAX_RESPONSE_BYTES)
                 .tcp_nodelay(true)
                 .build()?,
-            auth: krafka_auth(config)?,
+            auth: krafka_auth(&config.security)?,
         })
     }
 
@@ -93,33 +93,16 @@ pub(super) async fn connect(config: &ClusterConfig) -> Result<Transport, KafkaEr
     })
 }
 
-fn krafka_auth(cluster: &ClusterConfig) -> Result<Option<AuthConfig>, KafkaError> {
-    let Some(security) = &cluster.security else {
-        return Ok(None);
-    };
-
-    Ok(Some(match security.protocol {
-        SecurityProtocol::Plaintext => return Ok(None),
-        SecurityProtocol::Ssl => AuthConfig::ssl(krafka_tls(security.tls.as_ref())),
-        SecurityProtocol::SaslPlaintext => krafka_sasl(cluster, security, None)?,
-        SecurityProtocol::SaslSsl => {
-            krafka_sasl(cluster, security, Some(krafka_tls(security.tls.as_ref())))?
-        }
-    }))
+fn krafka_auth(security: &SecurityConfig) -> Result<Option<AuthConfig>, KafkaError> {
+    Ok(match security {
+        SecurityConfig::Plaintext {} => None,
+        SecurityConfig::Ssl { tls } => Some(AuthConfig::ssl(krafka_tls(tls))),
+        SecurityConfig::SaslPlaintext { sasl } => Some(krafka_sasl(sasl, None)?),
+        SecurityConfig::SaslSsl { sasl, tls } => Some(krafka_sasl(sasl, Some(krafka_tls(tls)))?),
+    })
 }
 
-fn krafka_sasl(
-    cluster: &ClusterConfig,
-    security: &SecurityConfig,
-    tls: Option<KrafkaTlsConfig>,
-) -> Result<AuthConfig, KafkaError> {
-    let sasl = security.sasl.as_ref().ok_or_else(|| {
-        KafkaError::Admin(format!(
-            "cluster '{}' sets a SASL security protocol with no sasl block",
-            cluster.name
-        ))
-    })?;
-
+fn krafka_sasl(sasl: &SaslConfig, tls: Option<KrafkaTlsConfig>) -> Result<AuthConfig, KafkaError> {
     Ok(match (sasl.mechanism, tls) {
         (SaslMechanism::Plain, None) => {
             AuthConfig::sasl_plain(&sasl.username, sasl.password.expose_secret())?
@@ -142,8 +125,7 @@ fn krafka_sasl(
     })
 }
 
-fn krafka_tls(tls: Option<&TlsConfig>) -> KrafkaTlsConfig {
-    let tls = tls.cloned().unwrap_or_default();
+fn krafka_tls(tls: &TlsConfig) -> KrafkaTlsConfig {
     let mut krafka_tls = if tls.insecure_skip_verify {
         KrafkaTlsConfig::insecure()
     } else {
@@ -154,8 +136,9 @@ fn krafka_tls(tls: Option<&TlsConfig>) -> KrafkaTlsConfig {
         krafka_tls = krafka_tls.with_ca_cert(ca_cert.to_string_lossy());
     }
 
-    if let (Some(cert), Some(key)) = (&tls.client_cert, &tls.client_key) {
-        krafka_tls = krafka_tls.with_client_cert(cert.to_string_lossy(), key.to_string_lossy());
+    if let Some(client) = &tls.client_cert {
+        krafka_tls = krafka_tls
+            .with_client_cert(client.cert.to_string_lossy(), client.key.to_string_lossy());
     }
 
     krafka_tls
@@ -199,6 +182,20 @@ mod tests {
     }
 
     #[test]
+    fn the_default_client_id_uses_the_trimmed_cluster_name() {
+        let cluster = cluster(
+            "
+            name: '  local  '
+            bootstrap_servers:
+              - localhost:9092
+            ",
+        );
+
+        let connector = Connector::new(&cluster).unwrap();
+        assert_eq!(connector.client_id, "klens-local");
+    }
+
+    #[test]
     fn krafka_auth_is_none_for_plaintext() {
         let cluster = cluster(
             "
@@ -208,7 +205,7 @@ mod tests {
             ",
         );
 
-        assert!(krafka_auth(&cluster).unwrap().is_none());
+        assert!(krafka_auth(&cluster.security).unwrap().is_none());
     }
 
     #[test]
@@ -232,7 +229,9 @@ mod tests {
             ",
         );
 
-        let auth = krafka_auth(&cluster).unwrap().expect("sasl ssl auth");
+        let auth = krafka_auth(&cluster.security)
+            .unwrap()
+            .expect("sasl ssl auth");
 
         assert_eq!(
             auth.sasl_mechanism(),
@@ -263,27 +262,11 @@ mod tests {
             ",
         );
 
-        let auth = krafka_auth(&cluster).unwrap().expect("ssl auth");
+        let auth = krafka_auth(&cluster.security).unwrap().expect("ssl auth");
         assert_eq!(auth.sasl_mechanism(), None);
         assert_eq!(
             auth.tls_config().and_then(|tls| tls.ca_cert_path()),
             Some("/etc/ca.pem")
         );
-    }
-
-    #[test]
-    fn krafka_auth_rejects_sasl_protocol_without_sasl_block() {
-        let cluster = cluster(
-            "
-            name: broken
-            bootstrap_servers:
-              - broker:9092
-            security:
-              protocol: SASL_PLAINTEXT
-            ",
-        );
-
-        let error = krafka_auth(&cluster).unwrap_err();
-        assert!(matches!(error, KafkaError::Admin(_)));
     }
 }

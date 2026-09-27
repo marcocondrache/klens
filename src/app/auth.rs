@@ -875,12 +875,12 @@ mod tests {
     fn bound(role: &str, privileges: &[crate::config::PrivilegeName], group: &str) -> AccessPolicy {
         AccessPolicy::from_roles(Some(&crate::config::RolesConfig {
             claim: "groups".into(),
-            definitions: [(role.to_owned(), privileges.to_vec())]
-                .into_iter()
-                .collect(),
             bindings: vec![crate::config::RoleBinding {
                 groups: vec![group.to_owned()],
-                role: role.to_owned(),
+                role: crate::config::Role {
+                    name: role.to_owned(),
+                    privileges: privileges.to_vec(),
+                },
                 clusters: None,
             }],
         }))

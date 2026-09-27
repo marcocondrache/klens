@@ -160,9 +160,9 @@ mod tests {
 
     async fn client(broker: &FakeBroker) -> KafkaClient {
         KafkaClient::new(&crate::config::ClusterConfig {
-            name: "test".into(),
+            name: "test".parse().unwrap(),
             bootstrap_servers: vec![broker.bootstrap_servers()],
-            security: None,
+            security: Default::default(),
             schema_registry: None,
             obfuscation: None,
             properties: Default::default(),

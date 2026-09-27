@@ -23,13 +23,9 @@ pub struct ClusterIdentity {
 impl From<&ClusterConfig> for ClusterIdentity {
     fn from(config: &ClusterConfig) -> Self {
         Self {
-            name: config.name.trim().to_owned(),
+            name: config.name.to_string(),
             bootstrap_servers: config.bootstrap_servers.clone(),
-            security_protocol: config
-                .security
-                .as_ref()
-                .map(|security| security.protocol)
-                .unwrap_or(SecurityProtocol::Plaintext),
+            security_protocol: config.security.protocol(),
         }
     }
 }
@@ -141,9 +137,9 @@ mod tests {
 
     fn cluster_config(name: &str) -> ClusterConfig {
         ClusterConfig {
-            name: name.to_owned(),
+            name: name.parse().unwrap(),
             bootstrap_servers: vec!["localhost:9092".to_owned()],
-            security: None,
+            security: Default::default(),
             schema_registry: None,
             obfuscation: None,
             properties: Default::default(),

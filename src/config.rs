@@ -2,11 +2,17 @@ use std::collections::{BTreeMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
+use std::sync::Arc;
 
+use openidconnect::{IssuerUrl, RedirectUrl};
+use regex::{Regex, RegexBuilder};
 use secrecy::{ExposeSecret, SecretString};
-use serde::de::{self, MapAccess, Visitor, value::MapAccessDeserializer};
+use serde::de::value::{MapAccessDeserializer, SeqAccessDeserializer, StrDeserializer};
+use serde::de::{self, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer};
 use thiserror::Error;
+use url::Url;
 
 use crate::environment;
 
@@ -26,20 +32,12 @@ pub enum ConfigError {
     },
     #[error("invalid configuration for cluster '{cluster}': {reason}")]
     InvalidCluster { cluster: String, reason: String },
-    #[error("invalid authentication configuration: {reason}")]
-    InvalidAuth { reason: String },
 }
 
 impl ConfigError {
     pub(crate) fn invalid_cluster(cluster: impl Into<String>, reason: impl Into<String>) -> Self {
         Self::InvalidCluster {
             cluster: cluster.into(),
-            reason: reason.into(),
-        }
-    }
-
-    pub(crate) fn invalid_auth(reason: impl Into<String>) -> Self {
-        Self::InvalidAuth {
             reason: reason.into(),
         }
     }
@@ -52,7 +50,7 @@ pub struct Config {
     pub bind: SocketAddr,
     #[serde(default = "default_log_level")]
     pub log_level: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "unique_clusters")]
     pub clusters: Vec<ClusterConfig>,
     #[serde(default)]
     pub auth: Option<AuthConfig>,
@@ -86,36 +84,127 @@ impl Config {
     }
 
     fn parse(path: &Path, raw: &str) -> Result<Self, ConfigError> {
-        let config: Self = serde_yaml_ng::from_str(raw).map_err(|source| ConfigError::Parse {
+        serde_yaml_ng::from_str(raw).map_err(|source| ConfigError::Parse {
             path: path.to_owned(),
             source,
-        })?;
+        })
+    }
+}
 
-        config.validate()?;
-        Ok(config)
+fn unique_clusters<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Vec<ClusterConfig>, D::Error> {
+    deserializer.deserialize_seq(Checked::new(
+        "a list of clusters",
+        |clusters: Vec<ClusterConfig>| {
+            let mut seen = HashSet::with_capacity(clusters.len());
+            if let Some(duplicate) = clusters.iter().find(|cluster| !seen.insert(&cluster.name)) {
+                return Err(format!("duplicate cluster name '{}'", duplicate.name));
+            }
+            Ok(clusters)
+        },
+    ))
+}
+
+/// Converts `Raw` into `T` inside the visitor. serde_yaml_ng gives an error
+/// the path and line of the value whose deserializer is running when it is
+/// raised, so a check run after `Raw::deserialize` returns would report the
+/// parent's location instead.
+struct Checked<Raw, T> {
+    expecting: &'static str,
+    convert: fn(Raw) -> Result<T, String>,
+}
+
+impl<Raw, T> Checked<Raw, T> {
+    fn new(expecting: &'static str, convert: fn(Raw) -> Result<T, String>) -> Self {
+        Self { expecting, convert }
+    }
+}
+
+impl<'de, Raw: Deserialize<'de>, T> Visitor<'de> for Checked<Raw, T> {
+    type Value = T;
+
+    fn expecting(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.expecting)
     }
 
-    pub fn validate(&self) -> Result<(), ConfigError> {
-        if let Some(auth) = &self.auth {
-            auth.oidc.validate()?;
-            if let Some(roles) = &auth.roles {
-                roles.validate()?;
-            }
-        }
-
-        let mut seen = HashSet::with_capacity(self.clusters.len());
-
-        for cluster in &self.clusters {
-            cluster.validate()?;
-
-            let name = cluster.name.trim().to_owned();
-            if !seen.insert(name.clone()) {
-                return Err(ConfigError::invalid_cluster(name, "duplicate cluster name"));
-            }
-        }
-
-        Ok(())
+    fn visit_str<E: de::Error>(self, value: &str) -> Result<T, E> {
+        let raw = Raw::deserialize(StrDeserializer::<E>::new(value))?;
+        (self.convert)(raw).map_err(E::custom)
     }
+
+    fn visit_seq<A: SeqAccess<'de>>(self, seq: A) -> Result<T, A::Error> {
+        let raw = Raw::deserialize(SeqAccessDeserializer::new(seq))?;
+        (self.convert)(raw).map_err(de::Error::custom)
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<T, A::Error> {
+        let raw = Raw::deserialize(MapAccessDeserializer::new(map))?;
+        (self.convert)(raw).map_err(de::Error::custom)
+    }
+}
+
+const EMPTY: &str = "must not be empty";
+
+const EMPTY_VALUES: &str = "must not contain empty values";
+
+/// Deserializes a map-shaped `T` inside a visitor, for an internally tagged
+/// enum whose variant is built from buffered content after its own
+/// deserializer has returned.
+fn in_place<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
+    deserializer: D,
+) -> Result<T, D::Error> {
+    deserializer.deserialize_map(Checked::new("a map", Ok))
+}
+
+fn non_empty<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    deserializer.deserialize_seq(Checked::new("a non-empty list", |items: Vec<T>| {
+        if items.is_empty() {
+            return Err(EMPTY.to_owned());
+        }
+        Ok(items)
+    }))
+}
+
+fn non_blank<'de, D: Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    deserializer.deserialize_str(Checked::new("a string", |value: String| {
+        if value.trim().is_empty() {
+            return Err(EMPTY.to_owned());
+        }
+        Ok(value)
+    }))
+}
+
+fn non_blank_items<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<String>, D::Error> {
+    deserializer.deserialize_seq(Checked::new("a list of strings", |items: Vec<String>| {
+        if items.iter().any(|item| item.trim().is_empty()) {
+            return Err(EMPTY_VALUES.to_owned());
+        }
+        Ok(items)
+    }))
+}
+
+fn names<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<String>, D::Error> {
+    deserializer.deserialize_seq(Checked::new(
+        "a non-empty list of names",
+        |names: Vec<String>| {
+            if names.is_empty() {
+                return Err(EMPTY.to_owned());
+            }
+            if names.iter().any(|name| name.trim().is_empty()) {
+                return Err(EMPTY_VALUES.to_owned());
+            }
+            Ok(names)
+        },
+    ))
+}
+
+fn some_names<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Vec<String>>, D::Error> {
+    names(deserializer).map(Some)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -132,28 +221,124 @@ pub struct AuthConfig {
 
 const MAX_ROLE_DEFINITIONS: usize = 64;
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RolesConfig {
-    #[serde(default = "default_groups_claim")]
     pub claim: String,
-    /// Role name to the privileges it grants. An empty list is valid and
-    /// means the bound clusters are visible but nothing privileged is.
-    pub definitions: BTreeMap<String, Vec<PrivilegeName>>,
     pub bindings: Vec<RoleBinding>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoleBinding {
+    pub groups: Vec<String>,
+    pub role: Role,
+    pub clusters: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Role {
+    pub name: String,
+    pub privileges: Vec<PrivilegeName>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawRolesConfig {
+    #[serde(default = "default_groups_claim", deserialize_with = "non_blank")]
+    claim: String,
+    #[serde(deserialize_with = "role_definitions")]
+    definitions: BTreeMap<String, Vec<PrivilegeName>>,
+    #[serde(deserialize_with = "non_empty")]
+    bindings: Vec<RawRoleBinding>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawRoleBinding {
+    #[serde(deserialize_with = "names")]
+    groups: Vec<String>,
+    role: String,
+    #[serde(default, deserialize_with = "some_names")]
+    clusters: Option<Vec<String>>,
 }
 
 pub fn default_groups_claim() -> String {
     "groups".to_owned()
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RoleBinding {
-    pub groups: Vec<String>,
-    pub role: String,
-    #[serde(default)]
-    pub clusters: Option<Vec<String>>,
+impl<'de> Deserialize<'de> for RolesConfig {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_map(Checked::new("role settings", Self::from_raw))
+    }
+}
+
+impl RolesConfig {
+    fn from_raw(raw: RawRolesConfig) -> Result<Self, String> {
+        let bindings = raw
+            .bindings
+            .into_iter()
+            .map(|binding| binding.resolve(&raw.definitions))
+            .collect::<Result<_, _>>()?;
+
+        Ok(Self {
+            claim: raw.claim,
+            bindings,
+        })
+    }
+}
+
+impl RawRoleBinding {
+    fn resolve(
+        self,
+        definitions: &BTreeMap<String, Vec<PrivilegeName>>,
+    ) -> Result<RoleBinding, String> {
+        let privileges = definitions
+            .get(&self.role)
+            .ok_or_else(|| format!("binding references unknown role '{}'", self.role))?;
+
+        Ok(RoleBinding {
+            groups: self.groups,
+            role: Role {
+                privileges: privileges.clone(),
+                name: self.role,
+            },
+            clusters: self.clusters,
+        })
+    }
+}
+
+fn role_definitions<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<BTreeMap<String, Vec<PrivilegeName>>, D::Error> {
+    deserializer.deserialize_map(Checked::new(
+        "a map of role names to privileges",
+        |definitions: BTreeMap<String, Vec<PrivilegeName>>| {
+            if definitions.is_empty() {
+                return Err(EMPTY.to_owned());
+            }
+
+            if definitions.len() > MAX_ROLE_DEFINITIONS {
+                return Err(format!(
+                    "too many role definitions (at most {MAX_ROLE_DEFINITIONS})"
+                ));
+            }
+
+            for (role, privileges) in &definitions {
+                if role.trim().is_empty() {
+                    return Err("role definition name must not be empty".to_owned());
+                }
+
+                let mut seen = HashSet::with_capacity(privileges.len());
+                if let Some(repeated) = privileges
+                    .iter()
+                    .find(|privilege| !seen.insert(**privilege))
+                {
+                    return Err(format!("role '{role}' lists '{repeated}' more than once"));
+                }
+            }
+
+            Ok(definitions)
+        },
+    ))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
@@ -182,76 +367,20 @@ impl Display for PrivilegeName {
     }
 }
 
-impl RolesConfig {
-    fn validate(&self) -> Result<(), ConfigError> {
-        let fail = |reason: &str| Err(ConfigError::invalid_auth(reason));
-
-        if self.claim.trim().is_empty() {
-            return fail("roles claim must not be empty");
-        }
-
-        if self.definitions.is_empty() {
-            return fail("roles definitions must not be empty");
-        }
-
-        if self.definitions.len() > MAX_ROLE_DEFINITIONS {
-            return fail(&format!(
-                "too many role definitions (at most {MAX_ROLE_DEFINITIONS})"
-            ));
-        }
-
-        for (role, privileges) in &self.definitions {
-            if role.trim().is_empty() {
-                return fail("role definition name must not be empty");
-            }
-
-            let mut seen = HashSet::with_capacity(privileges.len());
-            for privilege in privileges {
-                if !seen.insert(privilege) {
-                    return fail(&format!("role '{role}' lists '{privilege}' more than once"));
-                }
-            }
-        }
-
-        if self.bindings.is_empty() {
-            return fail("roles bindings must not be empty");
-        }
-
-        for binding in &self.bindings {
-            if !self.definitions.contains_key(&binding.role) {
-                return fail(&format!(
-                    "roles binding references unknown role '{}'",
-                    binding.role
-                ));
-            }
-            if binding.groups.is_empty() {
-                return fail("roles binding groups must not be empty");
-            }
-            if binding.groups.iter().any(|group| group.trim().is_empty()) {
-                return fail("roles binding groups must not contain empty values");
-            }
-            if let Some(clusters) = &binding.clusters {
-                if clusters.is_empty() {
-                    return fail("roles binding clusters must not be empty when set");
-                }
-                if clusters.iter().any(|cluster| cluster.trim().is_empty()) {
-                    return fail("roles binding clusters must not contain empty values");
-                }
-            }
-        }
-
-        Ok(())
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OidcConfig {
-    pub issuer: String,
+    /// Kept as written: discovery compares the provider's issuer to this text
+    /// byte for byte, and `Url` would append a slash to a bare host.
+    #[serde(deserialize_with = "issuer_url")]
+    pub issuer: IssuerUrl,
+    #[serde(deserialize_with = "non_blank")]
     pub client_id: String,
+    #[serde(deserialize_with = "non_blank_secret")]
     pub client_secret: Secret,
-    pub redirect_uri: String,
-    #[serde(default = "default_scopes")]
+    #[serde(deserialize_with = "redirect_url")]
+    pub redirect_uri: RedirectUrl,
+    #[serde(default = "default_scopes", deserialize_with = "non_blank_items")]
     pub scopes: Vec<String>,
     #[serde(default)]
     pub cookie_secure: Option<bool>,
@@ -266,11 +395,8 @@ fn default_scopes() -> Vec<String> {
 
 impl OidcConfig {
     pub fn cookie_secure(&self) -> bool {
-        self.cookie_secure.unwrap_or_else(|| {
-            url::Url::parse(&self.redirect_uri)
-                .map(|parsed| parsed.scheme() == "https")
-                .unwrap_or(false)
-        })
+        self.cookie_secure
+            .unwrap_or_else(|| self.redirect_uri.url().scheme() == "https")
     }
 
     pub fn effective_scopes(&self) -> Vec<String> {
@@ -280,68 +406,71 @@ impl OidcConfig {
         }
         scopes
     }
-
-    fn validate(&self) -> Result<(), ConfigError> {
-        let fail = |reason: &str| Err(ConfigError::invalid_auth(reason));
-
-        if self.client_id.trim().is_empty() {
-            return fail("oidc client_id must not be empty");
-        }
-
-        if self.client_secret.expose_secret().trim().is_empty() {
-            return fail("oidc client_secret must not be empty");
-        }
-
-        validate_http_url("issuer", &self.issuer)?;
-        validate_http_url("redirect_uri", &self.redirect_uri)?;
-
-        if self.scopes.iter().any(|scope| scope.trim().is_empty()) {
-            return fail("oidc scopes must not contain empty values");
-        }
-
-        Ok(())
-    }
 }
 
-fn parse_http_url(field: &str, value: &str) -> Result<(), String> {
-    let parsed =
-        url::Url::parse(value).map_err(|error| format!("{field} is not a valid URL: {error}"))?;
+const HTTP_URL: &str = "an http or https URL";
+
+fn parse_http_url(value: &str) -> Result<Url, String> {
+    let parsed = Url::parse(value).map_err(|error| format!("not a valid URL: {error}"))?;
 
     if parsed.scheme() != "http" && parsed.scheme() != "https" {
-        return Err(format!("{field} must be an http or https URL"));
+        return Err("must be an http or https URL".to_owned());
     }
 
     if parsed.host_str().is_none() {
-        return Err(format!("{field} must include a host"));
+        return Err("must include a host".to_owned());
     }
 
-    Ok(())
+    Ok(parsed)
 }
 
-fn validate_http_url(field: &str, value: &str) -> Result<(), ConfigError> {
-    parse_http_url(&format!("oidc {field}"), value).map_err(ConfigError::invalid_auth)
+fn http_url<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Url, D::Error> {
+    deserializer.deserialize_str(Checked::new(HTTP_URL, |raw: String| parse_http_url(&raw)))
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
+fn issuer_url<'de, D: Deserializer<'de>>(deserializer: D) -> Result<IssuerUrl, D::Error> {
+    deserializer.deserialize_str(Checked::new(HTTP_URL, |raw: String| {
+        parse_http_url(&raw)?;
+        IssuerUrl::new(raw).map_err(|error| error.to_string())
+    }))
+}
+
+fn redirect_url<'de, D: Deserializer<'de>>(deserializer: D) -> Result<RedirectUrl, D::Error> {
+    deserializer.deserialize_str(Checked::new(HTTP_URL, |raw: String| {
+        parse_http_url(&raw)?;
+        RedirectUrl::new(raw).map_err(|error| error.to_string())
+    }))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClusterConfig {
-    pub name: String,
+    pub name: ClusterName,
     pub bootstrap_servers: Vec<String>,
-    #[serde(default)]
-    pub security: Option<SecurityConfig>,
-    #[serde(default)]
+    pub security: SecurityConfig,
     pub schema_registry: Option<SchemaRegistryConfig>,
-    #[serde(default)]
     pub obfuscation: Option<ObfuscationConfig>,
-    #[serde(default)]
     pub properties: KafkaProperties,
-    #[serde(default)]
     pub ingest: ClusterIngestConfig,
 }
 
-/// Per-cluster ingest cadence, in seconds. Omitted keys use the defaults.
-///
-/// Values must be at least 1; sub-second polling is rejected at load.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawClusterConfig {
+    name: ClusterName,
+    #[serde(deserialize_with = "non_empty")]
+    bootstrap_servers: Vec<String>,
+    #[serde(default, deserialize_with = "in_place")]
+    security: SecurityConfig,
+    #[serde(default)]
+    schema_registry: Option<SchemaRegistryConfig>,
+    #[serde(default)]
+    obfuscation: Option<ObfuscationConfig>,
+    #[serde(default)]
+    properties: KafkaProperties,
+    #[serde(default)]
+    ingest: ClusterIngestConfig,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ClusterIngestConfig {
@@ -401,88 +530,109 @@ pub struct KafkaProperties {
     pub connect_timeout_ms: Option<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SchemaRegistryConfig {
-    pub url: String,
+    pub url: Url,
+    pub auth: Option<BasicAuth>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BasicAuth {
+    pub username: String,
+    pub password: Secret,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawSchemaRegistryConfig {
+    #[serde(deserialize_with = "http_url")]
+    url: Url,
     #[serde(default)]
-    pub username: Option<String>,
+    username: Option<String>,
     #[serde(default)]
-    pub password: Option<Secret>,
+    password: Option<Secret>,
+}
+
+impl<'de> Deserialize<'de> for SchemaRegistryConfig {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_map(Checked::new("schema registry settings", Self::from_raw))
+    }
 }
 
 impl SchemaRegistryConfig {
-    fn validate(&self, cluster: &str) -> Result<(), ConfigError> {
-        let fail = |reason: &str| Err(ConfigError::invalid_cluster(cluster, reason));
+    fn from_raw(raw: RawSchemaRegistryConfig) -> Result<Self, String> {
+        let auth = match (raw.username, raw.password) {
+            (None, None) => None,
+            (Some(username), Some(password)) => {
+                if username.trim().is_empty() {
+                    return Err("username must not be empty".to_owned());
+                }
+                if password.expose_secret().is_empty() {
+                    return Err("password must not be empty".to_owned());
+                }
+                Some(BasicAuth { username, password })
+            }
+            _ => return Err("username and password must be set together".to_owned()),
+        };
 
-        parse_http_url("schema_registry.url", &self.url)
-            .map_err(|reason| ConfigError::invalid_cluster(cluster, reason))?;
+        Ok(Self { url: raw.url, auth })
+    }
+}
 
-        let has_user = self
-            .username
-            .as_ref()
-            .is_some_and(|username| !username.trim().is_empty());
-        let has_pass = self
-            .password
-            .as_ref()
-            .is_some_and(|password| !password.expose_secret().is_empty());
-
-        if has_user != has_pass {
-            return fail("schema_registry username and password must be set together");
-        }
-
-        if self
-            .username
-            .as_ref()
-            .is_some_and(|username| username.trim().is_empty())
-        {
-            return fail("schema_registry username must not be empty");
-        }
-
-        Ok(())
+impl<'de> Deserialize<'de> for ClusterConfig {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_map(Checked::new("cluster settings", Self::from_raw))
     }
 }
 
 impl ClusterConfig {
-    pub fn validate(&self) -> Result<(), ConfigError> {
-        let fail = |reason: &str| Err(ConfigError::invalid_cluster(self.name.clone(), reason));
+    fn from_raw(raw: RawClusterConfig) -> Result<Self, String> {
+        raw.ingest
+            .validate(raw.name.as_str())
+            .map_err(|error| error.to_string())?;
 
-        if self.name.trim().is_empty() {
-            return fail("name must not be empty");
+        Ok(Self {
+            name: raw.name,
+            bootstrap_servers: raw.bootstrap_servers,
+            security: raw.security,
+            schema_registry: raw.schema_registry,
+            obfuscation: raw.obfuscation,
+            properties: raw.properties,
+            ingest: raw.ingest,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ClusterName(String);
+
+impl ClusterName {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl FromStr for ClusterName {
+    type Err = String;
+
+    fn from_str(raw: &str) -> Result<Self, String> {
+        let name = raw.trim();
+        if name.is_empty() {
+            return Err(EMPTY.to_owned());
         }
+        Ok(Self(name.to_owned()))
+    }
+}
 
-        if self.bootstrap_servers.is_empty() {
-            return fail("bootstrap_servers must not be empty");
-        }
+impl Display for ClusterName {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
 
-        if let Some(security) = &self.security {
-            let needs_sasl = matches!(
-                security.protocol,
-                SecurityProtocol::SaslPlaintext | SecurityProtocol::SaslSsl
-            );
-
-            if needs_sasl && security.sasl.is_none() {
-                return fail("sasl settings are required for SASL protocols");
-            }
-
-            if let Some(tls) = &security.tls
-                && tls.client_cert.is_some() != tls.client_key.is_some()
-            {
-                return fail("client_cert and client_key must be set together");
-            }
-        }
-
-        if let Some(schema_registry) = &self.schema_registry {
-            schema_registry.validate(&self.name)?;
-        }
-
-        if let Some(obfuscation) = &self.obfuscation {
-            obfuscation.validate(&self.name)?;
-        }
-
-        self.ingest.validate(&self.name)?;
-
-        Ok(())
+impl<'de> Deserialize<'de> for ClusterName {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_str(Checked::new("a cluster name", |raw: String| raw.parse()))
     }
 }
 
@@ -693,21 +843,67 @@ impl<'de, const MIN: usize> Deserialize<'de> for KeyMaterial<MIN> {
     }
 }
 
+fn non_blank_secret<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Secret, D::Error> {
+    deserializer.deserialize_any(SecretVisitor(|secret| {
+        if secret.expose_secret().trim().is_empty() {
+            return Err(EMPTY.to_owned());
+        }
+        Ok(secret)
+    }))
+}
+
 pub const OBFUSCATION_MASK: &str = "***";
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
+const REGEX_SIZE_LIMIT: usize = 1024 * 1024;
+
+pub type ObfuscationKey = KeyMaterial<MIN_OBFUSCATION_SECRET_BYTES>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObfuscationConfig {
-    /// Key for `hash` tokens, as base64 or raw text of at least 32 bytes.
-    /// Required as soon as one rule hashes. Rotating it changes every token,
-    /// so correlation across the rotation is lost.
-    #[serde(default)]
-    pub secret: Option<KeyMaterial<MIN_OBFUSCATION_SECRET_BYTES>>,
     pub rules: Vec<ObfuscationRule>,
 }
 
-/// What to do with a value that never became JSON, because the registry is
-/// down, the schema is gone, or the bytes were never framed.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawObfuscationConfig {
+    #[serde(default)]
+    secret: Option<ObfuscationKey>,
+    #[serde(deserialize_with = "non_empty")]
+    rules: Vec<RawObfuscationRule>,
+}
+
+impl<'de> Deserialize<'de> for ObfuscationConfig {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_map(Checked::new("obfuscation settings", Self::from_raw))
+    }
+}
+
+impl ObfuscationConfig {
+    fn from_raw(raw: RawObfuscationConfig) -> Result<Self, String> {
+        let mut covered: Vec<&TopicPattern> = Vec::new();
+        for rule in &raw.rules {
+            for topic in &rule.topics {
+                if let Some(other) = covered.iter().find(|other| other.overlaps(topic)) {
+                    return Err(format!(
+                        "topics '{topic}' and '{other}' match the same topics; \
+                         a topic must be covered by exactly one rule"
+                    ));
+                }
+            }
+            covered.extend(&rule.topics);
+        }
+
+        let key = raw.secret.map(Arc::new);
+        let rules = raw
+            .rules
+            .into_iter()
+            .map(|rule| rule.resolve(key.as_ref()))
+            .collect::<Result<_, _>>()?;
+
+        Ok(Self { rules })
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum UnparsedPolicy {
@@ -718,211 +914,270 @@ pub enum UnparsedPolicy {
     Allow,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObfuscationRule {
-    /// Exact topic names, or a trailing-`*` prefix. No topic may be matched
-    /// by two rules.
-    pub topics: Vec<String>,
-    /// Dotted paths into decoded JSON. An array met mid-path fans out over
-    /// its elements, so `items.sku` covers every element's `sku`.
-    #[serde(default)]
+    pub topics: Vec<TopicPattern>,
     pub fields: Vec<ObfuscationField>,
-    /// Strategy for the whole record key, applied after any field rules.
-    #[serde(default)]
     pub key: Option<ObfuscationStrategy>,
-    /// Strategy for the whole record value, applied after any field rules.
-    #[serde(default)]
     pub value: Option<ObfuscationStrategy>,
-    /// Header names whose values are masked.
-    #[serde(default)]
     pub headers: Vec<String>,
-    /// Regexes applied to the rendered text of key and value, for topics
-    /// whose payloads never become JSON. Each match is replaced by its
-    /// strategy's output.
-    #[serde(default)]
     pub patterns: Vec<ObfuscationPattern>,
-    #[serde(default)]
     pub unparsed: UnparsedPolicy,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ObfuscationPattern {
-    pub regex: String,
-    pub strategy: ObfuscationStrategy,
+struct RawObfuscationRule {
+    #[serde(deserialize_with = "non_empty")]
+    topics: Vec<TopicPattern>,
+    #[serde(default)]
+    fields: Vec<RawObfuscationField>,
+    #[serde(default)]
+    key: Option<StrategyName>,
+    #[serde(default)]
+    value: Option<StrategyName>,
+    #[serde(default, deserialize_with = "non_blank_items")]
+    headers: Vec<String>,
+    #[serde(default)]
+    patterns: Vec<RawObfuscationPattern>,
+    #[serde(default)]
+    unparsed: UnparsedPolicy,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ObfuscationField {
-    pub path: String,
-    pub strategy: ObfuscationStrategy,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ObfuscationStrategy {
-    /// Replace with `***`.
-    Mask,
-    /// Replace with a deterministic keyed token, so equal values still
-    /// render equal.
-    Hash,
-    /// Remove the field entirely, or the matched span for a pattern rule.
-    Drop,
-}
-
-impl ObfuscationStrategy {
-    fn needs_secret(self) -> bool {
-        matches!(self, Self::Hash)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TopicPattern<'a> {
-    Exact(&'a str),
-    Prefix(&'a str),
-}
-
-impl<'a> TopicPattern<'a> {
-    pub fn parse(pattern: &'a str) -> Result<Self, String> {
-        if pattern.trim().is_empty() {
-            return Err("topic must not be empty".to_owned());
-        }
-
-        match pattern.strip_suffix('*') {
-            Some(prefix) if !prefix.contains('*') => Ok(Self::Prefix(prefix)),
-            None if !pattern.contains('*') => Ok(Self::Exact(pattern)),
-            _ => Err("'*' is only allowed as the last character".to_owned()),
-        }
-    }
-
-    pub fn matches(self, topic: &str) -> bool {
-        match self {
-            Self::Exact(name) => topic == name,
-            Self::Prefix(prefix) => topic.starts_with(prefix),
-        }
-    }
-
-    fn overlaps(self, other: Self) -> bool {
-        match (self, other) {
-            (Self::Exact(left), Self::Exact(right)) => left == right,
-            (Self::Exact(name), Self::Prefix(prefix))
-            | (Self::Prefix(prefix), Self::Exact(name)) => name.starts_with(prefix),
-            (Self::Prefix(left), Self::Prefix(right)) => {
-                left.starts_with(right) || right.starts_with(left)
-            }
-        }
-    }
-
-    fn source(self) -> String {
-        match self {
-            Self::Exact(name) => name.to_owned(),
-            Self::Prefix(prefix) => format!("{prefix}*"),
-        }
-    }
-}
-
-impl ObfuscationConfig {
-    pub(crate) fn validate(&self, cluster: &str) -> Result<(), ConfigError> {
-        let fail = |reason: String| Err(ConfigError::invalid_cluster(cluster, reason));
-
-        if self.rules.is_empty() {
-            return fail("obfuscation rules must not be empty".to_owned());
-        }
-
-        let hashed = self.secret.is_some();
-        let mut selectors: Vec<TopicPattern<'_>> = Vec::new();
-
-        for rule in &self.rules {
-            rule.validate(cluster, hashed)?;
-
-            for topic in &rule.topics {
-                let pattern = TopicPattern::parse(topic).map_err(|reason| {
-                    ConfigError::invalid_cluster(
-                        cluster,
-                        format!("obfuscation topic '{topic}': {reason}"),
-                    )
-                })?;
-
-                if let Some(other) = selectors.iter().find(|other| other.overlaps(pattern)) {
-                    return fail(format!(
-                        "obfuscation topics '{topic}' and '{}' match the same topics; \
-                         a topic must be covered by exactly one rule",
-                        other.source()
-                    ));
-                }
-            }
-
-            selectors.extend(
-                rule.topics
-                    .iter()
-                    .filter_map(|topic| TopicPattern::parse(topic).ok()),
-            );
-        }
-
-        Ok(())
-    }
-}
-
-impl ObfuscationRule {
-    fn validate(&self, cluster: &str, has_secret: bool) -> Result<(), ConfigError> {
-        let fail = |reason: String| Err(ConfigError::invalid_cluster(cluster, reason));
-
-        if self.topics.is_empty() {
-            return fail("obfuscation rule topics must not be empty".to_owned());
-        }
-
+impl RawObfuscationRule {
+    fn resolve(self, key: Option<&Arc<ObfuscationKey>>) -> Result<ObfuscationRule, String> {
         if self.fields.is_empty()
             && self.key.is_none()
             && self.value.is_none()
             && self.headers.is_empty()
             && self.patterns.is_empty()
         {
-            return fail(format!(
-                "obfuscation rule for '{}' must set at least one of fields, key, value, headers or patterns",
-                self.topics.join(", ")
+            let topics: Vec<String> = self.topics.iter().map(ToString::to_string).collect();
+            return Err(format!(
+                "rule for '{}' must set at least one of fields, key, value, headers or patterns",
+                topics.join(", ")
             ));
         }
 
-        for field in &self.fields {
-            if field.path.trim().is_empty() || field.path.split('.').any(str::is_empty) {
-                return fail(format!(
-                    "obfuscation field path '{}' must not have empty segments",
-                    field.path
-                ));
-            }
-        }
+        let strategy = |name: StrategyName| name.resolve(key);
 
-        for pattern in &self.patterns {
-            if pattern.regex.trim().is_empty() {
-                return fail("obfuscation patterns must not be empty".to_owned());
-            }
-        }
-
-        if self.headers.iter().any(|header| header.trim().is_empty()) {
-            return fail("obfuscation header names must not be empty".to_owned());
-        }
-
-        let hashes = self
-            .fields
-            .iter()
-            .map(|field| field.strategy)
-            .chain(self.patterns.iter().map(|pattern| pattern.strategy))
-            .chain(self.key)
-            .chain(self.value)
-            .any(ObfuscationStrategy::needs_secret);
-
-        if hashes && !has_secret {
-            return fail("obfuscation hash strategy requires a secret".to_owned());
-        }
-
-        Ok(())
+        Ok(ObfuscationRule {
+            fields: self
+                .fields
+                .into_iter()
+                .map(|field| {
+                    Ok(ObfuscationField {
+                        path: field.path,
+                        strategy: strategy(field.strategy)?,
+                    })
+                })
+                .collect::<Result<_, String>>()?,
+            patterns: self
+                .patterns
+                .into_iter()
+                .map(|pattern| {
+                    Ok(ObfuscationPattern {
+                        regex: pattern.regex,
+                        strategy: strategy(pattern.strategy)?,
+                    })
+                })
+                .collect::<Result<_, String>>()?,
+            key: self.key.map(strategy).transpose()?,
+            value: self.value.map(strategy).transpose()?,
+            topics: self.topics,
+            headers: self.headers,
+            unparsed: self.unparsed,
+        })
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObfuscationPattern {
+    pub regex: PatternRegex,
+    pub strategy: ObfuscationStrategy,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawObfuscationPattern {
+    regex: PatternRegex,
+    strategy: StrategyName,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObfuscationField {
+    pub path: FieldPath,
+    pub strategy: ObfuscationStrategy,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawObfuscationField {
+    path: FieldPath,
+    strategy: StrategyName,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ObfuscationStrategy {
+    Mask,
+    Hash(Arc<ObfuscationKey>),
+    Drop,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum StrategyName {
+    Mask,
+    Hash,
+    Drop,
+}
+
+impl StrategyName {
+    fn resolve(self, key: Option<&Arc<ObfuscationKey>>) -> Result<ObfuscationStrategy, String> {
+        Ok(match self {
+            Self::Mask => ObfuscationStrategy::Mask,
+            Self::Drop => ObfuscationStrategy::Drop,
+            Self::Hash => {
+                ObfuscationStrategy::Hash(Arc::clone(key.ok_or("hash strategy requires a secret")?))
+            }
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TopicPattern {
+    Exact(String),
+    Prefix(String),
+}
+
+impl TopicPattern {
+    fn overlaps(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Exact(left), Self::Exact(right)) => left == right,
+            (Self::Exact(name), Self::Prefix(prefix))
+            | (Self::Prefix(prefix), Self::Exact(name)) => name.starts_with(prefix.as_str()),
+            (Self::Prefix(left), Self::Prefix(right)) => {
+                left.starts_with(right.as_str()) || right.starts_with(left.as_str())
+            }
+        }
+    }
+}
+
+impl FromStr for TopicPattern {
+    type Err = String;
+
+    fn from_str(pattern: &str) -> Result<Self, String> {
+        if pattern.trim().is_empty() {
+            return Err("topic must not be empty".to_owned());
+        }
+
+        match pattern.strip_suffix('*') {
+            Some(prefix) if !prefix.contains('*') => Ok(Self::Prefix(prefix.to_owned())),
+            None if !pattern.contains('*') => Ok(Self::Exact(pattern.to_owned())),
+            _ => Err(format!(
+                "topic '{pattern}': '*' is only allowed as the last character"
+            )),
+        }
+    }
+}
+
+impl Display for TopicPattern {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Exact(name) => formatter.write_str(name),
+            Self::Prefix(prefix) => write!(formatter, "{prefix}*"),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for TopicPattern {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_str(Checked::new(
+            "a topic name or a trailing-* prefix",
+            |raw: String| raw.parse(),
+        ))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldPath(String);
+
+impl FieldPath {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn segments(&self) -> impl Iterator<Item = &str> {
+        self.0.split('.')
+    }
+}
+
+impl FromStr for FieldPath {
+    type Err = String;
+
+    fn from_str(path: &str) -> Result<Self, String> {
+        if path.trim().is_empty() || path.split('.').any(str::is_empty) {
+            return Err(format!("field path '{path}' must not have empty segments"));
+        }
+        Ok(Self(path.to_owned()))
+    }
+}
+
+impl<'de> Deserialize<'de> for FieldPath {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_str(Checked::new("a dotted field path", |raw: String| {
+            raw.parse()
+        }))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PatternRegex(Regex);
+
+impl PatternRegex {
+    pub fn as_regex(&self) -> &Regex {
+        &self.0
+    }
+}
+
+impl PartialEq for PatternRegex {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.as_str() == other.0.as_str()
+    }
+}
+
+impl Eq for PatternRegex {}
+
+impl FromStr for PatternRegex {
+    type Err = String;
+
+    fn from_str(source: &str) -> Result<Self, String> {
+        if source.trim().is_empty() {
+            return Err("pattern must not be empty".to_owned());
+        }
+
+        let regex = RegexBuilder::new(source)
+            .size_limit(REGEX_SIZE_LIMIT)
+            .build()
+            .map_err(|error| format!("invalid pattern '{source}': {error}"))?;
+
+        if regex.is_match("") {
+            return Err(format!(
+                "invalid pattern '{source}': it matches the empty string"
+            ));
+        }
+
+        Ok(Self(regex))
+    }
+}
+
+impl<'de> Deserialize<'de> for PatternRegex {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_str(Checked::new("a regex", |raw: String| raw.parse()))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SecurityProtocol {
     Plaintext,
     Ssl,
@@ -962,13 +1217,44 @@ impl SaslMechanism {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SecurityConfig {
-    pub protocol: SecurityProtocol,
-    #[serde(default)]
-    pub sasl: Option<SaslConfig>,
-    #[serde(default)]
-    pub tls: Option<TlsConfig>,
+#[serde(
+    tag = "protocol",
+    rename_all = "SCREAMING_SNAKE_CASE",
+    deny_unknown_fields
+)]
+pub enum SecurityConfig {
+    /// Braced because serde ignores unknown fields beside the tag of a unit
+    /// variant, so `tls` under `PLAINTEXT` would load without an error.
+    Plaintext {},
+    Ssl {
+        #[serde(default)]
+        tls: TlsConfig,
+    },
+    SaslPlaintext {
+        sasl: SaslConfig,
+    },
+    SaslSsl {
+        sasl: SaslConfig,
+        #[serde(default)]
+        tls: TlsConfig,
+    },
+}
+
+impl Default for SecurityConfig {
+    fn default() -> Self {
+        Self::Plaintext {}
+    }
+}
+
+impl SecurityConfig {
+    pub fn protocol(&self) -> SecurityProtocol {
+        match self {
+            Self::Plaintext {} => SecurityProtocol::Plaintext,
+            Self::Ssl { .. } => SecurityProtocol::Ssl,
+            Self::SaslPlaintext { .. } => SecurityProtocol::SaslPlaintext,
+            Self::SaslSsl { .. } => SecurityProtocol::SaslSsl,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -979,17 +1265,52 @@ pub struct SaslConfig {
     pub password: Secret,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TlsConfig {
-    #[serde(default)]
     pub ca_cert: Option<PathBuf>,
-    #[serde(default)]
-    pub client_cert: Option<PathBuf>,
-    #[serde(default)]
-    pub client_key: Option<PathBuf>,
-    #[serde(default)]
+    pub client_cert: Option<ClientCert>,
     pub insecure_skip_verify: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClientCert {
+    pub cert: PathBuf,
+    pub key: PathBuf,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawTlsConfig {
+    #[serde(default)]
+    ca_cert: Option<PathBuf>,
+    #[serde(default)]
+    client_cert: Option<PathBuf>,
+    #[serde(default)]
+    client_key: Option<PathBuf>,
+    #[serde(default)]
+    insecure_skip_verify: bool,
+}
+
+impl<'de> Deserialize<'de> for TlsConfig {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_map(Checked::new("TLS settings", Self::from_raw))
+    }
+}
+
+impl TlsConfig {
+    fn from_raw(raw: RawTlsConfig) -> Result<Self, String> {
+        let client_cert = match (raw.client_cert, raw.client_key) {
+            (Some(cert), Some(key)) => Some(ClientCert { cert, key }),
+            (None, None) => None,
+            _ => return Err("client_cert and client_key must be set together".to_owned()),
+        };
+
+        Ok(Self {
+            ca_cert: raw.ca_cert,
+            client_cert,
+            insecure_skip_verify: raw.insecure_skip_verify,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -1002,6 +1323,14 @@ mod tests {
 
     fn parse_config(yaml: &str) -> Result<Config, serde_yaml_ng::Error> {
         serde_yaml_ng::from_str(yaml)
+    }
+
+    fn cluster_error(yaml: &str) -> String {
+        parse_cluster(yaml).unwrap_err().to_string()
+    }
+
+    fn config_error(yaml: &str) -> String {
+        parse_config(yaml).unwrap_err().to_string()
     }
 
     #[test]
@@ -1022,8 +1351,8 @@ mod tests {
         .unwrap();
 
         assert_eq!(config.clusters.len(), 2);
-        assert_eq!(config.clusters[0].name, "local");
-        assert_eq!(config.clusters[1].name, "staging");
+        assert_eq!(config.clusters[0].name.as_str(), "local");
+        assert_eq!(config.clusters[1].name.as_str(), "staging");
         assert_eq!(config.bind, "0.0.0.0:8080".parse().unwrap());
         assert_eq!(config.log_level, "info");
         assert_eq!(config.auth, None);
@@ -1032,7 +1361,6 @@ mod tests {
             ClusterIngestConfig::default(),
             "omitted ingest uses the documented defaults"
         );
-        config.validate().unwrap();
     }
 
     #[test]
@@ -1056,7 +1384,6 @@ mod tests {
         assert_eq!(cluster.ingest.offset_tick_secs, 1);
         assert_eq!(cluster.ingest.fast_offset_secs, 2);
         assert_eq!(cluster.ingest.slow_offset_secs, 20);
-        cluster.validate().unwrap();
     }
 
     #[test]
@@ -1077,7 +1404,7 @@ mod tests {
 
     #[test]
     fn rejects_sub_second_ingest_intervals() {
-        let cluster = parse_cluster(
+        let error = cluster_error(
             "
             name: prod
             bootstrap_servers:
@@ -1085,14 +1412,12 @@ mod tests {
             ingest:
               topology_secs: 0
             ",
-        )
-        .unwrap();
+        );
 
-        let error = cluster.validate().unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("ingest.topology_secs must be at least 1")
+        assert_eq!(
+            error,
+            "invalid configuration for cluster 'prod': ingest.topology_secs must be at least 1 \
+             at line 2 column 13"
         );
     }
 
@@ -1165,9 +1490,9 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(config.name, "local");
+        assert_eq!(config.name.as_str(), "local");
         assert_eq!(config.bootstrap_servers, vec!["localhost:9092"]);
-        assert_eq!(config.security, None);
+        assert_eq!(config.security, SecurityConfig::Plaintext {});
         assert_eq!(config.schema_registry, None);
         assert_eq!(config.properties, KafkaProperties::default());
     }
@@ -1214,10 +1539,24 @@ mod tests {
         )
         .unwrap();
 
-        let security = config.security.unwrap();
-        assert_eq!(security.protocol, SecurityProtocol::SaslSsl);
-        assert_eq!(security.sasl.unwrap().mechanism, SaslMechanism::ScramSha512);
-        assert_eq!(security.tls.unwrap().ca_cert, Some("/etc/ca.pem".into()));
+        assert_eq!(config.security.protocol(), SecurityProtocol::SaslSsl);
+        let SecurityConfig::SaslSsl { sasl, tls } = config.security else {
+            panic!("SASL_SSL parses to SaslSsl");
+        };
+        assert_eq!(sasl.mechanism, SaslMechanism::ScramSha512);
+        assert_eq!(sasl.username, "admin");
+        assert_eq!(sasl.password.expose_secret(), "secret");
+        assert_eq!(
+            tls,
+            TlsConfig {
+                ca_cert: Some("/etc/ca.pem".into()),
+                client_cert: Some(ClientCert {
+                    cert: "/etc/client.pem".into(),
+                    key: "/etc/client.key".into(),
+                }),
+                insecure_skip_verify: true,
+            }
+        );
         assert_eq!(config.properties.request_timeout_ms, Some(10000));
     }
 
@@ -1323,40 +1662,59 @@ mod tests {
 
     #[test]
     fn rejects_empty_bootstrap_servers() {
-        let config = parse_cluster(
+        let error = cluster_error(
             "
             name: local
             bootstrap_servers: []
             ",
-        )
-        .unwrap();
+        );
 
-        let error = config.validate().unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("bootstrap_servers must not be empty")
+        assert_eq!(
+            error,
+            "bootstrap_servers: must not be empty at line 3 column 32"
         );
     }
 
     #[test]
-    fn validation_accepts_plaintext_without_sasl() {
-        let config = ClusterConfig {
-            name: "local".to_owned(),
-            bootstrap_servers: vec!["localhost:9092".to_owned()],
-            security: None,
-            schema_registry: None,
-            obfuscation: None,
-            properties: KafkaProperties::default(),
-            ingest: ClusterIngestConfig::default(),
-        };
+    fn accepts_plaintext_without_sasl() {
+        let config = parse_cluster(
+            "
+            name: local
+            bootstrap_servers:
+              - localhost:9092
+            security:
+              protocol: PLAINTEXT
+            ",
+        )
+        .unwrap();
 
-        config.validate().unwrap();
+        assert_eq!(config.security, SecurityConfig::Plaintext {});
     }
 
     #[test]
-    fn validation_requires_sasl_for_sasl_protocols() {
+    fn a_tls_block_defaults_when_omitted() {
         let config = parse_cluster(
+            "
+            name: local
+            bootstrap_servers:
+              - localhost:9092
+            security:
+              protocol: SSL
+            ",
+        )
+        .unwrap();
+
+        assert_eq!(
+            config.security,
+            SecurityConfig::Ssl {
+                tls: TlsConfig::default()
+            }
+        );
+    }
+
+    #[test]
+    fn requires_sasl_for_sasl_protocols() {
+        let error = cluster_error(
             "
             name: local
             bootstrap_servers:
@@ -1364,16 +1722,51 @@ mod tests {
             security:
               protocol: SASL_PLAINTEXT
             ",
-        )
-        .unwrap();
+        );
 
-        let error = config.validate().unwrap_err();
-        assert!(error.to_string().contains("sasl settings are required"));
+        assert_eq!(error, "security: missing field `sasl` at line 6 column 15");
     }
 
     #[test]
-    fn validation_requires_client_cert_and_key_together() {
-        let config = parse_cluster(
+    fn rejects_blocks_the_protocol_does_not_use() {
+        let error = cluster_error(
+            "
+            name: local
+            bootstrap_servers:
+              - localhost:9092
+            security:
+              protocol: PLAINTEXT
+              tls:
+                ca_cert: /etc/ca.pem
+            ",
+        );
+        assert_eq!(
+            error,
+            "security: unknown field `tls`, there are no fields at line 6 column 15"
+        );
+
+        let error = cluster_error(
+            "
+            name: local
+            bootstrap_servers:
+              - localhost:9092
+            security:
+              protocol: SSL
+              sasl:
+                mechanism: PLAIN
+                username: admin
+                password: {value: secret}
+            ",
+        );
+        assert_eq!(
+            error,
+            "security: unknown field `sasl`, expected `tls` at line 6 column 15"
+        );
+    }
+
+    #[test]
+    fn requires_client_cert_and_key_together() {
+        let error = cluster_error(
             "
             name: local
             bootstrap_servers:
@@ -1383,31 +1776,55 @@ mod tests {
               tls:
                 client_cert: /etc/client.pem
             ",
-        )
-        .unwrap();
+        );
 
-        let error = config.validate().unwrap_err();
-        assert!(error.to_string().contains("must be set together"));
+        assert_eq!(
+            error,
+            "security: client_cert and client_key must be set together at line 6 column 15"
+        );
     }
 
     #[test]
-    fn validation_rejects_duplicate_cluster_names() {
-        let config = parse_config(
+    fn a_cluster_name_is_trimmed_and_must_not_be_blank() {
+        let config = parse_cluster(
+            "
+            name: '  local  '
+            bootstrap_servers:
+              - localhost:9092
+            ",
+        )
+        .unwrap();
+        assert_eq!(config.name.as_str(), "local");
+
+        let error = cluster_error(
+            "
+            name: '   '
+            bootstrap_servers:
+              - localhost:9092
+            ",
+        );
+        assert_eq!(error, "name: must not be empty at line 2 column 19");
+    }
+
+    #[test]
+    fn rejects_duplicate_cluster_names() {
+        let error = config_error(
             "
             bind: 127.0.0.1:8080
             clusters:
               - name: local
                 bootstrap_servers:
                   - localhost:9092
-              - name: local
+              - name: ' local '
                 bootstrap_servers:
                   - localhost:9093
             ",
-        )
-        .unwrap();
+        );
 
-        let error = config.validate().unwrap_err();
-        assert!(error.to_string().contains("duplicate cluster name"));
+        assert_eq!(
+            error,
+            "clusters: duplicate cluster name 'local' at line 4 column 15"
+        );
     }
 
     #[test]
@@ -1427,14 +1844,19 @@ mod tests {
         .unwrap();
 
         let oidc = config.auth.as_ref().unwrap().oidc.clone();
-        assert_eq!(oidc.issuer, "https://keycloak.example.com/realms/klens");
+        assert_eq!(
+            oidc.issuer.as_str(),
+            "https://keycloak.example.com/realms/klens"
+        );
         assert_eq!(oidc.client_id, "klens");
         assert_eq!(oidc.client_secret.expose_secret(), "secret");
-        assert_eq!(oidc.redirect_uri, "http://localhost:8080/api/auth/callback");
+        assert_eq!(
+            oidc.redirect_uri.as_str(),
+            "http://localhost:8080/api/auth/callback"
+        );
         assert_eq!(oidc.scopes, vec!["openid", "email", "profile"]);
         assert_eq!(oidc.cookie_secure, None);
         assert!(!oidc.cookie_secure());
-        config.validate().unwrap();
     }
 
     #[test]
@@ -1464,34 +1886,39 @@ mod tests {
         )
         .unwrap();
 
-        let roles = config.auth.as_ref().unwrap().roles.as_ref().unwrap();
-        assert_eq!(roles.claim, "groups");
+        let roles = config.auth.unwrap().roles.unwrap();
         assert_eq!(
-            roles.definitions["admin"],
-            vec![
-                PrivilegeName::Records,
-                PrivilegeName::Configs,
-                PrivilegeName::SchemaText,
-                PrivilegeName::Acls,
-            ]
+            roles,
+            RolesConfig {
+                claim: "groups".to_owned(),
+                bindings: vec![
+                    RoleBinding {
+                        groups: vec!["klens-admins".to_owned()],
+                        role: Role {
+                            name: "admin".to_owned(),
+                            privileges: vec![
+                                PrivilegeName::Records,
+                                PrivilegeName::Configs,
+                                PrivilegeName::SchemaText,
+                                PrivilegeName::Acls,
+                            ],
+                        },
+                        clusters: None,
+                    },
+                    RoleBinding {
+                        groups: vec!["payments-viewers".to_owned()],
+                        role: Role {
+                            name: "viewer".to_owned(),
+                            privileges: vec![],
+                        },
+                        clusters: Some(vec!["payments".to_owned()]),
+                    },
+                ],
+            }
         );
-        assert!(roles.definitions["viewer"].is_empty());
-        assert_eq!(
-            roles.definitions["operator"],
-            vec![PrivilegeName::Records, PrivilegeName::Configs]
-        );
-        assert_eq!(roles.bindings.len(), 2);
-        assert_eq!(roles.bindings[0].role, "admin");
-        assert_eq!(roles.bindings[0].clusters, None);
-        assert_eq!(roles.bindings[1].role, "viewer");
-        assert_eq!(
-            roles.bindings[1].clusters.as_deref(),
-            Some(["payments".to_owned()].as_slice())
-        );
-        config.validate().unwrap();
     }
 
-    fn parse_roles(definitions: &str, bindings: &str) -> Config {
+    fn parse_roles(definitions: &str, bindings: &str) -> Result<Config, String> {
         parse_config(&format!(
             "
             bind: 127.0.0.1:8080
@@ -1507,91 +1934,157 @@ mod tests {
                 bindings:{bindings}
             "
         ))
-        .unwrap()
+        .map_err(|error| error.to_string())
     }
 
     #[test]
     fn rejects_empty_role_bindings() {
-        let config = parse_roles("\n                  admin: [records]", " []");
+        let error = parse_roles("\n                  admin: [records]", " []").unwrap_err();
 
-        let error = config.validate().unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("roles bindings must not be empty")
+        assert_eq!(
+            error,
+            "auth.roles.bindings: must not be empty at line 13 column 27"
         );
     }
 
     #[test]
     fn rejects_empty_role_definitions() {
-        let config = parse_roles(
+        let error = parse_roles(
             " {}",
             "
                   - groups: [klens-admins]
                     role: admin",
-        );
+        )
+        .unwrap_err();
 
-        let error = config.validate().unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("roles definitions must not be empty")
+        assert_eq!(
+            error,
+            "auth.roles.definitions: must not be empty at line 11 column 30"
         );
     }
 
     #[test]
     fn rejects_a_blank_role_definition_name() {
-        let config = parse_roles(
+        let error = parse_roles(
             "
                   \"  \": [records]",
             "
                   - groups: [klens-admins]
                     role: \"  \"",
-        );
+        )
+        .unwrap_err();
 
-        let error = config.validate().unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("role definition name must not be empty")
+        assert_eq!(
+            error,
+            "auth.roles.definitions: role definition name must not be empty at line 12 column 19"
         );
     }
 
     #[test]
     fn rejects_a_repeated_privilege_in_a_definition() {
-        let config = parse_roles(
+        let error = parse_roles(
             "
                   operator: [records, configs, records]",
             "
                   - groups: [kafka-operators]
                     role: operator",
-        );
+        )
+        .unwrap_err();
 
-        let error = config.validate().unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("role 'operator' lists 'records' more than once"),
-            "{error}"
+        assert_eq!(
+            error,
+            "auth.roles.definitions: role 'operator' lists 'records' more than once \
+             at line 12 column 19"
         );
     }
 
     #[test]
     fn rejects_a_binding_naming_an_undefined_role() {
-        let config = parse_roles(
+        let error = parse_roles(
             "
                   operator: [records]",
             "
                   - groups: [kafka-operators]
                     role: unknown-role",
-        );
+        )
+        .unwrap_err();
 
-        let error = config.validate().unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("roles binding references unknown role 'unknown-role'"),
-            "{error}"
+        assert_eq!(
+            error,
+            "auth.roles: binding references unknown role 'unknown-role' at line 11 column 17"
+        );
+    }
+
+    #[test]
+    fn rejects_bindings_without_usable_groups_or_clusters() {
+        let cases = [
+            (
+                "
+                  - groups: []
+                    role: operator",
+                "auth.roles.bindings[0].groups: must not be empty at line 14 column 29",
+            ),
+            (
+                "
+                  - groups: [ops, ' ']
+                    role: operator",
+                "auth.roles.bindings[0].groups: must not contain empty values \
+                 at line 14 column 29",
+            ),
+            (
+                "
+                  - groups: [ops]
+                    role: operator
+                    clusters: []",
+                "auth.roles.bindings[0].clusters: must not be empty at line 16 column 31",
+            ),
+            (
+                "
+                  - groups: [ops]
+                    role: operator
+                    clusters: [prod, '']",
+                "auth.roles.bindings[0].clusters: must not contain empty values \
+                 at line 16 column 31",
+            ),
+        ];
+
+        for (bindings, expected) in cases {
+            let error = parse_roles(
+                "
+                  operator: [records]",
+                bindings,
+            )
+            .unwrap_err();
+            assert_eq!(error, expected);
+        }
+    }
+
+    #[test]
+    fn rejects_a_blank_roles_claim() {
+        let error = parse_config(
+            "
+            bind: 127.0.0.1:8080
+            auth:
+              oidc:
+                issuer: https://idp.example
+                client_id: klens
+                client_secret: {value: secret}
+                redirect_uri: http://localhost:8080/api/auth/callback
+              roles:
+                claim: ' '
+                definitions:
+                  admin: [records]
+                bindings:
+                  - groups: [klens-admins]
+                    role: admin
+            ",
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert_eq!(
+            error,
+            "auth.roles.claim: must not be empty at line 10 column 24"
         );
     }
 
@@ -1600,17 +2093,17 @@ mod tests {
         let definitions: String = (0..=MAX_ROLE_DEFINITIONS)
             .map(|index| format!("\n                  role{index}: [records]"))
             .collect();
-        let config = parse_roles(
+        let error = parse_roles(
             &definitions,
             "
                   - groups: [klens-admins]
                     role: role0",
-        );
+        )
+        .unwrap_err();
 
-        let error = config.validate().unwrap_err();
-        assert!(
-            error.to_string().contains("too many role definitions"),
-            "{error}"
+        assert_eq!(
+            error,
+            "auth.roles.definitions: too many role definitions (at most 64) at line 12 column 19"
         );
     }
 
@@ -1623,9 +2116,12 @@ mod tests {
             "
                   - groups: [klens-admins]
                     role: admin",
-        );
+        )
+        .unwrap();
 
-        config.validate().unwrap();
+        let roles = config.auth.unwrap().roles.unwrap();
+        assert_eq!(roles.bindings.len(), 1);
+        assert_eq!(roles.bindings[0].role.name, "admin");
     }
 
     #[test]
@@ -1686,64 +2182,122 @@ mod tests {
         );
     }
 
-    #[test]
-    fn rejects_invalid_oidc_issuer() {
-        let config = parse_config(
+    fn oidc_error(issuer: &str, client_id: &str, secret: &str, redirect_uri: &str) -> String {
+        config_error(&format!(
             "
             bind: 127.0.0.1:8080
             clusters: []
             auth:
               oidc:
-                issuer: not-a-url
-                client_id: klens
-                client_secret: {value: secret}
-                redirect_uri: http://localhost:8080/api/auth/callback
-            ",
-        )
-        .unwrap();
+                issuer: {issuer}
+                client_id: {client_id}
+                client_secret: {secret}
+                redirect_uri: {redirect_uri}
+            "
+        ))
+    }
 
-        let error = config.validate().unwrap_err();
-        assert!(error.to_string().contains("issuer"));
+    #[test]
+    fn rejects_invalid_oidc_issuer() {
+        let error = oidc_error(
+            "not-a-url",
+            "klens",
+            "{value: secret}",
+            "http://localhost:8080/api/auth/callback",
+        );
+
+        assert_eq!(
+            error,
+            "auth.oidc.issuer: not a valid URL: relative URL without a base \
+             at line 6 column 25"
+        );
     }
 
     #[test]
     fn rejects_empty_oidc_client_secret() {
-        let config = parse_config(
-            "
-            bind: 127.0.0.1:8080
-            clusters: []
-            auth:
-              oidc:
-                issuer: https://idp.example
-                client_id: klens
-                client_secret: {value: '   '}
-                redirect_uri: http://localhost:8080/api/auth/callback
-            ",
-        )
-        .unwrap();
+        let error = oidc_error(
+            "https://idp.example",
+            "klens",
+            "{value: '   '}",
+            "http://localhost:8080/api/auth/callback",
+        );
 
-        let error = config.validate().unwrap_err();
-        assert!(error.to_string().contains("client_secret"));
+        assert_eq!(
+            error,
+            "auth.oidc.client_secret: must not be empty at line 8 column 32"
+        );
     }
 
     #[test]
-    fn rejects_non_http_redirect_uri() {
-        let config = parse_config(
+    fn rejects_a_blank_oidc_client_id() {
+        let error = oidc_error(
+            "https://idp.example",
+            "' '",
+            "{value: secret}",
+            "http://localhost:8080/api/auth/callback",
+        );
+
+        assert_eq!(
+            error,
+            "auth.oidc.client_id: must not be empty at line 7 column 28"
+        );
+    }
+
+    #[test]
+    fn rejects_a_blank_oidc_scope() {
+        let error = config_error(
             "
             bind: 127.0.0.1:8080
-            clusters: []
             auth:
               oidc:
                 issuer: https://idp.example
                 client_id: klens
                 client_secret: {value: secret}
-                redirect_uri: ftp://localhost/api/auth/callback
+                redirect_uri: http://localhost:8080/api/auth/callback
+                scopes: [openid, '']
+            ",
+        );
+
+        assert_eq!(
+            error,
+            "auth.oidc.scopes: must not contain empty values at line 9 column 25"
+        );
+    }
+
+    #[test]
+    fn an_oidc_issuer_keeps_the_text_discovery_compares() {
+        let config = parse_config(
+            "
+            bind: 127.0.0.1:8080
+            auth:
+              oidc:
+                issuer: https://accounts.google.com
+                client_id: klens
+                client_secret: {value: secret}
+                redirect_uri: https://klens.example/api/auth/callback
             ",
         )
         .unwrap();
 
-        let error = config.validate().unwrap_err();
-        assert!(error.to_string().contains("redirect_uri"));
+        assert_eq!(
+            config.auth.unwrap().oidc.issuer.as_str(),
+            "https://accounts.google.com"
+        );
+    }
+
+    #[test]
+    fn rejects_non_http_redirect_uri() {
+        let error = oidc_error(
+            "https://idp.example",
+            "klens",
+            "{value: secret}",
+            "ftp://localhost/api/auth/callback",
+        );
+
+        assert_eq!(
+            error,
+            "auth.oidc.redirect_uri: must be an http or https URL at line 9 column 31"
+        );
     }
 
     #[test]
@@ -1761,19 +2315,21 @@ mod tests {
         )
         .unwrap();
 
-        let registry = config.schema_registry.as_ref().unwrap();
-        assert_eq!(registry.url, "http://localhost:8081");
-        assert_eq!(registry.username.as_deref(), Some("user"));
         assert_eq!(
-            registry.password.as_ref().map(ExposeSecret::expose_secret),
-            Some("secret")
+            config.schema_registry,
+            Some(SchemaRegistryConfig {
+                url: Url::parse("http://localhost:8081").unwrap(),
+                auth: Some(BasicAuth {
+                    username: "user".to_owned(),
+                    password: Secret::from("secret"),
+                }),
+            })
         );
-        config.validate().unwrap();
     }
 
     #[test]
     fn rejects_invalid_schema_registry_url() {
-        let config = parse_cluster(
+        let error = cluster_error(
             "
             name: local
             bootstrap_servers:
@@ -1781,32 +2337,68 @@ mod tests {
             schema_registry:
               url: not-a-url
             ",
-        )
-        .unwrap();
+        );
 
-        let error = config.validate().unwrap_err();
-        assert!(error.to_string().contains("schema_registry.url"));
+        assert_eq!(
+            error,
+            "schema_registry.url: not a valid URL: relative URL without a base \
+             at line 6 column 20"
+        );
     }
 
-    #[test]
-    fn rejects_mismatched_schema_registry_auth() {
-        let config = parse_cluster(
+    fn registry_error(credentials: &str) -> String {
+        cluster_error(&format!(
             "
             name: local
             bootstrap_servers:
               - localhost:9092
             schema_registry:
-              url: http://localhost:8081
-              username: user
-            ",
-        )
-        .unwrap();
+              url: http://localhost:8081{credentials}
+            "
+        ))
+    }
 
-        let error = config.validate().unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("username and password must be set together")
+    #[test]
+    fn rejects_mismatched_schema_registry_auth() {
+        let error = registry_error(
+            "
+              username: user",
+        );
+        assert_eq!(
+            error,
+            "schema_registry: username and password must be set together at line 6 column 15"
+        );
+
+        let error = registry_error(
+            "
+              password: {value: secret}",
+        );
+        assert_eq!(
+            error,
+            "schema_registry: username and password must be set together at line 6 column 15"
+        );
+    }
+
+    #[test]
+    fn rejects_blank_schema_registry_credentials() {
+        let error = registry_error(
+            "
+              username: ' '
+              password: {value: secret}",
+        );
+        assert_eq!(
+            error,
+            "schema_registry: username must not be empty at line 6 column 15"
+        );
+
+        let error = registry_error(
+            "
+              username: user
+              password: {value: ''}",
+        );
+        assert_eq!(
+            error,
+            "schema_registry: password must not be empty at line 6 column 15"
         );
     }
 
@@ -1834,17 +2426,33 @@ mod tests {
             ",
         )
         .unwrap();
-        config.validate().unwrap();
 
         let obfuscation = config.obfuscation.unwrap();
+        let key = Arc::new(ObfuscationKey::parse("0123456789abcdef0123456789abcdef").unwrap());
         assert_eq!(obfuscation.rules.len(), 2);
-        assert_eq!(obfuscation.rules[0].fields[0].path, "card.number");
+        assert_eq!(
+            obfuscation.rules[0].topics,
+            vec![TopicPattern::Prefix("payments.".to_owned())]
+        );
+        assert_eq!(obfuscation.rules[0].fields[0].path.as_str(), "card.number");
         assert_eq!(
             obfuscation.rules[0].fields[0].strategy,
-            ObfuscationStrategy::Hash
+            ObfuscationStrategy::Hash(Arc::clone(&key))
+        );
+        assert_eq!(
+            obfuscation.rules[0].fields[1].strategy,
+            ObfuscationStrategy::Drop
         );
         assert_eq!(obfuscation.rules[0].unparsed, UnparsedPolicy::Allow);
+        assert_eq!(
+            obfuscation.rules[1].topics,
+            vec![TopicPattern::Exact("audit.raw".to_owned())]
+        );
         assert_eq!(obfuscation.rules[1].key, Some(ObfuscationStrategy::Mask));
+        assert_eq!(
+            obfuscation.rules[1].value,
+            Some(ObfuscationStrategy::Hash(key))
+        );
         assert_eq!(obfuscation.rules[1].headers, vec!["x-user-id"]);
     }
 
@@ -1883,14 +2491,13 @@ mod tests {
         );
 
         parse_cluster(&yaml)
-            .map_err(|error| error.to_string())?
-            .validate()
+            .map(drop)
             .map_err(|error| error.to_string())
     }
 
     #[test]
     fn rejects_hashing_without_a_secret() {
-        let error = obfuscated(
+        let fields = obfuscated(
             "
               rules:
                 - topics: [cards]
@@ -1900,12 +2507,18 @@ mod tests {
             ",
         )
         .unwrap_err();
+        let whole_key = obfuscated(
+            "
+              rules:
+                - topics: [cards]
+                  key: hash
+            ",
+        )
+        .unwrap_err();
 
-        assert!(
-            error
-                .to_string()
-                .contains("hash strategy requires a secret")
-        );
+        let expected = "obfuscation: hash strategy requires a secret at line 7 column 15";
+        assert_eq!(fields, expected);
+        assert_eq!(whole_key, expected);
     }
 
     #[test]
@@ -2006,7 +2619,10 @@ mod tests {
             ",
         )
         .unwrap_err();
-        assert!(error.to_string().contains("rules must not be empty"));
+        assert_eq!(
+            error,
+            "obfuscation.rules: must not be empty at line 7 column 22"
+        );
 
         let error = obfuscated(
             "
@@ -2016,24 +2632,27 @@ mod tests {
             ",
         )
         .unwrap_err();
-        assert!(error.to_string().contains("topics must not be empty"));
+        assert_eq!(
+            error,
+            "obfuscation.rules[0].topics: must not be empty at line 8 column 27"
+        );
 
         let error = obfuscated(
             "
               rules:
-                - topics: [cards]
+                - topics: [cards, 'audit.*']
             ",
         )
         .unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("at least one of fields, key, value, headers or patterns")
+        assert_eq!(
+            error,
+            "obfuscation: rule for 'cards, audit.*' must set at least one of fields, key, \
+             value, headers or patterns at line 7 column 15"
         );
     }
 
     #[test]
-    fn rejects_paths_and_topics_that_cannot_mean_anything() {
+    fn rejects_paths_topics_and_headers_that_cannot_mean_anything() {
         let error = obfuscated(
             "
               rules:
@@ -2044,7 +2663,11 @@ mod tests {
             ",
         )
         .unwrap_err();
-        assert!(error.to_string().contains("must not have empty segments"));
+        assert_eq!(
+            error,
+            "obfuscation.rules[0].fields[0].path: field path 'card..number' must not have \
+             empty segments at line 10 column 29"
+        );
 
         let error = obfuscated(
             "
@@ -2054,10 +2677,23 @@ mod tests {
             ",
         )
         .unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("'*' is only allowed as the last character")
+        assert_eq!(
+            error,
+            "obfuscation.rules[0].topics[0]: topic 'pay*ments': '*' is only allowed as the \
+             last character at line 8 column 28"
+        );
+
+        let error = obfuscated(
+            "
+              rules:
+                - topics: [cards]
+                  headers: [x-user-id, ' ']
+            ",
+        )
+        .unwrap_err();
+        assert_eq!(
+            error,
+            "obfuscation.rules[0].headers: must not contain empty values at line 9 column 28"
         );
     }
 
@@ -2087,7 +2723,74 @@ mod tests {
             ",
         )
         .unwrap_err();
-        assert!(error.to_string().contains("patterns must not be empty"));
+        assert_eq!(
+            error,
+            "obfuscation.rules[0].patterns[0].regex: pattern must not be empty \
+             at line 10 column 30"
+        );
+    }
+
+    #[test]
+    fn a_pattern_compiles_at_load() {
+        let config = parse_cluster(
+            r"
+            name: logs
+            bootstrap_servers: [broker:9092]
+            obfuscation:
+              rules:
+                - topics: ['app.logs']
+                  patterns:
+                    - regex: '\d{4}'
+                      strategy: mask
+            ",
+        )
+        .unwrap();
+
+        let pattern = &config.obfuscation.unwrap().rules[0].patterns[0];
+        assert_eq!(
+            pattern.regex.as_regex().replace_all("pin 1234", "#"),
+            "pin #"
+        );
+    }
+
+    #[test]
+    fn rejects_a_pattern_that_does_not_compile() {
+        let error = obfuscated(
+            "
+              rules:
+                - topics: ['app.logs']
+                  patterns:
+                    - regex: '[unclosed'
+                      strategy: mask
+            ",
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            error,
+            "obfuscation.rules[0].patterns[0].regex: invalid pattern '[unclosed': \
+             regex parse error:\n    [unclosed\n    ^\nerror: unclosed character class \
+             at line 10 column 30"
+        );
+    }
+
+    #[test]
+    fn rejects_a_pattern_that_matches_everywhere_at_once() {
+        let error = obfuscated(
+            r"
+              rules:
+                - topics: ['app.logs']
+                  patterns:
+                    - regex: '\d*'
+                      strategy: mask
+            ",
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            error,
+            r"obfuscation.rules[0].patterns[0].regex: invalid pattern '\d*': it matches the empty string at line 10 column 30"
+        );
     }
 
     #[test]
@@ -2103,10 +2806,9 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(
-            error
-                .to_string()
-                .contains("hash strategy requires a secret")
+        assert_eq!(
+            error,
+            "obfuscation: hash strategy requires a secret at line 7 column 15"
         );
     }
 
@@ -2131,9 +2833,12 @@ mod tests {
             ))
             .unwrap_err();
 
-            assert!(
-                error.to_string().contains("match the same topics"),
-                "{first} and {second}: {error}"
+            assert_eq!(
+                error,
+                format!(
+                    "obfuscation: topics '{second}' and '{first}' match the same topics; \
+                     a topic must be covered by exactly one rule at line 7 column 15"
+                )
             );
         }
     }
