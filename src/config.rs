@@ -517,8 +517,6 @@ impl SecretSource {
                 let mut contents = std::fs::read_to_string(&path).map_err(|error| {
                     format!("failed to read secret file {}: {error}", path.display())
                 })?;
-                // Files written by `echo` or editors end in a newline that is
-                // never part of the secret.
                 contents.truncate(contents.trim_end_matches(['\r', '\n']).len());
                 contents.into()
             }

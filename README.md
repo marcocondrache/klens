@@ -29,14 +29,13 @@ helm install klens oci://ghcr.io/marcocondrache/charts/klens \
   -n klens --create-namespace -f my-values.yaml
 ```
 
-`config` is the same YAML the process loads here.
+`config` is the same YAML the process loads here. The chart also lives in
+[`charts/klens`](charts/klens) if you want to install from a checkout.
 
 Every secret in the config names where to read it: `{value: ...}` inline,
 `{env: NAME}` from an environment variable, or `{file: PATH}` from a file such
 as a mounted Kubernetes secret. A trailing newline in a secret file is dropped.
 A plain string where a secret belongs fails at startup.
- The chart also lives in
-[`charts/klens`](charts/klens) if you want to install from a checkout.
 
 Every page reads a background projection of each cluster, refreshed by
 independent lanes. Override a cluster's cadence with `ingest` on that cluster
@@ -71,9 +70,9 @@ authorization code flow with PKCE. Sessions use
 live routes are under `/api`. `/health` and `/ready` stay public. A process
 restart drops in-memory sessions and requires a new login.
 
-Set `auth.session_key` to a base64 or plain secret of at least 32 bytes so the session cookie survives a
-restart. Without one, klens generates a key per boot and every deploy logs
-everyone out.
+Set `auth.session_key` to a base64 or plain secret of at least 32 bytes so
+the session cookie survives a restart. Without one, klens generates a key per
+boot and every deploy logs everyone out.
 
 ```yaml
 auth:
