@@ -397,17 +397,9 @@ function SchemaLink({ cluster, topic, id }: { cluster: string; topic: string; id
   );
 }
 
-function Meta({
-  label,
-  value,
-  className,
-}: {
-  label: string;
-  value: React.ReactNode;
-  className?: string;
-}) {
+function Meta({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className={cn("min-w-0 space-y-0.5", className)}>
+    <div className="min-w-0 space-y-0.5">
       <dt className="text-xs text-muted-foreground">{label}</dt>
       <dd className="numeric truncate text-sm">{value}</dd>
     </div>
