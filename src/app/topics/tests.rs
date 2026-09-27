@@ -14,10 +14,9 @@ use super::super::harness::{
 #[tokio::test]
 async fn topic_rows_project_counts_and_configs_without_touching_the_broker() {
     let (state, session) = seeded_with(FakeCluster::local());
-    let data = ok(&state, "/clusters/local/topics?sort=NAME").await;
-    let rows = &data["rows"];
+    let rows = ok(&state, "/clusters/local/topics").await;
 
-    assert_eq!(data["total"], 2);
+    assert_eq!(rows.as_array().map(Vec::len), Some(2));
     assert_eq!(rows[0]["name"], "orders.created");
     assert_eq!(rows[0]["partitionCount"], 2);
     assert_eq!(rows[0]["retainedMessages"], 150);
@@ -35,54 +34,12 @@ async fn topic_rows_expose_the_latest_rate() {
     store.rates.set(&topic, 12.5);
     store.rates.set(&topic, 13.5);
 
-    let data = ok(&state, "/clusters/local/topics?sort=NAME").await;
-    let rows = &data["rows"];
+    let rows = ok(&state, "/clusters/local/topics").await;
 
     assert_eq!(rows[0]["name"], "orders.created");
     assert_eq!(rows[0]["rate"], 13.5);
     assert_eq!(rows[1]["name"], "payments.settled");
     assert_eq!(rows[1]["rate"], 0.0);
-}
-
-#[tokio::test]
-async fn topic_rows_filter_by_name_before_paging() {
-    let state = seeded();
-    let data = ok(&state, "/clusters/local/topics?contains=PAY").await;
-
-    assert_eq!(data["total"], 1);
-    assert_eq!(data["rows"][0]["name"], "payments.settled");
-}
-
-#[tokio::test]
-async fn topic_rows_page_by_key_and_report_the_unpaged_total() {
-    let state = seeded();
-    let first = ok(&state, "/clusters/local/topics?limit=1").await;
-
-    assert_eq!(first["total"], 2);
-    assert_eq!(first["rows"][0]["name"], "orders.created");
-    assert_eq!(first["nextCursor"], "orders.created");
-
-    let second = ok(
-        &state,
-        "/clusters/local/topics?limit=1&after=orders.created",
-    )
-    .await;
-
-    assert_eq!(second["rows"][0]["name"], "payments.settled");
-    assert_eq!(second["nextCursor"], Value::Null);
-}
-
-#[tokio::test]
-async fn topic_rows_sort_descending_on_the_requested_column() {
-    let state = seeded();
-    let data = ok(
-        &state,
-        "/clusters/local/topics?sort=RETAINED_MESSAGES&desc=true",
-    )
-    .await;
-
-    assert_eq!(data["rows"][0]["name"], "orders.created");
-    assert_eq!(data["rows"][1]["name"], "payments.settled");
 }
 
 #[tokio::test]
@@ -127,21 +84,6 @@ async fn a_missing_topic_is_not_found() {
 
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(code, "UNKNOWN_TOPIC");
-}
-
-#[tokio::test]
-async fn a_malformed_topic_query_is_an_invalid_request() {
-    let (status, code) = failure(
-        &seeded(),
-        "/clusters/local/topics?limit=many",
-        EffectiveAccess::Unrestricted,
-    )
-    .await;
-
-    assert_eq!(
-        (status, code.as_str()),
-        (StatusCode::BAD_REQUEST, "INVALID_REQUEST")
-    );
 }
 
 #[tokio::test]
@@ -196,5 +138,5 @@ async fn topic_configs_are_forbidden_without_the_configs_privilege() {
 async fn topic_rows_stay_open_to_a_viewer() {
     let topics = ok_as(&seeded(), "/clusters/local/topics", viewer_everywhere()).await;
 
-    assert_eq!(topics["total"], 2);
+    assert_eq!(topics.as_array().map(Vec::len), Some(2));
 }

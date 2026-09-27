@@ -40,13 +40,6 @@ producedTotal: number, rate: number,
  */
 retentionMs: number | null, cleanupPolicy: CleanupPolicy, groupCount: number, underReplicated: boolean, };
 
-export type TopicRowPage = { rows: Array<TopicRow>, 
-/**
- * Rows matching the filter before paging, so a client can size its
- * scrollbar without walking every page.
- */
-total: number, nextCursor: string | null, };
-
 export type PartitionRow = { id: number, leader: number, replicas: Array<number>, isr: Array<number>, lowWatermark: number, highWatermark: number, retained: number, underReplicated: boolean, };
 
 export type TopicDetail = { name: string, internal: boolean, partitions: Array<PartitionRow>, replicationFactor: number, retainedMessages: number, producedTotal: number, rate: number, 
@@ -73,8 +66,6 @@ totalLag: number | null,
  * the total understates the real lag.
  */
 lagComplete: boolean, coordinatorId: number, };
-
-export type GroupRowPage = { rows: Array<GroupRow>, total: number, nextCursor: string | null, };
 
 export type GroupDetail = { id: string, state: GroupState, protocol: string, coordinatorId: number, members: Array<GroupMember>, offsets: Array<GroupOffset>, totalLag: number | null, lagComplete: boolean, };
 
@@ -142,8 +133,6 @@ export type TailEvent = { "type": "ready", start: Array<TailStart>, obfuscated: 
 export type SearchKind = "TOPIC" | "GROUP" | "NODE" | "SUBJECT";
 
 export type SearchHit = { kind: SearchKind, id: string, label: string, detail: string, };
-
-export type TopicSortField = "NAME" | "RATE" | "RETAINED_MESSAGES" | "PARTITIONS" | "GROUPS";
 
 export type TopicRate = { topic: string, rate: number, };
 

@@ -6,11 +6,11 @@ use xshell::Shell;
 use klens::app::typescript::{
     Acl, AclAuthorizer, AclListing, AclOperation, AclPatternType, AclPermission, AclResourceType,
     BrokerRow, CleanupPolicy, ClusterGrant, ClusterHealth, Compression, ConfigEntry, ConfigSource,
-    GroupDetail, GroupMember, GroupOffset, GroupRow, GroupRowPage, GroupState, Identity,
-    LaneHealth, MemberAssignment, PartitionRow, PrivilegeName, Record, RecordHeader, RecordOrder,
-    RecordPage, ResyncReason, SchemaCompatibility, SchemaReference, SchemaType, SearchHit,
-    SearchKind, SubjectDetail, SubjectRow, SubjectRowsResult, TailEvent, TailStart, TopicDetail,
-    TopicGroupRow, TopicRate, TopicRow, TopicRowPage, TopicSortField, Update,
+    GroupDetail, GroupMember, GroupOffset, GroupRow, GroupState, Identity, LaneHealth,
+    MemberAssignment, PartitionRow, PrivilegeName, Record, RecordHeader, RecordOrder, RecordPage,
+    ResyncReason, SchemaCompatibility, SchemaReference, SchemaType, SearchHit, SearchKind,
+    SubjectDetail, SubjectRow, SubjectRowsResult, TailEvent, TailStart, TopicDetail, TopicGroupRow,
+    TopicRate, TopicRow, Update,
 };
 
 pub fn run(sh: &Shell) -> xshell::Result<()> {
@@ -40,7 +40,6 @@ fn typescript() -> String {
         ClusterHealth,
         CleanupPolicy,
         TopicRow,
-        TopicRowPage,
         PartitionRow,
         TopicDetail,
         GroupState,
@@ -48,7 +47,6 @@ fn typescript() -> String {
         GroupMember,
         GroupOffset,
         GroupRow,
-        GroupRowPage,
         GroupDetail,
         TopicGroupRow,
         BrokerRow,
@@ -76,7 +74,6 @@ fn typescript() -> String {
         TailEvent,
         SearchKind,
         SearchHit,
-        TopicSortField,
         TopicRate,
         ResyncReason,
         Update,

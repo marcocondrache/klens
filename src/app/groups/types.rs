@@ -114,14 +114,6 @@ impl From<projections::GroupRow> for GroupRow {
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub struct GroupRowPage {
-    pub rows: Vec<GroupRow>,
-    pub total: i32,
-    pub next_cursor: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
 pub struct GroupDetail {
     pub id: String,
     pub state: GroupState,
