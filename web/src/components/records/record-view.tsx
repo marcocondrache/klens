@@ -105,14 +105,14 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Part" className="justify-end" />
     ),
-    meta: { align: "right", headerClassName: "w-16" },
+    meta: { align: "right" },
     cell: ({ getValue }) => <span className="numeric text-muted-foreground">{getValue()}</span>,
   }),
   columnHelper.accessor("offset", {
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Offset" className="justify-end" />
     ),
-    meta: { align: "right", headerClassName: "w-28" },
+    meta: { align: "right" },
     cell: ({ getValue }) => <span className="numeric">{getValue()}</span>,
   }),
   columnHelper.accessor((record) => record.key ?? "", {
@@ -153,7 +153,6 @@ const columns = columnHelper.columns([
       <DataTableColumnHeader column={column} title="Timestamp" className="justify-end" />
     ),
     meta: { align: "right" },
-    sortFn: "datetime",
     cell: ({ getValue }) => (
       <Tooltip>
         <TooltipTrigger

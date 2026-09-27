@@ -5,7 +5,6 @@ import {
   metaHelper,
   rowSortingFeature,
   sortFn_alphanumeric,
-  sortFn_datetime,
   sortFn_text,
   tableFeatures,
 } from "@tanstack/react-table";
@@ -14,7 +13,6 @@ export interface DataTableColumnMeta {
   align?: "left" | "right";
   width?: string;
   className?: string;
-  headerClassName?: string;
 }
 
 export const features = tableFeatures({
@@ -24,7 +22,6 @@ export const features = tableFeatures({
   sortedRowModel: createSortedRowModel(),
   sortFns: {
     alphanumeric: sortFn_alphanumeric,
-    datetime: sortFn_datetime,
     text: sortFn_text,
   },
   columnMeta: metaHelper<DataTableColumnMeta>(),

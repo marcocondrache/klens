@@ -298,7 +298,6 @@ function HeaderRow<TData extends RowData>({
             className={cn(
               "relative flex h-10 items-center px-3 text-left text-xs font-medium whitespace-nowrap text-muted-foreground first:pl-4 last:pr-4",
               meta?.align === "right" && "justify-end text-right",
-              meta?.headerClassName,
             )}
           >
             {header.isPlaceholder ? null : <table.FlexRender header={header} />}

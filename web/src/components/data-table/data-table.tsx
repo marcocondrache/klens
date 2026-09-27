@@ -121,7 +121,6 @@ export function DataTable<TData extends RowData>({
                         className={cn(
                           "sticky top-0 z-10 h-10 bg-subtle px-3 text-xs font-medium text-muted-foreground shadow-[inset_0_-1px_0_0_var(--color-border)] first:pl-4 last:pr-4",
                           meta?.align === "right" && "text-right",
-                          meta?.headerClassName,
                         )}
                       >
                         {header.isPlaceholder ? null : <table.FlexRender header={header} />}
