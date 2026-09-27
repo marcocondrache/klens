@@ -28,7 +28,7 @@ impl InterestState {
 
 type Groups = Arc<Mutex<HashMap<Arc<str>, InterestState>>>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct InterestRegistry {
     groups: Groups,
     ttl: Duration,
@@ -109,12 +109,6 @@ impl InterestRegistry {
 pub struct InterestLease {
     groups: Groups,
     group: Arc<str>,
-}
-
-impl InterestLease {
-    pub fn group(&self) -> &Arc<str> {
-        &self.group
-    }
 }
 
 impl Drop for InterestLease {

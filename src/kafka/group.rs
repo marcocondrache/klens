@@ -20,29 +20,6 @@ impl GroupSnapshot {
             })
             .chain(self.committed.iter().map(|offset| offset.topic.as_str()))
     }
-
-    pub fn consumes_topic(&self, topic: &str) -> bool {
-        self.consumed_topics().any(|name| name == topic)
-    }
-
-    pub fn assigned_partition_refs(&self) -> impl Iterator<Item = (&str, i32)> {
-        self.members.iter().flat_map(|member| {
-            member.assignments.iter().flat_map(|assignment| {
-                assignment
-                    .partitions
-                    .iter()
-                    .copied()
-                    .map(|partition| (assignment.topic.as_str(), partition))
-            })
-        })
-    }
-
-    pub fn member_for(&self, topic: &str, partition: i32) -> Option<&str> {
-        self.members
-            .iter()
-            .find(|member| member.assigned_to(topic, partition))
-            .map(|member| member.id.as_str())
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -155,14 +132,11 @@ mod tests {
         };
         assert!(group.members[0].assigned_to("orders", 1));
         assert!(!group.members[0].assigned_to("orders", 2));
-        assert_eq!(group.member_for("orders", 0), Some("m1"));
         assert_eq!(
             group.consumed_topics().collect::<Vec<_>>(),
             vec!["orders", "payments"],
             "a topic a member left behind a commit on still counts as consumed"
         );
-        assert!(group.consumes_topic("payments"));
-        assert!(!group.consumes_topic("shipments"));
     }
 
     #[test]

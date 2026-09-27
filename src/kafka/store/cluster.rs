@@ -251,14 +251,6 @@ impl ClusterStore {
             offline_partitions: offline,
         }
     }
-
-    pub fn kick(&self) {
-        self.topology.kick();
-        self.watermarks.kick();
-        self.offsets.kick();
-        self.configs.kick();
-        self.subjects.kick();
-    }
 }
 
 #[cfg(test)]
