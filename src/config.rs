@@ -617,10 +617,6 @@ fn secret_text<'de, D: Deserializer<'de>>(deserializer: D) -> Result<SecretStrin
             Ok(value.into())
         }
 
-        fn visit_string<E: de::Error>(self, value: String) -> Result<SecretString, E> {
-            Ok(value.into())
-        }
-
         fn visit_bool<E: de::Error>(self, _: bool) -> Result<SecretString, E> {
             Err(E::custom(NOT_TEXT))
         }
@@ -2280,6 +2276,40 @@ mod tests {
                 .unwrap_err()
                 .contains("a secret value must be a string")
         );
+    }
+
+    #[test]
+    fn a_secret_of_the_wrong_shape_names_what_it_expected() {
+        let cases = [
+            (
+                "[hunter2]",
+                "invalid type: sequence, expected a secret must name its source: \
+                 {value: ...}, {env: NAME} or {file: PATH}",
+            ),
+            (
+                "true",
+                "a secret must name its source: {value: ...}, {env: NAME} or {file: PATH}",
+            ),
+            (
+                "{value: [hunter2]}",
+                "invalid type: sequence, expected a secret value must be a string; quote it",
+            ),
+            ("{value: true}", "a secret value must be a string; quote it"),
+            ("{value: -5}", "a secret value must be a string; quote it"),
+            ("{value: 1.5}", "a secret value must be a string; quote it"),
+        ];
+
+        for (source, expected) in cases {
+            let error = client_secret(source).unwrap_err();
+            assert!(error.contains(expected), "{source}: {error}");
+            assert!(!error.contains("hunter2"), "{source}: {error}");
+        }
+    }
+
+    #[test]
+    fn secrets_compare_by_value() {
+        assert_eq!(Secret::from("same"), Secret::from("same"));
+        assert_ne!(Secret::from("same"), Secret::from("other"));
     }
 
     #[test]
