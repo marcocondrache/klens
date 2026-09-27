@@ -176,7 +176,7 @@ function ConsumerGroupsPage() {
         description={
           <>
             {rows.length} groups · {lagPending ? "≥ " : ""}
-            {formatCount(totalLag)} messages of lag
+            {formatCount(totalLag)} total lag
             <LaneCaption lane={health?.offsets} />
           </>
         }

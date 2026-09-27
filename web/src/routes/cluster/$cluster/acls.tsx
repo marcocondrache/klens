@@ -188,7 +188,7 @@ function AclsPage() {
   const rows = applyFilters(searched, FILTERS, filters);
 
   if (!canAcls) {
-    return <PageHeader title="ACLs" description="ACL bindings are not available for your role." />;
+    return <PageHeader title="ACLs" description="Your role cannot view ACL bindings." />;
   }
 
   return (

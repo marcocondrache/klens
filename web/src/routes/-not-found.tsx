@@ -20,10 +20,7 @@ export function NotFoundPage() {
           <CompassIcon />
         </EmptyMedia>
         <EmptyTitle>Page not found</EmptyTitle>
-        <EmptyDescription>
-          That route does not exist in klens. Try the topics list or search with {formatModK()} or
-          /.
-        </EmptyDescription>
+        <EmptyDescription>Check the address, or search with {formatModK()} or /.</EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
         <Button render={<Link to="/" />}>Back to topics</Button>
