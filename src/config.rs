@@ -2075,6 +2075,64 @@ mod tests {
     }
 
     #[test]
+    fn accepts_exactly_the_most_roles_allowed() {
+        let roles: String = (0..MAX_ROLES)
+            .map(|index| {
+                format!(
+                    "
+                role{index}:
+                  privileges: [records]
+                  bindings:
+                    - groups: [group{index}]"
+                )
+            })
+            .collect();
+
+        let config = parse_roles(&roles).unwrap();
+        assert_eq!(config.auth.unwrap().roles.unwrap().len(), MAX_ROLES);
+    }
+
+    #[test]
+    fn a_list_where_a_map_belongs_names_what_it_expected() {
+        let error = config_error(
+            "
+            bind: 127.0.0.1:8080
+            clusters: [local]
+            ",
+        );
+        assert!(
+            error.contains("invalid type: sequence, expected a map keyed by cluster name"),
+            "{error}"
+        );
+
+        let error = cluster_error(
+            "
+            bootstrap_servers: 5
+            ",
+        );
+        assert!(error.contains("expected a non-empty list"), "{error}");
+    }
+
+    #[test]
+    fn a_topic_pattern_takes_one_trailing_star() {
+        assert_eq!(
+            "orders.*".parse::<TopicPattern>(),
+            Ok(TopicPattern::Prefix("orders.".to_owned()))
+        );
+        assert_eq!(
+            "orders.*.eu*".parse::<TopicPattern>(),
+            Err("topic 'orders.*.eu*': '*' is only allowed as the last character".to_owned())
+        );
+    }
+
+    #[test]
+    fn pattern_regexes_compare_by_source() {
+        let regex = |source: &str| source.parse::<PatternRegex>().unwrap();
+        assert_eq!(regex("[0-9]+"), regex("[0-9]+"));
+        assert_ne!(regex("[0-9]+"), regex("[a-z]+"));
+    }
+
+    #[test]
     fn oidc_cookie_secure_follows_redirect_uri_and_override() {
         let https = parse_config(
             "
