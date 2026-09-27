@@ -2,7 +2,6 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use foldhash::{HashMap, HashMapExt, HashSet};
-use jiff::Timestamp;
 
 use crate::kafka::group::{CommittedOffset, GroupMember, GroupSnapshot, GroupState};
 use crate::kafka::metadata::{MetadataSnapshot, PartitionMetadata, Watermarks};
@@ -203,15 +202,10 @@ impl Topology {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WatermarkTable {
-    pub sampled_at: Timestamp,
     pub marks: HashMap<Arc<str>, HashMap<i32, Watermarks>>,
 }
 
 impl WatermarkTable {
-    pub fn new(sampled_at: Timestamp, marks: HashMap<Arc<str>, HashMap<i32, Watermarks>>) -> Self {
-        Self { sampled_at, marks }
-    }
-
     pub fn get(&self, topic: &str, partition: i32) -> Option<Watermarks> {
         self.marks.get(topic)?.get(&partition).copied()
     }
@@ -238,7 +232,6 @@ impl WatermarkTable {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GroupOffsets {
-    pub sampled_at: Timestamp,
     pub committed: Vec<CommittedOffset>,
 }
 
@@ -383,16 +376,15 @@ mod tests {
 
     #[test]
     fn watermark_totals_split_retained_from_produced() {
-        let table = WatermarkTable::new(
-            Timestamp::UNIX_EPOCH,
-            HashMap::from_iter([(
+        let table = WatermarkTable {
+            marks: HashMap::from_iter([(
                 Arc::from("orders"),
                 HashMap::from_iter([
                     (0, Watermarks { low: 40, high: 100 }),
                     (1, Watermarks { low: 0, high: 10 }),
                 ]),
             )]),
-        );
+        };
 
         assert_eq!(table.produced("orders"), 110);
         assert_eq!(table.retained("orders"), 70);
