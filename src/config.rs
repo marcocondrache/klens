@@ -45,7 +45,7 @@ impl Display for ParseError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(deserialize_with = "deserialize_bind")]
@@ -147,7 +147,7 @@ fn some_names<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Vec<S
     names(deserializer).map(Some)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AuthConfig {
     pub oidc: OidcConfig,
@@ -254,7 +254,7 @@ impl Display for PrivilegeName {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OidcConfig {
     /// Kept as written: discovery compares the provider's issuer to this text
@@ -264,7 +264,7 @@ pub struct OidcConfig {
     #[serde(deserialize_with = "non_blank")]
     pub client_id: String,
     #[serde(deserialize_with = "non_blank_secret")]
-    pub client_secret: Secret,
+    pub client_secret: SecretString,
     #[serde(deserialize_with = "redirect_url")]
     pub redirect_uri: RedirectUrl,
     #[serde(default = "default_scopes", deserialize_with = "non_blank_items")]
@@ -339,7 +339,7 @@ where
         .map_err(de::Error::custom)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ClusterConfig {
     #[serde(deserialize_with = "non_empty")]
@@ -399,7 +399,7 @@ pub struct KafkaProperties {
     pub connect_timeout: Option<Duration>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SchemaRegistryConfig {
     #[serde(deserialize_with = "http_url")]
@@ -408,13 +408,13 @@ pub struct SchemaRegistryConfig {
     pub auth: Option<BasicAuth>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BasicAuth {
     #[serde(deserialize_with = "non_blank")]
     pub username: String,
     #[serde(deserialize_with = "non_empty_secret")]
-    pub password: Secret,
+    pub password: SecretString,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -454,12 +454,6 @@ impl<'de> Deserialize<'de> for ClusterName {
     }
 }
 
-/// A secret the config names by where to read it: `{value: ...}` inline,
-/// `{env: NAME}` from an environment variable, or `{file: PATH}` from a file
-/// such as a mounted Kubernetes secret. Resolved once, at load.
-#[derive(Clone)]
-pub struct Secret(SecretString);
-
 #[derive(Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum SecretSource {
@@ -469,7 +463,7 @@ enum SecretSource {
 }
 
 impl SecretSource {
-    fn resolve(self) -> Result<Secret, String> {
+    fn resolve(self) -> Result<SecretString, String> {
         let secret = match self {
             Self::Value(value) => value,
             Self::Env(name) => match std::env::var(&name) {
@@ -490,43 +484,15 @@ impl SecretSource {
             }
         };
 
-        Ok(Secret(secret))
+        Ok(secret)
     }
 }
 
-impl ExposeSecret<str> for Secret {
-    fn expose_secret(&self) -> &str {
-        self.0.expose_secret()
-    }
-}
-
-impl From<&str> for Secret {
-    fn from(value: &str) -> Self {
-        Self(value.into())
-    }
-}
-
-impl PartialEq for Secret {
-    fn eq(&self, other: &Self) -> bool {
-        self.expose_secret() == other.expose_secret()
-    }
-}
-
-impl Eq for Secret {}
-
-impl std::fmt::Debug for Secret {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("Secret(..)")
-    }
-}
-
-impl<'de> Deserialize<'de> for Secret {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer
-            .deserialize_any(SecretVisitor)?
-            .resolve()
-            .map_err(de::Error::custom)
-    }
+fn secret<'de, D: Deserializer<'de>>(deserializer: D) -> Result<SecretString, D::Error> {
+    deserializer
+        .deserialize_any(SecretVisitor)?
+        .resolve()
+        .map_err(de::Error::custom)
 }
 
 const PLAIN_SECRET: &str =
@@ -609,8 +575,6 @@ pub const MIN_OBFUSCATION_SECRET_BYTES: usize = 32;
 /// `cookie::Key::derive_from` panics below this.
 pub const MIN_SESSION_KEY_BYTES: usize = 32;
 
-/// Key bytes from a [`Secret`], as base64 when that decodes to at least `MIN`
-/// bytes, otherwise as the raw text.
 #[derive(Clone, PartialEq, Eq)]
 pub struct KeyMaterial<const MIN: usize>(Box<[u8]>);
 
@@ -622,7 +586,7 @@ pub struct ShortKeyMaterial {
 }
 
 impl<const MIN: usize> KeyMaterial<MIN> {
-    pub fn parse(raw: &str) -> Result<Self, ShortKeyMaterial> {
+    pub fn from_base64_or_text(raw: &str) -> Result<Self, ShortKeyMaterial> {
         let raw = raw.trim();
         let bytes = match base64::Engine::decode(&base64::engine::general_purpose::STANDARD, raw) {
             Ok(decoded) if decoded.len() >= MIN => decoded,
@@ -654,20 +618,20 @@ impl<const MIN: usize> std::fmt::Debug for KeyMaterial<MIN> {
 
 impl<'de, const MIN: usize> Deserialize<'de> for KeyMaterial<MIN> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Self::parse(Secret::deserialize(deserializer)?.expose_secret()).map_err(de::Error::custom)
+        Self::from_base64_or_text(secret(deserializer)?.expose_secret()).map_err(de::Error::custom)
     }
 }
 
-fn non_empty_secret<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Secret, D::Error> {
-    let secret = Secret::deserialize(deserializer)?;
+fn non_empty_secret<'de, D: Deserializer<'de>>(deserializer: D) -> Result<SecretString, D::Error> {
+    let secret = secret(deserializer)?;
     if secret.expose_secret().is_empty() {
         return Err(de::Error::custom(EMPTY));
     }
     Ok(secret)
 }
 
-fn non_blank_secret<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Secret, D::Error> {
-    let secret = Secret::deserialize(deserializer)?;
+fn non_blank_secret<'de, D: Deserializer<'de>>(deserializer: D) -> Result<SecretString, D::Error> {
+    let secret = secret(deserializer)?;
     if secret.expose_secret().trim().is_empty() {
         return Err(de::Error::custom(EMPTY));
     }
@@ -1054,7 +1018,7 @@ impl SaslMechanism {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(
     tag = "protocol",
     rename_all = "SCREAMING_SNAKE_CASE",
@@ -1095,12 +1059,13 @@ impl SecurityConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SaslConfig {
     pub mechanism: SaslMechanism,
     pub username: String,
-    pub password: Secret,
+    #[serde(deserialize_with = "secret")]
+    pub password: SecretString,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
@@ -1166,7 +1131,7 @@ mod tests {
         );
         assert_eq!(config.bind, "0.0.0.0:8080".parse().unwrap());
         assert_eq!(config.log_level, "info");
-        assert_eq!(config.auth, None);
+        assert!(config.auth.is_none());
         assert_eq!(
             staging.ingest,
             ClusterIngestConfig::default(),
@@ -1331,8 +1296,8 @@ mod tests {
         .unwrap();
 
         assert_eq!(config.bootstrap_servers, vec!["localhost:9092"]);
-        assert_eq!(config.security, SecurityConfig::Plaintext {});
-        assert_eq!(config.schema_registry, None);
+        assert!(matches!(config.security, SecurityConfig::Plaintext {}));
+        assert!(config.schema_registry.is_none());
         assert_eq!(config.properties, KafkaProperties::default());
     }
 
@@ -1523,7 +1488,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(config.security, SecurityConfig::Plaintext {});
+        assert!(matches!(config.security, SecurityConfig::Plaintext {}));
     }
 
     #[test]
@@ -1538,12 +1503,10 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            config.security,
-            SecurityConfig::Ssl {
-                tls: TlsConfig::default()
-            }
-        );
+        let SecurityConfig::Ssl { tls } = config.security else {
+            panic!("SSL parses to Ssl");
+        };
+        assert_eq!(tls, TlsConfig::default());
     }
 
     #[test]
@@ -2226,16 +2189,11 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            config.schema_registry,
-            Some(SchemaRegistryConfig {
-                url: Url::parse("http://localhost:8081").unwrap(),
-                auth: Some(BasicAuth {
-                    username: "user".to_owned(),
-                    password: Secret::from("secret"),
-                }),
-            })
-        );
+        let registry = config.schema_registry.unwrap();
+        assert_eq!(registry.url, Url::parse("http://localhost:8081").unwrap());
+        let auth = registry.auth.unwrap();
+        assert_eq!(auth.username, "user");
+        assert_eq!(auth.password.expose_secret(), "secret");
     }
 
     #[test]
@@ -2328,7 +2286,9 @@ mod tests {
         .unwrap();
 
         let obfuscation = config.obfuscation.unwrap();
-        let key = Arc::new(ObfuscationKey::parse("0123456789abcdef0123456789abcdef").unwrap());
+        let key = Arc::new(
+            ObfuscationKey::from_base64_or_text("0123456789abcdef0123456789abcdef").unwrap(),
+        );
         assert_eq!(obfuscation.rules.len(), 2);
         assert_eq!(
             obfuscation.rules[0].topics,
@@ -2485,7 +2445,8 @@ mod tests {
 
     #[test]
     fn debug_output_hides_the_key_bytes() {
-        let key = KeyMaterial::<32>::parse("0123456789abcdef0123456789abcdef").unwrap();
+        let key =
+            KeyMaterial::<32>::from_base64_or_text("0123456789abcdef0123456789abcdef").unwrap();
 
         assert_eq!(format!("{key:?}"), "KeyMaterial { .. }");
     }
@@ -2917,18 +2878,15 @@ mod tests {
     }
 
     #[test]
-    fn secrets_compare_by_value() {
-        assert_eq!(Secret::from("same"), Secret::from("same"));
-        assert_ne!(Secret::from("same"), Secret::from("other"));
-    }
-
-    #[test]
     fn debug_output_hides_secrets() {
         let config = load_yaml(&with_client_secret("{value: oidc-secret}")).unwrap();
 
         let debug = format!("{config:?}");
         assert!(!debug.contains("oidc-secret"), "{debug}");
-        assert!(debug.contains("client_secret: Secret(..)"), "{debug}");
+        assert!(
+            debug.contains("client_secret: SecretBox<str>([REDACTED])"),
+            "{debug}"
+        );
     }
 
     #[test]
