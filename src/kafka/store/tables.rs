@@ -70,7 +70,6 @@ impl TopicInfo {
 pub struct GroupInfo {
     pub state: GroupState,
     pub protocol: String,
-    pub coordinator: i32,
     pub members: Vec<GroupMember>,
 }
 
@@ -158,7 +157,6 @@ impl Topology {
                 GroupInfo {
                     state: group.state,
                     protocol: group.protocol,
-                    coordinator: group.coordinator,
                     members: group.members,
                 },
             );

@@ -24,9 +24,9 @@ use crate::kafka::metadata::{
 };
 use crate::kafka::model::{PartitionWindow, RawRecord, ScanConsumer, TailConsumer, TailPosition};
 use crate::kafka::registry::{RegisteredSchema, SchemaCompatibility, SchemaSubject, SchemaType};
+use crate::kafka::scan::RecordHeader;
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::{DecodedPayload, PayloadCodec, PayloadSlot};
-use crate::kafka::scan::{Compression, RecordHeader};
 use crate::kafka::session::ClusterSession;
 use crate::kafka::topic_config::{ConfigEntry, ConfigSource};
 
@@ -43,7 +43,6 @@ pub struct FixtureRecord {
     pub value: Option<Bytes>,
     pub headers: Vec<RecordHeader>,
     pub size_bytes: u64,
-    pub compression: Compression,
 }
 
 #[derive(Clone)]
@@ -161,7 +160,6 @@ impl FakeCluster {
             id: "order-processor".into(),
             state: GroupState::Stable,
             protocol: "range".into(),
-            coordinator: 1,
             members: vec![GroupMember {
                 id: "member-1".into(),
                 client_id: "orders".into(),
@@ -198,7 +196,6 @@ impl FakeCluster {
                     value: "checkout".into(),
                 }],
                 size_bytes: 24,
-                compression: Compression::None,
             })
             .collect();
 
@@ -1057,7 +1054,6 @@ fn raw_record(record: &FixtureRecord) -> RawRecord {
                 )
             })
             .collect(),
-        compression: record.compression,
     }
 }
 
@@ -1081,7 +1077,6 @@ pub fn card_record(offset: i64, pan: &str) -> FixtureRecord {
             value: "ada".into(),
         }],
         size_bytes: 0,
-        compression: Compression::None,
     }
 }
 

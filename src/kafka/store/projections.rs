@@ -71,7 +71,6 @@ pub struct GroupRow {
     pub topic_names: Vec<String>,
     pub total_lag: Option<i64>,
     pub lag_complete: bool,
-    pub coordinator_id: i32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,7 +78,6 @@ pub struct GroupDetail {
     pub id: Arc<str>,
     pub state: GroupState,
     pub protocol: String,
-    pub coordinator_id: i32,
     pub members: Vec<GroupMember>,
     pub offsets: Vec<GroupOffset>,
     pub total_lag: Option<i64>,
@@ -280,7 +278,6 @@ pub fn group_row(
         topic_names: unique_topics(&offsets),
         total_lag,
         lag_complete,
-        coordinator_id: group.coordinator,
     }
 }
 
@@ -295,7 +292,6 @@ pub fn group_detail(
         id: Arc::clone(id),
         state: group.state,
         protocol: group.protocol.clone(),
-        coordinator_id: group.coordinator,
         members: group.members.clone(),
         offsets,
         total_lag,

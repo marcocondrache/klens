@@ -73,7 +73,6 @@ impl GroupSnapshot {
             id: description.group_id,
             state: GroupState::parse(&description.state),
             protocol: description.assignor.unwrap_or_default(),
-            coordinator: 0,
             members,
             committed: Vec::new(),
         }

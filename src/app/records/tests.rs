@@ -29,7 +29,6 @@ fn a_record_keeps_its_wire_schema_id() {
         schema_id: Some(12),
         headers: Vec::new(),
         size_bytes: 2,
-        compression: domain::Compression::None,
     };
 
     assert_eq!(Record::from(record).schema_id, Some(12));
@@ -48,7 +47,6 @@ async fn records_are_read_live_through_the_scan_path() {
     assert_eq!(records.len(), 3);
     assert_eq!(records[0]["topic"], "orders.created");
     assert_eq!(records[0]["sizeBytes"], 24);
-    assert_eq!(records[0]["compression"], "NONE");
     records[0]["timestamp"]
         .as_str()
         .expect("timestamp")
@@ -318,7 +316,6 @@ fn produced(partition: i32, offset: i64, key: impl Into<Bytes>) -> FixtureRecord
         key: Some(key),
         value: None,
         headers: Vec::new(),
-        compression: domain::Compression::None,
     }
 }
 

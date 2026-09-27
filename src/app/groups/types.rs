@@ -95,7 +95,6 @@ pub struct GroupRow {
     /// False when a committed partition had no watermark to join against, so
     /// the total understates the real lag.
     pub lag_complete: bool,
-    pub coordinator_id: i32,
 }
 
 impl From<projections::GroupRow> for GroupRow {
@@ -107,7 +106,6 @@ impl From<projections::GroupRow> for GroupRow {
             topic_names: row.topic_names,
             total_lag: row.total_lag,
             lag_complete: row.lag_complete,
-            coordinator_id: row.coordinator_id,
         }
     }
 }
@@ -118,7 +116,6 @@ pub struct GroupDetail {
     pub id: String,
     pub state: GroupState,
     pub protocol: String,
-    pub coordinator_id: i32,
     pub members: Vec<GroupMember>,
     pub offsets: Vec<GroupOffset>,
     pub total_lag: Option<i64>,
@@ -131,7 +128,6 @@ impl From<projections::GroupDetail> for GroupDetail {
             id: detail.id.to_string(),
             state: detail.state.into(),
             protocol: detail.protocol,
-            coordinator_id: detail.coordinator_id,
             members: detail.members.into_iter().map(Into::into).collect(),
             offsets: detail.offsets.into_iter().map(Into::into).collect(),
             total_lag: detail.total_lag,

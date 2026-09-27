@@ -248,7 +248,6 @@ function ConsumerGroupPage() {
                 <GroupStateBadge state={group.state} />
               </Pill>
               {group.protocol ? <Pill>{group.protocol}</Pill> : null}
-              <Pill>coordinator {group.coordinatorId}</Pill>
             </>
           ) : null
         }

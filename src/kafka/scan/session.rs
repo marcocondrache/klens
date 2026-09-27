@@ -14,13 +14,13 @@ use crate::kafka::limits::RecordLimits;
 use crate::kafka::metadata::Watermarks;
 use crate::kafka::session::ClusterSession;
 
+use super::RecordPage;
 use super::batch::{RecordBatch, SortKey};
 use super::cursor::CursorDirection;
 use super::obfuscate::TopicObfuscator;
 use super::pipeline::{Kept, RecordPipeline, Screen};
 use super::plan::{PartitionWindow, advance_cursor, plan_windows, rewind_cursor, walk_start};
 use super::query::{RecordOrder, RecordQuery};
-use super::{Compression, RecordPage};
 
 #[cfg(test)]
 use super::Record;
@@ -35,7 +35,6 @@ pub struct RawRecord {
     pub key: Option<Bytes>,
     pub value: Option<Bytes>,
     pub headers: Vec<(Bytes, Option<Bytes>)>,
-    pub compression: Compression,
 }
 
 impl RawRecord {
@@ -515,7 +514,6 @@ mod tests {
             key: Some(key),
             value: None,
             headers: Vec::new(),
-            compression: Compression::None,
         }
     }
 
@@ -1017,7 +1015,6 @@ mod tests {
             value: Some(framed(300, r#"{"orderId":"ord_0"}"#)),
             headers: Vec::new(),
             size_bytes: 0,
-            compression: Compression::None,
         };
         let session = FakeCluster::local()
             .with_orders_records(vec![record])
