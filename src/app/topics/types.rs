@@ -57,16 +57,6 @@ impl From<projections::TopicRow> for TopicRow {
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub struct TopicRowPage {
-    pub rows: Vec<TopicRow>,
-    /// Rows matching the filter before paging, so a client can size its
-    /// scrollbar without walking every page.
-    pub total: i32,
-    pub next_cursor: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
 pub struct PartitionRow {
     pub id: i32,
     pub leader: i32,
@@ -147,14 +137,4 @@ impl From<projections::TopicGroupRow> for TopicGroupRow {
             lag_on_topic: row.lag_on_topic,
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum TopicSortField {
-    Name,
-    Rate,
-    RetainedMessages,
-    Partitions,
-    Groups,
 }

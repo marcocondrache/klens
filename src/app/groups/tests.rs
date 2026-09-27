@@ -7,8 +7,8 @@ use super::super::harness::{ok, ok_as, seeded, state, store_of, viewer_everywher
 #[tokio::test]
 async fn group_rows_join_commits_against_watermarks() {
     let state = seeded();
-    let data = ok(&state, "/clusters/local/groups").await;
-    let row = &data["rows"][0];
+    let rows = ok(&state, "/clusters/local/groups").await;
+    let row = &rows[0];
 
     assert_eq!(row["id"], "order-processor");
     assert_eq!(row["state"], "STABLE");
@@ -55,7 +55,7 @@ async fn a_group_id_with_a_slash_is_one_resource() {
 async fn group_rows_stay_open_to_a_viewer() {
     let groups = ok_as(&seeded(), "/clusters/local/groups", viewer_everywhere()).await;
 
-    assert_eq!(groups["total"], 1);
+    assert_eq!(groups.as_array().map(Vec::len), Some(1));
 }
 
 #[tokio::test]
@@ -78,7 +78,7 @@ async fn a_group_whose_offsets_were_never_fetched_has_unknown_lag() {
     let group = ok(&state, "/clusters/local/groups/order-processor").await;
     let topic_groups = ok(&state, "/clusters/local/topics/orders.created/groups").await;
 
-    assert_eq!(rows["rows"][0]["totalLag"], serde_json::Value::Null);
+    assert_eq!(rows[0]["totalLag"], serde_json::Value::Null);
     assert_eq!(group["totalLag"], serde_json::Value::Null);
     assert_eq!(
         group["offsets"][0]["currentOffset"],
