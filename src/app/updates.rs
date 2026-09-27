@@ -12,7 +12,7 @@ use tokio::sync::broadcast::error::RecvError;
 use crate::AppState;
 use crate::app::auth::SessionGuard;
 use crate::environment::SSE_KEEP_ALIVE;
-use crate::kafka::store::{Change, GroupOffsetsWave, InterestLease};
+use crate::kafka::store::{Change, InterestLease};
 
 use super::context::Session;
 use super::error::ApiError;
@@ -24,7 +24,7 @@ pub mod types;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use types::{ResyncReason, TopicRate, Update};
+pub(crate) use types::{TopicRate, Update};
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new().route("/", get(updates))
@@ -107,10 +107,7 @@ impl Stream {
                             missed,
                             "subscriber lagged the change bus"
                         );
-                        let update = Update::Resync {
-                            reason: ResyncReason::Lagged,
-                        };
-                        return Some((Ok(event(&update)), state));
+                        return Some((Ok(event(&Update::Resync)), state));
                     }
                     Ok(change) => {
                         if let Some(error) = state.denied() {
@@ -156,22 +153,19 @@ fn project(change: &Change, scope: &Scope) -> Vec<Update> {
                     }],
                 },
             };
-            vec![Update::Watermarks {
-                at: tick.at,
-                topics,
-            }]
+            vec![Update::Watermarks { topics }]
         }
 
         Change::GroupOffsets(wave) => match scope.group.as_deref() {
             Some(group) => wave
                 .group(group)
-                .map(|update| lag_update(wave, update, true))
+                .map(|update| lag_update(update, true))
                 .into_iter()
                 .collect(),
             None => wave
                 .groups
                 .iter()
-                .map(|update| lag_update(wave, update, false))
+                .map(|update| lag_update(update, false))
                 .collect(),
         },
 
@@ -187,7 +181,6 @@ fn project(change: &Change, scope: &Scope) -> Vec<Update> {
                 return Vec::new();
             }
             vec![Update::Topology {
-                version: delta.version,
                 added_topics: names(&delta.added_topics),
                 removed_topics: names(&delta.removed_topics),
                 changed_topics: names(&delta.changed_topics),
@@ -208,28 +201,18 @@ fn project(change: &Change, scope: &Scope) -> Vec<Update> {
                     vec![topic.to_owned()]
                 }
             };
-            vec![Update::Configs {
-                version: delta.version,
-                topics,
-            }]
+            vec![Update::Configs { topics }]
         }
 
         Change::Subjects(delta) => vec![Update::Subjects {
-            version: delta.version,
-            added: names(&delta.added),
             removed: names(&delta.removed),
             changed: names(&delta.changed),
         }],
     }
 }
 
-fn lag_update(
-    wave: &GroupOffsetsWave,
-    update: &crate::kafka::store::GroupLagUpdate,
-    offsets: bool,
-) -> Update {
+fn lag_update(update: &crate::kafka::store::GroupLagUpdate, offsets: bool) -> Update {
     Update::GroupLag {
-        at: wave.at,
         group: String::from(&*update.group),
         lag: update.total_lag,
         lag_complete: update.lag_complete,

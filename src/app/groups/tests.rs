@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::kafka::store::fixtures::{at, group, partition, topic, topology, watermarks};
+use crate::kafka::store::fixtures::{group, partition, topic, topology, watermarks};
 
 use super::super::harness::{ok, ok_as, seeded, state, store_of, viewer_everywhere};
 
@@ -69,10 +69,9 @@ async fn a_group_whose_offsets_were_never_fetched_has_unknown_lag() {
         )],
         vec![group("order-processor", "orders.created", vec![0])],
     )));
-    store.watermarks.commit(Arc::new(watermarks(
-        at(1_000),
-        &[("orders.created", 0, 0, 100)],
-    )));
+    store
+        .watermarks
+        .commit(Arc::new(watermarks(&[("orders.created", 0, 0, 100)])));
 
     let rows = ok(&state, "/clusters/local/groups").await;
     let group = ok(&state, "/clusters/local/groups/order-processor").await;

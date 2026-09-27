@@ -9,9 +9,9 @@ use klens::app::typescript::{
     DeleteOffsetsRequest, DeletedOffsets, GroupDetail, GroupMember, GroupOffset, GroupRow,
     GroupState, Identity, LaneHealth, MemberAssignment, OffsetChange, OffsetReset, PartitionRow,
     PrivilegeName, Record, RecordHeader, RecordOrder, RecordPage, ResetOffsetsRequest, ResetTo,
-    ResyncReason, SchemaCompatibility, SchemaReference, SchemaType, SearchHit, SearchKind,
-    SubjectDetail, SubjectRow, SubjectRowsResult, TailEvent, TailStart, TopicDetail, TopicGroupRow,
-    TopicRate, TopicRow, Update,
+    SchemaCompatibility, SchemaReference, SchemaType, SearchHit, SearchKind, SubjectDetail,
+    SubjectRow, SubjectRowsResult, TailEvent, TailStart, TopicDetail, TopicGroupRow, TopicRate,
+    TopicRow, Update,
 };
 
 pub fn run(sh: &Shell) -> xshell::Result<()> {
@@ -81,7 +81,6 @@ fn typescript() -> String {
         SearchKind,
         SearchHit,
         TopicRate,
-        ResyncReason,
         Update,
     );
     out
