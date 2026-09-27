@@ -7,7 +7,6 @@ pub use super::configs::{ConfigEntry, ConfigSource};
 pub use super::groups::types::{
     GroupDetail, GroupMember, GroupOffset, GroupRow, GroupRowPage, GroupState, MemberAssignment,
 };
-pub use super::int64::Int64;
 pub use super::records::types::{
     Compression, Record, RecordHeader, RecordOrder, RecordPage, TailEvent, TailStart,
 };

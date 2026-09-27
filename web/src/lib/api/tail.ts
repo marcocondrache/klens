@@ -79,7 +79,7 @@ function apply(tail: Tail, chunk: TailChunk): Tail {
       return {
         ...tail,
         records: [...chunk.records.toReversed(), ...tail.records].slice(0, TAIL_BUFFER),
-        skipped: tail.skipped + Number(chunk.skipped),
+        skipped: tail.skipped + chunk.skipped,
       };
   }
 }

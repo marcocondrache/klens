@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 import { useGroup } from "@/lib/api/catalog";
 import { catalogLookupMessage } from "@/lib/catalog-lookup";
 import { useClusterName } from "@/lib/clusters";
-import { formatCount, formatNumber, toNumber, type Int64 } from "@/lib/format";
+import { formatCount, formatNumber } from "@/lib/format";
 import type { GroupDetail, GroupMember, GroupOffset } from "@/lib/api/types";
 import { groupDetailSearch, groupTab, searchDefaults } from "@/lib/route-search";
 
@@ -75,11 +75,7 @@ const memberColumns = memberColumnHelper.columns([
   ),
 ]);
 
-function knownOffset(value: Int64 | null) {
-  return value === null ? -1 : toNumber(value);
-}
-
-function OffsetValue({ value, label }: { value: Int64 | null; label: string }) {
+function OffsetValue({ value, label }: { value: number | null; label: string }) {
   if (value === null) {
     return <PendingValue label={label} className="ml-auto block" />;
   }
@@ -105,7 +101,7 @@ function GroupFacts({
       {group.totalLag === null ? (
         <PendingValue label="Fetching committed offsets" />
       ) : (
-        <span className={cn("text-foreground", TONE_TEXT[lagTone(toNumber(group.totalLag))])}>
+        <span className={cn("text-foreground", TONE_TEXT[lagTone(group.totalLag)])}>
           {group.lagComplete ? "" : "≥ "}
           {formatCount(group.totalLag)} lag
         </span>
@@ -137,7 +133,7 @@ function ConsumerGroupPage() {
   const members = group?.members ?? [];
   const maxLag = Math.max(
     1,
-    ...offsets.flatMap((offset) => (offset.lag === null ? [] : [toNumber(offset.lag)])),
+    ...offsets.flatMap((offset) => (offset.lag === null ? [] : [offset.lag])),
   );
   const memberLabels = new Map(members.map((member) => [member.id, member.clientId] as const));
   const topicCount = new Set([
@@ -166,7 +162,7 @@ function ConsumerGroupPage() {
       meta: { align: "right", width: "6rem" },
       cell: ({ getValue }) => <span className="numeric">{getValue()}</span>,
     }),
-    offsetColumnHelper.accessor((offset) => knownOffset(offset.currentOffset), {
+    offsetColumnHelper.accessor((offset) => offset.currentOffset ?? -1, {
       id: "current",
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title="Committed" className="justify-end" />
@@ -176,7 +172,7 @@ function ConsumerGroupPage() {
         <OffsetValue value={row.original.currentOffset} label="Fetching committed offsets" />
       ),
     }),
-    offsetColumnHelper.accessor((offset) => knownOffset(offset.endOffset), {
+    offsetColumnHelper.accessor((offset) => offset.endOffset ?? -1, {
       id: "end",
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title="End offset" className="justify-end" />
@@ -186,7 +182,7 @@ function ConsumerGroupPage() {
         <OffsetValue value={row.original.endOffset} label="Sampling the watermark" />
       ),
     }),
-    offsetColumnHelper.accessor((offset) => knownOffset(offset.lag), {
+    offsetColumnHelper.accessor((offset) => offset.lag ?? -1, {
       id: "lag",
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title="Lag" className="justify-end" />
@@ -212,7 +208,7 @@ function ConsumerGroupPage() {
               />
             </span>
             <span className={cn("numeric w-16", lag === 0 && "text-muted-foreground")}>
-              {formatNumber(row.original.lag)}
+              {formatNumber(lag)}
             </span>
           </span>
         );

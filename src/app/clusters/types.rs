@@ -4,15 +4,13 @@ use ts_rs::TS;
 
 use crate::kafka::store::{self, projections};
 
-use super::super::int64::Int64;
-
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct LaneHealth {
     pub updated_at: Option<Timestamp>,
     pub checked_at: Option<Timestamp>,
     pub last_error: Option<String>,
-    pub last_poll_ms: Option<Int64>,
+    pub last_poll_ms: Option<u64>,
     /// False once a lane has failed since its last successful commit.
     pub healthy: bool,
 }
@@ -24,7 +22,7 @@ impl From<store::LaneHealth> for LaneHealth {
             updated_at: health.updated_at,
             checked_at: health.checked_at,
             last_error: health.last_error,
-            last_poll_ms: health.last_poll_ms.map(Int64::from),
+            last_poll_ms: health.last_poll_ms,
         }
     }
 }

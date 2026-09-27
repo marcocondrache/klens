@@ -24,7 +24,6 @@ import {
   formatDuration,
   formatNumber,
   formatThroughput,
-  toNumber,
 } from "@/lib/format";
 import type { PartitionRow, TopicDetail, TopicGroupRow } from "@/lib/api/types";
 import { topicTab, topicDetailSearch } from "@/lib/route-search";
@@ -89,29 +88,29 @@ const partitionColumns = partitionColumnHelper.columns([
       </span>
     ),
   }),
-  partitionColumnHelper.accessor((partition) => toNumber(partition.lowWatermark), {
+  partitionColumnHelper.accessor("lowWatermark", {
     id: "low",
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Low offset" className="justify-end" />
     ),
     meta: { align: "right", width: "9rem" },
-    cell: ({ row }) => formatNumber(row.original.lowWatermark),
+    cell: ({ getValue }) => formatNumber(getValue()),
   }),
-  partitionColumnHelper.accessor((partition) => toNumber(partition.highWatermark), {
+  partitionColumnHelper.accessor("highWatermark", {
     id: "high",
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="High offset" className="justify-end" />
     ),
     meta: { align: "right", width: "9rem" },
-    cell: ({ row }) => formatNumber(row.original.highWatermark),
+    cell: ({ getValue }) => formatNumber(getValue()),
   }),
-  partitionColumnHelper.accessor((partition) => toNumber(partition.retained), {
+  partitionColumnHelper.accessor("retained", {
     id: "messages",
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Messages" className="justify-end" />
     ),
     meta: { align: "right", width: "9rem" },
-    cell: ({ row }) => formatNumber(row.original.retained),
+    cell: ({ getValue }) => formatNumber(getValue()),
   }),
 ]);
 
@@ -133,30 +132,27 @@ const groupColumns = groupColumnHelper.columns([
     meta: { align: "right", width: "6rem" },
     cell: ({ getValue }) => getValue(),
   }),
-  groupColumnHelper.accessor(
-    (group) => (group.lagOnTopic === null ? -1 : toNumber(group.lagOnTopic)),
-    {
-      id: "lag",
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Lag on this topic" className="justify-end" />
-      ),
-      meta: { align: "right", width: "9rem" },
-      cell: ({ row: groupRow }) => {
-        if (groupRow.original.lagOnTopic === null) {
-          return <PendingValue label="Fetching committed offsets" className="ml-auto block" />;
-        }
-        const lag = toNumber(groupRow.original.lagOnTopic);
+  groupColumnHelper.accessor((group) => group.lagOnTopic ?? -1, {
+    id: "lag",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Lag on this topic" className="justify-end" />
+    ),
+    meta: { align: "right", width: "9rem" },
+    cell: ({ row: groupRow }) => {
+      if (groupRow.original.lagOnTopic === null) {
+        return <PendingValue label="Fetching committed offsets" className="ml-auto block" />;
+      }
+      const lag = groupRow.original.lagOnTopic;
 
-        return (
-          <span
-            className={cn("numeric", lag === 0 ? "text-muted-foreground" : TONE_TEXT[lagTone(lag)])}
-          >
-            {formatNumber(groupRow.original.lagOnTopic)}
-          </span>
-        );
-      },
+      return (
+        <span
+          className={cn("numeric", lag === 0 ? "text-muted-foreground" : TONE_TEXT[lagTone(lag)])}
+        >
+          {formatNumber(lag)}
+        </span>
+      );
     },
-  ),
+  }),
 ]);
 
 function TopicFacts({ detail }: { detail: TopicDetail }) {
