@@ -1535,6 +1535,7 @@ dependencies = [
 name = "klens"
 version = "0.0.0-dev"
 dependencies = [
+ "aho-corasick",
  "anyhow",
  "apache-avro",
  "arc-swap",
