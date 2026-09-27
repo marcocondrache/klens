@@ -5,6 +5,7 @@ use schemreg::{
     CachedSchemaRegistry, ConfluentSchemaRegistry, RetryPolicy, Schema, SchemaId, SchemaRegError,
     SchemaRegistryClient as _, SchemaVersion,
 };
+use secrecy::ExposeSecret;
 use tokio::sync::OnceCell;
 
 use crate::config::SchemaRegistryConfig;
@@ -35,7 +36,7 @@ impl SchemaRegistryClient {
             .retry_policy(RetryPolicy::none());
 
         if let (Some(username), Some(password)) = (&config.username, &config.password) {
-            builder = builder.basic_auth(username, password);
+            builder = builder.basic_auth(username, password.expose_secret());
         }
 
         let inner = builder

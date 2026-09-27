@@ -166,7 +166,7 @@ async fn an_obfuscated_topic_serves_tokens_instead_of_payloads() {
             .with_orders_records(records)
             .with_obfuscation(
                 "
-                secret: 0123456789abcdef0123456789abcdef
+                secret: {value: 0123456789abcdef0123456789abcdef}
                 rules:
                   - topics: ['orders.*']
                     headers: ['x-user-id']
@@ -245,7 +245,7 @@ async fn a_pattern_rule_tokens_a_topic_no_registry_ever_decodes() {
             .with_orders_records(records)
             .with_obfuscation(
                 r"
-                secret: 0123456789abcdef0123456789abcdef
+                secret: {value: 0123456789abcdef0123456789abcdef}
                 rules:
                   - topics: ['orders.*']
                     patterns:
@@ -283,7 +283,7 @@ async fn an_obfuscated_topic_cannot_be_filtered_on_the_cleartext_it_hides() {
             .with_orders_records(records)
             .with_obfuscation(
                 "
-                secret: 0123456789abcdef0123456789abcdef
+                secret: {value: 0123456789abcdef0123456789abcdef}
                 rules:
                   - topics: ['orders.*']
                     fields:

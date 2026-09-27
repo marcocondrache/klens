@@ -2,8 +2,10 @@
 #
 # Copy this file to config.yaml and adjust it for your environment.
 #
-# Values may reference environment variables, so secrets can stay out of this
-# file: ${VAR}, $VAR, ${VAR:-default}. Use $$ for a literal dollar sign.
+# Every secret names where to read it, so secrets can stay out of this file:
+# {value: ...} inline, {env: NAME} from an environment variable, or
+# {file: PATH} from a file such as a mounted Kubernetes secret. A trailing
+# newline in a secret file is dropped.
 bind: 0.0.0.0:8080
 log_level: info
 
@@ -17,8 +19,8 @@ clusters:
     #   protocol: SASL_SSL
     #   sasl:
     #     mechanism: SCRAM-SHA-512
-    #     username: ${KAFKA_USERNAME}
-    #     password: ${KAFKA_PASSWORD}
+    #     username: klens
+    #     password: {env: KAFKA_PASSWORD}
     #   tls:
     #     ca_cert: /path/to/ca.pem
     #     client_cert: /path/to/client.pem
@@ -51,8 +53,8 @@ clusters:
     # reached over `https://`, otherwise startup fails for this cluster.
     schema_registry:
       url: http://localhost:8081
-      # username: ${SCHEMA_REGISTRY_USERNAME}
-      # password: ${SCHEMA_REGISTRY_PASSWORD}
+      # username: klens
+      # password: {env: SCHEMA_REGISTRY_PASSWORD}
 
     # Optional server-side obfuscation. Rules are per topic, compiled at boot,
     # and applied before filters run, so a filter can only ever match what the
@@ -61,7 +63,7 @@ clusters:
     # obfuscation:
     #   # Required as soon as one rule hashes. Base64 or plain text, 32+ bytes.
     #   # Rotating it changes every token.
-    #   secret: ${KLENS_OBFUSCATION_SECRET}
+    #   secret: {env: KLENS_OBFUSCATION_SECRET}
     #   rules:
     #     # Field rules walk the JSON a registry decode produced. An array met
     #     # on the path fans out, so items.sku covers every element's sku.
@@ -106,7 +108,7 @@ clusters:
 #   oidc:
 #     issuer: https://keycloak.example.com/realms/klens
 #     client_id: klens
-#     client_secret: ${OIDC_CLIENT_SECRET}
+#     client_secret: {env: OIDC_CLIENT_SECRET}
 #     redirect_uri: http://localhost:8080/api/auth/callback
 #     # scopes: [openid, email, profile]
 #     # cookie_secure: false  # default: true when redirect_uri is https

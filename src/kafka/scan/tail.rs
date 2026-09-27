@@ -558,7 +558,7 @@ mod tests {
     async fn an_obfuscated_topic_is_tailed_as_tokens() {
         let session = FakeCluster::local().with_obfuscation(
             "
-            secret: 0123456789abcdef0123456789abcdef
+            secret: {value: 0123456789abcdef0123456789abcdef}
             rules:
               - topics: ['orders.*']
                 fields:

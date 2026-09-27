@@ -1013,7 +1013,7 @@ mod tests {
     const PAN: &str = "4111111111111111";
 
     const RULES: &str = "
-        secret: 0123456789abcdef0123456789abcdef
+        secret: {value: 0123456789abcdef0123456789abcdef}
         rules:
           - topics: ['orders.*']
             headers: ['x-user-id']
@@ -1118,7 +1118,7 @@ mod tests {
     }
 
     const PATTERNS: &str = r"
-        secret: 0123456789abcdef0123456789abcdef
+        secret: {value: 0123456789abcdef0123456789abcdef}
         rules:
           - topics: ['orders.*']
             patterns:

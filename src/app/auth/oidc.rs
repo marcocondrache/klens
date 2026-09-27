@@ -8,6 +8,7 @@ use openidconnect::{
     EndpointNotSet, EndpointSet, IssuerUrl, Nonce, OAuth2TokenResponse, PkceCodeChallenge,
     PkceCodeVerifier, RedirectUrl, Scope, TokenResponse,
 };
+use secrecy::ExposeSecret;
 
 type DiscoveredClient = CoreClient<
     EndpointSet,
@@ -68,7 +69,9 @@ impl Oidc {
         let client = CoreClient::from_provider_metadata(
             metadata,
             ClientId::new(config.client_id.clone()),
-            Some(ClientSecret::new(config.client_secret.clone())),
+            Some(ClientSecret::new(
+                config.client_secret.expose_secret().to_owned(),
+            )),
         )
         .set_redirect_uri(redirect);
 
