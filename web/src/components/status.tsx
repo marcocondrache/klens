@@ -77,15 +77,13 @@ export function StatusLabel({
   tone,
   pulse = false,
   children,
-  className,
 }: {
   tone: Tone;
   pulse?: boolean;
   children: ReactNode;
-  className?: string;
 }) {
   return (
-    <span className={cn("inline-flex items-center gap-2 whitespace-nowrap", className)}>
+    <span className="inline-flex items-center gap-2 whitespace-nowrap">
       <StatusDot tone={tone} pulse={pulse} />
       {children}
     </span>

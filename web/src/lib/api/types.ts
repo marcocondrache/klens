@@ -1,7 +1,5 @@
 export type {
   Acl,
-  AclAuthorizer,
-  AclResourceType,
   BrokerRow,
   CleanupPolicy,
   ClusterHealth,
@@ -17,7 +15,6 @@ export type {
   PrivilegeName,
   Record as KafkaRecord,
   RecordOrder,
-  SubjectDetail,
   SubjectRow,
   TopicDetail,
   TopicGroupRow,

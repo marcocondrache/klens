@@ -5,13 +5,11 @@ export function PageHeader({
   title,
   description,
   badges,
-  actions,
   mono = false,
 }: {
   title: ReactNode;
   description?: ReactNode;
   badges?: ReactNode;
-  actions?: ReactNode;
   mono?: boolean;
 }) {
   return (
@@ -30,8 +28,6 @@ export function PageHeader({
         </div>
         {description ? <div className="text-sm text-muted-foreground">{description}</div> : null}
       </div>
-
-      {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
     </div>
   );
 }

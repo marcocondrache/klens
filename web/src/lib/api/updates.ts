@@ -16,15 +16,11 @@ import type {
 
 export type Scope = { topic?: string; group?: string };
 
-export function useUpdates(cluster: string, scope: Scope = {}) {
+export function useUpdates(cluster: string, scope: Scope) {
   const queryClient = useQueryClient();
   const { topic, group } = scope;
 
   useEffect(() => {
-    if (!cluster) {
-      return;
-    }
-
     return stream(`/clusters/${encodeURIComponent(cluster)}/updates`, { topic, group }, (update) =>
       apply(queryClient, cluster, update),
     );

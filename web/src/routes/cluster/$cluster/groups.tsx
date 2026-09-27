@@ -202,7 +202,6 @@ function ConsumerGroupsPage() {
             params: { cluster, group: group.id },
           });
         }}
-        fill
       />
     </div>
   );

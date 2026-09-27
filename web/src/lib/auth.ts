@@ -11,15 +11,6 @@ export type AuthMe = {
   user: AuthUser | null;
 };
 
-export async function fetchAuth(): Promise<AuthMe> {
-  const response = await fetch(apiPath("/auth/me"), { credentials: "include" });
-  if (!response.ok) {
-    throw new Error("Could not load authentication state");
-  }
-
-  return (await response.json()) as AuthMe;
-}
-
 export async function signOut(): Promise<void> {
   await fetch(apiPath("/auth/logout"), { method: "POST", credentials: "include" });
   window.location.assign(LOGIN_PATH);
