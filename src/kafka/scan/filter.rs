@@ -1,5 +1,7 @@
 use std::fmt::{Debug, Formatter};
 
+use aho_corasick::AhoCorasick;
+
 use crate::kafka::scan::payload::DecodedPayload;
 
 #[derive(Debug, Clone, Copy)]
@@ -15,10 +17,19 @@ pub enum Verdict {
     NeedsPayload,
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct CompiledFilter {
     needle: String,
+    matcher: AhoCorasick,
 }
+
+impl PartialEq for CompiledFilter {
+    fn eq(&self, other: &Self) -> bool {
+        self.needle == other.needle
+    }
+}
+
+impl Eq for CompiledFilter {}
 
 impl Debug for CompiledFilter {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
@@ -31,7 +42,7 @@ impl Debug for CompiledFilter {
 
 impl CompiledFilter {
     fn matches_bytes(&self, bytes: &[u8]) -> bool {
-        contains_ascii_ci(bytes, self.needle.as_bytes())
+        self.matcher.is_match(bytes)
     }
 
     pub fn on_raw(&self, key: Option<RawField<'_>>, value: Option<RawField<'_>>) -> Verdict {
@@ -64,21 +75,14 @@ pub fn contains(needle: &str) -> Option<CompiledFilter> {
     if trimmed.is_empty() {
         return None;
     }
+    let matcher = AhoCorasick::builder()
+        .ascii_case_insensitive(true)
+        .build([trimmed])
+        .expect("a single needle fits the automaton");
     Some(CompiledFilter {
         needle: trimmed.to_owned(),
+        matcher,
     })
-}
-
-fn contains_ascii_ci(haystack: &[u8], needle: &[u8]) -> bool {
-    if needle.is_empty() {
-        return true;
-    }
-    if haystack.len() < needle.len() {
-        return false;
-    }
-    haystack
-        .windows(needle.len())
-        .any(|window| window.eq_ignore_ascii_case(needle))
 }
 
 #[cfg(test)]
@@ -160,9 +164,18 @@ mod tests {
 
     #[test]
     fn ascii_case_folding_handles_boundaries() {
-        assert!(contains_ascii_ci(b"ORDER", b"order"));
-        assert!(contains_ascii_ci(b"xxorderxx", b"ORDER"));
-        assert!(!contains_ascii_ci(b"ord", b"order"));
-        assert!(contains_ascii_ci(b"", b""));
+        let upper = contains("ORDER").expect("needle");
+        assert!(contains("order").expect("needle").matches_bytes(b"ORDER"));
+        assert!(upper.matches_bytes(b"xxorderxx"));
+        assert!(upper.matches_bytes(b"xxOrDeR"));
+        assert!(!upper.matches_bytes(b"ord"));
+        assert!(!upper.matches_bytes(b""));
+    }
+
+    #[test]
+    fn case_folding_is_ascii_only() {
+        let filter = contains("ÉTAT").expect("needle");
+        assert!(filter.matches_bytes("l'ÉTAT".as_bytes()));
+        assert!(!filter.matches_bytes("l'état".as_bytes()));
     }
 }
