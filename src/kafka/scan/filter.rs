@@ -97,6 +97,12 @@ mod tests {
     }
 
     #[test]
+    fn filters_are_equal_by_their_trimmed_source() {
+        assert_eq!(contains("failed"), contains(" failed "));
+        assert_ne!(contains("failed"), contains("shipped"));
+    }
+
+    #[test]
     fn a_substring_filter_answers_from_unframed_bytes() {
         let filter = contains("FAILED").expect("needle");
         let unframed = |bytes: &'static [u8]| RawField {
