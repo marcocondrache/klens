@@ -233,9 +233,10 @@ async fn falling_behind_the_bus_asks_the_client_to_refetch_instead_of_dropping_i
     for index in 0..(2 * BUS_CAPACITY) {
         store.bus.publish(tick(&[("orders.created", index as f64)]));
     }
-    let events = read_events(response, 1).await;
+    let frames = read_frames(response, 1).await;
 
-    assert_eq!(events[0], serde_json::json!({ "type": "resync" }));
+    assert_eq!(frames[0].0, "resync");
+    assert_eq!(frames[0].1, serde_json::json!({ "type": "resync" }));
 }
 
 #[tokio::test]

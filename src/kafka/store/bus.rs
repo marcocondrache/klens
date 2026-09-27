@@ -394,6 +394,34 @@ mod tests {
         assert_eq!(SubjectsDelta::between(Some(&next), &next), None);
     }
 
+    #[test]
+    fn a_lone_removal_or_version_bump_is_a_subject_delta() {
+        let interner = &mut crate::kafka::store::tables::Interner::default();
+        let previous = SubjectTable::assemble(
+            &[
+                crate::kafka::store::fixtures::subject("orders-value", 1, 1),
+                crate::kafka::store::fixtures::subject("payments-value", 2, 1),
+            ],
+            interner,
+        );
+        let removed = SubjectTable::assemble(
+            &[crate::kafka::store::fixtures::subject("orders-value", 1, 1)],
+            interner,
+        );
+        let bumped = SubjectTable::assemble(
+            &[
+                crate::kafka::store::fixtures::subject("orders-value", 1, 2),
+                crate::kafka::store::fixtures::subject("payments-value", 2, 1),
+            ],
+            interner,
+        );
+
+        let delta = SubjectsDelta::between(Some(&previous), &removed).expect("a subject went");
+        assert_eq!(delta.removed, [Arc::from("payments-value")]);
+        let delta = SubjectsDelta::between(Some(&previous), &bumped).expect("a version landed");
+        assert_eq!(delta.changed, [Arc::from("orders-value")]);
+    }
+
     #[tokio::test]
     async fn the_bus_fans_out_to_every_subscriber() {
         let bus = ChangeBus::new();
