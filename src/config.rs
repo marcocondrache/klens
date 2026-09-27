@@ -5,6 +5,7 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use indexmap::IndexMap;
 use openidconnect::{IssuerUrl, RedirectUrl};
@@ -16,7 +17,11 @@ use serde::{Deserialize, Deserializer};
 use thiserror::Error;
 use url::Url;
 
-use crate::environment;
+mod tuning;
+
+pub use tuning::{
+    IngestTuning, KafkaTuning, RecordLimits, ScanTuning, SchemaRegistryTuning, TailTuning, Tuning,
+};
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -45,10 +50,12 @@ pub struct Config {
     pub clusters: UniqueMap<ClusterName, ClusterConfig>,
     #[serde(default)]
     pub auth: Option<AuthConfig>,
+    #[serde(default)]
+    pub tuning: Tuning,
 }
 
 fn default_log_level() -> String {
-    environment::LOG_LEVEL.clone()
+    "info".to_owned()
 }
 
 fn deserialize_bind<'de, D>(deserializer: D) -> Result<SocketAddr, D::Error>
@@ -61,10 +68,6 @@ where
 }
 
 impl Config {
-    pub fn path() -> PathBuf {
-        PathBuf::from(environment::CONFIG_PATH.as_str())
-    }
-
     pub fn load(path: impl AsRef<Path>) -> Result<Self, ConfigError> {
         let path = path.as_ref();
         let raw = std::fs::read_to_string(path).map_err(|source| ConfigError::Read {
@@ -278,10 +281,23 @@ pub struct AuthConfig {
     pub oidc: OidcConfig,
     #[serde(default, deserialize_with = "roles")]
     pub roles: Option<UniqueMap<String, RoleConfig>>,
-    /// Signing key for the session cookie, as base64 or raw text of at least
-    /// 32 bytes. Without one, every restart invalidates every session.
     #[serde(default)]
     pub session_key: Option<KeyMaterial<MIN_SESSION_KEY_BYTES>>,
+    #[serde(
+        default = "default_login_max_age",
+        deserialize_with = "tuning::duration"
+    )]
+    pub login_max_age: Duration,
+    #[serde(default = "default_max_session", deserialize_with = "tuning::duration")]
+    pub max_session: Duration,
+}
+
+fn default_login_max_age() -> Duration {
+    Duration::from_secs(10 * 60)
+}
+
+fn default_max_session() -> Duration {
+    Duration::from_secs(12 * 60 * 60)
 }
 
 const MAX_ROLES: usize = 64;
@@ -395,8 +411,10 @@ pub struct OidcConfig {
     pub cookie_secure: Option<bool>,
 }
 
+const DEFAULT_OIDC_SCOPES: &[&str] = &["openid", "email", "profile"];
+
 fn default_scopes() -> Vec<String> {
-    environment::DEFAULT_OIDC_SCOPES
+    DEFAULT_OIDC_SCOPES
         .iter()
         .map(|scope| (*scope).to_owned())
         .collect()
@@ -464,63 +482,51 @@ pub struct ClusterConfig {
     pub obfuscation: Option<ObfuscationConfig>,
     #[serde(default)]
     pub properties: KafkaProperties,
-    #[serde(default, deserialize_with = "ingest")]
+    #[serde(default)]
     pub ingest: ClusterIngestConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ClusterIngestConfig {
-    pub topology_secs: u64,
-    pub watermark_secs: u64,
-    pub config_secs: u64,
-    pub subjects_secs: u64,
-    pub offset_tick_secs: u64,
-    pub fast_offset_secs: u64,
-    pub slow_offset_secs: u64,
+    #[serde(deserialize_with = "tuning::interval")]
+    pub topology: Duration,
+    #[serde(deserialize_with = "tuning::interval")]
+    pub watermark: Duration,
+    #[serde(deserialize_with = "tuning::interval")]
+    pub config: Duration,
+    #[serde(deserialize_with = "tuning::interval")]
+    pub subjects: Duration,
+    #[serde(deserialize_with = "tuning::interval")]
+    pub offset_tick: Duration,
+    #[serde(deserialize_with = "tuning::interval")]
+    pub fast_offset: Duration,
+    #[serde(deserialize_with = "tuning::interval")]
+    pub slow_offset: Duration,
 }
 
 impl Default for ClusterIngestConfig {
     fn default() -> Self {
         Self {
-            topology_secs: 10,
-            watermark_secs: 3,
-            config_secs: 60,
-            subjects_secs: 30,
-            offset_tick_secs: 1,
-            fast_offset_secs: 2,
-            slow_offset_secs: 20,
+            topology: Duration::from_secs(10),
+            watermark: Duration::from_secs(3),
+            config: Duration::from_secs(60),
+            subjects: Duration::from_secs(30),
+            offset_tick: Duration::from_secs(1),
+            fast_offset: Duration::from_secs(2),
+            slow_offset: Duration::from_secs(20),
         }
     }
-}
-
-fn ingest<'de, D: Deserializer<'de>>(deserializer: D) -> Result<ClusterIngestConfig, D::Error> {
-    deserializer.deserialize_map(Checked::new(
-        "ingest intervals",
-        |ingest: ClusterIngestConfig| {
-            let fields = [
-                ("topology_secs", ingest.topology_secs),
-                ("watermark_secs", ingest.watermark_secs),
-                ("config_secs", ingest.config_secs),
-                ("subjects_secs", ingest.subjects_secs),
-                ("offset_tick_secs", ingest.offset_tick_secs),
-                ("fast_offset_secs", ingest.fast_offset_secs),
-                ("slow_offset_secs", ingest.slow_offset_secs),
-            ];
-            if let Some((field, _)) = fields.iter().find(|(_, secs)| *secs < 1) {
-                return Err(format!("{field} must be at least 1"));
-            }
-            Ok(ingest)
-        },
-    ))
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct KafkaProperties {
     pub client_id: Option<String>,
-    pub request_timeout_ms: Option<u64>,
-    pub connect_timeout_ms: Option<u64>,
+    #[serde(deserialize_with = "tuning::optional_duration")]
+    pub request_timeout: Option<Duration>,
+    #[serde(deserialize_with = "tuning::optional_duration")]
+    pub connect_timeout: Option<Duration>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -1316,19 +1322,24 @@ mod tests {
             bootstrap_servers:
               - kafka:9092
             ingest:
-              topology_secs: 15
-              watermark_secs: 5
+              topology: 15s
+              watermark: 1m 30s
             ",
         )
         .unwrap();
 
-        assert_eq!(cluster.ingest.topology_secs, 15);
-        assert_eq!(cluster.ingest.watermark_secs, 5);
-        assert_eq!(cluster.ingest.config_secs, 60);
-        assert_eq!(cluster.ingest.subjects_secs, 30);
-        assert_eq!(cluster.ingest.offset_tick_secs, 1);
-        assert_eq!(cluster.ingest.fast_offset_secs, 2);
-        assert_eq!(cluster.ingest.slow_offset_secs, 20);
+        assert_eq!(
+            cluster.ingest,
+            ClusterIngestConfig {
+                topology: Duration::from_secs(15),
+                watermark: Duration::from_secs(90),
+                config: Duration::from_secs(60),
+                subjects: Duration::from_secs(30),
+                offset_tick: Duration::from_secs(1),
+                fast_offset: Duration::from_secs(2),
+                slow_offset: Duration::from_secs(20),
+            }
+        );
     }
 
     #[test]
@@ -1338,12 +1349,12 @@ mod tests {
             bootstrap_servers:
               - kafka:9092
             ingest:
-              catalog_secs: 10
+              topology_secs: 10
             ",
         )
         .unwrap_err();
 
-        assert!(error.to_string().contains("unknown field `catalog_secs`"));
+        assert!(error.to_string().contains("unknown field `topology_secs`"));
     }
 
     #[test]
@@ -1356,13 +1367,13 @@ mod tests {
                 bootstrap_servers:
                   - kafka:9092
                 ingest:
-                  topology_secs: 0
+                  topology: 500ms
             ",
         );
 
         assert_eq!(
             error,
-            "clusters.prod.ingest: topology_secs must be at least 1 at line 8 column 19"
+            "clusters.prod.ingest.topology: must be at least 1s, got 500ms at line 8 column 29"
         );
     }
 
@@ -1476,7 +1487,7 @@ mod tests {
                   key: /etc/client.key
                 insecure_skip_verify: true
             properties:
-              request_timeout_ms: 10000
+              request_timeout: 10s
             ",
         )
         .unwrap();
@@ -1499,7 +1510,10 @@ mod tests {
                 insecure_skip_verify: true,
             }
         );
-        assert_eq!(config.properties.request_timeout_ms, Some(10000));
+        assert_eq!(
+            config.properties.request_timeout,
+            Some(Duration::from_secs(10))
+        );
     }
 
     #[test]
@@ -1523,8 +1537,8 @@ mod tests {
             bootstrap_servers: [localhost:9092]
             properties:
               client_id: browser
-              request_timeout_ms: 8000
-              connect_timeout_ms: 30000
+              request_timeout: 8s
+              connect_timeout: 250ms
             ",
         )
         .unwrap();
@@ -1532,8 +1546,8 @@ mod tests {
             config.properties,
             KafkaProperties {
                 client_id: Some("browser".into()),
-                request_timeout_ms: Some(8000),
-                connect_timeout_ms: Some(30000),
+                request_timeout: Some(Duration::from_secs(8)),
+                connect_timeout: Some(Duration::from_millis(250)),
             }
         );
     }
@@ -1541,10 +1555,8 @@ mod tests {
     #[test]
     fn kafka_properties_reject_duplicate_timeouts() {
         assert!(
-            serde_yaml_ng::from_str::<KafkaProperties>(
-                "request_timeout_ms: 5000\nrequest_timeout_ms: 6000",
-            )
-            .is_err()
+            serde_yaml_ng::from_str::<KafkaProperties>("request_timeout: 5s\nrequest_timeout: 6s")
+                .is_err()
         );
     }
 
@@ -1552,12 +1564,14 @@ mod tests {
     fn kafka_properties_reject_unknown_keys_and_invalid_types() {
         for yaml in [
             "queued.min.messages: 2000",
-            "request_timeout_ms: -1",
-            "request_timeout_ms: 1.5",
-            "request_timeout_ms: true",
-            "request_timeout_ms: '5000'",
-            "request_timeout_ms: 18446744073709551616",
-            "connect_timeout_ms: invalid",
+            "request_timeout: -1s",
+            "request_timeout: 5000",
+            "request_timeout: 1.5",
+            "request_timeout: true",
+            "request_timeout: '5000'",
+            "connect_timeout: invalid",
+            "request_timeout_ms: 5000",
+            "connect_timeout_ms: 5000",
             "request.timeout.ms: 5000",
             "api.version.request.timeout.ms: 5000",
             "socket.connection.setup.timeout.ms: 5000",

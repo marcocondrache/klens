@@ -1,3 +1,4 @@
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -15,7 +16,10 @@ use crate::kafka::testing::FakeCluster;
 const IDLE: Duration = Duration::from_secs(600);
 
 fn store(session: &FakeCluster) -> Arc<ClusterStore> {
-    Arc::new(ClusterStore::new(session.identity().clone()))
+    Arc::new(ClusterStore::new(
+        session.identity().clone(),
+        IngestTuning::default().interest_ttl,
+    ))
 }
 
 fn port(session: &FakeCluster) -> Arc<dyn ClusterSession> {
@@ -30,7 +34,7 @@ fn catalog_lanes(store: &Arc<ClusterStore>, session: &FakeCluster) -> JoinSet<()
     ));
     lanes.spawn(run(
         Arc::clone(store),
-        WatermarkLane::with_interval(port(session), IDLE),
+        WatermarkLane::with_interval(port(session), IDLE, &IngestTuning::default()),
     ));
     lanes
 }
@@ -492,7 +496,7 @@ async fn offset_fetches_respect_the_concurrency_cap() {
         ));
     }
     let store = store(&session);
-    let lane = OffsetLane::new(port(&session)).with_concurrency(4);
+    let lane = OffsetLane::new(port(&session)).with_concurrency(NonZeroUsize::new(4).unwrap());
     let _lanes = catalog_lanes(&store, &session);
     wait_for(|| store.ready(), "topology commit").await;
 
@@ -699,7 +703,11 @@ async fn downstream_lanes_wait_for_topology_instead_of_committing_nothing() {
     let mut lanes = JoinSet::new();
     lanes.spawn(run(
         Arc::clone(&store),
-        WatermarkLane::with_interval(port(&session), Duration::from_secs(600)),
+        WatermarkLane::with_interval(
+            port(&session),
+            Duration::from_secs(600),
+            &IngestTuning::default(),
+        ),
     ));
     lanes.spawn(run(
         Arc::clone(&store),
@@ -729,7 +737,7 @@ async fn every_lane_runs_per_cluster_and_stops_with_the_ingest() {
     let prod = FakeCluster::named("prod");
     let staging = FakeCluster::named("staging");
     let clusters = Clusters::from_sessions(vec![prod.clone(), staging]);
-    let lanes = Ingest::start(&clusters);
+    let lanes = Ingest::start(&clusters, &IngestTuning::default());
 
     assert_eq!(lanes.lane_count(), 10, "five lanes per cluster");
     wait_for(|| clusters.ready(), "both clusters ready").await;
@@ -750,7 +758,7 @@ async fn every_lane_runs_per_cluster_and_stops_with_the_ingest() {
 #[tokio::test]
 async fn ingestion_fills_the_stores_the_api_projects_from() {
     let clusters = Clusters::from_sessions(vec![FakeCluster::local()]);
-    let _lanes = Ingest::start(&clusters);
+    let _lanes = Ingest::start(&clusters, &IngestTuning::default());
     let store = &clusters.get("local").unwrap().store;
 
     wait_for(
@@ -770,7 +778,7 @@ async fn ingestion_fills_the_stores_the_api_projects_from() {
 async fn ingestion_never_describes_acls() {
     let session = FakeCluster::local();
     let clusters = Clusters::from_sessions(vec![session.clone()]);
-    let _lanes = Ingest::start(&clusters);
+    let _lanes = Ingest::start(&clusters, &IngestTuning::default());
 
     wait_for(|| clusters.ready(), "topology commit").await;
 
@@ -786,7 +794,7 @@ async fn one_cluster_never_wakes_another() {
     let prod = FakeCluster::named("prod");
     let staging = FakeCluster::named("staging");
     let clusters = Clusters::from_sessions(vec![prod.clone(), staging]);
-    let _lanes = Ingest::start(&clusters);
+    let _lanes = Ingest::start(&clusters, &IngestTuning::default());
     let prod_store = &clusters.get("prod").unwrap().store;
     let staging_store = &clusters.get("staging").unwrap().store;
 

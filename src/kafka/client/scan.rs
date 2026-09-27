@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use krafka::client::KrafkaClient as KrafkaSharedClient;
 use krafka::consumer::{AutoOffsetReset, Consumer, ConsumerBuilder, ConsumerRecord};
 
-use crate::environment::{MAX_RECORD_LIMIT, MAX_RESPONSE_BYTES};
+use crate::config::Tuning;
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{PartitionWindow, RawRecord, ScanConsumer};
 
@@ -14,24 +14,40 @@ use super::pool::{ScanPool, assign};
 
 const MIN_FETCH_WAIT: Duration = Duration::from_millis(1);
 
+#[derive(Debug, Clone, Copy)]
+pub(super) struct ReaderConfig {
+    fetch_wait: Duration,
+    page_limit: i32,
+    fetch_max_bytes: i32,
+}
+
+impl ReaderConfig {
+    pub(super) fn new(tuning: &Tuning, fetch_wait: Duration) -> Self {
+        Self {
+            fetch_wait,
+            page_limit: i32::try_from(tuning.records.max_limit.get()).unwrap_or(i32::MAX),
+            // krafka's 50 MB default is wider than the frame the connection
+            // now accepts, which would make a busy fetch unreadable.
+            fetch_max_bytes: i32::try_from(tuning.kafka.max_response_bytes() / 2)
+                .unwrap_or(i32::MAX),
+        }
+    }
+}
+
 pub(super) fn reader(
     client: &KrafkaSharedClient,
     topic: &str,
     start: impl IntoIterator<Item = (i32, i64)>,
-    fetch_wait: Duration,
+    config: ReaderConfig,
 ) -> ConsumerBuilder {
-    let page_limit = i32::try_from(*MAX_RECORD_LIMIT).unwrap_or(i32::MAX);
-
     Consumer::builder()
         .with_client(client)
         .enable_auto_commit(false)
         .auto_offset_reset(AutoOffsetReset::Earliest)
-        .fetch_max_wait(fetch_wait.max(MIN_FETCH_WAIT))
-        .max_poll_records(page_limit)
-        .max_buffered_records(page_limit.saturating_mul(2))
-        // krafka's 50 MB default is wider than the frame the connection
-        // now accepts, which would make a busy fetch unreadable.
-        .fetch_max_bytes(i32::try_from(*MAX_RESPONSE_BYTES / 2).unwrap_or(i32::MAX))
+        .fetch_max_wait(config.fetch_wait.max(MIN_FETCH_WAIT))
+        .max_poll_records(config.page_limit)
+        .max_buffered_records(config.page_limit.saturating_mul(2))
+        .fetch_max_bytes(config.fetch_max_bytes)
         .initial_offsets(
             start
                 .into_iter()
@@ -169,6 +185,7 @@ mod tests {
                 properties: Default::default(),
                 ingest: Default::default(),
             },
+            &crate::config::Tuning::default(),
         )
         .await
         .expect("kafka client")
@@ -183,14 +200,14 @@ mod tests {
             &client.transport.client,
             "orders",
             [(0, 5)],
-            Duration::from_millis(250),
+            ReaderConfig::new(&Tuning::default(), Duration::from_millis(250)),
         )
         .build_config()
         .unwrap();
 
         assert_eq!(
             config.fetch_max_bytes(),
-            i32::try_from(*MAX_RESPONSE_BYTES / 2).unwrap(),
+            16 * 1024 * 1024,
             "a fetch wider than the frame limit would be unreadable"
         );
         assert_eq!(config.fetch_max_wait(), Duration::from_millis(250));
@@ -202,9 +219,14 @@ mod tests {
         let broker = FakeBroker::start().await.unwrap();
         let client = client(&broker).await;
 
-        let config = reader(&client.transport.client, "orders", [(0, 0)], Duration::ZERO)
-            .build_config()
-            .unwrap();
+        let config = reader(
+            &client.transport.client,
+            "orders",
+            [(0, 0)],
+            ReaderConfig::new(&Tuning::default(), Duration::ZERO),
+        )
+        .build_config()
+        .unwrap();
 
         assert_eq!(
             config.fetch_max_wait(),

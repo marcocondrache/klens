@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use foldhash::{HashMap, HashMapExt, HashSet, HashSetExt};
 
@@ -16,7 +17,6 @@ use thiserror::Error;
 
 use super::client::{Registry, SchemaRegistryClient, references};
 use super::protobuf::{ProtobufCodec, ProtobufError};
-use crate::environment::{MISSING_SCHEMA_TTL, SUBJECT_FETCH_CONCURRENCY};
 use crate::kafka::model::{SchemaReference, SchemaType};
 use crate::kafka::scan::payload::{DecodedPayload, PayloadCodec, PayloadSlot};
 
@@ -65,7 +65,7 @@ enum Resolved {
 }
 
 impl PayloadDecoder {
-    pub(crate) fn new(client: SchemaRegistryClient) -> Self {
+    pub(crate) fn new(client: SchemaRegistryClient, missing_ttl: Duration) -> Self {
         let avro = AvroSchemaDecoder::new(client.registry().clone());
 
         Self {
@@ -74,7 +74,7 @@ impl PayloadDecoder {
             pools: Cache::builder().max_capacity(MAX_CACHED_SCHEMAS).build(),
             missing: Cache::builder()
                 .max_capacity(MAX_CACHED_SCHEMAS)
-                .time_to_live(*MISSING_SCHEMA_TTL)
+                .time_to_live(missing_ttl)
                 .build(),
         }
     }
@@ -148,7 +148,7 @@ impl PayloadDecoder {
                     .map_err(DecodeError::failed)?;
                 Ok::<_, DecodeError>((reference.name, fetched))
             }))
-            .buffer_unordered(*SUBJECT_FETCH_CONCURRENCY);
+            .buffer_unordered(self.client.fetch_concurrency());
 
             while let Some(result) = fetches.next().await {
                 let (name, fetched) = result?;
@@ -347,7 +347,7 @@ impl PayloadDecoder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::SchemaRegistryConfig;
+    use crate::config::{SchemaRegistryConfig, SchemaRegistryTuning};
     use crate::kafka::scan::filter::contains;
 
     fn decode_bytes(bytes: &[u8]) -> String {
@@ -422,7 +422,11 @@ mod tests {
     }
 
     fn decoder(url: &str) -> PayloadDecoder {
-        PayloadDecoder::new(SchemaRegistryClient::new("local", &config(url)).unwrap())
+        let tuning = SchemaRegistryTuning::default();
+        PayloadDecoder::new(
+            SchemaRegistryClient::new("local", &config(url), &tuning).unwrap(),
+            tuning.missing_schema_ttl,
+        )
     }
 
     fn frame(schema_id: u32, payload: &[u8]) -> Vec<u8> {

@@ -39,10 +39,63 @@ A plain string where a secret belongs fails at startup.
 
 Every page reads a background projection of each cluster, refreshed by
 independent lanes. Override a cluster's cadence with `ingest` on that cluster
-(`topology_secs` 10, `watermark_secs` 3, `config_secs` 60, `subjects_secs` 30,
-`offset_tick_secs` 1, `fast_offset_secs` 2, `slow_offset_secs` 20). Values are
-seconds and must be at least 1. Offsets use the fast interval for groups
-someone is looking at and the slow interval for the rest.
+(`topology` 10s, `watermark` 3s, `config` 60s, `subjects` 30s, `offset_tick`
+1s, `fast_offset` 2s, `slow_offset` 20s). Each value must be at least `1s`.
+Offsets use the fast interval for groups someone is looking at and the slow
+interval for the rest.
+
+## Configuration
+
+klens loads `config.yaml` from its working directory. Set `KLENS_CONFIG_PATH`
+to load another file. klens reads no other environment variable, apart from
+the ones a secret names with `{env: NAME}`.
+
+Durations are strings such as `250ms`, `10s`, `1h 30m`, or ISO 8601 `PT10S`.
+A bad value stops startup with the key's path and line, for example
+`tuning.tail.interval: ... at line 12 column 15`. Unknown keys fail the same
+way.
+
+Timeouts, pool sizes, and limits live under `tuning`. Every key is optional.
+This block lists the defaults:
+
+```yaml
+tuning:
+  kafka:
+    connect_timeout: 10s
+    request_timeout: 10s # raised to connect_timeout if smaller
+    consume_timeout: 5s # how long one record page or tail open may read
+    max_in_flight_requests: 32 # per broker connection
+    max_response_mib: 32 # largest broker response frame
+  schema_registry:
+    timeout: 5s
+    subject_fetch_concurrency: 8
+    missing_schema_ttl: 60s # how long an unknown schema id stays cached
+  scan:
+    pool_per_topic: 2 # idle scan consumers kept per topic
+    pool_total: 16 # idle scan consumers kept across all topics
+    pool_idle_ttl: 60s # at least 1s
+    poll_wait: 100ms # longest single scan poll
+  records:
+    max_limit: 500 # most records one page may request
+    window_multiplier: 2
+    search_window_multiplier: 8 # used while a `contains` search runs
+    min_window: 4 # fewest offsets read from each partition
+  tail:
+    batch_limit: 100
+    interval: 250ms
+    poll_wait: 500ms
+    max_live: 32
+  ingest:
+    interest_ttl: 30s # how long a viewed group stays in the fast offset tier
+    offset_fetch_concurrency: 32
+    idle_heartbeat: 15s # an idle topic's rate drops to zero after this
+    max_sample_gap: 15s # older watermark samples do not count toward a rate
+```
+
+`clusters.<name>.properties.request_timeout` and `connect_timeout` override
+`tuning.kafka` for one cluster. Counts must be at least 1, except
+`records.window_multiplier`, `records.search_window_multiplier`,
+`records.min_window`, and `tail.max_live`.
 
 ## Live tail
 
@@ -54,11 +107,11 @@ is `ready` and names each partition's start offset. After that, `records` frames
 arrive oldest first.
 
 A tail samples a busy topic rather than streaming all of it. Each frame carries
-at most `KLENS_TAIL_BATCH_LIMIT` (100) of the newest records, and frames are at
-least `KLENS_TAIL_INTERVAL_MS` (250) apart. A partition that falls too far
-behind skips ahead. `skipped` counts what was passed over. Each tail holds its
-own consumer, and `KLENS_MAX_LIVE_TAILS` (32) caps how many run at once. Past
-that cap, a new tail gets `503 TOO_MANY_TAILS`.
+at most `tuning.tail.batch_limit` (100) of the newest records, and frames are
+at least `tuning.tail.interval` (`250ms`) apart. A partition that falls too
+far behind skips ahead. `skipped` counts what was passed over. Each tail holds
+its own consumer, and `tuning.tail.max_live` (32) caps how many run at once.
+Past that cap, a new tail gets `503 TOO_MANY_TAILS`.
 
 ## Authentication
 
@@ -73,6 +126,10 @@ restart drops in-memory sessions and requires a new login.
 Set `auth.session_key` to a base64 or plain secret of at least 32 bytes so
 the session cookie survives a restart. Without one, klens generates a key per
 boot and every deploy logs everyone out.
+
+A login must come back from the provider within `auth.login_max_age` (`10m`).
+A session ends when the ID token expires or after `auth.max_session` (`12h`),
+whichever comes first.
 
 ```yaml
 auth:

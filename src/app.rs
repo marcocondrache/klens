@@ -1,10 +1,11 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::Router;
 use axum::middleware;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-use crate::environment::MAX_LIVE_TAILS;
+use crate::config::Tuning;
 use crate::kafka::{Clusters, TailLimits};
 
 mod acls;
@@ -30,6 +31,8 @@ mod whoami;
 mod harness;
 
 pub use auth::AuthState;
+
+pub(crate) const SSE_KEEP_ALIVE: Duration = Duration::from_secs(15);
 
 #[derive(Clone)]
 pub struct AppState {
@@ -64,10 +67,16 @@ pub struct Limits {
 }
 
 impl Limits {
-    pub fn from_env() -> Self {
+    pub fn new(tuning: &Tuning) -> Self {
         Self {
-            tail: TailLimits::from_env(),
-            live_tails: *MAX_LIVE_TAILS,
+            tail: TailLimits {
+                batch: tuning.tail.batch_limit.get(),
+                interval: tuning.tail.interval,
+                poll_wait: tuning.tail.poll_wait,
+                heartbeat: SSE_KEEP_ALIVE,
+                records: tuning.records,
+            },
+            live_tails: tuning.tail.max_live,
         }
     }
 }

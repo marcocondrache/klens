@@ -4,8 +4,8 @@ use axum::response::sse::{Event, KeepAlive, KeepAliveStream, Sse};
 use futures::stream::{self, BoxStream, StreamExt as _};
 use tokio::sync::OwnedSemaphorePermit;
 
+use crate::app::SSE_KEEP_ALIVE;
 use crate::app::auth::SessionGuard;
-use crate::environment::SSE_KEEP_ALIVE;
 use crate::kafka::Tail;
 
 use super::super::context::Session;

@@ -75,4 +75,6 @@ pub trait ClusterSession: Send + Sync + 'static {
     async fn acls(&self) -> Result<AclListing, KafkaError>;
 
     fn consume_timeout(&self) -> Duration;
+
+    fn scan_poll_wait(&self) -> Duration;
 }

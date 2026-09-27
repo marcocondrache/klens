@@ -6,7 +6,8 @@ use klens::kafka::ingest::Ingest;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let config = Config::load(Config::path())?;
+    let path = std::env::var_os("KLENS_CONFIG_PATH").unwrap_or_else(|| "config.yaml".into());
+    let config = Config::load(path)?;
     let _telemetry =
         klens::telemetry::Telemetry::init(&config.log_level, env!("CARGO_CRATE_NAME"))?;
 
@@ -27,9 +28,8 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("oidc authentication enabled");
     }
 
-    // Dropping the ingest aborts its lanes, so it lives as long as the server.
-    let _ingest = Ingest::start(&clusters);
-    let state = AppState::new(clusters, auth, Limits::from_env());
+    let _ingest = Ingest::start(&clusters, &config.tuning.ingest);
+    let state = AppState::new(clusters, auth, Limits::new(&config.tuning));
 
     klens::serve(router(state), config.bind).await
 }

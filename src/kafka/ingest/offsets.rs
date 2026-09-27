@@ -1,3 +1,4 @@
+use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -5,8 +6,7 @@ use foldhash::{HashMap, HashMapExt, HashSet};
 use futures::StreamExt;
 use tokio::time::Instant;
 
-use crate::config::ClusterIngestConfig;
-use crate::environment::OFFSET_FETCH_CONCURRENCY;
+use crate::config::{ClusterIngestConfig, IngestTuning};
 use crate::kafka::group::CommittedOffset;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::store::projections::group_offsets;
@@ -20,7 +20,7 @@ pub struct OffsetLane {
     tick: Duration,
     fast: Duration,
     slow: Duration,
-    concurrency: usize,
+    concurrency: NonZeroUsize,
     attempted_at: Mutex<HashMap<Arc<str>, Instant>>,
 }
 
@@ -42,10 +42,10 @@ impl OffsetLane {
         let ingest = ClusterIngestConfig::default();
         Self {
             session,
-            tick: Duration::from_secs(ingest.offset_tick_secs),
-            fast: Duration::from_secs(ingest.fast_offset_secs),
-            slow: Duration::from_secs(ingest.slow_offset_secs),
-            concurrency: (*OFFSET_FETCH_CONCURRENCY).max(1),
+            tick: ingest.offset_tick,
+            fast: ingest.fast_offset,
+            slow: ingest.slow_offset,
+            concurrency: IngestTuning::default().offset_fetch_concurrency,
             attempted_at: Mutex::new(HashMap::new()),
         }
     }
@@ -57,8 +57,8 @@ impl OffsetLane {
         self
     }
 
-    pub fn with_concurrency(mut self, concurrency: usize) -> Self {
-        self.concurrency = concurrency.max(1);
+    pub fn with_concurrency(mut self, concurrency: NonZeroUsize) -> Self {
+        self.concurrency = concurrency;
         self
     }
 
@@ -206,7 +206,7 @@ impl OffsetLane {
                 }
             }
         }))
-        .buffer_unordered(self.concurrency)
+        .buffer_unordered(self.concurrency.get())
         .collect()
         .await
     }

@@ -27,6 +27,9 @@ Put Kafka and OIDC credentials in `secret.existingSecret` or `secret.stringData`
 Reference them in `config` as `{env: VAR}`. Mount Kafka PEM files with `volumes`
 and `volumeMounts`. Set a Secret `defaultMode` of 0400 on the client key.
 
+Set timeouts, pool sizes, and limits under `config.tuning`. The chart sets
+`KLENS_CONFIG_PATH`, and klens reads no other environment variable of its own.
+
 `bind` must be a SocketAddr the Service can reach. A loopback address fails render.
 A `config.bind` port that does not match `service.port` also fails render.
 

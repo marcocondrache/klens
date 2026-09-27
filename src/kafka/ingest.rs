@@ -6,10 +6,10 @@ pub mod topology;
 pub mod watermarks;
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use tokio::task::JoinSet;
 
+use crate::config::IngestTuning;
 use crate::kafka::cluster::{Cluster, Clusters};
 
 pub use configs::ConfigLane;
@@ -19,12 +19,13 @@ pub use subjects::SubjectLane;
 pub use topology::TopologyLane;
 pub use watermarks::WatermarkLane;
 
+#[must_use = "dropping an Ingest aborts its lanes"]
 pub struct Ingest {
     tasks: JoinSet<()>,
 }
 
 impl Ingest {
-    pub fn start(clusters: &Clusters) -> Self {
+    pub fn start(clusters: &Clusters, tuning: &IngestTuning) -> Self {
         let mut tasks = JoinSet::new();
 
         for Cluster {
@@ -35,48 +36,33 @@ impl Ingest {
         {
             tracing::info!(
                 cluster = %store.name(),
-                topology_secs = ingest.topology_secs,
-                watermark_secs = ingest.watermark_secs,
-                config_secs = ingest.config_secs,
-                subject_secs = ingest.subjects_secs,
+                topology = ?ingest.topology,
+                watermark = ?ingest.watermark,
+                config = ?ingest.config,
+                subjects = ?ingest.subjects,
                 "starting ingestion lanes"
             );
 
             tasks.spawn(run(
                 Arc::clone(store),
-                TopologyLane::with_interval(
-                    Arc::clone(session),
-                    Duration::from_secs(ingest.topology_secs),
-                ),
+                TopologyLane::with_interval(Arc::clone(session), ingest.topology),
             ));
             tasks.spawn(run(
                 Arc::clone(store),
-                WatermarkLane::with_interval(
-                    Arc::clone(session),
-                    Duration::from_secs(ingest.watermark_secs),
-                ),
+                WatermarkLane::with_interval(Arc::clone(session), ingest.watermark, tuning),
             ));
             tasks.spawn(run(
                 Arc::clone(store),
-                ConfigLane::with_interval(
-                    Arc::clone(session),
-                    Duration::from_secs(ingest.config_secs),
-                ),
+                ConfigLane::with_interval(Arc::clone(session), ingest.config),
             ));
             tasks.spawn(run(
                 Arc::clone(store),
-                SubjectLane::with_interval(
-                    Arc::clone(session),
-                    Duration::from_secs(ingest.subjects_secs),
-                ),
+                SubjectLane::with_interval(Arc::clone(session), ingest.subjects),
             ));
             tasks.spawn(
                 OffsetLane::new(Arc::clone(session))
-                    .with_tiers(
-                        Duration::from_secs(ingest.offset_tick_secs),
-                        Duration::from_secs(ingest.fast_offset_secs),
-                        Duration::from_secs(ingest.slow_offset_secs),
-                    )
+                    .with_tiers(ingest.offset_tick, ingest.fast_offset, ingest.slow_offset)
+                    .with_concurrency(tuning.offset_fetch_concurrency)
                     .run(Arc::clone(store)),
             );
         }

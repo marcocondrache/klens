@@ -104,6 +104,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+    use crate::config::IngestTuning;
     use crate::kafka::RecordCursor;
     use crate::kafka::model::{RecordOrder, TimestampRange};
     use crate::kafka::store::fixtures::{identity, partition, topic, topology};
@@ -115,7 +116,7 @@ mod tests {
     }
 
     fn store() -> ClusterStore {
-        ClusterStore::new(identity("local"))
+        ClusterStore::new(identity("local"), IngestTuning::default().interest_ttl)
     }
 
     fn ingested_store() -> ClusterStore {
@@ -164,7 +165,7 @@ mod tests {
         store: &ClusterStore,
         query: RecordQuery,
     ) -> Result<RecordPage, KafkaError> {
-        read_page(session, store, query, RecordLimits::from_env()).await
+        read_page(session, store, query, RecordLimits::default()).await
     }
 
     #[tokio::test]

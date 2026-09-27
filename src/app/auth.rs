@@ -19,7 +19,6 @@ use tower_sessions::{Expiry, SessionManagerLayer};
 
 use crate::AppState;
 use crate::config::{AuthConfig, KeyMaterial, MIN_SESSION_KEY_BYTES};
-use crate::environment::{LOGIN_MAX_AGE_SECS, SESSION_COOKIE, SESSION_COOKIE_KEY_PREFIX};
 
 pub(crate) mod access;
 mod backend;
@@ -32,6 +31,10 @@ use oidc::{Oidc, OidcFlow};
 use store::ExpiringStore;
 
 const LOGIN_PENDING_KEY: &str = "klens.login_pending";
+
+const SESSION_COOKIE: &str = "klens_session";
+
+const SESSION_COOKIE_KEY_PREFIX: &str = "klens-session-v1";
 
 type AuthSession = axum_login::AuthSession<AuthBackend>;
 type SessionLayer = SessionManagerLayer<ExpiringStore, SignedCookie>;
@@ -84,6 +87,7 @@ pub struct AuthState {
     backend: AuthBackend,
     policy: Arc<AccessPolicy>,
     session_layer: SessionLayer,
+    login_max_age: Duration,
 }
 
 impl AuthState {
@@ -92,6 +96,7 @@ impl AuthState {
             backend: AuthBackend::disabled(),
             policy: Arc::new(AccessPolicy::disabled()),
             session_layer: session_layer(false, Key::generate()),
+            login_max_age: Duration::ZERO,
         }
     }
 
@@ -101,8 +106,16 @@ impl AuthState {
             Some(config) => {
                 let policy = AccessPolicy::from_roles(config.roles.as_ref());
                 let key = signing_key(config.session_key.as_ref());
-                let flow = Oidc::discover(&config.oidc).await?;
-                Ok(Self::enabled(Arc::new(flow), &config.oidc, policy, key))
+                let flow = Oidc::discover(&config.oidc, config.max_session).await?;
+                let login_max_age =
+                    Duration::try_from(config.login_max_age).unwrap_or(Duration::MAX);
+                Ok(Self::enabled(
+                    Arc::new(flow),
+                    &config.oidc,
+                    policy,
+                    key,
+                    login_max_age,
+                ))
             }
         }
     }
@@ -112,11 +125,13 @@ impl AuthState {
         oidc: &crate::config::OidcConfig,
         policy: AccessPolicy,
         key: Key,
+        login_max_age: Duration,
     ) -> Self {
         Self {
             backend: AuthBackend::enabled(flow),
             policy: Arc::new(policy),
             session_layer: session_layer(oidc.cookie_secure(), key),
+            login_max_age,
         }
     }
 
@@ -288,9 +303,7 @@ async fn login(State(state): State<AppState>, auth_session: AuthSession) -> Resp
 
     auth_session
         .session
-        .set_expiry(Some(Expiry::OnInactivity(Duration::seconds(
-            *LOGIN_MAX_AGE_SECS,
-        ))));
+        .set_expiry(Some(Expiry::OnInactivity(state.auth.login_max_age)));
 
     if let Err(error) = auth_session
         .session
@@ -491,6 +504,7 @@ mod tests {
                 backend: AuthBackend::enabled(Arc::new(flow)),
                 policy: Arc::new(policy),
                 session_layer: session_layer(false, Key::generate()),
+                login_max_age: Duration::minutes(10),
             }
         }
     }
@@ -528,7 +542,7 @@ mod tests {
         crate::app::router(AppState::new(
             Clusters::from_sessions(vec![FakeCluster::local()]),
             auth,
-            crate::app::Limits::from_env(),
+            crate::app::Limits::new(&crate::config::Tuning::default()),
         ))
     }
 
