@@ -152,7 +152,7 @@ mod tests {
     use super::*;
 
     fn cluster(yaml: &str) -> ClusterConfig {
-        serde_yaml_ng::from_str(yaml).unwrap()
+        serde_saphyr::from_str(yaml).unwrap()
     }
 
     #[tokio::test]
@@ -241,7 +241,7 @@ mod tests {
     }
 
     #[test]
-    fn the_default_client_id_uses_the_trimmed_cluster_name() {
+    fn the_default_client_id_uses_the_cluster_name() {
         let cluster = cluster(
             "
             bootstrap_servers:
@@ -249,13 +249,13 @@ mod tests {
             ",
         );
 
-        let connector = Connector::new(
-            &"  local  ".parse().unwrap(),
-            &cluster,
-            &KafkaTuning::default(),
-        )
-        .unwrap();
+        let connector =
+            Connector::new(&"local".parse().unwrap(), &cluster, &KafkaTuning::default()).unwrap();
         assert_eq!(connector.client_id, "klens-local");
+        assert_eq!(
+            "  local  ".parse::<ClusterName>(),
+            Err("cluster name '  local  ' must not start or end with whitespace".to_owned())
+        );
     }
 
     #[test]

@@ -154,56 +154,37 @@ impl Default for IngestTuning {
     }
 }
 
-/// The checks run inside the visitor so errors carry the field path.
-struct DurationVisitor {
+fn at_least<'de, D: Deserializer<'de>>(
+    deserializer: D,
     min: Duration,
-}
-
-impl de::Visitor<'_> for DurationVisitor {
-    type Value = Duration;
-
-    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("a duration such as `250ms` or `10s`")
+) -> Result<Duration, D::Error> {
+    let text = String::deserialize(deserializer)?;
+    let signed: SignedDuration = text.parse().map_err(de::Error::custom)?;
+    let duration = Duration::try_from(signed)
+        .map_err(|_| de::Error::custom(format!("must not be negative, got {text}")))?;
+    if duration < min {
+        return Err(de::Error::custom(format!(
+            "must be at least {min:?}, got {text}"
+        )));
     }
-
-    fn visit_str<E: de::Error>(self, value: &str) -> Result<Duration, E> {
-        let signed: SignedDuration = value.parse().map_err(E::custom)?;
-        let duration = Duration::try_from(signed)
-            .map_err(|_| E::custom(format!("must not be negative, got {value}")))?;
-        if duration < self.min {
-            return Err(E::custom(format!(
-                "must be at least {:?}, got {value}",
-                self.min
-            )));
-        }
-        Ok(duration)
-    }
-}
-
-struct ConfigDuration(Duration);
-
-impl<'de> Deserialize<'de> for ConfigDuration {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        duration(deserializer).map(Self)
-    }
+    Ok(duration)
 }
 
 pub(super) fn duration<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Duration, D::Error> {
-    deserializer.deserialize_str(DurationVisitor {
-        min: Duration::ZERO,
-    })
+    at_least(deserializer, Duration::ZERO)
 }
 
 pub(super) fn optional_duration<'de, D: Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Option<Duration>, D::Error> {
+    #[derive(Deserialize)]
+    struct ConfigDuration(#[serde(deserialize_with = "duration")] Duration);
+
     Option::<ConfigDuration>::deserialize(deserializer).map(|duration| duration.map(|d| d.0))
 }
 
 pub(super) fn interval<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Duration, D::Error> {
-    deserializer.deserialize_str(DurationVisitor {
-        min: Duration::from_secs(1),
-    })
+    at_least(deserializer, Duration::from_secs(1))
 }
 
 #[cfg(test)]
@@ -216,8 +197,8 @@ mod tests {
     }
 
     fn parse(yaml: &str) -> Result<Config, String> {
-        serde_yaml_ng::from_str(&format!("bind: 127.0.0.1:8080\n{yaml}"))
-            .map_err(|error| error.to_string())
+        crate::config::from_yaml(&format!("bind: 127.0.0.1:8080\n{yaml}"))
+            .map_err(|error| crate::config::describe(&error))
     }
 
     fn tuning(yaml: &str) -> Result<Tuning, String> {
@@ -225,13 +206,10 @@ mod tests {
     }
 
     #[test]
-    fn a_duration_that_is_not_text_names_the_expected_form() {
+    fn a_duration_that_is_not_text_is_rejected_where_it_is() {
         let error = tuning("tuning:\n  tail:\n    interval: [1]\n").unwrap_err();
 
-        assert!(
-            error.contains("expected a duration such as `250ms` or `10s`"),
-            "{error}"
-        );
+        assert_eq!(error, "expected string scalar at line 4, column 15");
     }
 
     #[test]
@@ -391,33 +369,33 @@ tuning:
         for (yaml, expected) in [
             (
                 "tuning: {tail: {interval: -5s}}",
-                "tuning.tail.interval: must not be negative, got -5s at line 2 column 27",
+                "must not be negative, got -5s at line 2, column 27",
             ),
             (
                 "tuning: {tail: {interval: 250}}",
-                "tuning.tail.interval: failed to parse input in the \"friendly\" duration \
+                "failed to parse input in the \"friendly\" duration \
                  format: expected to find unit designator suffix (e.g., `years` or `secs`) \
-                 after parsing integer at line 2 column 27",
+                 after parsing integer at line 2, column 27",
             ),
             (
                 "tuning: {tail: {batch_limit: 0}}",
-                "tuning.tail.batch_limit: invalid value: integer `0`, expected a nonzero usize \
-                 at line 2 column 30",
+                "invalid value: integer `0`, expected a nonzero usize \
+                 at line 2, column 17",
             ),
             (
                 "tuning: {scan: {pool_idle_ttl: 500ms}}",
-                "tuning.scan.pool_idle_ttl: must be at least 1s, got 500ms at line 2 column 32",
+                "must be at least 1s, got 500ms at line 2, column 32",
             ),
             (
                 "tuning: {kafka: {request_timeout_ms: 5000}}",
-                "tuning.kafka: unknown field `request_timeout_ms`, expected one of \
-                 `connect_timeout`, `request_timeout`, `consume_timeout`, \
-                 `max_in_flight_requests`, `max_response_mib` at line 2 column 18",
+                "unknown field `request_timeout_ms`, expected one of connect_timeout, \
+                 request_timeout, consume_timeout, max_in_flight_requests, max_response_mib \
+                 at line 2, column 18",
             ),
             (
                 "tuning: {tails: {}}",
-                "tuning: unknown field `tails`, expected one of `kafka`, `schema_registry`, \
-                 `scan`, `records`, `tail`, `ingest` at line 2 column 10",
+                "unknown field `tails`, expected one of kafka, schema_registry, scan, \
+                 records, tail, ingest at line 2, column 10",
             ),
         ] {
             assert_eq!(tuning(yaml).unwrap_err(), expected, "{yaml}");
@@ -453,9 +431,9 @@ auth:
         );
         assert_eq!(
             auth("  max_session: soon\n").unwrap_err(),
-            "auth.max_session: failed to parse input in the \"friendly\" duration format: \
+            "failed to parse input in the \"friendly\" duration format: \
              expected duration to start with a unit value (a decimal integer) after an \
-             optional sign, but no integer was found at line 9 column 16"
+             optional sign, but no integer was found at line 9, column 16"
         );
     }
 }

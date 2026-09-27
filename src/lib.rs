@@ -9,7 +9,7 @@ pub use app::{AppState, AuthState, Limits, router};
 pub use config::{
     AuthConfig, BasicAuth, ClientCert, ClusterConfig, ClusterIngestConfig, ClusterName, Config,
     ConfigError, OidcConfig, PrivilegeName, RoleBinding, RoleConfig, SaslConfig, SaslMechanism,
-    SchemaRegistryConfig, SecurityConfig, SecurityProtocol, TlsConfig, UniqueMap,
+    SchemaRegistryConfig, SecurityConfig, SecurityProtocol, TlsConfig,
 };
 pub use kafka::{Clusters, KafkaError};
 pub use server::serve;

@@ -51,9 +51,9 @@ to load another file. klens reads no other environment variable, apart from
 the ones a secret names with `{env: NAME}`.
 
 Durations are strings such as `250ms`, `10s`, `1h 30m`, or ISO 8601 `PT10S`.
-A bad value stops startup with the key's path and line, for example
-`tuning.tail.interval: ... at line 12 column 15`. Unknown keys fail the same
-way.
+A bad value stops startup with its line and column, for example
+`must not be negative, got -5s at line 12, column 15`. Unknown keys fail the
+same way.
 
 Timeouts, pool sizes, and limits live under `tuning`. Every key is optional.
 This block lists the defaults:
