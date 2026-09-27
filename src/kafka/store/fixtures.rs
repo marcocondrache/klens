@@ -101,9 +101,8 @@ pub fn watermarks(sampled_at: Timestamp, marks: &[(&str, i32, i64, i64)]) -> Wat
     WatermarkTable::new(sampled_at, table)
 }
 
-pub fn offsets(sampled_at: Timestamp, committed: &[(&str, i32, i64)]) -> GroupOffsets {
+pub fn offsets(committed: &[(&str, i32, i64)]) -> GroupOffsets {
     GroupOffsets {
-        sampled_at,
         committed: committed
             .iter()
             .map(|(topic, partition, offset)| CommittedOffset {

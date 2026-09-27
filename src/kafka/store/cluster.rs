@@ -282,7 +282,7 @@ mod tests {
         store.offsets.commit(Arc::new(OffsetTable {
             groups: HashMap::from_iter([(
                 Arc::from("billing"),
-                Arc::new(offsets(at(1_000), &[("orders", 0, 45)])),
+                Arc::new(offsets(&[("orders", 0, 45)])),
             )]),
         }));
         store.rates.set(&orders, 7.5);
@@ -408,10 +408,7 @@ mod tests {
         store.offsets.commit(Arc::new(OffsetTable {
             groups: HashMap::from_iter([
                 (Arc::from("billing"), Arc::clone(&first)),
-                (
-                    Arc::from("audit"),
-                    Arc::new(offsets(at(2_000), &[("orders", 0, 10)])),
-                ),
+                (Arc::from("audit"), Arc::new(offsets(&[("orders", 0, 10)]))),
             ]),
         }));
 

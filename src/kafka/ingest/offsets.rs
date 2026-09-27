@@ -117,13 +117,7 @@ impl OffsetLane {
                 }
                 Some(Some(committed)) => {
                     refreshed.push(Arc::clone(id));
-                    groups.insert(
-                        Arc::clone(id),
-                        Arc::new(GroupOffsets {
-                            sampled_at: now,
-                            committed,
-                        }),
-                    );
+                    groups.insert(Arc::clone(id), Arc::new(GroupOffsets { committed }));
                 }
                 None => {
                     if let Some(kept) = previous.as_ref().and_then(|table| table.get(id)) {

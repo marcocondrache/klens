@@ -237,10 +237,10 @@ pub(super) fn seed(store: &ClusterStore) {
     store.offsets.commit(Arc::new(OffsetTable {
         groups: HashMap::from_iter([(
             Arc::from("order-processor"),
-            Arc::new(offsets(
-                at(1_000),
-                &[("orders.created", 0, 90), ("orders.created", 1, 55)],
-            )),
+            Arc::new(offsets(&[
+                ("orders.created", 0, 90),
+                ("orders.created", 1, 55),
+            ])),
         )]),
     }));
 

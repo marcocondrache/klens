@@ -238,7 +238,6 @@ impl WatermarkTable {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GroupOffsets {
-    pub sampled_at: Timestamp,
     pub committed: Vec<CommittedOffset>,
 }
 

@@ -596,13 +596,14 @@ async fn a_failed_group_degrades_alone_and_keeps_its_last_offsets() {
     let _lanes = catalog_lanes(&store, &session);
     wait_for(|| store.ready(), "topology commit").await;
     lane.sweep(&store).await;
-    let sampled_at = store
-        .offsets
-        .load()
-        .unwrap()
-        .get("order-processor")
-        .unwrap()
-        .sampled_at;
+    let before = Arc::clone(
+        store
+            .offsets
+            .load()
+            .unwrap()
+            .get("order-processor")
+            .unwrap(),
+    );
 
     session.set_offsets_error(Some("coordinator not available"));
     tokio::time::advance(Duration::from_secs(30)).await;
@@ -613,9 +614,9 @@ async fn a_failed_group_degrades_alone_and_keeps_its_last_offsets() {
     let offsets = store.offsets.load().unwrap();
     let group = offsets.get("order-processor").expect("stale value kept");
     assert_eq!(group.committed.len(), 2);
-    assert_eq!(
-        group.sampled_at, sampled_at,
-        "sampled_at exposes the staleness instead of hiding it"
+    assert!(
+        Arc::ptr_eq(group, &before),
+        "the failed group keeps its last snapshot instead of a rebuilt one"
     );
 }
 
