@@ -11,19 +11,15 @@ pub mod tables;
 pub mod fixtures;
 
 pub use bus::{
-    Change, ChangeBus, ConfigsDelta, GroupLagUpdate, GroupOffsetsWave, SubjectsDelta, TopicRate,
+    Change, ConfigsDelta, GroupLagUpdate, GroupOffsetsWave, SubjectsDelta, TopicRate,
     TopologyDelta, WatermarksTick,
 };
 pub use cluster::ClusterStore;
-pub use interest::{InterestLease, InterestRegistry};
+pub use interest::InterestLease;
 pub use lane::{Lane, LaneHealth};
-pub use projections::{
-    BrokerRow, ClusterHealthView, GroupDetail, GroupRow, PartitionRow, SubjectRow, TopicDetail,
-    TopicGroupRow, TopicRow,
-};
-pub use rates::RateStore;
+pub use projections::TopicRow;
 pub use search::{SearchHit, SearchKind};
 pub use tables::{
-    BrokerInfo, ConfigTable, GroupInfo, GroupOffsets, Interner, OffsetTable, SubjectInfo,
-    SubjectTable, TopicInfo, Topology, WatermarkTable,
+    ConfigTable, GroupInfo, GroupOffsets, Interner, OffsetTable, SubjectTable, Topology,
+    WatermarkTable,
 };
