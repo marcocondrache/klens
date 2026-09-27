@@ -15,8 +15,6 @@ import { useSubjectRows } from "@/lib/api/catalog";
 import type { SubjectRow } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
-const DECODABLE = new Set(["AVRO", "JSON", "PROTOBUF"]);
-
 export function SchemaPicker({
   cluster,
   topic,
@@ -32,10 +30,10 @@ export function SchemaPicker({
   const [open, setOpen] = useState(false);
   const preferred = `${topic}-value`;
   const options = useMemo(() => {
-    const decodable = (subjects?.rows ?? []).filter((subject) => DECODABLE.has(subject.type));
+    const rows = subjects?.rows ?? [];
     return {
-      pinned: decodable.filter((subject) => subject.subject === preferred),
-      rest: decodable.filter((subject) => subject.subject !== preferred),
+      pinned: rows.filter((subject) => subject.subject === preferred),
+      rest: rows.filter((subject) => subject.subject !== preferred),
     };
   }, [preferred, subjects]);
   const all = [...options.pinned, ...options.rest];
