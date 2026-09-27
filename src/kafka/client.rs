@@ -522,7 +522,14 @@ mod tests {
         let meta = client.metadata().await.expect("metadata");
 
         let topic = meta.topic("orders").expect("orders topic");
-        assert_eq!(topic.partition_ids(), vec![0, 1]);
+        assert_eq!(
+            topic
+                .partitions
+                .iter()
+                .map(|partition| partition.id)
+                .collect::<Vec<_>>(),
+            vec![0, 1]
+        );
         assert!(!topic.internal);
     }
 
