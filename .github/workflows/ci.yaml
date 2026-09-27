@@ -16,6 +16,9 @@ defaults:
   run:
     shell: bash -euxo pipefail {0}
 
+env:
+  CARGO_PROFILE_DEV_DEBUG: 0
+
 jobs:
   changes:
     name: changes
@@ -215,15 +218,17 @@ jobs:
     if: github.event_name == 'pull_request' && needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          fetch-depth: 0
-      - name: Fetch pull request base
-        run: git fetch --no-tags origin "${{ github.base_ref }}"
+          fetch-depth: 2
       - name: Diff against the pull request base
-        run: git diff "origin/${{ github.base_ref }}.." > "${RUNNER_TEMP}/pr.diff"
+        run: git diff HEAD^1 HEAD > "${RUNNER_TEMP}/pr.diff"
       - name: Install Rust
         uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
@@ -240,12 +245,15 @@ jobs:
       - name: Run cargo-mutants on the pull request diff
         env:
           CARGO_INCREMENTAL: 1
-        run: cargo mutants --no-shuffle -vV --in-place --in-diff "${RUNNER_TEMP}/pr.diff"
+        run: >-
+          cargo mutants --no-shuffle -vV --in-place
+          --in-diff "${RUNNER_TEMP}/pr.diff"
+          --shard "${{ matrix.shard }}/${{ strategy.job-total }}"
       - name: Archive mutants.out
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: mutants.out
+          name: mutants.out-${{ matrix.shard }}
           path: mutants.out
           if-no-files-found: ignore
 

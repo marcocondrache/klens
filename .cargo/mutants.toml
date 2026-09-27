@@ -7,3 +7,8 @@ exclude_globs = [
     # Only wires the process together at startup; no test runs `main`.
     "src/main.rs",
 ]
+
+exclude_re = [
+    '<impl (\w+::)*Debug for ',
+    '>::expecting\b',
+]
