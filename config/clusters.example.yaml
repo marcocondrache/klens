@@ -6,8 +6,44 @@
 # {value: ...} inline, {env: NAME} from an environment variable, or
 # {file: PATH} from a file such as a mounted Kubernetes secret. A trailing
 # newline in a secret file is dropped.
+#
+# Durations are strings such as 250ms, 10s, or 1h 30m.
 bind: 0.0.0.0:8080
 log_level: info
+
+# Optional timeouts, pool sizes, and limits for every cluster. Omitted keys
+# use the defaults below.
+# tuning:
+#   kafka:
+#     connect_timeout: 10s
+#     request_timeout: 10s        # raised to connect_timeout if smaller
+#     consume_timeout: 5s
+#     max_in_flight_requests: 32
+#     max_response_mib: 32
+#   schema_registry:
+#     timeout: 5s
+#     subject_fetch_concurrency: 8
+#     missing_schema_ttl: 60s
+#   scan:
+#     pool_per_topic: 2
+#     pool_total: 16
+#     pool_idle_ttl: 60s
+#     poll_wait: 100ms
+#   records:
+#     max_limit: 500
+#     window_multiplier: 2
+#     search_window_multiplier: 8
+#     min_window: 4
+#   tail:
+#     batch_limit: 100
+#     interval: 250ms
+#     poll_wait: 500ms
+#     max_live: 32
+#   ingest:
+#     interest_ttl: 30s
+#     offset_fetch_concurrency: 32
+#     idle_heartbeat: 15s
+#     max_sample_gap: 15s
 
 # Clusters by name, shown in the UI in this order. Each name appears once.
 clusters:
@@ -29,23 +65,23 @@ clusters:
     #       key: /path/to/client.key
     #     insecure_skip_verify: false
 
-    # Optional Kafka transport overrides. Timeouts are unsigned millisecond numbers.
-    # request_timeout_ms is raised to connect_timeout_ms if smaller.
+    # Optional Kafka transport overrides. The timeouts override tuning.kafka
+    # for this cluster. request_timeout is raised to connect_timeout if smaller.
     # properties:
     #   client_id: klens-local
-    #   request_timeout_ms: 10000
-    #   connect_timeout_ms: 10000
+    #   request_timeout: 10s
+    #   connect_timeout: 10s
 
-    # Optional ingest cadence, in seconds. Omitted keys use the defaults
-    # below. Values must be at least 1.
+    # Optional ingest cadence. Omitted keys use the defaults below. Values
+    # must be at least 1s.
     # ingest:
-    #   topology_secs: 10
-    #   watermark_secs: 3
-    #   config_secs: 60
-    #   subjects_secs: 30
-    #   offset_tick_secs: 1
-    #   fast_offset_secs: 2
-    #   slow_offset_secs: 20
+    #   topology: 10s
+    #   watermark: 3s
+    #   config: 60s
+    #   subjects: 30s
+    #   offset_tick: 1s
+    #   fast_offset: 2s
+    #   slow_offset: 20s
 
     # Optional Confluent-compatible Schema Registry. When omitted, the Schemas
     # page is empty for this cluster.
@@ -117,6 +153,8 @@ clusters:
 #     # scopes: [openid, email, profile]
 #     # cookie_secure: false  # default: true when redirect_uri is https
 #     # groups_claim: groups  # the ID token claim that lists a user's groups
+#   # login_max_age: 10m  # how long a login may take at the provider
+#   # max_session: 12h    # session cap, even if the ID token lasts longer
 #   roles:
 #     admin:
 #       privileges: [records, configs, schema_text, acls]

@@ -1,9 +1,12 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures::future::try_join_all;
 use indexmap::IndexMap;
 
-use crate::config::{ClusterConfig, ClusterIngestConfig, ClusterName, Config, SecurityProtocol};
+use crate::config::{
+    ClusterConfig, ClusterIngestConfig, ClusterName, Config, IngestTuning, SecurityProtocol,
+};
 use crate::kafka::client::KafkaClient;
 use crate::kafka::error::KafkaError;
 use crate::kafka::limits::{RecordLimits, TailLimits};
@@ -39,9 +42,13 @@ pub struct Cluster {
 }
 
 impl Cluster {
-    fn new(session: Arc<dyn ClusterSession>, ingest: ClusterIngestConfig) -> Self {
+    fn new(
+        session: Arc<dyn ClusterSession>,
+        ingest: ClusterIngestConfig,
+        interest_ttl: Duration,
+    ) -> Self {
         Self {
-            store: Arc::new(ClusterStore::new(session.identity().clone())),
+            store: Arc::new(ClusterStore::new(session.identity().clone(), interest_ttl)),
             session,
             ingest,
         }
@@ -84,27 +91,36 @@ pub struct Clusters {
 
 impl Clusters {
     pub async fn connect(config: &Config) -> Result<Self, KafkaError> {
+        let tuning = &config.tuning;
         let sessions = try_join_all(
             config
                 .clusters
                 .iter()
-                .map(|(name, cluster)| KafkaClient::new(name, cluster)),
+                .map(|(name, cluster)| KafkaClient::new(name, cluster, tuning)),
         )
         .await?;
         Ok(Self::from_clusters(
             sessions
                 .into_iter()
                 .zip(config.clusters.iter())
-                .map(|(session, (_, cluster))| Cluster::new(Arc::new(session), cluster.ingest)),
+                .map(|(session, (_, cluster))| {
+                    Cluster::new(
+                        Arc::new(session),
+                        cluster.ingest,
+                        tuning.ingest.interest_ttl,
+                    )
+                }),
         ))
     }
 
     pub fn from_sessions(sessions: Vec<impl ClusterSession>) -> Self {
-        Self::from_clusters(
-            sessions
-                .into_iter()
-                .map(|session| Cluster::new(Arc::new(session), ClusterIngestConfig::default())),
-        )
+        Self::from_clusters(sessions.into_iter().map(|session| {
+            Cluster::new(
+                Arc::new(session),
+                ClusterIngestConfig::default(),
+                IngestTuning::default().interest_ttl,
+            )
+        }))
     }
 
     fn from_clusters(clusters: impl IntoIterator<Item = Cluster>) -> Self {
@@ -161,6 +177,7 @@ mod tests {
                 .map(|(name, cluster)| (name.parse().unwrap(), cluster))
                 .collect(),
             auth: None,
+            tuning: Default::default(),
         }
     }
 
@@ -201,17 +218,23 @@ mod tests {
         let second = FakeBroker::start().await.unwrap();
         let mut fast = cluster_config();
         fast.bootstrap_servers = vec![first.bootstrap_servers()];
-        fast.ingest.topology_secs = 1;
+        fast.ingest.topology = Duration::from_secs(1);
         let mut slow = cluster_config();
         slow.bootstrap_servers = vec![second.bootstrap_servers()];
-        slow.ingest.topology_secs = 600;
+        slow.ingest.topology = Duration::from_secs(600);
 
         let clusters = Clusters::connect(&config(vec![("fast", fast), ("slow", slow)]))
             .await
             .unwrap();
 
-        assert_eq!(clusters.get("fast").unwrap().ingest.topology_secs, 1);
-        assert_eq!(clusters.get("slow").unwrap().ingest.topology_secs, 600);
+        assert_eq!(
+            clusters.get("fast").unwrap().ingest.topology,
+            Duration::from_secs(1)
+        );
+        assert_eq!(
+            clusters.get("slow").unwrap().ingest.topology,
+            Duration::from_secs(600)
+        );
     }
 
     #[tokio::test]

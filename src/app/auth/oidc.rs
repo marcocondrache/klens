@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::{Context, anyhow};
 use async_trait::async_trait;
 use jiff::Timestamp;
@@ -45,10 +47,14 @@ pub(crate) struct Oidc {
     client: DiscoveredClient,
     scopes: Vec<Scope>,
     groups_claim: String,
+    max_session_secs: i64,
 }
 
 impl Oidc {
-    pub(crate) async fn discover(config: &OidcConfig) -> anyhow::Result<Self> {
+    pub(crate) async fn discover(
+        config: &OidcConfig,
+        max_session: Duration,
+    ) -> anyhow::Result<Self> {
         let http = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .build()
@@ -78,6 +84,7 @@ impl Oidc {
                 .map(Scope::new)
                 .collect(),
             groups_claim: config.groups_claim.clone(),
+            max_session_secs: i64::try_from(max_session.as_secs()).unwrap_or(i64::MAX),
         })
     }
 }
@@ -156,7 +163,7 @@ impl OidcFlow for Oidc {
         let exp = claims
             .expiration()
             .timestamp()
-            .min(now + *crate::environment::MAX_SESSION_SECS);
+            .min(now.saturating_add(self.max_session_secs));
         if exp <= now {
             return Err(anyhow!("oidc ID token has expired"));
         }

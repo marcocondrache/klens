@@ -5,7 +5,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use tokio::time::Instant;
 
-use crate::environment::{IDLE_HEARTBEAT, MAX_SAMPLE_GAP};
+use crate::config::IngestTuning;
 use crate::kafka::error::KafkaError;
 use crate::kafka::metadata::Watermarks;
 use crate::kafka::session::ClusterSession;
@@ -24,12 +24,16 @@ pub struct WatermarkLane {
 }
 
 impl WatermarkLane {
-    pub fn with_interval(session: Arc<dyn ClusterSession>, interval: Duration) -> Self {
+    pub fn with_interval(
+        session: Arc<dyn ClusterSession>,
+        interval: Duration,
+        tuning: &IngestTuning,
+    ) -> Self {
         Self {
             session,
             interval,
-            idle_heartbeat: *IDLE_HEARTBEAT,
-            max_sample_gap: *MAX_SAMPLE_GAP,
+            idle_heartbeat: tuning.idle_heartbeat,
+            max_sample_gap: tuning.max_sample_gap,
             committed_at: Mutex::new(None),
         }
     }

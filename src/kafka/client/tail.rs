@@ -6,11 +6,10 @@ use async_trait::async_trait;
 use krafka::client::KrafkaClient as KrafkaSharedClient;
 use krafka::consumer::{AutoOffsetReset, Consumer, ConsumerBuilder};
 
-use crate::environment::TAIL_POLL_WAIT;
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{RawRecord, TailConsumer, TailPosition};
 
-use super::scan::{raw_record, reader};
+use super::scan::{ReaderConfig, raw_record, reader};
 use super::transport::Connector;
 
 struct Reader {
@@ -61,13 +60,13 @@ impl TailLease {
         connector: &Connector,
         topic: &str,
         start: &[TailPosition],
+        config: ReaderConfig,
     ) -> Result<Self, KafkaError> {
         let offsets = start
             .iter()
             .map(|position| (position.partition, position.offset));
         let consumer = Reader::open(connector, |client| {
-            reader(client, topic, offsets, *TAIL_POLL_WAIT)
-                .auto_offset_reset(AutoOffsetReset::Latest)
+            reader(client, topic, offsets, config).auto_offset_reset(AutoOffsetReset::Latest)
         })
         .await?;
         let consumer = Arc::new(consumer);
@@ -163,9 +162,14 @@ mod tests {
         let client = kafka_client(&broker.bootstrap_servers()).await;
         broker.clear_requests();
 
-        let tail = TailLease::open(&client.transport.connector, "orders", &[at(0, 2)])
-            .await
-            .unwrap();
+        let tail = TailLease::open(
+            &client.transport.connector,
+            "orders",
+            &[at(0, 2)],
+            client.tail_reader,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(tail.position(0).await, Some(2));
         assert_eq!(read(&tail, 2).await, vec![2, 3]);
@@ -182,9 +186,14 @@ mod tests {
     async fn a_seek_moves_where_the_next_poll_reads() {
         let broker = orders(4).await;
         let client = kafka_client(&broker.bootstrap_servers()).await;
-        let tail = TailLease::open(&client.transport.connector, "orders", &[at(0, 0)])
-            .await
-            .unwrap();
+        let tail = TailLease::open(
+            &client.transport.connector,
+            "orders",
+            &[at(0, 0)],
+            client.tail_reader,
+        )
+        .await
+        .unwrap();
         assert_eq!(read(&tail, 4).await, vec![0, 1, 2, 3]);
 
         tail.seek(&[at(0, 1)]).await.unwrap();
@@ -202,9 +211,14 @@ mod tests {
     async fn a_dropped_tail_closes_its_consumer() {
         let broker = orders(1).await;
         let client = kafka_client(&broker.bootstrap_servers()).await;
-        let tail = TailLease::open(&client.transport.connector, "orders", &[at(0, 0)])
-            .await
-            .unwrap();
+        let tail = TailLease::open(
+            &client.transport.connector,
+            "orders",
+            &[at(0, 0)],
+            client.tail_reader,
+        )
+        .await
+        .unwrap();
         let consumer = Arc::clone(&tail.consumer);
 
         drop(tail);
@@ -222,9 +236,14 @@ mod tests {
     async fn a_tail_the_broker_stops_answering_holds_up_nothing_else() {
         let broker = orders(1).await;
         let client = kafka_client(&broker.bootstrap_servers()).await;
-        let tail = TailLease::open(&client.transport.connector, "orders", &[at(0, 1)])
-            .await
-            .unwrap();
+        let tail = TailLease::open(
+            &client.transport.connector,
+            "orders",
+            &[at(0, 1)],
+            client.tail_reader,
+        )
+        .await
+        .unwrap();
 
         let fetches = broker.request_count(ApiKey::Fetch);
         broker.on_once(ApiKey::Fetch, |_| Control::Silence);

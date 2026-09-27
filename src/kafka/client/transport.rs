@@ -7,13 +7,11 @@ use krafka::network::TransportConfig;
 use secrecy::ExposeSecret;
 
 use crate::config::{
-    ClusterConfig, ClusterName, SaslConfig, SaslMechanism, SecurityConfig, TlsConfig,
-};
-use crate::environment::{
-    CLIENT_ID_PREFIX, MAX_IN_FLIGHT_REQUESTS, MAX_RESPONSE_BYTES, REQUEST_TIMEOUT,
-    SOCKET_CONNECTION_SETUP_TIMEOUT_MS,
+    ClusterConfig, ClusterName, KafkaTuning, SaslConfig, SaslMechanism, SecurityConfig, TlsConfig,
 };
 use crate::kafka::error::KafkaError;
+
+const CLIENT_ID_PREFIX: &str = "klens";
 
 pub(super) struct Transport {
     pub(super) client: KrafkaSharedClient,
@@ -32,17 +30,16 @@ pub(super) struct Connector {
 }
 
 impl Connector {
-    fn new(name: &ClusterName, config: &ClusterConfig) -> Result<Self, KafkaError> {
+    fn new(
+        name: &ClusterName,
+        config: &ClusterConfig,
+        tuning: &KafkaTuning,
+    ) -> Result<Self, KafkaError> {
         let properties = &config.properties;
-        let connect_timeout = Duration::from_millis(
-            properties
-                .connect_timeout_ms
-                .unwrap_or(u64::from(*SOCKET_CONNECTION_SETUP_TIMEOUT_MS)),
-        );
+        let connect_timeout = properties.connect_timeout.unwrap_or(tuning.connect_timeout);
         let request_timeout = properties
-            .request_timeout_ms
-            .map(Duration::from_millis)
-            .unwrap_or(*REQUEST_TIMEOUT)
+            .request_timeout
+            .unwrap_or(tuning.request_timeout)
             .max(connect_timeout);
         let client_id = properties
             .client_id
@@ -55,8 +52,8 @@ impl Connector {
             request_timeout,
             connect_timeout,
             transport: TransportConfig::builder()
-                .max_in_flight_requests(*MAX_IN_FLIGHT_REQUESTS)
-                .max_response_size(*MAX_RESPONSE_BYTES)
+                .max_in_flight_requests(tuning.max_in_flight_requests.get())
+                .max_response_size(tuning.max_response_bytes())
                 .tcp_nodelay(true)
                 .build()?,
             auth: krafka_auth(&config.security)?,
@@ -81,8 +78,9 @@ impl Connector {
 pub(super) async fn connect(
     name: &ClusterName,
     config: &ClusterConfig,
+    tuning: &KafkaTuning,
 ) -> Result<Transport, KafkaError> {
-    let connector = Connector::new(name, config)?;
+    let connector = Connector::new(name, config, tuning)?;
     let client = connector.connect().await?;
     let admin = KrafkaAdmin::builder()
         .with_client(&client)
@@ -166,14 +164,16 @@ mod tests {
               - localhost:9092
             properties:
               client_id: custom-client
-              request_timeout_ms: 8000
-              connect_timeout_ms: 30000
+              request_timeout: 8s
+              connect_timeout: 30s
             ",
         );
 
         cluster.bootstrap_servers = vec![broker.bootstrap_servers()];
         // Building succeeds only if request_timeout is raised to the connect timeout.
-        let transport = connect(&"local".parse().unwrap(), &cluster).await.unwrap();
+        let transport = connect(&"local".parse().unwrap(), &cluster, &KafkaTuning::default())
+            .await
+            .unwrap();
         assert!(
             broker
                 .requests()
@@ -185,6 +185,61 @@ mod tests {
         transport.client.pool().close_all().await;
     }
 
+    fn timeouts(properties: &str, tuning: KafkaTuning) -> (Duration, Duration) {
+        let connector = Connector::new(
+            &"local".parse().unwrap(),
+            &cluster(&format!(
+                "
+                bootstrap_servers: [localhost:9092]
+                properties: {{{properties}}}
+                "
+            )),
+            &tuning,
+        )
+        .unwrap();
+        (connector.connect_timeout, connector.request_timeout)
+    }
+
+    #[test]
+    fn cluster_timeouts_override_the_tuning_defaults() {
+        let tuning = KafkaTuning {
+            connect_timeout: Duration::from_secs(5),
+            request_timeout: Duration::from_secs(20),
+            ..KafkaTuning::default()
+        };
+
+        assert_eq!(
+            timeouts("", tuning),
+            (Duration::from_secs(5), Duration::from_secs(20))
+        );
+        assert_eq!(
+            timeouts("request_timeout: 8s, connect_timeout: 2s", tuning),
+            (Duration::from_secs(2), Duration::from_secs(8))
+        );
+    }
+
+    #[test]
+    fn the_request_timeout_is_raised_to_the_connect_timeout() {
+        let tuning = KafkaTuning {
+            connect_timeout: Duration::from_secs(30),
+            request_timeout: Duration::from_secs(10),
+            ..KafkaTuning::default()
+        };
+
+        assert_eq!(
+            timeouts("", tuning),
+            (Duration::from_secs(30), Duration::from_secs(30))
+        );
+        assert_eq!(
+            timeouts("request_timeout: 8s", tuning),
+            (Duration::from_secs(30), Duration::from_secs(30))
+        );
+        assert_eq!(
+            timeouts("request_timeout: 8s, connect_timeout: 250ms", tuning),
+            (Duration::from_millis(250), Duration::from_secs(8))
+        );
+    }
+
     #[test]
     fn the_default_client_id_uses_the_trimmed_cluster_name() {
         let cluster = cluster(
@@ -194,7 +249,12 @@ mod tests {
             ",
         );
 
-        let connector = Connector::new(&"  local  ".parse().unwrap(), &cluster).unwrap();
+        let connector = Connector::new(
+            &"  local  ".parse().unwrap(),
+            &cluster,
+            &KafkaTuning::default(),
+        )
+        .unwrap();
         assert_eq!(connector.client_id, "klens-local");
     }
 

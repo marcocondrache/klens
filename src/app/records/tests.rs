@@ -470,7 +470,7 @@ async fn tails_past_capacity_are_turned_away_until_one_closes() {
         vec![FakeCluster::local()],
         Limits {
             live_tails: 1,
-            ..Limits::from_env()
+            ..Limits::new(&crate::config::Tuning::default())
         },
     );
     seed(store_of(&state, "local"));

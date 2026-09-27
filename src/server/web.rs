@@ -15,6 +15,10 @@ mod embedded {
     };
     use rust_embed::RustEmbed;
 
+    const STATIC_ASSET_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
+
+    const INDEX_CACHE_CONTROL: &str = "no-cache";
+
     #[derive(RustEmbed)]
     #[folder = "static/"]
     struct WebAssets;
@@ -35,7 +39,7 @@ mod embedded {
                 if path.starts_with("assets/") {
                     response.headers_mut().insert(
                         header::CACHE_CONTROL,
-                        HeaderValue::from_static(crate::environment::STATIC_ASSET_CACHE_CONTROL),
+                        HeaderValue::from_static(STATIC_ASSET_CACHE_CONTROL),
                     );
                 }
 
@@ -51,7 +55,7 @@ mod embedded {
                 let mut response = Html(body(file.data)).into_response();
                 response.headers_mut().insert(
                     header::CACHE_CONTROL,
-                    HeaderValue::from_static(crate::environment::INDEX_CACHE_CONTROL),
+                    HeaderValue::from_static(INDEX_CACHE_CONTROL),
                 );
                 response
             }

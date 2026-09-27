@@ -10,7 +10,7 @@ use bytes::Bytes;
 use krafka::testing::FakeBroker;
 use tokio::sync::OnceCell;
 
-use crate::config::{ObfuscationConfig, SecurityProtocol};
+use crate::config::{KafkaTuning, ObfuscationConfig, ScanTuning, SecurityProtocol};
 use crate::kafka::acl::{
     Acl, AclListing, AclOperation, AclPatternType, AclPermission, AclResourceType,
 };
@@ -571,7 +571,11 @@ impl ClusterSession for FakeCluster {
             .consume_timeout
             .lock()
             .expect("consume timeout")
-            .unwrap_or(*crate::environment::CONSUME_TIMEOUT)
+            .unwrap_or(KafkaTuning::default().consume_timeout)
+    }
+
+    fn scan_poll_wait(&self) -> Duration {
+        ScanTuning::default().poll_wait
     }
 
     async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError> {
