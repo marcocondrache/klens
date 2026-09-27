@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use foldhash::{HashMap, HashMapExt, HashSet};
 use futures::StreamExt;
-use jiff::Timestamp;
 use tokio::time::Instant;
 
 use crate::config::ClusterIngestConfig;
@@ -100,7 +99,6 @@ impl OffsetLane {
         }
 
         let mut fetched = self.fetch(&topology, previous.as_deref(), &due).await;
-        let now = Timestamp::now();
 
         let mut groups: HashMap<Arc<str>, Arc<GroupOffsets>> =
             HashMap::with_capacity(topology.groups.len());
@@ -136,7 +134,6 @@ impl OffsetLane {
             store
                 .bus
                 .publish(Change::GroupOffsets(Arc::new(GroupOffsetsWave {
-                    at: now,
                     groups: updates,
                 })));
         }

@@ -160,7 +160,6 @@ async fn a_new_topic_is_published_as_a_granular_delta() {
     assert_eq!(delta.changed_topics, [Arc::from("orders.created")]);
     assert!(delta.added_topics.is_empty());
     assert!(delta.removed_topics.is_empty());
-    assert_eq!(delta.version, 2);
 }
 
 #[tokio::test(start_paused = true)]
@@ -367,7 +366,6 @@ async fn a_new_subject_is_published_as_a_delta() {
     .await;
 
     assert_eq!(delta.added, [Arc::from("payments-value")]);
-    assert_eq!(delta.version, store.subjects.version());
 }
 
 #[tokio::test(start_paused = true)]

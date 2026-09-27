@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use jiff::Timestamp;
 use tokio::sync::broadcast;
 
 use crate::kafka::group::GroupOffset;
@@ -21,7 +20,6 @@ pub enum Change {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TopologyDelta {
-    pub version: u64,
     pub added_topics: Vec<Arc<str>>,
     pub removed_topics: Vec<Arc<str>>,
     pub changed_topics: Vec<Arc<str>>,
@@ -44,7 +42,6 @@ impl TopologyDelta {
             || previous.controller != next.controller;
 
         let delta = Self {
-            version: 0,
             added_topics,
             removed_topics,
             changed_topics,
@@ -81,7 +78,6 @@ impl TopologyDelta {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WatermarksTick {
-    pub at: Timestamp,
     pub rates: Vec<TopicRate>,
 }
 
@@ -102,7 +98,6 @@ pub struct TopicRate {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GroupOffsetsWave {
-    pub at: Timestamp,
     pub groups: Vec<GroupLagUpdate>,
 }
 
@@ -122,7 +117,6 @@ pub struct GroupLagUpdate {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigsDelta {
-    pub version: u64,
     pub topics: Vec<Arc<str>>,
 }
 
@@ -146,13 +140,12 @@ impl ConfigsDelta {
         }
         topics.sort();
         topics.dedup();
-        (!topics.is_empty()).then_some(Self { version: 0, topics })
+        (!topics.is_empty()).then_some(Self { topics })
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubjectsDelta {
-    pub version: u64,
     pub added: Vec<Arc<str>>,
     pub removed: Vec<Arc<str>>,
     pub changed: Vec<Arc<str>>,
@@ -167,7 +160,6 @@ impl SubjectsDelta {
                 left == right
             });
         (!added.is_empty() || !removed.is_empty() || !changed.is_empty()).then_some(Self {
-            version: 0,
             added,
             removed,
             changed,
@@ -410,7 +402,6 @@ mod tests {
         assert_eq!(bus.subscriber_count(), 2);
 
         bus.publish(Change::Subjects(Arc::new(SubjectsDelta {
-            version: 4,
             added: vec![Arc::from("orders-value")],
             removed: Vec::new(),
             changed: Vec::new(),
@@ -418,7 +409,7 @@ mod tests {
 
         for receiver in [&mut first, &mut second] {
             match receiver.recv().await.expect("event") {
-                Change::Subjects(delta) => assert_eq!(delta.version, 4),
+                Change::Subjects(delta) => assert_eq!(delta.added, [Arc::from("orders-value")]),
                 other => panic!("unexpected change: {other:?}"),
             }
         }
@@ -429,9 +420,8 @@ mod tests {
         let bus = ChangeBus::with_capacity(1);
         let mut receiver = bus.subscribe();
 
-        for version in 0..4 {
+        for _ in 0..4 {
             bus.publish(Change::Subjects(Arc::new(SubjectsDelta {
-                version,
                 added: Vec::new(),
                 removed: Vec::new(),
                 changed: Vec::new(),
@@ -451,7 +441,6 @@ mod tests {
     fn publishing_without_subscribers_is_not_an_error() {
         let bus = ChangeBus::new();
         bus.publish(Change::Subjects(Arc::new(SubjectsDelta {
-            version: 1,
             added: Vec::new(),
             removed: Vec::new(),
             changed: Vec::new(),

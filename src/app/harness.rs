@@ -17,7 +17,7 @@ use crate::app::Limits;
 use crate::app::auth::access::{ClusterScope, EffectiveAccess, Grant, PrivilegeSet};
 use crate::app::auth::{AuthState, SessionGuard};
 use crate::kafka::store::fixtures::{
-    at, config, group, offsets, partition, subject, topic, topology, watermarks,
+    config, group, offsets, partition, subject, topic, topology, watermarks,
 };
 use crate::kafka::store::{ClusterStore, ConfigTable, Interner, OffsetTable, SubjectTable};
 use crate::kafka::{Clusters, FakeCluster};
@@ -225,14 +225,11 @@ pub(super) fn seed(store: &ClusterStore) {
         vec![group("order-processor", "orders.created", vec![0, 1])],
     )));
 
-    store.watermarks.commit(Arc::new(watermarks(
-        at(1_000),
-        &[
-            ("orders.created", 0, 0, 100),
-            ("orders.created", 1, 10, 60),
-            ("payments.settled", 0, 0, 5),
-        ],
-    )));
+    store.watermarks.commit(Arc::new(watermarks(&[
+        ("orders.created", 0, 0, 100),
+        ("orders.created", 1, 10, 60),
+        ("payments.settled", 0, 0, 5),
+    ])));
 
     store.offsets.commit(Arc::new(OffsetTable {
         groups: HashMap::from_iter([(

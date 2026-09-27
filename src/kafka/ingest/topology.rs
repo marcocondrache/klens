@@ -64,13 +64,10 @@ impl LaneSource for TopologyLane {
     fn publish(
         &self,
         store: &ClusterStore,
-        version: u64,
         _previous: Option<&Arc<Topology>>,
         next: &Arc<Topology>,
-        mut delta: TopologyDelta,
+        delta: TopologyDelta,
     ) {
-        delta.version = version;
-
         if !delta.removed_topics.is_empty() {
             store.rates.retain(|topic| next.topics.contains_key(topic));
         }

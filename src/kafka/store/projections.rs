@@ -380,7 +380,7 @@ mod tests {
     use super::*;
     use crate::kafka::group::MemberAssignment;
     use crate::kafka::store::fixtures::{
-        at, config, group as group_snapshot, offline_partition, offsets, partition, topic,
+        config, group as group_snapshot, offline_partition, offsets, partition, topic,
         topology as build_topology, watermarks,
     };
 
@@ -398,7 +398,7 @@ mod tests {
     }
 
     fn marks() -> WatermarkTable {
-        watermarks(at(1_000), &[("orders", 0, 20, 100), ("orders", 1, 0, 50)])
+        watermarks(&[("orders", 0, 20, 100), ("orders", 1, 0, 50)])
     }
 
     #[test]
@@ -520,7 +520,7 @@ mod tests {
             id,
             group,
             Some(&offsets(&[("orders", 0, 90)])),
-            Some(&watermarks(at(1_000), &[])),
+            Some(&watermarks(&[])),
         );
 
         assert_eq!(row.total_lag, Some(0));
@@ -539,7 +539,7 @@ mod tests {
             id,
             group,
             Some(&offsets(&[("orders", 0, 90)])),
-            Some(&watermarks(at(1_000), &[("orders", 0, 20, 100)])),
+            Some(&watermarks(&[("orders", 0, 20, 100)])),
         );
 
         assert_eq!(row.total_lag, Some(10));
@@ -574,7 +574,7 @@ mod tests {
             vec![snapshot],
         );
         let (id, group) = topology.groups.iter().next().unwrap();
-        let marks = watermarks(at(1_000), &[("orders", 0, 0, 10), ("payments", 0, 0, 900)]);
+        let marks = watermarks(&[("orders", 0, 0, 10), ("payments", 0, 0, 900)]);
 
         let fetched = offsets(&[]);
         let row = topic_group_row(id, "orders", group, Some(&fetched), Some(&marks));

@@ -74,12 +74,10 @@ impl LaneSource for ConfigLane {
     fn publish(
         &self,
         store: &ClusterStore,
-        version: u64,
         _previous: Option<&Arc<ConfigTable>>,
         _next: &Arc<ConfigTable>,
-        mut delta: ConfigsDelta,
+        delta: ConfigsDelta,
     ) {
-        delta.version = version;
         store.bus.publish(Change::Configs(Arc::new(delta)));
     }
 }

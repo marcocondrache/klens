@@ -261,7 +261,7 @@ mod tests {
     use foldhash::HashMap;
 
     use crate::kafka::store::fixtures::{
-        at, group, identity, offsets, partition, subject, topic, topology, watermarks,
+        group, identity, offsets, partition, subject, topic, topology, watermarks,
     };
     use crate::kafka::store::tables::{GroupOffsets, Interner};
 
@@ -278,7 +278,7 @@ mod tests {
         store.topology.commit(Arc::new(topology));
         store
             .watermarks
-            .commit(Arc::new(watermarks(at(1_000), &[("orders", 0, 10, 60)])));
+            .commit(Arc::new(watermarks(&[("orders", 0, 10, 60)])));
         store.offsets.commit(Arc::new(OffsetTable {
             groups: HashMap::from_iter([(
                 Arc::from("billing"),
@@ -342,9 +342,7 @@ mod tests {
     #[test]
     fn a_read_sees_each_lane_at_whatever_version_it_is_on() {
         let store = seeded();
-        store
-            .watermarks
-            .commit(Arc::new(watermarks(at(2_000), &[])));
+        store.watermarks.commit(Arc::new(watermarks(&[])));
 
         let row = store.topic_row("orders").expect("orders exists");
         assert_eq!(row.retained_messages, 0, "the newer watermark table wins");

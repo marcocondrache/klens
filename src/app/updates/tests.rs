@@ -11,7 +11,6 @@ use tower::ServiceExt as _;
 use crate::app::auth::SessionGuard;
 use crate::app::auth::access::EffectiveAccess;
 use crate::kafka::store::bus::BUS_CAPACITY;
-use crate::kafka::store::fixtures::at;
 use crate::kafka::store::{
     Change, ConfigsDelta, GroupLagUpdate, GroupOffsetsWave, SubjectsDelta, TopicRate,
     TopologyDelta, WatermarksTick,
@@ -31,7 +30,6 @@ async fn read_events(response: Response, count: usize) -> Vec<Value> {
 
 fn tick(topics: &[(&str, f64)]) -> Change {
     Change::Watermarks(Arc::new(WatermarksTick {
-        at: at(1_000),
         rates: topics
             .iter()
             .map(|(topic, rate)| TopicRate {
@@ -44,7 +42,6 @@ fn tick(topics: &[(&str, f64)]) -> Change {
 
 fn wave(groups: &[(&str, i64)]) -> Change {
     Change::GroupOffsets(Arc::new(GroupOffsetsWave {
-        at: at(1_000),
         groups: groups
             .iter()
             .map(|(group, lag)| GroupLagUpdate {
@@ -117,11 +114,9 @@ async fn an_event_outside_the_scope_never_reaches_the_socket() {
     )
     .await;
     store.bus.publish(Change::Configs(Arc::new(ConfigsDelta {
-        version: 1,
         topics: vec![Arc::from("orders.created")],
     })));
     store.bus.publish(Change::Subjects(Arc::new(SubjectsDelta {
-        version: 1,
         added: vec![Arc::from("payments.settled-value")],
         removed: Vec::new(),
         changed: Vec::new(),
@@ -197,7 +192,6 @@ async fn a_topology_delta_reaches_a_scoped_subscriber_only_when_it_names_its_top
     )
     .await;
     store.bus.publish(Change::Topology(Arc::new(TopologyDelta {
-        version: 4,
         added_topics: vec![Arc::from("unrelated")],
         removed_topics: Vec::new(),
         changed_topics: Vec::new(),
@@ -207,7 +201,6 @@ async fn a_topology_delta_reaches_a_scoped_subscriber_only_when_it_names_its_top
         brokers_changed: false,
     })));
     store.bus.publish(Change::Topology(Arc::new(TopologyDelta {
-        version: 5,
         added_topics: Vec::new(),
         removed_topics: Vec::new(),
         changed_topics: vec![Arc::from("orders.created")],
