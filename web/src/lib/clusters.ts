@@ -2,13 +2,12 @@ import { useParams } from "@tanstack/react-router";
 
 import type { ClusterHealth, LaneHealth } from "@/lib/api/types";
 import { formatRelative } from "@/lib/format";
+import type { Tone } from "@/lib/tone";
 
 export function useClusterName() {
   const { cluster } = useParams({ from: "/cluster/$cluster" });
   return cluster;
 }
-
-export type Tone = "ok" | "warn" | "error" | "idle";
 
 export function clusterTone(health: ClusterHealth | null | undefined): Tone {
   if (!health) return "idle";
