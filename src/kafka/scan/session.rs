@@ -18,7 +18,7 @@ use super::batch::{RecordBatch, SortKey};
 use super::cursor::CursorDirection;
 use super::obfuscate::TopicObfuscator;
 use super::pipeline::{Kept, RecordPipeline, Screen};
-use super::plan::{PartitionWindow, advance_cursor, plan_windows, rewind_cursor};
+use super::plan::{PartitionWindow, advance_cursor, plan_windows, rewind_cursor, walk_start};
 use super::query::{RecordOrder, RecordQuery};
 use super::{Compression, RecordPage};
 
@@ -364,11 +364,13 @@ pub async fn fetch_page<S: ClusterSession + ?Sized>(
     let scan = ScanSession::open(session, query, walk, deadline, &windows).await?;
 
     let max_passes = if searching { MAX_FILTER_PASSES } else { 1 };
+    let fresh = walk_start(walk, partitions, watermarks);
     let mut kept: Vec<Kept> = Vec::new();
     let mut complete = true;
     let mut scanned = false;
 
     for pass in 0..max_passes {
+        let from = cursor.as_ref().map_or(&fresh, |cursor| &cursor.remaining);
         if pass > 0 {
             windows = plan(cursor.as_ref());
             if windows.is_empty() {
@@ -386,7 +388,7 @@ pub async fn fetch_page<S: ClusterSession + ?Sized>(
         let found = batch.into_sorted();
         let filled = found.len() >= remaining;
         let next = advance_cursor(
-            walk,
+            from,
             &outcome.covered,
             watermarks,
             &edges(found.iter().map(Kept::raw)),
@@ -819,44 +821,60 @@ mod tests {
 
     type Page = (Vec<(i32, i64)>, Option<String>, Option<String>);
 
-    async fn page_through(order: RecordOrder) -> (Vec<Page>, Vec<Page>) {
+    fn two_partitions() -> FakeCluster {
         let records = (0..5)
             .map(|offset| stored(0, offset, "p0"))
             .chain((0..2).map(|offset| stored(1, offset, "p1")))
             .collect();
-        let session = FakeCluster::local()
+        FakeCluster::local()
             .with_orders_records(records)
-            .with_consume_timeout(Duration::from_secs(10));
-        let watermarks = HashMap::from_iter([
-            (0, Watermarks { low: 0, high: 5 }),
-            (1, Watermarks { low: 0, high: 2 }),
-        ]);
+            .with_consume_timeout(Duration::from_secs(10))
+    }
+
+    fn produce_late_to_partition_1(session: &FakeCluster) {
+        for offset in 2..4 {
+            session.produce(FixtureRecord {
+                timestamp: 10 + offset,
+                ..stored(1, offset, "late")
+            });
+        }
+    }
+
+    async fn fetch(session: &FakeCluster, order: RecordOrder, token: Option<&str>) -> Page {
         let mut query = query();
         query.filter = None;
         query.order = order;
         query.partitions = vec![0, 1];
+        query.cursor = token.map(|token| RecordCursor::parse(token).unwrap());
+        let watermarks = session
+            .watermarks(&HashMap::from_iter([(query.topic.clone(), vec![0, 1])]))
+            .await
+            .unwrap()
+            .remove(&query.topic)
+            .unwrap();
 
-        let mut fetch = async |cursor: Option<&String>| -> Page {
-            query.cursor = cursor.map(|token| RecordCursor::parse(token).unwrap());
-            let page = fetch_page(&session, &query, &[0, 1], &watermarks, 2, LIMITS)
-                .await
-                .unwrap();
-            let records = page
-                .records
-                .iter()
-                .map(|record| (record.partition, record.offset))
-                .collect();
-            (records, page.next_cursor, page.prev_cursor)
-        };
+        let page = fetch_page(session, &query, &[0, 1], &watermarks, 2, LIMITS)
+            .await
+            .unwrap();
+        let records = page
+            .records
+            .iter()
+            .map(|record| (record.partition, record.offset))
+            .collect();
+        (records, page.next_cursor, page.prev_cursor)
+    }
 
-        let mut forward = vec![fetch(None).await];
+    async fn page_through(order: RecordOrder) -> (Vec<Page>, Vec<Page>) {
+        let session = two_partitions();
+
+        let mut forward = vec![fetch(&session, order, None).await];
         while let Some(next) = forward.last().unwrap().1.clone() {
-            forward.push(fetch(Some(&next)).await);
+            forward.push(fetch(&session, order, Some(&next)).await);
         }
         let mut backward = Vec::new();
         let mut prev = forward.last().unwrap().2.clone();
         while let Some(token) = prev {
-            let page = fetch(Some(&token)).await;
+            let page = fetch(&session, order, Some(&token)).await;
             prev = page.2.clone();
             backward.push(page);
         }
@@ -871,6 +889,10 @@ mod tests {
         )
     }
 
+    fn retraced(forward: &[Page]) -> Vec<Page> {
+        forward[..forward.len() - 1].iter().rev().cloned().collect()
+    }
+
     #[tokio::test(start_paused = true)]
     async fn oldest_pages_forward_to_the_end_and_back_over_every_record() {
         let (forward, backward) = page_through(RecordOrder::Oldest).await;
@@ -881,33 +903,18 @@ mod tests {
                 page(&[(0, 0), (1, 0)], Some("v2:o:f:0:1,1:1"), None),
                 page(
                     &[(0, 1), (1, 1)],
-                    Some("v2:o:f:0:2"),
+                    Some("v2:o:f:0:2,1:2"),
                     Some("v2:o:b:0:1,1:1")
                 ),
                 page(
                     &[(0, 2), (0, 3)],
-                    Some("v2:o:f:0:4"),
+                    Some("v2:o:f:0:4,1:2"),
                     Some("v2:o:b:0:2,1:2")
                 ),
                 page(&[(0, 4)], None, Some("v2:o:b:0:4,1:2")),
             ]
         );
-        assert_eq!(
-            backward,
-            vec![
-                page(
-                    &[(0, 2), (0, 3)],
-                    Some("v2:o:f:0:4"),
-                    Some("v2:o:b:0:2,1:2")
-                ),
-                page(
-                    &[(0, 1), (1, 1)],
-                    Some("v2:o:f:0:2"),
-                    Some("v2:o:b:0:1,1:1")
-                ),
-                page(&[(0, 0), (1, 0)], Some("v2:o:f:0:1,1:1"), None),
-            ]
-        );
+        assert_eq!(backward, retraced(&forward));
     }
 
     #[tokio::test(start_paused = true)]
@@ -921,24 +928,61 @@ mod tests {
                 page(
                     &[(0, 2), (0, 1)],
                     Some("v2:n:f:0:1,1:2"),
-                    Some("v2:n:b:0:3")
+                    Some("v2:n:b:0:3,1:2")
                 ),
-                page(&[(1, 1), (0, 0)], Some("v2:n:f:1:1"), Some("v2:n:b:0:1")),
+                page(
+                    &[(1, 1), (0, 0)],
+                    Some("v2:n:f:0:0,1:1"),
+                    Some("v2:n:b:0:1,1:2")
+                ),
                 page(&[(1, 0)], None, Some("v2:n:b:0:0,1:1")),
             ]
         );
-        assert_eq!(
-            backward,
-            vec![
-                page(&[(1, 1), (0, 0)], Some("v2:n:f:1:1"), Some("v2:n:b:0:1")),
-                page(
-                    &[(0, 2), (0, 1)],
-                    Some("v2:n:f:0:1,1:2"),
-                    Some("v2:n:b:0:3")
-                ),
-                page(&[(0, 4), (0, 3)], Some("v2:n:f:0:3,1:2"), None),
-            ]
-        );
+        assert_eq!(backward, retraced(&forward));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_oldest_page_back_leaves_out_records_produced_after_a_partition_ran_out() {
+        let session = two_partitions();
+        let first = fetch(&session, RecordOrder::Oldest, None).await;
+        let second = fetch(&session, RecordOrder::Oldest, first.1.as_deref()).await;
+
+        produce_late_to_partition_1(&session);
+        let third = fetch(&session, RecordOrder::Oldest, second.1.as_deref()).await;
+        let back = fetch(&session, RecordOrder::Oldest, third.2.as_deref()).await;
+
+        assert_eq!(back, second);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_newest_page_forward_again_leaves_out_records_produced_after_a_partition_ran_out() {
+        let session = two_partitions();
+        let first = fetch(&session, RecordOrder::Newest, None).await;
+        let second = fetch(&session, RecordOrder::Newest, first.1.as_deref()).await;
+        let third = fetch(&session, RecordOrder::Newest, second.1.as_deref()).await;
+
+        produce_late_to_partition_1(&session);
+        let back = fetch(&session, RecordOrder::Newest, third.2.as_deref()).await;
+        let again = fetch(&session, RecordOrder::Newest, back.1.as_deref()).await;
+
+        assert_eq!(back, second);
+        assert_eq!(again, third);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn oldest_pages_reach_records_produced_after_a_partition_ran_out() {
+        let session = two_partitions();
+        let first = fetch(&session, RecordOrder::Oldest, None).await;
+        let second = fetch(&session, RecordOrder::Oldest, first.1.as_deref()).await;
+
+        produce_late_to_partition_1(&session);
+        let third = fetch(&session, RecordOrder::Oldest, second.1.as_deref()).await;
+        let fourth = fetch(&session, RecordOrder::Oldest, third.1.as_deref()).await;
+        let fifth = fetch(&session, RecordOrder::Oldest, fourth.1.as_deref()).await;
+
+        assert_eq!(third.0, vec![(0, 2), (0, 3)]);
+        assert_eq!(fourth.0, vec![(0, 4), (1, 2)]);
+        assert_eq!(fifth, page(&[(1, 3)], None, Some("v2:o:b:0:5,1:3")));
     }
 
     #[tokio::test(start_paused = true)]
