@@ -18,11 +18,8 @@ use tower_sessions::service::SignedCookie;
 use tower_sessions::{Expiry, SessionManagerLayer};
 
 use crate::AppState;
-use crate::config::{AuthConfig, KeyMaterial};
-use crate::environment::{
-    LOGIN_MAX_AGE_SECS, MIN_SESSION_KEY_BYTES, SESSION_COOKIE, SESSION_COOKIE_KEY_PREFIX,
-    SESSION_KEY,
-};
+use crate::config::{AuthConfig, KeyMaterial, MIN_SESSION_KEY_BYTES};
+use crate::environment::{LOGIN_MAX_AGE_SECS, SESSION_COOKIE, SESSION_COOKIE_KEY_PREFIX};
 
 pub(crate) mod access;
 mod backend;
@@ -103,7 +100,7 @@ impl AuthState {
             None => Ok(Self::disabled()),
             Some(config) => {
                 let policy = AccessPolicy::from_roles(config.roles.as_ref());
-                let key = signing_key(SESSION_KEY.as_deref().or(config.session_key.as_deref()))?;
+                let key = signing_key(config.session_key.as_ref());
                 let flow = Oidc::discover(&config.oidc, policy.groups_claim()).await?;
                 Ok(Self::enabled(Arc::new(flow), &config.oidc, policy, key))
             }
@@ -460,22 +457,16 @@ fn session_layer(secure: bool, key: Key) -> SessionLayer {
         .with_signed(key)
 }
 
-fn signing_key(configured: Option<&str>) -> anyhow::Result<Key> {
-    let secret = configured
-        .map(KeyMaterial::<MIN_SESSION_KEY_BYTES>::parse)
-        .transpose()
-        .map_err(|error| anyhow::anyhow!("session key {error}"))?
-        .flatten();
-
-    let Some(secret) = secret else {
+fn signing_key(configured: Option<&KeyMaterial<MIN_SESSION_KEY_BYTES>>) -> Key {
+    let Some(secret) = configured else {
         tracing::warn!(
             "no session key configured; sessions will not survive a restart. \
-             set KLENS_SESSION_KEY or auth.session_key"
+             set auth.session_key"
         );
-        return Ok(Key::generate());
+        return Key::generate();
     };
 
-    Ok(Key::derive_from(secret.as_bytes()))
+    Key::derive_from(secret.as_bytes())
 }
 
 #[cfg(test)]
@@ -961,28 +952,28 @@ mod tests {
         assert_eq!(api.status(), StatusCode::UNAUTHORIZED);
     }
 
+    fn key(raw: &str) -> KeyMaterial<MIN_SESSION_KEY_BYTES> {
+        KeyMaterial::parse(raw).expect("session key")
+    }
+
     #[test]
     fn the_same_session_key_derives_the_same_signing_key_across_restarts() {
         let encoded = base64::engine::general_purpose::STANDARD.encode([7u8; 32]);
 
         assert_eq!(
-            signing_key(Some(&encoded)).expect("key").signing(),
-            signing_key(Some(&encoded)).expect("key").signing()
+            signing_key(Some(&key(&encoded))).signing(),
+            signing_key(Some(&key(&encoded))).signing()
         );
     }
 
     #[test]
     fn a_passphrase_that_happens_to_be_base64_is_taken_as_written() {
         let passphrase = "p".repeat(MIN_SESSION_KEY_BYTES);
-        let key = signing_key(Some(&passphrase)).expect("passphrase");
+        let encoded = base64::engine::general_purpose::STANDARD.encode([7u8; 32]);
 
         assert_ne!(
-            key.signing(),
-            signing_key(Some(
-                &base64::engine::general_purpose::STANDARD.encode([7u8; 32])
-            ))
-            .expect("key")
-            .signing()
+            signing_key(Some(&key(&passphrase))).signing(),
+            signing_key(Some(&key(&encoded))).signing()
         );
     }
 
@@ -992,46 +983,20 @@ mod tests {
         let encoded = base64::engine::general_purpose::STANDARD.encode(raw);
         let expected = Key::derive_from(raw.as_bytes());
 
+        assert_eq!(signing_key(Some(&key(raw))).signing(), expected.signing());
         assert_eq!(
-            signing_key(Some(raw)).expect("raw").signing(),
+            signing_key(Some(&key(&encoded))).signing(),
             expected.signing()
         );
         assert_eq!(
-            signing_key(Some(&encoded)).expect("base64").signing(),
+            signing_key(Some(&key(&format!("  {raw}\n")))).signing(),
             expected.signing()
-        );
-        assert_eq!(
-            signing_key(Some(&format!("  {raw}\n")))
-                .expect("padded")
-                .signing(),
-            expected.signing()
-        );
-    }
-
-    #[test]
-    fn a_short_session_key_is_rejected_rather_than_silently_padded() {
-        let error = signing_key(Some("too-short")).expect_err("short key");
-        assert_eq!(
-            error.to_string(),
-            "session key must decode to at least 32 bytes, got 9"
-        );
-    }
-
-    #[test]
-    fn a_session_key_that_decodes_short_is_measured_as_text() {
-        let encoded = base64::engine::general_purpose::STANDARD.encode([7u8; 16]);
-        let error = signing_key(Some(&encoded)).expect_err("short decode");
-        assert_eq!(
-            error.to_string(),
-            "session key must decode to at least 32 bytes, got 24"
         );
     }
 
     #[test]
     fn an_absent_session_key_falls_back_to_a_generated_one() {
-        let first = signing_key(None).expect("generated");
-        let second = signing_key(Some("   ")).expect("blank counts as absent");
-        assert_ne!(first.signing(), second.signing());
+        assert_ne!(signing_key(None).signing(), signing_key(None).signing());
     }
 
     #[tokio::test]

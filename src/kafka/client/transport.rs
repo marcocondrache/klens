@@ -4,6 +4,7 @@ use krafka::admin::AdminClient as KrafkaAdmin;
 use krafka::auth::{AuthConfig, TlsConfig as KrafkaTlsConfig};
 use krafka::client::KrafkaClient as KrafkaSharedClient;
 use krafka::network::TransportConfig;
+use secrecy::ExposeSecret;
 
 use crate::config::{ClusterConfig, SaslMechanism, SecurityConfig, SecurityProtocol, TlsConfig};
 use crate::environment::{
@@ -120,21 +121,23 @@ fn krafka_sasl(
     })?;
 
     Ok(match (sasl.mechanism, tls) {
-        (SaslMechanism::Plain, None) => AuthConfig::sasl_plain(&sasl.username, &sasl.password)?,
+        (SaslMechanism::Plain, None) => {
+            AuthConfig::sasl_plain(&sasl.username, sasl.password.expose_secret())?
+        }
         (SaslMechanism::Plain, Some(tls)) => {
-            AuthConfig::sasl_plain_ssl(&sasl.username, &sasl.password, tls)?
+            AuthConfig::sasl_plain_ssl(&sasl.username, sasl.password.expose_secret(), tls)?
         }
         (SaslMechanism::ScramSha256, None) => {
-            AuthConfig::sasl_scram_sha256(&sasl.username, &sasl.password)
+            AuthConfig::sasl_scram_sha256(&sasl.username, sasl.password.expose_secret())
         }
         (SaslMechanism::ScramSha256, Some(tls)) => {
-            AuthConfig::sasl_scram_sha256_ssl(&sasl.username, &sasl.password, tls)
+            AuthConfig::sasl_scram_sha256_ssl(&sasl.username, sasl.password.expose_secret(), tls)
         }
         (SaslMechanism::ScramSha512, None) => {
-            AuthConfig::sasl_scram_sha512(&sasl.username, &sasl.password)
+            AuthConfig::sasl_scram_sha512(&sasl.username, sasl.password.expose_secret())
         }
         (SaslMechanism::ScramSha512, Some(tls)) => {
-            AuthConfig::sasl_scram_sha512_ssl(&sasl.username, &sasl.password, tls)
+            AuthConfig::sasl_scram_sha512_ssl(&sasl.username, sasl.password.expose_secret(), tls)
         }
     })
 }
@@ -220,7 +223,7 @@ mod tests {
               sasl:
                 mechanism: SCRAM-SHA-512
                 username: admin
-                password: secret
+                password: {value: secret}
               tls:
                 ca_cert: /etc/ca.pem
                 client_cert: /etc/client.pem

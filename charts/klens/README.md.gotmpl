@@ -24,7 +24,7 @@ helm install klens ./charts/klens -n klens --create-namespace -f my-values.yaml
 ```
 
 Put Kafka and OIDC credentials in `secret.existingSecret` or `secret.stringData`.
-Reference them in `config` as `${VAR}`. Mount Kafka PEM files with `volumes`
+Reference them in `config` as `{env: VAR}`. Mount Kafka PEM files with `volumes`
 and `volumeMounts`. Set a Secret `defaultMode` of 0400 on the client key.
 
 `bind` must be a SocketAddr the Service can reach. A loopback address fails render.

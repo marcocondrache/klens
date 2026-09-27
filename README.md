@@ -29,7 +29,13 @@ helm install klens oci://ghcr.io/marcocondrache/charts/klens \
   -n klens --create-namespace -f my-values.yaml
 ```
 
-`config` is the same YAML the process loads here. The chart also lives in
+`config` is the same YAML the process loads here.
+
+Every secret in the config names where to read it: `{value: ...}` inline,
+`{env: NAME}` from an environment variable, or `{file: PATH}` from a file such
+as a mounted Kubernetes secret. A trailing newline in a secret file is dropped.
+A plain string where a secret belongs fails at startup.
+ The chart also lives in
 [`charts/klens`](charts/klens) if you want to install from a checkout.
 
 Every page reads a background projection of each cluster, refreshed by
@@ -65,8 +71,7 @@ authorization code flow with PKCE. Sessions use
 live routes are under `/api`. `/health` and `/ready` stay public. A process
 restart drops in-memory sessions and requires a new login.
 
-Set `auth.session_key` (or `KLENS_SESSION_KEY`, which takes precedence) to a
-base64 or plain secret of at least 32 bytes so the session cookie survives a
+Set `auth.session_key` to a base64 or plain secret of at least 32 bytes so the session cookie survives a
 restart. Without one, klens generates a key per boot and every deploy logs
 everyone out.
 
@@ -75,8 +80,9 @@ auth:
   oidc:
     issuer: https://keycloak.example.com/realms/klens
     client_id: klens
-    client_secret: "..."
+    client_secret: { env: OIDC_CLIENT_SECRET }
     redirect_uri: http://localhost:8080/api/auth/callback
+  session_key: { env: KLENS_SESSION_KEY }
 ```
 
 Register `redirect_uri` with the identity provider. Without `roles`, any
@@ -104,7 +110,7 @@ auth:
   oidc:
     issuer: https://keycloak.example.com/realms/klens
     client_id: klens
-    client_secret: "..."
+    client_secret: { env: OIDC_CLIENT_SECRET }
     redirect_uri: http://localhost:8080/api/auth/callback
   roles:
     # claim: groups
@@ -135,7 +141,7 @@ Protobuf payloads decode to JSON when a registry is configured.
 schema_registry:
   url: http://localhost:8081
   # username: user
-  # password: secret
+  # password: { env: SCHEMA_REGISTRY_PASSWORD }
 ```
 
 Credentials may only travel over plaintext `http://` when the host is loopback.
@@ -152,7 +158,7 @@ before anything is rendered.
 ```yaml
 obfuscation:
   # Required as soon as one rule hashes. Base64 or plain text, 32 bytes or more.
-  secret: ${KLENS_OBFUSCATION_SECRET}
+  secret: { env: KLENS_OBFUSCATION_SECRET }
   rules:
     # Field rules walk the JSON a registry decode produced.
     - topics: ["payments.*"] # exact name, or a trailing-* prefix

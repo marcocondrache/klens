@@ -386,7 +386,7 @@ mod tests {
     fn payments() -> ObfuscationPolicy {
         policy(
             "
-            secret: 0123456789abcdef0123456789abcdef
+            secret: {value: 0123456789abcdef0123456789abcdef}
             rules:
               - topics: ['payments.*']
                 fields:
@@ -467,7 +467,7 @@ mod tests {
         let rules = |secret: &str| {
             policy(&format!(
                 "
-                secret: {secret}
+                secret: {{value: {secret}}}
                 rules:
                   - topics: [payments]
                     fields:
@@ -540,7 +540,7 @@ mod tests {
     fn numbers_and_booleans_become_token_strings() {
         let obfuscator = policy(
             "
-            secret: 0123456789abcdef0123456789abcdef
+            secret: {value: 0123456789abcdef0123456789abcdef}
             rules:
               - topics: [orders]
                 fields:
@@ -564,7 +564,7 @@ mod tests {
         let rules = |body: &str| {
             policy(&format!(
                 "
-                secret: 0123456789abcdef0123456789abcdef
+                secret: {{value: 0123456789abcdef0123456789abcdef}}
                 rules:
                   - topics: [orders]
                     {body}
@@ -596,7 +596,7 @@ mod tests {
     fn whole_field_rules_replace_key_and_value_text() {
         let obfuscator = policy(
             "
-            secret: 0123456789abcdef0123456789abcdef
+            secret: {value: 0123456789abcdef0123456789abcdef}
             rules:
               - topics: ['audit.raw']
                 key: mask
@@ -755,7 +755,7 @@ mod tests {
     fn logs() -> ObfuscationPolicy {
         policy(
             r"
-            secret: 0123456789abcdef0123456789abcdef
+            secret: {value: 0123456789abcdef0123456789abcdef}
             rules:
               - topics: ['app.logs']
                 patterns:
@@ -1033,7 +1033,7 @@ mod tests {
         let token = |secret: &str| {
             let policy = policy(&format!(
                 "
-                secret: {secret}
+                secret: {{value: {secret}}}
                 rules:
                   - topics: [payments]
                     value: hash

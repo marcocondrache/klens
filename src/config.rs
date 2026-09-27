@@ -1,11 +1,11 @@
-use std::borrow::Cow;
 use std::collections::{BTreeMap, HashSet};
-use std::env::VarError;
 use std::fmt::{Display, Formatter};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use secrecy::{ExposeSecret, SecretString};
+use serde::de::{self, MapAccess, Visitor, value::MapAccessDeserializer};
+use serde::{Deserialize, Deserializer};
 use thiserror::Error;
 
 use crate::environment;
@@ -17,12 +17,6 @@ pub enum ConfigError {
         path: PathBuf,
         #[source]
         source: std::io::Error,
-    },
-    #[error("failed to expand variables in config file {}: {source}", path.display())]
-    Expand {
-        path: PathBuf,
-        #[source]
-        source: shellexpand::LookupError<VarError>,
     },
     #[error("failed to parse config file {}: {source}", path.display())]
     Parse {
@@ -83,37 +77,19 @@ impl Config {
     }
 
     pub fn load(path: impl AsRef<Path>) -> Result<Self, ConfigError> {
-        Self::load_with_env(path.as_ref(), |name| std::env::var(name))
-    }
-
-    fn load_with_env(
-        path: &Path,
-        env: impl Fn(&str) -> Result<String, VarError>,
-    ) -> Result<Self, ConfigError> {
+        let path = path.as_ref();
         let raw = std::fs::read_to_string(path).map_err(|source| ConfigError::Read {
             path: path.to_owned(),
             source,
         })?;
-        Self::parse(path, &raw, env)
+        Self::parse(path, &raw)
     }
 
-    fn parse(
-        path: &Path,
-        raw: &str,
-        env: impl Fn(&str) -> Result<String, VarError>,
-    ) -> Result<Self, ConfigError> {
-        let expanded = shellexpand::env_with_context(raw, |name| env(name).map(Some))
-            .map(Cow::into_owned)
-            .map_err(|source| ConfigError::Expand {
-                path: path.to_owned(),
-                source,
-            })?;
-
-        let config: Self =
-            serde_yaml_ng::from_str(&expanded).map_err(|source| ConfigError::Parse {
-                path: path.to_owned(),
-                source,
-            })?;
+    fn parse(path: &Path, raw: &str) -> Result<Self, ConfigError> {
+        let config: Self = serde_yaml_ng::from_str(raw).map_err(|source| ConfigError::Parse {
+            path: path.to_owned(),
+            source,
+        })?;
 
         config.validate()?;
         Ok(config)
@@ -150,9 +126,8 @@ pub struct AuthConfig {
     pub roles: Option<RolesConfig>,
     /// Signing key for the session cookie, as base64 or raw text of at least
     /// 32 bytes. Without one, every restart invalidates every session.
-    /// `KLENS_SESSION_KEY` is the env equivalent.
     #[serde(default)]
-    pub session_key: Option<String>,
+    pub session_key: Option<KeyMaterial<MIN_SESSION_KEY_BYTES>>,
 }
 
 const MAX_ROLE_DEFINITIONS: usize = 64;
@@ -274,7 +249,7 @@ impl RolesConfig {
 pub struct OidcConfig {
     pub issuer: String,
     pub client_id: String,
-    pub client_secret: String,
+    pub client_secret: Secret,
     pub redirect_uri: String,
     #[serde(default = "default_scopes")]
     pub scopes: Vec<String>,
@@ -313,7 +288,7 @@ impl OidcConfig {
             return fail("oidc client_id must not be empty");
         }
 
-        if self.client_secret.trim().is_empty() {
+        if self.client_secret.expose_secret().trim().is_empty() {
             return fail("oidc client_secret must not be empty");
         }
 
@@ -433,7 +408,7 @@ pub struct SchemaRegistryConfig {
     #[serde(default)]
     pub username: Option<String>,
     #[serde(default)]
-    pub password: Option<String>,
+    pub password: Option<Secret>,
 }
 
 impl SchemaRegistryConfig {
@@ -450,7 +425,7 @@ impl SchemaRegistryConfig {
         let has_pass = self
             .password
             .as_ref()
-            .is_some_and(|password| !password.is_empty());
+            .is_some_and(|password| !password.expose_secret().is_empty());
 
         if has_user != has_pass {
             return fail("schema_registry username and password must be set together");
@@ -511,8 +486,170 @@ impl ClusterConfig {
     }
 }
 
+/// A secret the config names by where to read it: `{value: ...}` inline,
+/// `{env: NAME}` from an environment variable, or `{file: PATH}` from a file
+/// such as a mounted Kubernetes secret. Resolved once, at load.
+#[derive(Clone)]
+pub struct Secret(SecretString);
+
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum SecretSource {
+    Value(#[serde(deserialize_with = "secret_text")] SecretString),
+    Env(String),
+    File(PathBuf),
+}
+
+impl SecretSource {
+    fn resolve(self) -> Result<Secret, String> {
+        let secret = match self {
+            Self::Value(value) => value,
+            Self::Env(name) => match std::env::var(&name) {
+                Ok(value) => value.into(),
+                Err(std::env::VarError::NotPresent) => {
+                    return Err(format!("environment variable {name} is not set"));
+                }
+                Err(std::env::VarError::NotUnicode(_)) => {
+                    return Err(format!("environment variable {name} is not valid UTF-8"));
+                }
+            },
+            Self::File(path) => {
+                let mut contents = std::fs::read_to_string(&path).map_err(|error| {
+                    format!("failed to read secret file {}: {error}", path.display())
+                })?;
+                // Files written by `echo` or editors end in a newline that is
+                // never part of the secret.
+                contents.truncate(contents.trim_end_matches(['\r', '\n']).len());
+                contents.into()
+            }
+        };
+
+        Ok(Secret(secret))
+    }
+}
+
+impl ExposeSecret<str> for Secret {
+    fn expose_secret(&self) -> &str {
+        self.0.expose_secret()
+    }
+}
+
+impl From<&str> for Secret {
+    fn from(value: &str) -> Self {
+        Self(value.into())
+    }
+}
+
+impl PartialEq for Secret {
+    fn eq(&self, other: &Self) -> bool {
+        self.expose_secret() == other.expose_secret()
+    }
+}
+
+impl Eq for Secret {}
+
+impl std::fmt::Debug for Secret {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("Secret(..)")
+    }
+}
+
+impl<'de> Deserialize<'de> for Secret {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_any(SecretVisitor(Ok))
+    }
+}
+
+const PLAIN_SECRET: &str =
+    "a secret must name its source: {value: ...}, {env: NAME} or {file: PATH}";
+
+/// Resolves the source and applies the conversion inside `visit_map`, so an
+/// error carries the field's path. Rejects scalars itself because serde's
+/// default errors quote the offending value, which here is the secret.
+struct SecretVisitor<T>(fn(Secret) -> Result<T, String>);
+
+impl<'de, T> Visitor<'de> for SecretVisitor<T> {
+    type Value = T;
+
+    fn expecting(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(PLAIN_SECRET)
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<T, A::Error> {
+        let secret = SecretSource::deserialize(MapAccessDeserializer::new(map))?
+            .resolve()
+            .map_err(de::Error::custom)?;
+        (self.0)(secret).map_err(de::Error::custom)
+    }
+
+    fn visit_str<E: de::Error>(self, _: &str) -> Result<T, E> {
+        Err(E::custom(PLAIN_SECRET))
+    }
+
+    fn visit_bool<E: de::Error>(self, _: bool) -> Result<T, E> {
+        Err(E::custom(PLAIN_SECRET))
+    }
+
+    fn visit_i64<E: de::Error>(self, _: i64) -> Result<T, E> {
+        Err(E::custom(PLAIN_SECRET))
+    }
+
+    fn visit_u64<E: de::Error>(self, _: u64) -> Result<T, E> {
+        Err(E::custom(PLAIN_SECRET))
+    }
+
+    fn visit_f64<E: de::Error>(self, _: f64) -> Result<T, E> {
+        Err(E::custom(PLAIN_SECRET))
+    }
+}
+
+fn secret_text<'de, D: Deserializer<'de>>(deserializer: D) -> Result<SecretString, D::Error> {
+    struct TextVisitor;
+
+    const NOT_TEXT: &str = "a secret value must be a string; quote it";
+
+    impl Visitor<'_> for TextVisitor {
+        type Value = SecretString;
+
+        fn expecting(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str(NOT_TEXT)
+        }
+
+        fn visit_str<E: de::Error>(self, value: &str) -> Result<SecretString, E> {
+            Ok(value.into())
+        }
+
+        fn visit_string<E: de::Error>(self, value: String) -> Result<SecretString, E> {
+            Ok(value.into())
+        }
+
+        fn visit_bool<E: de::Error>(self, _: bool) -> Result<SecretString, E> {
+            Err(E::custom(NOT_TEXT))
+        }
+
+        fn visit_i64<E: de::Error>(self, _: i64) -> Result<SecretString, E> {
+            Err(E::custom(NOT_TEXT))
+        }
+
+        fn visit_u64<E: de::Error>(self, _: u64) -> Result<SecretString, E> {
+            Err(E::custom(NOT_TEXT))
+        }
+
+        fn visit_f64<E: de::Error>(self, _: f64) -> Result<SecretString, E> {
+            Err(E::custom(NOT_TEXT))
+        }
+    }
+
+    deserializer.deserialize_any(TextVisitor)
+}
+
 pub const MIN_OBFUSCATION_SECRET_BYTES: usize = 32;
 
+/// `cookie::Key::derive_from` panics below this.
+pub const MIN_SESSION_KEY_BYTES: usize = 32;
+
+/// Key bytes from a [`Secret`], as base64 when that decodes to at least `MIN`
+/// bytes, otherwise as the raw text.
 #[derive(Clone, PartialEq, Eq)]
 pub struct KeyMaterial<const MIN: usize>(Box<[u8]>);
 
@@ -524,12 +661,8 @@ pub struct ShortKeyMaterial {
 }
 
 impl<const MIN: usize> KeyMaterial<MIN> {
-    pub fn parse(raw: &str) -> Result<Option<Self>, ShortKeyMaterial> {
+    pub fn parse(raw: &str) -> Result<Self, ShortKeyMaterial> {
         let raw = raw.trim();
-        if raw.is_empty() {
-            return Ok(None);
-        }
-
         let bytes = match base64::Engine::decode(&base64::engine::general_purpose::STANDARD, raw) {
             Ok(decoded) if decoded.len() >= MIN => decoded,
             _ => raw.as_bytes().to_vec(),
@@ -542,7 +675,7 @@ impl<const MIN: usize> KeyMaterial<MIN> {
             });
         }
 
-        Ok(Some(Self(bytes.into_boxed_slice())))
+        Ok(Self(bytes.into_boxed_slice()))
     }
 
     pub fn as_bytes(&self) -> &[u8] {
@@ -558,15 +691,12 @@ impl<const MIN: usize> std::fmt::Debug for KeyMaterial<MIN> {
     }
 }
 
-fn deserialize_obfuscation_secret<'de, D>(
-    deserializer: D,
-) -> Result<Option<KeyMaterial<MIN_OBFUSCATION_SECRET_BYTES>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    Option::<String>::deserialize(deserializer)?
-        .map_or(Ok(None), |raw| KeyMaterial::parse(&raw))
-        .map_err(|error| serde::de::Error::custom(format!("obfuscation secret {error}")))
+impl<'de, const MIN: usize> Deserialize<'de> for KeyMaterial<MIN> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_any(SecretVisitor(|secret| {
+            Self::parse(secret.expose_secret()).map_err(|error| error.to_string())
+        }))
+    }
 }
 
 pub const OBFUSCATION_MASK: &str = "***";
@@ -577,7 +707,7 @@ pub struct ObfuscationConfig {
     /// Key for `hash` tokens, as base64 or raw text of at least 32 bytes.
     /// Required as soon as one rule hashes. Rotating it changes every token,
     /// so correlation across the rotation is lost.
-    #[serde(default, deserialize_with = "deserialize_obfuscation_secret")]
+    #[serde(default)]
     pub secret: Option<KeyMaterial<MIN_OBFUSCATION_SECRET_BYTES>>,
     pub rules: Vec<ObfuscationRule>,
 }
@@ -852,7 +982,7 @@ pub struct SecurityConfig {
 pub struct SaslConfig {
     pub mechanism: SaslMechanism,
     pub username: String,
-    pub password: String,
+    pub password: Secret,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
@@ -871,7 +1001,6 @@ pub struct TlsConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
 
     fn parse_cluster(yaml: &str) -> Result<ClusterConfig, serde_yaml_ng::Error> {
         serde_yaml_ng::from_str(yaml)
@@ -1079,7 +1208,7 @@ mod tests {
               sasl:
                 mechanism: SCRAM-SHA-512
                 username: admin
-                password: secret
+                password: {value: secret}
               tls:
                 ca_cert: /etc/ca.pem
                 client_cert: /etc/client.pem
@@ -1297,7 +1426,7 @@ mod tests {
               oidc:
                 issuer: https://keycloak.example.com/realms/klens
                 client_id: klens
-                client_secret: secret
+                client_secret: {value: secret}
                 redirect_uri: http://localhost:8080/api/auth/callback
             ",
         )
@@ -1306,7 +1435,7 @@ mod tests {
         let oidc = config.auth.as_ref().unwrap().oidc.clone();
         assert_eq!(oidc.issuer, "https://keycloak.example.com/realms/klens");
         assert_eq!(oidc.client_id, "klens");
-        assert_eq!(oidc.client_secret, "secret");
+        assert_eq!(oidc.client_secret.expose_secret(), "secret");
         assert_eq!(oidc.redirect_uri, "http://localhost:8080/api/auth/callback");
         assert_eq!(oidc.scopes, vec!["openid", "email", "profile"]);
         assert_eq!(oidc.cookie_secure, None);
@@ -1324,7 +1453,7 @@ mod tests {
               oidc:
                 issuer: https://idp.example
                 client_id: klens
-                client_secret: secret
+                client_secret: {value: secret}
                 redirect_uri: http://localhost:8080/api/auth/callback
               roles:
                 definitions:
@@ -1377,7 +1506,7 @@ mod tests {
               oidc:
                 issuer: https://idp.example
                 client_id: klens
-                client_secret: secret
+                client_secret: {{value: secret}}
                 redirect_uri: http://localhost:8080/api/auth/callback
               roles:
                 definitions:{definitions}
@@ -1515,7 +1644,7 @@ mod tests {
               oidc:
                 issuer: https://idp.example
                 client_id: klens
-                client_secret: secret
+                client_secret: {value: secret}
                 redirect_uri: https://klens.example/api/auth/callback
             ",
         )
@@ -1530,7 +1659,7 @@ mod tests {
               oidc:
                 issuer: https://idp.example
                 client_id: klens
-                client_secret: secret
+                client_secret: {value: secret}
                 redirect_uri: https://klens.example/api/auth/callback
                 cookie_secure: false
             ",
@@ -1549,7 +1678,7 @@ mod tests {
               oidc:
                 issuer: https://idp.example
                 client_id: klens
-                client_secret: secret
+                client_secret: {value: secret}
                 redirect_uri: http://localhost:8080/api/auth/callback
                 scopes:
                   - email
@@ -1573,7 +1702,7 @@ mod tests {
               oidc:
                 issuer: not-a-url
                 client_id: klens
-                client_secret: secret
+                client_secret: {value: secret}
                 redirect_uri: http://localhost:8080/api/auth/callback
             ",
         )
@@ -1593,7 +1722,7 @@ mod tests {
               oidc:
                 issuer: https://idp.example
                 client_id: klens
-                client_secret: '   '
+                client_secret: {value: '   '}
                 redirect_uri: http://localhost:8080/api/auth/callback
             ",
         )
@@ -1613,7 +1742,7 @@ mod tests {
               oidc:
                 issuer: https://idp.example
                 client_id: klens
-                client_secret: secret
+                client_secret: {value: secret}
                 redirect_uri: ftp://localhost/api/auth/callback
             ",
         )
@@ -1633,7 +1762,7 @@ mod tests {
             schema_registry:
               url: http://localhost:8081
               username: user
-              password: secret
+              password: {value: secret}
             ",
         )
         .unwrap();
@@ -1641,7 +1770,10 @@ mod tests {
         let registry = config.schema_registry.as_ref().unwrap();
         assert_eq!(registry.url, "http://localhost:8081");
         assert_eq!(registry.username.as_deref(), Some("user"));
-        assert_eq!(registry.password.as_deref(), Some("secret"));
+        assert_eq!(
+            registry.password.as_ref().map(ExposeSecret::expose_secret),
+            Some("secret")
+        );
         config.validate().unwrap();
     }
 
@@ -1692,7 +1824,7 @@ mod tests {
             bootstrap_servers:
               - broker:9092
             obfuscation:
-              secret: 0123456789abcdef0123456789abcdef
+              secret: {value: 0123456789abcdef0123456789abcdef}
               rules:
                 - topics: ['payments.*']
                   fields:
@@ -1786,7 +1918,7 @@ mod tests {
     fn rejects_a_secret_with_too_little_key_material() {
         let error = obfuscated(
             "
-              secret: short
+              secret: {value: short}
               rules:
                 - topics: [cards]
                   value: hash
@@ -1797,7 +1929,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("secret must decode to at least 32 bytes")
+                .contains("secret: must decode to at least 32 bytes")
         );
     }
 
@@ -1805,7 +1937,7 @@ mod tests {
     fn a_secret_is_base64_only_when_it_decodes_to_enough_bytes() {
         obfuscated(
             "
-              secret: BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=
+              secret: {value: BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=}
               rules:
                 - topics: [cards]
                   value: hash
@@ -1815,7 +1947,7 @@ mod tests {
 
         let error = obfuscated(
             "
-              secret: BwcHBwcHBwcHBwcHBwcHBw==
+              secret: {value: BwcHBwcHBwcHBwcHBwcHBw==}
               rules:
                 - topics: [cards]
                   value: hash
@@ -1824,7 +1956,7 @@ mod tests {
         .unwrap_err();
 
         assert!(
-            error.contains("obfuscation secret must decode to at least 32 bytes, got 24"),
+            error.contains("secret: must decode to at least 32 bytes, got 24"),
             "{error}"
         );
     }
@@ -1833,7 +1965,7 @@ mod tests {
     fn a_short_secret_reports_its_length() {
         let error = obfuscated(
             "
-              secret: short
+              secret: {value: short}
               rules:
                 - topics: [cards]
                   value: mask
@@ -1842,43 +1974,34 @@ mod tests {
         .unwrap_err();
 
         assert!(
-            error.contains("obfuscation secret must decode to at least 32 bytes, got 5"),
+            error.contains("secret: must decode to at least 32 bytes, got 5"),
             "{error}"
         );
     }
 
     #[test]
     fn debug_output_hides_the_key_bytes() {
-        let key = KeyMaterial::<32>::parse("0123456789abcdef0123456789abcdef")
-            .unwrap()
-            .unwrap();
+        let key = KeyMaterial::<32>::parse("0123456789abcdef0123456789abcdef").unwrap();
 
         assert_eq!(format!("{key:?}"), "KeyMaterial { .. }");
     }
 
     #[test]
-    fn a_blank_secret_counts_as_absent() {
-        obfuscated(
+    fn a_blank_secret_is_too_short_rather_than_absent() {
+        let error = obfuscated(
             "
-              secret: '   '
+              secret: {value: '   '}
               rules:
                 - topics: [cards]
                   value: mask
             ",
         )
-        .expect("blank secret without hashing");
-
-        let error = obfuscated(
-            "
-              secret: '   '
-              rules:
-                - topics: [cards]
-                  value: hash
-            ",
-        )
         .unwrap_err();
 
-        assert!(error.contains("hash strategy requires a secret"), "{error}");
+        assert!(
+            error.contains("secret: must decode to at least 32 bytes, got 0"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -1948,7 +2071,7 @@ mod tests {
     fn accepts_pattern_rules_and_rejects_ones_that_say_nothing() {
         obfuscated(
             "
-              secret: 0123456789abcdef0123456789abcdef
+              secret: {value: 0123456789abcdef0123456789abcdef}
               rules:
                 - topics: ['app.logs']
                   patterns:
@@ -2046,112 +2169,165 @@ mod tests {
         .unwrap();
     }
 
-    fn env_from(vars: &[(&str, &str)]) -> impl Fn(&str) -> Result<String, VarError> {
-        let vars: HashMap<String, String> = vars
-            .iter()
-            .map(|(name, value)| (name.to_string(), value.to_string()))
-            .collect();
-        move |name| vars.get(name).cloned().ok_or(VarError::NotPresent)
+    fn load_yaml(yaml: &str) -> Result<Config, ConfigError> {
+        Config::parse(Path::new("test.yaml"), yaml)
     }
 
-    fn load_yaml(yaml: &str, vars: &[(&str, &str)]) -> Result<Config, ConfigError> {
-        Config::parse(Path::new("test.yaml"), yaml, env_from(vars))
-    }
-
-    #[test]
-    fn load_expands_secret_placeholders() {
-        let config = load_yaml(
+    fn with_client_secret(source: &str) -> String {
+        format!(
             "
             bind: 127.0.0.1:8080
-            clusters:
-              - name: prod
-                bootstrap_servers:
-                  - broker:9092
-                security:
-                  protocol: SASL_PLAINTEXT
-                  sasl:
-                    mechanism: PLAIN
-                    username: ${KAFKA_USERNAME}
-                    password: ${KAFKA_PASSWORD}
             auth:
               oidc:
                 issuer: https://idp.example
                 client_id: klens
-                client_secret: ${OIDC_CLIENT_SECRET}
+                client_secret: {source}
                 redirect_uri: https://klens.example/api/auth/callback
-            ",
-            &[
-                ("KAFKA_USERNAME", "admin"),
-                ("KAFKA_PASSWORD", "sasl-secret"),
-                ("OIDC_CLIENT_SECRET", "oidc-secret"),
-            ],
+            "
         )
-        .unwrap();
+    }
 
-        let sasl = config.clusters[0]
-            .security
-            .as_ref()
-            .unwrap()
-            .sasl
-            .as_ref()
-            .unwrap();
-        assert_eq!(sasl.username, "admin");
-        assert_eq!(sasl.password, "sasl-secret");
-        assert_eq!(config.auth.unwrap().oidc.client_secret, "oidc-secret");
+    fn client_secret(source: &str) -> Result<String, String> {
+        load_yaml(&with_client_secret(source))
+            .map(|config| {
+                config
+                    .auth
+                    .unwrap()
+                    .oidc
+                    .client_secret
+                    .expose_secret()
+                    .to_owned()
+            })
+            .map_err(|error| error.to_string())
+    }
+
+    struct TempFile(PathBuf);
+
+    impl TempFile {
+        fn new(name: &str, contents: &str) -> Self {
+            let path = std::env::temp_dir().join(format!("klens-{}-{name}", std::process::id()));
+            std::fs::write(&path, contents).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TempFile {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
     }
 
     #[test]
-    fn load_errors_on_missing_placeholder_without_leaking_values() {
+    fn a_secret_reads_from_its_value_env_or_file() {
+        assert_eq!(client_secret("{value: inline}").unwrap(), "inline");
+        assert_eq!(
+            client_secret("{env: CARGO_PKG_NAME}").unwrap(),
+            env!("CARGO_PKG_NAME")
+        );
+
+        let file = TempFile::new("client-secret", "from-file\r\n");
+        assert_eq!(
+            client_secret(&format!("{{file: '{}'}}", file.0.display())).unwrap(),
+            "from-file"
+        );
+    }
+
+    #[test]
+    fn a_secret_keeps_characters_yaml_would_read_as_structure() {
+        assert_eq!(
+            client_secret("{value: 'hunter2 #tail'}").unwrap(),
+            "hunter2 #tail"
+        );
+
+        let file = TempFile::new("yaml-chars", "p@ss: *word #x\n");
+        assert_eq!(
+            client_secret(&format!("{{file: '{}'}}", file.0.display())).unwrap(),
+            "p@ss: *word #x"
+        );
+    }
+
+    #[test]
+    fn a_missing_secret_source_names_the_field_and_source() {
+        let error = client_secret("{env: KLENS_TEST_UNSET_VARIABLE}").unwrap_err();
+        assert!(error.contains("test.yaml"), "{error}");
+        assert!(error.contains("auth.oidc.client_secret"), "{error}");
+        assert!(
+            error.contains("environment variable KLENS_TEST_UNSET_VARIABLE is not set"),
+            "{error}"
+        );
+
+        let error = client_secret("{file: /nonexistent/klens-secret}").unwrap_err();
+        assert!(
+            error.contains("failed to read secret file /nonexistent/klens-secret"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_plain_secret_is_rejected_without_echoing_it() {
+        for source in ["hunter2", "123456", "{value: 123456}"] {
+            let error = client_secret(source).unwrap_err();
+            assert!(!error.contains("hunter2"), "{error}");
+            assert!(!error.contains("123456"), "{error}");
+            assert!(error.contains("auth.oidc.client_secret"), "{error}");
+        }
+
+        assert!(
+            client_secret("hunter2")
+                .unwrap_err()
+                .contains("a secret must name its source")
+        );
+        assert!(
+            client_secret("{value: 123456}")
+                .unwrap_err()
+                .contains("a secret value must be a string")
+        );
+    }
+
+    #[test]
+    fn debug_output_hides_secrets() {
+        let config = load_yaml(&with_client_secret("{value: oidc-secret}")).unwrap();
+
+        let debug = format!("{config:?}");
+        assert!(!debug.contains("oidc-secret"), "{debug}");
+        assert!(debug.contains("client_secret: Secret(..)"), "{debug}");
+    }
+
+    #[test]
+    fn a_short_session_key_is_rejected_at_load() {
         let error = load_yaml(
             "
             bind: 127.0.0.1:8080
-            clusters: []
             auth:
+              session_key: {value: too-short}
               oidc:
                 issuer: https://idp.example
                 client_id: klens
-                client_secret: ${OIDC_CLIENT_SECRET}
+                client_secret: {value: secret}
                 redirect_uri: https://klens.example/api/auth/callback
             ",
-            &[],
         )
-        .unwrap_err();
+        .unwrap_err()
+        .to_string();
 
-        let message = error.to_string();
-        assert!(message.contains("test.yaml"));
-        assert!(message.contains("OIDC_CLIENT_SECRET"));
-        assert!(!message.contains("oidc-secret"));
-        assert!(matches!(error, ConfigError::Expand { .. }));
+        assert!(
+            error.contains("auth.session_key: must decode to at least 32 bytes, got 9"),
+            "{error}"
+        );
     }
 
     #[test]
-    fn load_from_file_expands_environment() {
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!("klens-test-{nonce}.yaml"));
-        let yaml = "
-            bind: 127.0.0.1:8080
-            clusters: []
-            auth:
-              oidc:
-                issuer: https://idp.example
-                client_id: klens
-                client_secret: ${OIDC_CLIENT_SECRET}
-                redirect_uri: https://klens.example/api/auth/callback
-            ";
-        std::fs::write(&path, yaml).unwrap();
-        struct Cleanup<'a>(&'a Path);
-        impl Drop for Cleanup<'_> {
-            fn drop(&mut self) {
-                let _ = std::fs::remove_file(self.0);
-            }
-        }
-        let _cleanup = Cleanup(&path);
+    fn load_reads_the_config_file_and_its_secret_files() {
+        let secret = TempFile::new("load-secret", "from-file\n");
+        let config = TempFile::new(
+            "load-config.yaml",
+            &with_client_secret(&format!("{{file: '{}'}}", secret.0.display())),
+        );
 
-        let config =
-            Config::load_with_env(&path, env_from(&[("OIDC_CLIENT_SECRET", "from-env")])).unwrap();
-        assert_eq!(config.auth.unwrap().oidc.client_secret, "from-env");
+        let loaded = Config::load(&config.0).unwrap();
+        assert_eq!(
+            loaded.auth.unwrap().oidc.client_secret.expose_secret(),
+            "from-file"
+        );
     }
 }
