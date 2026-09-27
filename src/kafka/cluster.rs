@@ -27,7 +27,7 @@ impl ClusterIdentity {
     pub fn new(name: &ClusterName, config: &ClusterConfig) -> Self {
         Self {
             name: name.to_string(),
-            bootstrap_servers: config.bootstrap_servers.clone(),
+            bootstrap_servers: config.bootstrap_servers.to_vec(),
             security_protocol: config.security.protocol(),
         }
     }
@@ -107,7 +107,7 @@ impl Clusters {
                     Cluster::new(
                         Arc::new(session),
                         cluster.ingest,
-                        tuning.ingest.interest_ttl,
+                        tuning.ingest.interest_ttl.get(),
                     )
                 }),
         ))
@@ -118,7 +118,7 @@ impl Clusters {
             Cluster::new(
                 Arc::new(session),
                 ClusterIngestConfig::default(),
-                IngestTuning::default().interest_ttl,
+                IngestTuning::default().interest_ttl.get(),
             )
         }))
     }
@@ -154,12 +154,13 @@ impl Clusters {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Period;
     use crate::kafka::store::Topology;
     use crate::kafka::testing::FakeCluster;
 
     fn cluster_config() -> ClusterConfig {
         ClusterConfig {
-            bootstrap_servers: vec!["localhost:9092".to_owned()],
+            bootstrap_servers: vec!["localhost:9092".to_owned()].try_into().unwrap(),
             security: Default::default(),
             schema_registry: None,
             obfuscation: None,
@@ -197,9 +198,9 @@ mod tests {
         let first = FakeBroker::start().await.unwrap();
         let second = FakeBroker::start().await.unwrap();
         let mut b = cluster_config();
-        b.bootstrap_servers = vec![first.bootstrap_servers()];
+        b.bootstrap_servers = vec![first.bootstrap_servers()].try_into().unwrap();
         let mut a = cluster_config();
-        a.bootstrap_servers = vec![second.bootstrap_servers()];
+        a.bootstrap_servers = vec![second.bootstrap_servers()].try_into().unwrap();
 
         let clusters = Clusters::connect(&config(vec![("b", b), ("a", a)]))
             .await
@@ -217,11 +218,11 @@ mod tests {
         let first = FakeBroker::start().await.unwrap();
         let second = FakeBroker::start().await.unwrap();
         let mut fast = cluster_config();
-        fast.bootstrap_servers = vec![first.bootstrap_servers()];
-        fast.ingest.topology = Duration::from_secs(1);
+        fast.bootstrap_servers = vec![first.bootstrap_servers()].try_into().unwrap();
+        fast.ingest.topology = Period::from_secs(1);
         let mut slow = cluster_config();
-        slow.bootstrap_servers = vec![second.bootstrap_servers()];
-        slow.ingest.topology = Duration::from_secs(600);
+        slow.bootstrap_servers = vec![second.bootstrap_servers()].try_into().unwrap();
+        slow.ingest.topology = Period::from_secs(600);
 
         let clusters = Clusters::connect(&config(vec![("fast", fast), ("slow", slow)]))
             .await
@@ -229,18 +230,18 @@ mod tests {
 
         assert_eq!(
             clusters.get("fast").unwrap().ingest.topology,
-            Duration::from_secs(1)
+            Period::from_secs(1)
         );
         assert_eq!(
             clusters.get("slow").unwrap().ingest.topology,
-            Duration::from_secs(600)
+            Period::from_secs(600)
         );
     }
 
     #[tokio::test]
     async fn connect_returns_connection_errors() {
         let mut cluster = cluster_config();
-        cluster.bootstrap_servers.clear();
+        cluster.bootstrap_servers = vec![String::new()].try_into().unwrap();
 
         let result = Clusters::connect(&config(vec![("invalid", cluster)])).await;
 

@@ -178,7 +178,7 @@ mod tests {
         KafkaClient::new(
             &"test".parse().unwrap(),
             &crate::config::ClusterConfig {
-                bootstrap_servers: vec![broker.bootstrap_servers()],
+                bootstrap_servers: vec![broker.bootstrap_servers()].try_into().unwrap(),
                 security: Default::default(),
                 schema_registry: None,
                 obfuscation: None,

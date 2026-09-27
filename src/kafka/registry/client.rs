@@ -33,11 +33,11 @@ impl SchemaRegistryClient {
 
         let mut builder = ConfluentSchemaRegistry::builder()
             .url(config.url.as_str())
-            .request_timeout(tuning.timeout)
+            .request_timeout(tuning.timeout.get())
             .retry_policy(RetryPolicy::none());
 
         if let Some(auth) = &config.auth {
-            builder = builder.basic_auth(&auth.username, auth.password.expose_secret());
+            builder = builder.basic_auth(auth.username.as_str(), auth.password.expose_secret());
         }
 
         let inner = builder
@@ -512,7 +512,7 @@ mod tests {
             &SchemaRegistryConfig {
                 url: server.uri().parse().unwrap(),
                 auth: Some(BasicAuth {
-                    username: "user".into(),
+                    username: "user".parse().unwrap(),
                     password: "secret".into(),
                 }),
             },

@@ -42,9 +42,9 @@ impl OffsetLane {
         let ingest = ClusterIngestConfig::default();
         Self {
             session,
-            tick: ingest.offset_tick,
-            fast: ingest.fast_offset,
-            slow: ingest.slow_offset,
+            tick: ingest.offset_tick.get(),
+            fast: ingest.fast_offset.get(),
+            slow: ingest.slow_offset.get(),
             concurrency: IngestTuning::default().offset_fetch_concurrency,
             attempted_at: Mutex::new(HashMap::new()),
         }

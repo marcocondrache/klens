@@ -279,7 +279,10 @@ mod tests {
     }
 
     async fn open(session: &FakeCluster, query: TailQuery) -> Tail {
-        let store = ClusterStore::new(identity("local"), IngestTuning::default().interest_ttl);
+        let store = ClusterStore::new(
+            identity("local"),
+            IngestTuning::default().interest_ttl.get(),
+        );
         Tail::open(session, &store, query, LIMITS).await.unwrap()
     }
 
@@ -528,7 +531,10 @@ mod tests {
     #[tokio::test]
     async fn a_tail_with_nothing_assigned_waits_out_each_poll() {
         let session = FakeCluster::local();
-        let store = ClusterStore::new(identity("local"), IngestTuning::default().interest_ttl);
+        let store = ClusterStore::new(
+            identity("local"),
+            IngestTuning::default().interest_ttl.get(),
+        );
         store.topology.commit(Arc::new(topology(
             vec![topic("unwritten", vec![partition(0, vec![1], vec![1])])],
             Vec::new(),

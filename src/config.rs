@@ -1,24 +1,27 @@
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
-use std::hash::Hash;
 use std::net::SocketAddr;
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Duration;
 
 use indexmap::IndexMap;
 use openidconnect::{IssuerUrl, RedirectUrl};
 use regex::{Regex, RegexBuilder};
-use secrecy::{ExposeSecret, SecretString};
+use secrecy::ExposeSecret;
 use serde::de::value::MapAccessDeserializer;
 use serde::de::{self, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer};
 use thiserror::Error;
-use url::Url;
 
+mod checked;
+mod secret;
 mod tuning;
 
+use checked::{EMPTY, parsed};
+pub use checked::{HttpUrl, NonBlank, NonEmpty, Period};
+pub use secret::Secret;
 pub use tuning::{
     IngestTuning, KafkaTuning, RecordLimits, ScanTuning, SchemaRegistryTuning, TailTuning, Tuning,
 };
@@ -48,7 +51,6 @@ impl Display for ParseError {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    #[serde(deserialize_with = "deserialize_bind")]
     pub bind: SocketAddr,
     #[serde(default = "default_log_level")]
     pub log_level: String,
@@ -62,15 +64,6 @@ pub struct Config {
 
 fn default_log_level() -> String {
     "info".to_owned()
-}
-
-fn deserialize_bind<'de, D>(deserializer: D) -> Result<SocketAddr, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    String::deserialize(deserializer)?
-        .parse()
-        .map_err(serde::de::Error::custom)
 }
 
 impl Config {
@@ -103,82 +96,66 @@ fn describe(error: &serde_saphyr::Error) -> String {
     error.render_with_formatter(&serde_saphyr::UserMessageFormatter)
 }
 
-const EMPTY: &str = "must not be empty";
-
-const EMPTY_VALUES: &str = "must not contain empty values";
-
-fn non_empty<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
-where
-    D: Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    let items = Vec::deserialize(deserializer)?;
-    if items.is_empty() {
-        return Err(de::Error::custom(EMPTY));
-    }
-    Ok(items)
-}
-
-fn non_blank<'de, D: Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
-    let value = String::deserialize(deserializer)?;
-    if value.trim().is_empty() {
-        return Err(de::Error::custom(EMPTY));
-    }
-    Ok(value)
-}
-
-fn non_blank_items<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<String>, D::Error> {
-    let items = Vec::<String>::deserialize(deserializer)?;
-    if items.iter().any(|item| item.trim().is_empty()) {
-        return Err(de::Error::custom(EMPTY_VALUES));
-    }
-    Ok(items)
-}
-
-fn names<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<String>, D::Error> {
-    let names = non_blank_items(deserializer)?;
-    if names.is_empty() {
-        return Err(de::Error::custom(EMPTY));
-    }
-    Ok(names)
-}
-
-fn some_names<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Vec<String>>, D::Error> {
-    names(deserializer).map(Some)
-}
-
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AuthConfig {
     pub oidc: OidcConfig,
-    #[serde(default, deserialize_with = "roles")]
-    pub roles: Option<IndexMap<String, RoleConfig>>,
+    #[serde(default)]
+    pub roles: Option<Roles>,
     #[serde(default)]
     pub session_key: Option<KeyMaterial<MIN_SESSION_KEY_BYTES>>,
-    #[serde(
-        default = "default_login_max_age",
-        deserialize_with = "tuning::duration"
-    )]
-    pub login_max_age: Duration,
-    #[serde(default = "default_max_session", deserialize_with = "tuning::duration")]
-    pub max_session: Duration,
+    #[serde(default = "default_login_max_age")]
+    pub login_max_age: Period,
+    #[serde(default = "default_max_session")]
+    pub max_session: Period,
 }
 
-fn default_login_max_age() -> Duration {
-    Duration::from_secs(10 * 60)
+fn default_login_max_age() -> Period {
+    Period::from_secs(10 * 60)
 }
 
-fn default_max_session() -> Duration {
-    Duration::from_secs(12 * 60 * 60)
+fn default_max_session() -> Period {
+    Period::from_secs(12 * 60 * 60)
 }
 
 const MAX_ROLES: usize = 64;
 
+/// Roles by name, in file order. At least one of them binds a group.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(try_from = "IndexMap<String, RoleConfig>")]
+pub struct Roles(IndexMap<String, RoleConfig>);
+
+impl TryFrom<IndexMap<String, RoleConfig>> for Roles {
+    type Error = String;
+
+    fn try_from(roles: IndexMap<String, RoleConfig>) -> Result<Self, String> {
+        let problem = if roles.is_empty() {
+            EMPTY.to_owned()
+        } else if roles.len() > MAX_ROLES {
+            format!("too many roles (at most {MAX_ROLES})")
+        } else if roles.keys().any(|name| name.trim().is_empty()) {
+            "role name must not be empty".to_owned()
+        } else if roles.values().all(|role| role.bindings.is_empty()) {
+            "at least one role must have bindings".to_owned()
+        } else {
+            return Ok(Self(roles));
+        };
+        Err(problem)
+    }
+}
+
+impl Deref for Roles {
+    type Target = IndexMap<String, RoleConfig>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RoleConfig {
-    #[serde(deserialize_with = "privileges")]
-    pub privileges: Vec<PrivilegeName>,
+    pub privileges: Privileges,
     #[serde(default)]
     pub bindings: Vec<RoleBinding>,
 }
@@ -186,46 +163,37 @@ pub struct RoleConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RoleBinding {
-    #[serde(deserialize_with = "names")]
-    pub groups: Vec<String>,
-    #[serde(default, deserialize_with = "some_names")]
-    pub clusters: Option<Vec<String>>,
+    pub groups: NonEmpty<NonBlank>,
+    #[serde(default)]
+    pub clusters: Option<NonEmpty<NonBlank>>,
 }
 
-fn roles<'de, D: Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Option<IndexMap<String, RoleConfig>>, D::Error> {
-    let roles = IndexMap::<String, RoleConfig>::deserialize(deserializer)?;
-    let problem = if roles.is_empty() {
-        EMPTY.to_owned()
-    } else if roles.len() > MAX_ROLES {
-        format!("too many roles (at most {MAX_ROLES})")
-    } else if roles.keys().any(|name| name.trim().is_empty()) {
-        "role name must not be empty".to_owned()
-    } else if roles.iter().all(|(_, role)| role.bindings.is_empty()) {
-        "at least one role must have bindings".to_owned()
-    } else {
-        return Ok(Some(roles));
-    };
-    Err(de::Error::custom(problem))
-}
+/// The privileges a role grants, each listed once.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(try_from = "Vec<PrivilegeName>")]
+pub struct Privileges(Vec<PrivilegeName>);
 
-fn privileges<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<PrivilegeName>, D::Error> {
-    let privileges = Vec::<PrivilegeName>::deserialize(deserializer)?;
-    let mut seen = HashSet::with_capacity(privileges.len());
-    if let Some(repeated) = privileges
-        .iter()
-        .find(|privilege| !seen.insert(**privilege))
-    {
-        return Err(de::Error::custom(format!(
-            "'{repeated}' is listed more than once"
-        )));
+impl TryFrom<Vec<PrivilegeName>> for Privileges {
+    type Error = String;
+
+    fn try_from(privileges: Vec<PrivilegeName>) -> Result<Self, String> {
+        let mut seen = HashSet::with_capacity(privileges.len());
+        if let Some(repeated) = privileges
+            .iter()
+            .find(|privilege| !seen.insert(**privilege))
+        {
+            return Err(format!("'{repeated}' is listed more than once"));
+        }
+        Ok(Self(privileges))
     }
-    Ok(privileges)
 }
 
-fn default_groups_claim() -> String {
-    "groups".to_owned()
+impl Deref for Privileges {
+    type Target = [PrivilegeName];
+
+    fn deref(&self) -> &[PrivilegeName] {
+        &self.0
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
@@ -257,31 +225,31 @@ impl Display for PrivilegeName {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OidcConfig {
-    /// Kept as written: discovery compares the provider's issuer to this text
-    /// byte for byte, and `Url` would append a slash to a bare host.
-    #[serde(deserialize_with = "issuer_url")]
-    pub issuer: IssuerUrl,
-    #[serde(deserialize_with = "non_blank")]
-    pub client_id: String,
-    #[serde(deserialize_with = "non_blank_secret")]
-    pub client_secret: SecretString,
-    #[serde(deserialize_with = "redirect_url")]
-    pub redirect_uri: RedirectUrl,
-    #[serde(default = "default_scopes", deserialize_with = "non_blank_items")]
-    pub scopes: Vec<String>,
-    #[serde(default = "default_groups_claim", deserialize_with = "non_blank")]
-    pub groups_claim: String,
+    pub issuer: HttpUrl<IssuerUrl>,
+    pub client_id: NonBlank,
+    pub client_secret: Secret,
+    pub redirect_uri: HttpUrl<RedirectUrl>,
+    #[serde(default = "default_scopes")]
+    pub scopes: Vec<NonBlank>,
+    #[serde(default = "default_groups_claim")]
+    pub groups_claim: NonBlank,
     #[serde(default)]
     pub cookie_secure: Option<bool>,
 }
 
 const DEFAULT_OIDC_SCOPES: &[&str] = &["openid", "email", "profile"];
 
-fn default_scopes() -> Vec<String> {
+fn default_scopes() -> Vec<NonBlank> {
     DEFAULT_OIDC_SCOPES
         .iter()
-        .map(|scope| (*scope).to_owned())
+        .map(|scope| scope.parse().expect("default scopes are not blank"))
         .collect()
+}
+
+fn default_groups_claim() -> NonBlank {
+    "groups"
+        .parse()
+        .expect("the default groups claim is not blank")
 }
 
 impl OidcConfig {
@@ -291,7 +259,11 @@ impl OidcConfig {
     }
 
     pub fn effective_scopes(&self) -> Vec<String> {
-        let mut scopes = self.scopes.clone();
+        let mut scopes: Vec<String> = self
+            .scopes
+            .iter()
+            .map(|scope| scope.as_str().to_owned())
+            .collect();
         if !scopes.iter().any(|scope| scope == "openid") {
             scopes.insert(0, "openid".to_owned());
         }
@@ -299,52 +271,11 @@ impl OidcConfig {
     }
 }
 
-fn parse_http_url(value: &str) -> Result<Url, String> {
-    let parsed = Url::parse(value).map_err(|error| format!("not a valid URL: {error}"))?;
-
-    if parsed.scheme() != "http" && parsed.scheme() != "https" {
-        return Err("must be an http or https URL".to_owned());
-    }
-
-    if parsed.host_str().is_none() {
-        return Err("must include a host".to_owned());
-    }
-
-    Ok(parsed)
-}
-
-fn http_url<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Url, D::Error> {
-    parse_http_url(&String::deserialize(deserializer)?).map_err(de::Error::custom)
-}
-
-fn issuer_url<'de, D: Deserializer<'de>>(deserializer: D) -> Result<IssuerUrl, D::Error> {
-    let raw = String::deserialize(deserializer)?;
-    parse_http_url(&raw).map_err(de::Error::custom)?;
-    IssuerUrl::new(raw).map_err(de::Error::custom)
-}
-
-fn redirect_url<'de, D: Deserializer<'de>>(deserializer: D) -> Result<RedirectUrl, D::Error> {
-    let raw = String::deserialize(deserializer)?;
-    parse_http_url(&raw).map_err(de::Error::custom)?;
-    RedirectUrl::new(raw).map_err(de::Error::custom)
-}
-
-fn parsed<'de, D, T>(deserializer: D) -> Result<T, D::Error>
-where
-    D: Deserializer<'de>,
-    T: FromStr<Err = String>,
-{
-    String::deserialize(deserializer)?
-        .parse()
-        .map_err(de::Error::custom)
-}
-
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ClusterConfig {
-    #[serde(deserialize_with = "non_empty")]
-    pub bootstrap_servers: Vec<String>,
-    #[serde(default, deserialize_with = "in_place")]
+    pub bootstrap_servers: NonEmpty<String>,
+    #[serde(default)]
     pub security: SecurityConfig,
     #[serde(default)]
     pub schema_registry: Option<SchemaRegistryConfig>,
@@ -359,32 +290,25 @@ pub struct ClusterConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ClusterIngestConfig {
-    #[serde(deserialize_with = "tuning::interval")]
-    pub topology: Duration,
-    #[serde(deserialize_with = "tuning::interval")]
-    pub watermark: Duration,
-    #[serde(deserialize_with = "tuning::interval")]
-    pub config: Duration,
-    #[serde(deserialize_with = "tuning::interval")]
-    pub subjects: Duration,
-    #[serde(deserialize_with = "tuning::interval")]
-    pub offset_tick: Duration,
-    #[serde(deserialize_with = "tuning::interval")]
-    pub fast_offset: Duration,
-    #[serde(deserialize_with = "tuning::interval")]
-    pub slow_offset: Duration,
+    pub topology: Period<1>,
+    pub watermark: Period<1>,
+    pub config: Period<1>,
+    pub subjects: Period<1>,
+    pub offset_tick: Period<1>,
+    pub fast_offset: Period<1>,
+    pub slow_offset: Period<1>,
 }
 
 impl Default for ClusterIngestConfig {
     fn default() -> Self {
         Self {
-            topology: Duration::from_secs(10),
-            watermark: Duration::from_secs(3),
-            config: Duration::from_secs(60),
-            subjects: Duration::from_secs(30),
-            offset_tick: Duration::from_secs(1),
-            fast_offset: Duration::from_secs(2),
-            slow_offset: Duration::from_secs(20),
+            topology: Period::from_secs(10),
+            watermark: Period::from_secs(3),
+            config: Period::from_secs(60),
+            subjects: Period::from_secs(30),
+            offset_tick: Period::from_secs(1),
+            fast_offset: Period::from_secs(2),
+            slow_offset: Period::from_secs(20),
         }
     }
 }
@@ -393,17 +317,14 @@ impl Default for ClusterIngestConfig {
 #[serde(default, deny_unknown_fields)]
 pub struct KafkaProperties {
     pub client_id: Option<String>,
-    #[serde(deserialize_with = "tuning::optional_duration")]
-    pub request_timeout: Option<Duration>,
-    #[serde(deserialize_with = "tuning::optional_duration")]
-    pub connect_timeout: Option<Duration>,
+    pub request_timeout: Option<Period>,
+    pub connect_timeout: Option<Period>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SchemaRegistryConfig {
-    #[serde(deserialize_with = "http_url")]
-    pub url: Url,
+    pub url: HttpUrl,
     #[serde(default)]
     pub auth: Option<BasicAuth>,
 }
@@ -411,10 +332,8 @@ pub struct SchemaRegistryConfig {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BasicAuth {
-    #[serde(deserialize_with = "non_blank")]
-    pub username: String,
-    #[serde(deserialize_with = "non_empty_secret")]
-    pub password: SecretString,
+    pub username: NonBlank,
+    pub password: Secret,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -452,122 +371,6 @@ impl<'de> Deserialize<'de> for ClusterName {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         parsed(deserializer)
     }
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum SecretSource {
-    Value(#[serde(deserialize_with = "secret_text")] SecretString),
-    Env(String),
-    File(PathBuf),
-}
-
-impl SecretSource {
-    fn resolve(self) -> Result<SecretString, String> {
-        let secret = match self {
-            Self::Value(value) => value,
-            Self::Env(name) => match std::env::var(&name) {
-                Ok(value) => value.into(),
-                Err(std::env::VarError::NotPresent) => {
-                    return Err(format!("environment variable {name} is not set"));
-                }
-                Err(std::env::VarError::NotUnicode(_)) => {
-                    return Err(format!("environment variable {name} is not valid UTF-8"));
-                }
-            },
-            Self::File(path) => {
-                let mut contents = std::fs::read_to_string(&path).map_err(|error| {
-                    format!("failed to read secret file {}: {error}", path.display())
-                })?;
-                contents.truncate(contents.trim_end_matches(['\r', '\n']).len());
-                contents.into()
-            }
-        };
-
-        Ok(secret)
-    }
-}
-
-fn secret<'de, D: Deserializer<'de>>(deserializer: D) -> Result<SecretString, D::Error> {
-    deserializer
-        .deserialize_any(SecretVisitor)?
-        .resolve()
-        .map_err(de::Error::custom)
-}
-
-const PLAIN_SECRET: &str =
-    "a secret must name its source: {value: ...}, {env: NAME} or {file: PATH}";
-
-/// Rejects scalars itself because serde's default errors quote the offending
-/// value, which here is the secret.
-struct SecretVisitor;
-
-impl<'de> Visitor<'de> for SecretVisitor {
-    type Value = SecretSource;
-
-    fn expecting(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(PLAIN_SECRET)
-    }
-
-    fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<SecretSource, A::Error> {
-        SecretSource::deserialize(MapAccessDeserializer::new(map))
-    }
-
-    fn visit_str<E: de::Error>(self, _: &str) -> Result<SecretSource, E> {
-        Err(E::custom(PLAIN_SECRET))
-    }
-
-    fn visit_bool<E: de::Error>(self, _: bool) -> Result<SecretSource, E> {
-        Err(E::custom(PLAIN_SECRET))
-    }
-
-    fn visit_i64<E: de::Error>(self, _: i64) -> Result<SecretSource, E> {
-        Err(E::custom(PLAIN_SECRET))
-    }
-
-    fn visit_u64<E: de::Error>(self, _: u64) -> Result<SecretSource, E> {
-        Err(E::custom(PLAIN_SECRET))
-    }
-
-    fn visit_f64<E: de::Error>(self, _: f64) -> Result<SecretSource, E> {
-        Err(E::custom(PLAIN_SECRET))
-    }
-}
-
-fn secret_text<'de, D: Deserializer<'de>>(deserializer: D) -> Result<SecretString, D::Error> {
-    struct TextVisitor;
-
-    const NOT_TEXT: &str = "a secret value must be a string; quote it";
-
-    impl Visitor<'_> for TextVisitor {
-        type Value = SecretString;
-
-        fn expecting(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-            formatter.write_str(NOT_TEXT)
-        }
-
-        fn visit_str<E: de::Error>(self, value: &str) -> Result<SecretString, E> {
-            Ok(value.into())
-        }
-
-        fn visit_bool<E: de::Error>(self, _: bool) -> Result<SecretString, E> {
-            Err(E::custom(NOT_TEXT))
-        }
-
-        fn visit_i64<E: de::Error>(self, _: i64) -> Result<SecretString, E> {
-            Err(E::custom(NOT_TEXT))
-        }
-
-        fn visit_u64<E: de::Error>(self, _: u64) -> Result<SecretString, E> {
-            Err(E::custom(NOT_TEXT))
-        }
-
-        fn visit_f64<E: de::Error>(self, _: f64) -> Result<SecretString, E> {
-            Err(E::custom(NOT_TEXT))
-        }
-    }
-
-    deserializer.deserialize_any(TextVisitor)
 }
 
 pub const MIN_OBFUSCATION_SECRET_BYTES: usize = 32;
@@ -616,26 +419,13 @@ impl<const MIN: usize> std::fmt::Debug for KeyMaterial<MIN> {
     }
 }
 
+/// Reads the secret without [`Secret`]'s blank check, so blank key material
+/// reports how short it is.
 impl<'de, const MIN: usize> Deserialize<'de> for KeyMaterial<MIN> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Self::from_base64_or_text(secret(deserializer)?.expose_secret()).map_err(de::Error::custom)
+        Self::from_base64_or_text(secret::read(deserializer)?.expose_secret())
+            .map_err(de::Error::custom)
     }
-}
-
-fn non_empty_secret<'de, D: Deserializer<'de>>(deserializer: D) -> Result<SecretString, D::Error> {
-    let secret = secret(deserializer)?;
-    if secret.expose_secret().is_empty() {
-        return Err(de::Error::custom(EMPTY));
-    }
-    Ok(secret)
-}
-
-fn non_blank_secret<'de, D: Deserializer<'de>>(deserializer: D) -> Result<SecretString, D::Error> {
-    let secret = secret(deserializer)?;
-    if secret.expose_secret().trim().is_empty() {
-        return Err(de::Error::custom(EMPTY));
-    }
-    Ok(secret)
 }
 
 pub const OBFUSCATION_MASK: &str = "***";
@@ -645,27 +435,28 @@ const REGEX_SIZE_LIMIT: usize = 1024 * 1024;
 pub type ObfuscationKey = KeyMaterial<MIN_OBFUSCATION_SECRET_BYTES>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(try_from = "RawObfuscationConfig")]
+#[serde(try_from = "ObfuscationBlock")]
 pub struct ObfuscationConfig {
     pub rules: Vec<ObfuscationRule>,
 }
 
+/// The block as written, where a rule only names its strategies: a hash takes
+/// its key from `secret`, which may come after the rules.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RawObfuscationConfig {
+struct ObfuscationBlock {
     #[serde(default)]
     secret: Option<ObfuscationKey>,
-    #[serde(deserialize_with = "non_empty")]
-    rules: Vec<RawObfuscationRule>,
+    rules: NonEmpty<ObfuscationRule<StrategyName>>,
 }
 
-impl TryFrom<RawObfuscationConfig> for ObfuscationConfig {
+impl TryFrom<ObfuscationBlock> for ObfuscationConfig {
     type Error = String;
 
-    fn try_from(raw: RawObfuscationConfig) -> Result<Self, String> {
+    fn try_from(block: ObfuscationBlock) -> Result<Self, String> {
         let mut covered: Vec<&TopicPattern> = Vec::new();
-        for rule in &raw.rules {
-            for topic in &rule.topics {
+        for rule in block.rules.iter() {
+            for topic in rule.topics.iter() {
                 if let Some(other) = covered.iter().find(|other| other.overlaps(topic)) {
                     return Err(format!(
                         "topics '{topic}' and '{other}' match the same topics; \
@@ -673,11 +464,11 @@ impl TryFrom<RawObfuscationConfig> for ObfuscationConfig {
                     ));
                 }
             }
-            covered.extend(&rule.topics);
+            covered.extend(rule.topics.iter());
         }
 
-        let key = raw.secret.map(Arc::new);
-        let rules = raw
+        let key = block.secret.map(Arc::new);
+        let rules = block
             .rules
             .into_iter()
             .map(|rule| rule.resolve(key.as_ref()))
@@ -697,37 +488,27 @@ pub enum UnparsedPolicy {
     Allow,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ObfuscationRule {
-    pub topics: Vec<TopicPattern>,
-    pub fields: Vec<ObfuscationField>,
-    pub key: Option<ObfuscationStrategy>,
-    pub value: Option<ObfuscationStrategy>,
-    pub headers: Vec<String>,
-    pub patterns: Vec<ObfuscationPattern>,
+/// One rule, with strategies of type `S`: `StrategyName` as written, then
+/// [`ObfuscationStrategy`] once a hash holds its key.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields, bound = "S: Deserialize<'de>")]
+pub struct ObfuscationRule<S = ObfuscationStrategy> {
+    pub topics: NonEmpty<TopicPattern>,
+    #[serde(default)]
+    pub fields: Vec<ObfuscationField<S>>,
+    #[serde(default)]
+    pub key: Option<S>,
+    #[serde(default)]
+    pub value: Option<S>,
+    #[serde(default)]
+    pub headers: Vec<NonBlank>,
+    #[serde(default)]
+    pub patterns: Vec<ObfuscationPattern<S>>,
+    #[serde(default)]
     pub unparsed: UnparsedPolicy,
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawObfuscationRule {
-    #[serde(deserialize_with = "non_empty")]
-    topics: Vec<TopicPattern>,
-    #[serde(default)]
-    fields: Vec<RawObfuscationField>,
-    #[serde(default)]
-    key: Option<StrategyName>,
-    #[serde(default)]
-    value: Option<StrategyName>,
-    #[serde(default, deserialize_with = "non_blank_items")]
-    headers: Vec<String>,
-    #[serde(default)]
-    patterns: Vec<RawObfuscationPattern>,
-    #[serde(default)]
-    unparsed: UnparsedPolicy,
-}
-
-impl RawObfuscationRule {
+impl ObfuscationRule<StrategyName> {
     fn resolve(self, key: Option<&Arc<ObfuscationKey>>) -> Result<ObfuscationRule, String> {
         if self.fields.is_empty()
             && self.key.is_none()
@@ -774,30 +555,18 @@ impl RawObfuscationRule {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ObfuscationPattern {
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObfuscationPattern<S = ObfuscationStrategy> {
     pub regex: PatternRegex,
-    pub strategy: ObfuscationStrategy,
+    pub strategy: S,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RawObfuscationPattern {
-    regex: PatternRegex,
-    strategy: StrategyName,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ObfuscationField {
+pub struct ObfuscationField<S = ObfuscationStrategy> {
     pub path: FieldPath,
-    pub strategy: ObfuscationStrategy,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawObfuscationField {
-    path: FieldPath,
-    strategy: StrategyName,
+    pub strategy: S,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -807,7 +576,7 @@ pub enum ObfuscationStrategy {
     Drop,
 }
 
-#[derive(Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum StrategyName {
     Mask,
@@ -955,30 +724,6 @@ impl<'de> Deserialize<'de> for PatternRegex {
     }
 }
 
-/// Reads an internally tagged enum from inside the map visitor. serde buffers
-/// a tagged enum's content and builds the variant afterwards, so an error from
-/// the variant would otherwise point at the enclosing key instead of the line
-/// that caused it.
-fn in_place<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
-    deserializer: D,
-) -> Result<T, D::Error> {
-    struct InPlace<T>(std::marker::PhantomData<T>);
-
-    impl<'de, T: Deserialize<'de>> Visitor<'de> for InPlace<T> {
-        type Value = T;
-
-        fn expecting(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-            formatter.write_str("a map")
-        }
-
-        fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<T, A::Error> {
-            T::deserialize(MapAccessDeserializer::new(map))
-        }
-    }
-
-    deserializer.deserialize_any(InPlace(std::marker::PhantomData))
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SecurityProtocol {
     Plaintext,
@@ -1018,8 +763,11 @@ impl SaslMechanism {
     }
 }
 
+/// `remote = "Self"` derives an inherent `deserialize`, which the
+/// `Deserialize` impl below calls from inside the map visitor.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(
+    remote = "Self",
     tag = "protocol",
     rename_all = "SCREAMING_SNAKE_CASE",
     deny_unknown_fields
@@ -1040,6 +788,29 @@ pub enum SecurityConfig {
         #[serde(default)]
         tls: TlsConfig,
     },
+}
+
+/// serde buffers an internally tagged enum's content and builds the variant
+/// afterwards, so an error from the variant would point at the enclosing key.
+/// Building it inside the map visitor reports the line that caused it.
+impl<'de> Deserialize<'de> for SecurityConfig {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct InPlace;
+
+        impl<'de> Visitor<'de> for InPlace {
+            type Value = SecurityConfig;
+
+            fn expecting(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a map")
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<SecurityConfig, A::Error> {
+                SecurityConfig::deserialize(MapAccessDeserializer::new(map))
+            }
+        }
+
+        deserializer.deserialize_any(InPlace)
+    }
 }
 
 impl Default for SecurityConfig {
@@ -1064,8 +835,7 @@ impl SecurityConfig {
 pub struct SaslConfig {
     pub mechanism: SaslMechanism,
     pub username: String,
-    #[serde(deserialize_with = "secret")]
-    pub password: SecretString,
+    pub password: Secret,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
@@ -1126,7 +896,7 @@ mod tests {
             .get(&"staging".parse::<ClusterName>().unwrap())
             .unwrap();
         assert_eq!(
-            staging.bootstrap_servers,
+            staging.bootstrap_servers.to_vec(),
             vec!["broker-1:9092", "broker-2:9092"]
         );
         assert_eq!(config.bind, "0.0.0.0:8080".parse().unwrap());
@@ -1141,6 +911,15 @@ mod tests {
 
     fn cluster_names(config: &Config) -> Vec<&str> {
         config.clusters.keys().map(ClusterName::as_str).collect()
+    }
+
+    fn texts(items: &[NonBlank]) -> Vec<&str> {
+        items.iter().map(NonBlank::as_str).collect()
+    }
+
+    fn names(names: &[&str]) -> NonEmpty<NonBlank> {
+        let names: Vec<NonBlank> = names.iter().map(|name| name.parse().unwrap()).collect();
+        names.try_into().unwrap()
     }
 
     #[test]
@@ -1184,13 +963,13 @@ mod tests {
         assert_eq!(
             cluster.ingest,
             ClusterIngestConfig {
-                topology: Duration::from_secs(15),
-                watermark: Duration::from_secs(90),
-                config: Duration::from_secs(60),
-                subjects: Duration::from_secs(30),
-                offset_tick: Duration::from_secs(1),
-                fast_offset: Duration::from_secs(2),
-                slow_offset: Duration::from_secs(20),
+                topology: Period::from_secs(15),
+                watermark: Period::from_secs(90),
+                config: Period::from_secs(60),
+                subjects: Period::from_secs(30),
+                offset_tick: Period::from_secs(1),
+                fast_offset: Period::from_secs(2),
+                slow_offset: Period::from_secs(20),
             }
         );
     }
@@ -1295,7 +1074,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(config.bootstrap_servers, vec!["localhost:9092"]);
+        assert_eq!(config.bootstrap_servers.to_vec(), vec!["localhost:9092"]);
         assert!(matches!(config.security, SecurityConfig::Plaintext {}));
         assert!(config.schema_registry.is_none());
         assert_eq!(config.properties, KafkaProperties::default());
@@ -1313,7 +1092,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            config.bootstrap_servers,
+            config.bootstrap_servers.to_vec(),
             vec!["broker-1:9092", "broker-2:9092"]
         );
     }
@@ -1362,7 +1141,7 @@ mod tests {
         );
         assert_eq!(
             config.properties.request_timeout,
-            Some(Duration::from_secs(10))
+            Some(Period::from_secs(10))
         );
     }
 
@@ -1396,8 +1175,8 @@ mod tests {
             config.properties,
             KafkaProperties {
                 client_id: Some("browser".into()),
-                request_timeout: Some(Duration::from_secs(8)),
-                connect_timeout: Some(Duration::from_millis(250)),
+                request_timeout: Some(Period::from_secs(8)),
+                connect_timeout: Some(Period::from_millis(250)),
             }
         );
     }
@@ -1521,6 +1300,24 @@ mod tests {
         );
 
         assert_eq!(error, "missing field `sasl` at line 5, column 15");
+    }
+
+    #[test]
+    fn rejects_a_blank_sasl_password() {
+        let error = cluster_error(
+            "
+            bootstrap_servers:
+              - localhost:9092
+            security:
+              protocol: SASL_PLAINTEXT
+              sasl:
+                mechanism: PLAIN
+                username: admin
+                password: {value: ' '}
+            ",
+        );
+
+        assert_eq!(error, "must not be empty at line 5, column 15");
     }
 
     #[test]
@@ -1666,13 +1463,13 @@ mod tests {
             oidc.issuer.as_str(),
             "https://keycloak.example.com/realms/klens"
         );
-        assert_eq!(oidc.client_id, "klens");
+        assert_eq!(oidc.client_id.as_str(), "klens");
         assert_eq!(oidc.client_secret.expose_secret(), "secret");
         assert_eq!(
             oidc.redirect_uri.as_str(),
             "http://localhost:8080/api/auth/callback"
         );
-        assert_eq!(oidc.scopes, vec!["openid", "email", "profile"]);
+        assert_eq!(texts(&oidc.scopes), vec!["openid", "email", "profile"]);
         assert_eq!(oidc.cookie_secure, None);
         assert!(!oidc.cookie_secure());
     }
@@ -1719,15 +1516,17 @@ mod tests {
                             PrivilegeName::Configs,
                             PrivilegeName::SchemaText,
                             PrivilegeName::Acls,
-                        ],
+                        ]
+                        .try_into()
+                        .unwrap(),
                         bindings: vec![
                             RoleBinding {
-                                groups: vec!["klens-admins".to_owned()],
+                                groups: names(&["klens-admins"]),
                                 clusters: None,
                             },
                             RoleBinding {
-                                groups: vec!["kafka-operators".to_owned()],
-                                clusters: Some(vec!["staging".to_owned(), "dev".to_owned()]),
+                                groups: names(&["kafka-operators"]),
+                                clusters: Some(names(&["staging", "dev"])),
                             },
                         ],
                     },
@@ -1735,17 +1534,17 @@ mod tests {
                 (
                     &"viewer".to_owned(),
                     &RoleConfig {
-                        privileges: vec![],
+                        privileges: vec![].try_into().unwrap(),
                         bindings: vec![RoleBinding {
-                            groups: vec!["payments-viewers".to_owned()],
-                            clusters: Some(vec!["payments".to_owned()]),
+                            groups: names(&["payments-viewers"]),
+                            clusters: Some(names(&["payments"])),
                         }],
                     },
                 ),
                 (
                     &"auditor".to_owned(),
                     &RoleConfig {
-                        privileges: vec![PrivilegeName::Acls],
+                        privileges: vec![PrivilegeName::Acls].try_into().unwrap(),
                         bindings: vec![],
                     },
                 ),
@@ -1861,8 +1660,7 @@ mod tests {
             (
                 "
                     - groups: [ops, ' ']",
-                "must not contain empty values \
-                 at line 14, column 31",
+                "must not be empty at line 14, column 37",
             ),
             (
                 "
@@ -1874,8 +1672,7 @@ mod tests {
                 "
                     - groups: [ops]
                       clusters: [prod, '']",
-                "must not contain empty values \
-                 at line 15, column 33",
+                "must not be empty at line 15, column 40",
             ),
         ];
 
@@ -1903,7 +1700,7 @@ mod tests {
                 redirect_uri: http://localhost:8080/api/auth/callback{oidc_extra}
             "
         ))
-        .map(|config| config.auth.unwrap().oidc.groups_claim)
+        .map(|config| config.auth.unwrap().oidc.groups_claim.as_str().to_owned())
         .map_err(|error| describe(&error))
     }
 
@@ -2138,7 +1935,7 @@ mod tests {
             ",
         );
 
-        assert_eq!(error, "must not contain empty values at line 9, column 25");
+        assert_eq!(error, "must not be empty at line 9, column 34");
     }
 
     #[test]
@@ -2190,9 +1987,9 @@ mod tests {
         .unwrap();
 
         let registry = config.schema_registry.unwrap();
-        assert_eq!(registry.url, Url::parse("http://localhost:8081").unwrap());
+        assert_eq!(registry.url.as_str(), "http://localhost:8081/");
         let auth = registry.auth.unwrap();
-        assert_eq!(auth.username, "user");
+        assert_eq!(auth.username.as_str(), "user");
         assert_eq!(auth.password.expose_secret(), "secret");
     }
 
@@ -2252,13 +2049,15 @@ mod tests {
         );
         assert_eq!(error, "must not be empty at line 7, column 27");
 
-        let error = registry_error(
-            "
+        for password in ["''", "'  '"] {
+            let error = registry_error(&format!(
+                "
               auth:
                 username: user
-                password: {value: ''}",
-        );
-        assert_eq!(error, "must not be empty at line 8, column 27");
+                password: {{value: {password}}}"
+            ));
+            assert_eq!(error, "must not be empty at line 8, column 27");
+        }
     }
 
     #[test]
@@ -2291,7 +2090,7 @@ mod tests {
         );
         assert_eq!(obfuscation.rules.len(), 2);
         assert_eq!(
-            obfuscation.rules[0].topics,
+            obfuscation.rules[0].topics.to_vec(),
             vec![TopicPattern::Prefix("payments.".to_owned())]
         );
         assert_eq!(obfuscation.rules[0].fields[0].path.as_str(), "card.number");
@@ -2305,7 +2104,7 @@ mod tests {
         );
         assert_eq!(obfuscation.rules[0].unparsed, UnparsedPolicy::Allow);
         assert_eq!(
-            obfuscation.rules[1].topics,
+            obfuscation.rules[1].topics.to_vec(),
             vec![TopicPattern::Exact("audit.raw".to_owned())]
         );
         assert_eq!(obfuscation.rules[1].key, Some(ObfuscationStrategy::Mask));
@@ -2313,7 +2112,7 @@ mod tests {
             obfuscation.rules[1].value,
             Some(ObfuscationStrategy::Hash(key))
         );
-        assert_eq!(obfuscation.rules[1].headers, vec!["x-user-id"]);
+        assert_eq!(texts(&obfuscation.rules[1].headers), vec!["x-user-id"]);
     }
 
     #[test]
@@ -2543,7 +2342,7 @@ mod tests {
             ",
         )
         .unwrap_err();
-        assert_eq!(error, "must not contain empty values at line 8, column 28");
+        assert_eq!(error, "must not be empty at line 8, column 40");
     }
 
     #[test]
@@ -2884,7 +2683,7 @@ mod tests {
         let debug = format!("{config:?}");
         assert!(!debug.contains("oidc-secret"), "{debug}");
         assert!(
-            debug.contains("client_secret: SecretBox<str>([REDACTED])"),
+            debug.contains("client_secret: Secret(SecretBox<str>([REDACTED]))"),
             "{debug}"
         );
     }

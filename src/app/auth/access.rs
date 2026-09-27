@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 
-use crate::config::{PrivilegeName, RoleConfig};
+use crate::config::{NonBlank, PrivilegeName, RoleConfig};
 use crate::r#macro::from_same_variants;
 
 const MAX_GROUPS: usize = 64;
@@ -94,10 +94,12 @@ impl ClusterScope {
         }
     }
 
-    fn from_list(clusters: Option<&[String]>) -> Self {
+    fn from_list(clusters: Option<&[NonBlank]>) -> Self {
         match clusters {
             None => Self::All,
-            Some(names) => Self::Only(Arc::new(names.iter().cloned().collect())),
+            Some(names) => Self::Only(Arc::new(
+                names.iter().map(|name| name.as_str().to_owned()).collect(),
+            )),
         }
     }
 }
@@ -308,7 +310,11 @@ impl RoleTable {
                         role.privileges.iter().copied().map(Privilege::from),
                     );
                     role.bindings.iter().map(move |binding| CompiledBinding {
-                        groups: binding.groups.iter().cloned().collect(),
+                        groups: binding
+                            .groups
+                            .iter()
+                            .map(|group| group.as_str().to_owned())
+                            .collect(),
                         role_name: Arc::clone(&role_name),
                         privileges,
                         scope: ClusterScope::from_list(binding.clusters.as_deref()),
@@ -354,7 +360,7 @@ pub fn groups_from_json(value: &serde_json::Value, claim: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{PrivilegeName, RoleBinding, RoleConfig};
+    use crate::config::{NonEmpty, PrivilegeName, RoleBinding, RoleConfig};
 
     const EVERYTHING: &[PrivilegeName] = &[
         PrivilegeName::Records,
@@ -374,19 +380,13 @@ mod tests {
             .iter()
             .map(|(name, privileges)| {
                 let role = RoleConfig {
-                    privileges: privileges.to_vec(),
+                    privileges: privileges.to_vec().try_into().unwrap(),
                     bindings: bindings
                         .iter()
                         .filter(|bound| bound.role == *name)
                         .map(|bound| RoleBinding {
-                            groups: bound
-                                .groups
-                                .iter()
-                                .map(|group| (*group).to_owned())
-                                .collect(),
-                            clusters: bound
-                                .clusters
-                                .map(|names| names.iter().map(|name| (*name).to_owned()).collect()),
+                            groups: names(bound.groups),
+                            clusters: bound.clusters.map(names),
                         })
                         .collect(),
                 };
@@ -394,6 +394,11 @@ mod tests {
             })
             .collect();
         AccessPolicy::from_roles(Some(&roles))
+    }
+
+    fn names(names: &[&str]) -> NonEmpty<NonBlank> {
+        let names: Vec<NonBlank> = names.iter().map(|name| name.parse().unwrap()).collect();
+        names.try_into().unwrap()
     }
 
     fn binding<'a>(

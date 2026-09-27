@@ -32,8 +32,8 @@ impl WatermarkLane {
         Self {
             session,
             interval,
-            idle_heartbeat: tuning.idle_heartbeat,
-            max_sample_gap: tuning.max_sample_gap,
+            idle_heartbeat: tuning.idle_heartbeat.get(),
+            max_sample_gap: tuning.max_sample_gap.get(),
             committed_at: Mutex::new(None),
         }
     }

@@ -37,7 +37,7 @@ impl ScanPoolInner {
             parked: VecDeque::new(),
             max_per_topic: tuning.pool_per_topic.get(),
             max_total: tuning.pool_total.get(),
-            ttl: tuning.pool_idle_ttl,
+            ttl: tuning.pool_idle_ttl.get(),
         }
     }
 

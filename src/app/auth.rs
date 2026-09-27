@@ -104,11 +104,11 @@ impl AuthState {
         match auth {
             None => Ok(Self::disabled()),
             Some(config) => {
-                let policy = AccessPolicy::from_roles(config.roles.as_ref());
+                let policy = AccessPolicy::from_roles(config.roles.as_deref());
                 let key = signing_key(config.session_key.as_ref());
-                let flow = Oidc::discover(&config.oidc, config.max_session).await?;
+                let flow = Oidc::discover(&config.oidc, config.max_session.get()).await?;
                 let login_max_age =
-                    Duration::try_from(config.login_max_age).unwrap_or(Duration::MAX);
+                    Duration::try_from(config.login_max_age.get()).unwrap_or(Duration::MAX);
                 Ok(Self::enabled(
                     Arc::new(flow),
                     &config.oidc,
@@ -892,9 +892,9 @@ mod tests {
         group: &str,
     ) -> AccessPolicy {
         let role = crate::config::RoleConfig {
-            privileges: privileges.to_vec(),
+            privileges: privileges.to_vec().try_into().unwrap(),
             bindings: vec![crate::config::RoleBinding {
-                groups: vec![group.to_owned()],
+                groups: vec![group.parse().unwrap()].try_into().unwrap(),
                 clusters: None,
             }],
         };

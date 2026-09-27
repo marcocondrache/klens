@@ -425,7 +425,7 @@ mod tests {
         let tuning = SchemaRegistryTuning::default();
         PayloadDecoder::new(
             SchemaRegistryClient::new("local", &config(url), &tuning).unwrap(),
-            tuning.missing_schema_ttl,
+            tuning.missing_schema_ttl.get(),
         )
     }
 

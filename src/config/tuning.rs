@@ -1,9 +1,8 @@
 use std::num::NonZeroUsize;
-use std::time::Duration;
 
-use jiff::SignedDuration;
 use serde::Deserialize;
-use serde::de::{self, Deserializer};
+
+use super::Period;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -19,12 +18,9 @@ pub struct Tuning {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct KafkaTuning {
-    #[serde(deserialize_with = "duration")]
-    pub connect_timeout: Duration,
-    #[serde(deserialize_with = "duration")]
-    pub request_timeout: Duration,
-    #[serde(deserialize_with = "duration")]
-    pub consume_timeout: Duration,
+    pub connect_timeout: Period,
+    pub request_timeout: Period,
+    pub consume_timeout: Period,
     pub max_in_flight_requests: NonZeroUsize,
     pub max_response_mib: NonZeroUsize,
 }
@@ -38,9 +34,9 @@ impl KafkaTuning {
 impl Default for KafkaTuning {
     fn default() -> Self {
         Self {
-            connect_timeout: Duration::from_secs(10),
-            request_timeout: Duration::from_secs(10),
-            consume_timeout: Duration::from_secs(5),
+            connect_timeout: Period::from_secs(10),
+            request_timeout: Period::from_secs(10),
+            consume_timeout: Period::from_secs(5),
             max_in_flight_requests: NonZeroUsize::new(32).unwrap(),
             max_response_mib: NonZeroUsize::new(32).unwrap(),
         }
@@ -50,19 +46,17 @@ impl Default for KafkaTuning {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct SchemaRegistryTuning {
-    #[serde(deserialize_with = "duration")]
-    pub timeout: Duration,
+    pub timeout: Period,
     pub subject_fetch_concurrency: NonZeroUsize,
-    #[serde(deserialize_with = "duration")]
-    pub missing_schema_ttl: Duration,
+    pub missing_schema_ttl: Period,
 }
 
 impl Default for SchemaRegistryTuning {
     fn default() -> Self {
         Self {
-            timeout: Duration::from_secs(5),
+            timeout: Period::from_secs(5),
             subject_fetch_concurrency: NonZeroUsize::new(8).unwrap(),
-            missing_schema_ttl: Duration::from_secs(60),
+            missing_schema_ttl: Period::from_secs(60),
         }
     }
 }
@@ -72,10 +66,8 @@ impl Default for SchemaRegistryTuning {
 pub struct ScanTuning {
     pub pool_per_topic: NonZeroUsize,
     pub pool_total: NonZeroUsize,
-    #[serde(deserialize_with = "interval")]
-    pub pool_idle_ttl: Duration,
-    #[serde(deserialize_with = "duration")]
-    pub poll_wait: Duration,
+    pub pool_idle_ttl: Period<1>,
+    pub poll_wait: Period,
 }
 
 impl Default for ScanTuning {
@@ -83,8 +75,8 @@ impl Default for ScanTuning {
         Self {
             pool_per_topic: NonZeroUsize::new(2).unwrap(),
             pool_total: NonZeroUsize::new(16).unwrap(),
-            pool_idle_ttl: Duration::from_secs(60),
-            poll_wait: Duration::from_millis(100),
+            pool_idle_ttl: Period::from_secs(60),
+            poll_wait: Period::from_millis(100),
         }
     }
 }
@@ -113,10 +105,8 @@ impl Default for RecordLimits {
 #[serde(default, deny_unknown_fields)]
 pub struct TailTuning {
     pub batch_limit: NonZeroUsize,
-    #[serde(deserialize_with = "duration")]
-    pub interval: Duration,
-    #[serde(deserialize_with = "duration")]
-    pub poll_wait: Duration,
+    pub interval: Period,
+    pub poll_wait: Period,
     pub max_live: usize,
 }
 
@@ -124,8 +114,8 @@ impl Default for TailTuning {
     fn default() -> Self {
         Self {
             batch_limit: NonZeroUsize::new(100).unwrap(),
-            interval: Duration::from_millis(250),
-            poll_wait: Duration::from_millis(500),
+            interval: Period::from_millis(250),
+            poll_wait: Period::from_millis(500),
             max_live: 32,
         }
     }
@@ -134,57 +124,21 @@ impl Default for TailTuning {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct IngestTuning {
-    #[serde(deserialize_with = "duration")]
-    pub interest_ttl: Duration,
+    pub interest_ttl: Period,
     pub offset_fetch_concurrency: NonZeroUsize,
-    #[serde(deserialize_with = "duration")]
-    pub idle_heartbeat: Duration,
-    #[serde(deserialize_with = "duration")]
-    pub max_sample_gap: Duration,
+    pub idle_heartbeat: Period,
+    pub max_sample_gap: Period,
 }
 
 impl Default for IngestTuning {
     fn default() -> Self {
         Self {
-            interest_ttl: Duration::from_secs(30),
+            interest_ttl: Period::from_secs(30),
             offset_fetch_concurrency: NonZeroUsize::new(32).unwrap(),
-            idle_heartbeat: Duration::from_secs(15),
-            max_sample_gap: Duration::from_secs(15),
+            idle_heartbeat: Period::from_secs(15),
+            max_sample_gap: Period::from_secs(15),
         }
     }
-}
-
-fn at_least<'de, D: Deserializer<'de>>(
-    deserializer: D,
-    min: Duration,
-) -> Result<Duration, D::Error> {
-    let text = String::deserialize(deserializer)?;
-    let signed: SignedDuration = text.parse().map_err(de::Error::custom)?;
-    let duration = Duration::try_from(signed)
-        .map_err(|_| de::Error::custom(format!("must not be negative, got {text}")))?;
-    if duration < min {
-        return Err(de::Error::custom(format!(
-            "must be at least {min:?}, got {text}"
-        )));
-    }
-    Ok(duration)
-}
-
-pub(super) fn duration<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Duration, D::Error> {
-    at_least(deserializer, Duration::ZERO)
-}
-
-pub(super) fn optional_duration<'de, D: Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Option<Duration>, D::Error> {
-    #[derive(Deserialize)]
-    struct ConfigDuration(#[serde(deserialize_with = "duration")] Duration);
-
-    Option::<ConfigDuration>::deserialize(deserializer).map(|duration| duration.map(|d| d.0))
-}
-
-pub(super) fn interval<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Duration, D::Error> {
-    at_least(deserializer, Duration::from_secs(1))
 }
 
 #[cfg(test)]
@@ -255,22 +209,22 @@ tuning:
             tuning,
             Tuning {
                 kafka: KafkaTuning {
-                    connect_timeout: Duration::from_secs(3),
-                    request_timeout: Duration::from_secs(20),
-                    consume_timeout: Duration::from_secs(7),
+                    connect_timeout: Period::from_secs(3),
+                    request_timeout: Period::from_secs(20),
+                    consume_timeout: Period::from_secs(7),
                     max_in_flight_requests: nz(4),
                     max_response_mib: nz(64),
                 },
                 schema_registry: SchemaRegistryTuning {
-                    timeout: Duration::from_secs(2),
+                    timeout: Period::from_secs(2),
                     subject_fetch_concurrency: nz(3),
-                    missing_schema_ttl: Duration::from_secs(300),
+                    missing_schema_ttl: Period::from_secs(300),
                 },
                 scan: ScanTuning {
                     pool_per_topic: nz(1),
                     pool_total: nz(5),
-                    pool_idle_ttl: Duration::from_secs(90),
-                    poll_wait: Duration::from_millis(50),
+                    pool_idle_ttl: Period::from_secs(90),
+                    poll_wait: Period::from_millis(50),
                 },
                 records: RecordLimits {
                     max_limit: nz(1000),
@@ -280,15 +234,15 @@ tuning:
                 },
                 tail: TailTuning {
                     batch_limit: nz(10),
-                    interval: Duration::from_secs(1),
-                    poll_wait: Duration::from_millis(750),
+                    interval: Period::from_secs(1),
+                    poll_wait: Period::from_millis(750),
                     max_live: 0,
                 },
                 ingest: IngestTuning {
-                    interest_ttl: Duration::from_secs(60),
+                    interest_ttl: Period::from_secs(60),
                     offset_fetch_concurrency: nz(6),
-                    idle_heartbeat: Duration::from_secs(20),
-                    max_sample_gap: Duration::from_secs(45),
+                    idle_heartbeat: Period::from_secs(20),
+                    max_sample_gap: Period::from_secs(45),
                 },
             }
         );
@@ -299,22 +253,22 @@ tuning:
     fn omitted_keys_keep_their_defaults() {
         let defaults = Tuning {
             kafka: KafkaTuning {
-                connect_timeout: Duration::from_secs(10),
-                request_timeout: Duration::from_secs(10),
-                consume_timeout: Duration::from_secs(5),
+                connect_timeout: Period::from_secs(10),
+                request_timeout: Period::from_secs(10),
+                consume_timeout: Period::from_secs(5),
                 max_in_flight_requests: nz(32),
                 max_response_mib: nz(32),
             },
             schema_registry: SchemaRegistryTuning {
-                timeout: Duration::from_secs(5),
+                timeout: Period::from_secs(5),
                 subject_fetch_concurrency: nz(8),
-                missing_schema_ttl: Duration::from_secs(60),
+                missing_schema_ttl: Period::from_secs(60),
             },
             scan: ScanTuning {
                 pool_per_topic: nz(2),
                 pool_total: nz(16),
-                pool_idle_ttl: Duration::from_secs(60),
-                poll_wait: Duration::from_millis(100),
+                pool_idle_ttl: Period::from_secs(60),
+                poll_wait: Period::from_millis(100),
             },
             records: RecordLimits {
                 max_limit: nz(500),
@@ -324,15 +278,15 @@ tuning:
             },
             tail: TailTuning {
                 batch_limit: nz(100),
-                interval: Duration::from_millis(250),
-                poll_wait: Duration::from_millis(500),
+                interval: Period::from_millis(250),
+                poll_wait: Period::from_millis(500),
                 max_live: 32,
             },
             ingest: IngestTuning {
-                interest_ttl: Duration::from_secs(30),
+                interest_ttl: Period::from_secs(30),
                 offset_fetch_concurrency: nz(32),
-                idle_heartbeat: Duration::from_secs(15),
-                max_sample_gap: Duration::from_secs(15),
+                idle_heartbeat: Period::from_secs(15),
+                max_sample_gap: Period::from_secs(15),
             },
         };
 
@@ -342,7 +296,7 @@ tuning:
             tuning("tuning: {tail: {interval: 10ms}}").unwrap(),
             Tuning {
                 tail: TailTuning {
-                    interval: Duration::from_millis(10),
+                    interval: Period::from_millis(10),
                     ..defaults.tail
                 },
                 ..defaults
@@ -357,11 +311,11 @@ tuning:
                 .map(|tuning| tuning.tail.interval)
         };
 
-        assert_eq!(interval("10ms"), Ok(Duration::from_millis(10)));
-        assert_eq!(interval("1.5s"), Ok(Duration::from_millis(1500)));
-        assert_eq!(interval("1h 30m"), Ok(Duration::from_secs(5400)));
-        assert_eq!(interval("PT2S"), Ok(Duration::from_secs(2)));
-        assert_eq!(interval("0s"), Ok(Duration::ZERO));
+        assert_eq!(interval("10ms"), Ok(Period::from_millis(10)));
+        assert_eq!(interval("1.5s"), Ok(Period::from_millis(1500)));
+        assert_eq!(interval("1h 30m"), Ok(Period::from_secs(5400)));
+        assert_eq!(interval("PT2S"), Ok(Period::from_secs(2)));
+        assert_eq!(interval("0s"), Ok(Period::from_secs(0)));
     }
 
     #[test]
@@ -423,11 +377,11 @@ auth:
 
         assert_eq!(
             auth(""),
-            Ok((Duration::from_secs(600), Duration::from_secs(43_200)))
+            Ok((Period::from_secs(600), Period::from_secs(43_200)))
         );
         assert_eq!(
             auth("  login_max_age: 5m\n  max_session: 1h\n"),
-            Ok((Duration::from_secs(300), Duration::from_secs(3_600)))
+            Ok((Period::from_secs(300), Period::from_secs(3_600)))
         );
         assert_eq!(
             auth("  max_session: soon\n").unwrap_err(),

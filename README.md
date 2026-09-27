@@ -35,7 +35,8 @@ helm install klens oci://ghcr.io/marcocondrache/charts/klens \
 Every secret in the config names where to read it: `{value: ...}` inline,
 `{env: NAME}` from an environment variable, or `{file: PATH}` from a file such
 as a mounted Kubernetes secret. A trailing newline in a secret file is dropped.
-A plain string where a secret belongs fails at startup.
+A plain string where a secret belongs fails at startup, and so does a blank
+secret.
 
 Every page reads a background projection of each cluster, refreshed by
 independent lanes. Override a cluster's cadence with `ingest` on that cluster

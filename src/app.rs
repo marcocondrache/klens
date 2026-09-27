@@ -71,8 +71,8 @@ impl Limits {
         Self {
             tail: TailLimits {
                 batch: tuning.tail.batch_limit.get(),
-                interval: tuning.tail.interval,
-                poll_wait: tuning.tail.poll_wait,
+                interval: tuning.tail.interval.get(),
+                poll_wait: tuning.tail.poll_wait.get(),
                 heartbeat: SSE_KEEP_ALIVE,
                 records: tuning.records,
             },

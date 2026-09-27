@@ -63,7 +63,7 @@ impl ObfuscationPolicy {
                 unparsed: rule.unparsed,
             });
 
-            for topic in &rule.topics {
+            for topic in rule.topics.iter() {
                 match topic {
                     TopicPattern::Exact(name) => {
                         exact.insert(name.as_str().into(), Arc::clone(&obfuscator));

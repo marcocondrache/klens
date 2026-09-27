@@ -36,10 +36,14 @@ impl Connector {
         tuning: &KafkaTuning,
     ) -> Result<Self, KafkaError> {
         let properties = &config.properties;
-        let connect_timeout = properties.connect_timeout.unwrap_or(tuning.connect_timeout);
+        let connect_timeout = properties
+            .connect_timeout
+            .unwrap_or(tuning.connect_timeout)
+            .get();
         let request_timeout = properties
             .request_timeout
             .unwrap_or(tuning.request_timeout)
+            .get()
             .max(connect_timeout);
         let client_id = properties
             .client_id
@@ -150,6 +154,7 @@ fn krafka_tls(tls: &TlsConfig) -> KrafkaTlsConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Period;
 
     fn cluster(yaml: &str) -> ClusterConfig {
         serde_saphyr::from_str(yaml).unwrap()
@@ -169,7 +174,7 @@ mod tests {
             ",
         );
 
-        cluster.bootstrap_servers = vec![broker.bootstrap_servers()];
+        cluster.bootstrap_servers = vec![broker.bootstrap_servers()].try_into().unwrap();
         // Building succeeds only if request_timeout is raised to the connect timeout.
         let transport = connect(&"local".parse().unwrap(), &cluster, &KafkaTuning::default())
             .await
@@ -203,8 +208,8 @@ mod tests {
     #[test]
     fn cluster_timeouts_override_the_tuning_defaults() {
         let tuning = KafkaTuning {
-            connect_timeout: Duration::from_secs(5),
-            request_timeout: Duration::from_secs(20),
+            connect_timeout: Period::from_secs(5),
+            request_timeout: Period::from_secs(20),
             ..KafkaTuning::default()
         };
 
@@ -221,8 +226,8 @@ mod tests {
     #[test]
     fn the_request_timeout_is_raised_to_the_connect_timeout() {
         let tuning = KafkaTuning {
-            connect_timeout: Duration::from_secs(30),
-            request_timeout: Duration::from_secs(10),
+            connect_timeout: Period::from_secs(30),
+            request_timeout: Period::from_secs(10),
             ..KafkaTuning::default()
         };
 

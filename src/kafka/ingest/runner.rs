@@ -153,7 +153,7 @@ mod tests {
     fn cluster(name: &str) -> Arc<ClusterStore> {
         Arc::new(ClusterStore::new(
             identity(name),
-            IngestTuning::default().interest_ttl,
+            IngestTuning::default().interest_ttl.get(),
         ))
     }
 
