@@ -571,11 +571,11 @@ impl ClusterSession for FakeCluster {
             .consume_timeout
             .lock()
             .expect("consume timeout")
-            .unwrap_or(KafkaTuning::default().consume_timeout.get())
+            .unwrap_or(KafkaTuning::default().consume_timeout)
     }
 
     fn scan_poll_wait(&self) -> Duration {
-        ScanTuning::default().poll_wait.get()
+        ScanTuning::default().poll_wait
     }
 
     async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError> {

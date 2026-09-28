@@ -8,7 +8,7 @@ use serde::de::value::MapAccessDeserializer;
 use serde::de::{self, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer};
 
-use super::checked::EMPTY;
+use super::rules::EMPTY;
 
 /// A secret read from the source the config names: `{value: ...}`,
 /// `{env: NAME}` or `{file: PATH}`. It is never blank.

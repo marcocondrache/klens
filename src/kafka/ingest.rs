@@ -36,36 +36,32 @@ impl Ingest {
         {
             tracing::info!(
                 cluster = %store.name(),
-                topology = ?ingest.topology.get(),
-                watermark = ?ingest.watermark.get(),
-                config = ?ingest.config.get(),
-                subjects = ?ingest.subjects.get(),
+                topology = ?ingest.topology,
+                watermark = ?ingest.watermark,
+                config = ?ingest.config,
+                subjects = ?ingest.subjects,
                 "starting ingestion lanes"
             );
 
             tasks.spawn(run(
                 Arc::clone(store),
-                TopologyLane::with_interval(Arc::clone(session), ingest.topology.get()),
+                TopologyLane::with_interval(Arc::clone(session), ingest.topology),
             ));
             tasks.spawn(run(
                 Arc::clone(store),
-                WatermarkLane::with_interval(Arc::clone(session), ingest.watermark.get(), tuning),
+                WatermarkLane::with_interval(Arc::clone(session), ingest.watermark, tuning),
             ));
             tasks.spawn(run(
                 Arc::clone(store),
-                ConfigLane::with_interval(Arc::clone(session), ingest.config.get()),
+                ConfigLane::with_interval(Arc::clone(session), ingest.config),
             ));
             tasks.spawn(run(
                 Arc::clone(store),
-                SubjectLane::with_interval(Arc::clone(session), ingest.subjects.get()),
+                SubjectLane::with_interval(Arc::clone(session), ingest.subjects),
             ));
             tasks.spawn(
                 OffsetLane::new(Arc::clone(session))
-                    .with_tiers(
-                        ingest.offset_tick.get(),
-                        ingest.fast_offset.get(),
-                        ingest.slow_offset.get(),
-                    )
+                    .with_tiers(ingest.offset_tick, ingest.fast_offset, ingest.slow_offset)
                     .with_concurrency(tuning.offset_fetch_concurrency)
                     .run(Arc::clone(store)),
             );

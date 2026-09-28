@@ -72,7 +72,7 @@ impl KafkaClient {
                     .map(|client| {
                         Arc::new(PayloadDecoder::new(
                             client,
-                            tuning.schema_registry.missing_schema_ttl.get(),
+                            tuning.schema_registry.missing_schema_ttl,
                         ))
                     })
             })
@@ -87,13 +87,13 @@ impl KafkaClient {
 
         Ok(Self {
             identity,
-            consume_timeout: tuning.kafka.consume_timeout.get(),
-            scan_poll_wait: tuning.scan.poll_wait.get(),
-            tail_reader: ReaderConfig::new(tuning, tuning.tail.poll_wait.get()),
+            consume_timeout: tuning.kafka.consume_timeout,
+            scan_poll_wait: tuning.scan.poll_wait,
+            tail_reader: ReaderConfig::new(tuning, tuning.tail.poll_wait),
             scans: ScanPool::spawn(
                 &transport,
                 &tuning.scan,
-                ReaderConfig::new(tuning, tuning.scan.poll_wait.get()),
+                ReaderConfig::new(tuning, tuning.scan.poll_wait),
             ),
             transport,
             schema_registry,
@@ -367,7 +367,7 @@ mod tests {
     use std::io;
     use std::sync::{Arc, Mutex};
 
-    use crate::config::{ClusterConfig, Period};
+    use crate::config::ClusterConfig;
     use crate::kafka::group::MemberAssignment;
     use crate::kafka::model::{PartitionWindow, RecordOrder};
     use crate::kafka::scan::session::scan_once;
@@ -488,11 +488,11 @@ mod tests {
     async fn the_scan_poll_wait_comes_from_tuning() {
         let broker = krafka::testing::FakeBroker::start().await.unwrap();
         let mut tuning = Tuning::default();
-        tuning.scan.poll_wait = Period::from_millis(250);
+        tuning.scan.poll_wait = Duration::from_millis(250);
         let client = KafkaClient::new(
             &"test".parse().unwrap(),
             &ClusterConfig {
-                bootstrap_servers: vec![broker.bootstrap_servers()].try_into().unwrap(),
+                bootstrap_servers: vec![broker.bootstrap_servers()],
                 security: Default::default(),
                 schema_registry: None,
                 obfuscation: None,
@@ -515,13 +515,13 @@ mod tests {
         let client = KafkaClient::new(
             &"test".parse().unwrap(),
             &ClusterConfig {
-                bootstrap_servers: vec![broker.bootstrap_servers()].try_into().unwrap(),
+                bootstrap_servers: vec![broker.bootstrap_servers()],
                 security: Default::default(),
                 schema_registry: None,
                 obfuscation: None,
                 properties: crate::config::KafkaProperties {
-                    request_timeout: Some(Period::from_millis(100)),
-                    connect_timeout: Some(Period::from_millis(100)),
+                    request_timeout: Some(Duration::from_millis(100)),
+                    connect_timeout: Some(Duration::from_millis(100)),
                     ..Default::default()
                 },
                 ingest: Default::default(),
@@ -931,7 +931,7 @@ mod tests {
         KafkaClient::new(
             &"test".parse().unwrap(),
             &ClusterConfig {
-                bootstrap_servers: vec![bootstrap.to_owned()].try_into().unwrap(),
+                bootstrap_servers: vec![bootstrap.to_owned()],
                 security: Default::default(),
                 schema_registry: None,
                 obfuscation: None,

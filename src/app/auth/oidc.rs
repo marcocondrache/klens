@@ -7,8 +7,8 @@ use openidconnect::core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetada
 use openidconnect::reqwest;
 use openidconnect::{
     AccessTokenHash, AuthorizationCode, ClientId, ClientSecret, CsrfToken, EndpointMaybeSet,
-    EndpointNotSet, EndpointSet, IssuerUrl, Nonce, OAuth2TokenResponse, PkceCodeChallenge,
-    PkceCodeVerifier, RedirectUrl, Scope, TokenResponse,
+    EndpointNotSet, EndpointSet, Nonce, OAuth2TokenResponse, PkceCodeChallenge, PkceCodeVerifier,
+    Scope, TokenResponse,
 };
 use secrecy::ExposeSecret;
 
@@ -60,21 +60,20 @@ impl Oidc {
             .build()
             .context("failed to build oidc http client")?;
 
-        tracing::info!(issuer = %*config.issuer, "discovering oidc provider");
+        tracing::info!(issuer = %config.issuer, "discovering oidc provider");
 
-        let metadata =
-            CoreProviderMetadata::discover_async(IssuerUrl::clone(&config.issuer), &http)
-                .await
-                .map_err(|error| anyhow!("oidc provider discovery failed: {error}"))?;
+        let metadata = CoreProviderMetadata::discover_async(config.issuer.clone(), &http)
+            .await
+            .map_err(|error| anyhow!("oidc provider discovery failed: {error}"))?;
 
         let client = CoreClient::from_provider_metadata(
             metadata,
-            ClientId::new(config.client_id.as_str().to_owned()),
+            ClientId::new(config.client_id.clone()),
             Some(ClientSecret::new(
                 config.client_secret.expose_secret().to_owned(),
             )),
         )
-        .set_redirect_uri(RedirectUrl::clone(&config.redirect_uri));
+        .set_redirect_uri(config.redirect_uri.clone());
 
         Ok(Self {
             client,
@@ -84,7 +83,7 @@ impl Oidc {
                 .into_iter()
                 .map(Scope::new)
                 .collect(),
-            groups_claim: config.groups_claim.as_str().to_owned(),
+            groups_claim: config.groups_claim.clone(),
             max_session_secs: i64::try_from(max_session.as_secs()).unwrap_or(i64::MAX),
         })
     }

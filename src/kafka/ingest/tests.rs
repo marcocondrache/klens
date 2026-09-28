@@ -18,7 +18,7 @@ const IDLE: Duration = Duration::from_secs(600);
 fn store(session: &FakeCluster) -> Arc<ClusterStore> {
     Arc::new(ClusterStore::new(
         session.identity().clone(),
-        IngestTuning::default().interest_ttl.get(),
+        IngestTuning::default().interest_ttl,
     ))
 }
 

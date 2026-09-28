@@ -116,10 +116,7 @@ mod tests {
     }
 
     fn store() -> ClusterStore {
-        ClusterStore::new(
-            identity("local"),
-            IngestTuning::default().interest_ttl.get(),
-        )
+        ClusterStore::new(identity("local"), IngestTuning::default().interest_ttl)
     }
 
     fn ingested_store() -> ClusterStore {

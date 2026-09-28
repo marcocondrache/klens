@@ -1,26 +1,28 @@
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 use std::net::SocketAddr;
-use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
-use indexmap::IndexMap;
+use garde::Validate;
 use openidconnect::{IssuerUrl, RedirectUrl};
 use regex::{Regex, RegexBuilder};
 use secrecy::ExposeSecret;
 use serde::de::value::MapAccessDeserializer;
-use serde::de::{self, MapAccess, Visitor};
+use serde::de::{self, DeserializeOwned, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer};
 use thiserror::Error;
+use url::Url;
 
-mod checked;
+mod duration;
+mod rules;
 mod secret;
 mod tuning;
 
-use checked::{EMPTY, parsed};
-pub use checked::{HttpUrl, NonBlank, NonEmpty, Period};
+pub use rules::Ordered;
+use rules::{EMPTY, at_least_a_second, http_url, not_blank};
 pub use secret::Secret;
 pub use tuning::{
     IngestTuning, KafkaTuning, RecordLimits, ScanTuning, SchemaRegistryTuning, TailTuning, Tuning,
@@ -48,17 +50,24 @@ impl Display for ParseError {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+/// Serde parses each value into its type, and garde then checks what the
+/// types cannot say, reporting every problem at once.
+#[derive(Debug, Clone, Deserialize, Validate)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    #[garde(skip)]
     pub bind: SocketAddr,
     #[serde(default = "default_log_level")]
+    #[garde(skip)]
     pub log_level: String,
     #[serde(default)]
-    pub clusters: IndexMap<ClusterName, ClusterConfig>,
+    #[garde(dive)]
+    pub clusters: Ordered<ClusterName, ClusterConfig>,
     #[serde(default)]
+    #[garde(dive)]
     pub auth: Option<AuthConfig>,
     #[serde(default)]
+    #[garde(dive)]
     pub tuning: Tuning,
 }
 
@@ -86,113 +95,130 @@ impl Config {
 
 /// Snippets are off because they print the lines around an error, which can
 /// hold secrets.
-fn from_yaml<'de, T: Deserialize<'de>>(raw: &'de str) -> Result<T, serde_saphyr::Error> {
-    serde_saphyr::from_str_with_options(raw, serde_saphyr::options! { with_snippet: false })
+fn from_yaml<T>(raw: &str) -> Result<T, serde_saphyr::Error>
+where
+    T: DeserializeOwned + Validate<Context = ()>,
+{
+    serde_saphyr::from_str_with_options_valid(raw, serde_saphyr::options! { with_snippet: false })
 }
 
 /// The default formatter writes for the developer calling the parser, such as
 /// "set DuplicateKeyPolicy in Options", which a config author cannot act on.
+///
+/// serde-saphyr escapes the newlines that join validation issues, so each
+/// issue renders on its own and the lines are joined here.
 fn describe(error: &serde_saphyr::Error) -> String {
-    error.render_with_formatter(&serde_saphyr::UserMessageFormatter)
+    let render = |error: &serde_saphyr::Error| {
+        error.render_with_formatter(&serde_saphyr::UserMessageFormatter)
+    };
+    match error {
+        serde_saphyr::Error::ValidationError {
+            source,
+            issues,
+            locations,
+        } => issues
+            .iter()
+            .map(|issue| {
+                render(&serde_saphyr::Error::ValidationError {
+                    source: *source,
+                    issues: vec![issue.clone()],
+                    locations: locations.clone(),
+                })
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        error => render(error),
+    }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Validate)]
 #[serde(deny_unknown_fields)]
 pub struct AuthConfig {
+    #[garde(dive)]
     pub oidc: OidcConfig,
     #[serde(default)]
-    pub roles: Option<Roles>,
+    #[garde(custom(some_role_binds), dive)]
+    pub roles: Option<Ordered<String, RoleConfig>>,
     #[serde(default)]
+    #[garde(skip)]
     pub session_key: Option<KeyMaterial<MIN_SESSION_KEY_BYTES>>,
-    #[serde(default = "default_login_max_age")]
-    pub login_max_age: Period,
-    #[serde(default = "default_max_session")]
-    pub max_session: Period,
+    #[serde(default = "default_login_max_age", with = "duration::required")]
+    #[garde(skip)]
+    pub login_max_age: Duration,
+    #[serde(default = "default_max_session", with = "duration::required")]
+    #[garde(skip)]
+    pub max_session: Duration,
 }
 
-fn default_login_max_age() -> Period {
-    Period::from_secs(10 * 60)
+fn default_login_max_age() -> Duration {
+    Duration::from_secs(10 * 60)
 }
 
-fn default_max_session() -> Period {
-    Period::from_secs(12 * 60 * 60)
+fn default_max_session() -> Duration {
+    Duration::from_secs(12 * 60 * 60)
 }
 
 const MAX_ROLES: usize = 64;
 
-/// Roles by name, in file order. At least one of them binds a group.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(try_from = "IndexMap<String, RoleConfig>")]
-pub struct Roles(IndexMap<String, RoleConfig>);
-
-impl TryFrom<IndexMap<String, RoleConfig>> for Roles {
-    type Error = String;
-
-    fn try_from(roles: IndexMap<String, RoleConfig>) -> Result<Self, String> {
-        let problem = if roles.is_empty() {
-            EMPTY.to_owned()
-        } else if roles.len() > MAX_ROLES {
-            format!("too many roles (at most {MAX_ROLES})")
-        } else if roles.keys().any(|name| name.trim().is_empty()) {
-            "role name must not be empty".to_owned()
-        } else if roles.values().all(|role| role.bindings.is_empty()) {
-            "at least one role must have bindings".to_owned()
-        } else {
-            return Ok(Self(roles));
-        };
-        Err(problem)
-    }
+fn some_role_binds(roles: &Option<Ordered<String, RoleConfig>>, _: &()) -> garde::Result {
+    let Some(roles) = roles else {
+        return Ok(());
+    };
+    let problem = if roles.is_empty() {
+        EMPTY.to_owned()
+    } else if roles.len() > MAX_ROLES {
+        format!("too many roles (at most {MAX_ROLES})")
+    } else if roles.keys().any(|name| name.trim().is_empty()) {
+        "role name must not be empty".to_owned()
+    } else if roles.values().all(|role| role.bindings.is_empty()) {
+        "at least one role must have bindings".to_owned()
+    } else {
+        return Ok(());
+    };
+    Err(garde::Error::new(problem))
 }
 
-impl Deref for Roles {
-    type Target = IndexMap<String, RoleConfig>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Validate)]
 #[serde(deny_unknown_fields)]
 pub struct RoleConfig {
-    pub privileges: Privileges,
+    #[garde(custom(listed_once))]
+    pub privileges: Vec<PrivilegeName>,
     #[serde(default)]
+    #[garde(dive)]
     pub bindings: Vec<RoleBinding>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RoleBinding {
-    pub groups: NonEmpty<NonBlank>,
-    #[serde(default)]
-    pub clusters: Option<NonEmpty<NonBlank>>,
-}
-
-/// The privileges a role grants, each listed once.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(try_from = "Vec<PrivilegeName>")]
-pub struct Privileges(Vec<PrivilegeName>);
-
-impl TryFrom<Vec<PrivilegeName>> for Privileges {
-    type Error = String;
-
-    fn try_from(privileges: Vec<PrivilegeName>) -> Result<Self, String> {
-        let mut seen = HashSet::with_capacity(privileges.len());
-        if let Some(repeated) = privileges
-            .iter()
-            .find(|privilege| !seen.insert(**privilege))
-        {
-            return Err(format!("'{repeated}' is listed more than once"));
-        }
-        Ok(Self(privileges))
+fn listed_once(privileges: &[PrivilegeName], _: &()) -> garde::Result {
+    let mut seen = HashSet::with_capacity(privileges.len());
+    match privileges
+        .iter()
+        .find(|privilege| !seen.insert(**privilege))
+    {
+        Some(repeated) => Err(garde::Error::new(format!(
+            "'{repeated}' is listed more than once"
+        ))),
+        None => Ok(()),
     }
 }
 
-impl Deref for Privileges {
-    type Target = [PrivilegeName];
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Validate)]
+#[serde(deny_unknown_fields)]
+pub struct RoleBinding {
+    #[garde(length(min = 1), inner(custom(not_blank)))]
+    pub groups: Vec<String>,
+    #[serde(default)]
+    #[garde(length(min = 1), custom(no_blank_names))]
+    pub clusters: Option<Vec<String>>,
+}
 
-    fn deref(&self) -> &[PrivilegeName] {
-        &self.0
+/// garde's `inner` puts an `Option`'s value under an unnamed path segment,
+/// which serde-saphyr cannot place, so the list reports a blank name itself.
+fn no_blank_names(names: &Option<Vec<String>>, _: &()) -> garde::Result {
+    match names {
+        Some(names) if names.iter().any(|name| name.trim().is_empty()) => {
+            Err(garde::Error::new("must not contain empty values"))
+        }
+        _ => Ok(()),
     }
 }
 
@@ -222,34 +248,40 @@ impl Display for PrivilegeName {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Validate)]
 #[serde(deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct OidcConfig {
-    pub issuer: HttpUrl<IssuerUrl>,
-    pub client_id: NonBlank,
+    /// Kept as written: discovery compares the provider's issuer to this text
+    /// byte for byte, and `Url` would append a slash to a bare host.
+    #[garde(custom(http_url))]
+    pub issuer: IssuerUrl,
+    #[garde(custom(not_blank))]
+    pub client_id: String,
     pub client_secret: Secret,
-    pub redirect_uri: HttpUrl<RedirectUrl>,
+    #[garde(custom(http_url))]
+    pub redirect_uri: RedirectUrl,
     #[serde(default = "default_scopes")]
-    pub scopes: Vec<NonBlank>,
+    #[garde(inner(custom(not_blank)))]
+    pub scopes: Vec<String>,
     #[serde(default = "default_groups_claim")]
-    pub groups_claim: NonBlank,
+    #[garde(custom(not_blank))]
+    pub groups_claim: String,
     #[serde(default)]
     pub cookie_secure: Option<bool>,
 }
 
 const DEFAULT_OIDC_SCOPES: &[&str] = &["openid", "email", "profile"];
 
-fn default_scopes() -> Vec<NonBlank> {
+fn default_scopes() -> Vec<String> {
     DEFAULT_OIDC_SCOPES
         .iter()
-        .map(|scope| scope.parse().expect("default scopes are not blank"))
+        .map(|scope| (*scope).to_owned())
         .collect()
 }
 
-fn default_groups_claim() -> NonBlank {
-    "groups"
-        .parse()
-        .expect("the default groups claim is not blank")
+fn default_groups_claim() -> String {
+    "groups".to_owned()
 }
 
 impl OidcConfig {
@@ -259,11 +291,7 @@ impl OidcConfig {
     }
 
     pub fn effective_scopes(&self) -> Vec<String> {
-        let mut scopes: Vec<String> = self
-            .scopes
-            .iter()
-            .map(|scope| scope.as_str().to_owned())
-            .collect();
+        let mut scopes = self.scopes.clone();
         if !scopes.iter().any(|scope| scope == "openid") {
             scopes.insert(0, "openid".to_owned());
         }
@@ -271,44 +299,64 @@ impl OidcConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Validate)]
 #[serde(deny_unknown_fields)]
 pub struct ClusterConfig {
-    pub bootstrap_servers: NonEmpty<String>,
+    #[garde(length(min = 1))]
+    pub bootstrap_servers: Vec<String>,
     #[serde(default)]
+    #[garde(skip)]
     pub security: SecurityConfig,
     #[serde(default)]
+    #[garde(dive)]
     pub schema_registry: Option<SchemaRegistryConfig>,
     #[serde(default)]
+    #[garde(dive)]
     pub obfuscation: Option<ObfuscationConfig>,
     #[serde(default)]
+    #[garde(skip)]
     pub properties: KafkaProperties,
     #[serde(default)]
+    #[garde(dive)]
     pub ingest: ClusterIngestConfig,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Validate)]
 #[serde(default, deny_unknown_fields)]
 pub struct ClusterIngestConfig {
-    pub topology: Period<1>,
-    pub watermark: Period<1>,
-    pub config: Period<1>,
-    pub subjects: Period<1>,
-    pub offset_tick: Period<1>,
-    pub fast_offset: Period<1>,
-    pub slow_offset: Period<1>,
+    #[serde(with = "duration::required")]
+    #[garde(custom(at_least_a_second))]
+    pub topology: Duration,
+    #[serde(with = "duration::required")]
+    #[garde(custom(at_least_a_second))]
+    pub watermark: Duration,
+    #[serde(with = "duration::required")]
+    #[garde(custom(at_least_a_second))]
+    pub config: Duration,
+    #[serde(with = "duration::required")]
+    #[garde(custom(at_least_a_second))]
+    pub subjects: Duration,
+    #[serde(with = "duration::required")]
+    #[garde(custom(at_least_a_second))]
+    pub offset_tick: Duration,
+    #[serde(with = "duration::required")]
+    #[garde(custom(at_least_a_second))]
+    pub fast_offset: Duration,
+    #[serde(with = "duration::required")]
+    #[garde(custom(at_least_a_second))]
+    pub slow_offset: Duration,
 }
 
 impl Default for ClusterIngestConfig {
     fn default() -> Self {
         Self {
-            topology: Period::from_secs(10),
-            watermark: Period::from_secs(3),
-            config: Period::from_secs(60),
-            subjects: Period::from_secs(30),
-            offset_tick: Period::from_secs(1),
-            fast_offset: Period::from_secs(2),
-            slow_offset: Period::from_secs(20),
+            topology: Duration::from_secs(10),
+            watermark: Duration::from_secs(3),
+            config: Duration::from_secs(60),
+            subjects: Duration::from_secs(30),
+            offset_tick: Duration::from_secs(1),
+            fast_offset: Duration::from_secs(2),
+            slow_offset: Duration::from_secs(20),
         }
     }
 }
@@ -317,22 +365,28 @@ impl Default for ClusterIngestConfig {
 #[serde(default, deny_unknown_fields)]
 pub struct KafkaProperties {
     pub client_id: Option<String>,
-    pub request_timeout: Option<Period>,
-    pub connect_timeout: Option<Period>,
+    #[serde(with = "duration::optional")]
+    pub request_timeout: Option<Duration>,
+    #[serde(with = "duration::optional")]
+    pub connect_timeout: Option<Duration>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Validate)]
 #[serde(deny_unknown_fields)]
 pub struct SchemaRegistryConfig {
-    pub url: HttpUrl,
+    #[garde(custom(http_url))]
+    pub url: Url,
     #[serde(default)]
+    #[garde(dive)]
     pub auth: Option<BasicAuth>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Validate)]
 #[serde(deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct BasicAuth {
-    pub username: NonBlank,
+    #[garde(custom(not_blank))]
+    pub username: String,
     pub password: Secret,
 }
 
@@ -371,6 +425,17 @@ impl<'de> Deserialize<'de> for ClusterName {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         parsed(deserializer)
     }
+}
+
+/// Reads a string and parses it, for a type whose rules live in `FromStr`.
+fn parsed<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: FromStr<Err = String>,
+{
+    String::deserialize(deserializer)?
+        .parse()
+        .map_err(de::Error::custom)
 }
 
 pub const MIN_OBFUSCATION_SECRET_BYTES: usize = 32;
@@ -434,10 +499,27 @@ const REGEX_SIZE_LIMIT: usize = 1024 * 1024;
 
 pub type ObfuscationKey = KeyMaterial<MIN_OBFUSCATION_SECRET_BYTES>;
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Validate)]
 #[serde(try_from = "ObfuscationBlock")]
 pub struct ObfuscationConfig {
+    #[garde(length(min = 1), custom(cover_each_topic_once), dive)]
     pub rules: Vec<ObfuscationRule>,
+}
+
+fn cover_each_topic_once(rules: &[ObfuscationRule], _: &()) -> garde::Result {
+    let mut covered: Vec<&TopicPattern> = Vec::new();
+    for rule in rules {
+        for topic in &rule.topics {
+            if let Some(other) = covered.iter().find(|other| other.overlaps(topic)) {
+                return Err(garde::Error::new(format!(
+                    "topics '{topic}' and '{other}' match the same topics; \
+                     a topic must be covered by exactly one rule"
+                )));
+            }
+        }
+        covered.extend(&rule.topics);
+    }
+    Ok(())
 }
 
 /// The block as written, where a rule only names its strategies: a hash takes
@@ -447,33 +529,19 @@ pub struct ObfuscationConfig {
 struct ObfuscationBlock {
     #[serde(default)]
     secret: Option<ObfuscationKey>,
-    rules: NonEmpty<ObfuscationRule<StrategyName>>,
+    rules: Vec<ObfuscationRule<StrategyName>>,
 }
 
 impl TryFrom<ObfuscationBlock> for ObfuscationConfig {
-    type Error = String;
+    type Error = &'static str;
 
-    fn try_from(block: ObfuscationBlock) -> Result<Self, String> {
-        let mut covered: Vec<&TopicPattern> = Vec::new();
-        for rule in block.rules.iter() {
-            for topic in rule.topics.iter() {
-                if let Some(other) = covered.iter().find(|other| other.overlaps(topic)) {
-                    return Err(format!(
-                        "topics '{topic}' and '{other}' match the same topics; \
-                         a topic must be covered by exactly one rule"
-                    ));
-                }
-            }
-            covered.extend(rule.topics.iter());
-        }
-
+    fn try_from(block: ObfuscationBlock) -> Result<Self, Self::Error> {
         let key = block.secret.map(Arc::new);
         let rules = block
             .rules
             .into_iter()
             .map(|rule| rule.resolve(key.as_ref()))
             .collect::<Result<_, _>>()?;
-
         Ok(Self { rules })
     }
 }
@@ -490,10 +558,12 @@ pub enum UnparsedPolicy {
 
 /// One rule, with strategies of type `S`: `StrategyName` as written, then
 /// [`ObfuscationStrategy`] once a hash holds its key.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Validate)]
 #[serde(deny_unknown_fields, bound = "S: Deserialize<'de>")]
+#[garde(allow_unvalidated)]
 pub struct ObfuscationRule<S = ObfuscationStrategy> {
-    pub topics: NonEmpty<TopicPattern>,
+    #[garde(length(min = 1), custom(does_something(self)))]
+    pub topics: Vec<TopicPattern>,
     #[serde(default)]
     pub fields: Vec<ObfuscationField<S>>,
     #[serde(default)]
@@ -501,28 +571,37 @@ pub struct ObfuscationRule<S = ObfuscationStrategy> {
     #[serde(default)]
     pub value: Option<S>,
     #[serde(default)]
-    pub headers: Vec<NonBlank>,
+    #[garde(inner(custom(not_blank)))]
+    pub headers: Vec<String>,
     #[serde(default)]
     pub patterns: Vec<ObfuscationPattern<S>>,
     #[serde(default)]
     pub unparsed: UnparsedPolicy,
 }
 
-impl ObfuscationRule<StrategyName> {
-    fn resolve(self, key: Option<&Arc<ObfuscationKey>>) -> Result<ObfuscationRule, String> {
-        if self.fields.is_empty()
-            && self.key.is_none()
-            && self.value.is_none()
-            && self.headers.is_empty()
-            && self.patterns.is_empty()
+/// Reported on `topics`, which names the rule.
+fn does_something<S>(
+    rule: &ObfuscationRule<S>,
+) -> impl FnOnce(&Vec<TopicPattern>, &()) -> garde::Result + '_ {
+    move |topics, _| {
+        if rule.fields.is_empty()
+            && rule.key.is_none()
+            && rule.value.is_none()
+            && rule.headers.is_empty()
+            && rule.patterns.is_empty()
         {
-            let topics: Vec<String> = self.topics.iter().map(ToString::to_string).collect();
-            return Err(format!(
+            let topics: Vec<String> = topics.iter().map(ToString::to_string).collect();
+            return Err(garde::Error::new(format!(
                 "rule for '{}' must set at least one of fields, key, value, headers or patterns",
                 topics.join(", ")
-            ));
+            )));
         }
+        Ok(())
+    }
+}
 
+impl ObfuscationRule<StrategyName> {
+    fn resolve(self, key: Option<&Arc<ObfuscationKey>>) -> Result<ObfuscationRule, &'static str> {
         let strategy = |name: StrategyName| name.resolve(key);
 
         Ok(ObfuscationRule {
@@ -535,7 +614,7 @@ impl ObfuscationRule<StrategyName> {
                         strategy: strategy(field.strategy)?,
                     })
                 })
-                .collect::<Result<_, String>>()?,
+                .collect::<Result<_, &'static str>>()?,
             patterns: self
                 .patterns
                 .into_iter()
@@ -545,7 +624,7 @@ impl ObfuscationRule<StrategyName> {
                         strategy: strategy(pattern.strategy)?,
                     })
                 })
-                .collect::<Result<_, String>>()?,
+                .collect::<Result<_, &'static str>>()?,
             key: self.key.map(strategy).transpose()?,
             value: self.value.map(strategy).transpose()?,
             topics: self.topics,
@@ -585,7 +664,10 @@ enum StrategyName {
 }
 
 impl StrategyName {
-    fn resolve(self, key: Option<&Arc<ObfuscationKey>>) -> Result<ObfuscationStrategy, String> {
+    fn resolve(
+        self,
+        key: Option<&Arc<ObfuscationKey>>,
+    ) -> Result<ObfuscationStrategy, &'static str> {
         Ok(match self {
             Self::Mask => ObfuscationStrategy::Mask,
             Self::Drop => ObfuscationStrategy::Drop,
@@ -857,6 +939,11 @@ pub struct ClientCert {
 mod tests {
     use super::*;
 
+    /// For a fragment that has nothing for garde to check.
+    fn unvalidated<T: DeserializeOwned>(yaml: &str) -> Result<T, serde_saphyr::Error> {
+        serde_saphyr::from_str_with_options(yaml, serde_saphyr::options! { with_snippet: false })
+    }
+
     fn parse_cluster(yaml: &str) -> Result<ClusterConfig, serde_saphyr::Error> {
         from_yaml(yaml)
     }
@@ -896,7 +983,7 @@ mod tests {
             .get(&"staging".parse::<ClusterName>().unwrap())
             .unwrap();
         assert_eq!(
-            staging.bootstrap_servers.to_vec(),
+            staging.bootstrap_servers,
             vec!["broker-1:9092", "broker-2:9092"]
         );
         assert_eq!(config.bind, "0.0.0.0:8080".parse().unwrap());
@@ -911,15 +998,6 @@ mod tests {
 
     fn cluster_names(config: &Config) -> Vec<&str> {
         config.clusters.keys().map(ClusterName::as_str).collect()
-    }
-
-    fn texts(items: &[NonBlank]) -> Vec<&str> {
-        items.iter().map(NonBlank::as_str).collect()
-    }
-
-    fn names(names: &[&str]) -> NonEmpty<NonBlank> {
-        let names: Vec<NonBlank> = names.iter().map(|name| name.parse().unwrap()).collect();
-        names.try_into().unwrap()
     }
 
     #[test]
@@ -963,13 +1041,13 @@ mod tests {
         assert_eq!(
             cluster.ingest,
             ClusterIngestConfig {
-                topology: Period::from_secs(15),
-                watermark: Period::from_secs(90),
-                config: Period::from_secs(60),
-                subjects: Period::from_secs(30),
-                offset_tick: Period::from_secs(1),
-                fast_offset: Period::from_secs(2),
-                slow_offset: Period::from_secs(20),
+                topology: Duration::from_secs(15),
+                watermark: Duration::from_secs(90),
+                config: Duration::from_secs(60),
+                subjects: Duration::from_secs(30),
+                offset_tick: Duration::from_secs(1),
+                fast_offset: Duration::from_secs(2),
+                slow_offset: Duration::from_secs(20),
             }
         );
     }
@@ -1003,7 +1081,10 @@ mod tests {
             ",
         );
 
-        assert_eq!(error, "must be at least 1s, got 500ms at line 8, column 29");
+        assert_eq!(
+            error,
+            "validation error at clusters.prod.ingest.topology: must be at least 1s, got 500ms at line 8, column 29"
+        );
     }
 
     #[test]
@@ -1074,7 +1155,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(config.bootstrap_servers.to_vec(), vec!["localhost:9092"]);
+        assert_eq!(config.bootstrap_servers, vec!["localhost:9092"]);
         assert!(matches!(config.security, SecurityConfig::Plaintext {}));
         assert!(config.schema_registry.is_none());
         assert_eq!(config.properties, KafkaProperties::default());
@@ -1092,7 +1173,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            config.bootstrap_servers.to_vec(),
+            config.bootstrap_servers,
             vec!["broker-1:9092", "broker-2:9092"]
         );
     }
@@ -1141,7 +1222,7 @@ mod tests {
         );
         assert_eq!(
             config.properties.request_timeout,
-            Some(Period::from_secs(10))
+            Some(Duration::from_secs(10))
         );
     }
 
@@ -1175,15 +1256,15 @@ mod tests {
             config.properties,
             KafkaProperties {
                 client_id: Some("browser".into()),
-                request_timeout: Some(Period::from_secs(8)),
-                connect_timeout: Some(Period::from_millis(250)),
+                request_timeout: Some(Duration::from_secs(8)),
+                connect_timeout: Some(Duration::from_millis(250)),
             }
         );
     }
 
     #[test]
     fn kafka_properties_reject_duplicate_timeouts() {
-        let error = from_yaml::<KafkaProperties>("request_timeout: 5s\nrequest_timeout: 6s");
+        let error = unvalidated::<KafkaProperties>("request_timeout: 5s\nrequest_timeout: 6s");
 
         assert_eq!(
             describe(&error.unwrap_err()),
@@ -1212,10 +1293,32 @@ mod tests {
             "bootstrap_servers: localhost:9092",
         ] {
             assert!(
-                from_yaml::<KafkaProperties>(yaml).is_err(),
+                unvalidated::<KafkaProperties>(yaml).is_err(),
                 "accepted invalid properties: {yaml}"
             );
         }
+    }
+
+    #[test]
+    fn reports_every_problem_at_once() {
+        let error = config_error(
+            "
+            bind: 127.0.0.1:8080
+            clusters:
+              prod:
+                bootstrap_servers: []
+                ingest:
+                  topology: 500ms
+            ",
+        );
+
+        assert_eq!(
+            error,
+            "validation error at clusters.prod.bootstrap_servers: length is lower than 1 \
+             at line 5, column 36\n\
+             validation error at clusters.prod.ingest.topology: must be at least 1s, got 500ms \
+             at line 7, column 29"
+        );
     }
 
     #[test]
@@ -1252,7 +1355,10 @@ mod tests {
             ",
         );
 
-        assert_eq!(error, "must not be empty at line 2, column 32");
+        assert_eq!(
+            error,
+            "validation error at bootstrap_servers: length is lower than 1 at line 2, column 32"
+        );
     }
 
     #[test]
@@ -1463,13 +1569,13 @@ mod tests {
             oidc.issuer.as_str(),
             "https://keycloak.example.com/realms/klens"
         );
-        assert_eq!(oidc.client_id.as_str(), "klens");
+        assert_eq!(oidc.client_id, "klens");
         assert_eq!(oidc.client_secret.expose_secret(), "secret");
         assert_eq!(
             oidc.redirect_uri.as_str(),
             "http://localhost:8080/api/auth/callback"
         );
-        assert_eq!(texts(&oidc.scopes), vec!["openid", "email", "profile"]);
+        assert_eq!(oidc.scopes, vec!["openid", "email", "profile"]);
         assert_eq!(oidc.cookie_secure, None);
         assert!(!oidc.cookie_secure());
     }
@@ -1516,17 +1622,15 @@ mod tests {
                             PrivilegeName::Configs,
                             PrivilegeName::SchemaText,
                             PrivilegeName::Acls,
-                        ]
-                        .try_into()
-                        .unwrap(),
+                        ],
                         bindings: vec![
                             RoleBinding {
-                                groups: names(&["klens-admins"]),
+                                groups: vec!["klens-admins".to_owned()],
                                 clusters: None,
                             },
                             RoleBinding {
-                                groups: names(&["kafka-operators"]),
-                                clusters: Some(names(&["staging", "dev"])),
+                                groups: vec!["kafka-operators".to_owned()],
+                                clusters: Some(vec!["staging".to_owned(), "dev".to_owned()]),
                             },
                         ],
                     },
@@ -1534,17 +1638,17 @@ mod tests {
                 (
                     &"viewer".to_owned(),
                     &RoleConfig {
-                        privileges: vec![].try_into().unwrap(),
+                        privileges: vec![],
                         bindings: vec![RoleBinding {
-                            groups: names(&["payments-viewers"]),
-                            clusters: Some(names(&["payments"])),
+                            groups: vec!["payments-viewers".to_owned()],
+                            clusters: Some(vec!["payments".to_owned()]),
                         }],
                     },
                 ),
                 (
                     &"auditor".to_owned(),
                     &RoleConfig {
-                        privileges: vec![PrivilegeName::Acls].try_into().unwrap(),
+                        privileges: vec![PrivilegeName::Acls],
                         bindings: vec![],
                     },
                 ),
@@ -1583,7 +1687,7 @@ mod tests {
 
         assert_eq!(
             error,
-            "at least one role must have bindings at line 11, column 17"
+            "validation error at auth.roles: at least one role must have bindings at line 11, column 17"
         );
     }
 
@@ -1591,7 +1695,10 @@ mod tests {
     fn rejects_empty_roles() {
         let error = parse_roles(" {}").unwrap_err();
 
-        assert_eq!(error, "must not be empty at line 10, column 22");
+        assert_eq!(
+            error,
+            "validation error at auth.roles: must not be empty at line 10, column 22"
+        );
     }
 
     #[test]
@@ -1605,7 +1712,10 @@ mod tests {
         )
         .unwrap_err();
 
-        assert_eq!(error, "role name must not be empty at line 11, column 17");
+        assert_eq!(
+            error,
+            "validation error at auth.roles: role name must not be empty at line 11, column 17"
+        );
     }
 
     #[test]
@@ -1644,8 +1754,8 @@ mod tests {
 
         assert_eq!(
             error,
-            "'records' is listed more than once \
-             at line 12, column 31"
+            "validation error at auth.roles.operator.privileges: \
+             'records' is listed more than once at line 12, column 31"
         );
     }
 
@@ -1655,24 +1765,28 @@ mod tests {
             (
                 "
                     - groups: []",
-                "must not be empty at line 14, column 31",
+                "validation error at auth.roles.operator.bindings[0].groups: \
+                 length is lower than 1 at line 14, column 31",
             ),
             (
                 "
                     - groups: [ops, ' ']",
-                "must not be empty at line 14, column 37",
+                "validation error at auth.roles.operator.bindings[0].groups[1]: \
+                 must not be empty at line 14, column 37",
             ),
             (
                 "
                     - groups: [ops]
                       clusters: []",
-                "must not be empty at line 15, column 33",
+                "validation error at auth.roles.operator.bindings[0].clusters: \
+                 length is lower than 1 at line 15, column 33",
             ),
             (
                 "
                     - groups: [ops]
                       clusters: [prod, '']",
-                "must not be empty at line 15, column 40",
+                "validation error at auth.roles.operator.bindings[0].clusters: \
+                 must not contain empty values at line 15, column 33",
             ),
         ];
 
@@ -1700,7 +1814,7 @@ mod tests {
                 redirect_uri: http://localhost:8080/api/auth/callback{oidc_extra}
             "
         ))
-        .map(|config| config.auth.unwrap().oidc.groups_claim.as_str().to_owned())
+        .map(|config| config.auth.unwrap().oidc.groups_claim)
         .map_err(|error| describe(&error))
     }
 
@@ -1717,7 +1831,10 @@ mod tests {
     fn rejects_a_blank_groups_claim() {
         let error = groups_claim("\n                groups_claim: ' '").unwrap_err();
 
-        assert_eq!(error, "must not be empty at line 9, column 31");
+        assert_eq!(
+            error,
+            "validation error at auth.oidc.groups_claim: must not be empty at line 9, column 31"
+        );
     }
 
     #[test]
@@ -1735,7 +1852,10 @@ mod tests {
             .collect();
         let error = parse_roles(&roles).unwrap_err();
 
-        assert_eq!(error, "too many roles (at most 64) at line 11, column 17");
+        assert_eq!(
+            error,
+            "validation error at auth.roles: too many roles (at most 64) at line 11, column 17"
+        );
     }
 
     #[test]
@@ -1889,11 +2009,7 @@ mod tests {
             "http://localhost:8080/api/auth/callback",
         );
 
-        assert_eq!(
-            error,
-            "not a valid URL: relative URL without a base \
-             at line 6, column 25"
-        );
+        assert_eq!(error, "relative URL without a base at line 6, column 25");
     }
 
     #[test]
@@ -1917,7 +2033,10 @@ mod tests {
             "http://localhost:8080/api/auth/callback",
         );
 
-        assert_eq!(error, "must not be empty at line 7, column 28");
+        assert_eq!(
+            error,
+            "validation error at auth.oidc.client_id: must not be empty at line 7, column 28"
+        );
     }
 
     #[test]
@@ -1935,7 +2054,10 @@ mod tests {
             ",
         );
 
-        assert_eq!(error, "must not be empty at line 9, column 34");
+        assert_eq!(
+            error,
+            "validation error at auth.oidc.scopes[1]: must not be empty at line 9, column 34"
+        );
     }
 
     #[test]
@@ -1968,7 +2090,10 @@ mod tests {
             "ftp://localhost/api/auth/callback",
         );
 
-        assert_eq!(error, "must be an http or https URL at line 9, column 31");
+        assert_eq!(
+            error,
+            "validation error at auth.oidc.redirect_uri: must be an http or https URL at line 9, column 31"
+        );
     }
 
     #[test]
@@ -1987,9 +2112,9 @@ mod tests {
         .unwrap();
 
         let registry = config.schema_registry.unwrap();
-        assert_eq!(registry.url.as_str(), "http://localhost:8081/");
+        assert_eq!(registry.url, Url::parse("http://localhost:8081").unwrap());
         let auth = registry.auth.unwrap();
-        assert_eq!(auth.username.as_str(), "user");
+        assert_eq!(auth.username, "user");
         assert_eq!(auth.password.expose_secret(), "secret");
     }
 
@@ -2006,8 +2131,7 @@ mod tests {
 
         assert_eq!(
             error,
-            "not a valid URL: relative URL without a base \
-             at line 5, column 20"
+            "relative URL without a base: \"not-a-url\" at line 5, column 20"
         );
     }
 
@@ -2047,7 +2171,10 @@ mod tests {
                 username: ' '
                 password: {value: secret}",
         );
-        assert_eq!(error, "must not be empty at line 7, column 27");
+        assert_eq!(
+            error,
+            "validation error at schema_registry.auth.username: must not be empty at line 7, column 27"
+        );
 
         for password in ["''", "'  '"] {
             let error = registry_error(&format!(
@@ -2090,7 +2217,7 @@ mod tests {
         );
         assert_eq!(obfuscation.rules.len(), 2);
         assert_eq!(
-            obfuscation.rules[0].topics.to_vec(),
+            obfuscation.rules[0].topics,
             vec![TopicPattern::Prefix("payments.".to_owned())]
         );
         assert_eq!(obfuscation.rules[0].fields[0].path.as_str(), "card.number");
@@ -2104,7 +2231,7 @@ mod tests {
         );
         assert_eq!(obfuscation.rules[0].unparsed, UnparsedPolicy::Allow);
         assert_eq!(
-            obfuscation.rules[1].topics.to_vec(),
+            obfuscation.rules[1].topics,
             vec![TopicPattern::Exact("audit.raw".to_owned())]
         );
         assert_eq!(obfuscation.rules[1].key, Some(ObfuscationStrategy::Mask));
@@ -2112,7 +2239,7 @@ mod tests {
             obfuscation.rules[1].value,
             Some(ObfuscationStrategy::Hash(key))
         );
-        assert_eq!(texts(&obfuscation.rules[1].headers), vec!["x-user-id"]);
+        assert_eq!(obfuscation.rules[1].headers, vec!["x-user-id"]);
     }
 
     #[test]
@@ -2276,7 +2403,10 @@ mod tests {
             ",
         )
         .unwrap_err();
-        assert_eq!(error, "must not be empty at line 6, column 22");
+        assert_eq!(
+            error,
+            "validation error at obfuscation.rules: length is lower than 1 at line 6, column 22"
+        );
 
         let error = obfuscated(
             "
@@ -2286,7 +2416,10 @@ mod tests {
             ",
         )
         .unwrap_err();
-        assert_eq!(error, "must not be empty at line 7, column 27");
+        assert_eq!(
+            error,
+            "validation error at obfuscation.rules[0].topics: length is lower than 1 at line 7, column 27"
+        );
 
         let error = obfuscated(
             "
@@ -2297,8 +2430,9 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             error,
-            "rule for 'cards, audit.*' must set at least one of fields, key, \
-             value, headers or patterns at line 6, column 15"
+            "validation error at obfuscation.rules[0].topics: rule for 'cards, audit.*' \
+             must set at least one of fields, key, value, headers or patterns \
+             at line 7, column 27"
         );
     }
 
@@ -2342,7 +2476,10 @@ mod tests {
             ",
         )
         .unwrap_err();
-        assert_eq!(error, "must not be empty at line 8, column 40");
+        assert_eq!(
+            error,
+            "validation error at obfuscation.rules[0].headers[1]: must not be empty at line 8, column 40"
+        );
     }
 
     #[test]
@@ -2483,8 +2620,9 @@ mod tests {
             assert_eq!(
                 error,
                 format!(
-                    "topics '{second}' and '{first}' match the same topics; \
-                     a topic must be covered by exactly one rule at line 6, column 15"
+                    "validation error at obfuscation.rules: topics '{second}' and '{first}' \
+                     match the same topics; a topic must be covered by exactly one rule \
+                     at line 7, column 17"
                 )
             );
         }
