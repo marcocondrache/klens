@@ -36,7 +36,7 @@ jobs:
           persist-credentials: true
           ref: ${{ github.event.workflow_run.head_sha }}
       - name: Install git-cliff
-        uses: taiki-e/install-action@31f14f7508924f579d2d6cbf1cce2968b5510b39 # git-cliff
+        uses: taiki-e/install-action@4f43dd5a853bdd830c6d043f0a70a2e35002b5d5 # git-cliff
       - name: Release
         id: release
         env:
