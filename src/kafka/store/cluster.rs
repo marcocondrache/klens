@@ -14,6 +14,17 @@ use super::rates::RateStore;
 use super::search::{self, SearchHit};
 use super::tables::{ConfigTable, OffsetTable, SubjectTable, Topology, WatermarkTable};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LaneId {
+    Topology,
+    Watermarks,
+    /// A sweep refetches only the groups that are due, so a refresh does not
+    /// promise any one group's offsets.
+    Offsets,
+    Configs,
+    Subjects,
+}
+
 pub struct ClusterStore {
     pub identity: ClusterIdentity,
     pub topology: Lane<Topology>,
@@ -60,6 +71,20 @@ impl ClusterStore {
 
     pub fn ready(&self) -> bool {
         self.topology.ready()
+    }
+
+    /// Refreshes each lane in turn, in the order given, so a lane that reads
+    /// another (configs reads topology) comes after it. See [`Lane::refresh`].
+    pub async fn refresh(&self, lanes: &[LaneId]) {
+        for lane in lanes {
+            match lane {
+                LaneId::Topology => self.topology.refresh().await,
+                LaneId::Watermarks => self.watermarks.refresh().await,
+                LaneId::Offsets => self.offsets.refresh().await,
+                LaneId::Configs => self.configs.refresh().await,
+                LaneId::Subjects => self.subjects.refresh().await,
+            }
+        }
     }
 
     pub fn search(&self, term: &str) -> Vec<SearchHit> {

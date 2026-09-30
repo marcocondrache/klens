@@ -811,3 +811,48 @@ async fn one_cluster_never_wakes_another() {
         "per-cluster buses keep the blast radius at one cluster"
     );
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_refresh_reads_what_changed_since_each_lane_last_polled() {
+    use crate::kafka::metadata::Watermarks;
+    use crate::kafka::store::LaneId;
+    use crate::kafka::store::fixtures::config;
+
+    let session = FakeCluster::local();
+    let store = store(&session);
+    let _lanes = idle_lanes(&store, &session);
+    wait_for(
+        || {
+            store.ready()
+                && store.watermarks.ready()
+                && store.configs.ready()
+                && store.subjects.ready()
+                && store.offsets.health().checked_at.is_some()
+        },
+        "every lane's first poll",
+    )
+    .await;
+
+    session.add_partition("orders.created", 2, Watermarks { low: 0, high: 3 });
+    session.set_topic_configs("orders.created", vec![config("retention.ms", "1000")]);
+    session.set_subjects(Vec::new());
+
+    tokio::time::timeout(
+        Duration::from_secs(1),
+        store.refresh(&[
+            LaneId::Topology,
+            LaneId::Watermarks,
+            LaneId::Configs,
+            LaneId::Subjects,
+            LaneId::Offsets,
+        ]),
+    )
+    .await
+    .expect("every lane is kicked, none waits out its 600s interval");
+
+    let orders = store.topic_detail("orders.created").expect("orders");
+    assert_eq!(orders.partitions.len(), 3, "topology");
+    assert_eq!(orders.partitions[2].high_watermark, 3, "watermarks");
+    assert_eq!(orders.retention_ms, Some(1000), "configs");
+    assert!(store.subject_rows().is_empty(), "subjects");
+}

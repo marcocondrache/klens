@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use arc_swap::ArcSwapOption;
 use jiff::Timestamp;
-use tokio::sync::Notify;
+use tokio::sync::{Notify, watch};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LaneHealth {
@@ -26,6 +26,10 @@ pub struct Lane<T> {
     version: AtomicU64,
     health: RwLock<LaneHealth>,
     kick: Notify,
+    /// One runner polls at a time, so the nth poll to begin is the nth to
+    /// finish.
+    begun: AtomicU64,
+    finished: watch::Sender<u64>,
 }
 
 impl<T> Default for Lane<T> {
@@ -35,6 +39,8 @@ impl<T> Default for Lane<T> {
             version: AtomicU64::new(0),
             health: RwLock::new(LaneHealth::default()),
             kick: Notify::new(),
+            begun: AtomicU64::new(0),
+            finished: watch::Sender::new(0),
         }
     }
 }
@@ -72,13 +78,22 @@ impl<T> Lane<T> {
         version
     }
 
+    /// Call before a poll reads the cluster.
+    pub fn begin_poll(&self) {
+        self.begun.fetch_add(1, Ordering::AcqRel);
+    }
+
+    /// Call after every poll, whether or not it committed.
     pub fn record_poll(&self, elapsed: Duration, error: Option<String>) {
-        let mut health = self.health.write().expect("lane health lock");
-        health.last_poll_ms = Some(elapsed.as_millis() as u64);
-        if error.is_none() {
-            health.checked_at = Some(Timestamp::now());
+        {
+            let mut health = self.health.write().expect("lane health lock");
+            health.last_poll_ms = Some(elapsed.as_millis() as u64);
+            if error.is_none() {
+                health.checked_at = Some(Timestamp::now());
+            }
+            health.last_error = error;
         }
-        health.last_error = error;
+        self.finished.send_modify(|finished| *finished += 1);
     }
 
     pub fn health(&self) -> LaneHealth {
@@ -87,6 +102,18 @@ impl<T> Lane<T> {
 
     pub fn kick(&self) {
         self.kick.notify_one();
+    }
+
+    /// Kicks the runner and waits for a poll that began after this call. A
+    /// poll already under way when it is called may have read the cluster
+    /// before a change the caller just made, so it does not count. Never
+    /// returns if no runner drives the lane; callers bound the wait.
+    pub async fn refresh(&self) {
+        let mut finished = self.finished.subscribe();
+        let target = self.begun.load(Ordering::Acquire) + 1;
+        self.kick();
+        // The sender lives as long as `self`, so the wait cannot fail.
+        let _ = finished.wait_for(|finished| *finished >= target).await;
     }
 
     pub async fn wait(&self, interval: Duration) {
@@ -150,6 +177,112 @@ mod tests {
         assert!(health.last_error.is_none());
         assert!(health.checked_at.is_some());
         assert!(health.healthy());
+    }
+
+    /// Polls the way a lane runner does: poll, then wait out the interval.
+    /// Each poll holds until `release` lets it finish, and commits its number.
+    fn runner(
+        lane: &Arc<Lane<u32>>,
+    ) -> (
+        tokio::sync::mpsc::UnboundedReceiver<u32>,
+        tokio::sync::mpsc::UnboundedSender<()>,
+        tokio::task::JoinHandle<()>,
+    ) {
+        let (began, polls) = tokio::sync::mpsc::unbounded_channel();
+        let (release, mut released) = tokio::sync::mpsc::unbounded_channel();
+        let lane = Arc::clone(lane);
+        let task = tokio::spawn(async move {
+            let mut poll = 0;
+            loop {
+                poll += 1;
+                lane.begin_poll();
+                began.send(poll).expect("test holds the receiver");
+                released.recv().await.expect("test holds the sender");
+                lane.commit(Arc::new(poll));
+                lane.record_poll(Duration::from_millis(1), None);
+                lane.wait(Duration::from_secs(600)).await;
+            }
+        });
+        (polls, release, task)
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_refresh_wakes_an_idle_runner_and_waits_for_its_poll() {
+        let lane = Arc::new(Lane::new());
+        let (mut polls, release, task) = runner(&lane);
+        assert_eq!(polls.recv().await, Some(1));
+        release.send(()).unwrap();
+
+        let refresh = tokio::spawn({
+            let lane = Arc::clone(&lane);
+            async move { lane.refresh().await }
+        });
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(1), polls.recv()).await,
+            Ok(Some(2)),
+            "the refresh must cut the 600s interval short"
+        );
+        tokio::task::yield_now().await;
+        assert!(!refresh.is_finished(), "poll 2 has not finished yet");
+
+        release.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(1), refresh)
+            .await
+            .expect("the refresh ends with poll 2")
+            .expect("refresh task");
+        assert_eq!(*lane.load().unwrap(), 2);
+        task.abort();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_refresh_does_not_settle_for_a_poll_already_under_way() {
+        let lane = Arc::new(Lane::new());
+        let (mut polls, release, task) = runner(&lane);
+        assert_eq!(polls.recv().await, Some(1));
+
+        let refresh = tokio::spawn({
+            let lane = Arc::clone(&lane);
+            async move { lane.refresh().await }
+        });
+        tokio::task::yield_now().await;
+        release.send(()).unwrap();
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(1), polls.recv()).await,
+            Ok(Some(2)),
+            "the kick left a permit, so poll 2 begins without waiting"
+        );
+        assert_eq!(*lane.load().unwrap(), 1);
+        assert!(
+            !refresh.is_finished(),
+            "poll 1 began before the refresh and may predate the change"
+        );
+
+        release.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(1), refresh)
+            .await
+            .expect("the refresh ends with poll 2")
+            .expect("refresh task");
+        assert_eq!(*lane.load().unwrap(), 2);
+        task.abort();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_poll_still_ends_a_refresh() {
+        let lane = Arc::new(Lane::<u32>::new());
+        let refresh = tokio::spawn({
+            let lane = Arc::clone(&lane);
+            async move { lane.refresh().await }
+        });
+        tokio::task::yield_now().await;
+
+        lane.begin_poll();
+        lane.record_poll(Duration::from_millis(1), Some("broker down".into()));
+
+        tokio::time::timeout(Duration::from_secs(1), refresh)
+            .await
+            .expect("a failure is still a finished poll")
+            .expect("refresh task");
+        assert_eq!(lane.version(), 0);
     }
 
     #[tokio::test(start_paused = true)]

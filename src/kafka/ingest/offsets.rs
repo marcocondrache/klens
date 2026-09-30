@@ -66,6 +66,7 @@ impl OffsetLane {
         let cluster = store.name().to_owned();
         loop {
             let started = Instant::now();
+            store.offsets.begin_poll();
             let wave = self.sweep(&store).await;
             store.offsets.record_poll(started.elapsed(), None);
             if !wave.is_empty() {

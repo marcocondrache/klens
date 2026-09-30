@@ -52,6 +52,7 @@ async fn poll<S: LaneSource>(store: &ClusterStore, source: &S) {
     let lane = source.name();
     let previous = source.lane(store).load();
     let started = Instant::now();
+    source.lane(store).begin_poll();
 
     match source.fetch(store, previous.as_ref()).await {
         Ok(fetched) => {
