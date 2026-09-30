@@ -38,7 +38,7 @@ pub async fn serve(router: Router, bind: SocketAddr) -> Result<()> {
                     tracing::info_span!(
                         "http.request",
                         method = %request.method(),
-                        uri = %request.uri(),
+                        path = %request.uri().path(),
                     )
                 })
                 .on_response(|response: &Response<_>, latency: Duration, _span: &Span| {
@@ -90,4 +90,54 @@ async fn shutdown_signal() {
     }
 
     tracing::info!("starting graceful shutdown");
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::routing::get;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpStream;
+
+    use super::*;
+    use crate::telemetry::capture::subscriber as capture;
+
+    #[tokio::test]
+    async fn the_request_log_has_the_path_but_not_the_query() {
+        let (logs, _guard) = capture(tracing::Level::INFO);
+        let router = Router::new().route(
+            "/api/auth/callback",
+            get(|| async { tracing::info!("handled") }),
+        );
+        let bind = std::net::TcpListener::bind("127.0.0.1:0")
+            .and_then(|listener| listener.local_addr())
+            .expect("free port");
+        let server = tokio::spawn(serve(router, bind));
+
+        let mut stream = loop {
+            assert!(!server.is_finished(), "serve returned before accepting");
+            match TcpStream::connect(bind).await {
+                Ok(stream) => break stream,
+                Err(_) => tokio::task::yield_now().await,
+            }
+        };
+        stream
+            .write_all(
+                b"GET /api/auth/callback?code=secret-code&state=secret-state HTTP/1.1\r\n\
+                  Host: localhost\r\nConnection: close\r\n\r\n",
+            )
+            .await
+            .expect("write request");
+        let mut response = String::new();
+        stream
+            .read_to_string(&mut response)
+            .await
+            .expect("read response");
+        server.abort();
+
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+        let text = logs.as_string();
+        assert!(text.contains("path=/api/auth/callback"), "{text}");
+        assert!(!text.contains("secret-code"), "{text}");
+        assert!(!text.contains("secret-state"), "{text}");
+    }
 }
