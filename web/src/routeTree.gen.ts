@@ -16,6 +16,7 @@ import { Route as ClusterClusterIndexRouteImport } from "./routes/cluster/$clust
 import { Route as ClusterClusterAclsRouteImport } from "./routes/cluster/$cluster/acls"
 import { Route as ClusterClusterGroupsRouteImport } from "./routes/cluster/$cluster/groups"
 import { Route as ClusterClusterNodesRouteImport } from "./routes/cluster/$cluster/nodes"
+import { Route as ClusterClusterQuotasRouteImport } from "./routes/cluster/$cluster/quotas"
 import { Route as ClusterClusterSchemasRouteImport } from "./routes/cluster/$cluster/schemas"
 import { Route as ClusterClusterTopicsRouteImport } from "./routes/cluster/$cluster/topics"
 import { Route as ClusterClusterGroupsGroupRouteImport } from "./routes/cluster/$cluster/groups_.$group"
@@ -57,6 +58,11 @@ const ClusterClusterNodesRoute = ClusterClusterNodesRouteImport.update({
   path: "/nodes",
   getParentRoute: () => ClusterClusterRoute,
 } as any)
+const ClusterClusterQuotasRoute = ClusterClusterQuotasRouteImport.update({
+  id: "/quotas",
+  path: "/quotas",
+  getParentRoute: () => ClusterClusterRoute,
+} as any)
 const ClusterClusterSchemasRoute = ClusterClusterSchemasRouteImport.update({
   id: "/schemas",
   path: "/schemas",
@@ -92,6 +98,7 @@ export interface FileRoutesByFullPath {
   "/cluster/$cluster/acls": typeof ClusterClusterAclsRoute
   "/cluster/$cluster/groups": typeof ClusterClusterGroupsRoute
   "/cluster/$cluster/nodes": typeof ClusterClusterNodesRoute
+  "/cluster/$cluster/quotas": typeof ClusterClusterQuotasRoute
   "/cluster/$cluster/schemas": typeof ClusterClusterSchemasRoute
   "/cluster/$cluster/topics": typeof ClusterClusterTopicsRoute
   "/cluster/$cluster/": typeof ClusterClusterIndexRoute
@@ -105,6 +112,7 @@ export interface FileRoutesByTo {
   "/cluster/$cluster/acls": typeof ClusterClusterAclsRoute
   "/cluster/$cluster/groups": typeof ClusterClusterGroupsRoute
   "/cluster/$cluster/nodes": typeof ClusterClusterNodesRoute
+  "/cluster/$cluster/quotas": typeof ClusterClusterQuotasRoute
   "/cluster/$cluster/schemas": typeof ClusterClusterSchemasRoute
   "/cluster/$cluster/topics": typeof ClusterClusterTopicsRoute
   "/cluster/$cluster": typeof ClusterClusterIndexRoute
@@ -120,6 +128,7 @@ export interface FileRoutesById {
   "/cluster/$cluster/acls": typeof ClusterClusterAclsRoute
   "/cluster/$cluster/groups": typeof ClusterClusterGroupsRoute
   "/cluster/$cluster/nodes": typeof ClusterClusterNodesRoute
+  "/cluster/$cluster/quotas": typeof ClusterClusterQuotasRoute
   "/cluster/$cluster/schemas": typeof ClusterClusterSchemasRoute
   "/cluster/$cluster/topics": typeof ClusterClusterTopicsRoute
   "/cluster/$cluster/": typeof ClusterClusterIndexRoute
@@ -136,6 +145,7 @@ export interface FileRouteTypes {
     | "/cluster/$cluster/acls"
     | "/cluster/$cluster/groups"
     | "/cluster/$cluster/nodes"
+    | "/cluster/$cluster/quotas"
     | "/cluster/$cluster/schemas"
     | "/cluster/$cluster/topics"
     | "/cluster/$cluster/"
@@ -149,6 +159,7 @@ export interface FileRouteTypes {
     | "/cluster/$cluster/acls"
     | "/cluster/$cluster/groups"
     | "/cluster/$cluster/nodes"
+    | "/cluster/$cluster/quotas"
     | "/cluster/$cluster/schemas"
     | "/cluster/$cluster/topics"
     | "/cluster/$cluster"
@@ -163,6 +174,7 @@ export interface FileRouteTypes {
     | "/cluster/$cluster/acls"
     | "/cluster/$cluster/groups"
     | "/cluster/$cluster/nodes"
+    | "/cluster/$cluster/quotas"
     | "/cluster/$cluster/schemas"
     | "/cluster/$cluster/topics"
     | "/cluster/$cluster/"
@@ -228,6 +240,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof ClusterClusterNodesRouteImport
       parentRoute: typeof ClusterClusterRoute
     }
+    "/cluster/$cluster/quotas": {
+      id: "/cluster/$cluster/quotas"
+      path: "/quotas"
+      fullPath: "/cluster/$cluster/quotas"
+      preLoaderRoute: typeof ClusterClusterQuotasRouteImport
+      parentRoute: typeof ClusterClusterRoute
+    }
     "/cluster/$cluster/schemas": {
       id: "/cluster/$cluster/schemas"
       path: "/schemas"
@@ -270,6 +289,7 @@ interface ClusterClusterRouteChildren {
   ClusterClusterAclsRoute: typeof ClusterClusterAclsRoute
   ClusterClusterGroupsRoute: typeof ClusterClusterGroupsRoute
   ClusterClusterNodesRoute: typeof ClusterClusterNodesRoute
+  ClusterClusterQuotasRoute: typeof ClusterClusterQuotasRoute
   ClusterClusterSchemasRoute: typeof ClusterClusterSchemasRoute
   ClusterClusterTopicsRoute: typeof ClusterClusterTopicsRoute
   ClusterClusterIndexRoute: typeof ClusterClusterIndexRoute
@@ -282,6 +302,7 @@ const ClusterClusterRouteChildren: ClusterClusterRouteChildren = {
   ClusterClusterAclsRoute: ClusterClusterAclsRoute,
   ClusterClusterGroupsRoute: ClusterClusterGroupsRoute,
   ClusterClusterNodesRoute: ClusterClusterNodesRoute,
+  ClusterClusterQuotasRoute: ClusterClusterQuotasRoute,
   ClusterClusterSchemasRoute: ClusterClusterSchemasRoute,
   ClusterClusterTopicsRoute: ClusterClusterTopicsRoute,
   ClusterClusterIndexRoute: ClusterClusterIndexRoute,
