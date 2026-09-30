@@ -16,7 +16,7 @@ pub use bus::{
 };
 pub use cluster::ClusterStore;
 pub use interest::InterestLease;
-pub use lane::{Lane, LaneHealth};
+pub use lane::{Follower, Lane, LaneHealth};
 pub use projections::TopicRow;
 pub use search::{SearchHit, SearchKind};
 pub use tables::{
