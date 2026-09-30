@@ -17,9 +17,11 @@ use crate::app::Limits;
 use crate::app::auth::access::{ClusterScope, EffectiveAccess, Grant, PrivilegeSet};
 use crate::app::auth::{AuthState, SessionGuard};
 use crate::kafka::store::fixtures::{
-    config, group, offsets, partition, subject, topic, topology, watermarks,
+    config, group, log_dir, offsets, partition, subject, topic, topology, watermarks,
 };
-use crate::kafka::store::{ClusterStore, ConfigTable, Interner, OffsetTable, SubjectTable};
+use crate::kafka::store::{
+    ClusterStore, ConfigTable, Interner, LogDirTable, OffsetTable, SubjectTable,
+};
 use crate::kafka::{Clusters, FakeCluster};
 
 pub(super) fn with(sessions: Vec<FakeCluster>) -> AppState {
@@ -261,6 +263,18 @@ pub(super) fn seed(store: &ClusterStore) {
 
     store.subjects.commit(Arc::new(SubjectTable::assemble(
         &[subject("orders.created-value", 1, 2)],
+        &mut Interner::default(),
+    )));
+
+    let mut data = log_dir(
+        1,
+        "/var/lib/kafka/data",
+        &[("orders.created", 0, 4_096), ("orders.created", 1, 1_024)],
+    );
+    data.total_bytes = Some(1_000_000);
+    data.usable_bytes = Some(600_000);
+    store.log_dirs.commit(Arc::new(LogDirTable::assemble(
+        vec![data],
         &mut Interner::default(),
     )));
 }

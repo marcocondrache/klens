@@ -2,8 +2,11 @@ import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 import type { GroupState } from "@/lib/api/types";
-import { formatEnumLabel, formatNumber } from "@/lib/format";
-import { lagTone, type Tone } from "@/lib/tone";
+import { useClusterHealth } from "@/lib/api/catalog";
+import { useClusterName } from "@/lib/clusters";
+import { formatBytes, formatEnumLabel, formatNumber } from "@/lib/format";
+import { isLogDirsPending } from "@/lib/storage";
+import { diskTone, lagTone, type Tone } from "@/lib/tone";
 
 const TONE_BG: Record<Tone, string> = {
   ok: "bg-ok",
@@ -124,6 +127,48 @@ export function LagValue({ lag, complete = true }: { lag: number | null; complet
     >
       {complete ? "" : "≥ "}
       {formatNumber(lag)}
+    </span>
+  );
+}
+
+export function SizeValue({ bytes, className }: { bytes: number | null; className?: string }) {
+  if (bytes === null) {
+    return <UnknownSize className={className} />;
+  }
+
+  return <span className={cn("numeric", className)}>{formatBytes(bytes)}</span>;
+}
+
+function UnknownSize({ className }: { className?: string }) {
+  const { data: health } = useClusterHealth(useClusterName());
+  const lane = health?.logDirs;
+
+  if (isLogDirsPending(lane)) {
+    return <PendingValue label="Fetching log dirs" className={cn("ml-auto block", className)} />;
+  }
+
+  return (
+    <span
+      className={cn("text-muted-foreground/60", className)}
+      title={lane?.lastError ?? "No log dir reports this yet"}
+    >
+      —
+    </span>
+  );
+}
+
+export function UsedValue({ used, title }: { used: number | null; title?: string }) {
+  if (used === null) {
+    return (
+      <span className="text-muted-foreground/60" title="The broker does not report its volume size">
+        —
+      </span>
+    );
+  }
+
+  return (
+    <span className={cn("numeric", TONE_TEXT[diskTone(used)])} title={title}>
+      {Math.round(used * 100)}%
     </span>
   );
 }

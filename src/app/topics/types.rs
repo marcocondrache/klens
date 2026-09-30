@@ -29,6 +29,9 @@ pub struct TopicRow {
     /// Messages ever produced (`Σ high`). Overstates a retention-truncated
     /// topic, so it is not the display default.
     pub produced_total: i64,
+    /// Bytes in one replica of each partition, the largest. Null until a log
+    /// dirs poll reports the topic.
+    pub size_bytes: Option<i64>,
     pub rate: f64,
     /// Null until the topic's configs report a `retention.ms` value.
     pub retention_ms: Option<i64>,
@@ -46,6 +49,7 @@ impl From<projections::TopicRow> for TopicRow {
             replication_factor: row.replication_factor,
             retained_messages: row.retained_messages,
             produced_total: row.produced_total,
+            size_bytes: row.size_bytes,
             rate: row.rate,
             retention_ms: row.retention_ms,
             cleanup_policy: row.cleanup_policy.into(),
@@ -66,6 +70,9 @@ pub struct PartitionRow {
     pub high_watermark: i64,
     pub retained: i64,
     pub under_replicated: bool,
+    /// Bytes in the largest replica. Null until a log dirs poll reports the
+    /// partition.
+    pub size_bytes: Option<i64>,
 }
 
 impl From<projections::PartitionRow> for PartitionRow {
@@ -79,6 +86,7 @@ impl From<projections::PartitionRow> for PartitionRow {
             isr: row.isr,
             low_watermark: row.low_watermark,
             high_watermark: row.high_watermark,
+            size_bytes: row.size_bytes,
         }
     }
 }
@@ -92,6 +100,11 @@ pub struct TopicDetail {
     pub replication_factor: i32,
     pub retained_messages: i64,
     pub produced_total: i64,
+    /// Bytes in one replica of each partition, the largest. Null until a log
+    /// dirs poll reports the topic.
+    pub size_bytes: Option<i64>,
+    /// Bytes in every replica of every partition.
+    pub disk_bytes: Option<i64>,
     pub rate: f64,
     /// Null until the topic's configs report a `retention.ms` value.
     pub retention_ms: Option<i64>,
@@ -109,6 +122,8 @@ impl From<projections::TopicDetail> for TopicDetail {
             replication_factor: detail.replication_factor,
             retained_messages: detail.retained_messages,
             produced_total: detail.produced_total,
+            size_bytes: detail.size_bytes,
+            disk_bytes: detail.disk_bytes,
             rate: detail.rate,
             retention_ms: detail.retention_ms,
             cleanup_policy: detail.cleanup_policy.into(),

@@ -11,6 +11,7 @@ export type {
   GroupState,
   Identity,
   LaneHealth,
+  LogDir,
   PartitionRow,
   PrivilegeName,
   Record as KafkaRecord,

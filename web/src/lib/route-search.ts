@@ -147,6 +147,16 @@ export function groupTab(value: unknown) {
   return z.parse(groupTabParam, value);
 }
 
+const nodeTabParam = z.catch(z._default(z.enum(["log-dirs", "config"]), "log-dirs"), "log-dirs");
+
+export const nodeDetailSearch = z.object({
+  tab: nodeTabParam,
+});
+
+export function nodeTab(value: unknown) {
+  return z.parse(nodeTabParam, value);
+}
+
 export function searchDefaults<T extends z.ZodMiniType>(schema: T): z.output<T> {
   return z.parse(schema, {});
 }

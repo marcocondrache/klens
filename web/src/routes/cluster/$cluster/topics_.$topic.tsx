@@ -12,12 +12,20 @@ import { PageHeader } from "@/components/page-header";
 import { RecordBrowser } from "@/components/records/record-browser";
 import { Facts } from "@/components/facts";
 import { TabCount } from "@/components/tab-count";
-import { GroupStateBadge, LagValue, PendingValue, Pill, StatusDot } from "@/components/status";
+import {
+  GroupStateBadge,
+  LagValue,
+  PendingValue,
+  Pill,
+  SizeValue,
+  StatusDot,
+} from "@/components/status";
 import { useTopic, useTopicGroups } from "@/lib/api/catalog";
 import { catalogLookupMessage } from "@/lib/catalog-lookup";
 import { useTopicConfigs } from "@/lib/api/live";
 import { useClusterName } from "@/lib/clusters";
 import {
+  formatBytes,
   formatCleanupPolicy,
   formatCount,
   formatDuration,
@@ -110,6 +118,14 @@ const partitionColumns = partitionColumnHelper.columns([
     meta: { align: "right", width: "9rem" },
     cell: ({ getValue }) => formatNumber(getValue()),
   }),
+  partitionColumnHelper.accessor((partition) => partition.sizeBytes ?? -1, {
+    id: "size",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Size" className="justify-end" />
+    ),
+    meta: { align: "right", width: "7rem" },
+    cell: ({ row }) => <SizeValue bytes={row.original.sizeBytes} />,
+  }),
 ]);
 
 const groupColumns = groupColumnHelper.columns([
@@ -145,6 +161,12 @@ function TopicFacts({ detail }: { detail: TopicDetail }) {
     <Facts>
       <span>{detail.partitions.length} partitions</span>
       <span>{formatCount(detail.retainedMessages)} messages</span>
+      {detail.sizeBytes === null ? null : (
+        <span title="One replica of each partition">{formatBytes(detail.sizeBytes)}</span>
+      )}
+      {detail.diskBytes === null || detail.diskBytes === detail.sizeBytes ? null : (
+        <span title="Every replica">{formatBytes(detail.diskBytes)} on disk</span>
+      )}
       {detail.retentionMs === null ? (
         <PendingValue label="Fetching topic configs" />
       ) : (

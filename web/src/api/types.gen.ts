@@ -25,7 +25,7 @@ export type LaneHealth = { updatedAt: string | null, checkedAt: string | null, l
  */
 healthy: boolean, };
 
-export type ClusterHealth = { cluster: string, ready: boolean, topology: LaneHealth, watermarks: LaneHealth, offsets: LaneHealth, configs: LaneHealth, subjects: LaneHealth, topicCount: number, partitionCount: number, groupCount: number, brokerCount: number, subjectCount: number, underReplicatedPartitions: number, offlinePartitions: number, };
+export type ClusterHealth = { cluster: string, ready: boolean, topology: LaneHealth, watermarks: LaneHealth, offsets: LaneHealth, configs: LaneHealth, subjects: LaneHealth, logDirs: LaneHealth, topicCount: number, partitionCount: number, groupCount: number, brokerCount: number, subjectCount: number, underReplicatedPartitions: number, offlinePartitions: number, };
 
 export type CleanupPolicy = "DELETE" | "COMPACT" | "COMPACT_DELETE";
 
@@ -38,15 +38,34 @@ retainedMessages: number,
  * Messages ever produced (`Σ high`). Overstates a retention-truncated
  * topic, so it is not the display default.
  */
-producedTotal: number, rate: number, 
+producedTotal: number, 
+/**
+ * Bytes in one replica of each partition, the largest. Null until a log
+ * dirs poll reports the topic.
+ */
+sizeBytes: number | null, rate: number, 
 /**
  * Null until the topic's configs report a `retention.ms` value.
  */
 retentionMs: number | null, cleanupPolicy: CleanupPolicy, groupCount: number, underReplicated: boolean, };
 
-export type PartitionRow = { id: number, leader: number, replicas: Array<number>, isr: Array<number>, lowWatermark: number, highWatermark: number, retained: number, underReplicated: boolean, };
+export type PartitionRow = { id: number, leader: number, replicas: Array<number>, isr: Array<number>, lowWatermark: number, highWatermark: number, retained: number, underReplicated: boolean, 
+/**
+ * Bytes in the largest replica. Null until a log dirs poll reports the
+ * partition.
+ */
+sizeBytes: number | null, };
 
-export type TopicDetail = { name: string, internal: boolean, partitions: Array<PartitionRow>, replicationFactor: number, retainedMessages: number, producedTotal: number, rate: number, 
+export type TopicDetail = { name: string, internal: boolean, partitions: Array<PartitionRow>, replicationFactor: number, retainedMessages: number, producedTotal: number, 
+/**
+ * Bytes in one replica of each partition, the largest. Null until a log
+ * dirs poll reports the topic.
+ */
+sizeBytes: number | null, 
+/**
+ * Bytes in every replica of every partition.
+ */
+diskBytes: number | null, rate: number, 
 /**
  * Null until the topic's configs report a `retention.ms` value.
  */
@@ -75,7 +94,35 @@ export type GroupDetail = { id: string, state: GroupState, protocol: string, mem
 
 export type TopicGroupRow = { id: string, state: GroupState, memberCount: number, lagOnTopic: number | null, };
 
-export type BrokerRow = { id: number, host: string, port: number, rack: string | null, controller: boolean, partitionCount: number, leaderCount: number, };
+export type LogDir = { path: string, 
+/**
+ * Set when the directory is offline, as a Kafka error name.
+ */
+error: string | null, 
+/**
+ * Size of the volume the directory lives on. Null for brokers before
+ * Kafka 3.3.
+ */
+totalBytes: number | null, usableBytes: number | null, 
+/**
+ * A cordoned directory takes no new partitions.
+ */
+cordoned: boolean, 
+/**
+ * Every log in the directory, including a replica still moving in.
+ */
+sizeBytes: number, replicaCount: number, };
+
+export type BrokerRow = { id: number, host: string, port: number, rack: string | null, controller: boolean, partitionCount: number, leaderCount: number, 
+/**
+ * Bytes in this broker's log dirs. Null until a log dirs poll reports
+ * the broker.
+ */
+sizeBytes: number | null, 
+/**
+ * Sorted by path.
+ */
+logDirs: Array<LogDir>, };
 
 export type ConfigSource = "DYNAMIC_TOPIC_CONFIG" | "DYNAMIC_BROKER_CONFIG" | "STATIC_BROKER_CONFIG" | "DEFAULT_CONFIG";
 
@@ -143,5 +190,5 @@ export type Update = { "type": "watermarks",
  * One `{topic, rate}` pair per topic, never catalog objects. A scoped
  * subscriber gets only its topic.
  */
-topics: Array<TopicRate>, } | { "type": "groupLag", group: string, lag: number, lagComplete: boolean, offsets: Array<GroupOffset>, } | { "type": "topology", addedTopics: Array<string>, removedTopics: Array<string>, changedTopics: Array<string>, addedGroups: Array<string>, removedGroups: Array<string>, changedGroups: Array<string>, brokersChanged: boolean, } | { "type": "configs", topics: Array<string>, } | { "type": "subjects", removed: Array<string>, changed: Array<string>, } | { "type": "resync" };
+topics: Array<TopicRate>, } | { "type": "groupLag", group: string, lag: number, lagComplete: boolean, offsets: Array<GroupOffset>, } | { "type": "topology", addedTopics: Array<string>, removedTopics: Array<string>, changedTopics: Array<string>, addedGroups: Array<string>, removedGroups: Array<string>, changedGroups: Array<string>, brokersChanged: boolean, } | { "type": "configs", topics: Array<string>, } | { "type": "subjects", removed: Array<string>, changed: Array<string>, } | { "type": "logDirs", topics: Array<string>, brokersChanged: boolean, } | { "type": "resync" };
 

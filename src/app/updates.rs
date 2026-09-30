@@ -208,6 +208,18 @@ fn project(change: &Change, scope: &Scope) -> Vec<Update> {
             removed: names(&delta.removed),
             changed: names(&delta.changed),
         }],
+
+        Change::LogDirs(delta) => match scope.topic.as_deref() {
+            None => vec![Update::LogDirs {
+                topics: names(&delta.topics),
+                brokers_changed: delta.brokers_changed,
+            }],
+            Some(topic) if delta.touches_topic(topic) => vec![Update::LogDirs {
+                topics: vec![topic.to_owned()],
+                brokers_changed: false,
+            }],
+            Some(_) => Vec::new(),
+        },
     }
 }
 

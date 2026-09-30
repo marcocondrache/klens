@@ -5,7 +5,7 @@ use tokio::sync::broadcast;
 
 use crate::kafka::group::GroupOffset;
 
-use super::tables::{ConfigTable, GroupInfo, SubjectTable, TopicInfo, Topology};
+use super::tables::{ConfigTable, GroupInfo, LogDirTable, SubjectTable, TopicInfo, Topology};
 
 pub const BUS_CAPACITY: usize = 256;
 
@@ -16,6 +16,7 @@ pub enum Change {
     GroupOffsets(Arc<GroupOffsetsWave>),
     Configs(Arc<ConfigsDelta>),
     Subjects(Arc<SubjectsDelta>),
+    LogDirs(Arc<LogDirsDelta>),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -145,6 +146,45 @@ impl ConfigsDelta {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LogDirsDelta {
+    /// Topics whose size moved, appeared, or disappeared.
+    pub topics: Vec<Arc<str>>,
+    pub brokers_changed: bool,
+}
+
+impl LogDirsDelta {
+    pub fn between(previous: Option<&LogDirTable>, next: &LogDirTable) -> Option<Self> {
+        let empty = LogDirTable::default();
+        let previous = previous.unwrap_or(&empty);
+
+        let mut topics: Vec<Arc<str>> = next
+            .partitions
+            .iter()
+            .filter(|(topic, partitions)| previous.partitions.get(*topic) != Some(partitions))
+            .map(|(topic, _)| Arc::clone(topic))
+            .chain(
+                previous
+                    .partitions
+                    .keys()
+                    .filter(|topic| !next.partitions.contains_key(*topic))
+                    .cloned(),
+            )
+            .collect();
+        topics.sort();
+        let brokers_changed = previous.brokers != next.brokers;
+
+        (brokers_changed || !topics.is_empty()).then_some(Self {
+            topics,
+            brokers_changed,
+        })
+    }
+
+    pub fn touches_topic(&self, topic: &str) -> bool {
+        self.topics.iter().any(|name| &**name == topic)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubjectsDelta {
     pub added: Vec<Arc<str>>,
     pub removed: Vec<Arc<str>>,
@@ -250,7 +290,7 @@ mod tests {
     use foldhash::HashMap;
 
     use crate::kafka::group::GroupState;
-    use crate::kafka::store::fixtures::{config, group, partition, topic, topology};
+    use crate::kafka::store::fixtures::{config, group, log_dir, partition, topic, topology};
     use crate::kafka::topic_config::ConfigEntry;
 
     fn configs<const N: usize>(entries: [(&str, &str); N]) -> ConfigTable {
@@ -367,6 +407,61 @@ mod tests {
             ]
         );
         assert_eq!(ConfigsDelta::between(Some(&next), &next), None);
+    }
+
+    fn log_dirs(dirs: Vec<crate::kafka::storage::LogDir>) -> LogDirTable {
+        LogDirTable::assemble(dirs, &mut crate::kafka::store::tables::Interner::default())
+    }
+
+    #[test]
+    fn log_dir_diff_lists_topics_whose_size_moved() {
+        let previous = log_dirs(vec![log_dir(
+            1,
+            "/data",
+            &[("orders", 0, 10), ("payments", 0, 5), ("audit", 0, 1)],
+        )]);
+        let next = log_dirs(vec![log_dir(
+            1,
+            "/data",
+            &[("orders", 0, 12), ("shipments", 0, 5), ("audit", 0, 1)],
+        )]);
+
+        let delta = LogDirsDelta::between(Some(&previous), &next).expect("sizes moved");
+        assert_eq!(
+            delta.topics,
+            [
+                Arc::from("orders"),
+                Arc::from("payments"),
+                Arc::from("shipments")
+            ]
+        );
+        assert!(delta.brokers_changed, "the directory grew");
+        assert!(delta.touches_topic("payments"));
+        assert!(!delta.touches_topic("audit"));
+        assert_eq!(LogDirsDelta::between(Some(&next), &next), None);
+    }
+
+    #[test]
+    fn a_directory_change_alone_is_a_log_dir_delta() {
+        let previous = log_dirs(vec![log_dir(1, "/data", &[("orders", 0, 10)])]);
+        let mut failed = log_dir(1, "/data", &[("orders", 0, 10)]);
+        failed.error = Some("KafkaStorageError".into());
+
+        let delta = LogDirsDelta::between(Some(&previous), &log_dirs(vec![failed]))
+            .expect("the directory went offline");
+        assert!(delta.topics.is_empty());
+        assert!(delta.brokers_changed);
+    }
+
+    #[test]
+    fn the_first_log_dir_commit_reports_every_topic() {
+        let delta = LogDirsDelta::between(
+            None,
+            &log_dirs(vec![log_dir(1, "/data", &[("orders", 0, 0)])]),
+        )
+        .expect("first commit");
+        assert_eq!(delta.topics, [Arc::from("orders")]);
+        assert!(delta.brokers_changed);
     }
 
     #[test]

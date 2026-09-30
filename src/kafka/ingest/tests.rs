@@ -57,6 +57,23 @@ fn idle_lanes(store: &Arc<ClusterStore>, session: &FakeCluster) -> JoinSet<()> {
     lanes
 }
 
+fn log_dir_lanes(
+    store: &Arc<ClusterStore>,
+    session: &FakeCluster,
+    interval: Duration,
+) -> JoinSet<()> {
+    let mut lanes = JoinSet::new();
+    lanes.spawn(run(
+        Arc::clone(store),
+        TopologyLane::with_interval(port(session), IDLE),
+    ));
+    lanes.spawn(run(
+        Arc::clone(store),
+        LogDirLane::with_interval(port(session), interval),
+    ));
+    lanes
+}
+
 fn group(id: &str, topic: &str, partitions: Vec<i32>, committed: &[(i32, i64)]) -> GroupSnapshot {
     GroupSnapshot {
         id: id.to_owned(),
@@ -733,13 +750,119 @@ async fn downstream_lanes_wait_for_topology_instead_of_committing_nothing() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn lanes_waiting_for_topology_start_a_second_after_it() {
+    let session = FakeCluster::local();
+    let store = store(&session);
+    let mut lanes = JoinSet::new();
+    lanes.spawn(run(
+        Arc::clone(&store),
+        ConfigLane::with_interval(port(&session), IDLE),
+    ));
+    lanes.spawn(run(
+        Arc::clone(&store),
+        LogDirLane::with_interval(port(&session), IDLE),
+    ));
+    wait_for(
+        || {
+            store.configs.health().checked_at.is_some()
+                && store.log_dirs.health().checked_at.is_some()
+        },
+        "polls before topology",
+    )
+    .await;
+    assert!(store.log_dirs.load().is_none());
+
+    lanes.spawn(run(
+        Arc::clone(&store),
+        TopologyLane::with_interval(port(&session), IDLE),
+    ));
+    wait_for(|| store.ready(), "topology commit").await;
+    tokio::time::advance(Duration::from_secs(1)).await;
+
+    wait_for(
+        || store.configs.ready() && store.log_dirs.ready(),
+        "config and log dir commits",
+    )
+    .await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_log_dirs_lane_sums_sizes_per_topic_and_directory() {
+    let session = FakeCluster::local();
+    let store = store(&session);
+    let mut events = store.bus.subscribe();
+    let _lanes = log_dir_lanes(&store, &session, IDLE);
+
+    wait_for(|| store.log_dirs.ready(), "log dirs commit").await;
+
+    let topology = store.topology.load().unwrap();
+    let log_dirs = store.log_dirs.load().unwrap();
+    assert_eq!(
+        log_dirs
+            .topic("orders.created")
+            .map(|topic| topic.size_bytes),
+        Some(4_096 + 2_048)
+    );
+    assert_eq!(log_dirs.broker(1).unwrap()[0].size_bytes, 4_096 + 2_048);
+    let (topic, _) = topology.topics.get_key_value("orders.created").unwrap();
+    let (sized, _) = log_dirs.partitions.get_key_value("orders.created").unwrap();
+    assert!(Arc::ptr_eq(topic, sized), "topic names are shared");
+
+    let delta = std::iter::from_fn(|| events.try_recv().ok())
+        .find_map(|change| match change {
+            Change::LogDirs(delta) => Some(delta),
+            _ => None,
+        })
+        .expect("a log dirs change");
+    assert_eq!(delta.topics, [Arc::from("orders.created")]);
+    assert!(delta.brokers_changed);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_failing_log_dirs_poll_names_its_lane_and_waits_out_the_interval() {
+    let (logs, _guard) = crate::telemetry::capture::subscriber(tracing::Level::WARN);
+    let session = FakeCluster::local();
+    session.set_log_dirs(Err("DescribeLogDirs is not supported"));
+    let store = store(&session);
+    let _lanes = log_dir_lanes(&store, &session, Duration::from_secs(60));
+
+    wait_for(
+        || store.log_dirs.health().last_error.is_some(),
+        "log dirs error",
+    )
+    .await;
+
+    assert!(store.log_dirs.load().is_none());
+    assert_eq!(
+        store.log_dirs.health().last_error.as_deref(),
+        Some("kafka admin request failed: DescribeLogDirs is not supported")
+    );
+    assert!(
+        logs.as_string().contains("lane=\"log_dirs\""),
+        "{}",
+        logs.as_string()
+    );
+
+    let calls = session.calls().log_dirs();
+    tokio::time::advance(Duration::from_secs(59)).await;
+    tokio::task::yield_now().await;
+    assert_eq!(session.calls().log_dirs(), calls);
+    tokio::time::advance(Duration::from_secs(2)).await;
+    wait_for(
+        || session.calls().log_dirs() > calls,
+        "second log dirs call",
+    )
+    .await;
+}
+
+#[tokio::test(start_paused = true)]
 async fn every_lane_runs_per_cluster_and_stops_with_the_ingest() {
     let prod = FakeCluster::named("prod");
     let staging = FakeCluster::named("staging");
     let clusters = Clusters::from_sessions(vec![prod.clone(), staging]);
     let lanes = Ingest::start(&clusters, &IngestTuning::default());
 
-    assert_eq!(lanes.lane_count(), 10, "five lanes per cluster");
+    assert_eq!(lanes.lane_count(), 12, "six lanes per cluster");
     wait_for(|| clusters.ready(), "both clusters ready").await;
 
     drop(lanes);

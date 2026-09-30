@@ -28,6 +28,7 @@ use crate::kafka::scan::RecordHeader;
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::{DecodedPayload, PayloadCodec, PayloadSlot};
 use crate::kafka::session::ClusterSession;
+use crate::kafka::storage::{LogDir, ReplicaLog};
 use crate::kafka::topic_config::{ConfigEntry, ConfigSource};
 
 const SUBJECT_SCHEMA: &str =
@@ -57,6 +58,7 @@ struct Inner {
     watermarks: Mutex<HashMap<String, HashMap<i32, Watermarks>>>,
     topic_configs: Mutex<HashMap<String, Vec<ConfigEntry>>>,
     broker_configs: Mutex<HashMap<i32, Vec<ConfigEntry>>>,
+    log_dirs: Mutex<Result<Vec<LogDir>, String>>,
     groups: Mutex<Vec<GroupSnapshot>>,
     records: Mutex<Vec<FixtureRecord>>,
     subjects: Mutex<Vec<SchemaSubject>>,
@@ -152,6 +154,29 @@ impl FakeCluster {
             }],
         )]);
 
+        let log_dirs = vec![LogDir {
+            broker: 1,
+            path: "/var/lib/kafka/data".into(),
+            error: None,
+            total_bytes: Some(1_000_000),
+            usable_bytes: Some(750_000),
+            cordoned: false,
+            replicas: vec![
+                ReplicaLog {
+                    topic: "orders.created".into(),
+                    partition: 0,
+                    size_bytes: 4_096,
+                    future: false,
+                },
+                ReplicaLog {
+                    topic: "orders.created".into(),
+                    partition: 1,
+                    size_bytes: 2_048,
+                    future: false,
+                },
+            ],
+        }];
+
         let groups = vec![GroupSnapshot {
             id: "order-processor".into(),
             state: GroupState::Stable,
@@ -212,6 +237,7 @@ impl FakeCluster {
                 watermarks: Mutex::new(watermarks),
                 topic_configs: Mutex::new(topic_configs),
                 broker_configs: Mutex::new(broker_configs),
+                log_dirs: Mutex::new(Ok(log_dirs)),
                 groups: Mutex::new(groups),
                 records: Mutex::new(records),
                 subjects: Mutex::new(subjects),
@@ -349,6 +375,10 @@ impl FakeCluster {
             .lock()
             .expect("topic configs")
             .insert(topic.to_owned(), configs);
+    }
+
+    pub fn set_log_dirs(&self, log_dirs: Result<Vec<LogDir>, &str>) {
+        *self.inner.log_dirs.lock().expect("log dirs") = log_dirs.map_err(str::to_owned);
     }
 
     pub fn set_subjects(&self, subjects: Vec<SchemaSubject>) {
@@ -691,6 +721,16 @@ impl ClusterSession for FakeCluster {
             .get(&broker_id)
             .cloned()
             .unwrap_or_default())
+    }
+
+    async fn log_dirs(&self) -> Result<Vec<LogDir>, KafkaError> {
+        self.inner.calls.log_dirs.fetch_add(1, Ordering::SeqCst);
+        self.inner
+            .log_dirs
+            .lock()
+            .expect("log dirs")
+            .clone()
+            .map_err(KafkaError::Admin)
     }
 
     async fn groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
@@ -1104,6 +1144,7 @@ pub struct SessionCalls {
     topic_metadata: AtomicUsize,
     watermarks: AtomicUsize,
     topic_configs: AtomicUsize,
+    log_dirs: AtomicUsize,
     committed_offsets: AtomicUsize,
     offsets_in_flight: AtomicUsize,
     offsets_peak: AtomicUsize,
@@ -1125,6 +1166,10 @@ impl SessionCalls {
 
     pub fn topic_configs(&self) -> usize {
         self.topic_configs.load(Ordering::SeqCst)
+    }
+
+    pub fn log_dirs(&self) -> usize {
+        self.log_dirs.load(Ordering::SeqCst)
     }
 
     pub fn committed_offsets(&self) -> usize {

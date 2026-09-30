@@ -124,6 +124,7 @@ tuning:
     watermark: 3s
     config: 60s
     subjects: 30s
+    log_dirs: 60s
     offset_tick: 1s # how often the offset lane checks which groups are due
     fast_offset: 2s # groups someone is looking at
     slow_offset: 20s # every other group
@@ -134,8 +135,9 @@ tuning:
 ```
 
 Every page reads a background projection of each cluster, refreshed by the
-independent lanes `ingest` paces. A lane's period and `scan.pool_idle_ttl` must
-be at least `1s`. Counts must be at least 1, except `records.min_window`,
+independent lanes `ingest` paces. A lane that waits for another lane's first
+table retries every second until it has one. A lane's period and
+`scan.pool_idle_ttl` must be at least `1s`. Counts must be at least 1, except `records.min_window`,
 `records.window_multiplier`, `records.search_window_multiplier`, and
 `tail.max_live`.
 
@@ -154,6 +156,19 @@ at least `tuning.tail.interval` (`250ms`) apart. A partition that falls too
 far behind skips ahead. `skipped` counts what was passed over. Each tail holds
 its own consumer, and `tuning.tail.max_live` (32) caps how many run at once.
 Past that cap, a new tail gets `503 TOO_MANY_TAILS`.
+
+## Storage
+
+klens asks every broker to describe its log dirs every
+`tuning.ingest.log_dirs` (`60s`). A topic's size counts the largest replica
+of each partition, and the topic page adds the bytes across every replica. A
+broker's size counts every log in its dirs. Its disk use is that of the
+fullest dir's volume, which Kafka reports from 3.3 on. The broker page lists
+each dir, and flags one that is offline or cordoned.
+
+Sizes need the `Describe` operation on the `Cluster` resource. On a cluster
+that does not grant it, or does not serve `DescribeLogDirs`, sizes stay blank
+and the rest of klens works as before.
 
 ## Authentication
 
@@ -191,7 +206,7 @@ same access as an open deployment.
 To restrict what signed-in users may do, add `roles`. A role is nothing but a
 name for a set of privileges, defined by you: there are no built-in roles. The
 privileges are `records`, `configs`, `schema_text`, and `acls`; a role that
-lists none still sees the catalog (clusters, topics, groups, lag) but no
+lists none still sees the catalog (clusters, topics, groups, lag, sizes) but no
 payloads, live configs, schema bodies, or ACL bindings. A role's `bindings`
 name the IdP groups that hold it, read from the ID token claim that
 `oidc.groups_claim` names (default `groups`). Unmatched users cannot sign in.

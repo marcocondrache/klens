@@ -11,6 +11,7 @@ import type {
   TopicRow,
 } from "@/api/types.gen";
 import { clusterPath } from "@/lib/clusters";
+import { isLogDirsPending } from "@/lib/storage";
 
 import { clusterPathname, get, getOrNull, resourceId } from "./client";
 import { keys } from "./keys";
@@ -29,11 +30,15 @@ function searchHref(cluster: string, hit: Omit<SearchHit, "href">): string {
   }
 }
 
+function settled(cluster: ClusterHealth) {
+  return cluster.ready && !isLogDirsPending(cluster.logDirs);
+}
+
 const clustersOptions = {
   queryKey: keys.clusters(),
   queryFn: () => get<ClusterHealth[]>("/clusters"),
   refetchInterval: (query: Query<ClusterHealth[]>) =>
-    query.state.data?.every((cluster) => cluster.ready) === false ? 2000 : false,
+    query.state.data?.every(settled) === false ? 2000 : false,
 };
 
 export function useClusters() {

@@ -6,9 +6,9 @@ use foldhash::HashMap;
 
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
-    AclListing, ClusterIdentity, CommittedOffset, ConfigEntry, GroupSnapshot, MetadataSnapshot,
-    PartitionWindow, RegisteredSchema, ScanConsumer, SchemaSubject, TailConsumer, TailPosition,
-    TopicMetadata, Watermarks,
+    AclListing, ClusterIdentity, CommittedOffset, ConfigEntry, GroupSnapshot, LogDir,
+    MetadataSnapshot, PartitionWindow, RegisteredSchema, ScanConsumer, SchemaSubject, TailConsumer,
+    TailPosition, TopicMetadata, Watermarks,
 };
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
@@ -39,6 +39,8 @@ pub trait ClusterSession: Send + Sync + 'static {
     ) -> Result<HashMap<String, Vec<ConfigEntry>>, KafkaError>;
 
     async fn broker_configs(&self, broker_id: i32) -> Result<Vec<ConfigEntry>, KafkaError>;
+
+    async fn log_dirs(&self) -> Result<Vec<LogDir>, KafkaError>;
 
     async fn groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError>;
 
