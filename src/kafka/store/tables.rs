@@ -186,6 +186,12 @@ impl Topology {
             .unwrap_or_default()
     }
 
+    pub fn gained_topics_since(&self, earlier: &Topology) -> bool {
+        self.topics
+            .keys()
+            .any(|name| !earlier.topics.contains_key(name))
+    }
+
     pub fn intern_topic(&self, name: &str) -> Arc<str> {
         match self.topics.get_key_value(name) {
             Some((key, _)) => Arc::clone(key),

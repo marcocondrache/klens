@@ -7,9 +7,9 @@ use async_trait::async_trait;
 
 use crate::kafka::error::KafkaError;
 use crate::kafka::session::ClusterSession;
-use crate::kafka::store::{Change, ClusterStore, ConfigTable, ConfigsDelta, Lane};
+use crate::kafka::store::{Change, ClusterStore, ConfigTable, ConfigsDelta, Lane, Topology};
 
-use super::runner::{Fetch, LaneSource};
+use super::runner::LaneSource;
 
 pub struct ConfigLane {
     session: Arc<dyn ClusterSession>,
@@ -24,6 +24,7 @@ impl ConfigLane {
 
 #[async_trait]
 impl LaneSource for ConfigLane {
+    type Upstream = Topology;
     type Table = ConfigTable;
     type Delta = ConfigsDelta;
 
@@ -41,13 +42,10 @@ impl LaneSource for ConfigLane {
 
     async fn fetch(
         &self,
-        store: &ClusterStore,
+        _store: &ClusterStore,
+        topology: &Topology,
         previous: Option<&Arc<ConfigTable>>,
-    ) -> Result<Fetch<ConfigTable>, KafkaError> {
-        let Some(topology) = store.topology.load() else {
-            return Ok(Fetch::Awaiting);
-        };
-
+    ) -> Result<ConfigTable, KafkaError> {
         let names: Vec<&str> = topology.topics.keys().map(AsRef::as_ref).collect();
         let mut fetched = self.session.topic_configs(&names).await?;
 
@@ -64,7 +62,11 @@ impl LaneSource for ConfigLane {
             })
             .collect();
 
-        Ok(Fetch::Ready(ConfigTable { topics }))
+        Ok(ConfigTable { topics })
+    }
+
+    fn stale(&self, fetched: &Topology, latest: &Topology) -> bool {
+        latest.gained_topics_since(fetched)
     }
 
     fn diff(&self, previous: Option<&ConfigTable>, next: &ConfigTable) -> Option<ConfigsDelta> {

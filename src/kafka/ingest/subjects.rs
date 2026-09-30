@@ -7,7 +7,7 @@ use crate::kafka::error::KafkaError;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::store::{Change, ClusterStore, Interner, Lane, SubjectTable, SubjectsDelta};
 
-use super::runner::{Fetch, LaneSource};
+use super::runner::LaneSource;
 
 pub struct SubjectLane {
     session: Arc<dyn ClusterSession>,
@@ -22,6 +22,7 @@ impl SubjectLane {
 
 #[async_trait]
 impl LaneSource for SubjectLane {
+    type Upstream = ();
     type Table = SubjectTable;
     type Delta = SubjectsDelta;
 
@@ -40,18 +41,16 @@ impl LaneSource for SubjectLane {
     async fn fetch(
         &self,
         _store: &ClusterStore,
+        (): &(),
         previous: Option<&Arc<SubjectTable>>,
-    ) -> Result<Fetch<SubjectTable>, KafkaError> {
+    ) -> Result<SubjectTable, KafkaError> {
         let subjects = self.session.schema_subjects().await?;
 
         let mut interner = match previous {
             Some(previous) => Interner::seeded(previous.subjects.keys()),
             None => Interner::default(),
         };
-        Ok(Fetch::Ready(SubjectTable::assemble(
-            &subjects,
-            &mut interner,
-        )))
+        Ok(SubjectTable::assemble(&subjects, &mut interner))
     }
 
     fn diff(&self, previous: Option<&SubjectTable>, next: &SubjectTable) -> Option<SubjectsDelta> {
