@@ -27,6 +27,28 @@ async fn topic_rows_project_counts_and_configs_without_touching_the_broker() {
 }
 
 #[tokio::test]
+async fn topic_rows_carry_the_size_the_log_dirs_report() {
+    let rows = ok(&seeded(), "/clusters/local/topics").await;
+
+    assert_eq!(rows[0]["sizeBytes"], 5_120);
+    assert_eq!(
+        rows[1]["sizeBytes"],
+        Value::Null,
+        "no log dir reported payments.settled"
+    );
+}
+
+#[tokio::test]
+async fn topic_detail_sizes_the_topic_and_each_partition() {
+    let topic = ok(&seeded(), "/clusters/local/topics/orders.created").await;
+
+    assert_eq!(topic["sizeBytes"], 5_120);
+    assert_eq!(topic["diskBytes"], 5_120);
+    assert_eq!(topic["partitions"][0]["sizeBytes"], 4_096);
+    assert_eq!(topic["partitions"][1]["sizeBytes"], 1_024);
+}
+
+#[tokio::test]
 async fn topic_rows_expose_the_latest_rate() {
     let state = seeded();
     let store = store_of(&state, "local");

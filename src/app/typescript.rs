@@ -1,7 +1,7 @@
 pub use super::acls::types::{
     Acl, AclAuthorizer, AclListing, AclOperation, AclPatternType, AclPermission, AclResourceType,
 };
-pub use super::brokers::types::BrokerRow;
+pub use super::brokers::types::{BrokerRow, LogDir};
 pub use super::clusters::types::{ClusterHealth, LaneHealth};
 pub use super::configs::{ConfigEntry, ConfigSource};
 pub use super::groups::types::{

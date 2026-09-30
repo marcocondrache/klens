@@ -9,8 +9,8 @@ use crate::kafka::topic_config::{CleanupPolicy, topic_config_values};
 
 use super::lane::LaneHealth;
 use super::tables::{
-    ConfigTable, GroupInfo, GroupOffsets, OffsetTable, SubjectInfo, SubjectTable, TopicInfo,
-    Topology, WatermarkTable,
+    ConfigTable, GroupInfo, GroupOffsets, LogDirInfo, LogDirTable, OffsetTable, SubjectInfo,
+    SubjectTable, TopicInfo, Topology, WatermarkTable,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -21,6 +21,7 @@ pub struct TopicRow {
     pub replication_factor: i32,
     pub retained_messages: i64,
     pub produced_total: i64,
+    pub size_bytes: Option<i64>,
     pub rate: f64,
     pub retention_ms: Option<i64>,
     pub cleanup_policy: CleanupPolicy,
@@ -36,6 +37,7 @@ pub struct PartitionRow {
     pub isr: Vec<i32>,
     pub low_watermark: i64,
     pub high_watermark: i64,
+    pub size_bytes: Option<i64>,
 }
 
 impl PartitionRow {
@@ -56,6 +58,8 @@ pub struct TopicDetail {
     pub replication_factor: i32,
     pub retained_messages: i64,
     pub produced_total: i64,
+    pub size_bytes: Option<i64>,
+    pub disk_bytes: Option<i64>,
     pub rate: f64,
     pub retention_ms: Option<i64>,
     pub cleanup_policy: CleanupPolicy,
@@ -101,6 +105,8 @@ pub struct BrokerRow {
     pub controller: bool,
     pub partition_count: i32,
     pub leader_count: i32,
+    pub size_bytes: Option<i64>,
+    pub log_dirs: Vec<LogDirInfo>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -136,6 +142,7 @@ pub fn topic_row(
     topic: &TopicInfo,
     watermarks: Option<&WatermarkTable>,
     configs: Option<&ConfigTable>,
+    log_dirs: Option<&LogDirTable>,
     topology: &Topology,
     rate: f64,
 ) -> TopicRow {
@@ -149,6 +156,9 @@ pub fn topic_row(
         replication_factor: topic.replication_factor(),
         retained_messages: watermarks.map(|marks| marks.retained(name)).unwrap_or(0),
         produced_total: watermarks.map(|marks| marks.produced(name)).unwrap_or(0),
+        size_bytes: log_dirs
+            .and_then(|table| table.topic(name))
+            .map(|storage| storage.size_bytes),
         rate,
         retention_ms,
         cleanup_policy,
@@ -162,6 +172,7 @@ pub fn topic_detail(
     topic: &TopicInfo,
     watermarks: Option<&WatermarkTable>,
     configs: Option<&ConfigTable>,
+    log_dirs: Option<&LogDirTable>,
     topology: &Topology,
     rate: f64,
 ) -> TopicDetail {
@@ -179,9 +190,13 @@ pub fn topic_detail(
                 isr: partition.isr.clone(),
                 low_watermark: marks.low,
                 high_watermark: marks.high,
+                size_bytes: log_dirs
+                    .and_then(|table| table.partition(name, partition.id))
+                    .map(|storage| storage.size_bytes),
             }
         })
         .collect();
+    let storage = log_dirs.and_then(|table| table.topic(name));
 
     let (cleanup_policy, retention_ms) =
         topic_config_values(configs.and_then(|configs| configs.get(name)));
@@ -195,6 +210,8 @@ pub fn topic_detail(
             .iter()
             .map(|partition| partition.high_watermark.max(0))
             .sum(),
+        size_bytes: storage.map(|storage| storage.size_bytes),
+        disk_bytes: storage.map(|storage| storage.disk_bytes),
         rate,
         retention_ms,
         cleanup_policy,
@@ -323,7 +340,7 @@ pub fn topic_group_row(
     }
 }
 
-pub fn broker_rows(topology: &Topology) -> Vec<BrokerRow> {
+pub fn broker_rows(topology: &Topology, log_dirs: Option<&LogDirTable>) -> Vec<BrokerRow> {
     let mut partition_counts: HashMap<i32, i32> = HashMap::with_capacity(topology.brokers.len());
     let mut leader_counts: HashMap<i32, i32> = HashMap::with_capacity(topology.brokers.len());
     for partition in topology
@@ -342,14 +359,19 @@ pub fn broker_rows(topology: &Topology) -> Vec<BrokerRow> {
     topology
         .brokers
         .iter()
-        .map(|(id, broker)| BrokerRow {
-            id: *id,
-            host: broker.host.clone(),
-            port: broker.port,
-            rack: broker.rack.clone(),
-            controller: topology.controller == Some(*id),
-            partition_count: partition_counts.get(id).copied().unwrap_or(0),
-            leader_count: leader_counts.get(id).copied().unwrap_or(0),
+        .map(|(id, broker)| {
+            let dirs = log_dirs.and_then(|table| table.broker(*id));
+            BrokerRow {
+                id: *id,
+                host: broker.host.clone(),
+                port: broker.port,
+                rack: broker.rack.clone(),
+                controller: topology.controller == Some(*id),
+                partition_count: partition_counts.get(id).copied().unwrap_or(0),
+                leader_count: leader_counts.get(id).copied().unwrap_or(0),
+                size_bytes: dirs.map(|dirs| dirs.iter().map(|dir| dir.size_bytes).sum()),
+                log_dirs: dirs.map(<[LogDirInfo]>::to_vec).unwrap_or_default(),
+            }
         })
         .collect()
 }
@@ -381,9 +403,10 @@ mod tests {
     use super::*;
     use crate::kafka::group::MemberAssignment;
     use crate::kafka::store::fixtures::{
-        config, group as group_snapshot, offline_partition, offsets, partition, topic,
+        config, group as group_snapshot, log_dir, offline_partition, offsets, partition, topic,
         topology as build_topology, watermarks,
     };
+    use crate::kafka::store::tables::Interner;
 
     fn topology() -> Topology {
         build_topology(
@@ -407,7 +430,7 @@ mod tests {
         let topology = topology();
         let (name, topic) = topology.topics.iter().next().unwrap();
 
-        let row = topic_row(name, topic, Some(&marks()), None, &topology, 12.5);
+        let row = topic_row(name, topic, Some(&marks()), None, None, &topology, 12.5);
 
         assert_eq!(row.partition_count, 2);
         assert_eq!(row.replication_factor, 2);
@@ -423,7 +446,7 @@ mod tests {
         let topology = topology();
         let (name, topic) = topology.topics.iter().next().unwrap();
 
-        let row = topic_row(name, topic, None, None, &topology, 0.0);
+        let row = topic_row(name, topic, None, None, None, &topology, 0.0);
         assert_eq!(row.retained_messages, 0);
         assert_eq!(row.cleanup_policy, CleanupPolicy::Delete);
         assert_eq!(
@@ -431,7 +454,7 @@ mod tests {
             "retention is unknown before the configs lane fetches this topic"
         );
 
-        let detail = topic_detail(name, topic, None, None, &topology, 0.0);
+        let detail = topic_detail(name, topic, None, None, None, &topology, 0.0);
         assert_eq!(detail.partitions.len(), 2);
         assert_eq!(detail.partitions[0].high_watermark, 0);
         assert_eq!(detail.retention_ms, None);
@@ -451,11 +474,11 @@ mod tests {
             )]),
         };
 
-        let row = topic_row(name, topic, None, Some(&configs), &topology, 0.0);
+        let row = topic_row(name, topic, None, Some(&configs), None, &topology, 0.0);
         assert_eq!(row.cleanup_policy, CleanupPolicy::Compact);
         assert_eq!(row.retention_ms, Some(604_800_000));
 
-        let detail = topic_detail(name, topic, None, Some(&configs), &topology, 4.0);
+        let detail = topic_detail(name, topic, None, Some(&configs), None, &topology, 4.0);
         assert_eq!(detail.cleanup_policy, CleanupPolicy::Compact);
         assert_eq!(detail.retention_ms, Some(604_800_000));
         assert_eq!(detail.rate, 4.0);
@@ -466,7 +489,7 @@ mod tests {
         let topology = topology();
         let (name, topic) = topology.topics.iter().next().unwrap();
 
-        let detail = topic_detail(name, topic, Some(&marks()), None, &topology, 12.5);
+        let detail = topic_detail(name, topic, Some(&marks()), None, None, &topology, 12.5);
 
         assert_eq!(detail.partitions[1].isr, vec![1]);
         assert_eq!(detail.partitions[1].replicas, vec![1, 2]);
@@ -596,7 +619,7 @@ mod tests {
             Vec::new(),
         );
 
-        let rows = broker_rows(&topology);
+        let rows = broker_rows(&topology, None);
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].partition_count, 2);
         assert_eq!(
@@ -604,5 +627,72 @@ mod tests {
             "an offline partition has no leader"
         );
         assert!(!rows[0].controller);
+        assert_eq!(
+            rows[0].size_bytes, None,
+            "no log dirs poll has reported yet"
+        );
+        assert!(rows[0].log_dirs.is_empty());
+    }
+
+    fn storage() -> LogDirTable {
+        LogDirTable::assemble(
+            vec![
+                log_dir(1, "/data/a", &[("orders", 0, 300)]),
+                log_dir(1, "/data/b", &[("orders", 1, 50)]),
+                log_dir(2, "/data/a", &[("orders", 0, 280), ("orders", 1, 50)]),
+            ],
+            &mut Interner::default(),
+        )
+    }
+
+    #[test]
+    fn broker_rows_sum_their_log_dirs() {
+        let topology = topology();
+
+        let rows = broker_rows(&topology, Some(&storage()));
+
+        assert_eq!(rows[0].size_bytes, Some(350));
+        assert_eq!(rows[0].log_dirs.len(), 2);
+        assert_eq!(rows[0].log_dirs[1].path, "/data/b");
+    }
+
+    #[test]
+    fn a_broker_the_log_dirs_omit_has_no_size() {
+        let topology = topology();
+
+        let rows = broker_rows(&topology, Some(&LogDirTable::default()));
+
+        assert_eq!(rows[0].size_bytes, None);
+    }
+
+    #[test]
+    fn topic_sizes_count_one_replica_and_disk_counts_them_all() {
+        let topology = topology();
+        let (name, topic) = topology.topics.iter().next().unwrap();
+        let storage = storage();
+
+        let row = topic_row(name, topic, None, None, Some(&storage), &topology, 0.0);
+        assert_eq!(row.size_bytes, Some(350));
+
+        let detail = topic_detail(name, topic, None, None, Some(&storage), &topology, 0.0);
+        assert_eq!(detail.size_bytes, Some(350));
+        assert_eq!(detail.disk_bytes, Some(680));
+        assert_eq!(detail.partitions[0].size_bytes, Some(300));
+        assert_eq!(detail.partitions[1].size_bytes, Some(50));
+    }
+
+    #[test]
+    fn a_topic_the_log_dirs_omit_has_no_size() {
+        let topology = topology();
+        let (name, topic) = topology.topics.iter().next().unwrap();
+        let storage = LogDirTable::default();
+
+        let row = topic_row(name, topic, None, None, Some(&storage), &topology, 0.0);
+        let detail = topic_detail(name, topic, None, None, Some(&storage), &topology, 0.0);
+
+        assert_eq!(row.size_bytes, None);
+        assert_eq!(detail.size_bytes, None);
+        assert_eq!(detail.disk_bytes, None);
+        assert_eq!(detail.partitions[0].size_bytes, None);
     }
 }

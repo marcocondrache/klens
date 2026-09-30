@@ -79,6 +79,7 @@ impl ClusterStore {
         };
         let watermarks = self.watermarks.load();
         let configs = self.configs.load();
+        let log_dirs = self.log_dirs.load();
 
         topology
             .topics
@@ -89,6 +90,7 @@ impl ClusterStore {
                     topic,
                     watermarks.as_deref(),
                     configs.as_deref(),
+                    log_dirs.as_deref(),
                     &topology,
                     self.rates.get(name).unwrap_or(0.0),
                 )
@@ -104,6 +106,7 @@ impl ClusterStore {
             topic,
             self.watermarks.load().as_deref(),
             self.configs.load().as_deref(),
+            self.log_dirs.load().as_deref(),
             &topology,
             self.rates.get(name).unwrap_or(0.0),
         ))
@@ -117,6 +120,7 @@ impl ClusterStore {
             topic,
             self.watermarks.load().as_deref(),
             self.configs.load().as_deref(),
+            self.log_dirs.load().as_deref(),
             &topology,
             self.rates.get(name).unwrap_or(0.0),
         ))
@@ -197,7 +201,7 @@ impl ClusterStore {
     pub fn broker_rows(&self) -> Vec<BrokerRow> {
         self.topology
             .load()
-            .map(|topology| projections::broker_rows(&topology))
+            .map(|topology| projections::broker_rows(&topology, self.log_dirs.load().as_deref()))
             .unwrap_or_default()
     }
 

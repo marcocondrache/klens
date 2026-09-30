@@ -6,7 +6,7 @@ use xshell::Shell;
 use klens::app::typescript::{
     Acl, AclAuthorizer, AclListing, AclOperation, AclPatternType, AclPermission, AclResourceType,
     BrokerRow, CleanupPolicy, ClusterGrant, ClusterHealth, ConfigEntry, ConfigSource, GroupDetail,
-    GroupMember, GroupOffset, GroupRow, GroupState, Identity, LaneHealth, MemberAssignment,
+    GroupMember, GroupOffset, GroupRow, GroupState, Identity, LaneHealth, LogDir, MemberAssignment,
     PartitionRow, PrivilegeName, Record, RecordHeader, RecordOrder, RecordPage,
     SchemaCompatibility, SchemaReference, SchemaType, SearchHit, SearchKind, SubjectDetail,
     SubjectRow, SubjectRowsResult, TailEvent, TailStart, TopicDetail, TopicGroupRow, TopicRate,
@@ -49,6 +49,7 @@ fn typescript() -> String {
         GroupRow,
         GroupDetail,
         TopicGroupRow,
+        LogDir,
         BrokerRow,
         ConfigSource,
         ConfigEntry,
