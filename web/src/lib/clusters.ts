@@ -20,7 +20,13 @@ export function isFirstCatalogPending(health: ClusterHealth | null | undefined):
   return health != null && !health.ready && health.topology.lastError == null;
 }
 
-// Log dirs stay out: a cluster that does not serve DescribeLogDirs is not unhealthy.
+/** True until a lane commits once, unless that first poll already failed. */
+export function isLanePending(lane: LaneHealth | undefined): boolean {
+  return lane == null || (lane.updatedAt == null && lane.lastError == null);
+}
+
+// Log dirs and quotas stay out: a cluster that does not serve DescribeLogDirs or
+// DescribeClientQuotas is not unhealthy.
 export function lanes(health: ClusterHealth): LaneHealth[] {
   return [health.topology, health.watermarks, health.offsets, health.configs, health.subjects];
 }

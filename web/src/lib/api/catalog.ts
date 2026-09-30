@@ -5,13 +5,13 @@ import type {
   ClusterHealth,
   GroupDetail,
   GroupRow,
+  QuotaListing,
   SubjectRowsResult,
   TopicDetail,
   TopicGroupRow,
   TopicRow,
 } from "@/api/types.gen";
-import { clusterPath } from "@/lib/clusters";
-import { isLogDirsPending } from "@/lib/storage";
+import { clusterPath, isLanePending } from "@/lib/clusters";
 
 import { clusterPathname, get, getOrNull, resourceId } from "./client";
 import { keys } from "./keys";
@@ -31,7 +31,7 @@ function searchHref(cluster: string, hit: Omit<SearchHit, "href">): string {
 }
 
 function settled(cluster: ClusterHealth) {
-  return cluster.ready && !isLogDirsPending(cluster.logDirs);
+  return cluster.ready && !isLanePending(cluster.logDirs);
 }
 
 const clustersOptions = {
@@ -117,6 +117,18 @@ export function useSubjectRows(cluster: string) {
   return useQuery({
     queryKey: keys.subjectRows(cluster),
     queryFn: () => get<SubjectRowsResult>(clusterPathname(cluster, "subjects")),
+  });
+}
+
+export function useQuotas(cluster: string, enabled = true) {
+  return useQuery({
+    queryKey: keys.quotas(cluster),
+    queryFn: () => get<QuotaListing>(clusterPathname(cluster, "quotas")),
+    enabled,
+    refetchInterval: (query: Query<QuotaListing>) => {
+      const lane = query.state.data?.sourceHealth;
+      return lane && isLanePending(lane) ? 2000 : false;
+    },
   });
 }
 

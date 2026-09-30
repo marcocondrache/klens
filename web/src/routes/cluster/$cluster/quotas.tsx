@@ -14,15 +14,16 @@ import {
   type FilterField,
   type FilterRule,
 } from "@/components/data-table/filters";
+import { LaneCaption } from "@/components/lane-caption";
 import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
 import { useAccess } from "@/hooks/use-access";
 import { useSearchDraft } from "@/hooks/use-search-draft";
 import { apiErrorMessage } from "@/lib/api/client";
-import { useQuotas } from "@/lib/api/live";
+import { useQuotas } from "@/lib/api/catalog";
 import type { ClientQuota, QuotaEntity, QuotaEntityType } from "@/lib/api/types";
-import { useClusterName } from "@/lib/clusters";
+import { isLanePending, useClusterName } from "@/lib/clusters";
 import { formatBytes, formatNumber, formatThroughput } from "@/lib/format";
 import {
   QUOTA_ENTITY_TYPES,
@@ -185,6 +186,7 @@ function QuotasPage() {
   const { can } = useAccess();
   const canConfigs = can(cluster, "CONFIGS");
   const { data, isPending, isError, error } = useQuotas(cluster, canConfigs);
+  const lane = data?.sourceHealth;
   const denied = data?.access === "DENIED";
   const quotas = data?.quotas ?? EMPTY_QUOTAS;
 
@@ -216,7 +218,10 @@ function QuotasPage() {
       <PageHeader
         title="Quotas"
         description={
-          denied ? DENIED : `${rows.length} ${rows.length === 1 ? "entity" : "entities"}`
+          <>
+            {denied ? DENIED : `${rows.length} ${rows.length === 1 ? "entity" : "entities"}`}
+            <LaneCaption lane={lane} />
+          </>
         }
       />
 
@@ -231,9 +236,15 @@ function QuotasPage() {
             <FilterBar fields={FILTERS} rows={searched} value={filters} onChange={setFilters} />
           </>
         }
-        loading={isPending}
+        loading={isPending || isLanePending(lane)}
         error={isError ? apiErrorMessage(error, "Failed to load quotas.") : undefined}
-        emptyState={denied ? DENIED : "No client quotas are set."}
+        emptyState={
+          denied
+            ? DENIED
+            : lane?.lastError
+              ? `Quotas are unavailable: ${lane.lastError}`
+              : "No client quotas are set."
+        }
         defaultSort={{ id: "entity", direction: "asc" }}
       />
     </div>

@@ -1,12 +1,6 @@
 import { useInfiniteQuery, useQuery, type QueryKey } from "@tanstack/react-query";
 
-import type {
-  AclListing,
-  ConfigEntry,
-  QuotaListing,
-  RecordPage,
-  SubjectDetail,
-} from "@/api/types.gen";
+import type { AclListing, ConfigEntry, RecordPage, SubjectDetail } from "@/api/types.gen";
 
 import { clusterPathname, get, resourceId } from "./client";
 import { keys, type RecordsFilter } from "./keys";
@@ -17,14 +11,6 @@ export function useAcls(cluster: string, enabled = true) {
   return useQuery({
     queryKey: keys.acls(cluster),
     queryFn: () => get<AclListing>(clusterPathname(cluster, "acls")),
-    enabled,
-  });
-}
-
-export function useQuotas(cluster: string, enabled = true) {
-  return useQuery({
-    queryKey: keys.quotas(cluster),
-    queryFn: () => get<QuotaListing>(clusterPathname(cluster, "quotas")),
     enabled,
   });
 }
