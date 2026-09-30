@@ -34,6 +34,7 @@ async fn cluster_health_reports_per_lane_freshness_and_counts() {
     assert_eq!(health["cluster"], "local");
     assert_eq!(health["ready"], true);
     assert_eq!(health["topology"]["healthy"], true);
+    assert_eq!(health["logDirs"]["healthy"], true);
     health["topology"]["updatedAt"]
         .as_str()
         .expect("updatedAt")

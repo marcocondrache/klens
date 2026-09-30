@@ -12,7 +12,7 @@ use crate::app::auth::SessionGuard;
 use crate::app::auth::access::EffectiveAccess;
 use crate::kafka::store::bus::BUS_CAPACITY;
 use crate::kafka::store::{
-    Change, ConfigsDelta, GroupLagUpdate, GroupOffsetsWave, SubjectsDelta, TopicRate,
+    Change, ConfigsDelta, GroupLagUpdate, GroupOffsetsWave, LogDirsDelta, SubjectsDelta, TopicRate,
     TopologyDelta, WatermarksTick,
 };
 
@@ -124,6 +124,76 @@ async fn an_event_outside_the_scope_never_reaches_the_socket() {
     let events = read_events(response, 1).await;
 
     assert_eq!(events[0]["type"], "subjects");
+}
+
+fn log_dirs_moved(topics: &[&str]) -> Change {
+    Change::LogDirs(Arc::new(LogDirsDelta {
+        topics: topics.iter().map(|topic| Arc::from(*topic)).collect(),
+        brokers_changed: true,
+    }))
+}
+
+#[tokio::test]
+async fn an_unscoped_subscriber_hears_every_size_that_moved() {
+    let state = seeded();
+    let store = Arc::clone(store_of(&state, "local"));
+    let response = open_stream(
+        &state,
+        "/clusters/local/updates",
+        EffectiveAccess::Unrestricted,
+        SessionGuard::open(),
+    )
+    .await;
+    store
+        .bus
+        .publish(log_dirs_moved(&["orders.created", "payments.settled"]));
+    let frames = read_frames(response, 1).await;
+
+    assert_eq!(frames[0].0, "logDirs");
+    assert_eq!(
+        frames[0].1,
+        serde_json::json!({
+            "type": "logDirs",
+            "topics": ["orders.created", "payments.settled"],
+            "brokersChanged": true
+        })
+    );
+}
+
+#[tokio::test]
+async fn a_topic_scoped_subscriber_hears_only_its_own_size() {
+    let state = seeded();
+    let store = Arc::clone(store_of(&state, "local"));
+    let response = open_stream(
+        &state,
+        "/clusters/local/updates?topic=orders.created",
+        EffectiveAccess::Unrestricted,
+        SessionGuard::open(),
+    )
+    .await;
+    store.bus.publish(log_dirs_moved(&["payments.settled"]));
+    store.bus.publish(Change::Subjects(Arc::new(SubjectsDelta {
+        added: Vec::new(),
+        removed: Vec::new(),
+        changed: Vec::new(),
+    })));
+    store
+        .bus
+        .publish(log_dirs_moved(&["orders.created", "payments.settled"]));
+    let events = read_events(response, 2).await;
+
+    assert_eq!(
+        events[0]["type"], "subjects",
+        "another topic's size stays out"
+    );
+    assert_eq!(
+        events[1],
+        serde_json::json!({
+            "type": "logDirs",
+            "topics": ["orders.created"],
+            "brokersChanged": false
+        })
+    );
 }
 
 #[tokio::test]

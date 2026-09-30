@@ -1,4 +1,5 @@
 pub mod configs;
+pub mod log_dirs;
 pub mod offsets;
 pub mod runner;
 pub mod subjects;
@@ -13,6 +14,7 @@ use crate::config::IngestTuning;
 use crate::kafka::cluster::{Cluster, Clusters};
 
 pub use configs::ConfigLane;
+pub use log_dirs::LogDirLane;
 pub use offsets::{OffsetLane, Wave};
 pub use runner::{Fetch, LaneSource, run};
 pub use subjects::SubjectLane;
@@ -46,6 +48,10 @@ impl Ingest {
             tasks.spawn(run(
                 Arc::clone(store),
                 SubjectLane::with_interval(Arc::clone(session), tuning.subjects),
+            ));
+            tasks.spawn(run(
+                Arc::clone(store),
+                LogDirLane::with_interval(Arc::clone(session), tuning.log_dirs),
             ));
             tasks.spawn(
                 OffsetLane::new(Arc::clone(session))

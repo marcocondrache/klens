@@ -3,6 +3,7 @@ mod registry;
 mod session;
 
 mod metadata;
+mod storage;
 mod topic_config;
 
 mod acl;

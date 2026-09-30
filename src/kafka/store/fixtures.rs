@@ -11,6 +11,7 @@ use crate::kafka::metadata::{
     BrokerMetadata, MetadataSnapshot, PartitionMetadata, TopicMetadata, Watermarks,
 };
 use crate::kafka::registry::{SchemaCompatibility, SchemaSubject, SchemaType};
+use crate::kafka::storage::{LogDir, ReplicaLog};
 use crate::kafka::topic_config::{ConfigEntry, ConfigSource};
 
 pub fn identity(name: &str) -> ClusterIdentity {
@@ -122,5 +123,25 @@ pub fn subject(name: &str, id: i32, latest: i32) -> SchemaSubject {
         latest_version: latest,
         versions: (1..=latest).collect(),
         compatibility: SchemaCompatibility::Backward,
+    }
+}
+
+pub fn log_dir(broker: i32, path: &str, replicas: &[(&str, i32, i64)]) -> LogDir {
+    LogDir {
+        broker,
+        path: path.to_owned(),
+        error: None,
+        total_bytes: None,
+        usable_bytes: None,
+        cordoned: false,
+        replicas: replicas
+            .iter()
+            .map(|(topic, partition, size_bytes)| ReplicaLog {
+                topic: (*topic).to_owned(),
+                partition: *partition,
+                size_bytes: *size_bytes,
+                future: false,
+            })
+            .collect(),
     }
 }

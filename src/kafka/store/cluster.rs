@@ -12,7 +12,9 @@ use super::projections::{
 };
 use super::rates::RateStore;
 use super::search::{self, SearchHit};
-use super::tables::{ConfigTable, OffsetTable, SubjectTable, Topology, WatermarkTable};
+use super::tables::{
+    ConfigTable, LogDirTable, OffsetTable, SubjectTable, Topology, WatermarkTable,
+};
 
 pub struct ClusterStore {
     pub identity: ClusterIdentity,
@@ -21,6 +23,7 @@ pub struct ClusterStore {
     pub offsets: Lane<OffsetTable>,
     pub configs: Lane<ConfigTable>,
     pub subjects: Lane<SubjectTable>,
+    pub log_dirs: Lane<LogDirTable>,
     pub rates: RateStore,
     pub bus: ChangeBus,
     pub interest: InterestRegistry,
@@ -35,6 +38,7 @@ impl std::fmt::Debug for ClusterStore {
             .field("offsets", &self.offsets.version())
             .field("configs", &self.configs.version())
             .field("subjects", &self.subjects.version())
+            .field("log_dirs", &self.log_dirs.version())
             .finish_non_exhaustive()
     }
 }
@@ -48,6 +52,7 @@ impl ClusterStore {
             offsets: Lane::new(),
             configs: Lane::new(),
             subjects: Lane::new(),
+            log_dirs: Lane::new(),
             rates: RateStore::new(),
             bus: ChangeBus::new(),
             interest: InterestRegistry::new(interest_ttl),
@@ -228,6 +233,7 @@ impl ClusterStore {
             offsets: self.offsets.health(),
             configs: self.configs.health(),
             subjects: self.subjects.health(),
+            log_dirs: self.log_dirs.health(),
             topic_count: topology
                 .as_ref()
                 .map(|topology| topology.topics.len() as i32)

@@ -151,6 +151,8 @@ pub struct IngestTuning {
     pub config: Duration,
     #[serde(deserialize_with = "at_least_one_second")]
     pub subjects: Duration,
+    #[serde(deserialize_with = "at_least_one_second")]
+    pub log_dirs: Duration,
     /// How often the offset lane wakes to see which groups are due.
     #[serde(deserialize_with = "at_least_one_second")]
     pub offset_tick: Duration,
@@ -179,6 +181,7 @@ impl Default for IngestTuning {
             watermark: Duration::from_secs(3),
             config: Duration::from_secs(60),
             subjects: Duration::from_secs(30),
+            log_dirs: Duration::from_secs(60),
             offset_tick: Duration::from_secs(1),
             fast_offset: Duration::from_secs(2),
             slow_offset: Duration::from_secs(20),
@@ -249,6 +252,7 @@ mod tests {
                 watermark: secs(3),
                 config: secs(60),
                 subjects: secs(30),
+                log_dirs: secs(60),
                 offset_tick: secs(1),
                 fast_offset: secs(2),
                 slow_offset: secs(20),
@@ -306,6 +310,7 @@ ingest:
   watermark: 1m 30s
   config: 2m
   subjects: 45s
+  log_dirs: 5m
   offset_tick: 2s
   fast_offset: 4s
   slow_offset: 40s
@@ -355,6 +360,7 @@ ingest:
                     watermark: secs(90),
                     config: secs(120),
                     subjects: secs(45),
+                    log_dirs: secs(300),
                     offset_tick: secs(2),
                     fast_offset: secs(4),
                     slow_offset: secs(40),

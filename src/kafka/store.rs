@@ -11,7 +11,7 @@ pub mod tables;
 pub mod fixtures;
 
 pub use bus::{
-    Change, ConfigsDelta, GroupLagUpdate, GroupOffsetsWave, SubjectsDelta, TopicRate,
+    Change, ConfigsDelta, GroupLagUpdate, GroupOffsetsWave, LogDirsDelta, SubjectsDelta, TopicRate,
     TopologyDelta, WatermarksTick,
 };
 pub use cluster::ClusterStore;
@@ -20,6 +20,6 @@ pub use lane::{Lane, LaneHealth};
 pub use projections::TopicRow;
 pub use search::{SearchHit, SearchKind};
 pub use tables::{
-    ConfigTable, GroupInfo, GroupOffsets, Interner, OffsetTable, SubjectTable, Topology,
-    WatermarkTable,
+    ConfigTable, GroupInfo, GroupOffsets, Interner, LogDirTable, OffsetTable, SubjectTable,
+    Topology, WatermarkTable,
 };

@@ -3,7 +3,7 @@
 
 use krafka::admin::{
     ConfigEntry as KrafkaConfigEntry, ConsumerGroupDescription, ConsumerGroupMember,
-    GroupOffsetEntry, TopicPartitionAssignment,
+    GroupOffsetEntry, LogDirInfo, TopicPartitionAssignment,
 };
 use krafka::metadata::{ClusterMetadata, TopicInfo as KrafkaTopicInfo};
 use krafka::protocol::validate_topic_name;
@@ -14,6 +14,7 @@ use crate::kafka::group::{
 use crate::kafka::metadata::{
     BrokerMetadata, MetadataSnapshot, PartitionMetadata, TopicMetadata, is_internal_topic,
 };
+use crate::kafka::storage::{LogDir, ReplicaLog, volume_bytes};
 use crate::kafka::topic_config::{ConfigEntry, ConfigSource};
 
 impl MetadataSnapshot {
@@ -121,6 +122,34 @@ fn committed_offset(topic: String, partition: i32, offset: i64) -> Option<Commit
         partition,
         offset,
     })
+}
+
+impl LogDir {
+    pub(super) fn from_krafka(dir: LogDirInfo) -> Self {
+        Self {
+            broker: dir.broker_id,
+            path: dir.log_dir,
+            error: dir.error,
+            total_bytes: volume_bytes(dir.total_bytes),
+            usable_bytes: volume_bytes(dir.usable_bytes),
+            cordoned: dir.is_cordoned,
+            replicas: dir
+                .topics
+                .into_iter()
+                .flat_map(|topic| {
+                    topic
+                        .partitions
+                        .into_iter()
+                        .map(move |partition| ReplicaLog {
+                            topic: topic.name.clone(),
+                            partition: partition.partition_index,
+                            size_bytes: partition.partition_size,
+                            future: partition.is_future_key,
+                        })
+                })
+                .collect(),
+        }
+    }
 }
 
 impl From<KrafkaConfigEntry> for ConfigEntry {

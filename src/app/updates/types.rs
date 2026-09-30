@@ -58,6 +58,12 @@ pub enum Update {
         removed: Vec<String>,
         changed: Vec<String>,
     },
+    /// Sizes on disk moved. A scoped subscriber gets only its topic and never
+    /// the broker flag.
+    LogDirs {
+        topics: Vec<String>,
+        brokers_changed: bool,
+    },
     /// The client fell behind the change bus and missed events.
     Resync,
 }
@@ -70,6 +76,7 @@ impl Update {
             Self::Topology { .. } => "topology",
             Self::Configs { .. } => "configs",
             Self::Subjects { .. } => "subjects",
+            Self::LogDirs { .. } => "logDirs",
             Self::Resync => "resync",
         }
     }

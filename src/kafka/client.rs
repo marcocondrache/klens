@@ -29,6 +29,7 @@ use crate::kafka::registry::{RegisteredSchema, SchemaSubject};
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
 use crate::kafka::session::ClusterSession;
+use crate::kafka::storage::LogDir;
 use crate::kafka::topic_config::ConfigEntry;
 
 use convert::committed_from_krafka;
@@ -280,6 +281,11 @@ impl ClusterSession for KafkaClient {
         }
     }
 
+    async fn log_dirs(&self) -> Result<Vec<LogDir>, KafkaError> {
+        let dirs = self.transport.admin.describe_log_dirs(None).await?;
+        Ok(dirs.into_iter().map(LogDir::from_krafka).collect())
+    }
+
     async fn open_scan(
         &self,
         topic: &str,
@@ -525,6 +531,17 @@ mod tests {
         );
         client.transport.admin.close().await;
         client.transport.client.pool().close_all().await;
+    }
+
+    #[tokio::test]
+    async fn a_broker_that_does_not_serve_describe_log_dirs_fails_the_call() {
+        let broker = krafka::testing::FakeBroker::start().await.unwrap();
+        let client = kafka_client(&broker.bootstrap_servers()).await;
+        client.metadata().await.expect("metadata");
+
+        let error = client.log_dirs().await.unwrap_err();
+
+        assert!(matches!(error, KafkaError::Krafka(_)), "{error:?}");
     }
 
     #[tokio::test]

@@ -6,6 +6,7 @@ use foldhash::{HashMap, HashMapExt, HashSet};
 use crate::kafka::group::{CommittedOffset, GroupMember, GroupSnapshot, GroupState};
 use crate::kafka::metadata::{MetadataSnapshot, PartitionMetadata, Watermarks};
 use crate::kafka::registry::{SchemaCompatibility, SchemaSubject, SchemaType};
+use crate::kafka::storage::LogDir;
 use crate::kafka::topic_config::ConfigEntry;
 
 #[derive(Debug, Default)]
@@ -266,6 +267,101 @@ impl ConfigTable {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LogDirInfo {
+    pub path: String,
+    pub error: Option<String>,
+    pub total_bytes: Option<i64>,
+    pub usable_bytes: Option<i64>,
+    pub cordoned: bool,
+    /// Every log in the directory, future replicas included.
+    pub size_bytes: i64,
+    /// Future replicas are left out: their partition is served from another
+    /// directory until the move completes.
+    pub replica_count: i32,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PartitionStorage {
+    /// The largest replica. That is the leader's log unless a follower still
+    /// holds a segment the leader has already deleted.
+    pub size_bytes: i64,
+    /// Every replica together.
+    pub disk_bytes: i64,
+}
+
+impl PartitionStorage {
+    fn add(self, other: Self) -> Self {
+        Self {
+            size_bytes: self.size_bytes + other.size_bytes,
+            disk_bytes: self.disk_bytes + other.disk_bytes,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LogDirTable {
+    pub brokers: BTreeMap<i32, Vec<LogDirInfo>>,
+    pub partitions: HashMap<Arc<str>, BTreeMap<i32, PartitionStorage>>,
+}
+
+impl LogDirTable {
+    pub fn assemble(dirs: Vec<LogDir>, interner: &mut Interner) -> Self {
+        let mut brokers: BTreeMap<i32, Vec<LogDirInfo>> = BTreeMap::new();
+        let mut partitions: HashMap<Arc<str>, BTreeMap<i32, PartitionStorage>> = HashMap::new();
+
+        for dir in dirs {
+            let mut replica_count = 0;
+            for replica in dir.replicas.iter().filter(|replica| !replica.future) {
+                replica_count += 1;
+                let storage = partitions
+                    .entry(interner.intern(&replica.topic))
+                    .or_default()
+                    .entry(replica.partition)
+                    .or_default();
+                storage.size_bytes = storage.size_bytes.max(replica.size_bytes);
+                storage.disk_bytes += replica.size_bytes;
+            }
+
+            brokers.entry(dir.broker).or_default().push(LogDirInfo {
+                size_bytes: dir.replicas.iter().map(|replica| replica.size_bytes).sum(),
+                replica_count,
+                path: dir.path,
+                error: dir.error,
+                total_bytes: dir.total_bytes,
+                usable_bytes: dir.usable_bytes,
+                cordoned: dir.cordoned,
+            });
+        }
+        for dirs in brokers.values_mut() {
+            dirs.sort_by(|left, right| left.path.cmp(&right.path));
+        }
+
+        Self {
+            brokers,
+            partitions,
+        }
+    }
+
+    pub fn broker(&self, id: i32) -> Option<&[LogDirInfo]> {
+        self.brokers.get(&id).map(Vec::as_slice)
+    }
+
+    pub fn partition(&self, topic: &str, partition: i32) -> Option<PartitionStorage> {
+        self.partitions.get(topic)?.get(&partition).copied()
+    }
+
+    pub fn topic(&self, topic: &str) -> Option<PartitionStorage> {
+        self.partitions.get(topic).map(|partitions| {
+            partitions
+                .values()
+                .fold(PartitionStorage::default(), |total, partition| {
+                    total.add(*partition)
+                })
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubjectInfo {
     pub id: i32,
     pub schema_type: SchemaType,
@@ -308,7 +404,7 @@ impl SubjectTable {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kafka::store::fixtures::{group, metadata, partition, subject, topic};
+    use crate::kafka::store::fixtures::{group, log_dir, metadata, partition, subject, topic};
 
     #[test]
     fn the_interner_hands_out_one_allocation_per_name() {
@@ -426,5 +522,82 @@ mod tests {
             }),
             "the list projection carries no schema body"
         );
+    }
+
+    #[test]
+    fn log_dirs_sum_per_directory_and_per_partition() {
+        let table = LogDirTable::assemble(
+            vec![
+                log_dir(1, "/data/b", &[("orders", 0, 300), ("orders", 1, 50)]),
+                log_dir(1, "/data/a", &[("payments", 0, 7)]),
+                log_dir(2, "/data/a", &[("orders", 0, 280)]),
+            ],
+            &mut Interner::default(),
+        );
+
+        let paths: Vec<&str> = table
+            .broker(1)
+            .unwrap()
+            .iter()
+            .map(|dir| dir.path.as_str())
+            .collect();
+        assert_eq!(paths, ["/data/a", "/data/b"], "directories sort by path");
+        assert_eq!(table.broker(1).unwrap()[1].size_bytes, 350);
+        assert_eq!(table.broker(1).unwrap()[1].replica_count, 2);
+        assert_eq!(table.broker(3), None);
+
+        assert_eq!(
+            table.partition("orders", 0),
+            Some(PartitionStorage {
+                size_bytes: 300,
+                disk_bytes: 580,
+            }),
+            "a trailing follower does not shrink the partition"
+        );
+        assert_eq!(
+            table.topic("orders"),
+            Some(PartitionStorage {
+                size_bytes: 350,
+                disk_bytes: 630,
+            })
+        );
+        assert_eq!(table.partition("orders", 9), None);
+        assert_eq!(table.topic("ghost"), None);
+    }
+
+    #[test]
+    fn a_future_replica_fills_its_directory_but_not_its_partition() {
+        let mut moving = log_dir(1, "/data/b", &[("orders", 0, 90)]);
+        moving.replicas[0].future = true;
+
+        let table = LogDirTable::assemble(
+            vec![log_dir(1, "/data/a", &[("orders", 0, 100)]), moving],
+            &mut Interner::default(),
+        );
+
+        let target = &table.broker(1).unwrap()[1];
+        assert_eq!(target.size_bytes, 90);
+        assert_eq!(target.replica_count, 0);
+        assert_eq!(
+            table.partition("orders", 0),
+            Some(PartitionStorage {
+                size_bytes: 100,
+                disk_bytes: 100,
+            })
+        );
+    }
+
+    #[test]
+    fn log_dirs_intern_topic_names_they_already_know() {
+        let mut interner = Interner::default();
+        let known = interner.intern("orders");
+
+        let table = LogDirTable::assemble(
+            vec![log_dir(1, "/data", &[("orders", 0, 1)])],
+            &mut interner,
+        );
+
+        let (stored, _) = table.partitions.get_key_value("orders").unwrap();
+        assert!(Arc::ptr_eq(stored, &known));
     }
 }
