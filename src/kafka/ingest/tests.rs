@@ -113,6 +113,11 @@ async fn wait_for(ready: impl Fn() -> bool, what: &str) {
     settle(|| ready().then_some(()), what).await;
 }
 
+async fn sweep(lane: &OffsetLane, store: &ClusterStore) -> Wave {
+    let topology = store.topology.load().expect("topology commit");
+    lane.sweep(store, &topology).await
+}
+
 #[tokio::test(start_paused = true)]
 async fn the_topology_lane_assembles_brokers_topics_and_groups() {
     let session = FakeCluster::local();
@@ -424,18 +429,18 @@ async fn a_background_group_refreshes_on_the_slow_tier() {
     let _lanes = catalog_lanes(&store, &session);
     wait_for(|| store.ready(), "topology commit").await;
 
-    let first = lane.sweep(&store).await;
+    let first = sweep(&lane, &store).await;
     assert_eq!(first.refreshed, [Arc::from("order-processor")]);
 
     tokio::time::advance(Duration::from_secs(5)).await;
     assert!(
-        lane.sweep(&store).await.is_empty(),
+        sweep(&lane, &store).await.is_empty(),
         "a group nobody is watching waits out the slow tier"
     );
 
     tokio::time::advance(Duration::from_secs(20)).await;
     assert_eq!(
-        lane.sweep(&store).await.refreshed,
+        sweep(&lane, &store).await.refreshed,
         [Arc::from("order-processor")]
     );
 }
@@ -451,12 +456,12 @@ async fn interest_promotes_a_group_to_the_fast_tier() {
     );
     let _lanes = catalog_lanes(&store, &session);
     wait_for(|| store.ready(), "topology commit").await;
-    lane.sweep(&store).await;
+    sweep(&lane, &store).await;
 
     let lease = store.interest.lease_group("order-processor");
     tokio::time::advance(Duration::from_secs(3)).await;
     assert_eq!(
-        lane.sweep(&store).await.refreshed,
+        sweep(&lane, &store).await.refreshed,
         [Arc::from("order-processor")],
         "a watched group refreshes on the fast tier"
     );
@@ -464,7 +469,7 @@ async fn interest_promotes_a_group_to_the_fast_tier() {
     drop(lease);
     tokio::time::advance(Duration::from_secs(3)).await;
     assert!(
-        lane.sweep(&store).await.is_empty(),
+        sweep(&lane, &store).await.is_empty(),
         "dropping the lease releases the fast tier immediately"
     );
 }
@@ -486,7 +491,7 @@ async fn a_wave_commits_once_and_publishes_once() {
     wait_for(|| store.ready(), "topology commit").await;
     let mut events = store.bus.subscribe();
 
-    let wave = lane.sweep(&store).await;
+    let wave = sweep(&lane, &store).await;
 
     assert_eq!(wave.refreshed.len(), 13);
     assert_eq!(
@@ -517,7 +522,7 @@ async fn offset_fetches_respect_the_concurrency_cap() {
     let _lanes = catalog_lanes(&store, &session);
     wait_for(|| store.ready(), "topology commit").await;
 
-    lane.sweep(&store).await;
+    sweep(&lane, &store).await;
 
     assert_eq!(session.calls().committed_offsets(), 17);
     assert_eq!(
@@ -535,7 +540,7 @@ async fn lag_is_computed_from_the_tables() {
     let _lanes = catalog_lanes(&store, &session);
     wait_for(|| store.watermarks.version() > 0, "watermark commit").await;
 
-    lane.sweep(&store).await;
+    sweep(&lane, &store).await;
 
     assert_eq!(
         store.group_row("order-processor").unwrap().total_lag,
@@ -564,7 +569,7 @@ async fn an_empty_group_reports_the_lag_it_left_behind() {
     let _lanes = catalog_lanes(&store, &session);
     wait_for(|| store.watermarks.version() > 0, "watermark commit").await;
 
-    lane.sweep(&store).await;
+    sweep(&lane, &store).await;
 
     let row = store.group_row("stopped-consumer").unwrap();
     assert_eq!(
@@ -598,7 +603,7 @@ async fn an_active_group_fetches_only_what_it_consumes() {
     let _lanes = catalog_lanes(&store, &session);
     wait_for(|| store.watermarks.version() > 0, "watermark commit").await;
 
-    lane.sweep(&store).await;
+    sweep(&lane, &store).await;
 
     assert_eq!(
         store.group_row("order-processor").unwrap().topic_names,
@@ -614,7 +619,7 @@ async fn a_failed_group_degrades_alone_and_keeps_its_last_offsets() {
     let lane = OffsetLane::new(port(&session));
     let _lanes = catalog_lanes(&store, &session);
     wait_for(|| store.ready(), "topology commit").await;
-    lane.sweep(&store).await;
+    sweep(&lane, &store).await;
     let before = Arc::clone(
         store
             .offsets
@@ -626,7 +631,7 @@ async fn a_failed_group_degrades_alone_and_keeps_its_last_offsets() {
 
     session.set_offsets_error(Some("coordinator not available"));
     tokio::time::advance(Duration::from_secs(30)).await;
-    let wave = lane.sweep(&store).await;
+    let wave = sweep(&lane, &store).await;
 
     assert_eq!(wave.failed, [Arc::from("order-processor")]);
     assert!(wave.refreshed.is_empty());
@@ -646,7 +651,7 @@ async fn a_removed_group_is_dropped_from_the_offset_table() {
     let lane = OffsetLane::new(port(&session));
     let _lanes = catalog_lanes(&store, &session);
     wait_for(|| store.ready(), "topology commit").await;
-    lane.sweep(&store).await;
+    sweep(&lane, &store).await;
 
     session.remove_group("order-processor");
     store.topology.kick();
@@ -656,7 +661,7 @@ async fn a_removed_group_is_dropped_from_the_offset_table() {
     )
     .await;
 
-    let wave = lane.sweep(&store).await;
+    let wave = sweep(&lane, &store).await;
 
     assert_eq!(wave.dropped, [Arc::from("order-processor")]);
     assert!(store.offsets.load().unwrap().groups.is_empty());
@@ -681,7 +686,7 @@ async fn a_removed_group_is_dropped_from_the_offset_table() {
     .await;
 
     assert_eq!(
-        lane.sweep(&store).await.refreshed,
+        sweep(&lane, &store).await.refreshed,
         [Arc::from("order-processor")],
         "a group that comes back is due immediately, not on its old schedule"
     );
@@ -978,4 +983,21 @@ async fn a_new_topic_waits_for_the_next_watermark_poll() {
     }
 
     assert_eq!(session.calls().watermarks(), polls);
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_offset_lane_sweeps_nothing_until_topology_commits() {
+    let session = FakeCluster::local();
+    let store = store(&session);
+    let mut lanes = JoinSet::new();
+    lanes.spawn(OffsetLane::new(port(&session)).run(Arc::clone(&store)));
+    tokio::time::advance(IDLE).await;
+
+    assert!(store.offsets.health().checked_at.is_none());
+
+    lanes.spawn(run(
+        Arc::clone(&store),
+        TopologyLane::with_interval(port(&session), IDLE),
+    ));
+    wait_for(|| store.offsets.ready(), "first offset wave").await;
 }

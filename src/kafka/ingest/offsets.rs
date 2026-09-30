@@ -64,9 +64,11 @@ impl OffsetLane {
 
     pub async fn run(self, store: Arc<ClusterStore>) {
         let cluster = store.name().to_owned();
+        let mut upstream = store.topology.follow();
         loop {
+            let topology = upstream.table().await;
             let started = Instant::now();
-            let wave = self.sweep(&store).await;
+            let wave = self.sweep(&store, &topology).await;
             store.offsets.record_poll(started.elapsed(), None);
             if !wave.is_empty() {
                 tracing::debug!(
@@ -83,22 +85,19 @@ impl OffsetLane {
         }
     }
 
-    pub async fn sweep(&self, store: &ClusterStore) -> Wave {
-        let Some(topology) = store.topology.load() else {
-            return Wave::default();
-        };
-        self.retain(&topology);
+    pub async fn sweep(&self, store: &ClusterStore, topology: &Topology) -> Wave {
+        self.retain(topology);
 
         let previous = store.offsets.load();
         let hot = store.interest.hot_groups();
 
-        let due = self.due_groups(&topology, &hot, Instant::now());
-        let dropped = stale_groups(&topology, previous.as_deref());
+        let due = self.due_groups(topology, &hot, Instant::now());
+        let dropped = stale_groups(topology, previous.as_deref());
         if due.is_empty() && dropped.is_empty() {
             return Wave::default();
         }
 
-        let mut fetched = self.fetch(&topology, previous.as_deref(), &due).await;
+        let mut fetched = self.fetch(topology, previous.as_deref(), &due).await;
 
         let mut groups: HashMap<Arc<str>, Arc<GroupOffsets>> =
             HashMap::with_capacity(topology.groups.len());
@@ -125,11 +124,11 @@ impl OffsetLane {
             }
         }
 
-        self.retain(&topology);
+        self.retain(topology);
         let next = Arc::new(OffsetTable { groups });
         store.offsets.commit(Arc::clone(&next));
 
-        let updates = self.lag_updates(store, &topology, &next, &refreshed);
+        let updates = self.lag_updates(store, topology, &next, &refreshed);
         if !updates.is_empty() {
             store
                 .bus
