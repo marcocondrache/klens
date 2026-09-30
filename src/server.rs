@@ -50,10 +50,6 @@ pub async fn serve(router: Router, bind: SocketAddr) -> Result<()> {
         .layer(SetSensitiveResponseHeadersLayer::from_shared(
             sensitive_headers,
         ))
-        // zstd, brotli, or gzip, by the client's `Accept-Encoding` weights and
-        // in that order on a tie. The default predicate leaves live streams
-        // alone, since an encoder would hold each event back until it had
-        // filled a block.
         .layer(CompressionLayer::new());
 
     let app = router.layer(layers);
@@ -111,8 +107,6 @@ mod tests {
     use super::*;
     use crate::telemetry::capture::subscriber as capture;
 
-    /// Serves `router` on a free port, sends it one raw request, and returns
-    /// the raw response.
     async fn exchange(router: Router, request: &str) -> Vec<u8> {
         let bind = std::net::TcpListener::bind("127.0.0.1:0")
             .and_then(|listener| listener.local_addr())
@@ -164,12 +158,7 @@ mod tests {
 
     const PAGE: &str = "{\"records\":[{\"offset\":0},{\"offset\":1},{\"offset\":2}]}";
 
-    /// The `Content-Encoding` the page or stream at `path` is served with, and
-    /// its body as sent.
     async fn fetch(path: &str, accept_encoding: Option<&str>) -> (Option<String>, Vec<u8>) {
-        // Tracing caches whether a callsite is enabled process-wide, from the
-        // registering thread's subscriber while only one is registered. Hit
-        // with none here, the request span would stay off for the log test.
         let (_logs, _guard) = capture(tracing::Level::INFO);
         let router = Router::new().route("/page", get(|| async { PAGE })).route(
             "/stream",
