@@ -1,4 +1,4 @@
-import { CrownIcon } from "lucide-react";
+import { CrownIcon, HardDriveIcon } from "lucide-react";
 import { createFileRoute } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
 
@@ -8,12 +8,12 @@ import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
 import { LaneCaption } from "@/components/lane-caption";
 import { PageHeader } from "@/components/page-header";
-import { Pill } from "@/components/status";
-import { useAccess } from "@/hooks/use-access";
+import { Pill, SizeValue, UsedValue } from "@/components/status";
 import { useBrokerRows, useClusterHealth } from "@/lib/api/catalog";
 import { useClusterName } from "@/lib/clusters";
 import { apiErrorMessage } from "@/lib/api/client";
-import { formatNumber } from "@/lib/format";
+import { formatBytes, formatNumber } from "@/lib/format";
+import { fullestDir } from "@/lib/storage";
 import type { BrokerRow } from "@/lib/api/types";
 
 export const Route = createFileRoute("/cluster/$cluster/nodes")({
@@ -36,6 +36,12 @@ const columns = columnHelper.columns([
             <Pill tone="brand">
               <CrownIcon />
               controller
+            </Pill>
+          ) : null}
+          {broker.logDirs.some((dir) => dir.error != null) ? (
+            <Pill tone="error">
+              <HardDriveIcon />
+              log dir offline
             </Pill>
           ) : null}
         </span>
@@ -85,12 +91,42 @@ const columns = columnHelper.columns([
     meta: { align: "right", width: "6.5rem" },
     cell: ({ getValue }) => formatNumber(getValue()),
   }),
+  columnHelper.accessor((broker) => broker.sizeBytes ?? -1, {
+    id: "size",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Size" className="justify-end" />
+    ),
+    meta: { align: "right", width: "7rem" },
+    cell: ({ row }) => <SizeValue bytes={row.original.sizeBytes} />,
+  }),
+  columnHelper.accessor((broker) => fullestDir(broker.logDirs)?.used ?? -1, {
+    id: "disk",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Disk used" className="justify-end" />
+    ),
+    meta: { align: "right", width: "7rem" },
+    cell: ({ row }) => {
+      if (row.original.logDirs.length === 0) {
+        return <SizeValue bytes={null} />;
+      }
+      const fullest = fullestDir(row.original.logDirs);
+      return (
+        <UsedValue
+          used={fullest?.used ?? null}
+          title={
+            fullest
+              ? `Fullest log dir ${fullest.dir.path}: ${formatBytes(fullest.dir.usableBytes ?? 0)} free of ${formatBytes(fullest.dir.totalBytes ?? 0)}`
+              : undefined
+          }
+        />
+      );
+    },
+  }),
 ]);
 
 function NodesPage() {
   const cluster = useClusterName();
   const navigate = Route.useNavigate();
-  const { can } = useAccess();
   const { data: brokers = [], isPending, isError, error } = useBrokerRows(cluster);
   const { data: health } = useClusterHealth(cluster);
 
@@ -120,7 +156,7 @@ function NodesPage() {
         loading={isPending}
         error={isError ? apiErrorMessage(error, "Failed to load brokers.") : undefined}
         defaultSort={{ id: "id", direction: "asc" }}
-        onRowClick={can(cluster, "CONFIGS") ? openBroker : undefined}
+        onRowClick={openBroker}
       />
     </div>
   );

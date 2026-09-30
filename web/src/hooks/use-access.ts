@@ -4,7 +4,7 @@ import { get } from "@/lib/api/client";
 import { keys } from "@/lib/api/keys";
 import type { Identity, PrivilegeName } from "@/lib/api/types";
 
-export const whoamiQuery = queryOptions({
+const whoamiQuery = queryOptions({
   queryKey: keys.whoami(),
   queryFn: () => get<Identity>("/whoami"),
   staleTime: 60_000,
@@ -30,11 +30,7 @@ export function useAccess(): Access {
   };
 }
 
-export function hasPrivilege(
-  identity: Identity | undefined,
-  cluster: string,
-  privilege: PrivilegeName,
-) {
+function hasPrivilege(identity: Identity | undefined, cluster: string, privilege: PrivilegeName) {
   return grant(identity, cluster)?.privileges.includes(privilege) ?? !identity;
 }
 

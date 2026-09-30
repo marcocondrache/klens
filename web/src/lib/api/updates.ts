@@ -117,6 +117,20 @@ function apply(queryClient: QueryClient, cluster: string, update: Update): void 
       return;
     }
 
+    case "logDirs": {
+      if (update.topics.length > 0) {
+        void queryClient.invalidateQueries({ queryKey: keys.topicRows(cluster), exact: true });
+        for (const name of update.topics) {
+          void queryClient.invalidateQueries({ queryKey: keys.topic(cluster, name), exact: true });
+        }
+      }
+
+      if (update.brokersChanged) {
+        void queryClient.invalidateQueries({ queryKey: keys.brokerRows(cluster), exact: true });
+      }
+      return;
+    }
+
     case "subjects": {
       void queryClient.invalidateQueries({ queryKey: keys.subjectRows(cluster), exact: true });
       for (const name of [...update.changed, ...update.removed]) {

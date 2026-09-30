@@ -19,7 +19,7 @@ import {
 import { LaneCaption } from "@/components/lane-caption";
 import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
-import { PendingValue, Pill, StatusDot } from "@/components/status";
+import { PendingValue, Pill, SizeValue, StatusDot } from "@/components/status";
 import { useSearchDraft } from "@/hooks/use-search-draft";
 import { useClusterHealth, useTopicRows } from "@/lib/api/catalog";
 import { useClusterName } from "@/lib/clusters";
@@ -135,6 +135,14 @@ const columns = columnHelper.columns([
     ),
     meta: { align: "right", width: "9rem" },
     cell: ({ getValue }) => emptyMetric(getValue(), formatNumber(getValue())),
+  }),
+  columnHelper.accessor((topic) => topic.sizeBytes ?? -1, {
+    id: "size",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Size" className="justify-end" />
+    ),
+    meta: { align: "right", width: "7rem" },
+    cell: ({ row }) => <SizeValue bytes={row.original.sizeBytes} />,
   }),
   columnHelper.accessor("rate", {
     id: "rate",
