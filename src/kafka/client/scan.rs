@@ -175,20 +175,7 @@ mod tests {
     }
 
     async fn client(broker: &FakeBroker) -> KafkaClient {
-        KafkaClient::new(
-            &"test".parse().unwrap(),
-            &crate::config::ClusterConfig {
-                bootstrap_servers: vec![broker.bootstrap_servers()],
-                security: Default::default(),
-                schema_registry: None,
-                obfuscation: None,
-                properties: Default::default(),
-                ingest: Default::default(),
-            },
-            &crate::config::Tuning::default(),
-        )
-        .await
-        .expect("kafka client")
+        super::super::tests::kafka_client(&broker.bootstrap_servers()).await
     }
 
     #[tokio::test]

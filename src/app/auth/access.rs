@@ -4,18 +4,10 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 
-use crate::config::{PrivilegeName, RoleConfig};
-use crate::r#macro::from_same_variants;
+pub use crate::config::Privilege;
+use crate::config::Role;
 
 const MAX_GROUPS: usize = 64;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Privilege {
-    Records,
-    Configs,
-    SchemaText,
-    Acls,
-}
 
 impl Privilege {
     pub const ALL: [Self; 4] = [Self::Records, Self::Configs, Self::SchemaText, Self::Acls];
@@ -44,8 +36,6 @@ impl Display for Privilege {
         formatter.write_str(self.name())
     }
 }
-
-from_same_variants!(PrivilegeName => Privilege { Records, Configs, SchemaText, Acls });
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PrivilegeSet(u8);
@@ -277,7 +267,7 @@ impl AccessPolicy {
         Self::Disabled
     }
 
-    pub fn from_roles(roles: Option<&IndexMap<String, RoleConfig>>) -> Self {
+    pub fn from_roles(roles: Option<&IndexMap<String, Role>>) -> Self {
         match roles {
             None => Self::Open,
             Some(roles) => Self::Bound(RoleTable::compile(roles)),
@@ -298,15 +288,13 @@ impl AccessPolicy {
 }
 
 impl RoleTable {
-    fn compile(roles: &IndexMap<String, RoleConfig>) -> Self {
+    fn compile(roles: &IndexMap<String, Role>) -> Self {
         Self {
             bindings: roles
                 .iter()
                 .flat_map(|(name, role)| {
                     let role_name: Arc<str> = Arc::from(name.as_str());
-                    let privileges = PrivilegeSet::from_privileges(
-                        role.privileges.iter().copied().map(Privilege::from),
-                    );
+                    let privileges = PrivilegeSet::from_privileges(role.privileges.iter().copied());
                     role.bindings.iter().map(move |binding| CompiledBinding {
                         groups: binding.groups.iter().cloned().collect(),
                         role_name: Arc::clone(&role_name),
@@ -354,13 +342,13 @@ pub fn groups_from_json(value: &serde_json::Value, claim: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{PrivilegeName, RoleBinding, RoleConfig};
+    use crate::config::Binding;
 
-    const EVERYTHING: &[PrivilegeName] = &[
-        PrivilegeName::Records,
-        PrivilegeName::Configs,
-        PrivilegeName::SchemaText,
-        PrivilegeName::Acls,
+    const EVERYTHING: &[Privilege] = &[
+        Privilege::Records,
+        Privilege::Configs,
+        Privilege::SchemaText,
+        Privilege::Acls,
     ];
 
     struct Bound<'a> {
@@ -369,16 +357,16 @@ mod tests {
         clusters: Option<&'a [&'a str]>,
     }
 
-    fn table(definitions: &[(&str, &[PrivilegeName])], bindings: Vec<Bound<'_>>) -> AccessPolicy {
+    fn table(definitions: &[(&str, &[Privilege])], bindings: Vec<Bound<'_>>) -> AccessPolicy {
         let roles = definitions
             .iter()
             .map(|(name, privileges)| {
-                let role = RoleConfig {
+                let role = Role {
                     privileges: privileges.to_vec(),
                     bindings: bindings
                         .iter()
                         .filter(|bound| bound.role == *name)
-                        .map(|bound| RoleBinding {
+                        .map(|bound| Binding {
                             groups: bound
                                 .groups
                                 .iter()
@@ -463,10 +451,7 @@ mod tests {
     #[test]
     fn a_role_grants_exactly_what_it_declares() {
         let policy = table(
-            &[(
-                "operator",
-                &[PrivilegeName::Records, PrivilegeName::Configs],
-            )],
+            &[("operator", &[Privilege::Records, Privilege::Configs])],
             vec![binding(&["kafka-operators"], "operator", None)],
         );
         let access = admit(&policy, &["kafka-operators"]).unwrap();
@@ -587,11 +572,8 @@ mod tests {
     fn incomparable_roles_union_only_where_both_grants_reach() {
         let policy = table(
             &[
-                (
-                    "operator",
-                    &[PrivilegeName::Records, PrivilegeName::Configs],
-                ),
-                ("auditor", &[PrivilegeName::Acls, PrivilegeName::SchemaText]),
+                ("operator", &[Privilege::Records, Privilege::Configs]),
+                ("auditor", &[Privilege::Acls, Privilege::SchemaText]),
             ],
             vec![
                 binding(&["kafka-operators"], "operator", None),
@@ -621,11 +603,8 @@ mod tests {
     fn role_names_report_every_covering_grant_deduplicated() {
         let policy = table(
             &[
-                (
-                    "operator",
-                    &[PrivilegeName::Records, PrivilegeName::Configs],
-                ),
-                ("auditor", &[PrivilegeName::Acls, PrivilegeName::SchemaText]),
+                ("operator", &[Privilege::Records, Privilege::Configs]),
+                ("auditor", &[Privilege::Acls, Privilege::SchemaText]),
             ],
             vec![
                 binding(&["kafka-operators"], "operator", None),

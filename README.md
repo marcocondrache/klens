@@ -32,31 +32,60 @@ helm install klens oci://ghcr.io/marcocondrache/charts/klens \
 `config` is the same YAML the process loads here. The chart also lives in
 [`charts/klens`](charts/klens) if you want to install from a checkout.
 
-Every secret in the config names where to read it: `{value: ...}` inline,
-`{env: NAME}` from an environment variable, or `{file: PATH}` from a file such
-as a mounted Kubernetes secret. A trailing newline in a secret file is dropped.
-A plain string where a secret belongs fails at startup.
-
-Every page reads a background projection of each cluster, refreshed by
-independent lanes. Override a cluster's cadence with `ingest` on that cluster
-(`topology` 10s, `watermark` 3s, `config` 60s, `subjects` 30s, `offset_tick`
-1s, `fast_offset` 2s, `slow_offset` 20s). Each value must be at least `1s`.
-Offsets use the fast interval for groups someone is looking at and the slow
-interval for the rest.
-
 ## Configuration
 
 klens loads `config.yaml` from its working directory. Set `KLENS_CONFIG_PATH`
 to load another file. klens reads no other environment variable, apart from
 the ones a secret names with `{env: NAME}`.
 
-Durations are strings such as `250ms`, `10s`, `1h 30m`, or ISO 8601 `PT10S`.
-A bad value stops startup with its line and column, for example
-`must not be negative, got -5s at line 12, column 15`. Unknown keys fail the
-same way.
+Omitted keys take their defaults, and unknown keys stop startup. So does a bad
+value, with its line and column, for example
+`must be at least 1s at line 12, column 15`.
 
-Timeouts, pool sizes, and limits live under `tuning`. Every key is optional.
-This block lists the defaults:
+```yaml
+bind: 0.0.0.0:8080
+log_level: info # off, error, warn, info, debug, trace, or an EnvFilter directive
+clusters: {} # by name, shown in the UI in this order
+# auth: see Authentication
+# tuning: see Tuning
+```
+
+### Clusters
+
+A cluster needs its `bootstrap_servers`. TLS and SASL are each on when their
+block is present, so `tls: {}` connects over TLS and trusts the system roots.
+
+```yaml
+clusters:
+  prod:
+    bootstrap_servers: [broker-1:9093, broker-2:9093]
+    client_id: klens-prod # default: klens-<cluster name>
+    tls:
+      ca_cert: /tls/ca.pem
+      client: { cert: /tls/client.pem, key: /tls/client.key }
+      insecure_skip_verify: false
+    sasl:
+      mechanism: SCRAM-SHA-512 # PLAIN, SCRAM-SHA-256, or SCRAM-SHA-512
+      username: klens
+      password: { env: KAFKA_PASSWORD }
+```
+
+A cluster can also point at a [Schema Registry](#schema-registry) and hide
+record contents with [obfuscation](#obfuscation) rules.
+
+### Secrets
+
+Every secret names where to read it: `{value: ...}` inline, `{env: NAME}` from
+an environment variable, or `{file: PATH}` from a file such as a mounted
+Kubernetes secret. A trailing newline in a secret file is dropped, and an
+inline value YAML would read as a number must be quoted. A plain string where
+a secret belongs fails at startup, and the error does not repeat it.
+
+### Tuning
+
+Timeouts, pool sizes, limits, and lane cadence live under `tuning`, the same
+for every cluster. Durations are strings such as `250ms`, `10s`, `1h 30m`, or
+ISO 8601 `PT10S`. This block lists the defaults:
 
 ```yaml
 tuning:
@@ -73,29 +102,37 @@ tuning:
   scan:
     pool_per_topic: 2 # idle scan consumers kept per topic
     pool_total: 16 # idle scan consumers kept across all topics
-    pool_idle_ttl: 60s # at least 1s
+    pool_idle_ttl: 60s
     poll_wait: 100ms # longest single scan poll
   records:
     max_limit: 500 # most records one page may request
+    min_window: 4 # fewest offsets read from each partition
     window_multiplier: 2
     search_window_multiplier: 8 # used while a `contains` search runs
-    min_window: 4 # fewest offsets read from each partition
   tail:
     batch_limit: 100
     interval: 250ms
     poll_wait: 500ms
     max_live: 32
   ingest:
-    interest_ttl: 30s # how long a viewed group stays in the fast offset tier
+    topology: 10s
+    watermark: 3s
+    config: 60s
+    subjects: 30s
+    offset_tick: 1s # how often the offset lane checks which groups are due
+    fast_offset: 2s # groups someone is looking at
+    slow_offset: 20s # every other group
     offset_fetch_concurrency: 32
+    interest_ttl: 30s # how long a viewed group stays on fast_offset
     idle_heartbeat: 15s # an idle topic's rate drops to zero after this
     max_sample_gap: 15s # older watermark samples do not count toward a rate
 ```
 
-`clusters.<name>.properties.request_timeout` and `connect_timeout` override
-`tuning.kafka` for one cluster. Counts must be at least 1, except
-`records.window_multiplier`, `records.search_window_multiplier`,
-`records.min_window`, and `tail.max_live`.
+Every page reads a background projection of each cluster, refreshed by the
+independent lanes `ingest` paces. A lane's period and `scan.pool_idle_ttl` must
+be at least `1s`. Counts must be at least 1, except `records.min_window`,
+`records.window_multiplier`, `records.search_window_multiplier`, and
+`tail.max_live`.
 
 ## Live tail
 
@@ -123,13 +160,13 @@ authorization code flow with PKCE. Sessions use
 live routes are under `/api`. `/health` and `/ready` stay public. A process
 restart drops in-memory sessions and requires a new login.
 
-Set `auth.session_key` to a base64 or plain secret of at least 32 bytes so
-the session cookie survives a restart. Without one, klens generates a key per
-boot and every deploy logs everyone out.
+Set `auth.session.key` to a secret of at least 32 bytes so the session cookie
+survives a restart. Without one, klens generates a key per boot and every
+deploy logs everyone out.
 
-A login must come back from the provider within `auth.login_max_age` (`10m`).
-A session ends when the ID token expires or after `auth.max_session` (`12h`),
-whichever comes first.
+A login must come back from the provider within `auth.session.login_timeout`
+(`10m`). A session ends when the ID token expires or after
+`auth.session.max_age` (`12h`), whichever comes first.
 
 ```yaml
 auth:
@@ -138,11 +175,13 @@ auth:
     client_id: klens
     client_secret: { env: OIDC_CLIENT_SECRET }
     redirect_uri: http://localhost:8080/api/auth/callback
-  session_key: { env: KLENS_SESSION_KEY }
+  session:
+    key: { env: KLENS_SESSION_KEY }
 ```
 
-Register `redirect_uri` with the identity provider. Without `roles`, any
-authenticated user has the same access as an open deployment.
+Register `redirect_uri` with the identity provider. Session cookies are
+`Secure` when it is `https`. Without `roles`, any authenticated user has the
+same access as an open deployment.
 
 To restrict what signed-in users may do, add `roles`. A role is nothing but a
 name for a set of privileges, defined by you: there are no built-in roles. The
@@ -217,7 +256,7 @@ before anything is rendered.
 
 ```yaml
 obfuscation:
-  # Required as soon as one rule hashes. Base64 or plain text, 32 bytes or more.
+  # Keys the hash strategy: 32 bytes or more, used as written.
   secret: { env: KLENS_OBFUSCATION_SECRET }
   rules:
     # Field rules walk the JSON a registry decode produced.
@@ -264,7 +303,7 @@ hidden value one character at a time. What the page can show is what a query
 can search.
 
 Rules apply to every session, including admins. A topic must be covered by at
-most one rule, hashing without a secret is rejected, and both are boot-time
+most one rule, and the secret must be at least 32 bytes. Both are boot-time
 errors rather than a silently weaker policy. Offsets, timestamps, `sizeBytes`,
 and schema ids keep describing the wire record. A record page reports
 `obfuscated: true` for a covered topic, which is what the UI badges.

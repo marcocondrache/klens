@@ -28,40 +28,28 @@ impl Ingest {
     pub fn start(clusters: &Clusters, tuning: &IngestTuning) -> Self {
         let mut tasks = JoinSet::new();
 
-        for Cluster {
-            session,
-            store,
-            ingest,
-        } in clusters.iter()
-        {
-            tracing::info!(
-                cluster = %store.name(),
-                topology = ?ingest.topology,
-                watermark = ?ingest.watermark,
-                config = ?ingest.config,
-                subjects = ?ingest.subjects,
-                "starting ingestion lanes"
-            );
+        for Cluster { session, store } in clusters.iter() {
+            tracing::info!(cluster = %store.name(), "starting ingestion lanes");
 
             tasks.spawn(run(
                 Arc::clone(store),
-                TopologyLane::with_interval(Arc::clone(session), ingest.topology),
+                TopologyLane::with_interval(Arc::clone(session), tuning.topology),
             ));
             tasks.spawn(run(
                 Arc::clone(store),
-                WatermarkLane::with_interval(Arc::clone(session), ingest.watermark, tuning),
+                WatermarkLane::with_interval(Arc::clone(session), tuning.watermark, tuning),
             ));
             tasks.spawn(run(
                 Arc::clone(store),
-                ConfigLane::with_interval(Arc::clone(session), ingest.config),
+                ConfigLane::with_interval(Arc::clone(session), tuning.config),
             ));
             tasks.spawn(run(
                 Arc::clone(store),
-                SubjectLane::with_interval(Arc::clone(session), ingest.subjects),
+                SubjectLane::with_interval(Arc::clone(session), tuning.subjects),
             ));
             tasks.spawn(
                 OffsetLane::new(Arc::clone(session))
-                    .with_tiers(ingest.offset_tick, ingest.fast_offset, ingest.slow_offset)
+                    .with_tiers(tuning.offset_tick, tuning.fast_offset, tuning.slow_offset)
                     .with_concurrency(tuning.offset_fetch_concurrency)
                     .run(Arc::clone(store)),
             );

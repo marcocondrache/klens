@@ -6,9 +6,7 @@ use krafka::client::KrafkaClient as KrafkaSharedClient;
 use krafka::network::TransportConfig;
 use secrecy::ExposeSecret;
 
-use crate::config::{
-    ClusterConfig, ClusterName, KafkaTuning, SaslConfig, SaslMechanism, SecurityConfig, TlsConfig,
-};
+use crate::config::{self, KafkaTuning, Sasl, SaslMechanism, Tls};
 use crate::kafka::error::KafkaError;
 
 const CLIENT_ID_PREFIX: &str = "klens";
@@ -31,32 +29,24 @@ pub(super) struct Connector {
 
 impl Connector {
     fn new(
-        name: &ClusterName,
-        config: &ClusterConfig,
+        name: &str,
+        cluster: &config::Cluster,
         tuning: &KafkaTuning,
     ) -> Result<Self, KafkaError> {
-        let properties = &config.properties;
-        let connect_timeout = properties.connect_timeout.unwrap_or(tuning.connect_timeout);
-        let request_timeout = properties
-            .request_timeout
-            .unwrap_or(tuning.request_timeout)
-            .max(connect_timeout);
-        let client_id = properties
-            .client_id
-            .clone()
-            .unwrap_or_else(|| format!("{CLIENT_ID_PREFIX}-{name}"));
-
         Ok(Self {
-            bootstrap_servers: config.bootstrap_servers.join(","),
-            client_id,
-            request_timeout,
-            connect_timeout,
+            bootstrap_servers: cluster.bootstrap_servers.join(","),
+            client_id: cluster
+                .client_id
+                .clone()
+                .unwrap_or_else(|| format!("{CLIENT_ID_PREFIX}-{name}")),
+            request_timeout: tuning.request_timeout.max(tuning.connect_timeout),
+            connect_timeout: tuning.connect_timeout,
             transport: TransportConfig::builder()
                 .max_in_flight_requests(tuning.max_in_flight_requests.get())
                 .max_response_size(tuning.max_response_bytes())
                 .tcp_nodelay(true)
                 .build()?,
-            auth: krafka_auth(&config.security)?,
+            auth: krafka_auth(cluster)?,
         })
     }
 
@@ -76,11 +66,11 @@ impl Connector {
 }
 
 pub(super) async fn connect(
-    name: &ClusterName,
-    config: &ClusterConfig,
+    name: &str,
+    cluster: &config::Cluster,
     tuning: &KafkaTuning,
 ) -> Result<Transport, KafkaError> {
-    let connector = Connector::new(name, config, tuning)?;
+    let connector = Connector::new(name, cluster, tuning)?;
     let client = connector.connect().await?;
     let admin = KrafkaAdmin::builder()
         .with_client(&client)
@@ -96,16 +86,16 @@ pub(super) async fn connect(
     })
 }
 
-fn krafka_auth(security: &SecurityConfig) -> Result<Option<AuthConfig>, KafkaError> {
-    Ok(match security {
-        SecurityConfig::Plaintext {} => None,
-        SecurityConfig::Ssl { tls } => Some(AuthConfig::ssl(krafka_tls(tls))),
-        SecurityConfig::SaslPlaintext { sasl } => Some(krafka_sasl(sasl, None)?),
-        SecurityConfig::SaslSsl { sasl, tls } => Some(krafka_sasl(sasl, Some(krafka_tls(tls)))?),
+fn krafka_auth(cluster: &config::Cluster) -> Result<Option<AuthConfig>, KafkaError> {
+    let tls = cluster.tls.as_ref().map(krafka_tls);
+    Ok(match (&cluster.sasl, tls) {
+        (None, None) => None,
+        (None, Some(tls)) => Some(AuthConfig::ssl(tls)),
+        (Some(sasl), tls) => Some(krafka_sasl(sasl, tls)?),
     })
 }
 
-fn krafka_sasl(sasl: &SaslConfig, tls: Option<KrafkaTlsConfig>) -> Result<AuthConfig, KafkaError> {
+fn krafka_sasl(sasl: &Sasl, tls: Option<KrafkaTlsConfig>) -> Result<AuthConfig, KafkaError> {
     Ok(match (sasl.mechanism, tls) {
         (SaslMechanism::Plain, None) => {
             AuthConfig::sasl_plain(&sasl.username, sasl.password.expose_secret())?
@@ -128,7 +118,7 @@ fn krafka_sasl(sasl: &SaslConfig, tls: Option<KrafkaTlsConfig>) -> Result<AuthCo
     })
 }
 
-fn krafka_tls(tls: &TlsConfig) -> KrafkaTlsConfig {
+fn krafka_tls(tls: &Tls) -> KrafkaTlsConfig {
     let mut krafka_tls = if tls.insecure_skip_verify {
         KrafkaTlsConfig::insecure()
     } else {
@@ -151,29 +141,28 @@ fn krafka_tls(tls: &TlsConfig) -> KrafkaTlsConfig {
 mod tests {
     use super::*;
 
-    fn cluster(yaml: &str) -> ClusterConfig {
-        serde_saphyr::from_str(yaml).unwrap()
+    fn cluster(yaml: &str) -> config::Cluster {
+        config::parse(yaml).unwrap()
+    }
+
+    fn tuning(connect_timeout: u64, request_timeout: u64) -> KafkaTuning {
+        KafkaTuning {
+            connect_timeout: Duration::from_secs(connect_timeout),
+            request_timeout: Duration::from_secs(request_timeout),
+            ..KafkaTuning::default()
+        }
     }
 
     #[tokio::test]
-    async fn properties_configure_the_shared_transport() {
+    async fn the_cluster_and_tuning_configure_the_shared_transport() {
         let broker = krafka::testing::FakeBroker::start().await.unwrap();
-        let mut cluster = cluster(
-            "
-            bootstrap_servers:
-              - localhost:9092
-            properties:
-              client_id: custom-client
-              request_timeout: 8s
-              connect_timeout: 30s
-            ",
-        );
+        let cluster = cluster(&format!(
+            "{{bootstrap_servers: ['{}'], client_id: custom-client}}",
+            broker.bootstrap_servers()
+        ));
 
-        cluster.bootstrap_servers = vec![broker.bootstrap_servers()];
         // Building succeeds only if request_timeout is raised to the connect timeout.
-        let transport = connect(&"local".parse().unwrap(), &cluster, &KafkaTuning::default())
-            .await
-            .unwrap();
+        let transport = connect("local", &cluster, &tuning(30, 8)).await.unwrap();
         assert!(
             broker
                 .requests()
@@ -185,115 +174,97 @@ mod tests {
         transport.client.pool().close_all().await;
     }
 
-    fn timeouts(properties: &str, tuning: KafkaTuning) -> (Duration, Duration) {
-        let connector = Connector::new(
-            &"local".parse().unwrap(),
-            &cluster(&format!(
-                "
-                bootstrap_servers: [localhost:9092]
-                properties: {{{properties}}}
-                "
-            )),
-            &tuning,
-        )
-        .unwrap();
-        (connector.connect_timeout, connector.request_timeout)
-    }
-
     #[test]
-    fn cluster_timeouts_override_the_tuning_defaults() {
-        let tuning = KafkaTuning {
-            connect_timeout: Duration::from_secs(5),
-            request_timeout: Duration::from_secs(20),
-            ..KafkaTuning::default()
+    fn the_request_timeout_is_raised_to_the_connect_timeout() {
+        let timeouts = |tuning: KafkaTuning| {
+            let connector = Connector::new(
+                "local",
+                &cluster("bootstrap_servers: [kafka:9092]"),
+                &tuning,
+            )
+            .unwrap();
+            (connector.connect_timeout, connector.request_timeout)
         };
 
         assert_eq!(
-            timeouts("", tuning),
+            timeouts(tuning(5, 20)),
             (Duration::from_secs(5), Duration::from_secs(20))
         );
         assert_eq!(
-            timeouts("request_timeout: 8s, connect_timeout: 2s", tuning),
-            (Duration::from_secs(2), Duration::from_secs(8))
-        );
-    }
-
-    #[test]
-    fn the_request_timeout_is_raised_to_the_connect_timeout() {
-        let tuning = KafkaTuning {
-            connect_timeout: Duration::from_secs(30),
-            request_timeout: Duration::from_secs(10),
-            ..KafkaTuning::default()
-        };
-
-        assert_eq!(
-            timeouts("", tuning),
+            timeouts(tuning(30, 10)),
             (Duration::from_secs(30), Duration::from_secs(30))
-        );
-        assert_eq!(
-            timeouts("request_timeout: 8s", tuning),
-            (Duration::from_secs(30), Duration::from_secs(30))
-        );
-        assert_eq!(
-            timeouts("request_timeout: 8s, connect_timeout: 250ms", tuning),
-            (Duration::from_millis(250), Duration::from_secs(8))
         );
     }
 
     #[test]
     fn the_default_client_id_uses_the_cluster_name() {
-        let cluster = cluster(
-            "
-            bootstrap_servers:
-              - localhost:9092
-            ",
-        );
+        let connector = Connector::new(
+            "local",
+            &cluster("bootstrap_servers: [a:9092, b:9092]"),
+            &KafkaTuning::default(),
+        )
+        .unwrap();
 
-        let connector =
-            Connector::new(&"local".parse().unwrap(), &cluster, &KafkaTuning::default()).unwrap();
         assert_eq!(connector.client_id, "klens-local");
+        assert_eq!(connector.bootstrap_servers, "a:9092,b:9092");
+    }
+
+    #[test]
+    fn a_cluster_without_tls_or_sasl_connects_in_plaintext() {
+        let auth = krafka_auth(&cluster("bootstrap_servers: [kafka:9092]")).unwrap();
+
+        assert!(auth.is_none());
+    }
+
+    #[test]
+    fn a_tls_block_alone_connects_over_ssl() {
+        let auth = krafka_auth(&cluster(
+            "{bootstrap_servers: [kafka:9093], tls: {ca_cert: /etc/ca.pem}}",
+        ))
+        .unwrap()
+        .expect("ssl auth");
+
+        assert_eq!(auth.sasl_mechanism(), None);
+        let tls = auth.tls_config().expect("tls config");
+        assert_eq!(tls.ca_cert_path(), Some("/etc/ca.pem"));
+        assert!(tls.verify_server_cert());
+    }
+
+    #[test]
+    fn a_sasl_block_alone_authenticates_in_plaintext() {
+        let auth = krafka_auth(&cluster(
+            "
+            bootstrap_servers: [kafka:9092]
+            sasl: {mechanism: PLAIN, username: admin, password: {value: secret}}
+            ",
+        ))
+        .unwrap()
+        .expect("sasl auth");
+
         assert_eq!(
-            "  local  ".parse::<ClusterName>(),
-            Err("cluster name '  local  ' must not start or end with whitespace".to_owned())
+            auth.sasl_mechanism(),
+            Some(&krafka::auth::SaslMechanism::Plain)
         );
+        assert!(auth.tls_config().is_none());
     }
 
     #[test]
-    fn krafka_auth_is_none_for_plaintext() {
-        let cluster = cluster(
+    fn sasl_and_tls_together_authenticate_over_ssl() {
+        let auth = krafka_auth(&cluster(
             "
-            bootstrap_servers:
-              - localhost:9092
+            bootstrap_servers: [broker:9092]
+            tls:
+              ca_cert: /etc/ca.pem
+              client: {cert: /etc/client.pem, key: /etc/client.key}
+              insecure_skip_verify: true
+            sasl:
+              mechanism: SCRAM-SHA-512
+              username: admin
+              password: {value: secret}
             ",
-        );
-
-        assert!(krafka_auth(&cluster.security).unwrap().is_none());
-    }
-
-    #[test]
-    fn krafka_auth_builds_scram_ssl_settings() {
-        let cluster = cluster(
-            "
-            bootstrap_servers:
-              - broker:9092
-            security:
-              protocol: SASL_SSL
-              sasl:
-                mechanism: SCRAM-SHA-512
-                username: admin
-                password: {value: secret}
-              tls:
-                ca_cert: /etc/ca.pem
-                client:
-                  cert: /etc/client.pem
-                  key: /etc/client.key
-                insecure_skip_verify: true
-            ",
-        );
-
-        let auth = krafka_auth(&cluster.security)
-            .unwrap()
-            .expect("sasl ssl auth");
+        ))
+        .unwrap()
+        .expect("sasl ssl auth");
 
         assert_eq!(
             auth.sasl_mechanism(),
@@ -308,26 +279,5 @@ mod tests {
         assert_eq!(tls.client_cert_path(), Some("/etc/client.pem"));
         assert_eq!(tls.client_key_path(), Some("/etc/client.key"));
         assert!(!tls.verify_server_cert());
-    }
-
-    #[test]
-    fn krafka_auth_builds_ssl_only_settings() {
-        let cluster = cluster(
-            "
-            bootstrap_servers:
-              - broker:9092
-            security:
-              protocol: SSL
-              tls:
-                ca_cert: /etc/ca.pem
-            ",
-        );
-
-        let auth = krafka_auth(&cluster.security).unwrap().expect("ssl auth");
-        assert_eq!(auth.sasl_mechanism(), None);
-        assert_eq!(
-            auth.tls_config().and_then(|tls| tls.ca_cert_path()),
-            Some("/etc/ca.pem")
-        );
     }
 }

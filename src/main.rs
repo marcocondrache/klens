@@ -11,7 +11,7 @@ async fn main() -> anyhow::Result<()> {
     let _telemetry =
         klens::telemetry::Telemetry::init(&config.log_level, env!("CARGO_CRATE_NAME"))?;
 
-    let clusters = Clusters::connect(&config)
+    let clusters = Clusters::connect(&config.clusters, &config.tuning)
         .await
         .context("failed to connect to the configured kafka clusters")?;
 

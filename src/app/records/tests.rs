@@ -205,6 +205,7 @@ async fn a_page_says_whether_a_rule_covers_its_topic() {
     let pan = "4111111111111111";
     let records: Vec<_> = (0..2).map(|offset| card_record(offset, pan)).collect();
     let rules = "
+        secret: {value: 0123456789abcdef0123456789abcdef}
         rules:
           - topics: ['orders.*']
             fields:

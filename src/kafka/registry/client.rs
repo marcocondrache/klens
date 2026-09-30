@@ -8,7 +8,7 @@ use schemreg::{
 use secrecy::ExposeSecret;
 use tokio::sync::OnceCell;
 
-use crate::config::{SchemaRegistryConfig, SchemaRegistryTuning};
+use crate::config::{SchemaRegistry, SchemaRegistryTuning};
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{RegisteredSchema, SchemaCompatibility, SchemaReference, SchemaSubject};
 
@@ -26,7 +26,7 @@ pub struct SchemaRegistryClient {
 impl SchemaRegistryClient {
     pub fn new(
         cluster: impl Into<String>,
-        config: &SchemaRegistryConfig,
+        config: &SchemaRegistry,
         tuning: &SchemaRegistryTuning,
     ) -> Result<Self, KafkaError> {
         let cluster = cluster.into();
@@ -214,13 +214,12 @@ pub(crate) fn references(references: &[schemreg::SchemaReference]) -> Vec<Schema
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::BasicAuth;
     use crate::kafka::model::SchemaType;
     use wiremock::matchers::{method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    fn config(url: &str) -> SchemaRegistryConfig {
-        SchemaRegistryConfig {
+    fn config(url: &str) -> SchemaRegistry {
+        SchemaRegistry {
             url: url.parse().unwrap(),
             auth: None,
         }
@@ -509,13 +508,11 @@ mod tests {
 
         let client = SchemaRegistryClient::new(
             "local",
-            &SchemaRegistryConfig {
-                url: server.uri().parse().unwrap(),
-                auth: Some(BasicAuth {
-                    username: "user".into(),
-                    password: "secret".into(),
-                }),
-            },
+            &crate::config::parse(&format!(
+                "{{url: '{}', auth: {{username: user, password: {{value: secret}}}}}}",
+                server.uri()
+            ))
+            .unwrap(),
             &SchemaRegistryTuning::default(),
         )
         .unwrap();

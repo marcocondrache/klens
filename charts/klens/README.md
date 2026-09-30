@@ -27,7 +27,7 @@ Put Kafka and OIDC credentials in `secret.existingSecret` or `secret.stringData`
 Reference them in `config` as `{env: VAR}`. Mount Kafka PEM files with `volumes`
 and `volumeMounts`. Set a Secret `defaultMode` of 0400 on the client key.
 
-Set timeouts, pool sizes, and limits under `config.tuning`. The chart sets
+Set timeouts, pool sizes, limits, and lane cadence under `config.tuning`. The chart sets
 `KLENS_CONFIG_PATH`, and klens reads no other environment variable of its own.
 
 `bind` must be a SocketAddr the Service can reach. A loopback address fails render.
@@ -64,7 +64,7 @@ Kubernetes: `>=1.25.0-0`
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity rules for pod scheduling (templated). |
-| config | object | `{"bind":"0.0.0.0:8080","clusters":{},"log_level":"info"}` | klens config file as a map. The binary validates this YAML, not the chart. `clusters` maps each cluster name to its settings. Lane cadence is per cluster (`clusters.<name>.ingest`). Timeouts, pool sizes, and limits go under `tuning`. |
+| config | object | `{"bind":"0.0.0.0:8080","clusters":{},"log_level":"info"}` | klens config file as a map. The binary validates this YAML, not the chart. `clusters` maps each cluster name to its settings. Timeouts, pool sizes, limits, and lane cadence go under `tuning`. |
 | deploymentAnnotations | object | `{}` | Annotations added to the Deployment. |
 | env | object | `{}` | Extra environment variables as a map (templated). |
 | envFrom | list | `[]` | Extra envFrom sources (templated). |

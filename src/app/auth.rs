@@ -18,7 +18,7 @@ use tower_sessions::service::SignedCookie;
 use tower_sessions::{Expiry, SessionManagerLayer};
 
 use crate::AppState;
-use crate::config::{AuthConfig, KeyMaterial, MIN_SESSION_KEY_BYTES};
+use crate::config::{self, KeyMaterial};
 
 pub(crate) mod access;
 mod backend;
@@ -87,7 +87,7 @@ pub struct AuthState {
     backend: AuthBackend,
     policy: Arc<AccessPolicy>,
     session_layer: SessionLayer,
-    login_max_age: Duration,
+    login_timeout: Duration,
 }
 
 impl AuthState {
@@ -96,42 +96,27 @@ impl AuthState {
             backend: AuthBackend::disabled(),
             policy: Arc::new(AccessPolicy::disabled()),
             session_layer: session_layer(false, Key::generate()),
-            login_max_age: Duration::ZERO,
+            login_timeout: Duration::ZERO,
         }
     }
 
-    pub async fn from_config(auth: Option<&AuthConfig>) -> anyhow::Result<Self> {
-        match auth {
-            None => Ok(Self::disabled()),
-            Some(config) => {
-                let policy = AccessPolicy::from_roles(config.roles.as_ref());
-                let key = signing_key(config.session_key.as_ref());
-                let flow = Oidc::discover(&config.oidc, config.max_session).await?;
-                let login_max_age =
-                    Duration::try_from(config.login_max_age).unwrap_or(Duration::MAX);
-                Ok(Self::enabled(
-                    Arc::new(flow),
-                    &config.oidc,
-                    policy,
-                    key,
-                    login_max_age,
-                ))
-            }
-        }
+    pub async fn from_config(auth: Option<&config::Auth>) -> anyhow::Result<Self> {
+        let Some(auth) = auth else {
+            return Ok(Self::disabled());
+        };
+        let flow = Oidc::discover(&auth.oidc, auth.session.max_age).await?;
+        Ok(Self::enabled(Arc::new(flow), auth))
     }
 
-    fn enabled(
-        flow: Arc<dyn OidcFlow>,
-        oidc: &crate::config::OidcConfig,
-        policy: AccessPolicy,
-        key: Key,
-        login_max_age: Duration,
-    ) -> Self {
+    fn enabled(flow: Arc<dyn OidcFlow>, auth: &config::Auth) -> Self {
         Self {
             backend: AuthBackend::enabled(flow),
-            policy: Arc::new(policy),
-            session_layer: session_layer(oidc.cookie_secure(), key),
-            login_max_age,
+            policy: Arc::new(AccessPolicy::from_roles(auth.roles.as_ref())),
+            session_layer: session_layer(
+                auth.oidc.redirect_uri.url().scheme() == "https",
+                signing_key(auth.session.key.as_ref()),
+            ),
+            login_timeout: Duration::try_from(auth.session.login_timeout).unwrap_or(Duration::MAX),
         }
     }
 
@@ -303,7 +288,7 @@ async fn login(State(state): State<AppState>, auth_session: AuthSession) -> Resp
 
     auth_session
         .session
-        .set_expiry(Some(Expiry::OnInactivity(state.auth.login_max_age)));
+        .set_expiry(Some(Expiry::OnInactivity(state.auth.login_timeout)));
 
     if let Err(error) = auth_session
         .session
@@ -470,11 +455,11 @@ fn session_layer(secure: bool, key: Key) -> SessionLayer {
         .with_signed(key)
 }
 
-fn signing_key(configured: Option<&KeyMaterial<MIN_SESSION_KEY_BYTES>>) -> Key {
+fn signing_key(configured: Option<&KeyMaterial>) -> Key {
     let Some(secret) = configured else {
         tracing::warn!(
             "no session key configured; sessions will not survive a restart. \
-             set auth.session_key"
+             set auth.session.key"
         );
         return Key::generate();
     };
@@ -487,7 +472,6 @@ mod tests {
     use axum::body::{Body, to_bytes};
     use axum::http::StatusCode;
     use axum::http::{Request, header};
-    use base64::Engine as _;
     use tower::ServiceExt;
 
     use super::oidc::FakeOidc;
@@ -504,7 +488,7 @@ mod tests {
                 backend: AuthBackend::enabled(Arc::new(flow)),
                 policy: Arc::new(policy),
                 session_layer: session_layer(false, Key::generate()),
-                login_max_age: Duration::minutes(10),
+                login_timeout: Duration::minutes(10),
             }
         }
     }
@@ -732,6 +716,40 @@ mod tests {
         assert!(cookie_header(&response).contains(SESSION_COOKIE));
     }
 
+    async fn login_cookie(redirect_uri: &str) -> String {
+        let auth: config::Auth = config::parse(&format!(
+            "
+            oidc:
+              issuer: https://idp.example
+              client_id: klens
+              client_secret: {{value: secret}}
+              redirect_uri: {redirect_uri}
+            session:
+              login_timeout: 90s
+            "
+        ))
+        .expect("auth config");
+        let router = app(AuthState::enabled(Arc::new(FakeOidc::default()), &auth));
+        let login = Request::builder()
+            .uri("/api/auth/login")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = send(router, login).await;
+        let cookie = response.headers().get(header::SET_COOKIE).unwrap();
+        cookie.to_str().unwrap().to_owned()
+    }
+
+    #[tokio::test]
+    async fn the_session_cookie_follows_the_auth_config() {
+        let https = login_cookie("https://klens.example/api/auth/callback").await;
+        let http = login_cookie("http://localhost:8080/api/auth/callback").await;
+
+        assert!(https.contains("; Secure"), "{https}");
+        assert!(!http.contains("; Secure"), "{http}");
+        assert!(https.contains("Max-Age=90"), "{https}");
+    }
+
     #[tokio::test]
     async fn callback_rejects_missing_and_mismatched_state() {
         let router = app(AuthState::enabled_for_tests());
@@ -874,7 +892,7 @@ mod tests {
     }
 
     fn bound_admins() -> AccessPolicy {
-        use crate::config::PrivilegeName::{Acls, Configs, Records, SchemaText};
+        use config::Privilege::{Acls, Configs, Records, SchemaText};
         bound(
             "admin",
             &[Records, Configs, SchemaText, Acls],
@@ -886,14 +904,10 @@ mod tests {
         bound("viewer", &[], "klens-viewers")
     }
 
-    fn bound(
-        role_name: &str,
-        privileges: &[crate::config::PrivilegeName],
-        group: &str,
-    ) -> AccessPolicy {
-        let role = crate::config::RoleConfig {
+    fn bound(role_name: &str, privileges: &[config::Privilege], group: &str) -> AccessPolicy {
+        let role = config::Role {
             privileges: privileges.to_vec(),
-            bindings: vec![crate::config::RoleBinding {
+            bindings: vec![config::Binding {
                 groups: vec![group.to_owned()],
                 clusters: None,
             }],
@@ -967,45 +981,21 @@ mod tests {
         assert_eq!(api.status(), StatusCode::UNAUTHORIZED);
     }
 
-    fn key(raw: &str) -> KeyMaterial<MIN_SESSION_KEY_BYTES> {
-        KeyMaterial::from_base64_or_text(raw).expect("session key")
+    fn key(text: &str) -> KeyMaterial {
+        config::parse(&format!("{{value: '{text}'}}")).expect("session key")
     }
 
     #[test]
-    fn the_same_session_key_derives_the_same_signing_key_across_restarts() {
-        let encoded = base64::engine::general_purpose::STANDARD.encode([7u8; 32]);
+    fn a_session_key_derives_the_signing_key_as_written() {
+        let text = "0123456789abcdef0123456789abcdef";
 
         assert_eq!(
-            signing_key(Some(&key(&encoded))).signing(),
-            signing_key(Some(&key(&encoded))).signing()
+            signing_key(Some(&key(text))).signing(),
+            Key::derive_from(text.as_bytes()).signing()
         );
-    }
-
-    #[test]
-    fn a_passphrase_that_happens_to_be_base64_is_taken_as_written() {
-        let passphrase = "p".repeat(MIN_SESSION_KEY_BYTES);
-        let encoded = base64::engine::general_purpose::STANDARD.encode([7u8; 32]);
-
         assert_ne!(
-            signing_key(Some(&key(&passphrase))).signing(),
-            signing_key(Some(&key(&encoded))).signing()
-        );
-    }
-
-    #[test]
-    fn a_base64_session_key_and_its_raw_text_derive_the_same_key() {
-        let raw = "0123456789abcdef0123456789abcdef";
-        let encoded = base64::engine::general_purpose::STANDARD.encode(raw);
-        let expected = Key::derive_from(raw.as_bytes());
-
-        assert_eq!(signing_key(Some(&key(raw))).signing(), expected.signing());
-        assert_eq!(
-            signing_key(Some(&key(&encoded))).signing(),
-            expected.signing()
-        );
-        assert_eq!(
-            signing_key(Some(&key(&format!("  {raw}\n")))).signing(),
-            expected.signing()
+            signing_key(Some(&key(text))).signing(),
+            signing_key(Some(&key(&format!("{text} ")))).signing()
         );
     }
 

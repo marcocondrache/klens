@@ -10,7 +10,7 @@ use bytes::Bytes;
 use krafka::testing::FakeBroker;
 use tokio::sync::OnceCell;
 
-use crate::config::{KafkaTuning, ObfuscationConfig, ScanTuning, SecurityProtocol};
+use crate::config::{KafkaTuning, ScanTuning};
 use crate::kafka::acl::{
     Acl, AclListing, AclOperation, AclPatternType, AclPermission, AclResourceType,
 };
@@ -84,11 +84,7 @@ struct WatermarkGrowth {
 
 impl FakeCluster {
     pub fn local() -> Self {
-        let identity = ClusterIdentity {
-            name: "local".into(),
-            bootstrap_servers: vec!["localhost:9092".into()],
-            security_protocol: SecurityProtocol::Plaintext,
-        };
+        let identity = ClusterIdentity::new("local");
 
         let metadata = MetadataSnapshot {
             cluster_id: Some("test-cluster".into()),
@@ -254,8 +250,7 @@ impl FakeCluster {
     }
 
     pub fn with_obfuscation(self, yaml: &str) -> Self {
-        let config: ObfuscationConfig =
-            serde_saphyr::from_str(yaml).expect("obfuscation config parses");
+        let config = crate::config::parse(yaml).expect("obfuscation config parses");
 
         *self.inner.obfuscation.lock().expect("obfuscation") =
             Some(Arc::new(ObfuscationPolicy::compile(&config)));

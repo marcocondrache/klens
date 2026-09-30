@@ -23,7 +23,7 @@ type DiscoveredClient = CoreClient<
 
 use super::SessionUser;
 use super::access::groups_from_json;
-use crate::config::OidcConfig;
+use crate::config;
 
 #[async_trait]
 pub(crate) trait OidcFlow: Send + Sync {
@@ -52,7 +52,7 @@ pub(crate) struct Oidc {
 
 impl Oidc {
     pub(crate) async fn discover(
-        config: &OidcConfig,
+        config: &config::Oidc,
         max_session: Duration,
     ) -> anyhow::Result<Self> {
         let http = reqwest::Client::builder()
@@ -78,11 +78,7 @@ impl Oidc {
         Ok(Self {
             client,
             http,
-            scopes: config
-                .effective_scopes()
-                .into_iter()
-                .map(Scope::new)
-                .collect(),
+            scopes: config.scopes.iter().cloned().map(Scope::new).collect(),
             groups_claim: config.groups_claim.clone(),
             max_session_secs: i64::try_from(max_session.as_secs()).unwrap_or(i64::MAX),
         })
