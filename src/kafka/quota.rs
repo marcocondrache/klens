@@ -1,7 +1,5 @@
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tokio::time::Instant;
 use tracing::warn;
 
 use crate::kafka::error::KafkaError;
@@ -123,25 +121,6 @@ impl ClientQuota {
 fn is_cluster_authorization_text(message: &str) -> bool {
     let lower = message.to_ascii_lowercase();
     lower.contains("clusterauthorizationfailed") || lower.contains("cluster authorization failed")
-}
-
-#[derive(Default)]
-pub struct QuotaCache {
-    latest: Mutex<Option<(Instant, Arc<QuotaListing>)>>,
-}
-
-impl QuotaCache {
-    pub fn fresh(&self) -> Option<Arc<QuotaListing>> {
-        let latest = self.latest.lock().expect("quota cache");
-        latest
-            .as_ref()
-            .filter(|(read, _)| read.elapsed() < QUOTA_TTL)
-            .map(|(_, listing)| Arc::clone(listing))
-    }
-
-    pub fn store(&self, listing: Arc<QuotaListing>) {
-        *self.latest.lock().expect("quota cache") = Some((Instant::now(), listing));
-    }
 }
 
 #[cfg(test)]

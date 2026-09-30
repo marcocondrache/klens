@@ -32,6 +32,4 @@ pub use scan::tail::{Tail, TailBatch, TailPosition, TailQuery};
 pub use session::ClusterSession;
 
 #[cfg(test)]
-pub use quota::QUOTA_TTL;
-#[cfg(test)]
 pub use testing::{FakeCluster, FixtureRecord, card_record};

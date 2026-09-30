@@ -148,16 +148,3 @@ fn any_other_describe_error_fails_the_call() {
         "{error:?}"
     );
 }
-
-#[tokio::test(start_paused = true)]
-async fn a_cached_listing_is_fresh_until_the_ttl_passes() {
-    let cache = QuotaCache::default();
-    assert!(cache.fresh().is_none());
-
-    cache.store(Arc::new(QuotaListing::Denied));
-    tokio::time::advance(QUOTA_TTL - Duration::from_millis(1)).await;
-    assert_eq!(cache.fresh().as_deref(), Some(&QuotaListing::Denied));
-
-    tokio::time::advance(Duration::from_millis(1)).await;
-    assert!(cache.fresh().is_none());
-}

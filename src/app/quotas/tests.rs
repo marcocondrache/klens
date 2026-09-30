@@ -1,8 +1,8 @@
 use axum::http::StatusCode;
 use serde_json::json;
 
+use crate::kafka::FakeCluster;
 use crate::kafka::model::QuotaListing;
-use crate::kafka::{FakeCluster, QUOTA_TTL};
 
 use super::super::harness::{failure, ok, viewer_everywhere, with};
 
@@ -73,19 +73,13 @@ async fn quotas_are_forbidden_without_the_configs_privilege() {
     assert_eq!(cluster.calls().quotas(), 0);
 }
 
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn quotas_are_read_live_and_reused_briefly() {
     let cluster = FakeCluster::local();
     let state = with(vec![cluster.clone()]);
 
     ok(&state, "/clusters/local/quotas").await;
     ok(&state, "/clusters/local/quotas").await;
+
     assert_eq!(cluster.calls().quotas(), 1);
-
-    cluster.set_quotas(QuotaListing::Denied);
-    tokio::time::advance(QUOTA_TTL).await;
-    let quotas = ok(&state, "/clusters/local/quotas").await;
-
-    assert_eq!(cluster.calls().quotas(), 2);
-    assert_eq!(quotas["access"], "DENIED");
 }

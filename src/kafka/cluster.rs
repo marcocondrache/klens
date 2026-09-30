@@ -3,13 +3,14 @@ use std::time::Duration;
 
 use futures::future::try_join_all;
 use indexmap::IndexMap;
+use moka::future::Cache;
 
 use crate::config::{self, IngestTuning, Tuning};
 use crate::kafka::client::KafkaClient;
 use crate::kafka::error::KafkaError;
 use crate::kafka::limits::{RecordLimits, TailLimits};
 use crate::kafka::model::{ConfigEntry, RecordPage, RecordQuery};
-use crate::kafka::quota::{QuotaCache, QuotaListing};
+use crate::kafka::quota::{QUOTA_TTL, QuotaListing};
 use crate::kafka::scan::read::read_page;
 use crate::kafka::scan::tail::{Tail, TailQuery};
 use crate::kafka::session::ClusterSession;
@@ -32,7 +33,7 @@ pub struct Cluster {
     pub session: Arc<dyn ClusterSession>,
     pub store: Arc<ClusterStore>,
     pub writable: bool,
-    quotas: QuotaCache,
+    quotas: Cache<(), Arc<QuotaListing>>,
 }
 
 impl Cluster {
@@ -41,7 +42,10 @@ impl Cluster {
             store: Arc::new(ClusterStore::new(session.identity().clone(), interest_ttl)),
             session,
             writable,
-            quotas: QuotaCache::default(),
+            quotas: Cache::builder()
+                .max_capacity(1)
+                .time_to_live(QUOTA_TTL)
+                .build(),
         }
     }
 
@@ -75,11 +79,11 @@ impl Cluster {
     }
 
     pub async fn client_quotas(&self) -> Result<Arc<QuotaListing>, KafkaError> {
-        if let Some(listing) = self.quotas.fresh() {
+        if let Some(listing) = self.quotas.get(&()).await {
             return Ok(listing);
         }
         let listing = Arc::new(self.session.client_quotas().await?);
-        self.quotas.store(Arc::clone(&listing));
+        self.quotas.insert((), Arc::clone(&listing)).await;
         Ok(listing)
     }
 }
