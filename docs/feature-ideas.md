@@ -43,7 +43,8 @@ source for them.
    it well.
 5. **Jump to offset, record links and key lookup.** Small, and key history and
    trace build on them.
-6. **Storage page.**
+6. **Sizes on Topics, partitions and Brokers.** One new lane, then columns on
+   pages that already exist.
 7. **Flow page, first version.**
 8. **MCP server and API tokens.**
 
@@ -68,7 +69,6 @@ Cluster
 Insights
   Activity          new
   Transactions      new
-  Storage           new
   Flow              new
   Trace             new, needs the records privilege
 ```
@@ -80,7 +80,12 @@ Two sidebar changes support this:
   is hidden without `acls`.
 - Menu badges are always muted (`SidebarMenuBadge` in
   `web/src/components/nav-main.tsx`). Activity and Transactions need a warning
-  tone to say "5 changes" or "3 hanging".
+  tone to say "5 changes" or "3 hanging", and Brokers needs one when a disk is
+  nearly full.
+
+Sizes on disk do not get a page of their own. They belong on the pages that
+already list topics, partitions and brokers: see
+[Sizes on Topics, partitions and Brokers](#sizes-on-topics-partitions-and-brokers).
 
 ### Overview
 
@@ -91,12 +96,13 @@ A one-screen answer to "is this cluster OK?":
   exists on topics and partitions)
 - total messages per second, and the busiest topics
 - the groups furthest behind, and groups that are Empty or rebalancing
+- total size on disk, the fullest broker, and the topics growing fastest
 - how fresh each lane's data is (the sidebar already calls `useClusterHealth`)
 - the latest entries from Activity
 - a banner when a partition reassignment is running
 
-Everything except the Activity feed and the reassignment banner is in the store
-today.
+Everything except sizes, the Activity feed and the reassignment banner is in the
+store today.
 
 ### Activity
 
@@ -112,7 +118,7 @@ The cluster's recent changes, newest first:
 - **Source:** the change bus. `TopologyDelta`, `ConfigsDelta` and
   `SubjectsDelta` already say *what* changed. They only carry names, so the log
   also needs the before and after values.
-- **Storage:** a bounded in-memory ring buffer per cluster.
+- **Kept in:** a bounded in-memory ring buffer per cluster.
 - **Views:** a page for the whole cluster, plus the same log filtered on each
   topic and group page.
 - **Badge:** changes in the last hour.
@@ -142,19 +148,6 @@ and nothing in its logs explains why. This page is the UI version of
 - **Permissions:** klens's Kafka user needs `DESCRIBE` on transactional ids, and
   `READ` on topics for `describe_producers`. Without them the page is empty and
   should say why.
-
-### Storage
-
-klens shows message counts but no sizes on disk. `describe_log_dirs` returns the
-size of every partition replica on every broker:
-
-- the largest topics and partitions
-- disk used per broker, and uneven use across brokers. Brokers on Kafka 3.3+
-  also report total and usable bytes per log dir.
-- the topics growing fastest
-- topics close to their `retention.bytes`
-
-Poll it in a slow lane, like configs. Needs `DESCRIBE` on the cluster.
 
 ### Flow
 
@@ -204,6 +197,62 @@ Producer and consumer byte-rate quotas per user and client id, from
 ## Features on existing pages
 
 These make existing pages better and do not need their own sidebar entry.
+
+### Sizes on Topics, partitions and Brokers
+
+klens shows message counts but no sizes. Rather than a separate page, show each
+size on the page that already lists what it belongs to.
+
+**Source.** `describe_log_dirs` (`LogDirInfo` in krafka's `src/admin/mod.rs`)
+answers per broker. For each log directory it gives:
+
+- the path, and an error if the directory is offline
+- the volume's total and usable bytes, on Kafka 3.3+
+- whether the directory is cordoned, on newer brokers
+- for each partition replica in it: the size in bytes, how many offsets it is
+  behind the high watermark, and whether it is a future replica (being moved)
+
+Poll it in a new slow lane, e.g. `tuning.ingest.log_dirs` at 60s like configs.
+Until the first poll lands, show sizes as pending, the same way retention waits
+for topic configs.
+
+**Where it shows:**
+
+| Page | What to add |
+| --- | --- |
+| Topics list | `Size` column: one copy of the data, summed from each partition's leader replica. The tooltip gives disk used across all replicas. Sorting by it lists the largest topics. |
+| Topic header | size next to the message count, e.g. "4.2 GiB, 12.6 GiB on disk" |
+| Partitions tab | `Size` column, which shows skew when sorted. Each replica pill's tooltip adds that replica's size and offset lag, and marks a replica being moved. |
+| Brokers list | `Disk` column: bytes used, plus a usage bar against the volume on Kafka 3.3+. Uneven use across brokers is visible side by side. |
+| Broker detail | disk use in the header; a `Log dirs` section with each directory's use, errors and cordoned flag; a `Partitions` tab listing the replicas this broker hosts, largest first, with leader or follower and offset lag |
+| Overview | total size, the fullest broker, and the topics growing fastest |
+
+**Details:**
+
+- **`retention.bytes` applies per partition.** Compare it with each partition's
+  size, not the topic total. When it is set, show how full each partition is on
+  the partitions tab, and flag the topic on the Topics list when a partition is
+  close.
+- **Warnings.** A broker disk above a threshold, or a log dir reporting an error,
+  gets a warning tone on the Brokers list, the broker page and the Brokers
+  sidebar badge.
+- **Growth.** Needs a short history of sizes. Retention deletes whole segments,
+  so size drops in steps: measure growth over several minutes, never between two
+  polls.
+- **Tiered storage.** `describe_log_dirs` counts only local segments. On topics
+  with `remote.storage.enable=true`, label the size as local, because the real
+  total is larger.
+- **Bytes per message.** Partition size divided by retained messages gives the
+  average on-disk size of a record. It is rough, because of compression and
+  compaction, but useful next to the message count.
+- **Privileges.** Sizes are catalog data, like message counts, so every user sees
+  them. Log dir paths describe the broker's filesystem. Show them only with
+  `configs`, which already guards broker configs such as `log.dirs`.
+- **Permission and cost.** klens's Kafka user needs `DESCRIBE` on the cluster.
+  Without it, sizes stay blank with a tooltip saying why. Each broker answers
+  with one entry per replica it hosts. On very large brokers that response can
+  come close to `tuning.kafka.max_response_mib`. In that case, ask for topics in
+  batches instead of everything at once.
 
 ### Consumer Groups: status, time behind and the stuck record
 
@@ -413,7 +462,7 @@ The same `describe_producers` data also feeds the Transactions page
 | Short per-partition history of offsets and watermarks | group status, time to catch up, trends, hot partitions, last write |
 | Change log of bus deltas with before and after values | Activity, Overview |
 | Key to candidate partitions | key lookup, key history, Trace |
-| Slow admin lane (log dirs, transactions, producers, quotas) | Storage, Transactions, Flow, Quotas |
+| Slow admin lane (log dirs, transactions, producers, quotas) | sizes on Topics and Brokers, Transactions, Flow, Quotas |
 | Non-browser auth (API tokens) | MCP server, CLI, scripts |
 | Privilege-aware `visibleSections` and badge tones | every new sidebar page |
 
@@ -442,6 +491,8 @@ setting can skip the guessing.
   but no payload.
 - Should Activity survive restarts? That needs storage, which klens has avoided
   so far.
+- What disk usage should turn a broker's warning on? A fixed 80% and 90%, or a
+  setting under `tuning`?
 - Which graph layout library for Flow? It has to stay readable with hundreds of
   topics.
 - Should key lookup guess the partitioner, require it in config, or both?
