@@ -95,6 +95,12 @@ pub(crate) mod capture {
             .with_ansi(false)
             .without_time()
             .finish();
+        // While one dispatcher exists, tracing asks only the registering
+        // thread's subscriber whether a new callsite is wanted. A callsite
+        // another test's thread hits first would then stay silent here. A
+        // second, idle dispatcher makes it ask every live subscriber.
+        static IDLE: std::sync::OnceLock<tracing::Dispatch> = std::sync::OnceLock::new();
+        IDLE.get_or_init(|| tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default()));
         (logs, tracing::subscriber::set_default(subscriber))
     }
 }
