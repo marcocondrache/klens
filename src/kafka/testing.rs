@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
@@ -31,6 +32,9 @@ use crate::kafka::scan::payload::{DecodedPayload, PayloadCodec, PayloadSlot};
 use crate::kafka::session::ClusterSession;
 use crate::kafka::storage::{LogDir, ReplicaLog};
 use crate::kafka::topic_config::{ConfigEntry, ConfigSource};
+use crate::kafka::transaction::{
+    ListedTransaction, PartitionProducers, TransactionDescription, TransactionState,
+};
 
 const SUBJECT_SCHEMA: &str =
     r#"{"type":"record","name":"Order","fields":[{"name":"orderId","type":"string"}]}"#;
@@ -65,6 +69,8 @@ struct Inner {
     subjects: Mutex<Vec<SchemaSubject>>,
     acls: Mutex<Result<AclListing, String>>,
     quotas: Mutex<Result<QuotaListing, String>>,
+    transactions: Mutex<Result<Vec<TransactionDescription>, String>>,
+    producers: Mutex<VecDeque<Vec<PartitionProducers>>>,
     subjects_error: Mutex<Option<String>>,
     offsets_error: Mutex<Option<String>>,
     records_delay: Mutex<Duration>,
@@ -246,6 +252,8 @@ impl FakeCluster {
                 subjects: Mutex::new(subjects),
                 acls: Mutex::new(Ok(AclListing::Enabled(local_acls()))),
                 quotas: Mutex::new(Ok(QuotaListing::Described(local_quotas()))),
+                transactions: Mutex::new(Ok(Vec::new())),
+                producers: Mutex::new(VecDeque::new()),
                 subjects_error: Mutex::new(None),
                 offsets_error: Mutex::new(None),
                 records_delay: Mutex::new(Duration::ZERO),
@@ -388,6 +396,26 @@ impl FakeCluster {
 
     pub fn set_acls(&self, acls: Result<AclListing, &str>) {
         *self.inner.acls.lock().expect("acls") = acls.map_err(str::to_owned);
+    }
+
+    pub fn set_broker_configs(&self, id: i32, configs: Vec<ConfigEntry>) {
+        self.inner
+            .broker_configs
+            .lock()
+            .expect("broker configs")
+            .insert(id, configs);
+    }
+
+    pub fn set_transactions(&self, transactions: Result<Vec<TransactionDescription>, &str>) {
+        *self.inner.transactions.lock().expect("transactions") =
+            transactions.map_err(str::to_owned);
+    }
+
+    /// Each `describe_producers` call answers from the next answer, and the
+    /// last one keeps answering. A partition an answer leaves out has no
+    /// producers.
+    pub fn set_producers(&self, answers: Vec<Vec<PartitionProducers>>) {
+        *self.inner.producers.lock().expect("producers") = answers.into();
     }
 
     pub fn set_subjects(&self, subjects: Vec<SchemaSubject>) {
@@ -844,6 +872,97 @@ impl ClusterSession for FakeCluster {
             .unwrap_or_default())
     }
 
+    async fn list_transactions(
+        &self,
+        states: &[TransactionState],
+        producer_ids: &[i64],
+    ) -> Result<Vec<ListedTransaction>, KafkaError> {
+        self.inner
+            .calls
+            .list_transactions
+            .fetch_add(1, Ordering::SeqCst);
+        let transactions = self.inner.transactions.lock().expect("transactions");
+        let transactions = transactions
+            .as_ref()
+            .map_err(|message| KafkaError::Admin(message.clone()))?;
+        Ok(transactions
+            .iter()
+            .filter(|transaction| states.is_empty() || states.contains(&transaction.state))
+            .filter(|transaction| {
+                producer_ids.is_empty() || producer_ids.contains(&transaction.producer_id)
+            })
+            .map(|transaction| ListedTransaction {
+                transactional_id: transaction.transactional_id.clone(),
+                producer_id: transaction.producer_id,
+                state: transaction.state,
+            })
+            .collect())
+    }
+
+    async fn describe_transactions(
+        &self,
+        transactional_ids: &[&str],
+    ) -> Result<Vec<TransactionDescription>, KafkaError> {
+        let transactions = self.inner.transactions.lock().expect("transactions");
+        let transactions = transactions
+            .as_ref()
+            .map_err(|message| KafkaError::Admin(message.clone()))?;
+        Ok(transactional_ids
+            .iter()
+            .map(|id| {
+                transactions
+                    .iter()
+                    .find(|transaction| transaction.transactional_id == *id)
+                    .cloned()
+                    .unwrap_or_else(|| TransactionDescription {
+                        transactional_id: (*id).to_owned(),
+                        error: Some("TransactionalIdNotFound".into()),
+                        state: TransactionState::Dead,
+                        producer_id: -1,
+                        producer_epoch: -1,
+                        timeout_ms: 0,
+                        started_at_ms: None,
+                        partitions: Vec::new(),
+                    })
+            })
+            .collect())
+    }
+
+    async fn describe_producers(
+        &self,
+        topics: &HashMap<String, Vec<i32>>,
+    ) -> Result<Vec<PartitionProducers>, KafkaError> {
+        self.inner
+            .calls
+            .describe_producers
+            .fetch_add(1, Ordering::SeqCst);
+        let answer = {
+            let mut answers = self.inner.producers.lock().expect("producers");
+            match answers.len() {
+                0 => Vec::new(),
+                1 => answers[0].clone(),
+                _ => answers.pop_front().expect("a queued answer"),
+            }
+        };
+        Ok(topics
+            .iter()
+            .flat_map(|(topic, partitions)| {
+                partitions.iter().map(|partition| {
+                    answer
+                        .iter()
+                        .find(|entry| entry.topic == *topic && entry.partition == *partition)
+                        .cloned()
+                        .unwrap_or_else(|| PartitionProducers {
+                            topic: topic.clone(),
+                            partition: *partition,
+                            error: None,
+                            producers: Vec::new(),
+                        })
+                })
+            })
+            .collect())
+    }
+
     async fn open_scan(
         &self,
         topic: &str,
@@ -1223,6 +1342,8 @@ pub struct SessionCalls {
     offsets_peak: AtomicUsize,
     acls: AtomicUsize,
     quotas: AtomicUsize,
+    list_transactions: AtomicUsize,
+    describe_producers: AtomicUsize,
 }
 
 impl SessionCalls {
@@ -1264,6 +1385,14 @@ impl SessionCalls {
 
     pub fn quotas(&self) -> usize {
         self.quotas.load(Ordering::SeqCst)
+    }
+
+    pub fn list_transactions(&self) -> usize {
+        self.list_transactions.load(Ordering::SeqCst)
+    }
+
+    pub fn describe_producers(&self) -> usize {
+        self.describe_producers.load(Ordering::SeqCst)
     }
 }
 
