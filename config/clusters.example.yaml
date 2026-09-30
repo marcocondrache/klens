@@ -1,6 +1,7 @@
 # klens service configuration.
 #
-# Copy this file to config.yaml and adjust it for your environment.
+# Copy this file to config.yaml and adjust it for your environment. Omitted
+# keys take the defaults shown here, and unknown keys stop startup.
 #
 # Every secret names where to read it, so secrets can stay out of this file:
 # {value: ...} inline, {env: NAME} from an environment variable, or
@@ -11,77 +12,24 @@
 bind: 0.0.0.0:8080
 log_level: info
 
-# Optional timeouts, pool sizes, and limits for every cluster. Omitted keys
-# use the defaults below.
-# tuning:
-#   kafka:
-#     connect_timeout: 10s
-#     request_timeout: 10s        # raised to connect_timeout if smaller
-#     consume_timeout: 5s
-#     max_in_flight_requests: 32
-#     max_response_mib: 32
-#   schema_registry:
-#     timeout: 5s
-#     subject_fetch_concurrency: 8
-#     missing_schema_ttl: 60s
-#   scan:
-#     pool_per_topic: 2
-#     pool_total: 16
-#     pool_idle_ttl: 60s
-#     poll_wait: 100ms
-#   records:
-#     max_limit: 500
-#     window_multiplier: 2
-#     search_window_multiplier: 8
-#     min_window: 4
-#   tail:
-#     batch_limit: 100
-#     interval: 250ms
-#     poll_wait: 500ms
-#     max_live: 32
-#   ingest:
-#     interest_ttl: 30s
-#     offset_fetch_concurrency: 32
-#     idle_heartbeat: 15s
-#     max_sample_gap: 15s
-
 # Clusters by name, shown in the UI in this order. Each name appears once.
 clusters:
   local:
     bootstrap_servers:
       - localhost:9092
+    # client_id: klens-local  # default: klens-<cluster name>
 
-    # SASL and TLS are optional. Example:
-    # security:
-    #   protocol: SASL_SSL
-    #   sasl:
-    #     mechanism: SCRAM-SHA-512
-    #     username: klens
-    #     password: {env: KAFKA_PASSWORD}
-    #   tls:
-    #     ca_cert: /path/to/ca.pem
-    #     client:
-    #       cert: /path/to/client.pem
-    #       key: /path/to/client.key
-    #     insecure_skip_verify: false
-
-    # Optional Kafka transport overrides. The timeouts override tuning.kafka
-    # for this cluster. request_timeout is raised to connect_timeout if smaller.
-    # properties:
-    #   client_id: klens-local
-    #   request_timeout: 10s
-    #   connect_timeout: 10s
-
-    # Optional ingest cadence. Omitted keys use the defaults below. Values
-    # must be at least 1s.
-    # ingest:
-    #   topology: 10s
-    #   watermark: 3s
-    #   config: 60s
-    #   subjects: 30s
-    #   offset_tick: 1s
-    #   fast_offset: 2s
-    #   slow_offset: 20s
+    # TLS and SASL are each on when their block is present.
+    # tls:
+    #   ca_cert: /path/to/ca.pem
+    #   client:
+    #     cert: /path/to/client.pem
+    #     key: /path/to/client.key
+    #   insecure_skip_verify: false
+    # sasl:
+    #   mechanism: SCRAM-SHA-512  # PLAIN | SCRAM-SHA-256 | SCRAM-SHA-512
+    #   username: klens
+    #   password: {env: KAFKA_PASSWORD}
 
     # Optional Confluent-compatible Schema Registry. When omitted, the Schemas
     # page is empty for this cluster.
@@ -100,8 +48,8 @@ clusters:
     # page itself shows. Applies to every session, admins included.
     #
     # obfuscation:
-    #   # Required as soon as one rule hashes. Base64 or plain text, 32+ bytes.
-    #   # Rotating it changes every token.
+    #   # Keys the hash strategy: 32 bytes or more, used as written. Rotating
+    #   # it changes every token.
     #   secret: {env: KLENS_OBFUSCATION_SECRET}
     #   rules:
     #     # Field rules walk the JSON a registry decode produced. An array met
@@ -134,15 +82,16 @@ clusters:
     #           strategy: mask       # the match becomes ***
 
 # Optional OpenID Connect login gate. When omitted, the UI and JSON API are
-# open to anyone who can reach the process. /health and /ready stay public either way.
+# open to anyone who can reach the process. /health and /ready stay public
+# either way.
 #
-# Register redirect_uri with the identity provider. Without roles, any
-# authenticated user has the same access as an open deployment. With roles,
-# unmatched users cannot sign in. A role is a name for a set of privileges:
-# each role grants exactly the privileges it lists, out of records, configs,
-# schema_text, and acls. An empty list still sees the catalog. A role's
-# bindings name the groups that hold it. Omit clusters on a binding to allow
-# every configured cluster.
+# Register redirect_uri with the identity provider; session cookies are
+# Secure when it is https. Without roles, any authenticated user has the same
+# access as an open deployment. With roles, unmatched users cannot sign in. A
+# role is a name for a set of privileges: each role grants exactly the
+# privileges it lists, out of records, configs, schema_text, and acls. An
+# empty list still sees the catalog. A role's bindings name the groups that
+# hold it. Omit clusters on a binding to allow every configured cluster.
 #
 # auth:
 #   oidc:
@@ -151,10 +100,11 @@ clusters:
 #     client_secret: {env: OIDC_CLIENT_SECRET}
 #     redirect_uri: http://localhost:8080/api/auth/callback
 #     # scopes: [openid, email, profile]
-#     # cookie_secure: false  # default: true when redirect_uri is https
 #     # groups_claim: groups  # the ID token claim that lists a user's groups
-#   # login_max_age: 10m  # how long a login may take at the provider
-#   # max_session: 12h    # session cap, even if the ID token lasts longer
+#   session:
+#     key: {env: KLENS_SESSION_KEY}  # 32 bytes or more; without it, a restart signs everyone out
+#     # login_timeout: 10m  # how long a login may take at the provider
+#     # max_age: 12h        # session cap, even if the ID token lasts longer
 #   roles:
 #     admin:
 #       privileges: [records, configs, schema_text, acls]
@@ -173,3 +123,43 @@ clusters:
 #       privileges: [acls, schema_text]
 #       bindings:
 #         - groups: [security-team]
+
+# Timeouts, pool sizes, limits, and lane cadence, the same for every cluster.
+# tuning:
+#   kafka:
+#     connect_timeout: 10s
+#     request_timeout: 10s        # raised to connect_timeout if smaller
+#     consume_timeout: 5s
+#     max_in_flight_requests: 32
+#     max_response_mib: 32
+#   schema_registry:
+#     timeout: 5s
+#     subject_fetch_concurrency: 8
+#     missing_schema_ttl: 60s
+#   scan:
+#     pool_per_topic: 2
+#     pool_total: 16
+#     pool_idle_ttl: 60s          # at least 1s
+#     poll_wait: 100ms
+#   records:
+#     max_limit: 500
+#     min_window: 4
+#     window_multiplier: 2
+#     search_window_multiplier: 8
+#   tail:
+#     batch_limit: 100
+#     interval: 250ms
+#     poll_wait: 500ms
+#     max_live: 32
+#   ingest:
+#     topology: 10s               # each lane's period is at least 1s
+#     watermark: 3s
+#     config: 60s
+#     subjects: 30s
+#     offset_tick: 1s
+#     fast_offset: 2s
+#     slow_offset: 20s
+#     offset_fetch_concurrency: 32
+#     interest_ttl: 30s
+#     idle_heartbeat: 15s
+#     max_sample_gap: 15s

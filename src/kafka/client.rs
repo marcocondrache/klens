@@ -16,7 +16,7 @@ use krafka::admin::{
     OffsetSpec, OffsetVisibility,
 };
 
-use crate::config::{ClusterConfig, ClusterName, Tuning};
+use crate::config::{self, Tuning};
 use crate::kafka::acl::AclListing;
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
@@ -59,12 +59,12 @@ impl std::fmt::Debug for KafkaClient {
 
 impl KafkaClient {
     pub async fn new(
-        name: &ClusterName,
-        config: &ClusterConfig,
+        name: &str,
+        cluster: &config::Cluster,
         tuning: &Tuning,
     ) -> Result<Self, KafkaError> {
-        let identity = ClusterIdentity::new(name, config);
-        let schema_registry = config
+        let identity = ClusterIdentity::new(name);
+        let schema_registry = cluster
             .schema_registry
             .as_ref()
             .map(|registry| {
@@ -78,12 +78,12 @@ impl KafkaClient {
             })
             .transpose()?;
 
-        let obfuscation = config
+        let obfuscation = cluster
             .obfuscation
             .as_ref()
             .map(|rules| Arc::new(ObfuscationPolicy::compile(rules)));
 
-        let transport = transport::connect(name, config, &tuning.kafka).await?;
+        let transport = transport::connect(name, cluster, &tuning.kafka).await?;
 
         Ok(Self {
             identity,
@@ -367,7 +367,6 @@ mod tests {
     use std::io;
     use std::sync::{Arc, Mutex};
 
-    use crate::config::ClusterConfig;
     use crate::kafka::group::MemberAssignment;
     use crate::kafka::model::{PartitionWindow, RecordOrder};
     use crate::kafka::scan::session::scan_once;
@@ -489,20 +488,9 @@ mod tests {
         let broker = krafka::testing::FakeBroker::start().await.unwrap();
         let mut tuning = Tuning::default();
         tuning.scan.poll_wait = Duration::from_millis(250);
-        let client = KafkaClient::new(
-            &"test".parse().unwrap(),
-            &ClusterConfig {
-                bootstrap_servers: vec![broker.bootstrap_servers()],
-                security: Default::default(),
-                schema_registry: None,
-                obfuscation: None,
-                properties: Default::default(),
-                ingest: Default::default(),
-            },
-            &tuning,
-        )
-        .await
-        .unwrap();
+        let client = KafkaClient::new("test", &cluster(&broker.bootstrap_servers()), &tuning)
+            .await
+            .unwrap();
 
         assert_eq!(client.scan_poll_wait(), Duration::from_millis(250));
         client.transport.admin.close().await;
@@ -512,24 +500,12 @@ mod tests {
     #[tokio::test]
     async fn broker_io_is_bounded_by_the_configured_request_timeout() {
         let broker = krafka::testing::FakeBroker::start().await.unwrap();
-        let client = KafkaClient::new(
-            &"test".parse().unwrap(),
-            &ClusterConfig {
-                bootstrap_servers: vec![broker.bootstrap_servers()],
-                security: Default::default(),
-                schema_registry: None,
-                obfuscation: None,
-                properties: crate::config::KafkaProperties {
-                    request_timeout: Some(Duration::from_millis(100)),
-                    connect_timeout: Some(Duration::from_millis(100)),
-                    ..Default::default()
-                },
-                ingest: Default::default(),
-            },
-            &Tuning::default(),
-        )
-        .await
-        .unwrap();
+        let mut tuning = Tuning::default();
+        tuning.kafka.request_timeout = Duration::from_millis(100);
+        tuning.kafka.connect_timeout = Duration::from_millis(100);
+        let client = KafkaClient::new("test", &cluster(&broker.bootstrap_servers()), &tuning)
+            .await
+            .unwrap();
         assert_eq!(
             client.transport.admin.request_timeout(),
             Duration::from_millis(100)
@@ -927,21 +903,14 @@ mod tests {
         }
     }
 
+    pub(super) fn cluster(bootstrap: &str) -> config::Cluster {
+        config::parse(&format!("bootstrap_servers: ['{bootstrap}']")).expect("cluster config")
+    }
+
     pub(super) async fn kafka_client(bootstrap: &str) -> KafkaClient {
-        KafkaClient::new(
-            &"test".parse().unwrap(),
-            &ClusterConfig {
-                bootstrap_servers: vec![bootstrap.to_owned()],
-                security: Default::default(),
-                schema_registry: None,
-                obfuscation: None,
-                properties: Default::default(),
-                ingest: Default::default(),
-            },
-            &Tuning::default(),
-        )
-        .await
-        .expect("kafka client")
+        KafkaClient::new("test", &cluster(bootstrap), &Tuning::default())
+            .await
+            .expect("kafka client")
     }
 
     pub(super) async fn produce_krafka(bootstrap: &str, topic: &str, count: usize) {

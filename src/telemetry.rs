@@ -5,13 +5,15 @@ use tracing_subscriber::{
     EnvFilter, filter::ParseError, layer::SubscriberExt, util::SubscriberInitExt,
 };
 
+use crate::config::LogLevel;
+
 pub struct Telemetry {
     _guard: WorkerGuard,
 }
 
 impl Telemetry {
-    pub fn init(filter: &str, target: &str) -> anyhow::Result<Self> {
-        let filter = filter_from_value(filter, target)?;
+    pub fn init(level: LogLevel, target: &str) -> anyhow::Result<Self> {
+        let filter = filter(level, target)?;
         // The default 128k-line queue is allocated and touched up front, about
         // 4 MB resident. Lines past the limit are dropped either way.
         let (writer, guard) = NonBlockingBuilder::default()
@@ -29,22 +31,16 @@ impl Telemetry {
     }
 }
 
-pub fn filter_from_value(value: &str, target: &str) -> Result<EnvFilter, ParseError> {
-    match value.trim() {
-        "none" | "off" => Ok(EnvFilter::default()),
-        "error" => Ok(EnvFilter::default().add_directive(tracing::Level::ERROR.into())),
-        "warn" => Ok(EnvFilter::default().add_directive(tracing::Level::WARN.into())),
-        "info" => Ok(EnvFilter::default()
-            .add_directive(tracing::Level::WARN.into())
-            .add_directive(format!("{target}=info").parse()?)),
-        "debug" => Ok(EnvFilter::default()
-            .add_directive(tracing::Level::WARN.into())
-            .add_directive(format!("{target}=debug").parse()?)),
-        "trace" => Ok(EnvFilter::default()
-            .add_directive(tracing::Level::WARN.into())
-            .add_directive(format!("{target}=trace").parse()?)),
-        custom => EnvFilter::builder().parse(custom),
-    }
+fn filter(level: LogLevel, target: &str) -> Result<EnvFilter, ParseError> {
+    let directives = match level {
+        LogLevel::Off => "off".to_owned(),
+        LogLevel::Error => "error".to_owned(),
+        LogLevel::Warn => "warn".to_owned(),
+        LogLevel::Info => format!("warn,{target}=info"),
+        LogLevel::Debug => format!("warn,{target}=debug"),
+        LogLevel::Trace => format!("warn,{target}=trace"),
+    };
+    EnvFilter::builder().parse(directives)
 }
 
 pub(crate) fn log_http_completed(status: u16, latency: std::time::Duration) {
@@ -108,7 +104,21 @@ mod tests {
     use std::time::Duration;
 
     use super::capture::subscriber as capture;
-    use super::log_http_completed;
+    use super::{LogLevel, filter, log_http_completed};
+
+    #[test]
+    fn a_log_level_filters_klens_and_leaves_its_dependencies_at_warn() {
+        for (level, expected) in [
+            (LogLevel::Off, "off"),
+            (LogLevel::Error, "error"),
+            (LogLevel::Warn, "warn"),
+            (LogLevel::Info, "klens=info,warn"),
+            (LogLevel::Debug, "klens=debug,warn"),
+            (LogLevel::Trace, "klens=trace,warn"),
+        ] {
+            assert_eq!(filter(level, "klens").unwrap().to_string(), expected);
+        }
+    }
 
     #[test]
     fn log_http_completed_204_is_silent_at_info() {

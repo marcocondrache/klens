@@ -1,9 +1,9 @@
 use std::num::NonZeroUsize;
 use std::time::Duration;
 
-use jiff::SignedDuration;
 use serde::Deserialize;
-use serde::de::{self, Deserializer};
+
+use super::{at_least_one_second, duration};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -21,10 +21,13 @@ pub struct Tuning {
 pub struct KafkaTuning {
     #[serde(deserialize_with = "duration")]
     pub connect_timeout: Duration,
+    /// Raised to `connect_timeout` if smaller.
     #[serde(deserialize_with = "duration")]
     pub request_timeout: Duration,
+    /// How long one record page or tail open may read.
     #[serde(deserialize_with = "duration")]
     pub consume_timeout: Duration,
+    /// Per broker connection.
     pub max_in_flight_requests: NonZeroUsize,
     pub max_response_mib: NonZeroUsize,
 }
@@ -41,8 +44,8 @@ impl Default for KafkaTuning {
             connect_timeout: Duration::from_secs(10),
             request_timeout: Duration::from_secs(10),
             consume_timeout: Duration::from_secs(5),
-            max_in_flight_requests: NonZeroUsize::new(32).unwrap(),
-            max_response_mib: NonZeroUsize::new(32).unwrap(),
+            max_in_flight_requests: nonzero(32),
+            max_response_mib: nonzero(32),
         }
     }
 }
@@ -61,7 +64,7 @@ impl Default for SchemaRegistryTuning {
     fn default() -> Self {
         Self {
             timeout: Duration::from_secs(5),
-            subject_fetch_concurrency: NonZeroUsize::new(8).unwrap(),
+            subject_fetch_concurrency: nonzero(8),
             missing_schema_ttl: Duration::from_secs(60),
         }
     }
@@ -70,9 +73,11 @@ impl Default for SchemaRegistryTuning {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ScanTuning {
+    /// Idle scan consumers kept per topic.
     pub pool_per_topic: NonZeroUsize,
+    /// Idle scan consumers kept across all topics.
     pub pool_total: NonZeroUsize,
-    #[serde(deserialize_with = "interval")]
+    #[serde(deserialize_with = "at_least_one_second")]
     pub pool_idle_ttl: Duration,
     #[serde(deserialize_with = "duration")]
     pub poll_wait: Duration,
@@ -81,8 +86,8 @@ pub struct ScanTuning {
 impl Default for ScanTuning {
     fn default() -> Self {
         Self {
-            pool_per_topic: NonZeroUsize::new(2).unwrap(),
-            pool_total: NonZeroUsize::new(16).unwrap(),
+            pool_per_topic: nonzero(2),
+            pool_total: nonzero(16),
             pool_idle_ttl: Duration::from_secs(60),
             poll_wait: Duration::from_millis(100),
         }
@@ -92,7 +97,9 @@ impl Default for ScanTuning {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct RecordLimits {
+    /// The most records one page may ask for.
     pub max_limit: NonZeroUsize,
+    /// The fewest offsets read from each partition.
     pub min_window: usize,
     pub window_multiplier: usize,
     pub search_window_multiplier: usize,
@@ -101,7 +108,7 @@ pub struct RecordLimits {
 impl Default for RecordLimits {
     fn default() -> Self {
         Self {
-            max_limit: NonZeroUsize::new(500).unwrap(),
+            max_limit: nonzero(500),
             min_window: 4,
             window_multiplier: 2,
             search_window_multiplier: 8,
@@ -113,17 +120,19 @@ impl Default for RecordLimits {
 #[serde(default, deny_unknown_fields)]
 pub struct TailTuning {
     pub batch_limit: NonZeroUsize,
+    /// The least time between frames.
     #[serde(deserialize_with = "duration")]
     pub interval: Duration,
     #[serde(deserialize_with = "duration")]
     pub poll_wait: Duration,
+    /// Live tails served at once, across every cluster.
     pub max_live: usize,
 }
 
 impl Default for TailTuning {
     fn default() -> Self {
         Self {
-            batch_limit: NonZeroUsize::new(100).unwrap(),
+            batch_limit: nonzero(100),
             interval: Duration::from_millis(250),
             poll_wait: Duration::from_millis(500),
             max_live: 32,
@@ -134,11 +143,31 @@ impl Default for TailTuning {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct IngestTuning {
+    #[serde(deserialize_with = "at_least_one_second")]
+    pub topology: Duration,
+    #[serde(deserialize_with = "at_least_one_second")]
+    pub watermark: Duration,
+    #[serde(deserialize_with = "at_least_one_second")]
+    pub config: Duration,
+    #[serde(deserialize_with = "at_least_one_second")]
+    pub subjects: Duration,
+    /// How often the offset lane wakes to see which groups are due.
+    #[serde(deserialize_with = "at_least_one_second")]
+    pub offset_tick: Duration,
+    /// For groups someone is looking at.
+    #[serde(deserialize_with = "at_least_one_second")]
+    pub fast_offset: Duration,
+    /// For every other group.
+    #[serde(deserialize_with = "at_least_one_second")]
+    pub slow_offset: Duration,
+    pub offset_fetch_concurrency: NonZeroUsize,
+    /// How long a viewed group stays on `fast_offset`.
     #[serde(deserialize_with = "duration")]
     pub interest_ttl: Duration,
-    pub offset_fetch_concurrency: NonZeroUsize,
+    /// An idle topic's rate drops to zero after this.
     #[serde(deserialize_with = "duration")]
     pub idle_heartbeat: Duration,
+    /// Older watermark samples do not count toward a rate.
     #[serde(deserialize_with = "duration")]
     pub max_sample_gap: Duration,
 }
@@ -146,203 +175,96 @@ pub struct IngestTuning {
 impl Default for IngestTuning {
     fn default() -> Self {
         Self {
+            topology: Duration::from_secs(10),
+            watermark: Duration::from_secs(3),
+            config: Duration::from_secs(60),
+            subjects: Duration::from_secs(30),
+            offset_tick: Duration::from_secs(1),
+            fast_offset: Duration::from_secs(2),
+            slow_offset: Duration::from_secs(20),
+            offset_fetch_concurrency: nonzero(32),
             interest_ttl: Duration::from_secs(30),
-            offset_fetch_concurrency: NonZeroUsize::new(32).unwrap(),
             idle_heartbeat: Duration::from_secs(15),
             max_sample_gap: Duration::from_secs(15),
         }
     }
 }
 
-fn at_least<'de, D: Deserializer<'de>>(
-    deserializer: D,
-    min: Duration,
-) -> Result<Duration, D::Error> {
-    let text = String::deserialize(deserializer)?;
-    let signed: SignedDuration = text.parse().map_err(de::Error::custom)?;
-    let duration = Duration::try_from(signed)
-        .map_err(|_| de::Error::custom(format!("must not be negative, got {text}")))?;
-    if duration < min {
-        return Err(de::Error::custom(format!(
-            "must be at least {min:?}, got {text}"
-        )));
-    }
-    Ok(duration)
-}
-
-pub(super) fn duration<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Duration, D::Error> {
-    at_least(deserializer, Duration::ZERO)
-}
-
-pub(super) fn optional_duration<'de, D: Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Option<Duration>, D::Error> {
-    #[derive(Deserialize)]
-    struct ConfigDuration(#[serde(deserialize_with = "duration")] Duration);
-
-    Option::<ConfigDuration>::deserialize(deserializer).map(|duration| duration.map(|d| d.0))
-}
-
-pub(super) fn interval<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Duration, D::Error> {
-    at_least(deserializer, Duration::from_secs(1))
+const fn nonzero(count: usize) -> NonZeroUsize {
+    NonZeroUsize::new(count).expect("a default count is not zero")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::Config;
-
-    fn nz(value: usize) -> NonZeroUsize {
-        NonZeroUsize::new(value).unwrap()
-    }
-
-    fn parse(yaml: &str) -> Result<Config, String> {
-        crate::config::from_yaml(&format!("bind: 127.0.0.1:8080\n{yaml}"))
-            .map_err(|error| crate::config::describe(&error))
-    }
+    use crate::config::parse;
 
     fn tuning(yaml: &str) -> Result<Tuning, String> {
-        parse(yaml).map(|config| config.tuning)
+        parse(yaml).map_err(|error| error.to_string())
     }
 
-    #[test]
-    fn a_duration_that_is_not_text_is_rejected_where_it_is() {
-        let error = tuning("tuning:\n  tail:\n    interval: [1]\n").unwrap_err();
-
-        assert_eq!(error, "expected string scalar at line 4, column 15");
+    fn secs(secs: u64) -> Duration {
+        Duration::from_secs(secs)
     }
 
-    #[test]
-    fn parses_every_tuning_key() {
-        let tuning = tuning(
-            "
-tuning:
-  kafka:
-    connect_timeout: 3s
-    request_timeout: 20s
-    consume_timeout: 7s
-    max_in_flight_requests: 4
-    max_response_mib: 64
-  schema_registry:
-    timeout: 2s
-    subject_fetch_concurrency: 3
-    missing_schema_ttl: 5m
-  scan:
-    pool_per_topic: 1
-    pool_total: 5
-    pool_idle_ttl: 90s
-    poll_wait: 50ms
-  records:
-    max_limit: 1000
-    window_multiplier: 3
-    search_window_multiplier: 16
-    min_window: 0
-  tail:
-    batch_limit: 10
-    interval: 1s
-    poll_wait: 750ms
-    max_live: 0
-  ingest:
-    interest_ttl: 1m
-    offset_fetch_concurrency: 6
-    idle_heartbeat: 20s
-    max_sample_gap: 45s
-",
-        )
-        .unwrap();
-
-        assert_eq!(
-            tuning,
-            Tuning {
-                kafka: KafkaTuning {
-                    connect_timeout: Duration::from_secs(3),
-                    request_timeout: Duration::from_secs(20),
-                    consume_timeout: Duration::from_secs(7),
-                    max_in_flight_requests: nz(4),
-                    max_response_mib: nz(64),
-                },
-                schema_registry: SchemaRegistryTuning {
-                    timeout: Duration::from_secs(2),
-                    subject_fetch_concurrency: nz(3),
-                    missing_schema_ttl: Duration::from_secs(300),
-                },
-                scan: ScanTuning {
-                    pool_per_topic: nz(1),
-                    pool_total: nz(5),
-                    pool_idle_ttl: Duration::from_secs(90),
-                    poll_wait: Duration::from_millis(50),
-                },
-                records: RecordLimits {
-                    max_limit: nz(1000),
-                    min_window: 0,
-                    window_multiplier: 3,
-                    search_window_multiplier: 16,
-                },
-                tail: TailTuning {
-                    batch_limit: nz(10),
-                    interval: Duration::from_secs(1),
-                    poll_wait: Duration::from_millis(750),
-                    max_live: 0,
-                },
-                ingest: IngestTuning {
-                    interest_ttl: Duration::from_secs(60),
-                    offset_fetch_concurrency: nz(6),
-                    idle_heartbeat: Duration::from_secs(20),
-                    max_sample_gap: Duration::from_secs(45),
-                },
-            }
-        );
-        assert_eq!(tuning.kafka.max_response_bytes(), 64 * 1024 * 1024);
+    fn millis(millis: u64) -> Duration {
+        Duration::from_millis(millis)
     }
 
     #[test]
     fn omitted_keys_keep_their_defaults() {
         let defaults = Tuning {
             kafka: KafkaTuning {
-                connect_timeout: Duration::from_secs(10),
-                request_timeout: Duration::from_secs(10),
-                consume_timeout: Duration::from_secs(5),
-                max_in_flight_requests: nz(32),
-                max_response_mib: nz(32),
+                connect_timeout: secs(10),
+                request_timeout: secs(10),
+                consume_timeout: secs(5),
+                max_in_flight_requests: nonzero(32),
+                max_response_mib: nonzero(32),
             },
             schema_registry: SchemaRegistryTuning {
-                timeout: Duration::from_secs(5),
-                subject_fetch_concurrency: nz(8),
-                missing_schema_ttl: Duration::from_secs(60),
+                timeout: secs(5),
+                subject_fetch_concurrency: nonzero(8),
+                missing_schema_ttl: secs(60),
             },
             scan: ScanTuning {
-                pool_per_topic: nz(2),
-                pool_total: nz(16),
-                pool_idle_ttl: Duration::from_secs(60),
-                poll_wait: Duration::from_millis(100),
+                pool_per_topic: nonzero(2),
+                pool_total: nonzero(16),
+                pool_idle_ttl: secs(60),
+                poll_wait: millis(100),
             },
             records: RecordLimits {
-                max_limit: nz(500),
+                max_limit: nonzero(500),
                 min_window: 4,
                 window_multiplier: 2,
                 search_window_multiplier: 8,
             },
             tail: TailTuning {
-                batch_limit: nz(100),
-                interval: Duration::from_millis(250),
-                poll_wait: Duration::from_millis(500),
+                batch_limit: nonzero(100),
+                interval: millis(250),
+                poll_wait: millis(500),
                 max_live: 32,
             },
             ingest: IngestTuning {
-                interest_ttl: Duration::from_secs(30),
-                offset_fetch_concurrency: nz(32),
-                idle_heartbeat: Duration::from_secs(15),
-                max_sample_gap: Duration::from_secs(15),
+                topology: secs(10),
+                watermark: secs(3),
+                config: secs(60),
+                subjects: secs(30),
+                offset_tick: secs(1),
+                fast_offset: secs(2),
+                slow_offset: secs(20),
+                offset_fetch_concurrency: nonzero(32),
+                interest_ttl: secs(30),
+                idle_heartbeat: secs(15),
+                max_sample_gap: secs(15),
             },
         };
 
-        assert_eq!(tuning("").unwrap(), defaults);
-        assert_eq!(tuning("tuning: {}").unwrap(), defaults);
+        assert_eq!(tuning("{}").unwrap(), defaults);
         assert_eq!(
-            tuning("tuning: {tail: {interval: 10ms}}").unwrap(),
+            tuning("tail: {interval: 10ms}").unwrap(),
             Tuning {
                 tail: TailTuning {
-                    interval: Duration::from_millis(10),
+                    interval: millis(10),
                     ..defaults.tail
                 },
                 ..defaults
@@ -351,89 +273,147 @@ tuning:
     }
 
     #[test]
-    fn durations_accept_friendly_and_iso_forms() {
-        let interval = |value: &str| {
-            tuning(&format!("tuning: {{tail: {{interval: '{value}'}}}}"))
-                .map(|tuning| tuning.tail.interval)
-        };
+    fn reads_every_key() {
+        let tuning = tuning(
+            "
+kafka:
+  connect_timeout: 3s
+  request_timeout: 20s
+  consume_timeout: 7s
+  max_in_flight_requests: 4
+  max_response_mib: 64
+schema_registry:
+  timeout: 2s
+  subject_fetch_concurrency: 3
+  missing_schema_ttl: 5m
+scan:
+  pool_per_topic: 1
+  pool_total: 5
+  pool_idle_ttl: 90s
+  poll_wait: 50ms
+records:
+  max_limit: 1000
+  min_window: 0
+  window_multiplier: 3
+  search_window_multiplier: 16
+tail:
+  batch_limit: 10
+  interval: 1s
+  poll_wait: 750ms
+  max_live: 0
+ingest:
+  topology: 15s
+  watermark: 1m 30s
+  config: 2m
+  subjects: 45s
+  offset_tick: 2s
+  fast_offset: 4s
+  slow_offset: 40s
+  offset_fetch_concurrency: 6
+  interest_ttl: 1m
+  idle_heartbeat: 20s
+  max_sample_gap: 45s
+",
+        )
+        .unwrap();
 
-        assert_eq!(interval("10ms"), Ok(Duration::from_millis(10)));
-        assert_eq!(interval("1.5s"), Ok(Duration::from_millis(1500)));
-        assert_eq!(interval("1h 30m"), Ok(Duration::from_secs(5400)));
-        assert_eq!(interval("PT2S"), Ok(Duration::from_secs(2)));
-        assert_eq!(interval("0s"), Ok(Duration::ZERO));
+        assert_eq!(
+            tuning,
+            Tuning {
+                kafka: KafkaTuning {
+                    connect_timeout: secs(3),
+                    request_timeout: secs(20),
+                    consume_timeout: secs(7),
+                    max_in_flight_requests: nonzero(4),
+                    max_response_mib: nonzero(64),
+                },
+                schema_registry: SchemaRegistryTuning {
+                    timeout: secs(2),
+                    subject_fetch_concurrency: nonzero(3),
+                    missing_schema_ttl: secs(300),
+                },
+                scan: ScanTuning {
+                    pool_per_topic: nonzero(1),
+                    pool_total: nonzero(5),
+                    pool_idle_ttl: secs(90),
+                    poll_wait: millis(50),
+                },
+                records: RecordLimits {
+                    max_limit: nonzero(1000),
+                    min_window: 0,
+                    window_multiplier: 3,
+                    search_window_multiplier: 16,
+                },
+                tail: TailTuning {
+                    batch_limit: nonzero(10),
+                    interval: secs(1),
+                    poll_wait: millis(750),
+                    max_live: 0,
+                },
+                ingest: IngestTuning {
+                    topology: secs(15),
+                    watermark: secs(90),
+                    config: secs(120),
+                    subjects: secs(45),
+                    offset_tick: secs(2),
+                    fast_offset: secs(4),
+                    slow_offset: secs(40),
+                    offset_fetch_concurrency: nonzero(6),
+                    interest_ttl: secs(60),
+                    idle_heartbeat: secs(20),
+                    max_sample_gap: secs(45),
+                },
+            }
+        );
+        assert_eq!(tuning.kafka.max_response_bytes(), 64 * 1024 * 1024);
     }
 
     #[test]
-    fn bad_values_name_the_field_and_line() {
-        for (yaml, expected) in [
-            (
-                "tuning: {tail: {interval: -5s}}",
-                "must not be negative, got -5s at line 2, column 27",
-            ),
-            (
-                "tuning: {tail: {interval: 250}}",
-                "failed to parse input in the \"friendly\" duration \
-                 format: expected to find unit designator suffix (e.g., `years` or `secs`) \
-                 after parsing integer at line 2, column 27",
-            ),
-            (
-                "tuning: {tail: {batch_limit: 0}}",
-                "invalid value: integer `0`, expected a nonzero usize \
-                 at line 2, column 17",
-            ),
-            (
-                "tuning: {scan: {pool_idle_ttl: 500ms}}",
-                "must be at least 1s, got 500ms at line 2, column 32",
-            ),
-            (
-                "tuning: {kafka: {request_timeout_ms: 5000}}",
-                "unknown field `request_timeout_ms`, expected one of connect_timeout, \
-                 request_timeout, consume_timeout, max_in_flight_requests, max_response_mib \
-                 at line 2, column 18",
-            ),
-            (
-                "tuning: {tails: {}}",
-                "unknown field `tails`, expected one of kafka, schema_registry, scan, \
-                 records, tail, ingest at line 2, column 10",
-            ),
+    fn durations_read_friendly_and_iso_forms() {
+        let interval = |value: &str| tuning(&format!("tail: {{interval: '{value}'}}"));
+
+        for (value, expected) in [
+            ("0s", Duration::ZERO),
+            ("1.5s", millis(1500)),
+            ("1h 30m", secs(5400)),
+            ("PT2S", secs(2)),
         ] {
-            assert_eq!(tuning(yaml).unwrap_err(), expected, "{yaml}");
+            assert_eq!(interval(value).unwrap().tail.interval, expected, "{value}");
         }
     }
 
     #[test]
-    fn auth_session_lifetimes_parse_as_durations() {
-        let auth = |lifetimes: &str| {
-            parse(&format!(
-                "
-auth:
-  oidc:
-    issuer: https://issuer.example.com
-    client_id: klens
-    client_secret: {{value: secret}}
-    redirect_uri: https://klens.example.com/api/auth/callback
-{lifetimes}"
-            ))
-            .map(|config| {
-                let auth = config.auth.unwrap();
-                (auth.login_max_age, auth.max_session)
-            })
-        };
+    fn a_polling_period_is_at_least_a_second() {
+        let topology = |value: &str| tuning(&format!("ingest: {{topology: {value}}}"));
 
+        assert_eq!(topology("1s").unwrap().ingest.topology, secs(1));
         assert_eq!(
-            auth(""),
-            Ok((Duration::from_secs(600), Duration::from_secs(43_200)))
+            topology("999ms").unwrap_err(),
+            "must be at least 1s at line 1, column 20"
         );
-        assert_eq!(
-            auth("  login_max_age: 5m\n  max_session: 1h\n"),
-            Ok((Duration::from_secs(300), Duration::from_secs(3_600)))
-        );
-        assert_eq!(
-            auth("  max_session: soon\n").unwrap_err(),
-            "failed to parse input in the \"friendly\" duration format: \
-             expected duration to start with a unit value (a decimal integer) after an \
-             optional sign, but no integer was found at line 9, column 16"
-        );
+    }
+
+    #[test]
+    fn rejects_values_it_cannot_read() {
+        for (yaml, expected) in [
+            (
+                "tail: {interval: -5s}",
+                "failed to parse input in the \"friendly\" duration format: \
+                 cannot parse negative duration into unsigned `std::time::Duration` \
+                 at line 1, column 18",
+            ),
+            (
+                "tail: {batch_limit: 0}",
+                "invalid value: integer `0`, expected a nonzero usize at line 1, column 8",
+            ),
+            (
+                "kafka: {request_timeout_ms: 5000}",
+                "unknown field `request_timeout_ms`, expected one of connect_timeout, \
+                 request_timeout, consume_timeout, max_in_flight_requests, max_response_mib \
+                 at line 1, column 9",
+            ),
+        ] {
+            assert_eq!(tuning(yaml).unwrap_err(), expected, "{yaml}");
+        }
     }
 }

@@ -3,7 +3,6 @@ use std::sync::Arc;
 use foldhash::{HashMap, HashMapExt};
 
 use super::tables::{GroupOffsets, Interner, Topology, WatermarkTable};
-use crate::config::SecurityProtocol;
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::group::{
     CommittedOffset, GroupMember, GroupSnapshot, GroupState, MemberAssignment,
@@ -15,11 +14,7 @@ use crate::kafka::registry::{SchemaCompatibility, SchemaSubject, SchemaType};
 use crate::kafka::topic_config::{ConfigEntry, ConfigSource};
 
 pub fn identity(name: &str) -> ClusterIdentity {
-    ClusterIdentity {
-        name: name.to_owned(),
-        bootstrap_servers: vec!["localhost:9092".into()],
-        security_protocol: SecurityProtocol::Plaintext,
-    }
+    ClusterIdentity::new(name)
 }
 
 pub fn partition(id: i32, replicas: Vec<i32>, isr: Vec<i32>) -> PartitionMetadata {

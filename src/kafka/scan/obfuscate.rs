@@ -8,11 +8,11 @@ use hmac::{Hmac, Mac};
 use regex::{Captures, Regex};
 use sha2::Sha256;
 
-use crate::config::{
-    OBFUSCATION_MASK, ObfuscationConfig, ObfuscationStrategy, TopicPattern, UnparsedPolicy,
-};
+use crate::config::obfuscation::{Obfuscation, Strategy, TopicPattern, Unparsed};
 
 use super::payload::DecodedPayload;
+
+const MASK: &str = "***";
 
 const TOKEN_PREFIX: &str = "kx:";
 
@@ -31,7 +31,9 @@ pub struct ObfuscationPolicy {
 }
 
 impl ObfuscationPolicy {
-    pub fn compile(config: &ObfuscationConfig) -> Self {
+    pub fn compile(config: &Obfuscation) -> Self {
+        let hasher = KeyedHasher::new(config.secret.as_bytes());
+        let strategy = |strategy: Strategy| CompiledStrategy::compile(strategy, &hasher);
         let mut exact: HashMap<Box<str>, Arc<TopicObfuscator>> = HashMap::new();
         let mut prefixes: Vec<(Box<str>, Arc<TopicObfuscator>)> = Vec::new();
 
@@ -41,20 +43,20 @@ impl ObfuscationPolicy {
                     .fields
                     .iter()
                     .map(|field| CompiledField {
-                        path: field.path.segments().map(Box::from).collect(),
-                        strategy: CompiledStrategy::compile(&field.strategy),
+                        path: field.path.split('.').map(Box::from).collect(),
+                        strategy: strategy(field.strategy),
                     })
                     .collect(),
                 patterns: rule
                     .patterns
                     .iter()
                     .map(|pattern| CompiledPattern {
-                        regex: pattern.regex.as_regex().clone(),
-                        strategy: CompiledStrategy::compile(&pattern.strategy),
+                        regex: pattern.regex.clone(),
+                        strategy: strategy(pattern.strategy),
                     })
                     .collect(),
-                key: rule.key.as_ref().map(CompiledStrategy::compile),
-                value: rule.value.as_ref().map(CompiledStrategy::compile),
+                key: rule.key.map(strategy),
+                value: rule.value.map(strategy),
                 headers: rule
                     .headers
                     .iter()
@@ -97,7 +99,7 @@ pub struct TopicObfuscator {
     key: Option<CompiledStrategy>,
     value: Option<CompiledStrategy>,
     headers: Vec<Box<str>>,
-    unparsed: UnparsedPolicy,
+    unparsed: Unparsed,
 }
 
 impl TopicObfuscator {
@@ -119,7 +121,7 @@ impl TopicObfuscator {
                 .iter()
                 .any(|masked| masked.as_bytes() == name.as_ref())
             {
-                *value = Some(Bytes::from_static(OBFUSCATION_MASK.as_bytes()));
+                *value = Some(Bytes::from_static(MASK.as_bytes()));
             }
         }
     }
@@ -144,11 +146,11 @@ impl TopicObfuscator {
                 rule.apply(json);
             }
         } else if self.masks_undecoded(field) {
-            payload.redact_with(OBFUSCATION_MASK.to_owned());
+            payload.redact_with(MASK.to_owned());
         }
 
         match whole {
-            Some(CompiledStrategy::Mask) => payload.redact_with(OBFUSCATION_MASK.to_owned()),
+            Some(CompiledStrategy::Mask) => payload.redact_with(MASK.to_owned()),
             Some(CompiledStrategy::Hash(hasher)) => {
                 let token = hasher.token(payload.text());
                 payload.redact_with(token);
@@ -159,7 +161,7 @@ impl TopicObfuscator {
     }
 
     fn masks_undecoded(&self, field: Field) -> bool {
-        field == Field::Value && !self.fields.is_empty() && self.unparsed == UnparsedPolicy::Mask
+        field == Field::Value && !self.fields.is_empty() && self.unparsed == Unparsed::Mask
     }
 
     fn rewrite_matches(&self, payload: &mut DecodedPayload) {
@@ -188,11 +190,11 @@ enum CompiledStrategy {
 }
 
 impl CompiledStrategy {
-    fn compile(strategy: &ObfuscationStrategy) -> Self {
+    fn compile(strategy: Strategy, hasher: &KeyedHasher) -> Self {
         match strategy {
-            ObfuscationStrategy::Mask => Self::Mask,
-            ObfuscationStrategy::Drop => Self::Drop,
-            ObfuscationStrategy::Hash(key) => Self::Hash(KeyedHasher::new(key.as_bytes())),
+            Strategy::Mask => Self::Mask,
+            Strategy::Hash => Self::Hash(hasher.clone()),
+            Strategy::Drop => Self::Drop,
         }
     }
 }
@@ -218,7 +220,7 @@ struct CompiledPattern {
 impl CompiledPattern {
     fn apply<'a>(&self, text: &'a str) -> Cow<'a, str> {
         match &self.strategy {
-            CompiledStrategy::Mask => replace_literal(&self.regex, text, OBFUSCATION_MASK),
+            CompiledStrategy::Mask => replace_literal(&self.regex, text, MASK),
             CompiledStrategy::Drop => replace_literal(&self.regex, text, ""),
             CompiledStrategy::Hash(hasher) => self
                 .regex
@@ -248,7 +250,7 @@ fn walk(value: &mut serde_json::Value, path: &[Box<str>], strategy: &CompiledStr
             }
             CompiledStrategy::Mask => {
                 if let Some(found) = fields.get_mut(head.as_ref()) {
-                    *found = serde_json::Value::String(OBFUSCATION_MASK.to_owned());
+                    *found = serde_json::Value::String(MASK.to_owned());
                 }
             }
             CompiledStrategy::Hash(hasher) => {
@@ -273,6 +275,7 @@ fn leaf_text(value: &serde_json::Value) -> Cow<'_, str> {
     }
 }
 
+#[derive(Clone)]
 pub struct KeyedHasher {
     mac: Hmac<Sha256>,
 }
@@ -310,8 +313,8 @@ impl KeyedHasher {
 mod tests {
     use super::*;
 
-    fn config(yaml: &str) -> ObfuscationConfig {
-        serde_saphyr::from_str(yaml).expect("obfuscation config")
+    fn config(yaml: &str) -> Obfuscation {
+        crate::config::parse(yaml).expect("obfuscation config")
     }
 
     fn policy(yaml: &str) -> ObfuscationPolicy {
@@ -430,6 +433,7 @@ mod tests {
     fn an_array_on_the_path_fans_out_over_its_elements() {
         let obfuscator = policy(
             "
+            secret: {value: 0123456789abcdef0123456789abcdef}
             rules:
               - topics: [orders]
                 fields:
@@ -456,6 +460,7 @@ mod tests {
     fn a_root_array_is_walked_element_by_element() {
         let obfuscator = policy(
             "
+            secret: {value: 0123456789abcdef0123456789abcdef}
             rules:
               - topics: [orders]
                 fields:
@@ -555,6 +560,7 @@ mod tests {
     fn dropping_a_whole_field_leaves_no_field_at_all() {
         let obfuscator = policy(
             "
+            secret: {value: 0123456789abcdef0123456789abcdef}
             rules:
               - topics: ['audit.raw']
                 value: drop
@@ -583,6 +589,7 @@ mod tests {
     fn a_value_that_never_decoded_is_left_alone_when_the_topic_has_no_field_rules() {
         let obfuscator = policy(
             "
+            secret: {value: 0123456789abcdef0123456789abcdef}
             rules:
               - topics: [payments]
                 key: mask
@@ -601,6 +608,7 @@ mod tests {
     fn unparsed_allow_serves_undecodable_values_as_they_are() {
         let obfuscator = policy(
             "
+            secret: {value: 0123456789abcdef0123456789abcdef}
             rules:
               - topics: [payments]
                 unparsed: allow
@@ -642,6 +650,7 @@ mod tests {
     fn configured_headers_are_masked_by_name() {
         let obfuscator = policy(
             "
+            secret: {value: 0123456789abcdef0123456789abcdef}
             rules:
               - topics: [orders]
                 headers: ['x-user-id']
@@ -670,6 +679,7 @@ mod tests {
     fn a_header_only_rule_leaves_the_payload_filterable_on_raw_bytes() {
         let obfuscator = policy(
             "
+            secret: {value: 0123456789abcdef0123456789abcdef}
             rules:
               - topics: [orders]
                 headers: ['x-user-id']
@@ -765,6 +775,7 @@ mod tests {
     fn a_pattern_can_delete_what_it_matches() {
         let obfuscator = policy(
             r"
+            secret: {value: 0123456789abcdef0123456789abcdef}
             rules:
               - topics: ['app.logs']
                 patterns:
@@ -785,6 +796,7 @@ mod tests {
     fn a_whole_field_rule_wins_over_the_patterns_beside_it() {
         let obfuscator = policy(
             r"
+            secret: {value: 0123456789abcdef0123456789abcdef}
             rules:
               - topics: ['app.logs']
                 value: mask
@@ -814,6 +826,7 @@ mod tests {
     fn topics_match_exactly_or_by_prefix_and_nothing_else() {
         let policy = policy(
             "
+            secret: {value: 0123456789abcdef0123456789abcdef}
             rules:
               - topics: ['payments.*', 'audit.raw']
                 value: mask
@@ -828,7 +841,7 @@ mod tests {
     }
 
     #[test]
-    fn a_base64_secret_and_its_raw_bytes_are_the_same_key() {
+    fn the_secret_keys_the_hash_exactly_as_written() {
         let raw = "0123456789abcdef0123456789abcdef";
         let encoded =
             base64::Engine::encode(&base64::engine::general_purpose::STANDARD, raw.as_bytes());
@@ -850,7 +863,7 @@ mod tests {
             value.expect("value").into_text()
         };
 
-        assert_eq!(token(raw), token(&encoded));
         assert_eq!(token(raw), KeyedHasher::new(raw.as_bytes()).token("4111"));
+        assert_ne!(token(raw), token(&encoded));
     }
 }

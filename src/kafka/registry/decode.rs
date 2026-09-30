@@ -347,7 +347,7 @@ impl PayloadDecoder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{SchemaRegistryConfig, SchemaRegistryTuning};
+    use crate::config::{SchemaRegistry, SchemaRegistryTuning};
     use crate::kafka::scan::filter::contains;
 
     fn decode_bytes(bytes: &[u8]) -> String {
@@ -414,8 +414,8 @@ mod tests {
         }
     "#;
 
-    fn config(url: &str) -> SchemaRegistryConfig {
-        SchemaRegistryConfig {
+    fn config(url: &str) -> SchemaRegistry {
+        SchemaRegistry {
             url: url.parse().unwrap(),
             auth: None,
         }
