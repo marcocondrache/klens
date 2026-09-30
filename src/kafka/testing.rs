@@ -1207,7 +1207,7 @@ impl SessionCalls {
     }
 }
 
-fn local_acls() -> Vec<Acl> {
+pub fn local_acls() -> Vec<Acl> {
     vec![
         Acl {
             resource_type: AclResourceType::Topic,

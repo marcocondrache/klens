@@ -16,13 +16,14 @@ use crate::AppState;
 use crate::app::Limits;
 use crate::app::auth::access::{ClusterScope, EffectiveAccess, Grant, PrivilegeSet};
 use crate::app::auth::{AuthState, SessionGuard};
+use crate::kafka::model::AclListing;
 use crate::kafka::store::fixtures::{
     config, group, log_dir, offsets, partition, subject, topic, topology, watermarks,
 };
 use crate::kafka::store::{
     ClusterStore, ConfigTable, Interner, LogDirTable, OffsetTable, SubjectTable,
 };
-use crate::kafka::{Clusters, FakeCluster};
+use crate::kafka::{Clusters, FakeCluster, local_acls};
 
 pub(super) fn with(sessions: Vec<FakeCluster>) -> AppState {
     with_limits(sessions, Limits::new(&crate::config::Tuning::default()))
@@ -277,6 +278,10 @@ pub(super) fn seed(store: &ClusterStore) {
         vec![data],
         &mut Interner::default(),
     )));
+
+    store
+        .acls
+        .commit(Arc::new(AclListing::Enabled(local_acls())));
 }
 
 pub(super) fn seeded() -> AppState {

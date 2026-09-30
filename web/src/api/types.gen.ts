@@ -140,7 +140,7 @@ export type SchemaReference = { name: string, subject: string, version: number, 
 
 export type SubjectDetail = { subject: string, version: number, id: number, type: SchemaType, schema: string, references: Array<SchemaReference>, };
 
-export type AclAuthorizer = "ENABLED" | "DISABLED";
+export type AclStatus = "PENDING" | "ENABLED" | "DISABLED" | "DENIED";
 
 export type AclResourceType = "TOPIC" | "GROUP" | "CLUSTER" | "TRANSACTIONAL_ID" | "DELEGATION_TOKEN";
 
@@ -152,7 +152,7 @@ export type AclPermission = "ALLOW" | "DENY";
 
 export type Acl = { resourceType: AclResourceType, resourceName: string, patternType: AclPatternType, principal: string, host: string, operation: AclOperation, permission: AclPermission, };
 
-export type AclListing = { authorizer: AclAuthorizer, bindings: Array<Acl>, };
+export type AclListing = { status: AclStatus, bindings: Array<Acl>, sourceHealth: LaneHealth, };
 
 export type RecordOrder = "NEWEST" | "OLDEST";
 

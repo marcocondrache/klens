@@ -930,6 +930,19 @@ async fn the_acl_lane_stores_the_listing_and_publishes_each_change() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_denied_describe_is_stored_as_the_lanes_result() {
+    let session = FakeCluster::local();
+    session.set_acls(Ok(AclListing::Denied));
+    let store = store(&session);
+    let _lanes = acl_lane(&store, &session, IDLE);
+
+    wait_for(|| store.acls.ready(), "acls commit").await;
+
+    assert_eq!(store.acls.load().as_deref(), Some(&AclListing::Denied));
+    assert!(store.acls.health().healthy());
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_failing_acl_poll_names_its_lane_and_waits_out_the_interval() {
     let (logs, _guard) = crate::telemetry::capture::subscriber(tracing::Level::WARN);
     let session = FakeCluster::local();

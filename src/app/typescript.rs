@@ -1,5 +1,5 @@
 pub use super::acls::types::{
-    Acl, AclAuthorizer, AclListing, AclOperation, AclPatternType, AclPermission, AclResourceType,
+    Acl, AclListing, AclOperation, AclPatternType, AclPermission, AclResourceType, AclStatus,
 };
 pub use super::brokers::types::{BrokerRow, LogDir};
 pub use super::clusters::types::{ClusterHealth, LaneHealth};
