@@ -155,6 +155,21 @@ far behind skips ahead. `skipped` counts what was passed over. Each tail holds
 its own consumer, and `tuning.tail.max_live` (32) caps how many run at once.
 Past that cap, a new tail gets `503 TOO_MANY_TAILS`.
 
+## Changes
+
+klens does not change clusters yet, but every change it will make passes the
+same checks. A cluster is read-only unless its config sets `writable: true`,
+and a read-only cluster refuses every change with `403 READ_ONLY_CLUSTER`,
+whatever the session may do. On a writable cluster a change also needs its
+privilege, or fails with `403 FORBIDDEN`. A change the cluster itself refuses,
+because the topic exists or a policy forbids it, fails with `422 REJECTED` and
+the broker's reason.
+
+Each change and each refusal is logged at `info` under the `klens::audit`
+target, with the session's OIDC subject (`anonymous` without a login), the
+cluster, the action, and what it touched. After a change, klens polls the
+cluster again right away rather than at the next interval.
+
 ## Authentication
 
 By default the UI and JSON API are open to anyone who can reach the process.

@@ -14,6 +14,17 @@ use super::rates::RateStore;
 use super::search::{self, SearchHit};
 use super::tables::{ConfigTable, OffsetTable, SubjectTable, Topology, WatermarkTable};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LaneId {
+    Topology,
+    Watermarks,
+    /// A sweep refetches only the groups that are due, so a kick does not
+    /// promise any one group's offsets.
+    Offsets,
+    Configs,
+    Subjects,
+}
+
 pub struct ClusterStore {
     pub identity: ClusterIdentity,
     pub topology: Lane<Topology>,
@@ -60,6 +71,18 @@ impl ClusterStore {
 
     pub fn ready(&self) -> bool {
         self.topology.ready()
+    }
+
+    pub fn kick(&self, lanes: &[LaneId]) {
+        for lane in lanes {
+            match lane {
+                LaneId::Topology => self.topology.kick(),
+                LaneId::Watermarks => self.watermarks.kick(),
+                LaneId::Offsets => self.offsets.kick(),
+                LaneId::Configs => self.configs.kick(),
+                LaneId::Subjects => self.subjects.kick(),
+            }
+        }
     }
 
     pub fn search(&self, term: &str) -> Vec<SearchHit> {
