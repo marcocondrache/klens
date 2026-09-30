@@ -9,4 +9,4 @@ pub use app::{AppState, AuthState, Limits, router};
 pub use config::Config;
 pub use kafka::{Clusters, KafkaError};
 pub use server::serve;
-pub use telemetry::{Telemetry, filter_from_value};
+pub use telemetry::Telemetry;

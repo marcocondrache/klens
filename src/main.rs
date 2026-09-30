@@ -8,8 +8,7 @@ use klens::kafka::ingest::Ingest;
 async fn main() -> anyhow::Result<()> {
     let path = std::env::var_os("KLENS_CONFIG_PATH").unwrap_or_else(|| "config.yaml".into());
     let config = Config::load(path)?;
-    let _telemetry =
-        klens::telemetry::Telemetry::init(&config.log_level, env!("CARGO_CRATE_NAME"))?;
+    let _telemetry = klens::telemetry::Telemetry::init(config.log_level, env!("CARGO_CRATE_NAME"))?;
 
     let clusters = Clusters::connect(&config.clusters, &config.tuning)
         .await

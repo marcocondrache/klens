@@ -3,9 +3,8 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
-use super::{duration, period};
+use super::{at_least_one_second, duration};
 
-/// How klens paces and sizes its work, the same for every cluster.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Tuning {
@@ -30,7 +29,6 @@ pub struct KafkaTuning {
     pub consume_timeout: Duration,
     /// Per broker connection.
     pub max_in_flight_requests: NonZeroUsize,
-    /// The largest broker response frame.
     pub max_response_mib: NonZeroUsize,
 }
 
@@ -58,7 +56,6 @@ pub struct SchemaRegistryTuning {
     #[serde(deserialize_with = "duration")]
     pub timeout: Duration,
     pub subject_fetch_concurrency: NonZeroUsize,
-    /// How long an unknown schema id stays cached.
     #[serde(deserialize_with = "duration")]
     pub missing_schema_ttl: Duration,
 }
@@ -80,9 +77,8 @@ pub struct ScanTuning {
     pub pool_per_topic: NonZeroUsize,
     /// Idle scan consumers kept across all topics.
     pub pool_total: NonZeroUsize,
-    #[serde(deserialize_with = "period")]
+    #[serde(deserialize_with = "at_least_one_second")]
     pub pool_idle_ttl: Duration,
-    /// The longest single scan poll.
     #[serde(deserialize_with = "duration")]
     pub poll_wait: Duration,
 }
@@ -106,7 +102,6 @@ pub struct RecordLimits {
     /// The fewest offsets read from each partition.
     pub min_window: usize,
     pub window_multiplier: usize,
-    /// Used while a `contains` search runs.
     pub search_window_multiplier: usize,
 }
 
@@ -124,7 +119,6 @@ impl Default for RecordLimits {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct TailTuning {
-    /// The most records one frame carries.
     pub batch_limit: NonZeroUsize,
     /// The least time between frames.
     #[serde(deserialize_with = "duration")]
@@ -146,26 +140,25 @@ impl Default for TailTuning {
     }
 }
 
-/// The background lanes that keep each cluster's pages current.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct IngestTuning {
-    #[serde(deserialize_with = "period")]
+    #[serde(deserialize_with = "at_least_one_second")]
     pub topology: Duration,
-    #[serde(deserialize_with = "period")]
+    #[serde(deserialize_with = "at_least_one_second")]
     pub watermark: Duration,
-    #[serde(deserialize_with = "period")]
+    #[serde(deserialize_with = "at_least_one_second")]
     pub config: Duration,
-    #[serde(deserialize_with = "period")]
+    #[serde(deserialize_with = "at_least_one_second")]
     pub subjects: Duration,
     /// How often the offset lane wakes to see which groups are due.
-    #[serde(deserialize_with = "period")]
+    #[serde(deserialize_with = "at_least_one_second")]
     pub offset_tick: Duration,
     /// For groups someone is looking at.
-    #[serde(deserialize_with = "period")]
+    #[serde(deserialize_with = "at_least_one_second")]
     pub fast_offset: Duration,
     /// For every other group.
-    #[serde(deserialize_with = "period")]
+    #[serde(deserialize_with = "at_least_one_second")]
     pub slow_offset: Duration,
     pub offset_fetch_concurrency: NonZeroUsize,
     /// How long a viewed group stays on `fast_offset`.

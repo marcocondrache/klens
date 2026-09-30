@@ -1,10 +1,3 @@
-//! The file klens reads at startup: `config.yaml`, or the path in
-//! `KLENS_CONFIG_PATH`.
-//!
-//! Each type here is one block of that file. Omitted keys take their defaults,
-//! unknown keys are rejected, and every value is checked by its type while the
-//! file is read, so a loaded [`Config`] needs no further validation.
-
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::Path;
 use std::time::Duration;
@@ -31,9 +24,7 @@ pub use tuning::{
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     pub bind: SocketAddr,
-    /// `off`, `error`, `warn`, `info`, `debug`, `trace`, or an `EnvFilter`
-    /// directive.
-    pub log_level: String,
+    pub log_level: LogLevel,
     /// Keyed by the name the UI shows, in the order it shows them.
     pub clusters: IndexMap<String, Cluster>,
     /// Without it, the UI and API are open to anyone who can reach them.
@@ -45,12 +36,24 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             bind: SocketAddr::from((Ipv4Addr::UNSPECIFIED, 8080)),
-            log_level: "info".to_owned(),
+            log_level: LogLevel::default(),
             clusters: IndexMap::new(),
             auth: None,
             tuning: Tuning::default(),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LogLevel {
+    Off,
+    Error,
+    Warn,
+    #[default]
+    Info,
+    Debug,
+    Trace,
 }
 
 impl Config {
@@ -69,18 +72,16 @@ pub(crate) fn parse<T: DeserializeOwned>(yaml: &str) -> anyhow::Result<T> {
         .map_err(|error| anyhow!(error.render_with_formatter(&serde_saphyr::UserMessageFormatter)))
 }
 
-/// Reads a duration written like `250ms`, `1h 30m`, or ISO 8601 `PT10S`.
 fn duration<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Duration, D::Error> {
     jiff::fmt::serde::unsigned_duration::required::deserialize(deserializer)
 }
 
-/// Reads how often a loop polls: at least a second, so none of them spins.
-fn period<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Duration, D::Error> {
-    let period = duration(deserializer)?;
-    if period < Duration::from_secs(1) {
+fn at_least_one_second<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Duration, D::Error> {
+    let duration = duration(deserializer)?;
+    if duration < Duration::from_secs(1) {
         return Err(D::Error::custom("must be at least 1s"));
     }
-    Ok(period)
+    Ok(duration)
 }
 
 #[cfg(test)]
@@ -116,7 +117,7 @@ mod tests {
         let config = config("{}");
 
         assert_eq!(config.bind, "0.0.0.0:8080".parse().unwrap());
-        assert_eq!(config.log_level, "info");
+        assert_eq!(config.log_level, LogLevel::Info);
         assert!(config.clusters.is_empty());
         assert!(config.auth.is_none());
         assert_eq!(config.tuning, Tuning::default());
@@ -142,7 +143,7 @@ mod tests {
         );
 
         assert_eq!(config.bind, "127.0.0.1:3000".parse().unwrap());
-        assert_eq!(config.log_level, "debug");
+        assert_eq!(config.log_level, LogLevel::Debug);
         assert_eq!(
             config.clusters.keys().collect::<Vec<_>>(),
             ["zeta", "alpha"]
@@ -153,6 +154,10 @@ mod tests {
     fn rejects_what_it_cannot_read_where_it_is() {
         for (yaml, expected) in [
             ("bogus: true", "unknown field `bogus`"),
+            (
+                "log_level: verbose",
+                "unknown variant `verbose`, expected one of off, error, warn, info, debug, trace",
+            ),
             (
                 "bind: nowhere",
                 "invalid socket address syntax at line 1, column 7",
@@ -191,6 +196,6 @@ mod tests {
     fn load_reads_the_file() {
         let file = TempFile::new("valid.yaml", "log_level: warn");
 
-        assert_eq!(Config::load(&file.0).unwrap().log_level, "warn");
+        assert_eq!(Config::load(&file.0).unwrap().log_level, LogLevel::Warn);
     }
 }

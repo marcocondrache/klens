@@ -1,5 +1,3 @@
-//! What each topic's records hide from everyone who browses them.
-
 use std::fmt::{self, Display, Formatter};
 
 use regex::Regex;
@@ -18,18 +16,14 @@ pub struct Obfuscation {
     pub rules: Vec<Rule>,
 }
 
-/// What to hide in the records of the topics a rule names.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Rule {
     pub topics: Vec<TopicPattern>,
     /// Fields of a value a schema registry decoded.
     pub fields: Vec<Field>,
-    /// Matches in the text of key and value, for topics without a schema.
     pub patterns: Vec<Pattern>,
-    /// The whole key.
     pub key: Option<Strategy>,
-    /// The whole value.
     pub value: Option<Strategy>,
     /// Names of headers whose values are masked.
     pub headers: Vec<String>,
@@ -61,17 +55,14 @@ pub enum Strategy {
     Mask,
     /// Shown as a keyed token that equal values share.
     Hash,
-    /// Not shown at all.
     Drop,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Unparsed {
-    /// The whole value is masked.
     #[default]
     Mask,
-    /// The value is shown as it came off the wire.
     Allow,
 }
 

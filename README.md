@@ -44,7 +44,7 @@ value, with its line and column, for example
 
 ```yaml
 bind: 0.0.0.0:8080
-log_level: info # off, error, warn, info, debug, trace, or an EnvFilter directive
+log_level: info # off, error, warn, info, debug, or trace
 clusters: {} # by name, shown in the UI in this order
 # auth: see Authentication
 # tuning: see Tuning
@@ -53,7 +53,8 @@ clusters: {} # by name, shown in the UI in this order
 ### Clusters
 
 A cluster needs its `bootstrap_servers`. TLS and SASL are each on when their
-block is present, so `tls: {}` connects over TLS and trusts the system roots.
+block is present, so `tls: {}` is enough to connect over TLS. klens then trusts
+the Mozilla root CAs it ships with, or only `ca_cert` when that is set.
 
 ```yaml
 clusters:
@@ -108,7 +109,7 @@ tuning:
     max_limit: 500 # most records one page may request
     min_window: 4 # fewest offsets read from each partition
     window_multiplier: 2
-    search_window_multiplier: 8 # used while a `contains` search runs
+    search_window_multiplier: 8 # used while a `contains` or `schemaId` filter runs
   tail:
     batch_limit: 100
     interval: 250ms

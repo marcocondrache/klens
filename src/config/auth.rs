@@ -6,7 +6,6 @@ use serde::Deserialize;
 
 use super::{KeyMaterial, Secret, duration};
 
-/// An OpenID Connect login in front of the UI and API.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Auth {
@@ -26,12 +25,10 @@ pub struct Oidc {
     pub issuer: IssuerUrl,
     pub client_id: String,
     pub client_secret: Secret,
-    /// Where the provider sends the browser back. Session cookies are
-    /// `Secure` when it is https.
+    /// Session cookies are `Secure` when it is https.
     pub redirect_uri: RedirectUrl,
     #[serde(default = "default_scopes")]
     pub scopes: Vec<String>,
-    /// The ID token claim that lists a user's groups.
     #[serde(default = "default_groups_claim")]
     pub groups_claim: String,
 }
@@ -67,7 +64,6 @@ impl Default for Session {
     }
 }
 
-/// A set of privileges, and the groups that hold it.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Role {
@@ -89,11 +85,8 @@ pub struct Binding {
 pub enum Privilege {
     /// Record pages and live tails.
     Records,
-    /// Live topic and broker configs.
     Configs,
-    /// Schema bodies.
     SchemaText,
-    /// ACL bindings.
     Acls,
 }
 

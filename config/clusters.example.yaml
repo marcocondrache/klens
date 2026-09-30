@@ -19,8 +19,7 @@ clusters:
       - localhost:9092
     # client_id: klens-local  # default: klens-<cluster name>
 
-    # TLS and SASL are each on when their block is present. `tls: {}`
-    # connects over TLS and trusts the system roots.
+    # TLS and SASL are each on when their block is present.
     # tls:
     #   ca_cert: /path/to/ca.pem
     #   client:

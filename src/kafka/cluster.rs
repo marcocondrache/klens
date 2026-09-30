@@ -27,8 +27,6 @@ impl ClusterIdentity {
     }
 }
 
-/// One configured cluster: the connection that reads it live, and the store
-/// its ingest lanes fill.
 pub struct Cluster {
     pub session: Arc<dyn ClusterSession>,
     pub store: Arc<ClusterStore>,

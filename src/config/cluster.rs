@@ -6,18 +6,14 @@ use url::Url;
 use super::Secret;
 use super::obfuscation::Obfuscation;
 
-/// A Kafka cluster: how to reach it, and what klens layers on top of it.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Cluster {
     pub bootstrap_servers: Vec<String>,
     /// Defaults to `klens-<cluster name>`.
     pub client_id: Option<String>,
-    /// Connects over TLS when present. `tls: {}` trusts the system roots.
     pub tls: Option<Tls>,
-    /// Authenticates with SASL when present.
     pub sasl: Option<Sasl>,
-    /// Decodes framed payloads and lists the cluster's schemas.
     pub schema_registry: Option<SchemaRegistry>,
     /// Hides parts of records from everyone who browses the cluster.
     pub obfuscation: Option<Obfuscation>,
@@ -26,7 +22,6 @@ pub struct Cluster {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Tls {
-    /// PEM bundle to trust instead of the system roots.
     pub ca_cert: Option<PathBuf>,
     /// PEM certificate and key to present to the brokers.
     pub client: Option<ClientCert>,
