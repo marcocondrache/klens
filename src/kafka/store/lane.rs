@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use arc_swap::ArcSwapOption;
 use jiff::Timestamp;
-use tokio::sync::Notify;
+use tokio::sync::{Notify, watch};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LaneHealth {
@@ -26,6 +26,7 @@ pub struct Lane<T> {
     version: AtomicU64,
     health: RwLock<LaneHealth>,
     kick: Notify,
+    commits: watch::Sender<()>,
 }
 
 impl<T> Default for Lane<T> {
@@ -35,6 +36,7 @@ impl<T> Default for Lane<T> {
             version: AtomicU64::new(0),
             health: RwLock::new(LaneHealth::default()),
             kick: Notify::new(),
+            commits: watch::Sender::new(()),
         }
     }
 }
@@ -69,6 +71,7 @@ impl<T> Lane<T> {
         self.table.store(Some(next));
         let version = self.version.fetch_add(1, Ordering::AcqRel) + 1;
         self.health.write().expect("lane health lock").updated_at = Some(Timestamp::now());
+        self.commits.send_replace(());
         version
     }
 
@@ -94,6 +97,41 @@ impl<T> Lane<T> {
             () = tokio::time::sleep(interval) => {}
             () = self.kick.notified() => {}
         }
+    }
+
+    pub fn follow(&self) -> Follower<'_, T> {
+        Follower {
+            lane: self,
+            commits: self.commits.subscribe(),
+        }
+    }
+}
+
+pub struct Follower<'a, T> {
+    lane: &'a Lane<T>,
+    commits: watch::Receiver<()>,
+}
+
+impl<T> Follower<'_, T> {
+    pub async fn table(&mut self) -> Arc<T> {
+        loop {
+            self.commits.mark_unchanged();
+            if let Some(table) = self.lane.load() {
+                return table;
+            }
+            self.commits
+                .changed()
+                .await
+                .expect("a lane outlives its followers");
+        }
+    }
+
+    pub async fn commit(&mut self) -> Arc<T> {
+        self.commits
+            .changed()
+            .await
+            .expect("a lane outlives its followers");
+        self.table().await
     }
 }
 
@@ -165,5 +203,47 @@ mod tests {
             .await
             .expect("kick must wake the runner")
             .expect("waiter task");
+    }
+
+    const PATIENCE: Duration = Duration::from_secs(600);
+
+    #[tokio::test(start_paused = true)]
+    async fn a_follower_waits_for_the_first_commit() {
+        let lane = Lane::new();
+        let mut follower = lane.follow();
+        assert!(
+            tokio::time::timeout(PATIENCE, follower.table())
+                .await
+                .is_err(),
+            "an empty lane has no table to follow"
+        );
+
+        lane.commit(Arc::new(1_u32));
+
+        let table = tokio::time::timeout(PATIENCE, follower.table())
+            .await
+            .expect("the first commit must wake the follower");
+        assert_eq!(*table, 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_follower_reports_only_commits_after_the_table_it_holds() {
+        let lane = Lane::new();
+        let mut follower = lane.follow();
+        lane.commit(Arc::new(1_u32));
+
+        assert_eq!(*follower.table().await, 1);
+        assert!(
+            tokio::time::timeout(PATIENCE, follower.commit())
+                .await
+                .is_err(),
+            "the table already held is not a new commit"
+        );
+
+        lane.commit(Arc::new(2_u32));
+        let table = tokio::time::timeout(PATIENCE, follower.commit())
+            .await
+            .expect("a new commit must wake the follower");
+        assert_eq!(*table, 2);
     }
 }
