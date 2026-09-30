@@ -53,7 +53,14 @@ tokio = { version = "1", features = [
     "time",
 ] }
 tower = { version = "0.5.3" }
-tower-http = { version = "0.6", features = ["catch-panic", "trace", "sensitive-headers"] }
+tower-http = { version = "0.6", features = [
+    "catch-panic",
+    "compression-br",
+    "compression-gzip",
+    "compression-zstd",
+    "sensitive-headers",
+    "trace",
+] }
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

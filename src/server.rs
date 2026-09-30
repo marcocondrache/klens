@@ -8,6 +8,7 @@ use anyhow::Result;
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;
 use tower_http::catch_panic::CatchPanicLayer;
+use tower_http::compression::CompressionLayer;
 use tower_http::sensitive_headers::{
     SetSensitiveRequestHeadersLayer, SetSensitiveResponseHeadersLayer,
 };
@@ -20,6 +21,23 @@ pub mod web;
 
 pub async fn serve(router: Router, bind: SocketAddr) -> Result<()> {
     let listener = TcpListener::bind(bind).await?;
+    let app = layered(router);
+
+    tracing::info!(bind = %bind, "listening");
+
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await?;
+
+    tracing::info!("server stopped");
+
+    Ok(())
+}
+
+fn layered(router: Router) -> Router {
     let sensitive_headers: Arc<[_]> = Arc::new([
         header::AUTHORIZATION,
         header::COOKIE,
@@ -48,22 +66,14 @@ pub async fn serve(router: Router, bind: SocketAddr) -> Result<()> {
         )
         .layer(SetSensitiveResponseHeadersLayer::from_shared(
             sensitive_headers,
-        ));
+        ))
+        // zstd, brotli, or gzip, by the client's `Accept-Encoding` weights and
+        // in that order on a tie. The default predicate leaves live streams
+        // alone, since an encoder would hold each event back until it had
+        // filled a block.
+        .layer(CompressionLayer::new());
 
-    let app = router.layer(layers);
-
-    tracing::info!(bind = %bind, "listening");
-
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .with_graceful_shutdown(shutdown_signal())
-    .await?;
-
-    tracing::info!("server stopped");
-
-    Ok(())
+    router.layer(layers)
 }
 
 async fn shutdown_signal() {
@@ -94,9 +104,15 @@ async fn shutdown_signal() {
 
 #[cfg(test)]
 mod tests {
+    use std::convert::Infallible;
+
+    use axum::body::{Body, Bytes};
+    use axum::response::sse::{Event, Sse};
     use axum::routing::get;
+    use futures::stream;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpStream;
+    use tower::ServiceExt as _;
 
     use super::*;
     use crate::telemetry::capture::subscriber as capture;
@@ -139,5 +155,74 @@ mod tests {
         assert!(text.contains("path=/api/auth/callback"), "{text}");
         assert!(!text.contains("secret-code"), "{text}");
         assert!(!text.contains("secret-state"), "{text}");
+    }
+
+    const PAGE: &str = "{\"records\":[{\"offset\":0},{\"offset\":1},{\"offset\":2}]}";
+
+    /// The `Content-Encoding` the page or stream at `path` is served with, and
+    /// its body as sent.
+    async fn fetch(path: &str, accept_encoding: Option<&str>) -> (Option<String>, Bytes) {
+        // Tracing caches whether a callsite is enabled process-wide, from the
+        // registering thread's subscriber while only one is registered. Hit
+        // with none here, the request span would stay off for the log test.
+        let (_logs, _guard) = capture(tracing::Level::INFO);
+        let router = Router::new().route("/page", get(|| async { PAGE })).route(
+            "/stream",
+            get(|| async {
+                Sse::new(stream::iter([Ok::<_, Infallible>(
+                    Event::default().data(PAGE),
+                )]))
+            }),
+        );
+        let mut request = Request::builder().uri(path);
+        if let Some(accept_encoding) = accept_encoding {
+            request = request.header(header::ACCEPT_ENCODING, accept_encoding);
+        }
+
+        let response = layered(router)
+            .oneshot(request.body(Body::empty()).expect("request"))
+            .await
+            .expect("response");
+        let encoding = response
+            .headers()
+            .get(header::CONTENT_ENCODING)
+            .map(|value| value.to_str().expect("ascii header").to_owned());
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        (encoding, body)
+    }
+
+    #[tokio::test]
+    async fn a_response_is_compressed_in_each_encoding_the_client_accepts() {
+        for encoding in ["gzip", "br", "zstd"] {
+            let (served, body) = fetch("/page", Some(encoding)).await;
+
+            assert_eq!(served.as_deref(), Some(encoding));
+            assert_ne!(&body[..], PAGE.as_bytes(), "{encoding}");
+        }
+    }
+
+    #[tokio::test]
+    async fn zstd_wins_when_the_client_weighs_every_encoding_the_same() {
+        let (served, _) = fetch("/page", Some("gzip, deflate, br, zstd")).await;
+
+        assert_eq!(served.as_deref(), Some("zstd"));
+    }
+
+    #[tokio::test]
+    async fn a_response_stays_plain_for_a_client_that_accepts_no_encoding() {
+        let (served, body) = fetch("/page", None).await;
+
+        assert_eq!(served, None);
+        assert_eq!(&body[..], PAGE.as_bytes());
+    }
+
+    #[tokio::test]
+    async fn an_event_stream_is_never_compressed() {
+        let (served, body) = fetch("/stream", Some("gzip, br, zstd")).await;
+
+        assert_eq!(served, None);
+        assert_eq!(&body[..], format!("data: {PAGE}\n\n").as_bytes());
     }
 }
