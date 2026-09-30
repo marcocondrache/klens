@@ -23,6 +23,7 @@ use crate::kafka::error::KafkaError;
 use crate::kafka::group::{CommittedOffset, GroupSnapshot, is_internal_group};
 use crate::kafka::metadata::{MetadataSnapshot, TopicMetadata, Watermarks};
 use crate::kafka::model::{PartitionWindow, ScanConsumer, TailConsumer, TailPosition};
+use crate::kafka::quota::{DescribedQuota, QuotaListing};
 use crate::kafka::registry::client::SchemaRegistryClient;
 use crate::kafka::registry::decode::PayloadDecoder;
 use crate::kafka::registry::{RegisteredSchema, SchemaSubject};
@@ -345,6 +346,30 @@ impl ClusterSession for KafkaClient {
             self.transport.admin.describe_acls(AclFilter::all()).await,
         )
     }
+
+    async fn client_quotas(&self) -> Result<QuotaListing, KafkaError> {
+        let described = self
+            .transport
+            .admin
+            .describe_client_quotas(&[], false)
+            .await?;
+        QuotaListing::from_describe(
+            &self.identity.name,
+            described.error.as_deref(),
+            described.entries.into_iter().map(|entry| DescribedQuota {
+                entity: entry
+                    .entity
+                    .into_iter()
+                    .map(|part| (part.entity_type, part.entity_name))
+                    .collect(),
+                values: entry
+                    .values
+                    .into_iter()
+                    .map(|value| (value.key, value.value))
+                    .collect(),
+            }),
+        )
+    }
 }
 
 fn partitions_by_topic(partitions: &[(String, i32)]) -> HashMap<String, Vec<i32>> {
@@ -540,6 +565,17 @@ mod tests {
         client.metadata().await.expect("metadata");
 
         let error = client.log_dirs().await.unwrap_err();
+
+        assert!(matches!(error, KafkaError::Krafka(_)), "{error:?}");
+    }
+
+    #[tokio::test]
+    async fn a_broker_that_does_not_serve_describe_client_quotas_fails_the_call() {
+        let broker = krafka::testing::FakeBroker::start().await.unwrap();
+        let client = kafka_client(&broker.bootstrap_servers()).await;
+        client.metadata().await.expect("metadata");
+
+        let error = client.client_quotas().await.unwrap_err();
 
         assert!(matches!(error, KafkaError::Krafka(_)), "{error:?}");
     }

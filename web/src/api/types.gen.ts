@@ -154,6 +154,16 @@ export type Acl = { resourceType: AclResourceType, resourceName: string, pattern
 
 export type AclListing = { authorizer: AclAuthorizer, bindings: Array<Acl>, };
 
+export type QuotaAccess = "ALLOWED" | "DENIED";
+
+export type QuotaEntityType = "USER" | "CLIENT_ID" | "IP";
+
+export type QuotaEntity = { entityType: QuotaEntityType, name: string | null, };
+
+export type ClientQuota = { entity: Array<QuotaEntity>, producerByteRate: number | null, consumerByteRate: number | null, requestPercentage: number | null, controllerMutationRate: number | null, connectionCreationRate: number | null, };
+
+export type QuotaListing = { access: QuotaAccess, quotas: Array<ClientQuota>, };
+
 export type RecordOrder = "NEWEST" | "OLDEST";
 
 export type RecordHeader = { key: string, value: string, };

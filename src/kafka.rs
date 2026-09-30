@@ -10,6 +10,7 @@ mod acl;
 mod cluster;
 mod group;
 mod limits;
+mod quota;
 mod scan;
 
 pub mod ingest;
@@ -30,5 +31,7 @@ pub use scan::filter::{CompiledFilter, contains as compile_contains_filter};
 pub use scan::tail::{Tail, TailBatch, TailPosition, TailQuery};
 pub use session::ClusterSession;
 
+#[cfg(test)]
+pub use quota::QUOTA_TTL;
 #[cfg(test)]
 pub use testing::{FakeCluster, FixtureRecord, card_record};

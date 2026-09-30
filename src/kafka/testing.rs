@@ -23,6 +23,7 @@ use crate::kafka::metadata::{
     BrokerMetadata, MetadataSnapshot, PartitionMetadata, TopicMetadata, Watermarks,
 };
 use crate::kafka::model::{PartitionWindow, RawRecord, ScanConsumer, TailConsumer, TailPosition};
+use crate::kafka::quota::{ClientQuota, QuotaEntity, QuotaEntityType, QuotaListing, QuotaValues};
 use crate::kafka::registry::{RegisteredSchema, SchemaCompatibility, SchemaSubject, SchemaType};
 use crate::kafka::scan::RecordHeader;
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
@@ -63,6 +64,7 @@ struct Inner {
     records: Mutex<Vec<FixtureRecord>>,
     subjects: Mutex<Vec<SchemaSubject>>,
     acls: Mutex<AclListing>,
+    quotas: Mutex<QuotaListing>,
     subjects_error: Mutex<Option<String>>,
     offsets_error: Mutex<Option<String>>,
     records_delay: Mutex<Duration>,
@@ -242,6 +244,7 @@ impl FakeCluster {
                 records: Mutex::new(records),
                 subjects: Mutex::new(subjects),
                 acls: Mutex::new(AclListing::Enabled(local_acls())),
+                quotas: Mutex::new(QuotaListing::Described(local_quotas())),
                 subjects_error: Mutex::new(None),
                 offsets_error: Mutex::new(None),
                 records_delay: Mutex::new(Duration::ZERO),
@@ -383,6 +386,10 @@ impl FakeCluster {
 
     pub fn set_subjects(&self, subjects: Vec<SchemaSubject>) {
         *self.inner.subjects.lock().expect("subjects") = subjects;
+    }
+
+    pub fn set_quotas(&self, quotas: QuotaListing) {
+        *self.inner.quotas.lock().expect("quotas") = quotas;
     }
 
     pub fn set_offsets_error(&self, error: Option<&str>) {
@@ -891,6 +898,11 @@ impl ClusterSession for FakeCluster {
         self.inner.calls.acls.fetch_add(1, Ordering::SeqCst);
         Ok(self.inner.acls.lock().expect("acls").clone())
     }
+
+    async fn client_quotas(&self) -> Result<QuotaListing, KafkaError> {
+        self.inner.calls.quotas.fetch_add(1, Ordering::SeqCst);
+        Ok(self.inner.quotas.lock().expect("quotas").clone())
+    }
 }
 
 struct FakeScan {
@@ -1162,6 +1174,7 @@ pub struct SessionCalls {
     offsets_in_flight: AtomicUsize,
     offsets_peak: AtomicUsize,
     acls: AtomicUsize,
+    quotas: AtomicUsize,
 }
 
 impl SessionCalls {
@@ -1196,6 +1209,10 @@ impl SessionCalls {
     pub fn acls(&self) -> usize {
         self.acls.load(Ordering::SeqCst)
     }
+
+    pub fn quotas(&self) -> usize {
+        self.quotas.load(Ordering::SeqCst)
+    }
 }
 
 fn local_acls() -> Vec<Acl> {
@@ -1226,6 +1243,61 @@ fn local_acls() -> Vec<Acl> {
             host: "*".into(),
             operation: AclOperation::Read,
             permission: AclPermission::Allow,
+        },
+    ]
+}
+
+fn quota_entity(parts: &[(QuotaEntityType, Option<&str>)]) -> Vec<QuotaEntity> {
+    parts
+        .iter()
+        .map(|(entity_type, name)| QuotaEntity {
+            entity_type: *entity_type,
+            name: name.map(str::to_owned),
+        })
+        .collect()
+}
+
+fn local_quotas() -> Vec<ClientQuota> {
+    vec![
+        ClientQuota {
+            entity: quota_entity(&[(QuotaEntityType::User, Some("alice"))]),
+            values: QuotaValues {
+                producer_byte_rate: Some(1_048_576.0),
+                consumer_byte_rate: Some(2_097_152.0),
+                ..QuotaValues::default()
+            },
+        },
+        ClientQuota {
+            entity: quota_entity(&[
+                (QuotaEntityType::User, Some("alice")),
+                (QuotaEntityType::ClientId, Some("checkout")),
+            ]),
+            values: QuotaValues {
+                producer_byte_rate: Some(524_288.0),
+                ..QuotaValues::default()
+            },
+        },
+        ClientQuota {
+            entity: quota_entity(&[(QuotaEntityType::User, None)]),
+            values: QuotaValues {
+                request_percentage: Some(50.0),
+                controller_mutation_rate: Some(10.0),
+                ..QuotaValues::default()
+            },
+        },
+        ClientQuota {
+            entity: quota_entity(&[(QuotaEntityType::ClientId, None)]),
+            values: QuotaValues {
+                consumer_byte_rate: Some(1_048_576.0),
+                ..QuotaValues::default()
+            },
+        },
+        ClientQuota {
+            entity: quota_entity(&[(QuotaEntityType::Ip, Some("10.0.0.7"))]),
+            values: QuotaValues {
+                connection_creation_rate: Some(20.0),
+                ..QuotaValues::default()
+            },
         },
     ]
 }

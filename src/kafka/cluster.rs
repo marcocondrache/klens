@@ -9,6 +9,7 @@ use crate::kafka::client::KafkaClient;
 use crate::kafka::error::KafkaError;
 use crate::kafka::limits::{RecordLimits, TailLimits};
 use crate::kafka::model::{ConfigEntry, RecordPage, RecordQuery};
+use crate::kafka::quota::{QuotaCache, QuotaListing};
 use crate::kafka::scan::read::read_page;
 use crate::kafka::scan::tail::{Tail, TailQuery};
 use crate::kafka::session::ClusterSession;
@@ -31,6 +32,7 @@ pub struct Cluster {
     pub session: Arc<dyn ClusterSession>,
     pub store: Arc<ClusterStore>,
     pub writable: bool,
+    quotas: QuotaCache,
 }
 
 impl Cluster {
@@ -39,6 +41,7 @@ impl Cluster {
             store: Arc::new(ClusterStore::new(session.identity().clone(), interest_ttl)),
             session,
             writable,
+            quotas: QuotaCache::default(),
         }
     }
 
@@ -69,6 +72,15 @@ impl Cluster {
         }
 
         self.session.broker_configs(id).await
+    }
+
+    pub async fn client_quotas(&self) -> Result<Arc<QuotaListing>, KafkaError> {
+        if let Some(listing) = self.quotas.fresh() {
+            return Ok(listing);
+        }
+        let listing = Arc::new(self.session.client_quotas().await?);
+        self.quotas.store(Arc::clone(&listing));
+        Ok(listing)
     }
 }
 
