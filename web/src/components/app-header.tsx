@@ -16,8 +16,8 @@ import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ClusterSwitcher } from "@/components/cluster-switcher";
+import { IconButton } from "@/components/icon-button";
 import { ModeToggle } from "@/components/mode-toggle";
 import { useClusterName } from "@/lib/clusters";
 import { formatModK } from "@/lib/keyboard";
@@ -120,22 +120,13 @@ export function AppHeader({ onSearch }: { onSearch: () => void }) {
             <SearchIcon />
           </Button>
 
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Refresh"
-                  className="text-muted-foreground hover:text-foreground"
-                  onClick={() => queryClient.invalidateQueries()}
-                />
-              }
-            >
-              <RefreshCwIcon className={cn(fetching && "animate-spin")} />
-            </TooltipTrigger>
-            <TooltipContent>Refresh</TooltipContent>
-          </Tooltip>
+          <IconButton
+            label="Refresh"
+            size="icon-sm"
+            onClick={() => queryClient.invalidateQueries()}
+          >
+            <RefreshCwIcon className={cn(fetching && "animate-spin")} />
+          </IconButton>
 
           <ModeToggle />
         </div>

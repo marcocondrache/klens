@@ -101,7 +101,7 @@ function GroupFacts({
       {group.totalLag === null ? (
         <PendingValue label="Fetching committed offsets" />
       ) : (
-        <span className={cn("text-foreground", TONE_TEXT[lagTone(group.totalLag)])}>
+        <span className={TONE_TEXT[lagTone(group.totalLag)]}>
           {group.lagComplete ? "" : "≥ "}
           {formatCount(group.totalLag)} lag
         </span>
@@ -306,11 +306,7 @@ function ConsumerGroupPage() {
             data={members}
             getRowId={(member) => member.id}
             loading={isPending}
-            emptyState={
-              <p className="py-10 text-center text-sm text-muted-foreground">
-                This group has no active members.
-              </p>
-            }
+            emptyState="This group has no active members."
           />
         </TabsContent>
       </Tabs>

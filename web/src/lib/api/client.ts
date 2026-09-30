@@ -44,6 +44,10 @@ function withQuery(path: string, query?: Record<string, QueryValue>): string {
   return text ? `${path}?${text}` : path;
 }
 
+export function clusterPathname(cluster: string, ...rest: string[]): string {
+  return ["/clusters", encodeURIComponent(cluster), ...rest].join("/");
+}
+
 /** Encode each path segment and keep `/`, so a catch-all route sees the real id. */
 export function resourceId(id: string): string {
   return id

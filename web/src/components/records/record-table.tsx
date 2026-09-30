@@ -15,6 +15,7 @@ import {
   resizeOptions,
 } from "@/components/data-table/column-resize";
 import { features, type DataTableFeatures } from "@/components/data-table/features";
+import { tablePlaceholder } from "@/components/data-table/placeholder";
 import { CLICKABLE_ROW, clickableRowProps } from "@/components/data-table/row-interaction";
 import { SkeletonBar, skeletonRowStyle } from "@/components/data-table/skeleton-bar";
 import { RefreshBar } from "@/components/refresh-bar";
@@ -48,19 +49,11 @@ interface RecordTableProps<TData extends RowData> {
   refreshing?: boolean;
   stale?: boolean;
   error?: ReactNode;
-  emptyState?: ReactNode;
+  emptyState: ReactNode;
   hasNextPage?: boolean;
   fetchNextPage?: () => void;
   isFetchingNextPage?: boolean;
   isFetchNextPageError?: boolean;
-}
-
-function tablePlaceholder(content: ReactNode) {
-  if (typeof content === "string") {
-    return <p className="py-10 text-center text-sm text-muted-foreground">{content}</p>;
-  }
-
-  return content;
 }
 
 export function RecordTable<TData extends RowData>({
@@ -149,13 +142,7 @@ export function RecordTable<TData extends RowData>({
         ) : rows.length === 0 ? (
           <div role="table" className="text-sm">
             <HeaderRow table={table} gridTemplateColumns={gridTemplateColumns} />
-            <div className={error || emptyState ? "p-0" : "h-24"}>
-              {error || emptyState ? (
-                tablePlaceholder(error ?? emptyState)
-              ) : (
-                <p className="py-10 text-center text-sm text-muted-foreground">No results.</p>
-              )}
-            </div>
+            {tablePlaceholder(error ?? emptyState)}
           </div>
         ) : (
           <div

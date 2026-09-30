@@ -1,10 +1,9 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 import { DownloadIcon, Maximize2Icon, Minimize2Icon } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CopyButton } from "@/components/copy-button";
+import { IconButton } from "@/components/icon-button";
 import { JsonBlock } from "@/components/json-block";
 import { isJson, prettyJson } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -82,7 +81,7 @@ export function PayloadView({
           {showExpand ? (
             <IconButton
               label={expanded ? `Collapse ${action}` : `Expand ${action}`}
-              pressed={expanded}
+              aria-pressed={expanded}
               onClick={() => onExpandedChange?.(!expanded)}
             >
               {expanded ? <Minimize2Icon /> : <Maximize2Icon />}
@@ -92,37 +91,5 @@ export function PayloadView({
       </div>
       <JsonBlock source={displayed} className={fill ? "min-h-0 flex-1" : "max-h-40"} />
     </div>
-  );
-}
-
-function IconButton({
-  label,
-  onClick,
-  pressed,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  pressed?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            aria-label={label}
-            aria-pressed={pressed}
-            className="text-muted-foreground"
-            onClick={onClick}
-          />
-        }
-      >
-        {children}
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
   );
 }

@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 
 import { ColumnResizeHandle, resizedWidth, resizeOptions } from "./column-resize";
 import { features, type DataTableFeatures } from "./features";
+import { tablePlaceholder } from "./placeholder";
 import { CLICKABLE_ROW, clickableRowProps } from "./row-interaction";
 import { SkeletonBar, skeletonRowStyle } from "./skeleton-bar";
 
@@ -38,14 +39,6 @@ interface DataTableProps<TData extends RowData> {
   error?: ReactNode;
   emptyState?: ReactNode;
   defaultSort?: { id: string; direction: "asc" | "desc" };
-}
-
-function tablePlaceholder(content: ReactNode) {
-  if (typeof content === "string") {
-    return <p className="py-10 text-center text-sm text-muted-foreground">{content}</p>;
-  }
-
-  return content;
 }
 
 export function DataTable<TData extends RowData>({

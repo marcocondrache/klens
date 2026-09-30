@@ -17,22 +17,13 @@ import {
 import { LaneCaption } from "@/components/lane-caption";
 import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
-import {
-  GROUP_TONE,
-  GroupStateBadge,
-  PendingValue,
-  Pill,
-  StatusDot,
-  TONE_TEXT,
-} from "@/components/status";
-import { lagTone } from "@/lib/tone";
+import { GROUP_TONE, GroupStateBadge, LagValue, Pill, StatusDot } from "@/components/status";
 import { useSearchDraft } from "@/hooks/use-search-draft";
 import { useClusterHealth, useGroupRows } from "@/lib/api/catalog";
 import { useClusterName } from "@/lib/clusters";
 import { apiErrorMessage } from "@/lib/api/client";
-import { formatCount, formatEnumLabel, formatNumber } from "@/lib/format";
+import { formatCount, formatEnumLabel } from "@/lib/format";
 import type { GroupRow } from "@/lib/api/types";
-import { cn } from "@/lib/utils";
 import {
   GROUP_STATES,
   searchDefaults,
@@ -118,26 +109,9 @@ const columns = columnHelper.columns([
       <DataTableColumnHeader column={column} title="Lag" className="justify-end" />
     ),
     meta: { align: "right", width: "9rem" },
-    cell: ({ row }) => <LagValue row={row.original} />,
+    cell: ({ row }) => <LagValue lag={row.original.totalLag} complete={row.original.lagComplete} />,
   }),
 ]);
-
-function LagValue({ row }: { row: GroupRow }) {
-  if (row.totalLag === null) {
-    return <PendingValue label="Fetching committed offsets" className="ml-auto block" />;
-  }
-  const lag = row.totalLag;
-
-  return (
-    <span
-      className={cn("numeric", lag === 0 ? "text-muted-foreground" : TONE_TEXT[lagTone(lag)])}
-      title={row.lagComplete ? undefined : "Some partitions have no watermark yet"}
-    >
-      {row.lagComplete ? "" : "≥ "}
-      {formatNumber(lag)}
-    </span>
-  );
-}
 
 function ConsumerGroupsPage() {
   const cluster = useClusterName();
