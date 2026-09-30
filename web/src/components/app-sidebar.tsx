@@ -53,7 +53,7 @@ export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
       <SidebarContent>
         <NavMain
           cluster={cluster}
-          sections={visibleSections(can(cluster, "ACLS"))}
+          sections={visibleSections((privilege) => can(cluster, privilege))}
           counts={{
             topics: topology?.topicCount,
             groups: topology?.groupCount,
