@@ -811,3 +811,23 @@ async fn one_cluster_never_wakes_another() {
         "per-cluster buses keep the blast radius at one cluster"
     );
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_new_topic_gets_its_configs_without_waiting_out_the_config_interval() {
+    use crate::kafka::store::fixtures::config;
+
+    let session = FakeCluster::local();
+    let store = store(&session);
+    let _lanes = idle_lanes(&store, &session);
+    wait_for(|| store.configs.ready(), "first config poll").await;
+
+    let _ = session.clone().extra_topic("payments", 1, 0);
+    session.set_topic_configs("payments", vec![config("retention.ms", "1000")]);
+    store.topology.kick();
+
+    wait_for(
+        || store.topic_configs("payments").is_some(),
+        "configs for the new topic",
+    )
+    .await;
+}
