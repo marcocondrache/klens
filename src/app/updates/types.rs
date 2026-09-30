@@ -64,6 +64,7 @@ pub enum Update {
         topics: Vec<String>,
         brokers_changed: bool,
     },
+    Acls,
     /// The client fell behind the change bus and missed events.
     Resync,
 }
@@ -77,6 +78,7 @@ impl Update {
             Self::Configs { .. } => "configs",
             Self::Subjects { .. } => "subjects",
             Self::LogDirs { .. } => "logDirs",
+            Self::Acls => "acls",
             Self::Resync => "resync",
         }
     }

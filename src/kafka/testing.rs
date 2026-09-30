@@ -62,7 +62,7 @@ struct Inner {
     groups: Mutex<Vec<GroupSnapshot>>,
     records: Mutex<Vec<FixtureRecord>>,
     subjects: Mutex<Vec<SchemaSubject>>,
-    acls: Mutex<AclListing>,
+    acls: Mutex<Result<AclListing, String>>,
     subjects_error: Mutex<Option<String>>,
     offsets_error: Mutex<Option<String>>,
     records_delay: Mutex<Duration>,
@@ -241,7 +241,7 @@ impl FakeCluster {
                 groups: Mutex::new(groups),
                 records: Mutex::new(records),
                 subjects: Mutex::new(subjects),
-                acls: Mutex::new(AclListing::Enabled(local_acls())),
+                acls: Mutex::new(Ok(AclListing::Enabled(local_acls()))),
                 subjects_error: Mutex::new(None),
                 offsets_error: Mutex::new(None),
                 records_delay: Mutex::new(Duration::ZERO),
@@ -379,6 +379,10 @@ impl FakeCluster {
 
     pub fn set_log_dirs(&self, log_dirs: Result<Vec<LogDir>, &str>) {
         *self.inner.log_dirs.lock().expect("log dirs") = log_dirs.map_err(str::to_owned);
+    }
+
+    pub fn set_acls(&self, acls: Result<AclListing, &str>) {
+        *self.inner.acls.lock().expect("acls") = acls.map_err(str::to_owned);
     }
 
     pub fn set_subjects(&self, subjects: Vec<SchemaSubject>) {
@@ -889,7 +893,12 @@ impl ClusterSession for FakeCluster {
 
     async fn acls(&self) -> Result<AclListing, KafkaError> {
         self.inner.calls.acls.fetch_add(1, Ordering::SeqCst);
-        Ok(self.inner.acls.lock().expect("acls").clone())
+        self.inner
+            .acls
+            .lock()
+            .expect("acls")
+            .clone()
+            .map_err(KafkaError::Admin)
     }
 }
 
