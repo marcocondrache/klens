@@ -34,6 +34,14 @@ pub(super) fn with_limits(sessions: Vec<FakeCluster>, limits: Limits) -> AppStat
     )
 }
 
+pub(super) fn with_writable(sessions: Vec<FakeCluster>, writable: &[&str]) -> AppState {
+    AppState::new(
+        Clusters::from_sessions(sessions).writable(writable),
+        AuthState::disabled(),
+        Limits::new(&crate::config::Tuning::default()),
+    )
+}
+
 pub(super) fn store_of<'a>(state: &'a AppState, cluster: &str) -> &'a Arc<ClusterStore> {
     &state
         .clusters

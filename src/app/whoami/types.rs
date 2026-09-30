@@ -25,6 +25,8 @@ pub struct ClusterGrant {
     /// back to an IdP group mapping. Empty when no role table applies.
     pub roles: Vec<String>,
     pub privileges: Vec<PrivilegeName>,
+    /// False when the cluster refuses every change, whatever the privileges.
+    pub writable: bool,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]

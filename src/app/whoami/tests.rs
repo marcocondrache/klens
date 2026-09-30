@@ -1,8 +1,11 @@
 use serde_json::Value;
 
 use crate::app::auth::access::{ClusterScope, Privilege, PrivilegeSet};
+use crate::kafka::FakeCluster;
 
-use super::super::harness::{admin, granted, ok, ok_as, only, state, two_clusters, viewer};
+use super::super::harness::{
+    admin, granted, ok, ok_as, only, state, two_clusters, viewer, with_writable,
+};
 
 #[tokio::test]
 async fn whoami_reports_no_subject_when_auth_is_disabled() {
@@ -82,7 +85,22 @@ async fn whoami_omits_clusters_the_session_cannot_see() {
         serde_json::json!([{
             "cluster": "payments",
             "roles": ["viewer"],
-            "privileges": []
+            "privileges": [],
+            "writable": false
         }])
     );
+}
+
+#[tokio::test]
+async fn whoami_reports_which_clusters_accept_changes() {
+    let state = with_writable(
+        vec![FakeCluster::local(), FakeCluster::named("payments")],
+        &["payments"],
+    );
+    let data = ok(&state, "/whoami").await;
+
+    assert_eq!(data["clusters"][0]["cluster"], "local");
+    assert_eq!(data["clusters"][0]["writable"], false);
+    assert_eq!(data["clusters"][1]["cluster"], "payments");
+    assert_eq!(data["clusters"][1]["writable"], true);
 }

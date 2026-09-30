@@ -7,7 +7,11 @@ export type ClusterGrant = { cluster: string,
  * Names of the roles that granted this access, for tracing a privilege
  * back to an IdP group mapping. Empty when no role table applies.
  */
-roles: Array<string>, privileges: Array<PrivilegeName>, };
+roles: Array<string>, privileges: Array<PrivilegeName>, 
+/**
+ * False when the cluster refuses every change, whatever the privileges.
+ */
+writable: boolean, };
 
 export type Identity = { 
 /**

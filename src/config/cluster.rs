@@ -17,6 +17,10 @@ pub struct Cluster {
     pub schema_registry: Option<SchemaRegistry>,
     /// Hides parts of records from everyone who browses the cluster.
     pub obfuscation: Option<Obfuscation>,
+    /// Omitted, klens only reads from the cluster. Set to `true` to let
+    /// sessions holding the matching privilege change it.
+    #[serde(default)]
+    pub writable: bool,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -85,6 +89,18 @@ mod tests {
         assert!(cluster.sasl.is_none());
         assert!(cluster.schema_registry.is_none());
         assert!(cluster.obfuscation.is_none());
+        assert!(
+            !cluster.writable,
+            "klens changes nothing it was not told to"
+        );
+    }
+
+    #[test]
+    fn a_cluster_opts_in_to_changes() {
+        let cluster: Cluster =
+            parse("{bootstrap_servers: [localhost:9092], writable: true}").unwrap();
+
+        assert!(cluster.writable);
     }
 
     #[test]

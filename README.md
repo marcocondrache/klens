@@ -64,6 +64,7 @@ clusters:
   prod:
     bootstrap_servers: [broker-1:9093, broker-2:9093]
     client_id: klens-prod # default: klens-<cluster name>
+    writable: false # default: klens changes nothing on this cluster
     tls:
       ca_cert: /tls/ca.pem
       client: { cert: /tls/client.pem, key: /tls/client.key }

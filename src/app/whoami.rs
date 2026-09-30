@@ -24,6 +24,7 @@ async fn whoami(session: Session) -> Json<Identity> {
         .into_iter()
         .filter_map(|name| {
             let access = session.access.cluster(name).ok()?;
+            let writable = session.state.clusters.get(name).ok()?.writable;
             Some(ClusterGrant {
                 cluster: name.to_owned(),
                 roles: access
@@ -32,6 +33,7 @@ async fn whoami(session: Session) -> Json<Identity> {
                     .map(ToOwned::to_owned)
                     .collect(),
                 privileges: access.privileges().into_iter().map(Into::into).collect(),
+                writable,
             })
         })
         .collect();
