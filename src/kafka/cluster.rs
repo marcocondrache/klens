@@ -30,13 +30,15 @@ impl ClusterIdentity {
 pub struct Cluster {
     pub session: Arc<dyn ClusterSession>,
     pub store: Arc<ClusterStore>,
+    pub writable: bool,
 }
 
 impl Cluster {
-    fn new(session: Arc<dyn ClusterSession>, interest_ttl: Duration) -> Self {
+    fn new(session: Arc<dyn ClusterSession>, interest_ttl: Duration, writable: bool) -> Self {
         Self {
             store: Arc::new(ClusterStore::new(session.identity().clone(), interest_ttl)),
             session,
+            writable,
         }
     }
 
@@ -86,17 +88,40 @@ impl Clusters {
                 .map(|(name, cluster)| KafkaClient::new(name, cluster, tuning)),
         )
         .await?;
-        Ok(Self::from_clusters(sessions.into_iter().map(|session| {
-            Cluster::new(Arc::new(session), tuning.ingest.interest_ttl)
-        })))
+        Ok(Self::from_clusters(
+            sessions
+                .into_iter()
+                .zip(clusters.values())
+                .map(|(session, cluster)| {
+                    Cluster::new(
+                        Arc::new(session),
+                        tuning.ingest.interest_ttl,
+                        cluster.writable,
+                    )
+                }),
+        ))
     }
 
+    /// Every cluster is read-only, as when the config omits `writable`.
     pub fn from_sessions(sessions: Vec<impl ClusterSession>) -> Self {
-        Self::from_clusters(
-            sessions.into_iter().map(|session| {
-                Cluster::new(Arc::new(session), IngestTuning::default().interest_ttl)
-            }),
-        )
+        Self::from_clusters(sessions.into_iter().map(|session| {
+            Cluster::new(
+                Arc::new(session),
+                IngestTuning::default().interest_ttl,
+                false,
+            )
+        }))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn writable(mut self, names: &[&str]) -> Self {
+        for name in names {
+            self.clusters
+                .get_mut(*name)
+                .expect("configured cluster")
+                .writable = true;
+        }
+        self
     }
 
     fn from_clusters(clusters: impl IntoIterator<Item = Cluster>) -> Self {
@@ -153,14 +178,21 @@ mod tests {
         let first = FakeBroker::start().await.unwrap();
         let second = FakeBroker::start().await.unwrap();
 
+        let mut open = cluster(&second.bootstrap_servers());
+        open.writable = true;
         let clusters = connect(vec![
             ("b", cluster(&first.bootstrap_servers())),
-            ("a", cluster(&second.bootstrap_servers())),
+            ("a", open),
         ])
         .await
         .unwrap();
 
         assert_eq!(clusters.names().collect::<Vec<_>>(), vec!["b", "a"]);
+        assert!(!clusters.get("b").unwrap().writable);
+        assert!(
+            clusters.get("a").unwrap().writable,
+            "each cluster keeps its own switch"
+        );
         assert!(first.request_count(ApiKey::Metadata) > 0);
         assert!(second.request_count(ApiKey::Metadata) > 0);
     }
@@ -177,6 +209,7 @@ mod tests {
         let clusters = Clusters::from_sessions(vec![FakeCluster::local()]);
 
         assert_eq!(clusters.get("local").unwrap().name(), "local");
+        assert!(!clusters.get("local").unwrap().writable);
         assert!(matches!(
             clusters.get("missing"),
             Err(KafkaError::UnknownCluster(name)) if name == "missing"

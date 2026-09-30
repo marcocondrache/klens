@@ -18,6 +18,7 @@ clusters:
     bootstrap_servers:
       - localhost:9092
     # client_id: klens-local  # default: klens-<cluster name>
+    # writable: false  # default: klens changes nothing on this cluster
 
     # TLS and SASL are each on when their block is present.
     # tls:

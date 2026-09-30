@@ -28,7 +28,7 @@ impl Ingest {
     pub fn start(clusters: &Clusters, tuning: &IngestTuning) -> Self {
         let mut tasks = JoinSet::new();
 
-        for Cluster { session, store } in clusters.iter() {
+        for Cluster { session, store, .. } in clusters.iter() {
             tracing::info!(cluster = %store.name(), "starting ingestion lanes");
 
             tasks.spawn(run(
