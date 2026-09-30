@@ -497,6 +497,19 @@ impl FakeCluster {
         }
     }
 
+    pub fn add_broker(&self, id: i32) {
+        self.inner
+            .metadata
+            .lock()
+            .expect("metadata")
+            .brokers
+            .push(BrokerMetadata {
+                id,
+                host: "localhost".into(),
+                port: 9092 + id,
+            });
+    }
+
     pub fn remove_topic(&self, name: &str) {
         self.inner
             .metadata

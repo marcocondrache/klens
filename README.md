@@ -160,7 +160,8 @@ Past that cap, a new tail gets `503 TOO_MANY_TAILS`.
 ## Storage
 
 klens asks every broker to describe its log dirs every
-`tuning.ingest.log_dirs` (`60s`). A topic's size counts the largest replica
+`tuning.ingest.log_dirs` (`60s`), and again as soon as a topic or broker
+appears. A topic's size counts the largest replica
 of each partition, and the topic page adds the bytes across every replica. A
 broker's size counts every log in its dirs. Its disk use is that of the
 fullest dir's volume, which Kafka reports from 3.3 on. The broker page lists

@@ -1001,3 +1001,49 @@ async fn the_offset_lane_sweeps_nothing_until_topology_commits() {
     ));
     wait_for(|| store.offsets.ready(), "first offset wave").await;
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_new_topic_or_broker_gets_its_log_dirs_without_waiting_out_the_interval() {
+    let session = FakeCluster::local();
+    let store = store(&session);
+    let _lanes = log_dir_lanes(&store, &session, IDLE);
+    wait_for(|| store.log_dirs.ready(), "first log dirs poll").await;
+
+    let calls = session.calls().log_dirs();
+    let _ = session.clone().extra_topic("payments", 1, 0);
+    store.topology.kick();
+    wait_for(
+        || session.calls().log_dirs() > calls,
+        "log dirs for the new topic",
+    )
+    .await;
+
+    let calls = session.calls().log_dirs();
+    session.add_broker(2);
+    store.topology.kick();
+    wait_for(
+        || session.calls().log_dirs() > calls,
+        "log dirs for the new broker",
+    )
+    .await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_topology_change_without_new_topics_or_brokers_leaves_log_dirs_to_their_interval() {
+    use crate::kafka::metadata::Watermarks;
+
+    let session = FakeCluster::local();
+    let store = store(&session);
+    let _lanes = log_dir_lanes(&store, &session, IDLE);
+    wait_for(|| store.log_dirs.ready(), "first log dirs poll").await;
+    let calls = session.calls().log_dirs();
+
+    session.add_partition("orders.created", 7, Watermarks { low: 0, high: 0 });
+    store.topology.kick();
+    wait_for(|| store.topology.version() > 1, "topology commit").await;
+    for _ in 0..100 {
+        tokio::task::yield_now().await;
+    }
+
+    assert_eq!(session.calls().log_dirs(), calls);
+}

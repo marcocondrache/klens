@@ -55,6 +55,10 @@ impl LaneSource for LogDirLane {
         ))
     }
 
+    fn stale(&self, fetched: &Topology, latest: &Topology) -> bool {
+        latest.gained_topics_since(fetched) || latest.brokers != fetched.brokers
+    }
+
     fn diff(&self, previous: Option<&LogDirTable>, next: &LogDirTable) -> Option<LogDirsDelta> {
         LogDirsDelta::between(previous, next)
     }
