@@ -21,23 +21,6 @@ pub mod web;
 
 pub async fn serve(router: Router, bind: SocketAddr) -> Result<()> {
     let listener = TcpListener::bind(bind).await?;
-    let app = layered(router);
-
-    tracing::info!(bind = %bind, "listening");
-
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .with_graceful_shutdown(shutdown_signal())
-    .await?;
-
-    tracing::info!("server stopped");
-
-    Ok(())
-}
-
-fn layered(router: Router) -> Router {
     let sensitive_headers: Arc<[_]> = Arc::new([
         header::AUTHORIZATION,
         header::COOKIE,
@@ -73,7 +56,20 @@ fn layered(router: Router) -> Router {
         // filled a block.
         .layer(CompressionLayer::new());
 
-    router.layer(layers)
+    let app = router.layer(layers);
+
+    tracing::info!(bind = %bind, "listening");
+
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await?;
+
+    tracing::info!("server stopped");
+
+    Ok(())
 }
 
 async fn shutdown_signal() {
@@ -106,24 +102,18 @@ async fn shutdown_signal() {
 mod tests {
     use std::convert::Infallible;
 
-    use axum::body::{Body, Bytes};
     use axum::response::sse::{Event, Sse};
     use axum::routing::get;
     use futures::stream;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpStream;
-    use tower::ServiceExt as _;
 
     use super::*;
     use crate::telemetry::capture::subscriber as capture;
 
-    #[tokio::test]
-    async fn the_request_log_has_the_path_but_not_the_query() {
-        let (logs, _guard) = capture(tracing::Level::INFO);
-        let router = Router::new().route(
-            "/api/auth/callback",
-            get(|| async { tracing::info!("handled") }),
-        );
+    /// Serves `router` on a free port, sends it one raw request, and returns
+    /// the raw response.
+    async fn exchange(router: Router, request: &str) -> Vec<u8> {
         let bind = std::net::TcpListener::bind("127.0.0.1:0")
             .and_then(|listener| listener.local_addr())
             .expect("free port");
@@ -137,19 +127,34 @@ mod tests {
             }
         };
         stream
-            .write_all(
-                b"GET /api/auth/callback?code=secret-code&state=secret-state HTTP/1.1\r\n\
-                  Host: localhost\r\nConnection: close\r\n\r\n",
-            )
+            .write_all(request.as_bytes())
             .await
             .expect("write request");
-        let mut response = String::new();
+        let mut response = Vec::new();
         stream
-            .read_to_string(&mut response)
+            .read_to_end(&mut response)
             .await
             .expect("read response");
         server.abort();
+        response
+    }
 
+    #[tokio::test]
+    async fn the_request_log_has_the_path_but_not_the_query() {
+        let (logs, _guard) = capture(tracing::Level::INFO);
+        let router = Router::new().route(
+            "/api/auth/callback",
+            get(|| async { tracing::info!("handled") }),
+        );
+
+        let response = exchange(
+            router,
+            "GET /api/auth/callback?code=secret-code&state=secret-state HTTP/1.1\r\n\
+             Host: localhost\r\nConnection: close\r\n\r\n",
+        )
+        .await;
+
+        let response = String::from_utf8(response).expect("utf-8 response");
         assert!(response.starts_with("HTTP/1.1 200"), "{response}");
         let text = logs.as_string();
         assert!(text.contains("path=/api/auth/callback"), "{text}");
@@ -161,7 +166,7 @@ mod tests {
 
     /// The `Content-Encoding` the page or stream at `path` is served with, and
     /// its body as sent.
-    async fn fetch(path: &str, accept_encoding: Option<&str>) -> (Option<String>, Bytes) {
+    async fn fetch(path: &str, accept_encoding: Option<&str>) -> (Option<String>, Vec<u8>) {
         // Tracing caches whether a callsite is enabled process-wide, from the
         // registering thread's subscriber while only one is registered. Hit
         // with none here, the request span would stay off for the log test.
@@ -174,23 +179,35 @@ mod tests {
                 )]))
             }),
         );
-        let mut request = Request::builder().uri(path);
-        if let Some(accept_encoding) = accept_encoding {
-            request = request.header(header::ACCEPT_ENCODING, accept_encoding);
-        }
+        let accept_encoding = accept_encoding
+            .map(|value| format!("Accept-Encoding: {value}\r\n"))
+            .unwrap_or_default();
 
-        let response = layered(router)
-            .oneshot(request.body(Body::empty()).expect("request"))
-            .await
-            .expect("response");
-        let encoding = response
-            .headers()
-            .get(header::CONTENT_ENCODING)
-            .map(|value| value.to_str().expect("ascii header").to_owned());
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .expect("body");
-        (encoding, body)
+        let response = exchange(
+            router,
+            &format!(
+                "GET {path} HTTP/1.1\r\nHost: localhost\r\n{accept_encoding}\
+                 Connection: close\r\n\r\n"
+            ),
+        )
+        .await;
+
+        let split = response
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .expect("end of head");
+        let head = std::str::from_utf8(&response[..split]).expect("ascii head");
+        assert!(head.starts_with("HTTP/1.1 200"), "{head}");
+        let encoding = head
+            .lines()
+            .find_map(|line| line.strip_prefix("content-encoding: "))
+            .map(str::to_owned);
+        (encoding, response[split + 4..].to_vec())
+    }
+
+    fn contains(body: &[u8], text: &str) -> bool {
+        body.windows(text.len())
+            .any(|window| window == text.as_bytes())
     }
 
     #[tokio::test]
@@ -199,7 +216,7 @@ mod tests {
             let (served, body) = fetch("/page", Some(encoding)).await;
 
             assert_eq!(served.as_deref(), Some(encoding));
-            assert_ne!(&body[..], PAGE.as_bytes(), "{encoding}");
+            assert!(!contains(&body, PAGE), "{encoding}");
         }
     }
 
@@ -215,7 +232,7 @@ mod tests {
         let (served, body) = fetch("/page", None).await;
 
         assert_eq!(served, None);
-        assert_eq!(&body[..], PAGE.as_bytes());
+        assert_eq!(body, PAGE.as_bytes());
     }
 
     #[tokio::test]
@@ -223,6 +240,6 @@ mod tests {
         let (served, body) = fetch("/stream", Some("gzip, br, zstd")).await;
 
         assert_eq!(served, None);
-        assert_eq!(&body[..], format!("data: {PAGE}\n\n").as_bytes());
+        assert!(contains(&body, &format!("data: {PAGE}\n\n")));
     }
 }
