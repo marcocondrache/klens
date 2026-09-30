@@ -8,6 +8,7 @@ use anyhow::Result;
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;
 use tower_http::catch_panic::CatchPanicLayer;
+use tower_http::compression::CompressionLayer;
 use tower_http::sensitive_headers::{
     SetSensitiveRequestHeadersLayer, SetSensitiveResponseHeadersLayer,
 };
@@ -48,7 +49,8 @@ pub async fn serve(router: Router, bind: SocketAddr) -> Result<()> {
         )
         .layer(SetSensitiveResponseHeadersLayer::from_shared(
             sensitive_headers,
-        ));
+        ))
+        .layer(CompressionLayer::new());
 
     let app = router.layer(layers);
 
@@ -94,20 +96,18 @@ async fn shutdown_signal() {
 
 #[cfg(test)]
 mod tests {
+    use std::convert::Infallible;
+
+    use axum::response::sse::{Event, Sse};
     use axum::routing::get;
+    use futures::stream;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpStream;
 
     use super::*;
     use crate::telemetry::capture::subscriber as capture;
 
-    #[tokio::test]
-    async fn the_request_log_has_the_path_but_not_the_query() {
-        let (logs, _guard) = capture(tracing::Level::INFO);
-        let router = Router::new().route(
-            "/api/auth/callback",
-            get(|| async { tracing::info!("handled") }),
-        );
+    async fn exchange(router: Router, request: &str) -> Vec<u8> {
         let bind = std::net::TcpListener::bind("127.0.0.1:0")
             .and_then(|listener| listener.local_addr())
             .expect("free port");
@@ -121,23 +121,114 @@ mod tests {
             }
         };
         stream
-            .write_all(
-                b"GET /api/auth/callback?code=secret-code&state=secret-state HTTP/1.1\r\n\
-                  Host: localhost\r\nConnection: close\r\n\r\n",
-            )
+            .write_all(request.as_bytes())
             .await
             .expect("write request");
-        let mut response = String::new();
+        let mut response = Vec::new();
         stream
-            .read_to_string(&mut response)
+            .read_to_end(&mut response)
             .await
             .expect("read response");
         server.abort();
+        response
+    }
 
+    #[tokio::test]
+    async fn the_request_log_has_the_path_but_not_the_query() {
+        let (logs, _guard) = capture(tracing::Level::INFO);
+        let router = Router::new().route(
+            "/api/auth/callback",
+            get(|| async { tracing::info!("handled") }),
+        );
+
+        let response = exchange(
+            router,
+            "GET /api/auth/callback?code=secret-code&state=secret-state HTTP/1.1\r\n\
+             Host: localhost\r\nConnection: close\r\n\r\n",
+        )
+        .await;
+
+        let response = String::from_utf8(response).expect("utf-8 response");
         assert!(response.starts_with("HTTP/1.1 200"), "{response}");
         let text = logs.as_string();
         assert!(text.contains("path=/api/auth/callback"), "{text}");
         assert!(!text.contains("secret-code"), "{text}");
         assert!(!text.contains("secret-state"), "{text}");
+    }
+
+    const PAGE: &str = "{\"records\":[{\"offset\":0},{\"offset\":1},{\"offset\":2}]}";
+
+    async fn fetch(path: &str, accept_encoding: Option<&str>) -> (Option<String>, Vec<u8>) {
+        let (_logs, _guard) = capture(tracing::Level::INFO);
+        let router = Router::new().route("/page", get(|| async { PAGE })).route(
+            "/stream",
+            get(|| async {
+                Sse::new(stream::iter([Ok::<_, Infallible>(
+                    Event::default().data(PAGE),
+                )]))
+            }),
+        );
+        let accept_encoding = accept_encoding
+            .map(|value| format!("Accept-Encoding: {value}\r\n"))
+            .unwrap_or_default();
+
+        let response = exchange(
+            router,
+            &format!(
+                "GET {path} HTTP/1.1\r\nHost: localhost\r\n{accept_encoding}\
+                 Connection: close\r\n\r\n"
+            ),
+        )
+        .await;
+
+        let split = response
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .expect("end of head");
+        let head = std::str::from_utf8(&response[..split]).expect("ascii head");
+        assert!(head.starts_with("HTTP/1.1 200"), "{head}");
+        let encoding = head
+            .lines()
+            .find_map(|line| line.strip_prefix("content-encoding: "))
+            .map(str::to_owned);
+        (encoding, response[split + 4..].to_vec())
+    }
+
+    fn contains(body: &[u8], text: &str) -> bool {
+        body.windows(text.len())
+            .any(|window| window == text.as_bytes())
+    }
+
+    #[tokio::test]
+    async fn a_response_is_compressed_in_each_encoding_the_client_accepts() {
+        for encoding in ["gzip", "br", "zstd"] {
+            let (served, body) = fetch("/page", Some(encoding)).await;
+
+            assert_eq!(served.as_deref(), Some(encoding));
+            assert!(!contains(&body, PAGE), "{encoding}");
+        }
+    }
+
+    #[tokio::test]
+    async fn zstd_wins_when_the_client_weighs_every_encoding_the_same() {
+        let (served, _) = fetch("/page", Some("gzip, deflate, br, zstd")).await;
+
+        assert_eq!(served.as_deref(), Some("zstd"));
+    }
+
+    #[tokio::test]
+    async fn a_response_stays_plain_for_a_client_that_accepts_no_encoding() {
+        let (served, body) = fetch("/page", None).await;
+
+        assert_eq!(served, None);
+        assert_eq!(body, PAGE.as_bytes());
+    }
+
+    #[tokio::test]
+    async fn an_event_stream_is_never_compressed() {
+        let (served, body) = fetch("/stream", Some("gzip, br, zstd")).await;
+
+        assert_eq!(served, None);
+        assert!(contains(&body, &format!("data: {PAGE}\n\n")));
     }
 }

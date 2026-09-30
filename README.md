@@ -6,6 +6,9 @@ and ACLs across one or more clusters.
 klens is one Rust binary that serves the UI and a JSON API. It can tail a topic
 live, hide fields in records, and restrict access by OIDC group.
 
+Responses are compressed with zstd, brotli, or gzip, whichever the client
+accepts. Live streams are not, so each event goes out as soon as it is ready.
+
 ## Install
 
 Images are published to GHCR on each release from `main`:
