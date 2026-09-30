@@ -11,6 +11,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { IconButton } from "@/components/icon-button";
 import { RecordModeSwitch, type RecordMode } from "@/components/records/record-mode";
 import {
   RecordView,
@@ -120,39 +121,23 @@ export function LiveRecords({
       actions={
         <>
           {tail.skipped > 0 ? <SkippedBadge skipped={tail.skipped} /> : null}
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="text-muted-foreground hover:text-foreground"
-                  aria-label={tail.paused ? "Resume live tail" : "Pause live tail"}
-                  onClick={tail.paused ? tail.resume : tail.pause}
-                />
-              }
-            >
-              {tail.paused ? <PlayIcon className="size-3.5" /> : <PauseIcon className="size-3.5" />}
-            </TooltipTrigger>
-            <TooltipContent>{tail.paused ? "Resume" : "Pause"}</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="text-muted-foreground hover:text-foreground"
-                  aria-label="Clear records"
-                  disabled={tail.records.length === 0 && tail.skipped === 0}
-                  onClick={tail.clear}
-                />
-              }
-            >
-              <BrushCleaningIcon className="size-3.5" />
-            </TooltipTrigger>
-            <TooltipContent>Clear</TooltipContent>
-          </Tooltip>
+          <IconButton
+            label={tail.paused ? "Resume live tail" : "Pause live tail"}
+            tooltip={tail.paused ? "Resume" : "Pause"}
+            size="icon"
+            onClick={tail.paused ? tail.resume : tail.pause}
+          >
+            {tail.paused ? <PlayIcon className="size-3.5" /> : <PauseIcon className="size-3.5" />}
+          </IconButton>
+          <IconButton
+            label="Clear records"
+            tooltip="Clear"
+            size="icon"
+            disabled={tail.records.length === 0 && tail.skipped === 0}
+            onClick={tail.clear}
+          >
+            <BrushCleaningIcon className="size-3.5" />
+          </IconButton>
           <RecordModeSwitch value="LIVE" onChange={onModeChange} status={tail.status} />
         </>
       }

@@ -1,29 +1,20 @@
 import { MoonIcon, SunIcon } from "lucide-react";
 import { useTheme } from "next-themes";
 
-import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { IconButton } from "@/components/icon-button";
 
 export function ModeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
   const dark = resolvedTheme !== "light";
 
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Toggle theme"
-            className="text-muted-foreground hover:text-foreground"
-            onClick={() => setTheme(dark ? "light" : "dark")}
-          />
-        }
-      >
-        {dark ? <MoonIcon /> : <SunIcon />}
-      </TooltipTrigger>
-      <TooltipContent>{dark ? "Light mode" : "Dark mode"}</TooltipContent>
-    </Tooltip>
+    <IconButton
+      label="Toggle theme"
+      tooltip={dark ? "Light mode" : "Dark mode"}
+      size="icon-sm"
+      onClick={() => setTheme(dark ? "light" : "dark")}
+    >
+      {dark ? <MoonIcon /> : <SunIcon />}
+    </IconButton>
   );
 }

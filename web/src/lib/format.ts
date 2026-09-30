@@ -59,18 +59,18 @@ export function formatNumber(value: number) {
   return NUMBER_FORMAT.format(value);
 }
 
+const DURATION_UNITS: Array<[number, string]> = [
+  [86_400_000, "d"],
+  [3_600_000, "h"],
+  [60_000, "m"],
+  [1_000, "s"],
+];
+
 export function formatDuration(ms: number) {
   if (ms < 0) return "infinite";
   if (ms === 0) return "0";
 
-  const units: Array<[number, string]> = [
-    [86_400_000, "d"],
-    [3_600_000, "h"],
-    [60_000, "m"],
-    [1_000, "s"],
-  ];
-
-  for (const [size, suffix] of units) {
+  for (const [size, suffix] of DURATION_UNITS) {
     if (ms >= size) {
       const value = ms / size;
       return `${Number.isInteger(value) ? value : value.toFixed(1)}${suffix}`;
@@ -100,14 +100,7 @@ export function formatRelative(value: string | number, now = Date.now()) {
   const absolute = Math.abs(delta);
   const suffix = delta >= 0 ? "ago" : "from now";
 
-  const units: Array<[number, string]> = [
-    [86_400_000, "d"],
-    [3_600_000, "h"],
-    [60_000, "m"],
-    [1_000, "s"],
-  ];
-
-  for (const [size, unit] of units) {
+  for (const [size, unit] of DURATION_UNITS) {
     if (absolute >= size) {
       return `${Math.floor(absolute / size)}${unit} ${suffix}`;
     }

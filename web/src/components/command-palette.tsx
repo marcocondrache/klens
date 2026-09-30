@@ -18,7 +18,7 @@ import type { SearchHit } from "@/lib/api/types";
 import { clusterTone, useClusterName } from "@/lib/clusters";
 import { apiErrorMessage } from "@/lib/api/client";
 import { useAccess } from "@/hooks/use-access";
-import { clusterSectionTo, useActiveSection, visibleSections } from "@/lib/sections";
+import { clusterSectionTo, useSwitchCluster, visibleSections } from "@/lib/sections";
 import { cn } from "@/lib/utils";
 
 const RESULT_ICON = {
@@ -44,7 +44,7 @@ export function CommandPalette({
 }) {
   const cluster = useClusterName();
   const navigate = useNavigate();
-  const section = useActiveSection();
+  const switchCluster = useSwitchCluster();
   const { can } = useAccess();
   const sections = visibleSections(can(cluster, "ACLS"));
   const [term, setTerm] = useState("");
@@ -155,14 +155,7 @@ export function CommandPalette({
                   key={entry.cluster}
                   value={`cluster:${entry.cluster}`}
                   className="min-w-0"
-                  onSelect={() =>
-                    run(() => {
-                      void navigate({
-                        to: section ? clusterSectionTo(section.segment) : "/cluster/$cluster",
-                        params: { cluster: entry.cluster },
-                      });
-                    })
-                  }
+                  onSelect={() => run(() => switchCluster(entry.cluster))}
                 >
                   <ServerIcon className="text-muted-foreground" />
                   <span className="min-w-0 flex-1 truncate">{entry.cluster}</span>

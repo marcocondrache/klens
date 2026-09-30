@@ -1,4 +1,4 @@
-import { useMatchRoute } from "@tanstack/react-router";
+import { useMatchRoute, useNavigate } from "@tanstack/react-router";
 import {
   FileJsonIcon,
   HardDriveIcon,
@@ -37,4 +37,17 @@ export function useActiveSection() {
   return SECTIONS.find((section) =>
     matchRoute({ to: clusterSectionTo(section.segment), fuzzy: true }),
   );
+}
+
+/** Switches to another cluster, staying on the active section. */
+export function useSwitchCluster() {
+  const navigate = useNavigate();
+  const section = useActiveSection();
+
+  return (cluster: string) => {
+    void navigate({
+      to: section ? clusterSectionTo(section.segment) : "/cluster/$cluster",
+      params: { cluster },
+    });
+  };
 }

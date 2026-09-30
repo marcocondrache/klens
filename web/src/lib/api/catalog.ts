@@ -12,13 +12,9 @@ import type {
 } from "@/api/types.gen";
 import { clusterPath } from "@/lib/clusters";
 
-import { get, getOrNull, resourceId } from "./client";
+import { clusterPathname, get, getOrNull, resourceId } from "./client";
 import { keys } from "./keys";
 import type { SearchHit } from "./types";
-
-function clusterPathname(cluster: string, ...rest: string[]) {
-  return ["/clusters", encodeURIComponent(cluster), ...rest].join("/");
-}
 
 function searchHref(cluster: string, hit: Omit<SearchHit, "href">): string {
   switch (hit.kind) {

@@ -3,7 +3,7 @@ import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import type { Update } from "@/api/types.gen";
 
-import { stream } from "./client";
+import { clusterPathname, stream } from "./client";
 import { keys } from "./keys";
 import type {
   GroupDetail,
@@ -21,7 +21,7 @@ export function useUpdates(cluster: string, scope: Scope) {
   const { topic, group } = scope;
 
   useEffect(() => {
-    return stream(`/clusters/${encodeURIComponent(cluster)}/updates`, { topic, group }, (update) =>
+    return stream(clusterPathname(cluster, "updates"), { topic, group }, (update) =>
       apply(queryClient, cluster, update),
     );
   }, [cluster, topic, group, queryClient]);

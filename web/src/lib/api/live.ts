@@ -2,14 +2,10 @@ import { useInfiniteQuery, useQuery, type QueryKey } from "@tanstack/react-query
 
 import type { AclListing, ConfigEntry, RecordPage, SubjectDetail } from "@/api/types.gen";
 
-import { get, resourceId } from "./client";
+import { clusterPathname, get, resourceId } from "./client";
 import { keys, type RecordsFilter } from "./keys";
 
 export type { RecordsFilter };
-
-function clusterPathname(cluster: string, ...rest: string[]) {
-  return ["/clusters", encodeURIComponent(cluster), ...rest].join("/");
-}
 
 export function useAcls(cluster: string, enabled = true) {
   return useQuery({

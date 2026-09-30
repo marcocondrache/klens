@@ -12,8 +12,7 @@ import { PageHeader } from "@/components/page-header";
 import { RecordBrowser } from "@/components/records/record-browser";
 import { Facts } from "@/components/facts";
 import { TabCount } from "@/components/tab-count";
-import { GroupStateBadge, PendingValue, Pill, StatusDot, TONE_TEXT } from "@/components/status";
-import { lagTone } from "@/lib/tone";
+import { GroupStateBadge, LagValue, PendingValue, Pill, StatusDot } from "@/components/status";
 import { useTopic, useTopicGroups } from "@/lib/api/catalog";
 import { catalogLookupMessage } from "@/lib/catalog-lookup";
 import { useTopicConfigs } from "@/lib/api/live";
@@ -28,7 +27,6 @@ import {
 import type { PartitionRow, TopicDetail, TopicGroupRow } from "@/lib/api/types";
 import { topicTab, topicDetailSearch } from "@/lib/route-search";
 import { useAccess } from "@/hooks/use-access";
-import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/cluster/$cluster/topics_/$topic")({
   validateSearch: topicDetailSearch,
@@ -138,20 +136,7 @@ const groupColumns = groupColumnHelper.columns([
       <DataTableColumnHeader column={column} title="Lag on this topic" className="justify-end" />
     ),
     meta: { align: "right", width: "9rem" },
-    cell: ({ row: groupRow }) => {
-      if (groupRow.original.lagOnTopic === null) {
-        return <PendingValue label="Fetching committed offsets" className="ml-auto block" />;
-      }
-      const lag = groupRow.original.lagOnTopic;
-
-      return (
-        <span
-          className={cn("numeric", lag === 0 ? "text-muted-foreground" : TONE_TEXT[lagTone(lag)])}
-        >
-          {formatNumber(lag)}
-        </span>
-      );
-    },
+    cell: ({ row }) => <LagValue lag={row.original.lagOnTopic} />,
   }),
 ]);
 
@@ -294,11 +279,7 @@ function TopicPage() {
                 params: { cluster, group: group.id },
               });
             }}
-            emptyState={
-              <p className="py-10 text-center text-sm text-muted-foreground">
-                No consumer group is subscribed to this topic.
-              </p>
-            }
+            emptyState="No consumer group is subscribed to this topic."
           />
         </TabsContent>
 

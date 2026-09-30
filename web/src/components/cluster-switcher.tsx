@@ -1,5 +1,4 @@
 import { ChevronsUpDownIcon } from "lucide-react";
-import { useNavigate } from "@tanstack/react-router";
 
 import {
   DropdownMenu,
@@ -12,22 +11,14 @@ import {
 import { StatusDot } from "@/components/status";
 import { useClusters } from "@/lib/api/catalog";
 import { clusterTone, useClusterName } from "@/lib/clusters";
-import { clusterSectionTo, useActiveSection } from "@/lib/sections";
+import { useSwitchCluster } from "@/lib/sections";
 
 /** Breadcrumb root that shows the active cluster and switches between clusters. */
 export function ClusterSwitcher() {
   const active = useClusterName();
   const { data: clusters = [] } = useClusters();
-  const navigate = useNavigate();
-  const section = useActiveSection();
+  const switchTo = useSwitchCluster();
   const tone = clusterTone(clusters.find((entry) => entry.cluster === active));
-
-  function switchTo(name: string) {
-    void navigate({
-      to: section ? clusterSectionTo(section.segment) : "/cluster/$cluster",
-      params: { cluster: name },
-    });
-  }
 
   return (
     <DropdownMenu>

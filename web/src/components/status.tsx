@@ -2,8 +2,8 @@ import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 import type { GroupState } from "@/lib/api/types";
-import { formatEnumLabel } from "@/lib/format";
-import type { Tone } from "@/lib/tone";
+import { formatEnumLabel, formatNumber } from "@/lib/format";
+import { lagTone, type Tone } from "@/lib/tone";
 
 const TONE_BG: Record<Tone, string> = {
   ok: "bg-ok",
@@ -109,5 +109,21 @@ export function PendingValue({ label, className }: { label: string; className?: 
         className,
       )}
     />
+  );
+}
+
+export function LagValue({ lag, complete = true }: { lag: number | null; complete?: boolean }) {
+  if (lag === null) {
+    return <PendingValue label="Fetching committed offsets" className="ml-auto block" />;
+  }
+
+  return (
+    <span
+      className={cn("numeric", lag === 0 ? "text-muted-foreground" : TONE_TEXT[lagTone(lag)])}
+      title={complete ? undefined : "Some partitions have no watermark yet"}
+    >
+      {complete ? "" : "≥ "}
+      {formatNumber(lag)}
+    </span>
   );
 }

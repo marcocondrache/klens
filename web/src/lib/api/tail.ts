@@ -3,7 +3,7 @@ import { experimental_streamedQuery, useQuery, useQueryClient } from "@tanstack/
 
 import type { TailEvent } from "@/api/types.gen";
 
-import { ApiError, events, streamError } from "./client";
+import { ApiError, clusterPathname, events, streamError } from "./client";
 import { keys, type TailFilter } from "./keys";
 import type { KafkaRecord } from "./types";
 
@@ -60,7 +60,13 @@ async function* follow(
 ): AsyncGenerator<TailChunk> {
   yield { type: "connecting" };
 
-  const path = `/clusters/${encodeURIComponent(cluster)}/topics/${encodeURIComponent(filter.topic)}/records/tail`;
+  const path = clusterPathname(
+    cluster,
+    "topics",
+    encodeURIComponent(filter.topic),
+    "records",
+    "tail",
+  );
   const { partitions: partition, contains, schemaId } = filter;
   for await (const message of events(path, signal, { partition, contains, schemaId })) {
     if (message.event === "error") throw streamError(message.data);
