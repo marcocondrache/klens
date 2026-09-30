@@ -38,7 +38,7 @@ pub async fn serve(router: Router, bind: SocketAddr) -> Result<()> {
                     tracing::info_span!(
                         "http.request",
                         method = %request.method(),
-                        uri = %request.uri(),
+                        path = %request.uri().path(),
                     )
                 })
                 .on_response(|response: &Response<_>, latency: Duration, _span: &Span| {
