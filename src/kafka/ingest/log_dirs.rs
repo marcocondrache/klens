@@ -5,9 +5,11 @@ use async_trait::async_trait;
 
 use crate::kafka::error::KafkaError;
 use crate::kafka::session::ClusterSession;
-use crate::kafka::store::{Change, ClusterStore, Interner, Lane, LogDirTable, LogDirsDelta};
+use crate::kafka::store::{
+    Change, ClusterStore, Interner, Lane, LogDirTable, LogDirsDelta, Topology,
+};
 
-use super::runner::{Fetch, LaneSource};
+use super::runner::LaneSource;
 
 pub struct LogDirLane {
     session: Arc<dyn ClusterSession>,
@@ -22,6 +24,9 @@ impl LogDirLane {
 
 #[async_trait]
 impl LaneSource for LogDirLane {
+    // The admin client learns the brokers it asks from the metadata the
+    // topology lane refreshes.
+    type Upstream = Topology;
     type Table = LogDirTable;
     type Delta = LogDirsDelta;
 
@@ -39,20 +44,15 @@ impl LaneSource for LogDirLane {
 
     async fn fetch(
         &self,
-        store: &ClusterStore,
+        _store: &ClusterStore,
+        topology: &Topology,
         _previous: Option<&Arc<LogDirTable>>,
-    ) -> Result<Fetch<LogDirTable>, KafkaError> {
-        // The admin client learns the brokers it asks from the metadata the
-        // topology lane refreshes.
-        let Some(topology) = store.topology.load() else {
-            return Ok(Fetch::Awaiting);
-        };
-
+    ) -> Result<LogDirTable, KafkaError> {
         let dirs = self.session.log_dirs().await?;
-        Ok(Fetch::Ready(LogDirTable::assemble(
+        Ok(LogDirTable::assemble(
             dirs,
             &mut Interner::seeded(topology.topics.keys()),
-        )))
+        ))
     }
 
     fn diff(&self, previous: Option<&LogDirTable>, next: &LogDirTable) -> Option<LogDirsDelta> {

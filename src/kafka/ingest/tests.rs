@@ -731,17 +731,14 @@ async fn downstream_lanes_wait_for_topology_instead_of_committing_nothing() {
         ConfigLane::with_interval(port(&session), Duration::from_secs(600)),
     ));
 
-    wait_for(
-        || store.watermarks.health().checked_at.is_some(),
-        "watermark poll",
-    )
-    .await;
+    tokio::time::advance(Duration::from_secs(3_600)).await;
 
     assert!(
         store.watermarks.load().is_none(),
         "an empty table would read as a cluster with no partitions"
     );
     assert!(store.configs.load().is_none());
+    assert!(store.watermarks.health().checked_at.is_none());
     assert_eq!(
         session.calls().watermarks(),
         0,
@@ -750,7 +747,7 @@ async fn downstream_lanes_wait_for_topology_instead_of_committing_nothing() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn lanes_waiting_for_topology_start_a_second_after_it() {
+async fn lanes_waiting_for_topology_start_as_soon_as_it_commits() {
     let session = FakeCluster::local();
     let store = store(&session);
     let mut lanes = JoinSet::new();
@@ -762,22 +759,12 @@ async fn lanes_waiting_for_topology_start_a_second_after_it() {
         Arc::clone(&store),
         LogDirLane::with_interval(port(&session), IDLE),
     ));
-    wait_for(
-        || {
-            store.configs.health().checked_at.is_some()
-                && store.log_dirs.health().checked_at.is_some()
-        },
-        "polls before topology",
-    )
-    .await;
-    assert!(store.log_dirs.load().is_none());
+    tokio::time::advance(IDLE).await;
 
     lanes.spawn(run(
         Arc::clone(&store),
         TopologyLane::with_interval(port(&session), IDLE),
     ));
-    wait_for(|| store.ready(), "topology commit").await;
-    tokio::time::advance(Duration::from_secs(1)).await;
 
     wait_for(
         || store.configs.ready() && store.log_dirs.ready(),
@@ -953,4 +940,42 @@ async fn a_new_topic_gets_its_configs_without_waiting_out_the_config_interval() 
         "configs for the new topic",
     )
     .await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_topology_change_without_new_topics_leaves_configs_to_their_interval() {
+    use crate::kafka::metadata::Watermarks;
+
+    let session = FakeCluster::local();
+    let store = store(&session);
+    let _lanes = idle_lanes(&store, &session);
+    wait_for(|| store.configs.ready(), "first config poll").await;
+    let polls = session.calls().topic_configs();
+
+    session.add_partition("orders.created", 7, Watermarks { low: 0, high: 0 });
+    store.topology.kick();
+    wait_for(|| store.topology.version() > 1, "topology commit").await;
+    for _ in 0..100 {
+        tokio::task::yield_now().await;
+    }
+
+    assert_eq!(session.calls().topic_configs(), polls);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_new_topic_waits_for_the_next_watermark_poll() {
+    let session = FakeCluster::local();
+    let store = store(&session);
+    let _lanes = catalog_lanes(&store, &session);
+    wait_for(|| store.watermarks.ready(), "first watermark poll").await;
+    let polls = session.calls().watermarks();
+
+    let _ = session.clone().extra_topic("payments", 1, 0);
+    store.topology.kick();
+    wait_for(|| store.topology.version() > 1, "topology commit").await;
+    for _ in 0..100 {
+        tokio::task::yield_now().await;
+    }
+
+    assert_eq!(session.calls().watermarks(), polls);
 }

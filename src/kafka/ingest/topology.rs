@@ -7,7 +7,7 @@ use crate::kafka::error::KafkaError;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::store::{Change, ClusterStore, Interner, Lane, Topology, TopologyDelta};
 
-use super::runner::{Fetch, LaneSource};
+use super::runner::LaneSource;
 
 pub struct TopologyLane {
     session: Arc<dyn ClusterSession>,
@@ -22,6 +22,7 @@ impl TopologyLane {
 
 #[async_trait]
 impl LaneSource for TopologyLane {
+    type Upstream = ();
     type Table = Topology;
     type Delta = TopologyDelta;
 
@@ -40,8 +41,9 @@ impl LaneSource for TopologyLane {
     async fn fetch(
         &self,
         _store: &ClusterStore,
+        (): &(),
         previous: Option<&Arc<Topology>>,
-    ) -> Result<Fetch<Topology>, KafkaError> {
+    ) -> Result<Topology, KafkaError> {
         let (meta, groups) = tokio::try_join!(self.session.metadata(), self.session.groups())?;
 
         let mut interner = match previous {
@@ -50,11 +52,7 @@ impl LaneSource for TopologyLane {
             }
             None => Interner::default(),
         };
-        Ok(Fetch::Ready(Topology::assemble(
-            meta,
-            groups,
-            &mut interner,
-        )))
+        Ok(Topology::assemble(meta, groups, &mut interner))
     }
 
     fn diff(&self, previous: Option<&Topology>, next: &Topology) -> Option<TopologyDelta> {
@@ -70,11 +68,6 @@ impl LaneSource for TopologyLane {
     ) {
         if !delta.removed_topics.is_empty() {
             store.rates.retain(|topic| next.topics.contains_key(topic));
-        }
-        // The config lane only fetches topics topology knows, so a new topic
-        // would otherwise wait out a whole config interval.
-        if !delta.added_topics.is_empty() {
-            store.configs.kick();
         }
 
         store.bus.publish(Change::Topology(Arc::new(delta)));

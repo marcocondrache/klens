@@ -135,8 +135,8 @@ tuning:
 ```
 
 Every page reads a background projection of each cluster, refreshed by the
-independent lanes `ingest` paces. A lane that waits for another lane's first
-table retries every second until it has one. A lane's period and
+independent lanes `ingest` paces. A lane that needs another lane's table
+starts as soon as that table exists. A lane's period and
 `scan.pool_idle_ttl` must be at least `1s`. Counts must be at least 1, except `records.min_window`,
 `records.window_multiplier`, `records.search_window_multiplier`, and
 `tail.max_live`.
