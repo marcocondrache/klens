@@ -71,6 +71,11 @@ impl LaneSource for TopologyLane {
         if !delta.removed_topics.is_empty() {
             store.rates.retain(|topic| next.topics.contains_key(topic));
         }
+        // The config lane only fetches topics topology knows, so a new topic
+        // would otherwise wait out a whole config interval.
+        if !delta.added_topics.is_empty() {
+            store.configs.kick();
+        }
 
         store.bus.publish(Change::Topology(Arc::new(delta)));
     }
