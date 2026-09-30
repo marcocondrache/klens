@@ -1,11 +1,6 @@
-use std::time::Duration;
-
 use tracing::warn;
 
 use crate::kafka::error::KafkaError;
-
-/// Quotas change by hand, so a page load reuses a listing this young.
-pub const QUOTA_TTL: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum QuotaEntityType {

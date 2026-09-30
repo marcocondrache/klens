@@ -125,6 +125,7 @@ tuning:
     config: 60s
     subjects: 30s
     log_dirs: 60s
+    quotas: 60s
     offset_tick: 1s # how often the offset lane checks which groups are due
     fast_offset: 2s # groups someone is looking at
     slow_offset: 20s # every other group
@@ -170,6 +171,14 @@ each dir, and flags one that is offline or cordoned.
 Sizes need the `Describe` operation on the `Cluster` resource. On a cluster
 that does not grant it, or does not serve `DescribeLogDirs`, sizes stay blank
 and the rest of klens works as before.
+
+## Quotas
+
+klens describes client quotas every `tuning.ingest.quotas` (`60s`). The quotas
+page lists each user, client ID, and IP quota, including the defaults, and
+needs the `configs` privilege. Reading quotas needs the `DescribeConfigs`
+operation on the `Cluster` resource. On a cluster that does not grant it, the
+page says so.
 
 ## Authentication
 

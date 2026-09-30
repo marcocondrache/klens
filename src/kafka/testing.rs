@@ -64,7 +64,7 @@ struct Inner {
     records: Mutex<Vec<FixtureRecord>>,
     subjects: Mutex<Vec<SchemaSubject>>,
     acls: Mutex<AclListing>,
-    quotas: Mutex<QuotaListing>,
+    quotas: Mutex<Result<QuotaListing, String>>,
     subjects_error: Mutex<Option<String>>,
     offsets_error: Mutex<Option<String>>,
     records_delay: Mutex<Duration>,
@@ -244,7 +244,7 @@ impl FakeCluster {
                 records: Mutex::new(records),
                 subjects: Mutex::new(subjects),
                 acls: Mutex::new(AclListing::Enabled(local_acls())),
-                quotas: Mutex::new(QuotaListing::Described(local_quotas())),
+                quotas: Mutex::new(Ok(QuotaListing::Described(local_quotas()))),
                 subjects_error: Mutex::new(None),
                 offsets_error: Mutex::new(None),
                 records_delay: Mutex::new(Duration::ZERO),
@@ -388,8 +388,8 @@ impl FakeCluster {
         *self.inner.subjects.lock().expect("subjects") = subjects;
     }
 
-    pub fn set_quotas(&self, quotas: QuotaListing) {
-        *self.inner.quotas.lock().expect("quotas") = quotas;
+    pub fn set_quotas(&self, quotas: Result<QuotaListing, &str>) {
+        *self.inner.quotas.lock().expect("quotas") = quotas.map_err(str::to_owned);
     }
 
     pub fn set_offsets_error(&self, error: Option<&str>) {
@@ -901,7 +901,12 @@ impl ClusterSession for FakeCluster {
 
     async fn client_quotas(&self) -> Result<QuotaListing, KafkaError> {
         self.inner.calls.quotas.fetch_add(1, Ordering::SeqCst);
-        Ok(self.inner.quotas.lock().expect("quotas").clone())
+        self.inner
+            .quotas
+            .lock()
+            .expect("quotas")
+            .clone()
+            .map_err(KafkaError::Admin)
     }
 }
 

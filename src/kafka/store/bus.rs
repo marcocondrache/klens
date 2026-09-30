@@ -17,6 +17,7 @@ pub enum Change {
     Configs(Arc<ConfigsDelta>),
     Subjects(Arc<SubjectsDelta>),
     LogDirs(Arc<LogDirsDelta>),
+    Quotas,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

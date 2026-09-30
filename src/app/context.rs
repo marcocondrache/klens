@@ -8,7 +8,7 @@ use crate::app::auth::SessionGuard;
 use crate::app::auth::access::{
     AccessError, AclsCap, ClusterAccess, ConfigsCap, EffectiveAccess, RecordsCap, SchemaTextCap,
 };
-use crate::kafka::model::{AclListing, QuotaListing, RegisteredSchema};
+use crate::kafka::model::{AclListing, RegisteredSchema};
 use crate::kafka::store::ClusterStore;
 use crate::kafka::{
     Cluster, ConfigEntry, KafkaError, RecordPage, RecordQuery, Tail, TailLimits, TailQuery,
@@ -80,10 +80,6 @@ impl Granted<'_, RecordsCap> {
 impl Granted<'_, ConfigsCap> {
     pub(crate) async fn broker_configs(&self, id: i32) -> Result<Vec<ConfigEntry>, KafkaError> {
         self.cluster.broker_configs(id).await
-    }
-
-    pub(crate) async fn client_quotas(&self) -> Result<Arc<QuotaListing>, KafkaError> {
-        self.cluster.client_quotas().await
     }
 }
 

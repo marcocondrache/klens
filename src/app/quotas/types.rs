@@ -4,6 +4,8 @@ use ts_rs::TS;
 use crate::kafka::model as domain;
 use crate::r#macro::from_same_variants;
 
+use super::super::clusters::LaneHealth;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum QuotaAccess {
@@ -64,19 +66,23 @@ impl From<&domain::ClientQuota> for ClientQuota {
 pub struct QuotaListing {
     pub access: QuotaAccess,
     pub quotas: Vec<ClientQuota>,
+    pub source_health: LaneHealth,
 }
 
-impl From<&domain::QuotaListing> for QuotaListing {
-    fn from(listing: &domain::QuotaListing) -> Self {
-        match listing {
-            domain::QuotaListing::Described(quotas) => Self {
-                access: QuotaAccess::Allowed,
-                quotas: quotas.iter().map(ClientQuota::from).collect(),
-            },
-            domain::QuotaListing::Denied => Self {
-                access: QuotaAccess::Denied,
-                quotas: Vec::new(),
-            },
+impl QuotaListing {
+    pub(crate) fn new(listing: Option<&domain::QuotaListing>, source_health: LaneHealth) -> Self {
+        let (access, quotas) = match listing {
+            Some(domain::QuotaListing::Denied) => (QuotaAccess::Denied, Vec::new()),
+            Some(domain::QuotaListing::Described(quotas)) => (
+                QuotaAccess::Allowed,
+                quotas.iter().map(ClientQuota::from).collect(),
+            ),
+            None => (QuotaAccess::Allowed, Vec::new()),
+        };
+        Self {
+            access,
+            quotas,
+            source_health,
         }
     }
 }

@@ -1,6 +1,7 @@
 pub mod configs;
 pub mod log_dirs;
 pub mod offsets;
+pub mod quotas;
 pub mod runner;
 pub mod subjects;
 pub mod topology;
@@ -16,6 +17,7 @@ use crate::kafka::cluster::{Cluster, Clusters};
 pub use configs::ConfigLane;
 pub use log_dirs::LogDirLane;
 pub use offsets::{OffsetLane, Wave};
+pub use quotas::QuotaLane;
 pub use runner::{LaneSource, run};
 pub use subjects::SubjectLane;
 pub use topology::TopologyLane;
@@ -52,6 +54,10 @@ impl Ingest {
             tasks.spawn(run(
                 Arc::clone(store),
                 LogDirLane::with_interval(Arc::clone(session), tuning.log_dirs),
+            ));
+            tasks.spawn(run(
+                Arc::clone(store),
+                QuotaLane::with_interval(Arc::clone(session), tuning.quotas),
             ));
             tasks.spawn(
                 OffsetLane::new(Arc::clone(session))
