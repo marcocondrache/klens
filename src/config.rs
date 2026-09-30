@@ -84,27 +84,24 @@ fn period<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Duration, D::Err
 }
 
 #[cfg(test)]
-struct TempFile(std::path::PathBuf);
-
-#[cfg(test)]
-impl TempFile {
-    fn new(name: &str, contents: &str) -> Self {
-        let path = std::env::temp_dir().join(format!("klens-{}-{name}", std::process::id()));
-        std::fs::write(&path, contents).unwrap();
-        Self(path)
-    }
-}
-
-#[cfg(test)]
-impl Drop for TempFile {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
+
+    pub(super) struct TempFile(pub(super) std::path::PathBuf);
+
+    impl TempFile {
+        pub(super) fn new(name: &str, contents: &str) -> Self {
+            let path = std::env::temp_dir().join(format!("klens-{}-{name}", std::process::id()));
+            std::fs::write(&path, contents).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TempFile {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
 
     fn config(yaml: &str) -> Config {
         parse(yaml).unwrap()

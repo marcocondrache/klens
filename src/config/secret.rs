@@ -74,7 +74,8 @@ impl TryFrom<Secret> for KeyMaterial {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{TempFile, parse};
+    use crate::config::parse;
+    use crate::config::tests::TempFile;
 
     fn secret(source: &str) -> Result<String, String> {
         parse::<Secret>(source)
