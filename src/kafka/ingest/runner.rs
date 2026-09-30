@@ -40,14 +40,22 @@ pub trait LaneSource: Send + Sync + 'static {
     );
 }
 
+/// An awaiting poll costs no broker call, so a lane with a long interval
+/// retries it this often rather than start that much later than its upstream.
+const AWAITING_RETRY: Duration = Duration::from_secs(1);
+
 pub async fn run<S: LaneSource>(store: Arc<ClusterStore>, source: S) {
     loop {
-        poll(&store, &source).await;
-        source.lane(&store).wait(source.interval()).await;
+        let wait = match poll(&store, &source).await {
+            true => source.interval().min(AWAITING_RETRY),
+            false => source.interval(),
+        };
+        source.lane(&store).wait(wait).await;
     }
 }
 
-async fn poll<S: LaneSource>(store: &ClusterStore, source: &S) {
+/// True when the lane is still waiting for another lane's table.
+async fn poll<S: LaneSource>(store: &ClusterStore, source: &S) -> bool {
     let cluster = store.name();
     let lane = source.name();
     let previous = source.lane(store).load();
@@ -55,21 +63,27 @@ async fn poll<S: LaneSource>(store: &ClusterStore, source: &S) {
 
     match source.fetch(store, previous.as_ref()).await {
         Ok(fetched) => {
-            if let Fetch::Ready(next) = fetched
-                && let Some(delta) = source.diff(previous.as_deref(), &next)
-            {
-                let next = Arc::new(next);
-                let version = source.lane(store).commit(Arc::clone(&next));
-                source.publish(store, previous.as_ref(), &next, delta);
-                tracing::debug!(cluster = %cluster, lane, version, "lane committed");
-            }
+            let awaiting = match fetched {
+                Fetch::Ready(next) => {
+                    if let Some(delta) = source.diff(previous.as_deref(), &next) {
+                        let next = Arc::new(next);
+                        let version = source.lane(store).commit(Arc::clone(&next));
+                        source.publish(store, previous.as_ref(), &next, delta);
+                        tracing::debug!(cluster = %cluster, lane, version, "lane committed");
+                    }
+                    false
+                }
+                Fetch::Awaiting => true,
+            };
             source.lane(store).record_poll(started.elapsed(), None);
+            awaiting
         }
         Err(error) => {
             source
                 .lane(store)
                 .record_poll(started.elapsed(), Some(error.to_string()));
             tracing::warn!(cluster = %cluster, lane, %error, "lane poll failed");
+            false
         }
     }
 }
@@ -312,6 +326,42 @@ mod tests {
             first.upgrade().is_none(),
             "the replaced table outlived its commit"
         );
+        task.abort();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_awaiting_lane_retries_within_a_second() {
+        let store = cluster("local");
+        let source = Scripted::new(vec![Ok(Fetch::Awaiting), Ok(Fetch::Ready(orders(1)))]);
+        let task = tokio::spawn(run(Arc::clone(&store), Arc::clone(&source)));
+
+        poll_until(&source, 1).await;
+        tokio::time::advance(Duration::from_millis(999)).await;
+        assert_eq!(source.polls.load(Ordering::SeqCst), 1);
+
+        tokio::time::advance(Duration::from_millis(2)).await;
+        poll_until(&source, 2).await;
+        tokio::task::yield_now().await;
+        assert_eq!(store.topology.version(), 1);
+
+        tokio::time::advance(Duration::from_secs(599)).await;
+        assert_eq!(
+            source.polls.load(Ordering::SeqCst),
+            2,
+            "a lane that committed waits out its interval"
+        );
+        task.abort();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_failing_lane_waits_out_its_interval() {
+        let store = cluster("local");
+        let source = Scripted::new(vec![Err("broker down".into())]);
+        let task = tokio::spawn(run(Arc::clone(&store), Arc::clone(&source)));
+
+        poll_until(&source, 1).await;
+        tokio::time::advance(Duration::from_secs(599)).await;
+        assert_eq!(source.polls.load(Ordering::SeqCst), 1);
         task.abort();
     }
 
