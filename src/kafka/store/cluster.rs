@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use crate::kafka::acl::AclListing;
 use crate::kafka::cluster::ClusterIdentity;
+use crate::kafka::quota::QuotaListing;
 use crate::kafka::topic_config::ConfigEntry;
 
 use super::bus::ChangeBus;
@@ -26,6 +27,7 @@ pub struct ClusterStore {
     pub subjects: Lane<SubjectTable>,
     pub log_dirs: Lane<LogDirTable>,
     pub acls: Lane<AclListing>,
+    pub quotas: Lane<QuotaListing>,
     pub rates: RateStore,
     pub bus: ChangeBus,
     pub interest: InterestRegistry,
@@ -42,6 +44,7 @@ impl std::fmt::Debug for ClusterStore {
             .field("subjects", &self.subjects.version())
             .field("log_dirs", &self.log_dirs.version())
             .field("acls", &self.acls.version())
+            .field("quotas", &self.quotas.version())
             .finish_non_exhaustive()
     }
 }
@@ -57,6 +60,7 @@ impl ClusterStore {
             subjects: Lane::new(),
             log_dirs: Lane::new(),
             acls: Lane::new(),
+            quotas: Lane::new(),
             rates: RateStore::new(),
             bus: ChangeBus::new(),
             interest: InterestRegistry::new(interest_ttl),
@@ -243,6 +247,7 @@ impl ClusterStore {
             subjects: self.subjects.health(),
             log_dirs: self.log_dirs.health(),
             acls: self.acls.health(),
+            quotas: self.quotas.health(),
             topic_count: topology
                 .as_ref()
                 .map(|topology| topology.topics.len() as i32)
@@ -443,6 +448,10 @@ mod tests {
             std::time::Duration::from_millis(9),
             Some("registry down".into()),
         );
+        store.quotas.record_poll(
+            std::time::Duration::from_millis(4),
+            Some("quotas unsupported".into()),
+        );
 
         let health = store.health();
         assert_eq!(health.topic_count, 2);
@@ -452,5 +461,9 @@ mod tests {
         assert_eq!(health.subject_count, 0);
         assert!(health.topology.healthy());
         assert_eq!(health.subjects.last_error.as_deref(), Some("registry down"));
+        assert_eq!(
+            health.quotas.last_error.as_deref(),
+            Some("quotas unsupported")
+        );
     }
 }

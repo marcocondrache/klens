@@ -10,6 +10,7 @@ mod acl;
 mod cluster;
 mod group;
 mod limits;
+mod quota;
 mod scan;
 
 pub mod ingest;

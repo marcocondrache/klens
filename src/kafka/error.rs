@@ -66,6 +66,17 @@ impl KafkaError {
     }
 }
 
+/// A broker that denies a describe explains it in prose, such as "Cluster
+/// authorization failed." or "Request ... needs DESCRIBE permission.", or
+/// sends no message and leaves only the error-code name.
+pub(crate) fn is_cluster_authorization_text(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("clusterauthorizationfailed")
+        || lower.contains("cluster_authorization_failed")
+        || lower.contains("cluster authorization failed")
+        || lower.contains("needs describe permission")
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum QueryError {
     #[error("limit must be at least 1")]

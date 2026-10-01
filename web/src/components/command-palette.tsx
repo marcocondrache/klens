@@ -46,7 +46,7 @@ export function CommandPalette({
   const navigate = useNavigate();
   const switchCluster = useSwitchCluster();
   const { can } = useAccess();
-  const sections = visibleSections(can(cluster, "ACLS"));
+  const sections = visibleSections((privilege) => can(cluster, privilege));
   const [term, setTerm] = useState("");
   const searching = term.trim().length > 0;
 

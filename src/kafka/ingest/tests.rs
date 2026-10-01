@@ -10,6 +10,7 @@ use crate::kafka::acl::AclListing;
 use crate::kafka::group::{
     CommittedOffset, GroupMember, GroupSnapshot, GroupState, MemberAssignment,
 };
+use crate::kafka::model::QuotaListing;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::store::{Change, ClusterStore};
 use crate::kafka::testing::FakeCluster;
@@ -71,6 +72,15 @@ fn log_dir_lanes(
     lanes.spawn(run(
         Arc::clone(store),
         LogDirLane::with_interval(port(session), interval),
+    ));
+    lanes
+}
+
+fn quota_lane(store: &Arc<ClusterStore>, session: &FakeCluster, interval: Duration) -> JoinSet<()> {
+    let mut lanes = JoinSet::new();
+    lanes.spawn(run(
+        Arc::clone(store),
+        QuotaLane::with_interval(port(session), interval),
     ));
     lanes
 }
@@ -849,13 +859,68 @@ async fn a_failing_log_dirs_poll_names_its_lane_and_waits_out_the_interval() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn the_quota_lane_commits_and_publishes_only_a_changed_listing() {
+    let session = FakeCluster::local();
+    let store = store(&session);
+    let mut events = store.bus.subscribe();
+    let _lanes = quota_lane(&store, &session, IDLE);
+
+    wait_for(|| store.quotas.ready(), "quotas commit").await;
+    assert!(matches!(
+        store.quotas.load().as_deref(),
+        Some(QuotaListing::Described(quotas)) if quotas.len() == 5
+    ));
+    assert!(matches!(events.try_recv(), Ok(Change::Quotas)));
+
+    store.quotas.kick();
+    wait_for(|| session.calls().quotas() == 2, "second quotas call").await;
+    assert_eq!(store.quotas.version(), 1);
+    assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+
+    session.set_quotas(Ok(QuotaListing::Denied));
+    store.quotas.kick();
+    wait_for(|| store.quotas.version() == 2, "denied commit").await;
+    assert_eq!(store.quotas.load().as_deref(), Some(&QuotaListing::Denied));
+    assert!(matches!(events.try_recv(), Ok(Change::Quotas)));
+    assert!(store.quotas.health().healthy());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_failing_quota_poll_names_its_lane_and_waits_out_the_interval() {
+    let (logs, _guard) = crate::telemetry::capture::subscriber(tracing::Level::WARN);
+    let session = FakeCluster::local();
+    session.set_quotas(Err("DescribeClientQuotas is not supported"));
+    let store = store(&session);
+    let _lanes = quota_lane(&store, &session, Duration::from_secs(60));
+
+    wait_for(
+        || store.quotas.health().last_error.is_some(),
+        "quotas error",
+    )
+    .await;
+
+    assert!(store.quotas.load().is_none());
+    assert!(
+        logs.as_string().contains("lane=\"quotas\""),
+        "{}",
+        logs.as_string()
+    );
+
+    tokio::time::advance(Duration::from_secs(59)).await;
+    tokio::task::yield_now().await;
+    assert_eq!(session.calls().quotas(), 1);
+    tokio::time::advance(Duration::from_secs(2)).await;
+    wait_for(|| session.calls().quotas() == 2, "second quotas call").await;
+}
+
+#[tokio::test(start_paused = true)]
 async fn every_lane_runs_per_cluster_and_stops_with_the_ingest() {
     let prod = FakeCluster::named("prod");
     let staging = FakeCluster::named("staging");
     let clusters = Clusters::from_sessions(vec![prod.clone(), staging]);
     let lanes = Ingest::start(&clusters, &IngestTuning::default());
 
-    assert_eq!(lanes.lane_count(), 14, "seven lanes per cluster");
+    assert_eq!(lanes.lane_count(), 16, "eight lanes per cluster");
     wait_for(|| clusters.ready(), "both clusters ready").await;
 
     drop(lanes);

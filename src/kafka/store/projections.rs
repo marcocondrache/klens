@@ -125,6 +125,7 @@ pub struct ClusterHealthView {
     pub subjects: LaneHealth,
     pub log_dirs: LaneHealth,
     pub acls: LaneHealth,
+    pub quotas: LaneHealth,
     pub topic_count: i32,
     pub partition_count: i32,
     pub group_count: i32,

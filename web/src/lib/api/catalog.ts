@@ -6,6 +6,7 @@ import type {
   ClusterHealth,
   GroupDetail,
   GroupRow,
+  QuotaListing,
   SubjectRowsResult,
   TopicDetail,
   TopicGroupRow,
@@ -127,6 +128,18 @@ export function useAcls(cluster: string, enabled = true) {
     queryFn: () => get<AclListing>(clusterPathname(cluster, "acls")),
     enabled,
     refetchInterval: (query: Query<AclListing>) => {
+      const data = query.state.data;
+      return data?.status === "PENDING" && data.sourceHealth.lastError == null ? 2000 : false;
+    },
+  });
+}
+
+export function useQuotas(cluster: string, enabled = true) {
+  return useQuery({
+    queryKey: keys.quotas(cluster),
+    queryFn: () => get<QuotaListing>(clusterPathname(cluster, "quotas")),
+    enabled,
+    refetchInterval: (query: Query<QuotaListing>) => {
       const data = query.state.data;
       return data?.status === "PENDING" && data.sourceHealth.lastError == null ? 2000 : false;
     },

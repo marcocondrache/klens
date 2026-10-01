@@ -7,6 +7,9 @@ pub use super::configs::{ConfigEntry, ConfigSource};
 pub use super::groups::types::{
     GroupDetail, GroupMember, GroupOffset, GroupRow, GroupState, MemberAssignment,
 };
+pub use super::quotas::types::{
+    ClientQuota, QuotaEntity, QuotaEntityType, QuotaListing, QuotaStatus,
+};
 pub use super::records::types::{
     Record, RecordHeader, RecordOrder, RecordPage, TailEvent, TailStart,
 };

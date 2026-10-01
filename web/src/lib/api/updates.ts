@@ -144,6 +144,11 @@ function apply(queryClient: QueryClient, cluster: string, update: Update): void 
       return;
     }
 
+    case "quotas": {
+      void queryClient.invalidateQueries({ queryKey: keys.quotas(cluster), exact: true });
+      return;
+    }
+
     case "resync": {
       void queryClient.invalidateQueries({ queryKey: keys.clusters() });
       void queryClient.invalidateQueries({ queryKey: keys.cluster(cluster) });

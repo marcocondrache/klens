@@ -25,7 +25,7 @@ export type LaneHealth = { updatedAt: string | null, checkedAt: string | null, l
  */
 healthy: boolean, };
 
-export type ClusterHealth = { cluster: string, ready: boolean, topology: LaneHealth, watermarks: LaneHealth, offsets: LaneHealth, configs: LaneHealth, subjects: LaneHealth, logDirs: LaneHealth, acls: LaneHealth, topicCount: number, partitionCount: number, groupCount: number, brokerCount: number, subjectCount: number, underReplicatedPartitions: number, offlinePartitions: number, };
+export type ClusterHealth = { cluster: string, ready: boolean, topology: LaneHealth, watermarks: LaneHealth, offsets: LaneHealth, configs: LaneHealth, subjects: LaneHealth, logDirs: LaneHealth, acls: LaneHealth, quotas: LaneHealth, topicCount: number, partitionCount: number, groupCount: number, brokerCount: number, subjectCount: number, underReplicatedPartitions: number, offlinePartitions: number, };
 
 export type CleanupPolicy = "DELETE" | "COMPACT" | "COMPACT_DELETE";
 
@@ -154,6 +154,16 @@ export type Acl = { resourceType: AclResourceType, resourceName: string, pattern
 
 export type AclListing = { status: AclStatus, bindings: Array<Acl>, sourceHealth: LaneHealth, };
 
+export type QuotaStatus = "PENDING" | "DESCRIBED" | "DENIED";
+
+export type QuotaEntityType = "USER" | "CLIENT_ID" | "IP";
+
+export type QuotaEntity = { entityType: QuotaEntityType, name: string | null, };
+
+export type ClientQuota = { entity: Array<QuotaEntity>, producerByteRate: number | null, consumerByteRate: number | null, requestPercentage: number | null, controllerMutationRate: number | null, connectionCreationRate: number | null, };
+
+export type QuotaListing = { status: QuotaStatus, quotas: Array<ClientQuota>, sourceHealth: LaneHealth, };
+
 export type RecordOrder = "NEWEST" | "OLDEST";
 
 export type RecordHeader = { key: string, value: string, };
@@ -190,5 +200,5 @@ export type Update = { "type": "watermarks",
  * One `{topic, rate}` pair per topic, never catalog objects. A scoped
  * subscriber gets only its topic.
  */
-topics: Array<TopicRate>, } | { "type": "groupLag", group: string, lag: number, lagComplete: boolean, offsets: Array<GroupOffset>, } | { "type": "topology", addedTopics: Array<string>, removedTopics: Array<string>, changedTopics: Array<string>, addedGroups: Array<string>, removedGroups: Array<string>, changedGroups: Array<string>, brokersChanged: boolean, } | { "type": "configs", topics: Array<string>, } | { "type": "subjects", removed: Array<string>, changed: Array<string>, } | { "type": "logDirs", topics: Array<string>, brokersChanged: boolean, } | { "type": "acls" } | { "type": "resync" };
+topics: Array<TopicRate>, } | { "type": "groupLag", group: string, lag: number, lagComplete: boolean, offsets: Array<GroupOffset>, } | { "type": "topology", addedTopics: Array<string>, removedTopics: Array<string>, changedTopics: Array<string>, addedGroups: Array<string>, removedGroups: Array<string>, changedGroups: Array<string>, brokersChanged: boolean, } | { "type": "configs", topics: Array<string>, } | { "type": "subjects", removed: Array<string>, changed: Array<string>, } | { "type": "logDirs", topics: Array<string>, brokersChanged: boolean, } | { "type": "acls" } | { "type": "quotas" } | { "type": "resync" };
 

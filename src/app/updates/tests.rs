@@ -215,6 +215,24 @@ async fn a_topic_scoped_subscriber_hears_only_its_own_size() {
 }
 
 #[tokio::test]
+async fn a_quota_change_is_sent_as_a_quotas_event() {
+    let state = seeded();
+    let store = Arc::clone(store_of(&state, "local"));
+    let response = open_stream(
+        &state,
+        "/clusters/local/updates",
+        EffectiveAccess::Unrestricted,
+        SessionGuard::open(),
+    )
+    .await;
+    store.bus.publish(Change::Quotas);
+    let frames = read_frames(response, 1).await;
+
+    assert_eq!(frames[0].0, "quotas");
+    assert_eq!(frames[0].1, serde_json::json!({ "type": "quotas" }));
+}
+
+#[tokio::test]
 async fn an_unscoped_lag_wave_fans_out_one_update_per_group_without_offsets() {
     let state = seeded();
     let store = Arc::clone(store_of(&state, "local"));

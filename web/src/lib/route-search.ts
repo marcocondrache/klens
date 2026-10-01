@@ -1,7 +1,7 @@
 import * as z from "zod/mini";
 
 import { filterParam } from "@/components/data-table/filters";
-import type { GroupState } from "@/lib/api/types";
+import type { GroupState, QuotaEntityType } from "@/lib/api/types";
 
 const term = z.catch(z._default(z.string(), ""), "");
 
@@ -119,6 +119,22 @@ export const aclsSearch = z.object({
 
 export type AclsSearch = z.output<typeof aclsSearch>;
 export type AclFilter = Exclude<keyof AclsSearch, "q">;
+
+export const QUOTA_ENTITY_TYPES = [
+  "USER",
+  "CLIENT_ID",
+  "IP",
+] as const satisfies readonly QuotaEntityType[];
+export const QUOTA_SCOPES = ["named", "default"] as const;
+
+export const quotasSearch = z.object({
+  q: term,
+  entity: filter(QUOTA_ENTITY_TYPES),
+  scope: filter(QUOTA_SCOPES),
+});
+
+export type QuotasSearch = z.output<typeof quotasSearch>;
+export type QuotaFilter = Exclude<keyof QuotasSearch, "q">;
 
 export const loginSearch = z.object({
   error: z.catch(z.optional(z.string()), undefined),

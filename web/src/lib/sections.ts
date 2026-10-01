@@ -1,6 +1,7 @@
 import { useMatchRoute, useNavigate } from "@tanstack/react-router";
 import {
   FileJsonIcon,
+  GaugeIcon,
   HardDriveIcon,
   LayersIcon,
   ShieldIcon,
@@ -8,24 +9,36 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-export type ClusterSection = "topics" | "groups" | "schemas" | "nodes" | "acls";
+import type { PrivilegeName } from "@/lib/api/types";
+
+export type ClusterSection = "topics" | "groups" | "schemas" | "nodes" | "acls" | "quotas";
+
+export type SectionGroup = "cluster" | "insights";
 
 export interface Section {
   segment: ClusterSection;
   label: string;
   icon: LucideIcon;
+  group: SectionGroup;
+  privilege?: PrivilegeName;
 }
 
-export const SECTIONS: Section[] = [
-  { segment: "topics", label: "Topics", icon: LayersIcon },
-  { segment: "groups", label: "Consumer Groups", icon: UsersRoundIcon },
-  { segment: "schemas", label: "Schema Registry", icon: FileJsonIcon },
-  { segment: "nodes", label: "Brokers", icon: HardDriveIcon },
-  { segment: "acls", label: "ACLs", icon: ShieldIcon },
+export const SECTION_GROUPS: Array<{ id: SectionGroup; label: string }> = [
+  { id: "cluster", label: "Cluster" },
+  { id: "insights", label: "Insights" },
 ];
 
-export function visibleSections(canAcls: boolean): Section[] {
-  return canAcls ? SECTIONS : SECTIONS.filter((section) => section.segment !== "acls");
+export const SECTIONS: Section[] = [
+  { segment: "topics", label: "Topics", icon: LayersIcon, group: "cluster" },
+  { segment: "groups", label: "Consumer Groups", icon: UsersRoundIcon, group: "cluster" },
+  { segment: "schemas", label: "Schema Registry", icon: FileJsonIcon, group: "cluster" },
+  { segment: "nodes", label: "Brokers", icon: HardDriveIcon, group: "cluster" },
+  { segment: "acls", label: "ACLs", icon: ShieldIcon, group: "cluster", privilege: "ACLS" },
+  { segment: "quotas", label: "Quotas", icon: GaugeIcon, group: "insights", privilege: "CONFIGS" },
+];
+
+export function visibleSections(can: (privilege: PrivilegeName) => boolean): Section[] {
+  return SECTIONS.filter((section) => section.privilege == null || can(section.privilege));
 }
 
 export function clusterSectionTo(section: ClusterSection) {
