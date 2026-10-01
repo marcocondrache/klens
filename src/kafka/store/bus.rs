@@ -1,11 +1,12 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use itertools::{EitherOrBoth, Itertools};
 use tokio::sync::broadcast;
 
 use crate::kafka::group::GroupOffset;
 
-use super::tables::{ConfigTable, GroupInfo, LogDirTable, SubjectTable, TopicInfo, Topology};
+use super::tables::{ConfigTable, LogDirTable, SubjectTable, Topology};
 
 pub const BUS_CAPACITY: usize = 256;
 
@@ -37,9 +38,9 @@ impl TopologyDelta {
         let empty = Topology::default();
         let previous = previous.unwrap_or(&empty);
         let (added_topics, removed_topics, changed_topics) =
-            diff_maps(&previous.topics, &next.topics, TopicInfo::eq);
+            diff_maps(&previous.topics, &next.topics);
         let (added_groups, removed_groups, changed_groups) =
-            diff_maps(&previous.groups, &next.groups, GroupInfo::eq);
+            diff_maps(&previous.groups, &next.groups);
         let brokers_changed = previous.brokers != next.brokers
             || previous.cluster_id != next.cluster_id
             || previous.controller != next.controller;
@@ -197,10 +198,7 @@ impl SubjectsDelta {
     pub fn between(previous: Option<&SubjectTable>, next: &SubjectTable) -> Option<Self> {
         let empty = SubjectTable::default();
         let previous = previous.unwrap_or(&empty);
-        let (added, removed, changed) =
-            diff_maps(&previous.subjects, &next.subjects, |left, right| {
-                left == right
-            });
+        let (added, removed, changed) = diff_maps(&previous.subjects, &next.subjects);
         (!added.is_empty() || !removed.is_empty() || !changed.is_empty()).then_some(Self {
             added,
             removed,
@@ -245,41 +243,23 @@ impl ChangeBus {
 
 type KeyDiff = (Vec<Arc<str>>, Vec<Arc<str>>, Vec<Arc<str>>);
 
-fn diff_maps<V>(
+fn diff_maps<V: PartialEq>(
     previous: &BTreeMap<Arc<str>, V>,
     next: &BTreeMap<Arc<str>, V>,
-    same: impl Fn(&V, &V) -> bool,
 ) -> KeyDiff {
     let mut added = Vec::new();
     let mut removed = Vec::new();
     let mut changed = Vec::new();
 
-    let mut left = previous.iter().peekable();
-    let mut right = next.iter().peekable();
-    loop {
-        match (left.peek(), right.peek()) {
-            (None, None) => break,
-            (Some(_), None) => {
-                removed.push(Arc::clone(left.next().expect("peeked").0));
-            }
-            (None, Some(_)) => {
-                added.push(Arc::clone(right.next().expect("peeked").0));
-            }
-            (Some((old, _)), Some((new, _))) => match old.cmp(new) {
-                std::cmp::Ordering::Less => {
-                    removed.push(Arc::clone(left.next().expect("peeked").0));
-                }
-                std::cmp::Ordering::Greater => {
-                    added.push(Arc::clone(right.next().expect("peeked").0));
-                }
-                std::cmp::Ordering::Equal => {
-                    let (key, old) = left.next().expect("peeked");
-                    let (_, new) = right.next().expect("peeked");
-                    if !same(old, new) {
-                        changed.push(Arc::clone(key));
-                    }
-                }
-            },
+    for pair in previous
+        .iter()
+        .merge_join_by(next, |(old, _), (new, _)| old.cmp(new))
+    {
+        match pair {
+            EitherOrBoth::Left((key, _)) => removed.push(Arc::clone(key)),
+            EitherOrBoth::Right((key, _)) => added.push(Arc::clone(key)),
+            EitherOrBoth::Both((key, old), (_, new)) if old != new => changed.push(Arc::clone(key)),
+            EitherOrBoth::Both(..) => {}
         }
     }
 

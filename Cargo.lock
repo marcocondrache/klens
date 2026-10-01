@@ -1687,6 +1687,7 @@ dependencies = [
  "futures",
  "hmac",
  "indexmap 2.14.2",
+ "itertools 0.14.0",
  "jiff",
  "krafka",
  "mime_guess",
