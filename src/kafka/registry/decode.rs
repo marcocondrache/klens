@@ -208,6 +208,7 @@ impl PayloadDecoder {
                 None => continue,
             };
 
+            tokio::task::coop::consume_budget().await;
             match self.decode_body(resolved, framing, &slot.raw).await {
                 Ok(json) => {
                     slot.decoded = Some(DecodedPayload::decoded(slot.raw.clone(), json));
@@ -353,6 +354,8 @@ mod tests {
     fn decode_bytes(bytes: &[u8]) -> String {
         String::from_utf8_lossy(bytes).into_owned()
     }
+    use std::sync::atomic::{AtomicBool, Ordering};
+
     use apache_avro::Schema as AvroSchema;
     use apache_avro::types::{Record, Value as AvroValue};
     use schemreg::encode_protobuf_wire_format;
@@ -573,6 +576,28 @@ mod tests {
         let framed = frame(7, br#"{"ok": true}"#);
         let json = decoder(&server.uri()).decode(&framed).await;
         assert_eq!(json, r#"{"ok":true}"#);
+    }
+
+    #[tokio::test]
+    async fn a_large_batch_lets_other_tasks_run_while_it_decodes() {
+        let server = MockServer::start().await;
+        mock_schema(&server, 7, "JSON", r#"{"type":"object"}"#).await;
+        let decoder = decoder(&server.uri());
+        decoder.decode(&frame(7, b"{}")).await;
+
+        let ran = Arc::new(AtomicBool::new(false));
+        let other = tokio::spawn({
+            let ran = ran.clone();
+            async move { ran.store(true, Ordering::SeqCst) }
+        });
+        let mut slots: Vec<PayloadSlot> = (0..1024)
+            .map(|n| PayloadSlot::new(Bytes::from(frame(7, n.to_string().as_bytes())), None))
+            .collect();
+        decoder.decode_batch(&mut slots).await;
+
+        assert!(ran.load(Ordering::SeqCst));
+        assert!(slots.iter().all(|slot| slot.decoded.is_some()));
+        other.await.unwrap();
     }
 
     #[tokio::test]
