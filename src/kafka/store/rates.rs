@@ -20,12 +20,14 @@ impl RateStore {
         Self::default()
     }
 
-    pub fn set(&self, topic: &Arc<str>, rate: f64) {
+    /// Returns whether the stored rate changed.
+    pub fn set(&self, topic: &Arc<str>, rate: f64) -> bool {
         let mut rates = self.topic_rates.write().expect("rate store lock");
         match rates.get_mut(topic) {
-            Some(slot) => *slot = rate,
+            Some(slot) => std::mem::replace(slot, rate) != rate,
             None => {
                 rates.insert(Arc::clone(topic), rate);
+                true
             }
         }
     }
@@ -63,6 +65,19 @@ mod tests {
         rates.set(&topic, 12.5);
         rates.set(&topic, 9.0);
         assert_eq!(rates.get("orders"), Some(9.0));
+    }
+
+    #[test]
+    fn set_reports_whether_the_rate_changed() {
+        let rates = RateStore::new();
+        let topic: Arc<str> = Arc::from("orders");
+        assert!(rates.set(&topic, 0.0), "a first rate is a change");
+        assert!(!rates.set(&topic, 0.0));
+        assert!(rates.set(&topic, 4.5));
+        assert!(
+            rates.set(&topic, 0.0),
+            "a rate that falls to zero is a change"
+        );
     }
 
     #[test]

@@ -134,10 +134,10 @@ impl LaneSource for WatermarkLane {
             .filter(|gap| !gap.is_zero() && *gap <= self.max_sample_gap);
         self.mark_committed(now);
 
-        let rates = rates_between(previous.map(Arc::as_ref), next, elapsed);
-
-        for rate in &rates {
-            store.rates.set(&rate.topic, rate.rate);
+        let mut rates = rates_between(previous.map(Arc::as_ref), next, elapsed);
+        rates.retain(|rate| store.rates.set(&rate.topic, rate.rate));
+        if rates.is_empty() {
+            return;
         }
 
         store
@@ -191,7 +191,10 @@ fn round_rate(value: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kafka::store::fixtures::watermarks;
+    use crate::kafka::store::fixtures::{identity, watermarks};
+    use crate::kafka::testing::FakeCluster;
+    use tokio::sync::broadcast::Receiver;
+    use tokio::sync::broadcast::error::TryRecvError;
 
     fn rates(
         previous: Option<&WatermarkTable>,
@@ -279,6 +282,57 @@ mod tests {
         assert_eq!(
             rates(Some(&previous), &next, secs(3)),
             vec![("orders".into(), 0.333)]
+        );
+    }
+
+    fn ticked(events: &mut Receiver<Change>) -> Vec<(String, f64)> {
+        match events.try_recv() {
+            Ok(Change::Watermarks(tick)) => tick
+                .rates
+                .iter()
+                .map(|rate| (rate.topic.to_string(), rate.rate))
+                .collect(),
+            other => panic!("expected a watermark tick, got {other:?}"),
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_tick_carries_only_the_rates_that_changed() {
+        let tuning = IngestTuning::default();
+        let lane =
+            WatermarkLane::with_interval(Arc::new(FakeCluster::local()), tuning.watermark, &tuning);
+        let store = ClusterStore::new(identity("local"), tuning.interest_ttl);
+        let mut events = store.bus.subscribe();
+        let step = |marks: &[(&str, i32, i64, i64)]| Arc::new(watermarks(marks));
+
+        let first = step(&[("orders", 0, 0, 10), ("payments", 0, 0, 10)]);
+        lane.publish(&store, None, &first, ());
+        assert_eq!(
+            ticked(&mut events),
+            vec![("orders".into(), 0.0), ("payments".into(), 0.0)],
+            "the first tick seeds every topic"
+        );
+
+        tokio::time::advance(Duration::from_secs(1)).await;
+        let busy = step(&[("orders", 0, 0, 14), ("payments", 0, 0, 10)]);
+        lane.publish(&store, Some(&first), &busy, ());
+        assert_eq!(ticked(&mut events), vec![("orders".into(), 4.0)]);
+
+        tokio::time::advance(Duration::from_secs(1)).await;
+        lane.publish(&store, Some(&busy), &busy, ());
+        assert_eq!(
+            ticked(&mut events),
+            vec![("orders".into(), 0.0)],
+            "a rate that falls to zero is still sent"
+        );
+        assert_eq!(store.rates.get("orders"), Some(0.0));
+
+        tokio::time::advance(Duration::from_secs(1)).await;
+        lane.publish(&store, Some(&busy), &busy, ());
+        assert_eq!(
+            events.try_recv().map(|_| ()),
+            Err(TryRecvError::Empty),
+            "a tick with no changed rate is not published"
         );
     }
 }
