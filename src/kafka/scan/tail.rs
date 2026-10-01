@@ -24,7 +24,7 @@ pub trait TailConsumer: Send + Sync {
 
     async fn position(&self, partition: i32) -> Option<i64>;
 
-    async fn lag(&self, partition: i32) -> Option<u64>;
+    async fn lags(&self) -> HashMap<i32, u64>;
 
     async fn seek(&self, positions: &[TailPosition]) -> Result<(), KafkaError>;
 }
@@ -201,9 +201,10 @@ impl Tail {
     async fn skip_ahead(&self) -> Result<u64, KafkaError> {
         let mut seeks = Vec::new();
         let mut skipped = 0;
+        let lags = self.consumer.lags().await;
 
         for &TailPosition { partition, .. } in &self.start {
-            let Some(lag) = self.consumer.lag(partition).await else {
+            let Some(&lag) = lags.get(&partition) else {
                 continue;
             };
             if lag <= self.backlog {
@@ -510,6 +511,20 @@ mod tests {
         tail.next().await.unwrap();
 
         assert!(session.tail_seeks().is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_tail_reads_every_partition_lag_in_one_call_per_poll() {
+        let session = FakeCluster::local();
+        let mut tail = open(&session, query()).await;
+        assert_eq!(tail.start().len(), 2);
+
+        produce_run(&session, 8..41);
+        tail.next().await.unwrap();
+        tail.next().await.unwrap();
+
+        assert!(session.tail_polls() > 1);
+        assert_eq!(session.tail_lag_reads(), session.tail_polls());
     }
 
     #[tokio::test(start_paused = true)]
