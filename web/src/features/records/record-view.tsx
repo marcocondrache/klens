@@ -19,16 +19,17 @@ import {
   type FilterField,
   type FilterRule,
 } from "@/components/data-table/filters";
-import { RecordTable } from "@/components/records/record-table";
 import { PayloadView } from "@/components/payload-view";
-import { SchemaPicker } from "@/components/schema-picker";
 import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
 import { useSubjectRows } from "@/lib/api/catalog";
 import { formatBytes, formatCount, formatRelative, formatTimestamp } from "@/lib/format";
-import { recordId } from "@/lib/records";
 import type { KafkaRecord, TopicDetail } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
+
+import { RecordTable } from "./record-table";
+import { SchemaPicker } from "./schema-picker";
+import { recordId } from "./record-id";
 
 export type RecordFilter = {
   term: string;

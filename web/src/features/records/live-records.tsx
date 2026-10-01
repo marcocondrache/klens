@@ -12,19 +12,15 @@ import {
 } from "@/components/ui/empty";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { IconButton } from "@/components/icon-button";
-import { RecordModeSwitch, type RecordMode } from "@/components/records/record-mode";
-import {
-  RecordView,
-  filterPartitions,
-  type RecordFilter,
-  type RecordSource,
-} from "@/components/records/record-view";
 import { Pill } from "@/components/status";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { apiErrorMessage } from "@/lib/api/client";
 import { TAIL_BUFFER, useTail, type TailFilter } from "@/lib/api/tail";
 import type { TopicDetail } from "@/lib/api/types";
 import { formatNumber } from "@/lib/format";
+
+import { RecordModeSwitch, type RecordMode } from "./record-mode";
+import { RecordView, filterPartitions, type RecordFilter, type RecordSource } from "./record-view";
 
 function SkippedBadge({ skipped }: { skipped: number }) {
   return (

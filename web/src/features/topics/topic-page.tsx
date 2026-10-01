@@ -7,7 +7,7 @@ import { CopyButton } from "@/components/copy-button";
 import { DataTable } from "@/components/data-table/data-table";
 import { Facts } from "@/components/facts";
 import { PageHeader } from "@/components/page-header";
-import { RecordBrowser } from "@/components/records/record-browser";
+import { RecordBrowser } from "@/features/records/record-browser";
 import { PendingValue, Pill, StatusDot } from "@/components/status";
 import { TabCount } from "@/components/tab-count";
 import { useAccess } from "@/hooks/use-access";

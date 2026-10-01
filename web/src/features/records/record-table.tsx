@@ -18,9 +18,10 @@ import { features, type DataTableFeatures } from "@/components/data-table/featur
 import { tablePlaceholder } from "@/components/data-table/placeholder";
 import { CLICKABLE_ROW, clickableRowProps } from "@/components/data-table/row-interaction";
 import { SkeletonBar, skeletonRowStyle } from "@/components/data-table/skeleton-bar";
-import { RefreshBar } from "@/components/refresh-bar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+
+import { RefreshBar } from "./refresh-bar";
 
 const ROW_SIZE = 41;
 const SKELETON_ROW_SIZE = 40;

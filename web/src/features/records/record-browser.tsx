@@ -1,10 +1,11 @@
 import { useState } from "react";
 
-import { LiveRecords } from "@/components/records/live-records";
-import { PagedRecords } from "@/components/records/paged-records";
-import type { RecordMode } from "@/components/records/record-mode";
-import { EMPTY_FILTER, type RecordFilter } from "@/components/records/record-view";
 import type { TopicDetail } from "@/lib/api/types";
+
+import { LiveRecords } from "./live-records";
+import { PagedRecords } from "./paged-records";
+import type { RecordMode } from "./record-mode";
+import { EMPTY_FILTER, type RecordFilter } from "./record-view";
 
 export function RecordBrowser({ cluster, topic }: { cluster: string; topic: TopicDetail }) {
   const [mode, setMode] = useState<RecordMode>("NEWEST");
