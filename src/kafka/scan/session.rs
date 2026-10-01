@@ -60,6 +60,8 @@ pub trait ScanConsumer: Send + Sync {
 
     async fn pause(&self, partitions: &[i32]);
 
+    async fn seek_to_end(&self, windows: &[PartitionWindow]);
+
     async fn position(&self, partition: i32) -> Option<i64>;
 
     async fn lag(&self, partition: i32) -> Option<u64>;
@@ -149,6 +151,9 @@ impl ScanSession {
             let polled = polled?;
             if polled.is_empty() {
                 self.settle_idle(&mut scan, deadline).await;
+                // Read-ahead parked for paused partitions can fill the
+                // consumer's buffer, and a full buffer stops every fetch.
+                self.consumer.seek_to_end(&scan.finished(windows)).await;
                 continue;
             }
 
@@ -265,6 +270,14 @@ impl WindowScan {
             self.finish(partition);
         }
         accepted
+    }
+
+    fn finished(&self, windows: &[PartitionWindow]) -> Vec<PartitionWindow> {
+        windows
+            .iter()
+            .filter(|window| self.completed.contains(&window.partition))
+            .copied()
+            .collect()
     }
 
     fn finish(&mut self, partition: i32) {
@@ -566,6 +579,25 @@ mod tests {
         assert!(!scan.accept(0, 25));
         assert!(scan.remaining.is_empty());
         assert!(scan.outcome(&[window], RecordOrder::Oldest).complete);
+    }
+
+    #[test]
+    fn only_completed_windows_are_finished() {
+        let first = PartitionWindow {
+            partition: 0,
+            start: 0,
+            end: 2,
+        };
+        let second = PartitionWindow {
+            partition: 1,
+            start: 0,
+            end: 2,
+        };
+        let mut scan = WindowScan::new(&[first, second]);
+
+        scan.accept(0, 1);
+
+        assert_eq!(scan.finished(&[first, second]), vec![first]);
     }
 
     #[test]

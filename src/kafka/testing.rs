@@ -1008,6 +1008,8 @@ impl ScanConsumer for FakeScan {
         paused.extend(partitions.iter().copied());
     }
 
+    async fn seek_to_end(&self, _windows: &[PartitionWindow]) {}
+
     async fn position(&self, partition: i32) -> Option<i64> {
         self.position_of(partition)
     }
