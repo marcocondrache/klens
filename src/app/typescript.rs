@@ -18,5 +18,9 @@ pub use super::subjects::types::{
     SchemaCompatibility, SchemaReference, SchemaType, SubjectDetail, SubjectRow, SubjectRowsResult,
 };
 pub use super::topics::types::{CleanupPolicy, PartitionRow, TopicDetail, TopicGroupRow, TopicRow};
+pub use super::transactions::types::{
+    HangingPartition, HangingReason, OpenTransaction, TopicPartition, TransactionCoverage,
+    TransactionState, Transactions,
+};
 pub use super::updates::types::{TopicRate, Update};
 pub use super::whoami::types::{ClusterGrant, Identity, PrivilegeName};

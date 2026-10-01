@@ -25,7 +25,7 @@ export type LaneHealth = { updatedAt: string | null, checkedAt: string | null, l
  */
 healthy: boolean, };
 
-export type ClusterHealth = { cluster: string, ready: boolean, topology: LaneHealth, watermarks: LaneHealth, offsets: LaneHealth, configs: LaneHealth, subjects: LaneHealth, logDirs: LaneHealth, acls: LaneHealth, quotas: LaneHealth, topicCount: number, partitionCount: number, groupCount: number, brokerCount: number, subjectCount: number, underReplicatedPartitions: number, offlinePartitions: number, };
+export type ClusterHealth = { cluster: string, ready: boolean, topology: LaneHealth, watermarks: LaneHealth, offsets: LaneHealth, configs: LaneHealth, subjects: LaneHealth, logDirs: LaneHealth, acls: LaneHealth, quotas: LaneHealth, transactions: LaneHealth, hangingPartitions: number | null, topicCount: number, partitionCount: number, groupCount: number, brokerCount: number, subjectCount: number, underReplicatedPartitions: number, offlinePartitions: number, };
 
 export type CleanupPolicy = "DELETE" | "COMPACT" | "COMPACT_DELETE";
 
@@ -71,6 +71,8 @@ diskBytes: number | null, rate: number,
  */
 retentionMs: number | null, cleanupPolicy: CleanupPolicy, groupCount: number, underReplicated: boolean, };
 
+export type TopicPartition = { topic: string, partition: number, };
+
 export type GroupState = "STABLE" | "EMPTY" | "PREPARING_REBALANCE" | "COMPLETING_REBALANCE" | "DEAD";
 
 export type MemberAssignment = { topic: string, partitions: Array<number>, };
@@ -90,7 +92,7 @@ totalLag: number | null,
  */
 lagComplete: boolean, };
 
-export type GroupDetail = { id: string, state: GroupState, protocol: string, members: Array<GroupMember>, offsets: Array<GroupOffset>, totalLag: number | null, lagComplete: boolean, };
+export type GroupDetail = { id: string, state: GroupState, protocol: string, members: Array<GroupMember>, offsets: Array<GroupOffset>, totalLag: number | null, lagComplete: boolean, blockedPartitions: Array<TopicPartition>, };
 
 export type TopicGroupRow = { id: string, state: GroupState, memberCount: number, lagOnTopic: number | null, };
 
@@ -192,6 +194,18 @@ export type TailEvent = { "type": "ready", start: Array<TailStart>, obfuscated: 
 export type SearchKind = "TOPIC" | "GROUP" | "NODE" | "SUBJECT";
 
 export type SearchHit = { kind: SearchKind, id: string, label: string, detail: string, };
+
+export type TransactionState = "EMPTY" | "ONGOING" | "PREPARE_COMMIT" | "PREPARE_ABORT" | "COMPLETE_COMMIT" | "COMPLETE_ABORT" | "DEAD" | "PREPARE_EPOCH_FENCE" | "UNKNOWN";
+
+export type OpenTransaction = { transactionalId: string, producerId: number, producerEpoch: number, state: TransactionState, startedAt: string | null, timeoutMs: number, pastTimeout: boolean, partitions: Array<TopicPartition>, };
+
+export type HangingReason = "PAST_TIMEOUT" | "UNKNOWN_TO_COORDINATOR";
+
+export type HangingPartition = { topic: string, partition: number, producerId: number, producerEpoch: number, offset: number, openSince: string | null, transactionalId: string | null, reason: HangingReason, groups: Array<string>, };
+
+export type TransactionCoverage = { partitionCount: number, openPartitionCount: number, deniedTopics: Array<string>, uncheckedPartitions: number, unlistedProducers: number, };
+
+export type Transactions = { open: Array<OpenTransaction>, hanging: Array<HangingPartition>, coverage: TransactionCoverage | null, };
 
 export type TopicRate = { topic: string, rate: number, };
 

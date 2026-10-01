@@ -183,6 +183,31 @@ needs the `configs` privilege. Reading quotas needs the `DescribeConfigs`
 operation on the `Cluster` resource. On a cluster that does not grant it, the
 page says so.
 
+## Transactions
+
+Every `tuning.ingest.transactions` (`30s`), klens asks every partition leader
+which producers hold a transaction open, then lists the open transactions on
+every coordinator. An open transaction is one in the `Ongoing`,
+`PrepareCommit`, or `PrepareAbort` state, and the Transactions page flags one
+still open past its own timeout.
+
+From the same look, klens finds hanging transactions the way
+`kafka-transactions.sh find-hanging` does. A partition hangs when its
+transaction has stayed open longer than the leader's
+`transaction.max.timeout.ms` (`15m` when klens cannot read it), or when the
+producer's coordinator holds no open transaction on the partition. It counts
+only once two looks in a row find it open from the same offset. A hanging
+partition blocks `read_committed` consumers at the offset where the
+transaction began. `GET /api/clusters/{cluster}/transactions` returns the open
+transactions and the hanging partitions, the sidebar badge counts the hanging
+partitions, and a consumer group page links to them.
+
+Listing transactions needs the `Describe` operation on each `TransactionalId`,
+and Kafka leaves out the ones klens may not describe. Asking a leader about a
+partition's producers needs `Read` on the topic. The page names the topics
+klens may not read and counts the producers whose transactional id it cannot
+see, so a missing permission never reads as a clean cluster.
+
 ## Authentication
 
 By default the UI and JSON API are open to anyone who can reach the process.

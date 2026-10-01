@@ -6,11 +6,12 @@ use xshell::Shell;
 use klens::app::typescript::{
     Acl, AclListing, AclOperation, AclPatternType, AclPermission, AclResourceType, AclStatus,
     BrokerRow, CleanupPolicy, ClientQuota, ClusterGrant, ClusterHealth, ConfigEntry, ConfigSource,
-    GroupDetail, GroupMember, GroupOffset, GroupRow, GroupState, Identity, LaneHealth, LogDir,
-    MemberAssignment, PartitionRow, PrivilegeName, QuotaEntity, QuotaEntityType, QuotaListing,
-    QuotaStatus, Record, RecordHeader, RecordOrder, RecordPage, SchemaCompatibility,
-    SchemaReference, SchemaType, SearchHit, SearchKind, SubjectDetail, SubjectRow,
-    SubjectRowsResult, TailEvent, TailStart, TopicDetail, TopicGroupRow, TopicRate, TopicRow,
+    GroupDetail, GroupMember, GroupOffset, GroupRow, GroupState, HangingPartition, HangingReason,
+    Identity, LaneHealth, LogDir, MemberAssignment, OpenTransaction, PartitionRow, PrivilegeName,
+    QuotaEntity, QuotaEntityType, QuotaListing, QuotaStatus, Record, RecordHeader, RecordOrder,
+    RecordPage, SchemaCompatibility, SchemaReference, SchemaType, SearchHit, SearchKind,
+    SubjectDetail, SubjectRow, SubjectRowsResult, TailEvent, TailStart, TopicDetail, TopicGroupRow,
+    TopicPartition, TopicRate, TopicRow, TransactionCoverage, TransactionState, Transactions,
     Update,
 };
 
@@ -43,6 +44,7 @@ fn typescript() -> String {
         TopicRow,
         PartitionRow,
         TopicDetail,
+        TopicPartition,
         GroupState,
         MemberAssignment,
         GroupMember,
@@ -80,6 +82,12 @@ fn typescript() -> String {
         TailEvent,
         SearchKind,
         SearchHit,
+        TransactionState,
+        OpenTransaction,
+        HangingReason,
+        HangingPartition,
+        TransactionCoverage,
+        Transactions,
         TopicRate,
         Update,
     );
