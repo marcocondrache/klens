@@ -149,6 +149,15 @@ function apply(queryClient: QueryClient, cluster: string, update: Update): void 
       return;
     }
 
+    case "transactions": {
+      void queryClient.invalidateQueries({ queryKey: keys.clusters() });
+      void queryClient.invalidateQueries({ queryKey: keys.transactions(cluster), exact: true });
+      void queryClient.invalidateQueries({
+        predicate: (query) => isGroupDetailKey(query.queryKey, cluster),
+      });
+      return;
+    }
+
     case "resync": {
       void queryClient.invalidateQueries({ queryKey: keys.clusters() });
       void queryClient.invalidateQueries({ queryKey: keys.cluster(cluster) });
@@ -204,6 +213,10 @@ function lagByTopic(offsets: GroupOffset[]): Map<string, number> {
     totals.set(offset.topic, (totals.get(offset.topic) ?? 0) + (offset.lag ?? 0));
   }
   return totals;
+}
+
+function isGroupDetailKey(key: readonly unknown[], cluster: string) {
+  return key.length === 4 && key[0] === "cluster" && key[1] === cluster && key[2] === "groups";
 }
 
 function isTopicSubKey(key: readonly unknown[], cluster: string, leaf: string) {

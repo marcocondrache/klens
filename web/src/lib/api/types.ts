@@ -10,9 +10,12 @@ export type {
   GroupOffset,
   GroupRow,
   GroupState,
+  HangingPartition,
+  HangingReason,
   Identity,
   LaneHealth,
   LogDir,
+  OpenTransaction,
   PartitionRow,
   PrivilegeName,
   QuotaEntity,
@@ -22,7 +25,11 @@ export type {
   SubjectRow,
   TopicDetail,
   TopicGroupRow,
+  TopicPartition,
   TopicRow,
+  TransactionCoverage,
+  Transactions,
+  TransactionState,
 } from "@/api/types.gen";
 
 import type { SearchHit as SearchHitWire } from "@/api/types.gen";

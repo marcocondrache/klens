@@ -21,10 +21,13 @@ export function NavMain({
   cluster,
   sections,
   counts,
+  warnings = {},
 }: {
   cluster: string;
   sections: Section[];
   counts: Partial<Record<ClusterSection, number>>;
+  /** Shown in place of the count while above zero. */
+  warnings?: Partial<Record<ClusterSection, number>>;
 }) {
   const matchRoute = useMatchRoute();
   const { setOpenMobile } = useSidebar();
@@ -40,6 +43,7 @@ export function NavMain({
           {members.map((section) => {
             const to = clusterSectionTo(section.segment);
             const count = counts[section.segment];
+            const warning = warnings[section.segment] ?? 0;
 
             return (
               <SidebarMenuItem key={section.segment}>
@@ -53,7 +57,11 @@ export function NavMain({
                   <section.icon />
                   <span>{section.label}</span>
                 </SidebarMenuButton>
-                {count === undefined ? null : (
+                {warning > 0 ? (
+                  <SidebarMenuBadge className="numeric bg-warn/14 text-warn peer-hover/menu-button:text-warn peer-data-active/menu-button:text-warn">
+                    {formatCount(warning)}
+                  </SidebarMenuBadge>
+                ) : count === undefined ? null : (
                   <SidebarMenuBadge className="numeric text-muted-foreground">
                     {formatCount(count)}
                   </SidebarMenuBadge>

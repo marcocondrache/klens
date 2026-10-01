@@ -1,6 +1,8 @@
+import { TriangleAlertIcon } from "lucide-react";
 import { Link, createFileRoute, stripSearchParams } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CopyButton } from "@/components/copy-button";
 import { DataTable } from "@/components/data-table/data-table";
@@ -15,7 +17,7 @@ import { useGroup } from "@/lib/api/catalog";
 import { catalogLookupMessage } from "@/lib/catalog-lookup";
 import { useClusterName } from "@/lib/clusters";
 import { formatCount, formatNumber } from "@/lib/format";
-import type { GroupDetail, GroupMember, GroupOffset } from "@/lib/api/types";
+import type { GroupDetail, GroupMember, GroupOffset, TopicPartition } from "@/lib/api/types";
 import { groupDetailSearch, groupTab, searchDefaults } from "@/lib/route-search";
 
 export const Route = createFileRoute("/cluster/$cluster/groups_/$group")({
@@ -104,6 +106,29 @@ function GroupFacts({
         </span>
       )}
     </Facts>
+  );
+}
+
+function BlockedNotice({ cluster, blocked }: { cluster: string; blocked: TopicPartition[] }) {
+  const shown = blocked.slice(0, 3).map(({ topic, partition }) => `${topic}-${partition}`);
+
+  return (
+    <Alert>
+      <TriangleAlertIcon />
+      <AlertTitle>
+        {blocked.length === 1
+          ? "A stuck transaction holds back one partition"
+          : `Stuck transactions hold back ${blocked.length} partitions`}
+      </AlertTitle>
+      <AlertDescription>
+        A <code className="font-mono">read_committed</code> consumer cannot read past an open
+        transaction on {shown.join(", ")}
+        {blocked.length > shown.length ? ` and ${blocked.length - shown.length} more` : ""}.{" "}
+        <Link to="/cluster/$cluster/transactions" params={{ cluster }}>
+          See transactions
+        </Link>
+      </AlertDescription>
+    </Alert>
   );
 }
 
@@ -249,6 +274,10 @@ function ConsumerGroupPage() {
           ) : null
         }
       />
+
+      {group && group.blockedPartitions.length > 0 ? (
+        <BlockedNotice cluster={cluster} blocked={group.blockedPartitions} />
+      ) : null}
 
       <Tabs
         value={tab}
