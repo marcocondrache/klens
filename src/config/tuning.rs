@@ -160,6 +160,8 @@ pub struct IngestTuning {
     pub acls: Duration,
     #[serde(deserialize_with = "at_least_one_second")]
     pub quotas: Duration,
+    #[serde(deserialize_with = "at_least_one_second")]
+    pub transactions: Duration,
     /// How often the offset lane wakes to see which groups are due.
     #[serde(deserialize_with = "at_least_one_second")]
     pub offset_tick: Duration,
@@ -192,6 +194,7 @@ impl Default for IngestTuning {
             log_dirs: Duration::from_secs(60),
             acls: Duration::from_secs(60),
             quotas: Duration::from_secs(60),
+            transactions: Duration::from_secs(30),
             offset_tick: Duration::from_secs(1),
             fast_offset: Duration::from_secs(2),
             slow_offset: Duration::from_secs(20),
@@ -266,6 +269,7 @@ mod tests {
                 log_dirs: secs(60),
                 acls: secs(60),
                 quotas: secs(60),
+                transactions: secs(30),
                 offset_tick: secs(1),
                 fast_offset: secs(2),
                 slow_offset: secs(20),
@@ -327,6 +331,7 @@ ingest:
   log_dirs: 5m
   acls: 3m
   quotas: 90s
+  transactions: 1m
   offset_tick: 2s
   fast_offset: 4s
   slow_offset: 40s
@@ -380,6 +385,7 @@ ingest:
                     log_dirs: secs(300),
                     acls: secs(180),
                     quotas: secs(90),
+                    transactions: secs(60),
                     offset_tick: secs(2),
                     fast_offset: secs(4),
                     slow_offset: secs(40),

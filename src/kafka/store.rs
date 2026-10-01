@@ -6,6 +6,7 @@ pub mod projections;
 pub mod rates;
 pub mod search;
 pub mod tables;
+pub mod transactions;
 
 #[cfg(test)]
 pub mod fixtures;
@@ -23,3 +24,4 @@ pub use tables::{
     ConfigTable, GroupInfo, GroupOffsets, Interner, LogDirTable, OffsetTable, SubjectTable,
     Topology, WatermarkTable,
 };
+pub use transactions::{DEFAULT_MAX_TIMEOUT_MS, LeaderScan, OpenPartition, TransactionTable};

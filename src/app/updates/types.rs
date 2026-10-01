@@ -66,6 +66,7 @@ pub enum Update {
     },
     Acls,
     Quotas,
+    Transactions,
     /// The client fell behind the change bus and missed events.
     Resync,
 }
@@ -81,6 +82,7 @@ impl Update {
             Self::LogDirs { .. } => "logDirs",
             Self::Acls => "acls",
             Self::Quotas => "quotas",
+            Self::Transactions => "transactions",
             Self::Resync => "resync",
         }
     }

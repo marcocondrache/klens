@@ -102,6 +102,13 @@ pub fn reported(value: i64) -> Option<i64> {
     (value >= 0).then_some(value)
 }
 
+pub fn is_authorization_error(message: &str) -> bool {
+    message
+        .to_ascii_lowercase()
+        .replace([' ', '_'], "")
+        .contains("authorizationfailed")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,5 +189,16 @@ mod tests {
         assert_eq!(reported(-1), None);
         assert_eq!(reported(0), Some(0));
         assert_eq!(reported(42), Some(42));
+    }
+
+    #[test]
+    fn authorization_errors_match_both_spellings_kafka_sends() {
+        assert!(is_authorization_error("Topic authorization failed."));
+        assert!(is_authorization_error("TopicAuthorizationFailed"));
+        assert!(is_authorization_error(
+            "TRANSACTIONAL_ID_AUTHORIZATION_FAILED"
+        ));
+        assert!(!is_authorization_error("NotLeaderOrFollower"));
+        assert!(!is_authorization_error("authorization is disabled"));
     }
 }

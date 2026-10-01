@@ -20,6 +20,7 @@ pub enum Change {
     LogDirs(Arc<LogDirsDelta>),
     Acls,
     Quotas,
+    Transactions,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
