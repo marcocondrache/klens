@@ -3,7 +3,6 @@ import { createFileRoute, stripSearchParams } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
 import { AsteriskIcon, UserRoundIcon } from "lucide-react";
 
-import { DataTableColumnHeader } from "@/components/data-table/column-header";
 import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
 import { FilterBar } from "@/components/data-table/filter-bar";
@@ -151,9 +150,7 @@ function rateColumn(
 ) {
   return columnHelper.accessor((quota) => pick(quota) ?? -1, {
     id,
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title={title} className="justify-end" />
-    ),
+    header: title,
     meta: { align: "right", width: "8rem" },
     cell: ({ row }) => render(pick(row.original)),
   });
@@ -162,7 +159,7 @@ function rateColumn(
 const columns = columnHelper.columns([
   columnHelper.accessor(entityKey, {
     id: "entity",
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Entity" />,
+    header: "Entity",
     cell: ({ row }) => <EntityCell parts={row.original.entity} />,
   }),
   rateColumn("produce", "Produce", (quota) => quota.producerByteRate, byteRate),

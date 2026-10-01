@@ -3,7 +3,6 @@ import { createColumnHelper } from "@tanstack/react-table";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CopyButton } from "@/components/copy-button";
-import { DataTableColumnHeader } from "@/components/data-table/column-header";
 import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
 import { PageHeader } from "@/components/page-header";
@@ -30,11 +29,11 @@ const memberColumnHelper = createColumnHelper<DataTableFeatures, GroupMember>();
 
 const memberColumns = memberColumnHelper.columns([
   memberColumnHelper.accessor("clientId", {
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Client ID" />,
+    header: "Client ID",
     cell: ({ getValue }) => <span className="font-mono">{getValue()}</span>,
   }),
   memberColumnHelper.accessor("id", {
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Member ID" />,
+    header: "Member ID",
     meta: { width: "20rem" },
     cell: ({ row }) => (
       <span className="flex items-center gap-1">
@@ -44,12 +43,12 @@ const memberColumns = memberColumnHelper.columns([
     ),
   }),
   memberColumnHelper.accessor("host", {
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Host" />,
+    header: "Host",
     meta: { width: "9rem" },
     cell: ({ getValue }) => <span className="font-mono text-muted-foreground">{getValue()}</span>,
   }),
   memberColumnHelper.accessor("assignments", {
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Assignments" />,
+    header: "Assignments",
     cell: ({ row }) => (
       <span className="flex flex-wrap gap-1">
         {row.original.assignments.map((assignment) => (
@@ -66,9 +65,7 @@ const memberColumns = memberColumnHelper.columns([
       member.assignments.reduce((sum, assignment) => sum + assignment.partitions.length, 0),
     {
       id: "partitions",
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Partitions" className="justify-end" />
-      ),
+      header: "Partitions",
       meta: { align: "right", width: "7rem" },
       cell: ({ getValue }) => getValue(),
     },
@@ -143,7 +140,7 @@ function ConsumerGroupPage() {
 
   const offsetColumns = offsetColumnHelper.columns([
     offsetColumnHelper.accessor("topic", {
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Topic" />,
+      header: "Topic",
       cell: ({ getValue }) => (
         <Link
           to="/cluster/$cluster/topics/$topic"
@@ -156,17 +153,13 @@ function ConsumerGroupPage() {
       ),
     }),
     offsetColumnHelper.accessor("partition", {
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Partition" className="justify-end" />
-      ),
+      header: "Partition",
       meta: { align: "right", width: "6rem" },
       cell: ({ getValue }) => <span className="numeric">{getValue()}</span>,
     }),
     offsetColumnHelper.accessor((offset) => offset.currentOffset ?? -1, {
       id: "current",
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Committed" className="justify-end" />
-      ),
+      header: "Committed",
       meta: { align: "right", width: "9rem" },
       cell: ({ row }) => (
         <OffsetValue value={row.original.currentOffset} label="Fetching committed offsets" />
@@ -174,9 +167,7 @@ function ConsumerGroupPage() {
     }),
     offsetColumnHelper.accessor((offset) => offset.endOffset ?? -1, {
       id: "end",
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="End offset" className="justify-end" />
-      ),
+      header: "End offset",
       meta: { align: "right", width: "9rem" },
       cell: ({ row }) => (
         <OffsetValue value={row.original.endOffset} label="Sampling the watermark" />
@@ -184,9 +175,7 @@ function ConsumerGroupPage() {
     }),
     offsetColumnHelper.accessor((offset) => offset.lag ?? -1, {
       id: "lag",
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Lag" className="justify-end" />
-      ),
+      header: "Lag",
       meta: { align: "right", width: "12rem" },
       cell: ({ getValue, row }) => {
         if (row.original.lag === null) {
@@ -216,9 +205,7 @@ function ConsumerGroupPage() {
     }),
     offsetColumnHelper.accessor((offset) => offset.memberId ?? "", {
       id: "member",
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Member" className="justify-end" />
-      ),
+      header: "Member",
       meta: { align: "right", width: "14rem" },
       cell: ({ row }) =>
         row.original.memberId ? (

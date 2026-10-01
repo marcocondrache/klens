@@ -11,7 +11,6 @@ import {
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { DataTableColumnHeader } from "@/components/data-table/column-header";
 import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
 import { LaneCaption } from "@/components/lane-caption";
@@ -42,41 +41,33 @@ const columnHelper = createColumnHelper<DataTableFeatures, SubjectRow>();
 
 const columns = columnHelper.columns([
   columnHelper.accessor("subject", {
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Subject" />,
+    header: "Subject",
     cell: ({ getValue }) => <span className="font-mono">{getValue()}</span>,
   }),
   columnHelper.accessor("id", {
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="ID" className="justify-end" />
-    ),
+    header: "ID",
     meta: { align: "right", width: "6rem" },
     cell: ({ getValue }) => <span className="numeric text-muted-foreground">{getValue()}</span>,
   }),
   columnHelper.accessor("type", {
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,
+    header: "Type",
     meta: { width: "6.5rem" },
     cell: ({ getValue }) => <Pill>{formatEnumLabel(getValue())}</Pill>,
   }),
   columnHelper.accessor("latestVersion", {
     id: "version",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Latest version" className="justify-end" />
-    ),
+    header: "Latest version",
     meta: { align: "right", width: "8rem" },
     cell: ({ getValue }) => <span className="numeric">v{getValue()}</span>,
   }),
   columnHelper.accessor((subject) => subject.versions.length, {
     id: "versions",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Versions" className="justify-end" />
-    ),
+    header: "Versions",
     meta: { align: "right", width: "6rem" },
     cell: ({ getValue }) => getValue(),
   }),
   columnHelper.accessor("compatibility", {
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Compatibility" className="justify-end" />
-    ),
+    header: "Compatibility",
     meta: { align: "right", width: "8rem" },
     cell: ({ getValue }) => (
       <span className={getValue() === "NONE" ? "text-warn" : "text-muted-foreground"}>

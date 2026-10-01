@@ -3,7 +3,6 @@ import { createFileRoute, stripSearchParams } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
 import { AsteriskIcon, BoxIcon, ShieldIcon, ZapIcon } from "lucide-react";
 
-import { DataTableColumnHeader } from "@/components/data-table/column-header";
 import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
 import { FilterBar } from "@/components/data-table/filter-bar";
@@ -91,37 +90,37 @@ const columnHelper = createColumnHelper<DataTableFeatures, Acl>();
 
 const columns = columnHelper.columns([
   columnHelper.accessor("resourceType", {
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Resource" />,
+    header: "Resource",
     meta: { width: "9rem" },
     cell: ({ getValue }) => <Pill>{formatEnumLabel(getValue())}</Pill>,
   }),
   columnHelper.accessor("resourceName", {
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Name" />,
+    header: "Name",
     cell: ({ getValue }) => <span className="font-mono">{getValue()}</span>,
   }),
   columnHelper.accessor("patternType", {
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Pattern" />,
+    header: "Pattern",
     meta: { width: "6rem" },
     cell: ({ getValue }) => (
       <span className="text-muted-foreground">{formatEnumLabel(getValue())}</span>
     ),
   }),
   columnHelper.accessor("principal", {
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Principal" />,
+    header: "Principal",
     cell: ({ getValue }) => <span className="font-mono">{getValue()}</span>,
   }),
   columnHelper.accessor("host", {
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Host" />,
+    header: "Host",
     meta: { width: "8rem" },
     cell: ({ getValue }) => <span className="font-mono text-muted-foreground">{getValue()}</span>,
   }),
   columnHelper.accessor("operation", {
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Operation" />,
+    header: "Operation",
     meta: { width: "10rem" },
     cell: ({ getValue }) => formatEnumLabel(getValue()),
   }),
   columnHelper.accessor("permission", {
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Permission" />,
+    header: "Permission",
     meta: { width: "7rem" },
     cell: ({ getValue }) => (
       <StatusLabel tone={getValue() === "DENY" ? "error" : "ok"}>

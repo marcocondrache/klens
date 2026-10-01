@@ -5,7 +5,6 @@ import { createColumnHelper } from "@tanstack/react-table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConfigTable } from "@/components/config-table";
 import { CopyButton } from "@/components/copy-button";
-import { DataTableColumnHeader } from "@/components/data-table/column-header";
 import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
 import { Facts } from "@/components/facts";
@@ -42,7 +41,7 @@ function optionalBytes(bytes: number | null) {
 
 const columns = columnHelper.columns([
   columnHelper.accessor("path", {
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Path" />,
+    header: "Path",
     cell: ({ row }) => {
       const dir = row.original;
 
@@ -66,41 +65,31 @@ const columns = columnHelper.columns([
   }),
   columnHelper.accessor("replicaCount", {
     id: "partitions",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Partitions" className="justify-end" />
-    ),
+    header: "Partitions",
     meta: { align: "right", width: "7rem" },
     cell: ({ getValue }) => formatNumber(getValue()),
   }),
   columnHelper.accessor("sizeBytes", {
     id: "size",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Size" className="justify-end" />
-    ),
+    header: "Size",
     meta: { align: "right", width: "7rem" },
     cell: ({ getValue }) => formatBytes(getValue()),
   }),
   columnHelper.accessor((dir) => dir.usableBytes ?? -1, {
     id: "free",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Free" className="justify-end" />
-    ),
+    header: "Free",
     meta: { align: "right", width: "7rem" },
     cell: ({ row }) => optionalBytes(row.original.usableBytes),
   }),
   columnHelper.accessor((dir) => dir.totalBytes ?? -1, {
     id: "capacity",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Capacity" className="justify-end" />
-    ),
+    header: "Capacity",
     meta: { align: "right", width: "7rem" },
     cell: ({ row }) => optionalBytes(row.original.totalBytes),
   }),
   columnHelper.accessor((dir) => usedShare(dir) ?? -1, {
     id: "used",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Used" className="justify-end" />
-    ),
+    header: "Used",
     meta: { align: "right", width: "6rem" },
     cell: ({ row }) => <UsedValue used={usedShare(row.original)} />,
   }),
