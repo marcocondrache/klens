@@ -185,6 +185,8 @@ complete: boolean,
  */
 obfuscated: boolean, nextCursor: string | null, prevCursor: string | null, };
 
+export type RecordLookup = { record: Record, obfuscated: boolean, };
+
 export type TailStart = { partition: number, offset: number, };
 
 export type TailEvent = { "type": "ready", start: Array<TailStart>, obfuscated: boolean, } | { "type": "records", records: Array<Record>, skipped: number, };

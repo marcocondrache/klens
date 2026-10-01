@@ -17,13 +17,14 @@ pub mod types;
 mod tests;
 
 pub(crate) use types::RecordPage;
-use types::{RecordParams, record_query};
+use types::{LookupParams, RecordLookup, RecordParams, record_at, record_query};
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(records))
         .route("/export", get(export::export))
         .route("/tail", get(tail::tail))
+        .route("/{partition}/{offset}", get(record))
 }
 
 async fn records(
@@ -34,6 +35,19 @@ async fn records(
     let records = session.cluster(&name)?.records()?;
     Ok(Json(RecordPage::from(
         records.read(record_query(topic, params)?).await?,
+    )))
+}
+
+async fn record(
+    session: Session,
+    Path((name, topic, partition, offset)): Path<(String, String, i32, i64)>,
+    Query(params): Query<LookupParams>,
+) -> Result<Json<RecordLookup>, ApiError> {
+    let records = session.cluster(&name)?.records()?;
+    Ok(Json(RecordLookup::from(
+        records
+            .record(record_at(topic, partition, offset, params))
+            .await?,
     )))
 }
 

@@ -1,11 +1,11 @@
-import { useInfiniteQuery, useQuery, type QueryKey } from "@tanstack/react-query";
+import { skipToken, useInfiniteQuery, useQuery, type QueryKey } from "@tanstack/react-query";
 
-import type { ConfigEntry, RecordPage, SubjectDetail } from "@/api/types.gen";
+import type { ConfigEntry, RecordLookup, RecordPage, SubjectDetail } from "@/api/types.gen";
 
 import { apiUrl, clusterPathname, get, resourceId } from "./client";
-import { keys, type RecordsFilter } from "./keys";
+import { keys, type RecordAddress, type RecordsFilter } from "./keys";
 
-export type { RecordsFilter };
+export type { RecordAddress, RecordsFilter };
 
 export function useBrokerConfigs(cluster: string, id: number, enabled = true) {
   return useQuery({
@@ -83,5 +83,26 @@ export function useRecords(cluster: string, query: RecordsFilter) {
         ? previous
         : undefined,
     enabled: scans,
+  });
+}
+
+export function useRecord(
+  cluster: string,
+  topic: string,
+  address: RecordAddress | null,
+  schemaId: number | null,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: keys.record(cluster, topic, address, schemaId),
+    queryFn:
+      address && enabled
+        ? () =>
+            get<RecordLookup>(
+              recordsPath(cluster, topic, String(address.partition), String(address.offset)),
+              { schemaId },
+            )
+        : skipToken,
+    staleTime: Infinity,
   });
 }

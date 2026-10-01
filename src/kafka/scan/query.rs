@@ -1,7 +1,9 @@
+use std::collections::BTreeMap;
+
 use jiff::Timestamp;
 
 use crate::kafka::error::QueryError;
-use crate::kafka::scan::cursor::{CursorDirection, RecordCursor};
+use crate::kafka::scan::cursor::{CursorDirection, RecordCursor, Remaining};
 use crate::kafka::scan::filter::CompiledFilter;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,6 +46,34 @@ impl RecordQuery {
 
     pub fn searching(&self) -> bool {
         self.filter.is_some()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordAt {
+    pub topic: String,
+    pub partition: i32,
+    pub offset: i64,
+    pub schema_id: Option<i32>,
+}
+
+impl RecordAt {
+    /// Kafka returns the first record at or after the offset, so the caller
+    /// still checks the offset it got back.
+    pub fn query(&self) -> RecordQuery {
+        RecordQuery {
+            topic: self.topic.clone(),
+            partitions: vec![self.partition],
+            filter: None,
+            timestamps: TimestampRange::UNBOUNDED,
+            limit: 1,
+            order: RecordOrder::Oldest,
+            cursor: Some(RecordCursor {
+                order: RecordOrder::Oldest,
+                remaining: Remaining::From(BTreeMap::from([(self.partition, self.offset)])),
+            }),
+            schema_id: self.schema_id,
+        }
     }
 }
 

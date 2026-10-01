@@ -6,10 +6,10 @@ use crate::kafka::metadata::{PartitionMetadata, Watermarks};
 use crate::kafka::session::{ClusterSession, watermarks};
 use crate::kafka::store::ClusterStore;
 
-use super::RecordPage;
 use super::plan::apply_timestamp_bounds;
-use super::query::RecordQuery;
+use super::query::{RecordAt, RecordQuery};
 use super::session::fetch_page;
+use super::{FoundRecord, RecordPage};
 
 pub async fn read_page<S: ClusterSession + ?Sized>(
     session: &S,
@@ -23,6 +23,27 @@ pub async fn read_page<S: ClusterSession + ?Sized>(
     let watermarks = window_watermarks(session, &query, &partitions).await?;
 
     fetch_page(session, &query, &partitions, &watermarks, limit, limits).await
+}
+
+pub async fn read_record<S: ClusterSession + ?Sized>(
+    session: &S,
+    store: &ClusterStore,
+    at: RecordAt,
+    limits: RecordLimits,
+) -> Result<FoundRecord, KafkaError> {
+    let page = read_page(session, store, at.query(), limits).await?;
+    let obfuscated = page.obfuscated;
+
+    page.records
+        .into_iter()
+        .find(|record| record.offset == at.offset)
+        .map(|record| FoundRecord { record, obfuscated })
+        .ok_or_else(|| KafkaError::UnknownOffset {
+            cluster: store.name().to_owned(),
+            topic: at.topic,
+            partition: at.partition,
+            offset: at.offset,
+        })
 }
 
 pub(super) async fn resolve_partitions<S: ClusterSession + ?Sized>(

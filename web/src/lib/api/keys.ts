@@ -10,6 +10,8 @@ export type RecordsFilter = {
   schemaId: number | null;
 };
 
+export type RecordAddress = { partition: number; offset: number };
+
 export type TailFilter = {
   topic: string;
   partitions: number[] | null;
@@ -34,6 +36,12 @@ export const keys = {
     ["cluster", cluster, "topics", topic, "groups"] as const,
   records: (cluster: string, query: RecordsFilter) =>
     ["cluster", cluster, "topics", query.topic, "records", query] as const,
+  record: (
+    cluster: string,
+    topic: string,
+    address: RecordAddress | null,
+    schemaId: number | null,
+  ) => ["cluster", cluster, "topics", topic, "record", address, schemaId] as const,
 
   groupRows: (cluster: string) => ["cluster", cluster, "groups"] as const,
   group: (cluster: string, group: string) => ["cluster", cluster, "groups", group] as const,

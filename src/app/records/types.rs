@@ -91,6 +91,42 @@ impl From<domain::RecordPage> for RecordPage {
     }
 }
 
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordLookup {
+    pub record: Record,
+    pub obfuscated: bool,
+}
+
+impl From<domain::FoundRecord> for RecordLookup {
+    fn from(found: domain::FoundRecord) -> Self {
+        Self {
+            record: found.record.into(),
+            obfuscated: found.obfuscated,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LookupParams {
+    pub schema_id: Option<i32>,
+}
+
+pub(crate) fn record_at(
+    topic: String,
+    partition: i32,
+    offset: i64,
+    params: LookupParams,
+) -> domain::RecordAt {
+    domain::RecordAt {
+        topic,
+        partition,
+        offset,
+        schema_id: params.schema_id,
+    }
+}
+
 pub(crate) fn record_query(
     topic: String,
     params: RecordParams,

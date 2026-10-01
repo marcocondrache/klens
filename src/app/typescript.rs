@@ -11,7 +11,7 @@ pub use super::quotas::types::{
     ClientQuota, QuotaEntity, QuotaEntityType, QuotaListing, QuotaStatus,
 };
 pub use super::records::types::{
-    Record, RecordHeader, RecordOrder, RecordPage, TailEvent, TailStart,
+    Record, RecordHeader, RecordLookup, RecordOrder, RecordPage, TailEvent, TailStart,
 };
 pub use super::search::types::{SearchHit, SearchKind};
 pub use super::subjects::types::{

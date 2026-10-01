@@ -8,7 +8,7 @@ use crate::app::auth::SessionGuard;
 use crate::app::auth::access::{
     AccessError, ClusterAccess, ConfigsCap, EffectiveAccess, RecordsCap, SchemaTextCap,
 };
-use crate::kafka::model::RegisteredSchema;
+use crate::kafka::model::{FoundRecord, RecordAt, RegisteredSchema};
 use crate::kafka::store::ClusterStore;
 use crate::kafka::{
     Cluster, ConfigEntry, Export, KafkaError, RecordPage, RecordQuery, Tail, TailLimits, TailQuery,
@@ -66,6 +66,10 @@ pub(crate) struct Granted<'a, Cap> {
 impl Granted<'_, RecordsCap> {
     pub(crate) async fn read(&self, query: RecordQuery) -> Result<RecordPage, KafkaError> {
         self.cluster.records(query, self.limits.records).await
+    }
+
+    pub(crate) async fn record(&self, at: RecordAt) -> Result<FoundRecord, KafkaError> {
+        self.cluster.record(at, self.limits.records).await
     }
 
     pub(crate) async fn export(&self, query: RecordQuery) -> Result<Export, KafkaError> {

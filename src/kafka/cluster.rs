@@ -8,9 +8,9 @@ use crate::config::{self, IngestTuning, Tuning};
 use crate::kafka::client::KafkaClient;
 use crate::kafka::error::KafkaError;
 use crate::kafka::limits::{RecordLimits, TailLimits};
-use crate::kafka::model::{ConfigEntry, RecordPage, RecordQuery};
+use crate::kafka::model::{ConfigEntry, FoundRecord, RecordAt, RecordPage, RecordQuery};
 use crate::kafka::scan::export::Export;
-use crate::kafka::scan::read::read_page;
+use crate::kafka::scan::read::{read_page, read_record};
 use crate::kafka::scan::tail::{Tail, TailQuery};
 use crate::kafka::session::ClusterSession;
 use crate::kafka::store::ClusterStore;
@@ -53,6 +53,14 @@ impl Cluster {
         limits: RecordLimits,
     ) -> Result<RecordPage, KafkaError> {
         read_page(self.session.as_ref(), &self.store, query, limits).await
+    }
+
+    pub async fn record(
+        &self,
+        at: RecordAt,
+        limits: RecordLimits,
+    ) -> Result<FoundRecord, KafkaError> {
+        read_record(self.session.as_ref(), &self.store, at, limits).await
     }
 
     pub async fn export(

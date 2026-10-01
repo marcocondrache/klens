@@ -328,6 +328,84 @@ async fn records_are_forbidden_without_the_records_privilege() {
     );
 }
 
+const RECORD: &str = "/clusters/local/topics/orders.created/records";
+
+#[tokio::test]
+async fn a_record_opens_by_partition_and_offset() {
+    let data = ok(&seeded(), &format!("{RECORD}/0/3")).await;
+
+    assert_eq!(data["record"]["partition"], 0);
+    assert_eq!(data["record"]["offset"], 3);
+    assert_eq!(data["record"]["key"], "ord_3");
+    assert_eq!(data["obfuscated"], json!(false));
+}
+
+#[tokio::test]
+async fn an_offset_with_no_record_is_not_found() {
+    for offset in ["2", "8", "-1"] {
+        let path = format!("{RECORD}/0/{offset}");
+        let (status, code) = failure(&seeded(), &path, EffectiveAccess::Unrestricted).await;
+
+        assert_eq!(
+            (status, code.as_str()),
+            (StatusCode::NOT_FOUND, "UNKNOWN_OFFSET"),
+            "{path}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_record_in_an_unknown_partition_is_not_found() {
+    let (status, code) = failure(
+        &seeded(),
+        &format!("{RECORD}/7/1"),
+        EffectiveAccess::Unrestricted,
+    )
+    .await;
+
+    assert_eq!(
+        (status, code.as_str()),
+        (StatusCode::NOT_FOUND, "UNKNOWN_PARTITION")
+    );
+}
+
+#[tokio::test]
+async fn an_opened_record_keeps_the_obfuscation_view() {
+    let pan = "4111111111111111";
+    let records = (0..3).map(|offset| card_record(offset, pan)).collect();
+    let state = seeded_with(
+        FakeCluster::local()
+            .with_orders_records(records)
+            .with_obfuscation(
+                "
+                secret: {value: 0123456789abcdef0123456789abcdef}
+                rules:
+                  - topics: ['orders.*']
+                    fields:
+                      - path: card.number
+                        strategy: hash
+                ",
+            ),
+    )
+    .0;
+    let data = ok(&state, &format!("{RECORD}/0/1")).await;
+    let value = data["record"]["value"].as_str().expect("value");
+
+    assert_eq!(data["obfuscated"], json!(true));
+    assert!(value.contains("\"kx:"), "{value}");
+    assert!(!value.contains(pan), "{value}");
+}
+
+#[tokio::test]
+async fn a_record_is_forbidden_without_the_records_privilege() {
+    let (status, code) = failure(&seeded(), &format!("{RECORD}/0/3"), viewer_everywhere()).await;
+
+    assert_eq!(
+        (status, code.as_str()),
+        (StatusCode::FORBIDDEN, "FORBIDDEN")
+    );
+}
+
 const TAIL: &str = "/clusters/local/topics/orders.created/records/tail";
 
 fn produced(partition: i32, offset: i64, key: impl Into<Bytes>) -> FixtureRecord {

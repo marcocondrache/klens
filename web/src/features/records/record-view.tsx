@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from "react";
-import { EyeOffIcon, Rows3Icon } from "lucide-react";
+import { useRef, useState, type ReactNode } from "react";
+import { EyeOffIcon, Rows3Icon, SearchXIcon } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
 
@@ -10,7 +10,16 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { CopyButton } from "@/components/copy-button";
 import { DataTableColumnHeader } from "@/components/data-table/column-header";
 import { type DataTableFeatures } from "@/components/data-table/features";
 import { FilterBar, type CustomFilter } from "@/components/data-table/filter-bar";
@@ -23,13 +32,17 @@ import { PayloadView } from "@/components/payload-view";
 import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
 import { useSubjectRows } from "@/lib/api/catalog";
+import { ApiError, apiErrorMessage } from "@/lib/api/client";
+import { useRecord, type RecordAddress } from "@/lib/api/live";
 import { formatBytes, formatCount, formatRelative, formatTimestamp } from "@/lib/format";
 import type { KafkaRecord, TopicDetail } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
+import { useRecordAddress } from "./record-address";
+import { recordId } from "./record-id";
+import { RecordJump } from "./record-jump";
 import { RecordTable } from "./record-table";
 import { SchemaPicker } from "./schema-picker";
-import { recordId } from "./record-id";
 
 export type RecordFilter = {
   term: string;
@@ -191,19 +204,23 @@ export function RecordView({
   notice,
   emptyState,
 }: RecordViewProps) {
-  const [selected, setSelected] = useState<KafkaRecord | null>(null);
+  const { address, open, link } = useRecordAddress();
   const [expanded, setExpanded] = useState(false);
+  const sheetRef = useRef<HTMLDivElement>(null);
 
   const { records, obfuscated } = source;
   const showSchemaPicker =
     filter.schemaId != null ||
     records.some((record) => record.value != null && record.schemaId == null);
-  const selectedRecord =
-    selected == null
+  const listed =
+    address == null
       ? null
       : (records.find(
-          (record) => record.partition === selected.partition && record.offset === selected.offset,
-        ) ?? selected);
+          (record) => record.partition === address.partition && record.offset === address.offset,
+        ) ?? null);
+  const lookup = useRecord(cluster, topic.name, address, filter.schemaId, listed == null);
+  const selectedRecord = listed ?? lookup.data?.record ?? null;
+  const selectedObfuscated = listed ? obfuscated : (lookup.data?.obfuscated ?? false);
   const selectedSchemaId =
     selectedRecord?.value == null ? null : (selectedRecord.schemaId ?? filter.schemaId);
 
@@ -244,7 +261,10 @@ export function RecordView({
 
             {obfuscated ? <ObfuscatedBadge /> : null}
 
-            {actions ? <div className="ml-auto flex items-center gap-2">{actions}</div> : null}
+            <div className="ml-auto flex items-center gap-2">
+              <RecordJump topic={topic} onOpen={open} />
+              {actions}
+            </div>
           </>
         }
         getRowId={recordId}
@@ -255,48 +275,73 @@ export function RecordView({
         fetchNextPage={source.pages?.fetchNextPage}
         isFetchingNextPage={source.pages?.isFetchingNextPage}
         isFetchNextPageError={source.pages?.isFetchNextPageError}
-        onRowClick={setSelected}
-        selectedKey={selectedRecord ? recordId(selectedRecord) : undefined}
+        onRowClick={(record) => open({ partition: record.partition, offset: record.offset })}
+        selectedKey={address ? recordId(address) : undefined}
         error={source.error}
         emptyState={emptyState}
       />
 
       <Sheet
-        open={selectedRecord !== null}
-        onOpenChange={(open) => {
-          if (!open) {
-            setSelected(null);
+        open={address !== null}
+        onOpenChange={(next) => {
+          if (!next) {
+            open(null);
             setExpanded(false);
           }
         }}
       >
         <SheetContent
+          ref={sheetRef}
+          initialFocus={sheetRef}
           side="right"
           className={cn(
-            "w-full gap-0 data-[side=right]:w-full",
+            "w-full gap-0 outline-none data-[side=right]:w-full",
             expanded
               ? "data-[side=right]:sm:max-w-[min(90vw,56rem)]"
               : "data-[side=right]:sm:max-w-2xl",
           )}
         >
+          {address ? (
+            <SheetHeader className="gap-1 border-b px-5 py-4 pr-12">
+              <SheetTitle className="flex min-w-0 items-center gap-2 font-mono text-sm font-medium">
+                <span className="min-w-0 truncate">
+                  <span className="text-muted-foreground">{topic.name}</span>
+                  <span className="text-muted-foreground/60"> / </span>
+                  {address.partition}
+                  <span className="text-muted-foreground/60"> @ </span>
+                  {address.offset}
+                </span>
+                <CopyButton value={link(address)} label="Copy link to this record" />
+                {selectedObfuscated ? <ObfuscatedBadge /> : null}
+              </SheetTitle>
+              <SheetDescription>
+                {selectedRecord
+                  ? `Produced ${formatRelative(selectedRecord.timestamp)}`
+                  : lookup.isError
+                    ? "Not available"
+                    : "Loading…"}
+              </SheetDescription>
+            </SheetHeader>
+          ) : null}
+          {address && !selectedRecord ? (
+            lookup.isError ? (
+              <Empty className="py-10">
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <SearchXIcon />
+                  </EmptyMedia>
+                  <EmptyTitle>Record not found</EmptyTitle>
+                  <EmptyDescription>{missingRecord(lookup.error, address)}</EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            ) : (
+              <div className="flex flex-1 items-center justify-center">
+                <Spinner />
+              </div>
+            )
+          ) : null}
           {selectedRecord ? (
             <>
-              <SheetHeader className="gap-1 border-b px-5 py-4 pr-12">
-                <SheetTitle className="flex min-w-0 items-center gap-2 font-mono text-sm font-medium">
-                  <span className="min-w-0 truncate">
-                    <span className="text-muted-foreground">{topic.name}</span>
-                    <span className="text-muted-foreground/60"> / </span>
-                    {selectedRecord.partition}
-                    <span className="text-muted-foreground/60"> @ </span>
-                    {selectedRecord.offset}
-                  </span>
-                  {obfuscated ? <ObfuscatedBadge /> : null}
-                </SheetTitle>
-                <SheetDescription>
-                  Produced {formatRelative(selectedRecord.timestamp)}
-                </SheetDescription>
-              </SheetHeader>
-
               <dl className="grid shrink-0 grid-cols-3 gap-x-4 gap-y-3 border-b px-5 py-4">
                 <Meta label="Partition" value={selectedRecord.partition} />
                 <Meta label="Offset" value={selectedRecord.offset} />
@@ -364,6 +409,16 @@ export function RecordView({
       </Sheet>
     </div>
   );
+}
+
+function missingRecord(error: unknown, { partition, offset }: RecordAddress) {
+  if (error instanceof ApiError && error.code === "UNKNOWN_OFFSET") {
+    return `Partition ${partition} has no record at offset ${offset}. Retention or compaction may have removed it, or the offset may hold a transaction marker.`;
+  }
+  if (error instanceof ApiError && error.code === "UNKNOWN_PARTITION") {
+    return `This topic has no partition ${partition}.`;
+  }
+  return apiErrorMessage(error, "Failed to load this record.");
 }
 
 function SchemaLink({ cluster, topic, id }: { cluster: string; topic: string; id: number }) {
