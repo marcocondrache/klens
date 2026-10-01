@@ -17,7 +17,7 @@ use super::runner::LaneSource;
 
 pub struct WatermarkLane {
     session: Arc<dyn ClusterSession>,
-    interval: Duration,
+    high_interval: Duration,
     low_interval: Duration,
     low_read_at: Mutex<Option<Instant>>,
     idle_heartbeat: Duration,
@@ -28,12 +28,12 @@ pub struct WatermarkLane {
 impl WatermarkLane {
     pub fn with_interval(
         session: Arc<dyn ClusterSession>,
-        interval: Duration,
+        high_interval: Duration,
         tuning: &IngestTuning,
     ) -> Self {
         Self {
             session,
-            interval,
+            high_interval,
             low_interval: tuning.low_watermark,
             low_read_at: Mutex::new(None),
             idle_heartbeat: tuning.idle_heartbeat,
@@ -142,7 +142,7 @@ impl LaneSource for WatermarkLane {
     }
 
     fn interval(&self) -> Duration {
-        self.interval
+        self.high_interval
     }
 
     fn lane<'a>(&self, store: &'a ClusterStore) -> &'a Lane<WatermarkTable> {
