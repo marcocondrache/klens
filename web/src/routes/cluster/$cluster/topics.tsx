@@ -5,7 +5,6 @@ import { createColumnHelper } from "@tanstack/react-table";
 
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { DataTableColumnHeader } from "@/components/data-table/column-header";
 import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
 import { FilterBar } from "@/components/data-table/filter-bar";
@@ -95,7 +94,7 @@ const columnHelper = createColumnHelper<DataTableFeatures, TopicRow>();
 
 const columns = columnHelper.columns([
   columnHelper.accessor("name", {
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Topic" />,
+    header: "Topic",
     cell: ({ row }) => {
       const topic = row.original;
 
@@ -115,48 +114,36 @@ const columns = columnHelper.columns([
   }),
   columnHelper.accessor("partitionCount", {
     id: "partitions",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Parts" className="justify-end" />
-    ),
+    header: "Parts",
     meta: { align: "right", width: "5rem" },
     cell: ({ getValue }) => getValue(),
   }),
   columnHelper.accessor("replicationFactor", {
     id: "replication",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="RF" className="justify-end" />
-    ),
+    header: "RF",
     meta: { align: "right", width: "4rem" },
   }),
   columnHelper.accessor("retainedMessages", {
     id: "messages",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Messages" className="justify-end" />
-    ),
+    header: "Messages",
     meta: { align: "right", width: "9rem" },
     cell: ({ getValue }) => emptyMetric(getValue(), formatNumber(getValue())),
   }),
   columnHelper.accessor((topic) => topic.sizeBytes ?? -1, {
     id: "size",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Size" className="justify-end" />
-    ),
+    header: "Size",
     meta: { align: "right", width: "7rem" },
     cell: ({ row }) => <SizeValue bytes={row.original.sizeBytes} />,
   }),
   columnHelper.accessor("rate", {
     id: "rate",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Msg/s" className="justify-end" />
-    ),
+    header: "Msg/s",
     meta: { align: "right", width: "6rem" },
     cell: ({ getValue }) => emptyMetric(getValue(), formatThroughput(getValue())),
   }),
   columnHelper.accessor((topic) => topic.retentionMs ?? Number.POSITIVE_INFINITY, {
     id: "retention",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Retention" className="justify-end" />
-    ),
+    header: "Retention",
     meta: { align: "right", width: "7rem" },
     cell: ({ row }) => {
       if (row.original.retentionMs === null) {
@@ -169,9 +156,7 @@ const columns = columnHelper.columns([
   }),
   columnHelper.accessor("cleanupPolicy", {
     id: "policy",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Policy" className="justify-end" />
-    ),
+    header: "Policy",
     meta: { align: "right", width: "8rem" },
     cell: ({ getValue }) => (
       <span className={isCompactCleanup(getValue()) ? "text-foreground" : "text-muted-foreground"}>
@@ -181,9 +166,7 @@ const columns = columnHelper.columns([
   }),
   columnHelper.accessor("groupCount", {
     id: "groups",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Groups" className="justify-end" />
-    ),
+    header: "Groups",
     meta: { align: "right", width: "6rem" },
     cell: ({ getValue }) => emptyMetric(getValue(), getValue()),
   }),

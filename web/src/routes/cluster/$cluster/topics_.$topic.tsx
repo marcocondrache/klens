@@ -5,7 +5,6 @@ import { createColumnHelper } from "@tanstack/react-table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConfigTable } from "@/components/config-table";
 import { CopyButton } from "@/components/copy-button";
-import { DataTableColumnHeader } from "@/components/data-table/column-header";
 import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
 import { PageHeader } from "@/components/page-header";
@@ -46,21 +45,17 @@ const groupColumnHelper = createColumnHelper<DataTableFeatures, TopicGroupRow>()
 
 const partitionColumns = partitionColumnHelper.columns([
   partitionColumnHelper.accessor("id", {
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Partition" className="justify-end" />
-    ),
+    header: "Partition",
     meta: { align: "right", width: "6rem" },
     cell: ({ getValue }) => <span className="numeric">{getValue()}</span>,
   }),
   partitionColumnHelper.accessor("leader", {
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Leader" className="justify-end" />
-    ),
+    header: "Leader",
     meta: { align: "right", width: "6rem" },
     cell: ({ getValue }) => <span className="numeric">{getValue()}</span>,
   }),
   partitionColumnHelper.accessor("replicas", {
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Replicas" />,
+    header: "Replicas",
     cell: ({ row }) => (
       <span className="flex flex-wrap gap-1">
         {row.original.replicas.map((replica) => (
@@ -78,9 +73,7 @@ const partitionColumns = partitionColumnHelper.columns([
   }),
   partitionColumnHelper.accessor((partition) => partition.isr.length, {
     id: "isr",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="In sync" className="justify-end" />
-    ),
+    header: "In sync",
     meta: { align: "right", width: "6rem" },
     cell: ({ row }) => (
       <span
@@ -96,33 +89,25 @@ const partitionColumns = partitionColumnHelper.columns([
   }),
   partitionColumnHelper.accessor("lowWatermark", {
     id: "low",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Low offset" className="justify-end" />
-    ),
+    header: "Low offset",
     meta: { align: "right", width: "9rem" },
     cell: ({ getValue }) => formatNumber(getValue()),
   }),
   partitionColumnHelper.accessor("highWatermark", {
     id: "high",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="High offset" className="justify-end" />
-    ),
+    header: "High offset",
     meta: { align: "right", width: "9rem" },
     cell: ({ getValue }) => formatNumber(getValue()),
   }),
   partitionColumnHelper.accessor("retained", {
     id: "messages",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Messages" className="justify-end" />
-    ),
+    header: "Messages",
     meta: { align: "right", width: "9rem" },
     cell: ({ getValue }) => formatNumber(getValue()),
   }),
   partitionColumnHelper.accessor((partition) => partition.sizeBytes ?? -1, {
     id: "size",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Size" className="justify-end" />
-    ),
+    header: "Size",
     meta: { align: "right", width: "7rem" },
     cell: ({ row }) => <SizeValue bytes={row.original.sizeBytes} />,
   }),
@@ -130,27 +115,23 @@ const partitionColumns = partitionColumnHelper.columns([
 
 const groupColumns = groupColumnHelper.columns([
   groupColumnHelper.accessor("id", {
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Group" />,
+    header: "Group",
     cell: ({ getValue }) => <span className="font-mono">{getValue()}</span>,
   }),
   groupColumnHelper.accessor("state", {
-    header: ({ column }) => <DataTableColumnHeader column={column} title="State" />,
+    header: "State",
     meta: { width: "12rem" },
     cell: ({ getValue }) => <GroupStateBadge state={getValue()} />,
   }),
   groupColumnHelper.accessor("memberCount", {
     id: "members",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Members" className="justify-end" />
-    ),
+    header: "Members",
     meta: { align: "right", width: "6rem" },
     cell: ({ getValue }) => getValue(),
   }),
   groupColumnHelper.accessor((group) => group.lagOnTopic ?? -1, {
     id: "lag",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Lag on this topic" className="justify-end" />
-    ),
+    header: "Lag on this topic",
     meta: { align: "right", width: "9rem" },
     cell: ({ row }) => <LagValue lag={row.original.lagOnTopic} />,
   }),

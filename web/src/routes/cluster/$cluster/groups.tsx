@@ -3,7 +3,6 @@ import { createFileRoute, stripSearchParams } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
 import { CircleDashedIcon, TimerIcon } from "lucide-react";
 
-import { DataTableColumnHeader } from "@/components/data-table/column-header";
 import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
 import { FilterBar } from "@/components/data-table/filter-bar";
@@ -71,25 +70,23 @@ const columnHelper = createColumnHelper<DataTableFeatures, GroupRow>();
 
 const columns = columnHelper.columns([
   columnHelper.accessor("id", {
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Group" />,
+    header: "Group",
     cell: ({ getValue }) => <span className="font-mono">{getValue()}</span>,
   }),
   columnHelper.accessor("state", {
-    header: ({ column }) => <DataTableColumnHeader column={column} title="State" />,
+    header: "State",
     meta: { width: "12rem" },
     cell: ({ getValue }) => <GroupStateBadge state={getValue()} />,
   }),
   columnHelper.accessor("memberCount", {
     id: "members",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Members" className="justify-end" />
-    ),
+    header: "Members",
     meta: { align: "right", width: "6rem" },
     cell: ({ getValue }) => getValue(),
   }),
   columnHelper.accessor((group) => group.topicNames.length, {
     id: "topics",
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Topics" />,
+    header: "Topics",
     cell: ({ row }) => (
       <span className="flex items-center gap-1.5">
         {row.original.topicNames.slice(0, 1).map((topic) => (
@@ -105,9 +102,7 @@ const columns = columnHelper.columns([
   }),
   columnHelper.accessor((group) => group.totalLag ?? -1, {
     id: "lag",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Lag" className="justify-end" />
-    ),
+    header: "Lag",
     meta: { align: "right", width: "9rem" },
     cell: ({ row }) => <LagValue lag={row.original.totalLag} complete={row.original.lagComplete} />,
   }),

@@ -6,7 +6,6 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CopyButton } from "@/components/copy-button";
-import { DataTableColumnHeader } from "@/components/data-table/column-header";
 import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
 import { SearchField } from "@/components/search-field";
@@ -24,7 +23,7 @@ const columnHelper = createColumnHelper<DataTableFeatures, ConfigEntry>();
 
 const columns = columnHelper.columns([
   columnHelper.accessor("name", {
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Key" />,
+    header: "Key",
     cell: ({ row }) => {
       const entry = row.original;
 
@@ -44,7 +43,7 @@ const columns = columnHelper.columns([
     },
   }),
   columnHelper.accessor("value", {
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Value" />,
+    header: "Value",
     meta: { className: "whitespace-normal" },
     cell: ({ row }) => {
       const entry = row.original;
@@ -65,9 +64,7 @@ const columns = columnHelper.columns([
     },
   }),
   columnHelper.accessor("source", {
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Source" className="justify-end" />
-    ),
+    header: "Source",
     meta: { align: "right", width: "9rem" },
     cell: ({ getValue }) => {
       const source = getValue();

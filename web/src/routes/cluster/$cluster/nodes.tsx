@@ -3,7 +3,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
 
 import { CopyButton } from "@/components/copy-button";
-import { DataTableColumnHeader } from "@/components/data-table/column-header";
 import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
 import { LaneCaption } from "@/components/lane-caption";
@@ -24,7 +23,7 @@ const columnHelper = createColumnHelper<DataTableFeatures, BrokerRow>();
 
 const columns = columnHelper.columns([
   columnHelper.accessor("id", {
-    header: ({ column }) => <DataTableColumnHeader column={column} title="ID" />,
+    header: "ID",
     meta: { width: "10rem" },
     cell: ({ row }) => {
       const broker = row.original;
@@ -49,7 +48,7 @@ const columns = columnHelper.columns([
     },
   }),
   columnHelper.accessor("host", {
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Host" />,
+    header: "Host",
     cell: ({ row }) => {
       const broker = row.original;
 
@@ -66,7 +65,7 @@ const columns = columnHelper.columns([
   }),
   columnHelper.accessor((broker) => broker.rack ?? "", {
     id: "rack",
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Rack" />,
+    header: "Rack",
     meta: { width: "8rem" },
     cell: ({ row }) =>
       row.original.rack ? (
@@ -77,33 +76,25 @@ const columns = columnHelper.columns([
   }),
   columnHelper.accessor("partitionCount", {
     id: "partitions",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Partitions" className="justify-end" />
-    ),
+    header: "Partitions",
     meta: { align: "right", width: "7rem" },
     cell: ({ getValue }) => formatNumber(getValue()),
   }),
   columnHelper.accessor("leaderCount", {
     id: "leaders",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Leaders" className="justify-end" />
-    ),
+    header: "Leaders",
     meta: { align: "right", width: "6.5rem" },
     cell: ({ getValue }) => formatNumber(getValue()),
   }),
   columnHelper.accessor((broker) => broker.sizeBytes ?? -1, {
     id: "size",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Size" className="justify-end" />
-    ),
+    header: "Size",
     meta: { align: "right", width: "7rem" },
     cell: ({ row }) => <SizeValue bytes={row.original.sizeBytes} />,
   }),
   columnHelper.accessor((broker) => fullestDir(broker.logDirs)?.used ?? -1, {
     id: "disk",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Disk used" className="justify-end" />
-    ),
+    header: "Disk used",
     meta: { align: "right", width: "7rem" },
     cell: ({ row }) => {
       if (row.original.logDirs.length === 0) {

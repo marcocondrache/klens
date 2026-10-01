@@ -1,9 +1,11 @@
 import { useRef, useState, type ReactNode } from "react";
 import {
+  FlexRender,
   useTable,
   type Column,
   type ColumnDef,
   type ColumnSizingState,
+  type Header,
   type RowData,
   type SortingState,
 } from "@tanstack/react-table";
@@ -19,6 +21,7 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
+import { DataTableColumnHeader } from "./column-header";
 import { ColumnResizeHandle, resizedWidth, resizeOptions } from "./column-resize";
 import { features, type DataTableFeatures } from "./features";
 import { tablePlaceholder } from "./placeholder";
@@ -116,7 +119,7 @@ export function DataTable<TData extends RowData>({
                           meta?.align === "right" && "text-right",
                         )}
                       >
-                        {header.isPlaceholder ? null : <table.FlexRender header={header} />}
+                        {header.isPlaceholder ? null : <HeaderContent header={header} />}
                         {meta?.width ? <ColumnResizeHandle header={header} /> : null}
                       </TableHead>
                     );
@@ -198,6 +201,20 @@ export function DataTable<TData extends RowData>({
       </div>
     </div>
   );
+}
+
+function HeaderContent<TData extends RowData>({
+  header,
+}: {
+  header: Header<DataTableFeatures, TData, unknown>;
+}) {
+  "use no memo";
+
+  const title = header.column.columnDef.header;
+  if (typeof title === "string") {
+    return <DataTableColumnHeader column={header.column} title={title} />;
+  }
+  return <FlexRender header={header} />;
 }
 
 function columnWidth<TData extends RowData>(
