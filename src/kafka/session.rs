@@ -26,6 +26,11 @@ pub trait ClusterSession: Send + Sync + 'static {
         topics: &HashMap<String, Vec<i32>>,
     ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError>;
 
+    async fn high_watermarks(
+        &self,
+        topics: &HashMap<String, Vec<i32>>,
+    ) -> Result<HashMap<String, HashMap<i32, i64>>, KafkaError>;
+
     async fn offsets_for_times(
         &self,
         topic: &str,

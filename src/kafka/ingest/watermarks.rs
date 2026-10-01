@@ -18,9 +18,11 @@ use super::runner::LaneSource;
 pub struct WatermarkLane {
     session: Arc<dyn ClusterSession>,
     interval: Duration,
+    log_start: Duration,
     idle_heartbeat: Duration,
     max_sample_gap: Duration,
     committed_at: Mutex<Option<Instant>>,
+    log_start_read_at: Mutex<Option<Instant>>,
 }
 
 impl WatermarkLane {
@@ -32,9 +34,11 @@ impl WatermarkLane {
         Self {
             session,
             interval,
+            log_start: tuning.log_start,
             idle_heartbeat: tuning.idle_heartbeat,
             max_sample_gap: tuning.max_sample_gap,
             committed_at: Mutex::new(None),
+            log_start_read_at: Mutex::new(None),
         }
     }
 
@@ -66,6 +70,58 @@ impl WatermarkLane {
             partitions.dedup();
         }
         wanted
+    }
+
+    fn log_start_due(&self, now: Instant) -> bool {
+        (*self.log_start_read_at.lock().expect("watermark lane clock"))
+            .is_none_or(|at| now.saturating_duration_since(at) >= self.log_start)
+    }
+
+    async fn read_both_ends(
+        &self,
+        wanted: &HashMap<String, Vec<i32>>,
+        now: Instant,
+    ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError> {
+        let fetched = self.session.watermarks(wanted).await?;
+        *self.log_start_read_at.lock().expect("watermark lane clock") = Some(now);
+        Ok(fetched)
+    }
+
+    async fn read_high_ends(
+        &self,
+        wanted: &HashMap<String, Vec<i32>>,
+        previous: &WatermarkTable,
+    ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError> {
+        let highs = self.session.high_watermarks(wanted).await?;
+
+        let mut uncached: HashMap<String, Vec<i32>> = HashMap::new();
+        let mut marks: HashMap<String, HashMap<i32, Watermarks>> =
+            HashMap::with_capacity(highs.len());
+        for (topic, partitions) in highs {
+            let mut known = HashMap::with_capacity(partitions.len());
+            for (partition, high) in partitions {
+                match previous.get(&topic, partition) {
+                    Some(cached) if cached.low <= high => {
+                        known.insert(
+                            partition,
+                            Watermarks {
+                                low: cached.low,
+                                high,
+                            },
+                        );
+                    }
+                    _ => uncached.entry(topic.clone()).or_default().push(partition),
+                }
+            }
+            marks.insert(topic, known);
+        }
+
+        if !uncached.is_empty() {
+            for (topic, partitions) in self.session.watermarks(&uncached).await? {
+                marks.entry(topic).or_default().extend(partitions);
+            }
+        }
+        Ok(marks)
     }
 
     fn since_last_commit(&self, now: Instant) -> Option<Duration> {
@@ -100,10 +156,16 @@ impl LaneSource for WatermarkLane {
         &self,
         store: &ClusterStore,
         topology: &Topology,
-        _previous: Option<&Arc<WatermarkTable>>,
+        previous: Option<&Arc<WatermarkTable>>,
     ) -> Result<WatermarkTable, KafkaError> {
         let wanted = self.wanted_partitions(store, topology);
-        let fetched = self.session.watermarks(&wanted).await?;
+        let now = Instant::now();
+        let fetched = match previous {
+            Some(previous) if !self.log_start_due(now) => {
+                self.read_high_ends(&wanted, previous).await?
+            }
+            _ => self.read_both_ends(&wanted, now).await?,
+        };
 
         let marks = fetched
             .into_iter()

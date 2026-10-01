@@ -47,6 +47,18 @@ pub fn merge_watermark_offsets(
     out
 }
 
+pub fn high_offsets(
+    end: impl IntoIterator<Item = (String, i32, i64)>,
+) -> HashMap<String, HashMap<i32, i64>> {
+    let mut out: HashMap<String, HashMap<i32, i64>> = HashMap::new();
+    for (topic, partition, high) in end {
+        if high >= 0 {
+            out.entry(topic).or_default().insert(partition, high);
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -109,6 +121,21 @@ mod tests {
                     HashMap::from_iter([(0, Watermarks { low: 3, high: 9 })]),
                 ),
             ])
+        );
+    }
+
+    #[test]
+    fn high_offsets_skip_partitions_without_an_end() {
+        let highs = high_offsets([
+            ("orders".into(), 0, 0),
+            ("orders".into(), 1, 12),
+            ("orders".into(), 2, -1),
+            ("payments".into(), 0, -1),
+        ]);
+
+        assert_eq!(
+            highs,
+            HashMap::from_iter([("orders".into(), HashMap::from_iter([(0, 0), (1, 12)]))])
         );
     }
 }

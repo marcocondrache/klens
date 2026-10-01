@@ -35,7 +35,7 @@ use crate::kafka::topic_config::ConfigEntry;
 
 use convert::committed_from_krafka;
 use groups::snapshots_from_descriptions;
-use offsets::{from_list_offsets, merge_watermark_offsets, partition_time_offsets};
+use offsets::{from_list_offsets, high_offsets, merge_watermark_offsets, partition_time_offsets};
 use pool::ScanPool;
 use scan::ReaderConfig;
 use tail::TailLease;
@@ -198,6 +198,23 @@ impl ClusterSession for KafkaClient {
             &from_list_offsets(beginning.into_iter().map(list_offset_parts)),
             end.into_iter().map(list_offset_parts),
         ))
+    }
+
+    async fn high_watermarks(
+        &self,
+        topics: &HashMap<String, Vec<i32>>,
+    ) -> Result<HashMap<String, HashMap<i32, i64>>, KafkaError> {
+        let query = list_offset_query(topics);
+        if query.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let end = self
+            .transport
+            .admin
+            .list_offsets(&query, OffsetSpec::Latest)
+            .await?;
+        Ok(high_offsets(end.into_iter().map(list_offset_parts)))
     }
 
     async fn offsets_for_times(
@@ -625,6 +642,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn high_watermarks_list_only_the_log_end() {
+        let broker = krafka::testing::FakeBroker::start()
+            .await
+            .expect("fake broker");
+        assert!(broker.create_topic("orders", 2));
+        broker.with_state(|state| {
+            for (id, low, high) in [(0, 1, 5), (1, 0, 2)] {
+                let partition = state.partition_mut("orders", id).expect("partition");
+                partition.log_start_offset = low;
+                partition.next_offset = high;
+            }
+        });
+        let client = kafka_client(&broker.bootstrap_servers()).await;
+        client.metadata().await.expect("metadata");
+        let both = wanted("orders", &[0, 1]);
+
+        broker.clear_requests();
+        let marks = client.watermarks(&both).await.expect("watermarks");
+        assert_eq!(
+            broker.request_count(krafka::protocol::ApiKey::ListOffsets),
+            2
+        );
+
+        broker.clear_requests();
+        let highs = client
+            .high_watermarks(&both)
+            .await
+            .expect("high watermarks");
+        assert_eq!(
+            broker.request_count(krafka::protocol::ApiKey::ListOffsets),
+            1
+        );
+        assert_eq!(
+            marks["orders"],
+            HashMap::from_iter([
+                (0, Watermarks { low: 1, high: 5 }),
+                (1, Watermarks { low: 0, high: 2 }),
+            ])
+        );
+        assert_eq!(highs["orders"], HashMap::from_iter([(0, 5), (1, 2)]));
+    }
+
+    #[tokio::test]
     async fn an_illegal_topic_name_does_not_fail_the_other_watermarks() {
         let broker = krafka::testing::FakeBroker::start()
             .await
@@ -644,6 +704,13 @@ mod tests {
         assert!(
             client
                 .watermarks(&wanted("", &[0]))
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            client
+                .high_watermarks(&wanted("", &[0]))
                 .await
                 .unwrap()
                 .is_empty()

@@ -10,6 +10,7 @@ use crate::kafka::acl::AclListing;
 use crate::kafka::group::{
     CommittedOffset, GroupMember, GroupSnapshot, GroupState, MemberAssignment,
 };
+use crate::kafka::metadata::Watermarks;
 use crate::kafka::model::QuotaListing;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::store::{Change, ClusterStore};
@@ -271,7 +272,7 @@ async fn an_idle_cluster_still_zeros_the_latest_rate() {
 
     store.watermarks.kick();
     wait_for(
-        || session.calls().watermarks() >= 2,
+        || session.calls().high_watermarks() >= 1,
         "second watermark poll",
     )
     .await;
@@ -901,7 +902,7 @@ async fn downstream_lanes_wait_for_topology_instead_of_committing_nothing() {
     assert!(store.configs.load().is_none());
     assert!(store.watermarks.health().checked_at.is_none());
     assert_eq!(
-        session.calls().watermarks(),
+        session.calls().watermarks() + session.calls().high_watermarks(),
         0,
         "and it costs no broker call"
     );
@@ -1233,8 +1234,6 @@ async fn a_new_topic_gets_its_configs_without_waiting_out_the_config_interval() 
 
 #[tokio::test(start_paused = true)]
 async fn a_topology_change_without_new_topics_leaves_configs_to_their_interval() {
-    use crate::kafka::metadata::Watermarks;
-
     let session = FakeCluster::local();
     let store = store(&session);
     let _lanes = idle_lanes(&store, &session);
@@ -1267,6 +1266,118 @@ async fn a_new_topic_waits_for_the_next_watermark_poll() {
     }
 
     assert_eq!(session.calls().watermarks(), polls);
+}
+
+#[tokio::test(start_paused = true)]
+async fn between_log_start_reads_the_watermark_lane_lists_only_the_log_end() {
+    let session = FakeCluster::local();
+    session.add_partition("orders.created", 1, Watermarks { low: 8, high: 8 });
+    let store = store(&session);
+    let _lanes = catalog_lanes(&store, &session);
+    wait_for(|| store.watermarks.ready(), "first watermark poll").await;
+    assert_eq!(session.calls().watermarks(), 1);
+    assert_eq!(session.calls().high_watermarks(), 0);
+
+    session.add_partition("orders.created", 0, Watermarks { low: 5, high: 12 });
+    store.watermarks.kick();
+    wait_for(|| store.watermarks.version() > 1, "end-only commit").await;
+
+    assert_eq!(session.calls().high_watermarks(), 1);
+    assert_eq!(
+        session.calls().watermarks(),
+        1,
+        "an emptied log keeps its cached start too"
+    );
+    let marks = store.watermarks.load().expect("watermarks");
+    assert_eq!(
+        marks.get("orders.created", 0),
+        Some(Watermarks { low: 0, high: 12 })
+    );
+    assert_eq!(
+        marks.get("orders.created", 1),
+        Some(Watermarks { low: 8, high: 8 })
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_watermark_lane_rereads_the_log_start_once_its_interval_passes() {
+    let session = FakeCluster::local();
+    let store = store(&session);
+    let _lanes = catalog_lanes(&store, &session);
+    wait_for(|| store.watermarks.ready(), "first watermark poll").await;
+    let log_start = IngestTuning::default().log_start;
+
+    tokio::time::advance(log_start - Duration::from_millis(1)).await;
+    store.watermarks.kick();
+    wait_for(|| session.calls().high_watermarks() == 1, "end-only poll").await;
+    assert_eq!(session.calls().watermarks(), 1);
+
+    session.add_partition("orders.created", 0, Watermarks { low: 5, high: 12 });
+    tokio::time::advance(Duration::from_millis(1)).await;
+    store.watermarks.kick();
+    wait_for(
+        || {
+            store
+                .watermarks
+                .load()
+                .and_then(|marks| marks.get("orders.created", 0))
+                == Some(Watermarks { low: 5, high: 12 })
+        },
+        "log start reread",
+    )
+    .await;
+    assert_eq!(session.calls().watermarks(), 2);
+    assert_eq!(session.calls().high_watermarks(), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_new_partition_reads_its_log_start_on_the_next_poll() {
+    let session = FakeCluster::local();
+    let store = store(&session);
+    let _lanes = catalog_lanes(&store, &session);
+    wait_for(|| store.watermarks.ready(), "first watermark poll").await;
+
+    session.add_partition("orders.created", 0, Watermarks { low: 5, high: 12 });
+    session.add_partition("orders.created", 7, Watermarks { low: 3, high: 9 });
+    store.topology.kick();
+    wait_for(|| store.topology.version() > 1, "topology commit").await;
+    store.watermarks.kick();
+    wait_for(|| store.watermarks.version() > 1, "watermark commit").await;
+
+    let marks = store.watermarks.load().expect("watermarks");
+    assert_eq!(
+        marks.get("orders.created", 7),
+        Some(Watermarks { low: 3, high: 9 })
+    );
+    assert_eq!(
+        marks.get("orders.created", 0),
+        Some(Watermarks { low: 0, high: 12 }),
+        "only the new partition rereads its start"
+    );
+    assert_eq!(session.calls().high_watermarks(), 1);
+    assert_eq!(session.calls().watermarks(), 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_log_that_ends_below_its_cached_start_rereads_the_start() {
+    let session = FakeCluster::local();
+    session.add_partition("orders.created", 0, Watermarks { low: 6, high: 8 });
+    let store = store(&session);
+    let _lanes = catalog_lanes(&store, &session);
+    wait_for(|| store.watermarks.ready(), "first watermark poll").await;
+
+    session.add_partition("orders.created", 0, Watermarks { low: 0, high: 2 });
+    store.watermarks.kick();
+    wait_for(|| store.watermarks.version() > 1, "watermark commit").await;
+
+    assert_eq!(
+        store
+            .watermarks
+            .load()
+            .and_then(|marks| marks.get("orders.created", 0)),
+        Some(Watermarks { low: 0, high: 2 })
+    );
+    assert_eq!(session.calls().watermarks(), 2);
 }
 
 #[tokio::test(start_paused = true)]
@@ -1314,8 +1425,6 @@ async fn a_new_topic_or_broker_gets_its_log_dirs_without_waiting_out_the_interva
 
 #[tokio::test(start_paused = true)]
 async fn a_topology_change_without_new_topics_or_brokers_leaves_log_dirs_to_their_interval() {
-    use crate::kafka::metadata::Watermarks;
-
     let session = FakeCluster::local();
     let store = store(&session);
     let _lanes = log_dir_lanes(&store, &session, IDLE);

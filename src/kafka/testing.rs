@@ -557,6 +557,47 @@ impl FakeCluster {
         self.inner.codec.decoded.load(Ordering::SeqCst)
     }
 
+    async fn current_watermarks(
+        &self,
+        topics: &HashMap<String, Vec<i32>>,
+    ) -> HashMap<String, HashMap<i32, Watermarks>> {
+        let broker = self.broker().await;
+        let growth = self
+            .inner
+            .watermark_growth
+            .lock()
+            .expect("watermark growth")
+            .clone();
+        let stored = self.inner.watermarks.lock().expect("watermarks").clone();
+
+        topics
+            .iter()
+            .map(|(name, partitions)| {
+                let wanted: HashMap<i32, Watermarks> = partitions
+                    .iter()
+                    .filter_map(|partition| {
+                        broker_watermarks(broker, name, *partition)
+                            .or_else(|| {
+                                stored
+                                    .get(name)
+                                    .and_then(|marks| marks.get(partition).copied())
+                            })
+                            .map(|mut marks| {
+                                if *partition == 0
+                                    && let Some(growth) = &growth
+                                {
+                                    marks.high +=
+                                        growth.grown.fetch_add(growth.step, Ordering::SeqCst);
+                                }
+                                (*partition, marks)
+                            })
+                    })
+                    .collect();
+                (name.to_owned(), wanted)
+            })
+            .collect()
+    }
+
     async fn broker(&self) -> &FakeBroker {
         self.inner
             .broker
@@ -660,40 +701,27 @@ impl ClusterSession for FakeCluster {
         topics: &HashMap<String, Vec<i32>>,
     ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError> {
         self.inner.calls.watermarks.fetch_add(1, Ordering::SeqCst);
+        Ok(self.current_watermarks(topics).await)
+    }
 
-        let broker = self.broker().await;
-        let growth = self
-            .inner
-            .watermark_growth
-            .lock()
-            .expect("watermark growth")
-            .clone();
-        let stored = self.inner.watermarks.lock().expect("watermarks").clone();
-
-        Ok(topics
-            .iter()
-            .map(|(name, partitions)| {
-                let wanted: HashMap<i32, Watermarks> = partitions
-                    .iter()
-                    .filter_map(|partition| {
-                        broker_watermarks(broker, name, *partition)
-                            .or_else(|| {
-                                stored
-                                    .get(name)
-                                    .and_then(|marks| marks.get(partition).copied())
-                            })
-                            .map(|mut marks| {
-                                if *partition == 0
-                                    && let Some(growth) = &growth
-                                {
-                                    marks.high +=
-                                        growth.grown.fetch_add(growth.step, Ordering::SeqCst);
-                                }
-                                (*partition, marks)
-                            })
-                    })
+    async fn high_watermarks(
+        &self,
+        topics: &HashMap<String, Vec<i32>>,
+    ) -> Result<HashMap<String, HashMap<i32, i64>>, KafkaError> {
+        self.inner
+            .calls
+            .high_watermarks
+            .fetch_add(1, Ordering::SeqCst);
+        Ok(self
+            .current_watermarks(topics)
+            .await
+            .into_iter()
+            .map(|(topic, marks)| {
+                let highs = marks
+                    .into_iter()
+                    .map(|(partition, marks)| (partition, marks.high))
                     .collect();
-                (name.to_owned(), wanted)
+                (topic, highs)
             })
             .collect())
     }
@@ -1194,6 +1222,7 @@ pub struct SessionCalls {
     metadata: AtomicUsize,
     topic_metadata: AtomicUsize,
     watermarks: AtomicUsize,
+    high_watermarks: AtomicUsize,
     topic_configs: AtomicUsize,
     log_dirs: AtomicUsize,
     committed_offsets: AtomicUsize,
@@ -1214,6 +1243,10 @@ impl SessionCalls {
 
     pub fn watermarks(&self) -> usize {
         self.watermarks.load(Ordering::SeqCst)
+    }
+
+    pub fn high_watermarks(&self) -> usize {
+        self.high_watermarks.load(Ordering::SeqCst)
     }
 
     pub fn topic_configs(&self) -> usize {

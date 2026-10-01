@@ -155,6 +155,7 @@ clusters:
 #   ingest:
 #     topology: 10s               # each lane's period is at least 1s
 #     watermark: 3s
+#     log_start: 30s
 #     config: 60s
 #     subjects: 30s
 #     log_dirs: 60s
