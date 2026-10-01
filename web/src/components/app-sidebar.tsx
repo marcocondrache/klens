@@ -60,6 +60,7 @@ export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
             schemas: subjects?.subjectCount,
             nodes: topology?.brokerCount,
           }}
+          warnings={{ transactions: health?.hangingPartitions ?? undefined }}
         />
       </SidebarContent>
       <SidebarFooter>

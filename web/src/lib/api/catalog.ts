@@ -11,6 +11,7 @@ import type {
   TopicDetail,
   TopicGroupRow,
   TopicRow,
+  Transactions,
 } from "@/api/types.gen";
 import { clusterPath } from "@/lib/clusters";
 import { isLogDirsPending } from "@/lib/storage";
@@ -113,6 +114,13 @@ export function useBroker(cluster: string, id: number) {
     ...rest,
     data: data?.find((broker) => broker.id === id) ?? null,
   };
+}
+
+export function useTransactions(cluster: string) {
+  return useQuery({
+    queryKey: keys.transactions(cluster),
+    queryFn: () => get<Transactions>(clusterPathname(cluster, "transactions")),
+  });
 }
 
 export function useSubjectRows(cluster: string) {

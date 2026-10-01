@@ -1,5 +1,6 @@
 import { useMatchRoute, useNavigate } from "@tanstack/react-router";
 import {
+  ArrowLeftRightIcon,
   FileJsonIcon,
   GaugeIcon,
   HardDriveIcon,
@@ -11,7 +12,14 @@ import {
 
 import type { PrivilegeName } from "@/lib/api/types";
 
-export type ClusterSection = "topics" | "groups" | "schemas" | "nodes" | "acls" | "quotas";
+export type ClusterSection =
+  | "topics"
+  | "groups"
+  | "schemas"
+  | "nodes"
+  | "acls"
+  | "transactions"
+  | "quotas";
 
 export type SectionGroup = "cluster" | "insights";
 
@@ -34,6 +42,7 @@ export const SECTIONS: Section[] = [
   { segment: "schemas", label: "Schema Registry", icon: FileJsonIcon, group: "cluster" },
   { segment: "nodes", label: "Brokers", icon: HardDriveIcon, group: "cluster" },
   { segment: "acls", label: "ACLs", icon: ShieldIcon, group: "cluster", privilege: "ACLS" },
+  { segment: "transactions", label: "Transactions", icon: ArrowLeftRightIcon, group: "insights" },
   { segment: "quotas", label: "Quotas", icon: GaugeIcon, group: "insights", privilege: "CONFIGS" },
 ];
 
