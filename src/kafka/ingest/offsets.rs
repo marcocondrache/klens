@@ -1,7 +1,9 @@
+use std::hash::BuildHasher;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use foldhash::fast::FixedState;
 use foldhash::{HashMap, HashMapExt, HashSet};
 use futures::StreamExt;
 use tokio::time::Instant;
@@ -22,6 +24,8 @@ pub struct OffsetLane {
     slow: Duration,
     concurrency: NonZeroUsize,
     attempted_at: Mutex<HashMap<Arc<str>, Instant>>,
+    published: Mutex<HashMap<Arc<str>, u64>>,
+    fingerprint: FixedState,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -47,6 +51,8 @@ impl OffsetLane {
             slow: defaults.slow_offset,
             concurrency: defaults.offset_fetch_concurrency,
             attempted_at: Mutex::new(HashMap::new()),
+            published: Mutex::new(HashMap::new()),
+            fingerprint: FixedState::default(),
         }
     }
 
@@ -181,6 +187,10 @@ impl OffsetLane {
             .lock()
             .expect("offset lane clock")
             .retain(|id, _| topology.groups.contains_key(id));
+        self.published
+            .lock()
+            .expect("offset lane published")
+            .retain(|id, _| topology.groups.contains_key(id));
     }
 
     async fn fetch(
@@ -218,6 +228,7 @@ impl OffsetLane {
         refreshed: &[Arc<str>],
     ) -> Vec<GroupLagUpdate> {
         let watermarks = store.watermarks.load();
+        let mut published = self.published.lock().expect("offset lane published");
 
         refreshed
             .iter()
@@ -230,12 +241,17 @@ impl OffsetLane {
                 ) else {
                     return None;
                 };
-                Some(GroupLagUpdate {
+                let update = GroupLagUpdate {
                     group: Arc::clone(id),
                     total_lag,
                     lag_complete,
                     offsets,
-                })
+                };
+                let fingerprint = self.fingerprint.hash_one(&update);
+                if published.insert(Arc::clone(id), fingerprint) == Some(fingerprint) {
+                    return None;
+                }
+                Some(update)
             })
             .collect()
     }
