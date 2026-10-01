@@ -155,10 +155,13 @@ impl TryFrom<WireResource> for AclResourceType {
 impl TryFrom<WirePattern> for AclPatternType {
     type Error = SentinelAcl;
 
+    // krafka numbers pattern types one below Kafka, whose LITERAL is 3 and
+    // PREFIXED is 4, so a stored literal decodes as `Prefixed` and a stored
+    // prefix as `Unknown`.
     fn try_from(value: WirePattern) -> Result<Self, Self::Error> {
         match value {
-            WirePattern::Literal => Ok(Self::Literal),
-            WirePattern::Prefixed => Ok(Self::Prefixed),
+            WirePattern::Prefixed => Ok(Self::Literal),
+            WirePattern::Unknown => Ok(Self::Prefixed),
             _ => Err(SentinelAcl {
                 field: "pattern_type",
             }),
@@ -233,7 +236,7 @@ mod tests {
         AclBinding {
             resource_type: WireResource::Topic,
             resource_name: "orders.created".into(),
-            pattern_type: WirePattern::Literal,
+            pattern_type: WirePattern::Prefixed,
             principal: "User:alice".into(),
             host: "*".into(),
             operation: WireOperation::Read,
@@ -283,8 +286,8 @@ mod tests {
     #[test]
     fn try_from_maps_every_stored_pattern_operation_and_permission() {
         for (wire, expected) in [
-            (WirePattern::Literal, AclPatternType::Literal),
-            (WirePattern::Prefixed, AclPatternType::Prefixed),
+            (WirePattern::Prefixed, AclPatternType::Literal),
+            (WirePattern::Unknown, AclPatternType::Prefixed),
         ] {
             let mut binding = stored_binding();
             binding.pattern_type = wire;
@@ -343,7 +346,7 @@ mod tests {
                 "pattern_type",
             ),
             (
-                |binding| binding.pattern_type = WirePattern::Unknown,
+                |binding| binding.pattern_type = WirePattern::Literal,
                 "pattern_type",
             ),
             (
