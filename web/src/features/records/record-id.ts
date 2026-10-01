@@ -1,5 +1,5 @@
-import type { KafkaRecord } from "@/lib/api/types";
+import type { RecordAddress } from "@/lib/api/live";
 
-export function recordId(record: KafkaRecord): string {
+export function recordId(record: RecordAddress): string {
   return `${record.partition}-${record.offset}`;
 }

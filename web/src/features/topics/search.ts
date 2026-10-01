@@ -19,8 +19,23 @@ export type TopicFilter = Exclude<keyof TopicsSearch, "q" | "internal">;
 
 const topicTabParam = oneOf(["partitions", "groups", "config"]);
 
+const position = z.catch(
+  z.optional(
+    z.union([
+      z.int().check(z.nonnegative()),
+      z.pipe(
+        z.string().check(z.regex(/^\d+$/)),
+        z.transform((value) => Number(value)),
+      ),
+    ]),
+  ),
+  undefined,
+);
+
 export const topicDetailSearch = z.object({
   tab: topicTabParam,
+  partition: position,
+  offset: position,
 });
 
 export function topicTab(value: unknown) {
