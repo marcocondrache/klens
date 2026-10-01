@@ -3,8 +3,9 @@ import { cn } from "@/lib/utils";
 
 import type { GroupState } from "@/lib/api/types";
 import { useClusterHealth } from "@/lib/api/catalog";
-import { isLanePending, useClusterName } from "@/lib/clusters";
+import { useClusterName } from "@/lib/clusters";
 import { formatBytes, formatEnumLabel, formatNumber } from "@/lib/format";
+import { isLogDirsPending } from "@/lib/storage";
 import { diskTone, lagTone, type Tone } from "@/lib/tone";
 
 const TONE_BG: Record<Tone, string> = {
@@ -142,7 +143,7 @@ function UnknownSize({ className }: { className?: string }) {
   const { data: health } = useClusterHealth(useClusterName());
   const lane = health?.logDirs;
 
-  if (isLanePending(lane)) {
+  if (isLogDirsPending(lane)) {
     return <PendingValue label="Fetching log dirs" className={cn("ml-auto block", className)} />;
   }
 

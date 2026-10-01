@@ -15,10 +15,10 @@ import { TabCount } from "@/components/tab-count";
 import { useAccess } from "@/hooks/use-access";
 import { useBroker, useClusterHealth } from "@/lib/api/catalog";
 import { useBrokerConfigs } from "@/lib/api/live";
-import { isLanePending, useClusterName } from "@/lib/clusters";
+import { useClusterName } from "@/lib/clusters";
 import { formatBytes, formatNumber } from "@/lib/format";
 import { nodeDetailSearch, nodeTab, searchDefaults } from "@/lib/route-search";
-import { usedShare } from "@/lib/storage";
+import { isLogDirsPending, usedShare } from "@/lib/storage";
 import type { BrokerRow, LogDir } from "@/lib/api/types";
 
 export const Route = createFileRoute("/cluster/$cluster/nodes_/$id")({
@@ -182,7 +182,7 @@ function NodePage() {
             columns={columns}
             data={broker?.logDirs ?? []}
             getRowId={(dir) => dir.path}
-            loading={isPending || isLanePending(logDirsLane)}
+            loading={isPending || isLogDirsPending(logDirsLane)}
             defaultSort={{ id: "path", direction: "asc" }}
             emptyState={
               logDirsLane?.lastError

@@ -8,8 +8,10 @@ use super::super::clusters::LaneHealth;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum QuotaAccess {
-    Allowed,
+pub enum QuotaStatus {
+    /// The lane has not described the quotas yet.
+    Pending,
+    Described,
     Denied,
 }
 
@@ -64,23 +66,23 @@ impl From<&domain::ClientQuota> for ClientQuota {
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct QuotaListing {
-    pub access: QuotaAccess,
+    pub status: QuotaStatus,
     pub quotas: Vec<ClientQuota>,
     pub source_health: LaneHealth,
 }
 
 impl QuotaListing {
     pub(crate) fn new(listing: Option<&domain::QuotaListing>, source_health: LaneHealth) -> Self {
-        let (access, quotas) = match listing {
-            Some(domain::QuotaListing::Denied) => (QuotaAccess::Denied, Vec::new()),
+        let (status, quotas) = match listing {
+            None => (QuotaStatus::Pending, Vec::new()),
             Some(domain::QuotaListing::Described(quotas)) => (
-                QuotaAccess::Allowed,
+                QuotaStatus::Described,
                 quotas.iter().map(ClientQuota::from).collect(),
             ),
-            None => (QuotaAccess::Allowed, Vec::new()),
+            Some(domain::QuotaListing::Denied) => (QuotaStatus::Denied, Vec::new()),
         };
         Self {
-            access,
+            status,
             quotas,
             source_health,
         }

@@ -23,7 +23,7 @@ import { useSearchDraft } from "@/hooks/use-search-draft";
 import { apiErrorMessage } from "@/lib/api/client";
 import { useQuotas } from "@/lib/api/catalog";
 import type { ClientQuota, QuotaEntity, QuotaEntityType } from "@/lib/api/types";
-import { isLanePending, useClusterName } from "@/lib/clusters";
+import { useClusterName } from "@/lib/clusters";
 import { formatBytes, formatNumber, formatThroughput } from "@/lib/format";
 import {
   QUOTA_ENTITY_TYPES,
@@ -187,7 +187,8 @@ function QuotasPage() {
   const canConfigs = can(cluster, "CONFIGS");
   const { data, isPending, isError, error } = useQuotas(cluster, canConfigs);
   const lane = data?.sourceHealth;
-  const denied = data?.access === "DENIED";
+  const status = data?.status;
+  const denied = status === "DENIED";
   const quotas = data?.quotas ?? EMPTY_QUOTAS;
 
   function setFilters(rules: FilterRule[]) {
@@ -236,7 +237,7 @@ function QuotasPage() {
             <FilterBar fields={FILTERS} rows={searched} value={filters} onChange={setFilters} />
           </>
         }
-        loading={isPending || isLanePending(lane)}
+        loading={isPending || (status === "PENDING" && lane?.lastError == null)}
         error={isError ? apiErrorMessage(error, "Failed to load quotas.") : undefined}
         emptyState={
           denied

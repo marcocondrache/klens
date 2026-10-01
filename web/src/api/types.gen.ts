@@ -154,7 +154,7 @@ export type Acl = { resourceType: AclResourceType, resourceName: string, pattern
 
 export type AclListing = { status: AclStatus, bindings: Array<Acl>, sourceHealth: LaneHealth, };
 
-export type QuotaAccess = "ALLOWED" | "DENIED";
+export type QuotaStatus = "PENDING" | "DESCRIBED" | "DENIED";
 
 export type QuotaEntityType = "USER" | "CLIENT_ID" | "IP";
 
@@ -162,7 +162,7 @@ export type QuotaEntity = { entityType: QuotaEntityType, name: string | null, };
 
 export type ClientQuota = { entity: Array<QuotaEntity>, producerByteRate: number | null, consumerByteRate: number | null, requestPercentage: number | null, controllerMutationRate: number | null, connectionCreationRate: number | null, };
 
-export type QuotaListing = { access: QuotaAccess, quotas: Array<ClientQuota>, sourceHealth: LaneHealth, };
+export type QuotaListing = { status: QuotaStatus, quotas: Array<ClientQuota>, sourceHealth: LaneHealth, };
 
 export type RecordOrder = "NEWEST" | "OLDEST";
 

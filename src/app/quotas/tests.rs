@@ -24,7 +24,7 @@ async fn quotas_list_every_entity_type_with_its_values() {
     )
     .await;
 
-    assert_eq!(quotas["access"], "ALLOWED");
+    assert_eq!(quotas["status"], "DESCRIBED");
     assert_eq!(
         quotas["quotas"][0],
         json!({
@@ -74,7 +74,7 @@ async fn a_denied_describe_says_so_instead_of_failing() {
 
     let quotas = ok(&polled(&cluster).await, "/clusters/local/quotas").await;
 
-    assert_eq!(quotas["access"], "DENIED");
+    assert_eq!(quotas["status"], "DENIED");
     assert_eq!(quotas["quotas"], json!([]));
 }
 
@@ -86,7 +86,7 @@ async fn quotas_are_served_from_the_lane_with_its_health() {
 
     let quotas = ok(&state, "/clusters/local/quotas").await;
 
-    assert_eq!(quotas["access"], "ALLOWED");
+    assert_eq!(quotas["status"], "DESCRIBED");
     assert_eq!(quotas["quotas"].as_array().map(Vec::len), Some(5));
     assert!(quotas["sourceHealth"]["updatedAt"].is_string());
     assert_eq!(
@@ -100,7 +100,7 @@ async fn quotas_are_served_from_the_lane_with_its_health() {
 async fn quotas_are_empty_and_pending_until_the_lane_commits() {
     let quotas = ok(&with(vec![FakeCluster::local()]), "/clusters/local/quotas").await;
 
-    assert_eq!(quotas["access"], "ALLOWED");
+    assert_eq!(quotas["status"], "PENDING");
     assert_eq!(quotas["quotas"], json!([]));
     assert!(quotas["sourceHealth"]["updatedAt"].is_null());
     assert!(quotas["sourceHealth"]["lastError"].is_null());

@@ -12,7 +12,8 @@ import type {
   TopicGroupRow,
   TopicRow,
 } from "@/api/types.gen";
-import { clusterPath, isLanePending } from "@/lib/clusters";
+import { clusterPath } from "@/lib/clusters";
+import { isLogDirsPending } from "@/lib/storage";
 
 import { clusterPathname, get, getOrNull, resourceId } from "./client";
 import { keys } from "./keys";
@@ -32,7 +33,7 @@ function searchHref(cluster: string, hit: Omit<SearchHit, "href">): string {
 }
 
 function settled(cluster: ClusterHealth) {
-  return cluster.ready && !isLanePending(cluster.logDirs);
+  return cluster.ready && !isLogDirsPending(cluster.logDirs);
 }
 
 const clustersOptions = {
@@ -139,8 +140,8 @@ export function useQuotas(cluster: string, enabled = true) {
     queryFn: () => get<QuotaListing>(clusterPathname(cluster, "quotas")),
     enabled,
     refetchInterval: (query: Query<QuotaListing>) => {
-      const lane = query.state.data?.sourceHealth;
-      return lane && isLanePending(lane) ? 2000 : false;
+      const data = query.state.data;
+      return data?.status === "PENDING" && data.sourceHealth.lastError == null ? 2000 : false;
     },
   });
 }
