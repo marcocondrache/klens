@@ -10,20 +10,16 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import { RecordModeSwitch, type RecordMode } from "@/components/records/record-mode";
-import {
-  RecordView,
-  filterPartitions,
-  type RecordFilter,
-  type RecordSource,
-} from "@/components/records/record-view";
-import { useTimestampFilter } from "@/components/records/timestamp-filter";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { recordsExportUrl, useRecords, type RecordsFilter } from "@/lib/api/live";
 import { apiErrorMessage } from "@/lib/api/client";
 import type { KafkaRecord, RecordOrder, TopicDetail } from "@/lib/api/types";
 import { fromDatetimeLocalValue } from "@/lib/format";
-import { recordId } from "@/lib/records";
+
+import { RecordModeSwitch, type RecordMode } from "./record-mode";
+import { RecordView, filterPartitions, type RecordFilter, type RecordSource } from "./record-view";
+import { useTimestampFilter } from "./timestamp-filter";
+import { recordId } from "./record-id";
 
 const EMPTY_RECORDS: KafkaRecord[] = [];
 
