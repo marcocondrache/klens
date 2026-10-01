@@ -31,13 +31,6 @@ export function filter(allowed: readonly string[]) {
   return z.catch(z.optional(param), undefined);
 }
 
-export const loginSearch = z.object({
-  error: z.catch(z.optional(z.string()), undefined),
-  from: oneOf(["callback"]),
-});
-
-export type LoginSearch = z.output<typeof loginSearch>;
-
 const groupTabParam = z.catch(z._default(z.enum(["offsets", "members"]), "offsets"), "offsets");
 
 export const groupDetailSearch = z.object({

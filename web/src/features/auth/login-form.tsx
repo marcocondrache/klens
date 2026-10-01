@@ -5,8 +5,9 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { LogoMark } from "@/components/logo";
 import { SIGN_IN_PATH } from "@/lib/api/client";
-import type { LoginSearch } from "@/lib/route-search";
 import { cn } from "@/lib/utils";
+
+import type { LoginSearch } from "./search";
 
 export function LoginForm({ className, ...props }: React.ComponentProps<"div">) {
   const { error, from } = useSearch({ from: "/login" });

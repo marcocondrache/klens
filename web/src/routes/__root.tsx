@@ -2,9 +2,8 @@ import type { QueryClient } from "@tanstack/react-query";
 import { createRootRouteWithContext, redirect } from "@tanstack/react-router";
 
 import { PageLoading } from "@/components/page-loading";
-import { authQuery } from "@/hooks/use-auth";
+import { authQuery, type AuthMe } from "@/features/auth/auth";
 import { LOGIN_PATH } from "@/lib/api/client";
-import type { AuthMe } from "@/lib/auth";
 import { NotFoundPage } from "@/routes/-not-found";
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
