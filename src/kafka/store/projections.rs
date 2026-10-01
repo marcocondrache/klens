@@ -227,6 +227,7 @@ pub fn group_offsets(
     offsets: Option<&GroupOffsets>,
     watermarks: Option<&WatermarkTable>,
 ) -> (Vec<GroupOffset>, Option<i64>, bool) {
+    let owners = group.owners();
     let mut positions: Vec<_> = positions(group, offsets, None).into_iter().collect();
     positions.sort_unstable_by_key(|(key, _)| *key);
 
@@ -240,7 +241,9 @@ pub fn group_offsets(
                 current_offset: current,
                 end_offset: end,
                 lag: lag_of(current, end),
-                member_id: group.member_for(topic, partition).map(ToOwned::to_owned),
+                member_id: owners
+                    .get(&(topic, partition))
+                    .map(|member| (*member).to_owned()),
             }
         })
         .collect();

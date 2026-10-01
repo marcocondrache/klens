@@ -68,14 +68,6 @@ pub struct GroupMember {
     pub assignments: Vec<MemberAssignment>,
 }
 
-impl GroupMember {
-    pub fn assigned_to(&self, topic: &str, partition: i32) -> bool {
-        self.assignments.iter().any(|assignment| {
-            assignment.topic == topic && assignment.partitions.contains(&partition)
-        })
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemberAssignment {
     pub topic: String,
@@ -116,7 +108,7 @@ mod tests {
     }
 
     #[test]
-    fn membership_and_consumed_topics() {
+    fn consumed_topics_include_commits_left_behind() {
         let group = GroupSnapshot {
             id: "g".into(),
             state: GroupState::Stable,
@@ -136,8 +128,6 @@ mod tests {
                 offset: 3,
             }],
         };
-        assert!(group.members[0].assigned_to("orders", 1));
-        assert!(!group.members[0].assigned_to("orders", 2));
         assert_eq!(
             group.consumed_topics().collect::<Vec<_>>(),
             vec!["orders", "payments"],
