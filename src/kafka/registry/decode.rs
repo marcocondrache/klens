@@ -21,6 +21,7 @@ use crate::kafka::model::{SchemaReference, SchemaType};
 use crate::kafka::scan::payload::{DecodedPayload, PayloadCodec, PayloadSlot};
 
 const MAX_CACHED_SCHEMAS: u64 = 10_000;
+const FAILED_LOOKUP_TTL: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Framing {
@@ -54,6 +55,7 @@ pub(crate) struct PayloadDecoder {
     avro: Arc<AvroSchemaDecoder<Arc<Registry>>>,
     pools: Cache<SchemaKey, Arc<ProtobufCodec>>,
     missing: Cache<SchemaKey, ()>,
+    failed: Cache<SchemaKey, DecodeError>,
 }
 
 #[derive(Clone)]
@@ -66,6 +68,14 @@ enum Resolved {
 
 impl PayloadDecoder {
     pub(crate) fn new(client: SchemaRegistryClient, missing_ttl: Duration) -> Self {
+        Self::with_ttls(client, missing_ttl, FAILED_LOOKUP_TTL)
+    }
+
+    fn with_ttls(
+        client: SchemaRegistryClient,
+        missing_ttl: Duration,
+        failed_ttl: Duration,
+    ) -> Self {
         let avro = AvroSchemaDecoder::new(client.registry().clone());
 
         Self {
@@ -75,6 +85,10 @@ impl PayloadDecoder {
             missing: Cache::builder()
                 .max_capacity(MAX_CACHED_SCHEMAS)
                 .time_to_live(missing_ttl)
+                .build(),
+            failed: Cache::builder()
+                .max_capacity(MAX_CACHED_SCHEMAS)
+                .time_to_live(failed_ttl)
                 .build(),
         }
     }
@@ -91,7 +105,18 @@ impl PayloadDecoder {
         if self.missing.get(&key).await.is_some() {
             return Ok(Resolved::Missing);
         }
+        if let Some(error) = self.failed.get(&key).await {
+            return Err(error);
+        }
 
+        let resolved = self.lookup(key).await;
+        if let Err(error) = &resolved {
+            self.failed.insert(key, error.clone()).await;
+        }
+        resolved
+    }
+
+    async fn lookup(&self, key: SchemaKey) -> Result<Resolved, DecodeError> {
         let schema = match self.registry().get_schema_by_key(key).await {
             Ok(schema) => schema,
             Err(error) if error.is_not_found() => {
@@ -164,18 +189,15 @@ impl PayloadDecoder {
 #[async_trait]
 impl PayloadCodec for PayloadDecoder {
     async fn decode_batch(&self, slots: &mut [PayloadSlot]) {
-        for failure in self.decode_slots(slots).await.into_iter().flatten() {
-            report(failure.0, &failure.1);
+        for (key, error) in self.decode_slots(slots).await {
+            report(key, &error);
         }
     }
 }
 
 impl PayloadDecoder {
-    async fn decode_slots(
-        &self,
-        slots: &mut [PayloadSlot],
-    ) -> Vec<Option<(SchemaKey, DecodeError)>> {
-        let mut failures = vec![None; slots.len()];
+    async fn decode_slots(&self, slots: &mut [PayloadSlot]) -> Vec<(SchemaKey, DecodeError)> {
+        let mut failures = Vec::new();
         let framings: Vec<Option<Framing>> = slots.iter().map(Framing::of).collect();
         let keys: HashSet<SchemaKey> = framings
             .iter()
@@ -192,27 +214,27 @@ impl PayloadDecoder {
             .map(|key| async move { (key, self.resolved(key).await) })
             .collect();
         while let Some((key, resolved)) = loads.next().await {
-            schemas.insert(key, resolved);
+            match resolved {
+                Ok(resolved) => {
+                    schemas.insert(key, resolved);
+                }
+                Err(error) => failures.push((key, error)),
+            }
         }
 
-        for ((slot, framing), failure) in slots.iter_mut().zip(framings).zip(failures.iter_mut()) {
+        for (slot, framing) in slots.iter_mut().zip(framings) {
             let Some(framing) = framing else {
                 continue;
             };
-            let resolved = match schemas.get(&framing.key) {
-                Some(Ok(resolved)) => resolved,
-                Some(Err(error)) => {
-                    *failure = Some((framing.key, error.clone()));
-                    continue;
-                }
-                None => continue,
+            let Some(resolved) = schemas.get(&framing.key) else {
+                continue;
             };
 
             match self.decode_body(resolved, framing, &slot.raw).await {
                 Ok(json) => {
                     slot.decoded = Some(DecodedPayload::decoded(slot.raw.clone(), json));
                 }
-                Err(error) => *failure = Some((framing.key, error)),
+                Err(error) => failures.push((framing.key, error)),
             }
         }
 
@@ -336,11 +358,7 @@ impl PayloadDecoder {
             fallback_schema_id,
         )];
         let failures = self.decode_slots(&mut slots).await;
-        failures
-            .into_iter()
-            .flatten()
-            .next()
-            .map(|(_, error)| error)
+        failures.into_iter().next().map(|(_, error)| error)
     }
 }
 
@@ -890,6 +908,68 @@ mod tests {
         decode_payload(&decoder, &framed).await;
 
         assert_eq!(fetches(&server, "/schemas/ids/12").await, 1);
+    }
+
+    #[tokio::test]
+    async fn a_failed_lookup_is_reported_once_per_batch_and_not_retried_within_its_ttl() {
+        let server = MockServer::start().await;
+        mock_failing_schema(&server, 12).await;
+        let (logs, _guard) = crate::telemetry::capture::subscriber(tracing::Level::WARN);
+
+        let decoder = decoder(&server.uri());
+        let framed = Bytes::from(frame(12, b"datum"));
+        for batch in 1..=2 {
+            let mut slots: Vec<PayloadSlot> = (0..20)
+                .map(|_| PayloadSlot::new(framed.clone(), None))
+                .collect();
+            decoder.decode_batch(&mut slots).await;
+
+            assert!(slots.iter().all(|slot| slot.decoded.is_none()));
+            assert_eq!(
+                logs.as_string()
+                    .matches("failed to decode schema registry payload")
+                    .count(),
+                batch
+            );
+        }
+        assert_eq!(fetches(&server, "/schemas/ids/12").await, 1);
+    }
+
+    #[tokio::test]
+    async fn a_failed_lookup_is_retried_after_its_ttl() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/schemas/ids/7"))
+            .respond_with(ResponseTemplate::new(500))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+        mock_schema(&server, 7, "JSON", "{}").await;
+
+        let tuning = SchemaRegistryTuning::default();
+        let decoder = PayloadDecoder::with_ttls(
+            SchemaRegistryClient::new("local", &config(&server.uri()), &tuning).unwrap(),
+            tuning.missing_schema_ttl,
+            Duration::from_millis(50),
+        );
+        let framed = frame(7, br#"{"ok":true}"#);
+
+        assert!(matches!(
+            decoder.decode_failure(&framed, None).await,
+            Some(DecodeError::Failed(_))
+        ));
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        assert_eq!(decoder.decode(&framed).await, r#"{"ok":true}"#);
+        assert_eq!(fetches(&server, "/schemas/ids/7").await, 2);
+    }
+
+    async fn mock_failing_schema(server: &MockServer, id: u32) {
+        Mock::given(method("GET"))
+            .and(path(format!("/schemas/ids/{id}")))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(server)
+            .await;
     }
 
     async fn mock_missing_schema(server: &MockServer, id: u32) {
