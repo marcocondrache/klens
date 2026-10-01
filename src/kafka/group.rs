@@ -81,7 +81,7 @@ pub struct CommittedOffset {
     pub offset: i64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct GroupOffset {
     pub topic: String,
     pub partition: i32,

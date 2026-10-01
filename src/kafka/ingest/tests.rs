@@ -520,6 +520,148 @@ async fn a_wave_commits_once_and_publishes_once() {
     assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
 }
 
+fn published_lags(events: &mut tokio::sync::broadcast::Receiver<Change>) -> Vec<(String, i64)> {
+    let mut lags = Vec::new();
+    loop {
+        match events.try_recv() {
+            Ok(Change::GroupOffsets(wave)) => lags.extend(
+                wave.groups
+                    .iter()
+                    .map(|update| (update.group.to_string(), update.total_lag)),
+            ),
+            Ok(_) => {}
+            Err(TryRecvError::Empty) => return lags,
+            Err(other) => panic!("bus closed or lagged: {other:?}"),
+        }
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_refresh_that_changes_nothing_publishes_nothing() {
+    let session = FakeCluster::local();
+    let store = store(&session);
+    let lane = OffsetLane::new(port(&session));
+    let _lanes = catalog_lanes(&store, &session);
+    wait_for(|| store.watermarks.version() > 0, "watermark commit").await;
+    let mut events = store.bus.subscribe();
+
+    sweep(&lane, &store).await;
+    assert_eq!(
+        published_lags(&mut events),
+        [("order-processor".to_owned(), 5)]
+    );
+
+    tokio::time::advance(Duration::from_secs(30)).await;
+    let wave = sweep(&lane, &store).await;
+    assert_eq!(wave.refreshed, [Arc::from("order-processor")]);
+    assert_eq!(store.offsets.version(), 2, "the table still commits");
+    assert!(
+        published_lags(&mut events).is_empty(),
+        "an unchanged group is not republished"
+    );
+
+    session.commit_offsets(
+        "order-processor",
+        vec![
+            CommittedOffset {
+                topic: "orders.created".into(),
+                partition: 0,
+                offset: 7,
+            },
+            CommittedOffset {
+                topic: "orders.created".into(),
+                partition: 1,
+                offset: 5,
+            },
+        ],
+    );
+    tokio::time::advance(Duration::from_secs(30)).await;
+    sweep(&lane, &store).await;
+    assert_eq!(
+        published_lags(&mut events),
+        [("order-processor".to_owned(), 4)],
+        "a moved commit publishes again"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_moved_high_watermark_republishes_the_lag() {
+    let session = FakeCluster::local().with_growing_watermarks(10);
+    let store = store(&session);
+    let lane = OffsetLane::new(port(&session));
+    let _lanes = catalog_lanes(&store, &session);
+    wait_for(|| store.watermarks.version() > 0, "watermark commit").await;
+    let mut events = store.bus.subscribe();
+    sweep(&lane, &store).await;
+    let first = published_lags(&mut events);
+
+    let version = store.watermarks.version();
+    store.watermarks.kick();
+    wait_for(|| store.watermarks.version() > version, "watermark poll").await;
+    tokio::time::advance(Duration::from_secs(30)).await;
+    sweep(&lane, &store).await;
+
+    let second = published_lags(&mut events);
+    assert_eq!(
+        second.len(),
+        1,
+        "the group's offsets did not move but its lag did"
+    );
+    assert!(second[0].1 > first[0].1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_returning_group_publishes_its_lag_again() {
+    let returning = group("returning", "orders.created", vec![0], &[(0, 2)]);
+    let session = FakeCluster::local().extra_group(returning.clone());
+    let store = store(&session);
+    let lane = OffsetLane::new(port(&session));
+    let _lanes = catalog_lanes(&store, &session);
+    wait_for(|| store.watermarks.version() > 0, "watermark commit").await;
+    let mut events = store.bus.subscribe();
+    sweep(&lane, &store).await;
+    let first = published_lags(&mut events);
+
+    session.remove_group("returning");
+    store.topology.kick();
+    wait_for(
+        || {
+            store
+                .topology
+                .load()
+                .is_some_and(|topology| topology.group("returning").is_none())
+        },
+        "group removal",
+    )
+    .await;
+    sweep(&lane, &store).await;
+
+    session.put_group(returning);
+    store.topology.kick();
+    wait_for(
+        || {
+            store
+                .topology
+                .load()
+                .is_some_and(|topology| topology.group("returning").is_some())
+        },
+        "group returning",
+    )
+    .await;
+    sweep(&lane, &store).await;
+
+    let returned = first
+        .iter()
+        .find(|(group, _)| group == "returning")
+        .cloned()
+        .expect("first wave published the group");
+    assert_eq!(
+        published_lags(&mut events),
+        [returned],
+        "a group that left and came back is published as new"
+    );
+}
+
 #[tokio::test(start_paused = true)]
 async fn offset_fetches_respect_the_concurrency_cap() {
     let mut session = FakeCluster::local().with_offsets_delay(Duration::from_millis(50));

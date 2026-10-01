@@ -111,7 +111,7 @@ impl GroupOffsetsWave {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct GroupLagUpdate {
     pub group: Arc<str>,
     pub total_lag: i64,
