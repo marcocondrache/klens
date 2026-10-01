@@ -1,4 +1,6 @@
-import { apiPath, LOGIN_PATH } from "@/lib/api/client";
+import { queryOptions, useQuery } from "@tanstack/react-query";
+
+import { apiPath, get, LOGIN_PATH } from "@/lib/api/client";
 
 export type AuthUser = {
   sub: string;
@@ -36,4 +38,14 @@ export function initials(user: AuthUser): string {
   }
 
   return user.sub.slice(0, 2).toUpperCase();
+}
+
+export const authQuery = queryOptions({
+  queryKey: ["auth", "me"],
+  queryFn: () => get<AuthMe>("/auth/me"),
+  staleTime: 60_000,
+});
+
+export function useAuth() {
+  return useQuery(authQuery);
 }

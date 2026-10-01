@@ -16,7 +16,7 @@ import { LogoMark } from "@/components/logo";
 import { NavMain } from "@/components/nav-main";
 import { NavUser } from "@/components/nav-user";
 import { useAccess } from "@/hooks/use-access";
-import { useAuth } from "@/hooks/use-auth";
+import { useAuth } from "@/features/auth/auth";
 import { useClusterHealth } from "@/lib/api/catalog";
 import { useClusterName } from "@/lib/clusters";
 import { visibleSections } from "@/lib/sections";
