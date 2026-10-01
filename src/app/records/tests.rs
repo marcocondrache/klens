@@ -10,6 +10,7 @@ use crate::kafka::FixtureRecord;
 use crate::kafka::card_record;
 use crate::kafka::model as domain;
 use bytes::Bytes;
+use futures::StreamExt as _;
 
 use super::super::harness::{
     failure, ok, open_stream, read_frames, seed, seeded, seeded_with, store_of, viewer_everywhere,
@@ -511,4 +512,146 @@ async fn tails_past_capacity_are_turned_away_until_one_closes() {
     )
     .await;
     assert_eq!(reopened.status(), StatusCode::OK);
+}
+
+const EXPORT: &str = "/clusters/local/topics/orders.created/records/export";
+
+fn paging_by(max_limit: usize) -> Limits {
+    let mut tuning = crate::config::Tuning::default();
+    tuning.records.max_limit = std::num::NonZeroUsize::new(max_limit).expect("non-zero");
+    Limits::new(&tuning)
+}
+
+async fn download(response: axum::response::Response) -> Result<Vec<serde_json::Value>, String> {
+    let mut body = response.into_body().into_data_stream();
+    let mut text = String::new();
+    for _ in 0..64 {
+        let chunk = tokio::time::timeout(std::time::Duration::from_secs(2), body.next())
+            .await
+            .map_err(|_| "export stalled".to_owned())?;
+        let Some(chunk) = chunk else {
+            assert!(text.is_empty() || text.ends_with('\n'), "{text}");
+            return Ok(text
+                .lines()
+                .map(|line| serde_json::from_str(line).expect("one json record per line"))
+                .collect());
+        };
+        text.push_str(
+            std::str::from_utf8(&chunk.map_err(|error| error.to_string())?).expect("utf-8"),
+        );
+    }
+    Err("export never ended".to_owned())
+}
+
+fn offsets(records: &[serde_json::Value]) -> Vec<i64> {
+    records
+        .iter()
+        .map(|record| record["offset"].as_i64().expect("offset"))
+        .collect()
+}
+
+#[tokio::test]
+async fn an_export_pages_through_every_record_as_ndjson() {
+    let session = FakeCluster::local();
+    let state = with_limits(vec![session.clone()], paging_by(3));
+    seed(store_of(&state, "local"));
+    let response = open_stream(
+        &state,
+        &format!("{EXPORT}?order=OLDEST"),
+        EffectiveAccess::Unrestricted,
+        SessionGuard::open(),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "application/x-ndjson");
+    assert_eq!(
+        response.headers()["content-disposition"],
+        "attachment; filename=\"orders.created.ndjson\""
+    );
+    let records = download(response).await.unwrap();
+    assert_eq!(offsets(&records), [0, 1, 2, 3, 4, 5, 6, 7]);
+    assert_eq!(records[0]["key"], "ord_0");
+    assert_eq!(records[0]["headers"][0]["key"], "source");
+    assert_eq!(records[0]["timestamp"], "2023-11-14T22:13:20Z");
+    assert_eq!(session.calls().watermarks(), 1);
+}
+
+#[tokio::test]
+async fn an_export_applies_the_records_view_filter() {
+    let (state, _) = seeded_with(FakeCluster::local());
+    let export = |query: &str| {
+        let state = state.clone();
+        let path = format!("{EXPORT}?{query}");
+        async move {
+            let response = open_stream(
+                &state,
+                &path,
+                EffectiveAccess::Unrestricted,
+                SessionGuard::open(),
+            )
+            .await;
+            offsets(&download(response).await.unwrap())
+        }
+    };
+
+    assert_eq!(export("").await, [7, 6, 5, 4, 3, 2, 1, 0]);
+    assert_eq!(export("contains=ord_3").await, [3]);
+    assert_eq!(export("partition=1&order=OLDEST").await, [0, 2, 4, 6]);
+    assert_eq!(
+        export("order=OLDEST&from=2023-11-14T22:13:23Z&to=2023-11-14T22:13:25Z").await,
+        [3, 4, 5]
+    );
+}
+
+#[tokio::test]
+async fn an_export_leaves_out_records_produced_after_it_opened() {
+    let (state, session) = seeded_with(FakeCluster::local());
+    let response = open_stream(
+        &state,
+        &format!("{EXPORT}?order=OLDEST"),
+        EffectiveAccess::Unrestricted,
+        SessionGuard::open(),
+    )
+    .await;
+    session.produce(produced(0, 8, "late"));
+
+    let records = download(response).await.unwrap();
+
+    assert_eq!(offsets(&records), [0, 1, 2, 3, 4, 5, 6, 7]);
+}
+
+#[tokio::test]
+async fn an_expired_session_breaks_off_the_export() {
+    let (state, _) = seeded_with(FakeCluster::local());
+    let response = open_stream(
+        &state,
+        EXPORT,
+        EffectiveAccess::Unrestricted,
+        SessionGuard::expired(),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(download(response).await.is_err());
+}
+
+#[tokio::test]
+async fn an_export_is_refused_before_it_streams() {
+    let (status, code) = failure(&seeded(), EXPORT, viewer_everywhere()).await;
+    assert_eq!(
+        (status, code.as_str()),
+        (StatusCode::FORBIDDEN, "FORBIDDEN")
+    );
+
+    let (status, code) = failure(
+        &seeded(),
+        "/clusters/local/topics/ghost/records/export",
+        EffectiveAccess::Unrestricted,
+    )
+    .await;
+    assert_eq!(
+        (status, code.as_str()),
+        (StatusCode::NOT_FOUND, "UNKNOWN_TOPIC")
+    );
 }

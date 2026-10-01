@@ -118,6 +118,26 @@ pub(crate) fn record_query(
     })
 }
 
+/// Asks for the largest page the limits allow.
+pub(crate) fn export_query(
+    topic: String,
+    params: ExportParams,
+) -> Result<domain::RecordQuery, QueryError> {
+    Ok(domain::RecordQuery {
+        timestamps: domain::TimestampRange::new(params.from, params.to)?,
+        filter: params
+            .contains
+            .as_deref()
+            .and_then(crate::kafka::compile_contains_filter),
+        cursor: None,
+        topic,
+        partitions: params.partition,
+        limit: i32::MAX,
+        order: params.order.unwrap_or(RecordOrder::Newest).into(),
+        schema_id: params.schema_id,
+    })
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RecordParams {
@@ -131,6 +151,18 @@ pub(crate) struct RecordParams {
     pub contains: Option<String>,
     pub schema_id: Option<i32>,
     pub cursor: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ExportParams {
+    #[serde(default)]
+    pub partition: Vec<i32>,
+    pub order: Option<RecordOrder>,
+    pub from: Option<Timestamp>,
+    pub to: Option<Timestamp>,
+    pub contains: Option<String>,
+    pub schema_id: Option<i32>,
 }
 
 fn default_record_limit() -> i32 {

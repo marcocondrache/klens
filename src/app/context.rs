@@ -11,7 +11,7 @@ use crate::app::auth::access::{
 use crate::kafka::model::RegisteredSchema;
 use crate::kafka::store::ClusterStore;
 use crate::kafka::{
-    Cluster, ConfigEntry, KafkaError, RecordPage, RecordQuery, Tail, TailLimits, TailQuery,
+    Cluster, ConfigEntry, Export, KafkaError, RecordPage, RecordQuery, Tail, TailLimits, TailQuery,
 };
 
 use super::error::ApiError;
@@ -66,6 +66,10 @@ pub(crate) struct Granted<'a, Cap> {
 impl Granted<'_, RecordsCap> {
     pub(crate) async fn read(&self, query: RecordQuery) -> Result<RecordPage, KafkaError> {
         self.cluster.records(query, self.limits.records).await
+    }
+
+    pub(crate) async fn export(&self, query: RecordQuery) -> Result<Export, KafkaError> {
+        self.cluster.export(query, self.limits.records).await
     }
 
     pub(crate) async fn tail(&self, query: TailQuery) -> Result<Tail, KafkaError> {
