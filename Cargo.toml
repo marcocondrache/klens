@@ -35,7 +35,7 @@ tower-sessions = { version = "0.14", features = ["memory-store", "signed"] }
 futures = "0.3"
 jiff = { version = "0.2", default-features = false, features = ["serde", "std"] }
 krafka = { git = "https://github.com/hupe1980/krafka", rev = "e6b154cef8dd0bfe7b2c8fadbf925c1e6494310f" }
-moka = { version = "0.12", features = ["future"] }
+moka = { version = "0.12", features = ["future", "sync"] }
 mime_guess = { version = "2", optional = true }
 openidconnect = "4.0.1"
 rust-embed = { version = "8", optional = true }
