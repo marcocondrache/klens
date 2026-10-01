@@ -31,4 +31,4 @@ pub use scan::tail::{Tail, TailBatch, TailPosition, TailQuery};
 pub use session::ClusterSession;
 
 #[cfg(test)]
-pub use testing::{FakeCluster, FixtureRecord, card_record};
+pub use testing::{FakeCluster, FixtureRecord, card_record, local_acls};

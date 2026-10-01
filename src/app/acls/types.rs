@@ -4,11 +4,16 @@ use ts_rs::TS;
 use crate::kafka::model as domain;
 use crate::r#macro::from_same_variants;
 
+use super::super::clusters::LaneHealth;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum AclAuthorizer {
+pub enum AclStatus {
+    /// The lane has not described the ACLs yet.
+    Pending,
     Enabled,
     Disabled,
+    Denied,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -89,14 +94,14 @@ pub struct Acl {
     pub permission: AclPermission,
 }
 
-impl From<domain::Acl> for Acl {
-    fn from(acl: domain::Acl) -> Self {
+impl From<&domain::Acl> for Acl {
+    fn from(acl: &domain::Acl) -> Self {
         Self {
             resource_type: acl.resource_type.into(),
-            resource_name: acl.resource_name,
+            resource_name: acl.resource_name.clone(),
             pattern_type: acl.pattern_type.into(),
-            principal: acl.principal,
-            host: acl.host,
+            principal: acl.principal.clone(),
+            host: acl.host.clone(),
             operation: acl.operation.into(),
             permission: acl.permission.into(),
         }
@@ -106,21 +111,25 @@ impl From<domain::Acl> for Acl {
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct AclListing {
-    pub authorizer: AclAuthorizer,
+    pub status: AclStatus,
     pub bindings: Vec<Acl>,
+    pub source_health: LaneHealth,
 }
 
-impl From<domain::AclListing> for AclListing {
-    fn from(listing: domain::AclListing) -> Self {
-        match listing {
-            domain::AclListing::Enabled(rows) => Self {
-                authorizer: AclAuthorizer::Enabled,
-                bindings: rows.into_iter().map(Acl::from).collect(),
-            },
-            domain::AclListing::Disabled => Self {
-                authorizer: AclAuthorizer::Disabled,
-                bindings: Vec::new(),
-            },
+impl AclListing {
+    pub(crate) fn new(listing: Option<&domain::AclListing>, health: LaneHealth) -> Self {
+        let (status, bindings) = match listing {
+            None => (AclStatus::Pending, Vec::new()),
+            Some(domain::AclListing::Enabled(rows)) => {
+                (AclStatus::Enabled, rows.iter().map(Acl::from).collect())
+            }
+            Some(domain::AclListing::Disabled) => (AclStatus::Disabled, Vec::new()),
+            Some(domain::AclListing::Denied) => (AclStatus::Denied, Vec::new()),
+        };
+        Self {
+            status,
+            bindings,
+            source_health: health,
         }
     }
 }

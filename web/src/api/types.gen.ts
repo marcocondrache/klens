@@ -25,7 +25,7 @@ export type LaneHealth = { updatedAt: string | null, checkedAt: string | null, l
  */
 healthy: boolean, };
 
-export type ClusterHealth = { cluster: string, ready: boolean, topology: LaneHealth, watermarks: LaneHealth, offsets: LaneHealth, configs: LaneHealth, subjects: LaneHealth, logDirs: LaneHealth, topicCount: number, partitionCount: number, groupCount: number, brokerCount: number, subjectCount: number, underReplicatedPartitions: number, offlinePartitions: number, };
+export type ClusterHealth = { cluster: string, ready: boolean, topology: LaneHealth, watermarks: LaneHealth, offsets: LaneHealth, configs: LaneHealth, subjects: LaneHealth, logDirs: LaneHealth, acls: LaneHealth, topicCount: number, partitionCount: number, groupCount: number, brokerCount: number, subjectCount: number, underReplicatedPartitions: number, offlinePartitions: number, };
 
 export type CleanupPolicy = "DELETE" | "COMPACT" | "COMPACT_DELETE";
 
@@ -140,7 +140,7 @@ export type SchemaReference = { name: string, subject: string, version: number, 
 
 export type SubjectDetail = { subject: string, version: number, id: number, type: SchemaType, schema: string, references: Array<SchemaReference>, };
 
-export type AclAuthorizer = "ENABLED" | "DISABLED";
+export type AclStatus = "PENDING" | "ENABLED" | "DISABLED" | "DENIED";
 
 export type AclResourceType = "TOPIC" | "GROUP" | "CLUSTER" | "TRANSACTIONAL_ID" | "DELEGATION_TOKEN";
 
@@ -152,7 +152,7 @@ export type AclPermission = "ALLOW" | "DENY";
 
 export type Acl = { resourceType: AclResourceType, resourceName: string, patternType: AclPatternType, principal: string, host: string, operation: AclOperation, permission: AclPermission, };
 
-export type AclListing = { authorizer: AclAuthorizer, bindings: Array<Acl>, };
+export type AclListing = { status: AclStatus, bindings: Array<Acl>, sourceHealth: LaneHealth, };
 
 export type RecordOrder = "NEWEST" | "OLDEST";
 
@@ -190,5 +190,5 @@ export type Update = { "type": "watermarks",
  * One `{topic, rate}` pair per topic, never catalog objects. A scoped
  * subscriber gets only its topic.
  */
-topics: Array<TopicRate>, } | { "type": "groupLag", group: string, lag: number, lagComplete: boolean, offsets: Array<GroupOffset>, } | { "type": "topology", addedTopics: Array<string>, removedTopics: Array<string>, changedTopics: Array<string>, addedGroups: Array<string>, removedGroups: Array<string>, changedGroups: Array<string>, brokersChanged: boolean, } | { "type": "configs", topics: Array<string>, } | { "type": "subjects", removed: Array<string>, changed: Array<string>, } | { "type": "logDirs", topics: Array<string>, brokersChanged: boolean, } | { "type": "resync" };
+topics: Array<TopicRate>, } | { "type": "groupLag", group: string, lag: number, lagComplete: boolean, offsets: Array<GroupOffset>, } | { "type": "topology", addedTopics: Array<string>, removedTopics: Array<string>, changedTopics: Array<string>, addedGroups: Array<string>, removedGroups: Array<string>, changedGroups: Array<string>, brokersChanged: boolean, } | { "type": "configs", topics: Array<string>, } | { "type": "subjects", removed: Array<string>, changed: Array<string>, } | { "type": "logDirs", topics: Array<string>, brokersChanged: boolean, } | { "type": "acls" } | { "type": "resync" };
 

@@ -1,19 +1,11 @@
 import { useInfiniteQuery, useQuery, type QueryKey } from "@tanstack/react-query";
 
-import type { AclListing, ConfigEntry, RecordPage, SubjectDetail } from "@/api/types.gen";
+import type { ConfigEntry, RecordPage, SubjectDetail } from "@/api/types.gen";
 
 import { clusterPathname, get, resourceId } from "./client";
 import { keys, type RecordsFilter } from "./keys";
 
 export type { RecordsFilter };
-
-export function useAcls(cluster: string, enabled = true) {
-  return useQuery({
-    queryKey: keys.acls(cluster),
-    queryFn: () => get<AclListing>(clusterPathname(cluster, "acls")),
-    enabled,
-  });
-}
 
 export function useBrokerConfigs(cluster: string, id: number, enabled = true) {
   return useQuery({

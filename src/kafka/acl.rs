@@ -59,6 +59,8 @@ pub enum AclPermission {
 pub enum AclListing {
     Enabled(Vec<Acl>),
     Disabled,
+    /// klens's own Kafka user lacks `DESCRIBE` on the cluster.
+    Denied,
 }
 
 impl AclListing {
@@ -80,6 +82,10 @@ impl AclListing {
                 code: ErrorCode::SecurityDisabled,
                 ..
             } => Ok(Self::Disabled),
+            KrafkaError::Broker {
+                code: ErrorCode::ClusterAuthorizationFailed,
+                ..
+            } => Ok(Self::Denied),
             other => Err(KafkaError::from(other)),
         }
     }
@@ -92,6 +98,9 @@ impl AclListing {
         if let Some(message) = error {
             if is_security_disabled_text(message) {
                 return Ok(Self::Disabled);
+            }
+            if is_cluster_authorization_text(message) {
+                return Ok(Self::Denied);
             }
             return Err(KafkaError::Admin(message.to_owned()));
         }
@@ -107,13 +116,6 @@ impl AclListing {
             })
             .collect();
         Ok(Self::Enabled(rows))
-    }
-
-    pub fn bindings(&self) -> &[Acl] {
-        match self {
-            Self::Enabled(rows) => rows,
-            Self::Disabled => &[],
-        }
     }
 }
 
@@ -211,6 +213,16 @@ fn is_security_disabled_text(message: &str) -> bool {
     lower.contains("securitydisabled")
         || lower.contains("security_disabled")
         || lower.contains("security features are disabled")
+}
+
+/// A broker that denies the describe explains it in prose, such as "Request
+/// ... needs DESCRIBE permission.", or sends no message and leaves only the
+/// error-code name.
+fn is_cluster_authorization_text(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("clusterauthorizationfailed")
+        || lower.contains("cluster_authorization_failed")
+        || lower.contains("needs describe permission")
 }
 
 #[cfg(test)]
@@ -369,7 +381,6 @@ mod tests {
         )
         .unwrap();
         assert_eq!(listing, AclListing::Disabled);
-        assert!(listing.bindings().is_empty());
     }
 
     #[test]
@@ -397,6 +408,28 @@ mod tests {
             let listing =
                 AclListing::from_describe("local", Some(message), vec![stored_binding()]).unwrap();
             assert_eq!(listing, AclListing::Disabled, "{message}");
+        }
+    }
+
+    #[test]
+    fn a_denied_describe_is_a_denied_listing() {
+        let listing = AclListing::from_admin_result(
+            "local",
+            Err(KrafkaError::Broker {
+                code: ErrorCode::ClusterAuthorizationFailed,
+                message: "Cluster authorization failed.".into(),
+            }),
+        )
+        .unwrap();
+        assert_eq!(listing, AclListing::Denied);
+
+        for message in [
+            "ClusterAuthorizationFailed",
+            "CLUSTER_AUTHORIZATION_FAILED",
+            "Request Request(processor=2, listenerName=ListenerName(SASL_PLAINTEXT)) needs DESCRIBE permission.",
+        ] {
+            let listing = AclListing::from_describe("local", Some(message), Vec::new()).unwrap();
+            assert_eq!(listing, AclListing::Denied, "{message}");
         }
     }
 

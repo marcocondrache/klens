@@ -125,6 +125,7 @@ tuning:
     config: 60s
     subjects: 30s
     log_dirs: 60s
+    acls: 60s
     offset_tick: 1s # how often the offset lane checks which groups are due
     fast_offset: 2s # groups someone is looking at
     slow_offset: 20s # every other group

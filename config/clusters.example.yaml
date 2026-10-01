@@ -158,6 +158,7 @@ clusters:
 #     config: 60s
 #     subjects: 30s
 #     log_dirs: 60s
+#     acls: 60s
 #     offset_tick: 1s
 #     fast_offset: 2s
 #     slow_offset: 20s
