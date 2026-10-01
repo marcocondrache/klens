@@ -44,6 +44,10 @@ function withQuery(path: string, query?: Record<string, QueryValue>): string {
   return text ? `${path}?${text}` : path;
 }
 
+export function apiUrl(path: string, query?: Record<string, QueryValue>): string {
+  return withQuery(apiPath(path), query);
+}
+
 export function clusterPathname(cluster: string, ...rest: string[]): string {
   return ["/clusters", encodeURIComponent(cluster), ...rest].join("/");
 }
@@ -86,7 +90,7 @@ async function fail(response: Response): Promise<never> {
 }
 
 export async function get<T>(path: string, query?: Record<string, QueryValue>): Promise<T> {
-  const response = await fetch(withQuery(apiPath(path), query), {
+  const response = await fetch(apiUrl(path, query), {
     credentials: "include",
     headers: { Accept: "application/json" },
   });
@@ -155,7 +159,7 @@ export async function* events(
   signal: AbortSignal,
   query?: Record<string, QueryValue>,
 ): AsyncGenerator<EventSourceMessage> {
-  const response = await fetch(withQuery(apiPath(path), query), {
+  const response = await fetch(apiUrl(path, query), {
     credentials: "include",
     headers: { Accept: "text/event-stream" },
     signal,

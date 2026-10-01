@@ -2,7 +2,7 @@ import { useInfiniteQuery, useQuery, type QueryKey } from "@tanstack/react-query
 
 import type { ConfigEntry, RecordPage, SubjectDetail } from "@/api/types.gen";
 
-import { clusterPathname, get, resourceId } from "./client";
+import { apiUrl, clusterPathname, get, resourceId } from "./client";
 import { keys, type RecordsFilter } from "./keys";
 
 export type { RecordsFilter };
@@ -46,25 +46,36 @@ function sameTopic(previous: QueryKey | undefined, next: QueryKey) {
   return previous != null && previous.slice(0, 4).every((part, index) => part === next[index]);
 }
 
+function recordsPath(cluster: string, topic: string, ...rest: string[]) {
+  return clusterPathname(cluster, "topics", encodeURIComponent(topic), "records", ...rest);
+}
+
+function recordParams(query: RecordsFilter) {
+  return {
+    partition: query.partitions,
+    order: query.order,
+    from: query.from,
+    to: query.to,
+    contains: query.filter?.contains,
+    schemaId: query.schemaId,
+  };
+}
+
+export function recordsExportUrl(cluster: string, query: RecordsFilter) {
+  return apiUrl(recordsPath(cluster, query.topic, "export"), recordParams(query));
+}
+
 export function useRecords(cluster: string, query: RecordsFilter) {
   const scans = query.partitions?.length !== 0;
 
   return useInfiniteQuery({
     queryKey: keys.records(cluster, query),
     queryFn: ({ pageParam }) =>
-      get<RecordPage>(
-        clusterPathname(cluster, "topics", encodeURIComponent(query.topic), "records"),
-        {
-          partition: query.partitions,
-          order: query.order,
-          from: query.from,
-          to: query.to,
-          limit: RECORD_BATCH_SIZE,
-          contains: query.filter?.contains,
-          schemaId: query.schemaId,
-          cursor: pageParam,
-        },
-      ),
+      get<RecordPage>(recordsPath(cluster, query.topic), {
+        ...recordParams(query),
+        limit: RECORD_BATCH_SIZE,
+        cursor: pageParam,
+      }),
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.nextCursor,
     placeholderData: (previous, previousQuery) =>
