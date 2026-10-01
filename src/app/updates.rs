@@ -221,6 +221,7 @@ fn project(change: &Change, scope: &Scope) -> Vec<Update> {
             Some(_) => Vec::new(),
         },
 
+        Change::Acls => vec![Update::Acls],
         Change::Quotas => vec![Update::Quotas],
     }
 }

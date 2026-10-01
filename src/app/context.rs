@@ -6,9 +6,9 @@ use axum::http::request::Parts;
 use crate::AppState;
 use crate::app::auth::SessionGuard;
 use crate::app::auth::access::{
-    AccessError, AclsCap, ClusterAccess, ConfigsCap, EffectiveAccess, RecordsCap, SchemaTextCap,
+    AccessError, ClusterAccess, ConfigsCap, EffectiveAccess, RecordsCap, SchemaTextCap,
 };
-use crate::kafka::model::{AclListing, RegisteredSchema};
+use crate::kafka::model::RegisteredSchema;
 use crate::kafka::store::ClusterStore;
 use crate::kafka::{
     Cluster, ConfigEntry, KafkaError, RecordPage, RecordQuery, Tail, TailLimits, TailQuery,
@@ -44,10 +44,6 @@ impl<'a> ClusterHandle<'a> {
 
     pub(crate) fn schema_text(&self) -> Result<Granted<'a, SchemaTextCap>, AccessError> {
         self.access.schema_text().map(|cap| self.grant(cap))
-    }
-
-    pub(crate) fn acls(&self) -> Result<Granted<'a, AclsCap>, AccessError> {
-        self.access.acls().map(|cap| self.grant(cap))
     }
 
     fn grant<Cap>(&self, cap: Cap) -> Granted<'a, Cap> {
@@ -90,12 +86,6 @@ impl Granted<'_, SchemaTextCap> {
         version: i32,
     ) -> Result<RegisteredSchema, KafkaError> {
         self.cluster.session.subject_schema(subject, version).await
-    }
-}
-
-impl Granted<'_, AclsCap> {
-    pub(crate) async fn list(&self) -> Result<AclListing, KafkaError> {
-        self.cluster.session.acls().await
     }
 }
 

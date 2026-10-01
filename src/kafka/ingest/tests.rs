@@ -6,6 +6,7 @@ use tokio::sync::broadcast::error::TryRecvError;
 use tokio::task::JoinSet;
 
 use super::*;
+use crate::kafka::acl::AclListing;
 use crate::kafka::group::{
     CommittedOffset, GroupMember, GroupSnapshot, GroupState, MemberAssignment,
 };
@@ -919,7 +920,7 @@ async fn every_lane_runs_per_cluster_and_stops_with_the_ingest() {
     let clusters = Clusters::from_sessions(vec![prod.clone(), staging]);
     let lanes = Ingest::start(&clusters, &IngestTuning::default());
 
-    assert_eq!(lanes.lane_count(), 14, "seven lanes per cluster");
+    assert_eq!(lanes.lane_count(), 16, "eight lanes per cluster");
     wait_for(|| clusters.ready(), "both clusters ready").await;
 
     drop(lanes);
@@ -954,19 +955,92 @@ async fn ingestion_fills_the_stores_the_api_projects_from() {
     );
 }
 
+fn acl_lane(store: &Arc<ClusterStore>, session: &FakeCluster, interval: Duration) -> JoinSet<()> {
+    let mut lanes = JoinSet::new();
+    lanes.spawn(run(
+        Arc::clone(store),
+        AclLane::with_interval(port(session), interval),
+    ));
+    lanes
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_acl_lane_stores_the_listing_and_publishes_each_change() {
+    let session = FakeCluster::local();
+    let store = store(&session);
+    let mut events = store.bus.subscribe();
+    let _lanes = acl_lane(&store, &session, IDLE);
+
+    wait_for(|| store.acls.ready(), "acls commit").await;
+    assert!(matches!(
+        store.acls.load().as_deref(),
+        Some(AclListing::Enabled(rows)) if rows.len() == 3
+    ));
+    assert!(matches!(events.try_recv(), Ok(Change::Acls)));
+
+    store.acls.kick();
+    wait_for(|| session.calls().acls() == 2, "second describe").await;
+    tokio::task::yield_now().await;
+    assert_eq!(
+        store.acls.version(),
+        1,
+        "an unchanged listing is not a commit"
+    );
+    assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+
+    session.set_acls(Ok(AclListing::Disabled));
+    store.acls.kick();
+    wait_for(|| store.acls.version() == 2, "acls recommit").await;
+    assert!(matches!(events.try_recv(), Ok(Change::Acls)));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_denied_describe_is_stored_as_the_lanes_result() {
+    let session = FakeCluster::local();
+    session.set_acls(Ok(AclListing::Denied));
+    let store = store(&session);
+    let _lanes = acl_lane(&store, &session, IDLE);
+
+    wait_for(|| store.acls.ready(), "acls commit").await;
+
+    assert_eq!(store.acls.load().as_deref(), Some(&AclListing::Denied));
+    assert!(store.acls.health().healthy());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_failing_acl_poll_names_its_lane_and_waits_out_the_interval() {
+    let (logs, _guard) = crate::telemetry::capture::subscriber(tracing::Level::WARN);
+    let session = FakeCluster::local();
+    session.set_acls(Err("broker down"));
+    let store = store(&session);
+    let _lanes = acl_lane(&store, &session, Duration::from_secs(60));
+
+    wait_for(|| store.acls.health().last_error.is_some(), "acls error").await;
+
+    assert!(store.acls.load().is_none());
+    assert!(
+        logs.as_string().contains("lane=\"acls\""),
+        "{}",
+        logs.as_string()
+    );
+
+    tokio::time::advance(Duration::from_secs(59)).await;
+    tokio::task::yield_now().await;
+    assert_eq!(session.calls().acls(), 1);
+    tokio::time::advance(Duration::from_secs(2)).await;
+    wait_for(|| session.calls().acls() == 2, "second acls call").await;
+}
+
 #[tokio::test]
-async fn ingestion_never_describes_acls() {
+async fn ingestion_fills_the_acl_lane() {
     let session = FakeCluster::local();
     let clusters = Clusters::from_sessions(vec![session.clone()]);
     let _lanes = Ingest::start(&clusters, &IngestTuning::default());
+    let store = &clusters.get("local").unwrap().store;
 
-    wait_for(|| clusters.ready(), "topology commit").await;
+    wait_for(|| store.acls.ready(), "acls commit").await;
 
-    assert!(
-        session.calls().metadata() > 0,
-        "topology lane never called metadata"
-    );
-    assert_eq!(session.calls().acls(), 0);
+    assert_eq!(session.calls().acls(), 1);
 }
 
 #[tokio::test(start_paused = true)]

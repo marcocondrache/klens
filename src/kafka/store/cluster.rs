@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use crate::kafka::acl::AclListing;
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::quota::QuotaListing;
 use crate::kafka::topic_config::ConfigEntry;
@@ -25,6 +26,7 @@ pub struct ClusterStore {
     pub configs: Lane<ConfigTable>,
     pub subjects: Lane<SubjectTable>,
     pub log_dirs: Lane<LogDirTable>,
+    pub acls: Lane<AclListing>,
     pub quotas: Lane<QuotaListing>,
     pub rates: RateStore,
     pub bus: ChangeBus,
@@ -41,6 +43,7 @@ impl std::fmt::Debug for ClusterStore {
             .field("configs", &self.configs.version())
             .field("subjects", &self.subjects.version())
             .field("log_dirs", &self.log_dirs.version())
+            .field("acls", &self.acls.version())
             .field("quotas", &self.quotas.version())
             .finish_non_exhaustive()
     }
@@ -56,6 +59,7 @@ impl ClusterStore {
             configs: Lane::new(),
             subjects: Lane::new(),
             log_dirs: Lane::new(),
+            acls: Lane::new(),
             quotas: Lane::new(),
             rates: RateStore::new(),
             bus: ChangeBus::new(),
@@ -242,6 +246,7 @@ impl ClusterStore {
             configs: self.configs.health(),
             subjects: self.subjects.health(),
             log_dirs: self.log_dirs.health(),
+            acls: self.acls.health(),
             quotas: self.quotas.health(),
             topic_count: topology
                 .as_ref()

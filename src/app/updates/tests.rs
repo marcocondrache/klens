@@ -161,6 +161,24 @@ async fn an_unscoped_subscriber_hears_every_size_that_moved() {
 }
 
 #[tokio::test]
+async fn an_acl_change_tells_the_client_to_refetch() {
+    let state = seeded();
+    let store = Arc::clone(store_of(&state, "local"));
+    let response = open_stream(
+        &state,
+        "/clusters/local/updates",
+        EffectiveAccess::Unrestricted,
+        SessionGuard::open(),
+    )
+    .await;
+    store.bus.publish(Change::Acls);
+    let frames = read_frames(response, 1).await;
+
+    assert_eq!(frames[0].0, "acls");
+    assert_eq!(frames[0].1, serde_json::json!({ "type": "acls" }));
+}
+
+#[tokio::test]
 async fn a_topic_scoped_subscriber_hears_only_its_own_size() {
     let state = seeded();
     let store = Arc::clone(store_of(&state, "local"));

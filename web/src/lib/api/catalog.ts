@@ -1,6 +1,7 @@
 import { keepPreviousData, useQuery, type Query } from "@tanstack/react-query";
 
 import type {
+  AclListing,
   BrokerRow,
   ClusterHealth,
   GroupDetail,
@@ -117,6 +118,18 @@ export function useSubjectRows(cluster: string) {
   return useQuery({
     queryKey: keys.subjectRows(cluster),
     queryFn: () => get<SubjectRowsResult>(clusterPathname(cluster, "subjects")),
+  });
+}
+
+export function useAcls(cluster: string, enabled = true) {
+  return useQuery({
+    queryKey: keys.acls(cluster),
+    queryFn: () => get<AclListing>(clusterPathname(cluster, "acls")),
+    enabled,
+    refetchInterval: (query: Query<AclListing>) => {
+      const data = query.state.data;
+      return data?.status === "PENDING" && data.sourceHealth.lastError == null ? 2000 : false;
+    },
   });
 }
 

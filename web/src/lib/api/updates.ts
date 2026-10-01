@@ -139,6 +139,11 @@ function apply(queryClient: QueryClient, cluster: string, update: Update): void 
       return;
     }
 
+    case "acls": {
+      void queryClient.invalidateQueries({ queryKey: keys.acls(cluster), exact: true });
+      return;
+    }
+
     case "quotas": {
       void queryClient.invalidateQueries({ queryKey: keys.quotas(cluster), exact: true });
       return;

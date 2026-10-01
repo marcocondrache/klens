@@ -1,3 +1,4 @@
+pub mod acls;
 pub mod configs;
 pub mod log_dirs;
 pub mod offsets;
@@ -14,6 +15,7 @@ use tokio::task::JoinSet;
 use crate::config::IngestTuning;
 use crate::kafka::cluster::{Cluster, Clusters};
 
+pub use acls::AclLane;
 pub use configs::ConfigLane;
 pub use log_dirs::LogDirLane;
 pub use offsets::{OffsetLane, Wave};
@@ -54,6 +56,10 @@ impl Ingest {
             tasks.spawn(run(
                 Arc::clone(store),
                 LogDirLane::with_interval(Arc::clone(session), tuning.log_dirs),
+            ));
+            tasks.spawn(run(
+                Arc::clone(store),
+                AclLane::with_interval(Arc::clone(session), tuning.acls),
             ));
             tasks.spawn(run(
                 Arc::clone(store),

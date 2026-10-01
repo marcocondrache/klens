@@ -14,12 +14,13 @@ import {
   type FilterField,
   type FilterRule,
 } from "@/components/data-table/filters";
+import { LaneCaption } from "@/components/lane-caption";
 import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
 import { Pill, StatusDot, StatusLabel } from "@/components/status";
 import { useAccess } from "@/hooks/use-access";
 import { useSearchDraft } from "@/hooks/use-search-draft";
-import { useAcls } from "@/lib/api/live";
+import { useAcls } from "@/lib/api/catalog";
 import type { Acl } from "@/lib/api/types";
 import { useClusterName } from "@/lib/clusters";
 import { apiErrorMessage } from "@/lib/api/client";
@@ -41,6 +42,8 @@ export const Route = createFileRoute("/cluster/$cluster/acls")({
 });
 
 const EMPTY_BINDINGS: Acl[] = [];
+const DISABLED = "Authorization is disabled on this cluster.";
+const DENIED = "klens's Kafka user needs DESCRIBE on the cluster to read ACLs.";
 
 function enumOptions(values: readonly string[]) {
   return values.map((value) => ({ value, label: formatEnumLabel(value) }));
@@ -158,7 +161,9 @@ function AclsPage() {
   const { can } = useAccess();
   const canAcls = can(cluster, "ACLS");
   const { data, isPending, isError, error } = useAcls(cluster, canAcls);
-  const disabled = data?.authorizer === "DISABLED";
+  const lane = data?.sourceHealth;
+  const status = data?.status;
+  const notice = status === "DISABLED" ? DISABLED : status === "DENIED" ? DENIED : undefined;
   const bindings = data?.bindings ?? EMPTY_BINDINGS;
 
   function setFilters(rules: FilterRule[]) {
@@ -196,7 +201,10 @@ function AclsPage() {
       <PageHeader
         title="ACLs"
         description={
-          disabled ? "Authorization is disabled on this cluster." : `${rows.length} bindings`
+          <>
+            {notice ?? `${rows.length} bindings`}
+            <LaneCaption lane={lane} />
+          </>
         }
       />
 
@@ -211,9 +219,12 @@ function AclsPage() {
             <FilterBar fields={FILTERS} rows={searched} value={filters} onChange={setFilters} />
           </>
         }
-        loading={isPending}
+        loading={isPending || (status === "PENDING" && lane?.lastError == null)}
         error={isError ? apiErrorMessage(error, "Failed to load ACLs.") : undefined}
-        emptyState={disabled ? "Authorization is disabled on this cluster." : "No ACL bindings."}
+        emptyState={
+          notice ??
+          (lane?.lastError ? `ACLs are unavailable: ${lane.lastError}` : "No ACL bindings.")
+        }
         defaultSort={{ id: "resourceName", direction: "asc" }}
       />
     </div>

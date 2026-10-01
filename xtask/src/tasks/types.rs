@@ -4,7 +4,7 @@ use ts_rs::TS;
 use xshell::Shell;
 
 use klens::app::typescript::{
-    Acl, AclAuthorizer, AclListing, AclOperation, AclPatternType, AclPermission, AclResourceType,
+    Acl, AclListing, AclOperation, AclPatternType, AclPermission, AclResourceType, AclStatus,
     BrokerRow, CleanupPolicy, ClientQuota, ClusterGrant, ClusterHealth, ConfigEntry, ConfigSource,
     GroupDetail, GroupMember, GroupOffset, GroupRow, GroupState, Identity, LaneHealth, LogDir,
     MemberAssignment, PartitionRow, PrivilegeName, QuotaAccess, QuotaEntity, QuotaEntityType,
@@ -60,7 +60,7 @@ fn typescript() -> String {
         SubjectRowsResult,
         SchemaReference,
         SubjectDetail,
-        AclAuthorizer,
+        AclStatus,
         AclResourceType,
         AclPatternType,
         AclOperation,
