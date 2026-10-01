@@ -2,6 +2,7 @@ import { Fragment } from "react";
 import { RefreshCwIcon, SearchIcon } from "lucide-react";
 import { Link, useParams } from "@tanstack/react-router";
 import { useIsFetching, useQueryClient } from "@tanstack/react-query";
+import { formatForDisplay } from "@tanstack/react-hotkeys";
 import { cn } from "@/lib/utils";
 
 import {
@@ -20,7 +21,6 @@ import { ClusterSwitcher } from "@/components/cluster-switcher";
 import { IconButton } from "@/components/icon-button";
 import { ModeToggle } from "@/components/mode-toggle";
 import { useClusterName } from "@/lib/clusters";
-import { formatModK } from "@/lib/keyboard";
 import { clusterSectionTo, useActiveSection } from "@/lib/sections";
 
 interface Crumb {
@@ -106,7 +106,7 @@ export function AppHeader({ onSearch }: { onSearch: () => void }) {
             <SearchIcon />
             <span>Search…</span>
             <Kbd className="ml-auto -mr-1 h-4.5 border bg-background px-1 text-[0.6875rem] dark:bg-transparent">
-              {formatModK()}
+              {formatForDisplay("Mod+K")}
             </Kbd>
           </Button>
 
