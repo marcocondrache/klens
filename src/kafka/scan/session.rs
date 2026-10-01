@@ -679,6 +679,22 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn a_schema_override_alone_reads_one_browse_pass() {
+        let session = delayed(&[], Duration::from_secs(1));
+        let mut query = query();
+        query.filter = None;
+        query.schema_id = Some(7);
+
+        let page = fetch_page(&session, &query, &[0], &marks(0, 8), 2, LIMITS)
+            .await
+            .unwrap();
+
+        assert!(page.records.is_empty());
+        assert!(page.has_more());
+        assert_eq!(session.assigned_windows(), vec![vec![(0, 0, 4)]]);
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn an_exhausted_cursor_never_opens_a_consumer() {
         let session = delayed(&[], Duration::from_secs(11));
         let mut query = query();
