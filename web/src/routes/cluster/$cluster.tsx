@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { TriangleAlertIcon } from "lucide-react";
+import { useHotkey } from "@tanstack/react-hotkeys";
 import { Navigate, Outlet, createFileRoute, useMatch } from "@tanstack/react-router";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -11,7 +12,7 @@ import { CatalogLoading, ClustersLoading } from "@/components/page-loading";
 import { useClusterHealth, useClusterNames } from "@/lib/api/catalog";
 import { useUpdates, type Scope } from "@/lib/api/updates";
 import { isFirstCatalogPending, useClusterName } from "@/lib/clusters";
-import { findSearchHotkeyTarget, isTypingTarget } from "@/lib/keyboard";
+import { findSearchHotkeyTarget } from "@/lib/keyboard";
 import { NotFoundPage } from "@/routes/-not-found";
 
 export const Route = createFileRoute("/cluster/$cluster")({
@@ -27,31 +28,16 @@ function AppLayout() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const known = clusters?.includes(cluster);
 
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "k" && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault();
-        setPaletteOpen((open) => !open);
-        return;
-      }
+  useHotkey("Mod+K", () => setPaletteOpen((open) => !open));
 
-      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
-      if (isTypingTarget(event.target)) return;
-
-      const search = findSearchHotkeyTarget();
-      if (search) {
-        event.preventDefault();
-        search.focus();
-        return;
-      }
-
-      event.preventDefault();
+  useHotkey("/", () => {
+    const search = findSearchHotkeyTarget();
+    if (search) {
+      search.focus();
+    } else {
       setPaletteOpen(true);
     }
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  });
 
   if (!isPending && clusters && clusters.length > 0 && !known) {
     return <Navigate to="/cluster/$cluster" params={{ cluster: clusters[0] }} replace />;

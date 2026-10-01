@@ -1,4 +1,5 @@
 import { CompassIcon } from "lucide-react";
+import { formatForDisplay } from "@tanstack/react-hotkeys";
 import { Link } from "@tanstack/react-router";
 
 import { Button } from "@/components/ui/button";
@@ -10,7 +11,6 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import { formatModK } from "@/lib/keyboard";
 
 export function NotFoundPage() {
   return (
@@ -20,7 +20,9 @@ export function NotFoundPage() {
           <CompassIcon />
         </EmptyMedia>
         <EmptyTitle>Page not found</EmptyTitle>
-        <EmptyDescription>Check the address, or search with {formatModK()} or /.</EmptyDescription>
+        <EmptyDescription>
+          Check the address, or search with {formatForDisplay("Mod+K")} or /.
+        </EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
         <Button render={<Link to="/" />}>Back to topics</Button>
