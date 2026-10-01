@@ -20,7 +20,7 @@ use crate::config::{self, Tuning};
 use crate::kafka::acl::AclListing;
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
-use crate::kafka::group::{CommittedOffset, GroupSnapshot, is_internal_group};
+use crate::kafka::group::{CommittedOffset, GroupSnapshot};
 use crate::kafka::metadata::{MetadataSnapshot, TopicMetadata};
 use crate::kafka::model::{PartitionWindow, ScanConsumer, TailConsumer, TailPosition};
 use crate::kafka::quota::{DescribedQuota, QuotaListing};
@@ -34,7 +34,9 @@ use crate::kafka::storage::LogDir;
 use crate::kafka::topic_config::ConfigEntry;
 
 use convert::committed_from_krafka;
-use groups::snapshots_from_descriptions;
+use groups::{
+    ACTIVE_GROUP_STATES, LISTED_GROUP_TYPES, snapshots_from_descriptions, split_empty_groups,
+};
 use offsets::{known_offsets, partition_time_offsets};
 use pool::ScanPool;
 use scan::ReaderConfig;
@@ -151,22 +153,21 @@ impl ClusterSession for KafkaClient {
     }
 
     async fn groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
-        let listed = self
-            .transport
-            .admin
-            .list_consumer_groups(&GroupListing::all())
-            .await?;
-        let ids: Vec<String> = listed
-            .into_iter()
-            .map(|group| group.group_id)
-            .filter(|id| !is_internal_group(id))
-            .collect();
-        if ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        Ok(snapshots_from_descriptions(
-            self.transport.admin.describe_consumer_groups(ids).await?,
-        ))
+        let admin = &self.transport.admin;
+        let listing = GroupListing::all().of_types(LISTED_GROUP_TYPES);
+        let active_listing = listing.clone().in_states(ACTIVE_GROUP_STATES);
+        let (listed, active) = tokio::try_join!(
+            admin.list_consumer_groups(&listing),
+            admin.list_consumer_groups(&active_listing),
+        )?;
+        let (active, mut groups) = split_empty_groups(
+            listed.into_iter().map(|group| group.group_id),
+            active.into_iter().map(|group| group.group_id),
+        );
+        groups.extend(snapshots_from_descriptions(
+            admin.describe_consumer_groups(active).await?,
+        ));
+        Ok(groups)
     }
 
     async fn committed_offsets(
@@ -574,6 +575,17 @@ mod tests {
         );
         client.transport.admin.close().await;
         client.transport.client.pool().close_all().await;
+    }
+
+    #[tokio::test]
+    async fn a_broker_that_does_not_serve_list_groups_fails_the_call() {
+        let broker = krafka::testing::FakeBroker::start().await.unwrap();
+        let client = kafka_client(&broker.bootstrap_servers()).await;
+        client.metadata().await.expect("metadata");
+
+        let error = client.groups().await.unwrap_err();
+
+        assert!(matches!(error, KafkaError::Krafka(_)), "{error:?}");
     }
 
     #[tokio::test]
