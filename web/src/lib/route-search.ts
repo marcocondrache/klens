@@ -1,7 +1,6 @@
 import * as z from "zod/mini";
 
 import { filterParam } from "@/components/data-table/filters";
-import type { GroupState, QuotaEntityType } from "@/lib/api/types";
 
 export const term = z.catch(z._default(z.string(), ""), "");
 
@@ -32,95 +31,6 @@ export function filter(allowed: readonly string[]) {
   return z.catch(z.optional(param), undefined);
 }
 
-export const GROUP_STATES = [
-  "STABLE",
-  "EMPTY",
-  "PREPARING_REBALANCE",
-  "COMPLETING_REBALANCE",
-  "DEAD",
-] as const satisfies readonly GroupState[];
-
-export const GROUP_LAG = ["lagging", "caught-up"] as const;
-
-export const groupsSearch = z.object({
-  q: term,
-  state: filter(GROUP_STATES),
-  lag: filter(GROUP_LAG),
-});
-
-export type GroupsSearch = z.output<typeof groupsSearch>;
-export type GroupFilter = Exclude<keyof GroupsSearch, "q">;
-
-const version = z.catch(
-  z.optional(
-    z.union([
-      z.int().check(z.positive()),
-      z.pipe(
-        z.string().check(z.regex(/^[1-9]\d*$/)),
-        z.transform((value) => Number(value)),
-      ),
-    ]),
-  ),
-  undefined,
-);
-
-export const schemasSearch = z.object({
-  q: term,
-  subject: z.catch(z.optional(z.string()), undefined),
-  version,
-});
-
-export const ACL_RESOURCE_TYPES = [
-  "TOPIC",
-  "GROUP",
-  "CLUSTER",
-  "TRANSACTIONAL_ID",
-  "DELEGATION_TOKEN",
-] as const;
-
-export const ACL_OPERATIONS = [
-  "ALL",
-  "READ",
-  "WRITE",
-  "CREATE",
-  "DELETE",
-  "ALTER",
-  "DESCRIBE",
-  "CLUSTER_ACTION",
-  "DESCRIBE_CONFIGS",
-  "ALTER_CONFIGS",
-  "IDEMPOTENT_WRITE",
-] as const;
-export const ACL_PERMISSIONS = ["ALLOW", "DENY"] as const;
-export const ACL_PATTERNS = ["LITERAL", "PREFIXED"] as const;
-
-export const aclsSearch = z.object({
-  q: term,
-  resource: filter(ACL_RESOURCE_TYPES),
-  operation: filter(ACL_OPERATIONS),
-  permission: filter(ACL_PERMISSIONS),
-  pattern: filter(ACL_PATTERNS),
-});
-
-export type AclsSearch = z.output<typeof aclsSearch>;
-export type AclFilter = Exclude<keyof AclsSearch, "q">;
-
-export const QUOTA_ENTITY_TYPES = [
-  "USER",
-  "CLIENT_ID",
-  "IP",
-] as const satisfies readonly QuotaEntityType[];
-export const QUOTA_SCOPES = ["named", "default"] as const;
-
-export const quotasSearch = z.object({
-  q: term,
-  entity: filter(QUOTA_ENTITY_TYPES),
-  scope: filter(QUOTA_SCOPES),
-});
-
-export type QuotasSearch = z.output<typeof quotasSearch>;
-export type QuotaFilter = Exclude<keyof QuotasSearch, "q">;
-
 export const loginSearch = z.object({
   error: z.catch(z.optional(z.string()), undefined),
   from: oneOf(["callback"]),
@@ -136,16 +46,6 @@ export const groupDetailSearch = z.object({
 
 export function groupTab(value: unknown) {
   return z.parse(groupTabParam, value);
-}
-
-const nodeTabParam = z.catch(z._default(z.enum(["log-dirs", "config"]), "log-dirs"), "log-dirs");
-
-export const nodeDetailSearch = z.object({
-  tab: nodeTabParam,
-});
-
-export function nodeTab(value: unknown) {
-  return z.parse(nodeTabParam, value);
 }
 
 export function searchDefaults<T extends z.ZodMiniType>(schema: T): z.output<T> {
