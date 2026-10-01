@@ -8,18 +8,12 @@ import { Switch } from "@/components/ui/switch";
 import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
 import { FilterBar } from "@/components/data-table/filter-bar";
-import {
-  applyFilters,
-  filterParams,
-  readFilters,
-  type FilterField,
-  type FilterRule,
-} from "@/components/data-table/filters";
+import { type FilterField } from "@/components/data-table/filters";
+import { useTableSearch } from "@/components/data-table/use-table-search";
 import { LaneCaption } from "@/components/lane-caption";
 import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
 import { PendingValue, Pill, SizeValue, StatusDot } from "@/components/status";
-import { useSearchDraft } from "@/hooks/use-search-draft";
 import { useClusterHealth, useTopicRows } from "@/lib/api/catalog";
 import { useClusterName } from "@/lib/clusters";
 import { apiErrorMessage } from "@/lib/api/client";
@@ -81,6 +75,10 @@ const FILTERS: Array<FilterField<TopicRow, TopicFilter>> = [
 ];
 
 const EMPTY_TOPICS: TopicRow[] = [];
+
+function topicMatches(topic: TopicRow, needle: string) {
+  return topic.name.toLowerCase().includes(needle);
+}
 
 function emptyMetric(value: number, display: ReactNode) {
   if (value === 0) {
@@ -176,32 +174,26 @@ function TopicsPage() {
   const cluster = useClusterName();
   const navigate = Route.useNavigate();
   const search = Route.useSearch();
-  const { q: term, internal: showInternal } = search;
-  const filters = readFilters(FILTERS, search);
+  const showInternal = search.internal;
 
   function setSearch(patch: Partial<TopicsSearch>) {
     void navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true });
   }
-  const searchInput = useSearchDraft(term, (q) => setSearch({ q }));
 
   const { data: topics = EMPTY_TOPICS, isPending, isError, error } = useTopicRows(cluster);
   const { data: health } = useClusterHealth(cluster);
 
-  function setFilters(rules: FilterRule[]) {
-    setSearch(filterParams(FILTERS, rules));
-  }
-
-  const searched = useMemo(() => {
-    const needle = term.trim().toLowerCase();
-
-    return topics.filter((topic) => {
-      if (!showInternal && topic.internal) return false;
-      if (needle && !topic.name.toLowerCase().includes(needle)) return false;
-      return true;
-    });
-  }, [topics, term, showInternal]);
-
-  const rows = applyFilters(searched, FILTERS, filters);
+  const visible = useMemo(
+    () => (showInternal ? topics : topics.filter((topic) => !topic.internal)),
+    [topics, showInternal],
+  );
+  const { searchInput, rows, filterBar } = useTableSearch({
+    rows: visible,
+    fields: FILTERS,
+    search,
+    setSearch,
+    matches: topicMatches,
+  });
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
@@ -223,7 +215,7 @@ function TopicsPage() {
           <>
             <SearchField {...searchInput} placeholder="Search topics…" />
 
-            <FilterBar fields={FILTERS} rows={searched} value={filters} onChange={setFilters} />
+            <FilterBar {...filterBar} />
 
             <Label className="ml-auto flex items-center gap-2 text-sm font-normal text-muted-foreground">
               <Switch

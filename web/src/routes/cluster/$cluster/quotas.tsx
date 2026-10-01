@@ -1,4 +1,4 @@
-import { Fragment, useMemo, type ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import { createFileRoute, stripSearchParams } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
 import { AsteriskIcon, UserRoundIcon } from "lucide-react";
@@ -6,19 +6,13 @@ import { AsteriskIcon, UserRoundIcon } from "lucide-react";
 import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
 import { FilterBar } from "@/components/data-table/filter-bar";
-import {
-  applyFilters,
-  filterParams,
-  readFilters,
-  type FilterField,
-  type FilterRule,
-} from "@/components/data-table/filters";
+import { type FilterField } from "@/components/data-table/filters";
+import { useTableSearch } from "@/components/data-table/use-table-search";
 import { LaneCaption } from "@/components/lane-caption";
 import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
 import { useAccess } from "@/hooks/use-access";
-import { useSearchDraft } from "@/hooks/use-search-draft";
 import { apiErrorMessage } from "@/lib/api/client";
 import { useQuotas } from "@/lib/api/catalog";
 import type { ClientQuota, QuotaEntity, QuotaEntityType } from "@/lib/api/types";
@@ -73,6 +67,14 @@ const FILTERS: Array<FilterField<ClientQuota, QuotaFilter>> = [
     accessor: (quota) => (isDefault(quota) ? "default" : "named"),
   },
 ];
+
+function quotaMatches(quota: ClientQuota, needle: string) {
+  return quota.entity
+    .map((part) => `${ENTITY_LABEL[part.entityType]} ${part.name ?? "default"}`)
+    .join(" ")
+    .toLowerCase()
+    .includes(needle);
+}
 
 function entityKey(quota: ClientQuota) {
   return quota.entity
@@ -173,13 +175,10 @@ function QuotasPage() {
   const cluster = useClusterName();
   const navigate = Route.useNavigate();
   const search = Route.useSearch();
-  const { q: term } = search;
-  const filters = readFilters(FILTERS, search);
 
   function setSearch(patch: Partial<QuotasSearch>) {
     void navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true });
   }
-  const searchInput = useSearchDraft(term, (q) => setSearch({ q }));
   const { can } = useAccess();
   const canConfigs = can(cluster, "CONFIGS");
   const { data, isPending, isError, error } = useQuotas(cluster, canConfigs);
@@ -188,24 +187,13 @@ function QuotasPage() {
   const denied = status === "DENIED";
   const quotas = data?.quotas ?? EMPTY_QUOTAS;
 
-  function setFilters(rules: FilterRule[]) {
-    setSearch(filterParams(FILTERS, rules));
-  }
-
-  const searched = useMemo(() => {
-    const needle = term.trim().toLowerCase();
-    if (!needle) return quotas;
-
-    return quotas.filter((quota) =>
-      quota.entity
-        .map((part) => `${ENTITY_LABEL[part.entityType]} ${part.name ?? "default"}`)
-        .join(" ")
-        .toLowerCase()
-        .includes(needle),
-    );
-  }, [quotas, term]);
-
-  const rows = applyFilters(searched, FILTERS, filters);
+  const { searchInput, rows, filterBar } = useTableSearch({
+    rows: quotas,
+    fields: FILTERS,
+    search,
+    setSearch,
+    matches: quotaMatches,
+  });
 
   if (!canConfigs) {
     return <PageHeader title="Quotas" description="Your role cannot view client quotas." />;
@@ -231,7 +219,7 @@ function QuotasPage() {
           <>
             <SearchField {...searchInput} placeholder="Search users, client IDs and IPs…" />
 
-            <FilterBar fields={FILTERS} rows={searched} value={filters} onChange={setFilters} />
+            <FilterBar {...filterBar} />
           </>
         }
         loading={isPending || (status === "PENDING" && lane?.lastError == null)}

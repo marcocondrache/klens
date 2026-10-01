@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { createFileRoute, stripSearchParams } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
 import { AsteriskIcon, BoxIcon, ShieldIcon, ZapIcon } from "lucide-react";
@@ -6,19 +5,13 @@ import { AsteriskIcon, BoxIcon, ShieldIcon, ZapIcon } from "lucide-react";
 import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
 import { FilterBar } from "@/components/data-table/filter-bar";
-import {
-  applyFilters,
-  filterParams,
-  readFilters,
-  type FilterField,
-  type FilterRule,
-} from "@/components/data-table/filters";
+import { type FilterField } from "@/components/data-table/filters";
+import { useTableSearch } from "@/components/data-table/use-table-search";
 import { LaneCaption } from "@/components/lane-caption";
 import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
 import { Pill, StatusDot, StatusLabel } from "@/components/status";
 import { useAccess } from "@/hooks/use-access";
-import { useSearchDraft } from "@/hooks/use-search-draft";
 import { useAcls } from "@/lib/api/catalog";
 import type { Acl } from "@/lib/api/types";
 import { useClusterName } from "@/lib/clusters";
@@ -146,17 +139,29 @@ function aclRowId(acl: Acl): string {
   ]);
 }
 
+function aclMatches(acl: Acl, needle: string) {
+  return [
+    acl.resourceName,
+    acl.principal,
+    acl.host,
+    acl.resourceType,
+    acl.patternType,
+    acl.operation,
+    acl.permission,
+  ]
+    .join(" ")
+    .toLowerCase()
+    .includes(needle);
+}
+
 function AclsPage() {
   const cluster = useClusterName();
   const navigate = Route.useNavigate();
   const search = Route.useSearch();
-  const { q: term } = search;
-  const filters = readFilters(FILTERS, search);
 
   function setSearch(patch: Partial<AclsSearch>) {
     void navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true });
   }
-  const searchInput = useSearchDraft(term, (q) => setSearch({ q }));
   const { can } = useAccess();
   const canAcls = can(cluster, "ACLS");
   const { data, isPending, isError, error } = useAcls(cluster, canAcls);
@@ -165,31 +170,13 @@ function AclsPage() {
   const notice = status === "DISABLED" ? DISABLED : status === "DENIED" ? DENIED : undefined;
   const bindings = data?.bindings ?? EMPTY_BINDINGS;
 
-  function setFilters(rules: FilterRule[]) {
-    setSearch(filterParams(FILTERS, rules));
-  }
-
-  const searched = useMemo(() => {
-    const needle = term.trim().toLowerCase();
-    if (!needle) return bindings;
-
-    return bindings.filter((acl) =>
-      [
-        acl.resourceName,
-        acl.principal,
-        acl.host,
-        acl.resourceType,
-        acl.patternType,
-        acl.operation,
-        acl.permission,
-      ]
-        .join(" ")
-        .toLowerCase()
-        .includes(needle),
-    );
-  }, [bindings, term]);
-
-  const rows = applyFilters(searched, FILTERS, filters);
+  const { searchInput, rows, filterBar } = useTableSearch({
+    rows: bindings,
+    fields: FILTERS,
+    search,
+    setSearch,
+    matches: aclMatches,
+  });
 
   if (!canAcls) {
     return <PageHeader title="ACLs" description="Your role cannot view ACL bindings." />;
@@ -215,7 +202,7 @@ function AclsPage() {
           <>
             <SearchField {...searchInput} placeholder="Search ACLs…" />
 
-            <FilterBar fields={FILTERS} rows={searched} value={filters} onChange={setFilters} />
+            <FilterBar {...filterBar} />
           </>
         }
         loading={isPending || (status === "PENDING" && lane?.lastError == null)}
