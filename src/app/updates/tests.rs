@@ -233,6 +233,24 @@ async fn a_quota_change_is_sent_as_a_quotas_event() {
 }
 
 #[tokio::test]
+async fn a_transactions_change_reaches_every_subscriber_whatever_its_scope() {
+    let state = seeded();
+    let store = Arc::clone(store_of(&state, "local"));
+    let response = open_stream(
+        &state,
+        "/clusters/local/updates?topic=orders.created",
+        EffectiveAccess::Unrestricted,
+        SessionGuard::open(),
+    )
+    .await;
+    store.bus.publish(Change::Transactions);
+    let frames = read_frames(response, 1).await;
+
+    assert_eq!(frames[0].0, "transactions");
+    assert_eq!(frames[0].1, serde_json::json!({ "type": "transactions" }));
+}
+
+#[tokio::test]
 async fn an_unscoped_lag_wave_fans_out_one_update_per_group_without_offsets() {
     let state = seeded();
     let store = Arc::clone(store_of(&state, "local"));

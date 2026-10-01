@@ -128,6 +128,7 @@ tuning:
     log_dirs: 60s
     acls: 60s
     quotas: 60s
+    transactions: 30s
     offset_tick: 1s # how often the offset lane checks which groups are due
     fast_offset: 2s # groups someone is looking at
     slow_offset: 20s # every other group

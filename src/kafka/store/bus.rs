@@ -20,6 +20,8 @@ pub enum Change {
     LogDirs(Arc<LogDirsDelta>),
     Acls,
     Quotas,
+    /// The transactions the coordinators or the partition leaders hold changed.
+    Transactions,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

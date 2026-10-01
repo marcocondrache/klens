@@ -17,6 +17,7 @@ use super::search::{self, SearchHit};
 use super::tables::{
     ConfigTable, LogDirTable, OffsetTable, SubjectTable, Topology, WatermarkTable,
 };
+use super::transactions::TransactionTable;
 
 pub struct ClusterStore {
     pub identity: ClusterIdentity,
@@ -28,6 +29,7 @@ pub struct ClusterStore {
     pub log_dirs: Lane<LogDirTable>,
     pub acls: Lane<AclListing>,
     pub quotas: Lane<QuotaListing>,
+    pub transactions: Lane<TransactionTable>,
     pub rates: RateStore,
     pub bus: ChangeBus,
     pub interest: InterestRegistry,
@@ -45,6 +47,7 @@ impl std::fmt::Debug for ClusterStore {
             .field("log_dirs", &self.log_dirs.version())
             .field("acls", &self.acls.version())
             .field("quotas", &self.quotas.version())
+            .field("transactions", &self.transactions.version())
             .finish_non_exhaustive()
     }
 }
@@ -61,6 +64,7 @@ impl ClusterStore {
             log_dirs: Lane::new(),
             acls: Lane::new(),
             quotas: Lane::new(),
+            transactions: Lane::new(),
             rates: RateStore::new(),
             bus: ChangeBus::new(),
             interest: InterestRegistry::new(interest_ttl),
@@ -248,6 +252,7 @@ impl ClusterStore {
             log_dirs: self.log_dirs.health(),
             acls: self.acls.health(),
             quotas: self.quotas.health(),
+            transactions: self.transactions.health(),
             topic_count: topology
                 .as_ref()
                 .map(|topology| topology.topics.len() as i32)

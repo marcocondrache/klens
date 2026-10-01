@@ -3,6 +3,7 @@ use std::sync::Arc;
 use foldhash::{HashMap, HashMapExt};
 
 use super::tables::{GroupOffsets, Interner, Topology, WatermarkTable};
+use super::transactions::{DEFAULT_MAX_TIMEOUT_MS, OpenPartition};
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::group::{
     CommittedOffset, GroupMember, GroupSnapshot, GroupState, MemberAssignment,
@@ -13,6 +14,9 @@ use crate::kafka::metadata::{
 use crate::kafka::registry::{SchemaCompatibility, SchemaSubject, SchemaType};
 use crate::kafka::storage::{LogDir, ReplicaLog};
 use crate::kafka::topic_config::{ConfigEntry, ConfigSource};
+use crate::kafka::transaction::{
+    ActiveProducer, PartitionProducers, TransactionDescription, TransactionState,
+};
 
 pub fn identity(name: &str) -> ClusterIdentity {
     ClusterIdentity::new(name)
@@ -143,5 +147,68 @@ pub fn log_dir(broker: i32, path: &str, replicas: &[(&str, i32, i64)]) -> LogDir
                 future: false,
             })
             .collect(),
+    }
+}
+
+pub fn transaction(
+    id: &str,
+    producer_id: i64,
+    started_at_ms: i64,
+    partitions: &[(&str, i32)],
+) -> TransactionDescription {
+    TransactionDescription {
+        transactional_id: id.to_owned(),
+        error: None,
+        state: TransactionState::Ongoing,
+        producer_id,
+        producer_epoch: 0,
+        timeout_ms: 60_000,
+        started_at_ms: Some(started_at_ms),
+        partitions: partitions
+            .iter()
+            .map(|(topic, partition)| ((*topic).to_owned(), *partition))
+            .collect(),
+    }
+}
+
+pub fn open_producer(producer_id: i64, last_timestamp_ms: i64, open_offset: i64) -> ActiveProducer {
+    ActiveProducer {
+        producer_id,
+        producer_epoch: 0,
+        last_timestamp_ms: Some(last_timestamp_ms),
+        open_offset: Some(open_offset),
+    }
+}
+
+pub fn producers(
+    topic: &str,
+    partition: i32,
+    producers: Vec<ActiveProducer>,
+) -> PartitionProducers {
+    PartitionProducers {
+        topic: topic.to_owned(),
+        partition,
+        error: None,
+        producers,
+    }
+}
+
+/// Led by broker 1 and already open on the previous look.
+pub fn open_partition(
+    topic: &str,
+    partition: i32,
+    producer_id: i64,
+    open_offset: i64,
+) -> OpenPartition {
+    OpenPartition {
+        topic: Arc::from(topic),
+        partition,
+        leader: 1,
+        producer_id,
+        producer_epoch: 0,
+        open_offset,
+        last_timestamp_ms: None,
+        max_timeout_ms: DEFAULT_MAX_TIMEOUT_MS,
+        seen_before: true,
     }
 }

@@ -6,6 +6,7 @@ pub mod quotas;
 pub mod runner;
 pub mod subjects;
 pub mod topology;
+pub mod transactions;
 pub mod watermarks;
 
 use std::sync::Arc;
@@ -23,6 +24,7 @@ pub use quotas::QuotaLane;
 pub use runner::{LaneSource, run};
 pub use subjects::SubjectLane;
 pub use topology::TopologyLane;
+pub use transactions::TransactionLane;
 pub use watermarks::WatermarkLane;
 
 #[must_use = "dropping an Ingest aborts its lanes"]
@@ -64,6 +66,10 @@ impl Ingest {
             tasks.spawn(run(
                 Arc::clone(store),
                 QuotaLane::with_interval(Arc::clone(session), tuning.quotas),
+            ));
+            tasks.spawn(run(
+                Arc::clone(store),
+                TransactionLane::with_interval(Arc::clone(session), tuning.transactions),
             ));
             tasks.spawn(
                 OffsetLane::new(Arc::clone(session))
