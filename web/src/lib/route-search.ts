@@ -3,9 +3,9 @@ import * as z from "zod/mini";
 import { filterParam } from "@/components/data-table/filters";
 import type { GroupState, QuotaEntityType } from "@/lib/api/types";
 
-const term = z.catch(z._default(z.string(), ""), "");
+export const term = z.catch(z._default(z.string(), ""), "");
 
-const flag = z.catch(
+export const flag = z.catch(
   z._default(
     z.union([
       z.boolean(),
@@ -19,33 +19,18 @@ const flag = z.catch(
   false,
 );
 
-function oneOf<const T extends readonly [string, ...string[]]>(values: T) {
+export function oneOf<const T extends readonly [string, ...string[]]>(values: T) {
   return z.catch(z.optional(z.enum(values)), undefined);
 }
 
 // Filter params: `a,b` matches any of the values, `!a,b` none of them.
-function filter(allowed: readonly string[]) {
+export function filter(allowed: readonly string[]) {
   const param = z.pipe(
     z.string(),
     z.transform((raw) => filterParam(allowed, raw)),
   );
   return z.catch(z.optional(param), undefined);
 }
-
-export const TOPIC_POLICIES = ["delete", "compact"] as const;
-export const TOPIC_HEALTH = ["under-replicated", "in-sync"] as const;
-export const TOPIC_ACTIVITY = ["active", "idle"] as const;
-
-export const topicsSearch = z.object({
-  q: term,
-  internal: flag,
-  policy: filter(TOPIC_POLICIES),
-  health: filter(TOPIC_HEALTH),
-  activity: filter(TOPIC_ACTIVITY),
-});
-
-export type TopicsSearch = z.output<typeof topicsSearch>;
-export type TopicFilter = Exclude<keyof TopicsSearch, "q" | "internal">;
 
 export const GROUP_STATES = [
   "STABLE",
@@ -142,16 +127,6 @@ export const loginSearch = z.object({
 });
 
 export type LoginSearch = z.output<typeof loginSearch>;
-
-const topicTabParam = oneOf(["partitions", "groups", "config"]);
-
-export const topicDetailSearch = z.object({
-  tab: topicTabParam,
-});
-
-export function topicTab(value: unknown) {
-  return z.parse(topicTabParam, value);
-}
 
 const groupTabParam = z.catch(z._default(z.enum(["offsets", "members"]), "offsets"), "offsets");
 
