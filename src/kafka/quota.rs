@@ -1,6 +1,6 @@
 use tracing::warn;
 
-use crate::kafka::error::KafkaError;
+use crate::kafka::error::{KafkaError, is_cluster_authorization_text};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum QuotaEntityType {
@@ -111,11 +111,6 @@ impl ClientQuota {
         }
         Some(Self { entity, values })
     }
-}
-
-fn is_cluster_authorization_text(message: &str) -> bool {
-    let lower = message.to_ascii_lowercase();
-    lower.contains("clusterauthorizationfailed") || lower.contains("cluster authorization failed")
 }
 
 #[cfg(test)]

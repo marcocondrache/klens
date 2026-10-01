@@ -6,7 +6,7 @@ use krafka::protocol::{
 };
 use tracing::warn;
 
-use crate::kafka::error::KafkaError;
+use crate::kafka::error::{KafkaError, is_cluster_authorization_text};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Acl {
@@ -213,16 +213,6 @@ fn is_security_disabled_text(message: &str) -> bool {
     lower.contains("securitydisabled")
         || lower.contains("security_disabled")
         || lower.contains("security features are disabled")
-}
-
-/// A broker that denies the describe explains it in prose, such as "Request
-/// ... needs DESCRIBE permission.", or sends no message and leaves only the
-/// error-code name.
-fn is_cluster_authorization_text(message: &str) -> bool {
-    let lower = message.to_ascii_lowercase();
-    lower.contains("clusterauthorizationfailed")
-        || lower.contains("cluster_authorization_failed")
-        || lower.contains("needs describe permission")
 }
 
 #[cfg(test)]
