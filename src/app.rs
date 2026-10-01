@@ -23,6 +23,7 @@ mod records;
 mod search;
 mod subjects;
 mod topics;
+mod transactions;
 #[cfg(feature = "typescript")]
 pub mod typescript;
 mod updates;

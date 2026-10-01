@@ -5,6 +5,8 @@ use crate::kafka::model as domain;
 use crate::kafka::store::projections;
 use crate::r#macro::from_same_variants;
 
+use super::super::transactions::types::TopicPartition;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum GroupState {
@@ -120,6 +122,9 @@ pub struct GroupDetail {
     pub offsets: Vec<GroupOffset>,
     pub total_lag: Option<i64>,
     pub lag_complete: bool,
+    /// Partitions with lag that a hanging transaction, or an open one past
+    /// its timeout, holds back for `read_committed` consumers.
+    pub blocked_partitions: Vec<TopicPartition>,
 }
 
 impl From<projections::GroupDetail> for GroupDetail {
@@ -132,6 +137,11 @@ impl From<projections::GroupDetail> for GroupDetail {
             offsets: detail.offsets.into_iter().map(Into::into).collect(),
             total_lag: detail.total_lag,
             lag_complete: detail.lag_complete,
+            blocked_partitions: detail
+                .blocked_partitions
+                .into_iter()
+                .map(|(topic, partition)| TopicPartition { topic, partition })
+                .collect(),
         }
     }
 }
