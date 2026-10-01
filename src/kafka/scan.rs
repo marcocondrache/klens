@@ -1,5 +1,6 @@
 pub mod batch;
 pub mod cursor;
+pub mod export;
 pub mod filter;
 pub mod obfuscate;
 pub mod payload;
