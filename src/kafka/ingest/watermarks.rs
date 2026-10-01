@@ -18,11 +18,11 @@ use super::runner::LaneSource;
 pub struct WatermarkLane {
     session: Arc<dyn ClusterSession>,
     interval: Duration,
-    low_watermark: Duration,
+    low_interval: Duration,
+    low_read_at: Mutex<Option<Instant>>,
     idle_heartbeat: Duration,
     max_sample_gap: Duration,
     committed_at: Mutex<Option<Instant>>,
-    low_read_at: Mutex<Option<Instant>>,
 }
 
 impl WatermarkLane {
@@ -34,11 +34,11 @@ impl WatermarkLane {
         Self {
             session,
             interval,
-            low_watermark: tuning.low_watermark,
+            low_interval: tuning.low_watermark,
+            low_read_at: Mutex::new(None),
             idle_heartbeat: tuning.idle_heartbeat,
             max_sample_gap: tuning.max_sample_gap,
             committed_at: Mutex::new(None),
-            low_read_at: Mutex::new(None),
         }
     }
 
@@ -74,7 +74,7 @@ impl WatermarkLane {
 
     fn low_due(&self, now: Instant) -> bool {
         (*self.low_read_at.lock().expect("watermark lane clock"))
-            .is_none_or(|at| now.saturating_duration_since(at) >= self.low_watermark)
+            .is_none_or(|at| now.saturating_duration_since(at) >= self.low_interval)
     }
 
     async fn read_low_and_high(
