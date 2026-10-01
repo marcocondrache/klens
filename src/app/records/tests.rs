@@ -574,7 +574,7 @@ async fn an_export_pages_through_every_record_as_ndjson() {
     assert_eq!(records[0]["key"], "ord_0");
     assert_eq!(records[0]["headers"][0]["key"], "source");
     assert_eq!(records[0]["timestamp"], "2023-11-14T22:13:20Z");
-    assert_eq!(session.calls().watermarks(), 1);
+    assert_eq!(session.calls().low_watermarks(), 1);
 }
 
 #[tokio::test]

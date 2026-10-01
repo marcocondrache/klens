@@ -150,10 +150,10 @@ mod tests {
 
     async fn answers_promptly(client: &KafkaClient) {
         let wanted = HashMap::from_iter([("orders".to_owned(), vec![0])]);
-        tokio::time::timeout(Duration::from_secs(2), client.watermarks(&wanted))
+        tokio::time::timeout(Duration::from_secs(2), client.high_watermarks(&wanted))
             .await
             .expect("the cluster's requests are not queued behind the tail's")
-            .expect("watermarks");
+            .expect("high watermarks");
     }
 
     async fn orders(count: usize) -> FakeBroker {

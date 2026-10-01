@@ -82,15 +82,12 @@ impl Tail {
             resolve_partitions(session, store, &query.topic, &query.partitions).await?;
         let wanted = HashMap::from_iter([(query.topic.clone(), partitions)]);
         let mut start: Vec<TailPosition> = session
-            .watermarks(&wanted)
+            .high_watermarks(&wanted)
             .await?
             .remove(&query.topic)
             .unwrap_or_default()
             .into_iter()
-            .map(|(partition, marks)| TailPosition {
-                partition,
-                offset: marks.high,
-            })
+            .map(|(partition, offset)| TailPosition { partition, offset })
             .collect();
         start.sort_unstable_by_key(|position| position.partition);
 

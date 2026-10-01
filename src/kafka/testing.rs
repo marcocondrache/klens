@@ -557,23 +557,18 @@ impl FakeCluster {
         self.inner.codec.decoded.load(Ordering::SeqCst)
     }
 
-    async fn current_watermarks(
+    async fn current_ends(
         &self,
         topics: &HashMap<String, Vec<i32>>,
-    ) -> HashMap<String, HashMap<i32, Watermarks>> {
+        end: fn(Watermarks) -> i64,
+    ) -> HashMap<String, HashMap<i32, i64>> {
         let broker = self.broker().await;
-        let growth = self
-            .inner
-            .watermark_growth
-            .lock()
-            .expect("watermark growth")
-            .clone();
         let stored = self.inner.watermarks.lock().expect("watermarks").clone();
 
         topics
             .iter()
             .map(|(name, partitions)| {
-                let wanted: HashMap<i32, Watermarks> = partitions
+                let wanted: HashMap<i32, i64> = partitions
                     .iter()
                     .filter_map(|partition| {
                         broker_watermarks(broker, name, *partition)
@@ -582,15 +577,7 @@ impl FakeCluster {
                                     .get(name)
                                     .and_then(|marks| marks.get(partition).copied())
                             })
-                            .map(|mut marks| {
-                                if *partition == 0
-                                    && let Some(growth) = &growth
-                                {
-                                    marks.high +=
-                                        growth.grown.fetch_add(growth.step, Ordering::SeqCst);
-                                }
-                                (*partition, marks)
-                            })
+                            .map(|marks| (*partition, end(marks)))
                     })
                     .collect();
                 (name.to_owned(), wanted)
@@ -696,12 +683,15 @@ impl ClusterSession for FakeCluster {
             })
     }
 
-    async fn watermarks(
+    async fn low_watermarks(
         &self,
         topics: &HashMap<String, Vec<i32>>,
-    ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError> {
-        self.inner.calls.watermarks.fetch_add(1, Ordering::SeqCst);
-        Ok(self.current_watermarks(topics).await)
+    ) -> Result<HashMap<String, HashMap<i32, i64>>, KafkaError> {
+        self.inner
+            .calls
+            .low_watermarks
+            .fetch_add(1, Ordering::SeqCst);
+        Ok(self.current_ends(topics, |marks| marks.low).await)
     }
 
     async fn high_watermarks(
@@ -712,18 +702,21 @@ impl ClusterSession for FakeCluster {
             .calls
             .high_watermarks
             .fetch_add(1, Ordering::SeqCst);
-        Ok(self
-            .current_watermarks(topics)
-            .await
-            .into_iter()
-            .map(|(topic, marks)| {
-                let highs = marks
-                    .into_iter()
-                    .map(|(partition, marks)| (partition, marks.high))
-                    .collect();
-                (topic, highs)
-            })
-            .collect())
+        let mut highs = self.current_ends(topics, |marks| marks.high).await;
+        let growth = self
+            .inner
+            .watermark_growth
+            .lock()
+            .expect("watermark growth")
+            .clone();
+        if let Some(growth) = growth {
+            for partitions in highs.values_mut() {
+                if let Some(high) = partitions.get_mut(&0) {
+                    *high += growth.grown.fetch_add(growth.step, Ordering::SeqCst);
+                }
+            }
+        }
+        Ok(highs)
     }
 
     async fn offsets_for_times(
@@ -1221,7 +1214,7 @@ impl PayloadCodec for CountingCodec {
 pub struct SessionCalls {
     metadata: AtomicUsize,
     topic_metadata: AtomicUsize,
-    watermarks: AtomicUsize,
+    low_watermarks: AtomicUsize,
     high_watermarks: AtomicUsize,
     topic_configs: AtomicUsize,
     log_dirs: AtomicUsize,
@@ -1241,8 +1234,8 @@ impl SessionCalls {
         self.topic_metadata.load(Ordering::SeqCst)
     }
 
-    pub fn watermarks(&self) -> usize {
-        self.watermarks.load(Ordering::SeqCst)
+    pub fn low_watermarks(&self) -> usize {
+        self.low_watermarks.load(Ordering::SeqCst)
     }
 
     pub fn high_watermarks(&self) -> usize {

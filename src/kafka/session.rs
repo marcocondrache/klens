@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use foldhash::HashMap;
+use foldhash::{HashMap, HashMapExt};
 
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
@@ -21,10 +21,10 @@ pub trait ClusterSession: Send + Sync + 'static {
 
     async fn topic_metadata(&self, topic: &str) -> Result<TopicMetadata, KafkaError>;
 
-    async fn watermarks(
+    async fn low_watermarks(
         &self,
         topics: &HashMap<String, Vec<i32>>,
-    ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError>;
+    ) -> Result<HashMap<String, HashMap<i32, i64>>, KafkaError>;
 
     async fn high_watermarks(
         &self,
@@ -86,4 +86,87 @@ pub trait ClusterSession: Send + Sync + 'static {
     fn consume_timeout(&self) -> Duration;
 
     fn scan_poll_wait(&self) -> Duration;
+}
+
+pub async fn watermarks<S: ClusterSession + ?Sized>(
+    session: &S,
+    topics: &HashMap<String, Vec<i32>>,
+) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError> {
+    let (lows, highs) = tokio::try_join!(
+        session.low_watermarks(topics),
+        session.high_watermarks(topics)
+    )?;
+    Ok(merge_watermarks(&lows, highs))
+}
+
+pub fn merge_watermarks(
+    lows: &HashMap<String, HashMap<i32, i64>>,
+    highs: HashMap<String, HashMap<i32, i64>>,
+) -> HashMap<String, HashMap<i32, Watermarks>> {
+    let mut out = HashMap::with_capacity(highs.len());
+    for (topic, partitions) in highs {
+        let topic_lows = lows.get(&topic);
+        let marks: HashMap<i32, Watermarks> = partitions
+            .into_iter()
+            .filter_map(|(partition, high)| {
+                let low = topic_lows
+                    .and_then(|lows| lows.get(&partition))
+                    .copied()
+                    .unwrap_or(high);
+                (low <= high).then_some((partition, Watermarks { low, high }))
+            })
+            .collect();
+        if !marks.is_empty() {
+            out.insert(topic, marks);
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn merge_watermarks_keeps_empty_skips_inverted_and_falls_back_to_the_high() {
+        let lows = HashMap::from_iter([
+            (
+                "orders".to_owned(),
+                HashMap::from_iter([(0, 0), (1, 10), (2, 4)]),
+            ),
+            ("payments".to_owned(), HashMap::from_iter([(0, 1)])),
+            ("logs".to_owned(), HashMap::from_iter([(0, 3)])),
+            ("audit".to_owned(), HashMap::from_iter([(0, 8)])),
+        ]);
+        let highs = HashMap::from_iter([
+            (
+                "orders".to_owned(),
+                HashMap::from_iter([(0, 0), (1, 5), (2, 12)]),
+            ),
+            ("payments".to_owned(), HashMap::from_iter([(1, 9)])),
+            ("logs".to_owned(), HashMap::from_iter([(0, 9)])),
+            ("audit".to_owned(), HashMap::from_iter([(0, 7)])),
+        ]);
+
+        assert_eq!(
+            merge_watermarks(&lows, highs),
+            HashMap::from_iter([
+                (
+                    "orders".to_owned(),
+                    HashMap::from_iter([
+                        (0, Watermarks { low: 0, high: 0 }),
+                        (2, Watermarks { low: 4, high: 12 }),
+                    ]),
+                ),
+                (
+                    "payments".to_owned(),
+                    HashMap::from_iter([(1, Watermarks { low: 9, high: 9 })]),
+                ),
+                (
+                    "logs".to_owned(),
+                    HashMap::from_iter([(0, Watermarks { low: 3, high: 9 })]),
+                ),
+            ])
+        );
+    }
 }

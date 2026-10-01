@@ -8,7 +8,7 @@ use tokio::time::Instant;
 use crate::config::IngestTuning;
 use crate::kafka::error::KafkaError;
 use crate::kafka::metadata::Watermarks;
-use crate::kafka::session::ClusterSession;
+use crate::kafka::session::{ClusterSession, merge_watermarks, watermarks};
 use crate::kafka::store::{
     Change, ClusterStore, Lane, TopicRate, Topology, WatermarkTable, WatermarksTick,
 };
@@ -82,7 +82,7 @@ impl WatermarkLane {
         wanted: &HashMap<String, Vec<i32>>,
         now: Instant,
     ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError> {
-        let fetched = self.session.watermarks(wanted).await?;
+        let fetched = watermarks(self.session.as_ref(), wanted).await?;
         *self.low_read_at.lock().expect("watermark lane clock") = Some(now);
         Ok(fetched)
     }
@@ -94,34 +94,31 @@ impl WatermarkLane {
     ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError> {
         let highs = self.session.high_watermarks(wanted).await?;
 
+        let mut lows: HashMap<String, HashMap<i32, i64>> = HashMap::with_capacity(highs.len());
         let mut uncached: HashMap<String, Vec<i32>> = HashMap::new();
-        let mut marks: HashMap<String, HashMap<i32, Watermarks>> =
-            HashMap::with_capacity(highs.len());
-        for (topic, partitions) in highs {
+        for (topic, partitions) in &highs {
             let mut known = HashMap::with_capacity(partitions.len());
-            for (partition, high) in partitions {
-                match previous.get(&topic, partition) {
+            let mut missing = Vec::new();
+            for (&partition, &high) in partitions {
+                match previous.get(topic, partition) {
                     Some(cached) if cached.low <= high => {
-                        known.insert(
-                            partition,
-                            Watermarks {
-                                low: cached.low,
-                                high,
-                            },
-                        );
+                        known.insert(partition, cached.low);
                     }
-                    _ => uncached.entry(topic.clone()).or_default().push(partition),
+                    _ => missing.push(partition),
                 }
             }
-            marks.insert(topic, known);
+            if !missing.is_empty() {
+                uncached.insert(topic.clone(), missing);
+            }
+            lows.insert(topic.clone(), known);
         }
 
         if !uncached.is_empty() {
-            for (topic, partitions) in self.session.watermarks(&uncached).await? {
-                marks.entry(topic).or_default().extend(partitions);
+            for (topic, partitions) in self.session.low_watermarks(&uncached).await? {
+                lows.entry(topic).or_default().extend(partitions);
             }
         }
-        Ok(marks)
+        Ok(merge_watermarks(&lows, highs))
     }
 
     fn since_last_commit(&self, now: Instant) -> Option<Duration> {

@@ -902,7 +902,7 @@ async fn downstream_lanes_wait_for_topology_instead_of_committing_nothing() {
     assert!(store.configs.load().is_none());
     assert!(store.watermarks.health().checked_at.is_none());
     assert_eq!(
-        session.calls().watermarks() + session.calls().high_watermarks(),
+        session.calls().low_watermarks() + session.calls().high_watermarks(),
         0,
         "and it costs no broker call"
     );
@@ -1256,7 +1256,7 @@ async fn a_new_topic_waits_for_the_next_watermark_poll() {
     let store = store(&session);
     let _lanes = catalog_lanes(&store, &session);
     wait_for(|| store.watermarks.ready(), "first watermark poll").await;
-    let polls = session.calls().watermarks();
+    let polls = session.calls().low_watermarks();
 
     let _ = session.clone().extra_topic("payments", 1, 0);
     store.topology.kick();
@@ -1265,7 +1265,7 @@ async fn a_new_topic_waits_for_the_next_watermark_poll() {
         tokio::task::yield_now().await;
     }
 
-    assert_eq!(session.calls().watermarks(), polls);
+    assert_eq!(session.calls().low_watermarks(), polls);
 }
 
 #[tokio::test(start_paused = true)]
@@ -1275,16 +1275,16 @@ async fn between_low_reads_the_watermark_lane_lists_only_high_watermarks() {
     let store = store(&session);
     let _lanes = catalog_lanes(&store, &session);
     wait_for(|| store.watermarks.ready(), "first watermark poll").await;
-    assert_eq!(session.calls().watermarks(), 1);
-    assert_eq!(session.calls().high_watermarks(), 0);
+    assert_eq!(session.calls().low_watermarks(), 1);
+    assert_eq!(session.calls().high_watermarks(), 1);
 
     session.add_partition("orders.created", 0, Watermarks { low: 5, high: 12 });
     store.watermarks.kick();
     wait_for(|| store.watermarks.version() > 1, "end-only commit").await;
 
-    assert_eq!(session.calls().high_watermarks(), 1);
+    assert_eq!(session.calls().high_watermarks(), 2);
     assert_eq!(
-        session.calls().watermarks(),
+        session.calls().low_watermarks(),
         1,
         "an emptied log keeps its cached low watermark too"
     );
@@ -1309,8 +1309,8 @@ async fn the_watermark_lane_rereads_low_watermarks_once_their_interval_passes() 
 
     tokio::time::advance(low_watermark - Duration::from_millis(1)).await;
     store.watermarks.kick();
-    wait_for(|| session.calls().high_watermarks() == 1, "end-only poll").await;
-    assert_eq!(session.calls().watermarks(), 1);
+    wait_for(|| session.calls().high_watermarks() == 2, "end-only poll").await;
+    assert_eq!(session.calls().low_watermarks(), 1);
 
     session.add_partition("orders.created", 0, Watermarks { low: 5, high: 12 });
     tokio::time::advance(Duration::from_millis(1)).await;
@@ -1326,8 +1326,8 @@ async fn the_watermark_lane_rereads_low_watermarks_once_their_interval_passes() 
         "low watermark reread",
     )
     .await;
-    assert_eq!(session.calls().watermarks(), 2);
-    assert_eq!(session.calls().high_watermarks(), 1);
+    assert_eq!(session.calls().low_watermarks(), 2);
+    assert_eq!(session.calls().high_watermarks(), 3);
 }
 
 #[tokio::test(start_paused = true)]
@@ -1354,8 +1354,8 @@ async fn a_new_partition_reads_its_low_watermark_on_the_next_poll() {
         Some(Watermarks { low: 0, high: 12 }),
         "only the new partition rereads its low watermark"
     );
-    assert_eq!(session.calls().high_watermarks(), 1);
-    assert_eq!(session.calls().watermarks(), 2);
+    assert_eq!(session.calls().high_watermarks(), 2);
+    assert_eq!(session.calls().low_watermarks(), 2);
 }
 
 #[tokio::test(start_paused = true)]
@@ -1377,7 +1377,7 @@ async fn a_high_watermark_below_the_cached_low_rereads_the_low() {
             .and_then(|marks| marks.get("orders.created", 0)),
         Some(Watermarks { low: 0, high: 2 })
     );
-    assert_eq!(session.calls().watermarks(), 2);
+    assert_eq!(session.calls().low_watermarks(), 2);
 }
 
 #[tokio::test(start_paused = true)]
