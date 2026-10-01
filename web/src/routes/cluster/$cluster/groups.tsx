@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { createFileRoute, stripSearchParams } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
 import { CircleDashedIcon, TimerIcon } from "lucide-react";
@@ -6,18 +5,12 @@ import { CircleDashedIcon, TimerIcon } from "lucide-react";
 import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
 import { FilterBar } from "@/components/data-table/filter-bar";
-import {
-  applyFilters,
-  filterParams,
-  readFilters,
-  type FilterField,
-  type FilterRule,
-} from "@/components/data-table/filters";
+import { type FilterField } from "@/components/data-table/filters";
+import { useTableSearch } from "@/components/data-table/use-table-search";
 import { LaneCaption } from "@/components/lane-caption";
 import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
 import { GROUP_TONE, GroupStateBadge, LagValue, Pill, StatusDot } from "@/components/status";
-import { useSearchDraft } from "@/hooks/use-search-draft";
 import { useClusterHealth, useGroupRows } from "@/lib/api/catalog";
 import { useClusterName } from "@/lib/clusters";
 import { apiErrorMessage } from "@/lib/api/client";
@@ -38,6 +31,10 @@ export const Route = createFileRoute("/cluster/$cluster/groups")({
 });
 
 const EMPTY_GROUPS: GroupRow[] = [];
+
+function groupMatches(group: GroupRow, needle: string) {
+  return group.id.toLowerCase().includes(needle);
+}
 
 const FILTERS: Array<FilterField<GroupRow, GroupFilter>> = [
   {
@@ -112,28 +109,21 @@ function ConsumerGroupsPage() {
   const cluster = useClusterName();
   const navigate = Route.useNavigate();
   const search = Route.useSearch();
-  const { q: term } = search;
-  const filters = readFilters(FILTERS, search);
 
   function setSearch(patch: Partial<GroupsSearch>) {
     void navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true });
   }
-  const searchInput = useSearchDraft(term, (q) => setSearch({ q }));
 
   const { data: groups = EMPTY_GROUPS, isPending, isError, error } = useGroupRows(cluster);
   const { data: health } = useClusterHealth(cluster);
 
-  function setFilters(rules: FilterRule[]) {
-    setSearch(filterParams(FILTERS, rules));
-  }
-
-  const searched = useMemo(() => {
-    const needle = term.trim().toLowerCase();
-    if (!needle) return groups;
-    return groups.filter((group) => group.id.toLowerCase().includes(needle));
-  }, [groups, term]);
-
-  const rows = applyFilters(searched, FILTERS, filters);
+  const { searchInput, rows, filterBar } = useTableSearch({
+    rows: groups,
+    fields: FILTERS,
+    search,
+    setSearch,
+    matches: groupMatches,
+  });
 
   const lagPending = rows.some((group) => group.totalLag === null);
   const totalLag = rows.reduce((sum, group) => sum + (group.totalLag ?? 0), 0);
@@ -159,7 +149,7 @@ function ConsumerGroupsPage() {
           <>
             <SearchField {...searchInput} placeholder="Search consumer groups…" />
 
-            <FilterBar fields={FILTERS} rows={searched} value={filters} onChange={setFilters} />
+            <FilterBar {...filterBar} />
           </>
         }
         loading={isPending}
