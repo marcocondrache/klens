@@ -1,21 +1,5 @@
 use foldhash::{HashMap, HashMapExt};
 
-use crate::kafka::metadata::Watermarks;
-
-pub fn from_list_offsets(
-    results: impl IntoIterator<Item = (String, i32, i64)>,
-) -> HashMap<(String, i32), Option<i64>> {
-    results
-        .into_iter()
-        .map(|(topic, partition, offset)| {
-            (
-                (topic, partition),
-                if offset >= 0 { Some(offset) } else { None },
-            )
-        })
-        .collect()
-}
-
 pub fn partition_time_offsets(
     listed: impl IntoIterator<Item = (String, i32, i64)>,
 ) -> HashMap<i32, Option<i64>> {
@@ -25,24 +9,14 @@ pub fn partition_time_offsets(
         .collect()
 }
 
-pub fn merge_watermark_offsets(
-    beginning: &HashMap<(String, i32), Option<i64>>,
-    end: impl IntoIterator<Item = (String, i32, i64)>,
-) -> HashMap<String, HashMap<i32, Watermarks>> {
-    let mut out: HashMap<String, HashMap<i32, Watermarks>> = HashMap::new();
-    for (topic, partition, high) in end {
-        if high < 0 {
-            continue;
+pub fn known_offsets(
+    listed: impl IntoIterator<Item = (String, i32, i64)>,
+) -> HashMap<String, HashMap<i32, i64>> {
+    let mut out: HashMap<String, HashMap<i32, i64>> = HashMap::new();
+    for (topic, partition, offset) in listed {
+        if offset >= 0 {
+            out.entry(topic).or_default().insert(partition, offset);
         }
-        let key = (topic, partition);
-        let low = beginning.get(&key).copied().flatten().unwrap_or(high);
-        if high < low {
-            continue;
-        }
-        let (topic, partition) = key;
-        out.entry(topic)
-            .or_default()
-            .insert(partition, Watermarks { low, high });
     }
     out
 }
@@ -50,18 +24,6 @@ pub fn merge_watermark_offsets(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn from_list_offsets_keeps_concrete_offsets() {
-        let listed = from_list_offsets([
-            ("orders".into(), 0, 12),
-            ("orders".into(), 1, -1),
-            ("orders".into(), 2, -2),
-        ]);
-        assert_eq!(listed.get(&("orders".into(), 0)), Some(&Some(12)));
-        assert_eq!(listed.get(&("orders".into(), 1)), Some(&None));
-        assert_eq!(listed.get(&("orders".into(), 2)), Some(&None));
-    }
 
     #[test]
     fn partition_time_offsets_keeps_only_what_the_broker_returned() {
@@ -72,43 +34,17 @@ mod tests {
     }
 
     #[test]
-    fn merge_watermark_offsets_keeps_empty_skips_inverted_and_partial() {
-        let beginning = HashMap::from_iter([
-            (("orders".into(), 0), Some(0)),
-            (("orders".into(), 1), Some(10)),
-            (("orders".into(), 2), Some(4)),
-            (("payments".into(), 0), Some(1)),
-            (("payments".into(), 1), None),
-            (("logs".into(), 0), Some(3)),
-        ]);
-        let end = [
+    fn known_offsets_skip_partitions_without_an_offset() {
+        let offsets = known_offsets([
             ("orders".into(), 0, 0),
-            ("orders".into(), 1, 5),
-            ("orders".into(), 2, 12),
+            ("orders".into(), 1, 12),
+            ("orders".into(), 2, -1),
             ("payments".into(), 0, -1),
-            ("payments".into(), 1, 9),
-            ("logs".into(), 0, 9),
-        ];
+        ]);
 
         assert_eq!(
-            merge_watermark_offsets(&beginning, end),
-            HashMap::from_iter([
-                (
-                    "orders".into(),
-                    HashMap::from_iter([
-                        (0, Watermarks { low: 0, high: 0 }),
-                        (2, Watermarks { low: 4, high: 12 }),
-                    ]),
-                ),
-                (
-                    "payments".into(),
-                    HashMap::from_iter([(1, Watermarks { low: 9, high: 9 })]),
-                ),
-                (
-                    "logs".into(),
-                    HashMap::from_iter([(0, Watermarks { low: 3, high: 9 })]),
-                ),
-            ])
+            offsets,
+            HashMap::from_iter([("orders".into(), HashMap::from_iter([(0, 0), (1, 12)]))])
         );
     }
 }

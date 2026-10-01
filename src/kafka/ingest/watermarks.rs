@@ -8,7 +8,7 @@ use tokio::time::Instant;
 use crate::config::IngestTuning;
 use crate::kafka::error::KafkaError;
 use crate::kafka::metadata::Watermarks;
-use crate::kafka::session::ClusterSession;
+use crate::kafka::session::{ClusterSession, merge_watermarks, watermarks};
 use crate::kafka::store::{
     Change, ClusterStore, Lane, TopicRate, Topology, WatermarkTable, WatermarksTick,
 };
@@ -17,7 +17,9 @@ use super::runner::LaneSource;
 
 pub struct WatermarkLane {
     session: Arc<dyn ClusterSession>,
-    interval: Duration,
+    high_interval: Duration,
+    low_interval: Duration,
+    low_read_at: Mutex<Option<Instant>>,
     idle_heartbeat: Duration,
     max_sample_gap: Duration,
     committed_at: Mutex<Option<Instant>>,
@@ -26,12 +28,14 @@ pub struct WatermarkLane {
 impl WatermarkLane {
     pub fn with_interval(
         session: Arc<dyn ClusterSession>,
-        interval: Duration,
+        high_interval: Duration,
         tuning: &IngestTuning,
     ) -> Self {
         Self {
             session,
-            interval,
+            high_interval,
+            low_interval: tuning.low_watermark,
+            low_read_at: Mutex::new(None),
             idle_heartbeat: tuning.idle_heartbeat,
             max_sample_gap: tuning.max_sample_gap,
             committed_at: Mutex::new(None),
@@ -68,6 +72,55 @@ impl WatermarkLane {
         wanted
     }
 
+    fn low_due(&self, now: Instant) -> bool {
+        (*self.low_read_at.lock().expect("watermark lane clock"))
+            .is_none_or(|at| now.saturating_duration_since(at) >= self.low_interval)
+    }
+
+    async fn read_low_and_high(
+        &self,
+        wanted: &HashMap<String, Vec<i32>>,
+        now: Instant,
+    ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError> {
+        let fetched = watermarks(self.session.as_ref(), wanted).await?;
+        *self.low_read_at.lock().expect("watermark lane clock") = Some(now);
+        Ok(fetched)
+    }
+
+    async fn read_high(
+        &self,
+        wanted: &HashMap<String, Vec<i32>>,
+        previous: &WatermarkTable,
+    ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError> {
+        let highs = self.session.high_watermarks(wanted).await?;
+
+        let mut lows: HashMap<String, HashMap<i32, i64>> = HashMap::with_capacity(highs.len());
+        let mut uncached: HashMap<String, Vec<i32>> = HashMap::new();
+        for (topic, partitions) in &highs {
+            let mut known = HashMap::with_capacity(partitions.len());
+            let mut missing = Vec::new();
+            for (&partition, &high) in partitions {
+                match previous.get(topic, partition) {
+                    Some(cached) if cached.low <= high => {
+                        known.insert(partition, cached.low);
+                    }
+                    _ => missing.push(partition),
+                }
+            }
+            if !missing.is_empty() {
+                uncached.insert(topic.clone(), missing);
+            }
+            lows.insert(topic.clone(), known);
+        }
+
+        if !uncached.is_empty() {
+            for (topic, partitions) in self.session.low_watermarks(&uncached).await? {
+                lows.entry(topic).or_default().extend(partitions);
+            }
+        }
+        Ok(merge_watermarks(&lows, highs))
+    }
+
     fn since_last_commit(&self, now: Instant) -> Option<Duration> {
         (*self.committed_at.lock().expect("watermark lane clock"))
             .map(|at| now.saturating_duration_since(at))
@@ -89,7 +142,7 @@ impl LaneSource for WatermarkLane {
     }
 
     fn interval(&self) -> Duration {
-        self.interval
+        self.high_interval
     }
 
     fn lane<'a>(&self, store: &'a ClusterStore) -> &'a Lane<WatermarkTable> {
@@ -100,10 +153,14 @@ impl LaneSource for WatermarkLane {
         &self,
         store: &ClusterStore,
         topology: &Topology,
-        _previous: Option<&Arc<WatermarkTable>>,
+        previous: Option<&Arc<WatermarkTable>>,
     ) -> Result<WatermarkTable, KafkaError> {
         let wanted = self.wanted_partitions(store, topology);
-        let fetched = self.session.watermarks(&wanted).await?;
+        let now = Instant::now();
+        let fetched = match previous {
+            Some(previous) if !self.low_due(now) => self.read_high(&wanted, previous).await?,
+            _ => self.read_low_and_high(&wanted, now).await?,
+        };
 
         let marks = fetched
             .into_iter()
@@ -299,8 +356,11 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_tick_carries_only_the_rates_that_changed() {
         let tuning = IngestTuning::default();
-        let lane =
-            WatermarkLane::with_interval(Arc::new(FakeCluster::local()), tuning.watermark, &tuning);
+        let lane = WatermarkLane::with_interval(
+            Arc::new(FakeCluster::local()),
+            tuning.high_watermark,
+            &tuning,
+        );
         let store = ClusterStore::new(identity("local"), tuning.interest_ttl);
         let mut events = store.bus.subscribe();
         let step = |marks: &[(&str, i32, i64, i64)]| Arc::new(watermarks(marks));

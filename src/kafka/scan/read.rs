@@ -3,7 +3,7 @@ use foldhash::HashMap;
 use crate::kafka::error::KafkaError;
 use crate::kafka::limits::RecordLimits;
 use crate::kafka::metadata::{PartitionMetadata, Watermarks};
-use crate::kafka::session::ClusterSession;
+use crate::kafka::session::{ClusterSession, watermarks};
 use crate::kafka::store::ClusterStore;
 
 use super::RecordPage;
@@ -89,7 +89,7 @@ pub(super) async fn window_watermarks<S: ClusterSession + ?Sized>(
         }
     };
     let (mut by_topic, from_offsets, to_offsets) =
-        tokio::try_join!(session.watermarks(&wanted), seek(start), seek(end))?;
+        tokio::try_join!(watermarks(session, &wanted), seek(start), seek(end))?;
     let mut watermarks = by_topic.remove(&query.topic).unwrap_or_default();
     if start.is_none() && end.is_none() {
         return Ok(watermarks);
@@ -228,7 +228,8 @@ mod tests {
 
             assert_eq!(error.code(), "LIMIT_TOO_SMALL");
             assert_eq!(session.calls().metadata(), 0);
-            assert_eq!(session.calls().watermarks(), 0);
+            assert_eq!(session.calls().low_watermarks(), 0);
+            assert_eq!(session.calls().high_watermarks(), 0);
         }
     }
 

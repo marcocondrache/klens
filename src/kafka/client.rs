@@ -21,7 +21,7 @@ use crate::kafka::acl::AclListing;
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
 use crate::kafka::group::{CommittedOffset, GroupSnapshot, is_internal_group};
-use crate::kafka::metadata::{MetadataSnapshot, TopicMetadata, Watermarks};
+use crate::kafka::metadata::{MetadataSnapshot, TopicMetadata};
 use crate::kafka::model::{PartitionWindow, ScanConsumer, TailConsumer, TailPosition};
 use crate::kafka::quota::{DescribedQuota, QuotaListing};
 use crate::kafka::registry::client::SchemaRegistryClient;
@@ -35,7 +35,7 @@ use crate::kafka::topic_config::ConfigEntry;
 
 use convert::committed_from_krafka;
 use groups::snapshots_from_descriptions;
-use offsets::{from_list_offsets, merge_watermark_offsets, partition_time_offsets};
+use offsets::{known_offsets, partition_time_offsets};
 use pool::ScanPool;
 use scan::ReaderConfig;
 use tail::TailLease;
@@ -101,6 +101,20 @@ impl KafkaClient {
             schema_registry,
             obfuscation,
         })
+    }
+
+    async fn list_offsets(
+        &self,
+        topics: &HashMap<String, Vec<i32>>,
+        spec: OffsetSpec,
+    ) -> Result<HashMap<String, HashMap<i32, i64>>, KafkaError> {
+        let query = list_offset_query(topics);
+        if query.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let listed = self.transport.admin.list_offsets(&query, spec).await?;
+        Ok(known_offsets(listed.into_iter().map(list_offset_parts)))
     }
 }
 
@@ -177,27 +191,18 @@ impl ClusterSession for KafkaClient {
         Ok(committed_from_krafka(listed))
     }
 
-    async fn watermarks(
+    async fn low_watermarks(
         &self,
         topics: &HashMap<String, Vec<i32>>,
-    ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError> {
-        let query = list_offset_query(topics);
-        if query.is_empty() {
-            return Ok(HashMap::new());
-        }
+    ) -> Result<HashMap<String, HashMap<i32, i64>>, KafkaError> {
+        self.list_offsets(topics, OffsetSpec::Earliest).await
+    }
 
-        let (beginning, end) = tokio::try_join!(
-            self.transport
-                .admin
-                .list_offsets(&query, OffsetSpec::Earliest),
-            self.transport
-                .admin
-                .list_offsets(&query, OffsetSpec::Latest),
-        )?;
-        Ok(merge_watermark_offsets(
-            &from_list_offsets(beginning.into_iter().map(list_offset_parts)),
-            end.into_iter().map(list_offset_parts),
-        ))
+    async fn high_watermarks(
+        &self,
+        topics: &HashMap<String, Vec<i32>>,
+    ) -> Result<HashMap<String, HashMap<i32, i64>>, KafkaError> {
+        self.list_offsets(topics, OffsetSpec::Latest).await
     }
 
     async fn offsets_for_times(
@@ -399,8 +404,10 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use crate::kafka::group::MemberAssignment;
+    use crate::kafka::metadata::Watermarks;
     use crate::kafka::model::{PartitionWindow, RecordOrder, RecordQuery, TimestampRange};
     use crate::kafka::scan::session::{fetch_page, scan_once};
+    use crate::kafka::session::watermarks;
 
     fn window(partition: i32, start: i64, end: i64) -> PartitionWindow {
         PartitionWindow {
@@ -480,12 +487,10 @@ mod tests {
         produce_krafka(&broker.bootstrap_servers(), "orders", 1).await;
 
         let client = kafka_client(&broker.bootstrap_servers()).await;
-        client
-            .watermarks(&wanted("orders", &[0]))
+        watermarks(&client, &wanted("orders", &[0]))
             .await
             .expect("watermarks");
-        client
-            .watermarks(&wanted("orders", &[0]))
+        watermarks(&client, &wanted("orders", &[0]))
             .await
             .expect("second watermarks");
 
@@ -503,7 +508,20 @@ mod tests {
         broker.clear_requests();
         let offsets = client.committed_offsets("unused", Some(&[])).await.unwrap();
         assert!(offsets.is_empty());
-        assert!(client.watermarks(&HashMap::new()).await.unwrap().is_empty());
+        assert!(
+            client
+                .low_watermarks(&HashMap::new())
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            client
+                .high_watermarks(&HashMap::new())
+                .await
+                .unwrap()
+                .is_empty()
+        );
         assert!(
             client
                 .offsets_for_times("orders", &[], 0)
@@ -611,8 +629,7 @@ mod tests {
         produce_krafka(&broker.bootstrap_servers(), "orders", 1).await;
 
         let client = kafka_client(&broker.bootstrap_servers()).await;
-        let marks = client
-            .watermarks(&wanted("orders", &[0]))
+        let marks = watermarks(&client, &wanted("orders", &[0]))
             .await
             .expect("watermarks");
         assert_eq!(marks["orders"][&0], Watermarks { low: 0, high: 1 });
@@ -622,6 +639,43 @@ mod tests {
             .await
             .expect("time offsets");
         assert_eq!(offsets.get(&0), Some(&Some(0)));
+    }
+
+    #[tokio::test]
+    async fn low_and_high_watermarks_list_one_end_each() {
+        let broker = krafka::testing::FakeBroker::start()
+            .await
+            .expect("fake broker");
+        assert!(broker.create_topic("orders", 2));
+        broker.with_state(|state| {
+            for (id, low, high) in [(0, 1, 5), (1, 0, 2)] {
+                let partition = state.partition_mut("orders", id).expect("partition");
+                partition.log_start_offset = low;
+                partition.next_offset = high;
+            }
+        });
+        let client = kafka_client(&broker.bootstrap_servers()).await;
+        client.metadata().await.expect("metadata");
+        let both = wanted("orders", &[0, 1]);
+
+        broker.clear_requests();
+        let lows = client.low_watermarks(&both).await.expect("low watermarks");
+        assert_eq!(
+            broker.request_count(krafka::protocol::ApiKey::ListOffsets),
+            1
+        );
+
+        broker.clear_requests();
+        let highs = client
+            .high_watermarks(&both)
+            .await
+            .expect("high watermarks");
+        assert_eq!(
+            broker.request_count(krafka::protocol::ApiKey::ListOffsets),
+            1
+        );
+        assert_eq!(lows["orders"], HashMap::from_iter([(0, 1), (1, 0)]));
+        assert_eq!(highs["orders"], HashMap::from_iter([(0, 5), (1, 2)]));
     }
 
     #[tokio::test]
@@ -636,14 +690,21 @@ mod tests {
         let mut topics = wanted("orders", &[0]);
         topics.insert(String::new(), vec![0]);
 
-        let marks = client.watermarks(&topics).await.expect("watermarks");
+        let marks = watermarks(&client, &topics).await.expect("watermarks");
         assert_eq!(marks["orders"][&0], Watermarks { low: 0, high: 1 });
         assert!(!marks.contains_key(""));
 
         broker.clear_requests();
         assert!(
             client
-                .watermarks(&wanted("", &[0]))
+                .low_watermarks(&wanted("", &[0]))
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            client
+                .high_watermarks(&wanted("", &[0]))
                 .await
                 .unwrap()
                 .is_empty()

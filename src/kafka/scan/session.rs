@@ -483,6 +483,7 @@ mod tests {
     use crate::kafka::scan::cursor::{RecordCursor, Remaining};
     use crate::kafka::scan::filter::{CompiledFilter, contains};
     use crate::kafka::scan::query::TimestampRange;
+    use crate::kafka::session::watermarks;
     use crate::kafka::testing::{FakeCluster, FixtureRecord, card_record, framed};
 
     const LIMITS: RecordLimits = RecordLimits {
@@ -868,12 +869,14 @@ mod tests {
         query.order = order;
         query.partitions = vec![0, 1];
         query.cursor = token.map(|token| RecordCursor::parse(token).unwrap());
-        let watermarks = session
-            .watermarks(&HashMap::from_iter([(query.topic.clone(), vec![0, 1])]))
-            .await
-            .unwrap()
-            .remove(&query.topic)
-            .unwrap();
+        let watermarks = watermarks(
+            session,
+            &HashMap::from_iter([(query.topic.clone(), vec![0, 1])]),
+        )
+        .await
+        .unwrap()
+        .remove(&query.topic)
+        .unwrap();
 
         let page = fetch_page(session, &query, &[0, 1], &watermarks, 2, LIMITS)
             .await
