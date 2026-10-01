@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use foldhash::{HashMap, HashMapExt};
+use futures::{StreamExt as _, TryStreamExt as _};
 use krafka::admin::{
     AclFilter, ConfigResourceType, DescribeConfigsRequest, DescribeConfigsResource, GroupListing,
     OffsetSpec, OffsetVisibility,
@@ -32,8 +33,11 @@ use crate::kafka::scan::payload::PayloadCodec;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::storage::LogDir;
 use crate::kafka::topic_config::ConfigEntry;
+use crate::kafka::transaction::{
+    ListedTransaction, PartitionProducers, TransactionDescription, TransactionState,
+};
 
-use convert::committed_from_krafka;
+use convert::{committed_from_krafka, listed_transactions};
 use groups::{
     ACTIVE_GROUP_STATES, LISTED_GROUP_TYPES, snapshots_from_descriptions, split_empty_groups,
 };
@@ -41,6 +45,14 @@ use offsets::{known_offsets, partition_time_offsets};
 use pool::ScanPool;
 use scan::ReaderConfig;
 use tail::TailLease;
+
+/// Each id costs krafka one `FindCoordinator` round trip, one after another,
+/// so a long list is described in chunks side by side.
+const DESCRIBE_TRANSACTIONS_CHUNK: usize = 64;
+const DESCRIBE_TRANSACTIONS_CONCURRENCY: usize = 8;
+
+/// Kafka lists transactions of every age for any negative duration filter.
+const ANY_DURATION: i64 = i64::MIN;
 
 pub struct KafkaClient {
     identity: ClusterIdentity,
@@ -294,6 +306,66 @@ impl ClusterSession for KafkaClient {
         Ok(dirs.into_iter().map(LogDir::from_krafka).collect())
     }
 
+    async fn list_transactions(
+        &self,
+        states: &[TransactionState],
+        producer_ids: &[i64],
+    ) -> Result<Vec<ListedTransaction>, KafkaError> {
+        let states: Vec<&str> = states.iter().map(|state| state.as_str()).collect();
+        let listed = self
+            .transport
+            .admin
+            .list_transactions(&states, producer_ids, ANY_DURATION, None)
+            .await?;
+        listed_transactions(
+            listed.error,
+            listed
+                .transactions
+                .into_iter()
+                .map(|entry| (entry.transactional_id, entry.producer_id, entry.state)),
+        )
+    }
+
+    async fn describe_transactions(
+        &self,
+        transactional_ids: &[&str],
+    ) -> Result<Vec<TransactionDescription>, KafkaError> {
+        let described: Vec<Vec<_>> =
+            futures::stream::iter(transactional_ids.chunks(DESCRIBE_TRANSACTIONS_CHUNK))
+                .map(|chunk| self.transport.admin.describe_transactions(chunk))
+                .buffer_unordered(DESCRIBE_TRANSACTIONS_CONCURRENCY)
+                .boxed()
+                .try_collect()
+                .await?;
+        Ok(described
+            .into_iter()
+            .flatten()
+            .map(TransactionDescription::from_krafka)
+            .collect())
+    }
+
+    async fn describe_producers(
+        &self,
+        topics: &HashMap<String, Vec<i32>>,
+    ) -> Result<Vec<PartitionProducers>, KafkaError> {
+        let query = list_offset_query(topics);
+        if query.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let described = self.transport.admin.describe_producers(&query).await?;
+        Ok(described
+            .into_iter()
+            .flat_map(|topic| {
+                let name = topic.name;
+                topic
+                    .partitions
+                    .into_iter()
+                    .map(move |partition| PartitionProducers::from_krafka(name.clone(), partition))
+            })
+            .collect())
+    }
+
     async fn open_scan(
         &self,
         topic: &str,
@@ -524,6 +596,14 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+        assert!(client.describe_transactions(&[]).await.unwrap().is_empty());
+        assert!(
+            client
+                .describe_producers(&HashMap::new())
+                .await
+                .unwrap()
+                .is_empty()
+        );
         assert!(
             client
                 .offsets_for_times("orders", &[], 0)
@@ -609,6 +689,28 @@ mod tests {
         let error = client.client_quotas().await.unwrap_err();
 
         assert!(matches!(error, KafkaError::Krafka(_)), "{error:?}");
+    }
+
+    #[tokio::test]
+    async fn a_broker_that_does_not_serve_the_transaction_apis_fails_the_calls() {
+        let broker = krafka::testing::FakeBroker::start().await.unwrap();
+        assert!(broker.create_topic("orders", 1));
+        let client = kafka_client(&broker.bootstrap_servers()).await;
+        client.metadata().await.expect("metadata");
+
+        let listed = client.list_transactions(&TransactionState::OPEN, &[]).await;
+        let described = client.describe_transactions(&["payments-1"]).await;
+        let producers = client.describe_producers(&wanted("orders", &[0])).await;
+
+        assert!(matches!(listed, Err(KafkaError::Krafka(_))), "{listed:?}");
+        assert!(
+            matches!(described, Err(KafkaError::Krafka(_))),
+            "{described:?}"
+        );
+        assert!(
+            matches!(producers, Err(KafkaError::Krafka(_))),
+            "{producers:?}"
+        );
     }
 
     #[tokio::test]

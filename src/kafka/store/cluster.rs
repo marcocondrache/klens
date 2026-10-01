@@ -1,7 +1,10 @@
 use std::time::Duration;
 
+use jiff::Timestamp;
+
 use crate::kafka::acl::AclListing;
 use crate::kafka::cluster::ClusterIdentity;
+use crate::kafka::hanging::Hanging;
 use crate::kafka::quota::QuotaListing;
 use crate::kafka::topic_config::ConfigEntry;
 
@@ -17,6 +20,7 @@ use super::search::{self, SearchHit};
 use super::tables::{
     ConfigTable, LogDirTable, OffsetTable, SubjectTable, Topology, WatermarkTable,
 };
+use super::transactions::TransactionTable;
 
 pub struct ClusterStore {
     pub identity: ClusterIdentity,
@@ -28,6 +32,7 @@ pub struct ClusterStore {
     pub log_dirs: Lane<LogDirTable>,
     pub acls: Lane<AclListing>,
     pub quotas: Lane<QuotaListing>,
+    pub transactions: Lane<TransactionTable>,
     pub rates: RateStore,
     pub bus: ChangeBus,
     pub interest: InterestRegistry,
@@ -45,6 +50,7 @@ impl std::fmt::Debug for ClusterStore {
             .field("log_dirs", &self.log_dirs.version())
             .field("acls", &self.acls.version())
             .field("quotas", &self.quotas.version())
+            .field("transactions", &self.transactions.version())
             .finish_non_exhaustive()
     }
 }
@@ -61,6 +67,7 @@ impl ClusterStore {
             log_dirs: Lane::new(),
             acls: Lane::new(),
             quotas: Lane::new(),
+            transactions: Lane::new(),
             rates: RateStore::new(),
             bus: ChangeBus::new(),
             interest: InterestRegistry::new(interest_ttl),
@@ -175,12 +182,18 @@ impl ClusterStore {
         let topology = self.topology.load()?;
         let (key, group) = topology.groups.get_key_value(id)?;
         self.interest.touch_group(key);
-        Some(projections::group_detail(
+        let mut detail = projections::group_detail(
             key,
             group,
             projections::offsets_for(self.offsets.load().as_deref(), id),
             self.watermarks.load().as_deref(),
-        ))
+        );
+        detail.blocked_partitions = projections::blocked_partitions(
+            &detail.offsets,
+            self.transactions.load().as_deref(),
+            Timestamp::now().as_millisecond(),
+        );
+        Some(detail)
     }
 
     pub fn topic_groups(&self, topic: &str) -> Vec<TopicGroupRow> {
@@ -248,6 +261,10 @@ impl ClusterStore {
             log_dirs: self.log_dirs.health(),
             acls: self.acls.health(),
             quotas: self.quotas.health(),
+            transactions: self.transactions.health(),
+            hanging_partitions: self.transactions.load().map(|table| {
+                Hanging::of(&table, Timestamp::now().as_millisecond()).partition_count() as i32
+            }),
             topic_count: topology
                 .as_ref()
                 .map(|topology| topology.topics.len() as i32)

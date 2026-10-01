@@ -3,6 +3,7 @@ use std::sync::Arc;
 use foldhash::{HashMap, HashMapExt};
 
 use crate::kafka::group::{GroupMember, GroupOffset, GroupState};
+use crate::kafka::hanging::Hanging;
 use crate::kafka::metadata::Watermarks;
 use crate::kafka::topic_config::{CleanupPolicy, topic_config_values};
 
@@ -11,6 +12,7 @@ use super::tables::{
     ConfigTable, GroupInfo, GroupOffsets, LogDirInfo, LogDirTable, OffsetTable, SubjectInfo,
     SubjectTable, TopicInfo, Topology, WatermarkTable,
 };
+use super::transactions::TransactionTable;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TopicRow {
@@ -85,6 +87,9 @@ pub struct GroupDetail {
     pub offsets: Vec<GroupOffset>,
     pub total_lag: Option<i64>,
     pub lag_complete: bool,
+    /// Partitions with lag that a stuck transaction holds back for
+    /// `read_committed` consumers. Sorted by topic, then partition.
+    pub blocked_partitions: Vec<(String, i32)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -125,6 +130,9 @@ pub struct ClusterHealthView {
     pub log_dirs: LaneHealth,
     pub acls: LaneHealth,
     pub quotas: LaneHealth,
+    pub transactions: LaneHealth,
+    /// Unset until the transactions lane first commits.
+    pub hanging_partitions: Option<i32>,
     pub topic_count: i32,
     pub partition_count: i32,
     pub group_count: i32,
@@ -343,7 +351,32 @@ pub fn group_detail(
         offsets,
         total_lag,
         lag_complete,
+        blocked_partitions: Vec::new(),
     }
+}
+
+/// A partition is held back when a transaction on it hangs, or is open past
+/// its own timeout.
+pub fn blocked_partitions(
+    offsets: &[GroupOffset],
+    transactions: Option<&TransactionTable>,
+    now_ms: i64,
+) -> Vec<(String, i32)> {
+    let Some(table) = transactions else {
+        return Vec::new();
+    };
+    let hanging = Hanging::of(table, now_ms);
+    let mut blocked: Vec<(String, i32)> = offsets
+        .iter()
+        .filter(|offset| offset.lag.is_some_and(|lag| lag > 0))
+        .filter(|offset| {
+            hanging.on(&offset.topic, offset.partition)
+                || table.past_timeout_on(&offset.topic, offset.partition, now_ms)
+        })
+        .map(|offset| (offset.topic.clone(), offset.partition))
+        .collect();
+    blocked.sort();
+    blocked
 }
 
 pub fn topic_group_row(
@@ -426,10 +459,11 @@ mod tests {
     use super::*;
     use crate::kafka::group::MemberAssignment;
     use crate::kafka::store::fixtures::{
-        config, group as group_snapshot, log_dir, offline_partition, offsets, partition, topic,
-        topology as build_topology, watermarks,
+        config, group as group_snapshot, log_dir, offline_partition, offsets, open_partition,
+        partition, topic, topology as build_topology, transaction, watermarks,
     };
     use crate::kafka::store::tables::Interner;
+    use crate::kafka::transaction::TransactionState;
 
     fn topology() -> Topology {
         build_topology(
@@ -717,5 +751,60 @@ mod tests {
         assert_eq!(detail.size_bytes, None);
         assert_eq!(detail.disk_bytes, None);
         assert_eq!(detail.partitions[0].size_bytes, None);
+    }
+
+    fn lagging(partition: i32, lag: Option<i64>) -> GroupOffset {
+        GroupOffset {
+            topic: "orders".into(),
+            partition,
+            current_offset: Some(10),
+            end_offset: lag.map(|lag| 10 + lag),
+            lag,
+            member_id: None,
+        }
+    }
+
+    #[test]
+    fn a_partition_is_blocked_only_while_a_stuck_transaction_holds_back_its_lag() {
+        let offsets = vec![
+            lagging(4, Some(5)),
+            lagging(1, Some(5)),
+            lagging(0, Some(5)),
+            lagging(2, Some(0)),
+            lagging(3, None),
+        ];
+        let mut aborted = transaction("stale", 9, 1_000, &[]);
+        aborted.state = TransactionState::CompleteAbort;
+        let table = TransactionTable {
+            transactions: vec![
+                transaction(
+                    "payments-1",
+                    7,
+                    1_000,
+                    &[("orders", 1), ("orders", 2), ("orders", 3)],
+                ),
+                aborted,
+            ],
+            open_partitions: [0, 2, 3]
+                .into_iter()
+                .map(|partition| open_partition("orders", partition, 9, 10))
+                .collect(),
+            ..TransactionTable::default()
+        };
+        let quiet = TransactionTable {
+            open_partitions: Vec::new(),
+            ..table.clone()
+        };
+
+        assert_eq!(
+            blocked_partitions(&offsets, Some(&table), 61_001),
+            vec![("orders".to_owned(), 0), ("orders".to_owned(), 1)]
+        );
+        assert_eq!(
+            blocked_partitions(&offsets, Some(&quiet), 61_000),
+            Vec::new(),
+            "a transaction within its timeout blocks nothing"
+        );
+        assert_eq!(blocked_partitions(&offsets, None, i64::MAX), Vec::new());
     }
 }

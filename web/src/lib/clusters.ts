@@ -20,7 +20,8 @@ export function isFirstCatalogPending(health: ClusterHealth | null | undefined):
   return health != null && !health.ready && health.topology.lastError == null;
 }
 
-// Log dirs stay out: a cluster that does not serve DescribeLogDirs is not unhealthy.
+// Log dirs and transactions stay out: a cluster that does not serve DescribeLogDirs,
+// ListTransactions, or DescribeProducers is not unhealthy.
 export function lanes(health: ClusterHealth): LaneHealth[] {
   return [health.topology, health.watermarks, health.offsets, health.configs, health.subjects];
 }

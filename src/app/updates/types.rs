@@ -66,6 +66,8 @@ pub enum Update {
     },
     Acls,
     Quotas,
+    /// The transactions the coordinators or the partition leaders hold changed.
+    Transactions,
     /// The client fell behind the change bus and missed events.
     Resync,
 }
@@ -81,6 +83,7 @@ impl Update {
             Self::LogDirs { .. } => "logDirs",
             Self::Acls => "acls",
             Self::Quotas => "quotas",
+            Self::Transactions => "transactions",
             Self::Resync => "resync",
         }
     }

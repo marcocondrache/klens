@@ -40,6 +40,10 @@ pub struct ClusterHealth {
     pub log_dirs: LaneHealth,
     pub acls: LaneHealth,
     pub quotas: LaneHealth,
+    pub transactions: LaneHealth,
+    /// Partitions a hanging transaction holds back. Null until the
+    /// transactions lane first commits.
+    pub hanging_partitions: Option<i32>,
     pub topic_count: i32,
     pub partition_count: i32,
     pub group_count: i32,
@@ -62,6 +66,8 @@ impl From<projections::ClusterHealthView> for ClusterHealth {
             log_dirs: health.log_dirs.into(),
             acls: health.acls.into(),
             quotas: health.quotas.into(),
+            transactions: health.transactions.into(),
+            hanging_partitions: health.hanging_partitions,
             topic_count: health.topic_count,
             partition_count: health.partition_count,
             group_count: health.group_count,

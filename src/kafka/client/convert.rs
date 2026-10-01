@@ -3,11 +3,13 @@
 
 use krafka::admin::{
     ConfigEntry as KrafkaConfigEntry, ConsumerGroupDescription, ConsumerGroupMember,
-    GroupOffsetEntry, LogDirInfo, TopicPartitionAssignment,
+    DescribeProducersPartitionInfo, GroupOffsetEntry, LogDirInfo, ProducerStateInfo,
+    TopicPartitionAssignment, TransactionDescription as KrafkaTransactionDescription,
 };
 use krafka::metadata::{ClusterMetadata, TopicInfo as KrafkaTopicInfo};
 use krafka::protocol::validate_topic_name;
 
+use crate::kafka::error::KafkaError;
 use crate::kafka::group::{
     CommittedOffset, GroupMember, GroupSnapshot, GroupState, MemberAssignment,
 };
@@ -16,6 +18,10 @@ use crate::kafka::metadata::{
 };
 use crate::kafka::storage::{LogDir, ReplicaLog, volume_bytes};
 use crate::kafka::topic_config::{ConfigEntry, ConfigSource};
+use crate::kafka::transaction::{
+    ActiveProducer, ListedTransaction, PartitionProducers, TransactionDescription,
+    TransactionState, reported,
+};
 
 impl MetadataSnapshot {
     pub(super) fn from_krafka(cache: &ClusterMetadata) -> Self {
@@ -152,6 +158,96 @@ impl LogDir {
     }
 }
 
+/// A coordinator that failed to list sets `error` and leaves its transactions
+/// out, so the rest would pass for the whole cluster.
+pub(super) fn listed_transactions(
+    error: Option<String>,
+    entries: impl IntoIterator<Item = (String, i64, String)>,
+) -> Result<Vec<ListedTransaction>, KafkaError> {
+    if let Some(error) = error {
+        return Err(KafkaError::Admin(error));
+    }
+    Ok(entries
+        .into_iter()
+        .map(|(transactional_id, producer_id, state)| ListedTransaction {
+            transactional_id,
+            producer_id,
+            state: TransactionState::parse(&state),
+        })
+        .collect())
+}
+
+impl TransactionDescription {
+    pub(super) fn from_krafka(description: KrafkaTransactionDescription) -> Self {
+        Self {
+            transactional_id: description.transactional_id,
+            error: description.error,
+            state: TransactionState::parse(&description.state),
+            producer_id: description.producer_id,
+            producer_epoch: description.producer_epoch,
+            timeout_ms: description.timeout_ms,
+            started_at_ms: reported(description.start_time_ms),
+            partitions: transaction_partitions(
+                description
+                    .topics
+                    .into_iter()
+                    .map(|topic| (topic.topic, topic.partitions)),
+            ),
+        }
+    }
+}
+
+fn transaction_partitions(
+    topics: impl IntoIterator<Item = (String, Vec<i32>)>,
+) -> Vec<(String, i32)> {
+    let mut partitions: Vec<(String, i32)> = topics
+        .into_iter()
+        .flat_map(|(topic, ids)| ids.into_iter().map(move |id| (topic.clone(), id)))
+        .collect();
+    partitions.sort();
+    partitions
+}
+
+impl PartitionProducers {
+    pub(super) fn from_krafka(topic: String, partition: DescribeProducersPartitionInfo) -> Self {
+        Self {
+            topic,
+            partition: partition.partition_index,
+            error: partition.error,
+            producers: partition
+                .active_producers
+                .into_iter()
+                .map(ActiveProducer::from_krafka)
+                .collect(),
+        }
+    }
+}
+
+impl ActiveProducer {
+    fn from_krafka(producer: ProducerStateInfo) -> Self {
+        active_producer(
+            producer.producer_id,
+            producer.producer_epoch,
+            producer.last_timestamp,
+            producer.current_txn_start_offset,
+        )
+    }
+}
+
+fn active_producer(
+    producer_id: i64,
+    producer_epoch: i32,
+    last_timestamp: i64,
+    open_offset: i64,
+) -> ActiveProducer {
+    ActiveProducer {
+        producer_id,
+        producer_epoch,
+        last_timestamp_ms: reported(last_timestamp),
+        open_offset: reported(open_offset),
+    }
+}
+
 impl From<KrafkaConfigEntry> for ConfigEntry {
     fn from(entry: KrafkaConfigEntry) -> Self {
         Self {
@@ -189,6 +285,81 @@ mod tests {
         assert_eq!(ConfigSource::from_krafka(0), ConfigSource::Default);
         assert_eq!(ConfigSource::from_krafka(6), ConfigSource::Default);
         assert_eq!(ConfigSource::from_krafka(-1), ConfigSource::Default);
+    }
+
+    #[test]
+    fn a_listing_error_fails_the_whole_listing() {
+        let error = listed_transactions(
+            Some("CoordinatorLoadInProgress".into()),
+            [("payments-1".into(), 7, "Ongoing".into())],
+        )
+        .unwrap_err();
+
+        assert!(
+            matches!(error, KafkaError::Admin(message) if message == "CoordinatorLoadInProgress")
+        );
+    }
+
+    #[test]
+    fn listed_transactions_read_their_state() {
+        let listed = listed_transactions(
+            None,
+            [
+                ("payments-1".into(), 7, "PrepareCommit".into()),
+                ("payments-2".into(), 8, "CompleteAbort".into()),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(
+            listed,
+            [
+                ListedTransaction {
+                    transactional_id: "payments-1".into(),
+                    producer_id: 7,
+                    state: TransactionState::PrepareCommit,
+                },
+                ListedTransaction {
+                    transactional_id: "payments-2".into(),
+                    producer_id: 8,
+                    state: TransactionState::CompleteAbort,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn transaction_partitions_flatten_and_sort() {
+        assert_eq!(
+            transaction_partitions([("payments".into(), vec![1, 0]), ("orders".into(), vec![3]),]),
+            [
+                ("orders".to_owned(), 3),
+                ("payments".to_owned(), 0),
+                ("payments".to_owned(), 1),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_producer_without_an_open_transaction_has_no_open_offset() {
+        assert_eq!(
+            active_producer(7, 2, 1_700_000_000_000, 42),
+            ActiveProducer {
+                producer_id: 7,
+                producer_epoch: 2,
+                last_timestamp_ms: Some(1_700_000_000_000),
+                open_offset: Some(42),
+            }
+        );
+        assert_eq!(
+            active_producer(7, 2, -1, -1),
+            ActiveProducer {
+                producer_id: 7,
+                producer_epoch: 2,
+                last_timestamp_ms: None,
+                open_offset: None,
+            }
+        );
     }
 
     #[test]

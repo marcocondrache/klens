@@ -6,9 +6,10 @@ use foldhash::{HashMap, HashMapExt};
 
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
-    AclListing, ClusterIdentity, CommittedOffset, ConfigEntry, GroupSnapshot, LogDir,
-    MetadataSnapshot, PartitionWindow, QuotaListing, RegisteredSchema, ScanConsumer, SchemaSubject,
-    TailConsumer, TailPosition, TopicMetadata, Watermarks,
+    AclListing, ClusterIdentity, CommittedOffset, ConfigEntry, GroupSnapshot, ListedTransaction,
+    LogDir, MetadataSnapshot, PartitionProducers, PartitionWindow, QuotaListing, RegisteredSchema,
+    ScanConsumer, SchemaSubject, TailConsumer, TailPosition, TopicMetadata, TransactionDescription,
+    TransactionState, Watermarks,
 };
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
@@ -54,6 +55,23 @@ pub trait ClusterSession: Send + Sync + 'static {
         group_id: &str,
         partitions: Option<&[(String, i32)]>,
     ) -> Result<Vec<CommittedOffset>, KafkaError>;
+
+    /// An empty filter matches every state or every producer.
+    async fn list_transactions(
+        &self,
+        states: &[TransactionState],
+        producer_ids: &[i64],
+    ) -> Result<Vec<ListedTransaction>, KafkaError>;
+
+    async fn describe_transactions(
+        &self,
+        transactional_ids: &[&str],
+    ) -> Result<Vec<TransactionDescription>, KafkaError>;
+
+    async fn describe_producers(
+        &self,
+        topics: &HashMap<String, Vec<i32>>,
+    ) -> Result<Vec<PartitionProducers>, KafkaError>;
 
     async fn open_scan(
         &self,

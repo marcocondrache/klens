@@ -18,3 +18,6 @@ pub use crate::kafka::scan::{Record, RecordHeader, RecordPage};
 pub use crate::kafka::storage::LogDir;
 pub use crate::kafka::store::{SearchHit, SearchKind};
 pub use crate::kafka::topic_config::{CleanupPolicy, ConfigEntry, ConfigSource};
+pub use crate::kafka::transaction::{
+    ListedTransaction, PartitionProducers, TransactionDescription, TransactionState,
+};
