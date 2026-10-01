@@ -28,6 +28,16 @@ pub enum KafkaError {
         partition: i32,
     },
 
+    #[error(
+        "no record at offset {offset} of partition {partition} in topic '{topic}' in cluster '{cluster}'"
+    )]
+    UnknownOffset {
+        cluster: String,
+        topic: String,
+        partition: i32,
+        offset: i64,
+    },
+
     #[error("invalid record query: {0}")]
     InvalidQuery(#[from] QueryError),
 
@@ -56,6 +66,7 @@ impl KafkaError {
             Self::UnknownBroker { .. } => "UNKNOWN_BROKER",
             Self::UnknownSubject { .. } => "UNKNOWN_SUBJECT",
             Self::UnknownPartition { .. } => "UNKNOWN_PARTITION",
+            Self::UnknownOffset { .. } => "UNKNOWN_OFFSET",
             Self::InvalidQuery(query) => query.code(),
             Self::Timeout => "TIMEOUT",
             Self::Admin(_) => "ADMIN",
@@ -158,6 +169,16 @@ mod tests {
             }
             .code(),
             "UNKNOWN_PARTITION"
+        );
+        assert_eq!(
+            KafkaError::UnknownOffset {
+                cluster: "local".into(),
+                topic: "orders".into(),
+                partition: 3,
+                offset: 42,
+            }
+            .code(),
+            "UNKNOWN_OFFSET"
         );
         assert_eq!(
             KafkaError::InvalidQuery(QueryError::InvertedTimestampRange).code(),

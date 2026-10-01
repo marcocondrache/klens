@@ -39,6 +39,12 @@ pub struct RecordPage {
     pub prev_cursor: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FoundRecord {
+    pub record: Record,
+    pub obfuscated: bool,
+}
+
 impl RecordPage {
     pub fn empty() -> Self {
         Self {
