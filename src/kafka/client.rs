@@ -642,7 +642,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn high_watermarks_list_only_the_log_end() {
+    async fn high_watermarks_list_only_high_offsets() {
         let broker = krafka::testing::FakeBroker::start()
             .await
             .expect("fake broker");

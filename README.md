@@ -122,7 +122,7 @@ tuning:
   ingest:
     topology: 10s
     watermark: 3s
-    log_start: 30s # how often the watermark lane rereads where each log starts
+    low_watermark: 30s # how often the watermark lane rereads low watermarks
     config: 60s
     subjects: 30s
     log_dirs: 60s

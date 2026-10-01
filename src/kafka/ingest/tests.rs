@@ -1269,7 +1269,7 @@ async fn a_new_topic_waits_for_the_next_watermark_poll() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn between_log_start_reads_the_watermark_lane_lists_only_the_log_end() {
+async fn between_low_reads_the_watermark_lane_lists_only_high_watermarks() {
     let session = FakeCluster::local();
     session.add_partition("orders.created", 1, Watermarks { low: 8, high: 8 });
     let store = store(&session);
@@ -1286,7 +1286,7 @@ async fn between_log_start_reads_the_watermark_lane_lists_only_the_log_end() {
     assert_eq!(
         session.calls().watermarks(),
         1,
-        "an emptied log keeps its cached start too"
+        "an emptied log keeps its cached low watermark too"
     );
     let marks = store.watermarks.load().expect("watermarks");
     assert_eq!(
@@ -1300,14 +1300,14 @@ async fn between_log_start_reads_the_watermark_lane_lists_only_the_log_end() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn the_watermark_lane_rereads_the_log_start_once_its_interval_passes() {
+async fn the_watermark_lane_rereads_low_watermarks_once_their_interval_passes() {
     let session = FakeCluster::local();
     let store = store(&session);
     let _lanes = catalog_lanes(&store, &session);
     wait_for(|| store.watermarks.ready(), "first watermark poll").await;
-    let log_start = IngestTuning::default().log_start;
+    let low_watermark = IngestTuning::default().low_watermark;
 
-    tokio::time::advance(log_start - Duration::from_millis(1)).await;
+    tokio::time::advance(low_watermark - Duration::from_millis(1)).await;
     store.watermarks.kick();
     wait_for(|| session.calls().high_watermarks() == 1, "end-only poll").await;
     assert_eq!(session.calls().watermarks(), 1);
@@ -1323,7 +1323,7 @@ async fn the_watermark_lane_rereads_the_log_start_once_its_interval_passes() {
                 .and_then(|marks| marks.get("orders.created", 0))
                 == Some(Watermarks { low: 5, high: 12 })
         },
-        "log start reread",
+        "low watermark reread",
     )
     .await;
     assert_eq!(session.calls().watermarks(), 2);
@@ -1331,7 +1331,7 @@ async fn the_watermark_lane_rereads_the_log_start_once_its_interval_passes() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_new_partition_reads_its_log_start_on_the_next_poll() {
+async fn a_new_partition_reads_its_low_watermark_on_the_next_poll() {
     let session = FakeCluster::local();
     let store = store(&session);
     let _lanes = catalog_lanes(&store, &session);
@@ -1352,14 +1352,14 @@ async fn a_new_partition_reads_its_log_start_on_the_next_poll() {
     assert_eq!(
         marks.get("orders.created", 0),
         Some(Watermarks { low: 0, high: 12 }),
-        "only the new partition rereads its start"
+        "only the new partition rereads its low watermark"
     );
     assert_eq!(session.calls().high_watermarks(), 1);
     assert_eq!(session.calls().watermarks(), 2);
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_log_that_ends_below_its_cached_start_rereads_the_start() {
+async fn a_high_watermark_below_the_cached_low_rereads_the_low() {
     let session = FakeCluster::local();
     session.add_partition("orders.created", 0, Watermarks { low: 6, high: 8 });
     let store = store(&session);

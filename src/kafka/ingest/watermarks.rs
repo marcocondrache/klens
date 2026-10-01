@@ -18,11 +18,11 @@ use super::runner::LaneSource;
 pub struct WatermarkLane {
     session: Arc<dyn ClusterSession>,
     interval: Duration,
-    log_start: Duration,
+    low_watermark: Duration,
     idle_heartbeat: Duration,
     max_sample_gap: Duration,
     committed_at: Mutex<Option<Instant>>,
-    log_start_read_at: Mutex<Option<Instant>>,
+    low_read_at: Mutex<Option<Instant>>,
 }
 
 impl WatermarkLane {
@@ -34,11 +34,11 @@ impl WatermarkLane {
         Self {
             session,
             interval,
-            log_start: tuning.log_start,
+            low_watermark: tuning.low_watermark,
             idle_heartbeat: tuning.idle_heartbeat,
             max_sample_gap: tuning.max_sample_gap,
             committed_at: Mutex::new(None),
-            log_start_read_at: Mutex::new(None),
+            low_read_at: Mutex::new(None),
         }
     }
 
@@ -72,22 +72,22 @@ impl WatermarkLane {
         wanted
     }
 
-    fn log_start_due(&self, now: Instant) -> bool {
-        (*self.log_start_read_at.lock().expect("watermark lane clock"))
-            .is_none_or(|at| now.saturating_duration_since(at) >= self.log_start)
+    fn low_due(&self, now: Instant) -> bool {
+        (*self.low_read_at.lock().expect("watermark lane clock"))
+            .is_none_or(|at| now.saturating_duration_since(at) >= self.low_watermark)
     }
 
-    async fn read_both_ends(
+    async fn read_low_and_high(
         &self,
         wanted: &HashMap<String, Vec<i32>>,
         now: Instant,
     ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError> {
         let fetched = self.session.watermarks(wanted).await?;
-        *self.log_start_read_at.lock().expect("watermark lane clock") = Some(now);
+        *self.low_read_at.lock().expect("watermark lane clock") = Some(now);
         Ok(fetched)
     }
 
-    async fn read_high_ends(
+    async fn read_high(
         &self,
         wanted: &HashMap<String, Vec<i32>>,
         previous: &WatermarkTable,
@@ -161,10 +161,8 @@ impl LaneSource for WatermarkLane {
         let wanted = self.wanted_partitions(store, topology);
         let now = Instant::now();
         let fetched = match previous {
-            Some(previous) if !self.log_start_due(now) => {
-                self.read_high_ends(&wanted, previous).await?
-            }
-            _ => self.read_both_ends(&wanted, now).await?,
+            Some(previous) if !self.low_due(now) => self.read_high(&wanted, previous).await?,
+            _ => self.read_low_and_high(&wanted, now).await?,
         };
 
         let marks = fetched
