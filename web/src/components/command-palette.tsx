@@ -1,17 +1,18 @@
-import { useState } from "react";
-import { FileJsonIcon, HardDriveIcon, LayersIcon, ServerIcon, UsersRoundIcon } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { Autocomplete } from "@base-ui/react/autocomplete";
+import {
+  FileJsonIcon,
+  HardDriveIcon,
+  LayersIcon,
+  SearchIcon,
+  ServerIcon,
+  UsersRoundIcon,
+  type LucideIcon,
+} from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 
-import {
-  Command,
-  CommandDialog,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-  CommandShortcut,
-} from "@/components/ui/command";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { InputGroup, InputGroupAddon } from "@/components/ui/input-group";
 import { StatusDot } from "@/components/status";
 import { useClusters, useSearch } from "@/lib/api/catalog";
 import type { SearchHit } from "@/lib/api/types";
@@ -35,6 +36,21 @@ const RESULT_HEADING: Record<SearchHit["kind"], string> = {
   SUBJECT: "Schemas",
 };
 
+interface PaletteItem {
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  mono?: boolean;
+  detail?: ReactNode;
+  detailMono?: boolean;
+  select: () => void;
+}
+
+interface PaletteGroup {
+  value: string;
+  items: PaletteItem[];
+}
+
 export function CommandPalette({
   open,
   onOpenChange,
@@ -50,124 +66,139 @@ export function CommandPalette({
   const [term, setTerm] = useState("");
   const searching = term.trim().length > 0;
 
-  function goHref(href: string) {
-    void navigate({ href });
-  }
-
   const { data: clusters = [] } = useClusters();
   const { data: results = [], isPending, isError, error } = useSearch(cluster, term);
   const showNavigation = !searching || isPending;
   const hits = searching && !isPending ? results : [];
   const kinds = [...new Set(hits.map((hit) => hit.kind))];
 
+  const groups: PaletteGroup[] = kinds.map((kind) => ({
+    value: RESULT_HEADING[kind],
+    items: hits
+      .filter((hit) => hit.kind === kind)
+      .map((hit) => ({
+        id: hit.href,
+        label: hit.label,
+        icon: RESULT_ICON[kind],
+        mono: kind !== "NODE",
+        detail: hit.detail,
+        detailMono: kind === "NODE",
+        select: () => void navigate({ href: hit.href }),
+      })),
+  }));
+
+  if (showNavigation) {
+    groups.push(
+      {
+        value: "Go to",
+        items: sections.map((section) => ({
+          id: `nav:${section.segment}`,
+          label: section.label,
+          icon: section.icon,
+          select: () =>
+            void navigate({ to: clusterSectionTo(section.segment), params: { cluster } }),
+        })),
+      },
+      {
+        value: "Switch cluster",
+        items: clusters.map((entry) => ({
+          id: `cluster:${entry.cluster}`,
+          label: entry.cluster,
+          icon: ServerIcon,
+          detail: <StatusDot tone={clusterTone(entry)} />,
+          select: () => switchCluster(entry.cluster),
+        })),
+      },
+    );
+  }
+
   function changeOpen(next: boolean) {
     if (!next) setTerm("");
     onOpenChange(next);
   }
 
-  function run(action: () => void) {
+  function run(item: PaletteItem) {
     changeOpen(false);
-    action();
+    item.select();
   }
 
   return (
-    <CommandDialog
-      open={open}
-      onOpenChange={changeOpen}
-      title="Search klens"
-      description="Jump to a topic, consumer group, broker, schema or section"
-      className="sm:max-w-xl"
-    >
-      <Command shouldFilter={false}>
-        <CommandInput
+    <Dialog open={open} onOpenChange={changeOpen}>
+      <DialogContent
+        showCloseButton={false}
+        className="top-1/3 translate-y-0 gap-0 overflow-hidden p-1 sm:max-w-xl"
+      >
+        <DialogTitle className="sr-only">Search klens</DialogTitle>
+        <DialogDescription className="sr-only">
+          Jump to a topic, consumer group, broker, schema or section
+        </DialogDescription>
+        <Autocomplete.Root
+          open
+          inline
+          mode="none"
+          items={groups}
           value={term}
           onValueChange={setTerm}
-          placeholder="Search topics, groups, brokers and schemas…"
-        />
-        <CommandList className="max-h-[min(24rem,50vh)]">
-          {searching && isError ? (
-            <CommandEmpty>{apiErrorMessage(error, "Search failed.")}</CommandEmpty>
-          ) : null}
-
-          {searching && !isPending && !isError && hits.length === 0 ? (
-            <CommandEmpty>No matches in {cluster}.</CommandEmpty>
-          ) : null}
-
-          {kinds.map((kind) => {
-            const items = hits.filter((result) => result.kind === kind);
-
-            const Icon = RESULT_ICON[kind];
-            const broker = kind === "NODE";
-
-            return (
-              <CommandGroup key={kind} heading={RESULT_HEADING[kind]}>
-                {items.map((result) => (
-                  <CommandItem
-                    key={result.href}
-                    value={result.href}
-                    onSelect={() => run(() => goHref(result.href))}
-                    className="min-w-0"
-                  >
-                    <Icon className="text-muted-foreground" />
-                    <span
-                      className={cn("min-w-0 flex-1 truncate", !broker && "font-mono text-sm")}
-                      title={broker ? undefined : result.label}
+          autoHighlight="always"
+          keepHighlight
+        >
+          <div className="p-1 pb-0">
+            <InputGroup className="h-8 border-input/30 bg-input/30 shadow-none">
+              <Autocomplete.Input
+                className="w-full text-sm outline-hidden"
+                placeholder="Search topics, groups, brokers and schemas…"
+              />
+              <InputGroupAddon className="pl-2">
+                <SearchIcon className="size-4 shrink-0 opacity-50" />
+              </InputGroupAddon>
+            </InputGroup>
+          </div>
+          <Autocomplete.Empty className="py-6 text-center text-sm empty:hidden">
+            {isError
+              ? apiErrorMessage(error, "Search failed.")
+              : searching
+                ? `No matches in ${cluster}.`
+                : null}
+          </Autocomplete.Empty>
+          <Autocomplete.List className="no-scrollbar max-h-[min(24rem,50vh)] scroll-py-1 overflow-x-hidden overflow-y-auto outline-none">
+            {(group: PaletteGroup) => (
+              <Autocomplete.Group key={group.value} items={group.items} className="p-1">
+                <Autocomplete.GroupLabel className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                  {group.value}
+                </Autocomplete.GroupLabel>
+                <Autocomplete.Collection>
+                  {(item: PaletteItem) => (
+                    <Autocomplete.Item
+                      key={item.id}
+                      value={item}
+                      onClick={() => run(item)}
+                      className="group/item flex min-w-0 cursor-default items-center gap-2 rounded-lg px-2 py-1.5 text-sm outline-hidden select-none data-highlighted:bg-muted"
                     >
-                      {result.label}
-                    </span>
-                    <CommandShortcut
-                      className={cn("shrink-0 tracking-normal", broker && "font-mono")}
-                    >
-                      {result.detail}
-                    </CommandShortcut>
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            );
-          })}
-
-          {showNavigation ? (
-            <CommandGroup heading="Go to">
-              {sections.map((section) => (
-                <CommandItem
-                  key={section.segment}
-                  value={`nav:${section.label}`}
-                  onSelect={() =>
-                    run(() => {
-                      void navigate({
-                        to: clusterSectionTo(section.segment),
-                        params: { cluster },
-                      });
-                    })
-                  }
-                >
-                  <section.icon className="text-muted-foreground" />
-                  <span>{section.label}</span>
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          ) : null}
-
-          {showNavigation ? (
-            <CommandGroup heading="Switch cluster">
-              {clusters.map((entry) => (
-                <CommandItem
-                  key={entry.cluster}
-                  value={`cluster:${entry.cluster}`}
-                  className="min-w-0"
-                  onSelect={() => run(() => switchCluster(entry.cluster))}
-                >
-                  <ServerIcon className="text-muted-foreground" />
-                  <span className="min-w-0 flex-1 truncate">{entry.cluster}</span>
-                  <CommandShortcut className="flex shrink-0 items-center gap-1.5 tracking-normal">
-                    <StatusDot tone={clusterTone(entry)} />
-                  </CommandShortcut>
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          ) : null}
-        </CommandList>
-      </Command>
-    </CommandDialog>
+                      <item.icon className="size-4 shrink-0 text-muted-foreground" />
+                      <span
+                        className={cn("min-w-0 flex-1 truncate", item.mono && "font-mono")}
+                        title={item.mono ? item.label : undefined}
+                      >
+                        {item.label}
+                      </span>
+                      {item.detail != null ? (
+                        <span
+                          className={cn(
+                            "flex shrink-0 items-center text-xs text-muted-foreground group-data-highlighted/item:text-foreground",
+                            item.detailMono && "font-mono",
+                          )}
+                        >
+                          {item.detail}
+                        </span>
+                      ) : null}
+                    </Autocomplete.Item>
+                  )}
+                </Autocomplete.Collection>
+              </Autocomplete.Group>
+            )}
+          </Autocomplete.List>
+        </Autocomplete.Root>
+      </DialogContent>
+    </Dialog>
   );
 }
