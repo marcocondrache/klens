@@ -155,8 +155,9 @@ impl Drop for ScanLease {
 
 #[cfg(test)]
 mod tests {
+    use krafka::admin::OffsetSpec;
     use krafka::protocol::ApiKey;
-    use krafka::testing::FakeBroker;
+    use krafka::testing::{Control, FakeBroker};
 
     use super::*;
     use crate::kafka::client::KafkaClient;
@@ -270,6 +271,42 @@ mod tests {
             lookups,
             "the pooled consumer already knows where it is"
         );
+    }
+
+    #[tokio::test]
+    async fn a_waiting_fetch_does_not_hold_up_admin_calls() {
+        let broker = FakeBroker::start().await.unwrap();
+        assert!(broker.create_topic("orders", 1));
+        super::super::tests::produce_krafka(&broker.bootstrap_servers(), "orders", 2).await;
+        let client = client(&broker).await;
+        let scan = client
+            .scans
+            .acquire("orders", &[window(0, 0, 2)])
+            .await
+            .unwrap();
+        broker.on(ApiKey::Fetch, |_| Control::Delay(Duration::from_secs(3)));
+        broker.clear_requests();
+
+        let polling = tokio::spawn(async move { scan.poll(Duration::from_secs(5)).await });
+        assert!(
+            broker
+                .wait_for_requests(ApiKey::Fetch, 1, Duration::from_secs(2))
+                .await
+        );
+        let listed = tokio::time::timeout(
+            Duration::from_secs(1),
+            client
+                .transport
+                .admin
+                .list_offsets(&[("orders", &[0])], OffsetSpec::Latest),
+        )
+        .await;
+
+        assert!(
+            listed.is_ok_and(|listed| listed.is_ok()),
+            "an admin call must not queue behind a scan's fetch"
+        );
+        polling.abort();
     }
 
     #[tokio::test]

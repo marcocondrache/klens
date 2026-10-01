@@ -6,7 +6,6 @@ use krafka::client::KrafkaClient as KrafkaSharedClient;
 use krafka::consumer::Consumer;
 
 use crate::config::ScanTuning;
-use crate::kafka::client::transport;
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::PartitionWindow;
 
@@ -94,12 +93,12 @@ pub(super) fn retire(consumer: Arc<Consumer>) {
 
 impl ScanPool {
     pub(super) fn spawn(
-        transport: &transport::Transport,
+        client: KrafkaSharedClient,
         tuning: &ScanTuning,
         reader: ReaderConfig,
     ) -> Arc<Self> {
         let pool = Arc::new(Self {
-            client: transport.client.clone(),
+            client,
             reader,
             inner: Mutex::new(ScanPoolInner::new(tuning)),
         });

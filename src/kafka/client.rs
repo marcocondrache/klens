@@ -88,6 +88,7 @@ impl KafkaClient {
             .map(|rules| Arc::new(ObfuscationPolicy::compile(rules)));
 
         let transport = transport::connect(name, cluster, &tuning.kafka).await?;
+        let scan_client = transport.connector.connect().await?;
 
         Ok(Self {
             identity,
@@ -95,7 +96,7 @@ impl KafkaClient {
             scan_poll_wait: tuning.scan.poll_wait,
             tail_reader: ReaderConfig::new(tuning, tuning.tail.poll_wait),
             scans: ScanPool::spawn(
-                &transport,
+                scan_client,
                 &tuning.scan,
                 ReaderConfig::new(tuning, tuning.scan.poll_wait),
             ),
