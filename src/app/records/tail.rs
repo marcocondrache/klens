@@ -11,6 +11,7 @@ use crate::kafka::Tail;
 use super::super::context::Session;
 use super::super::error::ApiError;
 use super::super::extract::{Path, Query};
+use super::denied;
 use super::types::{TailEvent, TailParams, tail_query};
 
 type Events = BoxStream<'static, Result<Event, Infallible>>;
@@ -61,7 +62,7 @@ impl Follow {
                     Ok(batch) => batch,
                     Err(error) => return Some(state.end(error.into())),
                 };
-                if let Some(error) = state.denied() {
+                if let Some(error) = denied(&state.guard, &state.cluster) {
                     return Some(state.end(error));
                 }
                 if batch.is_empty() {
@@ -77,17 +78,6 @@ impl Follow {
     fn end(mut self, error: ApiError) -> (Result<Event, Infallible>, Self) {
         self.done = true;
         (Ok(error.event()), self)
-    }
-
-    fn denied(&self) -> Option<ApiError> {
-        let Some(access) = self.guard.revalidate() else {
-            return Some(ApiError::SessionExpired);
-        };
-        access
-            .cluster(&self.cluster)
-            .and_then(|cluster| cluster.records().map(drop))
-            .err()
-            .map(ApiError::from)
     }
 }
 

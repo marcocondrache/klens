@@ -70,7 +70,7 @@ fn select_partitions(
     Ok(selected)
 }
 
-async fn window_watermarks<S: ClusterSession + ?Sized>(
+pub(super) async fn window_watermarks<S: ClusterSession + ?Sized>(
     session: &S,
     query: &RecordQuery,
     partitions: &[i32],

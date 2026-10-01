@@ -27,6 +27,7 @@ pub use error::{KafkaError, QueryError};
 pub use limits::{RecordLimits, TailLimits};
 pub use model::{ConfigEntry, RecordPage, RecordQuery};
 pub use scan::cursor::RecordCursor;
+pub use scan::export::Export;
 pub use scan::filter::{CompiledFilter, contains as compile_contains_filter};
 pub use scan::tail::{Tail, TailBatch, TailPosition, TailQuery};
 pub use session::ClusterSession;

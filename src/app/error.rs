@@ -87,6 +87,8 @@ impl std::fmt::Display for ApiError {
     }
 }
 
+impl std::error::Error for ApiError {}
+
 impl From<KafkaError> for ApiError {
     fn from(error: KafkaError) -> Self {
         Self::Kafka(error)

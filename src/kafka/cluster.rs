@@ -9,6 +9,7 @@ use crate::kafka::client::KafkaClient;
 use crate::kafka::error::KafkaError;
 use crate::kafka::limits::{RecordLimits, TailLimits};
 use crate::kafka::model::{ConfigEntry, RecordPage, RecordQuery};
+use crate::kafka::scan::export::Export;
 use crate::kafka::scan::read::read_page;
 use crate::kafka::scan::tail::{Tail, TailQuery};
 use crate::kafka::session::ClusterSession;
@@ -52,6 +53,14 @@ impl Cluster {
         limits: RecordLimits,
     ) -> Result<RecordPage, KafkaError> {
         read_page(self.session.as_ref(), &self.store, query, limits).await
+    }
+
+    pub async fn export(
+        &self,
+        query: RecordQuery,
+        limits: RecordLimits,
+    ) -> Result<Export, KafkaError> {
+        Export::open(Arc::clone(&self.session), &self.store, query, limits).await
     }
 
     pub async fn tail(&self, query: TailQuery, limits: TailLimits) -> Result<Tail, KafkaError> {

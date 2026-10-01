@@ -1,6 +1,7 @@
 import { useMemo } from "react";
-import { ClockIcon, TriangleAlertIcon } from "lucide-react";
+import { ClockIcon, DownloadIcon, TriangleAlertIcon } from "lucide-react";
 
+import { IconButton } from "@/components/icon-button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   Empty,
@@ -18,7 +19,7 @@ import {
 } from "@/components/records/record-view";
 import { useTimestampFilter } from "@/components/records/timestamp-filter";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
-import { useRecords, type RecordsFilter } from "@/lib/api/live";
+import { recordsExportUrl, useRecords, type RecordsFilter } from "@/lib/api/live";
 import { apiErrorMessage } from "@/lib/api/client";
 import type { KafkaRecord, RecordOrder, TopicDetail } from "@/lib/api/types";
 import { fromDatetimeLocalValue } from "@/lib/format";
@@ -115,7 +116,22 @@ export function PagedRecords({
       source={source}
       filter={filter}
       onFilterChange={onFilterChange}
-      actions={<RecordModeSwitch value={order} onChange={onModeChange} />}
+      actions={
+        <>
+          {partitions?.length !== 0 ? (
+            <IconButton
+              label="Download matching records as NDJSON"
+              tooltip="Download NDJSON"
+              size="icon"
+              nativeButton={false}
+              render={<a href={recordsExportUrl(cluster, query)} download />}
+            >
+              <DownloadIcon className="size-3.5" />
+            </IconButton>
+          ) : null}
+          <RecordModeSwitch value={order} onChange={onModeChange} />
+        </>
+      }
       notice={
         lastPage && !lastPage.complete && !isPlaceholderData ? (
           <Alert>
