@@ -108,6 +108,6 @@ pub fn router(state: AppState) -> Router {
         .merge(health::router())
         .nest("/api", auth_routes().merge(resources))
         .with_state(state)
-        .fallback(crate::server::web::serve)
+        .merge(crate::server::web::router())
         .layer(auth_layer)
 }

@@ -1,88 +1,19 @@
-use axum::{
-    http::Uri,
-    response::{IntoResponse, Response},
-};
+use axum::Router;
 
 #[cfg(feature = "ui")]
-mod embedded {
-    use std::borrow::Cow;
+pub fn router() -> Router {
+    use axum::http::StatusCode;
+    use memory_serve::CacheControl;
 
-    use super::*;
-    use axum::{
-        body::Bytes,
-        http::{HeaderValue, StatusCode, header},
-        response::Html,
-    };
-    use rust_embed::RustEmbed;
-
-    const STATIC_ASSET_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
-
-    const INDEX_CACHE_CONTROL: &str = "no-cache";
-
-    #[derive(RustEmbed)]
-    #[folder = "static/"]
-    struct WebAssets;
-
-    pub async fn serve(uri: Uri) -> Response {
-        let path = uri.path().trim_start_matches('/');
-
-        if path.is_empty() {
-            return index();
-        }
-
-        match WebAssets::get(path) {
-            Some(file) => {
-                let mime = mime_guess::from_path(path).first_or_octet_stream();
-                let mut response =
-                    ([(header::CONTENT_TYPE, mime.as_ref())], body(file.data)).into_response();
-
-                if path.starts_with("assets/") {
-                    response.headers_mut().insert(
-                        header::CACHE_CONTROL,
-                        HeaderValue::from_static(STATIC_ASSET_CACHE_CONTROL),
-                    );
-                }
-
-                response
-            }
-            None => index(),
-        }
-    }
-
-    fn index() -> Response {
-        match WebAssets::get("index.html") {
-            Some(file) => {
-                let mut response = Html(body(file.data)).into_response();
-                response.headers_mut().insert(
-                    header::CACHE_CONTROL,
-                    HeaderValue::from_static(INDEX_CACHE_CONTROL),
-                );
-                response
-            }
-            None => StatusCode::NOT_FOUND.into_response(),
-        }
-    }
-
-    fn body(data: Cow<'static, [u8]>) -> Bytes {
-        match data {
-            Cow::Borrowed(data) => Bytes::from_static(data),
-            Cow::Owned(data) => Bytes::from(data),
-        }
-    }
+    memory_serve::load!()
+        .fallback(Some("/index.html"))
+        .fallback_status(StatusCode::OK)
+        .html_cache_control(CacheControl::NoCache)
+        .cache_control(CacheControl::Long)
+        .into_router()
 }
 
 #[cfg(not(feature = "ui"))]
-mod empty {
-    use super::*;
-    use axum::{body::Bytes, response::Html};
-
-    pub async fn serve(_uri: Uri) -> Response {
-        Html(Bytes::from_static(b"")).into_response()
-    }
+pub fn router() -> Router {
+    Router::new().fallback(|| async { axum::response::Html("") })
 }
-
-#[cfg(feature = "ui")]
-pub use embedded::serve;
-
-#[cfg(not(feature = "ui"))]
-pub use empty::serve;

@@ -1,2 +1,5 @@
 [alias]
 xtask = "run -p xtask --"
+
+[env]
+MEMORY_SERVE_QUIET = "1"
