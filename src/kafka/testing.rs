@@ -75,6 +75,7 @@ struct Inner {
     consumers: AtomicUsize,
     tail_seeks: Mutex<Vec<Vec<(i32, i64)>>>,
     tail_polls: AtomicUsize,
+    tail_lag_reads: AtomicUsize,
     codec: Arc<CountingCodec>,
     obfuscation: Mutex<Option<Arc<ObfuscationPolicy>>>,
     calls: SessionCalls,
@@ -255,6 +256,7 @@ impl FakeCluster {
                 consumers: AtomicUsize::new(0),
                 tail_seeks: Mutex::new(Vec::new()),
                 tail_polls: AtomicUsize::new(0),
+                tail_lag_reads: AtomicUsize::new(0),
                 codec: Arc::new(CountingCodec::default()),
                 obfuscation: Mutex::new(None),
                 calls: SessionCalls::default(),
@@ -476,6 +478,10 @@ impl FakeCluster {
 
     pub fn tail_polls(&self) -> usize {
         self.inner.tail_polls.load(Ordering::SeqCst)
+    }
+
+    pub fn tail_lag_reads(&self) -> usize {
+        self.inner.tail_lag_reads.load(Ordering::SeqCst)
     }
 
     pub fn add_partition(&self, topic: &str, id: i32, watermarks: Watermarks) {
@@ -1083,17 +1089,21 @@ impl TailConsumer for FakeTail {
             .copied()
     }
 
-    async fn lag(&self, partition: i32) -> Option<u64> {
-        let position = self.position(partition).await?;
-        let high = self
-            .cluster
-            .watermarks
+    async fn lags(&self) -> HashMap<i32, u64> {
+        self.cluster.tail_lag_reads.fetch_add(1, Ordering::SeqCst);
+        let watermarks = self.cluster.watermarks.lock().expect("watermarks");
+        let Some(highs) = watermarks.get(&self.topic) else {
+            return HashMap::new();
+        };
+        self.positions
             .lock()
-            .expect("watermarks")
-            .get(&self.topic)?
-            .get(&partition)?
-            .high;
-        Some(high.saturating_sub(position).max(0) as u64)
+            .expect("positions")
+            .iter()
+            .filter_map(|(&partition, &position)| {
+                let high = highs.get(&partition)?.high;
+                Some((partition, high.saturating_sub(position).max(0) as u64))
+            })
+            .collect()
     }
 
     async fn seek(&self, positions: &[TailPosition]) -> Result<(), KafkaError> {

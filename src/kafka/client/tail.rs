@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use foldhash::HashMap;
 use krafka::client::KrafkaClient as KrafkaSharedClient;
 use krafka::consumer::{AutoOffsetReset, Consumer, ConsumerBuilder};
 
@@ -95,8 +96,15 @@ impl TailConsumer for TailLease {
         self.consumer.position(&self.topic, partition).await
     }
 
-    async fn lag(&self, partition: i32) -> Option<u64> {
-        self.consumer.current_lag(&self.topic, partition).await
+    async fn lags(&self) -> HashMap<i32, u64> {
+        self.consumer
+            .lag()
+            .await
+            .lag
+            .into_iter()
+            .filter(|((topic, _), _)| *topic == self.topic)
+            .map(|((_, partition), lag)| (partition, lag))
+            .collect()
     }
 
     async fn seek(&self, positions: &[TailPosition]) -> Result<(), KafkaError> {
@@ -116,7 +124,6 @@ impl Drop for TailLease {
 
 #[cfg(test)]
 mod tests {
-    use foldhash::HashMap;
     use krafka::protocol::ApiKey;
     use krafka::testing::{Control, FakeBroker};
 
@@ -174,7 +181,7 @@ mod tests {
         assert_eq!(tail.position(0).await, Some(2));
         assert_eq!(read(&tail, 2).await, vec![2, 3]);
         assert_eq!(tail.position(0).await, Some(4));
-        assert_eq!(tail.lag(0).await, Some(0));
+        assert_eq!(tail.lags().await, HashMap::from_iter([(0, 0)]));
         assert_eq!(
             broker.request_count(ApiKey::ListOffsets),
             0,
@@ -200,8 +207,8 @@ mod tests {
 
         assert_eq!(tail.position(0).await, Some(1));
         assert_eq!(
-            tail.lag(0).await,
-            Some(3),
+            tail.lags().await,
+            HashMap::from_iter([(0, 3)]),
             "the high watermark is still known"
         );
         assert_eq!(read(&tail, 3).await, vec![1, 2, 3]);
