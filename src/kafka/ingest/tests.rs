@@ -235,14 +235,14 @@ async fn the_watermark_lane_feeds_latest_rates() {
 
 #[tokio::test(start_paused = true)]
 async fn a_watermark_tick_matches_the_rate_store() {
-    let session = FakeCluster::local();
+    let session = FakeCluster::local().with_growing_watermarks(20);
     let store = store(&session);
     let _lanes = idle_lanes(&store, &session);
 
     wait_for(|| store.watermarks.version() > 0, "watermark commit").await;
     let mut events = store.bus.subscribe();
 
-    tokio::time::advance(Duration::from_secs(20)).await;
+    tokio::time::advance(Duration::from_secs(2)).await;
     store.watermarks.kick();
 
     let tick = settle(
@@ -254,8 +254,11 @@ async fn a_watermark_tick_matches_the_rate_store() {
     )
     .await;
 
-    assert_eq!(tick.rate("orders.created"), Some(0.0));
-    assert_eq!(store.rates.get("orders.created"), Some(0.0));
+    let rate = tick
+        .rate("orders.created")
+        .expect("a moving topic is in the tick");
+    assert!(rate > 0.0);
+    assert_eq!(store.rates.get("orders.created"), Some(rate));
 }
 
 #[tokio::test(start_paused = true)]
