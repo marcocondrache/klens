@@ -1,9 +1,11 @@
-use std::collections::HashMap;
 use std::convert::Infallible;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use axum_login::{AuthUser, AuthnBackend, UserId};
 use jiff::Timestamp;
+use moka::Expiry;
+use moka::sync::Cache;
 use openidconnect::{Nonce, PkceCodeVerifier};
 
 use super::SessionUser;
@@ -12,7 +14,35 @@ use super::oidc::OidcFlow;
 #[derive(Clone)]
 pub(crate) struct AuthBackend {
     flow: Option<Arc<dyn OidcFlow>>,
-    users: Arc<Mutex<HashMap<String, SessionUser>>>,
+    users: Cache<String, Arc<SessionUser>>,
+}
+
+struct UntilExp;
+
+impl Expiry<String, Arc<SessionUser>> for UntilExp {
+    fn expire_after_create(
+        &self,
+        _: &String,
+        user: &Arc<SessionUser>,
+        _: Instant,
+    ) -> Option<Duration> {
+        let left = user.exp.saturating_sub(Timestamp::now().as_second());
+        Some(Duration::from_secs(left.try_into().unwrap_or_default()))
+    }
+
+    fn expire_after_update(
+        &self,
+        subject: &String,
+        user: &Arc<SessionUser>,
+        updated_at: Instant,
+        _: Option<Duration>,
+    ) -> Option<Duration> {
+        self.expire_after_create(subject, user, updated_at)
+    }
+}
+
+fn users() -> Cache<String, Arc<SessionUser>> {
+    Cache::builder().expire_after(UntilExp).build()
 }
 
 pub(crate) struct OidcCredentials {
@@ -25,14 +55,14 @@ impl AuthBackend {
     pub(crate) fn disabled() -> Self {
         Self {
             flow: None,
-            users: Arc::new(Mutex::new(HashMap::new())),
+            users: users(),
         }
     }
 
     pub(crate) fn enabled(flow: Arc<dyn OidcFlow>) -> Self {
         Self {
             flow: Some(flow),
-            users: Arc::new(Mutex::new(HashMap::new())),
+            users: users(),
         }
     }
 
@@ -45,10 +75,7 @@ impl AuthBackend {
     }
 
     pub(crate) fn remember(&self, user: SessionUser) {
-        self.users
-            .lock()
-            .expect("auth user store")
-            .insert(user.sub.clone(), user);
+        self.users.insert(user.sub.clone(), Arc::new(user));
     }
 
     pub(crate) fn live_user(&self, subject: &str) -> Option<SessionUser> {
@@ -60,15 +87,7 @@ impl AuthBackend {
         subject: &str,
         read: impl FnOnce(&SessionUser) -> T,
     ) -> Option<T> {
-        let mut users = self.users.lock().expect("auth user store");
-        match users.get(subject) {
-            Some(user) if user.exp > Timestamp::now().as_second() => Some(read(user)),
-            Some(_) => {
-                users.remove(subject);
-                None
-            }
-            None => None,
-        }
+        self.users.get(subject).map(|user| read(&user))
     }
 }
 
@@ -145,11 +164,22 @@ mod tests {
     }
 
     #[test]
-    fn an_expired_user_is_forgotten_on_read() {
+    fn an_expired_user_is_forgotten() {
         let backend = AuthBackend::disabled();
         backend.remember(user(Timestamp::now().as_second()));
 
         assert_eq!(backend.live_user("alice"), None);
-        assert!(backend.users.lock().expect("auth user store").is_empty());
+    }
+
+    #[test]
+    fn remembering_again_moves_the_expiry() {
+        let backend = AuthBackend::disabled();
+        let now = Timestamp::now().as_second();
+        backend.remember(user(now + 60));
+        backend.remember(user(now + 120));
+        assert_eq!(backend.live_user("alice"), Some(user(now + 120)));
+
+        backend.remember(user(now));
+        assert_eq!(backend.live_user("alice"), None);
     }
 }
