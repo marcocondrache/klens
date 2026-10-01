@@ -121,6 +121,19 @@ impl ScanConsumer for ScanLease {
         self.consumer.pause(&self.topic, partitions).await;
     }
 
+    async fn seek_to_end(&self, windows: &[PartitionWindow]) {
+        let ends = windows
+            .iter()
+            .map(|window| ((self.topic.clone(), window.partition), window.end))
+            .collect();
+        let _ = self.poison(
+            self.consumer
+                .seek_many(&ends)
+                .await
+                .map_err(KafkaError::from),
+        );
+    }
+
     async fn position(&self, partition: i32) -> Option<i64> {
         self.consumer.position(&self.topic, partition).await
     }

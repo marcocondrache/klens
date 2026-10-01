@@ -399,8 +399,8 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use crate::kafka::group::MemberAssignment;
-    use crate::kafka::model::{PartitionWindow, RecordOrder};
-    use crate::kafka::scan::session::scan_once;
+    use crate::kafka::model::{PartitionWindow, RecordOrder, RecordQuery, TimestampRange};
+    use crate::kafka::scan::session::{fetch_page, scan_once};
 
     fn window(partition: i32, start: i64, end: i64) -> PartitionWindow {
         PartitionWindow {
@@ -977,6 +977,73 @@ mod tests {
                 .send(topic, Some(b"k"), Some(b"hello"))
                 .await
                 .expect("produce");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_finished_partition_read_ahead_does_not_starve_the_others() {
+        let broker = krafka::testing::FakeBroker::start().await.unwrap();
+        assert!(broker.create_topic("orders", 2));
+        produce_to_partitions(&broker.bootstrap_servers(), "orders", 2, 2_000).await;
+        let client = kafka_client(&broker.bootstrap_servers()).await;
+        let watermarks: HashMap<i32, Watermarks> = (0..2)
+            .map(|partition| {
+                (
+                    partition,
+                    Watermarks {
+                        low: 0,
+                        high: 2_000,
+                    },
+                )
+            })
+            .collect();
+        let query = RecordQuery {
+            topic: "orders".into(),
+            partitions: vec![0, 1],
+            filter: None,
+            timestamps: TimestampRange::UNBOUNDED,
+            limit: 50,
+            order: RecordOrder::Oldest,
+            cursor: None,
+            schema_id: None,
+        };
+
+        let started = std::time::Instant::now();
+        let page = fetch_page(
+            &client,
+            &query,
+            &[0, 1],
+            &watermarks,
+            50,
+            Tuning::default().records,
+        )
+        .await
+        .expect("page");
+
+        assert!(
+            page.complete,
+            "a full buffer of a paused partition must not stop the others being fetched"
+        );
+        assert!(started.elapsed() < client.consume_timeout / 2);
+        assert_eq!(page.records.len(), 50);
+    }
+
+    async fn produce_to_partitions(bootstrap: &str, topic: &str, partitions: i32, count: usize) {
+        let producer = krafka::producer::Producer::builder()
+            .bootstrap_servers(bootstrap)
+            .build()
+            .await
+            .expect("producer");
+        let mut acks = futures::stream::FuturesUnordered::new();
+        for partition in 0..partitions {
+            for _ in 0..count {
+                let record = krafka::producer::ProducerRecord::new(topic, &b"hello"[..])
+                    .with_partition(partition);
+                acks.push(producer.enqueue(record).await.expect("enqueue"));
+            }
+        }
+        while let Some(ack) = futures::StreamExt::next(&mut acks).await {
+            let _metadata = ack.expect("produce");
         }
     }
 
