@@ -43,7 +43,7 @@ impl RecordQuery {
     }
 
     pub fn searching(&self) -> bool {
-        self.filter.is_some() || self.schema_id.is_some()
+        self.filter.is_some()
     }
 }
 

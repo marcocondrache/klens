@@ -45,7 +45,7 @@ pub struct TailQuery {
 
 impl TailQuery {
     fn searching(&self) -> bool {
-        self.filter.is_some() || self.schema_id.is_some()
+        self.filter.is_some()
     }
 }
 
@@ -523,6 +523,19 @@ mod tests {
         tail.next().await.unwrap();
 
         assert_eq!(session.tail_seeks(), vec![vec![(0, 29)]]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_schema_override_alone_keeps_the_browse_backlog() {
+        let session = FakeCluster::local();
+        let mut overridden = query();
+        overridden.schema_id = Some(7);
+        let mut tail = open(&session, overridden).await;
+
+        produce_run(&session, 8..41);
+        tail.next().await.unwrap();
+
+        assert_eq!(session.tail_seeks(), vec![vec![(0, 35)]]);
     }
 
     #[tokio::test]
