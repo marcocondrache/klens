@@ -86,11 +86,18 @@ impl GroupInfo {
         })
     }
 
-    pub fn member_for(&self, topic: &str, partition: i32) -> Option<&str> {
-        self.members
-            .iter()
-            .find(|member| member.assigned_to(topic, partition))
-            .map(|member| member.id.as_str())
+    pub fn owners(&self) -> HashMap<(&str, i32), &str> {
+        let mut owners = HashMap::new();
+        for member in &self.members {
+            for assignment in &member.assignments {
+                for &partition in &assignment.partitions {
+                    owners
+                        .entry((assignment.topic.as_str(), partition))
+                        .or_insert(member.id.as_str());
+                }
+            }
+        }
+        owners
     }
 }
 

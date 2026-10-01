@@ -1,4 +1,3 @@
-use std::collections::hash_map::Entry;
 use std::sync::Arc;
 
 use foldhash::{HashMap, HashMapExt};
@@ -228,60 +227,87 @@ pub fn group_offsets(
     offsets: Option<&GroupOffsets>,
     watermarks: Option<&WatermarkTable>,
 ) -> (Vec<GroupOffset>, Option<i64>, bool) {
-    let end = |topic: &str, partition: i32| {
-        watermarks
-            .and_then(|table| table.get(topic, partition))
-            .map(|marks: Watermarks| marks.high)
-    };
+    let owners = group.owners();
+    let mut positions: Vec<_> = positions(group, offsets, None).into_iter().collect();
+    positions.sort_unstable_by_key(|(key, _)| *key);
 
-    let fetched = offsets.is_some();
+    let rows: Vec<GroupOffset> = positions
+        .into_iter()
+        .map(|((topic, partition), current)| {
+            let end = high_watermark(watermarks, topic, partition);
+            GroupOffset {
+                topic: topic.to_owned(),
+                partition,
+                current_offset: current,
+                end_offset: end,
+                lag: lag_of(current, end),
+                member_id: owners
+                    .get(&(topic, partition))
+                    .map(|member| (*member).to_owned()),
+            }
+        })
+        .collect();
+    let (total, complete) = lag_totals(offsets.is_some(), rows.iter().map(|row| row.lag));
+    (rows, total, complete)
+}
+
+fn positions<'a>(
+    group: &'a GroupInfo,
+    offsets: Option<&'a GroupOffsets>,
+    topic: Option<&str>,
+) -> HashMap<(&'a str, i32), Option<i64>> {
+    let wanted = |name: &str| topic.is_none_or(|topic| topic == name);
     let committed = offsets
         .map(|offsets| offsets.committed.as_slice())
         .unwrap_or_default();
-    let mut seen: HashMap<(&str, i32), GroupOffset> = HashMap::with_capacity(committed.len());
 
-    for committed in committed {
-        let end = end(&committed.topic, committed.partition);
-        seen.insert(
+    let mut positions = HashMap::with_capacity(committed.len());
+    for committed in committed.iter().filter(|offset| wanted(&offset.topic)) {
+        positions.insert(
             (committed.topic.as_str(), committed.partition),
-            GroupOffset {
-                topic: committed.topic.clone(),
-                partition: committed.partition,
-                current_offset: Some(committed.offset),
-                end_offset: end,
-                lag: lag_of(Some(committed.offset), end),
-                member_id: group
-                    .member_for(&committed.topic, committed.partition)
-                    .map(ToOwned::to_owned),
-            },
+            Some(committed.offset),
         );
     }
 
-    for (topic, partition) in group.assigned_partition_refs() {
-        let Entry::Vacant(slot) = seen.entry((topic, partition)) else {
-            continue;
-        };
-        let end = end(topic, partition);
-        let current = fetched.then_some(0);
-        slot.insert(GroupOffset {
-            topic: topic.to_owned(),
-            partition,
-            current_offset: current,
-            end_offset: end,
-            lag: lag_of(current, end),
-            member_id: group.member_for(topic, partition).map(ToOwned::to_owned),
-        });
+    let uncommitted = offsets.is_some().then_some(0);
+    for key in group
+        .assigned_partition_refs()
+        .filter(|(name, _)| wanted(name))
+    {
+        positions.entry(key).or_insert(uncommitted);
     }
+    positions
+}
 
-    let mut offsets: Vec<GroupOffset> = seen.into_values().collect();
-    offsets.sort_by(|left, right| {
-        left.topic
-            .cmp(&right.topic)
-            .then(left.partition.cmp(&right.partition))
-    });
-    let complete = offsets.iter().all(|offset| offset.lag.is_some());
-    let total = fetched.then(|| offsets.iter().filter_map(|offset| offset.lag).sum());
-    (offsets, total, complete)
+fn positions_lag(
+    positions: &HashMap<(&str, i32), Option<i64>>,
+    fetched: bool,
+    watermarks: Option<&WatermarkTable>,
+) -> (Option<i64>, bool) {
+    lag_totals(
+        fetched,
+        positions.iter().map(|(&(topic, partition), &current)| {
+            lag_of(current, high_watermark(watermarks, topic, partition))
+        }),
+    )
+}
+
+fn lag_totals(fetched: bool, lags: impl Iterator<Item = Option<i64>>) -> (Option<i64>, bool) {
+    let mut total = 0;
+    let mut complete = true;
+    for lag in lags {
+        match lag {
+            Some(lag) => total += lag,
+            None => complete = false,
+        }
+    }
+    (fetched.then_some(total), complete)
+}
+
+fn high_watermark(watermarks: Option<&WatermarkTable>, topic: &str, partition: i32) -> Option<i64> {
+    watermarks
+        .and_then(|table| table.get(topic, partition))
+        .map(|marks: Watermarks| marks.high)
 }
 
 pub fn group_row(
@@ -290,12 +316,13 @@ pub fn group_row(
     offsets: Option<&GroupOffsets>,
     watermarks: Option<&WatermarkTable>,
 ) -> GroupRow {
-    let (offsets, total_lag, lag_complete) = group_offsets(group, offsets, watermarks);
+    let positions = positions(group, offsets, None);
+    let (total_lag, lag_complete) = positions_lag(&positions, offsets.is_some(), watermarks);
     GroupRow {
         id: Arc::clone(id),
         state: group.state,
         member_count: group.members.len() as i32,
-        topic_names: unique_topics(&offsets),
+        topic_names: unique_topics(positions.keys().map(|(topic, _)| *topic)),
         total_lag,
         lag_complete,
     }
@@ -326,19 +353,13 @@ pub fn topic_group_row(
     offsets: Option<&GroupOffsets>,
     watermarks: Option<&WatermarkTable>,
 ) -> TopicGroupRow {
-    let fetched = offsets.is_some();
-    let (offsets, _, _) = group_offsets(group, offsets, watermarks);
+    let positions = positions(group, offsets, Some(topic));
+    let (lag_on_topic, _) = positions_lag(&positions, offsets.is_some(), watermarks);
     TopicGroupRow {
         id: Arc::clone(id),
         state: group.state,
         member_count: group.members.len() as i32,
-        lag_on_topic: fetched.then(|| {
-            offsets
-                .iter()
-                .filter(|offset| offset.topic == topic)
-                .filter_map(|offset| offset.lag)
-                .sum()
-        }),
+        lag_on_topic,
     }
 }
 
@@ -393,8 +414,8 @@ pub fn offsets_for<'a>(offsets: Option<&'a OffsetTable>, group: &str) -> Option<
     offsets?.get(group).map(Arc::as_ref)
 }
 
-fn unique_topics(offsets: &[GroupOffset]) -> Vec<String> {
-    let mut topics: Vec<&str> = offsets.iter().map(|offset| offset.topic.as_str()).collect();
+fn unique_topics<'a>(names: impl Iterator<Item = &'a str>) -> Vec<String> {
+    let mut topics: Vec<&str> = names.collect();
     topics.sort_unstable();
     topics.dedup();
     topics.into_iter().map(ToOwned::to_owned).collect()
