@@ -1,7 +1,10 @@
 use std::time::Duration;
 
+use jiff::Timestamp;
+
 use crate::kafka::acl::AclListing;
 use crate::kafka::cluster::ClusterIdentity;
+use crate::kafka::hanging::Hanging;
 use crate::kafka::quota::QuotaListing;
 use crate::kafka::topic_config::ConfigEntry;
 
@@ -179,12 +182,18 @@ impl ClusterStore {
         let topology = self.topology.load()?;
         let (key, group) = topology.groups.get_key_value(id)?;
         self.interest.touch_group(key);
-        Some(projections::group_detail(
+        let mut detail = projections::group_detail(
             key,
             group,
             projections::offsets_for(self.offsets.load().as_deref(), id),
             self.watermarks.load().as_deref(),
-        ))
+        );
+        detail.blocked_partitions = projections::blocked_partitions(
+            &detail.offsets,
+            self.transactions.load().as_deref(),
+            Timestamp::now().as_millisecond(),
+        );
+        Some(detail)
     }
 
     pub fn topic_groups(&self, topic: &str) -> Vec<TopicGroupRow> {
@@ -253,6 +262,9 @@ impl ClusterStore {
             acls: self.acls.health(),
             quotas: self.quotas.health(),
             transactions: self.transactions.health(),
+            hanging_partitions: self.transactions.load().map(|table| {
+                Hanging::of(&table, Timestamp::now().as_millisecond()).partition_count() as i32
+            }),
             topic_count: topology
                 .as_ref()
                 .map(|topology| topology.topics.len() as i32)

@@ -10,6 +10,7 @@ mod transaction;
 mod acl;
 mod cluster;
 mod group;
+pub mod hanging;
 mod limits;
 mod quota;
 mod scan;
