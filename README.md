@@ -121,7 +121,7 @@ tuning:
     max_live: 32
   ingest:
     topology: 10s
-    watermark: 3s
+    high_watermark: 3s
     low_watermark: 30s # how often the watermark lane rereads low watermarks
     config: 60s
     subjects: 30s

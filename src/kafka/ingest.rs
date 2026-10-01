@@ -43,7 +43,7 @@ impl Ingest {
             ));
             tasks.spawn(run(
                 Arc::clone(store),
-                WatermarkLane::with_interval(Arc::clone(session), tuning.watermark, tuning),
+                WatermarkLane::with_interval(Arc::clone(session), tuning.high_watermark, tuning),
             ));
             tasks.spawn(run(
                 Arc::clone(store),

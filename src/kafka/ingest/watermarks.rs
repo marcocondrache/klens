@@ -356,8 +356,11 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_tick_carries_only_the_rates_that_changed() {
         let tuning = IngestTuning::default();
-        let lane =
-            WatermarkLane::with_interval(Arc::new(FakeCluster::local()), tuning.watermark, &tuning);
+        let lane = WatermarkLane::with_interval(
+            Arc::new(FakeCluster::local()),
+            tuning.high_watermark,
+            &tuning,
+        );
         let store = ClusterStore::new(identity("local"), tuning.interest_ttl);
         let mut events = store.bus.subscribe();
         let step = |marks: &[(&str, i32, i64, i64)]| Arc::new(watermarks(marks));

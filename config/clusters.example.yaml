@@ -154,7 +154,7 @@ clusters:
 #     max_live: 32
 #   ingest:
 #     topology: 10s               # each lane's period is at least 1s
-#     watermark: 3s
+#     high_watermark: 3s
 #     low_watermark: 30s
 #     config: 60s
 #     subjects: 30s

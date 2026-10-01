@@ -146,7 +146,7 @@ pub struct IngestTuning {
     #[serde(deserialize_with = "at_least_one_second")]
     pub topology: Duration,
     #[serde(deserialize_with = "at_least_one_second")]
-    pub watermark: Duration,
+    pub high_watermark: Duration,
     /// How often the watermark lane rereads low watermarks.
     #[serde(deserialize_with = "at_least_one_second")]
     pub low_watermark: Duration,
@@ -185,7 +185,7 @@ impl Default for IngestTuning {
     fn default() -> Self {
         Self {
             topology: Duration::from_secs(10),
-            watermark: Duration::from_secs(3),
+            high_watermark: Duration::from_secs(3),
             low_watermark: Duration::from_secs(30),
             config: Duration::from_secs(60),
             subjects: Duration::from_secs(30),
@@ -259,7 +259,7 @@ mod tests {
             },
             ingest: IngestTuning {
                 topology: secs(10),
-                watermark: secs(3),
+                high_watermark: secs(3),
                 low_watermark: secs(30),
                 config: secs(60),
                 subjects: secs(30),
@@ -320,7 +320,7 @@ tail:
   max_live: 0
 ingest:
   topology: 15s
-  watermark: 1m 30s
+  high_watermark: 1m 30s
   low_watermark: 2m 30s
   config: 2m
   subjects: 45s
@@ -373,7 +373,7 @@ ingest:
                 },
                 ingest: IngestTuning {
                     topology: secs(15),
-                    watermark: secs(90),
+                    high_watermark: secs(90),
                     low_watermark: secs(150),
                     config: secs(120),
                     subjects: secs(45),
