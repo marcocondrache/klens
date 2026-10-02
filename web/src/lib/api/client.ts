@@ -98,6 +98,28 @@ export async function get<T>(path: string, query?: Record<string, QueryValue>): 
   return (await response.json()) as T;
 }
 
+type ChangeMethod = "POST" | "PUT" | "PATCH" | "DELETE";
+
+/** An empty answer resolves to `undefined`. */
+export async function send<T = void>(
+  method: ChangeMethod,
+  path: string,
+  body?: unknown,
+): Promise<T> {
+  const response = await fetch(apiPath(path), {
+    method,
+    credentials: "include",
+    headers:
+      body === undefined
+        ? { Accept: "application/json" }
+        : { Accept: "application/json", "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!response.ok) return fail(response);
+  const text = await response.text();
+  return (text ? JSON.parse(text) : undefined) as T;
+}
+
 /** A missing topic or group is 404. Pages treat that as an empty detail. */
 export async function getOrNull<T>(
   path: string,
