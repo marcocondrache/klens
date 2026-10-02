@@ -14,6 +14,7 @@ pub(crate) enum ApiError {
     SessionExpired,
     Unauthorized,
     TooManyTails,
+    CrossSite,
     InvalidRequest { status: StatusCode, message: String },
 }
 
@@ -25,6 +26,7 @@ impl ApiError {
             Self::SessionExpired => "SESSION_EXPIRED",
             Self::Unauthorized => "UNAUTHORIZED",
             Self::TooManyTails => "TOO_MANY_TAILS",
+            Self::CrossSite => "CROSS_SITE",
             Self::InvalidRequest { .. } => "INVALID_REQUEST",
         }
     }
@@ -47,6 +49,7 @@ impl ApiError {
         match self {
             Self::SessionExpired | Self::Unauthorized => StatusCode::UNAUTHORIZED,
             Self::TooManyTails => StatusCode::SERVICE_UNAVAILABLE,
+            Self::CrossSite => StatusCode::FORBIDDEN,
             Self::InvalidRequest { status, .. } => *status,
             Self::Access(AccessError::Forbidden { .. }) => StatusCode::FORBIDDEN,
             Self::Access(AccessError::UnknownCluster(_)) => StatusCode::NOT_FOUND,
@@ -83,6 +86,7 @@ impl std::fmt::Display for ApiError {
             Self::TooManyTails => {
                 formatter.write_str("too many live tails are open, try again later")
             }
+            Self::CrossSite => formatter.write_str("cross-site requests cannot change anything"),
             Self::InvalidRequest { message, .. } => formatter.write_str(message),
         }
     }

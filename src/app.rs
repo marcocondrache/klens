@@ -18,6 +18,7 @@ mod error;
 mod extract;
 mod groups;
 mod health;
+mod origin;
 mod quotas;
 mod records;
 mod search;
@@ -106,7 +107,12 @@ pub fn router(state: AppState) -> Router {
 
     Router::new()
         .merge(health::router())
-        .nest("/api", auth_routes().merge(resources))
+        .nest(
+            "/api",
+            auth_routes()
+                .merge(resources)
+                .layer(middleware::from_fn(origin::refuse_cross_site)),
+        )
         .with_state(state)
         .merge(crate::server::web::router())
         .layer(auth_layer)
