@@ -147,6 +147,7 @@ pub enum AccessError {
         cluster: String,
         privilege: Privilege,
     },
+    ReadOnly(String),
 }
 
 impl AccessError {
@@ -154,6 +155,7 @@ impl AccessError {
         match self {
             Self::UnknownCluster(_) => "UNKNOWN_CLUSTER",
             Self::Forbidden { .. } => "FORBIDDEN",
+            Self::ReadOnly(_) => "READ_ONLY_CLUSTER",
         }
     }
 }
@@ -166,6 +168,7 @@ impl Display for AccessError {
                 formatter,
                 "'{privilege}' is not permitted on cluster '{cluster}'"
             ),
+            Self::ReadOnly(cluster) => write!(formatter, "cluster '{cluster}' is read-only"),
         }
     }
 }
@@ -204,7 +207,7 @@ impl<'a> ClusterAccess<'a> {
         self.privileges.iter().collect()
     }
 
-    fn check(&self, privilege: Privilege) -> Result<(), AccessError> {
+    pub fn check(&self, privilege: Privilege) -> Result<(), AccessError> {
         if self.allows(privilege) {
             Ok(())
         } else {

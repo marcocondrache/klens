@@ -31,16 +31,19 @@ impl Telemetry {
     }
 }
 
+/// The target every change to a cluster is logged under.
+pub(crate) const AUDIT: &str = "klens::audit";
+
 fn filter(level: LogLevel, target: &str) -> Result<EnvFilter, ParseError> {
     let directives = match level {
-        LogLevel::Off => "off".to_owned(),
+        LogLevel::Off => return EnvFilter::builder().parse("off"),
         LogLevel::Error => "error".to_owned(),
         LogLevel::Warn => "warn".to_owned(),
         LogLevel::Info => format!("warn,{target}=info"),
         LogLevel::Debug => format!("warn,{target}=debug"),
         LogLevel::Trace => format!("warn,{target}=trace"),
     };
-    EnvFilter::builder().parse(directives)
+    EnvFilter::builder().parse(format!("{directives},{AUDIT}=info"))
 }
 
 pub(crate) fn log_http_completed(status: u16, latency: std::time::Duration) {
@@ -113,14 +116,14 @@ mod tests {
     use super::{LogLevel, filter, log_http_completed};
 
     #[test]
-    fn a_log_level_filters_klens_and_leaves_its_dependencies_at_warn() {
+    fn a_log_level_filters_klens_keeps_the_audit_and_leaves_its_dependencies_at_warn() {
         for (level, expected) in [
             (LogLevel::Off, "off"),
-            (LogLevel::Error, "error"),
-            (LogLevel::Warn, "warn"),
-            (LogLevel::Info, "klens=info,warn"),
-            (LogLevel::Debug, "klens=debug,warn"),
-            (LogLevel::Trace, "klens=trace,warn"),
+            (LogLevel::Error, "klens::audit=info,error"),
+            (LogLevel::Warn, "klens::audit=info,warn"),
+            (LogLevel::Info, "klens::audit=info,klens=info,warn"),
+            (LogLevel::Debug, "klens::audit=info,klens=debug,warn"),
+            (LogLevel::Trace, "klens::audit=info,klens=trace,warn"),
         ] {
             assert_eq!(filter(level, "klens").unwrap().to_string(), expected);
         }

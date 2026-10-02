@@ -1,7 +1,9 @@
-use axum::extract::FromRequestParts;
-use axum::extract::rejection::PathRejection;
+use axum::extract::rejection::{JsonRejection, PathRejection};
+use axum::extract::{FromRequest, FromRequestParts, Request};
 use axum::http::request::Parts;
+use axum::response::{IntoResponse, Response};
 use axum_extra::extract::QueryRejection;
+use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use super::error::ApiError;
@@ -35,6 +37,42 @@ where
         let axum::extract::Path(value) =
             axum::extract::Path::from_request_parts(parts, state).await?;
         Ok(Self(value))
+    }
+}
+
+/// A bad body answers `{error, code}` like every other failure. It responds
+/// as JSON too, so a handler imports one `Json` for both directions.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "no route takes a request body yet")
+)]
+pub(crate) struct Json<T>(pub T);
+
+impl<T, S> FromRequest<S> for Json<T>
+where
+    T: DeserializeOwned,
+    S: Send + Sync,
+{
+    type Rejection = ApiError;
+
+    async fn from_request(request: Request, state: &S) -> Result<Self, Self::Rejection> {
+        let axum::Json(value) = axum::Json::from_request(request, state).await?;
+        Ok(Self(value))
+    }
+}
+
+impl<T: Serialize> IntoResponse for Json<T> {
+    fn into_response(self) -> Response {
+        axum::Json(self.0).into_response()
+    }
+}
+
+impl From<JsonRejection> for ApiError {
+    fn from(rejection: JsonRejection) -> Self {
+        Self::InvalidRequest {
+            status: rejection.status(),
+            message: rejection.body_text(),
+        }
     }
 }
 

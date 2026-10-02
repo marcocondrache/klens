@@ -18,6 +18,20 @@ use super::tables::{
     ConfigTable, LogDirTable, OffsetTable, SubjectTable, Topology, WatermarkTable,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LaneId {
+    Topology,
+    Watermarks,
+    /// A sweep refetches only the groups that are due, so a kick does not
+    /// promise any one group's offsets.
+    Offsets,
+    Configs,
+    Subjects,
+    LogDirs,
+    Acls,
+    Quotas,
+}
+
 pub struct ClusterStore {
     pub identity: ClusterIdentity,
     pub topology: Lane<Topology>,
@@ -73,6 +87,21 @@ impl ClusterStore {
 
     pub fn ready(&self) -> bool {
         self.topology.ready()
+    }
+
+    pub fn kick(&self, lanes: &[LaneId]) {
+        for lane in lanes {
+            match lane {
+                LaneId::Topology => self.topology.kick(),
+                LaneId::Watermarks => self.watermarks.kick(),
+                LaneId::Offsets => self.offsets.kick(),
+                LaneId::Configs => self.configs.kick(),
+                LaneId::Subjects => self.subjects.kick(),
+                LaneId::LogDirs => self.log_dirs.kick(),
+                LaneId::Acls => self.acls.kick(),
+                LaneId::Quotas => self.quotas.kick(),
+            }
+        }
     }
 
     pub fn search(&self, term: &str) -> Vec<SearchHit> {
@@ -465,5 +494,53 @@ mod tests {
             health.quotas.last_error.as_deref(),
             Some("quotas unsupported")
         );
+    }
+
+    const EVERY_LANE: [LaneId; 8] = [
+        LaneId::Topology,
+        LaneId::Watermarks,
+        LaneId::Offsets,
+        LaneId::Configs,
+        LaneId::Subjects,
+        LaneId::LogDirs,
+        LaneId::Acls,
+        LaneId::Quotas,
+    ];
+
+    async fn kicked<T>(lane: &Lane<T>) -> bool {
+        tokio::time::timeout(Duration::from_secs(1), lane.wait(Duration::from_secs(600)))
+            .await
+            .is_ok()
+    }
+
+    async fn woken(store: &ClusterStore) -> Vec<LaneId> {
+        let lanes = [
+            kicked(&store.topology).await,
+            kicked(&store.watermarks).await,
+            kicked(&store.offsets).await,
+            kicked(&store.configs).await,
+            kicked(&store.subjects).await,
+            kicked(&store.log_dirs).await,
+            kicked(&store.acls).await,
+            kicked(&store.quotas).await,
+        ];
+        EVERY_LANE
+            .into_iter()
+            .zip(lanes)
+            .filter_map(|(lane, kicked)| kicked.then_some(lane))
+            .collect()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_kick_wakes_exactly_the_lanes_it_names() {
+        for lane in EVERY_LANE {
+            let store = ClusterStore::new(identity("local"), IngestTuning::default().interest_ttl);
+            store.kick(&[lane]);
+            assert_eq!(woken(&store).await, [lane]);
+        }
+
+        let store = ClusterStore::new(identity("local"), IngestTuning::default().interest_ttl);
+        store.kick(&[LaneId::Topology, LaneId::Quotas]);
+        assert_eq!(woken(&store).await, [LaneId::Topology, LaneId::Quotas]);
     }
 }

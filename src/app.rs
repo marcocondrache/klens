@@ -18,6 +18,7 @@ mod error;
 mod extract;
 mod groups;
 mod health;
+mod mutation;
 mod origin;
 mod quotas;
 mod records;

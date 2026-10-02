@@ -53,6 +53,11 @@ pub enum KafkaError {
     #[error("schema registry request failed for cluster '{cluster}': {message}")]
     SchemaRegistry { cluster: String, message: String },
 
+    /// The cluster refused a change, for example because the topic exists or
+    /// a policy forbids it. Carries the broker's reason.
+    #[error("the cluster refused the change: {0}")]
+    Rejected(String),
+
     #[error(transparent)]
     Krafka(#[from] krafka::error::KrafkaError),
 }
@@ -72,6 +77,7 @@ impl KafkaError {
             Self::Admin(_) => "ADMIN",
             Self::BrokerConfigs { .. } => "BROKER_CONFIGS",
             Self::SchemaRegistry { .. } => "SCHEMA_REGISTRY",
+            Self::Rejected(_) => "REJECTED",
             Self::Krafka(_) => "CLIENT",
         }
     }
@@ -201,6 +207,10 @@ mod tests {
             }
             .code(),
             "SCHEMA_REGISTRY"
+        );
+        assert_eq!(
+            KafkaError::Rejected("Topic 'orders' already exists.".into()).code(),
+            "REJECTED"
         );
         assert_eq!(QueryError::LimitTooSmall.code(), "LIMIT_TOO_SMALL");
         assert_eq!(QueryError::InvalidCursor.code(), "INVALID_CURSOR");

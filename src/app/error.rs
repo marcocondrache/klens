@@ -51,7 +51,9 @@ impl ApiError {
             Self::TooManyTails => StatusCode::SERVICE_UNAVAILABLE,
             Self::CrossSite => StatusCode::FORBIDDEN,
             Self::InvalidRequest { status, .. } => *status,
-            Self::Access(AccessError::Forbidden { .. }) => StatusCode::FORBIDDEN,
+            Self::Access(AccessError::Forbidden { .. } | AccessError::ReadOnly(_)) => {
+                StatusCode::FORBIDDEN
+            }
             Self::Access(AccessError::UnknownCluster(_)) => StatusCode::NOT_FOUND,
             Self::Kafka(error) => kafka_status(error),
         }
@@ -68,6 +70,7 @@ fn kafka_status(error: &KafkaError) -> StatusCode {
         | KafkaError::UnknownPartition { .. }
         | KafkaError::UnknownOffset { .. } => StatusCode::NOT_FOUND,
         KafkaError::InvalidQuery(_) => StatusCode::BAD_REQUEST,
+        KafkaError::Rejected(_) => StatusCode::UNPROCESSABLE_ENTITY,
         KafkaError::Timeout => StatusCode::GATEWAY_TIMEOUT,
         KafkaError::Admin(_)
         | KafkaError::BrokerConfigs { .. }

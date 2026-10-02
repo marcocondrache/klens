@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use axum::Router;
 use axum::body::Body;
-use axum::http::{Request, StatusCode};
+use axum::http::{Method, Request, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::Response;
 use foldhash::HashMap;
@@ -93,7 +93,17 @@ pub(super) fn viewer_everywhere() -> EffectiveAccess {
 }
 
 pub(super) fn api(state: AppState, access: EffectiveAccess, guard: SessionGuard) -> Router {
-    super::api()
+    serve(super::api(), state, access, guard)
+}
+
+/// Serves `routes` to one session, the way `require_session` admits it.
+pub(super) fn serve(
+    routes: Router<AppState>,
+    state: AppState,
+    access: EffectiveAccess,
+    guard: SessionGuard,
+) -> Router {
+    routes
         .layer(middleware::from_fn(
             move |mut request: Request<Body>, next: Next| {
                 let access = access.clone();
@@ -108,21 +118,30 @@ pub(super) fn api(state: AppState, access: EffectiveAccess, guard: SessionGuard)
         .with_state(state)
 }
 
+pub(super) fn json(method: Method, path: &str, body: &Value) -> Request<Body> {
+    Request::builder()
+        .method(method)
+        .uri(path)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(body.to_string()))
+        .expect("request")
+}
+
 pub(super) async fn call(
     state: &AppState,
     path: &str,
     access: EffectiveAccess,
     guard: SessionGuard,
 ) -> (StatusCode, Value) {
-    let response = api(state.clone(), access, guard)
-        .oneshot(
-            Request::builder()
-                .uri(path)
-                .body(Body::empty())
-                .expect("request"),
-        )
-        .await
-        .expect("response");
+    let request = Request::builder()
+        .uri(path)
+        .body(Body::empty())
+        .expect("request");
+    respond(api(state.clone(), access, guard), request).await
+}
+
+pub(super) async fn respond(router: Router, request: Request<Body>) -> (StatusCode, Value) {
+    let response = router.oneshot(request).await.expect("response");
     let status = response.status();
     let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await

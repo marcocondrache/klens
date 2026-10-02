@@ -189,6 +189,14 @@ impl SessionGuard {
     }
 
     #[cfg(test)]
+    pub(crate) fn signed_in(subject: &str) -> Self {
+        Self {
+            auth: AuthState::disabled(),
+            subject: Some(subject.to_owned()),
+        }
+    }
+
+    #[cfg(test)]
     pub(crate) fn expired() -> Self {
         Self {
             auth: AuthState::enabled_for_tests(),

@@ -25,7 +25,9 @@ pub(crate) struct Session {
 pub(crate) struct ClusterHandle<'a> {
     pub access: ClusterAccess<'a>,
     pub store: &'a Arc<ClusterStore>,
-    cluster: &'a Cluster,
+    pub(super) cluster: &'a Cluster,
+    /// The session's subject, `None` when authentication is disabled.
+    pub(super) actor: Option<&'a str>,
     limits: TailLimits,
 }
 
@@ -105,6 +107,7 @@ impl Session {
             access,
             store: &cluster.store,
             cluster,
+            actor: self.guard.subject(),
             limits: self.state.limits,
         })
     }
