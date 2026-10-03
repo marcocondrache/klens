@@ -297,3 +297,6 @@ fn stale_groups(topology: &Topology, previous: Option<&OffsetTable>) -> Vec<Arc<
         })
         .unwrap_or_default()
 }
+
+#[cfg(test)]
+mod tests;

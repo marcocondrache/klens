@@ -3,6 +3,8 @@ mod logs;
 mod wait;
 mod yaml;
 
+pub use crate::kafka::ingest::testing::{IDLE, Rig};
+pub use crate::kafka::store::testing::BusProbe;
 pub use crate::kafka::testing::{
     Api, FAKE_TAIL_POLL_RECORDS, FakeCluster, FixtureRecord, card_record, config_entry, framed,
     group, identity, local_acls, log_dir, metadata, offline_partition, offsets, partition, subject,

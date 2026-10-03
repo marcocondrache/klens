@@ -125,10 +125,9 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::config::IngestTuning;
     use crate::kafka::RecordCursor;
     use crate::kafka::model::{RecordOrder, TimestampRange};
-    use crate::testing::{Api, FakeCluster, FixtureRecord, identity, partition, topic, topology};
+    use crate::testing::{Api, FakeCluster, FixtureRecord, partition, topic, topology};
     use jiff::Timestamp;
 
     fn unix_datetime(ms: i64) -> Timestamp {
@@ -136,7 +135,7 @@ mod tests {
     }
 
     fn store() -> ClusterStore {
-        ClusterStore::new(identity("local"), IngestTuning::default().interest_ttl)
+        ClusterStore::named("local")
     }
 
     fn ingested_store() -> ClusterStore {

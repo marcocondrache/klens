@@ -282,11 +282,10 @@ mod tests {
     use super::*;
     use foldhash::HashMap;
 
-    use crate::config::IngestTuning;
-    use crate::testing::{group, identity, offsets, partition, topic, topology, watermarks};
+    use crate::testing::{group, offsets, partition, topic, topology, watermarks};
 
     fn seeded() -> ClusterStore {
-        let store = ClusterStore::new(identity("local"), IngestTuning::default().interest_ttl);
+        let store = ClusterStore::named("local");
         let topology = topology(
             vec![
                 topic("orders", vec![partition(0, vec![1], vec![1])]),
@@ -311,7 +310,7 @@ mod tests {
 
     #[test]
     fn an_empty_store_is_not_ready_and_projects_nothing() {
-        let store = ClusterStore::new(identity("local"), IngestTuning::default().interest_ttl);
+        let store = ClusterStore::named("local");
 
         assert!(!store.ready());
         assert!(store.topic_rows().is_empty());

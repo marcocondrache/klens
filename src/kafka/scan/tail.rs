@@ -234,12 +234,10 @@ mod tests {
     use bytes::Bytes;
 
     use super::*;
-    use crate::config::IngestTuning;
     use crate::kafka::limits::RecordLimits;
     use crate::kafka::scan::filter::contains;
     use crate::testing::{
-        FAKE_TAIL_POLL_RECORDS, FakeCluster, FixtureRecord, card_record, identity, partition,
-        topic, topology,
+        FAKE_TAIL_POLL_RECORDS, FakeCluster, FixtureRecord, card_record, partition, topic, topology,
     };
 
     const LIMITS: TailLimits = TailLimits {
@@ -271,7 +269,7 @@ mod tests {
     }
 
     async fn open(session: &FakeCluster, query: TailQuery) -> Tail {
-        let store = ClusterStore::new(identity("local"), IngestTuning::default().interest_ttl);
+        let store = ClusterStore::named("local");
         Tail::open(session, &store, query, LIMITS).await.unwrap()
     }
 
@@ -547,7 +545,7 @@ mod tests {
     #[tokio::test]
     async fn a_tail_with_nothing_assigned_waits_out_each_poll() {
         let session = FakeCluster::local();
-        let store = ClusterStore::new(identity("local"), IngestTuning::default().interest_ttl);
+        let store = ClusterStore::named("local");
         store.topology.commit(Arc::new(topology(
             vec![topic("unwritten", vec![partition(0, vec![1], vec![1])])],
             Vec::new(),

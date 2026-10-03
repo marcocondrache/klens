@@ -63,7 +63,7 @@ pub enum Feed<'a, T> {
 }
 
 impl<T> Feed<'_, T> {
-    async fn table(&mut self) -> Arc<T> {
+    pub(super) async fn table(&mut self) -> Arc<T> {
         match self {
             Self::Fixed(table) => Arc::clone(table),
             Self::Lane(follower) => follower.table().await,
@@ -92,7 +92,7 @@ pub async fn run<S: LaneSource>(store: Arc<ClusterStore>, source: S) {
     }
 }
 
-async fn poll<S: LaneSource>(store: &ClusterStore, source: &S, upstream: &S::Upstream) {
+pub(super) async fn poll<S: LaneSource>(store: &ClusterStore, source: &S, upstream: &S::Upstream) {
     let cluster = store.name();
     let lane = source.name();
     let previous = source.lane(store).load();
@@ -123,9 +123,8 @@ mod tests {
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use crate::config::IngestTuning;
     use crate::kafka::store::{ConfigTable, LaneHealth};
-    use crate::testing::{identity, partition, topic, topology, until};
+    use crate::testing::{IDLE, Rig, partition, topic, topology, until};
 
     struct Scripted {
         polls: AtomicUsize,
@@ -141,6 +140,14 @@ mod tests {
                 publishes: AtomicUsize::new(0),
             })
         }
+
+        fn polls(&self) -> usize {
+            self.polls.load(Ordering::SeqCst)
+        }
+
+        fn publishes(&self) -> usize {
+            self.publishes.load(Ordering::SeqCst)
+        }
     }
 
     #[async_trait]
@@ -154,7 +161,7 @@ mod tests {
         }
 
         fn interval(&self) -> Duration {
-            Duration::from_secs(600)
+            IDLE
         }
 
         fn lane<'a>(&self, store: &'a ClusterStore) -> &'a Lane<Topology> {
@@ -221,7 +228,7 @@ mod tests {
         }
 
         fn interval(&self) -> Duration {
-            Duration::from_secs(600)
+            IDLE
         }
 
         fn lane<'a>(&self, store: &'a ClusterStore) -> &'a Lane<ConfigTable> {
@@ -256,13 +263,6 @@ mod tests {
         }
     }
 
-    fn cluster(name: &str) -> Arc<ClusterStore> {
-        Arc::new(ClusterStore::new(
-            identity(name),
-            IngestTuning::default().interest_ttl,
-        ))
-    }
-
     fn orders(partitions: usize) -> Topology {
         topology(
             vec![topic(
@@ -285,6 +285,13 @@ mod tests {
         )
     }
 
+    async fn scripted_polls(source: &Scripted, polls: usize) {
+        until(&format!("scripted poll {polls}"), || {
+            source.polls() >= polls
+        })
+        .await;
+    }
+
     async fn dependent_polls(source: &Dependent, polls: usize) {
         until(&format!("dependent poll {polls}"), || {
             source.polls() >= polls
@@ -292,184 +299,156 @@ mod tests {
         .await;
     }
 
-    async fn poll_until(source: &Arc<Scripted>, polls: usize) {
-        until(&format!("poll {polls}"), || {
-            source.polls.load(Ordering::SeqCst) >= polls
-        })
-        .await;
-    }
-
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn a_no_change_poll_commits_nothing_and_publishes_nothing() {
-        let store = cluster("local");
+        let rig = Rig::local();
         let source = Scripted::new(vec![Ok(orders(1))]);
-        let task = tokio::spawn(run(Arc::clone(&store), Arc::clone(&source)));
 
-        poll_until(&source, 1).await;
-        assert_eq!(store.topology.version(), 1);
-        assert_eq!(source.publishes.load(Ordering::SeqCst), 1);
-
-        store.topology.kick();
-        poll_until(&source, 2).await;
+        rig.poll(&source).await;
+        rig.poll(&source).await;
 
         assert_eq!(
-            store.topology.version(),
+            rig.store.topology.version(),
             1,
             "an unchanged table must not bump the version"
         );
-        assert_eq!(source.publishes.load(Ordering::SeqCst), 1);
-        assert!(store.topology.health().checked_at.is_some());
-        task.abort();
+        assert_eq!(source.publishes(), 1);
+        assert!(rig.store.topology.health().checked_at.is_some());
     }
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn a_failed_poll_keeps_serving_the_last_table() {
-        let store = cluster("local");
+        let rig = Rig::local();
         let source = Scripted::new(vec![Ok(orders(1)), Err("broker down".into())]);
-        let task = tokio::spawn(run(Arc::clone(&store), Arc::clone(&source)));
 
-        poll_until(&source, 1).await;
-        store.topology.kick();
-        poll_until(&source, 2).await;
-        tokio::task::yield_now().await;
+        rig.poll(&source).await;
+        rig.poll(&source).await;
 
         assert_eq!(
-            store.topology.load().unwrap().topics.len(),
+            rig.store.topology.load().unwrap().topics.len(),
             1,
             "a failure never clears the table"
         );
-        assert_eq!(store.topology.version(), 1);
+        assert_eq!(rig.store.topology.version(), 1);
         assert_eq!(
-            store.topology.health().last_error.as_deref(),
+            rig.store.topology.health().last_error.as_deref(),
             Some("kafka admin request failed: broker down")
         );
-        task.abort();
     }
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn a_lane_that_never_succeeds_leaves_its_table_empty() {
-        let store = cluster("local");
+        let rig = Rig::local();
         let source = Scripted::new(vec![Err("broker down".into())]);
-        let task = tokio::spawn(run(Arc::clone(&store), Arc::clone(&source)));
 
-        poll_until(&source, 1).await;
-        tokio::task::yield_now().await;
+        rig.poll(&source).await;
 
         assert!(
-            store.topology.load().is_none(),
+            rig.store.topology.load().is_none(),
             "an unavailable source is not an empty cluster"
         );
-        assert!(!store.ready());
-        task.abort();
+        assert!(!rig.store.ready());
     }
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn a_change_commits_and_publishes_once() {
-        let store = cluster("local");
+        let rig = Rig::local();
         let source = Scripted::new(vec![Ok(orders(1)), Ok(orders(2))]);
-        let task = tokio::spawn(run(Arc::clone(&store), Arc::clone(&source)));
 
-        poll_until(&source, 1).await;
-        store.topology.kick();
-        poll_until(&source, 2).await;
-        tokio::task::yield_now().await;
+        rig.poll(&source).await;
+        rig.poll(&source).await;
 
-        assert_eq!(store.topology.version(), 2);
-        assert_eq!(source.publishes.load(Ordering::SeqCst), 2);
+        assert_eq!(rig.store.topology.version(), 2);
+        assert_eq!(source.publishes(), 2);
         assert_eq!(
-            store.topology.load().unwrap().topics["orders"]
+            rig.store.topology.load().unwrap().topics["orders"]
                 .partitions
                 .len(),
             2
         );
-        task.abort();
     }
 
     #[tokio::test(start_paused = true)]
     async fn a_replaced_table_is_freed_while_the_lane_sleeps() {
-        let store = cluster("local");
+        let mut rig = Rig::local();
         let source = Scripted::new(vec![Ok(orders(1)), Ok(orders(2))]);
-        let task = tokio::spawn(run(Arc::clone(&store), Arc::clone(&source)));
+        rig.spawn(Arc::clone(&source));
 
-        poll_until(&source, 1).await;
-        let first = Arc::downgrade(&store.topology.load().unwrap());
-        store.topology.kick();
-        poll_until(&source, 2).await;
+        scripted_polls(&source, 1).await;
+        let first = Arc::downgrade(&rig.store.topology.load().unwrap());
+        rig.store.topology.kick();
+        scripted_polls(&source, 2).await;
         tokio::task::yield_now().await;
 
-        assert_eq!(store.topology.version(), 2);
+        assert_eq!(rig.store.topology.version(), 2);
         assert!(
             first.upgrade().is_none(),
             "the replaced table outlived its commit"
         );
-        task.abort();
     }
 
     #[tokio::test(start_paused = true)]
-    async fn the_lane_sleeps_for_its_interval_between_polls() {
-        let store = cluster("local");
-        let source = Scripted::new(vec![Ok(orders(1))]);
-        let task = tokio::spawn(run(Arc::clone(&store), Arc::clone(&source)));
+    async fn the_lane_sleeps_for_its_interval_after_every_poll() {
+        let mut rig = Rig::local();
+        let source = Scripted::new(vec![Err("broker down".into()), Ok(orders(1))]);
+        rig.spawn(Arc::clone(&source));
 
-        poll_until(&source, 1).await;
-        tokio::time::advance(Duration::from_secs(599)).await;
-        assert_eq!(source.polls.load(Ordering::SeqCst), 1);
-
-        tokio::time::advance(Duration::from_secs(2)).await;
-        poll_until(&source, 2).await;
-        task.abort();
+        for polls in 1..=2 {
+            scripted_polls(&source, polls).await;
+            tokio::time::advance(IDLE - Duration::from_secs(1)).await;
+            assert_eq!(source.polls(), polls, "poll {polls} cut its sleep short");
+            tokio::time::advance(Duration::from_secs(2)).await;
+        }
+        scripted_polls(&source, 3).await;
     }
 
     #[tokio::test(start_paused = true)]
     async fn a_dependent_lane_polls_nothing_until_its_upstream_commits() {
-        let store = cluster("local");
+        let mut rig = Rig::local();
         let source = Arc::new(Dependent::default());
-        let task = tokio::spawn(run(Arc::clone(&store), Arc::clone(&source)));
+        rig.spawn(Arc::clone(&source));
 
         tokio::time::advance(Duration::from_secs(3_600)).await;
         assert_eq!(source.polls(), 0);
         assert_eq!(
-            store.configs.health(),
+            rig.store.configs.health(),
             LaneHealth::default(),
             "a lane that never polled reports no check"
         );
 
-        store.topology.commit(Arc::new(orders(1)));
+        rig.store.topology.commit(Arc::new(orders(1)));
         dependent_polls(&source, 1).await;
-        assert!(store.configs.ready());
-        task.abort();
+        assert!(rig.store.configs.ready());
     }
 
     #[tokio::test(start_paused = true)]
     async fn an_upstream_commit_that_leaves_the_lane_stale_wakes_it() {
-        let store = cluster("local");
-        store.topology.commit(Arc::new(orders(1)));
+        let mut rig = Rig::local();
+        rig.store.topology.commit(Arc::new(orders(1)));
         let source = Arc::new(Dependent::default());
-        let task = tokio::spawn(run(Arc::clone(&store), Arc::clone(&source)));
+        rig.spawn(Arc::clone(&source));
         dependent_polls(&source, 1).await;
 
-        store.topology.commit(Arc::new(orders_and_payments()));
+        rig.store.topology.commit(Arc::new(orders_and_payments()));
         dependent_polls(&source, 2).await;
 
         assert!(source.last_fetched().topics.contains_key("payments"));
-        task.abort();
     }
 
     #[tokio::test(start_paused = true)]
     async fn an_upstream_commit_the_lane_does_not_need_waits_out_its_interval() {
-        let store = cluster("local");
-        store.topology.commit(Arc::new(orders(1)));
+        let mut rig = Rig::local();
+        rig.store.topology.commit(Arc::new(orders(1)));
         let source = Arc::new(Dependent::default());
-        let task = tokio::spawn(run(Arc::clone(&store), Arc::clone(&source)));
+        rig.spawn(Arc::clone(&source));
         dependent_polls(&source, 1).await;
 
-        store.topology.commit(Arc::new(orders(2)));
-        tokio::time::advance(Duration::from_secs(599)).await;
+        rig.store.topology.commit(Arc::new(orders(2)));
+        tokio::time::advance(IDLE - Duration::from_secs(1)).await;
         assert_eq!(source.polls(), 1);
 
         tokio::time::advance(Duration::from_secs(2)).await;
         dependent_polls(&source, 2).await;
         assert_eq!(source.last_fetched().topics["orders"].partitions.len(), 2);
-        task.abort();
     }
 }
