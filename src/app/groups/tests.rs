@@ -1,8 +1,11 @@
 use std::sync::Arc;
 
+use axum::http::StatusCode;
+
+use crate::app::auth::access::EffectiveAccess;
 use crate::kafka::store::fixtures::{group, partition, topic, topology, watermarks};
 
-use super::super::harness::{ok, ok_as, seeded, state, store_of, viewer_everywhere};
+use super::super::harness::{failure, ok, ok_as, seeded, state, store_of, viewer_everywhere};
 
 #[tokio::test]
 async fn group_rows_join_commits_against_watermarks() {
@@ -32,6 +35,19 @@ async fn opening_a_group_registers_interest_so_its_offsets_poll_faster() {
     assert_eq!(group["offsets"][0]["endOffset"], 100);
     assert_eq!(group["offsets"][0]["lag"], 10);
     assert!(store.interest.is_hot("order-processor"));
+}
+
+#[tokio::test]
+async fn a_missing_group_is_not_found() {
+    let (status, code) = failure(
+        &seeded(),
+        "/clusters/local/groups/ghost",
+        EffectiveAccess::Unrestricted,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(code, "UNKNOWN_GROUP");
 }
 
 #[tokio::test]
