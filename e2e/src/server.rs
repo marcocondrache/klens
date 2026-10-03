@@ -90,19 +90,27 @@ impl Klens {
     }
 
     pub async fn post(&self, path: &str, body: &Value) -> (StatusCode, Value) {
-        self.send(Method::POST, path, body).await
+        self.send(Method::POST, path, Some(body)).await
     }
 
     pub async fn patch(&self, path: &str, body: &Value) -> (StatusCode, Value) {
-        self.send(Method::PATCH, path, body).await
+        self.send(Method::PATCH, path, Some(body)).await
     }
 
-    async fn send(&self, method: Method, path: &str, body: &Value) -> (StatusCode, Value) {
-        let response = self
+    pub async fn delete(&self, path: &str) -> (StatusCode, Value) {
+        self.send(Method::DELETE, path, None).await
+    }
+
+    async fn send(&self, method: Method, path: &str, body: Option<&Value>) -> (StatusCode, Value) {
+        let mut request = self
             .http
-            .request(method.clone(), format!("{}{path}", self.base))
-            .header(CONTENT_TYPE, "application/json")
-            .body(body.to_string())
+            .request(method.clone(), format!("{}{path}", self.base));
+        if let Some(body) = body {
+            request = request
+                .header(CONTENT_TYPE, "application/json")
+                .body(body.to_string());
+        }
+        let response = request
             .send()
             .await
             .unwrap_or_else(|error| panic!("{method} {path}: {error}"));
