@@ -4,7 +4,7 @@ use std::time::Duration;
 use axum::http::StatusCode;
 
 use crate::kafka::model::AclListing;
-use crate::testing::FakeCluster;
+use crate::testing::{Api, FakeCluster};
 
 use super::super::harness::{failure, ok, seeded, seeded_with, state, store_of, viewer_everywhere};
 
@@ -15,7 +15,7 @@ async fn acls_are_served_from_the_store_without_calling_kafka() {
 
     assert_eq!(acls["status"], "ENABLED");
     assert_eq!(acls["bindings"].as_array().expect("bindings").len(), 3);
-    assert_eq!(session.calls().acls(), 0);
+    assert_eq!(session.calls(Api::Acls), 0);
 }
 
 #[tokio::test]

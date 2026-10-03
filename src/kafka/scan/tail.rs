@@ -256,16 +256,9 @@ mod tests {
     };
 
     fn record(partition: i32, offset: i64, timestamp: i64, key: impl Into<Bytes>) -> FixtureRecord {
-        let key = key.into();
-        FixtureRecord {
-            topic: "orders.created".into(),
-            partition,
-            offset,
-            timestamp,
-            key: Some(key),
-            value: None,
-            headers: Vec::new(),
-        }
+        FixtureRecord::order(partition, offset)
+            .at(timestamp)
+            .key(key)
     }
 
     fn query() -> TailQuery {

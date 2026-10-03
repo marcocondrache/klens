@@ -14,7 +14,7 @@ use crate::kafka::metadata::Watermarks;
 use crate::kafka::model::QuotaListing;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::store::{Change, ClusterStore};
-use crate::testing::{FakeCluster, LogCapture, config_entry, quiesce, settle, subject, until};
+use crate::testing::{Api, FakeCluster, LogCapture, config_entry, quiesce, settle, subject, until};
 
 const IDLE: Duration = Duration::from_secs(600);
 
@@ -144,11 +144,11 @@ async fn a_topology_poll_that_changes_nothing_does_not_bump_the_version() {
     let _lanes = idle_lanes(&store, &session);
 
     until("topology commit", || store.ready()).await;
-    let polls = session.calls().metadata();
+    let polls = session.calls(Api::Metadata);
 
     store.topology.kick();
     until("second topology poll", || {
-        session.calls().metadata() > polls
+        session.calls(Api::Metadata) > polls
     })
     .await;
 
@@ -168,7 +168,7 @@ async fn a_new_topic_is_published_as_a_granular_delta() {
     until("topology commit", || store.ready()).await;
     let mut events = store.bus.subscribe();
 
-    session.add_partition("orders.created", 2, Default::default());
+    session.add_partition("orders.created", 2);
     store.topology.kick();
 
     let delta = settle("topology delta", || match events.try_recv() {
@@ -251,7 +251,7 @@ async fn an_idle_cluster_still_zeros_the_latest_rate() {
 
     store.watermarks.kick();
     until("second watermark poll", || {
-        session.calls().high_watermarks() >= 1
+        session.calls(Api::HighWatermarks) >= 1
     })
     .await;
     assert_eq!(
@@ -299,7 +299,7 @@ async fn a_topic_whose_configs_were_never_fetched_has_unknown_retention() {
 
 #[tokio::test(start_paused = true)]
 async fn a_changed_config_names_only_the_topic_that_moved() {
-    let session = FakeCluster::local().extra_topic("payments", 1, 4);
+    let session = FakeCluster::local().with_topic("payments", 1, 4);
     session.set_topic_configs("payments", vec![config_entry("cleanup.policy", "delete")]);
     let store = store(&session);
     let _lanes = idle_lanes(&store, &session);
@@ -374,7 +374,8 @@ async fn a_new_subject_is_published_as_a_delta() {
 
 #[tokio::test(start_paused = true)]
 async fn a_registry_outage_degrades_only_the_subject_lane() {
-    let session = FakeCluster::local().with_subjects_error("registry down");
+    let session = FakeCluster::local();
+    session.fail(Api::SchemaSubjects, "registry down");
     let store = store(&session);
     let _lanes = idle_lanes(&store, &session);
 
@@ -453,15 +454,14 @@ async fn interest_promotes_a_group_to_the_fast_tier() {
 
 #[tokio::test(start_paused = true)]
 async fn a_wave_commits_once_and_publishes_once() {
-    let mut session = FakeCluster::local();
-    for index in 0..12 {
-        session = session.extra_group(group(
+    let session = FakeCluster::local().with_groups((0..12).map(|index| {
+        group(
             &format!("group-{index:02}"),
             "orders.created",
             vec![0],
             &[(0, 2)],
-        ));
-    }
+        )
+    }));
     let store = store(&session);
     let lane = OffsetLane::new(port(&session));
     let _lanes = catalog_lanes(&store, &session);
@@ -576,7 +576,7 @@ async fn a_moved_high_watermark_republishes_the_lag() {
 #[tokio::test(start_paused = true)]
 async fn a_returning_group_publishes_its_lag_again() {
     let returning = group("returning", "orders.created", vec![0], &[(0, 2)]);
-    let session = FakeCluster::local().extra_group(returning.clone());
+    let session = FakeCluster::local().with_groups([returning.clone()]);
     let store = store(&session);
     let lane = OffsetLane::new(port(&session));
     let _lanes = catalog_lanes(&store, &session);
@@ -621,15 +621,16 @@ async fn a_returning_group_publishes_its_lag_again() {
 
 #[tokio::test(start_paused = true)]
 async fn offset_fetches_respect_the_concurrency_cap() {
-    let mut session = FakeCluster::local().with_offsets_delay(Duration::from_millis(50));
-    for index in 0..16 {
-        session = session.extra_group(group(
-            &format!("group-{index:02}"),
-            "orders.created",
-            vec![0],
-            &[(0, 2)],
-        ));
-    }
+    let session = FakeCluster::local()
+        .with_delay(Api::CommittedOffsets, Duration::from_millis(50))
+        .with_groups((0..16).map(|index| {
+            group(
+                &format!("group-{index:02}"),
+                "orders.created",
+                vec![0],
+                &[(0, 2)],
+            )
+        }));
     let store = store(&session);
     let lane = OffsetLane::new(port(&session)).with_concurrency(NonZeroUsize::new(4).unwrap());
     let _lanes = catalog_lanes(&store, &session);
@@ -637,9 +638,9 @@ async fn offset_fetches_respect_the_concurrency_cap() {
 
     sweep(&lane, &store).await;
 
-    assert_eq!(session.calls().committed_offsets(), 17);
+    assert_eq!(session.calls(Api::CommittedOffsets), 17);
     assert_eq!(
-        session.calls().committed_offsets_peak(),
+        session.peak(Api::CommittedOffsets),
         4,
         "the wave is wide but bounded"
     );
@@ -660,7 +661,7 @@ async fn lag_is_computed_from_the_tables() {
         Some(5)
     );
     assert_eq!(
-        session.calls().committed_offsets(),
+        session.calls(Api::CommittedOffsets),
         1,
         "lag never costs an extra broker call"
     );
@@ -676,7 +677,7 @@ async fn an_empty_group_reports_the_lag_it_left_behind() {
     );
     stopped.state = GroupState::Empty;
     stopped.members.clear();
-    let session = FakeCluster::local().extra_group(stopped);
+    let session = FakeCluster::local().with_groups([stopped]);
     let store = store(&session);
     let lane = OffsetLane::new(port(&session));
     let _lanes = catalog_lanes(&store, &session);
@@ -742,7 +743,7 @@ async fn a_failed_group_degrades_alone_and_keeps_its_last_offsets() {
             .unwrap(),
     );
 
-    session.set_offsets_error(Some("coordinator not available"));
+    session.fail(Api::CommittedOffsets, "coordinator not available");
     tokio::time::advance(Duration::from_secs(30)).await;
     let wave = sweep(&lane, &store).await;
 
@@ -803,7 +804,7 @@ async fn a_removed_group_is_dropped_from_the_offset_table() {
 
 #[tokio::test(start_paused = true)]
 async fn a_deleted_topic_loses_its_rate() {
-    let session = FakeCluster::local().extra_topic("payments", 1, 4);
+    let session = FakeCluster::local().with_topic("payments", 1, 4);
     let store = store(&session);
     let _lanes = idle_lanes(&store, &session);
 
@@ -851,7 +852,7 @@ async fn downstream_lanes_wait_for_topology_instead_of_committing_nothing() {
     assert!(store.configs.load().is_none());
     assert!(store.watermarks.health().checked_at.is_none());
     assert_eq!(
-        session.calls().low_watermarks() + session.calls().high_watermarks(),
+        session.calls(Api::LowWatermarks) + session.calls(Api::HighWatermarks),
         0,
         "and it costs no broker call"
     );
@@ -919,7 +920,7 @@ async fn the_log_dirs_lane_sums_sizes_per_topic_and_directory() {
 async fn a_failing_log_dirs_poll_names_its_lane_and_waits_out_the_interval() {
     let logs = LogCapture::at(tracing::Level::WARN);
     let session = FakeCluster::local();
-    session.set_log_dirs(Err("DescribeLogDirs is not supported"));
+    session.fail(Api::LogDirs, "DescribeLogDirs is not supported");
     let store = store(&session);
     let _lanes = log_dir_lanes(&store, &session, Duration::from_secs(60));
 
@@ -935,13 +936,13 @@ async fn a_failing_log_dirs_poll_names_its_lane_and_waits_out_the_interval() {
     );
     logs.assert_contains(r#"lane="log_dirs""#);
 
-    let calls = session.calls().log_dirs();
+    let calls = session.calls(Api::LogDirs);
     tokio::time::advance(Duration::from_secs(59)).await;
     tokio::task::yield_now().await;
-    assert_eq!(session.calls().log_dirs(), calls);
+    assert_eq!(session.calls(Api::LogDirs), calls);
     tokio::time::advance(Duration::from_secs(2)).await;
     until("second log dirs call", || {
-        session.calls().log_dirs() > calls
+        session.calls(Api::LogDirs) > calls
     })
     .await;
 }
@@ -961,11 +962,14 @@ async fn the_quota_lane_commits_and_publishes_only_a_changed_listing() {
     assert!(matches!(events.try_recv(), Ok(Change::Quotas)));
 
     store.quotas.kick();
-    until("second quotas call", || session.calls().quotas() == 2).await;
+    until("second quotas call", || {
+        session.calls(Api::ClientQuotas) == 2
+    })
+    .await;
     assert_eq!(store.quotas.version(), 1);
     assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
 
-    session.set_quotas(Ok(QuotaListing::Denied));
+    session.set_quotas(QuotaListing::Denied);
     store.quotas.kick();
     until("denied commit", || store.quotas.version() == 2).await;
     assert_eq!(store.quotas.load().as_deref(), Some(&QuotaListing::Denied));
@@ -977,7 +981,7 @@ async fn the_quota_lane_commits_and_publishes_only_a_changed_listing() {
 async fn a_failing_quota_poll_names_its_lane_and_waits_out_the_interval() {
     let logs = LogCapture::at(tracing::Level::WARN);
     let session = FakeCluster::local();
-    session.set_quotas(Err("DescribeClientQuotas is not supported"));
+    session.fail(Api::ClientQuotas, "DescribeClientQuotas is not supported");
     let store = store(&session);
     let _lanes = quota_lane(&store, &session, Duration::from_secs(60));
 
@@ -991,9 +995,12 @@ async fn a_failing_quota_poll_names_its_lane_and_waits_out_the_interval() {
 
     tokio::time::advance(Duration::from_secs(59)).await;
     tokio::task::yield_now().await;
-    assert_eq!(session.calls().quotas(), 1);
+    assert_eq!(session.calls(Api::ClientQuotas), 1);
     tokio::time::advance(Duration::from_secs(2)).await;
-    until("second quotas call", || session.calls().quotas() == 2).await;
+    until("second quotas call", || {
+        session.calls(Api::ClientQuotas) == 2
+    })
+    .await;
 }
 
 #[tokio::test(start_paused = true)]
@@ -1008,12 +1015,12 @@ async fn every_lane_runs_per_cluster_and_stops_with_the_ingest() {
 
     drop(lanes);
     tokio::task::yield_now().await;
-    let polls = prod.calls().metadata();
+    let polls = prod.calls(Api::Metadata);
     tokio::time::advance(Duration::from_secs(3_600)).await;
     tokio::task::yield_now().await;
 
     assert_eq!(
-        prod.calls().metadata(),
+        prod.calls(Api::Metadata),
         polls,
         "dropping the ingest aborts every lane task"
     );
@@ -1061,7 +1068,7 @@ async fn the_acl_lane_stores_the_listing_and_publishes_each_change() {
     assert!(matches!(events.try_recv(), Ok(Change::Acls)));
 
     store.acls.kick();
-    until("second describe", || session.calls().acls() == 2).await;
+    until("second describe", || session.calls(Api::Acls) == 2).await;
     tokio::task::yield_now().await;
     assert_eq!(
         store.acls.version(),
@@ -1070,7 +1077,7 @@ async fn the_acl_lane_stores_the_listing_and_publishes_each_change() {
     );
     assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
 
-    session.set_acls(Ok(AclListing::Disabled));
+    session.set_acls(AclListing::Disabled);
     store.acls.kick();
     until("acls recommit", || store.acls.version() == 2).await;
     assert!(matches!(events.try_recv(), Ok(Change::Acls)));
@@ -1080,7 +1087,7 @@ async fn the_acl_lane_stores_the_listing_and_publishes_each_change() {
 async fn a_failing_acl_poll_names_its_lane_and_waits_out_the_interval() {
     let logs = LogCapture::at(tracing::Level::WARN);
     let session = FakeCluster::local();
-    session.set_acls(Err("broker down"));
+    session.fail(Api::Acls, "broker down");
     let store = store(&session);
     let _lanes = acl_lane(&store, &session, Duration::from_secs(60));
 
@@ -1091,9 +1098,9 @@ async fn a_failing_acl_poll_names_its_lane_and_waits_out_the_interval() {
 
     tokio::time::advance(Duration::from_secs(59)).await;
     tokio::task::yield_now().await;
-    assert_eq!(session.calls().acls(), 1);
+    assert_eq!(session.calls(Api::Acls), 1);
     tokio::time::advance(Duration::from_secs(2)).await;
-    until("second acls call", || session.calls().acls() == 2).await;
+    until("second acls call", || session.calls(Api::Acls) == 2).await;
 }
 
 #[tokio::test(start_paused = true)]
@@ -1109,7 +1116,7 @@ async fn one_cluster_never_wakes_another() {
     let mut staging_events = staging_store.bus.subscribe();
     while staging_events.try_recv().is_ok() {}
 
-    prod.add_partition("orders.created", 2, Default::default());
+    prod.add_partition("orders.created", 2);
     prod_store.topology.kick();
     until("prod delta", || prod_store.topology.version() > 1).await;
 
@@ -1126,7 +1133,7 @@ async fn a_new_topic_gets_its_configs_without_waiting_out_the_config_interval() 
     let _lanes = idle_lanes(&store, &session);
     until("first config poll", || store.configs.ready()).await;
 
-    let _ = session.clone().extra_topic("payments", 1, 0);
+    session.add_topic("payments", 1, 0);
     session.set_topic_configs("payments", vec![config_entry("retention.ms", "1000")]);
     store.topology.kick();
 
@@ -1142,14 +1149,14 @@ async fn a_topology_change_without_new_topics_leaves_configs_to_their_interval()
     let store = store(&session);
     let _lanes = idle_lanes(&store, &session);
     until("first config poll", || store.configs.ready()).await;
-    let polls = session.calls().topic_configs();
+    let polls = session.calls(Api::TopicConfigs);
 
-    session.add_partition("orders.created", 7, Watermarks { low: 0, high: 0 });
+    session.add_partition("orders.created", 7);
     store.topology.kick();
     until("topology commit", || store.topology.version() > 1).await;
     quiesce().await;
 
-    assert_eq!(session.calls().topic_configs(), polls);
+    assert_eq!(session.calls(Api::TopicConfigs), polls);
 }
 
 #[tokio::test(start_paused = true)]
@@ -1158,33 +1165,33 @@ async fn a_new_topic_waits_for_the_next_watermark_poll() {
     let store = store(&session);
     let _lanes = catalog_lanes(&store, &session);
     until("first watermark poll", || store.watermarks.ready()).await;
-    let polls = session.calls().low_watermarks();
+    let polls = session.calls(Api::LowWatermarks);
 
-    let _ = session.clone().extra_topic("payments", 1, 0);
+    session.add_topic("payments", 1, 0);
     store.topology.kick();
     until("topology commit", || store.topology.version() > 1).await;
     quiesce().await;
 
-    assert_eq!(session.calls().low_watermarks(), polls);
+    assert_eq!(session.calls(Api::LowWatermarks), polls);
 }
 
 #[tokio::test(start_paused = true)]
 async fn between_low_reads_the_watermark_lane_lists_only_high_watermarks() {
     let session = FakeCluster::local();
-    session.add_partition("orders.created", 1, Watermarks { low: 8, high: 8 });
+    session.set_watermarks("orders.created", 1, Watermarks { low: 8, high: 8 });
     let store = store(&session);
     let _lanes = catalog_lanes(&store, &session);
     until("first watermark poll", || store.watermarks.ready()).await;
-    assert_eq!(session.calls().low_watermarks(), 1);
-    assert_eq!(session.calls().high_watermarks(), 1);
+    assert_eq!(session.calls(Api::LowWatermarks), 1);
+    assert_eq!(session.calls(Api::HighWatermarks), 1);
 
-    session.add_partition("orders.created", 0, Watermarks { low: 5, high: 12 });
+    session.set_watermarks("orders.created", 0, Watermarks { low: 5, high: 12 });
     store.watermarks.kick();
     until("end-only commit", || store.watermarks.version() > 1).await;
 
-    assert_eq!(session.calls().high_watermarks(), 2);
+    assert_eq!(session.calls(Api::HighWatermarks), 2);
     assert_eq!(
-        session.calls().low_watermarks(),
+        session.calls(Api::LowWatermarks),
         1,
         "an emptied log keeps its cached low watermark too"
     );
@@ -1209,10 +1216,10 @@ async fn the_watermark_lane_rereads_low_watermarks_once_their_interval_passes() 
 
     tokio::time::advance(low_watermark - Duration::from_millis(1)).await;
     store.watermarks.kick();
-    until("end-only poll", || session.calls().high_watermarks() == 2).await;
-    assert_eq!(session.calls().low_watermarks(), 1);
+    until("end-only poll", || session.calls(Api::HighWatermarks) == 2).await;
+    assert_eq!(session.calls(Api::LowWatermarks), 1);
 
-    session.add_partition("orders.created", 0, Watermarks { low: 5, high: 12 });
+    session.set_watermarks("orders.created", 0, Watermarks { low: 5, high: 12 });
     tokio::time::advance(Duration::from_millis(1)).await;
     store.watermarks.kick();
     until("low watermark reread", || {
@@ -1223,8 +1230,8 @@ async fn the_watermark_lane_rereads_low_watermarks_once_their_interval_passes() 
             == Some(Watermarks { low: 5, high: 12 })
     })
     .await;
-    assert_eq!(session.calls().low_watermarks(), 2);
-    assert_eq!(session.calls().high_watermarks(), 3);
+    assert_eq!(session.calls(Api::LowWatermarks), 2);
+    assert_eq!(session.calls(Api::HighWatermarks), 3);
 }
 
 #[tokio::test(start_paused = true)]
@@ -1234,8 +1241,9 @@ async fn a_new_partition_reads_its_low_watermark_on_the_next_poll() {
     let _lanes = catalog_lanes(&store, &session);
     until("first watermark poll", || store.watermarks.ready()).await;
 
-    session.add_partition("orders.created", 0, Watermarks { low: 5, high: 12 });
-    session.add_partition("orders.created", 7, Watermarks { low: 3, high: 9 });
+    session.set_watermarks("orders.created", 0, Watermarks { low: 5, high: 12 });
+    session.add_partition("orders.created", 7);
+    session.set_watermarks("orders.created", 7, Watermarks { low: 3, high: 9 });
     store.topology.kick();
     until("topology commit", || store.topology.version() > 1).await;
     store.watermarks.kick();
@@ -1251,19 +1259,19 @@ async fn a_new_partition_reads_its_low_watermark_on_the_next_poll() {
         Some(Watermarks { low: 0, high: 12 }),
         "only the new partition rereads its low watermark"
     );
-    assert_eq!(session.calls().high_watermarks(), 2);
-    assert_eq!(session.calls().low_watermarks(), 2);
+    assert_eq!(session.calls(Api::HighWatermarks), 2);
+    assert_eq!(session.calls(Api::LowWatermarks), 2);
 }
 
 #[tokio::test(start_paused = true)]
 async fn a_high_watermark_below_the_cached_low_rereads_the_low() {
     let session = FakeCluster::local();
-    session.add_partition("orders.created", 0, Watermarks { low: 6, high: 8 });
+    session.set_watermarks("orders.created", 0, Watermarks { low: 6, high: 8 });
     let store = store(&session);
     let _lanes = catalog_lanes(&store, &session);
     until("first watermark poll", || store.watermarks.ready()).await;
 
-    session.add_partition("orders.created", 0, Watermarks { low: 0, high: 2 });
+    session.set_watermarks("orders.created", 0, Watermarks { low: 0, high: 2 });
     store.watermarks.kick();
     until("watermark commit", || store.watermarks.version() > 1).await;
 
@@ -1274,7 +1282,7 @@ async fn a_high_watermark_below_the_cached_low_rereads_the_low() {
             .and_then(|marks| marks.get("orders.created", 0)),
         Some(Watermarks { low: 0, high: 2 })
     );
-    assert_eq!(session.calls().low_watermarks(), 2);
+    assert_eq!(session.calls(Api::LowWatermarks), 2);
 }
 
 #[tokio::test(start_paused = true)]
@@ -1301,19 +1309,19 @@ async fn a_new_topic_or_broker_gets_its_log_dirs_without_waiting_out_the_interva
     let _lanes = log_dir_lanes(&store, &session, IDLE);
     until("first log dirs poll", || store.log_dirs.ready()).await;
 
-    let calls = session.calls().log_dirs();
-    let _ = session.clone().extra_topic("payments", 1, 0);
+    let calls = session.calls(Api::LogDirs);
+    session.add_topic("payments", 1, 0);
     store.topology.kick();
     until("log dirs for the new topic", || {
-        session.calls().log_dirs() > calls
+        session.calls(Api::LogDirs) > calls
     })
     .await;
 
-    let calls = session.calls().log_dirs();
+    let calls = session.calls(Api::LogDirs);
     session.add_broker(2);
     store.topology.kick();
     until("log dirs for the new broker", || {
-        session.calls().log_dirs() > calls
+        session.calls(Api::LogDirs) > calls
     })
     .await;
 }
@@ -1324,12 +1332,12 @@ async fn a_topology_change_without_new_topics_or_brokers_leaves_log_dirs_to_thei
     let store = store(&session);
     let _lanes = log_dir_lanes(&store, &session, IDLE);
     until("first log dirs poll", || store.log_dirs.ready()).await;
-    let calls = session.calls().log_dirs();
+    let calls = session.calls(Api::LogDirs);
 
-    session.add_partition("orders.created", 7, Watermarks { low: 0, high: 0 });
+    session.add_partition("orders.created", 7);
     store.topology.kick();
     until("topology commit", || store.topology.version() > 1).await;
     quiesce().await;
 
-    assert_eq!(session.calls().log_dirs(), calls);
+    assert_eq!(session.calls(Api::LogDirs), calls);
 }
