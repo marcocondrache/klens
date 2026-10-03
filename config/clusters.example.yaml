@@ -91,8 +91,8 @@ clusters:
 # access as an open deployment. With roles, unmatched users cannot sign in. A
 # role is a name for a set of privileges: each role grants exactly the
 # privileges it lists, out of records, configs, schema_text, acls, and
-# manage_topics, which creates topics on a writable cluster. An empty list
-# still sees the catalog. A role's bindings name the groups that
+# manage_topics, which creates and deletes topics on a writable cluster. An
+# empty list still sees the catalog. A role's bindings name the groups that
 # hold it. Omit clusters on a binding to allow every configured cluster.
 #
 # auth:

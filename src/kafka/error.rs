@@ -50,6 +50,9 @@ pub enum KafkaError {
     #[error("kafka refused the change: {0}")]
     Refused(String),
 
+    #[error("klens leaves the internal topic '{0}' alone")]
+    InternalTopic(String),
+
     #[error("failed to describe broker {id} configs: {message}")]
     BrokerConfigs { id: i32, message: String },
 
@@ -74,6 +77,7 @@ impl KafkaError {
             Self::Timeout => "TIMEOUT",
             Self::Admin(_) => "ADMIN",
             Self::Refused(_) => "REFUSED",
+            Self::InternalTopic(_) => "INTERNAL_TOPIC",
             Self::BrokerConfigs { .. } => "BROKER_CONFIGS",
             Self::SchemaRegistry { .. } => "SCHEMA_REGISTRY",
             Self::Krafka(_) => "CLIENT",
