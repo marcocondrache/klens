@@ -44,6 +44,7 @@ jobs:
           filters: |
             rust:
               - 'src/**'
+              - 'e2e/**'
               - 'xtask/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
@@ -144,7 +145,30 @@ jobs:
       - name: Install nextest
         uses: taiki-e/install-action@badb8c3638e0b773c6c17a6025c2306a8f1c4303 # nextest
       - name: Run tests
-        run: cargo nextest run --workspace --locked
+        run: cargo nextest run --workspace --exclude e2e --locked
+
+  e2e:
+    name: e2e
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: stable
+      - name: Cache cargo registry and build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          shared-key: e2e
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Install nextest
+        uses: taiki-e/install-action@badb8c3638e0b773c6c17a6025c2306a8f1c4303 # nextest
+      - name: Run end-to-end tests against Kafka in Docker
+        run: cargo nextest run -p e2e --locked
 
   docs:
     needs: changes
@@ -290,7 +314,7 @@ jobs:
 
   tests_pass:
     name: tests pass
-    needs: [changes, style, clippy, web, test, docs, audit, machete, helm, docker, mutants]
+    needs: [changes, style, clippy, web, test, e2e, docs, audit, machete, helm, docker, mutants]
     if: always()
     runs-on: ubuntu-latest
     steps:

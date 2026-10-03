@@ -6,6 +6,8 @@ exclude_globs = [
     "src/server/web.rs",
     # Only wires the process together at startup; no test runs `main`.
     "src/main.rs",
+    # The end-to-end harness, which only runs against Kafka in Docker.
+    "e2e/**",
 ]
 
 exclude_re = [
