@@ -237,8 +237,10 @@ mod tests {
     use crate::config::IngestTuning;
     use crate::kafka::limits::RecordLimits;
     use crate::kafka::scan::filter::contains;
-    use crate::kafka::store::fixtures::{identity, partition, topic, topology};
-    use crate::kafka::testing::{FAKE_TAIL_POLL_RECORDS, FakeCluster, FixtureRecord, card_record};
+    use crate::testing::{
+        FAKE_TAIL_POLL_RECORDS, FakeCluster, FixtureRecord, card_record, identity, partition,
+        topic, topology,
+    };
 
     const LIMITS: TailLimits = TailLimits {
         batch: 3,
@@ -260,7 +262,6 @@ mod tests {
             partition,
             offset,
             timestamp,
-            size_bytes: key.len() as u64,
             key: Some(key),
             value: None,
             headers: Vec::new(),

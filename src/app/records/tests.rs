@@ -5,10 +5,8 @@ use crate::AppState;
 use crate::app::Limits;
 use crate::app::auth::SessionGuard;
 use crate::app::auth::access::EffectiveAccess;
-use crate::kafka::FakeCluster;
-use crate::kafka::FixtureRecord;
-use crate::kafka::card_record;
 use crate::kafka::model as domain;
+use crate::testing::{FakeCluster, FixtureRecord, card_record};
 use bytes::Bytes;
 use futures::StreamExt as _;
 
@@ -415,7 +413,6 @@ fn produced(partition: i32, offset: i64, key: impl Into<Bytes>) -> FixtureRecord
         partition,
         offset,
         timestamp: 1_700_000_100_000 + offset,
-        size_bytes: key.len() as u64,
         key: Some(key),
         value: None,
         headers: Vec::new(),

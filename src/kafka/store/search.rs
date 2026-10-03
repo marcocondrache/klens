@@ -141,8 +141,8 @@ pub fn find(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kafka::store::fixtures::{group, metadata, partition, subject, topic, topology};
     use crate::kafka::store::tables::Interner;
+    use crate::testing::{group, metadata, partition, subject, topic, topology};
 
     fn cluster() -> (Topology, SubjectTable) {
         let topology = topology(

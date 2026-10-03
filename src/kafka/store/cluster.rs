@@ -283,9 +283,7 @@ mod tests {
     use foldhash::HashMap;
 
     use crate::config::IngestTuning;
-    use crate::kafka::store::fixtures::{
-        group, identity, offsets, partition, topic, topology, watermarks,
-    };
+    use crate::testing::{group, identity, offsets, partition, topic, topology, watermarks};
 
     fn seeded() -> ClusterStore {
         let store = ClusterStore::new(identity("local"), IngestTuning::default().interest_ttl);

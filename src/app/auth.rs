@@ -476,7 +476,8 @@ mod tests {
 
     use super::oidc::FakeOidc;
     use super::*;
-    use crate::kafka::{Clusters, FakeCluster};
+    use crate::kafka::Clusters;
+    use crate::testing::FakeCluster;
 
     impl AuthState {
         pub(crate) fn enabled_for_tests() -> Self {

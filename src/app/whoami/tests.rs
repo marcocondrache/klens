@@ -1,7 +1,7 @@
 use serde_json::Value;
 
 use crate::app::auth::access::{ClusterScope, Privilege, PrivilegeSet};
-use crate::kafka::FakeCluster;
+use crate::testing::FakeCluster;
 
 use super::super::harness::{
     admin, granted, ok, ok_as, only, state, two_clusters, viewer, with_writable,

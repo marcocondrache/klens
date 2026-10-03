@@ -4,8 +4,9 @@ use axum::http::StatusCode;
 use serde_json::json;
 
 use crate::app::AppState;
+use crate::kafka::ClusterSession;
 use crate::kafka::model::QuotaListing;
-use crate::kafka::{ClusterSession, FakeCluster};
+use crate::testing::FakeCluster;
 
 use super::super::harness::{failure, ok, store_of, viewer_everywhere, with};
 

@@ -173,7 +173,7 @@ impl Clusters {
 mod tests {
     use super::*;
     use crate::kafka::store::Topology;
-    use crate::kafka::testing::FakeCluster;
+    use crate::testing::FakeCluster;
 
     fn cluster(bootstrap_servers: &str) -> config::Cluster {
         config::parse(&format!("bootstrap_servers: [{bootstrap_servers}]")).unwrap()

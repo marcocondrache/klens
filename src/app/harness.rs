@@ -16,14 +16,15 @@ use crate::AppState;
 use crate::app::Limits;
 use crate::app::auth::access::{ClusterScope, EffectiveAccess, Grant, PrivilegeSet};
 use crate::app::auth::{AuthState, SessionGuard};
+use crate::kafka::Clusters;
 use crate::kafka::model::AclListing;
-use crate::kafka::store::fixtures::{
-    config, group, log_dir, offsets, partition, subject, topic, topology, watermarks,
-};
 use crate::kafka::store::{
     ClusterStore, ConfigTable, Interner, LogDirTable, OffsetTable, SubjectTable,
 };
-use crate::kafka::{Clusters, FakeCluster, local_acls};
+use crate::testing::{
+    FakeCluster, config_entry, group, local_acls, log_dir, offsets, partition, subject, topic,
+    topology, watermarks,
+};
 
 pub(super) fn with(sessions: Vec<FakeCluster>) -> AppState {
     with_limits(sessions, Limits::new(&crate::config::Tuning::default()))
@@ -256,8 +257,8 @@ pub(super) fn seed(store: &ClusterStore) {
         topics: HashMap::from_iter([(
             Arc::from("orders.created"),
             Arc::from([
-                config("cleanup.policy", "compact"),
-                config("retention.ms", "604800000"),
+                config_entry("cleanup.policy", "compact"),
+                config_entry("retention.ms", "604800000"),
             ]),
         )]),
     }));

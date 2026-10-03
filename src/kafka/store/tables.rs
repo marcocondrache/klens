@@ -417,7 +417,7 @@ impl SubjectTable {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kafka::store::fixtures::{group, log_dir, metadata, partition, subject, topic};
+    use crate::testing::{group, log_dir, metadata, partition, subject, topic};
 
     #[test]
     fn the_interner_hands_out_one_allocation_per_name() {

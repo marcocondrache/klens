@@ -1,3 +1,10 @@
+mod fixtures;
+
+pub use fixtures::{
+    config_entry, group, identity, log_dir, metadata, offline_partition, offsets, partition,
+    subject, topic, topology, watermarks,
+};
+
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
@@ -44,7 +51,6 @@ pub struct FixtureRecord {
     pub key: Option<Bytes>,
     pub value: Option<Bytes>,
     pub headers: Vec<RecordHeader>,
-    pub size_bytes: u64,
 }
 
 #[derive(Clone)]
@@ -219,7 +225,6 @@ impl FakeCluster {
                     key: "source".into(),
                     value: "checkout".into(),
                 }],
-                size_bytes: 24,
             })
             .collect();
 
@@ -1183,7 +1188,6 @@ pub fn card_record(offset: i64, pan: &str) -> FixtureRecord {
             key: "x-user-id".into(),
             value: "ada".into(),
         }],
-        size_bytes: 0,
     }
 }
 

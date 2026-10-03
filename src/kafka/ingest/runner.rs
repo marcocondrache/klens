@@ -124,8 +124,8 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use crate::config::IngestTuning;
-    use crate::kafka::store::fixtures::{identity, partition, topic, topology};
     use crate::kafka::store::{ConfigTable, LaneHealth};
+    use crate::testing::{identity, partition, topic, topology};
 
     struct Scripted {
         polls: AtomicUsize,

@@ -268,8 +268,8 @@ mod tests {
     use foldhash::HashMap;
 
     use crate::kafka::group::GroupState;
-    use crate::kafka::store::fixtures::{config, group, log_dir, partition, topic, topology};
     use crate::kafka::topic_config::ConfigEntry;
+    use crate::testing::{config_entry, group, log_dir, partition, subject, topic, topology};
 
     fn configs<const N: usize>(entries: [(&str, &str); N]) -> ConfigTable {
         ConfigTable {
@@ -278,7 +278,7 @@ mod tests {
                 .map(|(name, policy)| {
                     (
                         Arc::from(name),
-                        Arc::from([config("cleanup.policy", policy)]),
+                        Arc::from([config_entry("cleanup.policy", policy)]),
                     )
                 })
                 .collect::<HashMap<Arc<str>, Arc<[ConfigEntry]>>>(),
@@ -447,15 +447,15 @@ mod tests {
         let interner = &mut crate::kafka::store::tables::Interner::default();
         let previous = SubjectTable::assemble(
             &[
-                crate::kafka::store::fixtures::subject("orders-value", 1, 1),
-                crate::kafka::store::fixtures::subject("payments-value", 2, 1),
+                subject("orders-value", 1, 1),
+                subject("payments-value", 2, 1),
             ],
             interner,
         );
         let next = SubjectTable::assemble(
             &[
-                crate::kafka::store::fixtures::subject("orders-value", 1, 2),
-                crate::kafka::store::fixtures::subject("shipments-value", 3, 1),
+                subject("orders-value", 1, 2),
+                subject("shipments-value", 3, 1),
             ],
             interner,
         );
@@ -472,19 +472,16 @@ mod tests {
         let interner = &mut crate::kafka::store::tables::Interner::default();
         let previous = SubjectTable::assemble(
             &[
-                crate::kafka::store::fixtures::subject("orders-value", 1, 1),
-                crate::kafka::store::fixtures::subject("payments-value", 2, 1),
+                subject("orders-value", 1, 1),
+                subject("payments-value", 2, 1),
             ],
             interner,
         );
-        let removed = SubjectTable::assemble(
-            &[crate::kafka::store::fixtures::subject("orders-value", 1, 1)],
-            interner,
-        );
+        let removed = SubjectTable::assemble(&[subject("orders-value", 1, 1)], interner);
         let bumped = SubjectTable::assemble(
             &[
-                crate::kafka::store::fixtures::subject("orders-value", 1, 2),
-                crate::kafka::store::fixtures::subject("payments-value", 2, 1),
+                subject("orders-value", 1, 2),
+                subject("payments-value", 2, 1),
             ],
             interner,
         );

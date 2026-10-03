@@ -14,7 +14,7 @@ use crate::kafka::metadata::Watermarks;
 use crate::kafka::model::QuotaListing;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::store::{Change, ClusterStore};
-use crate::kafka::testing::FakeCluster;
+use crate::testing::{FakeCluster, config_entry, subject};
 
 const IDLE: Duration = Duration::from_secs(600);
 
@@ -322,13 +322,7 @@ async fn a_topic_whose_configs_were_never_fetched_has_unknown_retention() {
 #[tokio::test(start_paused = true)]
 async fn a_changed_config_names_only_the_topic_that_moved() {
     let session = FakeCluster::local().extra_topic("payments", 1, 4);
-    session.set_topic_configs(
-        "payments",
-        vec![crate::kafka::store::fixtures::config(
-            "cleanup.policy",
-            "delete",
-        )],
-    );
+    session.set_topic_configs("payments", vec![config_entry("cleanup.policy", "delete")]);
     let store = store(&session);
     let _lanes = idle_lanes(&store, &session);
 
@@ -338,10 +332,7 @@ async fn a_changed_config_names_only_the_topic_that_moved() {
 
     session.set_topic_configs(
         "orders.created",
-        vec![crate::kafka::store::fixtures::config(
-            "cleanup.policy",
-            "compact",
-        )],
+        vec![config_entry("cleanup.policy", "compact")],
     );
     store.configs.kick();
 
@@ -392,8 +383,8 @@ async fn a_new_subject_is_published_as_a_delta() {
     let mut events = store.bus.subscribe();
 
     session.set_subjects(vec![
-        crate::kafka::store::fixtures::subject("orders.created-value", 1, 2),
-        crate::kafka::store::fixtures::subject("payments-value", 2, 1),
+        subject("orders.created-value", 1, 2),
+        subject("payments-value", 2, 1),
     ]);
     store.subjects.kick();
 
@@ -1189,15 +1180,13 @@ async fn one_cluster_never_wakes_another() {
 
 #[tokio::test(start_paused = true)]
 async fn a_new_topic_gets_its_configs_without_waiting_out_the_config_interval() {
-    use crate::kafka::store::fixtures::config;
-
     let session = FakeCluster::local();
     let store = store(&session);
     let _lanes = idle_lanes(&store, &session);
     wait_for(|| store.configs.ready(), "first config poll").await;
 
     let _ = session.clone().extra_topic("payments", 1, 0);
-    session.set_topic_configs("payments", vec![config("retention.ms", "1000")]);
+    session.set_topic_configs("payments", vec![config_entry("retention.ms", "1000")]);
     store.topology.kick();
 
     wait_for(

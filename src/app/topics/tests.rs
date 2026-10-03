@@ -4,8 +4,7 @@ use axum::http::StatusCode;
 use serde_json::Value;
 
 use crate::app::auth::access::EffectiveAccess;
-use crate::kafka::FakeCluster;
-use crate::kafka::store::fixtures::{offline_partition, partition, topic, topology};
+use crate::testing::{FakeCluster, offline_partition, partition, topic, topology};
 
 use super::super::harness::{
     failure, ok, ok_as, seeded, seeded_with, state, store_of, viewer_everywhere,

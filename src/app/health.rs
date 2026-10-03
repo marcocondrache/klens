@@ -31,7 +31,7 @@ mod tests {
     use crate::AppState;
     use crate::app::harness::{state, store_of};
     use crate::app::router;
-    use crate::kafka::store::fixtures::{partition, topic, topology};
+    use crate::testing::{partition, topic, topology};
 
     async fn status(state: AppState, path: &str) -> StatusCode {
         router(state)

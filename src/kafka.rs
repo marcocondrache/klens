@@ -20,7 +20,7 @@ mod error;
 pub(crate) mod model;
 
 #[cfg(test)]
-mod testing;
+pub(crate) mod testing;
 
 pub use cluster::{Cluster, Clusters};
 pub use error::{KafkaError, QueryError};
@@ -31,6 +31,3 @@ pub use scan::export::Export;
 pub use scan::filter::{CompiledFilter, contains as compile_contains_filter};
 pub use scan::tail::{Tail, TailBatch, TailPosition, TailQuery};
 pub use session::ClusterSession;
-
-#[cfg(test)]
-pub use testing::{FakeCluster, FixtureRecord, card_record, local_acls};
