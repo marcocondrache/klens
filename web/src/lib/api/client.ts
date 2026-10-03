@@ -98,12 +98,23 @@ export async function get<T>(path: string, query?: Record<string, QueryValue>): 
   return (await response.json()) as T;
 }
 
-export async function post(path: string, body: unknown): Promise<void> {
+export function post(path: string, body: unknown): Promise<void> {
+  return send("POST", path, body);
+}
+
+export function del(path: string): Promise<void> {
+  return send("DELETE", path);
+}
+
+async function send(method: "POST" | "DELETE", path: string, body?: unknown): Promise<void> {
   const response = await fetch(apiPath(path), {
-    method: "POST",
+    method,
     credentials: "include",
-    headers: { Accept: "application/json", "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    headers:
+      body === undefined
+        ? { Accept: "application/json" }
+        : { Accept: "application/json", "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!response.ok) return fail(response);
 }
