@@ -131,6 +131,7 @@ mod tests {
     use crate::kafka::client::KafkaClient;
     use crate::kafka::client::tests::{kafka_client, produce_krafka};
     use crate::kafka::session::ClusterSession;
+    use crate::testing::eventually;
 
     fn at(partition: i32, offset: i64) -> TailPosition {
         TailPosition { partition, offset }
@@ -230,13 +231,10 @@ mod tests {
 
         drop(tail);
 
-        for _ in 0..1_000 {
-            if consumer.is_closed() {
-                return;
-            }
-            tokio::time::sleep(Duration::from_millis(1)).await;
-        }
-        panic!("a tail nobody holds must not keep its consumer open");
+        eventually("a tail nobody holds closing its consumer", || {
+            consumer.is_closed()
+        })
+        .await;
     }
 
     #[tokio::test]

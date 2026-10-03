@@ -162,6 +162,7 @@ mod tests {
     use super::*;
     use crate::kafka::client::KafkaClient;
     use crate::kafka::session::ClusterSession;
+    use crate::testing::eventually;
 
     fn window(partition: i32, start: i64, end: i64) -> PartitionWindow {
         PartitionWindow {
@@ -347,13 +348,10 @@ mod tests {
         poisoned.reusable.store(false, Ordering::SeqCst);
         poisoned.close().await;
 
-        for _ in 0..1_000 {
-            if consumer.is_closed() {
-                return;
-            }
-            tokio::time::sleep(Duration::from_millis(1)).await;
-        }
-        panic!("a consumer the pool does not keep must be closed");
+        eventually("a consumer the pool does not keep closing", || {
+            consumer.is_closed()
+        })
+        .await;
     }
 
     #[tokio::test]

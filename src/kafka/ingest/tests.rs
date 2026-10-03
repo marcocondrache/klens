@@ -14,7 +14,7 @@ use crate::kafka::metadata::Watermarks;
 use crate::kafka::model::QuotaListing;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::store::{Change, ClusterStore};
-use crate::testing::{FakeCluster, LogCapture, config_entry, subject};
+use crate::testing::{FakeCluster, LogCapture, config_entry, quiesce, settle, subject, until};
 
 const IDLE: Duration = Duration::from_secs(600);
 
@@ -111,20 +111,6 @@ fn group(id: &str, topic: &str, partitions: Vec<i32>, committed: &[(i32, i64)]) 
     }
 }
 
-async fn settle<T>(mut ready: impl FnMut() -> Option<T>, what: &str) -> T {
-    for _ in 0..2_000 {
-        if let Some(value) = ready() {
-            return value;
-        }
-        tokio::task::yield_now().await;
-    }
-    panic!("{what} never happened");
-}
-
-async fn wait_for(ready: impl Fn() -> bool, what: &str) {
-    settle(|| ready().then_some(()), what).await;
-}
-
 async fn sweep(lane: &OffsetLane, store: &ClusterStore) -> Wave {
     let topology = store.topology.load().expect("topology commit");
     lane.sweep(store, &topology).await
@@ -136,7 +122,7 @@ async fn the_topology_lane_assembles_brokers_topics_and_groups() {
     let store = store(&session);
     let _lanes = idle_lanes(&store, &session);
 
-    wait_for(|| store.ready(), "topology commit").await;
+    until("topology commit", || store.ready()).await;
 
     let topology = store.topology.load().expect("topology");
     assert_eq!(topology.cluster_id.as_deref(), Some("test-cluster"));
@@ -157,14 +143,13 @@ async fn a_topology_poll_that_changes_nothing_does_not_bump_the_version() {
     let store = store(&session);
     let _lanes = idle_lanes(&store, &session);
 
-    wait_for(|| store.ready(), "topology commit").await;
+    until("topology commit", || store.ready()).await;
     let polls = session.calls().metadata();
 
     store.topology.kick();
-    wait_for(
-        || session.calls().metadata() > polls,
-        "second topology poll",
-    )
+    until("second topology poll", || {
+        session.calls().metadata() > polls
+    })
     .await;
 
     assert_eq!(
@@ -180,19 +165,16 @@ async fn a_new_topic_is_published_as_a_granular_delta() {
     let store = store(&session);
     let _lanes = idle_lanes(&store, &session);
 
-    wait_for(|| store.ready(), "topology commit").await;
+    until("topology commit", || store.ready()).await;
     let mut events = store.bus.subscribe();
 
     session.add_partition("orders.created", 2, Default::default());
     store.topology.kick();
 
-    let delta = settle(
-        || match events.try_recv() {
-            Ok(Change::Topology(delta)) => Some(delta),
-            _ => None,
-        },
-        "topology delta",
-    )
+    let delta = settle("topology delta", || match events.try_recv() {
+        Ok(Change::Topology(delta)) => Some(delta),
+        _ => None,
+    })
     .await;
 
     assert_eq!(delta.changed_topics, [Arc::from("orders.created")]);
@@ -206,8 +188,8 @@ async fn the_topology_lane_keeps_search_current() {
     let store = store(&session);
     let _lanes = idle_lanes(&store, &session);
 
-    wait_for(|| store.ready(), "topology commit").await;
-    wait_for(|| store.subjects.version() > 0, "subject commit").await;
+    until("topology commit", || store.ready()).await;
+    until("subject commit", || store.subjects.version() > 0).await;
 
     let hits = store.search("order");
     let ids: Vec<&str> = hits.iter().map(|hit| hit.id.as_str()).collect();
@@ -224,12 +206,12 @@ async fn the_watermark_lane_feeds_latest_rates() {
     let store = store(&session);
     let _lanes = idle_lanes(&store, &session);
 
-    wait_for(|| store.watermarks.version() > 0, "first watermark tick").await;
+    until("first watermark tick", || store.watermarks.version() > 0).await;
     assert_eq!(store.rates.get("orders.created"), Some(0.0));
 
     tokio::time::advance(Duration::from_secs(2)).await;
     store.watermarks.kick();
-    wait_for(|| store.watermarks.version() > 1, "second watermark tick").await;
+    until("second watermark tick", || store.watermarks.version() > 1).await;
 
     assert!(store.rates.get("orders.created").unwrap() > 0.0);
 }
@@ -240,19 +222,16 @@ async fn a_watermark_tick_matches_the_rate_store() {
     let store = store(&session);
     let _lanes = idle_lanes(&store, &session);
 
-    wait_for(|| store.watermarks.version() > 0, "watermark commit").await;
+    until("watermark commit", || store.watermarks.version() > 0).await;
     let mut events = store.bus.subscribe();
 
     tokio::time::advance(Duration::from_secs(2)).await;
     store.watermarks.kick();
 
-    let tick = settle(
-        || match events.try_recv() {
-            Ok(Change::Watermarks(tick)) => Some(tick),
-            _ => None,
-        },
-        "watermark tick",
-    )
+    let tick = settle("watermark tick", || match events.try_recv() {
+        Ok(Change::Watermarks(tick)) => Some(tick),
+        _ => None,
+    })
     .await;
 
     let rate = tick
@@ -268,13 +247,12 @@ async fn an_idle_cluster_still_zeros_the_latest_rate() {
     let store = store(&session);
     let _lanes = idle_lanes(&store, &session);
 
-    wait_for(|| store.watermarks.version() > 0, "watermark commit").await;
+    until("watermark commit", || store.watermarks.version() > 0).await;
 
     store.watermarks.kick();
-    wait_for(
-        || session.calls().high_watermarks() >= 1,
-        "second watermark poll",
-    )
+    until("second watermark poll", || {
+        session.calls().high_watermarks() >= 1
+    })
     .await;
     assert_eq!(
         store.watermarks.version(),
@@ -284,7 +262,7 @@ async fn an_idle_cluster_still_zeros_the_latest_rate() {
 
     tokio::time::advance(Duration::from_secs(20)).await;
     store.watermarks.kick();
-    wait_for(|| store.watermarks.version() > 1, "heartbeat tick").await;
+    until("heartbeat tick", || store.watermarks.version() > 1).await;
 
     assert_eq!(store.rates.get("orders.created"), Some(0.0));
 }
@@ -295,7 +273,7 @@ async fn the_config_lane_populates_the_config_table() {
     let store = store(&session);
     let _lanes = idle_lanes(&store, &session);
 
-    wait_for(|| store.configs.version() > 0, "config commit").await;
+    until("config commit", || store.configs.version() > 0).await;
 
     let row = store.topic_row("orders.created").expect("orders exists");
     assert_eq!(row.retention_ms, Some(604_800_000));
@@ -312,7 +290,7 @@ async fn a_topic_whose_configs_were_never_fetched_has_unknown_retention() {
     let store = store(&session);
     let _lanes = catalog_lanes(&store, &session);
 
-    wait_for(|| store.ready(), "topology commit").await;
+    until("topology commit", || store.ready()).await;
 
     let row = store.topic_row("orders.created").expect("orders exists");
     assert_eq!(row.retention_ms, None);
@@ -326,7 +304,7 @@ async fn a_changed_config_names_only_the_topic_that_moved() {
     let store = store(&session);
     let _lanes = idle_lanes(&store, &session);
 
-    wait_for(|| store.configs.version() > 0, "config commit").await;
+    until("config commit", || store.configs.version() > 0).await;
     let unchanged = Arc::clone(&store.configs.load().unwrap().topics["payments"]);
     let mut events = store.bus.subscribe();
 
@@ -336,13 +314,10 @@ async fn a_changed_config_names_only_the_topic_that_moved() {
     );
     store.configs.kick();
 
-    let delta = settle(
-        || match events.try_recv() {
-            Ok(Change::Configs(delta)) => Some(delta),
-            _ => None,
-        },
-        "config delta",
-    )
+    let delta = settle("config delta", || match events.try_recv() {
+        Ok(Change::Configs(delta)) => Some(delta),
+        _ => None,
+    })
     .await;
 
     assert_eq!(delta.topics, [Arc::from("orders.created")]);
@@ -361,7 +336,7 @@ async fn the_subject_lane_stores_the_list_projection_only() {
     let store = store(&session);
     let _lanes = idle_lanes(&store, &session);
 
-    wait_for(|| store.subjects.version() > 0, "subject commit").await;
+    until("subject commit", || store.subjects.version() > 0).await;
 
     let rows = store.subject_rows();
     assert_eq!(rows.len(), 1);
@@ -379,7 +354,7 @@ async fn a_new_subject_is_published_as_a_delta() {
     let store = store(&session);
     let _lanes = idle_lanes(&store, &session);
 
-    wait_for(|| store.subjects.version() > 0, "subject commit").await;
+    until("subject commit", || store.subjects.version() > 0).await;
     let mut events = store.bus.subscribe();
 
     session.set_subjects(vec![
@@ -388,13 +363,10 @@ async fn a_new_subject_is_published_as_a_delta() {
     ]);
     store.subjects.kick();
 
-    let delta = settle(
-        || match events.try_recv() {
-            Ok(Change::Subjects(delta)) => Some(delta),
-            _ => None,
-        },
-        "subjects delta",
-    )
+    let delta = settle("subjects delta", || match events.try_recv() {
+        Ok(Change::Subjects(delta)) => Some(delta),
+        _ => None,
+    })
     .await;
 
     assert_eq!(delta.added, [Arc::from("payments-value")]);
@@ -406,11 +378,10 @@ async fn a_registry_outage_degrades_only_the_subject_lane() {
     let store = store(&session);
     let _lanes = idle_lanes(&store, &session);
 
-    wait_for(|| store.ready(), "topology commit").await;
-    wait_for(
-        || store.subjects.health().last_error.is_some(),
-        "subject failure",
-    )
+    until("topology commit", || store.ready()).await;
+    until("subject failure", || {
+        store.subjects.health().last_error.is_some()
+    })
     .await;
 
     let health = store.health();
@@ -433,7 +404,7 @@ async fn a_background_group_refreshes_on_the_slow_tier() {
         Duration::from_secs(20),
     );
     let _lanes = catalog_lanes(&store, &session);
-    wait_for(|| store.ready(), "topology commit").await;
+    until("topology commit", || store.ready()).await;
 
     let first = sweep(&lane, &store).await;
     assert_eq!(first.refreshed, [Arc::from("order-processor")]);
@@ -461,7 +432,7 @@ async fn interest_promotes_a_group_to_the_fast_tier() {
         Duration::from_secs(20),
     );
     let _lanes = catalog_lanes(&store, &session);
-    wait_for(|| store.ready(), "topology commit").await;
+    until("topology commit", || store.ready()).await;
     sweep(&lane, &store).await;
 
     let lease = store.interest.lease_group("order-processor");
@@ -494,7 +465,7 @@ async fn a_wave_commits_once_and_publishes_once() {
     let store = store(&session);
     let lane = OffsetLane::new(port(&session));
     let _lanes = catalog_lanes(&store, &session);
-    wait_for(|| store.ready(), "topology commit").await;
+    until("topology commit", || store.ready()).await;
     let mut events = store.bus.subscribe();
 
     let wave = sweep(&lane, &store).await;
@@ -534,7 +505,7 @@ async fn a_refresh_that_changes_nothing_publishes_nothing() {
     let store = store(&session);
     let lane = OffsetLane::new(port(&session));
     let _lanes = catalog_lanes(&store, &session);
-    wait_for(|| store.watermarks.version() > 0, "watermark commit").await;
+    until("watermark commit", || store.watermarks.version() > 0).await;
     let mut events = store.bus.subscribe();
 
     sweep(&lane, &store).await;
@@ -582,14 +553,14 @@ async fn a_moved_high_watermark_republishes_the_lag() {
     let store = store(&session);
     let lane = OffsetLane::new(port(&session));
     let _lanes = catalog_lanes(&store, &session);
-    wait_for(|| store.watermarks.version() > 0, "watermark commit").await;
+    until("watermark commit", || store.watermarks.version() > 0).await;
     let mut events = store.bus.subscribe();
     sweep(&lane, &store).await;
     let first = published_lags(&mut events);
 
     let version = store.watermarks.version();
     store.watermarks.kick();
-    wait_for(|| store.watermarks.version() > version, "watermark poll").await;
+    until("watermark poll", || store.watermarks.version() > version).await;
     tokio::time::advance(Duration::from_secs(30)).await;
     sweep(&lane, &store).await;
 
@@ -609,36 +580,30 @@ async fn a_returning_group_publishes_its_lag_again() {
     let store = store(&session);
     let lane = OffsetLane::new(port(&session));
     let _lanes = catalog_lanes(&store, &session);
-    wait_for(|| store.watermarks.version() > 0, "watermark commit").await;
+    until("watermark commit", || store.watermarks.version() > 0).await;
     let mut events = store.bus.subscribe();
     sweep(&lane, &store).await;
     let first = published_lags(&mut events);
 
     session.remove_group("returning");
     store.topology.kick();
-    wait_for(
-        || {
-            store
-                .topology
-                .load()
-                .is_some_and(|topology| topology.group("returning").is_none())
-        },
-        "group removal",
-    )
+    until("group removal", || {
+        store
+            .topology
+            .load()
+            .is_some_and(|topology| topology.group("returning").is_none())
+    })
     .await;
     sweep(&lane, &store).await;
 
     session.put_group(returning);
     store.topology.kick();
-    wait_for(
-        || {
-            store
-                .topology
-                .load()
-                .is_some_and(|topology| topology.group("returning").is_some())
-        },
-        "group returning",
-    )
+    until("group returning", || {
+        store
+            .topology
+            .load()
+            .is_some_and(|topology| topology.group("returning").is_some())
+    })
     .await;
     sweep(&lane, &store).await;
 
@@ -668,7 +633,7 @@ async fn offset_fetches_respect_the_concurrency_cap() {
     let store = store(&session);
     let lane = OffsetLane::new(port(&session)).with_concurrency(NonZeroUsize::new(4).unwrap());
     let _lanes = catalog_lanes(&store, &session);
-    wait_for(|| store.ready(), "topology commit").await;
+    until("topology commit", || store.ready()).await;
 
     sweep(&lane, &store).await;
 
@@ -686,7 +651,7 @@ async fn lag_is_computed_from_the_tables() {
     let store = store(&session);
     let lane = OffsetLane::new(port(&session));
     let _lanes = catalog_lanes(&store, &session);
-    wait_for(|| store.watermarks.version() > 0, "watermark commit").await;
+    until("watermark commit", || store.watermarks.version() > 0).await;
 
     sweep(&lane, &store).await;
 
@@ -715,7 +680,7 @@ async fn an_empty_group_reports_the_lag_it_left_behind() {
     let store = store(&session);
     let lane = OffsetLane::new(port(&session));
     let _lanes = catalog_lanes(&store, &session);
-    wait_for(|| store.watermarks.version() > 0, "watermark commit").await;
+    until("watermark commit", || store.watermarks.version() > 0).await;
 
     sweep(&lane, &store).await;
 
@@ -749,7 +714,7 @@ async fn an_active_group_fetches_only_what_it_consumes() {
     let store = store(&session);
     let lane = OffsetLane::new(port(&session));
     let _lanes = catalog_lanes(&store, &session);
-    wait_for(|| store.watermarks.version() > 0, "watermark commit").await;
+    until("watermark commit", || store.watermarks.version() > 0).await;
 
     sweep(&lane, &store).await;
 
@@ -766,7 +731,7 @@ async fn a_failed_group_degrades_alone_and_keeps_its_last_offsets() {
     let store = store(&session);
     let lane = OffsetLane::new(port(&session));
     let _lanes = catalog_lanes(&store, &session);
-    wait_for(|| store.ready(), "topology commit").await;
+    until("topology commit", || store.ready()).await;
     sweep(&lane, &store).await;
     let before = Arc::clone(
         store
@@ -798,15 +763,14 @@ async fn a_removed_group_is_dropped_from_the_offset_table() {
     let store = store(&session);
     let lane = OffsetLane::new(port(&session));
     let _lanes = catalog_lanes(&store, &session);
-    wait_for(|| store.ready(), "topology commit").await;
+    until("topology commit", || store.ready()).await;
     sweep(&lane, &store).await;
 
     session.remove_group("order-processor");
     store.topology.kick();
-    wait_for(
-        || store.topology.load().is_some_and(|t| t.groups.is_empty()),
-        "group removal",
-    )
+    until("group removal", || {
+        store.topology.load().is_some_and(|t| t.groups.is_empty())
+    })
     .await;
 
     let wave = sweep(&lane, &store).await;
@@ -822,15 +786,12 @@ async fn a_removed_group_is_dropped_from_the_offset_table() {
         &[(0, 1)],
     ));
     store.topology.kick();
-    wait_for(
-        || {
-            store
-                .topology
-                .load()
-                .is_some_and(|topology| topology.group("order-processor").is_some())
-        },
-        "group returning",
-    )
+    until("group returning", || {
+        store
+            .topology
+            .load()
+            .is_some_and(|topology| topology.group("order-processor").is_some())
+    })
     .await;
 
     assert_eq!(
@@ -846,20 +807,17 @@ async fn a_deleted_topic_loses_its_rate() {
     let store = store(&session);
     let _lanes = idle_lanes(&store, &session);
 
-    wait_for(|| store.watermarks.version() > 0, "watermark commit").await;
+    until("watermark commit", || store.watermarks.version() > 0).await;
     assert_eq!(store.rates.get("payments"), Some(0.0));
 
     session.remove_topic("payments");
     store.topology.kick();
-    wait_for(
-        || {
-            store
-                .topology
-                .load()
-                .is_some_and(|topology| !topology.topics.contains_key("payments"))
-        },
-        "topic removal",
-    )
+    until("topic removal", || {
+        store
+            .topology
+            .load()
+            .is_some_and(|topology| !topology.topics.contains_key("payments"))
+    })
     .await;
 
     assert_eq!(store.rates.get("payments"), None);
@@ -919,10 +877,9 @@ async fn lanes_waiting_for_topology_start_as_soon_as_it_commits() {
         TopologyLane::with_interval(port(&session), IDLE),
     ));
 
-    wait_for(
-        || store.configs.ready() && store.log_dirs.ready(),
-        "config and log dir commits",
-    )
+    until("config and log dir commits", || {
+        store.configs.ready() && store.log_dirs.ready()
+    })
     .await;
 }
 
@@ -933,7 +890,7 @@ async fn the_log_dirs_lane_sums_sizes_per_topic_and_directory() {
     let mut events = store.bus.subscribe();
     let _lanes = log_dir_lanes(&store, &session, IDLE);
 
-    wait_for(|| store.log_dirs.ready(), "log dirs commit").await;
+    until("log dirs commit", || store.log_dirs.ready()).await;
 
     let topology = store.topology.load().unwrap();
     let log_dirs = store.log_dirs.load().unwrap();
@@ -966,10 +923,9 @@ async fn a_failing_log_dirs_poll_names_its_lane_and_waits_out_the_interval() {
     let store = store(&session);
     let _lanes = log_dir_lanes(&store, &session, Duration::from_secs(60));
 
-    wait_for(
-        || store.log_dirs.health().last_error.is_some(),
-        "log dirs error",
-    )
+    until("log dirs error", || {
+        store.log_dirs.health().last_error.is_some()
+    })
     .await;
 
     assert!(store.log_dirs.load().is_none());
@@ -984,10 +940,9 @@ async fn a_failing_log_dirs_poll_names_its_lane_and_waits_out_the_interval() {
     tokio::task::yield_now().await;
     assert_eq!(session.calls().log_dirs(), calls);
     tokio::time::advance(Duration::from_secs(2)).await;
-    wait_for(
-        || session.calls().log_dirs() > calls,
-        "second log dirs call",
-    )
+    until("second log dirs call", || {
+        session.calls().log_dirs() > calls
+    })
     .await;
 }
 
@@ -998,7 +953,7 @@ async fn the_quota_lane_commits_and_publishes_only_a_changed_listing() {
     let mut events = store.bus.subscribe();
     let _lanes = quota_lane(&store, &session, IDLE);
 
-    wait_for(|| store.quotas.ready(), "quotas commit").await;
+    until("quotas commit", || store.quotas.ready()).await;
     assert!(matches!(
         store.quotas.load().as_deref(),
         Some(QuotaListing::Described(quotas)) if quotas.len() == 5
@@ -1006,13 +961,13 @@ async fn the_quota_lane_commits_and_publishes_only_a_changed_listing() {
     assert!(matches!(events.try_recv(), Ok(Change::Quotas)));
 
     store.quotas.kick();
-    wait_for(|| session.calls().quotas() == 2, "second quotas call").await;
+    until("second quotas call", || session.calls().quotas() == 2).await;
     assert_eq!(store.quotas.version(), 1);
     assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
 
     session.set_quotas(Ok(QuotaListing::Denied));
     store.quotas.kick();
-    wait_for(|| store.quotas.version() == 2, "denied commit").await;
+    until("denied commit", || store.quotas.version() == 2).await;
     assert_eq!(store.quotas.load().as_deref(), Some(&QuotaListing::Denied));
     assert!(matches!(events.try_recv(), Ok(Change::Quotas)));
     assert!(store.quotas.health().healthy());
@@ -1026,10 +981,9 @@ async fn a_failing_quota_poll_names_its_lane_and_waits_out_the_interval() {
     let store = store(&session);
     let _lanes = quota_lane(&store, &session, Duration::from_secs(60));
 
-    wait_for(
-        || store.quotas.health().last_error.is_some(),
-        "quotas error",
-    )
+    until("quotas error", || {
+        store.quotas.health().last_error.is_some()
+    })
     .await;
 
     assert!(store.quotas.load().is_none());
@@ -1039,7 +993,7 @@ async fn a_failing_quota_poll_names_its_lane_and_waits_out_the_interval() {
     tokio::task::yield_now().await;
     assert_eq!(session.calls().quotas(), 1);
     tokio::time::advance(Duration::from_secs(2)).await;
-    wait_for(|| session.calls().quotas() == 2, "second quotas call").await;
+    until("second quotas call", || session.calls().quotas() == 2).await;
 }
 
 #[tokio::test(start_paused = true)]
@@ -1050,7 +1004,7 @@ async fn every_lane_runs_per_cluster_and_stops_with_the_ingest() {
     let lanes = Ingest::start(&clusters, &IngestTuning::default());
 
     assert_eq!(lanes.lane_count(), 16, "eight lanes per cluster");
-    wait_for(|| clusters.ready(), "both clusters ready").await;
+    until("both clusters ready", || clusters.ready()).await;
 
     drop(lanes);
     tokio::task::yield_now().await;
@@ -1071,10 +1025,9 @@ async fn ingestion_fills_the_stores_the_api_projects_from() {
     let _lanes = Ingest::start(&clusters, &IngestTuning::default());
     let store = &clusters.get("local").unwrap().store;
 
-    wait_for(
-        || clusters.ready() && !store.subject_rows().is_empty(),
-        "catalog and subjects",
-    )
+    until("catalog and subjects", || {
+        clusters.ready() && !store.subject_rows().is_empty()
+    })
     .await;
 
     assert_eq!(store.topic_rows()[0].name.as_ref(), "orders.created");
@@ -1100,7 +1053,7 @@ async fn the_acl_lane_stores_the_listing_and_publishes_each_change() {
     let mut events = store.bus.subscribe();
     let _lanes = acl_lane(&store, &session, IDLE);
 
-    wait_for(|| store.acls.ready(), "acls commit").await;
+    until("acls commit", || store.acls.ready()).await;
     assert!(matches!(
         store.acls.load().as_deref(),
         Some(AclListing::Enabled(rows)) if rows.len() == 3
@@ -1108,7 +1061,7 @@ async fn the_acl_lane_stores_the_listing_and_publishes_each_change() {
     assert!(matches!(events.try_recv(), Ok(Change::Acls)));
 
     store.acls.kick();
-    wait_for(|| session.calls().acls() == 2, "second describe").await;
+    until("second describe", || session.calls().acls() == 2).await;
     tokio::task::yield_now().await;
     assert_eq!(
         store.acls.version(),
@@ -1119,7 +1072,7 @@ async fn the_acl_lane_stores_the_listing_and_publishes_each_change() {
 
     session.set_acls(Ok(AclListing::Disabled));
     store.acls.kick();
-    wait_for(|| store.acls.version() == 2, "acls recommit").await;
+    until("acls recommit", || store.acls.version() == 2).await;
     assert!(matches!(events.try_recv(), Ok(Change::Acls)));
 }
 
@@ -1131,7 +1084,7 @@ async fn a_failing_acl_poll_names_its_lane_and_waits_out_the_interval() {
     let store = store(&session);
     let _lanes = acl_lane(&store, &session, Duration::from_secs(60));
 
-    wait_for(|| store.acls.health().last_error.is_some(), "acls error").await;
+    until("acls error", || store.acls.health().last_error.is_some()).await;
 
     assert!(store.acls.load().is_none());
     logs.assert_contains(r#"lane="acls""#);
@@ -1140,7 +1093,7 @@ async fn a_failing_acl_poll_names_its_lane_and_waits_out_the_interval() {
     tokio::task::yield_now().await;
     assert_eq!(session.calls().acls(), 1);
     tokio::time::advance(Duration::from_secs(2)).await;
-    wait_for(|| session.calls().acls() == 2, "second acls call").await;
+    until("second acls call", || session.calls().acls() == 2).await;
 }
 
 #[tokio::test(start_paused = true)]
@@ -1152,13 +1105,13 @@ async fn one_cluster_never_wakes_another() {
     let prod_store = &clusters.get("prod").unwrap().store;
     let staging_store = &clusters.get("staging").unwrap().store;
 
-    wait_for(|| prod_store.ready() && staging_store.ready(), "both ready").await;
+    until("both ready", || prod_store.ready() && staging_store.ready()).await;
     let mut staging_events = staging_store.bus.subscribe();
     while staging_events.try_recv().is_ok() {}
 
     prod.add_partition("orders.created", 2, Default::default());
     prod_store.topology.kick();
-    wait_for(|| prod_store.topology.version() > 1, "prod delta").await;
+    until("prod delta", || prod_store.topology.version() > 1).await;
 
     assert!(
         matches!(staging_events.try_recv(), Err(TryRecvError::Empty)),
@@ -1171,16 +1124,15 @@ async fn a_new_topic_gets_its_configs_without_waiting_out_the_config_interval() 
     let session = FakeCluster::local();
     let store = store(&session);
     let _lanes = idle_lanes(&store, &session);
-    wait_for(|| store.configs.ready(), "first config poll").await;
+    until("first config poll", || store.configs.ready()).await;
 
     let _ = session.clone().extra_topic("payments", 1, 0);
     session.set_topic_configs("payments", vec![config_entry("retention.ms", "1000")]);
     store.topology.kick();
 
-    wait_for(
-        || store.topic_configs("payments").is_some(),
-        "configs for the new topic",
-    )
+    until("configs for the new topic", || {
+        store.topic_configs("payments").is_some()
+    })
     .await;
 }
 
@@ -1189,15 +1141,13 @@ async fn a_topology_change_without_new_topics_leaves_configs_to_their_interval()
     let session = FakeCluster::local();
     let store = store(&session);
     let _lanes = idle_lanes(&store, &session);
-    wait_for(|| store.configs.ready(), "first config poll").await;
+    until("first config poll", || store.configs.ready()).await;
     let polls = session.calls().topic_configs();
 
     session.add_partition("orders.created", 7, Watermarks { low: 0, high: 0 });
     store.topology.kick();
-    wait_for(|| store.topology.version() > 1, "topology commit").await;
-    for _ in 0..100 {
-        tokio::task::yield_now().await;
-    }
+    until("topology commit", || store.topology.version() > 1).await;
+    quiesce().await;
 
     assert_eq!(session.calls().topic_configs(), polls);
 }
@@ -1207,15 +1157,13 @@ async fn a_new_topic_waits_for_the_next_watermark_poll() {
     let session = FakeCluster::local();
     let store = store(&session);
     let _lanes = catalog_lanes(&store, &session);
-    wait_for(|| store.watermarks.ready(), "first watermark poll").await;
+    until("first watermark poll", || store.watermarks.ready()).await;
     let polls = session.calls().low_watermarks();
 
     let _ = session.clone().extra_topic("payments", 1, 0);
     store.topology.kick();
-    wait_for(|| store.topology.version() > 1, "topology commit").await;
-    for _ in 0..100 {
-        tokio::task::yield_now().await;
-    }
+    until("topology commit", || store.topology.version() > 1).await;
+    quiesce().await;
 
     assert_eq!(session.calls().low_watermarks(), polls);
 }
@@ -1226,13 +1174,13 @@ async fn between_low_reads_the_watermark_lane_lists_only_high_watermarks() {
     session.add_partition("orders.created", 1, Watermarks { low: 8, high: 8 });
     let store = store(&session);
     let _lanes = catalog_lanes(&store, &session);
-    wait_for(|| store.watermarks.ready(), "first watermark poll").await;
+    until("first watermark poll", || store.watermarks.ready()).await;
     assert_eq!(session.calls().low_watermarks(), 1);
     assert_eq!(session.calls().high_watermarks(), 1);
 
     session.add_partition("orders.created", 0, Watermarks { low: 5, high: 12 });
     store.watermarks.kick();
-    wait_for(|| store.watermarks.version() > 1, "end-only commit").await;
+    until("end-only commit", || store.watermarks.version() > 1).await;
 
     assert_eq!(session.calls().high_watermarks(), 2);
     assert_eq!(
@@ -1256,27 +1204,24 @@ async fn the_watermark_lane_rereads_low_watermarks_once_their_interval_passes() 
     let session = FakeCluster::local();
     let store = store(&session);
     let _lanes = catalog_lanes(&store, &session);
-    wait_for(|| store.watermarks.ready(), "first watermark poll").await;
+    until("first watermark poll", || store.watermarks.ready()).await;
     let low_watermark = IngestTuning::default().low_watermark;
 
     tokio::time::advance(low_watermark - Duration::from_millis(1)).await;
     store.watermarks.kick();
-    wait_for(|| session.calls().high_watermarks() == 2, "end-only poll").await;
+    until("end-only poll", || session.calls().high_watermarks() == 2).await;
     assert_eq!(session.calls().low_watermarks(), 1);
 
     session.add_partition("orders.created", 0, Watermarks { low: 5, high: 12 });
     tokio::time::advance(Duration::from_millis(1)).await;
     store.watermarks.kick();
-    wait_for(
-        || {
-            store
-                .watermarks
-                .load()
-                .and_then(|marks| marks.get("orders.created", 0))
-                == Some(Watermarks { low: 5, high: 12 })
-        },
-        "low watermark reread",
-    )
+    until("low watermark reread", || {
+        store
+            .watermarks
+            .load()
+            .and_then(|marks| marks.get("orders.created", 0))
+            == Some(Watermarks { low: 5, high: 12 })
+    })
     .await;
     assert_eq!(session.calls().low_watermarks(), 2);
     assert_eq!(session.calls().high_watermarks(), 3);
@@ -1287,14 +1232,14 @@ async fn a_new_partition_reads_its_low_watermark_on_the_next_poll() {
     let session = FakeCluster::local();
     let store = store(&session);
     let _lanes = catalog_lanes(&store, &session);
-    wait_for(|| store.watermarks.ready(), "first watermark poll").await;
+    until("first watermark poll", || store.watermarks.ready()).await;
 
     session.add_partition("orders.created", 0, Watermarks { low: 5, high: 12 });
     session.add_partition("orders.created", 7, Watermarks { low: 3, high: 9 });
     store.topology.kick();
-    wait_for(|| store.topology.version() > 1, "topology commit").await;
+    until("topology commit", || store.topology.version() > 1).await;
     store.watermarks.kick();
-    wait_for(|| store.watermarks.version() > 1, "watermark commit").await;
+    until("watermark commit", || store.watermarks.version() > 1).await;
 
     let marks = store.watermarks.load().expect("watermarks");
     assert_eq!(
@@ -1316,11 +1261,11 @@ async fn a_high_watermark_below_the_cached_low_rereads_the_low() {
     session.add_partition("orders.created", 0, Watermarks { low: 6, high: 8 });
     let store = store(&session);
     let _lanes = catalog_lanes(&store, &session);
-    wait_for(|| store.watermarks.ready(), "first watermark poll").await;
+    until("first watermark poll", || store.watermarks.ready()).await;
 
     session.add_partition("orders.created", 0, Watermarks { low: 0, high: 2 });
     store.watermarks.kick();
-    wait_for(|| store.watermarks.version() > 1, "watermark commit").await;
+    until("watermark commit", || store.watermarks.version() > 1).await;
 
     assert_eq!(
         store
@@ -1346,7 +1291,7 @@ async fn the_offset_lane_sweeps_nothing_until_topology_commits() {
         Arc::clone(&store),
         TopologyLane::with_interval(port(&session), IDLE),
     ));
-    wait_for(|| store.offsets.ready(), "first offset wave").await;
+    until("first offset wave", || store.offsets.ready()).await;
 }
 
 #[tokio::test(start_paused = true)]
@@ -1354,24 +1299,22 @@ async fn a_new_topic_or_broker_gets_its_log_dirs_without_waiting_out_the_interva
     let session = FakeCluster::local();
     let store = store(&session);
     let _lanes = log_dir_lanes(&store, &session, IDLE);
-    wait_for(|| store.log_dirs.ready(), "first log dirs poll").await;
+    until("first log dirs poll", || store.log_dirs.ready()).await;
 
     let calls = session.calls().log_dirs();
     let _ = session.clone().extra_topic("payments", 1, 0);
     store.topology.kick();
-    wait_for(
-        || session.calls().log_dirs() > calls,
-        "log dirs for the new topic",
-    )
+    until("log dirs for the new topic", || {
+        session.calls().log_dirs() > calls
+    })
     .await;
 
     let calls = session.calls().log_dirs();
     session.add_broker(2);
     store.topology.kick();
-    wait_for(
-        || session.calls().log_dirs() > calls,
-        "log dirs for the new broker",
-    )
+    until("log dirs for the new broker", || {
+        session.calls().log_dirs() > calls
+    })
     .await;
 }
 
@@ -1380,15 +1323,13 @@ async fn a_topology_change_without_new_topics_or_brokers_leaves_log_dirs_to_thei
     let session = FakeCluster::local();
     let store = store(&session);
     let _lanes = log_dir_lanes(&store, &session, IDLE);
-    wait_for(|| store.log_dirs.ready(), "first log dirs poll").await;
+    until("first log dirs poll", || store.log_dirs.ready()).await;
     let calls = session.calls().log_dirs();
 
     session.add_partition("orders.created", 7, Watermarks { low: 0, high: 0 });
     store.topology.kick();
-    wait_for(|| store.topology.version() > 1, "topology commit").await;
-    for _ in 0..100 {
-        tokio::task::yield_now().await;
-    }
+    until("topology commit", || store.topology.version() > 1).await;
+    quiesce().await;
 
     assert_eq!(session.calls().log_dirs(), calls);
 }

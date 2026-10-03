@@ -125,7 +125,7 @@ mod tests {
 
     use crate::config::IngestTuning;
     use crate::kafka::store::{ConfigTable, LaneHealth};
-    use crate::testing::{identity, partition, topic, topology};
+    use crate::testing::{identity, partition, topic, topology, until};
 
     struct Scripted {
         polls: AtomicUsize,
@@ -286,23 +286,17 @@ mod tests {
     }
 
     async fn dependent_polls(source: &Dependent, polls: usize) {
-        for _ in 0..1_000 {
-            if source.polls() >= polls {
-                return;
-            }
-            tokio::task::yield_now().await;
-        }
-        panic!("dependent lane never reached {polls} polls");
+        until(&format!("dependent poll {polls}"), || {
+            source.polls() >= polls
+        })
+        .await;
     }
 
     async fn poll_until(source: &Arc<Scripted>, polls: usize) {
-        for _ in 0..1_000 {
-            if source.polls.load(Ordering::SeqCst) >= polls {
-                return;
-            }
-            tokio::task::yield_now().await;
-        }
-        panic!("lane never reached {polls} polls");
+        until(&format!("poll {polls}"), || {
+            source.polls.load(Ordering::SeqCst) >= polls
+        })
+        .await;
     }
 
     #[tokio::test(start_paused = true)]
