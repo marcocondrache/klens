@@ -173,10 +173,10 @@ impl Clusters {
 mod tests {
     use super::*;
     use crate::kafka::store::Topology;
-    use crate::testing::FakeCluster;
+    use crate::testing::{FakeCluster, yaml};
 
     fn cluster(bootstrap_servers: &str) -> config::Cluster {
-        config::parse(&format!("bootstrap_servers: [{bootstrap_servers}]")).unwrap()
+        yaml(&format!("bootstrap_servers: [{bootstrap_servers}]"))
     }
 
     async fn connect(clusters: Vec<(&str, config::Cluster)>) -> Result<Clusters, KafkaError> {

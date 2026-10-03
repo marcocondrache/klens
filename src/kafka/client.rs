@@ -410,6 +410,7 @@ mod tests {
     use crate::kafka::model::{PartitionWindow, RecordOrder, RecordQuery, TimestampRange};
     use crate::kafka::scan::session::{fetch_page, scan_once};
     use crate::kafka::session::watermarks;
+    use crate::testing::yaml;
 
     fn window(partition: i32, start: i64, end: i64) -> PartitionWindow {
         PartitionWindow {
@@ -1031,7 +1032,7 @@ mod tests {
     }
 
     pub(super) fn cluster(bootstrap: &str) -> config::Cluster {
-        config::parse(&format!("bootstrap_servers: ['{bootstrap}']")).expect("cluster config")
+        yaml(&format!("bootstrap_servers: ['{bootstrap}']"))
     }
 
     pub(super) async fn kafka_client(bootstrap: &str) -> KafkaClient {

@@ -38,6 +38,7 @@ use crate::kafka::scan::payload::{DecodedPayload, PayloadCodec, PayloadSlot};
 use crate::kafka::session::ClusterSession;
 use crate::kafka::storage::{LogDir, ReplicaLog};
 use crate::kafka::topic_config::{ConfigEntry, ConfigSource};
+use crate::testing::yaml;
 
 const SUBJECT_SCHEMA: &str =
     r#"{"type":"record","name":"Order","fields":[{"name":"orderId","type":"string"}]}"#;
@@ -285,8 +286,8 @@ impl FakeCluster {
         self
     }
 
-    pub fn with_obfuscation(self, yaml: &str) -> Self {
-        let config = crate::config::parse(yaml).expect("obfuscation config parses");
+    pub fn with_obfuscation(self, source: &str) -> Self {
+        let config = yaml(source);
 
         *self.inner.obfuscation.lock().expect("obfuscation") =
             Some(Arc::new(ObfuscationPolicy::compile(&config)));

@@ -477,7 +477,7 @@ mod tests {
     use super::oidc::FakeOidc;
     use super::*;
     use crate::kafka::Clusters;
-    use crate::testing::FakeCluster;
+    use crate::testing::{FakeCluster, yaml};
 
     impl AuthState {
         pub(crate) fn enabled_for_tests() -> Self {
@@ -717,7 +717,7 @@ mod tests {
     }
 
     async fn login_cookie(redirect_uri: &str) -> String {
-        let auth: config::Auth = config::parse(&format!(
+        let auth: config::Auth = yaml(&format!(
             "
             oidc:
               issuer: https://idp.example
@@ -727,8 +727,7 @@ mod tests {
             session:
               login_timeout: 90s
             "
-        ))
-        .expect("auth config");
+        ));
         let router = app(AuthState::enabled(Arc::new(FakeOidc::default()), &auth));
         let login = Request::builder()
             .uri("/api/auth/login")
@@ -982,7 +981,7 @@ mod tests {
     }
 
     fn key(text: &str) -> KeyMaterial {
-        config::parse(&format!("{{value: '{text}'}}")).expect("session key")
+        yaml(&format!("{{value: '{text}'}}"))
     }
 
     #[test]

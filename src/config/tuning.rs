@@ -210,11 +210,7 @@ const fn nonzero(count: usize) -> NonZeroUsize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::parse;
-
-    fn tuning(yaml: &str) -> Result<Tuning, String> {
-        parse(yaml).map_err(|error| error.to_string())
-    }
+    use crate::testing::{yaml, yaml_err};
 
     fn secs(secs: u64) -> Duration {
         Duration::from_secs(secs)
@@ -276,9 +272,9 @@ mod tests {
             },
         };
 
-        assert_eq!(tuning("{}").unwrap(), defaults);
+        assert_eq!(yaml::<Tuning>("{}"), defaults);
         assert_eq!(
-            tuning("tail: {interval: 10ms}").unwrap(),
+            yaml::<Tuning>("tail: {interval: 10ms}"),
             Tuning {
                 tail: TailTuning {
                     interval: millis(10),
@@ -291,7 +287,7 @@ mod tests {
 
     #[test]
     fn reads_every_key() {
-        let tuning = tuning(
+        let tuning: Tuning = yaml(
             "
 kafka:
   connect_timeout: 3s
@@ -335,8 +331,7 @@ ingest:
   idle_heartbeat: 20s
   max_sample_gap: 45s
 ",
-        )
-        .unwrap();
+        );
 
         assert_eq!(
             tuning,
@@ -395,11 +390,11 @@ ingest:
 
     #[test]
     fn a_polling_period_is_at_least_a_second() {
-        let topology = |value: &str| tuning(&format!("ingest: {{topology: {value}}}"));
+        let topology = |value: &str| format!("ingest: {{topology: {value}}}");
 
-        assert_eq!(topology("1s").unwrap().ingest.topology, secs(1));
+        assert_eq!(yaml::<Tuning>(&topology("1s")).ingest.topology, secs(1));
         assert_eq!(
-            topology("999ms").unwrap_err(),
+            yaml_err::<Tuning>(&topology("999ms")),
             "must be at least 1s at line 1, column 20"
         );
     }

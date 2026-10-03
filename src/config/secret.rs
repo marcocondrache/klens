@@ -74,26 +74,20 @@ impl TryFrom<Secret> for KeyMaterial {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::parse;
-    use crate::config::tests::TempFile;
+    use crate::testing::{temp_file, yaml, yaml_err};
 
-    fn secret(source: &str) -> Result<String, String> {
-        parse::<Secret>(source)
-            .map(|secret| secret.expose_secret().to_owned())
-            .map_err(|error| error.to_string())
+    fn exposed(source: &str) -> String {
+        yaml::<Secret>(source).expose_secret().to_owned()
     }
 
     #[test]
     fn a_secret_reads_from_its_value_env_or_file() {
-        let file = TempFile::new("secret", "p@ss: *word #x\r\n\n");
+        let file = temp_file("p@ss: *word #x\r\n\n");
 
-        assert_eq!(secret("{value: 'hunter2 #tail'}").unwrap(), "hunter2 #tail");
+        assert_eq!(exposed("{value: 'hunter2 #tail'}"), "hunter2 #tail");
+        assert_eq!(exposed("{env: CARGO_PKG_NAME}"), env!("CARGO_PKG_NAME"));
         assert_eq!(
-            secret("{env: CARGO_PKG_NAME}").unwrap(),
-            env!("CARGO_PKG_NAME")
-        );
-        assert_eq!(
-            secret(&format!("{{file: '{}'}}", file.0.display())).unwrap(),
+            exposed(&format!("{{file: '{}'}}", file.path().display())),
             "p@ss: *word #x"
         );
     }
@@ -101,11 +95,11 @@ mod tests {
     #[test]
     fn a_source_that_cannot_be_read_names_itself() {
         assert_eq!(
-            secret("{env: KLENS_TEST_UNSET}").unwrap_err(),
+            yaml_err::<Secret>("{env: KLENS_TEST_UNSET}"),
             "KLENS_TEST_UNSET: environment variable not found"
         );
         assert_eq!(
-            secret("{file: /nonexistent/klens}").unwrap_err(),
+            yaml_err::<Secret>("{file: /nonexistent/klens}"),
             "/nonexistent/klens: No such file or directory (os error 2)"
         );
     }
@@ -119,7 +113,7 @@ mod tests {
             "{password: hunter2}",
         ] {
             assert_eq!(
-                secret(source).unwrap_err(),
+                yaml_err::<Secret>(source),
                 "a secret source: {value: TEXT}, {env: NAME} or {file: PATH}",
             );
         }
@@ -127,8 +121,8 @@ mod tests {
 
     #[test]
     fn debug_output_hides_the_secret() {
-        let secret: Secret = parse("{value: hunter2}").unwrap();
-        let key: KeyMaterial = parse(&format!("{{value: {}}}", "k".repeat(32))).unwrap();
+        let secret: Secret = yaml("{value: hunter2}");
+        let key: KeyMaterial = yaml(&format!("{{value: {}}}", "k".repeat(32)));
 
         assert_eq!(format!("{secret:?}"), "Secret(SecretBox<str>([REDACTED]))");
         assert!(!format!("{key:?}").contains('k'), "{key:?}");
@@ -136,12 +130,13 @@ mod tests {
 
     #[test]
     fn key_material_is_used_as_written_from_thirty_two_bytes() {
-        let key = |text: String| parse::<KeyMaterial>(&format!("{{value: '{text}'}}"));
+        let source = |text: &str| format!("{{value: '{text}'}}");
         let written = format!(" {}=", "k".repeat(30));
 
-        assert_eq!(key(written.clone()).unwrap().as_bytes(), written.as_bytes());
+        let key: KeyMaterial = yaml(&source(&written));
+        assert_eq!(key.as_bytes(), written.as_bytes());
         assert_eq!(
-            key("k".repeat(31)).unwrap_err().to_string(),
+            yaml_err::<KeyMaterial>(&source(&"k".repeat(31))),
             "must be at least 32 bytes"
         );
     }

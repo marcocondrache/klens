@@ -213,10 +213,12 @@ pub(crate) fn references(references: &[schemreg::SchemaReference]) -> Vec<Schema
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::kafka::model::SchemaType;
     use wiremock::matchers::{method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    use super::*;
+    use crate::kafka::model::SchemaType;
+    use crate::testing::yaml;
 
     fn config(url: &str) -> SchemaRegistry {
         SchemaRegistry {
@@ -508,11 +510,10 @@ mod tests {
 
         let client = SchemaRegistryClient::new(
             "local",
-            &crate::config::parse(&format!(
+            &yaml(&format!(
                 "{{url: '{}', auth: {{username: user, password: {{value: secret}}}}}}",
                 server.uri()
-            ))
-            .unwrap(),
+            )),
             &SchemaRegistryTuning::default(),
         )
         .unwrap();

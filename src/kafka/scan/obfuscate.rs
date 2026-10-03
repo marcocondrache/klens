@@ -312,9 +312,10 @@ impl KeyedHasher {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::yaml;
 
-    fn config(yaml: &str) -> Obfuscation {
-        crate::config::parse(yaml).expect("obfuscation config")
+    fn config(source: &str) -> Obfuscation {
+        yaml(source)
     }
 
     fn policy(yaml: &str) -> ObfuscationPolicy {

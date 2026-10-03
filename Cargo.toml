@@ -85,6 +85,7 @@ memory-serve = { version = "2.4", optional = true }
 
 [dev-dependencies]
 krafka = { git = "https://github.com/hupe1980/krafka", rev = "e6b154cef8dd0bfe7b2c8fadbf925c1e6494310f", features = ["test-broker"] }
+tempfile = "3"
 tokio = { version = "1", features = ["test-util"] }
 wiremock = "0.6.5"
 
