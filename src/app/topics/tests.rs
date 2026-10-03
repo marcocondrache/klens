@@ -271,3 +271,53 @@ async fn a_create_kafka_would_reject_never_reaches_the_broker() {
 
     assert_eq!(app.cluster().calls(Api::CreateTopic), 0);
 }
+
+#[tokio::test]
+async fn a_deleted_topic_is_gone_before_the_delete_answers() {
+    let app = writable().await;
+    let mut rig = app.rig();
+    let lane = rig.topology();
+    rig.spawn(lane);
+    quiesce().await;
+    let logs = LogCapture::at(Level::INFO);
+
+    app.delete("/clusters/local/topics/orders.created")
+        .await
+        .expect(StatusCode::NO_CONTENT);
+
+    app.get("/clusters/local/topics/orders.created")
+        .await
+        .assert_error(StatusCode::NOT_FOUND, "UNKNOWN_TOPIC");
+    assert_eq!(app.cluster().calls(Api::DeleteTopic), 1);
+    logs.assert_contains("deleted topic");
+}
+
+#[tokio::test]
+async fn deleting_a_topic_the_store_does_not_know_never_reaches_the_broker() {
+    let app = writable().await;
+
+    app.delete("/clusters/local/topics/ghost")
+        .await
+        .assert_error(StatusCode::NOT_FOUND, "UNKNOWN_TOPIC");
+
+    assert_eq!(app.cluster().calls(Api::DeleteTopic), 0);
+}
+
+#[tokio::test]
+async fn an_internal_topic_is_never_deleted() {
+    let app = TestApp::of([FakeCluster::local().with_topic("__consumer_offsets", 1, 0)])
+        .writable(&["local"])
+        .ingested()
+        .await;
+
+    let reply = app
+        .delete("/clusters/local/topics/__consumer_offsets")
+        .await;
+
+    reply.assert_error(StatusCode::UNPROCESSABLE_ENTITY, "INTERNAL_TOPIC");
+    assert_eq!(
+        reply.body["error"],
+        "klens leaves the internal topic '__consumer_offsets' alone"
+    );
+    assert_eq!(app.cluster().calls(Api::DeleteTopic), 0);
+}

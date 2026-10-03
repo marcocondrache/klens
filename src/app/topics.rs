@@ -26,7 +26,7 @@ pub(crate) fn router() -> Router<AppState> {
 
 fn topic_routes() -> Router<AppState> {
     Router::new()
-        .route("/", get(topic))
+        .route("/", get(topic).delete(delete_topic))
         .route("/groups", get(topic_groups))
         .route("/configs", get(topic_configs))
         .nest("/records", super::records::router())
@@ -70,6 +70,15 @@ async fn topic(
         .map(TopicDetail::from)
         .map(Json)
         .ok_or_else(|| unknown_topic(cluster.name(), &topic))
+}
+
+async fn delete_topic(
+    session: Session,
+    Path((name, topic)): Path<(String, String)>,
+) -> Result<StatusCode, ApiError> {
+    let cluster = session.cluster(&name)?;
+    cluster.manage_topics()?.delete_topic(&topic).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn topic_groups(
