@@ -7,8 +7,9 @@ use foldhash::{HashMap, HashMapExt};
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
     AclListing, ClusterIdentity, CommittedOffset, ConfigEntry, GroupSnapshot, LogDir,
-    MetadataSnapshot, NewTopic, PartitionWindow, QuotaListing, RegisteredSchema, ScanConsumer,
-    SchemaSubject, TailConsumer, TailPosition, TopicMetadata, Watermarks,
+    MetadataSnapshot, NewRecord, NewTopic, PartitionWindow, ProducedRecord, QuotaListing,
+    RegisteredSchema, ScanConsumer, SchemaSubject, TailConsumer, TailPosition, TopicMetadata,
+    Watermarks,
 };
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
@@ -86,6 +87,8 @@ pub trait ClusterSession: Send + Sync + 'static {
     async fn create_topic(&self, topic: &NewTopic) -> Result<(), KafkaError>;
 
     async fn delete_topic(&self, topic: &str) -> Result<(), KafkaError>;
+
+    async fn produce(&self, record: &NewRecord) -> Result<ProducedRecord, KafkaError>;
 
     fn consume_timeout(&self) -> Duration;
 

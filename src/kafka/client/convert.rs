@@ -1,11 +1,14 @@
 //! Collected `Vec`s are shrunk because `collect` reuses the wider krafka
 //! allocation in place, and the store keeps them for as long as they live.
 
+use bytes::Bytes;
 use krafka::admin::{
     ConfigEntry as KrafkaConfigEntry, ConsumerGroupDescription, ConsumerGroupMember,
     GroupOffsetEntry, LogDirInfo, TopicPartitionAssignment,
 };
+use krafka::error::KrafkaError;
 use krafka::metadata::{ClusterMetadata, TopicInfo as KrafkaTopicInfo};
+use krafka::producer::ProducerRecord;
 use krafka::protocol::validate_topic_name;
 
 use crate::kafka::error::KafkaError;
@@ -15,6 +18,7 @@ use crate::kafka::group::{
 use crate::kafka::metadata::{
     BrokerMetadata, MetadataSnapshot, NewTopic, PartitionMetadata, TopicMetadata, is_internal_topic,
 };
+use crate::kafka::produce::NewRecord;
 use crate::kafka::storage::{LogDir, ReplicaLog, volume_bytes};
 use crate::kafka::topic_config::{ConfigEntry, ConfigSource};
 
@@ -42,6 +46,30 @@ impl MetadataSnapshot {
 
 pub(super) fn refused(error: Option<String>) -> Result<(), KafkaError> {
     error.map_or(Ok(()), |message| Err(KafkaError::Refused(message)))
+}
+
+pub(super) fn produce_refusal(error: KrafkaError) -> KafkaError {
+    match error {
+        KrafkaError::Broker { code, .. } if !code.is_retriable() => {
+            KafkaError::Refused(format!("{code:?}"))
+        }
+        error => error.into(),
+    }
+}
+
+impl NewRecord {
+    pub(super) fn to_krafka(&self) -> ProducerRecord {
+        let mut record = ProducerRecord::new(self.topic.as_str(), Bytes::new());
+        record.partition = self.partition;
+        record.key = self.key.clone();
+        record.value = self.value.clone();
+        record.headers = self
+            .headers
+            .iter()
+            .map(|header| (header.key.clone(), Some(Bytes::from(header.value.clone()))))
+            .collect();
+        record
+    }
 }
 
 const BROKER_DEFAULT: i16 = -1;
@@ -203,7 +231,10 @@ mod tests {
     use std::collections::BTreeMap;
     use std::num::{NonZeroU8, NonZeroU16};
 
+    use krafka::error::ErrorCode;
+
     use super::*;
+    use crate::kafka::scan::RecordHeader;
 
     #[test]
     fn config_source_maps_kafka_describe_codes() {
@@ -261,5 +292,41 @@ mod tests {
 
         assert_eq!((topic.num_partitions, topic.replication_factor), (6, 3));
         assert!(topic.configs.is_empty());
+    }
+
+    #[test]
+    fn a_new_record_keeps_a_null_value_null_and_sends_text_headers() {
+        let record = NewRecord {
+            topic: "orders".into(),
+            partition: Some(2),
+            key: Some(Bytes::from_static(b"order-1")),
+            value: None,
+            headers: vec![RecordHeader {
+                key: "trace".into(),
+                value: "abc".into(),
+            }],
+        }
+        .to_krafka();
+
+        assert_eq!(record.topic, "orders");
+        assert_eq!(record.partition, Some(2));
+        assert_eq!(record.key.as_deref(), Some(&b"order-1"[..]));
+        assert!(record.is_tombstone());
+        assert_eq!(
+            record.headers,
+            vec![("trace".to_owned(), Some(Bytes::from_static(b"abc")))]
+        );
+    }
+
+    #[test]
+    fn a_broker_refusal_names_its_code_but_a_retriable_one_stays_a_client_error() {
+        let refused = produce_refusal(KrafkaError::broker(ErrorCode::MessageTooLarge, "batch"));
+        assert!(
+            matches!(&refused, KafkaError::Refused(code) if code == "MessageTooLarge"),
+            "{refused}"
+        );
+
+        let retriable = produce_refusal(KrafkaError::broker(ErrorCode::NotEnoughReplicas, "batch"));
+        assert!(matches!(retriable, KafkaError::Krafka(_)), "{retriable}");
     }
 }

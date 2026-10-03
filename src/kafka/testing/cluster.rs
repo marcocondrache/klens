@@ -17,7 +17,9 @@ use crate::kafka::group::{CommittedOffset, GroupSnapshot};
 use crate::kafka::metadata::{
     BrokerMetadata, MetadataSnapshot, NewTopic, TopicMetadata, Watermarks,
 };
-use crate::kafka::model::{PartitionWindow, ScanConsumer, TailConsumer, TailPosition};
+use crate::kafka::model::{
+    NewRecord, PartitionWindow, ProducedRecord, ScanConsumer, TailConsumer, TailPosition,
+};
 use crate::kafka::quota::QuotaListing;
 use crate::kafka::registry::{RegisteredSchema, SchemaSubject};
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
@@ -50,6 +52,7 @@ pub enum Api {
     ClientQuotas,
     CreateTopic,
     DeleteTopic,
+    Produce,
 }
 
 #[derive(Clone)]
@@ -687,5 +690,28 @@ impl ClusterSession for FakeCluster {
         }
         self.remove_topic(topic);
         Ok(())
+    }
+
+    async fn produce(&self, record: &NewRecord) -> Result<ProducedRecord, KafkaError> {
+        self.answer(Api::Produce).await?;
+        let partition = record.partition.unwrap_or(0);
+        let offset = self
+            .world()
+            .watermarks
+            .get(&record.topic)
+            .and_then(|partitions| partitions.get(&partition))
+            .map_or(0, |marks| marks.high);
+        let mut stored = FixtureRecord::new(&record.topic, partition, offset);
+        if let Some(key) = &record.key {
+            stored = stored.key(key.clone());
+        }
+        if let Some(value) = &record.value {
+            stored = stored.value(value.clone());
+        }
+        for header in &record.headers {
+            stored = stored.header(&header.key, &header.value);
+        }
+        FakeCluster::produce(self, stored);
+        Ok(ProducedRecord { partition, offset })
     }
 }

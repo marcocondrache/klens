@@ -17,6 +17,8 @@ use krafka::admin::{
     AclFilter, ConfigResourceType, DescribeConfigsRequest, DescribeConfigsResource, GroupListing,
     OffsetSpec, OffsetVisibility,
 };
+use krafka::producer::Producer;
+use tokio::sync::OnceCell;
 
 use crate::config::{self, Tuning};
 use crate::kafka::acl::AclListing;
@@ -24,7 +26,9 @@ use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
 use crate::kafka::group::{CommittedOffset, GroupSnapshot};
 use crate::kafka::metadata::{MetadataSnapshot, NewTopic, TopicMetadata};
-use crate::kafka::model::{PartitionWindow, ScanConsumer, TailConsumer, TailPosition};
+use crate::kafka::model::{
+    NewRecord, PartitionWindow, ProducedRecord, ScanConsumer, TailConsumer, TailPosition,
+};
 use crate::kafka::quota::{DescribedQuota, QuotaListing};
 use crate::kafka::registry::client::SchemaRegistryClient;
 use crate::kafka::registry::decode::PayloadDecoder;
@@ -35,7 +39,7 @@ use crate::kafka::session::ClusterSession;
 use crate::kafka::storage::LogDir;
 use crate::kafka::topic_config::ConfigEntry;
 
-use convert::{committed_from_krafka, refused};
+use convert::{committed_from_krafka, produce_refusal, refused};
 use groups::{
     ACTIVE_GROUP_STATES, LISTED_GROUP_TYPES, snapshots_from_descriptions, split_empty_groups,
 };
@@ -50,6 +54,7 @@ pub struct KafkaClient {
     scan_poll_wait: Duration,
     tail_reader: ReaderConfig,
     transport: transport::Transport,
+    producer: OnceCell<Producer>,
     scans: Arc<ScanPool>,
     schema_registry: Option<Arc<PayloadDecoder>>,
     obfuscation: Option<Arc<ObfuscationPolicy>>,
@@ -103,6 +108,7 @@ impl KafkaClient {
                 ReaderConfig::new(tuning, tuning.scan.poll_wait),
             ),
             transport,
+            producer: OnceCell::new(),
             schema_registry,
             obfuscation,
         })
@@ -397,6 +403,21 @@ impl ClusterSession for KafkaClient {
             .into_iter()
             .try_for_each(|deleted| refused(deleted.error))
     }
+
+    async fn produce(&self, record: &NewRecord) -> Result<ProducedRecord, KafkaError> {
+        let producer = self
+            .producer
+            .get_or_try_init(|| self.transport.producer())
+            .await?;
+        let sent = producer
+            .send_record(record.to_krafka())
+            .await
+            .map_err(produce_refusal)?;
+        Ok(ProducedRecord {
+            partition: sent.partition,
+            offset: sent.offset,
+        })
+    }
 }
 
 fn partitions_by_topic(partitions: &[(String, i32)]) -> HashMap<String, Vec<i32>> {
@@ -424,6 +445,7 @@ mod tests {
     use std::collections::BTreeMap;
     use std::num::NonZeroU16;
 
+    use krafka::error::ErrorCode;
     use krafka::protocol::ApiKey;
     use krafka::testing::Control;
 
@@ -928,6 +950,62 @@ mod tests {
 
         let error = client.delete_topic("orders").await.unwrap_err();
         assert!(matches!(error, KafkaError::Refused(_)), "{error}");
+    }
+
+    #[tokio::test]
+    async fn produce_reports_where_kafka_stored_each_record() {
+        let broker = Broker::start().await;
+        broker.topic("orders", 2);
+        let client = broker.client().await;
+        let record = NewRecord {
+            topic: "orders".to_owned(),
+            partition: Some(1),
+            key: None,
+            value: Some(bytes::Bytes::from_static(b"hello")),
+            headers: Vec::new(),
+        };
+
+        let first = client.produce(&record).await.expect("first");
+        let second = client.produce(&record).await.expect("second");
+
+        assert_eq!(
+            first,
+            ProducedRecord {
+                partition: 1,
+                offset: 0
+            }
+        );
+        assert_eq!(
+            second,
+            ProducedRecord {
+                partition: 1,
+                offset: 1
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_produce_is_sent_once() {
+        let broker = Broker::start().await;
+        broker.topic("orders", 1);
+        let client = broker.client().await;
+        let logs = LogCapture::at(tracing::Level::WARN);
+        broker.on_once(ApiKey::Produce, |_| {
+            Control::Error(ErrorCode::NotEnoughReplicasAfterAppend)
+        });
+        let record = NewRecord {
+            topic: "orders".to_owned(),
+            partition: Some(0),
+            key: None,
+            value: None,
+            headers: Vec::new(),
+        };
+
+        let error = client.produce(&record).await.unwrap_err();
+
+        assert!(matches!(error, KafkaError::Krafka(_)), "{error}");
+        assert_eq!(broker.request_count(ApiKey::Produce), 1);
+        logs.assert_lacks("delivery_timeout is shorter");
     }
 
     #[tokio::test]

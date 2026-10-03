@@ -4,6 +4,7 @@ use krafka::admin::AdminClient as KrafkaAdmin;
 use krafka::auth::{AuthConfig, TlsConfig as KrafkaTlsConfig};
 use krafka::client::KrafkaClient as KrafkaSharedClient;
 use krafka::network::TransportConfig;
+use krafka::producer::Producer;
 use secrecy::ExposeSecret;
 
 use crate::config::{self, KafkaTuning, Sasl, SaslMechanism, Tls};
@@ -62,6 +63,25 @@ impl Connector {
         }
 
         Ok(builder.build().await?)
+    }
+}
+
+impl Transport {
+    pub(super) async fn producer(&self) -> Result<Producer, KafkaError> {
+        let request_timeout = self.connector.request_timeout;
+        Ok(Producer::builder()
+            .with_client(&self.client)
+            .request_timeout(request_timeout)
+            .connect_timeout(self.connector.connect_timeout)
+            .max_block(request_timeout)
+            .delivery_timeout(request_timeout)
+            // A resend without idempotence can store the record twice, and
+            // idempotence needs IDEMPOTENT_WRITE on the cluster before Kafka 2.8,
+            // so a failed write goes back to the user to retry.
+            .retries(0)
+            .idempotent(false)
+            .build()
+            .await?)
     }
 }
 
