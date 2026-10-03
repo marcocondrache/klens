@@ -635,7 +635,7 @@ mod tests {
     }
 
     #[test]
-    fn a_header_only_rule_leaves_the_payload_filterable_on_raw_bytes() {
+    fn only_a_header_rule_leaves_the_payload_filterable_on_raw_bytes() {
         let obfuscator = policy(
             "
             secret: {value: 0123456789abcdef0123456789abcdef}
@@ -653,6 +653,19 @@ mod tests {
                 .for_topic("payments.x")
                 .expect("rule")
                 .hides_payload()
+        );
+        assert!(
+            policy(
+                "
+                secret: {value: 0123456789abcdef0123456789abcdef}
+                rules:
+                  - topics: [orders]
+                    key: mask
+                ",
+            )
+            .for_topic("orders")
+            .expect("rule")
+            .hides_payload()
         );
     }
 
