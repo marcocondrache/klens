@@ -3,6 +3,7 @@ use std::net::{SocketAddr, TcpListener};
 
 use klens::kafka::ingest::Ingest;
 use klens::{AppState, AuthState, Clusters, Config, Limits, router};
+use reqwest::header::CONTENT_TYPE;
 use reqwest::{Response, StatusCode};
 use serde_json::Value;
 use tempfile::NamedTempFile;
@@ -29,6 +30,7 @@ impl Klens {
             clusters:
               local:
                 bootstrap_servers: ['{}']
+                writable: true
             tuning:
               ingest:
                 topology: 1s
@@ -85,6 +87,20 @@ impl Klens {
         let body = response.text().await.expect("response body");
         assert_eq!(status, StatusCode::OK, "GET {path} answered {body}");
         serde_json::from_str(&body).unwrap_or_else(|error| panic!("GET {path}: {error}: {body}"))
+    }
+
+    pub async fn patch(&self, path: &str, body: &Value) -> (StatusCode, Value) {
+        let response = self
+            .http
+            .patch(format!("{}{path}", self.base))
+            .header(CONTENT_TYPE, "application/json")
+            .body(body.to_string())
+            .send()
+            .await
+            .unwrap_or_else(|error| panic!("PATCH {path}: {error}"));
+        let status = response.status();
+        let body = response.text().await.expect("response body");
+        (status, serde_json::from_str(&body).unwrap_or(Value::Null))
     }
 
     pub async fn eventually(&self, path: &str, done: impl Fn(&Value) -> bool) -> Value {
