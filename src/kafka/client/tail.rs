@@ -125,11 +125,11 @@ impl Drop for TailLease {
 #[cfg(test)]
 mod tests {
     use krafka::protocol::ApiKey;
-    use krafka::testing::{Control, FakeBroker};
+    use krafka::testing::Control;
 
     use super::*;
     use crate::kafka::client::KafkaClient;
-    use crate::kafka::client::tests::{kafka_client, produce_krafka};
+    use crate::kafka::client::testing::Broker;
     use crate::kafka::session::ClusterSession;
     use crate::testing::eventually;
 
@@ -157,17 +157,10 @@ mod tests {
             .expect("high watermarks");
     }
 
-    async fn orders(count: usize) -> FakeBroker {
-        let broker = FakeBroker::start().await.unwrap();
-        assert!(broker.create_topic("orders", 1));
-        produce_krafka(&broker.bootstrap_servers(), "orders", count).await;
-        broker
-    }
-
     #[tokio::test]
     async fn a_tail_reads_from_its_start_without_looking_offsets_up() {
-        let broker = orders(4).await;
-        let client = kafka_client(&broker.bootstrap_servers()).await;
+        let broker = Broker::orders(4).await;
+        let client = broker.client().await;
         broker.clear_requests();
 
         let tail = TailLease::open(
@@ -192,8 +185,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_seek_moves_where_the_next_poll_reads() {
-        let broker = orders(4).await;
-        let client = kafka_client(&broker.bootstrap_servers()).await;
+        let broker = Broker::orders(4).await;
+        let client = broker.client().await;
         let tail = TailLease::open(
             &client.transport.connector,
             "orders",
@@ -217,8 +210,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_dropped_tail_closes_its_consumer() {
-        let broker = orders(1).await;
-        let client = kafka_client(&broker.bootstrap_servers()).await;
+        let broker = Broker::orders(1).await;
+        let client = broker.client().await;
         let tail = TailLease::open(
             &client.transport.connector,
             "orders",
@@ -239,8 +232,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_tail_the_broker_stops_answering_holds_up_nothing_else() {
-        let broker = orders(1).await;
-        let client = kafka_client(&broker.bootstrap_servers()).await;
+        let broker = Broker::orders(1).await;
+        let client = broker.client().await;
         let tail = TailLease::open(
             &client.transport.connector,
             "orders",

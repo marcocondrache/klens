@@ -140,6 +140,7 @@ fn krafka_tls(tls: &Tls) -> KrafkaTlsConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kafka::client::testing::Broker;
     use crate::testing::yaml;
 
     fn cluster(source: &str) -> config::Cluster {
@@ -156,7 +157,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_cluster_and_tuning_configure_the_shared_transport() {
-        let broker = krafka::testing::FakeBroker::start().await.unwrap();
+        let broker = Broker::start().await;
         let cluster = cluster(&format!(
             "{{bootstrap_servers: ['{}'], client_id: custom-client}}",
             broker.bootstrap_servers()
