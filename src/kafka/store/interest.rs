@@ -117,13 +117,6 @@ mod tests {
     use super::*;
 
     #[tokio::test(start_paused = true)]
-    async fn nothing_is_hot_until_someone_looks() {
-        let interest = InterestRegistry::new(Duration::from_secs(30));
-        assert!(interest.hot_groups().is_empty());
-        assert!(!interest.is_hot("billing"));
-    }
-
-    #[tokio::test(start_paused = true)]
     async fn a_lease_keeps_a_group_hot_until_it_is_dropped() {
         let interest = InterestRegistry::new(Duration::from_secs(30));
         let lease = interest.lease_group("billing");

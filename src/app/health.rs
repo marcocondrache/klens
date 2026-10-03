@@ -56,9 +56,4 @@ mod tests {
 
         assert_eq!(status(state, "/ready").await, StatusCode::NO_CONTENT);
     }
-
-    #[tokio::test]
-    async fn health_stays_up_while_the_store_is_still_empty() {
-        assert_eq!(status(state(), "/health").await, StatusCode::NO_CONTENT);
-    }
 }

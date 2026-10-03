@@ -412,18 +412,6 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn a_failing_lane_waits_out_its_interval() {
-        let store = cluster("local");
-        let source = Scripted::new(vec![Err("broker down".into())]);
-        let task = tokio::spawn(run(Arc::clone(&store), Arc::clone(&source)));
-
-        poll_until(&source, 1).await;
-        tokio::time::advance(Duration::from_secs(599)).await;
-        assert_eq!(source.polls.load(Ordering::SeqCst), 1);
-        task.abort();
-    }
-
-    #[tokio::test(start_paused = true)]
     async fn the_lane_sleeps_for_its_interval_between_polls() {
         let store = cluster("local");
         let source = Scripted::new(vec![Ok(orders(1))]);

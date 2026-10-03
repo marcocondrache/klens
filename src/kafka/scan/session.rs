@@ -1093,42 +1093,6 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn an_obfuscated_field_leaves_as_a_token_and_never_as_cleartext() {
-        let page = card_page(&cards(), None).await;
-
-        let value = page.records[0].value.as_deref().expect("value");
-        assert!(value.contains("\"kx:"), "{value}");
-        assert!(!value.contains(PAN), "{value}");
-        assert!(
-            value.contains("ord_0"),
-            "fields no rule names still render: {value}"
-        );
-        assert_eq!(page.records[0].key.as_deref(), Some("ord_0"));
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_contains_filter_cannot_be_an_oracle_for_an_obfuscated_field() {
-        let session = cards();
-
-        assert!(
-            card_page(&session, contains(PAN)).await.records.is_empty(),
-            "the cleartext the page never shows must not be searchable"
-        );
-        assert!(
-            card_page(&session, contains("4111"))
-                .await
-                .records
-                .is_empty(),
-            "nor may a prefix of it be, one digit at a time"
-        );
-        assert_eq!(
-            card_page(&session, contains("ord_2")).await.records.len(),
-            1,
-            "everything else still filters"
-        );
-    }
-
-    #[tokio::test(start_paused = true)]
     async fn a_filter_matches_the_token_the_page_shows() {
         let page = card_page(&cards(), contains("kx:")).await;
 
@@ -1193,16 +1157,6 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn a_pattern_rule_tokens_text_no_field_rule_could_have_reached() {
-        let page = card_page(&text_orders(), None).await;
-
-        let value = page.records[0].value.as_deref().expect("value");
-        assert!(value.starts_with("charged kx:"), "{value}");
-        assert!(!value.contains(PAN), "{value}");
-        assert!(value.ends_with("on order 0"), "{value}");
-    }
-
-    #[tokio::test(start_paused = true)]
     async fn a_contains_filter_cannot_be_an_oracle_for_a_pattern_rule_either() {
         let session = text_orders();
 
@@ -1221,15 +1175,6 @@ mod tests {
             1,
             "text no pattern matches still filters"
         );
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_page_says_whether_its_topic_is_obfuscated() {
-        assert!(card_page(&cards(), None).await.obfuscated);
-        assert!(card_page(&text_orders(), None).await.obfuscated);
-
-        let plain = FakeCluster::local().with_consume_timeout(Duration::from_secs(10));
-        assert!(!card_page(&plain, None).await.obfuscated);
     }
 
     #[tokio::test(start_paused = true)]

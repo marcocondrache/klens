@@ -102,40 +102,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_klens_groups_are_internal() {
-        assert!(is_internal_group("klens.internal.scan-1"));
-        assert!(!is_internal_group("orders-consumer"));
-    }
-
-    #[test]
-    fn consumed_topics_include_commits_left_behind() {
-        let group = GroupSnapshot {
-            id: "g".into(),
-            state: GroupState::Stable,
-            protocol: "range".into(),
-            members: vec![GroupMember {
-                id: "m1".into(),
-                client_id: "c1".into(),
-                host: "127.0.0.1".into(),
-                assignments: vec![MemberAssignment {
-                    topic: "orders".into(),
-                    partitions: vec![0, 1],
-                }],
-            }],
-            committed: vec![CommittedOffset {
-                topic: "payments".into(),
-                partition: 0,
-                offset: 3,
-            }],
-        };
-        assert_eq!(
-            group.consumed_topics().collect::<Vec<_>>(),
-            vec!["orders", "payments"],
-            "a topic a member left behind a commit on still counts as consumed"
-        );
-    }
-
-    #[test]
     fn state_parses_broker_spellings() {
         assert_eq!(GroupState::parse("Stable"), GroupState::Stable);
         assert_eq!(

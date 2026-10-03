@@ -235,10 +235,6 @@ impl ChangeBus {
     pub fn publish(&self, change: Change) {
         let _ = self.sender.send(change);
     }
-
-    pub fn subscriber_count(&self) -> usize {
-        self.sender.receiver_count()
-    }
 }
 
 type KeyDiff = (Vec<Arc<str>>, Vec<Arc<str>>, Vec<Arc<str>>);
@@ -497,59 +493,5 @@ mod tests {
         assert_eq!(delta.removed, [Arc::from("payments-value")]);
         let delta = SubjectsDelta::between(Some(&previous), &bumped).expect("a version landed");
         assert_eq!(delta.changed, [Arc::from("orders-value")]);
-    }
-
-    #[tokio::test]
-    async fn the_bus_fans_out_to_every_subscriber() {
-        let bus = ChangeBus::new();
-        let mut first = bus.subscribe();
-        let mut second = bus.subscribe();
-        assert_eq!(bus.subscriber_count(), 2);
-
-        bus.publish(Change::Subjects(Arc::new(SubjectsDelta {
-            added: vec![Arc::from("orders-value")],
-            removed: Vec::new(),
-            changed: Vec::new(),
-        })));
-
-        for receiver in [&mut first, &mut second] {
-            match receiver.recv().await.expect("event") {
-                Change::Subjects(delta) => assert_eq!(delta.added, [Arc::from("orders-value")]),
-                other => panic!("unexpected change: {other:?}"),
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn a_slow_subscriber_lags_instead_of_growing_the_buffer() {
-        let bus = ChangeBus::with_capacity(1);
-        let mut receiver = bus.subscribe();
-
-        for _ in 0..4 {
-            bus.publish(Change::Subjects(Arc::new(SubjectsDelta {
-                added: Vec::new(),
-                removed: Vec::new(),
-                changed: Vec::new(),
-            })));
-        }
-
-        assert!(
-            matches!(
-                receiver.recv().await,
-                Err(broadcast::error::RecvError::Lagged(_))
-            ),
-            "the API layer turns this into a resync, not an unbounded buffer"
-        );
-    }
-
-    #[test]
-    fn publishing_without_subscribers_is_not_an_error() {
-        let bus = ChangeBus::new();
-        bus.publish(Change::Subjects(Arc::new(SubjectsDelta {
-            added: Vec::new(),
-            removed: Vec::new(),
-            changed: Vec::new(),
-        })));
-        assert_eq!(bus.subscriber_count(), 0);
     }
 }

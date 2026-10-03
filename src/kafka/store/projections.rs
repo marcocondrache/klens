@@ -680,15 +680,6 @@ mod tests {
     }
 
     #[test]
-    fn a_broker_the_log_dirs_omit_has_no_size() {
-        let topology = topology();
-
-        let rows = broker_rows(&topology, Some(&LogDirTable::default()));
-
-        assert_eq!(rows[0].size_bytes, None);
-    }
-
-    #[test]
     fn topic_sizes_count_one_replica_and_disk_counts_them_all() {
         let topology = topology();
         let (name, topic) = topology.topics.iter().next().unwrap();

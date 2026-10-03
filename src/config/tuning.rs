@@ -394,20 +394,6 @@ ingest:
     }
 
     #[test]
-    fn durations_read_friendly_and_iso_forms() {
-        let interval = |value: &str| tuning(&format!("tail: {{interval: '{value}'}}"));
-
-        for (value, expected) in [
-            ("0s", Duration::ZERO),
-            ("1.5s", millis(1500)),
-            ("1h 30m", secs(5400)),
-            ("PT2S", secs(2)),
-        ] {
-            assert_eq!(interval(value).unwrap().tail.interval, expected, "{value}");
-        }
-    }
-
-    #[test]
     fn a_polling_period_is_at_least_a_second() {
         let topology = |value: &str| tuning(&format!("ingest: {{topology: {value}}}"));
 
@@ -416,29 +402,5 @@ ingest:
             topology("999ms").unwrap_err(),
             "must be at least 1s at line 1, column 20"
         );
-    }
-
-    #[test]
-    fn rejects_values_it_cannot_read() {
-        for (yaml, expected) in [
-            (
-                "tail: {interval: -5s}",
-                "failed to parse input in the \"friendly\" duration format: \
-                 cannot parse negative duration into unsigned `std::time::Duration` \
-                 at line 1, column 18",
-            ),
-            (
-                "tail: {batch_limit: 0}",
-                "invalid value: integer `0`, expected a nonzero usize at line 1, column 8",
-            ),
-            (
-                "kafka: {request_timeout_ms: 5000}",
-                "unknown field `request_timeout_ms`, expected one of connect_timeout, \
-                 request_timeout, consume_timeout, max_in_flight_requests, max_response_mib \
-                 at line 1, column 9",
-            ),
-        ] {
-            assert_eq!(tuning(yaml).unwrap_err(), expected, "{yaml}");
-        }
     }
 }

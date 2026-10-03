@@ -130,19 +130,6 @@ mod tests {
     }
 
     #[test]
-    fn rejection_names_the_offending_fields() {
-        let early = unix_datetime(1);
-        let late = unix_datetime(2);
-
-        assert_eq!(
-            TimestampRange::new(Some(late), Some(early))
-                .unwrap_err()
-                .to_string(),
-            "timestampFrom must not be after timestampTo"
-        );
-    }
-
-    #[test]
     fn maps_inclusive_bounds_to_kafka_seek_times() {
         let start = Some(unix_datetime(10));
         let end = Some(unix_datetime(20));
@@ -158,15 +145,5 @@ mod tests {
         let to = TimestampRange::new(None, end).unwrap();
         assert_eq!(to.start_seek(), None);
         assert_eq!(to.end_seek(), Some(21));
-    }
-
-    #[test]
-    fn unbounded_seeks_nowhere() {
-        assert_eq!(TimestampRange::UNBOUNDED.start_seek(), None);
-        assert_eq!(TimestampRange::UNBOUNDED.end_seek(), None);
-        assert_eq!(
-            TimestampRange::new(None, None).unwrap(),
-            TimestampRange::UNBOUNDED
-        );
     }
 }

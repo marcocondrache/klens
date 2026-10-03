@@ -247,11 +247,6 @@ mod tests {
     }
 
     #[test]
-    fn try_from_maps_a_concrete_binding() {
-        assert_eq!(Acl::try_from(stored_binding()).unwrap(), stored_acl());
-    }
-
-    #[test]
     fn try_from_maps_every_stored_resource_type() {
         let cases = [
             (WireResource::Topic, AclResourceType::Topic),

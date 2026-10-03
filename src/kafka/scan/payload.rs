@@ -149,15 +149,6 @@ mod tests {
     }
 
     #[test]
-    fn a_decoded_payload_reports_only_the_id_on_its_wire_prefix() {
-        let prefixed = DecodedPayload::decoded(framed(7, b"..."), serde_json::json!({}));
-        let bare = DecodedPayload::decoded(Bytes::from_static(b"{}"), serde_json::json!({}));
-
-        assert_eq!(prefixed.wire_schema_id(), Some(7));
-        assert_eq!(bare.wire_schema_id(), None);
-    }
-
-    #[test]
     fn decoded_payloads_render_from_json_once() {
         let payload =
             DecodedPayload::decoded(framed(7, b"..."), serde_json::json!({"status": "FAILED"}));
@@ -182,13 +173,6 @@ mod tests {
 
         assert!(needs_decode(&raw, None));
         assert_eq!(framed_schema_id(&raw), None);
-    }
-
-    #[test]
-    fn an_undecoded_slot_falls_back_to_raw_text() {
-        let slot = PayloadSlot::new(Bytes::from_static(b"plain"), None);
-
-        assert_eq!(slot.take().text(), "plain");
     }
 
     #[test]

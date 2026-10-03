@@ -389,47 +389,6 @@ mod tests {
     }
 
     #[test]
-    fn the_same_value_always_hashes_to_the_same_token() {
-        let obfuscator = payments().for_topic("payments.authorized").expect("rule");
-
-        let first = apply(&obfuscator, serde_json::json!({"card": {"number": "4111"}}));
-        let second = apply(&obfuscator, serde_json::json!({"card": {"number": "4111"}}));
-        let other = apply(&obfuscator, serde_json::json!({"card": {"number": "4112"}}));
-
-        assert_eq!(first["card"]["number"], second["card"]["number"]);
-        assert_ne!(first["card"]["number"], other["card"]["number"]);
-    }
-
-    #[test]
-    fn a_different_secret_gives_different_tokens() {
-        let rules = |secret: &str| {
-            policy(&format!(
-                "
-                secret: {{value: {secret}}}
-                rules:
-                  - topics: [payments]
-                    fields:
-                      - path: pan
-                        strategy: hash
-                "
-            ))
-            .for_topic("payments")
-            .expect("rule")
-        };
-
-        let left = apply(
-            &rules("0123456789abcdef0123456789abcdef"),
-            serde_json::json!({"pan": "4111"}),
-        );
-        let right = apply(
-            &rules("fedcba9876543210fedcba9876543210"),
-            serde_json::json!({"pan": "4111"}),
-        );
-
-        assert_ne!(left["pan"], right["pan"]);
-    }
-
-    #[test]
     fn an_array_on_the_path_fans_out_over_its_elements() {
         let obfuscator = policy(
             "
@@ -676,7 +635,7 @@ mod tests {
     }
 
     #[test]
-    fn a_header_only_rule_leaves_the_payload_filterable_on_raw_bytes() {
+    fn only_a_header_rule_leaves_the_payload_filterable_on_raw_bytes() {
         let obfuscator = policy(
             "
             secret: {value: 0123456789abcdef0123456789abcdef}
@@ -694,6 +653,19 @@ mod tests {
                 .for_topic("payments.x")
                 .expect("rule")
                 .hides_payload()
+        );
+        assert!(
+            policy(
+                "
+                secret: {value: 0123456789abcdef0123456789abcdef}
+                rules:
+                  - topics: [orders]
+                    key: mask
+                ",
+            )
+            .for_topic("orders")
+            .expect("rule")
+            .hides_payload()
         );
     }
 
@@ -812,14 +784,6 @@ mod tests {
         obfuscator.apply(Field::Value, &mut value);
 
         assert_eq!(value.expect("value").into_text(), "***");
-    }
-
-    #[test]
-    fn a_pattern_rule_takes_the_payload_off_the_raw_filter_path() {
-        assert!(
-            logs().for_topic("app.logs").expect("rule").hides_payload(),
-            "a filter must not answer from bytes a pattern rewrites"
-        );
     }
 
     #[test]

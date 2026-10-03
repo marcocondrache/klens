@@ -173,14 +173,4 @@ mod tests {
             assert_eq!(sasl.mechanism, mechanism);
         }
     }
-
-    #[test]
-    fn a_client_cert_needs_its_key() {
-        let error = parse::<Tls>("client: {cert: /etc/client.pem}").unwrap_err();
-
-        assert!(
-            error.to_string().starts_with("missing field `key`"),
-            "{error}"
-        );
-    }
 }

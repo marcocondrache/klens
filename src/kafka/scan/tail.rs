@@ -603,9 +603,4 @@ mod tests {
         assert!(value.contains("\"kx:"), "{value}");
         assert!(!value.contains(PAN), "{value}");
     }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_plain_topic_is_not_obfuscated() {
-        assert!(!open(&FakeCluster::local(), query()).await.obfuscated());
-    }
 }

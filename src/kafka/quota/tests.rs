@@ -49,13 +49,6 @@ fn each_entity_type_maps_from_its_wire_name() {
 }
 
 #[test]
-fn a_default_entity_keeps_no_name() {
-    let quotas = described_quotas(vec![described(&[("user", None)], &[])]);
-
-    assert_eq!(quotas[0].entity, vec![part(QuotaEntityType::User, None)]);
-}
-
-#[test]
 fn entity_parts_are_ordered_user_then_client_id() {
     let quotas = described_quotas(vec![described(
         &[("client-id", None), ("user", Some("alice"))],

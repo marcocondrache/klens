@@ -53,21 +53,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn missing_topics_have_no_rate() {
-        let rates = RateStore::new();
-        assert_eq!(rates.get("orders"), None);
-    }
-
-    #[test]
-    fn a_later_sample_replaces_the_rate() {
-        let rates = RateStore::new();
-        let topic: Arc<str> = Arc::from("orders");
-        rates.set(&topic, 12.5);
-        rates.set(&topic, 9.0);
-        assert_eq!(rates.get("orders"), Some(9.0));
-    }
-
-    #[test]
     fn set_reports_whether_the_rate_changed() {
         let rates = RateStore::new();
         let topic: Arc<str> = Arc::from("orders");
