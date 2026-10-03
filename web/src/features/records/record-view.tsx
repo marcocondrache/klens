@@ -1,5 +1,5 @@
 import { useRef, useState, type ReactNode } from "react";
-import { EyeOffIcon, Rows3Icon, SearchXIcon } from "lucide-react";
+import { CopyPlusIcon, EyeOffIcon, Rows3Icon, SearchXIcon } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
 
@@ -28,9 +28,11 @@ import {
   type FilterField,
   type FilterRule,
 } from "@/components/data-table/filters";
+import { IconButton } from "@/components/icon-button";
 import { PayloadView } from "@/components/payload-view";
 import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
+import { useAccess } from "@/hooks/use-access";
 import { useSubjectRows } from "@/lib/api/catalog";
 import { ApiError, apiErrorMessage } from "@/lib/api/client";
 import { useRecord, type RecordAddress } from "@/lib/api/live";
@@ -38,6 +40,7 @@ import { formatBytes, formatCount, formatRelative, formatTimestamp } from "@/lib
 import type { KafkaRecord, TopicDetail } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
+import { ProduceRecordDialog, duplicateDraft } from "./produce-record";
 import { useRecordAddress } from "./record-address";
 import { recordId } from "./record-id";
 import { RecordJump } from "./record-jump";
@@ -223,6 +226,9 @@ export function RecordView({
   const selectedObfuscated = listed ? obfuscated : (lookup.data?.obfuscated ?? false);
   const selectedSchemaId =
     selectedRecord?.value == null ? null : (selectedRecord.schemaId ?? filter.schemaId);
+  const { canChange } = useAccess();
+  const canDuplicate = !topic.internal && canChange(cluster, "PRODUCE");
+  const duplicate = canDuplicate && selectedRecord ? duplicateDraft(selectedRecord) : null;
 
   const fields = [partitionField(topic)];
 
@@ -312,6 +318,17 @@ export function RecordView({
                   {address.offset}
                 </span>
                 <CopyButton value={link(address)} label="Copy link to this record" />
+                {canDuplicate ? (
+                  <ProduceRecordDialog
+                    cluster={cluster}
+                    topic={topic}
+                    draft={duplicate ?? undefined}
+                    trigger={duplicate ? <IconButton label="Duplicate this record" /> : null}
+                    onProduced={open}
+                  >
+                    <CopyPlusIcon />
+                  </ProduceRecordDialog>
+                ) : null}
                 {selectedObfuscated ? <ObfuscatedBadge /> : null}
               </SheetTitle>
               <SheetDescription>
