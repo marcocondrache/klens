@@ -11,7 +11,7 @@ use crate::app::auth::access::{
     SchemaTextCap,
 };
 use crate::kafka::model::{FoundRecord, NewTopic, RecordAt, RegisteredSchema};
-use crate::kafka::store::{ClusterStore, Lane};
+use crate::kafka::store::{ClusterStore, Lane, TopicInfo};
 use crate::kafka::{
     Cluster, ConfigEntry, Export, KafkaError, RecordPage, RecordQuery, Tail, TailLimits, TailQuery,
 };
@@ -126,29 +126,34 @@ impl Granted<'_, ManageTopicsCap> {
     }
 
     pub(crate) async fn delete_topic(&self, topic: &str) -> Result<(), KafkaError> {
-        let topology = &self.cluster.store.topology;
-        let internal = topology
-            .load()
-            .and_then(|known| known.topics.get(topic).map(|entry| entry.internal));
-        match internal {
-            None => {
-                return Err(KafkaError::UnknownTopic {
-                    cluster: self.cluster.store.name().to_owned(),
-                    topic: topic.to_owned(),
-                });
-            }
-            Some(true) => return Err(KafkaError::InternalTopic(topic.to_owned())),
-            Some(false) => {}
-        }
+        self.writable_topic(topic, |_| ())?;
         self.cluster.session.delete_topic(topic).await?;
         tracing::info!(cluster = %self.cluster.store.name(), topic, "deleted topic");
-        self.settle(topology, |known| !known.topics.contains_key(topic))
-            .await;
+        self.settle(&self.cluster.store.topology, |known| {
+            !known.topics.contains_key(topic)
+        })
+        .await;
         Ok(())
     }
 }
 
 impl<Cap> Granted<'_, Cap> {
+    fn writable_topic<T>(
+        &self,
+        topic: &str,
+        read: impl FnOnce(&TopicInfo) -> T,
+    ) -> Result<T, KafkaError> {
+        let topology = self.cluster.store.topology.load();
+        match topology.as_ref().and_then(|known| known.topics.get(topic)) {
+            None => Err(KafkaError::UnknownTopic {
+                cluster: self.cluster.store.name().to_owned(),
+                topic: topic.to_owned(),
+            }),
+            Some(info) if info.internal => Err(KafkaError::InternalTopic(topic.to_owned())),
+            Some(info) => Ok(read(info)),
+        }
+    }
+
     async fn settle<T>(&self, lane: &Lane<T>, done: impl Fn(&T) -> bool) {
         if tokio::time::timeout(SETTLE, lane.refresh_until(done))
             .await
