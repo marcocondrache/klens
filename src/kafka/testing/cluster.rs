@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use foldhash::{HashMap, HashMapExt};
 
 use super::consumers::{CountingCodec, FakeScan, FakeTail};
-use super::fixtures::{offsets, partition};
+use super::fixtures::{offsets, partition, topic};
 use super::records::FixtureRecord;
 use super::world;
 use crate::config::{KafkaTuning, ScanTuning};
@@ -158,7 +158,7 @@ impl FakeCluster {
                 *high = (*high).max(record.offset() + 1);
             }
             for (name, partitions) in highs {
-                world.put_topic(&name, partitions.keys().copied());
+                world.put_topic(replicated(&name, partitions.keys().copied()));
                 world.watermarks.insert(
                     name,
                     partitions
@@ -203,7 +203,7 @@ impl FakeCluster {
 
     pub fn add_topic(&self, name: &str, partitions: i32, high: i64) {
         let mut world = self.world();
-        world.put_topic(name, 0..partitions);
+        world.put_topic(replicated(name, 0..partitions));
         world.watermarks.insert(
             name.to_owned(),
             (0..partitions)
@@ -237,6 +237,10 @@ impl FakeCluster {
             .entry(topic.to_owned())
             .or_default()
             .insert(partition, watermarks);
+    }
+
+    pub fn put_topic(&self, topic: TopicMetadata) {
+        self.world().put_topic(topic);
     }
 
     pub fn remove_topic(&self, name: &str) {
@@ -317,6 +321,10 @@ impl FakeCluster {
             .map_or(0, |traffic| traffic.peak)
     }
 
+    pub fn reset_calls(&self) {
+        self.world().traffic.clear();
+    }
+
     pub fn assigned_windows(&self) -> Vec<Vec<(i32, i64, i64)>> {
         self.world().assignments.clone()
     }
@@ -395,25 +403,27 @@ impl FakeCluster {
 }
 
 impl World {
-    fn put_topic(&mut self, name: &str, partitions: impl IntoIterator<Item = i32>) {
-        let partitions = partitions
-            .into_iter()
-            .map(|id| partition(id, vec![1], vec![1]))
-            .collect();
+    fn put_topic(&mut self, topic: TopicMetadata) {
         match self
             .metadata
             .topics
             .iter_mut()
-            .find(|topic| topic.name == name)
+            .find(|existing| existing.name == topic.name)
         {
-            Some(topic) => topic.partitions = partitions,
-            None => self.metadata.topics.push(TopicMetadata {
-                name: name.to_owned(),
-                internal: false,
-                partitions,
-            }),
+            Some(existing) => *existing = topic,
+            None => self.metadata.topics.push(topic),
         }
     }
+}
+
+fn replicated(name: &str, partitions: impl IntoIterator<Item = i32>) -> TopicMetadata {
+    topic(
+        name,
+        partitions
+            .into_iter()
+            .map(|id| partition(id, vec![1], vec![1]))
+            .collect(),
+    )
 }
 
 struct InFlight<'a> {

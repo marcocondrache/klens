@@ -15,7 +15,7 @@ use tower::ServiceExt as _;
 use tower_sessions::cookie::Key;
 use tower_sessions::cookie::time::Duration;
 
-use super::access::AccessPolicy;
+use super::access::{AccessPolicy, ClusterScope, EffectiveAccess, Grant, PrivilegeSet};
 use super::backend::AuthBackend;
 use super::oidc::OidcFlow;
 use super::{AuthSession, AuthState, SessionGuard, SessionUser, session_layer};
@@ -106,6 +106,37 @@ pub(super) async fn impersonate(
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
     StatusCode::NO_CONTENT.into_response()
+}
+
+pub fn access(grants: impl IntoIterator<Item = Grant>) -> EffectiveAccess {
+    EffectiveAccess::Granted(grants.into_iter().collect())
+}
+
+pub fn admin() -> Grant {
+    role("admin", PrivilegeSet::ALL)
+}
+
+pub fn viewer() -> Grant {
+    role("viewer", PrivilegeSet::NONE)
+}
+
+pub fn role(name: &str, privileges: PrivilegeSet) -> Grant {
+    Grant {
+        role_name: Arc::from(name),
+        privileges,
+        scope: ClusterScope::All,
+    }
+}
+
+impl Grant {
+    pub fn on(self, clusters: &[&str]) -> Self {
+        Self {
+            scope: ClusterScope::Only(Arc::new(
+                clusters.iter().map(|name| (*name).to_owned()).collect(),
+            )),
+            ..self
+        }
+    }
 }
 
 pub struct Browser {

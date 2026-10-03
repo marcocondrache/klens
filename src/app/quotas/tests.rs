@@ -1,29 +1,16 @@
-use std::sync::Arc;
-
 use axum::http::StatusCode;
 use serde_json::json;
 
-use crate::app::AppState;
-use crate::kafka::ClusterSession;
 use crate::kafka::model::QuotaListing;
-use crate::testing::{Api, FakeCluster};
-
-use super::super::harness::{failure, ok, store_of, viewer_everywhere, with};
-
-async fn polled(cluster: &FakeCluster) -> AppState {
-    let state = with(vec![cluster.clone()]);
-    let listing = cluster.client_quotas().await.expect("fake quotas");
-    store_of(&state, "local").quotas.commit(Arc::new(listing));
-    state
-}
+use crate::testing::{Api, FakeCluster, TestApp, access, viewer};
 
 #[tokio::test]
 async fn quotas_list_every_entity_type_with_its_values() {
-    let quotas = ok(
-        &polled(&FakeCluster::local()).await,
-        "/clusters/local/quotas",
-    )
-    .await;
+    let quotas = TestApp::local()
+        .await
+        .get("/clusters/local/quotas")
+        .await
+        .ok();
 
     assert_eq!(quotas["status"], "DESCRIBED");
     assert_eq!(
@@ -50,11 +37,11 @@ async fn quotas_list_every_entity_type_with_its_values() {
 
 #[tokio::test]
 async fn default_entities_carry_no_name() {
-    let quotas = ok(
-        &polled(&FakeCluster::local()).await,
-        "/clusters/local/quotas",
-    )
-    .await;
+    let quotas = TestApp::local()
+        .await
+        .get("/clusters/local/quotas")
+        .await
+        .ok();
 
     assert_eq!(
         quotas["quotas"][2]["entity"],
@@ -73,7 +60,11 @@ async fn a_denied_describe_says_so_instead_of_failing() {
     let cluster = FakeCluster::local();
     cluster.set_quotas(QuotaListing::Denied);
 
-    let quotas = ok(&polled(&cluster).await, "/clusters/local/quotas").await;
+    let quotas = TestApp::over(cluster)
+        .await
+        .get("/clusters/local/quotas")
+        .await
+        .ok();
 
     assert_eq!(quotas["status"], "DENIED");
     assert_eq!(quotas["quotas"], json!([]));
@@ -81,25 +72,28 @@ async fn a_denied_describe_says_so_instead_of_failing() {
 
 #[tokio::test]
 async fn quotas_are_served_from_the_lane_with_its_health() {
-    let cluster = FakeCluster::local();
-    let state = polled(&cluster).await;
-    cluster.set_quotas(QuotaListing::Denied);
+    let app = TestApp::local().await;
+    app.cluster().set_quotas(QuotaListing::Denied);
 
-    let quotas = ok(&state, "/clusters/local/quotas").await;
+    let quotas = app.get("/clusters/local/quotas").await.ok();
 
     assert_eq!(quotas["status"], "DESCRIBED");
     assert_eq!(quotas["quotas"].as_array().map(Vec::len), Some(5));
     assert!(quotas["sourceHealth"]["updatedAt"].is_string());
     assert_eq!(
-        cluster.calls(Api::ClientQuotas),
-        1,
+        app.cluster().calls(Api::ClientQuotas),
+        0,
         "only the lane asks the cluster"
     );
 }
 
 #[tokio::test]
 async fn quotas_are_empty_and_pending_until_the_lane_commits() {
-    let quotas = ok(&with(vec![FakeCluster::local()]), "/clusters/local/quotas").await;
+    let quotas = TestApp::of([FakeCluster::local()])
+        .build()
+        .get("/clusters/local/quotas")
+        .await
+        .ok();
 
     assert_eq!(quotas["status"], "PENDING");
     assert_eq!(quotas["quotas"], json!([]));
@@ -109,12 +103,10 @@ async fn quotas_are_empty_and_pending_until_the_lane_commits() {
 
 #[tokio::test]
 async fn quotas_are_forbidden_without_the_configs_privilege() {
-    let state = polled(&FakeCluster::local()).await;
-
-    let (status, code) = failure(&state, "/clusters/local/quotas", viewer_everywhere()).await;
-
-    assert_eq!(
-        (status, code.as_str()),
-        (StatusCode::FORBIDDEN, "FORBIDDEN")
-    );
+    TestApp::local()
+        .await
+        .with_access(access([viewer()]))
+        .get("/clusters/local/quotas")
+        .await
+        .assert_error(StatusCode::FORBIDDEN, "FORBIDDEN");
 }

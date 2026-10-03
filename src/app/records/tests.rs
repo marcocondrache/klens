@@ -1,20 +1,50 @@
-use axum::http::StatusCode;
-use serde_json::json;
+use std::num::NonZeroUsize;
 
-use crate::AppState;
+use axum::http::StatusCode;
+use bytes::Bytes;
+use serde_json::{Value, json};
+
 use crate::app::Limits;
 use crate::app::auth::SessionGuard;
-use crate::app::auth::access::EffectiveAccess;
+use crate::config::Tuning;
 use crate::kafka::model as domain;
-use crate::testing::{Api, FakeCluster, FixtureRecord, card_record};
-use bytes::Bytes;
-use futures::StreamExt as _;
+use crate::testing::{Api, FakeCluster, FixtureRecord, TestApp, access, card_record, viewer};
 
-use super::super::harness::{
-    failure, ok, open_stream, read_frames, seed, seeded, seeded_with, store_of, viewer_everywhere,
-    with_limits,
-};
 use super::types::Record;
+
+const RECORDS: &str = "/clusters/local/topics/orders.created/records";
+const TAIL: &str = "/clusters/local/topics/orders.created/records/tail";
+const EXPORT: &str = "/clusters/local/topics/orders.created/records/export";
+const PAN: &str = "4111111111111111";
+
+fn records(page: &Value) -> &[Value] {
+    page["records"].as_array().expect("records")
+}
+
+fn offsets(records: &[Value]) -> Vec<i64> {
+    records
+        .iter()
+        .map(|record| record["offset"].as_i64().expect("offset"))
+        .collect()
+}
+
+fn produced(partition: i32, offset: i64, key: impl Into<Bytes>) -> FixtureRecord {
+    FixtureRecord::order(partition, offset)
+        .at(1_700_000_100_000 + offset)
+        .key(key)
+}
+
+fn cards(rules: &str) -> FakeCluster {
+    FakeCluster::local()
+        .with_records((0..3).map(|offset| card_record(offset, PAN)).collect())
+        .with_obfuscation(rules)
+}
+
+fn paging_by(max_limit: usize) -> Limits {
+    let mut tuning = Tuning::default();
+    tuning.records.max_limit = NonZeroUsize::new(max_limit).expect("non-zero");
+    Limits::new(&tuning)
+}
 
 #[test]
 fn a_record_keeps_its_wire_schema_id() {
@@ -35,13 +65,9 @@ fn a_record_keeps_its_wire_schema_id() {
 
 #[tokio::test]
 async fn records_are_read_live_through_the_scan_path() {
-    let state = seeded();
-    let data = ok(
-        &state,
-        "/clusters/local/topics/orders.created/records?limit=3",
-    )
-    .await;
-    let records = data["records"].as_array().expect("records");
+    let app = TestApp::local().await;
+    let page = app.get(&format!("{RECORDS}?limit=3")).await.ok();
+    let records = records(&page);
 
     assert_eq!(records.len(), 3);
     assert_eq!(records[0]["topic"], "orders.created");
@@ -51,70 +77,58 @@ async fn records_are_read_live_through_the_scan_path() {
         .expect("timestamp")
         .parse::<jiff::Timestamp>()
         .expect("RFC 3339");
+    assert_eq!(app.cluster().calls(Api::OpenScan), 1);
 }
 
 #[tokio::test]
 async fn records_accept_rfc3339_timestamp_bounds() {
-    let state = seeded();
-    let data = ok(
-        &state,
-        "/clusters/local/topics/orders.created/records?order=OLDEST&from=2023-11-14T22:13:23Z&to=2023-11-14T22:13:25Z",
-    )
-    .await;
-    let records = data["records"].as_array().expect("records");
-    let offsets: Vec<_> = records
-        .iter()
-        .map(|record| record["offset"].as_i64().expect("offset"))
-        .collect();
+    let page = TestApp::local()
+        .await
+        .get(&format!(
+            "{RECORDS}?order=OLDEST&from=2023-11-14T22:13:23Z&to=2023-11-14T22:13:25Z"
+        ))
+        .await
+        .ok();
+    let records = records(&page);
 
-    assert_eq!(offsets, [3, 4, 5]);
+    assert_eq!(offsets(records), [3, 4, 5]);
     assert_eq!(records[0]["timestamp"], "2023-11-14T22:13:23Z");
     assert_eq!(records[2]["timestamp"], "2023-11-14T22:13:25Z");
 }
 
 #[tokio::test]
 async fn an_inverted_record_range_is_rejected() {
-    let (status, code) = failure(
-        &seeded(),
-        "/clusters/local/topics/orders.created/records?from=2023-11-14T22:13:25Z&to=2023-11-14T22:13:23Z",
-        EffectiveAccess::Unrestricted,
-    )
-    .await;
-
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert_eq!(code, "INVERTED_TIMESTAMP_RANGE");
+    TestApp::local()
+        .await
+        .get(&format!(
+            "{RECORDS}?from=2023-11-14T22:13:25Z&to=2023-11-14T22:13:23Z"
+        ))
+        .await
+        .assert_error(StatusCode::BAD_REQUEST, "INVERTED_TIMESTAMP_RANGE");
 }
 
 #[tokio::test]
 async fn a_cursor_only_pages_the_order_that_minted_it() {
-    let state = seeded();
-    let records = "/clusters/local/topics/orders.created/records";
-    let first = ok(&state, &format!("{records}?order=OLDEST&limit=2")).await;
+    let app = TestApp::local().await;
+    let first = app
+        .get(&format!("{RECORDS}?order=OLDEST&limit=2"))
+        .await
+        .ok();
     let cursor = first["nextCursor"].as_str().expect("next cursor");
 
-    ok(
-        &state,
-        &format!("{records}?order=OLDEST&limit=2&cursor={cursor}"),
-    )
-    .await;
-    let (status, code) = failure(
-        &state,
-        &format!("{records}?order=NEWEST&limit=2&cursor={cursor}"),
-        EffectiveAccess::Unrestricted,
-    )
-    .await;
-
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert_eq!(code, "INVALID_CURSOR");
+    app.get(&format!("{RECORDS}?order=OLDEST&limit=2&cursor={cursor}"))
+        .await
+        .ok();
+    app.get(&format!("{RECORDS}?order=NEWEST&limit=2&cursor={cursor}"))
+        .await
+        .assert_error(StatusCode::BAD_REQUEST, "INVALID_CURSOR");
 }
 
 #[tokio::test]
 async fn records_can_be_read_from_a_set_of_partitions() {
-    let state = seeded();
-    let partitions = |data: serde_json::Value| {
-        let mut ids: Vec<_> = data["records"]
-            .as_array()
-            .expect("records")
+    let app = TestApp::local().await;
+    let partitions = |page: Value| {
+        let mut ids: Vec<_> = records(&page)
             .iter()
             .map(|record| record["partition"].as_i64().expect("partition"))
             .collect();
@@ -123,16 +137,11 @@ async fn records_can_be_read_from_a_set_of_partitions() {
         ids
     };
 
-    let one = ok(
-        &state,
-        "/clusters/local/topics/orders.created/records?partition=1",
-    )
-    .await;
-    let both = ok(
-        &state,
-        "/clusters/local/topics/orders.created/records?partition=1&partition=0",
-    )
-    .await;
+    let one = app.get(&format!("{RECORDS}?partition=1")).await.ok();
+    let both = app
+        .get(&format!("{RECORDS}?partition=1&partition=0"))
+        .await
+        .ok();
 
     assert_eq!(partitions(one), [1]);
     assert_eq!(partitions(both), [0, 1]);
@@ -140,52 +149,42 @@ async fn records_can_be_read_from_a_set_of_partitions() {
 
 #[tokio::test]
 async fn a_malformed_partition_is_rejected() {
-    let records = "/clusters/local/topics/orders.created/records";
+    let app = TestApp::local().await;
     for path in [
-        format!("{records}?partition=one"),
-        format!("{records}?partition=0,1"),
+        format!("{RECORDS}?partition=one"),
+        format!("{RECORDS}?partition=0,1"),
         format!("{TAIL}?partition=one"),
     ] {
-        let (status, code) = failure(&seeded(), &path, EffectiveAccess::Unrestricted).await;
-
-        assert_eq!(
-            (status, code.as_str()),
-            (StatusCode::BAD_REQUEST, "INVALID_REQUEST"),
-            "{path}"
-        );
+        app.get(&path)
+            .await
+            .assert_error(StatusCode::BAD_REQUEST, "INVALID_REQUEST");
     }
 }
 
 #[tokio::test]
 async fn an_obfuscated_topic_serves_tokens_instead_of_payloads() {
-    let pan = "4111111111111111";
-    let records = (0..3).map(|offset| card_record(offset, pan)).collect();
-    let state = seeded_with(FakeCluster::local().with_records(records).with_obfuscation(
+    let app = TestApp::over(cards(
         "
-                secret: {value: 0123456789abcdef0123456789abcdef}
-                rules:
-                  - topics: ['orders.*']
-                    headers: ['x-user-id']
-                    fields:
-                      - path: card.number
-                        strategy: hash
-                      - path: card.cvv
-                        strategy: drop
-                ",
+        secret: {value: 0123456789abcdef0123456789abcdef}
+        rules:
+          - topics: ['orders.*']
+            headers: ['x-user-id']
+            fields:
+              - path: card.number
+                strategy: hash
+              - path: card.cvv
+                strategy: drop
+        ",
     ))
-    .0;
-    let data = ok(
-        &state,
-        "/clusters/local/topics/orders.created/records?limit=3",
-    )
     .await;
-    let records = data["records"].as_array().expect("records");
+    let page = app.get(&format!("{RECORDS}?limit=3")).await.ok();
+    let records = records(&page);
 
     assert_eq!(records.len(), 3);
     for record in records {
         let value = record["value"].as_str().expect("value");
         assert!(value.contains("\"kx:"), "{value}");
-        assert!(!value.contains(pan), "{value}");
+        assert!(!value.contains(PAN), "{value}");
         assert!(!value.contains("cvv"), "dropped fields vanish: {value}");
         assert!(
             record["key"].as_str().expect("key").starts_with("ord_"),
@@ -197,218 +196,172 @@ async fn an_obfuscated_topic_serves_tokens_instead_of_payloads() {
 
 #[tokio::test]
 async fn a_page_says_whether_a_rule_covers_its_topic() {
-    let pan = "4111111111111111";
-    let records: Vec<_> = (0..2).map(|offset| card_record(offset, pan)).collect();
-    let rules = "
+    let path = format!("{RECORDS}?limit=2");
+    let plain = TestApp::over(
+        FakeCluster::local().with_records((0..2).map(|offset| card_record(offset, PAN)).collect()),
+    )
+    .await;
+    let protected = TestApp::over(cards(
+        "
         secret: {value: 0123456789abcdef0123456789abcdef}
         rules:
           - topics: ['orders.*']
             fields:
               - path: card.number
                 strategy: mask
-        ";
-    let plain = seeded_with(FakeCluster::local().with_records(records.clone())).0;
-    let protected = seeded_with(
-        FakeCluster::local()
-            .with_records(records)
-            .with_obfuscation(rules),
-    )
-    .0;
-    let path = "/clusters/local/topics/orders.created/records?limit=2";
+        ",
+    ))
+    .await;
 
-    assert_eq!(
-        ok(&plain, path).await["obfuscated"],
-        serde_json::json!(false)
-    );
-    assert_eq!(
-        ok(&protected, path).await["obfuscated"],
-        serde_json::json!(true)
-    );
+    assert_eq!(plain.get(&path).await.ok()["obfuscated"], json!(false));
+    assert_eq!(protected.get(&path).await.ok()["obfuscated"], json!(true));
 }
 
 #[tokio::test]
 async fn a_pattern_rule_tokens_a_topic_no_registry_ever_decodes() {
-    let pan = "4111111111111111";
-    let records = (0..3)
-        .map(|offset| card_record(offset, pan).value(format!("charged {pan} for ada@example.com")))
+    let charges = (0..3)
+        .map(|offset| card_record(offset, PAN).value(format!("charged {PAN} for ada@example.com")))
         .collect();
-    let state = seeded_with(FakeCluster::local().with_records(records).with_obfuscation(
+    let app = TestApp::over(FakeCluster::local().with_records(charges).with_obfuscation(
         r"
-                secret: {value: 0123456789abcdef0123456789abcdef}
-                rules:
-                  - topics: ['orders.*']
-                    patterns:
-                      - regex: '\d{13,19}'
-                        strategy: hash
-                      - regex: '[\w.+-]+@[\w-]+\.[\w.]+'
-                        strategy: mask
-                ",
+        secret: {value: 0123456789abcdef0123456789abcdef}
+        rules:
+          - topics: ['orders.*']
+            patterns:
+              - regex: '\d{13,19}'
+                strategy: hash
+              - regex: '[\w.+-]+@[\w-]+\.[\w.]+'
+                strategy: mask
+        ",
     ))
-    .0;
-    let data = ok(
-        &state,
-        "/clusters/local/topics/orders.created/records?limit=3",
-    )
     .await;
+    let page = app.get(&format!("{RECORDS}?limit=3")).await.ok();
 
-    assert_eq!(data["obfuscated"], serde_json::json!(true));
-    let records = data["records"].as_array().expect("records");
+    assert_eq!(page["obfuscated"], json!(true));
+    let records = records(&page);
     assert_eq!(records.len(), 3);
     for record in records {
         let value = record["value"].as_str().expect("value");
         assert!(value.starts_with("charged kx:"), "{value}");
-        assert!(!value.contains(pan), "{value}");
+        assert!(!value.contains(PAN), "{value}");
         assert!(value.ends_with("for ***"), "{value}");
     }
 }
 
 #[tokio::test]
 async fn an_obfuscated_topic_cannot_be_filtered_on_the_cleartext_it_hides() {
-    let pan = "4111111111111111";
-    let records = (0..3).map(|offset| card_record(offset, pan)).collect();
-    let state = seeded_with(FakeCluster::local().with_records(records).with_obfuscation(
+    let app = TestApp::over(cards(
         "
-                secret: {value: 0123456789abcdef0123456789abcdef}
-                rules:
-                  - topics: ['orders.*']
-                    fields:
-                      - path: card.number
-                        strategy: hash
-                ",
+        secret: {value: 0123456789abcdef0123456789abcdef}
+        rules:
+          - topics: ['orders.*']
+            fields:
+              - path: card.number
+                strategy: hash
+        ",
     ))
-    .0;
-    let hidden = ok(
-        &state,
-        "/clusters/local/topics/orders.created/records?limit=3&contains=4111",
-    )
     .await;
-    let visible = ok(
-        &state,
-        "/clusters/local/topics/orders.created/records?limit=3&contains=ord_1",
-    )
-    .await;
+    let hidden = app
+        .get(&format!("{RECORDS}?limit=3&contains=4111"))
+        .await
+        .ok();
+    let visible = app
+        .get(&format!("{RECORDS}?limit=3&contains=ord_1"))
+        .await
+        .ok();
 
     assert!(
-        hidden["records"].as_array().expect("records").is_empty(),
+        records(&hidden).is_empty(),
         "a filter must not answer questions about an obfuscated field"
     );
-    assert_eq!(visible["records"].as_array().expect("records").len(), 1);
+    assert_eq!(records(&visible).len(), 1);
 }
 
 #[tokio::test]
 async fn records_are_forbidden_without_the_records_privilege() {
-    let (status, code) = failure(
-        &seeded(),
-        "/clusters/local/topics/orders.created/records",
-        viewer_everywhere(),
-    )
-    .await;
-
-    assert_eq!(
-        (status, code.as_str()),
-        (StatusCode::FORBIDDEN, "FORBIDDEN")
-    );
+    TestApp::local()
+        .await
+        .with_access(access([viewer()]))
+        .get(RECORDS)
+        .await
+        .assert_error(StatusCode::FORBIDDEN, "FORBIDDEN");
 }
-
-const RECORD: &str = "/clusters/local/topics/orders.created/records";
 
 #[tokio::test]
 async fn a_record_opens_by_partition_and_offset() {
-    let data = ok(&seeded(), &format!("{RECORD}/0/3")).await;
+    let opened = TestApp::local()
+        .await
+        .get(&format!("{RECORDS}/0/3"))
+        .await
+        .ok();
 
-    assert_eq!(data["record"]["partition"], 0);
-    assert_eq!(data["record"]["offset"], 3);
-    assert_eq!(data["record"]["key"], "ord_3");
-    assert_eq!(data["obfuscated"], json!(false));
+    assert_eq!(opened["record"]["partition"], 0);
+    assert_eq!(opened["record"]["offset"], 3);
+    assert_eq!(opened["record"]["key"], "ord_3");
+    assert_eq!(opened["obfuscated"], json!(false));
 }
 
 #[tokio::test]
 async fn an_offset_with_no_record_is_not_found() {
+    let app = TestApp::local().await;
     for offset in ["2", "8", "-1"] {
-        let path = format!("{RECORD}/0/{offset}");
-        let (status, code) = failure(&seeded(), &path, EffectiveAccess::Unrestricted).await;
-
-        assert_eq!(
-            (status, code.as_str()),
-            (StatusCode::NOT_FOUND, "UNKNOWN_OFFSET"),
-            "{path}"
-        );
+        app.get(&format!("{RECORDS}/0/{offset}"))
+            .await
+            .assert_error(StatusCode::NOT_FOUND, "UNKNOWN_OFFSET");
     }
 }
 
 #[tokio::test]
 async fn a_record_in_an_unknown_partition_is_not_found() {
-    let (status, code) = failure(
-        &seeded(),
-        &format!("{RECORD}/7/1"),
-        EffectiveAccess::Unrestricted,
-    )
-    .await;
-
-    assert_eq!(
-        (status, code.as_str()),
-        (StatusCode::NOT_FOUND, "UNKNOWN_PARTITION")
-    );
+    TestApp::local()
+        .await
+        .get(&format!("{RECORDS}/7/1"))
+        .await
+        .assert_error(StatusCode::NOT_FOUND, "UNKNOWN_PARTITION");
 }
 
 #[tokio::test]
 async fn an_opened_record_keeps_the_obfuscation_view() {
-    let pan = "4111111111111111";
-    let records = (0..3).map(|offset| card_record(offset, pan)).collect();
-    let state = seeded_with(FakeCluster::local().with_records(records).with_obfuscation(
+    let app = TestApp::over(cards(
         "
-                secret: {value: 0123456789abcdef0123456789abcdef}
-                rules:
-                  - topics: ['orders.*']
-                    fields:
-                      - path: card.number
-                        strategy: hash
-                ",
+        secret: {value: 0123456789abcdef0123456789abcdef}
+        rules:
+          - topics: ['orders.*']
+            fields:
+              - path: card.number
+                strategy: hash
+        ",
     ))
-    .0;
-    let data = ok(&state, &format!("{RECORD}/0/1")).await;
-    let value = data["record"]["value"].as_str().expect("value");
+    .await;
+    let opened = app.get(&format!("{RECORDS}/0/1")).await.ok();
+    let value = opened["record"]["value"].as_str().expect("value");
 
-    assert_eq!(data["obfuscated"], json!(true));
+    assert_eq!(opened["obfuscated"], json!(true));
     assert!(value.contains("\"kx:"), "{value}");
-    assert!(!value.contains(pan), "{value}");
+    assert!(!value.contains(PAN), "{value}");
 }
 
 #[tokio::test]
 async fn a_record_is_forbidden_without_the_records_privilege() {
-    let (status, code) = failure(&seeded(), &format!("{RECORD}/0/3"), viewer_everywhere()).await;
-
-    assert_eq!(
-        (status, code.as_str()),
-        (StatusCode::FORBIDDEN, "FORBIDDEN")
-    );
-}
-
-const TAIL: &str = "/clusters/local/topics/orders.created/records/tail";
-
-fn produced(partition: i32, offset: i64, key: impl Into<Bytes>) -> FixtureRecord {
-    FixtureRecord::order(partition, offset)
-        .at(1_700_000_100_000 + offset)
-        .key(key)
+    TestApp::local()
+        .await
+        .with_access(access([viewer()]))
+        .get(&format!("{RECORDS}/0/3"))
+        .await
+        .assert_error(StatusCode::FORBIDDEN, "FORBIDDEN");
 }
 
 #[tokio::test]
 async fn a_tail_announces_where_it_starts_then_streams_what_arrives() {
-    let (state, session) = seeded_with(FakeCluster::local());
-    let response = open_stream(
-        &state,
-        TAIL,
-        EffectiveAccess::Unrestricted,
-        SessionGuard::open(),
-    )
-    .await;
-    session.produce(produced(0, 8, "new"));
+    let app = TestApp::local().await;
+    let mut tail = app.open(TAIL).await;
+    app.cluster().produce(produced(0, 8, "new"));
 
-    let frames = read_frames(response, 2).await;
+    let [ready, batch] = <[_; 2]>::try_from(tail.take(2).await).expect("two events");
 
-    assert_eq!(frames[0].0, "ready");
+    assert_eq!(ready.name, "ready");
     assert_eq!(
-        frames[0].1,
+        ready.data,
         json!({
             "type": "ready",
             "start": [
@@ -418,10 +371,10 @@ async fn a_tail_announces_where_it_starts_then_streams_what_arrives() {
             "obfuscated": false,
         })
     );
-    assert_eq!(frames[1].0, "records");
-    assert_eq!(frames[1].1["type"], "records");
-    assert_eq!(frames[1].1["skipped"], 0);
-    let records = frames[1].1["records"].as_array().expect("records");
+    assert_eq!(batch.name, "records");
+    assert_eq!(batch.data["type"], "records");
+    assert_eq!(batch.data["skipped"], 0);
+    let records = records(&batch.data);
     assert_eq!(records.len(), 1);
     assert_eq!(records[0]["offset"], 8);
     assert_eq!(records[0]["key"], "new");
@@ -429,25 +382,20 @@ async fn a_tail_announces_where_it_starts_then_streams_what_arrives() {
 
 #[tokio::test]
 async fn a_tail_narrows_to_its_partition_and_filter() {
-    let (state, session) = seeded_with(FakeCluster::local());
-    let response = open_stream(
-        &state,
-        &format!("{TAIL}?partition=1&contains=hit"),
-        EffectiveAccess::Unrestricted,
-        SessionGuard::open(),
-    )
-    .await;
-    session.produce(produced(0, 8, "hit elsewhere"));
-    session.produce(produced(1, 8, "miss"));
-    session.produce(produced(1, 9, "hit"));
+    let app = TestApp::local().await;
+    let mut tail = app.open(&format!("{TAIL}?partition=1&contains=hit")).await;
+    app.cluster().produce(produced(0, 8, "hit elsewhere"));
+    app.cluster().produce(produced(1, 8, "miss"));
+    app.cluster().produce(produced(1, 9, "hit"));
 
-    let frames = read_frames(response, 2).await;
+    let ready = tail.next().await;
+    let batch = tail.next().await;
 
     assert_eq!(
-        frames[0].1["start"],
+        ready.data["start"],
         json!([{ "partition": 1, "offset": 8 }])
     );
-    let records = frames[1].1["records"].as_array().expect("records");
+    let records = records(&batch.data);
     assert_eq!(records.len(), 1);
     assert_eq!(records[0]["partition"], 1);
     assert_eq!(records[0]["key"], "hit");
@@ -455,19 +403,13 @@ async fn a_tail_narrows_to_its_partition_and_filter() {
 
 #[tokio::test]
 async fn a_tail_follows_a_set_of_partitions() {
-    let (state, _) = seeded_with(FakeCluster::local());
-    let response = open_stream(
-        &state,
-        &format!("{TAIL}?partition=1&partition=0"),
-        EffectiveAccess::Unrestricted,
-        SessionGuard::open(),
-    )
-    .await;
+    let app = TestApp::local().await;
+    let mut tail = app.open(&format!("{TAIL}?partition=1&partition=0")).await;
 
-    let frames = read_frames(response, 1).await;
+    let ready = tail.next().await;
 
     assert_eq!(
-        frames[0].1["start"],
+        ready.data["start"],
         json!([
             { "partition": 0, "offset": 8 },
             { "partition": 1, "offset": 8 },
@@ -477,170 +419,75 @@ async fn a_tail_follows_a_set_of_partitions() {
 
 #[tokio::test]
 async fn an_expired_session_ends_the_tail_with_an_error_frame() {
-    let (state, session) = seeded_with(FakeCluster::local());
-    let response = open_stream(
-        &state,
-        TAIL,
-        EffectiveAccess::Unrestricted,
-        SessionGuard::expired(),
-    )
-    .await;
-    session.produce(produced(0, 8, "unseen"));
+    let app = TestApp::local().await;
+    let mut tail = app.with_guard(SessionGuard::expired()).open(TAIL).await;
+    app.cluster().produce(produced(0, 8, "unseen"));
 
-    let frames = read_frames(response, 2).await;
+    let ending = tail.take(2).await.pop().expect("two events");
 
-    assert_eq!(frames[1].0, "error");
-    assert_eq!(frames[1].1["code"], "SESSION_EXPIRED");
-}
-
-async fn refused(state: &AppState, path: &str, access: EffectiveAccess) -> (StatusCode, String) {
-    let response = open_stream(state, path, access, SessionGuard::open()).await;
-    let status = response.status();
-    assert_ne!(status, StatusCode::OK, "{path} opened a tail");
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .expect("body");
-    let json: serde_json::Value = serde_json::from_slice(&body).expect("json error");
-    (status, json["code"].as_str().expect("code").to_owned())
+    assert_eq!(ending.name, "error");
+    assert_eq!(ending.data["code"], "SESSION_EXPIRED");
 }
 
 #[tokio::test]
 async fn a_tail_is_forbidden_without_the_records_privilege() {
-    let (status, code) = refused(&seeded(), TAIL, viewer_everywhere()).await;
-
-    assert_eq!(
-        (status, code.as_str()),
-        (StatusCode::FORBIDDEN, "FORBIDDEN")
-    );
+    TestApp::local()
+        .await
+        .with_access(access([viewer()]))
+        .get(TAIL)
+        .await
+        .assert_error(StatusCode::FORBIDDEN, "FORBIDDEN");
 }
 
 #[tokio::test]
 async fn tails_past_capacity_are_turned_away_until_one_closes() {
-    let state = with_limits(
-        vec![FakeCluster::local()],
-        Limits {
+    let app = TestApp::of([FakeCluster::local()])
+        .limits(Limits {
             live_tails: 1,
-            ..Limits::new(&crate::config::Tuning::default())
-        },
-    );
-    seed(store_of(&state, "local"));
-    let (status, code) = refused(
-        &state,
-        "/clusters/local/topics/ghost/records/tail",
-        EffectiveAccess::Unrestricted,
-    )
-    .await;
-    assert_eq!(
-        (status, code.as_str()),
-        (StatusCode::NOT_FOUND, "UNKNOWN_TOPIC"),
-        "a tail that never opened gives its seat back"
-    );
+            ..Limits::new(&Tuning::default())
+        })
+        .ingested()
+        .await;
 
-    let open = open_stream(
-        &state,
-        TAIL,
-        EffectiveAccess::Unrestricted,
-        SessionGuard::open(),
-    )
-    .await;
-    assert_eq!(open.status(), StatusCode::OK);
-
-    let (status, code) = refused(&state, TAIL, EffectiveAccess::Unrestricted).await;
-    assert_eq!(
-        (status, code.as_str()),
-        (StatusCode::SERVICE_UNAVAILABLE, "TOO_MANY_TAILS")
-    );
+    app.get("/clusters/local/topics/ghost/records/tail")
+        .await
+        .assert_error(StatusCode::NOT_FOUND, "UNKNOWN_TOPIC");
+    let open = app.open(TAIL).await;
+    app.get(TAIL)
+        .await
+        .assert_error(StatusCode::SERVICE_UNAVAILABLE, "TOO_MANY_TAILS");
 
     drop(open);
-    let reopened = open_stream(
-        &state,
-        TAIL,
-        EffectiveAccess::Unrestricted,
-        SessionGuard::open(),
-    )
-    .await;
-    assert_eq!(reopened.status(), StatusCode::OK);
-}
-
-const EXPORT: &str = "/clusters/local/topics/orders.created/records/export";
-
-fn paging_by(max_limit: usize) -> Limits {
-    let mut tuning = crate::config::Tuning::default();
-    tuning.records.max_limit = std::num::NonZeroUsize::new(max_limit).expect("non-zero");
-    Limits::new(&tuning)
-}
-
-async fn download(response: axum::response::Response) -> Result<Vec<serde_json::Value>, String> {
-    let mut body = response.into_body().into_data_stream();
-    let mut text = String::new();
-    for _ in 0..64 {
-        let chunk = tokio::time::timeout(std::time::Duration::from_secs(2), body.next())
-            .await
-            .map_err(|_| "export stalled".to_owned())?;
-        let Some(chunk) = chunk else {
-            assert!(text.is_empty() || text.ends_with('\n'), "{text}");
-            return Ok(text
-                .lines()
-                .map(|line| serde_json::from_str(line).expect("one json record per line"))
-                .collect());
-        };
-        text.push_str(
-            std::str::from_utf8(&chunk.map_err(|error| error.to_string())?).expect("utf-8"),
-        );
-    }
-    Err("export never ended".to_owned())
-}
-
-fn offsets(records: &[serde_json::Value]) -> Vec<i64> {
-    records
-        .iter()
-        .map(|record| record["offset"].as_i64().expect("offset"))
-        .collect()
+    app.open(TAIL).await;
 }
 
 #[tokio::test]
 async fn an_export_pages_through_every_record_as_ndjson() {
-    let session = FakeCluster::local();
-    let state = with_limits(vec![session.clone()], paging_by(3));
-    seed(store_of(&state, "local"));
-    let response = open_stream(
-        &state,
-        &format!("{EXPORT}?order=OLDEST"),
-        EffectiveAccess::Unrestricted,
-        SessionGuard::open(),
-    )
-    .await;
+    let app = TestApp::of([FakeCluster::local()])
+        .limits(paging_by(3))
+        .ingested()
+        .await;
+    let export = app.open(&format!("{EXPORT}?order=OLDEST")).await;
 
-    assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(response.headers()["content-type"], "application/x-ndjson");
+    assert_eq!(export.headers["content-type"], "application/x-ndjson");
     assert_eq!(
-        response.headers()["content-disposition"],
+        export.headers["content-disposition"],
         "attachment; filename=\"orders.created.ndjson\""
     );
-    let records = download(response).await.unwrap();
+    let records = export.ndjson().await.expect("the export completes");
     assert_eq!(offsets(&records), [0, 1, 2, 3, 4, 5, 6, 7]);
     assert_eq!(records[0]["key"], "ord_0");
     assert_eq!(records[0]["headers"][0]["key"], "source");
     assert_eq!(records[0]["timestamp"], "2023-11-14T22:13:20Z");
-    assert_eq!(session.calls(Api::LowWatermarks), 1);
+    assert_eq!(app.cluster().calls(Api::LowWatermarks), 1);
 }
 
 #[tokio::test]
 async fn an_export_applies_the_records_view_filter() {
-    let (state, _) = seeded_with(FakeCluster::local());
-    let export = |query: &str| {
-        let state = state.clone();
-        let path = format!("{EXPORT}?{query}");
-        async move {
-            let response = open_stream(
-                &state,
-                &path,
-                EffectiveAccess::Unrestricted,
-                SessionGuard::open(),
-            )
-            .await;
-            offsets(&download(response).await.unwrap())
-        }
+    let app = TestApp::local().await;
+    let export = async |query: &str| {
+        let export = app.open(&format!("{EXPORT}?{query}")).await;
+        offsets(&export.ndjson().await.expect("the export completes"))
     };
 
     assert_eq!(export("").await, [7, 6, 5, 4, 3, 2, 1, 0]);
@@ -654,52 +501,32 @@ async fn an_export_applies_the_records_view_filter() {
 
 #[tokio::test]
 async fn an_export_leaves_out_records_produced_after_it_opened() {
-    let (state, session) = seeded_with(FakeCluster::local());
-    let response = open_stream(
-        &state,
-        &format!("{EXPORT}?order=OLDEST"),
-        EffectiveAccess::Unrestricted,
-        SessionGuard::open(),
-    )
-    .await;
-    session.produce(produced(0, 8, "late"));
+    let app = TestApp::local().await;
+    let export = app.open(&format!("{EXPORT}?order=OLDEST")).await;
+    app.cluster().produce(produced(0, 8, "late"));
 
-    let records = download(response).await.unwrap();
+    let records = export.ndjson().await.expect("the export completes");
 
     assert_eq!(offsets(&records), [0, 1, 2, 3, 4, 5, 6, 7]);
 }
 
 #[tokio::test]
 async fn an_expired_session_breaks_off_the_export() {
-    let (state, _) = seeded_with(FakeCluster::local());
-    let response = open_stream(
-        &state,
-        EXPORT,
-        EffectiveAccess::Unrestricted,
-        SessionGuard::expired(),
-    )
-    .await;
+    let app = TestApp::local().await;
+    let export = app.with_guard(SessionGuard::expired()).open(EXPORT).await;
 
-    assert_eq!(response.status(), StatusCode::OK);
-    assert!(download(response).await.is_err());
+    assert!(export.ndjson().await.is_err());
 }
 
 #[tokio::test]
 async fn an_export_is_refused_before_it_streams() {
-    let (status, code) = failure(&seeded(), EXPORT, viewer_everywhere()).await;
-    assert_eq!(
-        (status, code.as_str()),
-        (StatusCode::FORBIDDEN, "FORBIDDEN")
-    );
+    let app = TestApp::local().await;
 
-    let (status, code) = failure(
-        &seeded(),
-        "/clusters/local/topics/ghost/records/export",
-        EffectiveAccess::Unrestricted,
-    )
-    .await;
-    assert_eq!(
-        (status, code.as_str()),
-        (StatusCode::NOT_FOUND, "UNKNOWN_TOPIC")
-    );
+    app.with_access(access([viewer()]))
+        .get(EXPORT)
+        .await
+        .assert_error(StatusCode::FORBIDDEN, "FORBIDDEN");
+    app.get("/clusters/local/topics/ghost/records/export")
+        .await
+        .assert_error(StatusCode::NOT_FOUND, "UNKNOWN_TOPIC");
 }

@@ -1,35 +1,31 @@
 use axum::http::StatusCode;
 
-use crate::app::auth::access::EffectiveAccess;
-
-use super::super::harness::{admin, failure, granted, ok, only, seeded, state, two_clusters};
+use crate::testing::{FakeCluster, TestApp, access, admin};
 
 #[tokio::test]
 async fn an_invisible_cluster_is_not_found_rather_than_forbidden() {
-    let state = two_clusters();
-    let (status, code) = failure(
-        &state,
-        "/clusters/payments",
-        granted(vec![admin(only(&["local"]))]),
-    )
-    .await;
-
-    assert_eq!(status, StatusCode::NOT_FOUND);
-    assert_eq!(code, "UNKNOWN_CLUSTER");
+    TestApp::of([FakeCluster::local(), FakeCluster::named("payments")])
+        .ingested()
+        .await
+        .with_access(access([admin().on(&["local"])]))
+        .get("/clusters/payments")
+        .await
+        .assert_error(StatusCode::NOT_FOUND, "UNKNOWN_CLUSTER");
 }
 
 #[tokio::test]
 async fn a_cluster_nobody_configured_is_not_found() {
-    let (status, code) = failure(&state(), "/clusters/nope", EffectiveAccess::Unrestricted).await;
-
-    assert_eq!(status, StatusCode::NOT_FOUND);
-    assert_eq!(code, "UNKNOWN_CLUSTER");
+    TestApp::local()
+        .await
+        .get("/clusters/nope")
+        .await
+        .assert_error(StatusCode::NOT_FOUND, "UNKNOWN_CLUSTER");
 }
 
 #[tokio::test]
 async fn cluster_health_reports_per_lane_freshness_and_counts() {
-    let state = seeded();
-    let health = &ok(&state, "/clusters").await[0];
+    let clusters = TestApp::local().await.get("/clusters").await.ok();
+    let health = &clusters[0];
 
     assert_eq!(health["cluster"], "local");
     assert_eq!(health["ready"], true);
@@ -40,8 +36,8 @@ async fn cluster_health_reports_per_lane_freshness_and_counts() {
         .expect("updatedAt")
         .parse::<jiff::Timestamp>()
         .expect("RFC 3339");
-    assert_eq!(health["topicCount"], 2);
-    assert_eq!(health["partitionCount"], 3);
+    assert_eq!(health["topicCount"], 1);
+    assert_eq!(health["partitionCount"], 2);
     assert_eq!(health["groupCount"], 1);
     assert_eq!(health["brokerCount"], 1);
     assert_eq!(health["subjectCount"], 1);
@@ -50,7 +46,9 @@ async fn cluster_health_reports_per_lane_freshness_and_counts() {
 
 #[tokio::test]
 async fn a_cluster_with_no_commits_yet_is_visible_but_not_ready() {
-    let health = &ok(&state(), "/clusters").await[0];
+    let app = TestApp::of([FakeCluster::local()]).build();
+    let clusters = app.get("/clusters").await.ok();
+    let health = &clusters[0];
 
     assert_eq!(health["cluster"], "local");
     assert_eq!(health["ready"], false);

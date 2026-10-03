@@ -119,7 +119,7 @@ fn committed(partition: i32, offset: i64) -> CommittedOffset {
     }
 }
 
-pub fn local_acls() -> Vec<Acl> {
+fn local_acls() -> Vec<Acl> {
     vec![
         Acl {
             resource_type: AclResourceType::Topic,

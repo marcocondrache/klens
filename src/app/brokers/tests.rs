@@ -1,34 +1,39 @@
 use axum::http::StatusCode;
+use serde_json::{Value, json};
 
-use crate::app::auth::access::EffectiveAccess;
-use crate::kafka::store::LogDirTable;
-
-use super::super::harness::{failure, ok, ok_as, seeded, store_of, viewer_everywhere};
+use crate::testing::{Api, FakeCluster, TestApp, access, viewer};
 
 #[tokio::test]
 async fn broker_rows_count_the_partitions_each_node_carries() {
-    let state = seeded();
-    let data = ok(&state, "/clusters/local/brokers").await;
+    let brokers = TestApp::local()
+        .await
+        .get("/clusters/local/brokers")
+        .await
+        .ok();
 
-    assert_eq!(data[0]["host"], "localhost");
-    assert_eq!(data[0]["partitionCount"], 3);
-    assert_eq!(data[0]["leaderCount"], 3);
+    assert_eq!(brokers[0]["host"], "localhost");
+    assert_eq!(brokers[0]["partitionCount"], 2);
+    assert_eq!(brokers[0]["leaderCount"], 2);
 }
 
 #[tokio::test]
 async fn broker_rows_carry_the_log_dirs_on_each_node() {
-    let data = ok(&seeded(), "/clusters/local/brokers").await;
+    let brokers = TestApp::local()
+        .await
+        .get("/clusters/local/brokers")
+        .await
+        .ok();
 
-    assert_eq!(data[0]["sizeBytes"], 5_120);
+    assert_eq!(brokers[0]["sizeBytes"], 6_144);
     assert_eq!(
-        data[0]["logDirs"],
-        serde_json::json!([{
+        brokers[0]["logDirs"],
+        json!([{
             "path": "/var/lib/kafka/data",
             "error": null,
             "totalBytes": 1_000_000,
-            "usableBytes": 600_000,
+            "usableBytes": 750_000,
             "cordoned": false,
-            "sizeBytes": 5_120,
+            "sizeBytes": 6_144,
             "replicaCount": 2
         }])
     );
@@ -36,73 +41,62 @@ async fn broker_rows_carry_the_log_dirs_on_each_node() {
 
 #[tokio::test]
 async fn a_broker_has_no_size_before_the_log_dirs_lane_reports() {
-    let state = seeded();
-    store_of(&state, "local")
-        .log_dirs
-        .commit(std::sync::Arc::new(LogDirTable::default()));
+    let cluster = FakeCluster::local();
+    cluster.fail(Api::LogDirs, "log dirs unavailable");
+    let app = TestApp::over(cluster).await;
 
-    let data = ok(&state, "/clusters/local/brokers").await;
+    let brokers = app.get("/clusters/local/brokers").await.ok();
 
-    assert_eq!(data[0]["sizeBytes"], serde_json::Value::Null);
-    assert_eq!(data[0]["logDirs"], serde_json::json!([]));
+    assert_eq!(brokers[0]["sizeBytes"], Value::Null);
+    assert_eq!(brokers[0]["logDirs"], json!([]));
 }
 
 #[tokio::test]
 async fn broker_configs_stay_live_because_no_lane_sweeps_them() {
-    let state = seeded();
-    let configs = ok(&state, "/clusters/local/brokers/1/configs").await;
+    let app = TestApp::local().await;
+    let configs = app.get("/clusters/local/brokers/1/configs").await.ok();
 
     assert_eq!(configs[0]["name"], "log.retention.hours");
+    assert_eq!(app.cluster().calls(Api::BrokerConfigs), 1);
 }
 
 #[tokio::test]
 async fn configs_for_a_broker_the_topology_does_not_list_are_not_asked_for() {
-    let (status, code) = failure(
-        &seeded(),
-        "/clusters/local/brokers/9/configs",
-        EffectiveAccess::Unrestricted,
-    )
-    .await;
+    let app = TestApp::local().await;
 
-    assert_eq!(
-        (status, code.as_str()),
-        (StatusCode::NOT_FOUND, "UNKNOWN_BROKER")
-    );
+    app.get("/clusters/local/brokers/9/configs")
+        .await
+        .assert_error(StatusCode::NOT_FOUND, "UNKNOWN_BROKER");
+    assert_eq!(app.cluster().calls(Api::BrokerConfigs), 0);
 }
 
 #[tokio::test]
 async fn a_non_numeric_broker_id_is_an_invalid_request() {
-    let (status, code) = failure(
-        &seeded(),
-        "/clusters/local/brokers/one/configs",
-        EffectiveAccess::Unrestricted,
-    )
-    .await;
-
-    assert_eq!(
-        (status, code.as_str()),
-        (StatusCode::BAD_REQUEST, "INVALID_REQUEST")
-    );
+    TestApp::local()
+        .await
+        .get("/clusters/local/brokers/one/configs")
+        .await
+        .assert_error(StatusCode::BAD_REQUEST, "INVALID_REQUEST");
 }
 
 #[tokio::test]
 async fn broker_configs_are_forbidden_without_the_configs_privilege() {
-    let (status, code) = failure(
-        &seeded(),
-        "/clusters/local/brokers/1/configs",
-        viewer_everywhere(),
-    )
-    .await;
-
-    assert_eq!(
-        (status, code.as_str()),
-        (StatusCode::FORBIDDEN, "FORBIDDEN")
-    );
+    TestApp::local()
+        .await
+        .with_access(access([viewer()]))
+        .get("/clusters/local/brokers/1/configs")
+        .await
+        .assert_error(StatusCode::FORBIDDEN, "FORBIDDEN");
 }
 
 #[tokio::test]
 async fn broker_rows_stay_open_to_a_viewer() {
-    let brokers = ok_as(&seeded(), "/clusters/local/brokers", viewer_everywhere()).await;
+    let brokers = TestApp::local()
+        .await
+        .with_access(access([viewer()]))
+        .get("/clusters/local/brokers")
+        .await
+        .ok();
 
     assert_eq!(brokers[0]["id"], 1);
 }
