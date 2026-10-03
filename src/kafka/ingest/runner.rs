@@ -123,9 +123,8 @@ mod tests {
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use crate::config::IngestTuning;
     use crate::kafka::store::{ConfigTable, LaneHealth};
-    use crate::testing::{identity, partition, topic, topology, until};
+    use crate::testing::{partition, topic, topology, until};
 
     struct Scripted {
         polls: AtomicUsize,
@@ -257,10 +256,7 @@ mod tests {
     }
 
     fn cluster(name: &str) -> Arc<ClusterStore> {
-        Arc::new(ClusterStore::new(
-            identity(name),
-            IngestTuning::default().interest_ttl,
-        ))
+        Arc::new(ClusterStore::named(name))
     }
 
     fn orders(partitions: usize) -> Topology {

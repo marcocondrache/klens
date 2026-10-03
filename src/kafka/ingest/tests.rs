@@ -19,10 +19,7 @@ use crate::testing::{Api, FakeCluster, LogCapture, config_entry, quiesce, settle
 const IDLE: Duration = Duration::from_secs(600);
 
 fn store(session: &FakeCluster) -> Arc<ClusterStore> {
-    Arc::new(ClusterStore::new(
-        session.identity().clone(),
-        IngestTuning::default().interest_ttl,
-    ))
+    Arc::new(ClusterStore::named(&session.identity().name))
 }
 
 fn port(session: &FakeCluster) -> Arc<dyn ClusterSession> {

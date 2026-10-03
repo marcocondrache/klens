@@ -248,7 +248,7 @@ fn round_rate(value: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::{FakeCluster, identity, watermarks};
+    use crate::testing::{FakeCluster, watermarks};
     use tokio::sync::broadcast::Receiver;
     use tokio::sync::broadcast::error::TryRecvError;
 
@@ -360,7 +360,7 @@ mod tests {
             tuning.high_watermark,
             &tuning,
         );
-        let store = ClusterStore::new(identity("local"), tuning.interest_ttl);
+        let store = ClusterStore::named("local");
         let mut events = store.bus.subscribe();
         let step = |marks: &[(&str, i32, i64, i64)]| Arc::new(watermarks(marks));
 
