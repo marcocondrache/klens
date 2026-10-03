@@ -4,6 +4,8 @@ mod offsets;
 mod pool;
 mod scan;
 mod tail;
+#[cfg(test)]
+pub(crate) mod testing;
 mod transport;
 
 use std::sync::Arc;
@@ -401,13 +403,17 @@ fn list_offset_parts(result: krafka::admin::ListOffsetResult) -> (String, i32, i
 
 #[cfg(test)]
 mod tests {
+    use krafka::protocol::ApiKey;
+    use krafka::testing::Control;
+
+    use super::testing::Broker;
     use super::*;
     use crate::kafka::group::MemberAssignment;
     use crate::kafka::metadata::Watermarks;
-    use crate::kafka::model::{PartitionWindow, RecordOrder, RecordQuery, TimestampRange};
+    use crate::kafka::model::{PartitionWindow, Record, RecordOrder, RecordQuery, TimestampRange};
     use crate::kafka::scan::session::{fetch_page, scan_once};
     use crate::kafka::session::watermarks;
-    use crate::testing::{LogCapture, yaml};
+    use crate::testing::LogCapture;
 
     fn window(partition: i32, start: i64, end: i64) -> PartitionWindow {
         PartitionWindow {
@@ -421,15 +427,30 @@ mod tests {
         HashMap::from_iter([(topic.to_owned(), partitions.to_vec())])
     }
 
+    fn offsets(records: &[Record]) -> Vec<i64> {
+        records.iter().map(|record| record.offset).collect()
+    }
+
+    async fn commit(client: &KafkaClient, group: &str, topic: &str, offset: i64) {
+        client
+            .transport
+            .admin
+            .alter_consumer_group_offsets(group, &[(topic, &[(0, offset)])])
+            .await
+            .expect("commit");
+    }
+
+    async fn close(client: KafkaClient) {
+        client.transport.admin.close().await;
+        client.transport.client.pool().close_all().await;
+    }
+
     #[tokio::test]
     async fn connecting_does_not_warn_about_the_connection_memory_ceiling() {
         let logs = LogCapture::at(tracing::Level::WARN);
 
-        let broker = krafka::testing::FakeBroker::start()
-            .await
-            .expect("fake broker");
-        let client = kafka_client(&broker.bootstrap_servers()).await;
-        client.metadata().await.expect("metadata");
+        let broker = Broker::start().await;
+        broker.client().await.metadata().await.expect("metadata");
 
         logs.assert_lacks("memory ceiling");
     }
@@ -438,13 +459,8 @@ mod tests {
     async fn admin_calls_do_not_warn_about_missing_close() {
         let logs = LogCapture::at(tracing::Level::WARN);
 
-        let broker = krafka::testing::FakeBroker::start()
-            .await
-            .expect("fake broker");
-        assert!(broker.create_topic("orders", 1));
-        produce_krafka(&broker.bootstrap_servers(), "orders", 1).await;
-
-        let client = kafka_client(&broker.bootstrap_servers()).await;
+        let broker = Broker::orders(1).await;
+        let client = broker.client().await;
         watermarks(&client, &wanted("orders", &[0]))
             .await
             .expect("watermarks");
@@ -457,9 +473,10 @@ mod tests {
 
     #[tokio::test]
     async fn empty_partitions_skip_kafka() {
-        let broker = krafka::testing::FakeBroker::start().await.unwrap();
-        let client = kafka_client(&broker.bootstrap_servers()).await;
+        let broker = Broker::start().await;
+        let client = broker.client().await;
         broker.clear_requests();
+
         let offsets = client.committed_offsets("unused", Some(&[])).await.unwrap();
         assert!(offsets.is_empty());
         assert!(
@@ -488,90 +505,63 @@ mod tests {
 
     #[tokio::test]
     async fn the_scan_poll_wait_comes_from_tuning() {
-        let broker = krafka::testing::FakeBroker::start().await.unwrap();
+        let broker = Broker::start().await;
         let mut tuning = Tuning::default();
         tuning.scan.poll_wait = Duration::from_millis(250);
-        let client = KafkaClient::new("test", &cluster(&broker.bootstrap_servers()), &tuning)
-            .await
-            .unwrap();
+        let client = broker.client_with(&tuning).await;
 
         assert_eq!(client.scan_poll_wait(), Duration::from_millis(250));
-        client.transport.admin.close().await;
-        client.transport.client.pool().close_all().await;
+        close(client).await;
     }
 
     #[tokio::test]
     async fn broker_io_is_bounded_by_the_configured_request_timeout() {
-        let broker = krafka::testing::FakeBroker::start().await.unwrap();
+        let broker = Broker::start().await;
         let mut tuning = Tuning::default();
         tuning.kafka.request_timeout = Duration::from_millis(100);
         tuning.kafka.connect_timeout = Duration::from_millis(100);
-        let client = KafkaClient::new("test", &cluster(&broker.bootstrap_servers()), &tuning)
-            .await
-            .unwrap();
+        let client = broker.client_with(&tuning).await;
         assert_eq!(
             client.transport.admin.request_timeout(),
             Duration::from_millis(100)
         );
         broker.clear_requests();
-        broker.on(krafka::protocol::ApiKey::Metadata, |_| {
-            krafka::testing::Control::Silence
-        });
+        broker.on(ApiKey::Metadata, |_| Control::Silence);
+
         let error = tokio::time::timeout(Duration::from_secs(2), client.metadata())
             .await
             .expect("krafka must bound the request without an adapter timeout")
             .unwrap_err();
+
         assert!(matches!(error, KafkaError::Krafka(_)), "{error:?}");
-        assert!(
-            broker.request_count(krafka::protocol::ApiKey::Metadata) > 0,
-            "{error:?}"
-        );
-        client.transport.admin.close().await;
-        client.transport.client.pool().close_all().await;
+        assert!(broker.request_count(ApiKey::Metadata) > 0, "{error:?}");
+        close(client).await;
     }
 
     #[tokio::test]
-    async fn a_broker_that_does_not_serve_list_groups_fails_the_call() {
-        let broker = krafka::testing::FakeBroker::start().await.unwrap();
-        let client = kafka_client(&broker.bootstrap_servers()).await;
+    async fn a_broker_that_does_not_serve_an_admin_api_fails_that_call() {
+        let broker = Broker::start().await;
+        let client = broker.client().await;
         client.metadata().await.expect("metadata");
 
-        let error = client.groups().await.unwrap_err();
-
-        assert!(matches!(error, KafkaError::Krafka(_)), "{error:?}");
-    }
-
-    #[tokio::test]
-    async fn a_broker_that_does_not_serve_describe_log_dirs_fails_the_call() {
-        let broker = krafka::testing::FakeBroker::start().await.unwrap();
-        let client = kafka_client(&broker.bootstrap_servers()).await;
-        client.metadata().await.expect("metadata");
-
-        let error = client.log_dirs().await.unwrap_err();
-
-        assert!(matches!(error, KafkaError::Krafka(_)), "{error:?}");
-    }
-
-    #[tokio::test]
-    async fn a_broker_that_does_not_serve_describe_client_quotas_fails_the_call() {
-        let broker = krafka::testing::FakeBroker::start().await.unwrap();
-        let client = kafka_client(&broker.bootstrap_servers()).await;
-        client.metadata().await.expect("metadata");
-
-        let error = client.client_quotas().await.unwrap_err();
-
-        assert!(matches!(error, KafkaError::Krafka(_)), "{error:?}");
+        for (api, error) in [
+            ("ListGroups", client.groups().await.err()),
+            ("DescribeLogDirs", client.log_dirs().await.err()),
+            ("DescribeClientQuotas", client.client_quotas().await.err()),
+        ] {
+            assert!(
+                matches!(error, Some(KafkaError::Krafka(_))),
+                "{api}: {error:?}"
+            );
+        }
     }
 
     #[tokio::test]
     async fn metadata_reads_topics_and_partitions_from_broker() {
-        let broker = krafka::testing::FakeBroker::start()
-            .await
-            .expect("fake broker");
-        assert!(broker.create_topic("orders", 2));
+        let broker = Broker::start().await;
+        broker.topic("orders", 2);
 
-        let client = kafka_client(&broker.bootstrap_servers()).await;
-        let meta = client.metadata().await.expect("metadata");
+        let meta = broker.client().await.metadata().await.expect("metadata");
 
         let topic = meta.topic("orders").expect("orders topic");
         assert_eq!(
@@ -587,13 +577,9 @@ mod tests {
 
     #[tokio::test]
     async fn client_reads_watermarks_and_time_offsets() {
-        let broker = krafka::testing::FakeBroker::start()
-            .await
-            .expect("fake broker");
-        assert!(broker.create_topic("orders", 1));
-        produce_krafka(&broker.bootstrap_servers(), "orders", 1).await;
+        let broker = Broker::orders(1).await;
+        let client = broker.client().await;
 
-        let client = kafka_client(&broker.bootstrap_servers()).await;
         let marks = watermarks(&client, &wanted("orders", &[0]))
             .await
             .expect("watermarks");
@@ -608,10 +594,8 @@ mod tests {
 
     #[tokio::test]
     async fn low_and_high_watermarks_list_one_end_each() {
-        let broker = krafka::testing::FakeBroker::start()
-            .await
-            .expect("fake broker");
-        assert!(broker.create_topic("orders", 2));
+        let broker = Broker::start().await;
+        broker.topic("orders", 2);
         broker.with_state(|state| {
             for (id, low, high) in [(0, 1, 5), (1, 0, 2)] {
                 let partition = state.partition_mut("orders", id).expect("partition");
@@ -619,39 +603,28 @@ mod tests {
                 partition.next_offset = high;
             }
         });
-        let client = kafka_client(&broker.bootstrap_servers()).await;
+        let client = broker.client().await;
         client.metadata().await.expect("metadata");
         let both = wanted("orders", &[0, 1]);
 
         broker.clear_requests();
         let lows = client.low_watermarks(&both).await.expect("low watermarks");
-        assert_eq!(
-            broker.request_count(krafka::protocol::ApiKey::ListOffsets),
-            1
-        );
+        assert_eq!(broker.request_count(ApiKey::ListOffsets), 1);
 
         broker.clear_requests();
         let highs = client
             .high_watermarks(&both)
             .await
             .expect("high watermarks");
-        assert_eq!(
-            broker.request_count(krafka::protocol::ApiKey::ListOffsets),
-            1
-        );
+        assert_eq!(broker.request_count(ApiKey::ListOffsets), 1);
         assert_eq!(lows["orders"], HashMap::from_iter([(0, 1), (1, 0)]));
         assert_eq!(highs["orders"], HashMap::from_iter([(0, 5), (1, 2)]));
     }
 
     #[tokio::test]
     async fn an_illegal_topic_name_does_not_fail_the_other_watermarks() {
-        let broker = krafka::testing::FakeBroker::start()
-            .await
-            .expect("fake broker");
-        assert!(broker.create_topic("orders", 1));
-        produce_krafka(&broker.bootstrap_servers(), "orders", 1).await;
-
-        let client = kafka_client(&broker.bootstrap_servers()).await;
+        let broker = Broker::orders(1).await;
+        let client = broker.client().await;
         let mut topics = wanted("orders", &[0]);
         topics.insert(String::new(), vec![0]);
 
@@ -686,13 +659,9 @@ mod tests {
 
     #[tokio::test]
     async fn client_reads_records() {
-        let broker = krafka::testing::FakeBroker::start()
-            .await
-            .expect("fake broker");
-        assert!(broker.create_topic("orders", 1));
-        produce_krafka(&broker.bootstrap_servers(), "orders", 1).await;
+        let broker = Broker::orders(1).await;
+        let client = broker.client().await;
 
-        let client = kafka_client(&broker.bootstrap_servers()).await;
         let records = scan_once(
             &client,
             "orders",
@@ -721,14 +690,8 @@ mod tests {
 
     #[tokio::test]
     async fn consecutive_scans_reuse_a_consumer_without_looking_offsets_up() {
-        let broker = krafka::testing::FakeBroker::start()
-            .await
-            .expect("fake broker");
-        assert!(broker.create_topic("orders", 1));
-        produce_krafka(&broker.bootstrap_servers(), "orders", 4).await;
-
-        let client = kafka_client(&broker.bootstrap_servers()).await;
-
+        let broker = Broker::orders(4).await;
+        let client = broker.client().await;
         let pass = async |start: i64, end: i64| {
             scan_once(
                 &client,
@@ -743,45 +706,26 @@ mod tests {
         let first = pass(2, 4).await.expect("first pass");
         let second = pass(0, 2).await.expect("second pass");
 
+        assert_eq!(offsets(&first), [2, 3]);
+        assert_eq!(offsets(&second), [0, 1]);
         assert_eq!(
-            first.iter().map(|record| record.offset).collect::<Vec<_>>(),
-            vec![2, 3]
-        );
-        assert_eq!(
-            second
-                .iter()
-                .map(|record| record.offset)
-                .collect::<Vec<_>>(),
-            vec![0, 1]
-        );
-        assert_eq!(
-            broker.request_count(krafka::protocol::ApiKey::ListOffsets),
+            broker.request_count(ApiKey::ListOffsets),
             0,
             "a window start is known before the consumer exists"
         );
-        assert_eq!(broker.request_count(krafka::protocol::ApiKey::JoinGroup), 0);
+        assert_eq!(broker.request_count(ApiKey::JoinGroup), 0);
 
         let (first, second) =
             tokio::try_join!(pass(0, 2), pass(2, 4)).expect("independent concurrent scans");
-        assert_eq!(
-            first.iter().map(|record| record.offset).collect::<Vec<_>>(),
-            vec![0, 1]
-        );
-        assert_eq!(
-            second
-                .iter()
-                .map(|record| record.offset)
-                .collect::<Vec<_>>(),
-            vec![2, 3]
-        );
+        assert_eq!(offsets(&first), [0, 1]);
+        assert_eq!(offsets(&second), [2, 3]);
     }
 
     #[tokio::test]
     async fn scan_drains_prefetched_records_before_completing() {
-        let broker = krafka::testing::FakeBroker::start().await.unwrap();
-        assert!(broker.create_topic("orders", 1));
-        produce_krafka(&broker.bootstrap_servers(), "orders", 550).await;
-        let client = kafka_client(&broker.bootstrap_servers()).await;
+        let broker = Broker::orders(550).await;
+        let client = broker.client().await;
+
         let records = scan_once(
             &client,
             "orders",
@@ -791,25 +735,16 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(
-            records
-                .iter()
-                .map(|record| record.offset)
-                .collect::<Vec<_>>(),
-            (0..550).collect::<Vec<_>>()
-        );
+
+        assert_eq!(offsets(&records), (0..550).collect::<Vec<_>>());
     }
 
     #[tokio::test]
     async fn a_round_trip_slower_than_the_poll_max_wait_still_delivers() {
-        let broker = krafka::testing::FakeBroker::start().await.unwrap();
-        assert!(broker.create_topic("orders", 1));
-        produce_krafka(&broker.bootstrap_servers(), "orders", 2).await;
-        let client = kafka_client(&broker.bootstrap_servers()).await;
+        let broker = Broker::orders(2).await;
+        let client = broker.client().await;
         let slow = client.scan_poll_wait * 3;
-        broker.on(krafka::protocol::ApiKey::Fetch, move |_| {
-            krafka::testing::Control::Delay(slow)
-        });
+        broker.on(ApiKey::Fetch, move |_| Control::Delay(slow));
 
         let records = scan_once(
             &client,
@@ -821,25 +756,16 @@ mod tests {
         .await
         .expect("a slow round trip is not a timeout");
 
-        assert_eq!(
-            records
-                .iter()
-                .map(|record| record.offset)
-                .collect::<Vec<_>>(),
-            vec![0, 1]
-        );
+        assert_eq!(offsets(&records), [0, 1]);
     }
 
     #[tokio::test]
     async fn record_deadline_bounds_broker_io() {
-        let broker = krafka::testing::FakeBroker::start().await.unwrap();
-        assert!(broker.create_topic("orders", 1));
-        produce_krafka(&broker.bootstrap_servers(), "orders", 1).await;
-        let mut client = kafka_client(&broker.bootstrap_servers()).await;
-        broker.on(krafka::protocol::ApiKey::Fetch, |_| {
-            krafka::testing::Control::Silence
-        });
+        let broker = Broker::orders(1).await;
+        let mut client = broker.client().await;
+        broker.on(ApiKey::Fetch, |_| Control::Silence);
         client.consume_timeout = Duration::from_millis(50);
+
         let error = tokio::time::timeout(
             Duration::from_secs(2),
             scan_once(
@@ -853,66 +779,38 @@ mod tests {
         .await
         .expect("broker I/O must honor the scan deadline")
         .unwrap_err();
+
         assert!(matches!(error, KafkaError::Timeout));
     }
 
     #[tokio::test]
-    async fn lists_committed_offsets() {
-        let broker = krafka::testing::FakeBroker::start()
-            .await
-            .expect("fake broker");
-        assert!(broker.create_topic("orders", 1));
-        produce_krafka(&broker.bootstrap_servers(), "orders", 1).await;
+    async fn lists_committed_offsets_with_and_without_a_partition_filter() {
+        let broker = Broker::orders(1).await;
+        let client = broker.client().await;
+        commit(&client, "orders-group", "orders", 1).await;
+        let committed = vec![CommittedOffset {
+            topic: "orders".into(),
+            partition: 0,
+            offset: 1,
+        }];
 
-        let client = kafka_client(&broker.bootstrap_servers()).await;
-        commit_krafka(&client, "orders-group", "orders", 1).await;
-        let offsets = client
+        let filtered = client
             .committed_offsets("orders-group", Some(&[("orders".into(), 0)]))
             .await
             .expect("offset fetch");
-
-        assert_eq!(
-            offsets,
-            vec![CommittedOffset {
-                topic: "orders".into(),
-                partition: 0,
-                offset: 1,
-            }]
-        );
-    }
-
-    #[tokio::test]
-    async fn lists_every_committed_offset_without_a_partition_filter() {
-        let broker = krafka::testing::FakeBroker::start()
-            .await
-            .expect("fake broker");
-        assert!(broker.create_topic("orders", 1));
-        produce_krafka(&broker.bootstrap_servers(), "orders", 1).await;
-
-        let client = kafka_client(&broker.bootstrap_servers()).await;
-        commit_krafka(&client, "orders-group", "orders", 1).await;
-        let offsets = client
+        let every = client
             .committed_offsets("orders-group", None)
             .await
             .expect("offset fetch");
 
-        assert_eq!(
-            offsets,
-            vec![CommittedOffset {
-                topic: "orders".into(),
-                partition: 0,
-                offset: 1,
-            }]
-        );
+        assert_eq!(filtered, committed);
+        assert_eq!(every, committed);
     }
 
     #[tokio::test]
     async fn describes_classic_group_member_assignments() {
-        let broker = krafka::testing::FakeBroker::start()
-            .await
-            .expect("fake broker");
-        assert!(broker.create_topic("orders", 2));
-
+        let broker = Broker::start().await;
+        broker.topic("orders", 2);
         let consumer = krafka::consumer::Consumer::builder()
             .bootstrap_servers(broker.bootstrap_servers())
             .group_id("orders-group")
@@ -924,17 +822,14 @@ mod tests {
         consumer.subscribe(&["orders"]).await.expect("subscribe");
         assert!(
             broker
-                .wait_for_requests(
-                    krafka::protocol::ApiKey::SyncGroup,
-                    1,
-                    Duration::from_secs(15)
-                )
+                .wait_for_requests(ApiKey::SyncGroup, 1, Duration::from_secs(15))
                 .await,
             "the consumer must finish join and sync before describe"
         );
 
-        let client = kafka_client(&broker.bootstrap_servers()).await;
-        let described = client
+        let described = broker
+            .client()
+            .await
             .transport
             .admin
             .describe_consumer_groups(vec!["orders-group".to_owned()])
@@ -944,6 +839,7 @@ mod tests {
             .into_iter()
             .find(|group| group.id == "orders-group")
             .expect("orders-group");
+
         assert_eq!(
             group.members[0].assignments,
             vec![MemberAssignment {
@@ -956,15 +852,10 @@ mod tests {
 
     #[tokio::test]
     async fn eight_groups_share_one_client() {
-        let broker = krafka::testing::FakeBroker::start()
-            .await
-            .expect("fake broker");
-        assert!(broker.create_topic("orders", 1));
-        produce_krafka(&broker.bootstrap_servers(), "orders", 1).await;
-
-        let client = Arc::new(kafka_client(&broker.bootstrap_servers()).await);
+        let broker = Broker::orders(1).await;
+        let client = Arc::new(broker.client().await);
         for index in 0..8 {
-            commit_krafka(&client, &format!("g{index}"), "orders", 1).await;
+            commit(&client, &format!("g{index}"), "orders", 1).await;
         }
 
         let fetches = (0..8).map(|index| {
@@ -976,42 +867,19 @@ mod tests {
             }
         });
         let results = futures::future::join_all(fetches).await;
+
         assert_eq!(results.len(), 8);
         for result in results {
             assert_eq!(result.expect("offset fetch")[0].offset, 1);
         }
     }
 
-    pub(super) fn cluster(bootstrap: &str) -> config::Cluster {
-        yaml(&format!("bootstrap_servers: ['{bootstrap}']"))
-    }
-
-    pub(super) async fn kafka_client(bootstrap: &str) -> KafkaClient {
-        KafkaClient::new("test", &cluster(bootstrap), &Tuning::default())
-            .await
-            .expect("kafka client")
-    }
-
-    pub(super) async fn produce_krafka(bootstrap: &str, topic: &str, count: usize) {
-        let producer = krafka::producer::Producer::builder()
-            .bootstrap_servers(bootstrap)
-            .build()
-            .await
-            .expect("producer");
-        for _ in 0..count {
-            let _metadata = producer
-                .send(topic, Some(b"k"), Some(b"hello"))
-                .await
-                .expect("produce");
-        }
-    }
-
     #[tokio::test]
     async fn a_finished_partition_read_ahead_does_not_starve_the_others() {
-        let broker = krafka::testing::FakeBroker::start().await.unwrap();
-        assert!(broker.create_topic("orders", 2));
-        produce_to_partitions(&broker.bootstrap_servers(), "orders", 2, 2_000).await;
-        let client = kafka_client(&broker.bootstrap_servers()).await;
+        let broker = Broker::start().await;
+        broker.topic("orders", 2);
+        broker.produce_to_each("orders", 2, 2_000).await;
+        let client = broker.client().await;
         let watermarks: HashMap<i32, Watermarks> = (0..2)
             .map(|partition| {
                 (
@@ -1052,33 +920,5 @@ mod tests {
         );
         assert!(started.elapsed() < client.consume_timeout / 2);
         assert_eq!(page.records.len(), 50);
-    }
-
-    async fn produce_to_partitions(bootstrap: &str, topic: &str, partitions: i32, count: usize) {
-        let producer = krafka::producer::Producer::builder()
-            .bootstrap_servers(bootstrap)
-            .build()
-            .await
-            .expect("producer");
-        let mut acks = futures::stream::FuturesUnordered::new();
-        for partition in 0..partitions {
-            for _ in 0..count {
-                let record = krafka::producer::ProducerRecord::new(topic, &b"hello"[..])
-                    .with_partition(partition);
-                acks.push(producer.enqueue(record).await.expect("enqueue"));
-            }
-        }
-        while let Some(ack) = futures::StreamExt::next(&mut acks).await {
-            let _metadata = ack.expect("produce");
-        }
-    }
-
-    async fn commit_krafka(client: &KafkaClient, group: &str, topic: &str, offset: i64) {
-        client
-            .transport
-            .admin
-            .alter_consumer_group_offsets(group, &[(topic, &[(0, offset)])])
-            .await
-            .expect("commit");
     }
 }

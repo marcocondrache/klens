@@ -157,10 +157,10 @@ impl Drop for ScanLease {
 mod tests {
     use krafka::admin::OffsetSpec;
     use krafka::protocol::ApiKey;
-    use krafka::testing::{Control, FakeBroker};
+    use krafka::testing::Control;
 
     use super::*;
-    use crate::kafka::client::KafkaClient;
+    use crate::kafka::client::testing::Broker;
     use crate::kafka::session::ClusterSession;
     use crate::testing::eventually;
 
@@ -189,14 +189,10 @@ mod tests {
         offsets
     }
 
-    async fn client(broker: &FakeBroker) -> KafkaClient {
-        super::super::tests::kafka_client(&broker.bootstrap_servers()).await
-    }
-
     #[tokio::test]
     async fn a_reader_asks_for_at_most_half_a_response_frame() {
-        let broker = FakeBroker::start().await.unwrap();
-        let client = client(&broker).await;
+        let broker = Broker::start().await;
+        let client = broker.client().await;
 
         let config = reader(
             &client.transport.client,
@@ -218,8 +214,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_reader_never_asks_the_broker_for_a_zero_wait() {
-        let broker = FakeBroker::start().await.unwrap();
-        let client = client(&broker).await;
+        let broker = Broker::start().await;
+        let client = broker.client().await;
 
         let config = reader(
             &client.transport.client,
@@ -239,10 +235,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_released_consumer_serves_the_next_page_of_the_same_topic() {
-        let broker = FakeBroker::start().await.unwrap();
-        assert!(broker.create_topic("orders", 1));
-        super::super::tests::produce_krafka(&broker.bootstrap_servers(), "orders", 4).await;
-        let client = client(&broker).await;
+        let broker = Broker::orders(4).await;
+        let client = broker.client().await;
 
         let first = client
             .scans
@@ -276,10 +270,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_waiting_fetch_does_not_hold_up_admin_calls() {
-        let broker = FakeBroker::start().await.unwrap();
-        assert!(broker.create_topic("orders", 1));
-        super::super::tests::produce_krafka(&broker.bootstrap_servers(), "orders", 2).await;
-        let client = client(&broker).await;
+        let broker = Broker::orders(2).await;
+        let client = broker.client().await;
         let scan = client
             .scans
             .acquire("orders", &[window(0, 0, 2)])
@@ -312,10 +304,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_consumer_that_failed_mid_page_is_not_pooled() {
-        let broker = FakeBroker::start().await.unwrap();
-        assert!(broker.create_topic("orders", 1));
-        super::super::tests::produce_krafka(&broker.bootstrap_servers(), "orders", 2).await;
-        let client = client(&broker).await;
+        let broker = Broker::orders(2).await;
+        let client = broker.client().await;
 
         let poisoned = client
             .scans
@@ -334,10 +324,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_consumer_that_is_not_pooled_is_closed() {
-        let broker = FakeBroker::start().await.unwrap();
-        assert!(broker.create_topic("orders", 1));
-        super::super::tests::produce_krafka(&broker.bootstrap_servers(), "orders", 1).await;
-        let client = client(&broker).await;
+        let broker = Broker::orders(1).await;
+        let client = broker.client().await;
 
         let poisoned = client
             .scans
@@ -356,10 +344,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_window_read_to_its_end_reports_its_position_and_no_lag() {
-        let broker = FakeBroker::start().await.unwrap();
-        assert!(broker.create_topic("orders", 1));
-        super::super::tests::produce_krafka(&broker.bootstrap_servers(), "orders", 2).await;
-        let client = client(&broker).await;
+        let broker = Broker::orders(2).await;
+        let client = broker.client().await;
 
         let scan = client
             .scans
@@ -377,10 +363,8 @@ mod tests {
 
     #[tokio::test]
     async fn reseeking_between_passes_does_not_look_offsets_up_again() {
-        let broker = FakeBroker::start().await.unwrap();
-        assert!(broker.create_topic("orders", 1));
-        super::super::tests::produce_krafka(&broker.bootstrap_servers(), "orders", 4).await;
-        let client = client(&broker).await;
+        let broker = Broker::orders(4).await;
+        let client = broker.client().await;
 
         let scan = client
             .scans
@@ -403,10 +387,8 @@ mod tests {
 
     #[tokio::test]
     async fn an_opened_scan_resolves_no_offsets_of_its_own() {
-        let broker = FakeBroker::start().await.unwrap();
-        assert!(broker.create_topic("orders", 1));
-        super::super::tests::produce_krafka(&broker.bootstrap_servers(), "orders", 2).await;
-        let client = client(&broker).await;
+        let broker = Broker::orders(2).await;
+        let client = broker.client().await;
         broker.clear_requests();
 
         let scan = client

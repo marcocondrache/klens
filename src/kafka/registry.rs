@@ -1,6 +1,8 @@
 pub mod client;
 pub mod decode;
 pub mod protobuf;
+#[cfg(test)]
+pub(crate) mod testing;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchemaType {

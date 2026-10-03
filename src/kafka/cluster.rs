@@ -171,13 +171,12 @@ impl Clusters {
 
 #[cfg(test)]
 mod tests {
+    use krafka::protocol::ApiKey;
+
     use super::*;
+    use crate::kafka::client::testing::Broker;
     use crate::kafka::store::Topology;
     use crate::testing::{FakeCluster, yaml};
-
-    fn cluster(bootstrap_servers: &str) -> config::Cluster {
-        yaml(&format!("bootstrap_servers: [{bootstrap_servers}]"))
-    }
 
     async fn connect(clusters: Vec<(&str, config::Cluster)>) -> Result<Clusters, KafkaError> {
         let clusters = clusters
@@ -189,20 +188,14 @@ mod tests {
 
     #[tokio::test]
     async fn connect_reaches_every_cluster_and_keeps_config_order() {
-        use krafka::protocol::ApiKey;
-        use krafka::testing::FakeBroker;
+        let first = Broker::start().await;
+        let second = Broker::start().await;
 
-        let first = FakeBroker::start().await.unwrap();
-        let second = FakeBroker::start().await.unwrap();
-
-        let mut open = cluster(&second.bootstrap_servers());
+        let mut open = second.config();
         open.writable = true;
-        let clusters = connect(vec![
-            ("b", cluster(&first.bootstrap_servers())),
-            ("a", open),
-        ])
-        .await
-        .unwrap();
+        let clusters = connect(vec![("b", first.config()), ("a", open)])
+            .await
+            .unwrap();
 
         assert_eq!(clusters.names().collect::<Vec<_>>(), vec!["b", "a"]);
         assert!(!clusters.get("b").unwrap().writable);
@@ -216,7 +209,7 @@ mod tests {
 
     #[tokio::test]
     async fn connect_returns_connection_errors() {
-        let result = connect(vec![("invalid", cluster(""))]).await;
+        let result = connect(vec![("invalid", yaml("bootstrap_servers: []"))]).await;
 
         assert!(matches!(result, Err(KafkaError::Krafka(_))));
     }
