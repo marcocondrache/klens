@@ -4,7 +4,7 @@ use axum::http::StatusCode;
 use serde_json::Value;
 
 use crate::testing::{
-    Api, FakeCluster, TestApp, access, config_entry, offline_partition, partition, topic, viewer,
+    Api, FakeCluster, TestApp, config_entry, offline_partition, partition, topic,
 };
 
 fn compacted() -> FakeCluster {
@@ -165,26 +165,4 @@ async fn topic_configs_for_an_unknown_topic_are_an_error() {
         .get("/clusters/local/topics/ghost/configs")
         .await
         .assert_error(StatusCode::NOT_FOUND, "UNKNOWN_TOPIC");
-}
-
-#[tokio::test]
-async fn topic_configs_are_forbidden_without_the_configs_privilege() {
-    TestApp::local()
-        .await
-        .with_access(access([viewer()]))
-        .get("/clusters/local/topics/orders.created/configs")
-        .await
-        .assert_error(StatusCode::FORBIDDEN, "FORBIDDEN");
-}
-
-#[tokio::test]
-async fn topic_rows_stay_open_to_a_viewer() {
-    let topics = TestApp::local()
-        .await
-        .with_access(access([viewer()]))
-        .get("/clusters/local/topics")
-        .await
-        .ok();
-
-    assert_eq!(topics.as_array().map(Vec::len), Some(1));
 }

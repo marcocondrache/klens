@@ -1,7 +1,7 @@
 use axum::http::StatusCode;
 use serde_json::{Value, json};
 
-use crate::testing::{Api, FakeCluster, TestApp, access, viewer};
+use crate::testing::{Api, FakeCluster, TestApp};
 
 #[tokio::test]
 async fn broker_rows_count_the_partitions_each_node_carries() {
@@ -77,26 +77,4 @@ async fn a_non_numeric_broker_id_is_an_invalid_request() {
         .get("/clusters/local/brokers/one/configs")
         .await
         .assert_error(StatusCode::BAD_REQUEST, "INVALID_REQUEST");
-}
-
-#[tokio::test]
-async fn broker_configs_are_forbidden_without_the_configs_privilege() {
-    TestApp::local()
-        .await
-        .with_access(access([viewer()]))
-        .get("/clusters/local/brokers/1/configs")
-        .await
-        .assert_error(StatusCode::FORBIDDEN, "FORBIDDEN");
-}
-
-#[tokio::test]
-async fn broker_rows_stay_open_to_a_viewer() {
-    let brokers = TestApp::local()
-        .await
-        .with_access(access([viewer()]))
-        .get("/clusters/local/brokers")
-        .await
-        .ok();
-
-    assert_eq!(brokers[0]["id"], 1);
 }

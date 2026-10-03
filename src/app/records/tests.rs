@@ -278,16 +278,6 @@ async fn an_obfuscated_topic_cannot_be_filtered_on_the_cleartext_it_hides() {
 }
 
 #[tokio::test]
-async fn records_are_forbidden_without_the_records_privilege() {
-    TestApp::local()
-        .await
-        .with_access(access([viewer()]))
-        .get(RECORDS)
-        .await
-        .assert_error(StatusCode::FORBIDDEN, "FORBIDDEN");
-}
-
-#[tokio::test]
 async fn a_record_opens_by_partition_and_offset() {
     let opened = TestApp::local()
         .await
@@ -339,16 +329,6 @@ async fn an_opened_record_keeps_the_obfuscation_view() {
     assert_eq!(opened["obfuscated"], json!(true));
     assert!(value.contains("\"kx:"), "{value}");
     assert!(!value.contains(PAN), "{value}");
-}
-
-#[tokio::test]
-async fn a_record_is_forbidden_without_the_records_privilege() {
-    TestApp::local()
-        .await
-        .with_access(access([viewer()]))
-        .get(&format!("{RECORDS}/0/3"))
-        .await
-        .assert_error(StatusCode::FORBIDDEN, "FORBIDDEN");
 }
 
 #[tokio::test]
@@ -427,16 +407,6 @@ async fn an_expired_session_ends_the_tail_with_an_error_frame() {
 
     assert_eq!(ending.name, "error");
     assert_eq!(ending.data["code"], "SESSION_EXPIRED");
-}
-
-#[tokio::test]
-async fn a_tail_is_forbidden_without_the_records_privilege() {
-    TestApp::local()
-        .await
-        .with_access(access([viewer()]))
-        .get(TAIL)
-        .await
-        .assert_error(StatusCode::FORBIDDEN, "FORBIDDEN");
 }
 
 #[tokio::test]

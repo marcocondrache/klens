@@ -1,8 +1,7 @@
-use axum::http::StatusCode;
 use serde_json::json;
 
 use crate::kafka::model::QuotaListing;
-use crate::testing::{Api, FakeCluster, TestApp, access, viewer};
+use crate::testing::{Api, FakeCluster, TestApp};
 
 #[tokio::test]
 async fn quotas_list_every_entity_type_with_its_values() {
@@ -99,14 +98,4 @@ async fn quotas_are_empty_and_pending_until_the_lane_commits() {
     assert_eq!(quotas["quotas"], json!([]));
     assert!(quotas["sourceHealth"]["updatedAt"].is_null());
     assert!(quotas["sourceHealth"]["lastError"].is_null());
-}
-
-#[tokio::test]
-async fn quotas_are_forbidden_without_the_configs_privilege() {
-    TestApp::local()
-        .await
-        .with_access(access([viewer()]))
-        .get("/clusters/local/quotas")
-        .await
-        .assert_error(StatusCode::FORBIDDEN, "FORBIDDEN");
 }

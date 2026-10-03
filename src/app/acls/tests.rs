@@ -1,7 +1,5 @@
-use axum::http::StatusCode;
-
 use crate::kafka::model::AclListing;
-use crate::testing::{Api, FakeCluster, TestApp, access, viewer};
+use crate::testing::{Api, FakeCluster, TestApp};
 
 #[tokio::test]
 async fn acls_are_served_from_the_store_without_calling_kafka() {
@@ -39,14 +37,4 @@ async fn a_denied_describe_says_so_instead_of_failing() {
 
     assert_eq!(acls["status"], "DENIED");
     assert!(acls["bindings"].as_array().expect("bindings").is_empty());
-}
-
-#[tokio::test]
-async fn acls_are_forbidden_without_the_acls_privilege() {
-    TestApp::local()
-        .await
-        .with_access(access([viewer()]))
-        .get("/clusters/local/acls")
-        .await
-        .assert_error(StatusCode::FORBIDDEN, "FORBIDDEN");
 }

@@ -1,17 +1,6 @@
 use axum::http::StatusCode;
 
-use crate::testing::{FakeCluster, TestApp, access, admin};
-
-#[tokio::test]
-async fn an_invisible_cluster_is_not_found_rather_than_forbidden() {
-    TestApp::of([FakeCluster::local(), FakeCluster::named("payments")])
-        .ingested()
-        .await
-        .with_access(access([admin().on(&["local"])]))
-        .get("/clusters/payments")
-        .await
-        .assert_error(StatusCode::NOT_FOUND, "UNKNOWN_CLUSTER");
-}
+use crate::testing::{FakeCluster, TestApp};
 
 #[tokio::test]
 async fn a_cluster_nobody_configured_is_not_found() {

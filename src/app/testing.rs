@@ -113,6 +113,10 @@ impl TestApp {
         }
     }
 
+    pub async fn status(&self, path: &str) -> StatusCode {
+        self.send(path).await.status()
+    }
+
     pub async fn open(&self, path: &str) -> Live {
         let response = self.send(path).await;
         assert_eq!(response.status(), StatusCode::OK, "GET {path} did not open");

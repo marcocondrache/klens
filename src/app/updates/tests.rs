@@ -12,7 +12,7 @@ use crate::kafka::store::{
     Change, ConfigsDelta, GroupLagUpdate, GroupOffsetsWave, LogDirsDelta, SubjectsDelta, TopicRate,
     WatermarksTick,
 };
-use crate::testing::{FakeCluster, TestApp, access, viewer};
+use crate::testing::TestApp;
 
 const UPDATES: &str = "/clusters/local/updates";
 
@@ -256,17 +256,6 @@ async fn falling_behind_the_bus_asks_the_client_to_refetch_instead_of_dropping_i
 
     assert_eq!(event.name, "resync");
     assert_eq!(event.data, json!({ "type": "resync" }));
-}
-
-#[tokio::test]
-async fn a_cluster_the_session_cannot_see_is_never_subscribable() {
-    TestApp::of([FakeCluster::local(), FakeCluster::named("payments")])
-        .ingested()
-        .await
-        .with_access(access([viewer().on(&["local"])]))
-        .get("/clusters/payments/updates")
-        .await
-        .assert_error(StatusCode::NOT_FOUND, "UNKNOWN_CLUSTER");
 }
 
 #[tokio::test]

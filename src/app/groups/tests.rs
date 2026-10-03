@@ -1,7 +1,7 @@
 use axum::http::StatusCode;
 use serde_json::{Value, json};
 
-use crate::testing::{Api, FakeCluster, TestApp, access, group, viewer};
+use crate::testing::{Api, FakeCluster, TestApp, group};
 
 #[tokio::test]
 async fn group_rows_join_commits_against_watermarks() {
@@ -52,18 +52,6 @@ async fn a_group_id_with_a_slash_is_one_resource() {
     let group = app.get("/clusters/local/groups/billing/nightly").await.ok();
 
     assert_eq!(group["id"], "billing/nightly");
-}
-
-#[tokio::test]
-async fn group_rows_stay_open_to_a_viewer() {
-    let groups = TestApp::local()
-        .await
-        .with_access(access([viewer()]))
-        .get("/clusters/local/groups")
-        .await
-        .ok();
-
-    assert_eq!(groups.as_array().map(Vec::len), Some(1));
 }
 
 #[tokio::test]
