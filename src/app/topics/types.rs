@@ -191,6 +191,13 @@ impl CreateTopic {
 
 #[derive(Debug, Clone, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AddPartitions {
+    /// The topic's partition count once the new partitions exist.
+    pub count: NonZeroU16,
+}
+
+#[derive(Debug, Clone, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EditTopicConfigs {
     /// Overrides to write, by config name.
     #[serde(default)]

@@ -1,7 +1,7 @@
 use axum::Json;
 use axum::Router;
 use axum::http::StatusCode;
-use axum::routing::get;
+use axum::routing::{get, post};
 
 use crate::AppState;
 use crate::kafka::KafkaError;
@@ -16,7 +16,9 @@ pub mod types;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use types::{CreateTopic, EditTopicConfigs, TopicDetail, TopicGroupRow, TopicRow};
+pub(crate) use types::{
+    AddPartitions, CreateTopic, EditTopicConfigs, TopicDetail, TopicGroupRow, TopicRow,
+};
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
@@ -28,6 +30,7 @@ fn topic_routes() -> Router<AppState> {
     Router::new()
         .route("/", get(topic).delete(delete_topic))
         .route("/groups", get(topic_groups))
+        .route("/partitions", post(add_partitions))
         .route("/configs", get(topic_configs).patch(alter_topic_configs))
         .nest("/records", super::records::router())
 }
@@ -118,6 +121,17 @@ async fn alter_topic_configs(
     let topics = cluster.manage_topics()?;
     let edit = request.into_edit()?;
     topics.alter_topic_configs(&topic, &edit).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn add_partitions(
+    session: Session,
+    Path((name, topic)): Path<(String, String)>,
+    extract::Json(request): extract::Json<AddPartitions>,
+) -> Result<StatusCode, ApiError> {
+    let cluster = session.cluster(&name)?;
+    let topics = cluster.manage_topics()?;
+    topics.add_partitions(&topic, request.count).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

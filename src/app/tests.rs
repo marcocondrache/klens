@@ -70,6 +70,12 @@ const WRITES: &[(Method, &str, Option<&str>, Privilege)] = &[
     ),
     (
         Method::POST,
+        "/clusters/local/topics/orders.created/partitions",
+        Some(r#"{ "count": 4 }"#),
+        Privilege::ManageTopics,
+    ),
+    (
+        Method::POST,
         "/clusters/local/topics/orders.created/records",
         Some(r#"{ "key": null, "value": null }"#),
         Privilege::Produce,

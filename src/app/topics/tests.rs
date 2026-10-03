@@ -423,3 +423,56 @@ async fn an_internal_topic_keeps_its_configs() {
 
     assert_eq!(app.cluster().calls(Api::AlterTopicConfigs), 0);
 }
+
+#[tokio::test(start_paused = true)]
+async fn added_partitions_show_before_the_add_answers() {
+    let app = writable().await;
+    let mut rig = app.rig();
+    let lane = rig.topology();
+    rig.spawn(lane);
+    quiesce().await;
+    let logs = LogCapture::at(Level::INFO);
+
+    app.post(
+        "/clusters/local/topics/orders.created/partitions",
+        &json!({ "count": 5 }),
+    )
+    .await
+    .expect(StatusCode::NO_CONTENT);
+
+    let topic = app.get("/clusters/local/topics/orders.created").await.ok();
+    assert_eq!(topic["partitions"].as_array().map(Vec::len), Some(5));
+    assert_eq!(app.cluster().calls(Api::AddPartitions), 1);
+    logs.assert_contains(r#"added partitions cluster=local topic="orders.created" count=5"#);
+}
+
+#[tokio::test]
+async fn fewer_partitions_carry_the_broker_refusal() {
+    let reply = writable()
+        .await
+        .post(
+            "/clusters/local/topics/orders.created/partitions",
+            &json!({ "count": 1 }),
+        )
+        .await;
+
+    reply.assert_error(StatusCode::UNPROCESSABLE_ENTITY, "REFUSED");
+    assert_eq!(
+        reply.body["error"],
+        "kafka refused the change: Topic currently has 2 partitions, which is higher than the requested 1."
+    );
+}
+
+#[tokio::test]
+async fn partitions_for_an_unknown_topic_never_reach_the_broker() {
+    let app = writable().await;
+
+    app.post(
+        "/clusters/local/topics/ghost/partitions",
+        &json!({ "count": 3 }),
+    )
+    .await
+    .assert_error(StatusCode::NOT_FOUND, "UNKNOWN_TOPIC");
+
+    assert_eq!(app.cluster().calls(Api::AddPartitions), 0);
+}

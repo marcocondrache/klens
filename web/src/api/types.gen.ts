@@ -91,6 +91,12 @@ set: { [key in string]: string },
  */
 reset: Array<string>, };
 
+export type AddPartitions = { 
+/**
+ * The topic's partition count once the new partitions exist.
+ */
+count: number, };
+
 export type GroupState = "STABLE" | "EMPTY" | "PREPARING_REBALANCE" | "COMPLETING_REBALANCE" | "DEAD";
 
 export type MemberAssignment = { topic: string, partitions: Array<number>, };
