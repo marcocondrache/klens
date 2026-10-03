@@ -63,6 +63,12 @@ const WRITES: &[(Method, &str, Option<&str>, Privilege)] = &[
         Privilege::ManageTopics,
     ),
     (
+        Method::PATCH,
+        "/clusters/local/topics/orders.created/configs",
+        Some(r#"{ "reset": ["retention.ms"] }"#),
+        Privilege::ManageTopics,
+    ),
+    (
         Method::POST,
         "/clusters/local/topics/orders.created/records",
         Some(r#"{ "key": null, "value": null }"#),

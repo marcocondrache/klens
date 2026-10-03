@@ -11,7 +11,7 @@ use crate::app::auth::access::{
     RecordsCap, SchemaTextCap,
 };
 use crate::kafka::model::{
-    FoundRecord, NewRecord, NewTopic, ProducedRecord, RecordAt, RegisteredSchema,
+    ConfigEdit, FoundRecord, NewRecord, NewTopic, ProducedRecord, RecordAt, RegisteredSchema,
 };
 use crate::kafka::store::{ClusterStore, Lane, TopicInfo};
 use crate::kafka::{
@@ -127,6 +127,32 @@ impl Granted<'_, ManageTopicsCap> {
         tracing::info!(cluster = %self.cluster.store.name(), topic = %topic.name, "created topic");
         self.settle(&self.cluster.store.topology, |topology| {
             topology.topics.contains_key(topic.name.as_str())
+        })
+        .await;
+        Ok(())
+    }
+
+    pub(crate) async fn alter_topic_configs(
+        &self,
+        topic: &str,
+        edit: &ConfigEdit,
+    ) -> Result<(), KafkaError> {
+        self.writable_topic(topic, |_| ())?;
+        self.cluster
+            .session
+            .alter_topic_configs(topic, edit)
+            .await?;
+        tracing::info!(
+            cluster = %self.cluster.store.name(),
+            topic,
+            set = ?edit.set.keys().collect::<Vec<_>>(),
+            reset = ?edit.reset,
+            "altered topic configs"
+        );
+        self.settle(&self.cluster.store.configs, |table| {
+            table
+                .get(topic)
+                .is_some_and(|entries| edit.shows_in(entries))
         })
         .await;
         Ok(())

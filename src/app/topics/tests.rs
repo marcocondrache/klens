@@ -1,7 +1,9 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::http::StatusCode;
 use serde_json::{Value, json};
+use tokio::time::Instant;
 use tracing::Level;
 
 use crate::testing::{
@@ -320,4 +322,104 @@ async fn an_internal_topic_is_never_deleted() {
         "klens leaves the internal topic '__consumer_offsets' alone"
     );
     assert_eq!(app.cluster().calls(Api::DeleteTopic), 0);
+}
+
+async fn writable_compacted() -> TestApp {
+    TestApp::of([compacted()])
+        .writable(&["local"])
+        .ingested()
+        .await
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_edited_config_shows_before_the_edit_answers() {
+    let app = writable_compacted().await;
+    let mut rig = app.rig();
+    let lane = rig.configs();
+    rig.spawn(lane);
+    quiesce().await;
+    let logs = LogCapture::at(Level::INFO);
+    let started = Instant::now();
+
+    app.patch(
+        "/clusters/local/topics/orders.created/configs",
+        &json!({ "set": { "retention.ms": "60000" }, "reset": ["cleanup.policy"] }),
+    )
+    .await
+    .expect(StatusCode::NO_CONTENT);
+
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "the edit answers as soon as the lane shows it"
+    );
+    let configs = app
+        .get("/clusters/local/topics/orders.created/configs")
+        .await
+        .ok();
+    assert_eq!(
+        configs,
+        json!([{
+            "name": "retention.ms",
+            "value": "60000",
+            "source": "DYNAMIC_TOPIC_CONFIG",
+            "readOnly": false,
+            "sensitive": false
+        }])
+    );
+    assert_eq!(app.cluster().calls(Api::AlterTopicConfigs), 1);
+    logs.assert_contains(r#"altered topic configs cluster=local topic="orders.created" set=["retention.ms"] reset={"cleanup.policy"}"#);
+}
+
+#[tokio::test]
+async fn a_config_edit_kafka_would_reject_never_reaches_the_broker() {
+    let app = writable_compacted().await;
+
+    for (topic, body, status, code, error) in [
+        (
+            "orders.created",
+            json!({}),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INVALID_REQUEST",
+            "name a config to set or reset",
+        ),
+        (
+            "orders.created",
+            json!({ "set": { "retention.ms": "1" }, "reset": ["retention.ms"] }),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INVALID_REQUEST",
+            "retention.ms cannot be both set and reset",
+        ),
+        (
+            "ghost",
+            json!({ "reset": ["retention.ms"] }),
+            StatusCode::NOT_FOUND,
+            "UNKNOWN_TOPIC",
+            "unknown topic 'ghost' in cluster 'local'",
+        ),
+    ] {
+        let reply = app
+            .patch(&format!("/clusters/local/topics/{topic}/configs"), &body)
+            .await;
+        reply.assert_error(status, code);
+        assert_eq!(reply.body["error"], error);
+    }
+
+    assert_eq!(app.cluster().calls(Api::AlterTopicConfigs), 0);
+}
+
+#[tokio::test]
+async fn an_internal_topic_keeps_its_configs() {
+    let app = TestApp::of([FakeCluster::local().with_topic("__consumer_offsets", 1, 0)])
+        .writable(&["local"])
+        .ingested()
+        .await;
+
+    app.patch(
+        "/clusters/local/topics/__consumer_offsets/configs",
+        &json!({ "set": { "retention.ms": "1" } }),
+    )
+    .await
+    .assert_error(StatusCode::UNPROCESSABLE_ENTITY, "INTERNAL_TOPIC");
+
+    assert_eq!(app.cluster().calls(Api::AlterTopicConfigs), 0);
 }

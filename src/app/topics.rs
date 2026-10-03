@@ -16,7 +16,7 @@ pub mod types;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use types::{CreateTopic, TopicDetail, TopicGroupRow, TopicRow};
+pub(crate) use types::{CreateTopic, EditTopicConfigs, TopicDetail, TopicGroupRow, TopicRow};
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
@@ -28,7 +28,7 @@ fn topic_routes() -> Router<AppState> {
     Router::new()
         .route("/", get(topic).delete(delete_topic))
         .route("/groups", get(topic_groups))
-        .route("/configs", get(topic_configs))
+        .route("/configs", get(topic_configs).patch(alter_topic_configs))
         .nest("/records", super::records::router())
 }
 
@@ -107,6 +107,18 @@ async fn topic_configs(
         .topic_configs(&topic)
         .map(|entries| Json(entries.into_iter().map(ConfigEntry::from).collect()))
         .ok_or_else(|| unknown_topic(cluster.name(), &topic))
+}
+
+async fn alter_topic_configs(
+    session: Session,
+    Path((name, topic)): Path<(String, String)>,
+    extract::Json(request): extract::Json<EditTopicConfigs>,
+) -> Result<StatusCode, ApiError> {
+    let cluster = session.cluster(&name)?;
+    let topics = cluster.manage_topics()?;
+    let edit = request.into_edit()?;
+    topics.alter_topic_configs(&topic, &edit).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 fn unknown_topic(cluster: &str, topic: &str) -> ApiError {

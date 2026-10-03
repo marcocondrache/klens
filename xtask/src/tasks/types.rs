@@ -6,12 +6,13 @@ use xshell::Shell;
 use klens::app::typescript::{
     Acl, AclListing, AclOperation, AclPatternType, AclPermission, AclResourceType, AclStatus,
     BrokerRow, CleanupPolicy, ClientQuota, ClusterGrant, ClusterHealth, ConfigEntry, ConfigSource,
-    CreateTopic, GroupDetail, GroupMember, GroupOffset, GroupRow, GroupState, Identity, LaneHealth,
-    LogDir, MemberAssignment, PartitionRow, PayloadEncoding, PrivilegeName, ProduceRecord,
-    ProducedRecord, QuotaEntity, QuotaEntityType, QuotaListing, QuotaStatus, Record, RecordHeader,
-    RecordLookup, RecordOrder, RecordPage, RecordPayload, SchemaCompatibility, SchemaReference,
-    SchemaType, SearchHit, SearchKind, SubjectDetail, SubjectRow, SubjectRowsResult, TailEvent,
-    TailStart, TopicDetail, TopicGroupRow, TopicRate, TopicRow, Update,
+    CreateTopic, EditTopicConfigs, GroupDetail, GroupMember, GroupOffset, GroupRow, GroupState,
+    Identity, LaneHealth, LogDir, MemberAssignment, PartitionRow, PayloadEncoding, PrivilegeName,
+    ProduceRecord, ProducedRecord, QuotaEntity, QuotaEntityType, QuotaListing, QuotaStatus, Record,
+    RecordHeader, RecordLookup, RecordOrder, RecordPage, RecordPayload, SchemaCompatibility,
+    SchemaReference, SchemaType, SearchHit, SearchKind, SubjectDetail, SubjectRow,
+    SubjectRowsResult, TailEvent, TailStart, TopicDetail, TopicGroupRow, TopicRate, TopicRow,
+    Update,
 };
 
 pub fn run(sh: &Shell) -> xshell::Result<()> {
@@ -44,6 +45,7 @@ fn typescript() -> String {
         PartitionRow,
         TopicDetail,
         CreateTopic,
+        EditTopicConfigs,
         GroupState,
         MemberAssignment,
         GroupMember,
