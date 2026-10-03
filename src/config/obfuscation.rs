@@ -129,17 +129,14 @@ fn regex<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Regex, D::Error> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::parse;
+    use crate::testing::{yaml, yaml_err};
 
-    const SECRET: &str = "secret: {value: 0123456789abcdef0123456789abcdef}";
-
-    fn obfuscation(rules: &str) -> anyhow::Result<Obfuscation> {
-        parse(&format!("{SECRET}\nrules:\n{rules}"))
+    fn with_secret(rules: &str) -> String {
+        format!("secret: {{value: 0123456789abcdef0123456789abcdef}}\nrules:\n{rules}")
     }
 
     fn topics(rules: &str) -> Vec<String> {
-        obfuscation(rules)
-            .unwrap()
+        yaml::<Obfuscation>(&with_secret(rules))
             .rules
             .iter()
             .flat_map(|rule| &rule.topics)
@@ -149,7 +146,7 @@ mod tests {
 
     #[test]
     fn reads_every_kind_of_rule() {
-        let config = obfuscation(
+        let config: Obfuscation = yaml(&with_secret(
             "
 - topics: [payments.*]
   fields:
@@ -164,8 +161,7 @@ mod tests {
   patterns:
     - {regex: '\\b\\d{13,19}\\b', strategy: mask}
 ",
-        )
-        .unwrap();
+        ));
 
         assert_eq!(
             config.secret.as_bytes(),
@@ -193,17 +189,11 @@ mod tests {
 
     #[test]
     fn obfuscation_needs_a_long_enough_secret() {
-        let missing = parse::<Obfuscation>("rules: []").unwrap_err();
-        let short = parse::<Obfuscation>("{secret: {value: short}, rules: []}").unwrap_err();
+        let missing = yaml_err::<Obfuscation>("rules: []");
+        let short = yaml_err::<Obfuscation>("{secret: {value: short}, rules: []}");
 
-        assert!(
-            missing.to_string().starts_with("missing field `secret`"),
-            "{missing}"
-        );
-        assert!(
-            short.to_string().starts_with("must be at least 32 bytes"),
-            "{short}"
-        );
+        assert!(missing.starts_with("missing field `secret`"), "{missing}");
+        assert!(short.starts_with("must be at least 32 bytes"), "{short}");
     }
 
     #[test]
@@ -212,11 +202,9 @@ mod tests {
         assert_eq!(topics("- topics: [a.b, 'c*']"), ["a.b", "c*"]);
 
         for pattern in ["a*b", "*a", "a**"] {
-            let error = obfuscation(&format!("- topics: ['{pattern}']")).unwrap_err();
+            let error = yaml_err::<Obfuscation>(&with_secret(&format!("- topics: ['{pattern}']")));
             assert!(
-                error
-                    .to_string()
-                    .starts_with("'*' may only end a topic pattern"),
+                error.starts_with("'*' may only end a topic pattern"),
                 "{pattern}: {error}"
             );
         }
@@ -231,12 +219,11 @@ mod tests {
             ("orders.*", "ord*"),
             ("ord*", "orders.*"),
         ] {
-            let error =
-                obfuscation(&format!("- topics: [{first}]\n- topics: ['{second}']")).unwrap_err();
+            let error = yaml_err::<Obfuscation>(&with_secret(&format!(
+                "- topics: [{first}]\n- topics: ['{second}']"
+            )));
             assert!(
-                error
-                    .to_string()
-                    .starts_with(&format!("topics '{first}' and '{second}' overlap")),
+                error.starts_with(&format!("topics '{first}' and '{second}' overlap")),
                 "{error}"
             );
         }
@@ -252,12 +239,10 @@ mod tests {
 
     #[test]
     fn rejects_a_regex_that_does_not_compile() {
-        let error =
-            obfuscation("- topics: [t]\n  patterns: [{regex: '(', strategy: mask}]").unwrap_err();
+        let error = yaml_err::<Obfuscation>(&with_secret(
+            "- topics: [t]\n  patterns: [{regex: '(', strategy: mask}]",
+        ));
 
-        assert!(
-            error.to_string().starts_with("regex parse error"),
-            "{error}"
-        );
+        assert!(error.starts_with("regex parse error"), "{error}");
     }
 }

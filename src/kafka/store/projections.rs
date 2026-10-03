@@ -425,11 +425,11 @@ fn unique_topics<'a>(names: impl Iterator<Item = &'a str>) -> Vec<String> {
 mod tests {
     use super::*;
     use crate::kafka::group::MemberAssignment;
-    use crate::kafka::store::fixtures::{
-        config, group as group_snapshot, log_dir, offline_partition, offsets, partition, topic,
-        topology as build_topology, watermarks,
-    };
     use crate::kafka::store::tables::Interner;
+    use crate::testing::{
+        config_entry, group as group_snapshot, log_dir, offline_partition, offsets, partition,
+        topic, topology as build_topology, watermarks,
+    };
 
     fn topology() -> Topology {
         build_topology(
@@ -491,8 +491,8 @@ mod tests {
             topics: HashMap::from_iter([(
                 Arc::from("orders"),
                 Arc::from([
-                    config("cleanup.policy", "compact"),
-                    config("retention.ms", "604800000"),
+                    config_entry("cleanup.policy", "compact"),
+                    config_entry("retention.ms", "604800000"),
                 ]),
             )]),
         };

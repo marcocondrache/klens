@@ -140,9 +140,10 @@ fn krafka_tls(tls: &Tls) -> KrafkaTlsConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::yaml;
 
-    fn cluster(yaml: &str) -> config::Cluster {
-        config::parse(yaml).unwrap()
+    fn cluster(source: &str) -> config::Cluster {
+        yaml(source)
     }
 
     fn tuning(connect_timeout: u64, request_timeout: u64) -> KafkaTuning {

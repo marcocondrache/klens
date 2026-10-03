@@ -1,3 +1,10 @@
+mod fixtures;
+
+pub use fixtures::{
+    config_entry, group, identity, log_dir, metadata, offline_partition, offsets, partition,
+    subject, topic, topology, watermarks,
+};
+
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
@@ -31,6 +38,7 @@ use crate::kafka::scan::payload::{DecodedPayload, PayloadCodec, PayloadSlot};
 use crate::kafka::session::ClusterSession;
 use crate::kafka::storage::{LogDir, ReplicaLog};
 use crate::kafka::topic_config::{ConfigEntry, ConfigSource};
+use crate::testing::yaml;
 
 const SUBJECT_SCHEMA: &str =
     r#"{"type":"record","name":"Order","fields":[{"name":"orderId","type":"string"}]}"#;
@@ -44,7 +52,6 @@ pub struct FixtureRecord {
     pub key: Option<Bytes>,
     pub value: Option<Bytes>,
     pub headers: Vec<RecordHeader>,
-    pub size_bytes: u64,
 }
 
 #[derive(Clone)]
@@ -219,7 +226,6 @@ impl FakeCluster {
                     key: "source".into(),
                     value: "checkout".into(),
                 }],
-                size_bytes: 24,
             })
             .collect();
 
@@ -280,8 +286,8 @@ impl FakeCluster {
         self
     }
 
-    pub fn with_obfuscation(self, yaml: &str) -> Self {
-        let config = crate::config::parse(yaml).expect("obfuscation config parses");
+    pub fn with_obfuscation(self, source: &str) -> Self {
+        let config = yaml(source);
 
         *self.inner.obfuscation.lock().expect("obfuscation") =
             Some(Arc::new(ObfuscationPolicy::compile(&config)));
@@ -1183,7 +1189,6 @@ pub fn card_record(offset: i64, pan: &str) -> FixtureRecord {
             key: "x-user-id".into(),
             value: "ada".into(),
         }],
-        size_bytes: 0,
     }
 }
 

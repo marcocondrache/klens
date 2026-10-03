@@ -128,8 +128,7 @@ mod tests {
     use crate::config::IngestTuning;
     use crate::kafka::RecordCursor;
     use crate::kafka::model::{RecordOrder, TimestampRange};
-    use crate::kafka::store::fixtures::{identity, partition, topic, topology};
-    use crate::kafka::testing::{FakeCluster, FixtureRecord};
+    use crate::testing::{FakeCluster, FixtureRecord, identity, partition, topic, topology};
     use jiff::Timestamp;
 
     fn unix_datetime(ms: i64) -> Timestamp {
@@ -177,7 +176,6 @@ mod tests {
             key: Some(format!("p{partition}-{offset}").into()),
             value: None,
             headers: Vec::new(),
-            size_bytes: 0,
         }
     }
 
@@ -351,7 +349,6 @@ mod tests {
                 ),
                 value: None,
                 headers: Vec::new(),
-                size_bytes: 0,
             })
             .collect();
 

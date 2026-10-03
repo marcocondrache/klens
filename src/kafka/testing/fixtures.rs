@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use foldhash::{HashMap, HashMapExt};
 
-use super::tables::{GroupOffsets, Interner, Topology, WatermarkTable};
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::group::{
     CommittedOffset, GroupMember, GroupSnapshot, GroupState, MemberAssignment,
@@ -12,6 +11,7 @@ use crate::kafka::metadata::{
 };
 use crate::kafka::registry::{SchemaCompatibility, SchemaSubject, SchemaType};
 use crate::kafka::storage::{LogDir, ReplicaLog};
+use crate::kafka::store::{GroupOffsets, Interner, Topology, WatermarkTable};
 use crate::kafka::topic_config::{ConfigEntry, ConfigSource};
 
 pub fn identity(name: &str) -> ClusterIdentity {
@@ -105,7 +105,7 @@ pub fn offsets(committed: &[(&str, i32, i64)]) -> GroupOffsets {
     }
 }
 
-pub fn config(name: &str, value: &str) -> ConfigEntry {
+pub fn config_entry(name: &str, value: &str) -> ConfigEntry {
     ConfigEntry {
         name: name.to_owned(),
         value: Some(value.to_owned()),

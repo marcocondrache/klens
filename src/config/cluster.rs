@@ -77,11 +77,11 @@ mod tests {
     use secrecy::ExposeSecret;
 
     use super::*;
-    use crate::config::parse;
+    use crate::testing::yaml;
 
     #[test]
     fn a_bare_cluster_is_plaintext_with_nothing_on_top() {
-        let cluster: Cluster = parse("bootstrap_servers: [localhost:9092]").unwrap();
+        let cluster: Cluster = yaml("bootstrap_servers: [localhost:9092]");
 
         assert_eq!(cluster.bootstrap_servers, ["localhost:9092"]);
         assert!(cluster.client_id.is_none());
@@ -97,15 +97,14 @@ mod tests {
 
     #[test]
     fn a_cluster_opts_in_to_changes() {
-        let cluster: Cluster =
-            parse("{bootstrap_servers: [localhost:9092], writable: true}").unwrap();
+        let cluster: Cluster = yaml("{bootstrap_servers: [localhost:9092], writable: true}");
 
         assert!(cluster.writable);
     }
 
     #[test]
     fn reads_every_connection_setting() {
-        let cluster: Cluster = parse(
+        let cluster: Cluster = yaml(
             "
             bootstrap_servers: [broker-1:9092, broker-2:9092]
             client_id: browser
@@ -121,8 +120,7 @@ mod tests {
               url: https://registry.example.com
               auth: {username: klens, password: {value: registry-secret}}
             ",
-        )
-        .unwrap();
+        );
 
         assert_eq!(
             cluster.bootstrap_servers,
@@ -151,7 +149,7 @@ mod tests {
 
     #[test]
     fn an_empty_tls_block_verifies_against_the_system_roots() {
-        let cluster: Cluster = parse("{bootstrap_servers: [kafka:9093], tls: {}}").unwrap();
+        let cluster: Cluster = yaml("{bootstrap_servers: [kafka:9093], tls: {}}");
         let tls = cluster.tls.unwrap();
 
         assert!(tls.ca_cert.is_none());
@@ -166,10 +164,9 @@ mod tests {
             ("SCRAM-SHA-256", SaslMechanism::ScramSha256),
             ("SCRAM-SHA-512", SaslMechanism::ScramSha512),
         ] {
-            let sasl: Sasl = parse(&format!(
+            let sasl: Sasl = yaml(&format!(
                 "{{mechanism: {name}, username: u, password: {{value: p}}}}"
-            ))
-            .unwrap();
+            ));
             assert_eq!(sasl.mechanism, mechanism);
         }
     }

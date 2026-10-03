@@ -87,34 +87,11 @@ fn at_least_one_second<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Dur
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    pub(super) struct TempFile(pub(super) std::path::PathBuf);
-
-    impl TempFile {
-        pub(super) fn new(name: &str, contents: &str) -> Self {
-            let path = std::env::temp_dir().join(format!("klens-{}-{name}", std::process::id()));
-            std::fs::write(&path, contents).unwrap();
-            Self(path)
-        }
-    }
-
-    impl Drop for TempFile {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_file(&self.0);
-        }
-    }
-
-    fn config(yaml: &str) -> Config {
-        parse(yaml).unwrap()
-    }
-
-    fn error(yaml: &str) -> String {
-        parse::<Config>(yaml).unwrap_err().to_string()
-    }
+    use crate::testing::{temp_file, yaml, yaml_err};
 
     #[test]
     fn every_key_has_a_default() {
-        let config = config("{}");
+        let config: Config = yaml("{}");
 
         assert_eq!(config.bind, "0.0.0.0:8080".parse().unwrap());
         assert_eq!(config.log_level, LogLevel::Info);
@@ -125,14 +102,14 @@ mod tests {
 
     #[test]
     fn the_example_config_loads() {
-        let example = config(include_str!("../config/clusters.example.yaml"));
+        let example: Config = yaml(include_str!("../config/clusters.example.yaml"));
 
         assert_eq!(example.clusters.keys().collect::<Vec<_>>(), ["local"]);
     }
 
     #[test]
     fn clusters_keep_file_order() {
-        let config = config(
+        let config: Config = yaml(
             "
             bind: 127.0.0.1:3000
             log_level: debug
@@ -152,7 +129,7 @@ mod tests {
 
     #[test]
     fn rejects_what_it_cannot_read_where_it_is() {
-        for (yaml, expected) in [
+        for (source, expected) in [
             ("bogus: true", "unknown field `bogus`"),
             (
                 "log_level: verbose",
@@ -167,8 +144,8 @@ mod tests {
                 "duplicate mapping key: a not allowed here at line 3, column 3",
             ),
         ] {
-            let error = error(yaml);
-            assert!(error.starts_with(expected), "{yaml}: {error}");
+            let error = yaml_err::<Config>(source);
+            assert!(error.starts_with(expected), "{source}: {error}");
         }
     }
 
@@ -180,11 +157,11 @@ mod tests {
             "failed to read /nonexistent/klens.yaml"
         );
 
-        let file = TempFile::new("invalid.yaml", "bogus: true");
-        let invalid = Config::load(&file.0).unwrap_err();
+        let file = temp_file("bogus: true");
+        let invalid = Config::load(file.path()).unwrap_err();
         assert_eq!(
             invalid.to_string(),
-            format!("invalid config {}", file.0.display())
+            format!("invalid config {}", file.path().display())
         );
         assert!(
             format!("{invalid:#}").contains("unknown field `bogus`"),
@@ -194,8 +171,8 @@ mod tests {
 
     #[test]
     fn load_reads_the_file() {
-        let file = TempFile::new("valid.yaml", "log_level: warn");
+        let file = temp_file("log_level: warn");
 
-        assert_eq!(Config::load(&file.0).unwrap().log_level, LogLevel::Warn);
+        assert_eq!(Config::load(file.path()).unwrap().log_level, LogLevel::Warn);
     }
 }

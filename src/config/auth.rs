@@ -95,7 +95,7 @@ mod tests {
     use secrecy::ExposeSecret;
 
     use super::*;
-    use crate::config::parse;
+    use crate::testing::yaml;
 
     const OIDC: &str = "
 oidc:
@@ -105,13 +105,13 @@ oidc:
   redirect_uri: https://klens.example.com/api/auth/callback
 ";
 
-    fn auth(extra: &str) -> anyhow::Result<Auth> {
-        parse(&format!("{OIDC}{extra}"))
+    fn auth(extra: &str) -> Auth {
+        yaml(&format!("{OIDC}{extra}"))
     }
 
     #[test]
     fn an_oidc_block_is_all_it_takes() {
-        let auth = auth("").unwrap();
+        let auth = auth("");
 
         assert_eq!(auth.oidc.issuer.as_str(), "https://idp.example.com");
         assert_eq!(auth.oidc.client_id, "klens");
@@ -138,8 +138,7 @@ session:
   login_timeout: 5m
   max_age: 1h
 ",
-        )
-        .unwrap();
+        );
 
         assert_eq!(auth.oidc.scopes, ["openid", "groups"]);
         assert_eq!(auth.oidc.groups_claim, "roles");
@@ -164,8 +163,7 @@ session:
       - groups: [ops, sre]
         clusters: [staging]
 ",
-        )
-        .unwrap();
+        );
         let roles = auth.roles.unwrap();
 
         assert_eq!(roles.keys().collect::<Vec<_>>(), ["viewer", "operator"]);

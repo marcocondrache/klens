@@ -7,9 +7,6 @@ pub mod rates;
 pub mod search;
 pub mod tables;
 
-#[cfg(test)]
-pub mod fixtures;
-
 pub use bus::{
     Change, ConfigsDelta, GroupLagUpdate, GroupOffsetsWave, LogDirsDelta, SubjectsDelta, TopicRate,
     TopologyDelta, WatermarksTick,

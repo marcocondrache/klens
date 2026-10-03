@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use axum::http::StatusCode;
 
-use crate::kafka::FakeCluster;
 use crate::kafka::model::AclListing;
+use crate::testing::FakeCluster;
 
 use super::super::harness::{failure, ok, seeded, seeded_with, state, store_of, viewer_everywhere};
 

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use axum::http::StatusCode;
 
 use crate::app::auth::access::EffectiveAccess;
-use crate::kafka::store::fixtures::{group, partition, topic, topology, watermarks};
+use crate::testing::{group, partition, topic, topology, watermarks};
 
 use super::super::harness::{failure, ok, ok_as, seeded, state, store_of, viewer_everywhere};
 

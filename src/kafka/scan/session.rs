@@ -484,7 +484,7 @@ mod tests {
     use crate::kafka::scan::filter::{CompiledFilter, contains};
     use crate::kafka::scan::query::TimestampRange;
     use crate::kafka::session::watermarks;
-    use crate::kafka::testing::{FakeCluster, FixtureRecord, card_record, framed};
+    use crate::testing::{FakeCluster, FixtureRecord, card_record, framed};
 
     const LIMITS: RecordLimits = RecordLimits {
         max_limit: NonZeroUsize::new(500).unwrap(),
@@ -500,7 +500,6 @@ mod tests {
             partition,
             offset,
             timestamp: offset,
-            size_bytes: key.len() as u64,
             key: Some(key),
             value: None,
             headers: Vec::new(),
@@ -1041,7 +1040,6 @@ mod tests {
             key: Some(Bytes::from_static(b"ord_0")),
             value: Some(framed(300, r#"{"orderId":"ord_0"}"#)),
             headers: Vec::new(),
-            size_bytes: 0,
         };
         let session = FakeCluster::local()
             .with_orders_records(vec![record])

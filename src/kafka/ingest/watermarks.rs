@@ -248,8 +248,7 @@ fn round_rate(value: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kafka::store::fixtures::{identity, watermarks};
-    use crate::kafka::testing::FakeCluster;
+    use crate::testing::{FakeCluster, identity, watermarks};
     use tokio::sync::broadcast::Receiver;
     use tokio::sync::broadcast::error::TryRecvError;
 
