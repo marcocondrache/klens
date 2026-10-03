@@ -124,6 +124,28 @@ impl Granted<'_, ManageTopicsCap> {
         .await;
         Ok(())
     }
+
+    pub(crate) async fn delete_topic(&self, topic: &str) -> Result<(), KafkaError> {
+        let topology = &self.cluster.store.topology;
+        let internal = topology
+            .load()
+            .and_then(|known| known.topics.get(topic).map(|entry| entry.internal));
+        match internal {
+            None => {
+                return Err(KafkaError::UnknownTopic {
+                    cluster: self.cluster.store.name().to_owned(),
+                    topic: topic.to_owned(),
+                });
+            }
+            Some(true) => return Err(KafkaError::InternalTopic(topic.to_owned())),
+            Some(false) => {}
+        }
+        self.cluster.session.delete_topic(topic).await?;
+        tracing::info!(cluster = %self.cluster.store.name(), topic, "deleted topic");
+        self.settle(topology, |known| !known.topics.contains_key(topic))
+            .await;
+        Ok(())
+    }
 }
 
 impl<Cap> Granted<'_, Cap> {

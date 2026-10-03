@@ -98,6 +98,11 @@ impl TestApp {
             .await
     }
 
+    pub async fn delete(&self, path: &str) -> Reply {
+        self.reply(Request::delete(path).body(Body::empty()).expect("request"))
+            .await
+    }
+
     pub async fn reply(&self, request: Request<Body>) -> Reply {
         let request_line = format!("{} {}", request.method(), request.uri());
         let response = self.send(request).await;
