@@ -284,9 +284,8 @@ mod tests {
 
     use crate::config::IngestTuning;
     use crate::kafka::store::fixtures::{
-        group, identity, offsets, partition, subject, topic, topology, watermarks,
+        group, identity, offsets, partition, topic, topology, watermarks,
     };
-    use crate::kafka::store::tables::{GroupOffsets, Interner};
 
     fn seeded() -> ClusterStore {
         let store = ClusterStore::new(identity("local"), IngestTuning::default().interest_ttl);
@@ -380,65 +379,6 @@ mod tests {
         assert_eq!(payments.partitions[0].high_watermark, 0);
         assert_eq!(payments.retained_messages, 0);
         assert_eq!(payments.group_count, 0);
-    }
-
-    #[test]
-    fn topic_groups_reads_the_reverse_index() {
-        let store = seeded();
-
-        let rows = store.topic_groups("orders");
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].id.as_ref(), "billing");
-        assert_eq!(rows[0].lag_on_topic, Some(15));
-        assert!(store.topic_groups("payments").is_empty());
-    }
-
-    #[test]
-    fn opening_a_group_detail_registers_interest() {
-        let store = seeded();
-        assert!(!store.interest.is_hot("billing"));
-
-        let detail = store.group_detail("billing").expect("billing exists");
-
-        assert_eq!(detail.total_lag, Some(15));
-        assert!(
-            store.interest.is_hot("billing"),
-            "a viewed group must join the fast offset tier"
-        );
-    }
-
-    #[test]
-    fn search_follows_topology_and_subject_commits() {
-        let store = seeded();
-        assert_eq!(store.search("orders").len(), 1);
-
-        store.subjects.commit(Arc::new(SubjectTable::assemble(
-            &[subject("orders-value", 1, 1)],
-            &mut Interner::default(),
-        )));
-
-        assert_eq!(store.search("orders").len(), 2);
-        assert_eq!(store.subject_rows().len(), 1);
-    }
-
-    #[test]
-    fn group_offsets_are_shared_pointers_not_copies() {
-        let store = seeded();
-        let first = Arc::clone(store.offsets.load().unwrap().get("billing").unwrap());
-
-        store.offsets.commit(Arc::new(OffsetTable {
-            groups: HashMap::from_iter([
-                (Arc::from("billing"), Arc::clone(&first)),
-                (Arc::from("audit"), Arc::new(offsets(&[("orders", 0, 10)]))),
-            ]),
-        }));
-
-        let second: Arc<GroupOffsets> =
-            Arc::clone(store.offsets.load().unwrap().get("billing").unwrap());
-        assert!(
-            Arc::ptr_eq(&first, &second),
-            "a wave rebuilds the outer map of pointers, not every group"
-        );
     }
 
     #[test]

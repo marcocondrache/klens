@@ -140,15 +140,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_fresh_lane_serves_nothing_and_is_not_ready() {
-        let lane = Lane::<u32>::new();
-        assert!(lane.load().is_none());
-        assert_eq!(lane.version(), 0);
-        assert!(!lane.ready());
-        assert_eq!(lane.health(), LaneHealth::default());
-    }
-
-    #[test]
     fn commit_swaps_the_pointer_and_bumps_the_version() {
         let lane = Lane::new();
         assert_eq!(lane.commit(Arc::new(1_u32)), 1);

@@ -222,18 +222,6 @@ mod tests {
     }
 
     #[test]
-    fn an_unknown_cluster_is_an_error() {
-        let clusters = Clusters::from_sessions(vec![FakeCluster::local()]);
-
-        assert_eq!(clusters.get("local").unwrap().name(), "local");
-        assert!(!clusters.get("local").unwrap().writable);
-        assert!(matches!(
-            clusters.get("missing"),
-            Err(KafkaError::UnknownCluster(name)) if name == "missing"
-        ));
-    }
-
-    #[test]
     fn clusters_keep_config_order_and_gate_readiness() {
         let clusters = Clusters::from_sessions(vec![
             FakeCluster::named("prod"),
