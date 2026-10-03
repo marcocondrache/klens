@@ -47,6 +47,9 @@ pub struct Record {
     pub schema_id: Option<i32>,
     pub headers: Vec<RecordHeader>,
     pub size_bytes: u64,
+    /// True when the key, value and headers show the record's exact bytes,
+    /// so producing them again writes the same record.
+    pub verbatim: bool,
 }
 
 impl From<domain::Record> for Record {
@@ -62,6 +65,7 @@ impl From<domain::Record> for Record {
             schema_id: record.schema_id,
             headers: record.headers.into_iter().map(Into::into).collect(),
             size_bytes: record.size_bytes,
+            verbatim: record.verbatim,
         }
     }
 }

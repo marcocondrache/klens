@@ -178,7 +178,12 @@ export type RecordOrder = "NEWEST" | "OLDEST";
 
 export type RecordHeader = { key: string, value: string, };
 
-export type Record = { topic: string, partition: number, offset: number, timestamp: string, key: string | null, value: string | null, schemaId: number | null, headers: Array<RecordHeader>, sizeBytes: number, };
+export type Record = { topic: string, partition: number, offset: number, timestamp: string, key: string | null, value: string | null, schemaId: number | null, headers: Array<RecordHeader>, sizeBytes: number, 
+/**
+ * True when the key, value and headers show the record's exact bytes,
+ * so producing them again writes the same record.
+ */
+verbatim: boolean, };
 
 export type RecordPage = { records: Array<Record>, 
 /**

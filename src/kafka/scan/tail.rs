@@ -310,6 +310,7 @@ mod tests {
                     schema_id: None,
                     headers: Vec::new(),
                     size_bytes: 1,
+                    verbatim: true,
                 }],
                 skipped: 0,
             }

@@ -32,6 +32,7 @@ pub struct DecodedRecord {
     raw: RawRecord,
     key: Option<DecodedPayload>,
     value: Option<DecodedPayload>,
+    masked: bool,
 }
 
 impl DecodedRecord {
@@ -41,6 +42,17 @@ impl DecodedRecord {
 
     pub fn into_record(self, topic: &str) -> Record {
         let schema_id = self.value.as_ref().and_then(DecodedPayload::wire_schema_id);
+        let verbatim = !self.masked
+            && self.raw.headers.iter().all(|(key, value)| {
+                str::from_utf8(key).is_ok()
+                    && value
+                        .as_deref()
+                        .is_some_and(|value| str::from_utf8(value).is_ok())
+            })
+            && [&self.key, &self.value]
+                .into_iter()
+                .flatten()
+                .all(DecodedPayload::is_verbatim);
         let headers = self
             .raw
             .headers
@@ -64,6 +76,7 @@ impl DecodedRecord {
             value: self.value.map(DecodedPayload::into_text),
             schema_id,
             headers,
+            verbatim,
         }
     }
 }
@@ -153,6 +166,7 @@ impl RecordPipeline {
                 raw: candidate.raw,
                 key,
                 value,
+                masked: self.obfuscated(),
             }));
         }
         kept
@@ -181,7 +195,12 @@ impl RecordPipeline {
                     let mut key = key.and_then(|index| decoded[index].take());
                     let mut value = value.and_then(|index| decoded[index].take());
                     self.obfuscate(&mut key, &mut value);
-                    DecodedRecord { raw, key, value }
+                    DecodedRecord {
+                        raw,
+                        key,
+                        value,
+                        masked: self.obfuscated(),
+                    }
                 }
             })
             .collect()
@@ -241,4 +260,38 @@ struct Candidate {
     raw: RawRecord,
     key: Option<usize>,
     value: Option<usize>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn verbatim(key: &'static [u8], value: Option<&'static [u8]>) -> bool {
+        DecodedRecord {
+            raw: RawRecord {
+                partition: 0,
+                offset: 0,
+                timestamp: 0,
+                key: None,
+                value: None,
+                headers: vec![(Bytes::from_static(key), value.map(Bytes::from_static))],
+            },
+            key: None,
+            value: None,
+            masked: false,
+        }
+        .into_record("orders")
+        .verbatim
+    }
+
+    #[test]
+    fn a_record_is_verbatim_only_while_every_header_is_text() {
+        assert!(verbatim(b"trace", Some(b"abc")));
+        assert!(
+            !verbatim(b"trace", None),
+            "a null value would come back empty"
+        );
+        assert!(!verbatim(b"trace", Some(&[0xff])));
+        assert!(!verbatim(&[0xff], Some(b"abc")));
+    }
 }

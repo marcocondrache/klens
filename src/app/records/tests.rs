@@ -10,7 +10,7 @@ use crate::app::auth::SessionGuard;
 use crate::config::Tuning;
 use crate::kafka::model as domain;
 use crate::testing::{
-    Api, FakeCluster, FixtureRecord, LogCapture, TestApp, access, card_record, viewer,
+    Api, FakeCluster, FixtureRecord, LogCapture, TestApp, access, card_record, framed, viewer,
 };
 
 use super::types::Record;
@@ -61,6 +61,7 @@ fn a_record_keeps_its_wire_schema_id() {
         schema_id: Some(12),
         headers: Vec::new(),
         size_bytes: 2,
+        verbatim: true,
     };
 
     assert_eq!(Record::from(record).schema_id, Some(12));
@@ -292,6 +293,63 @@ async fn a_record_opens_by_partition_and_offset() {
     assert_eq!(opened["record"]["offset"], 3);
     assert_eq!(opened["record"]["key"], "ord_3");
     assert_eq!(opened["obfuscated"], json!(false));
+}
+
+#[tokio::test]
+async fn a_record_is_verbatim_while_its_text_is_its_bytes() {
+    let app = TestApp::over(FakeCluster::local().with_records(vec![
+        FixtureRecord::order(0, 0).key("ord_0").value(r#"{"total":42}"#),
+        card_record(1, PAN),
+        FixtureRecord::order(0, 2).key(framed(7, r#"{"id":"ord_2"}"#)),
+        FixtureRecord::order(0, 3).key("ord_3").value(vec![0xff, 0x01]),
+    ]))
+    .await;
+    let page = app
+        .get(&format!("{RECORDS}?limit=4&order=OLDEST"))
+        .await
+        .ok();
+    let mut verbatim: Vec<_> = records(&page)
+        .iter()
+        .map(|record| (record["offset"].as_i64(), record["verbatim"].as_bool()))
+        .collect();
+    verbatim.sort_unstable();
+
+    assert_eq!(
+        verbatim,
+        [
+            (Some(0), Some(true)),
+            (Some(1), Some(false)),
+            (Some(2), Some(false)),
+            (Some(3), Some(false)),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn an_obfuscated_topic_is_never_verbatim() {
+    let app = TestApp::over(
+        FakeCluster::local()
+            .with_records(vec![
+                FixtureRecord::order(0, 0)
+                    .key("ord_0")
+                    .value("paid")
+                    .header("x-user-id", "ada"),
+            ])
+            .with_obfuscation(
+                "
+                secret: {value: 0123456789abcdef0123456789abcdef}
+                rules:
+                  - topics: ['orders.*']
+                    headers: ['x-user-id']
+                ",
+            ),
+    )
+    .await;
+    let opened = app.get(&format!("{RECORDS}/0/0")).await.ok();
+
+    assert_eq!(opened["record"]["value"], "paid");
+    assert_eq!(opened["record"]["headers"][0]["value"], "***");
+    assert_eq!(opened["record"]["verbatim"], json!(false));
 }
 
 #[tokio::test]
