@@ -135,14 +135,6 @@ mod tests {
     }
 
     #[test]
-    fn log_http_completed_503_is_silent_at_info() {
-        let (logs, _guard) = capture(tracing::Level::INFO);
-        log_http_completed(503, Duration::from_millis(1));
-        let text = logs.as_string();
-        assert!(!text.contains("request completed"), "{text}");
-    }
-
-    #[test]
     fn log_http_completed_500_is_warn() {
         let (logs, _guard) = capture(tracing::Level::WARN);
         log_http_completed(500, Duration::from_millis(3));

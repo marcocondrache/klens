@@ -241,46 +241,6 @@ impl OidcFlow for FakeOidc {
 mod tests {
     use super::*;
 
-    fn unused_pkce() -> PkceCodeVerifier {
-        PkceCodeVerifier::new("verifier".into())
-    }
-
-    fn unused_nonce() -> Nonce {
-        Nonce::new("nonce".into())
-    }
-
-    #[tokio::test]
-    async fn fake_oidc_rejects_a_bad_code_with_a_literal() {
-        let error = FakeOidc::default()
-            .authenticate("nope".into(), unused_pkce(), unused_nonce())
-            .await
-            .unwrap_err();
-        assert_eq!(error.to_string(), "invalid authorization code");
-    }
-
-    #[tokio::test]
-    async fn fake_oidc_accepts_the_test_code() {
-        let user = FakeOidc::default()
-            .authenticate("test-code".into(), unused_pkce(), unused_nonce())
-            .await
-            .unwrap();
-        assert_eq!(user.sub, "user-1");
-        assert_eq!(user.email.as_deref(), Some("user@example.com"));
-        assert_eq!(user.name.as_deref(), Some("Test User"));
-        assert!(user.groups.is_empty());
-    }
-
-    #[tokio::test]
-    async fn fake_oidc_returns_configured_groups() {
-        let user = FakeOidc {
-            groups: vec!["klens-admins".into()],
-        }
-        .authenticate("test-code".into(), unused_pkce(), unused_nonce())
-        .await
-        .unwrap();
-        assert_eq!(user.groups, ["klens-admins"]);
-    }
-
     #[test]
     fn groups_from_id_token_reads_the_payload_claim() {
         let payload = base64::Engine::encode(

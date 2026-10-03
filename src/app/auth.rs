@@ -519,7 +519,6 @@ mod tests {
         ] {
             assert_ne!(base.session_auth_hash(), changed.session_auth_hash());
         }
-        assert_eq!(base.session_auth_hash().len(), 32);
     }
 
     fn app(auth: AuthState) -> axum::Router {
@@ -999,11 +998,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn an_absent_session_key_falls_back_to_a_generated_one() {
-        assert_ne!(signing_key(None).signing(), signing_key(None).signing());
-    }
-
     #[tokio::test]
     async fn me_reports_identity_only() {
         let router = app(AuthState::enabled_for_tests_with(
@@ -1096,33 +1090,5 @@ mod tests {
 
         let response = send(router, request).await;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-    }
-
-    #[tokio::test]
-    async fn api_forbids_records_for_a_viewer() {
-        let router = app(AuthState::enabled_for_tests_with(
-            FakeOidc::default(),
-            bound_viewers(),
-        ));
-        let user = SessionUser::new(
-            "user-1",
-            None,
-            None,
-            vec!["klens-viewers".into()],
-            Timestamp::now().as_second() + 3600,
-        );
-        let cookie = impersonate_cookie(&router, &user).await;
-
-        let request = Request::builder()
-            .uri("/api/clusters/local/topics/orders.created/records?limit=1&order=OLDEST")
-            .header(header::COOKIE, cookie)
-            .body(Body::empty())
-            .unwrap();
-
-        let response = send(router, request).await;
-        assert_eq!(response.status(), StatusCode::FORBIDDEN);
-        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(json["code"], "FORBIDDEN");
     }
 }

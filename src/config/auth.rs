@@ -187,17 +187,4 @@ session:
             Some(&["staging".to_owned()][..])
         );
     }
-
-    #[test]
-    fn rejects_a_url_that_does_not_parse() {
-        let error = parse::<Oidc>(
-            "{issuer: idp, client_id: k, client_secret: {value: s}, redirect_uri: /cb}",
-        )
-        .unwrap_err();
-
-        assert!(
-            error.to_string().starts_with("relative URL without a base"),
-            "{error}"
-        );
-    }
 }

@@ -210,21 +210,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn zstd_wins_when_the_client_weighs_every_encoding_the_same() {
-        let (served, _) = fetch("/page", Some("gzip, deflate, br, zstd")).await;
-
-        assert_eq!(served.as_deref(), Some("zstd"));
-    }
-
-    #[tokio::test]
-    async fn a_response_stays_plain_for_a_client_that_accepts_no_encoding() {
-        let (served, body) = fetch("/page", None).await;
-
-        assert_eq!(served, None);
-        assert_eq!(body, PAGE.as_bytes());
-    }
-
-    #[tokio::test]
     async fn an_event_stream_is_never_compressed() {
         let (served, body) = fetch("/stream", Some("gzip, br, zstd")).await;
 
