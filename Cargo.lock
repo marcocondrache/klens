@@ -1860,7 +1860,7 @@ dependencies = [
 
 [[package]]
 name = "klens"
-version = "0.0.0-dev"
+version = "0.81.9"
 dependencies = [
  "aho-corasick",
  "anyhow",
