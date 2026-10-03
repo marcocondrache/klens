@@ -370,11 +370,10 @@ mod tests {
     use apache_avro::Schema as AvroSchema;
     use apache_avro::types::{Record, Value as AvroValue};
     use schemreg::encode_protobuf_wire_format;
-    use wiremock::matchers::{method, path};
-    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use super::*;
-    use crate::config::{SchemaRegistry, SchemaRegistryTuning};
+    use crate::config::SchemaRegistryTuning;
+    use crate::kafka::registry::testing::{FakeRegistry, Schema};
     use crate::kafka::scan::filter::contains;
     use crate::testing::LogCapture;
 
@@ -437,21 +436,6 @@ mod tests {
         }
     "#;
 
-    fn config(url: &str) -> SchemaRegistry {
-        SchemaRegistry {
-            url: url.parse().unwrap(),
-            auth: None,
-        }
-    }
-
-    fn decoder(url: &str) -> PayloadDecoder {
-        let tuning = SchemaRegistryTuning::default();
-        PayloadDecoder::new(
-            SchemaRegistryClient::new("local", &config(url), &tuning).unwrap(),
-            tuning.missing_schema_ttl,
-        )
-    }
-
     fn frame(schema_id: u32, payload: &[u8]) -> Vec<u8> {
         encode_wire_format(schema_id, payload).to_vec()
     }
@@ -465,17 +449,6 @@ mod tests {
         let mut record = Record::new(&parsed).unwrap();
         build(&parsed, &mut record);
         apache_avro::to_avro_datum(&parsed, AvroValue::Record(record.fields)).unwrap()
-    }
-
-    async fn mock_schema(server: &MockServer, id: u32, schema_type: &str, schema: &str) {
-        Mock::given(method("GET"))
-            .and(path(format!("/schemas/ids/{id}")))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "schemaType": schema_type,
-                "schema": schema,
-            })))
-            .mount(server)
-            .await;
     }
 
     fn matches_orderid(value: &DecodedPayload) -> bool {
@@ -532,15 +505,15 @@ mod tests {
 
     #[tokio::test]
     async fn decodes_avro_record_to_json() {
-        let server = MockServer::start().await;
-        mock_schema(&server, 12, "AVRO", ORDER_SCHEMA).await;
+        let registry = FakeRegistry::start().await;
+        registry.put(12, Schema::avro(ORDER_SCHEMA));
 
         let payload = encode_avro(ORDER_SCHEMA, |_, record| {
             record.put("orderId", "abc".to_owned());
             record.put("amount", 42i64);
         });
         let framed = frame(12, &payload);
-        let decoded = decode_payload(&decoder(&server.uri()), &framed).await;
+        let decoded = decode_payload(&registry.decoder(), &framed).await;
         let value = decoded.json().expect("decoded to structured json");
 
         assert_eq!(value["orderId"], "abc");
@@ -555,7 +528,7 @@ mod tests {
 
     #[tokio::test]
     async fn decodes_unnamed_avro_schemas_without_references() {
-        let server = MockServer::start().await;
+        let registry = FakeRegistry::start().await;
         for (id, schema, value, expected) in [
             (1u32, r#""long""#, AvroValue::Long(42), "42"),
             (2, r#""null""#, AvroValue::Null, "null"),
@@ -566,11 +539,11 @@ mod tests {
                 "[1,2]",
             ),
         ] {
-            mock_schema(&server, id, "AVRO", schema).await;
+            registry.put(id, Schema::avro(schema));
             let parsed = AvroSchema::parse_str(schema).unwrap();
             let payload = apache_avro::to_avro_datum(&parsed, value).unwrap();
             assert_eq!(
-                decoder(&server.uri()).decode(&frame(id, &payload)).await,
+                registry.decoder().decode(&frame(id, &payload)).await,
                 expected
             );
         }
@@ -578,19 +551,19 @@ mod tests {
 
     #[tokio::test]
     async fn decodes_json_schema_payload() {
-        let server = MockServer::start().await;
-        mock_schema(&server, 7, "JSON", r#"{"type":"object"}"#).await;
+        let registry = FakeRegistry::start().await;
+        registry.put(7, Schema::json(r#"{"type":"object"}"#));
 
         let framed = frame(7, br#"{"ok": true}"#);
-        let json = decoder(&server.uri()).decode(&framed).await;
+        let json = registry.decoder().decode(&framed).await;
         assert_eq!(json, r#"{"ok":true}"#);
     }
 
     #[tokio::test]
     async fn a_large_batch_lets_other_tasks_run_while_it_decodes() {
-        let server = MockServer::start().await;
-        mock_schema(&server, 7, "JSON", r#"{"type":"object"}"#).await;
-        let decoder = decoder(&server.uri());
+        let registry = FakeRegistry::start().await;
+        registry.put(7, Schema::json(r#"{"type":"object"}"#));
+        let decoder = registry.decoder();
         decoder.decode(&frame(7, b"{}")).await;
 
         let ran = Arc::new(AtomicBool::new(false));
@@ -610,26 +583,26 @@ mod tests {
 
     #[tokio::test]
     async fn leaves_unframed_payloads_unchanged() {
-        let server = MockServer::start().await;
+        let registry = FakeRegistry::start().await;
         let raw = br#"{"plain":true}"#;
         assert_eq!(
-            decoder(&server.uri()).decode(raw).await,
+            registry.decoder().decode(raw).await,
             String::from_utf8_lossy(raw)
         );
     }
 
     #[tokio::test]
     async fn falls_back_when_schema_is_missing() {
-        let server = MockServer::start().await;
-        mock_missing_schema(&server, 99).await;
+        let registry = FakeRegistry::start().await;
 
         let framed = frame(99, b"not-json");
         assert_eq!(
-            decoder(&server.uri()).decode(&framed).await,
+            registry.decoder().decode(&framed).await,
             decode_bytes(&framed)
         );
         assert_eq!(
-            decoder(&server.uri())
+            registry
+                .decoder()
                 .decode_failure(&framed, None)
                 .await
                 .unwrap(),
@@ -639,35 +612,34 @@ mod tests {
 
     #[tokio::test]
     async fn a_missing_schema_is_not_re_queried_within_its_ttl() {
-        let server = MockServer::start().await;
-        mock_missing_schema(&server, 99).await;
+        let registry = FakeRegistry::start().await;
 
-        let decoder = decoder(&server.uri());
+        let decoder = registry.decoder();
         let framed = frame(99, b"not-json");
         decoder.decode(&framed).await;
         decoder.decode(&framed).await;
 
-        assert_eq!(fetches(&server, "/schemas/ids/99").await, 1);
+        assert_eq!(registry.hits("/schemas/ids/99").await, 1);
     }
 
     #[tokio::test]
     async fn falls_back_when_avro_payload_does_not_match_schema() {
-        let server = MockServer::start().await;
-        mock_schema(&server, 12, "AVRO", ORDER_SCHEMA).await;
+        let registry = FakeRegistry::start().await;
+        registry.put(12, Schema::avro(ORDER_SCHEMA));
         let framed = frame(12, b"????");
         assert_eq!(
-            decoder(&server.uri()).decode(&framed).await,
+            registry.decoder().decode(&framed).await,
             decode_bytes(&framed)
         );
     }
 
     #[tokio::test]
     async fn decodes_protobuf_record_to_json() {
-        let server = MockServer::start().await;
-        mock_schema(&server, 3, "PROTOBUF", ORDER_PROTO).await;
+        let registry = FakeRegistry::start().await;
+        registry.put(3, Schema::protobuf(ORDER_PROTO));
 
         let framed = proto_frame(3, &[0], b"\x0a\x03abc\x10\x2a");
-        let decoded = decode_payload(&decoder(&server.uri()), &framed).await;
+        let decoded = decode_payload(&registry.decoder(), &framed).await;
         let value = decoded.json().expect("decoded to structured json");
 
         assert_eq!(value["orderId"], "abc");
@@ -677,22 +649,23 @@ mod tests {
 
     #[tokio::test]
     async fn falls_back_when_protobuf_schema_has_no_messages() {
-        let server = MockServer::start().await;
-        mock_schema(&server, 3, "PROTOBUF", "syntax = \"proto3\";").await;
+        let registry = FakeRegistry::start().await;
+        registry.put(3, Schema::protobuf("syntax = \"proto3\";"));
         let framed = proto_frame(3, &[0], b"\x08\x01");
         assert_eq!(
-            decoder(&server.uri()).decode(&framed).await,
+            registry.decoder().decode(&framed).await,
             decode_bytes(&framed)
         );
     }
 
     #[tokio::test]
     async fn a_truncated_protobuf_index_is_a_typed_decode_error() {
-        let server = MockServer::start().await;
-        mock_schema(&server, 3, "PROTOBUF", ORDER_PROTO).await;
+        let registry = FakeRegistry::start().await;
+        registry.put(3, Schema::protobuf(ORDER_PROTO));
         let framed = frame(3, &[]);
         assert!(matches!(
-            decoder(&server.uri())
+            registry
+                .decoder()
                 .decode_failure(&framed, None)
                 .await
                 .unwrap(),
@@ -702,11 +675,11 @@ mod tests {
 
     #[tokio::test]
     async fn decodes_unframed_protobuf_with_override_schema_id() {
-        let server = MockServer::start().await;
-        mock_schema(&server, 3, "PROTOBUF", ORDER_PROTO).await;
+        let registry = FakeRegistry::start().await;
+        registry.put(3, Schema::protobuf(ORDER_PROTO));
 
         let payload = b"\x0a\x03abc\x10\x2a";
-        let decoded = decoder(&server.uri()).decode_with(payload, Some(3)).await;
+        let decoded = registry.decoder().decode_with(payload, Some(3)).await;
         let value: serde_json::Value = serde_json::from_str(&decoded.text).unwrap();
         assert_eq!(value["orderId"], "abc");
         assert_eq!(value["amount"], "42");
@@ -715,48 +688,29 @@ mod tests {
 
     #[tokio::test]
     async fn decodes_protobuf_schema_references() {
-        let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path("/schemas/ids/20"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "schemaType": "PROTOBUF",
-                "schema": TAGGED_ORDER_PROTO,
-                "references": [{
-                    "name": "common.proto",
-                    "subject": "common.proto",
-                    "version": 1
-                }]
-            })))
-            .mount(&server)
-            .await;
-        Mock::given(method("GET"))
-            .and(path("/subjects/common.proto/versions/1"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "id": 4,
-                "version": 1,
-                "subject": "common.proto",
-                "schemaType": "PROTOBUF",
-                "schema": STATUS_PROTO,
-            })))
-            .mount(&server)
-            .await;
+        let registry = FakeRegistry::start().await;
+        registry.put(
+            20,
+            Schema::protobuf(TAGGED_ORDER_PROTO).referencing("common.proto", "common.proto", 1),
+        );
+        registry.register("common.proto", 1, 4, Schema::protobuf(STATUS_PROTO));
 
         let framed = proto_frame(20, &[0], b"\x0a\x06\x0a\x04OPEN");
-        let json = decoder(&server.uri()).decode(&framed).await;
+        let json = registry.decoder().decode(&framed).await;
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(value["status"]["code"], "OPEN");
     }
 
     #[tokio::test]
     async fn decodes_unframed_avro_with_override_schema_id() {
-        let server = MockServer::start().await;
-        mock_schema(&server, 12, "AVRO", ORDER_SCHEMA).await;
+        let registry = FakeRegistry::start().await;
+        registry.put(12, Schema::avro(ORDER_SCHEMA));
 
         let payload = encode_avro(ORDER_SCHEMA, |_, record| {
             record.put("orderId", "abc".to_owned());
             record.put("amount", 42i64);
         });
-        let decoded = decoder(&server.uri()).decode_with(&payload, Some(12)).await;
+        let decoded = registry.decoder().decode_with(&payload, Some(12)).await;
         let value: serde_json::Value = serde_json::from_str(&decoded.text).unwrap();
 
         assert_eq!(value["orderId"], "abc");
@@ -771,16 +725,16 @@ mod tests {
 
     #[tokio::test]
     async fn framed_payload_ignores_override_schema_id() {
-        let server = MockServer::start().await;
-        mock_schema(&server, 12, "AVRO", ORDER_SCHEMA).await;
-        mock_schema(&server, 99, "JSON", r#"{"type":"object"}"#).await;
+        let registry = FakeRegistry::start().await;
+        registry.put(12, Schema::avro(ORDER_SCHEMA));
+        registry.put(99, Schema::json(r#"{"type":"object"}"#));
 
         let payload = encode_avro(ORDER_SCHEMA, |_, record| {
             record.put("orderId", "abc".to_owned());
             record.put("amount", 42i64);
         });
         let framed = frame(12, &payload);
-        let decoded = decoder(&server.uri()).decode_with(&framed, Some(99)).await;
+        let decoded = registry.decoder().decode_with(&framed, Some(99)).await;
         let value: serde_json::Value = serde_json::from_str(&decoded.text).unwrap();
 
         assert_eq!(value["orderId"], "abc");
@@ -789,52 +743,32 @@ mod tests {
 
     #[tokio::test]
     async fn unframed_override_falls_back_when_payload_does_not_match() {
-        let server = MockServer::start().await;
-        mock_schema(&server, 12, "AVRO", ORDER_SCHEMA).await;
+        let registry = FakeRegistry::start().await;
+        registry.put(12, Schema::avro(ORDER_SCHEMA));
         let raw = b"????";
-        let decoded = decoder(&server.uri()).decode_with(raw, Some(12)).await;
+        let decoded = registry.decoder().decode_with(raw, Some(12)).await;
         assert_eq!(decoded.text, decode_bytes(raw));
         assert_eq!(decoded.wire_schema_id, None);
     }
 
     #[tokio::test]
     async fn unframed_override_falls_back_when_schema_is_missing() {
-        let server = MockServer::start().await;
-        mock_missing_schema(&server, 99).await;
+        let registry = FakeRegistry::start().await;
 
         let raw = b"not-json";
-        let decoded = decoder(&server.uri()).decode_with(raw, Some(99)).await;
+        let decoded = registry.decoder().decode_with(raw, Some(99)).await;
         assert_eq!(decoded.text, decode_bytes(raw));
         assert_eq!(decoded.wire_schema_id, None);
     }
 
     #[tokio::test]
     async fn decodes_avro_schema_references() {
-        let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path("/schemas/ids/20"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "schemaType": "AVRO",
-                "schema": ORDER_WITH_STATUS,
-                "references": [{
-                    "name": "Status",
-                    "subject": "Status",
-                    "version": 1
-                }]
-            })))
-            .mount(&server)
-            .await;
-        Mock::given(method("GET"))
-            .and(path("/subjects/Status/versions/1"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "id": 4,
-                "version": 1,
-                "subject": "Status",
-                "schemaType": "AVRO",
-                "schema": STATUS_SCHEMA,
-            })))
-            .mount(&server)
-            .await;
+        let registry = FakeRegistry::start().await;
+        registry.put(
+            20,
+            Schema::avro(ORDER_WITH_STATUS).referencing("Status", "Status", 1),
+        );
+        registry.register("Status", 1, 4, Schema::avro(STATUS_SCHEMA));
 
         let (writer, dependencies) =
             AvroSchema::parse_str_with_list(ORDER_WITH_STATUS, [STATUS_SCHEMA]).unwrap();
@@ -849,17 +783,17 @@ mod tests {
         )
         .unwrap();
 
-        let json = decoder(&server.uri()).decode(&frame(20, &payload)).await;
+        let json = registry.decoder().decode(&frame(20, &payload)).await;
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(value["status"], "OPEN");
     }
 
     #[tokio::test]
     async fn a_batch_resolves_each_schema_id_once() {
-        let server = MockServer::start().await;
-        mock_schema(&server, 12, "AVRO", ORDER_SCHEMA).await;
+        let registry = FakeRegistry::start().await;
+        registry.put(12, Schema::avro(ORDER_SCHEMA));
 
-        let decoder = decoder(&server.uri());
+        let decoder = registry.decoder();
         let mut slots: Vec<PayloadSlot> = (0..5)
             .map(|index| {
                 let payload = encode_avro(ORDER_SCHEMA, |_, record| {
@@ -877,7 +811,7 @@ mod tests {
             assert_eq!(value["orderId"], format!("id-{index}"));
         }
         assert_eq!(
-            fetches(&server, "/schemas/ids/12").await,
+            registry.hits("/schemas/ids/12").await,
             1,
             "every record in the batch shares one resolution"
         );
@@ -885,10 +819,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_resolved_schema_is_not_fetched_again() {
-        let server = MockServer::start().await;
-        mock_schema(&server, 12, "AVRO", ORDER_SCHEMA).await;
+        let registry = FakeRegistry::start().await;
+        registry.put(12, Schema::avro(ORDER_SCHEMA));
 
-        let decoder = decoder(&server.uri());
+        let decoder = registry.decoder();
         let payload = encode_avro(ORDER_SCHEMA, |_, record| {
             record.put("orderId", "abc".to_owned());
             record.put("amount", 1i64);
@@ -898,16 +832,16 @@ mod tests {
         decode_payload(&decoder, &framed).await;
         decode_payload(&decoder, &framed).await;
 
-        assert_eq!(fetches(&server, "/schemas/ids/12").await, 1);
+        assert_eq!(registry.hits("/schemas/ids/12").await, 1);
     }
 
     #[tokio::test]
     async fn a_failed_lookup_is_reported_once_per_batch_and_not_retried_within_its_ttl() {
-        let server = MockServer::start().await;
-        mock_failing_schema(&server, 12).await;
+        let registry = FakeRegistry::start().await;
+        registry.fail("/schemas/ids/12");
         let logs = LogCapture::at(tracing::Level::WARN);
 
-        let decoder = decoder(&server.uri());
+        let decoder = registry.decoder();
         let framed = Bytes::from(frame(12, b"datum"));
         for batch in 1..=2 {
             let mut slots: Vec<PayloadSlot> = (0..20)
@@ -921,24 +855,17 @@ mod tests {
                 batch
             );
         }
-        assert_eq!(fetches(&server, "/schemas/ids/12").await, 1);
+        assert_eq!(registry.hits("/schemas/ids/12").await, 1);
     }
 
     #[tokio::test]
     async fn a_failed_lookup_is_retried_after_its_ttl() {
-        let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path("/schemas/ids/7"))
-            .respond_with(ResponseTemplate::new(500))
-            .up_to_n_times(1)
-            .mount(&server)
-            .await;
-        mock_schema(&server, 7, "JSON", "{}").await;
-
-        let tuning = SchemaRegistryTuning::default();
+        let registry = FakeRegistry::start().await;
+        registry.fail_once("/schemas/ids/7");
+        registry.put(7, Schema::json("{}"));
         let decoder = PayloadDecoder::with_ttls(
-            SchemaRegistryClient::new("local", &config(&server.uri()), &tuning).unwrap(),
-            tuning.missing_schema_ttl,
+            registry.client(),
+            SchemaRegistryTuning::default().missing_schema_ttl,
             Duration::from_millis(50),
         );
         let framed = frame(7, br#"{"ok":true}"#);
@@ -950,35 +877,6 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         assert_eq!(decoder.decode(&framed).await, r#"{"ok":true}"#);
-        assert_eq!(fetches(&server, "/schemas/ids/7").await, 2);
-    }
-
-    async fn mock_failing_schema(server: &MockServer, id: u32) {
-        Mock::given(method("GET"))
-            .and(path(format!("/schemas/ids/{id}")))
-            .respond_with(ResponseTemplate::new(500))
-            .mount(server)
-            .await;
-    }
-
-    async fn mock_missing_schema(server: &MockServer, id: u32) {
-        Mock::given(method("GET"))
-            .and(path(format!("/schemas/ids/{id}")))
-            .respond_with(ResponseTemplate::new(404).set_body_json(serde_json::json!({
-                "error_code": 40403,
-                "message": "Schema not found.",
-            })))
-            .mount(server)
-            .await;
-    }
-
-    async fn fetches(server: &MockServer, path: &str) -> usize {
-        server
-            .received_requests()
-            .await
-            .unwrap_or_default()
-            .iter()
-            .filter(|request| request.url.path() == path)
-            .count()
+        assert_eq!(registry.hits("/schemas/ids/7").await, 2);
     }
 }

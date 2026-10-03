@@ -213,73 +213,25 @@ pub(crate) fn references(references: &[schemreg::SchemaReference]) -> Vec<Schema
 
 #[cfg(test)]
 mod tests {
-    use wiremock::matchers::{method, path, query_param};
-    use wiremock::{Mock, MockServer, ResponseTemplate};
-
     use super::*;
     use crate::kafka::model::SchemaType;
+    use crate::kafka::registry::testing::{FakeRegistry, Schema};
     use crate::testing::yaml;
 
-    fn config(url: &str) -> SchemaRegistry {
-        SchemaRegistry {
-            url: url.parse().unwrap(),
-            auth: None,
+    fn offline(tuning: &SchemaRegistryTuning) -> SchemaRegistryClient {
+        SchemaRegistryClient::new("local", &yaml("url: http://localhost:8081"), tuning).unwrap()
+    }
+
+    fn string() -> Schema {
+        Schema::avro(r#""string""#)
+    }
+
+    async fn registry_of(subjects: &[&str]) -> FakeRegistry {
+        let registry = FakeRegistry::start().await;
+        for (id, subject) in (1..).zip(subjects) {
+            registry.register(subject, 1, id, string());
         }
-    }
-
-    fn registry_path(segments: &[&str]) -> String {
-        let mut url = url::Url::parse("http://localhost/").unwrap();
-        url.path_segments_mut().unwrap().extend(segments);
-        url.path().to_owned()
-    }
-
-    async fn mock_subject(
-        server: &MockServer,
-        subject: &str,
-        id: i32,
-        version: i32,
-        schema_type: &str,
-        schema: &str,
-        versions: &[i32],
-    ) {
-        Mock::given(method("GET"))
-            .and(path(registry_path(&["subjects", subject, "versions"])))
-            .respond_with(ResponseTemplate::new(200).set_body_json(versions))
-            .mount(server)
-            .await;
-
-        Mock::given(method("GET"))
-            .and(path(registry_path(&[
-                "subjects", subject, "versions", "latest",
-            ])))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "subject": subject,
-                "id": id,
-                "version": version,
-                "schemaType": schema_type,
-                "schema": schema,
-            })))
-            .mount(server)
-            .await;
-    }
-
-    async fn mock_compatibility(server: &MockServer, subject: &str, level: &str) {
-        Mock::given(method("GET"))
-            .and(path(registry_path(&["config", subject])))
-            .and(query_param("defaultToGlobal", "true"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "compatibilityLevel": level,
-            })))
-            .mount(server)
-            .await;
-    }
-
-    async fn mock_subjects(server: &MockServer, names: &[&str]) {
-        Mock::given(method("GET"))
-            .and(path("/subjects"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(names))
-            .mount(server)
-            .await;
+        registry
     }
 
     #[test]
@@ -288,33 +240,19 @@ mod tests {
             subject_fetch_concurrency: std::num::NonZeroUsize::new(3).unwrap(),
             ..SchemaRegistryTuning::default()
         };
-        let client =
-            SchemaRegistryClient::new("local", &config("http://localhost:8081"), &tuning).unwrap();
 
-        assert_eq!(client.fetch_concurrency(), 3);
-    }
-
-    fn client(url: &str) -> SchemaRegistryClient {
-        SchemaRegistryClient::new("local", &config(url), &SchemaRegistryTuning::default()).unwrap()
+        assert_eq!(offline(&tuning).fetch_concurrency(), 3);
     }
 
     #[tokio::test]
     async fn lists_subjects_with_their_latest_schema() {
-        let server = MockServer::start().await;
-        mock_subjects(&server, &["orders-value"]).await;
-        mock_subject(
-            &server,
-            "orders-value",
-            7,
-            3,
-            "AVRO",
-            r#""string""#,
-            &[1, 2, 3],
-        )
-        .await;
-        mock_compatibility(&server, "orders-value", "FULL").await;
+        let registry = FakeRegistry::start().await;
+        for (version, id) in [(1, 5), (2, 6), (3, 7)] {
+            registry.register("orders-value", version, id, string());
+        }
+        registry.set_compatibility("orders-value", "FULL");
 
-        let subjects = client(&server.uri()).subjects().await.unwrap();
+        let subjects = registry.client().subjects().await.unwrap();
 
         assert_eq!(subjects.len(), 1);
         let subject = &subjects[0];
@@ -328,14 +266,9 @@ mod tests {
 
     #[tokio::test]
     async fn subjects_come_back_sorted_by_name() {
-        let server = MockServer::start().await;
-        mock_subjects(&server, &["b-value", "a-value"]).await;
-        for name in ["a-value", "b-value"] {
-            mock_subject(&server, name, 1, 1, "AVRO", r#""string""#, &[1]).await;
-            mock_compatibility(&server, name, "BACKWARD").await;
-        }
+        let registry = registry_of(&["b-value", "a-value"]).await;
 
-        let subjects = client(&server.uri()).subjects().await.unwrap();
+        let subjects = registry.client().subjects().await.unwrap();
 
         let names: Vec<&str> = subjects.iter().map(|s| s.subject.as_str()).collect();
         assert_eq!(names, vec!["a-value", "b-value"]);
@@ -343,39 +276,35 @@ mod tests {
 
     #[tokio::test]
     async fn compatibility_comes_from_the_effective_config() {
-        let server = MockServer::start().await;
-        mock_subjects(&server, &["orders-value"]).await;
-        mock_subject(&server, "orders-value", 1, 1, "AVRO", r#""string""#, &[1]).await;
-        mock_compatibility(&server, "orders-value", "FORWARD_TRANSITIVE").await;
+        let registry = registry_of(&["orders-value"]).await;
+        registry.set_compatibility("orders-value", "FORWARD_TRANSITIVE");
 
-        let subjects = client(&server.uri()).subjects().await.unwrap();
+        let subjects = registry.client().subjects().await.unwrap();
 
         assert_eq!(subjects[0].compatibility, SchemaCompatibility::Forward);
-        let reads = server
-            .received_requests()
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|request| request.url.path().starts_with("/config"))
-            .count();
-        assert_eq!(reads, 1, "one effective-config read per subject");
+        assert_eq!(
+            registry.hits("/config/orders-value").await,
+            1,
+            "one effective-config read per subject"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_registry_that_defaults_to_global_answers_in_one_read() {
+        let registry = registry_of(&["orders-value"]).await;
+        registry.set_global_compatibility("BACKWARD_TRANSITIVE");
+
+        let subjects = registry.client().subjects().await.unwrap();
+
+        assert_eq!(subjects[0].compatibility, SchemaCompatibility::Backward);
+        assert_eq!(registry.hits("/config").await, 0);
     }
 
     #[tokio::test]
     async fn a_missing_config_is_not_an_error() {
-        let server = MockServer::start().await;
-        mock_subjects(&server, &["orders-value"]).await;
-        mock_subject(&server, "orders-value", 1, 1, "AVRO", r#""string""#, &[1]).await;
-        Mock::given(method("GET"))
-            .and(path("/config/orders-value"))
-            .respond_with(ResponseTemplate::new(404).set_body_json(serde_json::json!({
-                "error_code": 40408,
-                "message": "Subject-level compatibility not configured",
-            })))
-            .mount(&server)
-            .await;
+        let registry = registry_of(&["orders-value"]).await;
 
-        let subjects = client(&server.uri()).subjects().await.unwrap();
+        let subjects = registry.client().subjects().await.unwrap();
 
         assert_eq!(subjects.len(), 1);
         assert_eq!(subjects[0].compatibility, SchemaCompatibility::None);
@@ -383,57 +312,29 @@ mod tests {
 
     #[tokio::test]
     async fn a_subject_without_an_override_falls_back_to_the_global_default() {
-        let server = MockServer::start().await;
-        mock_subjects(&server, &["a-value", "b-value"]).await;
-        for name in ["a-value", "b-value"] {
-            mock_subject(&server, name, 1, 1, "AVRO", r#""string""#, &[1]).await;
-            Mock::given(method("GET"))
-                .and(path(registry_path(&["config", name])))
-                .respond_with(ResponseTemplate::new(404).set_body_json(serde_json::json!({
-                    "error_code": 40408,
-                    "message": "Subject-level compatibility not configured",
-                })))
-                .mount(&server)
-                .await;
-        }
-        Mock::given(method("GET"))
-            .and(path("/config"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "compatibilityLevel": "BACKWARD_TRANSITIVE",
-            })))
-            .mount(&server)
-            .await;
+        let registry = registry_of(&["a-value", "b-value"]).await;
+        registry.set_global_compatibility("BACKWARD_TRANSITIVE");
+        registry.ignore_default_to_global();
 
-        let subjects = client(&server.uri()).subjects().await.unwrap();
+        let subjects = registry.client().subjects().await.unwrap();
 
         assert_eq!(subjects.len(), 2);
         for subject in &subjects {
             assert_eq!(subject.compatibility, SchemaCompatibility::Backward);
         }
-
-        let globals = server
-            .received_requests()
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|request| request.url.path() == "/config")
-            .count();
-        assert_eq!(globals, 1, "the global default is read once per sweep");
+        assert_eq!(
+            registry.hits("/config").await,
+            1,
+            "the global default is read once per sweep"
+        );
     }
 
     #[tokio::test]
     async fn a_failing_subject_is_skipped_not_fatal() {
-        let server = MockServer::start().await;
-        mock_subjects(&server, &["good-value", "bad-value"]).await;
-        mock_subject(&server, "good-value", 1, 1, "AVRO", r#""string""#, &[1]).await;
-        mock_compatibility(&server, "good-value", "NONE").await;
-        Mock::given(method("GET"))
-            .and(path("/subjects/bad-value/versions"))
-            .respond_with(ResponseTemplate::new(500))
-            .mount(&server)
-            .await;
+        let registry = registry_of(&["good-value", "bad-value"]).await;
+        registry.fail("/subjects/bad-value/versions");
 
-        let subjects = client(&server.uri()).subjects().await.unwrap();
+        let subjects = registry.client().subjects().await.unwrap();
 
         let names: Vec<&str> = subjects.iter().map(|s| s.subject.as_str()).collect();
         assert_eq!(names, vec!["good-value"]);
@@ -441,35 +342,26 @@ mod tests {
 
     #[tokio::test]
     async fn a_failing_subject_list_is_fatal() {
-        let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path("/subjects"))
-            .respond_with(ResponseTemplate::new(500))
-            .mount(&server)
-            .await;
+        let registry = registry_of(&["orders-value"]).await;
+        registry.fail("/subjects");
 
-        let error = client(&server.uri()).subjects().await.unwrap_err();
+        let error = registry.client().subjects().await.unwrap_err();
 
         assert!(matches!(error, KafkaError::SchemaRegistry { .. }));
     }
 
     #[tokio::test]
     async fn reads_one_subject_version_with_its_references() {
-        let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path("/subjects/orders-value/versions/2"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "subject": "orders-value",
-                "id": 9,
-                "version": 2,
-                "schemaType": "PROTOBUF",
-                "schema": "syntax = \"proto3\";",
-                "references": [{"name": "common.proto", "subject": "common", "version": 1}],
-            })))
-            .mount(&server)
-            .await;
+        let registry = FakeRegistry::start().await;
+        registry.register(
+            "orders-value",
+            2,
+            9,
+            Schema::protobuf("syntax = \"proto3\";").referencing("common.proto", "common", 1),
+        );
 
-        let schema = client(&server.uri())
+        let schema = registry
+            .client()
             .schema_by_subject_version("orders-value", 2)
             .await
             .unwrap();
@@ -484,46 +376,37 @@ mod tests {
 
     #[tokio::test]
     async fn subject_names_are_percent_encoded() {
-        let server = MockServer::start().await;
-        mock_subjects(&server, &["orders/v1-value"]).await;
-        mock_subject(
-            &server,
-            "orders/v1-value",
-            1,
-            1,
-            "AVRO",
-            r#""string""#,
-            &[1],
-        )
-        .await;
-        mock_compatibility(&server, "orders/v1-value", "NONE").await;
+        let registry = registry_of(&["orders/v1-value"]).await;
 
-        let subjects = client(&server.uri()).subjects().await.unwrap();
+        let subjects = registry.client().subjects().await.unwrap();
 
         assert_eq!(subjects[0].subject, "orders/v1-value");
+        assert_eq!(
+            registry.hits("/subjects/orders%2Fv1-value/versions").await,
+            1
+        );
     }
 
     #[tokio::test]
     async fn basic_auth_is_sent_when_configured() {
-        let server = MockServer::start().await;
-        mock_subjects(&server, &[] as &[&str]).await;
-
+        let registry = FakeRegistry::start().await;
         let client = SchemaRegistryClient::new(
             "local",
             &yaml(&format!(
                 "{{url: '{}', auth: {{username: user, password: {{value: secret}}}}}}",
-                server.uri()
+                registry.uri()
             )),
             &SchemaRegistryTuning::default(),
         )
         .unwrap();
+
         client.subjects().await.unwrap();
 
         let expected = format!(
             "Basic {}",
             base64::Engine::encode(&base64::engine::general_purpose::STANDARD, "user:secret")
         );
-        let sent = server.received_requests().await.unwrap_or_default();
+        let sent = registry.requests().await;
         assert_eq!(
             sent[0]
                 .headers
@@ -535,7 +418,7 @@ mod tests {
 
     #[test]
     fn a_registry_error_names_its_cluster() {
-        let error = client("http://localhost:8081").fail("boom");
+        let error = offline(&SchemaRegistryTuning::default()).fail("boom");
 
         assert_eq!(
             error.to_string(),
