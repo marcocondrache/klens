@@ -7,10 +7,12 @@ use axum::http::request::Parts;
 use crate::AppState;
 use crate::app::auth::SessionGuard;
 use crate::app::auth::access::{
-    AccessError, ClusterAccess, ConfigsCap, EffectiveAccess, ManageTopicsCap, RecordsCap,
-    SchemaTextCap,
+    AccessError, ClusterAccess, ConfigsCap, EffectiveAccess, ManageTopicsCap, ProduceCap,
+    RecordsCap, SchemaTextCap,
 };
-use crate::kafka::model::{FoundRecord, NewTopic, RecordAt, RegisteredSchema};
+use crate::kafka::model::{
+    FoundRecord, NewRecord, NewTopic, ProducedRecord, RecordAt, RegisteredSchema,
+};
 use crate::kafka::store::{ClusterStore, Lane, TopicInfo};
 use crate::kafka::{
     Cluster, ConfigEntry, Export, KafkaError, RecordPage, RecordQuery, Tail, TailLimits, TailQuery,
@@ -53,6 +55,11 @@ impl<'a> ClusterHandle<'a> {
     pub(crate) fn manage_topics(&self) -> Result<Granted<'a, ManageTopicsCap>, AccessError> {
         self.writable()?;
         self.access.manage_topics().map(|cap| self.grant(cap))
+    }
+
+    pub(crate) fn produce(&self) -> Result<Granted<'a, ProduceCap>, AccessError> {
+        self.writable()?;
+        self.access.produce().map(|cap| self.grant(cap))
     }
 
     fn writable(&self) -> Result<(), AccessError> {
@@ -134,6 +141,31 @@ impl Granted<'_, ManageTopicsCap> {
         })
         .await;
         Ok(())
+    }
+}
+
+impl Granted<'_, ProduceCap> {
+    pub(crate) async fn produce(&self, record: &NewRecord) -> Result<ProducedRecord, KafkaError> {
+        let topic = record.topic.as_str();
+        let partitions = self.writable_topic(topic, TopicInfo::partition_ids)?;
+        if let Some(partition) = record.partition
+            && !partitions.contains(&partition)
+        {
+            return Err(KafkaError::UnknownPartition {
+                cluster: self.cluster.store.name().to_owned(),
+                topic: topic.to_owned(),
+                partition,
+            });
+        }
+        let produced = self.cluster.session.produce(record).await?;
+        tracing::info!(
+            cluster = %self.cluster.store.name(),
+            topic,
+            partition = produced.partition,
+            offset = produced.offset,
+            "produced record"
+        );
+        Ok(produced)
     }
 }
 

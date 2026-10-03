@@ -3,12 +3,15 @@ use std::num::NonZeroUsize;
 use axum::http::StatusCode;
 use bytes::Bytes;
 use serde_json::{Value, json};
+use tracing::Level;
 
 use crate::app::Limits;
 use crate::app::auth::SessionGuard;
 use crate::config::Tuning;
 use crate::kafka::model as domain;
-use crate::testing::{Api, FakeCluster, FixtureRecord, TestApp, access, card_record, viewer};
+use crate::testing::{
+    Api, FakeCluster, FixtureRecord, LogCapture, TestApp, access, card_record, viewer,
+};
 
 use super::types::Record;
 
@@ -499,4 +502,133 @@ async fn an_export_is_refused_before_it_streams() {
     app.get("/clusters/local/topics/ghost/records/export")
         .await
         .assert_error(StatusCode::NOT_FOUND, "UNKNOWN_TOPIC");
+}
+
+async fn writable() -> TestApp {
+    TestApp::of([FakeCluster::local()])
+        .writable(&["local"])
+        .ingested()
+        .await
+}
+
+#[tokio::test]
+async fn a_produced_record_reads_back_at_the_offset_the_produce_names() {
+    let app = writable().await;
+    let logs = LogCapture::at(Level::INFO);
+
+    let produced = app
+        .post(
+            RECORDS,
+            &json!({
+                "partition": 1,
+                "key": { "encoding": "TEXT", "data": "order-9" },
+                "value": { "encoding": "BASE64", "data": "eyJ0b3RhbCI6NDJ9" },
+                "headers": [{ "key": "trace", "value": "abc" }]
+            }),
+        )
+        .await
+        .expect(StatusCode::CREATED);
+
+    assert_eq!(produced, json!({ "partition": 1, "offset": 8 }));
+    let record = app.get(&format!("{RECORDS}/1/8")).await.ok();
+    assert_eq!(record["record"]["key"], "order-9");
+    assert_eq!(record["record"]["value"], r#"{"total":42}"#);
+    assert_eq!(
+        record["record"]["headers"],
+        json!([{ "key": "trace", "value": "abc" }])
+    );
+    assert_eq!(app.cluster().calls(Api::Produce), 1);
+    logs.assert_contains("produced record");
+}
+
+#[tokio::test]
+async fn a_keyless_tombstone_keeps_both_nulls() {
+    let app = writable().await;
+
+    app.post(RECORDS, &json!({ "key": null, "value": null }))
+        .await
+        .expect(StatusCode::CREATED);
+
+    let record = app.get(&format!("{RECORDS}/0/8")).await.ok();
+    assert_eq!(record["record"]["key"], Value::Null);
+    assert_eq!(record["record"]["value"], Value::Null);
+}
+
+#[tokio::test]
+async fn a_produce_kafka_would_reject_never_reaches_the_broker() {
+    let app = writable().await;
+
+    for (body, status, code) in [
+        (
+            json!({ "key": { "encoding": "BASE64", "data": "!" }, "value": null }),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INVALID_REQUEST",
+        ),
+        (
+            json!({ "key": null, "value": { "encoding": "HEX", "data": "00" } }),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INVALID_REQUEST",
+        ),
+        (
+            json!({ "partition": 2, "key": null, "value": null }),
+            StatusCode::NOT_FOUND,
+            "UNKNOWN_PARTITION",
+        ),
+    ] {
+        app.post(RECORDS, &body).await.assert_error(status, code);
+    }
+    app.post(
+        "/clusters/local/topics/ghost/records",
+        &json!({ "key": null, "value": null }),
+    )
+    .await
+    .assert_error(StatusCode::NOT_FOUND, "UNKNOWN_TOPIC");
+
+    assert_eq!(app.cluster().calls(Api::Produce), 0);
+}
+
+#[tokio::test]
+async fn a_payload_that_is_not_base64_names_its_part() {
+    let app = writable().await;
+
+    let reply = app
+        .post(
+            RECORDS,
+            &json!({ "key": null, "value": { "encoding": "BASE64", "data": "%%" } }),
+        )
+        .await;
+
+    assert_eq!(reply.body["error"], "the value is not valid base64");
+}
+
+#[tokio::test]
+async fn wrapped_base64_decodes_as_one_payload() {
+    let app = writable().await;
+
+    app.post(
+        RECORDS,
+        &json!({ "key": null, "value": { "encoding": "BASE64", "data": "eyJ0b3Rh\r\nbCI6NDJ9\n" } }),
+    )
+    .await
+    .expect(StatusCode::CREATED);
+
+    let record = app.get(&format!("{RECORDS}/0/8")).await.ok();
+    assert_eq!(record["record"]["value"], r#"{"total":42}"#);
+}
+
+#[tokio::test]
+async fn an_internal_topic_takes_no_records() {
+    let app = TestApp::of([FakeCluster::local().with_topic("__consumer_offsets", 1, 0)])
+        .writable(&["local"])
+        .ingested()
+        .await;
+
+    app.post(
+        "/clusters/local/topics/__consumer_offsets/records",
+        &json!({ "key": null, "value": null }),
+    )
+    .await
+    .assert_error(StatusCode::UNPROCESSABLE_ENTITY, "INTERNAL_TOPIC");
+
+    assert_eq!(app.cluster().calls(Api::Produce), 0);
 }

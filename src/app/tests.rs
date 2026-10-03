@@ -62,6 +62,12 @@ const WRITES: &[(Method, &str, Option<&str>, Privilege)] = &[
         None,
         Privilege::ManageTopics,
     ),
+    (
+        Method::POST,
+        "/clusters/local/topics/orders.created/records",
+        Some(r#"{ "key": null, "value": null }"#),
+        Privilege::Produce,
+    ),
 ];
 
 fn write(method: &Method, route: &str, body: Option<&str>) -> Request<Body> {

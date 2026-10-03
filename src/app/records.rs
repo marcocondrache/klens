@@ -1,5 +1,6 @@
 use axum::Json;
 use axum::Router;
+use axum::http::StatusCode;
 use axum::routing::get;
 
 use crate::AppState;
@@ -7,7 +8,7 @@ use crate::app::auth::SessionGuard;
 
 use super::context::Session;
 use super::error::ApiError;
-use super::extract::{Path, Query};
+use super::extract::{self, Path, Query};
 
 mod export;
 mod tail;
@@ -17,11 +18,14 @@ pub mod types;
 mod tests;
 
 pub(crate) use types::RecordPage;
-use types::{LookupParams, RecordLookup, RecordParams, record_at, record_query};
+use types::{
+    LookupParams, ProduceRecord, ProducedRecord, RecordLookup, RecordParams, record_at,
+    record_query,
+};
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
-        .route("/", get(records))
+        .route("/", get(records).post(produce))
         .route("/export", get(export::export))
         .route("/tail", get(tail::tail))
         .route("/{partition}/{offset}", get(record))
@@ -36,6 +40,18 @@ async fn records(
     Ok(Json(RecordPage::from(
         records.read(record_query(topic, params)?).await?,
     )))
+}
+
+async fn produce(
+    session: Session,
+    Path((name, topic)): Path<(String, String)>,
+    extract::Json(request): extract::Json<ProduceRecord>,
+) -> Result<(StatusCode, Json<ProducedRecord>), ApiError> {
+    let cluster = session.cluster(&name)?;
+    let producer = cluster.produce()?;
+    let record = request.into_record(topic)?;
+    let produced = producer.produce(&record).await?;
+    Ok((StatusCode::CREATED, Json(produced.into())))
 }
 
 async fn record(
