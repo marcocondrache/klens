@@ -2,6 +2,8 @@
 //! allocation in place, and the store keeps them for as long as they live.
 
 use bytes::Bytes;
+use std::collections::HashMap;
+
 use krafka::admin::{
     ConfigEntry as KrafkaConfigEntry, ConsumerGroupDescription, ConsumerGroupMember,
     GroupOffsetEntry, LogDirInfo, TopicPartitionAssignment,
@@ -18,7 +20,8 @@ use crate::kafka::group::{
     CommittedOffset, GroupMember, GroupSnapshot, GroupState, MemberAssignment,
 };
 use crate::kafka::metadata::{
-    BrokerMetadata, MetadataSnapshot, NewTopic, PartitionMetadata, TopicMetadata, is_internal_topic,
+    BrokerMetadata, MetadataSnapshot, NewTopic, PartitionMetadata, RecordDeletion, TopicMetadata,
+    is_internal_topic,
 };
 use crate::kafka::produce::NewRecord;
 use crate::kafka::storage::{LogDir, ReplicaLog, volume_bytes};
@@ -48,6 +51,23 @@ impl MetadataSnapshot {
 
 pub(super) fn refused(error: Option<String>) -> Result<(), KafkaError> {
     error.map_or(Ok(()), |message| Err(KafkaError::Refused(message)))
+}
+
+/// DeleteRecords reads this offset as the partition's high watermark.
+const HIGH_WATERMARK: i64 = -1;
+
+impl RecordDeletion {
+    pub(super) fn to_krafka(&self) -> HashMap<(String, i32), i64> {
+        self.before
+            .iter()
+            .map(|(&partition, before)| {
+                (
+                    (self.topic.clone(), partition),
+                    before.unwrap_or(HIGH_WATERMARK),
+                )
+            })
+            .collect()
+    }
 }
 
 pub(super) fn produce_refusal(error: KrafkaError) -> KafkaError {
@@ -362,6 +382,22 @@ mod tests {
 
         let retriable = produce_refusal(KrafkaError::broker(ErrorCode::NotEnoughReplicas, "batch"));
         assert!(matches!(retriable, KafkaError::Krafka(_)), "{retriable}");
+    }
+
+    #[test]
+    fn a_deletion_without_an_offset_reaches_the_high_watermark() {
+        let deletion = RecordDeletion {
+            topic: "orders".to_owned(),
+            before: [(0, Some(42)), (1, None)].into(),
+        };
+
+        assert_eq!(
+            deletion.to_krafka(),
+            HashMap::from([
+                (("orders".to_owned(), 0), 42),
+                (("orders".to_owned(), 1), -1)
+            ])
+        );
     }
 
     #[test]

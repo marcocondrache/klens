@@ -8,6 +8,7 @@ mod tail;
 pub(crate) mod testing;
 mod transport;
 
+use std::collections::BTreeMap;
 use std::num::NonZeroU16;
 use std::sync::Arc;
 use std::time::Duration;
@@ -33,7 +34,8 @@ use crate::kafka::error::KafkaError;
 use crate::kafka::group::{CommittedOffset, GroupSnapshot};
 use crate::kafka::metadata::{MetadataSnapshot, NewTopic, TopicMetadata};
 use crate::kafka::model::{
-    NewRecord, PartitionWindow, ProducedRecord, ScanConsumer, TailConsumer, TailPosition,
+    NewRecord, PartitionWindow, ProducedRecord, RecordDeletion, ScanConsumer, TailConsumer,
+    TailPosition,
 };
 use crate::kafka::quota::{DescribedQuota, QuotaListing};
 use crate::kafka::registry::client::SchemaRegistryClient;
@@ -430,6 +432,21 @@ impl ClusterSession for KafkaClient {
             )
             .await?;
         refused(added.error)
+    }
+
+    async fn delete_records(
+        &self,
+        deletion: &RecordDeletion,
+    ) -> Result<BTreeMap<i32, i64>, KafkaError> {
+        let admin = &self.transport.admin;
+        admin
+            .delete_records(deletion.to_krafka(), admin.request_timeout())
+            .await?
+            .into_iter()
+            .map(|deleted| {
+                refused(deleted.error).map(|()| (deleted.partition, deleted.low_watermark))
+            })
+            .collect()
     }
 
     async fn produce(&self, record: &NewRecord) -> Result<ProducedRecord, KafkaError> {
