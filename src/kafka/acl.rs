@@ -210,12 +210,15 @@ pub struct SentinelAcl {
 }
 
 /// krafka's `DescribeAclsResult` carries the broker error only as text: the
-/// error-code name or the Kafka protocol default message.
+/// broker's own message, or the error-code name when the broker sent none. A
+/// KRaft broker without an authorizer says "No Authorizer is configured on the
+/// broker", not the protocol default message.
 fn is_security_disabled_text(message: &str) -> bool {
     let lower = message.to_ascii_lowercase();
     lower.contains("securitydisabled")
         || lower.contains("security_disabled")
         || lower.contains("security features are disabled")
+        || lower.contains("no authorizer is configured")
 }
 
 #[cfg(test)]
@@ -392,6 +395,7 @@ mod tests {
             "SECURITY_DISABLED",
             "Broker: SECURITY_DISABLED",
             "Security features are disabled.",
+            "No Authorizer is configured on the broker",
         ] {
             let listing =
                 AclListing::from_describe("local", Some(message), vec![stored_binding()]).unwrap();
