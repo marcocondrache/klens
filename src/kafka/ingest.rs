@@ -8,6 +8,9 @@ pub mod subjects;
 pub mod topology;
 pub mod watermarks;
 
+#[cfg(test)]
+pub(crate) mod testing;
+
 use std::sync::Arc;
 
 use tokio::task::JoinSet;

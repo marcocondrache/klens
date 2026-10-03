@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use foldhash::{HashMap, HashMapExt};
 
 use super::consumers::{CountingCodec, FakeScan, FakeTail};
-use super::fixtures::partition;
+use super::fixtures::{offsets, partition};
 use super::records::FixtureRecord;
 use super::world;
 use crate::config::{KafkaTuning, ScanTuning};
@@ -269,9 +269,9 @@ impl FakeCluster {
         self.world().groups.retain(|group| group.id != id);
     }
 
-    pub fn commit_offsets(&self, id: &str, committed: Vec<CommittedOffset>) {
+    pub fn commit_offsets(&self, id: &str, committed: &[(&str, i32, i64)]) {
         if let Some(group) = self.world().groups.iter_mut().find(|group| group.id == id) {
-            group.committed = committed;
+            group.committed = offsets(committed).committed;
         }
     }
 

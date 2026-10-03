@@ -74,6 +74,13 @@ pub fn group(id: &str, topic: &str, partitions: Vec<i32>) -> GroupSnapshot {
     }
 }
 
+impl GroupSnapshot {
+    pub fn with_committed(mut self, committed: &[(&str, i32, i64)]) -> Self {
+        self.committed = offsets(committed).committed;
+        self
+    }
+}
+
 pub fn topology(topics: Vec<TopicMetadata>, groups: Vec<GroupSnapshot>) -> Topology {
     Topology::assemble(metadata(topics), groups, &mut Interner::default())
 }
