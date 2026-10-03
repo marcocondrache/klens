@@ -9,11 +9,13 @@ import { useTableSearch } from "@/components/data-table/use-table-search";
 import { LaneCaption } from "@/components/lane-caption";
 import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
+import { useAccess } from "@/hooks/use-access";
 import { useClusterHealth, useTopicRows } from "@/lib/api/catalog";
 import { apiErrorMessage } from "@/lib/api/client";
 import type { TopicRow } from "@/lib/api/types";
 import { useClusterName } from "@/lib/clusters";
 
+import { CreateTopicDialog } from "./create-topic";
 import type { TopicsSearch } from "./search";
 import { topicColumns } from "./topics-columns";
 import { TOPIC_FILTERS, topicMatches } from "./topics-filters";
@@ -27,6 +29,7 @@ export function TopicsPage() {
   const navigate = route.useNavigate();
   const search = route.useSearch();
   const showInternal = search.internal;
+  const { canChange } = useAccess();
 
   function setSearch(patch: Partial<TopicsSearch>) {
     void navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true });
@@ -56,6 +59,9 @@ export function TopicsPage() {
             {rows.length} of {topics.length} topics
             <LaneCaption lane={health?.topology} />
           </>
+        }
+        actions={
+          canChange(cluster, "MANAGE_TOPICS") ? <CreateTopicDialog cluster={cluster} /> : null
         }
       />
 
