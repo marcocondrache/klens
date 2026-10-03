@@ -440,15 +440,11 @@ fn signing_key(configured: Option<&KeyMaterial>) -> Key {
 
 #[cfg(test)]
 mod tests {
-    use axum::body::{Body, to_bytes};
     use axum::http::StatusCode;
-    use axum::http::{Request, header};
-    use tower::ServiceExt;
 
-    use super::testing::FakeOidc;
+    use super::testing::{Browser, FakeOidc};
     use super::*;
-    use crate::kafka::Clusters;
-    use crate::testing::{FakeCluster, yaml};
+    use crate::testing::yaml;
 
     #[test]
     fn the_session_hash_follows_every_claim_it_binds() {
@@ -478,372 +474,25 @@ mod tests {
         }
     }
 
-    fn app(auth: AuthState) -> axum::Router {
-        crate::app::router(AppState::new(
-            Clusters::from_sessions(vec![FakeCluster::local()]),
-            auth,
-            crate::app::Limits::new(&crate::config::Tuning::default()),
-        ))
-    }
-
-    async fn send(app: axum::Router, request: Request<Body>) -> axum::http::Response<Body> {
-        app.oneshot(request).await.unwrap()
-    }
-
-    fn api_request() -> Request<Body> {
-        Request::builder()
-            .uri("/api/clusters")
-            .body(Body::empty())
-            .unwrap()
-    }
-
-    fn cookie_header(response: &axum::http::Response<Body>) -> String {
-        response
-            .headers()
-            .get_all(header::SET_COOKIE)
-            .iter()
-            .filter_map(|value| value.to_str().ok())
-            .map(|set_cookie| {
-                set_cookie
-                    .split(';')
-                    .next()
-                    .unwrap_or(set_cookie)
-                    .trim()
-                    .to_owned()
-            })
-            .collect::<Vec<_>>()
-            .join("; ")
-    }
-
-    async fn impersonate_cookie(router: &axum::Router, user: &SessionUser) -> String {
-        let response = send(
-            router.clone(),
-            Request::builder()
-                .method("POST")
-                .uri("/api/auth/impersonate")
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(serde_json::to_vec(user).expect("user json")))
-                .unwrap(),
-        )
-        .await;
-        assert_eq!(response.status(), StatusCode::NO_CONTENT);
-        let cookies = cookie_header(&response);
-        assert!(
-            cookies.contains(SESSION_COOKIE),
-            "impersonate must set {SESSION_COOKIE}: {cookies}"
-        );
-        cookies
-    }
-
-    #[tokio::test]
-    async fn health_stays_public_when_oidc_enabled() {
-        let response = send(
-            app(AuthState::enabled_for_tests()),
-            Request::builder()
-                .uri("/health")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
-
-        assert_eq!(response.status(), StatusCode::NO_CONTENT);
-    }
-
-    #[tokio::test]
-    async fn ready_stays_public_when_oidc_enabled() {
-        let response = send(
-            app(AuthState::enabled_for_tests()),
-            Request::builder()
-                .uri("/ready")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
-
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-    }
-
-    #[tokio::test]
-    async fn api_is_open_when_oidc_disabled() {
-        let response = send(app(AuthState::disabled()), api_request()).await;
-        assert_eq!(response.status(), StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn api_unauthorized_without_session() {
-        let response = send(app(AuthState::enabled_for_tests()), api_request()).await;
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-
-        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(json["error"], "unauthorized");
-    }
-
-    #[tokio::test]
-    async fn api_allows_valid_session() {
-        let router = app(AuthState::enabled_for_tests());
-        let user = SessionUser::new(
+    fn user(groups: &[&str]) -> SessionUser {
+        SessionUser::new(
             "user-1",
             Some("user@example.com".into()),
             Some("Test User".into()),
-            vec![],
+            groups.iter().map(|group| (*group).to_owned()).collect(),
             Timestamp::now().as_second() + 3600,
-        );
-        let cookie = impersonate_cookie(&router, &user).await;
-
-        let mut request = api_request();
-        request
-            .headers_mut()
-            .insert(header::COOKIE, cookie.parse().unwrap());
-
-        let response = send(router, request).await;
-        assert_eq!(response.status(), StatusCode::OK);
+        )
     }
 
-    #[tokio::test]
-    async fn me_reports_disabled_auth() {
-        let response = send(
-            app(AuthState::disabled()),
-            Request::builder()
-                .uri("/api/auth/me")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
-
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(json["enabled"], false);
-        assert!(json["user"].is_null());
-    }
-
-    #[tokio::test]
-    async fn me_reports_enabled_auth_without_user() {
-        let response = send(
-            app(AuthState::enabled_for_tests()),
-            Request::builder()
-                .uri("/api/auth/me")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
-
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(json["enabled"], true);
-        assert!(json["user"].is_null());
-    }
-
-    #[tokio::test]
-    async fn login_is_not_found_when_disabled() {
-        let response = send(
-            app(AuthState::disabled()),
-            Request::builder()
-                .uri("/api/auth/login")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
-
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    }
-
-    #[tokio::test]
-    async fn login_redirects_to_identity_provider() {
-        let response = send(
-            app(AuthState::enabled_for_tests()),
-            Request::builder()
-                .uri("/api/auth/login")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
-
-        assert!(response.status().is_redirection());
-        let location = response
-            .headers()
-            .get(header::LOCATION)
-            .unwrap()
-            .to_str()
-            .unwrap();
-        assert!(location.starts_with("https://idp.example/authorize"));
-        assert!(cookie_header(&response).contains(SESSION_COOKIE));
-    }
-
-    async fn login_cookie(redirect_uri: &str) -> String {
-        let auth: config::Auth = yaml(&format!(
-            "
-            oidc:
-              issuer: https://idp.example
-              client_id: klens
-              client_secret: {{value: secret}}
-              redirect_uri: {redirect_uri}
-            session:
-              login_timeout: 90s
-            "
-        ));
-        let router = app(AuthState::enabled(Arc::new(FakeOidc::default()), &auth));
-        let login = Request::builder()
-            .uri("/api/auth/login")
-            .body(Body::empty())
-            .unwrap();
-
-        let response = send(router, login).await;
-        let cookie = response.headers().get(header::SET_COOKIE).unwrap();
-        cookie.to_str().unwrap().to_owned()
-    }
-
-    #[tokio::test]
-    async fn the_session_cookie_follows_the_auth_config() {
-        let https = login_cookie("https://klens.example/api/auth/callback").await;
-        let http = login_cookie("http://localhost:8080/api/auth/callback").await;
-
-        assert!(https.contains("; Secure"), "{https}");
-        assert!(!http.contains("; Secure"), "{http}");
-        assert!(https.contains("Max-Age=90"), "{https}");
-    }
-
-    #[tokio::test]
-    async fn callback_rejects_missing_and_mismatched_state() {
-        let router = app(AuthState::enabled_for_tests());
-
-        let missing = send(
-            router.clone(),
-            Request::builder()
-                .uri("/api/auth/callback?code=test-code&state=nope")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
-        assert!(missing.status().is_redirection());
-        assert_eq!(
-            missing.headers().get(header::LOCATION).unwrap(),
-            "/login?error=auth"
-        );
-
-        let login = send(
-            router.clone(),
-            Request::builder()
-                .uri("/api/auth/login")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
-        let cookies = cookie_header(&login);
-
-        let mismatched = send(
-            router,
-            Request::builder()
-                .uri("/api/auth/callback?code=test-code&state=wrong")
-                .header(header::COOKIE, cookies)
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
-        assert!(mismatched.status().is_redirection());
-        assert_eq!(
-            mismatched.headers().get(header::LOCATION).unwrap(),
-            "/login?error=auth"
-        );
-    }
-
-    #[tokio::test]
-    async fn callback_sets_session_when_state_matches() {
-        let router = app(AuthState::enabled_for_tests());
-
-        let login = send(
-            router.clone(),
-            Request::builder()
-                .uri("/api/auth/login")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
-        let location = login
-            .headers()
-            .get(header::LOCATION)
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .to_owned();
-        let state = url::Url::parse(&location)
-            .unwrap()
-            .query_pairs()
-            .find(|(key, _)| key == "state")
-            .map(|(_, value)| value.into_owned())
-            .unwrap();
-        let cookies = cookie_header(&login);
-
-        let callback = send(
-            router.clone(),
-            Request::builder()
-                .uri(format!("/api/auth/callback?code=test-code&state={state}"))
-                .header(header::COOKIE, cookies)
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
-
-        assert!(callback.status().is_redirection());
-        assert_eq!(
-            callback.headers().get(header::LOCATION).unwrap(),
-            "/login?from=callback"
-        );
-        let session_cookie = cookie_header(&callback);
-        assert!(session_cookie.contains(SESSION_COOKIE));
-
-        let mut request = api_request();
-        request
-            .headers_mut()
-            .insert(header::COOKIE, session_cookie.parse().unwrap());
-        let api = send(router, request).await;
-        assert_eq!(api.status(), StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn callback_rejects_a_bad_authorization_code() {
-        let router = app(AuthState::enabled_for_tests());
-
-        let login = send(
-            router.clone(),
-            Request::builder()
-                .uri("/api/auth/login")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
-        let location = login
-            .headers()
-            .get(header::LOCATION)
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .to_owned();
-        let state = url::Url::parse(&location)
-            .unwrap()
-            .query_pairs()
-            .find(|(key, _)| key == "state")
-            .map(|(_, value)| value.into_owned())
-            .unwrap();
-        let cookies = cookie_header(&login);
-
-        let callback = send(
-            router,
-            Request::builder()
-                .uri(format!("/api/auth/callback?code=wrong&state={state}"))
-                .header(header::COOKIE, cookies)
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
-
-        assert!(callback.status().is_redirection());
-        assert_eq!(
-            callback.headers().get(header::LOCATION).unwrap(),
-            "/login?error=auth"
-        );
+    fn bound(role_name: &str, privileges: &[config::Privilege], group: &str) -> AccessPolicy {
+        let role = config::Role {
+            privileges: privileges.to_vec(),
+            bindings: vec![config::Binding {
+                groups: vec![group.to_owned()],
+                clusters: None,
+            }],
+        };
+        AccessPolicy::from_roles(Some(&[(role_name.to_owned(), role)].into_iter().collect()))
     }
 
     fn bound_admins() -> AccessPolicy {
@@ -859,81 +508,166 @@ mod tests {
         bound("viewer", &[], "klens-viewers")
     }
 
-    fn bound(role_name: &str, privileges: &[config::Privilege], group: &str) -> AccessPolicy {
-        let role = config::Role {
-            privileges: privileges.to_vec(),
-            bindings: vec![config::Binding {
-                groups: vec![group.to_owned()],
-                clusters: None,
-            }],
-        };
-        AccessPolicy::from_roles(Some(&[(role_name.to_owned(), role)].into_iter().collect()))
+    #[tokio::test]
+    async fn health_and_ready_stay_public_when_oidc_enabled() {
+        let mut browser = Browser::new(AuthState::enabled_for_tests());
+
+        assert_eq!(browser.get("/health").await.status, StatusCode::NO_CONTENT);
+        assert_eq!(
+            browser.get("/ready").await.status,
+            StatusCode::SERVICE_UNAVAILABLE
+        );
     }
 
-    async fn login_and_callback(
-        auth: AuthState,
-        code: &str,
-    ) -> (axum::Router, axum::http::Response<Body>) {
-        let router = app(auth);
-        let login = send(
-            router.clone(),
-            Request::builder()
-                .uri("/api/auth/login")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
-        let location = login
-            .headers()
-            .get(header::LOCATION)
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .to_owned();
-        let state = url::Url::parse(&location)
-            .unwrap()
-            .query_pairs()
-            .find(|(key, _)| key == "state")
-            .map(|(_, value)| value.into_owned())
-            .unwrap();
-        let cookies = cookie_header(&login);
-        let callback = send(
-            router.clone(),
-            Request::builder()
-                .uri(format!("/api/auth/callback?code={code}&state={state}"))
-                .header(header::COOKIE, cookies)
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
-        (router, callback)
+    #[tokio::test]
+    async fn api_is_open_when_oidc_disabled() {
+        let mut browser = Browser::new(AuthState::disabled());
+
+        assert_eq!(browser.get("/api/clusters").await.status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn api_unauthorized_without_session() {
+        let mut browser = Browser::new(AuthState::enabled_for_tests());
+
+        let page = browser.get("/api/clusters").await;
+
+        assert_eq!(page.status, StatusCode::UNAUTHORIZED);
+        assert_eq!(page.json()["error"], "unauthorized");
+    }
+
+    #[tokio::test]
+    async fn api_allows_valid_session() {
+        let mut browser = Browser::new(AuthState::enabled_for_tests());
+        browser.impersonate(&user(&[])).await;
+
+        assert_eq!(browser.get("/api/clusters").await.status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn me_reports_disabled_auth() {
+        let mut browser = Browser::new(AuthState::disabled());
+
+        let me = browser.get("/api/auth/me").await.json();
+
+        assert_eq!(me["enabled"], false);
+        assert!(me["user"].is_null());
+    }
+
+    #[tokio::test]
+    async fn me_reports_enabled_auth_without_user() {
+        let mut browser = Browser::new(AuthState::enabled_for_tests());
+
+        let me = browser.get("/api/auth/me").await.json();
+
+        assert_eq!(me["enabled"], true);
+        assert!(me["user"].is_null());
+    }
+
+    #[tokio::test]
+    async fn login_is_not_found_when_disabled() {
+        let mut browser = Browser::new(AuthState::disabled());
+
+        assert_eq!(
+            browser.get("/api/auth/login").await.status,
+            StatusCode::NOT_FOUND
+        );
+    }
+
+    #[tokio::test]
+    async fn login_redirects_to_identity_provider() {
+        let mut browser = Browser::new(AuthState::enabled_for_tests());
+
+        let login = browser.get("/api/auth/login").await;
+
+        assert!(login.status.is_redirection());
+        assert!(
+            login
+                .location()
+                .starts_with("https://idp.example/authorize")
+        );
+        assert!(login.set_cookie().starts_with(SESSION_COOKIE));
+    }
+
+    async fn login_cookie(redirect_uri: &str) -> String {
+        let auth: config::Auth = yaml(&format!(
+            "
+            oidc:
+              issuer: https://idp.example
+              client_id: klens
+              client_secret: {{value: secret}}
+              redirect_uri: {redirect_uri}
+            session:
+              login_timeout: 90s
+            "
+        ));
+        let mut browser = Browser::new(AuthState::enabled(Arc::new(FakeOidc::default()), &auth));
+
+        browser.get("/api/auth/login").await.set_cookie().to_owned()
+    }
+
+    #[tokio::test]
+    async fn the_session_cookie_follows_the_auth_config() {
+        let https = login_cookie("https://klens.example/api/auth/callback").await;
+        let http = login_cookie("http://localhost:8080/api/auth/callback").await;
+
+        assert!(https.contains("; Secure"), "{https}");
+        assert!(!http.contains("; Secure"), "{http}");
+        assert!(https.contains("Max-Age=90"), "{https}");
+    }
+
+    #[tokio::test]
+    async fn callback_rejects_missing_and_mismatched_state() {
+        let mut browser = Browser::new(AuthState::enabled_for_tests());
+
+        let missing = browser
+            .get("/api/auth/callback?code=test-code&state=nope")
+            .await;
+        assert_eq!(missing.location(), "/login?error=auth");
+
+        browser.get("/api/auth/login").await;
+        let mismatched = browser
+            .get("/api/auth/callback?code=test-code&state=wrong")
+            .await;
+        assert_eq!(mismatched.location(), "/login?error=auth");
+    }
+
+    #[tokio::test]
+    async fn callback_sets_session_when_state_matches() {
+        let mut browser = Browser::new(AuthState::enabled_for_tests());
+
+        let callback = browser.log_in("test-code").await;
+
+        assert_eq!(callback.location(), "/login?from=callback");
+        assert!(callback.set_cookie().starts_with(SESSION_COOKIE));
+        assert_eq!(browser.get("/api/clusters").await.status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn callback_rejects_a_bad_authorization_code() {
+        let mut browser = Browser::new(AuthState::enabled_for_tests());
+
+        let callback = browser.log_in("wrong").await;
+
+        assert_eq!(callback.location(), "/login?error=auth");
     }
 
     #[tokio::test]
     async fn callback_refuses_an_unmatched_group() {
-        let (router, callback) = login_and_callback(
-            AuthState::enabled_for_tests_with(
-                FakeOidc {
-                    groups: vec!["other".into()],
-                },
-                bound_admins(),
-            ),
-            "test-code",
-        )
-        .await;
+        let mut browser = Browser::new(AuthState::enabled_for_tests_with(
+            FakeOidc {
+                groups: vec!["other".into()],
+            },
+            bound_admins(),
+        ));
 
-        assert!(callback.status().is_redirection());
+        let callback = browser.log_in("test-code").await;
+
+        assert_eq!(callback.location(), "/login?error=forbidden");
         assert_eq!(
-            callback.headers().get(header::LOCATION).unwrap(),
-            "/login?error=forbidden"
+            browser.get("/api/clusters").await.status,
+            StatusCode::UNAUTHORIZED
         );
-
-        let mut request = api_request();
-        if let Ok(cookies) = cookie_header(&callback).parse() {
-            request.headers_mut().insert(header::COOKIE, cookies);
-        }
-        let api = send(router, request).await;
-        assert_eq!(api.status(), StatusCode::UNAUTHORIZED);
     }
 
     fn key(text: &str) -> KeyMaterial {
@@ -956,64 +690,30 @@ mod tests {
 
     #[tokio::test]
     async fn me_reports_identity_only() {
-        let router = app(AuthState::enabled_for_tests_with(
+        let mut browser = Browser::new(AuthState::enabled_for_tests_with(
             FakeOidc::default(),
             bound_viewers(),
         ));
-        let user = SessionUser::new(
-            "user-1",
-            Some("user@example.com".into()),
-            Some("Test User".into()),
-            vec!["klens-viewers".into()],
-            Timestamp::now().as_second() + 3600,
-        );
-        let cookie = impersonate_cookie(&router, &user).await;
+        browser.impersonate(&user(&["klens-viewers"])).await;
 
-        let response = send(
-            router,
-            Request::builder()
-                .uri("/api/auth/me")
-                .header(header::COOKIE, cookie)
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+        let me = browser.get("/api/auth/me").await.json();
 
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(json["enabled"], true);
-        assert_eq!(json["user"]["sub"], "user-1");
-        assert_eq!(json["user"]["email"], "user@example.com");
-        assert!(json["user"]["role"].is_null());
-        assert!(json["user"]["clusters"].is_null());
+        assert_eq!(me["enabled"], true);
+        assert_eq!(me["user"]["sub"], "user-1");
+        assert_eq!(me["user"]["email"], "user@example.com");
+        assert!(me["user"]["role"].is_null());
+        assert!(me["user"]["clusters"].is_null());
     }
 
     #[tokio::test]
     async fn whoami_reports_the_bound_roles_per_cluster() {
-        let router = app(AuthState::enabled_for_tests_with(
+        let mut browser = Browser::new(AuthState::enabled_for_tests_with(
             FakeOidc::default(),
             bound_viewers(),
         ));
-        let user = SessionUser::new(
-            "user-1",
-            None,
-            None,
-            vec!["klens-viewers".into()],
-            Timestamp::now().as_second() + 3600,
-        );
-        let cookie = impersonate_cookie(&router, &user).await;
+        browser.impersonate(&user(&["klens-viewers"])).await;
 
-        let request = Request::builder()
-            .uri("/api/whoami")
-            .header(header::COOKIE, cookie)
-            .body(Body::empty())
-            .unwrap();
-
-        let response = send(router, request).await;
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let whoami: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let whoami = browser.get("/api/whoami").await.json();
 
         assert_eq!(whoami["subject"], "user-1");
         assert_eq!(whoami["clusters"][0]["cluster"], "local");
@@ -1026,25 +726,15 @@ mod tests {
 
     #[tokio::test]
     async fn api_rejects_a_session_without_a_matching_role() {
-        let router = app(AuthState::enabled_for_tests_with(
+        let mut browser = Browser::new(AuthState::enabled_for_tests_with(
             FakeOidc::default(),
             bound_admins(),
         ));
-        let user = SessionUser::new(
-            "user-1",
-            None,
-            None,
-            vec![],
-            Timestamp::now().as_second() + 3600,
+        browser.impersonate(&user(&[])).await;
+
+        assert_eq!(
+            browser.get("/api/clusters").await.status,
+            StatusCode::UNAUTHORIZED
         );
-        let cookie = impersonate_cookie(&router, &user).await;
-
-        let mut request = api_request();
-        request
-            .headers_mut()
-            .insert(header::COOKIE, cookie.parse().unwrap());
-
-        let response = send(router, request).await;
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 }
