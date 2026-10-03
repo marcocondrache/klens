@@ -203,11 +203,13 @@ pub async fn require_session(
     next: Next,
 ) -> Response {
     if let Some(access) = state.auth.access_from_session(&auth_session) {
+        let guard = state.auth.guard(&auth_session);
+        if let Some(subject) = guard.subject() {
+            tracing::Span::current().record("user", subject);
+        }
         let mut request = request;
         request.extensions_mut().insert(access);
-        request
-            .extensions_mut()
-            .insert(state.auth.guard(&auth_session));
+        request.extensions_mut().insert(guard);
         return next.run(request).await;
     }
 

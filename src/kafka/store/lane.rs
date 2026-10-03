@@ -27,6 +27,7 @@ pub struct Lane<T> {
     health: RwLock<LaneHealth>,
     kick: Notify,
     commits: watch::Sender<()>,
+    polls: watch::Sender<()>,
 }
 
 impl<T> Default for Lane<T> {
@@ -37,6 +38,7 @@ impl<T> Default for Lane<T> {
             health: RwLock::new(LaneHealth::default()),
             kick: Notify::new(),
             commits: watch::Sender::new(()),
+            polls: watch::Sender::new(()),
         }
     }
 }
@@ -82,6 +84,8 @@ impl<T> Lane<T> {
             health.checked_at = Some(Timestamp::now());
         }
         health.last_error = error;
+        drop(health);
+        self.polls.send_replace(());
     }
 
     pub fn health(&self) -> LaneHealth {
@@ -96,6 +100,17 @@ impl<T> Lane<T> {
         tokio::select! {
             () = tokio::time::sleep(interval) => {}
             () = self.kick.notified() => {}
+        }
+    }
+
+    pub async fn refresh_until(&self, done: impl Fn(&T) -> bool) {
+        let mut polls = self.polls.subscribe();
+        while !self.load().is_some_and(|table| done(&table)) {
+            self.kick();
+            polls.changed().await.expect("a lane outlives its watchers");
+            if self.health().last_error.is_some() {
+                return;
+            }
         }
     }
 
@@ -236,5 +251,65 @@ mod tests {
             .await
             .expect("a new commit must wake the follower");
         assert_eq!(*table, 2);
+    }
+
+    fn runner(lane: &Arc<Lane<u32>>, polls: Vec<Result<u32, &'static str>>) {
+        let lane = Arc::clone(lane);
+        tokio::spawn(async move {
+            for poll in polls {
+                lane.wait(PATIENCE).await;
+                match poll {
+                    Ok(table) => {
+                        lane.commit(Arc::new(table));
+                        lane.record_poll(Duration::ZERO, None);
+                    }
+                    Err(error) => lane.record_poll(Duration::ZERO, Some(error.into())),
+                }
+            }
+        });
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn refresh_until_leaves_a_lane_alone_that_already_shows_the_change() {
+        let lane = Lane::new();
+        lane.commit(Arc::new(7_u32));
+
+        tokio::time::timeout(PATIENCE, lane.refresh_until(|table| *table == 7))
+            .await
+            .expect("nothing to wait for");
+
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), lane.wait(PATIENCE))
+                .await
+                .is_err(),
+            "no kick is pending"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn refresh_until_kicks_the_lane_until_a_poll_shows_the_change() {
+        let lane = Arc::new(Lane::new());
+        lane.commit(Arc::new(1_u32));
+        runner(&lane, vec![Ok(1), Ok(2)]);
+        let started = tokio::time::Instant::now();
+
+        tokio::time::timeout(PATIENCE, lane.refresh_until(|table| *table == 2))
+            .await
+            .expect("each kick must start a poll");
+
+        assert!(started.elapsed() < PATIENCE, "kicks, not the interval");
+        assert_eq!(*lane.load().unwrap(), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn refresh_until_gives_up_after_a_failed_poll() {
+        let lane = Arc::new(Lane::<u32>::new());
+        runner(&lane, vec![Err("broker down")]);
+
+        tokio::time::timeout(PATIENCE, lane.refresh_until(|table| *table == 2))
+            .await
+            .expect("a failed poll must end the wait");
+
+        assert!(lane.load().is_none());
     }
 }

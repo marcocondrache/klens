@@ -4,7 +4,7 @@ mod wait;
 mod yaml;
 
 pub use crate::app::auth::testing::{access, admin, role, viewer};
-pub use crate::app::testing::TestApp;
+pub use crate::app::testing::{TestApp, json_request};
 pub use crate::kafka::ingest::testing::{IDLE, Rig};
 pub use crate::kafka::store::testing::BusProbe;
 pub use crate::kafka::testing::{

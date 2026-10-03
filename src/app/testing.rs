@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use axum::Router;
 use axum::body::{Body, BodyDataStream, to_bytes};
-use axum::http::{HeaderMap, Request, StatusCode};
+use axum::http::{HeaderMap, Method, Request, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::Response;
 use futures::StreamExt as _;
@@ -90,35 +90,45 @@ impl TestApp {
     }
 
     pub async fn get(&self, path: &str) -> Reply {
-        let response = self.send(path).await;
+        self.reply(get_request(path)).await
+    }
+
+    pub async fn post(&self, path: &str, body: &Value) -> Reply {
+        self.reply(json_request(Method::POST, path, body.to_string()))
+            .await
+    }
+
+    pub async fn reply(&self, request: Request<Body>) -> Reply {
+        let request_line = format!("{} {}", request.method(), request.uri());
+        let response = self.send(request).await;
         let status = response.status();
         let body = timeout(WAIT, to_bytes(response.into_body(), usize::MAX))
             .await
-            .unwrap_or_else(|_| panic!("GET {path} never finished its body"))
+            .unwrap_or_else(|_| panic!("{request_line} never finished its body"))
             .expect("body");
         let body = if body.is_empty() {
             Value::Null
         } else {
             serde_json::from_slice(&body).unwrap_or_else(|error| {
                 panic!(
-                    "GET {path} answered with no json ({error}): {}",
+                    "{request_line} answered with no json ({error}): {}",
                     String::from_utf8_lossy(&body)
                 )
             })
         };
         Reply {
-            path: path.to_owned(),
+            request: request_line,
             status,
             body,
         }
     }
 
     pub async fn status(&self, path: &str) -> StatusCode {
-        self.send(path).await.status()
+        self.send(get_request(path)).await.status()
     }
 
     pub async fn open(&self, path: &str) -> Live {
-        let response = self.send(path).await;
+        let response = self.send(get_request(path)).await;
         assert_eq!(response.status(), StatusCode::OK, "GET {path} did not open");
         Live {
             path: path.to_owned(),
@@ -142,7 +152,7 @@ impl TestApp {
             .store
     }
 
-    async fn send(&self, path: &str) -> Response {
+    async fn send(&self, request: Request<Body>) -> Response {
         let access = self.access.clone();
         let guard = self.guard.clone();
         api()
@@ -154,7 +164,7 @@ impl TestApp {
                 },
             ))
             .with_state(self.state.clone())
-            .oneshot(Request::get(path).body(Body::empty()).expect("request"))
+            .oneshot(request)
             .await
             .expect("response")
     }
@@ -190,12 +200,25 @@ impl Setup {
     }
 }
 
+fn get_request(path: &str) -> Request<Body> {
+    Request::get(path).body(Body::empty()).expect("request")
+}
+
+pub fn json_request(method: Method, path: &str, body: impl Into<Body>) -> Request<Body> {
+    Request::builder()
+        .method(method)
+        .uri(path)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(body.into())
+        .expect("request")
+}
+
 fn api() -> Router<AppState> {
     health::router().merge(auth_routes()).merge(resources())
 }
 
 pub struct Reply {
-    path: String,
+    request: String,
     pub status: StatusCode,
     pub body: Value,
 }
@@ -203,12 +226,15 @@ pub struct Reply {
 impl Reply {
     #[track_caller]
     pub fn ok(self) -> Value {
+        self.expect(StatusCode::OK)
+    }
+
+    #[track_caller]
+    pub fn expect(self, status: StatusCode) -> Value {
         assert_eq!(
-            self.status,
-            StatusCode::OK,
-            "GET {} answered {}",
-            self.path,
-            self.body
+            self.status, status,
+            "{} answered {}",
+            self.request, self.body
         );
         self.body
     }
@@ -218,8 +244,8 @@ impl Reply {
         assert_eq!(
             (self.status, self.body["code"].as_str()),
             (status, Some(code)),
-            "GET {} answered {}",
-            self.path,
+            "{} answered {}",
+            self.request,
             self.body
         );
     }

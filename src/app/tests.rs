@@ -1,7 +1,8 @@
-use axum::http::StatusCode;
+use axum::body::Body;
+use axum::http::{Method, Request, StatusCode, header};
 
 use crate::app::auth::access::{Privilege, PrivilegeSet};
-use crate::testing::{FakeCluster, TestApp, access, admin, role};
+use crate::testing::{FakeCluster, TestApp, access, admin, json_request, role};
 
 const ROUTES: &[(&str, Option<Privilege>)] = &[
     ("/whoami", None),
@@ -48,6 +49,13 @@ const ROUTES: &[(&str, Option<Privilege>)] = &[
     ("/clusters/local/quotas", Some(Privilege::Configs)),
 ];
 
+const WRITES: &[(Method, &str, &str, Privilege)] = &[(
+    Method::POST,
+    "/clusters/local/topics",
+    r#"{ "name": "invoices" }"#,
+    Privilege::ManageTopics,
+)];
+
 #[tokio::test]
 async fn every_route_opens_to_exactly_the_privilege_it_names() {
     let app = TestApp::local().await;
@@ -85,6 +93,71 @@ async fn every_cluster_route_hides_a_cluster_the_session_cannot_see() {
             app.get(&format!("/clusters/payments{rest}"))
                 .await
                 .assert_error(StatusCode::NOT_FOUND, "UNKNOWN_CLUSTER");
+        }
+    }
+    for (method, route, body, _) in WRITES {
+        let route = route.replacen("/clusters/local", "/clusters/payments", 1);
+        app.reply(json_request(method.clone(), &route, *body))
+            .await
+            .assert_error(StatusCode::NOT_FOUND, "UNKNOWN_CLUSTER");
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn every_write_opens_to_exactly_the_privilege_it_names() {
+    let app = TestApp::of([FakeCluster::local()])
+        .writable(&["local"])
+        .ingested()
+        .await;
+    let mut wrong = Vec::new();
+
+    for held in std::iter::once(None).chain(Privilege::ALL.map(Some)) {
+        let session = app.with_access(access([role("probe", PrivilegeSet::from_privileges(held))]));
+        for (method, route, body, needs) in WRITES {
+            let reply = session
+                .reply(json_request(method.clone(), route, *body))
+                .await;
+            if reply.status.is_success() != (held == Some(*needs)) {
+                wrong.push(format!(
+                    "{method} {route} holding {held:?} answered {} {}",
+                    reply.status, reply.body
+                ));
+            }
+        }
+    }
+
+    assert!(wrong.is_empty(), "\n{}", wrong.join("\n"));
+}
+
+#[tokio::test]
+async fn every_write_is_refused_on_a_read_only_cluster() {
+    let app = TestApp::local().await;
+
+    for (method, route, body, _) in WRITES {
+        let reply = app.reply(json_request(method.clone(), route, *body)).await;
+        reply.assert_error(StatusCode::FORBIDDEN, "READ_ONLY_CLUSTER");
+        assert_eq!(reply.body["error"], "cluster 'local' is read-only");
+    }
+}
+
+#[tokio::test]
+async fn every_write_refuses_a_body_a_cross_site_form_can_send() {
+    let app = TestApp::of([FakeCluster::local()])
+        .writable(&["local"])
+        .ingested()
+        .await;
+
+    for (method, route, body, _) in WRITES {
+        for content_type in ["text/plain", "application/x-www-form-urlencoded"] {
+            let request = Request::builder()
+                .method(method.clone())
+                .uri(*route)
+                .header(header::CONTENT_TYPE, content_type)
+                .body(Body::from(*body))
+                .expect("request");
+            app.reply(request)
+                .await
+                .assert_error(StatusCode::UNSUPPORTED_MEDIA_TYPE, "INVALID_REQUEST");
         }
     }
 }
