@@ -1,5 +1,5 @@
 import { useRef, useState, type ReactNode } from "react";
-import { CopyPlusIcon, EyeOffIcon, Rows3Icon, SearchXIcon } from "lucide-react";
+import { CopyPlusIcon, EyeOffIcon, ListXIcon, Rows3Icon, SearchXIcon } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
 
@@ -40,6 +40,7 @@ import { formatBytes, formatCount, formatRelative, formatTimestamp } from "@/lib
 import type { KafkaRecord, TopicDetail } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
+import { DeleteRecordsDialog } from "./delete-records";
 import { ProduceRecordDialog, duplicateDraft } from "./produce-record";
 import { useRecordAddress } from "./record-address";
 import { recordId } from "./record-id";
@@ -229,6 +230,7 @@ export function RecordView({
   const { canChange } = useAccess();
   const canDuplicate = !topic.internal && canChange(cluster, "PRODUCE");
   const duplicate = canDuplicate && selectedRecord ? duplicateDraft(selectedRecord) : null;
+  const canDelete = !topic.internal && canChange(cluster, "MANAGE_TOPICS");
 
   const fields = [partitionField(topic)];
 
@@ -328,6 +330,16 @@ export function RecordView({
                   >
                     <CopyPlusIcon />
                   </ProduceRecordDialog>
+                ) : null}
+                {canDelete ? (
+                  <DeleteRecordsDialog
+                    cluster={cluster}
+                    topic={topic}
+                    cut={{ partition: address.partition, before: address.offset }}
+                    trigger={<IconButton label="Delete the records before this one" />}
+                  >
+                    <ListXIcon />
+                  </DeleteRecordsDialog>
                 ) : null}
                 {selectedObfuscated ? <ObfuscatedBadge /> : null}
               </SheetTitle>

@@ -111,8 +111,8 @@ export async function patch(path: string, body: unknown): Promise<void> {
   await send("PATCH", path, body);
 }
 
-export async function del(path: string): Promise<void> {
-  await send("DELETE", path);
+export async function del(path: string, query?: Record<string, QueryValue>): Promise<void> {
+  await send("DELETE", withQuery(path, query));
 }
 
 async function send(
