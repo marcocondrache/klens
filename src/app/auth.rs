@@ -24,6 +24,8 @@ pub(crate) mod access;
 mod backend;
 mod oidc;
 mod store;
+#[cfg(test)]
+pub(crate) mod testing;
 
 use access::{AccessPolicy, EffectiveAccess, Identity};
 use backend::{AuthBackend, OidcCredentials};
@@ -179,22 +181,6 @@ impl SessionGuard {
     pub fn subject(&self) -> Option<&str> {
         self.subject.as_deref()
     }
-
-    #[cfg(test)]
-    pub(crate) fn open() -> Self {
-        Self {
-            auth: AuthState::disabled(),
-            subject: None,
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn expired() -> Self {
-        Self {
-            auth: AuthState::enabled_for_tests(),
-            subject: Some("gone".to_owned()),
-        }
-    }
 }
 
 pub fn router() -> Router<AppState> {
@@ -205,7 +191,7 @@ pub fn router() -> Router<AppState> {
         .route("/logout", post(logout));
 
     #[cfg(test)]
-    let router = router.route("/impersonate", post(impersonate));
+    let router = router.route("/impersonate", post(testing::impersonate));
 
     router
 }
@@ -422,21 +408,6 @@ async fn login_error(auth_session: &mut AuthSession, fail: LoginFail) -> Respons
     Redirect::to(location).into_response()
 }
 
-#[cfg(test)]
-async fn impersonate(
-    State(state): State<AppState>,
-    mut auth_session: AuthSession,
-    Json(mut user): Json<SessionUser>,
-) -> Response {
-    user.refresh_auth_hash();
-    state.auth.backend.remember(user.clone());
-    if let Err(error) = auth_session.login(&user).await {
-        tracing::error!(%error, "failed to impersonate");
-        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-    }
-    StatusCode::NO_CONTENT.into_response()
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 struct LoginPending {
     state: String,
@@ -474,25 +445,10 @@ mod tests {
     use axum::http::{Request, header};
     use tower::ServiceExt;
 
-    use super::oidc::FakeOidc;
+    use super::testing::FakeOidc;
     use super::*;
     use crate::kafka::Clusters;
     use crate::testing::{FakeCluster, yaml};
-
-    impl AuthState {
-        pub(crate) fn enabled_for_tests() -> Self {
-            Self::enabled_for_tests_with(FakeOidc::default(), AccessPolicy::Open)
-        }
-
-        pub(crate) fn enabled_for_tests_with(flow: FakeOidc, policy: AccessPolicy) -> Self {
-            Self {
-                backend: AuthBackend::enabled(Arc::new(flow)),
-                policy: Arc::new(policy),
-                session_layer: session_layer(false, Key::generate()),
-                login_timeout: Duration::minutes(10),
-            }
-        }
-    }
 
     #[test]
     fn the_session_hash_follows_every_claim_it_binds() {
