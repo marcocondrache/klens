@@ -1,4 +1,5 @@
 mod files;
+mod logs;
 mod yaml;
 
 pub use crate::kafka::testing::{
@@ -7,4 +8,5 @@ pub use crate::kafka::testing::{
     topology, watermarks,
 };
 pub use files::temp_file;
+pub use logs::LogCapture;
 pub use yaml::{yaml, yaml_err};

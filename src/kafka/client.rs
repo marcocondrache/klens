@@ -402,15 +402,12 @@ fn list_offset_parts(result: krafka::admin::ListOffsetResult) -> (String, i32, i
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io;
-    use std::sync::{Arc, Mutex};
-
     use crate::kafka::group::MemberAssignment;
     use crate::kafka::metadata::Watermarks;
     use crate::kafka::model::{PartitionWindow, RecordOrder, RecordQuery, TimestampRange};
     use crate::kafka::scan::session::{fetch_page, scan_once};
     use crate::kafka::session::watermarks;
-    use crate::testing::yaml;
+    use crate::testing::{LogCapture, yaml};
 
     fn window(partition: i32, start: i64, end: i64) -> PartitionWindow {
         PartitionWindow {
@@ -424,43 +421,9 @@ mod tests {
         HashMap::from_iter([(topic.to_owned(), partitions.to_vec())])
     }
 
-    #[derive(Clone, Default)]
-    struct LogBuf(Arc<Mutex<Vec<u8>>>);
-
-    impl io::Write for LogBuf {
-        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-            self.0.lock().expect("log buf").extend_from_slice(buf);
-            Ok(buf.len())
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for LogBuf {
-        type Writer = Self;
-
-        fn make_writer(&'a self) -> Self::Writer {
-            self.clone()
-        }
-    }
-
-    impl LogBuf {
-        fn as_string(&self) -> String {
-            String::from_utf8_lossy(&self.0.lock().expect("log buf")).into_owned()
-        }
-    }
-
     #[tokio::test]
     async fn connecting_does_not_warn_about_the_connection_memory_ceiling() {
-        let logs = LogBuf::default();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(logs.clone())
-            .with_max_level(tracing::Level::WARN)
-            .without_time()
-            .finish();
-        let _guard = tracing::subscriber::set_default(subscriber);
+        let logs = LogCapture::at(tracing::Level::WARN);
 
         let broker = krafka::testing::FakeBroker::start()
             .await
@@ -468,20 +431,12 @@ mod tests {
         let client = kafka_client(&broker.bootstrap_servers()).await;
         client.metadata().await.expect("metadata");
 
-        let text = logs.as_string();
-        assert!(!text.contains("memory ceiling"), "{text}");
+        logs.assert_lacks("memory ceiling");
     }
 
     #[tokio::test]
     async fn admin_calls_do_not_warn_about_missing_close() {
-        let logs = LogBuf::default();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(logs.clone())
-            .with_max_level(tracing::Level::WARN)
-            .with_target(true)
-            .without_time()
-            .finish();
-        let _guard = tracing::subscriber::set_default(subscriber);
+        let logs = LogCapture::at(tracing::Level::WARN);
 
         let broker = krafka::testing::FakeBroker::start()
             .await
@@ -497,11 +452,7 @@ mod tests {
             .await
             .expect("second watermarks");
 
-        let text = logs.as_string();
-        assert!(
-            !text.contains("AdminClient dropped without close"),
-            "admin close warn: {text}"
-        );
+        logs.assert_lacks("AdminClient dropped without close");
     }
 
     #[tokio::test]

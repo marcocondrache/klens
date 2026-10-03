@@ -105,7 +105,7 @@ mod tests {
     use tokio::net::TcpStream;
 
     use super::*;
-    use crate::telemetry::capture::subscriber as capture;
+    use crate::testing::LogCapture;
 
     async fn exchange(router: Router, request: &str) -> Vec<u8> {
         let bind = std::net::TcpListener::bind("127.0.0.1:0")
@@ -135,7 +135,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_request_log_has_the_path_but_not_the_query() {
-        let (logs, _guard) = capture(tracing::Level::INFO);
+        let logs = LogCapture::at(tracing::Level::INFO);
         let router = Router::new().route(
             "/api/auth/callback",
             get(|| async { tracing::info!("handled") }),
@@ -150,16 +150,15 @@ mod tests {
 
         let response = String::from_utf8(response).expect("utf-8 response");
         assert!(response.starts_with("HTTP/1.1 200"), "{response}");
-        let text = logs.as_string();
-        assert!(text.contains("path=/api/auth/callback"), "{text}");
-        assert!(!text.contains("secret-code"), "{text}");
-        assert!(!text.contains("secret-state"), "{text}");
+        logs.assert_contains("path=/api/auth/callback");
+        logs.assert_lacks("secret-code");
+        logs.assert_lacks("secret-state");
     }
 
     const PAGE: &str = "{\"records\":[{\"offset\":0},{\"offset\":1},{\"offset\":2}]}";
 
     async fn fetch(path: &str, accept_encoding: Option<&str>) -> (Option<String>, Vec<u8>) {
-        let (_logs, _guard) = capture(tracing::Level::INFO);
+        let _logs = LogCapture::at(tracing::Level::INFO);
         let router = Router::new().route("/page", get(|| async { PAGE })).route(
             "/stream",
             get(|| async {

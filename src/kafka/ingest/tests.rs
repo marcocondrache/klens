@@ -14,7 +14,7 @@ use crate::kafka::metadata::Watermarks;
 use crate::kafka::model::QuotaListing;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::store::{Change, ClusterStore};
-use crate::testing::{FakeCluster, config_entry, subject};
+use crate::testing::{FakeCluster, LogCapture, config_entry, subject};
 
 const IDLE: Duration = Duration::from_secs(600);
 
@@ -960,7 +960,7 @@ async fn the_log_dirs_lane_sums_sizes_per_topic_and_directory() {
 
 #[tokio::test(start_paused = true)]
 async fn a_failing_log_dirs_poll_names_its_lane_and_waits_out_the_interval() {
-    let (logs, _guard) = crate::telemetry::capture::subscriber(tracing::Level::WARN);
+    let logs = LogCapture::at(tracing::Level::WARN);
     let session = FakeCluster::local();
     session.set_log_dirs(Err("DescribeLogDirs is not supported"));
     let store = store(&session);
@@ -977,11 +977,7 @@ async fn a_failing_log_dirs_poll_names_its_lane_and_waits_out_the_interval() {
         store.log_dirs.health().last_error.as_deref(),
         Some("kafka admin request failed: DescribeLogDirs is not supported")
     );
-    assert!(
-        logs.as_string().contains("lane=\"log_dirs\""),
-        "{}",
-        logs.as_string()
-    );
+    logs.assert_contains(r#"lane="log_dirs""#);
 
     let calls = session.calls().log_dirs();
     tokio::time::advance(Duration::from_secs(59)).await;
@@ -1024,7 +1020,7 @@ async fn the_quota_lane_commits_and_publishes_only_a_changed_listing() {
 
 #[tokio::test(start_paused = true)]
 async fn a_failing_quota_poll_names_its_lane_and_waits_out_the_interval() {
-    let (logs, _guard) = crate::telemetry::capture::subscriber(tracing::Level::WARN);
+    let logs = LogCapture::at(tracing::Level::WARN);
     let session = FakeCluster::local();
     session.set_quotas(Err("DescribeClientQuotas is not supported"));
     let store = store(&session);
@@ -1037,11 +1033,7 @@ async fn a_failing_quota_poll_names_its_lane_and_waits_out_the_interval() {
     .await;
 
     assert!(store.quotas.load().is_none());
-    assert!(
-        logs.as_string().contains("lane=\"quotas\""),
-        "{}",
-        logs.as_string()
-    );
+    logs.assert_contains(r#"lane="quotas""#);
 
     tokio::time::advance(Duration::from_secs(59)).await;
     tokio::task::yield_now().await;
@@ -1133,7 +1125,7 @@ async fn the_acl_lane_stores_the_listing_and_publishes_each_change() {
 
 #[tokio::test(start_paused = true)]
 async fn a_failing_acl_poll_names_its_lane_and_waits_out_the_interval() {
-    let (logs, _guard) = crate::telemetry::capture::subscriber(tracing::Level::WARN);
+    let logs = LogCapture::at(tracing::Level::WARN);
     let session = FakeCluster::local();
     session.set_acls(Err("broker down"));
     let store = store(&session);
@@ -1142,11 +1134,7 @@ async fn a_failing_acl_poll_names_its_lane_and_waits_out_the_interval() {
     wait_for(|| store.acls.health().last_error.is_some(), "acls error").await;
 
     assert!(store.acls.load().is_none());
-    assert!(
-        logs.as_string().contains("lane=\"acls\""),
-        "{}",
-        logs.as_string()
-    );
+    logs.assert_contains(r#"lane="acls""#);
 
     tokio::time::advance(Duration::from_secs(59)).await;
     tokio::task::yield_now().await;

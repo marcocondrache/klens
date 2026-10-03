@@ -53,64 +53,13 @@ pub(crate) fn log_http_completed(status: u16, latency: std::time::Duration) {
 }
 
 #[cfg(test)]
-pub(crate) mod capture {
-    use std::io;
-    use std::sync::{Arc, Mutex};
-
-    #[derive(Clone, Default)]
-    pub(crate) struct LogBuf(Arc<Mutex<Vec<u8>>>);
-
-    impl io::Write for LogBuf {
-        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-            self.0.lock().expect("log buf").extend_from_slice(buf);
-            Ok(buf.len())
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for LogBuf {
-        type Writer = Self;
-
-        fn make_writer(&'a self) -> Self::Writer {
-            self.clone()
-        }
-    }
-
-    impl LogBuf {
-        pub(crate) fn as_string(&self) -> String {
-            String::from_utf8_lossy(&self.0.lock().expect("log buf")).into_owned()
-        }
-    }
-
-    pub(crate) fn subscriber(
-        max_level: tracing::Level,
-    ) -> (LogBuf, tracing::subscriber::DefaultGuard) {
-        let logs = LogBuf::default();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(logs.clone())
-            .with_max_level(max_level)
-            .with_ansi(false)
-            .without_time()
-            .finish();
-        // While one dispatcher exists, tracing asks only the registering
-        // thread's subscriber whether a new callsite is wanted. A callsite
-        // another test's thread hits first would then stay silent here. A
-        // second, idle dispatcher makes it ask every live subscriber.
-        static IDLE: std::sync::OnceLock<tracing::Dispatch> = std::sync::OnceLock::new();
-        IDLE.get_or_init(|| tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default()));
-        (logs, tracing::subscriber::set_default(subscriber))
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use std::time::Duration;
 
-    use super::capture::subscriber as capture;
+    use tracing::Level;
+
     use super::{LogLevel, filter, log_http_completed};
+    use crate::testing::LogCapture;
 
     #[test]
     fn a_log_level_filters_klens_and_leaves_its_dependencies_at_warn() {
@@ -128,19 +77,17 @@ mod tests {
 
     #[test]
     fn log_http_completed_204_is_silent_at_info() {
-        let (logs, _guard) = capture(tracing::Level::INFO);
+        let logs = LogCapture::at(Level::INFO);
         log_http_completed(204, Duration::from_millis(1));
-        let text = logs.as_string();
-        assert!(!text.contains("request completed"), "{text}");
+        logs.assert_lacks("request completed");
     }
 
     #[test]
     fn log_http_completed_500_is_warn() {
-        let (logs, _guard) = capture(tracing::Level::WARN);
+        let logs = LogCapture::at(Level::WARN);
         log_http_completed(500, Duration::from_millis(3));
-        let text = logs.as_string();
-        assert!(text.contains("request completed"), "{text}");
-        assert!(text.contains("status=500"), "{text}");
-        assert!(text.contains("WARN"), "{text}");
+        logs.assert_contains("request completed");
+        logs.assert_contains("status=500");
+        logs.assert_contains("WARN");
     }
 }

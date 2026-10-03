@@ -365,13 +365,6 @@ impl PayloadDecoder {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::config::{SchemaRegistry, SchemaRegistryTuning};
-    use crate::kafka::scan::filter::contains;
-
-    fn decode_bytes(bytes: &[u8]) -> String {
-        String::from_utf8_lossy(bytes).into_owned()
-    }
     use std::sync::atomic::{AtomicBool, Ordering};
 
     use apache_avro::Schema as AvroSchema;
@@ -379,6 +372,15 @@ mod tests {
     use schemreg::encode_protobuf_wire_format;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    use super::*;
+    use crate::config::{SchemaRegistry, SchemaRegistryTuning};
+    use crate::kafka::scan::filter::contains;
+    use crate::testing::LogCapture;
+
+    fn decode_bytes(bytes: &[u8]) -> String {
+        String::from_utf8_lossy(bytes).into_owned()
+    }
 
     const ORDER_SCHEMA: &str = r#"{
         "type": "record",
@@ -903,7 +905,7 @@ mod tests {
     async fn a_failed_lookup_is_reported_once_per_batch_and_not_retried_within_its_ttl() {
         let server = MockServer::start().await;
         mock_failing_schema(&server, 12).await;
-        let (logs, _guard) = crate::telemetry::capture::subscriber(tracing::Level::WARN);
+        let logs = LogCapture::at(tracing::Level::WARN);
 
         let decoder = decoder(&server.uri());
         let framed = Bytes::from(frame(12, b"datum"));
@@ -915,9 +917,7 @@ mod tests {
 
             assert!(slots.iter().all(|slot| slot.decoded.is_none()));
             assert_eq!(
-                logs.as_string()
-                    .matches("failed to decode schema registry payload")
-                    .count(),
+                logs.count("failed to decode schema registry payload"),
                 batch
             );
         }
