@@ -62,3 +62,6 @@ impl LaneSource for QuotaLane {
         store.bus.publish(Change::Quotas);
     }
 }
+
+#[cfg(test)]
+mod tests;

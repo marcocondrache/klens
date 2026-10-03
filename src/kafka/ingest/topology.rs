@@ -73,3 +73,6 @@ impl LaneSource for TopologyLane {
         store.bus.publish(Change::Topology(Arc::new(delta)));
     }
 }
+
+#[cfg(test)]
+mod tests;

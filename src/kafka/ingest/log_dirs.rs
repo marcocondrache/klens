@@ -73,3 +73,6 @@ impl LaneSource for LogDirLane {
         store.bus.publish(Change::LogDirs(Arc::new(delta)));
     }
 }
+
+#[cfg(test)]
+mod tests;

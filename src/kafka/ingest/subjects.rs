@@ -67,3 +67,6 @@ impl LaneSource for SubjectLane {
         store.bus.publish(Change::Subjects(Arc::new(delta)));
     }
 }
+
+#[cfg(test)]
+mod tests;

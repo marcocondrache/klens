@@ -83,3 +83,6 @@ impl LaneSource for ConfigLane {
         store.bus.publish(Change::Configs(Arc::new(delta)));
     }
 }
+
+#[cfg(test)]
+mod tests;
