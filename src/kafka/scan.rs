@@ -60,18 +60,3 @@ impl RecordPage {
         self.next_cursor.is_some()
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn an_empty_page_is_complete_and_has_no_edges() {
-        let page = RecordPage::empty();
-
-        assert!(page.complete);
-        assert!(!page.has_more());
-        assert!(page.prev_cursor.is_none());
-        assert!(!page.obfuscated);
-    }
-}

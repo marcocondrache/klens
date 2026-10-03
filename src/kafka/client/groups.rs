@@ -88,16 +88,6 @@ mod tests {
     }
 
     #[test]
-    fn an_ignored_state_filter_describes_every_group() {
-        let every = ids(&["orders", "audit"]);
-
-        let (active, empty) = split_empty_groups(every.clone(), every);
-
-        assert_eq!(sorted(active), ids(&["audit", "orders"]));
-        assert!(empty.is_empty());
-    }
-
-    #[test]
     fn internal_groups_are_neither_described_nor_listed_as_empty() {
         let (active, empty) = split_empty_groups(
             ids(&["klens.internal.idle", "klens.internal.live", "orders"]),

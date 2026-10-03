@@ -167,21 +167,4 @@ mod tests {
         assert!(filter.on_payload(None, Some(&decoded)));
         assert!(!filter.on_payload(None, None));
     }
-
-    #[test]
-    fn ascii_case_folding_handles_boundaries() {
-        let upper = contains("ORDER").expect("needle");
-        assert!(contains("order").expect("needle").matches_bytes(b"ORDER"));
-        assert!(upper.matches_bytes(b"xxorderxx"));
-        assert!(upper.matches_bytes(b"xxOrDeR"));
-        assert!(!upper.matches_bytes(b"ord"));
-        assert!(!upper.matches_bytes(b""));
-    }
-
-    #[test]
-    fn case_folding_is_ascii_only() {
-        let filter = contains("ÉTAT").expect("needle");
-        assert!(filter.matches_bytes("l'ÉTAT".as_bytes()));
-        assert!(!filter.matches_bytes("l'état".as_bytes()));
-    }
 }

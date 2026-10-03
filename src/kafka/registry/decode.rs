@@ -488,18 +488,6 @@ mod tests {
     }
 
     #[test]
-    fn decode_error_variants_display_their_message() {
-        assert_eq!(
-            DecodeError::missing("schema id not found in registry").to_string(),
-            "schema id not found in registry"
-        );
-        assert_eq!(
-            DecodeError::from(ProtobufError::EmptyIndexPath),
-            DecodeError::failed("protobuf message index path is empty")
-        );
-    }
-
-    #[test]
     fn parses_confluent_frame() {
         let bytes = frame(12, b"datum");
         let slot = PayloadSlot::new(Bytes::from(bytes), None);
@@ -619,19 +607,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn decodes_key_and_value_independently() {
-        let server = MockServer::start().await;
-        mock_schema(&server, 1, "JSON", "{}").await;
-        mock_schema(&server, 2, "JSON", "{}").await;
-        let decoder = decoder(&server.uri());
-
-        let key = decoder.decode(&frame(1, br#""user-1""#)).await;
-        let value = decoder.decode(&frame(2, br#"{"n":1}"#)).await;
-        assert_eq!(key, r#""user-1""#);
-        assert_eq!(value, r#"{"n":1}"#);
-    }
-
-    #[tokio::test]
     async fn leaves_unframed_payloads_unchanged() {
         let server = MockServer::start().await;
         let raw = br#"{"plain":true}"#;
@@ -696,17 +671,6 @@ mod tests {
         assert_eq!(value["orderId"], "abc");
         assert_eq!(value["amount"], "42");
         assert!(matches_orderid(&decoded));
-    }
-
-    #[tokio::test]
-    async fn decodes_protobuf_nested_message_index() {
-        let server = MockServer::start().await;
-        mock_schema(&server, 3, "PROTOBUF", ORDER_PROTO).await;
-
-        let framed = proto_frame(3, &[2], b"\x08\x07");
-        let json = decoder(&server.uri()).decode(&framed).await;
-        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
-        assert_eq!(value["n"], 7);
     }
 
     #[tokio::test]

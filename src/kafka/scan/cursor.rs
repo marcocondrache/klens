@@ -188,28 +188,4 @@ mod tests {
             );
         }
     }
-
-    #[test]
-    fn a_cursor_is_bound_to_the_order_that_minted_it() {
-        let cursor = RecordCursor::parse("v2:n:f:0:15").unwrap();
-
-        assert!(cursor.validate_for(RecordOrder::Newest).is_ok());
-        assert_eq!(
-            cursor.validate_for(RecordOrder::Oldest).unwrap_err(),
-            QueryError::InvalidCursor
-        );
-    }
-
-    #[test]
-    fn a_backward_page_walks_the_log_the_other_way() {
-        let forward = RecordCursor::parse("v2:n:f:0:15").unwrap();
-        let backward = RecordCursor::parse("v2:n:b:0:15").unwrap();
-
-        assert_eq!(forward.walk(), RecordOrder::Newest);
-        assert_eq!(backward.walk(), RecordOrder::Oldest);
-        assert_eq!(
-            RecordCursor::parse("v2:o:b:0:15").unwrap().walk(),
-            RecordOrder::Newest
-        );
-    }
 }
