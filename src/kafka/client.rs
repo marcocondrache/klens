@@ -386,6 +386,15 @@ impl ClusterSession for KafkaClient {
             .into_iter()
             .try_for_each(|created| refused(created.error))
     }
+
+    async fn delete_topic(&self, topic: &str) -> Result<(), KafkaError> {
+        let admin = &self.transport.admin;
+        admin
+            .delete_topics(vec![topic.to_owned()], admin.request_timeout())
+            .await?
+            .into_iter()
+            .try_for_each(|deleted| refused(deleted.error))
+    }
 }
 
 fn partitions_by_topic(partitions: &[(String, i32)]) -> HashMap<String, Vec<i32>> {
@@ -1014,6 +1023,19 @@ mod tests {
             matches!(&error, KafkaError::Refused(message) if message.contains("already exists")),
             "{error}"
         );
+    }
+
+    #[tokio::test]
+    async fn delete_topic_deletes_it_once() {
+        let broker = krafka::testing::FakeBroker::start().await.unwrap();
+        assert!(broker.create_topic("orders", 2));
+        let client = kafka_client(&broker.bootstrap_servers()).await;
+
+        client.delete_topic("orders").await.expect("deleted");
+        assert!(!broker.with_state(|state| state.topics.contains_key("orders")));
+
+        let error = client.delete_topic("orders").await.unwrap_err();
+        assert!(matches!(error, KafkaError::Refused(_)), "{error}");
     }
 
     pub(super) fn cluster(bootstrap: &str) -> config::Cluster {

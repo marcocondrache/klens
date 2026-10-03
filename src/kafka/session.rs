@@ -85,6 +85,8 @@ pub trait ClusterSession: Send + Sync + 'static {
 
     async fn create_topic(&self, topic: &NewTopic) -> Result<(), KafkaError>;
 
+    async fn delete_topic(&self, topic: &str) -> Result<(), KafkaError>;
+
     fn consume_timeout(&self) -> Duration;
 
     fn scan_poll_wait(&self) -> Duration;
