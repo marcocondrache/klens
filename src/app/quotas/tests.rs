@@ -6,7 +6,7 @@ use serde_json::json;
 use crate::app::AppState;
 use crate::kafka::ClusterSession;
 use crate::kafka::model::QuotaListing;
-use crate::testing::FakeCluster;
+use crate::testing::{Api, FakeCluster};
 
 use super::super::harness::{failure, ok, store_of, viewer_everywhere, with};
 
@@ -71,7 +71,7 @@ async fn default_entities_carry_no_name() {
 #[tokio::test]
 async fn a_denied_describe_says_so_instead_of_failing() {
     let cluster = FakeCluster::local();
-    cluster.set_quotas(Ok(QuotaListing::Denied));
+    cluster.set_quotas(QuotaListing::Denied);
 
     let quotas = ok(&polled(&cluster).await, "/clusters/local/quotas").await;
 
@@ -83,7 +83,7 @@ async fn a_denied_describe_says_so_instead_of_failing() {
 async fn quotas_are_served_from_the_lane_with_its_health() {
     let cluster = FakeCluster::local();
     let state = polled(&cluster).await;
-    cluster.set_quotas(Ok(QuotaListing::Denied));
+    cluster.set_quotas(QuotaListing::Denied);
 
     let quotas = ok(&state, "/clusters/local/quotas").await;
 
@@ -91,7 +91,7 @@ async fn quotas_are_served_from_the_lane_with_its_health() {
     assert_eq!(quotas["quotas"].as_array().map(Vec::len), Some(5));
     assert!(quotas["sourceHealth"]["updatedAt"].is_string());
     assert_eq!(
-        cluster.calls().quotas(),
+        cluster.calls(Api::ClientQuotas),
         1,
         "only the lane asks the cluster"
     );

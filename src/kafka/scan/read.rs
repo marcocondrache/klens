@@ -128,7 +128,7 @@ mod tests {
     use crate::config::IngestTuning;
     use crate::kafka::RecordCursor;
     use crate::kafka::model::{RecordOrder, TimestampRange};
-    use crate::testing::{FakeCluster, FixtureRecord, identity, partition, topic, topology};
+    use crate::testing::{Api, FakeCluster, FixtureRecord, identity, partition, topic, topology};
     use jiff::Timestamp;
 
     fn unix_datetime(ms: i64) -> Timestamp {
@@ -168,15 +168,9 @@ mod tests {
     }
 
     fn browse_record(partition: i32, offset: i64, timestamp: i64) -> FixtureRecord {
-        FixtureRecord {
-            topic: "orders.created".into(),
-            partition,
-            offset,
-            timestamp,
-            key: Some(format!("p{partition}-{offset}").into()),
-            value: None,
-            headers: Vec::new(),
-        }
+        FixtureRecord::order(partition, offset)
+            .at(timestamp)
+            .key(format!("p{partition}-{offset}"))
     }
 
     async fn page(
@@ -196,7 +190,7 @@ mod tests {
 
         assert!(!page.records.is_empty());
         assert_eq!(
-            session.calls().metadata() + session.calls().topic_metadata(),
+            session.calls(Api::Metadata) + session.calls(Api::TopicMetadata),
             0,
             "a topic the lane already committed must not cost a metadata call"
         );
@@ -210,9 +204,9 @@ mod tests {
         let page = page(&session, &store, browse_query()).await.unwrap();
 
         assert!(!page.records.is_empty());
-        assert_eq!(session.calls().topic_metadata(), 1);
+        assert_eq!(session.calls(Api::TopicMetadata), 1);
         assert_eq!(
-            session.calls().metadata(),
+            session.calls(Api::Metadata),
             0,
             "one topic must not cost a full cluster fetch"
         );
@@ -246,9 +240,9 @@ mod tests {
             let error = page(&session, &store, query).await.unwrap_err();
 
             assert_eq!(error.code(), "LIMIT_TOO_SMALL");
-            assert_eq!(session.calls().metadata(), 0);
-            assert_eq!(session.calls().low_watermarks(), 0);
-            assert_eq!(session.calls().high_watermarks(), 0);
+            assert_eq!(session.calls(Api::Metadata), 0);
+            assert_eq!(session.calls(Api::LowWatermarks), 0);
+            assert_eq!(session.calls(Api::HighWatermarks), 0);
         }
     }
 
@@ -296,7 +290,7 @@ mod tests {
             records.push(browse_record(1, offset, morning + offset * 1_000));
         }
 
-        let session = FakeCluster::local().with_orders_records(records);
+        let session = FakeCluster::local().with_records(records);
         let store = ingested_store();
         let mut query = browse_query();
         query.limit = 5;
@@ -334,25 +328,13 @@ mod tests {
     #[tokio::test]
     async fn filtered_records_fill_the_requested_limit() {
         let records = (0..500)
-            .map(|offset| FixtureRecord {
-                topic: "orders.created".into(),
-                partition: 0,
-                offset,
-                timestamp: offset,
-                key: Some(
-                    if offset % 40 == 0 {
-                        format!("hit-{offset}")
-                    } else {
-                        format!("miss-{offset}")
-                    }
-                    .into(),
-                ),
-                value: None,
-                headers: Vec::new(),
+            .map(|offset| {
+                let verdict = if offset % 40 == 0 { "hit" } else { "miss" };
+                FixtureRecord::order(0, offset).key(format!("{verdict}-{offset}"))
             })
             .collect();
 
-        let session = FakeCluster::local().with_orders_records(records);
+        let session = FakeCluster::local().with_records(records);
         let store = ingested_store();
         let mut query = browse_query();
         query.limit = 10;

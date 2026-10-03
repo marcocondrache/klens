@@ -484,7 +484,7 @@ mod tests {
     use crate::kafka::scan::filter::{CompiledFilter, contains};
     use crate::kafka::scan::query::TimestampRange;
     use crate::kafka::session::watermarks;
-    use crate::testing::{FakeCluster, FixtureRecord, card_record, framed};
+    use crate::testing::{Api, FakeCluster, FixtureRecord, card_record, framed};
 
     const LIMITS: RecordLimits = RecordLimits {
         max_limit: NonZeroUsize::new(500).unwrap(),
@@ -494,21 +494,12 @@ mod tests {
     };
 
     fn stored(partition: i32, offset: i64, key: impl Into<Bytes>) -> FixtureRecord {
-        let key = key.into();
-        FixtureRecord {
-            topic: "orders.created".into(),
-            partition,
-            offset,
-            timestamp: offset,
-            key: Some(key),
-            value: None,
-            headers: Vec::new(),
-        }
+        FixtureRecord::order(partition, offset).key(key)
     }
 
     fn delayed(offsets: &[i64], delay: Duration) -> FakeCluster {
         FakeCluster::local()
-            .with_orders_records(
+            .with_records(
                 offsets
                     .iter()
                     .map(|&offset| stored(0, offset, "hit"))
@@ -631,7 +622,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(offsets(&page), vec![0, 6, 12]);
-        assert_eq!(session.consumers_opened(), 1);
+        assert_eq!(session.calls(Api::OpenScan), 1);
         assert_eq!(
             session.assigned_windows(),
             vec![vec![(0, 0, 6)], vec![(0, 6, 12)], vec![(0, 12, 18)]]
@@ -710,7 +701,7 @@ mod tests {
 
         assert!(page.records.is_empty());
         assert!(!page.has_more());
-        assert_eq!(session.consumers_opened(), 0);
+        assert_eq!(session.calls(Api::OpenScan), 0);
         assert_eq!(started.elapsed(), Duration::ZERO);
     }
 
@@ -748,7 +739,7 @@ mod tests {
 
         assert!(matches!(error, KafkaError::Timeout));
         assert_eq!(error.code(), "TIMEOUT");
-        assert_eq!(session.consumers_opened(), 1);
+        assert_eq!(session.calls(Api::OpenScan), 1);
     }
 
     #[tokio::test(start_paused = true)]
@@ -849,16 +840,13 @@ mod tests {
             .chain((0..2).map(|offset| stored(1, offset, "p1")))
             .collect();
         FakeCluster::local()
-            .with_orders_records(records)
+            .with_records(records)
             .with_consume_timeout(Duration::from_secs(10))
     }
 
     fn produce_late_to_partition_1(session: &FakeCluster) {
         for offset in 2..4 {
-            session.produce(FixtureRecord {
-                timestamp: 10 + offset,
-                ..stored(1, offset, "late")
-            });
+            session.produce(stored(1, offset, "late").at(10 + offset));
         }
     }
 
@@ -1013,7 +1001,7 @@ mod tests {
     async fn a_filter_skips_decoding_records_that_cannot_reach_the_page() {
         let records: Vec<FixtureRecord> = (0..8).map(|offset| stored(0, offset, "hit")).collect();
         let session = FakeCluster::local()
-            .with_orders_records(records)
+            .with_records(records)
             .with_consume_timeout(Duration::from_secs(10));
         let mut query = query();
         query.limit = 2;
@@ -1032,17 +1020,11 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_schema_id_past_the_ascii_range_survives_the_wire_frame() {
-        let record = FixtureRecord {
-            topic: "orders.created".into(),
-            partition: 0,
-            offset: 0,
-            timestamp: 0,
-            key: Some(Bytes::from_static(b"ord_0")),
-            value: Some(framed(300, r#"{"orderId":"ord_0"}"#)),
-            headers: Vec::new(),
-        };
+        let record = FixtureRecord::order(0, 0)
+            .key("ord_0")
+            .value(framed(300, r#"{"orderId":"ord_0"}"#));
         let session = FakeCluster::local()
-            .with_orders_records(vec![record])
+            .with_records(vec![record])
             .with_consume_timeout(Duration::from_secs(10));
         let mut query = query();
         query.filter = None;
@@ -1075,7 +1057,7 @@ mod tests {
         let records = (0..4).map(|offset| card_record(offset, PAN)).collect();
 
         FakeCluster::local()
-            .with_orders_records(records)
+            .with_records(records)
             .with_obfuscation(RULES)
             .with_consume_timeout(Duration::from_secs(10))
     }
@@ -1113,11 +1095,10 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_value_the_codec_declined_is_masked_rather_than_served_raw() {
-        let mut unframed = card_record(0, PAN);
-        unframed.value = Some(format!(r#"{{"card":{{"number":"{PAN}"}}}}"#).into());
+        let unframed = card_record(0, PAN).value(format!(r#"{{"card":{{"number":"{PAN}"}}}}"#));
 
         let session = FakeCluster::local()
-            .with_orders_records(vec![unframed])
+            .with_records(vec![unframed])
             .with_obfuscation(RULES)
             .with_consume_timeout(Duration::from_secs(10));
 
@@ -1142,14 +1123,12 @@ mod tests {
     fn text_orders() -> FakeCluster {
         let records = (0..4)
             .map(|offset| {
-                let mut record = card_record(offset, PAN);
-                record.value = Some(format!("charged {PAN} on order {offset}").into());
-                record
+                card_record(offset, PAN).value(format!("charged {PAN} on order {offset}"))
             })
             .collect();
 
         FakeCluster::local()
-            .with_orders_records(records)
+            .with_records(records)
             .with_obfuscation(PATTERNS)
             .with_consume_timeout(Duration::from_secs(10))
     }

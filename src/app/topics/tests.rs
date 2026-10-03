@@ -4,7 +4,7 @@ use axum::http::StatusCode;
 use serde_json::Value;
 
 use crate::app::auth::access::EffectiveAccess;
-use crate::testing::{FakeCluster, offline_partition, partition, topic, topology};
+use crate::testing::{Api, FakeCluster, offline_partition, partition, topic, topology};
 
 use super::super::harness::{
     failure, ok, ok_as, seeded, seeded_with, state, store_of, viewer_everywhere,
@@ -22,7 +22,7 @@ async fn topic_rows_project_counts_and_configs_without_touching_the_broker() {
     assert_eq!(rows[0]["cleanupPolicy"], "COMPACT");
     assert_eq!(rows[0]["retentionMs"], 604_800_000);
     assert_eq!(rows[0]["groupCount"], 1);
-    assert_eq!(session.calls().metadata(), 0);
+    assert_eq!(session.calls(Api::Metadata), 0);
 }
 
 #[tokio::test]
@@ -124,7 +124,7 @@ async fn topic_configs_come_from_the_lane_not_the_broker() {
     assert_eq!(configs[0]["name"], "cleanup.policy");
     assert_eq!(configs[0]["value"], "compact");
     assert_eq!(configs[0]["source"], "DYNAMIC_TOPIC_CONFIG");
-    assert_eq!(session.calls().topic_configs(), 0);
+    assert_eq!(session.calls(Api::TopicConfigs), 0);
 }
 
 #[tokio::test]

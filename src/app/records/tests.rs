@@ -6,7 +6,7 @@ use crate::app::Limits;
 use crate::app::auth::SessionGuard;
 use crate::app::auth::access::EffectiveAccess;
 use crate::kafka::model as domain;
-use crate::testing::{FakeCluster, FixtureRecord, card_record};
+use crate::testing::{Api, FakeCluster, FixtureRecord, card_record};
 use bytes::Bytes;
 use futures::StreamExt as _;
 
@@ -160,11 +160,8 @@ async fn a_malformed_partition_is_rejected() {
 async fn an_obfuscated_topic_serves_tokens_instead_of_payloads() {
     let pan = "4111111111111111";
     let records = (0..3).map(|offset| card_record(offset, pan)).collect();
-    let state = seeded_with(
-        FakeCluster::local()
-            .with_orders_records(records)
-            .with_obfuscation(
-                "
+    let state = seeded_with(FakeCluster::local().with_records(records).with_obfuscation(
+        "
                 secret: {value: 0123456789abcdef0123456789abcdef}
                 rules:
                   - topics: ['orders.*']
@@ -175,8 +172,7 @@ async fn an_obfuscated_topic_serves_tokens_instead_of_payloads() {
                       - path: card.cvv
                         strategy: drop
                 ",
-            ),
-    )
+    ))
     .0;
     let data = ok(
         &state,
@@ -211,10 +207,10 @@ async fn a_page_says_whether_a_rule_covers_its_topic() {
               - path: card.number
                 strategy: mask
         ";
-    let plain = seeded_with(FakeCluster::local().with_orders_records(records.clone())).0;
+    let plain = seeded_with(FakeCluster::local().with_records(records.clone())).0;
     let protected = seeded_with(
         FakeCluster::local()
-            .with_orders_records(records)
+            .with_records(records)
             .with_obfuscation(rules),
     )
     .0;
@@ -234,17 +230,10 @@ async fn a_page_says_whether_a_rule_covers_its_topic() {
 async fn a_pattern_rule_tokens_a_topic_no_registry_ever_decodes() {
     let pan = "4111111111111111";
     let records = (0..3)
-        .map(|offset| {
-            let mut record = card_record(offset, pan);
-            record.value = Some(format!("charged {pan} for ada@example.com").into());
-            record
-        })
+        .map(|offset| card_record(offset, pan).value(format!("charged {pan} for ada@example.com")))
         .collect();
-    let state = seeded_with(
-        FakeCluster::local()
-            .with_orders_records(records)
-            .with_obfuscation(
-                r"
+    let state = seeded_with(FakeCluster::local().with_records(records).with_obfuscation(
+        r"
                 secret: {value: 0123456789abcdef0123456789abcdef}
                 rules:
                   - topics: ['orders.*']
@@ -254,8 +243,7 @@ async fn a_pattern_rule_tokens_a_topic_no_registry_ever_decodes() {
                       - regex: '[\w.+-]+@[\w-]+\.[\w.]+'
                         strategy: mask
                 ",
-            ),
-    )
+    ))
     .0;
     let data = ok(
         &state,
@@ -278,11 +266,8 @@ async fn a_pattern_rule_tokens_a_topic_no_registry_ever_decodes() {
 async fn an_obfuscated_topic_cannot_be_filtered_on_the_cleartext_it_hides() {
     let pan = "4111111111111111";
     let records = (0..3).map(|offset| card_record(offset, pan)).collect();
-    let state = seeded_with(
-        FakeCluster::local()
-            .with_orders_records(records)
-            .with_obfuscation(
-                "
+    let state = seeded_with(FakeCluster::local().with_records(records).with_obfuscation(
+        "
                 secret: {value: 0123456789abcdef0123456789abcdef}
                 rules:
                   - topics: ['orders.*']
@@ -290,8 +275,7 @@ async fn an_obfuscated_topic_cannot_be_filtered_on_the_cleartext_it_hides() {
                       - path: card.number
                         strategy: hash
                 ",
-            ),
-    )
+    ))
     .0;
     let hidden = ok(
         &state,
@@ -371,11 +355,8 @@ async fn a_record_in_an_unknown_partition_is_not_found() {
 async fn an_opened_record_keeps_the_obfuscation_view() {
     let pan = "4111111111111111";
     let records = (0..3).map(|offset| card_record(offset, pan)).collect();
-    let state = seeded_with(
-        FakeCluster::local()
-            .with_orders_records(records)
-            .with_obfuscation(
-                "
+    let state = seeded_with(FakeCluster::local().with_records(records).with_obfuscation(
+        "
                 secret: {value: 0123456789abcdef0123456789abcdef}
                 rules:
                   - topics: ['orders.*']
@@ -383,8 +364,7 @@ async fn an_opened_record_keeps_the_obfuscation_view() {
                       - path: card.number
                         strategy: hash
                 ",
-            ),
-    )
+    ))
     .0;
     let data = ok(&state, &format!("{RECORD}/0/1")).await;
     let value = data["record"]["value"].as_str().expect("value");
@@ -407,16 +387,9 @@ async fn a_record_is_forbidden_without_the_records_privilege() {
 const TAIL: &str = "/clusters/local/topics/orders.created/records/tail";
 
 fn produced(partition: i32, offset: i64, key: impl Into<Bytes>) -> FixtureRecord {
-    let key = key.into();
-    FixtureRecord {
-        topic: "orders.created".into(),
-        partition,
-        offset,
-        timestamp: 1_700_000_100_000 + offset,
-        key: Some(key),
-        value: None,
-        headers: Vec::new(),
-    }
+    FixtureRecord::order(partition, offset)
+        .at(1_700_000_100_000 + offset)
+        .key(key)
 }
 
 #[tokio::test]
@@ -649,7 +622,7 @@ async fn an_export_pages_through_every_record_as_ndjson() {
     assert_eq!(records[0]["key"], "ord_0");
     assert_eq!(records[0]["headers"][0]["key"], "source");
     assert_eq!(records[0]["timestamp"], "2023-11-14T22:13:20Z");
-    assert_eq!(session.calls().low_watermarks(), 1);
+    assert_eq!(session.calls(Api::LowWatermarks), 1);
 }
 
 #[tokio::test]
