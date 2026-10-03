@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::num::NonZeroU16;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -53,6 +54,7 @@ pub enum Api {
     CreateTopic,
     DeleteTopic,
     AlterTopicConfigs,
+    AddPartitions,
     Produce,
 }
 
@@ -705,6 +707,25 @@ impl ClusterSession for FakeCluster {
                 .iter()
                 .map(|(name, value)| config_entry(name, value)),
         );
+        Ok(())
+    }
+
+    async fn add_partitions(&self, topic: &str, total: NonZeroU16) -> Result<(), KafkaError> {
+        self.answer(Api::AddPartitions).await?;
+        let current = self
+            .world()
+            .metadata
+            .topic(topic)
+            .map_or(0, |meta| meta.partitions.len());
+        let total = usize::from(total.get());
+        if total <= current {
+            return Err(KafkaError::Refused(format!(
+                "Topic currently has {current} partitions, which is higher than the requested {total}."
+            )));
+        }
+        for id in current..total {
+            self.add_partition(topic, i32::try_from(id).expect("a partition id"));
+        }
         Ok(())
     }
 

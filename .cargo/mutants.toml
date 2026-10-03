@@ -13,8 +13,9 @@ exclude_globs = [
 exclude_re = [
     '<impl (\w+::)*Debug for ',
     '>::expecting\b',
-    # krafka's FakeBroker has no IncrementalAlterConfigs handler, so the e2e
-    # journeys on a real broker cover these.
+    # krafka's FakeBroker has no IncrementalAlterConfigs or CreatePartitions
+    # handler, so the e2e journeys on a real broker cover these.
     'KafkaClient>::alter_topic_configs\b',
     '\bKafkaClient::alter_configs\b',
+    'KafkaClient>::add_partitions\b',
 ]

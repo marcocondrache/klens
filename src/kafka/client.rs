@@ -8,6 +8,7 @@ mod tail;
 pub(crate) mod testing;
 mod transport;
 
+use std::num::NonZeroU16;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -416,6 +417,19 @@ impl ClusterSession for KafkaClient {
             configs: edit.to_krafka(),
         })
         .await
+    }
+
+    async fn add_partitions(&self, topic: &str, total: NonZeroU16) -> Result<(), KafkaError> {
+        let admin = &self.transport.admin;
+        let added = admin
+            .create_partitions(
+                topic,
+                i32::from(total.get()),
+                admin.request_timeout(),
+                false,
+            )
+            .await?;
+        refused(added.error)
     }
 
     async fn produce(&self, record: &NewRecord) -> Result<ProducedRecord, KafkaError> {

@@ -1,3 +1,4 @@
+use std::num::NonZeroU16;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -89,6 +90,9 @@ pub trait ClusterSession: Send + Sync + 'static {
     async fn delete_topic(&self, topic: &str) -> Result<(), KafkaError>;
 
     async fn alter_topic_configs(&self, topic: &str, edit: &ConfigEdit) -> Result<(), KafkaError>;
+
+    /// Grows `topic` to `total` partitions. Kafka never removes partitions.
+    async fn add_partitions(&self, topic: &str, total: NonZeroU16) -> Result<(), KafkaError>;
 
     async fn produce(&self, record: &NewRecord) -> Result<ProducedRecord, KafkaError>;
 
