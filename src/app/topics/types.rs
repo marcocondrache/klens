@@ -1,3 +1,8 @@
+use std::collections::BTreeMap;
+use std::num::{NonZeroU8, NonZeroU16};
+
+use krafka::error::KrafkaError;
+use krafka::protocol::validate_topic_name;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -5,6 +10,7 @@ use crate::kafka::model as domain;
 use crate::kafka::store::projections;
 use crate::r#macro::from_same_variants;
 
+use super::super::error::ApiError;
 use super::super::groups::GroupState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -150,6 +156,35 @@ impl From<projections::TopicGroupRow> for TopicGroupRow {
             state: row.state.into(),
             member_count: row.member_count,
             lag_on_topic: row.lag_on_topic,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CreateTopic {
+    pub name: String,
+    /// When omitted, the broker's `num.partitions` applies.
+    #[ts(optional)]
+    pub partitions: Option<NonZeroU16>,
+    /// When omitted, the broker's `default.replication.factor` applies.
+    #[ts(optional)]
+    pub replication_factor: Option<NonZeroU8>,
+    #[serde(default)]
+    pub configs: BTreeMap<String, String>,
+}
+
+impl CreateTopic {
+    pub(crate) fn into_topic(self) -> Result<domain::NewTopic, ApiError> {
+        match validate_topic_name(&self.name) {
+            Ok(()) => Ok(domain::NewTopic {
+                name: self.name,
+                partitions: self.partitions,
+                replication_factor: self.replication_factor,
+                configs: self.configs,
+            }),
+            Err(KrafkaError::Protocol { message, .. }) => Err(ApiError::unprocessable(message)),
+            Err(error) => Err(ApiError::unprocessable(error.to_string())),
         }
     }
 }
