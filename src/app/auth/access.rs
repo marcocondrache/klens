@@ -10,7 +10,13 @@ use crate::config::Role;
 const MAX_GROUPS: usize = 64;
 
 impl Privilege {
-    pub const ALL: [Self; 4] = [Self::Records, Self::Configs, Self::SchemaText, Self::Acls];
+    pub const ALL: [Self; 5] = [
+        Self::Records,
+        Self::Configs,
+        Self::SchemaText,
+        Self::Acls,
+        Self::ManageTopics,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -18,16 +24,12 @@ impl Privilege {
             Self::Configs => "configs",
             Self::SchemaText => "schemaText",
             Self::Acls => "acls",
+            Self::ManageTopics => "manageTopics",
         }
     }
 
     const fn bit(self) -> u8 {
-        match self {
-            Self::Records => 1 << 0,
-            Self::Configs => 1 << 1,
-            Self::SchemaText => 1 << 2,
-            Self::Acls => 1 << 3,
-        }
+        1 << self as u8
     }
 }
 
@@ -42,12 +44,7 @@ pub struct PrivilegeSet(u8);
 
 impl PrivilegeSet {
     pub const NONE: Self = Self(0);
-    pub const ALL: Self = Self(
-        Privilege::Records.bit()
-            | Privilege::Configs.bit()
-            | Privilege::SchemaText.bit()
-            | Privilege::Acls.bit(),
-    );
+    pub const ALL: Self = Self((1 << Privilege::ALL.len()) - 1);
 
     pub fn from_privileges(privileges: impl IntoIterator<Item = Privilege>) -> Self {
         privileges
@@ -147,6 +144,7 @@ pub enum AccessError {
         cluster: String,
         privilege: Privilege,
     },
+    ReadOnlyCluster(String),
 }
 
 impl AccessError {
@@ -154,6 +152,7 @@ impl AccessError {
         match self {
             Self::UnknownCluster(_) => "UNKNOWN_CLUSTER",
             Self::Forbidden { .. } => "FORBIDDEN",
+            Self::ReadOnlyCluster(_) => "READ_ONLY_CLUSTER",
         }
     }
 }
@@ -166,6 +165,7 @@ impl Display for AccessError {
                 formatter,
                 "'{privilege}' is not permitted on cluster '{cluster}'"
             ),
+            Self::ReadOnlyCluster(cluster) => write!(formatter, "cluster '{cluster}' is read-only"),
         }
     }
 }
@@ -236,6 +236,7 @@ capability!(RecordsCap, records, Privilege::Records);
 capability!(ConfigsCap, configs, Privilege::Configs);
 capability!(SchemaTextCap, schema_text, Privilege::SchemaText);
 capability!(AclsCap, acls, Privilege::Acls);
+capability!(ManageTopicsCap, manage_topics, Privilege::ManageTopics);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Identity<'a> {
@@ -344,12 +345,7 @@ mod tests {
     use super::*;
     use crate::config::Binding;
 
-    const EVERYTHING: &[Privilege] = &[
-        Privilege::Records,
-        Privilege::Configs,
-        Privilege::SchemaText,
-        Privilege::Acls,
-    ];
+    const EVERYTHING: &[Privilege] = &Privilege::ALL;
 
     struct Bound<'a> {
         groups: &'a [&'a str],
@@ -443,6 +439,7 @@ mod tests {
         assert!(prod.configs().is_ok());
         assert!(prod.schema_text().is_ok());
         assert!(prod.acls().is_ok());
+        assert!(prod.manage_topics().is_ok());
         assert_eq!(prod.privileges(), Privilege::ALL.to_vec());
         assert_eq!(access.privileges_for("prod"), Some(PrivilegeSet::ALL));
         assert!(access.cluster("staging").unwrap().schema_text().is_ok());
@@ -584,7 +581,12 @@ mod tests {
 
         assert_eq!(
             access.privileges_for("prod"),
-            Some(PrivilegeSet::ALL),
+            Some(set(&[
+                Privilege::Records,
+                Privilege::Configs,
+                Privilege::SchemaText,
+                Privilege::Acls,
+            ])),
             "neither role contains the other; both apply"
         );
         assert_eq!(
