@@ -166,6 +166,25 @@ impl ProduceRecord {
     }
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DeleteParams {
+    #[serde(default)]
+    pub partition: Vec<i32>,
+    pub before: Option<i64>,
+}
+
+impl DeleteParams {
+    pub(crate) fn before(&self) -> Result<Option<i64>, ApiError> {
+        match self.before {
+            Some(offset) if offset < 0 => Err(ApiError::unprocessable(
+                "before must be an offset of zero or more",
+            )),
+            before => Ok(before),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ProducedRecord {

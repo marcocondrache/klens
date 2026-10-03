@@ -19,13 +19,13 @@ mod tests;
 
 pub(crate) use types::RecordPage;
 use types::{
-    LookupParams, ProduceRecord, ProducedRecord, RecordLookup, RecordParams, record_at,
-    record_query,
+    DeleteParams, LookupParams, ProduceRecord, ProducedRecord, RecordLookup, RecordParams,
+    record_at, record_query,
 };
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
-        .route("/", get(records).post(produce))
+        .route("/", get(records).post(produce).delete(delete_records))
         .route("/export", get(export::export))
         .route("/tail", get(tail::tail))
         .route("/{partition}/{offset}", get(record))
@@ -52,6 +52,20 @@ async fn produce(
     let record = request.into_record(topic)?;
     let produced = producer.produce(&record).await?;
     Ok((StatusCode::CREATED, Json(produced.into())))
+}
+
+async fn delete_records(
+    session: Session,
+    Path((name, topic)): Path<(String, String)>,
+    Query(params): Query<DeleteParams>,
+) -> Result<StatusCode, ApiError> {
+    let cluster = session.cluster(&name)?;
+    let topics = cluster.manage_topics()?;
+    let before = params.before()?;
+    topics
+        .delete_records(&topic, &params.partition, before)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn record(

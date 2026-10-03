@@ -10,7 +10,8 @@ use crate::app::auth::SessionGuard;
 use crate::config::Tuning;
 use crate::kafka::model as domain;
 use crate::testing::{
-    Api, FakeCluster, FixtureRecord, LogCapture, TestApp, access, card_record, framed, viewer,
+    Api, FakeCluster, FixtureRecord, LogCapture, TestApp, access, card_record, framed, quiesce,
+    viewer,
 };
 
 use super::types::Record;
@@ -689,4 +690,89 @@ async fn an_internal_topic_takes_no_records() {
     .assert_error(StatusCode::UNPROCESSABLE_ENTITY, "INTERNAL_TOPIC");
 
     assert_eq!(app.cluster().calls(Api::Produce), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn deleted_records_show_before_the_delete_answers() {
+    let app = writable().await;
+    let mut rig = app.rig();
+    let lane = rig.watermarks();
+    rig.spawn(lane);
+    quiesce().await;
+    let logs = LogCapture::at(Level::INFO);
+
+    app.delete(&format!("{RECORDS}?partition=1&before=5"))
+        .await
+        .expect(StatusCode::NO_CONTENT);
+
+    let topic = app.get("/clusters/local/topics/orders.created").await.ok();
+    let lows: Vec<_> = topic["partitions"]
+        .as_array()
+        .expect("partitions")
+        .iter()
+        .map(|partition| partition["lowWatermark"].clone())
+        .collect();
+    assert_eq!(lows, [json!(0), json!(5)]);
+    app.get(&format!("{RECORDS}/1/4"))
+        .await
+        .assert_error(StatusCode::NOT_FOUND, "UNKNOWN_OFFSET");
+    assert_eq!(app.cluster().calls(Api::DeleteRecords), 1);
+    logs.assert_contains(
+        r#"deleted records cluster=local topic="orders.created" partitions=[1] before=5"#,
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn emptying_a_topic_deletes_every_partition_up_to_its_end() {
+    let app = writable().await;
+    let mut rig = app.rig();
+    let lane = rig.watermarks();
+    rig.spawn(lane);
+    quiesce().await;
+
+    app.delete(RECORDS).await.expect(StatusCode::NO_CONTENT);
+
+    let topic = app.get("/clusters/local/topics/orders.created").await.ok();
+    assert_eq!(topic["retainedMessages"], 0);
+    let page = app.get(RECORDS).await.ok();
+    assert!(records(&page).is_empty(), "{page}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_deletion_kafka_would_reject_never_reaches_the_broker() {
+    let app = writable().await;
+
+    for (path, status, code) in [
+        (
+            format!("{RECORDS}?before=-1"),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INVALID_REQUEST",
+        ),
+        (
+            format!("{RECORDS}?partition=0&partition=2"),
+            StatusCode::NOT_FOUND,
+            "UNKNOWN_PARTITION",
+        ),
+        (
+            "/clusters/local/topics/ghost/records".to_owned(),
+            StatusCode::NOT_FOUND,
+            "UNKNOWN_TOPIC",
+        ),
+    ] {
+        app.delete(&path).await.assert_error(status, code);
+    }
+
+    assert_eq!(app.cluster().calls(Api::DeleteRecords), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn deleting_past_the_end_carries_the_broker_refusal() {
+    let app = writable().await;
+
+    app.delete(&format!("{RECORDS}?partition=0&before=0"))
+        .await
+        .expect(StatusCode::NO_CONTENT);
+    app.delete(&format!("{RECORDS}?partition=0&before=9"))
+        .await
+        .assert_error(StatusCode::UNPROCESSABLE_ENTITY, "REFUSED");
 }
