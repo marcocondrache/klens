@@ -48,6 +48,7 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.cargo/**'
+              - '.config/**'
               - 'web/src/api/types.gen.ts'
             web:
               - 'web/**'
