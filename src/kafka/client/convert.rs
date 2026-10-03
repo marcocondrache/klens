@@ -9,7 +9,9 @@ use krafka::admin::{
 use krafka::error::KrafkaError;
 use krafka::metadata::{ClusterMetadata, TopicInfo as KrafkaTopicInfo};
 use krafka::producer::ProducerRecord;
-use krafka::protocol::validate_topic_name;
+use krafka::protocol::{
+    AlterConfigOp, AlterableConfig, IncrementalAlterConfigsResponse, validate_topic_name,
+};
 
 use crate::kafka::error::KafkaError;
 use crate::kafka::group::{
@@ -20,7 +22,7 @@ use crate::kafka::metadata::{
 };
 use crate::kafka::produce::NewRecord;
 use crate::kafka::storage::{LogDir, ReplicaLog, volume_bytes};
-use crate::kafka::topic_config::{ConfigEntry, ConfigSource};
+use crate::kafka::topic_config::{ConfigEdit, ConfigEntry, ConfigSource};
 
 impl MetadataSnapshot {
     pub(super) fn from_krafka(cache: &ClusterMetadata) -> Self {
@@ -69,6 +71,36 @@ impl NewRecord {
             .map(|header| (header.key.clone(), Some(Bytes::from(header.value.clone()))))
             .collect();
         record
+    }
+}
+
+pub(super) fn altered(response: IncrementalAlterConfigsResponse) -> Result<(), KafkaError> {
+    response.results.into_iter().try_for_each(|result| {
+        if result.error_code.is_ok() {
+            Ok(())
+        } else {
+            Err(KafkaError::Refused(
+                result
+                    .error_message
+                    .unwrap_or_else(|| format!("{:?}", result.error_code)),
+            ))
+        }
+    })
+}
+
+impl ConfigEdit {
+    pub(super) fn to_krafka(&self) -> Vec<AlterableConfig> {
+        let set = self.set.iter().map(|(name, value)| AlterableConfig {
+            name: name.clone(),
+            config_operation: AlterConfigOp::Set,
+            value: Some(value.clone()),
+        });
+        let reset = self.reset.iter().map(|name| AlterableConfig {
+            name: name.clone(),
+            config_operation: AlterConfigOp::Delete,
+            value: None,
+        });
+        set.chain(reset).collect()
     }
 }
 
@@ -231,7 +263,9 @@ mod tests {
     use std::collections::BTreeMap;
     use std::num::{NonZeroU8, NonZeroU16};
 
+    use krafka::admin::ConfigResourceType;
     use krafka::error::ErrorCode;
+    use krafka::protocol::IncrementalAlterConfigsResult;
 
     use super::*;
     use crate::kafka::scan::RecordHeader;
@@ -328,5 +362,64 @@ mod tests {
 
         let retriable = produce_refusal(KrafkaError::broker(ErrorCode::NotEnoughReplicas, "batch"));
         assert!(matches!(retriable, KafkaError::Krafka(_)), "{retriable}");
+    }
+
+    #[test]
+    fn a_config_edit_sets_values_and_deletes_resets() {
+        let edit = ConfigEdit {
+            set: [("retention.ms".to_owned(), "60000".to_owned())].into(),
+            reset: ["cleanup.policy".to_owned()].into(),
+        };
+
+        let ops: Vec<_> = edit
+            .to_krafka()
+            .into_iter()
+            .map(|config| (config.name, config.config_operation, config.value))
+            .collect();
+
+        assert_eq!(
+            ops,
+            [
+                (
+                    "retention.ms".to_owned(),
+                    AlterConfigOp::Set,
+                    Some("60000".to_owned())
+                ),
+                ("cleanup.policy".to_owned(), AlterConfigOp::Delete, None),
+            ]
+        );
+    }
+
+    fn alter_result(code: ErrorCode, message: Option<&str>) -> IncrementalAlterConfigsResponse {
+        IncrementalAlterConfigsResponse {
+            throttle_time_ms: 0,
+            results: vec![IncrementalAlterConfigsResult {
+                error_code: code,
+                error_message: message.map(str::to_owned),
+                resource_type: ConfigResourceType::Topic,
+                resource_name: "orders".to_owned(),
+            }],
+        }
+    }
+
+    #[test]
+    fn an_altered_resource_is_ok_and_a_refused_one_carries_the_broker_reason() {
+        assert!(altered(alter_result(ErrorCode::None, None)).is_ok());
+
+        let invalid = altered(alter_result(
+            ErrorCode::InvalidConfig,
+            Some("Invalid value -5 for configuration retention.ms"),
+        ))
+        .unwrap_err();
+        assert!(
+            matches!(&invalid, KafkaError::Refused(reason) if reason.starts_with("Invalid value -5")),
+            "{invalid}"
+        );
+
+        let bare = altered(alter_result(ErrorCode::PolicyViolation, None)).unwrap_err();
+        assert!(
+            matches!(&bare, KafkaError::Refused(reason) if reason == "PolicyViolation"),
+            "{bare}"
+        );
     }
 }
