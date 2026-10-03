@@ -8,11 +8,12 @@ use krafka::admin::{
 use krafka::metadata::{ClusterMetadata, TopicInfo as KrafkaTopicInfo};
 use krafka::protocol::validate_topic_name;
 
+use crate::kafka::error::KafkaError;
 use crate::kafka::group::{
     CommittedOffset, GroupMember, GroupSnapshot, GroupState, MemberAssignment,
 };
 use crate::kafka::metadata::{
-    BrokerMetadata, MetadataSnapshot, PartitionMetadata, TopicMetadata, is_internal_topic,
+    BrokerMetadata, MetadataSnapshot, NewTopic, PartitionMetadata, TopicMetadata, is_internal_topic,
 };
 use crate::kafka::storage::{LogDir, ReplicaLog, volume_bytes};
 use crate::kafka::topic_config::{ConfigEntry, ConfigSource};
@@ -36,6 +37,28 @@ impl MetadataSnapshot {
                 .map(TopicMetadata::from_krafka)
                 .collect(),
         }
+    }
+}
+
+pub(super) fn refused(error: Option<String>) -> Result<(), KafkaError> {
+    error.map_or(Ok(()), |message| Err(KafkaError::Refused(message)))
+}
+
+const BROKER_DEFAULT: i16 = -1;
+
+impl NewTopic {
+    pub(super) fn to_krafka(&self) -> Result<krafka::admin::NewTopic, KafkaError> {
+        let topic = krafka::admin::NewTopic::new(
+            &self.name,
+            self.partitions
+                .map_or(BROKER_DEFAULT.into(), |count| count.get().into()),
+            self.replication_factor
+                .map_or(BROKER_DEFAULT, |factor| factor.get().into()),
+        )?;
+        Ok(self
+            .configs
+            .iter()
+            .fold(topic, |topic, (name, value)| topic.with_config(name, value)))
     }
 }
 
@@ -177,6 +200,9 @@ impl ConfigSource {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+    use std::num::{NonZeroU8, NonZeroU16};
+
     use super::*;
 
     #[test]
@@ -204,5 +230,36 @@ mod tests {
         assert_eq!(committed_offset("orders".into(), 1, -1), None);
         assert_eq!(committed_offset(String::new(), 1, 7), None);
         assert_eq!(committed_offset("bad/name".into(), 1, 7), None);
+    }
+
+    #[test]
+    fn a_new_topic_leaves_unset_counts_to_the_broker() {
+        let topic = NewTopic {
+            name: "orders".into(),
+            partitions: None,
+            replication_factor: None,
+            configs: [("cleanup.policy".into(), "compact".into())].into(),
+        }
+        .to_krafka()
+        .expect("valid topic");
+
+        assert_eq!(topic.name, "orders");
+        assert_eq!((topic.num_partitions, topic.replication_factor), (-1, -1));
+        assert_eq!(topic.configs["cleanup.policy"], "compact");
+    }
+
+    #[test]
+    fn a_new_topic_sends_the_counts_it_sets() {
+        let topic = NewTopic {
+            name: "orders".into(),
+            partitions: NonZeroU16::new(6),
+            replication_factor: NonZeroU8::new(3),
+            configs: BTreeMap::new(),
+        }
+        .to_krafka()
+        .expect("valid topic");
+
+        assert_eq!((topic.num_partitions, topic.replication_factor), (6, 3));
+        assert!(topic.configs.is_empty());
     }
 }

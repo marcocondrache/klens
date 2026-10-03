@@ -65,6 +65,7 @@ fn kafka_status(error: &KafkaError) -> StatusCode {
         | KafkaError::UnknownPartition { .. }
         | KafkaError::UnknownOffset { .. } => StatusCode::NOT_FOUND,
         KafkaError::InvalidQuery(_) => StatusCode::BAD_REQUEST,
+        KafkaError::Refused(_) => StatusCode::UNPROCESSABLE_ENTITY,
         KafkaError::Timeout => StatusCode::GATEWAY_TIMEOUT,
         KafkaError::Admin(_)
         | KafkaError::BrokerConfigs { .. }

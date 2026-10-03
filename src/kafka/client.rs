@@ -21,7 +21,7 @@ use crate::kafka::acl::AclListing;
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
 use crate::kafka::group::{CommittedOffset, GroupSnapshot};
-use crate::kafka::metadata::{MetadataSnapshot, TopicMetadata};
+use crate::kafka::metadata::{MetadataSnapshot, NewTopic, TopicMetadata};
 use crate::kafka::model::{PartitionWindow, ScanConsumer, TailConsumer, TailPosition};
 use crate::kafka::quota::{DescribedQuota, QuotaListing};
 use crate::kafka::registry::client::SchemaRegistryClient;
@@ -33,7 +33,7 @@ use crate::kafka::session::ClusterSession;
 use crate::kafka::storage::LogDir;
 use crate::kafka::topic_config::ConfigEntry;
 
-use convert::committed_from_krafka;
+use convert::{committed_from_krafka, refused};
 use groups::{
     ACTIVE_GROUP_STATES, LISTED_GROUP_TYPES, snapshots_from_descriptions, split_empty_groups,
 };
@@ -377,6 +377,15 @@ impl ClusterSession for KafkaClient {
             }),
         )
     }
+
+    async fn create_topic(&self, topic: &NewTopic) -> Result<(), KafkaError> {
+        let admin = &self.transport.admin;
+        admin
+            .create_topics(vec![topic.to_krafka()?], admin.request_timeout(), false)
+            .await?
+            .into_iter()
+            .try_for_each(|created| refused(created.error))
+    }
 }
 
 fn partitions_by_topic(partitions: &[(String, i32)]) -> HashMap<String, Vec<i32>> {
@@ -401,6 +410,9 @@ fn list_offset_parts(result: krafka::admin::ListOffsetResult) -> (String, i32, i
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+    use std::num::NonZeroU16;
+
     use super::*;
     use crate::kafka::group::MemberAssignment;
     use crate::kafka::metadata::Watermarks;
@@ -980,6 +992,28 @@ mod tests {
         for result in results {
             assert_eq!(result.expect("offset fetch")[0].offset, 1);
         }
+    }
+
+    #[tokio::test]
+    async fn create_topic_creates_it_once() {
+        let broker = krafka::testing::FakeBroker::start().await.unwrap();
+        let client = kafka_client(&broker.bootstrap_servers()).await;
+        let topic = NewTopic {
+            name: "orders".into(),
+            partitions: NonZeroU16::new(3),
+            replication_factor: None,
+            configs: BTreeMap::new(),
+        };
+
+        client.create_topic(&topic).await.expect("created");
+        let created = client.topic_metadata("orders").await.unwrap();
+        assert_eq!(created.partitions.len(), 3);
+
+        let error = client.create_topic(&topic).await.unwrap_err();
+        assert!(
+            matches!(&error, KafkaError::Refused(message) if message.contains("already exists")),
+            "{error}"
+        );
     }
 
     pub(super) fn cluster(bootstrap: &str) -> config::Cluster {
