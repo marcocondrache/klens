@@ -11,4 +11,3 @@ pub use fixtures::{
     subject, topic, topology, watermarks,
 };
 pub use records::{FixtureRecord, card_record, framed};
-pub use world::local_acls;

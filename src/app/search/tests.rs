@@ -1,12 +1,15 @@
 use std::collections::BTreeSet;
 
-use super::super::harness::{ok, seeded};
+use crate::testing::TestApp;
 
 #[tokio::test]
 async fn search_is_answered_from_the_committed_tables() {
-    let state = seeded();
-    let data = ok(&state, "/clusters/local/search?q=orders").await;
-    let kinds: BTreeSet<&str> = data
+    let hits = TestApp::local()
+        .await
+        .get("/clusters/local/search?q=orders")
+        .await
+        .ok();
+    let kinds: BTreeSet<&str> = hits
         .as_array()
         .expect("hits")
         .iter()

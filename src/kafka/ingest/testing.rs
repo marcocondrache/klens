@@ -26,6 +26,10 @@ pub struct Rig {
 impl Rig {
     pub fn new(cluster: FakeCluster) -> Self {
         let store = Arc::new(ClusterStore::named(&cluster.identity().name));
+        Self::over(cluster, store)
+    }
+
+    pub fn over(cluster: FakeCluster, store: Arc<ClusterStore>) -> Self {
         Self {
             cluster,
             store,
@@ -86,6 +90,16 @@ impl Rig {
     pub async fn poll_catalog(&self) {
         self.poll(&self.topology()).await;
         self.poll(&self.watermarks()).await;
+    }
+
+    pub async fn ingest(&self) {
+        self.poll_catalog().await;
+        self.poll(&self.configs()).await;
+        self.poll(&self.log_dirs()).await;
+        self.poll(&self.subjects()).await;
+        self.poll(&self.acls()).await;
+        self.poll(&self.quotas()).await;
+        self.sweep(&self.offsets()).await;
     }
 
     pub async fn sweep(&self, lane: &OffsetLane) -> Wave {

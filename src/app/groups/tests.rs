@@ -1,105 +1,76 @@
-use std::sync::Arc;
-
 use axum::http::StatusCode;
+use serde_json::{Value, json};
 
-use crate::app::auth::access::EffectiveAccess;
-use crate::testing::{group, partition, topic, topology, watermarks};
-
-use super::super::harness::{failure, ok, ok_as, seeded, state, store_of, viewer_everywhere};
+use crate::testing::{Api, FakeCluster, TestApp, group};
 
 #[tokio::test]
 async fn group_rows_join_commits_against_watermarks() {
-    let state = seeded();
-    let rows = ok(&state, "/clusters/local/groups").await;
-    let row = &rows[0];
+    let groups = TestApp::local()
+        .await
+        .get("/clusters/local/groups")
+        .await
+        .ok();
+    let row = &groups[0];
 
     assert_eq!(row["id"], "order-processor");
     assert_eq!(row["state"], "STABLE");
     assert_eq!(row["memberCount"], 1);
-    assert_eq!(row["topicNames"], serde_json::json!(["orders.created"]));
-    assert_eq!(row["totalLag"], 15);
+    assert_eq!(row["topicNames"], json!(["orders.created"]));
+    assert_eq!(row["totalLag"], 5);
     assert_eq!(row["lagComplete"], true);
 }
 
 #[tokio::test]
 async fn opening_a_group_registers_interest_so_its_offsets_poll_faster() {
-    let state = seeded();
-    let store = store_of(&state, "local");
-    assert!(!store.interest.is_hot("order-processor"));
+    let app = TestApp::local().await;
+    assert!(!app.store().interest.is_hot("order-processor"));
 
-    let group = ok(&state, "/clusters/local/groups/order-processor").await;
+    let group = app.get("/clusters/local/groups/order-processor").await.ok();
 
-    assert_eq!(group["totalLag"], 15);
-    assert_eq!(group["members"][0]["clientId"], "c1");
-    assert_eq!(group["offsets"][0]["currentOffset"], 90);
-    assert_eq!(group["offsets"][0]["endOffset"], 100);
-    assert_eq!(group["offsets"][0]["lag"], 10);
-    assert!(store.interest.is_hot("order-processor"));
+    assert_eq!(group["totalLag"], 5);
+    assert_eq!(group["members"][0]["clientId"], "orders");
+    assert_eq!(group["offsets"][0]["currentOffset"], 6);
+    assert_eq!(group["offsets"][0]["endOffset"], 8);
+    assert_eq!(group["offsets"][0]["lag"], 2);
+    assert!(app.store().interest.is_hot("order-processor"));
 }
 
 #[tokio::test]
 async fn a_missing_group_is_not_found() {
-    let (status, code) = failure(
-        &seeded(),
-        "/clusters/local/groups/ghost",
-        EffectiveAccess::Unrestricted,
-    )
-    .await;
-
-    assert_eq!(status, StatusCode::NOT_FOUND);
-    assert_eq!(code, "UNKNOWN_GROUP");
+    TestApp::local()
+        .await
+        .get("/clusters/local/groups/ghost")
+        .await
+        .assert_error(StatusCode::NOT_FOUND, "UNKNOWN_GROUP");
 }
 
 #[tokio::test]
 async fn a_group_id_with_a_slash_is_one_resource() {
-    let state = state();
-    let store = store_of(&state, "local");
-    store.topology.commit(Arc::new(topology(
-        vec![topic(
-            "orders.created",
-            vec![partition(0, vec![1], vec![1])],
-        )],
-        vec![group("billing/nightly", "orders.created", vec![0])],
-    )));
+    let billing = group("billing/nightly", "orders.created", vec![0]);
+    let app = TestApp::over(FakeCluster::local().with_groups([billing])).await;
 
-    let group = ok(&state, "/clusters/local/groups/billing/nightly").await;
+    let group = app.get("/clusters/local/groups/billing/nightly").await.ok();
 
     assert_eq!(group["id"], "billing/nightly");
 }
 
 #[tokio::test]
-async fn group_rows_stay_open_to_a_viewer() {
-    let groups = ok_as(&seeded(), "/clusters/local/groups", viewer_everywhere()).await;
-
-    assert_eq!(groups.as_array().map(Vec::len), Some(1));
-}
-
-#[tokio::test]
 async fn a_group_whose_offsets_were_never_fetched_has_unknown_lag() {
-    let state = state();
-    let store = store_of(&state, "local");
-    store.topology.commit(Arc::new(topology(
-        vec![topic(
-            "orders.created",
-            vec![partition(0, vec![1], vec![1])],
-        )],
-        vec![group("order-processor", "orders.created", vec![0])],
-    )));
-    store
-        .watermarks
-        .commit(Arc::new(watermarks(&[("orders.created", 0, 0, 100)])));
+    let cluster = FakeCluster::local();
+    cluster.fail(Api::CommittedOffsets, "coordinator not available");
+    let app = TestApp::over(cluster).await;
 
-    let rows = ok(&state, "/clusters/local/groups").await;
-    let group = ok(&state, "/clusters/local/groups/order-processor").await;
-    let topic_groups = ok(&state, "/clusters/local/topics/orders.created/groups").await;
+    let rows = app.get("/clusters/local/groups").await.ok();
+    let group = app.get("/clusters/local/groups/order-processor").await.ok();
+    let topic_groups = app
+        .get("/clusters/local/topics/orders.created/groups")
+        .await
+        .ok();
 
-    assert_eq!(rows[0]["totalLag"], serde_json::Value::Null);
-    assert_eq!(group["totalLag"], serde_json::Value::Null);
-    assert_eq!(
-        group["offsets"][0]["currentOffset"],
-        serde_json::Value::Null
-    );
-    assert_eq!(group["offsets"][0]["endOffset"], 100);
-    assert_eq!(group["offsets"][0]["lag"], serde_json::Value::Null);
-    assert_eq!(topic_groups[0]["lagOnTopic"], serde_json::Value::Null);
+    assert_eq!(rows[0]["totalLag"], Value::Null);
+    assert_eq!(group["totalLag"], Value::Null);
+    assert_eq!(group["offsets"][0]["currentOffset"], Value::Null);
+    assert_eq!(group["offsets"][0]["endOffset"], 8);
+    assert_eq!(group["offsets"][0]["lag"], Value::Null);
+    assert_eq!(topic_groups[0]["lagOnTopic"], Value::Null);
 }

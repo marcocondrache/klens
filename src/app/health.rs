@@ -23,37 +23,20 @@ async fn ready(State(state): State<AppState>) -> StatusCode {
 
 #[cfg(test)]
 mod tests {
-    use axum::body::Body;
-    use axum::http::{Request, StatusCode};
-    use std::sync::Arc;
-    use tower::ServiceExt;
+    use axum::http::StatusCode;
 
-    use crate::AppState;
-    use crate::app::harness::{state, store_of};
-    use crate::app::router;
-    use crate::testing::{partition, topic, topology};
-
-    async fn status(state: AppState, path: &str) -> StatusCode {
-        router(state)
-            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
-            .await
-            .unwrap()
-            .status()
-    }
+    use crate::testing::{FakeCluster, TestApp};
 
     #[tokio::test]
     async fn ready_is_unavailable_until_topology_has_committed() {
-        let state = state();
+        let app = TestApp::of([FakeCluster::local()]).build();
         assert_eq!(
-            status(state.clone(), "/ready").await,
+            app.get("/ready").await.status,
             StatusCode::SERVICE_UNAVAILABLE
         );
 
-        store_of(&state, "local").topology.commit(Arc::new(topology(
-            vec![topic("ready", vec![partition(0, vec![1], vec![1])])],
-            Vec::new(),
-        )));
+        app.ingest().await;
 
-        assert_eq!(status(state, "/ready").await, StatusCode::NO_CONTENT);
+        assert_eq!(app.get("/ready").await.status, StatusCode::NO_CONTENT);
     }
 }

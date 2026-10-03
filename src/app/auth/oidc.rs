@@ -198,46 +198,6 @@ fn groups_from_id_token(id_token: &str, claim: &str) -> anyhow::Result<Vec<Strin
 }
 
 #[cfg(test)]
-#[derive(Clone, Default)]
-pub(crate) struct FakeOidc {
-    pub groups: Vec<String>,
-}
-
-#[cfg(test)]
-#[async_trait]
-impl OidcFlow for FakeOidc {
-    fn authorize_url(
-        &self,
-        csrf: CsrfToken,
-        _nonce: Nonce,
-        _pkce_challenge: PkceCodeChallenge,
-    ) -> url::Url {
-        let mut url = url::Url::parse("https://idp.example/authorize").expect("stub authorize url");
-        url.query_pairs_mut().append_pair("state", csrf.secret());
-        url
-    }
-
-    async fn authenticate(
-        &self,
-        code: String,
-        _pkce_verifier: PkceCodeVerifier,
-        _nonce: Nonce,
-    ) -> anyhow::Result<SessionUser> {
-        if code != "test-code" {
-            return Err(anyhow!("invalid authorization code"));
-        }
-
-        Ok(SessionUser::new(
-            "user-1",
-            Some("user@example.com".into()),
-            Some("Test User".into()),
-            self.groups.clone(),
-            Timestamp::now().as_second() + 3600,
-        ))
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
 

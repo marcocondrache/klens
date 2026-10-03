@@ -29,7 +29,9 @@ mod updates;
 mod whoami;
 
 #[cfg(test)]
-mod harness;
+pub(crate) mod testing;
+#[cfg(test)]
+mod tests;
 
 pub use auth::AuthState;
 
@@ -90,11 +92,6 @@ fn resources() -> Router<AppState> {
 
 fn auth_routes() -> Router<AppState> {
     Router::new().nest("/auth", auth::router())
-}
-
-#[cfg(test)]
-fn api() -> Router<AppState> {
-    health::router().merge(auth_routes()).merge(resources())
 }
 
 pub fn router(state: AppState) -> Router {
