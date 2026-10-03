@@ -98,6 +98,16 @@ export async function get<T>(path: string, query?: Record<string, QueryValue>): 
   return (await response.json()) as T;
 }
 
+export async function post(path: string, body: unknown): Promise<void> {
+  const response = await fetch(apiPath(path), {
+    method: "POST",
+    credentials: "include",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) return fail(response);
+}
+
 /** A missing topic or group is 404. Pages treat that as an empty detail. */
 export async function getOrNull<T>(
   path: string,

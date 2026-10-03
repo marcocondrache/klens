@@ -5,6 +5,7 @@ export type {
   ClientQuota,
   ClusterHealth,
   ConfigEntry,
+  CreateTopic,
   GroupDetail,
   GroupMember,
   GroupOffset,

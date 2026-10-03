@@ -17,6 +17,7 @@ export function useWhoami() {
 export type Access = {
   ready: boolean;
   can: (cluster: string, privilege: PrivilegeName) => boolean;
+  canChange: (cluster: string, privilege: PrivilegeName) => boolean;
   canSeeCluster: (cluster: string) => boolean;
 };
 
@@ -26,6 +27,8 @@ export function useAccess(): Access {
   return {
     ready: data != null,
     can: (cluster, privilege) => hasPrivilege(data, cluster, privilege),
+    canChange: (cluster, privilege) =>
+      grant(data, cluster)?.writable === true && hasPrivilege(data, cluster, privilege),
     canSeeCluster: (cluster) => (data ? grant(data, cluster) != null : true),
   };
 }
