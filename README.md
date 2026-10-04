@@ -226,13 +226,14 @@ privileges are `records`, `configs`, `schema_text`, and `acls` to read,
 `manage_topics` to create, edit, and delete topics and their records on a
 writable cluster, `produce` to write records to one, `manage_groups` to reset
 or delete a consumer group's committed offsets, or the group itself, on one,
-`manage_schemas` to change the schemas in its registry, and `manage_acls` to
-create and delete its ACLs and set its client quotas. A role that lists none
-still sees the catalog (clusters, topics, groups, lag, sizes) but no payloads,
-live configs, schema bodies, or ACL bindings. A role's `bindings` name the IdP
-groups that hold it, read from the ID token claim that `oidc.groups_claim`
-names (default `groups`). Unmatched users cannot sign in. Omit `clusters` on a
-binding to allow every configured cluster.
+`manage_schemas` to change the schemas in its registry, `manage_acls` to
+create and delete its ACLs and set its client quotas, and `manage_brokers` to
+change its brokers' dynamic configs. A role that lists none still sees the
+catalog (clusters, topics, groups, lag, sizes) but no payloads, live configs,
+schema bodies, or ACL bindings. A role's `bindings` name the IdP groups that
+hold it, read from the ID token claim that `oidc.groups_claim` names (default
+`groups`). Unmatched users cannot sign in. Omit `clusters` on a binding to
+allow every configured cluster.
 
 Bindings are evaluated per cluster: a user's privileges on a cluster are the
 union of the roles bound to their groups **whose scope covers that cluster**.
@@ -253,7 +254,7 @@ auth:
     # groups_claim: groups
   roles:
     admin:
-      privileges: [records, configs, schema_text, acls, manage_topics, produce, manage_groups, manage_schemas, manage_acls]
+      privileges: [records, configs, schema_text, acls, manage_topics, produce, manage_groups, manage_schemas, manage_acls, manage_brokers]
       bindings:
         - groups: [klens-admins]
     viewer:

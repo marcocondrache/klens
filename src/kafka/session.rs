@@ -8,11 +8,11 @@ use foldhash::{HashMap, HashMapExt};
 
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
-    Acl, AclListing, ClientQuota, ClusterIdentity, CommittedOffset, ConfigEdit, ConfigEntry,
-    GroupSnapshot, LogDir, MetadataSnapshot, NewRecord, NewSchema, NewTopic, PartitionWindow,
-    ProducedRecord, QuotaListing, RecordDeletion, RegisteredSchema, RegisteredVersion,
-    ScanConsumer, SchemaCompatibility, SchemaDeletion, SchemaSubject, TailConsumer, TailPosition,
-    TopicMetadata, Watermarks,
+    Acl, AclListing, BrokerScope, ClientQuota, ClusterIdentity, CommittedOffset, ConfigEdit,
+    ConfigEntry, GroupSnapshot, LogDir, MetadataSnapshot, NewRecord, NewSchema, NewTopic,
+    PartitionWindow, ProducedRecord, QuotaListing, RecordDeletion, RegisteredSchema,
+    RegisteredVersion, ScanConsumer, SchemaCompatibility, SchemaDeletion, SchemaSubject,
+    TailConsumer, TailPosition, TopicMetadata, Watermarks,
 };
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
@@ -94,6 +94,13 @@ pub trait ClusterSession: Send + Sync + 'static {
     async fn delete_topic(&self, topic: &str) -> Result<(), KafkaError>;
 
     async fn alter_topic_configs(&self, topic: &str, edit: &ConfigEdit) -> Result<(), KafkaError>;
+
+    /// Kafka refuses a config it cannot change while the broker runs.
+    async fn alter_broker_configs(
+        &self,
+        scope: BrokerScope,
+        edit: &ConfigEdit,
+    ) -> Result<(), KafkaError>;
 
     /// Grows `topic` to `total` partitions. Kafka never removes partitions.
     async fn add_partitions(&self, topic: &str, total: NonZeroU16) -> Result<(), KafkaError>;

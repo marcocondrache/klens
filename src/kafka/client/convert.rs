@@ -12,7 +12,8 @@ use krafka::error::{ErrorCode, KrafkaError};
 use krafka::metadata::{ClusterMetadata, TopicInfo as KrafkaTopicInfo};
 use krafka::producer::ProducerRecord;
 use krafka::protocol::{
-    AlterConfigOp, AlterableConfig, IncrementalAlterConfigsResponse, validate_topic_name,
+    AlterConfigOp, AlterableConfig, DescribeConfigsEntry, IncrementalAlterConfigsResponse,
+    validate_topic_name,
 };
 
 use crate::kafka::error::KafkaError;
@@ -25,7 +26,7 @@ use crate::kafka::metadata::{
 };
 use crate::kafka::produce::NewRecord;
 use crate::kafka::storage::{LogDir, ReplicaLog, volume_bytes};
-use crate::kafka::topic_config::{ConfigEdit, ConfigEntry, ConfigSource};
+use crate::kafka::topic_config::{BrokerScope, ConfigEdit, ConfigEntry, ConfigSource};
 
 impl MetadataSnapshot {
     pub(super) fn from_krafka(cache: &ClusterMetadata) -> Self {
@@ -270,11 +271,33 @@ impl From<KrafkaConfigEntry> for ConfigEntry {
     }
 }
 
+impl From<DescribeConfigsEntry> for ConfigEntry {
+    fn from(entry: DescribeConfigsEntry) -> Self {
+        Self {
+            name: entry.name,
+            value: entry.value,
+            source: ConfigSource::from_krafka(entry.config_source),
+            read_only: entry.read_only,
+            sensitive: entry.is_sensitive,
+        }
+    }
+}
+
+impl BrokerScope {
+    pub(super) fn resource_name(self) -> String {
+        match self {
+            Self::Broker(id) => id.to_string(),
+            Self::Cluster => String::new(),
+        }
+    }
+}
+
 impl ConfigSource {
     fn from_krafka(source: i8) -> Self {
         match source {
             1 => Self::DynamicTopic,
-            2 | 3 => Self::DynamicBroker,
+            2 => Self::DynamicBroker,
+            3 => Self::DynamicDefaultBroker,
             4 => Self::StaticBroker,
             _ => Self::Default,
         }
@@ -297,12 +320,21 @@ mod tests {
     fn config_source_maps_kafka_describe_codes() {
         assert_eq!(ConfigSource::from_krafka(1), ConfigSource::DynamicTopic);
         assert_eq!(ConfigSource::from_krafka(2), ConfigSource::DynamicBroker);
-        assert_eq!(ConfigSource::from_krafka(3), ConfigSource::DynamicBroker);
+        assert_eq!(
+            ConfigSource::from_krafka(3),
+            ConfigSource::DynamicDefaultBroker
+        );
         assert_eq!(ConfigSource::from_krafka(4), ConfigSource::StaticBroker);
         assert_eq!(ConfigSource::from_krafka(5), ConfigSource::Default);
         assert_eq!(ConfigSource::from_krafka(0), ConfigSource::Default);
         assert_eq!(ConfigSource::from_krafka(6), ConfigSource::Default);
         assert_eq!(ConfigSource::from_krafka(-1), ConfigSource::Default);
+    }
+
+    #[test]
+    fn a_broker_scope_names_its_broker_and_the_cluster_default_names_none() {
+        assert_eq!(BrokerScope::Broker(12).resource_name(), "12");
+        assert_eq!(BrokerScope::Cluster.resource_name(), "");
     }
 
     #[test]

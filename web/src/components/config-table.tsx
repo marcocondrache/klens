@@ -15,6 +15,7 @@ import type { ConfigEntry } from "@/lib/api/types";
 const SOURCE_LABEL: Record<ConfigEntry["source"], string> = {
   DYNAMIC_TOPIC_CONFIG: "topic override",
   DYNAMIC_BROKER_CONFIG: "broker override",
+  DYNAMIC_DEFAULT_BROKER_CONFIG: "cluster default",
   STATIC_BROKER_CONFIG: "static",
   DEFAULT_CONFIG: "default",
 };
@@ -69,7 +70,7 @@ const columns = columnHelper.columns([
     cell: ({ getValue }) => {
       const source = getValue();
 
-      if (source === "DYNAMIC_TOPIC_CONFIG" || source === "DYNAMIC_BROKER_CONFIG") {
+      if (source !== "STATIC_BROKER_CONFIG" && source !== "DEFAULT_CONFIG") {
         return <StatusLabel tone="brand">{SOURCE_LABEL[source]}</StatusLabel>;
       }
 

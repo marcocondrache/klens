@@ -1,7 +1,11 @@
+use std::time::Duration;
+
 use axum::http::StatusCode;
 use serde_json::{Value, json};
+use tokio::time::Instant;
+use tracing::Level;
 
-use crate::testing::{Api, FakeCluster, TestApp};
+use crate::testing::{Api, FakeCluster, LogCapture, TestApp};
 
 #[tokio::test]
 async fn broker_rows_count_the_partitions_each_node_carries() {
@@ -77,4 +81,102 @@ async fn a_non_numeric_broker_id_is_an_invalid_request() {
         .get("/clusters/local/brokers/one/configs")
         .await
         .assert_error(StatusCode::BAD_REQUEST, "INVALID_REQUEST");
+}
+
+async fn writable(cluster: FakeCluster) -> TestApp {
+    TestApp::of([cluster]).writable(&["local"]).ingested().await
+}
+
+fn retention(entries: &Value) -> &Value {
+    entries
+        .as_array()
+        .expect("configs")
+        .iter()
+        .find(|entry| entry["name"] == "log.retention.hours")
+        .expect("log.retention.hours")
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_broker_config_edit_shows_on_the_broker_before_the_edit_answers() {
+    let app = writable(FakeCluster::local()).await;
+    let logs = LogCapture::at(Level::INFO);
+    let started = Instant::now();
+
+    app.patch(
+        "/clusters/local/brokers/1/configs",
+        &json!({ "set": { "log.retention.hours": "72" }, "reset": ["log.retention.ms"] }),
+    )
+    .await
+    .expect(StatusCode::NO_CONTENT);
+
+    assert!(started.elapsed() < Duration::from_secs(1));
+    assert_eq!(app.cluster().calls(Api::BrokerConfigs), 1);
+    let configs = app.get("/clusters/local/brokers/1/configs").await.ok();
+    assert_eq!(retention(&configs)["value"], "72");
+    assert_eq!(retention(&configs)["source"], "DYNAMIC_BROKER_CONFIG");
+    logs.assert_contains(r#"altered broker configs cluster=local scope=broker 1 set=["log.retention.hours"] reset={"log.retention.ms"}"#);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_cluster_default_shows_on_every_broker_before_the_edit_answers() {
+    let app = writable(FakeCluster::local().with_broker(2)).await;
+    let logs = LogCapture::at(Level::INFO);
+    let started = Instant::now();
+
+    app.patch(
+        "/clusters/local/brokers/configs",
+        &json!({ "set": { "log.retention.hours": "72" } }),
+    )
+    .await
+    .expect(StatusCode::NO_CONTENT);
+
+    assert!(started.elapsed() < Duration::from_secs(1));
+    assert_eq!(app.cluster().calls(Api::BrokerConfigs), 2);
+    for broker in [1, 2] {
+        let configs = app
+            .get(&format!("/clusters/local/brokers/{broker}/configs"))
+            .await
+            .ok();
+        assert_eq!(retention(&configs)["value"], "72");
+        assert_eq!(
+            retention(&configs)["source"],
+            "DYNAMIC_DEFAULT_BROKER_CONFIG"
+        );
+    }
+    logs.assert_contains(r#"altered broker configs cluster=local scope=every broker set=["log.retention.hours"] reset={}"#);
+}
+
+#[tokio::test]
+async fn a_broker_config_edit_kafka_would_reject_never_reaches_the_broker() {
+    let app = writable(FakeCluster::local()).await;
+
+    for (route, body, status, code, error) in [
+        (
+            "/clusters/local/brokers/configs",
+            json!({}),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INVALID_REQUEST",
+            "name a config to set or reset",
+        ),
+        (
+            "/clusters/local/brokers/1/configs",
+            json!({ "set": { "log.retention.hours": "1" }, "reset": ["log.retention.hours"] }),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INVALID_REQUEST",
+            "log.retention.hours cannot be both set and reset",
+        ),
+        (
+            "/clusters/local/brokers/9/configs",
+            json!({ "reset": ["log.retention.hours"] }),
+            StatusCode::NOT_FOUND,
+            "UNKNOWN_BROKER",
+            "unknown broker 9 in cluster 'local'",
+        ),
+    ] {
+        let reply = app.patch(route, &body).await;
+        reply.assert_error(status, code);
+        assert_eq!(reply.body["error"], error);
+    }
+
+    assert_eq!(app.cluster().calls(Api::AlterBrokerConfigs), 0);
 }

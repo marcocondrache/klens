@@ -13,12 +13,14 @@ exclude_globs = [
 exclude_re = [
     '<impl (\w+::)*Debug for ',
     '>::expecting\b',
-    # krafka's FakeBroker has no IncrementalAlterConfigs, CreatePartitions,
-    # DeleteRecords, DeleteGroups, OffsetDelete, CreateAcls, DeleteAcls or
-    # AlterClientQuotas handler, so the e2e journeys on a real broker cover
-    # these.
+    # krafka's FakeBroker has no DescribeConfigs, IncrementalAlterConfigs,
+    # CreatePartitions, DeleteRecords, DeleteGroups, OffsetDelete, CreateAcls,
+    # DeleteAcls or AlterClientQuotas handler, so the e2e journeys on a real
+    # broker cover these.
+    'KafkaClient>::broker_configs\b',
     'KafkaClient>::alter_topic_configs\b',
-    '\bKafkaClient::alter_configs\b',
+    'KafkaClient>::alter_broker_configs\b',
+    'kafka/client\.rs:\d+:\d+: replace alter_configs\b',
     'KafkaClient>::add_partitions\b',
     'KafkaClient>::delete_records\b',
     'KafkaClient>::delete_group\b',
@@ -27,5 +29,6 @@ exclude_re = [
     'KafkaClient>::delete_acl\b',
     'KafkaClient>::alter_client_quota\b',
     '\bKafkaClient::group_coordinator\b',
+    '\bKafkaClient::broker_connection\b',
     'kafka/client\.rs:\d+:\d+: replace call\b',
 ]

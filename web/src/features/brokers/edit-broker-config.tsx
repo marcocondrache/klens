@@ -18,12 +18,17 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { IconButton } from "@/components/icon-button";
 import { apiErrorMessage, clusterPathname, patch } from "@/lib/api/client";
 import { keys } from "@/lib/api/keys";
 import type { ConfigEntry, EditConfigs } from "@/lib/api/types";
 
-export function EditTopicConfigButton({
+type Scope = "BROKER" | "CLUSTER";
+
+type Change = { scope: Scope; edit: EditConfigs };
+
+export function EditBrokerConfigButton({
   handle,
   entry,
 }: {
@@ -41,13 +46,13 @@ export function EditTopicConfigButton({
   );
 }
 
-export function EditTopicConfigDialog({
+export function EditBrokerConfigDialog({
   cluster,
-  topic,
+  broker,
   handle,
 }: {
   cluster: string;
-  topic: string;
+  broker: number;
   handle: DialogHandle<ConfigEntry>;
 }) {
   return (
@@ -55,9 +60,9 @@ export function EditTopicConfigDialog({
       {({ payload }) => (
         <DialogContent className="sm:max-w-md">
           {payload ? (
-            <EditTopicConfigForm
+            <EditBrokerConfigForm
               cluster={cluster}
-              topic={topic}
+              broker={broker}
               entry={payload}
               onEdited={() => handle.close()}
             />
@@ -68,40 +73,48 @@ export function EditTopicConfigDialog({
   );
 }
 
-function EditTopicConfigForm({
+function EditBrokerConfigForm({
   cluster,
-  topic,
+  broker,
   entry,
   onEdited,
 }: {
   cluster: string;
-  topic: string;
+  broker: number;
   entry: ConfigEntry;
   onEdited: () => void;
 }) {
   const id = useId();
   const queryClient = useQueryClient();
+  const overridden = entry.source === "DYNAMIC_BROKER_CONFIG";
+  const shared = entry.source === "DYNAMIC_DEFAULT_BROKER_CONFIG";
   const [value, setValue] = useState(entry.sensitive ? "" : (entry.value ?? ""));
-  const overridden = entry.source === "DYNAMIC_TOPIC_CONFIG";
+  const [scope, setScope] = useState<Scope>(shared ? "CLUSTER" : "BROKER");
 
-  const edit = useMutation({
-    mutationFn: (change: EditConfigs) =>
-      patch(clusterPathname(cluster, "topics", encodeURIComponent(topic), "configs"), change),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.topicConfigs(cluster, topic) }),
+  const change = useMutation({
+    mutationFn: ({ scope, edit }: Change) =>
+      patch(
+        scope === "BROKER"
+          ? clusterPathname(cluster, "brokers", String(broker), "configs")
+          : clusterPathname(cluster, "brokers", "configs"),
+        edit,
+      ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.brokerRows(cluster) }),
   });
-  const resetting = edit.isPending && edit.variables.reset.length > 0;
-  const unchanged = overridden && !entry.sensitive && value === entry.value;
+  const resetting = change.isPending && change.variables.edit.reset.length > 0;
+  const unchanged =
+    !entry.sensitive && value === entry.value && (scope === "BROKER" ? overridden : shared);
 
-  function save(change: EditConfigs) {
-    if (edit.isPending) return;
+  function save(next: Change) {
+    if (change.isPending) return;
     // Unlike a hook-level onSuccess, this one is dropped once the dialog closes.
-    edit.mutate(change, { onSuccess: onEdited });
+    change.mutate(next, { onSuccess: onEdited });
   }
 
   function submit(event: FormEvent) {
     event.preventDefault();
     if (unchanged) return;
-    save({ set: { [entry.name]: value }, reset: [] });
+    save({ scope, edit: { set: { [entry.name]: value }, reset: [] } });
   }
 
   return (
@@ -109,17 +122,11 @@ function EditTopicConfigForm({
       <DialogHeader>
         <DialogTitle>Edit config</DialogTitle>
         <DialogDescription>
-          {overridden ? (
-            <>
-              <span className="font-mono">{topic}</span> overrides the broker&apos;s value. Remove
-              the override to follow the broker again.
-            </>
-          ) : (
-            <>
-              Saving sets an override on <span className="font-mono">{topic}</span> in place of the
-              broker&apos;s value.
-            </>
-          )}
+          {overridden
+            ? `Broker ${broker} sets its own value. Remove the override to follow the cluster again.`
+            : shared
+              ? "Every broker without a value of its own follows this cluster default."
+              : "Kafka applies the new value without a restart."}
         </DialogDescription>
       </DialogHeader>
 
@@ -139,31 +146,58 @@ function EditTopicConfigForm({
         />
       </div>
 
-      {edit.isError ? (
+      <div className="grid gap-1.5">
+        <Label>Applies to</Label>
+        <ToggleGroup
+          value={[scope]}
+          onValueChange={(next) => {
+            if (next[0]) setScope(next[0] === "CLUSTER" ? "CLUSTER" : "BROKER");
+          }}
+          variant="outline"
+          size="sm"
+          spacing={0}
+          aria-label="Applies to"
+        >
+          <ToggleGroupItem value="BROKER">Broker {broker}</ToggleGroupItem>
+          <ToggleGroupItem value="CLUSTER">Every broker</ToggleGroupItem>
+        </ToggleGroup>
+        <p className="text-sm text-muted-foreground">
+          {scope === "BROKER"
+            ? `Broker ${broker} keeps this value whatever the cluster default.`
+            : "Brokers that set their own value keep it."}
+        </p>
+      </div>
+
+      {change.isError ? (
         <Alert variant="destructive">
           <CircleAlertIcon />
-          <AlertDescription>
-            {apiErrorMessage(edit.error, "Failed to change the config.")}
+          <AlertDescription className="break-words">
+            {apiErrorMessage(change.error, "Failed to change the config.")}
           </AlertDescription>
         </Alert>
       ) : null}
 
       <DialogFooter>
-        {overridden ? (
+        {overridden || shared ? (
           <Button
             type="button"
             variant="outline"
             className="sm:mr-auto"
-            disabled={edit.isPending}
-            onClick={() => save({ set: {}, reset: [entry.name] })}
+            disabled={change.isPending}
+            onClick={() =>
+              save({
+                scope: overridden ? "BROKER" : "CLUSTER",
+                edit: { set: {}, reset: [entry.name] },
+              })
+            }
           >
             {resetting ? <Spinner data-icon="inline-start" /> : null}
-            Remove override
+            {overridden ? "Remove override" : "Remove default"}
           </Button>
         ) : null}
         <DialogClose render={<Button type="button" variant="outline" />}>Cancel</DialogClose>
-        <Button type="submit" disabled={unchanged || edit.isPending}>
-          {edit.isPending && !resetting ? <Spinner data-icon="inline-start" /> : null}
+        <Button type="submit" disabled={unchanged || change.isPending}>
+          {change.isPending && !resetting ? <Spinner data-icon="inline-start" /> : null}
           Save
         </Button>
       </DialogFooter>

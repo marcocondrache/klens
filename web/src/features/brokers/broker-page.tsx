@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { CrownIcon } from "lucide-react";
 import { getRouteApi } from "@tanstack/react-router";
 
+import { createDialogHandle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConfigTable } from "@/components/config-table";
 import { CopyButton } from "@/components/copy-button";
@@ -15,10 +17,11 @@ import { useBrokerConfigs } from "@/lib/api/live";
 import { useClusterName } from "@/lib/clusters";
 import { formatBytes, formatNumber } from "@/lib/format";
 import { isLogDirsPending } from "@/lib/storage";
-import type { BrokerRow } from "@/lib/api/types";
+import type { BrokerRow, ConfigEntry } from "@/lib/api/types";
 
 import { brokerTab } from "./search";
 import { logDirColumns } from "./broker-columns";
+import { EditBrokerConfigButton, EditBrokerConfigDialog } from "./edit-broker-config";
 
 const route = getRouteApi("/cluster/$cluster/nodes_/$id");
 
@@ -44,8 +47,10 @@ export function BrokerPage() {
   const { id } = route.useParams();
   const { tab: requested } = route.useSearch();
   const brokerId = Number(id);
-  const { can } = useAccess();
+  const { can, canChange } = useAccess();
   const canConfigs = can(cluster, "CONFIGS");
+  const canManage = canChange(cluster, "MANAGE_BROKERS");
+  const [configEditor] = useState(() => createDialogHandle<ConfigEntry>());
   const tab = requested === "config" && !canConfigs ? "log-dirs" : requested;
 
   const { data: broker, isPending } = useBroker(cluster, brokerId);
@@ -112,7 +117,21 @@ export function BrokerPage() {
 
         {canConfigs ? (
           <TabsContent value="config" className="mt-4 flex min-h-0 flex-col">
-            <ConfigTable entries={configs} loading={configsPending} />
+            <ConfigTable
+              entries={configs}
+              loading={configsPending}
+              action={
+                canManage
+                  ? (entry) =>
+                      entry.readOnly ? null : (
+                        <EditBrokerConfigButton handle={configEditor} entry={entry} />
+                      )
+                  : undefined
+              }
+            />
+            {canManage ? (
+              <EditBrokerConfigDialog cluster={cluster} broker={brokerId} handle={configEditor} />
+            ) : null}
           </TabsContent>
         ) : null}
       </Tabs>

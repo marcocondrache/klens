@@ -24,4 +24,6 @@ pub use crate::kafka::scan::tail::{TailConsumer, TailPosition};
 pub use crate::kafka::scan::{FoundRecord, Record, RecordHeader, RecordPage};
 pub use crate::kafka::storage::LogDir;
 pub use crate::kafka::store::{SearchHit, SearchKind};
-pub use crate::kafka::topic_config::{CleanupPolicy, ConfigEdit, ConfigEntry, ConfigSource};
+pub use crate::kafka::topic_config::{
+    BrokerScope, CleanupPolicy, ConfigEdit, ConfigEntry, ConfigSource,
+};
