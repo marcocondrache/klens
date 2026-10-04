@@ -149,6 +149,11 @@ function apply(queryClient: QueryClient, cluster: string, update: Update): void 
       return;
     }
 
+    case "scramUsers": {
+      void queryClient.invalidateQueries({ queryKey: keys.scramUsers(cluster), exact: true });
+      return;
+    }
+
     case "resync": {
       void queryClient.invalidateQueries({ queryKey: keys.clusters() });
       void queryClient.invalidateQueries({ queryKey: keys.cluster(cluster) });

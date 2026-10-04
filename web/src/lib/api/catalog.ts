@@ -7,6 +7,7 @@ import type {
   GroupDetail,
   GroupRow,
   QuotaListing,
+  ScramListing,
   SubjectRowsResult,
   TopicDetail,
   TopicGroupRow,
@@ -140,6 +141,18 @@ export function useQuotas(cluster: string, enabled = true) {
     queryFn: () => get<QuotaListing>(clusterPathname(cluster, "quotas")),
     enabled,
     refetchInterval: (query: Query<QuotaListing>) => {
+      const data = query.state.data;
+      return data?.status === "PENDING" && data.sourceHealth.lastError == null ? 2000 : false;
+    },
+  });
+}
+
+export function useScramUsers(cluster: string, enabled = true) {
+  return useQuery({
+    queryKey: keys.scramUsers(cluster),
+    queryFn: () => get<ScramListing>(clusterPathname(cluster, "scram-users")),
+    enabled,
+    refetchInterval: (query: Query<ScramListing>) => {
       const data = query.state.data;
       return data?.status === "PENDING" && data.sourceHealth.lastError == null ? 2000 : false;
     },
