@@ -63,6 +63,15 @@ function rateColumn(
   });
 }
 
+export function quotaActionColumn(action: (quota: ClientQuota) => ReactNode) {
+  return columnHelper.display({
+    id: "action",
+    enableResizing: false,
+    meta: { align: "right", width: "5rem" },
+    cell: ({ row }) => action(row.original),
+  });
+}
+
 export const quotaColumns = columnHelper.columns([
   columnHelper.accessor(entityKey, {
     id: "entity",

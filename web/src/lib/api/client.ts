@@ -107,6 +107,10 @@ export async function postAndRead<T>(path: string, body: unknown): Promise<T> {
   return (await response.json()) as T;
 }
 
+export async function put(path: string, body: unknown): Promise<void> {
+  await send("PUT", path, body);
+}
+
 export async function patch(path: string, body: unknown): Promise<void> {
   await send("PATCH", path, body);
 }
@@ -121,7 +125,7 @@ export async function del(path: string, query?: Record<string, QueryValue>): Pro
 }
 
 async function send(
-  method: "POST" | "PATCH" | "DELETE",
+  method: "POST" | "PUT" | "PATCH" | "DELETE",
   path: string,
   body?: unknown,
 ): Promise<Response> {
