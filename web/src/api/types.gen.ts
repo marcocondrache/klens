@@ -193,6 +193,8 @@ export type RegisterSchema = { type: SchemaType, schema: string, references: Arr
 
 export type RegisteredVersion = { id: number, version: number, };
 
+export type EditSubject = { compatibility: SchemaCompatibility, };
+
 export type AclStatus = "PENDING" | "ENABLED" | "DISABLED" | "DENIED";
 
 export type AclResourceType = "TOPIC" | "GROUP" | "CLUSTER" | "TRANSACTIONAL_ID" | "DELEGATION_TOKEN";

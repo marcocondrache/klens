@@ -18,7 +18,7 @@ pub mod types;
 mod tests;
 
 pub(crate) use types::{
-    RegisterSchema, RegisteredVersion, SubjectDetail, SubjectRow, SubjectRowsResult,
+    EditSubject, RegisterSchema, RegisteredVersion, SubjectDetail, SubjectRow, SubjectRowsResult,
 };
 
 pub(crate) fn router() -> Router<AppState> {
@@ -27,7 +27,10 @@ pub(crate) fn router() -> Router<AppState> {
         // Subject names may contain `/`.
         .route(
             "/{*subject}",
-            get(subject).post(register_schema).delete(delete_schema),
+            get(subject)
+                .post(register_schema)
+                .patch(edit_subject)
+                .delete(delete_schema),
         )
 }
 
@@ -81,6 +84,19 @@ async fn register_schema(
         .register_schema(&request.into_schema(subject))
         .await?;
     Ok(Json(registered.into()))
+}
+
+async fn edit_subject(
+    session: Session,
+    Path((name, subject)): Path<(String, String)>,
+    extract::Json(request): extract::Json<EditSubject>,
+) -> Result<StatusCode, ApiError> {
+    let cluster = session.cluster(&name)?;
+    let schemas = cluster.manage_schemas()?;
+    schemas
+        .set_compatibility(&subject, request.compatibility.into())
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[derive(Debug, Default, Deserialize)]

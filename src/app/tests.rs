@@ -111,6 +111,12 @@ const WRITES: &[(Method, &str, Option<&str>, Privilege)] = &[
         Privilege::ManageSchemas,
     ),
     (
+        Method::PATCH,
+        "/clusters/local/subjects/orders.created-value",
+        Some(r#"{ "compatibility": "FULL" }"#),
+        Privilege::ManageSchemas,
+    ),
+    (
         Method::DELETE,
         "/clusters/local/subjects/orders.created-value?version=1",
         None,

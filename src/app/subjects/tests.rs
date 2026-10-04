@@ -227,3 +227,57 @@ async fn deleting_a_schema_the_store_does_not_know_never_reaches_the_registry() 
 
     assert_eq!(app.cluster().calls(Api::DeleteSchema), 0);
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_set_compatibility_level_shows_before_the_edit_answers() {
+    let app = writable().await;
+    let mut rig = app.rig();
+    let lane = rig.subjects();
+    rig.spawn(lane);
+    quiesce().await;
+    let logs = LogCapture::at(Level::INFO);
+    let started = Instant::now();
+
+    app.patch(
+        "/clusters/local/subjects/orders.created-value",
+        &json!({ "compatibility": "FULL_TRANSITIVE" }),
+    )
+    .await
+    .expect(StatusCode::NO_CONTENT);
+
+    assert!(started.elapsed() < Duration::from_secs(1));
+    let listing = app.get("/clusters/local/subjects").await.ok();
+    assert_eq!(listing["rows"][0]["compatibility"], "FULL_TRANSITIVE");
+    logs.assert_contains(
+        "set schema compatibility cluster=local subject=orders.created-value compatibility=FullTransitive",
+    );
+}
+
+#[tokio::test]
+async fn setting_the_compatibility_of_a_subject_the_store_does_not_know_never_reaches_the_registry()
+{
+    let app = writable().await;
+
+    app.patch(
+        "/clusters/local/subjects/ghost-value",
+        &json!({ "compatibility": "FULL" }),
+    )
+    .await
+    .assert_error(StatusCode::NOT_FOUND, "UNKNOWN_SUBJECT");
+
+    assert_eq!(app.cluster().calls(Api::SetCompatibility), 0);
+}
+
+#[tokio::test]
+async fn a_compatibility_level_the_registry_does_not_define_is_refused() {
+    let app = writable().await;
+
+    app.patch(
+        "/clusters/local/subjects/orders.created-value",
+        &json!({ "compatibility": "SIDEWAYS" }),
+    )
+    .await
+    .assert_error(StatusCode::UNPROCESSABLE_ENTITY, "INVALID_REQUEST");
+
+    assert_eq!(app.cluster().calls(Api::SetCompatibility), 0);
+}

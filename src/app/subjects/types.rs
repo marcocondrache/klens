@@ -39,6 +39,15 @@ from_same_variants!(domain::SchemaCompatibility => SchemaCompatibility {
     FullTransitive,
     None,
 });
+from_same_variants!(SchemaCompatibility => domain::SchemaCompatibility {
+    Backward,
+    BackwardTransitive,
+    Forward,
+    ForwardTransitive,
+    Full,
+    FullTransitive,
+    None,
+});
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -147,6 +156,12 @@ impl RegisterSchema {
             references: self.references.into_iter().map(Into::into).collect(),
         }
     }
+}
+
+#[derive(Debug, Clone, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EditSubject {
+    pub compatibility: SchemaCompatibility,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
