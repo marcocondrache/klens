@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
+use bytes::Bytes;
 use futures::{FutureExt as _, future};
 
 use crate::AppState;
@@ -263,6 +264,10 @@ impl Granted<'_, ManageTopicsCap> {
 }
 
 impl Granted<'_, ProduceCap> {
+    pub(crate) async fn encode(&self, schema_id: i32, json: &str) -> Result<Bytes, KafkaError> {
+        self.cluster.session.encode_payload(schema_id, json).await
+    }
+
     pub(crate) async fn produce(&self, record: &NewRecord) -> Result<ProducedRecord, KafkaError> {
         let topic = record.topic.as_str();
         let partitions = self.writable_topic(topic, TopicInfo::partition_ids)?;

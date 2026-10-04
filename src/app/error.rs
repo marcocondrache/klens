@@ -71,12 +71,14 @@ fn kafka_status(error: &KafkaError) -> StatusCode {
         | KafkaError::UnknownGroup { .. }
         | KafkaError::UnknownBroker { .. }
         | KafkaError::UnknownSubject { .. }
+        | KafkaError::UnknownSchema { .. }
         | KafkaError::UnknownPartition { .. }
         | KafkaError::UnknownOffset { .. }
         | KafkaError::NoSchemaRegistry(_) => StatusCode::NOT_FOUND,
         KafkaError::InvalidQuery(_) => StatusCode::BAD_REQUEST,
         KafkaError::Refused(_)
         | KafkaError::RegistryRefused(_)
+        | KafkaError::Unencodable { .. }
         | KafkaError::InternalTopic(_)
         | KafkaError::NoCommittedOffset { .. } => StatusCode::UNPROCESSABLE_ENTITY,
         KafkaError::ActiveGroup { .. } | KafkaError::ConsumedTopic { .. } => StatusCode::CONFLICT,

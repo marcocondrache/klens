@@ -1,5 +1,6 @@
 pub mod client;
 pub mod decode;
+mod encode;
 pub mod protobuf;
 #[cfg(test)]
 pub(crate) mod testing;

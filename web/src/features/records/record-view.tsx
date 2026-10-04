@@ -261,9 +261,12 @@ export function RecordView({
             {showSchemaPicker ? (
               <SchemaPicker
                 cluster={cluster}
-                topic={topic.name}
+                preferred={`${topic.name}-value`}
                 value={filter.schemaId}
                 onChange={(schemaId) => onFilterChange({ ...filter, schemaId })}
+                label="Decode value with schema"
+                placeholder="Decode with schema…"
+                raw
               />
             ) : null}
 

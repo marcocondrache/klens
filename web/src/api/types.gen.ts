@@ -249,9 +249,7 @@ obfuscated: boolean, nextCursor: string | null, prevCursor: string | null, };
 
 export type RecordLookup = { record: Record, obfuscated: boolean, };
 
-export type PayloadEncoding = "TEXT" | "BASE64";
-
-export type RecordPayload = { encoding: PayloadEncoding, data: string, };
+export type RecordPayload = { "encoding": "TEXT", data: string, } | { "encoding": "BASE64", data: string, } | { "encoding": "SCHEMA", schemaId: number, data: string, };
 
 export type ProduceRecord = { 
 /**

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use prost_reflect::prost::Message as _;
 use prost_reflect::prost_types::FileDescriptorProto;
 use prost_reflect::{DynamicMessage, MessageDescriptor};
 use protox::Compiler;
@@ -93,6 +94,16 @@ impl ProtobufCodec {
         self.decode_message(&[0], payload)
     }
 
+    /// Encodes `json` as the schema's first message, the one Confluent's tools
+    /// pick when no message is named.
+    pub(crate) fn encode_first(&self, json: &str) -> Result<Vec<u8>, ProtobufError> {
+        let mut deserializer = serde_json::Deserializer::from_str(json);
+        let message = DynamicMessage::deserialize(self.message_at(&[0])?, &mut deserializer)
+            .and_then(|message| deserializer.end().map(|()| message))
+            .map_err(|error| ProtobufError::Json(error.to_string()))?;
+        Ok(message.encode_to_vec())
+    }
+
     fn decode_message(&self, indexes: &[u32], payload: &[u8]) -> Result<Value, ProtobufError> {
         let descriptor = self.message_at(indexes)?;
         let message = DynamicMessage::decode(descriptor, payload)
@@ -164,6 +175,29 @@ mod tests {
             int32 n = 1;
         }
     "#;
+
+    #[test]
+    fn encodes_the_first_top_level_message() {
+        let codec = ProtobufCodec::compile(ORDER, &[]).unwrap();
+
+        let encoded = codec
+            .encode_first(r#"{"order_id": "xyz", "amount": 7}"#)
+            .unwrap();
+
+        assert_eq!(encoded, b"\x0a\x03xyz\x10\x07");
+    }
+
+    #[test]
+    fn encoding_refuses_text_after_the_message() {
+        let codec = ProtobufCodec::compile(ORDER, &[]).unwrap();
+
+        let error = codec.encode_first(r#"{"amount": 7} {}"#).unwrap_err();
+
+        assert!(
+            matches!(&error, ProtobufError::Json(message) if message.contains("trailing characters")),
+            "{error:?}"
+        );
+    }
 
     #[test]
     fn compiled_pools_keep_no_source_spans() {

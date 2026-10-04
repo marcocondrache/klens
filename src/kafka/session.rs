@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use foldhash::{HashMap, HashMapExt};
 
 use crate::kafka::error::KafkaError;
@@ -110,6 +111,10 @@ pub trait ClusterSession: Send + Sync + 'static {
         &self,
         deletion: &RecordDeletion,
     ) -> Result<BTreeMap<i32, i64>, KafkaError>;
+
+    /// Encodes `json` with the registry schema `schema_id`, framed the way the
+    /// registry's serializers frame it.
+    async fn encode_payload(&self, schema_id: i32, json: &str) -> Result<Bytes, KafkaError>;
 
     async fn produce(&self, record: &NewRecord) -> Result<ProducedRecord, KafkaError>;
 

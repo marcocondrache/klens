@@ -21,6 +21,12 @@ pub enum KafkaError {
         version: i32,
     },
 
+    #[error("unknown schema {id} in cluster '{cluster}'")]
+    UnknownSchema { cluster: String, id: i32 },
+
+    #[error("the payload does not fit schema {id}: {message}")]
+    Unencodable { id: i32, message: String },
+
     #[error("unknown partition {partition} for topic '{topic}' in cluster '{cluster}'")]
     UnknownPartition {
         cluster: String,
@@ -92,6 +98,8 @@ impl KafkaError {
             Self::UnknownGroup { .. } => "UNKNOWN_GROUP",
             Self::UnknownBroker { .. } => "UNKNOWN_BROKER",
             Self::UnknownSubject { .. } => "UNKNOWN_SUBJECT",
+            Self::UnknownSchema { .. } => "UNKNOWN_SCHEMA",
+            Self::Unencodable { .. } => "UNENCODABLE",
             Self::UnknownPartition { .. } => "UNKNOWN_PARTITION",
             Self::UnknownOffset { .. } => "UNKNOWN_OFFSET",
             Self::InvalidQuery(query) => query.code(),

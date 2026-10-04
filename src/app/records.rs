@@ -49,7 +49,7 @@ async fn produce(
 ) -> Result<(StatusCode, Json<ProducedRecord>), ApiError> {
     let cluster = session.cluster(&name)?;
     let producer = cluster.produce()?;
-    let record = request.into_record(topic)?;
+    let record = request.into_record(topic, &producer).await?;
     let produced = producer.produce(&record).await?;
     Ok((StatusCode::CREATED, Json(produced.into())))
 }

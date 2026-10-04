@@ -27,19 +27,23 @@ import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { IconButton } from "@/components/icon-button";
+import { useSubjectRows } from "@/lib/api/catalog";
 import { apiErrorMessage, clusterPathname, postAndRead } from "@/lib/api/client";
 import { keys } from "@/lib/api/keys";
 import type {
   KafkaRecord,
-  PayloadEncoding,
   ProduceRecord,
   ProducedRecord,
+  RecordPayload,
+  SubjectRow,
   TopicDetail,
 } from "@/lib/api/types";
 
-type Encoding = PayloadEncoding | "NULL";
+import { SchemaPicker } from "./schema-picker";
 
-type PayloadDraft = { encoding: Encoding; data: string };
+type Encoding = RecordPayload["encoding"] | "NULL";
+
+type PayloadDraft = { encoding: Encoding; data: string; schemaId: number | null };
 
 type HeaderRow = { id: number; key: string; value: string };
 
@@ -52,8 +56,8 @@ export type RecordDraft = {
 
 const BLANK: RecordDraft = {
   partition: null,
-  key: { encoding: "NULL", data: "" },
-  value: { encoding: "TEXT", data: "" },
+  key: { encoding: "NULL", data: "", schemaId: null },
+  value: { encoding: "TEXT", data: "", schemaId: null },
   headers: [],
 };
 
@@ -70,7 +74,7 @@ export function duplicateDraft(record: KafkaRecord): RecordDraft | null {
 }
 
 function textDraft(text: string | null): PayloadDraft {
-  return text === null ? { encoding: "NULL", data: "" } : { encoding: "TEXT", data: text };
+  return { encoding: text === null ? "NULL" : "TEXT", data: text ?? "", schemaId: null };
 }
 
 /**
@@ -128,6 +132,7 @@ function ProduceRecordForm({
 }) {
   const id = useId();
   const queryClient = useQueryClient();
+  const { data: subjects } = useSubjectRows(cluster);
   const [partition, setPartition] = useState(
     draft.partition === null ? ANY_PARTITION : String(draft.partition),
   );
@@ -154,14 +159,18 @@ function ProduceRecordForm({
     ...topic.partitions.map((entry) => ({ value: String(entry.id), label: String(entry.id) })),
   ];
 
+  const keyPayload = payload(key);
+  const valuePayload = payload(value);
+  const incomplete = keyPayload === undefined || valuePayload === undefined;
+
   function submit(event: FormEvent) {
     event.preventDefault();
-    if (produce.isPending) return;
+    if (produce.isPending || incomplete) return;
     produce.mutate(
       {
         partition: partition === ANY_PARTITION ? undefined : Number(partition),
-        key: payload(key),
-        value: payload(value),
+        key: keyPayload,
+        value: valuePayload,
         headers: headers
           .filter((header) => header.key !== "" || header.value !== "")
           .map((header) => ({ key: header.key, value: header.value })),
@@ -208,8 +217,24 @@ function ProduceRecordForm({
         </Select>
       </div>
 
-      <PayloadField id={`${id}-key`} label="Key" draft={key} onChange={setKey} />
-      <PayloadField id={`${id}-value`} label="Value" draft={value} onChange={setValue} />
+      <PayloadField
+        id={`${id}-key`}
+        label="Key"
+        cluster={cluster}
+        subject={`${topic.name}-key`}
+        subjects={subjects?.rows ?? []}
+        draft={key}
+        onChange={setKey}
+      />
+      <PayloadField
+        id={`${id}-value`}
+        label="Value"
+        cluster={cluster}
+        subject={`${topic.name}-value`}
+        subjects={subjects?.rows ?? []}
+        draft={value}
+        onChange={setValue}
+      />
 
       <div className="grid gap-1.5">
         <Label>Headers</Label>
@@ -275,7 +300,7 @@ function ProduceRecordForm({
 
       <DialogFooter>
         <DialogClose render={<Button type="button" variant="outline" />}>Cancel</DialogClose>
-        <Button type="submit" disabled={produce.isPending}>
+        <Button type="submit" disabled={incomplete || produce.isPending}>
           {produce.isPending ? <Spinner data-icon="inline-start" /> : null}
           Produce
         </Button>
@@ -284,18 +309,27 @@ function ProduceRecordForm({
   );
 }
 
-function payload(draft: PayloadDraft): ProduceRecord["key"] {
-  return draft.encoding === "NULL" ? null : { encoding: draft.encoding, data: draft.data };
+/** Undefined until a schema payload names its schema. */
+function payload({ encoding, data, schemaId }: PayloadDraft): RecordPayload | null | undefined {
+  if (encoding === "NULL") return null;
+  if (encoding !== "SCHEMA") return { encoding, data };
+  return schemaId === null ? undefined : { encoding, schemaId, data };
 }
 
 function PayloadField({
   id,
   label,
+  cluster,
+  subject,
+  subjects,
   draft,
   onChange,
 }: {
   id: string;
   label: string;
+  cluster: string;
+  subject: string;
+  subjects: SubjectRow[];
   draft: PayloadDraft;
   onChange: (draft: PayloadDraft) => void;
 }) {
@@ -307,7 +341,10 @@ function PayloadField({
           value={[draft.encoding]}
           onValueChange={(next) => {
             const encoding = next[0] as Encoding | undefined;
-            if (encoding) onChange({ ...draft, encoding });
+            if (!encoding) return;
+            const schemaId =
+              draft.schemaId ?? subjects.find((row) => row.subject === subject)?.id ?? null;
+            onChange({ ...draft, encoding, schemaId });
           }}
           variant="outline"
           size="sm"
@@ -317,14 +354,26 @@ function PayloadField({
         >
           <ToggleGroupItem value="TEXT">Text</ToggleGroupItem>
           <ToggleGroupItem value="BASE64">Base64</ToggleGroupItem>
+          {subjects.length > 0 ? <ToggleGroupItem value="SCHEMA">Schema</ToggleGroupItem> : null}
           <ToggleGroupItem value="NULL">Null</ToggleGroupItem>
         </ToggleGroup>
       </div>
+      {draft.encoding === "SCHEMA" ? (
+        <SchemaPicker
+          cluster={cluster}
+          preferred={subject}
+          value={draft.schemaId}
+          onChange={(schemaId) => onChange({ ...draft, schemaId })}
+          label={`${label} schema`}
+          placeholder="Choose a schema…"
+        />
+      ) : null}
       {draft.encoding === "NULL" ? null : (
         <Textarea
           id={id}
           spellCheck={false}
           className="max-h-48 font-mono"
+          placeholder={draft.encoding === "SCHEMA" ? "JSON that fits the schema" : undefined}
           value={draft.data}
           onChange={(event) => onChange({ ...draft, data: event.target.value })}
         />

@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use foldhash::{HashMap, HashMapExt};
 
 use super::consumers::{CountingCodec, FakeScan, FakeTail};
@@ -858,6 +859,35 @@ impl ClusterSession for FakeCluster {
                     .is_none_or(|&low| record.offset() >= low)
         });
         Ok(lows)
+    }
+
+    async fn encode_payload(&self, schema_id: i32, json: &str) -> Result<Bytes, KafkaError> {
+        let world = self.world();
+        if !world.schema_registry {
+            return Err(KafkaError::NoSchemaRegistry(self.identity.name.clone()));
+        }
+        world
+            .schemas
+            .values()
+            .find(|held| held.id == schema_id)
+            .cloned()
+            .or_else(|| {
+                world
+                    .subjects
+                    .iter()
+                    .find(|subject| subject.id == schema_id)
+                    .map(|subject| RegisteredSchema {
+                        id: subject.id,
+                        schema_type: subject.schema_type,
+                        schema: SUBJECT_SCHEMA.to_owned(),
+                        references: Vec::new(),
+                    })
+            })
+            .ok_or_else(|| KafkaError::UnknownSchema {
+                cluster: self.identity.name.clone(),
+                id: schema_id,
+            })?
+            .encode(&[], json)
     }
 
     async fn produce(&self, record: &NewRecord) -> Result<ProducedRecord, KafkaError> {
