@@ -22,15 +22,21 @@ from_same_variants!(SchemaType => domain::SchemaType { Avro, Json, Protobuf });
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum SchemaCompatibility {
     Backward,
+    BackwardTransitive,
     Forward,
+    ForwardTransitive,
     Full,
+    FullTransitive,
     None,
 }
 
 from_same_variants!(domain::SchemaCompatibility => SchemaCompatibility {
     Backward,
+    BackwardTransitive,
     Forward,
+    ForwardTransitive,
     Full,
+    FullTransitive,
     None,
 });
 

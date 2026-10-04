@@ -179,7 +179,7 @@ export type ConfigEntry = { name: string, value: string | null, source: ConfigSo
 
 export type SchemaType = "AVRO" | "JSON" | "PROTOBUF";
 
-export type SchemaCompatibility = "BACKWARD" | "FORWARD" | "FULL" | "NONE";
+export type SchemaCompatibility = "BACKWARD" | "BACKWARD_TRANSITIVE" | "FORWARD" | "FORWARD_TRANSITIVE" | "FULL" | "FULL_TRANSITIVE" | "NONE";
 
 export type SubjectRow = { subject: string, id: number, type: SchemaType, latestVersion: number, versions: Array<number>, compatibility: SchemaCompatibility, };
 

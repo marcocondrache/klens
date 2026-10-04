@@ -45,8 +45,11 @@ impl std::fmt::Display for SchemaType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchemaCompatibility {
     Backward,
+    BackwardTransitive,
     Forward,
+    ForwardTransitive,
     Full,
+    FullTransitive,
     None,
 }
 
@@ -55,11 +58,13 @@ impl From<schemreg::CompatibilityLevel> for SchemaCompatibility {
         use schemreg::CompatibilityLevel as Level;
 
         match value {
-            Level::Backward | Level::BackwardTransitive => Self::Backward,
-            Level::Forward | Level::ForwardTransitive => Self::Forward,
-            Level::Full | Level::FullTransitive => Self::Full,
-            Level::None => Self::None,
-            _ => Self::Backward,
+            Level::Backward => Self::Backward,
+            Level::BackwardTransitive => Self::BackwardTransitive,
+            Level::Forward => Self::Forward,
+            Level::ForwardTransitive => Self::ForwardTransitive,
+            Level::Full => Self::Full,
+            Level::FullTransitive => Self::FullTransitive,
+            _ => Self::None,
         }
     }
 }
@@ -113,4 +118,29 @@ pub struct RegisteredSchema {
     pub schema_type: SchemaType,
     pub schema: String,
     pub references: Vec<SchemaReference>,
+}
+
+#[cfg(test)]
+mod tests {
+    use schemreg::CompatibilityLevel as Level;
+
+    use super::*;
+
+    #[test]
+    fn every_registry_compatibility_level_keeps_its_name() {
+        for level in [
+            Level::Backward,
+            Level::BackwardTransitive,
+            Level::Forward,
+            Level::ForwardTransitive,
+            Level::Full,
+            Level::FullTransitive,
+            Level::None,
+        ] {
+            assert_eq!(
+                format!("{:?}", SchemaCompatibility::from(level)),
+                format!("{level:?}")
+            );
+        }
+    }
 }

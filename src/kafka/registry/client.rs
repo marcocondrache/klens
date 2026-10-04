@@ -380,7 +380,10 @@ mod tests {
 
         let subjects = registry.client().subjects().await.unwrap();
 
-        assert_eq!(subjects[0].compatibility, SchemaCompatibility::Forward);
+        assert_eq!(
+            subjects[0].compatibility,
+            SchemaCompatibility::ForwardTransitive
+        );
         assert_eq!(
             registry.hits("/config/orders-value").await,
             1,
@@ -395,7 +398,10 @@ mod tests {
 
         let subjects = registry.client().subjects().await.unwrap();
 
-        assert_eq!(subjects[0].compatibility, SchemaCompatibility::Backward);
+        assert_eq!(
+            subjects[0].compatibility,
+            SchemaCompatibility::BackwardTransitive
+        );
         assert_eq!(registry.hits("/config").await, 0);
     }
 
@@ -419,7 +425,10 @@ mod tests {
 
         assert_eq!(subjects.len(), 2);
         for subject in &subjects {
-            assert_eq!(subject.compatibility, SchemaCompatibility::Backward);
+            assert_eq!(
+                subject.compatibility,
+                SchemaCompatibility::BackwardTransitive
+            );
         }
         assert_eq!(
             registry.hits("/config").await,
