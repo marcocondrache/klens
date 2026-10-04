@@ -1884,6 +1884,7 @@ dependencies = [
  "memory-serve",
  "moka",
  "openidconnect",
+ "percent-encoding",
  "prost-reflect",
  "protox",
  "regex",

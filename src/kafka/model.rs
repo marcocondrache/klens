@@ -11,7 +11,8 @@ pub use crate::kafka::metadata::{
 pub use crate::kafka::produce::{NewRecord, ProducedRecord};
 pub use crate::kafka::quota::{ClientQuota, QuotaEntityType, QuotaListing};
 pub use crate::kafka::registry::{
-    RegisteredSchema, SchemaCompatibility, SchemaReference, SchemaSubject, SchemaType,
+    NewSchema, RegisteredSchema, RegisteredVersion, SchemaCompatibility, SchemaReference,
+    SchemaSubject, SchemaType,
 };
 pub use crate::kafka::reset::{OffsetMove, OffsetReset, ResetTarget};
 pub use crate::kafka::scan::plan::PartitionWindow;

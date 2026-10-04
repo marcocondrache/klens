@@ -7,6 +7,7 @@ use krafka::testing::FakeBroker;
 
 use super::KafkaClient;
 use crate::config::{self, Tuning};
+use crate::kafka::registry::testing::FakeRegistry;
 use crate::testing::yaml;
 
 pub struct Broker(FakeBroker);
@@ -67,6 +68,17 @@ impl Broker {
 
     pub async fn client_with(&self, tuning: &Tuning) -> KafkaClient {
         KafkaClient::new("test", &self.config(), tuning)
+            .await
+            .expect("kafka client")
+    }
+
+    pub async fn client_with_registry(&self, registry: &FakeRegistry) -> KafkaClient {
+        let config = yaml(&format!(
+            "{{bootstrap_servers: ['{}'], schema_registry: {{url: '{}'}}}}",
+            self.bootstrap_servers(),
+            registry.uri()
+        ));
+        KafkaClient::new("test", &config, &Tuning::default())
             .await
             .expect("kafka client")
     }

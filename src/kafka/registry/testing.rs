@@ -1,8 +1,10 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use percent_encoding::percent_decode_str;
 use serde_json::{Value, json};
 use url::Url;
+use wiremock::http::Method;
 use wiremock::matchers::any;
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
@@ -10,7 +12,7 @@ use super::client::SchemaRegistryClient;
 use super::decode::PayloadDecoder;
 use crate::config::{SchemaRegistry, SchemaRegistryTuning};
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct Schema {
     kind: &'static str,
     text: String,
@@ -34,6 +36,20 @@ impl Schema {
         self.references
             .push(json!({ "name": name, "subject": subject, "version": version }));
         self
+    }
+
+    fn parse(body: &[u8]) -> Self {
+        let body: Value = serde_json::from_slice(body).expect("a schema body");
+        let kind = match body["schemaType"].as_str() {
+            Some("JSON") => "JSON",
+            Some("PROTOBUF") => "PROTOBUF",
+            _ => "AVRO",
+        };
+        Self {
+            kind,
+            text: body["schema"].as_str().expect("schema text").to_owned(),
+            references: body["references"].as_array().cloned().unwrap_or_default(),
+        }
     }
 
     fn of(kind: &'static str, text: &str) -> Self {
@@ -65,6 +81,7 @@ struct Contents {
     global: Option<String>,
     ignores_default_to_global: bool,
     faults: Vec<Fault>,
+    refusal: Option<(u16, u32, String)>,
 }
 
 struct Subject {
@@ -114,22 +131,7 @@ impl FakeRegistry {
     }
 
     pub fn register(&self, subject: &str, version: i32, id: u32, schema: Schema) {
-        let mut contents = self.contents();
-        contents.schemas.insert(id, schema);
-        match contents
-            .subjects
-            .iter_mut()
-            .find(|known| known.name == subject)
-        {
-            Some(known) => {
-                known.versions.insert(version, id);
-            }
-            None => contents.subjects.push(Subject {
-                name: subject.to_owned(),
-                versions: BTreeMap::from([(version, id)]),
-                compatibility: None,
-            }),
-        }
+        self.contents().register(subject, version, id, schema);
     }
 
     #[track_caller]
@@ -151,6 +153,11 @@ impl FakeRegistry {
 
     pub fn ignore_default_to_global(&self) {
         self.contents().ignores_default_to_global = true;
+    }
+
+    /// Refuses the next registration with an HTTP status and a registry error code.
+    pub fn refuse(&self, status: u16, code: u32, message: &str) {
+        self.contents().refusal = Some((status, code, message.to_owned()));
     }
 
     pub fn fail(&self, path: &str) {
@@ -201,6 +208,17 @@ impl Contents {
         }
 
         let segments: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+        if request.method == Method::POST {
+            let schema = Schema::parse(&request.body);
+            return match segments.as_slice() {
+                ["subjects", subject, "versions"] => self.register_version(subject, schema),
+                ["subjects", subject] => match self.find(subject, &schema) {
+                    Some(version) => self.version(subject, &version.to_string()),
+                    None => missing(40403, "Schema not found."),
+                },
+                _ => ResponseTemplate::new(404),
+            };
+        }
         match segments.as_slice() {
             ["subjects"] => found(json!(
                 self.subjects
@@ -243,6 +261,47 @@ impl Contents {
             *remaining -= 1;
         }
         true
+    }
+
+    fn register_version(&mut self, segment: &str, schema: Schema) -> ResponseTemplate {
+        if let Some((status, code, message)) = self.refusal.take() {
+            return ResponseTemplate::new(status)
+                .set_body_json(json!({ "error_code": code, "message": message }));
+        }
+        if let Some(version) = self.find(segment, &schema) {
+            let id = self.subject(segment).expect("a found subject").versions[&version];
+            return found(json!({ "id": id }));
+        }
+        let id = self.schemas.keys().last().map_or(1, |id| id + 1);
+        let name = percent_decode_str(segment).decode_utf8_lossy().into_owned();
+        let version = self
+            .subject(segment)
+            .and_then(|subject| subject.versions.keys().last())
+            .map_or(1, |version| version + 1);
+        self.register(&name, version, id, schema);
+        found(json!({ "id": id }))
+    }
+
+    fn register(&mut self, subject: &str, version: i32, id: u32, schema: Schema) {
+        self.schemas.insert(id, schema);
+        match self.subjects.iter_mut().find(|known| known.name == subject) {
+            Some(known) => {
+                known.versions.insert(version, id);
+            }
+            None => self.subjects.push(Subject {
+                name: subject.to_owned(),
+                versions: BTreeMap::from([(version, id)]),
+                compatibility: None,
+            }),
+        }
+    }
+
+    fn find(&self, segment: &str, schema: &Schema) -> Option<i32> {
+        self.subject(segment)?
+            .versions
+            .iter()
+            .find(|(_, id)| self.schemas.get(id) == Some(schema))
+            .map(|(version, _)| *version)
     }
 
     fn subject(&self, segment: &str) -> Option<&Subject> {

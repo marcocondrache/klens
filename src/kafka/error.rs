@@ -50,6 +50,12 @@ pub enum KafkaError {
     #[error("kafka refused the change: {0}")]
     Refused(String),
 
+    #[error("the schema registry refused the change: {0}")]
+    RegistryRefused(String),
+
+    #[error("cluster '{0}' has no schema registry")]
+    NoSchemaRegistry(String),
+
     #[error("klens leaves the internal topic '{0}' alone")]
     InternalTopic(String),
 
@@ -92,6 +98,8 @@ impl KafkaError {
             Self::Timeout => "TIMEOUT",
             Self::Admin(_) => "ADMIN",
             Self::Refused(_) => "REFUSED",
+            Self::RegistryRefused(_) => "REGISTRY_REFUSED",
+            Self::NoSchemaRegistry(_) => "NO_SCHEMA_REGISTRY",
             Self::InternalTopic(_) => "INTERNAL_TOPIC",
             Self::ActiveGroup { .. } => "ACTIVE_GROUP",
             Self::ConsumedTopic { .. } => "CONSUMED_TOPIC",

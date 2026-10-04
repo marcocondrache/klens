@@ -9,9 +9,9 @@ use foldhash::{HashMap, HashMapExt};
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
     AclListing, ClusterIdentity, CommittedOffset, ConfigEdit, ConfigEntry, GroupSnapshot, LogDir,
-    MetadataSnapshot, NewRecord, NewTopic, PartitionWindow, ProducedRecord, QuotaListing,
-    RecordDeletion, RegisteredSchema, ScanConsumer, SchemaSubject, TailConsumer, TailPosition,
-    TopicMetadata, Watermarks,
+    MetadataSnapshot, NewRecord, NewSchema, NewTopic, PartitionWindow, ProducedRecord,
+    QuotaListing, RecordDeletion, RegisteredSchema, RegisteredVersion, ScanConsumer, SchemaSubject,
+    TailConsumer, TailPosition, TopicMetadata, Watermarks,
 };
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
@@ -74,6 +74,8 @@ pub trait ClusterSession: Send + Sync + 'static {
 
     fn obfuscation(&self) -> Option<Arc<ObfuscationPolicy>>;
 
+    fn has_schema_registry(&self) -> bool;
+
     async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError>;
 
     async fn subject_schema(
@@ -123,6 +125,8 @@ pub trait ClusterSession: Send + Sync + 'static {
         topic: &str,
         partitions: &[i32],
     ) -> Result<(), KafkaError>;
+
+    async fn register_schema(&self, schema: &NewSchema) -> Result<RegisteredVersion, KafkaError>;
 
     fn consume_timeout(&self) -> Duration;
 

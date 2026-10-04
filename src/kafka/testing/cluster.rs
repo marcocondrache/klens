@@ -23,7 +23,9 @@ use crate::kafka::model::{
     TailPosition,
 };
 use crate::kafka::quota::QuotaListing;
-use crate::kafka::registry::{RegisteredSchema, SchemaSubject};
+use crate::kafka::registry::{
+    NewSchema, RegisteredSchema, RegisteredVersion, SchemaCompatibility, SchemaSubject, SchemaType,
+};
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
 use crate::kafka::session::ClusterSession;
@@ -61,6 +63,7 @@ pub enum Api {
     AlterGroupOffsets,
     DeleteGroup,
     DeleteGroupOffsets,
+    RegisterSchema,
 }
 
 #[derive(Clone)]
@@ -78,7 +81,9 @@ pub(super) struct World {
     log_dirs: Vec<LogDir>,
     groups: Vec<GroupSnapshot>,
     pub(super) records: Vec<FixtureRecord>,
+    schema_registry: bool,
     subjects: Vec<SchemaSubject>,
+    schemas: HashMap<(String, i32), RegisteredSchema>,
     acls: AclListing,
     quotas: QuotaListing,
     faults: HashMap<Api, String>,
@@ -123,7 +128,9 @@ impl FakeCluster {
                 log_dirs: local.log_dirs,
                 groups: local.groups,
                 records: local.records,
+                schema_registry: true,
                 subjects: local.subjects,
+                schemas: HashMap::new(),
                 acls: local.acls,
                 quotas: local.quotas,
                 faults: HashMap::new(),
@@ -385,10 +392,12 @@ impl FakeCluster {
         match self.world().faults.get(&api) {
             None => Ok(()),
             Some(message) => Err(match api {
-                Api::SchemaSubjects | Api::SubjectSchema => KafkaError::SchemaRegistry {
-                    cluster: self.identity.name.clone(),
-                    message: message.clone(),
-                },
+                Api::SchemaSubjects | Api::SubjectSchema | Api::RegisterSchema => {
+                    KafkaError::SchemaRegistry {
+                        cluster: self.identity.name.clone(),
+                        message: message.clone(),
+                    }
+                }
                 _ => KafkaError::Admin(message.clone()),
             }),
         }
@@ -627,6 +636,10 @@ impl ClusterSession for FakeCluster {
         self.world().obfuscation.clone()
     }
 
+    fn has_schema_registry(&self) -> bool {
+        self.world().schema_registry
+    }
+
     async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
         self.answer(Api::SchemaSubjects).await?;
         Ok(self.world().subjects.clone())
@@ -638,18 +651,30 @@ impl ClusterSession for FakeCluster {
         version: i32,
     ) -> Result<RegisteredSchema, KafkaError> {
         self.answer(Api::SubjectSchema).await?;
-        self.world()
+        let world = self.world();
+        world
             .subjects
             .iter()
             .find(|registered| {
                 registered.subject == subject
                     && (version == 0 || registered.versions.contains(&version))
             })
-            .map(|registered| RegisteredSchema {
-                id: registered.id,
-                schema_type: registered.schema_type,
-                schema: SUBJECT_SCHEMA.to_owned(),
-                references: Vec::new(),
+            .map(|registered| {
+                let version = if version == 0 {
+                    registered.latest_version
+                } else {
+                    version
+                };
+                world
+                    .schemas
+                    .get(&(subject.to_owned(), version))
+                    .cloned()
+                    .unwrap_or_else(|| RegisteredSchema {
+                        id: registered.id,
+                        schema_type: registered.schema_type,
+                        schema: SUBJECT_SCHEMA.to_owned(),
+                        references: Vec::new(),
+                    })
             })
             .ok_or_else(|| KafkaError::UnknownSubject {
                 cluster: self.identity.name.clone(),
@@ -868,5 +893,73 @@ impl ClusterSession for FakeCluster {
             .committed
             .retain(|offset| offset.topic != topic || !partitions.contains(&offset.partition));
         Ok(())
+    }
+
+    async fn register_schema(&self, schema: &NewSchema) -> Result<RegisteredVersion, KafkaError> {
+        self.answer(Api::RegisterSchema).await?;
+        let mut world = self.world();
+        if !world.schema_registry {
+            return Err(KafkaError::NoSchemaRegistry(self.identity.name.clone()));
+        }
+        if schema.schema_type != SchemaType::Protobuf
+            && serde_json::from_str::<serde_json::Value>(&schema.schema).is_err()
+        {
+            return Err(KafkaError::RegistryRefused(format!(
+                "Invalid schema {}",
+                schema.schema
+            )));
+        }
+        if let Some(((_, version), held)) = world.schemas.iter().find(|((subject, _), held)| {
+            *subject == schema.subject
+                && held.schema_type == schema.schema_type
+                && held.schema == schema.schema
+                && held.references == schema.references
+        }) {
+            return Ok(RegisteredVersion {
+                id: held.id,
+                version: *version,
+            });
+        }
+        let id = 1 + world
+            .subjects
+            .iter()
+            .map(|subject| subject.id)
+            .chain(world.schemas.values().map(|held| held.id))
+            .max()
+            .unwrap_or(0);
+        let version = match world
+            .subjects
+            .iter_mut()
+            .find(|subject| subject.subject == schema.subject)
+        {
+            Some(subject) => {
+                subject.latest_version += 1;
+                subject.versions.push(subject.latest_version);
+                subject.id = id;
+                subject.schema_type = schema.schema_type;
+                subject.latest_version
+            }
+            None => {
+                world.subjects.push(SchemaSubject {
+                    subject: schema.subject.clone(),
+                    id,
+                    schema_type: schema.schema_type,
+                    latest_version: 1,
+                    versions: vec![1],
+                    compatibility: SchemaCompatibility::Backward,
+                });
+                1
+            }
+        };
+        world.schemas.insert(
+            (schema.subject.clone(), version),
+            RegisteredSchema {
+                id,
+                schema_type: schema.schema_type,
+                schema: schema.schema.clone(),
+                references: schema.references.clone(),
+            },
+        );
+        Ok(RegisteredVersion { id, version })
     }
 }
