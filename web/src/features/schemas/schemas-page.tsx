@@ -26,6 +26,7 @@ import { useClusterName } from "@/lib/clusters";
 import { formatEnumLabel, isJson } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
+import { DeleteSchemaDialog } from "./delete-schema";
 import { NEW_SUBJECT, RegisterSchemaDialog } from "./register-schema";
 import { SchemaLoading } from "./schema-loading";
 import { subjectColumns } from "./schemas-columns";
@@ -50,7 +51,7 @@ export function SchemasPage() {
   const { can, canChange } = useAccess();
   const canSchemaText = can(cluster, "SCHEMA_TEXT");
   const { data, isPending, isError, error } = useSubjectRows(cluster);
-  const canRegister = data?.hasRegistry === true && canChange(cluster, "MANAGE_SCHEMAS");
+  const canManage = data?.hasRegistry === true && canChange(cluster, "MANAGE_SCHEMAS");
   const subjects = data?.rows ?? EMPTY_SUBJECTS;
   const selected = subject ? (subjects.find((row) => row.subject === subject) ?? null) : null;
 
@@ -71,6 +72,17 @@ export function SchemasPage() {
   function show(subject: string, registered: RegisteredVersion) {
     void navigate({
       search: (prev) => ({ ...prev, subject, version: registered.version }),
+      replace: true,
+    });
+  }
+
+  function showRemaining(remaining: number | null) {
+    if (remaining === null) {
+      close();
+      return;
+    }
+    void navigate({
+      search: (prev) => ({ ...prev, version: remaining }),
       replace: true,
     });
   }
@@ -101,7 +113,7 @@ export function SchemasPage() {
           </>
         }
         actions={
-          canRegister ? (
+          canManage ? (
             <RegisterSchemaDialog
               cluster={cluster}
               draft={NEW_SUBJECT}
@@ -184,21 +196,31 @@ export function SchemasPage() {
                 <section className="shrink-0 space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <h3 className="text-xs font-medium text-muted-foreground">Versions</h3>
-                    {canRegister ? (
-                      <RegisterSchemaDialog
-                        cluster={cluster}
-                        draft={{
-                          subject: selected.subject,
-                          type: detail?.type ?? selected.type,
-                          schema: detail?.schema ?? "",
-                          references: detail?.references ?? [],
-                        }}
-                        trigger={<Button variant="outline" size="sm" />}
-                        onRegistered={show}
-                      >
-                        <FilePlusIcon data-icon="inline-start" />
-                        New version
-                      </RegisterSchemaDialog>
+                    {canManage ? (
+                      <div className="flex items-center gap-2">
+                        <RegisterSchemaDialog
+                          cluster={cluster}
+                          draft={{
+                            subject: selected.subject,
+                            type: detail?.type ?? selected.type,
+                            schema: detail?.schema ?? "",
+                            references: detail?.references ?? [],
+                          }}
+                          trigger={<Button variant="outline" size="sm" />}
+                          onRegistered={show}
+                        >
+                          <FilePlusIcon data-icon="inline-start" />
+                          New version
+                        </RegisterSchemaDialog>
+                        {shownVersion != null ? (
+                          <DeleteSchemaDialog
+                            cluster={cluster}
+                            subject={selected}
+                            version={shownVersion}
+                            onDeleted={showRemaining}
+                          />
+                        ) : null}
+                      </div>
                     ) : null}
                   </div>
                   <div className="max-h-32 overflow-y-auto">
