@@ -1,7 +1,11 @@
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
+use bytes::Bytes;
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::app::error::ApiError;
 use crate::kafka::model as domain;
 use crate::kafka::{QueryError, RecordCursor, Tail, TailBatch, TailPosition, TailQuery};
 use crate::r#macro::from_same_variants;
@@ -15,8 +19,8 @@ pub enum RecordOrder {
 
 from_same_variants!(RecordOrder => domain::RecordOrder { Newest, Oldest });
 
-#[derive(Debug, Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RecordHeader {
     pub key: String,
     pub value: String,
@@ -87,6 +91,89 @@ impl From<domain::RecordPage> for RecordPage {
             obfuscated: page.obfuscated,
             next_cursor: page.next_cursor,
             prev_cursor: page.prev_cursor,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, TS)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PayloadEncoding {
+    Text,
+    Base64,
+}
+
+#[derive(Debug, Clone, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecordPayload {
+    pub encoding: PayloadEncoding,
+    pub data: String,
+}
+
+impl RecordPayload {
+    fn into_bytes(self, part: &str) -> Result<Bytes, ApiError> {
+        match self.encoding {
+            PayloadEncoding::Text => Ok(Bytes::from(self.data)),
+            PayloadEncoding::Base64 => {
+                let mut data = self.data.into_bytes();
+                // Pasted base64 is often wrapped at 76 columns.
+                data.retain(|byte| !byte.is_ascii_whitespace());
+                STANDARD
+                    .decode(data)
+                    .map(Bytes::from)
+                    .map_err(|_| ApiError::unprocessable(format!("the {part} is not valid base64")))
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProduceRecord {
+    /// When omitted, the producer picks one, by the key's hash when there is a key.
+    #[ts(optional)]
+    pub partition: Option<i32>,
+    /// `null` sends a record without a key.
+    pub key: Option<RecordPayload>,
+    /// `null` sends a tombstone.
+    pub value: Option<RecordPayload>,
+    #[serde(default)]
+    pub headers: Vec<RecordHeader>,
+}
+
+impl ProduceRecord {
+    pub(crate) fn into_record(self, topic: String) -> Result<domain::NewRecord, ApiError> {
+        Ok(domain::NewRecord {
+            topic,
+            partition: self.partition,
+            key: self.key.map(|key| key.into_bytes("key")).transpose()?,
+            value: self
+                .value
+                .map(|value| value.into_bytes("value"))
+                .transpose()?,
+            headers: self
+                .headers
+                .into_iter()
+                .map(|header| domain::RecordHeader {
+                    key: header.key,
+                    value: header.value,
+                })
+                .collect(),
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProducedRecord {
+    pub partition: i32,
+    pub offset: i64,
+}
+
+impl From<domain::ProducedRecord> for ProducedRecord {
+    fn from(produced: domain::ProducedRecord) -> Self {
+        Self {
+            partition: produced.partition,
+            offset: produced.offset,
         }
     }
 }

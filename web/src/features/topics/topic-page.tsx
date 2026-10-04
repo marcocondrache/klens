@@ -1,6 +1,7 @@
-import { AlertTriangleIcon } from "lucide-react";
+import { AlertTriangleIcon, SendIcon } from "lucide-react";
 import { getRouteApi } from "@tanstack/react-router";
 
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConfigTable } from "@/components/config-table";
 import { ConfirmDelete } from "@/components/confirm-delete";
@@ -8,6 +9,7 @@ import { CopyButton } from "@/components/copy-button";
 import { DataTable } from "@/components/data-table/data-table";
 import { Facts } from "@/components/facts";
 import { PageHeader } from "@/components/page-header";
+import { ProduceRecordDialog } from "@/features/records/produce-record";
 import { RecordBrowser } from "@/features/records/record-browser";
 import { PendingValue, Pill, StatusDot } from "@/components/status";
 import { TabCount } from "@/components/tab-count";
@@ -124,23 +126,42 @@ export function TopicPage() {
         }
         description={detail ? <TopicFacts detail={detail} /> : null}
         actions={
-          detail && !detail.internal && canChange(cluster, "MANAGE_TOPICS") ? (
-            <ConfirmDelete
-              noun="topic"
-              name={topicName}
-              consequence={
-                <>
-                  This deletes <span className="font-mono">{topicName}</span> and every record in
-                  it, and cannot be undone.
-                </>
-              }
-              onDelete={() =>
-                del(clusterPathname(cluster, "topics", encodeURIComponent(topicName)))
-              }
-              onDeleted={() =>
-                void navigate({ to: "/cluster/$cluster/topics", params: { cluster } })
-              }
-            />
+          detail && !detail.internal ? (
+            <>
+              {canChange(cluster, "PRODUCE") ? (
+                <ProduceRecordDialog
+                  cluster={cluster}
+                  topic={detail}
+                  trigger={<Button variant="outline" />}
+                  onProduced={
+                    canRecords
+                      ? ({ partition, offset }) => void navigate({ search: { partition, offset } })
+                      : undefined
+                  }
+                >
+                  <SendIcon data-icon="inline-start" />
+                  Produce record
+                </ProduceRecordDialog>
+              ) : null}
+              {canChange(cluster, "MANAGE_TOPICS") ? (
+                <ConfirmDelete
+                  noun="topic"
+                  name={topicName}
+                  consequence={
+                    <>
+                      This deletes <span className="font-mono">{topicName}</span> and every record
+                      in it, and cannot be undone.
+                    </>
+                  }
+                  onDelete={() =>
+                    del(clusterPathname(cluster, "topics", encodeURIComponent(topicName)))
+                  }
+                  onDeleted={() =>
+                    void navigate({ to: "/cluster/$cluster/topics", params: { cluster } })
+                  }
+                />
+              ) : null}
+            </>
           ) : null
         }
       />

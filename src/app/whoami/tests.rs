@@ -20,7 +20,14 @@ async fn whoami_reports_no_subject_when_auth_is_disabled() {
     );
     assert_eq!(
         whoami["clusters"][0]["privileges"],
-        json!(["RECORDS", "CONFIGS", "SCHEMA_TEXT", "ACLS", "MANAGE_TOPICS"])
+        json!([
+            "RECORDS",
+            "CONFIGS",
+            "SCHEMA_TEXT",
+            "ACLS",
+            "MANAGE_TOPICS",
+            "PRODUCE"
+        ])
     );
     assert_eq!(whoami["clusters"][1]["cluster"], "payments");
 }
@@ -39,7 +46,14 @@ async fn whoami_resolves_each_cluster_against_its_own_grant() {
     assert_eq!(clusters[0]["roles"], json!(["admin"]));
     assert_eq!(
         clusters[0]["privileges"],
-        json!(["RECORDS", "CONFIGS", "SCHEMA_TEXT", "ACLS", "MANAGE_TOPICS"])
+        json!([
+            "RECORDS",
+            "CONFIGS",
+            "SCHEMA_TEXT",
+            "ACLS",
+            "MANAGE_TOPICS",
+            "PRODUCE"
+        ])
     );
     assert_eq!(clusters[1]["cluster"], "payments");
     assert_eq!(clusters[1]["roles"], json!(["viewer"]));

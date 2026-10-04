@@ -21,5 +21,5 @@ pub use projections::TopicRow;
 pub use search::{SearchHit, SearchKind};
 pub use tables::{
     ConfigTable, GroupInfo, GroupOffsets, Interner, LogDirTable, OffsetTable, SubjectTable,
-    Topology, WatermarkTable,
+    TopicInfo, Topology, WatermarkTable,
 };

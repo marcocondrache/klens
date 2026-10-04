@@ -98,15 +98,20 @@ export async function get<T>(path: string, query?: Record<string, QueryValue>): 
   return (await response.json()) as T;
 }
 
-export function post(path: string, body: unknown): Promise<void> {
-  return send("POST", path, body);
+export async function post(path: string, body: unknown): Promise<void> {
+  await send("POST", path, body);
 }
 
-export function del(path: string): Promise<void> {
-  return send("DELETE", path);
+export async function postAndRead<T>(path: string, body: unknown): Promise<T> {
+  const response = await send("POST", path, body);
+  return (await response.json()) as T;
 }
 
-async function send(method: "POST" | "DELETE", path: string, body?: unknown): Promise<void> {
+export async function del(path: string): Promise<void> {
+  await send("DELETE", path);
+}
+
+async function send(method: "POST" | "DELETE", path: string, body?: unknown): Promise<Response> {
   const response = await fetch(apiPath(path), {
     method,
     credentials: "include",
@@ -117,6 +122,7 @@ async function send(method: "POST" | "DELETE", path: string, body?: unknown): Pr
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!response.ok) return fail(response);
+  return response;
 }
 
 /** A missing topic or group is 404. Pages treat that as an empty detail. */

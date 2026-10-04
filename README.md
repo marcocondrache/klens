@@ -222,13 +222,14 @@ same access as an open deployment.
 
 To restrict what signed-in users may do, add `roles`. A role is nothing but a
 name for a set of privileges, defined by you: there are no built-in roles. The
-privileges are `records`, `configs`, `schema_text`, and `acls` to read, and
-`manage_topics` to create and delete topics on a writable cluster. A role that
-lists none still sees the catalog (clusters, topics, groups, lag, sizes) but no
-payloads, live configs, schema bodies, or ACL bindings. A role's `bindings`
-name the IdP groups that hold it, read from the ID token claim that
-`oidc.groups_claim` names (default `groups`). Unmatched users cannot sign in.
-Omit `clusters` on a binding to allow every configured cluster.
+privileges are `records`, `configs`, `schema_text`, and `acls` to read,
+`manage_topics` to create and delete topics on a writable cluster, and
+`produce` to write records to one. A role that lists none still sees the
+catalog (clusters, topics, groups, lag, sizes) but no payloads, live configs,
+schema bodies, or ACL bindings. A role's `bindings` name the IdP groups that
+hold it, read from the ID token claim that `oidc.groups_claim` names (default
+`groups`). Unmatched users cannot sign in. Omit `clusters` on a binding to
+allow every configured cluster.
 
 Bindings are evaluated per cluster: a user's privileges on a cluster are the
 union of the roles bound to their groups **whose scope covers that cluster**.
@@ -249,7 +250,7 @@ auth:
     # groups_claim: groups
   roles:
     admin:
-      privileges: [records, configs, schema_text, acls, manage_topics]
+      privileges: [records, configs, schema_text, acls, manage_topics, produce]
       bindings:
         - groups: [klens-admins]
     viewer:

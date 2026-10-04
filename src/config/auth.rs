@@ -89,6 +89,7 @@ pub enum Privilege {
     SchemaText,
     Acls,
     ManageTopics,
+    Produce,
 }
 
 #[cfg(test)]

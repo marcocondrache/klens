@@ -10,6 +10,7 @@ mod acl;
 mod cluster;
 mod group;
 mod limits;
+mod produce;
 mod quota;
 mod scan;
 

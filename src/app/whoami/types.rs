@@ -12,9 +12,17 @@ pub enum PrivilegeName {
     SchemaText,
     Acls,
     ManageTopics,
+    Produce,
 }
 
-from_same_variants!(Privilege => PrivilegeName { Records, Configs, SchemaText, Acls, ManageTopics });
+from_same_variants!(Privilege => PrivilegeName {
+    Records,
+    Configs,
+    SchemaText,
+    Acls,
+    ManageTopics,
+    Produce,
+});
 
 /// What the session may do on one cluster. Pairwise: a wider grant elsewhere
 /// does not raise this one.
