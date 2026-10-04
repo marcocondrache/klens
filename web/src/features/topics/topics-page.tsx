@@ -61,7 +61,7 @@ export function TopicsPage() {
           </>
         }
         actions={
-          canChange(cluster, "MANAGE_TOPICS") ? <CreateTopicDialog cluster={cluster} /> : null
+          canChange(cluster, "CREATE_TOPICS") ? <CreateTopicDialog cluster={cluster} /> : null
         }
       />
 

@@ -105,7 +105,10 @@ export function TopicPage() {
     return <PageHeader title={topicName} mono description={lookup} />;
   }
 
-  const canManage = detail !== null && !detail.internal && canChange(cluster, "MANAGE_TOPICS");
+  const editable = detail !== null && !detail.internal;
+  const canDeleteRecords = editable && canChange(cluster, "DELETE_RECORDS");
+  const canAddPartitions = editable && canChange(cluster, "ADD_PARTITIONS");
+  const canAlterConfigs = editable && canChange(cluster, "ALTER_TOPIC_CONFIGS");
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
@@ -151,7 +154,7 @@ export function TopicPage() {
                   Produce record
                 </ProduceRecordDialog>
               ) : null}
-              {canChange(cluster, "MANAGE_TOPICS") ? (
+              {canChange(cluster, "DELETE_TOPICS") ? (
                 <ConfirmDelete
                   noun="topic"
                   name={topicName}
@@ -207,17 +210,21 @@ export function TopicPage() {
           <DataTable
             columns={partitionColumns}
             toolbar={
-              canManage ? (
+              canDeleteRecords || canAddPartitions ? (
                 <div className="ml-auto flex gap-2">
-                  <DeleteRecordsDialog
-                    cluster={cluster}
-                    topic={detail}
-                    trigger={<Button variant="outline" size="sm" />}
-                  >
-                    <ListXIcon data-icon="inline-start" />
-                    Delete records
-                  </DeleteRecordsDialog>
-                  <AddPartitionsDialog cluster={cluster} topic={detail} />
+                  {canDeleteRecords ? (
+                    <DeleteRecordsDialog
+                      cluster={cluster}
+                      topic={detail}
+                      trigger={<Button variant="outline" size="sm" />}
+                    >
+                      <ListXIcon data-icon="inline-start" />
+                      Delete records
+                    </DeleteRecordsDialog>
+                  ) : null}
+                  {canAddPartitions ? (
+                    <AddPartitionsDialog cluster={cluster} topic={detail} />
+                  ) : null}
                 </div>
               ) : null
             }
@@ -250,7 +257,7 @@ export function TopicPage() {
               entries={configs}
               loading={configsPending}
               action={
-                canManage
+                canAlterConfigs
                   ? (entry) =>
                       entry.readOnly ? null : (
                         <EditTopicConfigButton handle={configEditor} entry={entry} />
@@ -258,7 +265,7 @@ export function TopicPage() {
                   : undefined
               }
             />
-            {canManage ? (
+            {canAlterConfigs ? (
               <EditTopicConfigDialog cluster={cluster} topic={topicName} handle={configEditor} />
             ) : null}
           </TabsContent>

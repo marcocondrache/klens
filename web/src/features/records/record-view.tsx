@@ -230,7 +230,7 @@ export function RecordView({
   const { canChange } = useAccess();
   const canDuplicate = !topic.internal && canChange(cluster, "PRODUCE");
   const duplicate = canDuplicate && selectedRecord ? duplicateDraft(selectedRecord) : null;
-  const canDelete = !topic.internal && canChange(cluster, "MANAGE_TOPICS");
+  const canDelete = !topic.internal && canChange(cluster, "DELETE_RECORDS");
 
   const fields = [partitionField(topic)];
 

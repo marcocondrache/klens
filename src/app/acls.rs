@@ -35,7 +35,7 @@ async fn create_acls(
     extract::Json(request): extract::Json<CreateAcls>,
 ) -> Result<StatusCode, ApiError> {
     let cluster = session.cluster(&name)?;
-    let acls = cluster.manage_acls()?;
+    let acls = cluster.create_acls()?;
     acls.create_acls(&request.into_acls()?).await?;
     Ok(StatusCode::CREATED)
 }
@@ -46,7 +46,7 @@ async fn delete_acl(
     Query(acl): Query<Acl>,
 ) -> Result<StatusCode, ApiError> {
     let cluster = session.cluster(&name)?;
-    let acls = cluster.manage_acls()?;
+    let acls = cluster.delete_acls()?;
     acls.delete_acl(&acl.into()).await?;
     Ok(StatusCode::NO_CONTENT)
 }

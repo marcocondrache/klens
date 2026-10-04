@@ -54,7 +54,7 @@ async fn create_topic(
     extract::Json(request): extract::Json<CreateTopic>,
 ) -> Result<StatusCode, ApiError> {
     let cluster = session.cluster(&name)?;
-    let topics = cluster.manage_topics()?;
+    let topics = cluster.create_topics()?;
     let topic = request.into_topic()?;
     topics.create_topic(&topic).await?;
     Ok(StatusCode::CREATED)
@@ -78,7 +78,7 @@ async fn delete_topic(
     Path((name, topic)): Path<(String, String)>,
 ) -> Result<StatusCode, ApiError> {
     let cluster = session.cluster(&name)?;
-    cluster.manage_topics()?.delete_topic(&topic).await?;
+    cluster.delete_topics()?.delete_topic(&topic).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -116,7 +116,7 @@ async fn alter_topic_configs(
     extract::Json(request): extract::Json<EditConfigs>,
 ) -> Result<StatusCode, ApiError> {
     let cluster = session.cluster(&name)?;
-    let topics = cluster.manage_topics()?;
+    let topics = cluster.alter_topic_configs()?;
     let edit = request.into_edit()?;
     topics.alter_topic_configs(&topic, &edit).await?;
     Ok(StatusCode::NO_CONTENT)
@@ -128,7 +128,7 @@ async fn add_partitions(
     extract::Json(request): extract::Json<AddPartitions>,
 ) -> Result<StatusCode, ApiError> {
     let cluster = session.cluster(&name)?;
-    let topics = cluster.manage_topics()?;
+    let topics = cluster.add_partitions()?;
     topics.add_partitions(&topic, request.count).await?;
     Ok(StatusCode::NO_CONTENT)
 }

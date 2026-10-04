@@ -70,7 +70,7 @@ async fn delete_group(
     Path((name, group)): Path<(String, String)>,
 ) -> Result<StatusCode, ApiError> {
     let cluster = session.cluster(&name)?;
-    cluster.manage_groups()?.delete_group(&group).await?;
+    cluster.delete_groups()?.delete_group(&group).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -80,7 +80,7 @@ async fn reset_offsets(
     extract::Json(request): extract::Json<ResetOffsets>,
 ) -> Result<Json<Vec<OffsetMove>>, ApiError> {
     let cluster = session.cluster(&name)?;
-    let groups = cluster.manage_groups()?;
+    let groups = cluster.reset_offsets()?;
     let dry_run = request.dry_run;
     let reset = request.into_reset(group)?;
     let moves = if dry_run {
@@ -98,7 +98,7 @@ async fn delete_offsets(
 ) -> Result<StatusCode, ApiError> {
     let cluster = session.cluster(&name)?;
     cluster
-        .manage_groups()?
+        .delete_offsets()?
         .delete_offsets(&group, &params.topic)
         .await?;
     Ok(StatusCode::NO_CONTENT)

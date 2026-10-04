@@ -119,6 +119,8 @@ function ConsumerGroupPage() {
   const { group: groupId } = Route.useParams();
   const { tab } = Route.useSearch();
   const { canChange } = useAccess();
+  const canReset = canChange(cluster, "RESET_OFFSETS");
+  const canDelete = canChange(cluster, "DELETE_GROUPS");
   const { data: group, isPending, isError, error } = useGroup(cluster, groupId);
 
   const lookup = catalogLookupMessage({
@@ -246,31 +248,33 @@ function ConsumerGroupPage() {
           ) : null
         }
         actions={
-          group && canChange(cluster, "MANAGE_GROUPS") ? (
+          group && (canReset || canDelete) ? (
             <>
-              <ResetOffsetsDialog cluster={cluster} group={group} />
-              <ConfirmDelete
-                noun="group"
-                name={groupId}
-                consequence={
-                  hasMembers(group.state) ? (
-                    <>
-                      Kafka only deletes a group without members. Stop the consumers of{" "}
-                      <span className="font-mono">{groupId}</span> first.
-                    </>
-                  ) : (
-                    <>
-                      This deletes <span className="font-mono">{groupId}</span> and its committed
-                      offsets, and cannot be undone. Its consumers start from their reset policy
-                      when they rejoin.
-                    </>
-                  )
-                }
-                onDelete={() => del(clusterPathname(cluster, "groups", resourceId(groupId)))}
-                onDeleted={() =>
-                  void navigate({ to: "/cluster/$cluster/groups", params: { cluster } })
-                }
-              />
+              {canReset ? <ResetOffsetsDialog cluster={cluster} group={group} /> : null}
+              {canDelete ? (
+                <ConfirmDelete
+                  noun="group"
+                  name={groupId}
+                  consequence={
+                    hasMembers(group.state) ? (
+                      <>
+                        Kafka only deletes a group without members. Stop the consumers of{" "}
+                        <span className="font-mono">{groupId}</span> first.
+                      </>
+                    ) : (
+                      <>
+                        This deletes <span className="font-mono">{groupId}</span> and its committed
+                        offsets, and cannot be undone. Its consumers start from their reset policy
+                        when they rejoin.
+                      </>
+                    )
+                  }
+                  onDelete={() => del(clusterPathname(cluster, "groups", resourceId(groupId)))}
+                  onDeleted={() =>
+                    void navigate({ to: "/cluster/$cluster/groups", params: { cluster } })
+                  }
+                />
+              ) : null}
             </>
           ) : null
         }
@@ -311,7 +315,7 @@ function ConsumerGroupPage() {
           <DataTable
             columns={offsetColumns}
             toolbar={
-              group && canChange(cluster, "MANAGE_GROUPS") && committedTopics(group).length > 0 ? (
+              group && canChange(cluster, "DELETE_OFFSETS") && committedTopics(group).length > 0 ? (
                 <div className="ml-auto flex gap-2">
                   <DeleteOffsetsDialog cluster={cluster} group={group} />
                 </div>

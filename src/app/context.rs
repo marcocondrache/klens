@@ -10,8 +10,11 @@ use futures::{FutureExt as _, future};
 use crate::AppState;
 use crate::app::auth::SessionGuard;
 use crate::app::auth::access::{
-    AccessError, ClusterAccess, ConfigsCap, EffectiveAccess, ManageAclsCap, ManageBrokersCap,
-    ManageGroupsCap, ManageSchemasCap, ManageTopicsCap, ProduceCap, RecordsCap, SchemaTextCap,
+    AccessError, AddPartitionsCap, AlterBrokerConfigsCap, AlterQuotasCap, AlterTopicConfigsCap,
+    ClusterAccess, ConfigsCap, CreateAclsCap, CreateTopicsCap, DeleteAclsCap, DeleteGroupsCap,
+    DeleteOffsetsCap, DeleteRecordsCap, DeleteSchemasCap, DeleteScramCredentialsCap,
+    DeleteTopicsCap, EffectiveAccess, ProduceCap, RecordsCap, RegisterSchemasCap, ResetOffsetsCap,
+    SchemaTextCap, SetCompatibilityCap, SetScramCredentialsCap,
 };
 use crate::kafka::model::{
     Acl, BrokerScope, ClientQuota, CommittedOffset, ConfigEdit, ConfigSource, FoundRecord,
@@ -62,36 +65,6 @@ impl<'a> ClusterHandle<'a> {
         self.access.schema_text().map(|cap| self.grant(cap))
     }
 
-    pub(crate) fn manage_topics(&self) -> Result<Granted<'a, ManageTopicsCap>, AccessError> {
-        self.writable()?;
-        self.access.manage_topics().map(|cap| self.grant(cap))
-    }
-
-    pub(crate) fn produce(&self) -> Result<Granted<'a, ProduceCap>, AccessError> {
-        self.writable()?;
-        self.access.produce().map(|cap| self.grant(cap))
-    }
-
-    pub(crate) fn manage_groups(&self) -> Result<Granted<'a, ManageGroupsCap>, AccessError> {
-        self.writable()?;
-        self.access.manage_groups().map(|cap| self.grant(cap))
-    }
-
-    pub(crate) fn manage_schemas(&self) -> Result<Granted<'a, ManageSchemasCap>, AccessError> {
-        self.writable()?;
-        self.access.manage_schemas().map(|cap| self.grant(cap))
-    }
-
-    pub(crate) fn manage_acls(&self) -> Result<Granted<'a, ManageAclsCap>, AccessError> {
-        self.writable()?;
-        self.access.manage_acls().map(|cap| self.grant(cap))
-    }
-
-    pub(crate) fn manage_brokers(&self) -> Result<Granted<'a, ManageBrokersCap>, AccessError> {
-        self.writable()?;
-        self.access.manage_brokers().map(|cap| self.grant(cap))
-    }
-
     fn writable(&self) -> Result<(), AccessError> {
         if self.cluster.writable {
             Ok(())
@@ -107,6 +80,40 @@ impl<'a> ClusterHandle<'a> {
             limits: self.limits,
         }
     }
+}
+
+macro_rules! writes {
+    ($($method:ident => $token:ident),* $(,)?) => {
+        impl<'a> ClusterHandle<'a> {
+            $(
+                pub(crate) fn $method(&self) -> Result<Granted<'a, $token>, AccessError> {
+                    self.writable()?;
+                    self.access.$method().map(|cap| self.grant(cap))
+                }
+            )*
+        }
+    };
+}
+
+writes! {
+    create_topics => CreateTopicsCap,
+    delete_topics => DeleteTopicsCap,
+    alter_topic_configs => AlterTopicConfigsCap,
+    add_partitions => AddPartitionsCap,
+    delete_records => DeleteRecordsCap,
+    produce => ProduceCap,
+    reset_offsets => ResetOffsetsCap,
+    delete_offsets => DeleteOffsetsCap,
+    delete_groups => DeleteGroupsCap,
+    register_schemas => RegisterSchemasCap,
+    set_compatibility => SetCompatibilityCap,
+    delete_schemas => DeleteSchemasCap,
+    create_acls => CreateAclsCap,
+    delete_acls => DeleteAclsCap,
+    alter_quotas => AlterQuotasCap,
+    set_scram_credentials => SetScramCredentialsCap,
+    delete_scram_credentials => DeleteScramCredentialsCap,
+    alter_broker_configs => AlterBrokerConfigsCap,
 }
 
 /// A privilege checked on one cluster. The live calls it guards hang off
@@ -151,7 +158,7 @@ impl Granted<'_, SchemaTextCap> {
     }
 }
 
-impl Granted<'_, ManageTopicsCap> {
+impl Granted<'_, CreateTopicsCap> {
     pub(crate) async fn create_topic(&self, topic: &NewTopic) -> Result<(), KafkaError> {
         self.cluster.session.create_topic(topic).await?;
         tracing::info!(cluster = %self.cluster.store.name(), topic = %topic.name, "created topic");
@@ -161,7 +168,9 @@ impl Granted<'_, ManageTopicsCap> {
         .await;
         Ok(())
     }
+}
 
+impl Granted<'_, AlterTopicConfigsCap> {
     pub(crate) async fn alter_topic_configs(
         &self,
         topic: &str,
@@ -187,7 +196,9 @@ impl Granted<'_, ManageTopicsCap> {
         .await;
         Ok(())
     }
+}
 
+impl Granted<'_, AddPartitionsCap> {
     pub(crate) async fn add_partitions(
         &self,
         topic: &str,
@@ -206,7 +217,9 @@ impl Granted<'_, ManageTopicsCap> {
         .await;
         Ok(())
     }
+}
 
+impl Granted<'_, DeleteRecordsCap> {
     /// Without `partitions` the deletion covers every partition, and without
     /// `before` it deletes every record.
     pub(crate) async fn delete_records(
@@ -251,7 +264,9 @@ impl Granted<'_, ManageTopicsCap> {
         .await;
         Ok(())
     }
+}
 
+impl Granted<'_, DeleteTopicsCap> {
     pub(crate) async fn delete_topic(&self, topic: &str) -> Result<(), KafkaError> {
         self.writable_topic(topic, |_| ())?;
         self.cluster.session.delete_topic(topic).await?;
@@ -289,7 +304,7 @@ impl Granted<'_, ProduceCap> {
     }
 }
 
-impl Granted<'_, ManageGroupsCap> {
+impl Granted<'_, ResetOffsetsCap> {
     pub(crate) async fn plan_reset(
         &self,
         reset: &OffsetReset,
@@ -330,6 +345,30 @@ impl Granted<'_, ManageGroupsCap> {
         Ok(moves)
     }
 
+    async fn plan(&self, reset: &OffsetReset) -> Result<Vec<OffsetMove>, KafkaError> {
+        let Some(topic) = &reset.topic else {
+            return self.cluster.plan_reset(&reset.group, None, reset.to).await;
+        };
+        let known = self.writable_topic(topic, TopicInfo::partition_ids)?;
+        if let Some(&partition) = reset
+            .partitions
+            .iter()
+            .find(|partition| !known.contains(partition))
+        {
+            return Err(self.unknown_partition(topic, partition));
+        }
+        let partitions = if reset.partitions.is_empty() {
+            &known
+        } else {
+            &reset.partitions
+        };
+        self.cluster
+            .plan_reset(&reset.group, Some((topic, partitions)), reset.to)
+            .await
+    }
+}
+
+impl Granted<'_, DeleteGroupsCap> {
     pub(crate) async fn delete_group(&self, group: &str) -> Result<(), KafkaError> {
         self.stopped_group(group)?;
         self.cluster.session.delete_group(group).await?;
@@ -340,7 +379,9 @@ impl Granted<'_, ManageGroupsCap> {
         .await;
         Ok(())
     }
+}
 
+impl Granted<'_, DeleteOffsetsCap> {
     pub(crate) async fn delete_offsets(&self, group: &str, topic: &str) -> Result<(), KafkaError> {
         if self.known_group(group, |info| info.consumes(topic))? {
             return Err(KafkaError::ConsumedTopic {
@@ -382,58 +423,9 @@ impl Granted<'_, ManageGroupsCap> {
         .await;
         Ok(())
     }
-
-    fn stopped_group(&self, group: &str) -> Result<(), KafkaError> {
-        if self.known_group(group, |info| info.state.has_members())? {
-            return Err(KafkaError::ActiveGroup {
-                group: group.to_owned(),
-            });
-        }
-        Ok(())
-    }
-
-    fn known_group<T>(
-        &self,
-        group: &str,
-        read: impl FnOnce(&GroupInfo) -> T,
-    ) -> Result<T, KafkaError> {
-        self.cluster
-            .store
-            .topology
-            .load()
-            .as_ref()
-            .and_then(|known| known.group(group))
-            .map(read)
-            .ok_or_else(|| KafkaError::UnknownGroup {
-                cluster: self.cluster.store.name().to_owned(),
-                group: group.to_owned(),
-            })
-    }
-
-    async fn plan(&self, reset: &OffsetReset) -> Result<Vec<OffsetMove>, KafkaError> {
-        let Some(topic) = &reset.topic else {
-            return self.cluster.plan_reset(&reset.group, None, reset.to).await;
-        };
-        let known = self.writable_topic(topic, TopicInfo::partition_ids)?;
-        if let Some(&partition) = reset
-            .partitions
-            .iter()
-            .find(|partition| !known.contains(partition))
-        {
-            return Err(self.unknown_partition(topic, partition));
-        }
-        let partitions = if reset.partitions.is_empty() {
-            &known
-        } else {
-            &reset.partitions
-        };
-        self.cluster
-            .plan_reset(&reset.group, Some((topic, partitions)), reset.to)
-            .await
-    }
 }
 
-impl Granted<'_, ManageSchemasCap> {
+impl Granted<'_, RegisterSchemasCap> {
     pub(crate) async fn register_schema(
         &self,
         schema: &NewSchema,
@@ -454,7 +446,9 @@ impl Granted<'_, ManageSchemasCap> {
         .await;
         Ok(registered)
     }
+}
 
+impl Granted<'_, DeleteSchemasCap> {
     pub(crate) async fn delete_schema(&self, deletion: &SchemaDeletion) -> Result<(), KafkaError> {
         let subject = deletion.subject.as_str();
         self.known_subject(subject, deletion.version)?;
@@ -476,7 +470,9 @@ impl Granted<'_, ManageSchemasCap> {
         .await;
         Ok(())
     }
+}
 
+impl Granted<'_, SetCompatibilityCap> {
     pub(crate) async fn set_compatibility(
         &self,
         subject: &str,
@@ -501,26 +497,9 @@ impl Granted<'_, ManageSchemasCap> {
         .await;
         Ok(())
     }
-
-    fn known_subject(&self, subject: &str, version: Option<i32>) -> Result<(), KafkaError> {
-        let known = self.cluster.store.subjects.load().is_some_and(|table| {
-            table
-                .get(subject)
-                .is_some_and(|info| version.is_none_or(|version| info.versions.contains(&version)))
-        });
-        if known {
-            Ok(())
-        } else {
-            Err(KafkaError::UnknownSubject {
-                cluster: self.cluster.store.name().to_owned(),
-                subject: subject.to_owned(),
-                version: version.unwrap_or(0),
-            })
-        }
-    }
 }
 
-impl Granted<'_, ManageAclsCap> {
+impl Granted<'_, CreateAclsCap> {
     pub(crate) async fn create_acls(&self, acls: &[Acl]) -> Result<(), KafkaError> {
         self.cluster.session.create_acls(acls).await?;
         for acl in acls {
@@ -532,7 +511,9 @@ impl Granted<'_, ManageAclsCap> {
         .await;
         Ok(())
     }
+}
 
+impl Granted<'_, DeleteAclsCap> {
     pub(crate) async fn delete_acl(&self, acl: &Acl) -> Result<(), KafkaError> {
         self.cluster.session.delete_acl(acl).await?;
         tracing::info!(cluster = %self.cluster.store.name(), %acl, "deleted acl");
@@ -540,7 +521,9 @@ impl Granted<'_, ManageAclsCap> {
             .await;
         Ok(())
     }
+}
 
+impl Granted<'_, AlterQuotasCap> {
     pub(crate) async fn set_client_quota(&self, quota: &ClientQuota) -> Result<(), KafkaError> {
         self.cluster.session.alter_client_quota(quota).await?;
         tracing::info!(cluster = %self.cluster.store.name(), %quota, "set client quota");
@@ -554,7 +537,9 @@ impl Granted<'_, ManageAclsCap> {
         .await;
         Ok(())
     }
+}
 
+impl Granted<'_, SetScramCredentialsCap> {
     pub(crate) async fn set_scram_credential(
         &self,
         credential: &NewScramCredential,
@@ -577,7 +562,9 @@ impl Granted<'_, ManageAclsCap> {
         .await;
         Ok(())
     }
+}
 
+impl Granted<'_, DeleteScramCredentialsCap> {
     pub(crate) async fn delete_scram_credential(
         &self,
         user: &str,
@@ -601,7 +588,7 @@ impl Granted<'_, ManageAclsCap> {
     }
 }
 
-impl Granted<'_, ManageBrokersCap> {
+impl Granted<'_, AlterBrokerConfigsCap> {
     pub(crate) async fn alter_broker_configs(
         &self,
         scope: BrokerScope,
@@ -644,6 +631,49 @@ impl Granted<'_, ManageBrokersCap> {
 }
 
 impl<Cap> Granted<'_, Cap> {
+    fn stopped_group(&self, group: &str) -> Result<(), KafkaError> {
+        if self.known_group(group, |info| info.state.has_members())? {
+            return Err(KafkaError::ActiveGroup {
+                group: group.to_owned(),
+            });
+        }
+        Ok(())
+    }
+
+    fn known_group<T>(
+        &self,
+        group: &str,
+        read: impl FnOnce(&GroupInfo) -> T,
+    ) -> Result<T, KafkaError> {
+        self.cluster
+            .store
+            .topology
+            .load()
+            .as_ref()
+            .and_then(|known| known.group(group))
+            .map(read)
+            .ok_or_else(|| KafkaError::UnknownGroup {
+                cluster: self.cluster.store.name().to_owned(),
+                group: group.to_owned(),
+            })
+    }
+
+    fn known_subject(&self, subject: &str, version: Option<i32>) -> Result<(), KafkaError> {
+        let known = self.cluster.store.subjects.load().is_some_and(|table| {
+            table
+                .get(subject)
+                .is_some_and(|info| version.is_none_or(|version| info.versions.contains(&version)))
+        });
+        if known {
+            Ok(())
+        } else {
+            Err(KafkaError::UnknownSubject {
+                cluster: self.cluster.store.name().to_owned(),
+                subject: subject.to_owned(),
+                version: version.unwrap_or(0),
+            })
+        }
+    }
     fn unknown_partition(&self, topic: &str, partition: i32) -> KafkaError {
         KafkaError::UnknownPartition {
             cluster: self.cluster.store.name().to_owned(),

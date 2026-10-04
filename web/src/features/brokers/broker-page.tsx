@@ -49,7 +49,7 @@ export function BrokerPage() {
   const brokerId = Number(id);
   const { can, canChange } = useAccess();
   const canConfigs = can(cluster, "CONFIGS");
-  const canManage = canChange(cluster, "MANAGE_BROKERS");
+  const canAlter = canChange(cluster, "ALTER_BROKER_CONFIGS");
   const [configEditor] = useState(() => createDialogHandle<ConfigEntry>());
   const tab = requested === "config" && !canConfigs ? "log-dirs" : requested;
 
@@ -121,7 +121,7 @@ export function BrokerPage() {
               entries={configs}
               loading={configsPending}
               action={
-                canManage
+                canAlter
                   ? (entry) =>
                       entry.readOnly ? null : (
                         <EditBrokerConfigButton handle={configEditor} entry={entry} />
@@ -129,7 +129,7 @@ export function BrokerPage() {
                   : undefined
               }
             />
-            {canManage ? (
+            {canAlter ? (
               <EditBrokerConfigDialog cluster={cluster} broker={brokerId} handle={configEditor} />
             ) : null}
           </TabsContent>

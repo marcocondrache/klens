@@ -39,14 +39,15 @@ export function AclsPage() {
   const { data, isPending, isError, error } = useAcls(cluster, canAcls);
   const lane = data?.sourceHealth;
   const status = data?.status;
-  const canManage = status === "ENABLED" && canChange(cluster, "MANAGE_ACLS");
+  const canCreate = status === "ENABLED" && canChange(cluster, "CREATE_ACLS");
+  const canDelete = status === "ENABLED" && canChange(cluster, "DELETE_ACLS");
   const [deleter] = useState(() => createDialogHandle<Acl>());
   const columns = useMemo(
     () =>
-      canManage
+      canDelete
         ? [...aclColumns, aclActionColumn((acl) => <DeleteAclButton handle={deleter} acl={acl} />)]
         : aclColumns,
-    [canManage, deleter],
+    [canDelete, deleter],
   );
   const notice = status === "DISABLED" ? DISABLED : status === "DENIED" ? DENIED : undefined;
   const bindings = data?.bindings ?? EMPTY_BINDINGS;
@@ -73,7 +74,7 @@ export function AclsPage() {
             <LaneCaption lane={lane} />
           </>
         }
-        actions={canManage ? <CreateAclDialog cluster={cluster} /> : null}
+        actions={canCreate ? <CreateAclDialog cluster={cluster} /> : null}
       />
 
       <DataTable
@@ -95,7 +96,7 @@ export function AclsPage() {
         }
         defaultSort={{ id: "resourceName", direction: "asc" }}
       />
-      {canManage ? <DeleteAclDialog cluster={cluster} handle={deleter} /> : null}
+      {canDelete ? <DeleteAclDialog cluster={cluster} handle={deleter} /> : null}
     </div>
   );
 }

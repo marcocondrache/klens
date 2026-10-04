@@ -81,7 +81,7 @@ async fn alter(
     request: EditConfigs,
 ) -> Result<StatusCode, ApiError> {
     let cluster = session.cluster(name)?;
-    let brokers = cluster.manage_brokers()?;
+    let brokers = cluster.alter_broker_configs()?;
     brokers
         .alter_broker_configs(scope, &request.into_edit()?)
         .await?;

@@ -231,7 +231,7 @@ async fn a_create_without_the_privilege_names_the_one_it_needs() {
     reply.assert_error(StatusCode::FORBIDDEN, "FORBIDDEN");
     assert_eq!(
         reply.body["error"],
-        "'manageTopics' is not permitted on cluster 'local'"
+        "'createTopics' is not permitted on cluster 'local'"
     );
 }
 

@@ -25,12 +25,24 @@ async fn whoami_reports_no_subject_when_auth_is_disabled() {
             "CONFIGS",
             "SCHEMA_TEXT",
             "ACLS",
-            "MANAGE_TOPICS",
+            "CREATE_TOPICS",
+            "DELETE_TOPICS",
+            "ALTER_TOPIC_CONFIGS",
+            "ADD_PARTITIONS",
+            "DELETE_RECORDS",
             "PRODUCE",
-            "MANAGE_GROUPS",
-            "MANAGE_SCHEMAS",
-            "MANAGE_ACLS",
-            "MANAGE_BROKERS"
+            "RESET_OFFSETS",
+            "DELETE_OFFSETS",
+            "DELETE_GROUPS",
+            "REGISTER_SCHEMAS",
+            "SET_COMPATIBILITY",
+            "DELETE_SCHEMAS",
+            "CREATE_ACLS",
+            "DELETE_ACLS",
+            "ALTER_QUOTAS",
+            "SET_SCRAM_CREDENTIALS",
+            "DELETE_SCRAM_CREDENTIALS",
+            "ALTER_BROKER_CONFIGS"
         ])
     );
     assert_eq!(whoami["clusters"][1]["cluster"], "payments");
@@ -55,12 +67,24 @@ async fn whoami_resolves_each_cluster_against_its_own_grant() {
             "CONFIGS",
             "SCHEMA_TEXT",
             "ACLS",
-            "MANAGE_TOPICS",
+            "CREATE_TOPICS",
+            "DELETE_TOPICS",
+            "ALTER_TOPIC_CONFIGS",
+            "ADD_PARTITIONS",
+            "DELETE_RECORDS",
             "PRODUCE",
-            "MANAGE_GROUPS",
-            "MANAGE_SCHEMAS",
-            "MANAGE_ACLS",
-            "MANAGE_BROKERS"
+            "RESET_OFFSETS",
+            "DELETE_OFFSETS",
+            "DELETE_GROUPS",
+            "REGISTER_SCHEMAS",
+            "SET_COMPATIBILITY",
+            "DELETE_SCHEMAS",
+            "CREATE_ACLS",
+            "DELETE_ACLS",
+            "ALTER_QUOTAS",
+            "SET_SCRAM_CREDENTIALS",
+            "DELETE_SCRAM_CREDENTIALS",
+            "ALTER_BROKER_CONFIGS"
         ])
     );
     assert_eq!(clusters[1]["cluster"], "payments");

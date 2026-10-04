@@ -45,7 +45,7 @@ export function QuotasPage() {
   const { data, isPending, isError, error } = useQuotas(cluster, canConfigs);
   const lane = data?.sourceHealth;
   const status = data?.status;
-  const canManage = status === "DESCRIBED" && canChange(cluster, "MANAGE_ACLS");
+  const canManage = status === "DESCRIBED" && canChange(cluster, "ALTER_QUOTAS");
   const [editor] = useState(() => createDialogHandle<ClientQuota>());
   const [remover] = useState(() => createDialogHandle<ClientQuota>());
   const columns = useMemo(

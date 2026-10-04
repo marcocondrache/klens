@@ -41,7 +41,7 @@ async fn set_scram_credential(
     extract::Json(request): extract::Json<SetScramCredential>,
 ) -> Result<StatusCode, ApiError> {
     let cluster = session.cluster(&name)?;
-    let users = cluster.manage_acls()?;
+    let users = cluster.set_scram_credentials()?;
     users
         .set_scram_credential(&request.into_credential(user)?)
         .await?;
@@ -55,7 +55,7 @@ async fn delete_scram_credential(
 ) -> Result<StatusCode, ApiError> {
     let cluster = session.cluster(&name)?;
     cluster
-        .manage_acls()?
+        .delete_scram_credentials()?
         .delete_scram_credential(&user, params.mechanism.into())
         .await?;
     Ok(StatusCode::NO_CONTENT)
