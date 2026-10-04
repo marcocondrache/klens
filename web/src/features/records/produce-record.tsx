@@ -4,6 +4,7 @@ import { CircleCheckIcon, PlusIcon, XIcon } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Field, FieldDescription, FieldLabel, FieldTitle } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -15,7 +16,7 @@ import {
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { Field, FieldCount } from "@/components/field";
+import { FieldCount } from "@/components/field-count";
 import { IconButton } from "@/components/icon-button";
 import { FormSheetContent, SheetForm } from "@/components/write-form";
 import { useSubjectRows } from "@/lib/api/catalog";
@@ -205,7 +206,8 @@ function ProduceRecordForm({
       }}
       onSubmit={submit}
     >
-      <Field label="Partition" htmlFor={`${id}-partition`}>
+      <Field>
+        <FieldLabel htmlFor={`${id}-partition`}>Partition</FieldLabel>
         <Select
           items={partitions}
           value={partition}
@@ -213,7 +215,7 @@ function ProduceRecordForm({
             if (next !== null) setPartition(next);
           }}
         >
-          <SelectTrigger id={`${id}-partition`} className="w-32">
+          <SelectTrigger id={`${id}-partition`} className="max-w-32">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -246,14 +248,12 @@ function ProduceRecordForm({
         fill
       />
 
-      <Field
-        label={
-          <>
+      <Field aria-labelledby={`${id}-headers`} className="shrink-0">
+        <div className="flex items-center justify-between gap-2">
+          <FieldTitle id={`${id}-headers`}>
             Headers
             <FieldCount value={headers.length} />
-          </>
-        }
-        action={
+          </FieldTitle>
           <Button
             type="button"
             variant="ghost"
@@ -269,14 +269,12 @@ function ProduceRecordForm({
             <PlusIcon data-icon="inline-start" />
             Add header
           </Button>
-        }
-        className="shrink-0"
-      >
-        {headers.length === 0 ? <p className="text-sm text-muted-foreground">No headers.</p> : null}
-        {headers.map((row) => (
-          <div key={row.id} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2">
+        </div>
+        {headers.length === 0 ? <FieldDescription>No headers.</FieldDescription> : null}
+        {headers.map((row, index) => (
+          <Field key={row.id} orientation="horizontal">
             <Input
-              aria-label="Header name"
+              aria-label={`Header ${index + 1} name`}
               autoComplete="off"
               spellCheck={false}
               placeholder="Name"
@@ -285,7 +283,7 @@ function ProduceRecordForm({
               onChange={(event) => editHeader(row.id, { key: event.target.value })}
             />
             <Input
-              aria-label="Header value"
+              aria-label={`Header ${index + 1} value`}
               autoComplete="off"
               spellCheck={false}
               placeholder="Value"
@@ -294,13 +292,14 @@ function ProduceRecordForm({
               onChange={(event) => editHeader(row.id, { value: event.target.value })}
             />
             <IconButton
-              label="Remove header"
+              label={`Remove header ${index + 1}`}
+              tooltip="Remove header"
               size="icon"
               onClick={() => setHeaders((rows) => rows.filter((other) => other.id !== row.id))}
             >
               <XIcon />
             </IconButton>
-          </div>
+          </Field>
         ))}
       </Field>
     </SheetForm>
@@ -334,11 +333,13 @@ function PayloadField({
   fill?: boolean;
 }) {
   return (
-    <Field
-      label={label}
-      htmlFor={id}
-      className={cn(fill ? "flex min-h-48 flex-1 flex-col" : "shrink-0")}
-      action={
+    <Field className={fill ? "min-h-48 flex-1" : "shrink-0"}>
+      <div className="flex items-center justify-between gap-2">
+        {draft.encoding === "NULL" ? (
+          <FieldTitle>{label}</FieldTitle>
+        ) : (
+          <FieldLabel htmlFor={id}>{label}</FieldLabel>
+        )}
         <ToggleGroup
           value={[draft.encoding]}
           onValueChange={(next) => {
@@ -359,8 +360,7 @@ function PayloadField({
           {subjects.length > 0 ? <ToggleGroupItem value="SCHEMA">Schema</ToggleGroupItem> : null}
           <ToggleGroupItem value="NULL">Null</ToggleGroupItem>
         </ToggleGroup>
-      }
-    >
+      </div>
       {draft.encoding === "SCHEMA" ? (
         <SchemaPicker
           cluster={cluster}
@@ -372,7 +372,7 @@ function PayloadField({
         />
       ) : null}
       {draft.encoding === "NULL" ? (
-        <p className="text-sm text-muted-foreground">The record has no {label.toLowerCase()}.</p>
+        <FieldDescription>The record has no {label.toLowerCase()}.</FieldDescription>
       ) : (
         <Textarea
           id={id}
