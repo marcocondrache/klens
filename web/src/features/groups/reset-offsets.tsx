@@ -5,6 +5,7 @@ import { CircleAlertIcon, RotateCcwIcon } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Field, FieldDescription, FieldError, FieldLabel, FieldTitle } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -16,7 +17,7 @@ import {
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
-import { Field, FieldCount } from "@/components/field";
+import { FieldCount } from "@/components/field-count";
 import { FormSheetContent, SheetForm } from "@/components/write-form";
 import { hasMembers } from "@/features/groups/group-state";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
@@ -171,7 +172,8 @@ function ResetOffsetsForm({
       ) : null}
 
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Topic" htmlFor={`${id}-topic`}>
+        <Field>
+          <FieldLabel htmlFor={`${id}-topic`}>Topic</FieldLabel>
           <Select
             items={topicItems}
             value={topic}
@@ -200,7 +202,8 @@ function ResetOffsetsForm({
             </SelectContent>
           </Select>
         </Field>
-        <Field label="Partition" htmlFor={`${id}-partition`}>
+        <Field data-disabled={topic === ALL || undefined}>
+          <FieldLabel htmlFor={`${id}-partition`}>Partition</FieldLabel>
           <Select
             items={partitionItems}
             value={partition}
@@ -224,7 +227,8 @@ function ResetOffsetsForm({
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Reset to" htmlFor={`${id}-target`}>
+        <Field>
+          <FieldLabel htmlFor={`${id}-target`}>Reset to</FieldLabel>
           <Select
             items={TARGETS}
             value={kind}
@@ -249,23 +253,17 @@ function ResetOffsetsForm({
         <TargetInput id={`${id}-value`} kind={kind} value={value} onChange={setValue} />
       </div>
 
-      <Field
-        label={
-          <>
-            Preview
-            <FieldCount value={moves.length} />
-          </>
-        }
-        className="flex min-h-0 flex-1 flex-col"
-      >
+      <Field aria-labelledby={`${id}-preview`} className="min-h-0 flex-1">
+        <FieldTitle id={`${id}-preview`}>
+          Preview
+          <FieldCount value={moves.length} />
+        </FieldTitle>
         {moves.length > 0 ? (
           <PlanTable moves={moves} stale={!current} />
         ) : current ? (
-          <p className="text-sm text-muted-foreground">
-            The group has no committed offsets to move.
-          </p>
+          <FieldDescription>The group has no committed offsets to move.</FieldDescription>
         ) : request === null ? (
-          <p className="text-sm text-muted-foreground">Enter a target to see the new offsets.</p>
+          <FieldDescription>Enter a target to see the new offsets.</FieldDescription>
         ) : null}
       </Field>
     </SheetForm>
@@ -288,9 +286,16 @@ function TargetInput({
   const label = { OFFSET: "Offset", SHIFT: "Records, negative to go back", TIMESTAMP: "Time" }[
     kind
   ];
+  const error = {
+    OFFSET: "Enter a whole number.",
+    SHIFT: "Enter a whole number such as 100 or -100.",
+    TIMESTAMP: "Enter a date with a four-digit year.",
+  }[kind];
+  const invalid = value !== "" && resetTarget(kind, value) === null;
 
   return (
-    <Field label={label} htmlFor={id}>
+    <Field data-invalid={invalid || undefined}>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
       <Input
         id={id}
         data-autofocus
@@ -299,9 +304,11 @@ function TargetInput({
         autoComplete="off"
         className={timestamp ? undefined : "numeric"}
         value={value}
-        aria-invalid={(value !== "" && resetTarget(kind, value) === null) || undefined}
+        aria-invalid={invalid || undefined}
+        aria-describedby={invalid ? `${id}-error` : undefined}
         onChange={(event) => onChange(timestamp ? event.target.value : event.target.value.trim())}
       />
+      {invalid ? <FieldError id={`${id}-error`}>{error}</FieldError> : null}
     </Field>
   );
 }

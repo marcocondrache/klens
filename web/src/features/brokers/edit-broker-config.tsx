@@ -3,10 +3,10 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, type DialogHandle } from "@/components/ui/dialog";
+import { Field, FieldDescription, FieldLabel, FieldTitle } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { Field } from "@/components/field";
 import { FormSheetContent, SheetForm } from "@/components/write-form";
 import { apiErrorMessage, clusterPathname, patch } from "@/lib/api/client";
 import { keys } from "@/lib/api/keys";
@@ -116,7 +116,8 @@ function EditBrokerConfigForm({
       }
       onSubmit={() => save({ scope, edit: { set: { [entry.name]: value }, reset: [] } })}
     >
-      <Field label="Value" htmlFor={`${id}-value`}>
+      <Field>
+        <FieldLabel htmlFor={`${id}-value`}>Value</FieldLabel>
         <Input
           id={`${id}-value`}
           data-autofocus
@@ -129,27 +130,29 @@ function EditBrokerConfigForm({
         />
       </Field>
 
-      <Field
-        label="Applies to"
-        hint={
-          scope === "BROKER"
+      <Field>
+        <FieldTitle id={`${id}-scope`}>Applies to</FieldTitle>
+        <div>
+          <ToggleGroup
+            value={[scope]}
+            onValueChange={(next) => {
+              if (next[0]) setScope(next[0] === "CLUSTER" ? "CLUSTER" : "BROKER");
+            }}
+            variant="outline"
+            size="sm"
+            spacing={0}
+            aria-labelledby={`${id}-scope`}
+            aria-describedby={`${id}-scope-hint`}
+          >
+            <ToggleGroupItem value="BROKER">Broker {broker}</ToggleGroupItem>
+            <ToggleGroupItem value="CLUSTER">Every broker</ToggleGroupItem>
+          </ToggleGroup>
+        </div>
+        <FieldDescription id={`${id}-scope-hint`}>
+          {scope === "BROKER"
             ? `Broker ${broker} keeps this value whatever the cluster default.`
-            : "Brokers that set their own value keep it."
-        }
-      >
-        <ToggleGroup
-          value={[scope]}
-          onValueChange={(next) => {
-            if (next[0]) setScope(next[0] === "CLUSTER" ? "CLUSTER" : "BROKER");
-          }}
-          variant="outline"
-          size="sm"
-          spacing={0}
-          aria-label="Applies to"
-        >
-          <ToggleGroupItem value="BROKER">Broker {broker}</ToggleGroupItem>
-          <ToggleGroupItem value="CLUSTER">Every broker</ToggleGroupItem>
-        </ToggleGroup>
+            : "Brokers that set their own value keep it."}
+        </FieldDescription>
       </Field>
     </SheetForm>
   );
