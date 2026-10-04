@@ -14,6 +14,7 @@ use crate::app::auth::access::{
 use crate::kafka::model::{
     CommittedOffset, ConfigEdit, FoundRecord, NewRecord, NewSchema, NewTopic, OffsetMove,
     OffsetReset, ProducedRecord, RecordAt, RecordDeletion, RegisteredSchema, RegisteredVersion,
+    SchemaDeletion,
 };
 use crate::kafka::store::{ClusterStore, GroupInfo, Lane, TopicInfo};
 use crate::kafka::{
@@ -435,6 +436,41 @@ impl Granted<'_, ManageSchemasCap> {
         })
         .await;
         Ok(registered)
+    }
+
+    pub(crate) async fn delete_schema(&self, deletion: &SchemaDeletion) -> Result<(), KafkaError> {
+        let subject = deletion.subject.as_str();
+        let known = self.cluster.store.subjects.load().is_some_and(|table| {
+            table.get(subject).is_some_and(|info| {
+                deletion
+                    .version
+                    .is_none_or(|version| info.versions.contains(&version))
+            })
+        });
+        if !known {
+            return Err(KafkaError::UnknownSubject {
+                cluster: self.cluster.store.name().to_owned(),
+                subject: subject.to_owned(),
+                version: deletion.version.unwrap_or(0),
+            });
+        }
+        self.cluster.session.delete_schema(deletion).await?;
+        tracing::info!(
+            cluster = %self.cluster.store.name(),
+            subject = %subject,
+            version = deletion.version,
+            permanent = deletion.permanent,
+            "deleted schema"
+        );
+        self.settle(&self.cluster.store.subjects, |table| {
+            table.get(subject).is_none_or(|info| {
+                deletion
+                    .version
+                    .is_some_and(|version| !info.versions.contains(&version))
+            })
+        })
+        .await;
+        Ok(())
     }
 }
 

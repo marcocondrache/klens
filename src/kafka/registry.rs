@@ -91,6 +91,16 @@ pub struct NewSchema {
     pub references: Vec<SchemaReference>,
 }
 
+/// Deletes one version of `subject`, or every version without one. A soft
+/// delete hides it from reads and keeps its ids resolvable for records that
+/// carry them. A permanent delete soft-deletes first, as the registry asks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SchemaDeletion {
+    pub subject: String,
+    pub version: Option<i32>,
+    pub permanent: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RegisteredVersion {
     pub id: i32,

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use futures::StreamExt;
+use schemreg::error::error_code;
 use schemreg::{
     CachedSchemaRegistry, ConfluentSchemaRegistry, RetryPolicy, Schema, SchemaId, SchemaRegError,
     SchemaRegistryClient as _, SchemaVersion,
@@ -11,8 +12,8 @@ use tokio::sync::OnceCell;
 use crate::config::{SchemaRegistry, SchemaRegistryTuning};
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
-    NewSchema, RegisteredSchema, RegisteredVersion, SchemaCompatibility, SchemaReference,
-    SchemaSubject,
+    NewSchema, RegisteredSchema, RegisteredVersion, SchemaCompatibility, SchemaDeletion,
+    SchemaReference, SchemaSubject,
 };
 
 const MAX_CACHED_SCHEMAS: usize = 10_000;
@@ -149,6 +150,50 @@ impl SchemaRegistryClient {
         })
     }
 
+    pub async fn delete(&self, deletion: &SchemaDeletion) -> Result<(), KafkaError> {
+        match self.delete_once(deletion, false).await {
+            Err(error) if deletion.permanent && is_soft_deleted(&error) => {}
+            soft => soft.map_err(|error| self.deletion_error(deletion, error))?,
+        }
+        if deletion.permanent {
+            self.delete_once(deletion, true)
+                .await
+                .map_err(|error| self.deletion_error(deletion, error))?;
+        }
+        Ok(())
+    }
+
+    async fn delete_once(
+        &self,
+        deletion: &SchemaDeletion,
+        permanent: bool,
+    ) -> Result<(), SchemaRegError> {
+        match deletion.version {
+            None => self
+                .registry
+                .delete_subject(&deletion.subject, permanent)
+                .await
+                .map(drop),
+            Some(version) => self
+                .registry
+                .delete_version(&deletion.subject, SchemaVersion::new(version), permanent)
+                .await
+                .map(drop),
+        }
+    }
+
+    fn deletion_error(&self, deletion: &SchemaDeletion, error: SchemaRegError) -> KafkaError {
+        if error.is_not_found() {
+            KafkaError::UnknownSubject {
+                cluster: self.cluster.clone(),
+                subject: deletion.subject.clone(),
+                version: deletion.version.unwrap_or(0),
+            }
+        } else {
+            self.refusal(error)
+        }
+    }
+
     /// A registry answers a write it will not take with a 4xx code and a
     /// message meant for the user. Confluent sends an incompatible schema as
     /// a bare 409 and an invalid one as 42201.
@@ -234,14 +279,20 @@ impl SchemaRegistryClient {
     }
 }
 
+fn is_soft_deleted(error: &SchemaRegError) -> bool {
+    matches!(
+        error.error_code(),
+        Some(error_code::SUBJECT_SOFT_DELETED | error_code::VERSION_SOFT_DELETED)
+    )
+}
+
 /// Confluent reports a subject with no compatibility override as `40408`, which
 /// is a 404 the crate does not classify as not-found because it is not about a
 /// missing subject. Registries that do not implement the code answer a bare
 /// 404 instead.
 fn is_unconfigured(error: &SchemaRegError) -> bool {
     error.is_not_found()
-        || error.error_code()
-            == Some(schemreg::error::error_code::SUBJECT_COMPATIBILITY_NOT_CONFIGURED)
+        || error.error_code() == Some(error_code::SUBJECT_COMPATIBILITY_NOT_CONFIGURED)
 }
 
 pub(crate) fn schema_id(schema: &Schema) -> Option<i32> {
@@ -375,6 +426,17 @@ mod tests {
             1,
             "the global default is read once per sweep"
         );
+    }
+
+    #[tokio::test]
+    async fn a_failing_config_read_falls_back_to_none_not_the_global_default() {
+        let registry = registry_of(&["orders-value"]).await;
+        registry.set_global_compatibility("BACKWARD");
+        registry.fail("/config/orders-value");
+
+        let subjects = registry.client().subjects().await.unwrap();
+
+        assert_eq!(subjects[0].compatibility, SchemaCompatibility::None);
     }
 
     #[tokio::test]
@@ -557,6 +619,166 @@ mod tests {
         let error = registry
             .client()
             .register(&new_schema("orders-value", r#""int""#))
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(error, KafkaError::SchemaRegistry { .. }),
+            "{error:?}"
+        );
+    }
+
+    fn deletion(version: Option<i32>, permanent: bool) -> SchemaDeletion {
+        SchemaDeletion {
+            subject: "orders-value".to_owned(),
+            version,
+            permanent,
+        }
+    }
+
+    async fn two_versions() -> FakeRegistry {
+        let registry = registry_of(&["orders-value"]).await;
+        registry.register("orders-value", 2, 2, Schema::avro(r#""int""#));
+        registry
+    }
+
+    async fn deletes(registry: &FakeRegistry) -> Vec<String> {
+        registry
+            .requests()
+            .await
+            .iter()
+            .filter(|request| request.method == wiremock::http::Method::DELETE)
+            .map(|request| request.url[url::Position::BeforePath..].to_owned())
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn a_soft_deleted_version_leaves_the_subject() {
+        let registry = two_versions().await;
+
+        registry
+            .client()
+            .delete(&deletion(Some(1), false))
+            .await
+            .unwrap();
+
+        let subjects = registry.client().subjects().await.unwrap();
+        assert_eq!(subjects[0].versions, vec![2]);
+        assert_eq!(
+            deletes(&registry).await,
+            vec!["/subjects/orders-value/versions/1"]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_soft_deleted_subject_leaves_the_listing() {
+        let registry = two_versions().await;
+
+        registry
+            .client()
+            .delete(&deletion(None, false))
+            .await
+            .unwrap();
+
+        assert!(registry.client().subjects().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_permanent_delete_soft_deletes_first() {
+        let registry = two_versions().await;
+
+        registry
+            .client()
+            .delete(&deletion(Some(2), true))
+            .await
+            .unwrap();
+        registry
+            .client()
+            .delete(&deletion(None, true))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            deletes(&registry).await,
+            vec![
+                "/subjects/orders-value/versions/2",
+                "/subjects/orders-value/versions/2?permanent=true",
+                "/subjects/orders-value",
+                "/subjects/orders-value?permanent=true",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_permanent_delete_finishes_a_soft_deleted_subject() {
+        let registry = two_versions().await;
+        let client = registry.client();
+
+        client.delete(&deletion(None, false)).await.unwrap();
+        client.delete(&deletion(None, true)).await.unwrap();
+
+        let error = client.delete(&deletion(None, true)).await.unwrap_err();
+        assert!(
+            matches!(&error, KafkaError::UnknownSubject { subject, version: 0, .. } if subject == "orders-value"),
+            "{error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn deleting_a_version_the_registry_does_not_hold_is_an_unknown_subject() {
+        let registry = two_versions().await;
+
+        let error = registry
+            .client()
+            .delete(&deletion(Some(9), false))
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(error, KafkaError::UnknownSubject { version: 9, .. }),
+            "{error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn soft_deleting_twice_carries_the_registry_refusal() {
+        let registry = two_versions().await;
+        let client = registry.client();
+
+        client.delete(&deletion(Some(1), false)).await.unwrap();
+        let error = client.delete(&deletion(Some(1), false)).await.unwrap_err();
+
+        assert!(
+            matches!(&error, KafkaError::RegistryRefused(message) if message == "Version was soft deleted."),
+            "{error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_delete_the_registry_refuses_carries_its_message() {
+        let registry = two_versions().await;
+        registry.refuse(422, 42206, "One or more references exist to the schema");
+
+        let error = registry
+            .client()
+            .delete(&deletion(Some(1), true))
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(&error, KafkaError::RegistryRefused(message) if message.starts_with("One or more references")),
+            "{error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_registry_that_fails_a_delete_is_a_registry_error() {
+        let registry = two_versions().await;
+        registry.fail("/subjects/orders-value");
+
+        let error = registry
+            .client()
+            .delete(&deletion(None, false))
             .await
             .unwrap_err();
 

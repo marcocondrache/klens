@@ -24,7 +24,8 @@ use crate::kafka::model::{
 };
 use crate::kafka::quota::QuotaListing;
 use crate::kafka::registry::{
-    NewSchema, RegisteredSchema, RegisteredVersion, SchemaCompatibility, SchemaSubject, SchemaType,
+    NewSchema, RegisteredSchema, RegisteredVersion, SchemaCompatibility, SchemaDeletion,
+    SchemaSubject, SchemaType,
 };
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
@@ -64,6 +65,7 @@ pub enum Api {
     DeleteGroup,
     DeleteGroupOffsets,
     RegisterSchema,
+    DeleteSchema,
 }
 
 #[derive(Clone)]
@@ -401,12 +403,13 @@ impl FakeCluster {
         match self.world().faults.get(&api) {
             None => Ok(()),
             Some(message) => Err(match api {
-                Api::SchemaSubjects | Api::SubjectSchema | Api::RegisterSchema => {
-                    KafkaError::SchemaRegistry {
-                        cluster: self.identity.name.clone(),
-                        message: message.clone(),
-                    }
-                }
+                Api::SchemaSubjects
+                | Api::SubjectSchema
+                | Api::RegisterSchema
+                | Api::DeleteSchema => KafkaError::SchemaRegistry {
+                    cluster: self.identity.name.clone(),
+                    message: message.clone(),
+                },
                 _ => KafkaError::Admin(message.clone()),
             }),
         }
@@ -970,5 +973,41 @@ impl ClusterSession for FakeCluster {
             },
         );
         Ok(RegisteredVersion { id, version })
+    }
+
+    async fn delete_schema(&self, deletion: &SchemaDeletion) -> Result<(), KafkaError> {
+        self.answer(Api::DeleteSchema).await?;
+        let mut world = self.world();
+        if !world.schema_registry {
+            return Err(KafkaError::NoSchemaRegistry(self.identity.name.clone()));
+        }
+        let unknown = || KafkaError::UnknownSubject {
+            cluster: self.identity.name.clone(),
+            subject: deletion.subject.clone(),
+            version: deletion.version.unwrap_or(0),
+        };
+        let index = world
+            .subjects
+            .iter()
+            .position(|subject| subject.subject == deletion.subject)
+            .ok_or_else(unknown)?;
+        let subject = &mut world.subjects[index];
+        match deletion.version {
+            Some(version) if subject.versions.contains(&version) => {
+                subject.versions.retain(|&kept| kept != version);
+            }
+            Some(_) => return Err(unknown()),
+            None => subject.versions.clear(),
+        }
+        match subject.versions.last() {
+            Some(&latest) => subject.latest_version = latest,
+            None => {
+                world.subjects.remove(index);
+            }
+        }
+        world.schemas.retain(|(subject, version), _| {
+            *subject != deletion.subject || deletion.version.is_some_and(|gone| gone != *version)
+        });
+        Ok(())
     }
 }

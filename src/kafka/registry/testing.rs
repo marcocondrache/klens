@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use percent_encoding::percent_decode_str;
@@ -87,7 +87,16 @@ struct Contents {
 struct Subject {
     name: String,
     versions: BTreeMap<i32, u32>,
+    soft_deleted: BTreeSet<i32>,
     compatibility: Option<String>,
+}
+
+impl Subject {
+    fn live(&self) -> impl DoubleEndedIterator<Item = (&i32, &u32)> {
+        self.versions
+            .iter()
+            .filter(|(version, _)| !self.soft_deleted.contains(version))
+    }
 }
 
 struct Fault {
@@ -155,7 +164,7 @@ impl FakeRegistry {
         self.contents().ignores_default_to_global = true;
     }
 
-    /// Refuses the next registration with an HTTP status and a registry error code.
+    /// Refuses the next write with an HTTP status and a registry error code.
     pub fn refuse(&self, status: u16, code: u32, message: &str) {
         self.contents().refusal = Some((status, code, message.to_owned()));
     }
@@ -208,6 +217,22 @@ impl Contents {
         }
 
         let segments: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+        if request.method == Method::DELETE {
+            if let Some(refusal) = self.refused() {
+                return refusal;
+            }
+            let permanent = request
+                .url
+                .query_pairs()
+                .any(|(key, value)| key == "permanent" && value == "true");
+            return match segments.as_slice() {
+                ["subjects", subject] => self.delete_subject(subject, permanent),
+                ["subjects", subject, "versions", version] => {
+                    self.delete_version(subject, version, permanent)
+                }
+                _ => ResponseTemplate::new(404),
+            };
+        }
         if request.method == Method::POST {
             let schema = Schema::parse(&request.body);
             return match segments.as_slice() {
@@ -223,12 +248,18 @@ impl Contents {
             ["subjects"] => found(json!(
                 self.subjects
                     .iter()
+                    .filter(|subject| subject.live().next().is_some())
                     .map(|subject| &subject.name)
                     .collect::<Vec<_>>()
             )),
             ["subjects", subject, "versions"] => match self.subject(subject) {
-                Some(subject) => found(json!(subject.versions.keys().collect::<Vec<_>>())),
-                None => missing(40401, "Subject not found."),
+                Some(subject) if subject.live().next().is_some() => found(json!(
+                    subject
+                        .live()
+                        .map(|(version, _)| version)
+                        .collect::<Vec<_>>()
+                )),
+                _ => missing(40401, "Subject not found."),
             },
             ["subjects", subject, "versions", version] => self.version(subject, version),
             ["schemas", "ids", id] => match id.parse().ok().and_then(|id| self.schemas.get(&id)) {
@@ -263,10 +294,76 @@ impl Contents {
         true
     }
 
+    fn refused(&mut self) -> Option<ResponseTemplate> {
+        let (status, code, message) = self.refusal.take()?;
+        Some(
+            ResponseTemplate::new(status)
+                .set_body_json(json!({ "error_code": code, "message": message })),
+        )
+    }
+
+    fn delete_subject(&mut self, segment: &str, permanent: bool) -> ResponseTemplate {
+        let Some(index) = self
+            .subjects
+            .iter()
+            .position(|subject| encoded(&subject.name) == segment)
+        else {
+            return missing(40401, "Subject not found.");
+        };
+        let subject = &mut self.subjects[index];
+        let live: Vec<i32> = subject.live().map(|(version, _)| *version).collect();
+        match (permanent, live.is_empty()) {
+            (false, true) => missing(40404, "Subject was soft deleted."),
+            (false, false) => {
+                subject.soft_deleted.extend(&live);
+                found(json!(live))
+            }
+            (true, false) => missing(40405, "Subject was not deleted first."),
+            (true, true) => {
+                let removed = self.subjects.remove(index);
+                found(json!(removed.versions.keys().collect::<Vec<_>>()))
+            }
+        }
+    }
+
+    fn delete_version(
+        &mut self,
+        segment: &str,
+        version: &str,
+        permanent: bool,
+    ) -> ResponseTemplate {
+        let Some(subject) = self
+            .subjects
+            .iter_mut()
+            .find(|subject| encoded(&subject.name) == segment)
+        else {
+            return missing(40401, "Subject not found.");
+        };
+        let Some(version) = version
+            .parse()
+            .ok()
+            .filter(|version| subject.versions.contains_key(version))
+        else {
+            return missing(40402, "Version not found.");
+        };
+        match (permanent, subject.soft_deleted.contains(&version)) {
+            (false, true) => missing(40406, "Version was soft deleted."),
+            (false, false) => {
+                subject.soft_deleted.insert(version);
+                found(json!(version))
+            }
+            (true, false) => missing(40407, "Version was not deleted first."),
+            (true, true) => {
+                subject.versions.remove(&version);
+                subject.soft_deleted.remove(&version);
+                found(json!(version))
+            }
+        }
+    }
+
     fn register_version(&mut self, segment: &str, schema: Schema) -> ResponseTemplate {
-        if let Some((status, code, message)) = self.refusal.take() {
-            return ResponseTemplate::new(status)
-                .set_body_json(json!({ "error_code": code, "message": message }));
+        if let Some(refusal) = self.refused() {
+            return refusal;
         }
         if let Some(version) = self.find(segment, &schema) {
             let id = self.subject(segment).expect("a found subject").versions[&version];
@@ -291,6 +388,7 @@ impl Contents {
             None => self.subjects.push(Subject {
                 name: subject.to_owned(),
                 versions: BTreeMap::from([(version, id)]),
+                soft_deleted: BTreeSet::new(),
                 compatibility: None,
             }),
         }
@@ -298,8 +396,7 @@ impl Contents {
 
     fn find(&self, segment: &str, schema: &Schema) -> Option<i32> {
         self.subject(segment)?
-            .versions
-            .iter()
+            .live()
             .find(|(_, id)| self.schemas.get(id) == Some(schema))
             .map(|(version, _)| *version)
     }
@@ -315,11 +412,11 @@ impl Contents {
             return missing(40401, "Subject not found.");
         };
         let entry = match version {
-            "latest" => subject.versions.last_key_value(),
+            "latest" => subject.live().next_back(),
             number => number
-                .parse()
+                .parse::<i32>()
                 .ok()
-                .and_then(|number| subject.versions.get_key_value(&number)),
+                .and_then(|number| subject.live().find(|(version, _)| **version == number)),
         };
         let Some((version, id)) = entry else {
             return missing(40402, "Version not found.");
