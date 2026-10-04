@@ -9,7 +9,9 @@ pub use crate::kafka::metadata::{
     MetadataSnapshot, NewTopic, RecordDeletion, TopicMetadata, Watermarks,
 };
 pub use crate::kafka::produce::{NewRecord, ProducedRecord};
-pub use crate::kafka::quota::{ClientQuota, QuotaEntityType, QuotaListing};
+pub use crate::kafka::quota::{
+    ClientQuota, QuotaEntity, QuotaEntityType, QuotaListing, QuotaValues,
+};
 pub use crate::kafka::registry::{
     NewSchema, RegisteredSchema, RegisteredVersion, SchemaCompatibility, SchemaDeletion,
     SchemaReference, SchemaSubject, SchemaType,

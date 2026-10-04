@@ -19,7 +19,7 @@ use foldhash::{HashMap, HashMapExt};
 use itertools::Itertools as _;
 use krafka::admin::{
     AclFilter, ConfigResourceType, DescribeConfigsRequest, DescribeConfigsResource, GroupListing,
-    OffsetSpec, OffsetVisibility,
+    OffsetSpec, OffsetVisibility, QuotaAlteration,
 };
 use krafka::error::{KrafkaError, ProtocolErrorKind};
 use krafka::network::BrokerConnection;
@@ -41,7 +41,7 @@ use crate::kafka::model::{
     NewRecord, PartitionWindow, ProducedRecord, RecordDeletion, ScanConsumer, TailConsumer,
     TailPosition,
 };
-use crate::kafka::quota::{DescribedQuota, QuotaListing};
+use crate::kafka::quota::{ClientQuota, DescribedQuota, QuotaListing};
 use crate::kafka::registry::client::SchemaRegistryClient;
 use crate::kafka::registry::decode::PayloadDecoder;
 use crate::kafka::registry::{
@@ -580,6 +580,23 @@ impl ClusterSession for KafkaClient {
                 .into_iter()
                 .try_for_each(|matched| answered(matched.error_code, matched.error_message))
         })
+    }
+
+    async fn alter_client_quota(&self, quota: &ClientQuota) -> Result<(), KafkaError> {
+        let alteration = QuotaAlteration {
+            entity: quota
+                .entity
+                .iter()
+                .map(|part| (part.entity_type.wire(), part.name.as_deref()))
+                .collect(),
+            ops: quota.values.entries().to_vec(),
+        };
+        self.transport
+            .admin
+            .alter_client_quotas(&[alteration], false)
+            .await?
+            .into_iter()
+            .try_for_each(|altered| refused(altered.error))
     }
 }
 

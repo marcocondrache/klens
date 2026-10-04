@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import { getRouteApi } from "@tanstack/react-router";
 
 import { DataTable } from "@/components/data-table/data-table";
@@ -6,6 +7,7 @@ import { useTableSearch } from "@/components/data-table/use-table-search";
 import { LaneCaption } from "@/components/lane-caption";
 import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
+import { createDialogHandle } from "@/components/ui/dialog";
 import { useAccess } from "@/hooks/use-access";
 import { apiErrorMessage } from "@/lib/api/client";
 import { useQuotas } from "@/lib/api/catalog";
@@ -14,8 +16,15 @@ import { useClusterName } from "@/lib/clusters";
 
 import type { QuotasSearch } from "./search";
 import { entityKey } from "./quota-entity";
-import { quotaColumns } from "./quotas-columns";
+import { quotaActionColumn, quotaColumns } from "./quotas-columns";
 import { QUOTA_FILTERS, quotaMatches } from "./quotas-filters";
+import {
+  EditQuotaButton,
+  EditQuotaDialog,
+  NewQuotaDialog,
+  RemoveQuotaButton,
+  RemoveQuotaDialog,
+} from "./set-quota";
 
 const route = getRouteApi("/cluster/$cluster/quotas");
 
@@ -31,11 +40,29 @@ export function QuotasPage() {
   function setSearch(patch: Partial<QuotasSearch>) {
     void navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true });
   }
-  const { can } = useAccess();
+  const { can, canChange } = useAccess();
   const canConfigs = can(cluster, "CONFIGS");
   const { data, isPending, isError, error } = useQuotas(cluster, canConfigs);
   const lane = data?.sourceHealth;
   const status = data?.status;
+  const canManage = status === "DESCRIBED" && canChange(cluster, "MANAGE_ACLS");
+  const [editor] = useState(() => createDialogHandle<ClientQuota>());
+  const [remover] = useState(() => createDialogHandle<ClientQuota>());
+  const columns = useMemo(
+    () =>
+      canManage
+        ? [
+            ...quotaColumns,
+            quotaActionColumn((quota) => (
+              <>
+                <EditQuotaButton handle={editor} quota={quota} />
+                <RemoveQuotaButton handle={remover} quota={quota} />
+              </>
+            )),
+          ]
+        : quotaColumns,
+    [canManage, editor, remover],
+  );
   const denied = status === "DENIED";
   const quotas = data?.quotas ?? EMPTY_QUOTAS;
 
@@ -61,10 +88,11 @@ export function QuotasPage() {
             <LaneCaption lane={lane} />
           </>
         }
+        actions={canManage ? <NewQuotaDialog cluster={cluster} /> : null}
       />
 
       <DataTable
-        columns={quotaColumns}
+        columns={columns}
         data={rows}
         getRowId={entityKey}
         toolbar={
@@ -85,6 +113,12 @@ export function QuotasPage() {
         }
         defaultSort={{ id: "entity", direction: "asc" }}
       />
+      {canManage ? (
+        <>
+          <EditQuotaDialog cluster={cluster} handle={editor} />
+          <RemoveQuotaDialog cluster={cluster} handle={remover} />
+        </>
+      ) : null}
     </div>
   );
 }

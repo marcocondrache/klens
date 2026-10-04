@@ -141,3 +141,86 @@ fn any_other_describe_error_fails_the_call() {
         "{error:?}"
     );
 }
+
+#[test]
+fn every_entity_type_names_itself_on_the_wire_as_kafka_does() {
+    for entity_type in [
+        QuotaEntityType::User,
+        QuotaEntityType::ClientId,
+        QuotaEntityType::Ip,
+    ] {
+        assert_eq!(
+            QuotaEntityType::from_wire(entity_type.wire()),
+            Some(entity_type)
+        );
+    }
+}
+
+#[test]
+fn every_value_keeps_its_kafka_key() {
+    for (index, (key, _)) in QuotaValues::default().entries().into_iter().enumerate() {
+        let mut values = QuotaValues::default();
+        values.set(key, 7.0);
+
+        let entries = values.entries();
+        assert_eq!(entries[index], (key, Some(7.0)));
+        assert_eq!(
+            entries.iter().filter(|(_, value)| value.is_some()).count(),
+            1
+        );
+    }
+}
+
+#[test]
+fn a_quota_reads_as_its_entity_and_the_values_it_sets() {
+    let quota = ClientQuota {
+        entity: vec![
+            part(QuotaEntityType::User, Some("alice")),
+            part(QuotaEntityType::ClientId, None),
+        ],
+        values: QuotaValues {
+            producer_byte_rate: Some(1_048_576.0),
+            request_percentage: Some(12.5),
+            ..QuotaValues::default()
+        },
+    };
+
+    assert_eq!(
+        quota.to_string(),
+        "user=alice client-id=<default>: producer_byte_rate=1048576 request_percentage=12.5"
+    );
+    let cleared = ClientQuota {
+        values: QuotaValues::default(),
+        ..quota
+    };
+    assert_eq!(cleared.to_string(), "user=alice client-id=<default>: none");
+}
+
+#[test]
+fn a_listing_finds_the_values_of_exactly_one_entity() {
+    let listing = QuotaListing::from_describe(
+        "local",
+        None,
+        vec![
+            described(&[("user", Some("alice"))], &[("producer_byte_rate", 1.0)]),
+            described(
+                &[("user", Some("alice")), ("client-id", Some("checkout"))],
+                &[("producer_byte_rate", 2.0)],
+            ),
+        ],
+    )
+    .unwrap();
+    let alice = [part(QuotaEntityType::User, Some("alice"))];
+
+    assert_eq!(
+        listing
+            .values(&alice)
+            .and_then(|values| values.producer_byte_rate),
+        Some(1.0)
+    );
+    assert_eq!(
+        listing.values(&[part(QuotaEntityType::User, Some("bob"))]),
+        None
+    );
+    assert_eq!(QuotaListing::Denied.values(&alice), None);
+}

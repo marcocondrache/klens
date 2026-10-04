@@ -12,9 +12,9 @@ use crate::app::auth::access::{
     ManageSchemasCap, ManageTopicsCap, ProduceCap, RecordsCap, SchemaTextCap,
 };
 use crate::kafka::model::{
-    Acl, CommittedOffset, ConfigEdit, FoundRecord, NewRecord, NewSchema, NewTopic, OffsetMove,
-    OffsetReset, ProducedRecord, RecordAt, RecordDeletion, RegisteredSchema, RegisteredVersion,
-    SchemaCompatibility, SchemaDeletion,
+    Acl, ClientQuota, CommittedOffset, ConfigEdit, FoundRecord, NewRecord, NewSchema, NewTopic,
+    OffsetMove, OffsetReset, ProducedRecord, QuotaValues, RecordAt, RecordDeletion,
+    RegisteredSchema, RegisteredVersion, SchemaCompatibility, SchemaDeletion,
 };
 use crate::kafka::store::{ClusterStore, GroupInfo, Lane, TopicInfo};
 use crate::kafka::{
@@ -526,6 +526,20 @@ impl Granted<'_, ManageAclsCap> {
         tracing::info!(cluster = %self.cluster.store.name(), %acl, "deleted acl");
         self.settle(&self.cluster.store.acls, |listing| !listing.contains(acl))
             .await;
+        Ok(())
+    }
+
+    pub(crate) async fn set_client_quota(&self, quota: &ClientQuota) -> Result<(), KafkaError> {
+        self.cluster.session.alter_client_quota(quota).await?;
+        tracing::info!(cluster = %self.cluster.store.name(), %quota, "set client quota");
+        self.settle(&self.cluster.store.quotas, |listing| {
+            listing
+                .values(&quota.entity)
+                .map_or(quota.values == QuotaValues::default(), |values| {
+                    *values == quota.values
+                })
+        })
+        .await;
         Ok(())
     }
 }
