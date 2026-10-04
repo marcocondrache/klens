@@ -53,7 +53,7 @@ use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::storage::LogDir;
-use crate::kafka::topic_config::{ConfigEdit, ConfigEntry};
+use crate::kafka::topic_config::{BrokerScope, ConfigEdit, ConfigEntry};
 
 use convert::{altered, answered, committed_from_krafka, produce_refusal, refused};
 use groups::{
@@ -428,11 +428,35 @@ impl ClusterSession for KafkaClient {
     }
 
     async fn alter_topic_configs(&self, topic: &str, edit: &ConfigEdit) -> Result<(), KafkaError> {
-        self.alter_configs(IncrementalAlterConfigsResource {
-            resource_type: ConfigResourceType::Topic,
-            resource_name: topic.to_owned(),
-            configs: edit.to_krafka(),
-        })
+        let connection = self.transport.admin.get_controller_connection().await?;
+        alter_configs(
+            &connection,
+            IncrementalAlterConfigsResource {
+                resource_type: ConfigResourceType::Topic,
+                resource_name: topic.to_owned(),
+                configs: edit.to_krafka(),
+            },
+        )
+        .await
+    }
+
+    async fn alter_broker_configs(
+        &self,
+        scope: BrokerScope,
+        edit: &ConfigEdit,
+    ) -> Result<(), KafkaError> {
+        let connection = match scope {
+            BrokerScope::Broker(id) => self.broker_connection(id).await?,
+            BrokerScope::Cluster => self.transport.admin.get_controller_connection().await?,
+        };
+        alter_configs(
+            &connection,
+            IncrementalAlterConfigsResource {
+                resource_type: ConfigResourceType::Broker,
+                resource_name: scope.resource_name(),
+                configs: edit.to_krafka(),
+            },
+        )
         .await
     }
 
@@ -623,27 +647,6 @@ impl KafkaClient {
             .await?)
     }
 
-    // krafka's admin client only sends SET operations, and a reset needs DELETE.
-    async fn alter_configs(
-        &self,
-        resource: IncrementalAlterConfigsResource,
-    ) -> Result<(), KafkaError> {
-        let connection = self.transport.admin.get_controller_connection().await?;
-        let request = IncrementalAlterConfigsRequest {
-            resources: vec![resource],
-            validate_only: false,
-        };
-        altered(
-            call(
-                &connection,
-                ApiKey::IncrementalAlterConfigs,
-                versions::INCREMENTAL_ALTER_CONFIGS_MIN..=versions::INCREMENTAL_ALTER_CONFIGS_MAX,
-                &request,
-            )
-            .await?,
-        )
-    }
-
     // krafka sends DeleteGroups to any broker, and only the group's
     // coordinator accepts it.
     async fn group_coordinator(&self, group: &str) -> Result<Arc<BrokerConnection>, KafkaError> {
@@ -669,6 +672,26 @@ impl KafkaClient {
             .get_connection_by_id(found.node_id, &address)
             .await?)
     }
+}
+
+// krafka's admin client only sends SET operations, and a reset needs DELETE.
+async fn alter_configs(
+    connection: &BrokerConnection,
+    resource: IncrementalAlterConfigsResource,
+) -> Result<(), KafkaError> {
+    let request = IncrementalAlterConfigsRequest {
+        resources: vec![resource],
+        validate_only: false,
+    };
+    altered(
+        call(
+            connection,
+            ApiKey::IncrementalAlterConfigs,
+            versions::INCREMENTAL_ALTER_CONFIGS_MIN..=versions::INCREMENTAL_ALTER_CONFIGS_MAX,
+            &request,
+        )
+        .await?,
+    )
 }
 
 /// Sends a request at the newest version both sides speak.

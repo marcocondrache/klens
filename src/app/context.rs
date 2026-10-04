@@ -12,8 +12,8 @@ use crate::app::auth::access::{
     ManageSchemasCap, ManageTopicsCap, ProduceCap, RecordsCap, SchemaTextCap,
 };
 use crate::kafka::model::{
-    Acl, ClientQuota, CommittedOffset, ConfigEdit, FoundRecord, NewRecord, NewSchema, NewTopic,
-    OffsetMove, OffsetReset, ProducedRecord, QuotaValues, RecordAt, RecordDeletion,
+    Acl, ClientQuota, CommittedOffset, ConfigEdit, ConfigSource, FoundRecord, NewRecord, NewSchema,
+    NewTopic, OffsetMove, OffsetReset, ProducedRecord, QuotaValues, RecordAt, RecordDeletion,
     RegisteredSchema, RegisteredVersion, SchemaCompatibility, SchemaDeletion,
 };
 use crate::kafka::store::{ClusterStore, GroupInfo, Lane, TopicInfo};
@@ -174,7 +174,7 @@ impl Granted<'_, ManageTopicsCap> {
         self.settle(&self.cluster.store.configs, |table| {
             table
                 .get(topic)
-                .is_some_and(|entries| edit.shows_in(entries))
+                .is_some_and(|entries| edit.shows_in(entries, ConfigSource::DynamicTopic))
         })
         .await;
         Ok(())

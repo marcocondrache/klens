@@ -31,7 +31,7 @@ use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::storage::LogDir;
-use crate::kafka::topic_config::{ConfigEdit, ConfigEntry};
+use crate::kafka::topic_config::{BrokerScope, ConfigEdit, ConfigEntry};
 use crate::testing::yaml;
 
 const SUBJECT_SCHEMA: &str =
@@ -58,6 +58,7 @@ pub enum Api {
     CreateTopic,
     DeleteTopic,
     AlterTopicConfigs,
+    AlterBrokerConfigs,
     AddPartitions,
     DeleteRecords,
     Produce,
@@ -764,6 +765,30 @@ impl ClusterSession for FakeCluster {
                 .iter()
                 .map(|(name, value)| config_entry(name, value)),
         );
+        Ok(())
+    }
+
+    async fn alter_broker_configs(
+        &self,
+        scope: BrokerScope,
+        edit: &ConfigEdit,
+    ) -> Result<(), KafkaError> {
+        self.answer(Api::AlterBrokerConfigs).await?;
+        let mut world = self.world();
+        let source = scope.source();
+        for (id, entries) in &mut world.broker_configs {
+            if scope != BrokerScope::Cluster && scope != BrokerScope::Broker(*id) {
+                continue;
+            }
+            entries.retain(|entry| {
+                entry.source != source
+                    || !edit.reset.contains(&entry.name) && !edit.set.contains_key(&entry.name)
+            });
+            entries.extend(edit.set.iter().map(|(name, value)| ConfigEntry {
+                source,
+                ..config_entry(name, value)
+            }));
+        }
         Ok(())
     }
 

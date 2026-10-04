@@ -26,7 +26,7 @@ use crate::kafka::metadata::{
 };
 use crate::kafka::produce::NewRecord;
 use crate::kafka::storage::{LogDir, ReplicaLog, volume_bytes};
-use crate::kafka::topic_config::{ConfigEdit, ConfigEntry, ConfigSource};
+use crate::kafka::topic_config::{BrokerScope, ConfigEdit, ConfigEntry, ConfigSource};
 
 impl MetadataSnapshot {
     pub(super) fn from_krafka(cache: &ClusterMetadata) -> Self {
@@ -283,6 +283,15 @@ impl From<DescribeConfigsEntry> for ConfigEntry {
     }
 }
 
+impl BrokerScope {
+    pub(super) fn resource_name(self) -> String {
+        match self {
+            Self::Broker(id) => id.to_string(),
+            Self::Cluster => String::new(),
+        }
+    }
+}
+
 impl ConfigSource {
     fn from_krafka(source: i8) -> Self {
         match source {
@@ -320,6 +329,12 @@ mod tests {
         assert_eq!(ConfigSource::from_krafka(0), ConfigSource::Default);
         assert_eq!(ConfigSource::from_krafka(6), ConfigSource::Default);
         assert_eq!(ConfigSource::from_krafka(-1), ConfigSource::Default);
+    }
+
+    #[test]
+    fn a_broker_scope_names_its_broker_and_the_cluster_default_names_none() {
+        assert_eq!(BrokerScope::Broker(12).resource_name(), "12");
+        assert_eq!(BrokerScope::Cluster.resource_name(), "");
     }
 
     #[test]
