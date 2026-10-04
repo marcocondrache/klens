@@ -223,9 +223,10 @@ same access as an open deployment.
 To restrict what signed-in users may do, add `roles`. A role is nothing but a
 name for a set of privileges, defined by you: there are no built-in roles. The
 privileges are `records`, `configs`, `schema_text`, and `acls` to read,
-`manage_topics` to create and delete topics on a writable cluster, `produce`
-to write records to one, and `manage_groups` to reset the committed offsets of
-a consumer group on one. A role that lists none still sees the catalog
+`manage_topics` to create, edit, and delete topics and their records on a
+writable cluster, `produce` to write records to one, and `manage_groups` to
+reset or delete a consumer group's committed offsets, or the group itself, on
+one. A role that lists none still sees the catalog
 (clusters, topics, groups, lag, sizes) but no payloads, live configs, schema
 bodies, or ACL bindings. A role's `bindings` name the IdP groups that
 hold it, read from the ID token claim that `oidc.groups_claim` names (default
