@@ -15,10 +15,10 @@ import { useClusterName } from "@/lib/clusters";
 import { apiErrorMessage } from "@/lib/api/client";
 
 import type { AclsSearch } from "./search";
-import { aclActionColumn, aclColumns, aclRowId } from "./acls-columns";
+import { aclColumns, aclDeleteColumn, aclRowId } from "./acls-columns";
 import { ACL_FILTERS, aclMatches } from "./acls-filters";
-import { CreateAclDialog } from "./create-acl";
-import { DeleteAclButton, DeleteAclDialog } from "./delete-acl";
+import { CreateAclSheet } from "./create-acl";
+import { DeleteAclDialog } from "./delete-acl";
 
 const route = getRouteApi("/cluster/$cluster/acls");
 
@@ -45,7 +45,7 @@ export function AclsPage() {
   const columns = useMemo(
     () =>
       canDelete
-        ? [...aclColumns, aclActionColumn((acl) => <DeleteAclButton handle={deleter} acl={acl} />)]
+        ? [...aclColumns, aclDeleteColumn((acl) => deleter.openWithPayload(acl))]
         : aclColumns,
     [canDelete, deleter],
   );
@@ -74,7 +74,6 @@ export function AclsPage() {
             <LaneCaption lane={lane} />
           </>
         }
-        actions={canCreate ? <CreateAclDialog cluster={cluster} /> : null}
       />
 
       <DataTable
@@ -86,6 +85,8 @@ export function AclsPage() {
             <SearchField {...searchInput} placeholder="Search ACLs…" />
 
             <FilterBar {...filterBar} />
+
+            {canCreate ? <CreateAclSheet cluster={cluster} /> : null}
           </>
         }
         loading={isPending || (status === "PENDING" && lane?.lastError == null)}
