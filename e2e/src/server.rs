@@ -93,6 +93,10 @@ impl Klens {
         self.send(Method::POST, path, Some(body)).await
     }
 
+    pub async fn put(&self, path: &str, body: &Value) -> (StatusCode, Value) {
+        self.send(Method::PUT, path, Some(body)).await
+    }
+
     pub async fn patch(&self, path: &str, body: &Value) -> (StatusCode, Value) {
         self.send(Method::PATCH, path, Some(body)).await
     }

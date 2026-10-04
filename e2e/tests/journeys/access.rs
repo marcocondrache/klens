@@ -3,6 +3,7 @@ use reqwest::StatusCode;
 use serde_json::{Value, json};
 
 const ACLS: &str = "/api/clusters/local/acls";
+const QUOTAS: &str = "/api/clusters/local/quotas";
 
 #[tokio::test]
 async fn acls_on_a_broker_without_an_authorizer_are_disabled_not_failing() {
@@ -109,4 +110,55 @@ async fn a_binding_kafka_refuses_carries_the_broker_reason() {
             .is_some_and(|error| error.contains("alice")),
         "{body}"
     );
+}
+
+#[tokio::test]
+async fn a_client_quota_set_through_klens_is_listed_and_removed_again() {
+    let kafka = Kafka::start().await;
+    let klens = Klens::over(&kafka).await;
+    let bob = json!([{ "entityType": "USER", "name": "bob" }]);
+
+    let (status, body) = klens
+        .put(
+            QUOTAS,
+            &json!({ "entity": bob, "consumerByteRate": 2048.0, "requestPercentage": 50.0 }),
+        )
+        .await;
+
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    assert_eq!(
+        klens.get(QUOTAS).await["quotas"],
+        json!([{
+            "entity": bob,
+            "producerByteRate": null,
+            "consumerByteRate": 2048.0,
+            "requestPercentage": 50.0,
+            "controllerMutationRate": null,
+            "connectionCreationRate": null,
+        }])
+    );
+
+    let (status, body) = klens.put(QUOTAS, &json!({ "entity": bob })).await;
+
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    assert_eq!(klens.get(QUOTAS).await["quotas"], json!([]));
+}
+
+#[tokio::test]
+async fn a_quota_kafka_refuses_carries_the_broker_reason() {
+    let kafka = Kafka::start().await;
+    let klens = Klens::over(&kafka).await;
+
+    let (status, body) = klens
+        .put(
+            QUOTAS,
+            &json!({
+                "entity": [{ "entityType": "IP", "name": "10.0.0.7" }],
+                "producerByteRate": 1024.0,
+            }),
+        )
+        .await;
+
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(body["code"], "REFUSED");
 }

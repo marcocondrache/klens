@@ -98,6 +98,11 @@ impl TestApp {
             .await
     }
 
+    pub async fn put(&self, path: &str, body: &Value) -> Reply {
+        self.reply(json_request(Method::PUT, path, body.to_string()))
+            .await
+    }
+
     pub async fn patch(&self, path: &str, body: &Value) -> Reply {
         self.reply(json_request(Method::PATCH, path, body.to_string()))
             .await

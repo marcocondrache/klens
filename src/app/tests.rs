@@ -136,6 +136,14 @@ const WRITES: &[(Method, &str, Option<&str>, Privilege)] = &[
         None,
         Privilege::ManageAcls,
     ),
+    (
+        Method::PUT,
+        "/clusters/local/quotas",
+        Some(
+            r#"{ "entity": [{ "entityType": "USER", "name": "bob" }], "producerByteRate": 1024 }"#,
+        ),
+        Privilege::ManageAcls,
+    ),
 ];
 
 fn write(method: &Method, route: &str, body: Option<&str>) -> Request<Body> {

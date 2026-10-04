@@ -1,7 +1,12 @@
-use serde_json::json;
+use std::time::Duration;
+
+use axum::http::StatusCode;
+use serde_json::{Value, json};
+use tokio::time::Instant;
+use tracing::Level;
 
 use crate::kafka::model::QuotaListing;
-use crate::testing::{Api, FakeCluster, TestApp};
+use crate::testing::{Api, FakeCluster, LogCapture, TestApp, quiesce};
 
 #[tokio::test]
 async fn quotas_list_every_entity_type_with_its_values() {
@@ -98,4 +103,104 @@ async fn quotas_are_empty_and_pending_until_the_lane_commits() {
     assert_eq!(quotas["quotas"], json!([]));
     assert!(quotas["sourceHealth"]["updatedAt"].is_null());
     assert!(quotas["sourceHealth"]["lastError"].is_null());
+}
+
+async fn writable() -> TestApp {
+    TestApp::of([FakeCluster::local()])
+        .writable(&["local"])
+        .ingested()
+        .await
+}
+
+fn quota_of(listing: &Value, entity: &Value) -> Option<Value> {
+    listing["quotas"]
+        .as_array()
+        .expect("quotas")
+        .iter()
+        .find(|quota| quota["entity"] == *entity)
+        .cloned()
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_set_quota_is_listed_before_the_put_answers() {
+    let app = writable().await;
+    let mut rig = app.rig();
+    let lane = rig.quotas();
+    rig.spawn(lane);
+    quiesce().await;
+    let logs = LogCapture::at(Level::INFO);
+    let started = Instant::now();
+    let entity = json!([
+        { "entityType": "CLIENT_ID", "name": "checkout" },
+        { "entityType": "USER", "name": null },
+    ]);
+
+    app.put(
+        "/clusters/local/quotas",
+        &json!({ "entity": entity, "producerByteRate": 1024.0, "requestPercentage": 12.5 }),
+    )
+    .await
+    .expect(StatusCode::NO_CONTENT);
+
+    assert!(started.elapsed() < Duration::from_secs(1));
+    let listing = app.get("/clusters/local/quotas").await.ok();
+    let sorted = json!([
+        { "entityType": "USER", "name": null },
+        { "entityType": "CLIENT_ID", "name": "checkout" },
+    ]);
+    assert_eq!(
+        quota_of(&listing, &sorted),
+        Some(json!({
+            "entity": sorted,
+            "producerByteRate": 1024.0,
+            "consumerByteRate": null,
+            "requestPercentage": 12.5,
+            "controllerMutationRate": null,
+            "connectionCreationRate": null,
+        }))
+    );
+    logs.assert_contains(
+        "set client quota cluster=local quota=user=<default> client-id=checkout: producer_byte_rate=1024 request_percentage=12.5",
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_quota_left_with_no_values_leaves_the_listing_before_the_put_answers() {
+    let app = writable().await;
+    let mut rig = app.rig();
+    let lane = rig.quotas();
+    rig.spawn(lane);
+    quiesce().await;
+    let started = Instant::now();
+    let alice = json!([{ "entityType": "USER", "name": "alice" }]);
+
+    app.put("/clusters/local/quotas", &json!({ "entity": alice }))
+        .await
+        .expect(StatusCode::NO_CONTENT);
+
+    assert!(started.elapsed() < Duration::from_secs(1));
+    let listing = app.get("/clusters/local/quotas").await.ok();
+    assert_eq!(quota_of(&listing, &alice), None);
+}
+
+#[tokio::test]
+async fn a_quota_entity_names_each_type_once_and_at_least_one() {
+    let app = writable().await;
+
+    for entity in [
+        json!([]),
+        json!([
+            { "entityType": "USER", "name": "alice" },
+            { "entityType": "USER", "name": "bob" },
+        ]),
+    ] {
+        app.put(
+            "/clusters/local/quotas",
+            &json!({ "entity": entity, "producerByteRate": 1.0 }),
+        )
+        .await
+        .assert_error(StatusCode::UNPROCESSABLE_ENTITY, "INVALID_REQUEST");
+    }
+
+    assert_eq!(app.cluster().calls(Api::AlterClientQuota), 0);
 }
