@@ -81,7 +81,8 @@ record contents with [obfuscation](#obfuscation) rules.
 klens changes a cluster only when it sets `writable: true`, and then only for
 users who hold the privilege the change needs (see
 [Authentication](#authentication)). Without `auth`, everyone who reaches klens
-holds every privilege.
+holds every privilege, and klens logs a warning at startup that names each
+writable cluster.
 
 ### Secrets
 

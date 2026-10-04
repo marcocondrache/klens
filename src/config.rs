@@ -63,6 +63,17 @@ impl Config {
             .with_context(|| format!("failed to read {}", path.display()))?;
         parse(&yaml).with_context(|| format!("invalid config {}", path.display()))
     }
+
+    pub fn writable_without_auth(&self) -> Vec<&str> {
+        if self.auth.is_some() {
+            return Vec::new();
+        }
+        self.clusters
+            .iter()
+            .filter(|(_, cluster)| cluster.writable)
+            .map(|(name, _)| name.as_str())
+            .collect()
+    }
 }
 
 /// Snippets stay off because they quote the lines around an error, and those
@@ -167,6 +178,30 @@ mod tests {
             format!("{invalid:#}").contains("unknown field `bogus`"),
             "{invalid:#}"
         );
+    }
+
+    #[test]
+    fn writable_clusters_without_auth_are_named_in_file_order() {
+        let clusters = "
+            clusters:
+              zeta: {bootstrap_servers: [zeta:9092], writable: true}
+              beta: {bootstrap_servers: [beta:9092]}
+              alpha: {bootstrap_servers: [alpha:9092], writable: true}
+            ";
+        let open: Config = yaml(clusters);
+        let guarded: Config = yaml(&format!(
+            "{clusters}
+            auth:
+              oidc:
+                issuer: https://idp.example.com
+                client_id: klens
+                client_secret: {{value: oidc-secret}}
+                redirect_uri: https://klens.example.com/api/auth/callback
+            "
+        ));
+
+        assert_eq!(open.writable_without_auth(), ["zeta", "alpha"]);
+        assert!(guarded.writable_without_auth().is_empty());
     }
 
     #[test]
