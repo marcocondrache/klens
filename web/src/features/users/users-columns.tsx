@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { createColumnHelper } from "@tanstack/react-table";
 
 import type { DataTableFeatures } from "@/components/data-table/features";
@@ -39,3 +40,12 @@ export const userColumns = columnHelper.columns([
   mechanismColumn("SHA256"),
   mechanismColumn("SHA512"),
 ]);
+
+export function userActionColumn(action: (user: ScramUser) => ReactNode) {
+  return columnHelper.display({
+    id: "action",
+    enableResizing: false,
+    meta: { align: "right", width: "5rem" },
+    cell: ({ row }) => action(row.original),
+  });
+}

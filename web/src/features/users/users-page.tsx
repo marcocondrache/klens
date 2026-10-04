@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import { getRouteApi } from "@tanstack/react-router";
 
 import { DataTable } from "@/components/data-table/data-table";
@@ -6,6 +7,7 @@ import { useTableSearch } from "@/components/data-table/use-table-search";
 import { LaneCaption } from "@/components/lane-caption";
 import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
+import { createDialogHandle } from "@/components/ui/dialog";
 import { useAccess } from "@/hooks/use-access";
 import { apiErrorMessage } from "@/lib/api/client";
 import { useScramUsers } from "@/lib/api/catalog";
@@ -13,7 +15,9 @@ import type { ScramUser } from "@/lib/api/types";
 import { useClusterName } from "@/lib/clusters";
 
 import type { UsersSearch } from "./search";
-import { userColumns } from "./users-columns";
+import { DeleteCredentialButton, DeleteCredentialDialog } from "./delete-credential";
+import { NewUserDialog, SetPasswordButton, SetPasswordDialog } from "./set-credential";
+import { userActionColumn, userColumns } from "./users-columns";
 import { USER_FILTERS, userMatches } from "./users-filters";
 
 const route = getRouteApi("/cluster/$cluster/users");
@@ -30,11 +34,29 @@ export function UsersPage() {
   function setSearch(patch: Partial<UsersSearch>) {
     void navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true });
   }
-  const { can } = useAccess();
+  const { can, canChange } = useAccess();
   const canAcls = can(cluster, "ACLS");
   const { data, isPending, isError, error } = useScramUsers(cluster, canAcls);
   const lane = data?.sourceHealth;
   const status = data?.status;
+  const canManage = status === "DESCRIBED" && canChange(cluster, "MANAGE_ACLS");
+  const [setter] = useState(() => createDialogHandle<ScramUser>());
+  const [deleter] = useState(() => createDialogHandle<ScramUser>());
+  const columns = useMemo(
+    () =>
+      canManage
+        ? [
+            ...userColumns,
+            userActionColumn((user) => (
+              <>
+                <SetPasswordButton handle={setter} user={user} />
+                <DeleteCredentialButton handle={deleter} user={user} />
+              </>
+            )),
+          ]
+        : userColumns,
+    [canManage, setter, deleter],
+  );
   const denied = status === "DENIED";
   const users = data?.users ?? EMPTY_USERS;
 
@@ -60,10 +82,11 @@ export function UsersPage() {
             <LaneCaption lane={lane} />
           </>
         }
+        actions={canManage ? <NewUserDialog cluster={cluster} /> : null}
       />
 
       <DataTable
-        columns={userColumns}
+        columns={columns}
         data={rows}
         getRowId={(user) => user.name}
         toolbar={
@@ -84,6 +107,12 @@ export function UsersPage() {
         }
         defaultSort={{ id: "name", direction: "asc" }}
       />
+      {canManage ? (
+        <>
+          <SetPasswordDialog cluster={cluster} handle={setter} />
+          <DeleteCredentialDialog cluster={cluster} handle={deleter} />
+        </>
+      ) : null}
     </div>
   );
 }

@@ -231,6 +231,12 @@ export type ScramUser = { name: string, credentials: Array<ScramCredential>, };
 
 export type ScramListing = { status: ScramStatus, users: Array<ScramUser>, sourceHealth: LaneHealth, };
 
+export type SetScramCredential = { mechanism: ScramMechanism, password: string, 
+/**
+ * When omitted, Kafka's minimum of 4096 applies.
+ */
+iterations?: number, };
+
 export type RecordOrder = "NEWEST" | "OLDEST";
 
 export type RecordHeader = { key: string, value: string, };

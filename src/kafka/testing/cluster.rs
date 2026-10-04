@@ -30,7 +30,9 @@ use crate::kafka::registry::{
 };
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
-use crate::kafka::scram::ScramListing;
+use crate::kafka::scram::{
+    NewScramCredential, ScramCredential, ScramListing, ScramMechanism, ScramUser,
+};
 use crate::kafka::session::ClusterSession;
 use crate::kafka::storage::LogDir;
 use crate::kafka::topic_config::{BrokerScope, ConfigEdit, ConfigEntry};
@@ -74,6 +76,8 @@ pub enum Api {
     CreateAcls,
     DeleteAcl,
     AlterClientQuota,
+    SetScramCredential,
+    DeleteScramCredential,
 }
 
 #[derive(Clone)]
@@ -1165,6 +1169,66 @@ impl ClusterSession for FakeCluster {
         if quota.values != QuotaValues::default() {
             quotas.push(quota.clone());
         }
+        Ok(())
+    }
+
+    async fn set_scram_credential(
+        &self,
+        credential: &NewScramCredential,
+    ) -> Result<(), KafkaError> {
+        self.answer(Api::SetScramCredential).await?;
+        let mut world = self.world();
+        let ScramListing::Described(users) = &mut world.scram_users else {
+            return Err(KafkaError::Refused("ClusterAuthorizationFailed".to_owned()));
+        };
+        let stored = ScramCredential {
+            mechanism: credential.mechanism,
+            iterations: credential.iterations,
+        };
+        match users.iter_mut().find(|user| user.name == credential.user) {
+            Some(user) => {
+                user.credentials
+                    .retain(|existing| existing.mechanism != credential.mechanism);
+                user.credentials.push(stored);
+                user.credentials.sort_by_key(|existing| existing.mechanism);
+            }
+            None => {
+                users.push(ScramUser {
+                    name: credential.user.clone(),
+                    credentials: vec![stored],
+                });
+                users.sort_by(|left, right| left.name.cmp(&right.name));
+            }
+        }
+        Ok(())
+    }
+
+    async fn delete_scram_credential(
+        &self,
+        user: &str,
+        mechanism: ScramMechanism,
+    ) -> Result<(), KafkaError> {
+        self.answer(Api::DeleteScramCredential).await?;
+        let mut world = self.world();
+        let ScramListing::Described(users) = &mut world.scram_users else {
+            return Err(KafkaError::Refused("ClusterAuthorizationFailed".to_owned()));
+        };
+        let deleted = users
+            .iter_mut()
+            .find(|existing| existing.name == user)
+            .and_then(|existing| {
+                let index = existing
+                    .credentials
+                    .iter()
+                    .position(|credential| credential.mechanism == mechanism)?;
+                Some(existing.credentials.remove(index))
+            });
+        if deleted.is_none() {
+            return Err(KafkaError::Refused(
+                "Attempt to delete a user credential that does not exist".to_owned(),
+            ));
+        }
+        users.retain(|existing| !existing.credentials.is_empty());
         Ok(())
     }
 }

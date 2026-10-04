@@ -28,8 +28,8 @@ use krafka::producer::Producer;
 use krafka::protocol::{
     ApiKey, CreateAclsResponse, DeleteAclsResponse, DeleteGroupsRequest, DeleteGroupsResponse,
     DescribeConfigsResponse, FindCoordinatorRequest, FindCoordinatorResponse,
-    IncrementalAlterConfigsRequest, IncrementalAlterConfigsResource, VersionedDecode,
-    VersionedEncode, versions,
+    IncrementalAlterConfigsRequest, IncrementalAlterConfigsResource, ScramCredentialDeletion,
+    VersionedDecode, VersionedEncode, versions,
 };
 use tokio::sync::OnceCell;
 
@@ -52,7 +52,7 @@ use crate::kafka::registry::{
 };
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
-use crate::kafka::scram::{DescribedUser, ScramListing};
+use crate::kafka::scram::{DescribedUser, NewScramCredential, ScramListing, ScramMechanism};
 use crate::kafka::session::ClusterSession;
 use crate::kafka::storage::LogDir;
 use crate::kafka::topic_config::{BrokerScope, ConfigEdit, ConfigEntry};
@@ -647,6 +647,35 @@ impl ClusterSession for KafkaClient {
         self.transport
             .admin
             .alter_client_quotas(&[alteration], false)
+            .await?
+            .into_iter()
+            .try_for_each(|altered| refused(altered.error))
+    }
+
+    async fn set_scram_credential(
+        &self,
+        credential: &NewScramCredential,
+    ) -> Result<(), KafkaError> {
+        self.transport
+            .admin
+            .alter_user_scram_credentials(Vec::new(), vec![credential.upsertion()])
+            .await?
+            .into_iter()
+            .try_for_each(|altered| refused(altered.error))
+    }
+
+    async fn delete_scram_credential(
+        &self,
+        user: &str,
+        mechanism: ScramMechanism,
+    ) -> Result<(), KafkaError> {
+        let deletion = ScramCredentialDeletion {
+            name: user.to_owned(),
+            mechanism: mechanism.wire(),
+        };
+        self.transport
+            .admin
+            .alter_user_scram_credentials(vec![deletion], Vec::new())
             .await?
             .into_iter()
             .try_for_each(|altered| refused(altered.error))

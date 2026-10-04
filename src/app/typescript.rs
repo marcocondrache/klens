@@ -17,7 +17,7 @@ pub use super::records::types::{
     RecordPayload, TailEvent, TailStart,
 };
 pub use super::scram_users::types::{
-    ScramCredential, ScramListing, ScramMechanism, ScramStatus, ScramUser,
+    ScramCredential, ScramListing, ScramMechanism, ScramStatus, ScramUser, SetScramCredential,
 };
 pub use super::search::types::{SearchHit, SearchKind};
 pub use super::subjects::types::{

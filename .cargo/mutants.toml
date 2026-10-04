@@ -15,8 +15,8 @@ exclude_re = [
     '>::expecting\b',
     # krafka's FakeBroker has no DescribeConfigs, IncrementalAlterConfigs,
     # CreatePartitions, DeleteRecords, DeleteGroups, OffsetDelete, CreateAcls,
-    # DeleteAcls or AlterClientQuotas handler, so the e2e journeys on a real
-    # broker cover these.
+    # DeleteAcls, AlterClientQuotas or AlterUserScramCredentials handler, so
+    # the e2e journeys on a real broker cover these.
     'KafkaClient>::broker_configs\b',
     'KafkaClient>::alter_topic_configs\b',
     'KafkaClient>::alter_broker_configs\b',
@@ -28,6 +28,8 @@ exclude_re = [
     'KafkaClient>::create_acls\b',
     'KafkaClient>::delete_acl\b',
     'KafkaClient>::alter_client_quota\b',
+    'KafkaClient>::set_scram_credential\b',
+    'KafkaClient>::delete_scram_credential\b',
     '\bKafkaClient::group_coordinator\b',
     '\bKafkaClient::broker_connection\b',
     'kafka/client\.rs:\d+:\d+: replace call\b',

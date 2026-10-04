@@ -190,3 +190,44 @@ async fn a_scram_credential_set_on_the_broker_is_listed() {
         }])
     );
 }
+
+#[tokio::test]
+async fn a_scram_credential_set_through_klens_is_listed_and_deleted_again() {
+    let kafka = Kafka::start().await;
+    let klens = Klens::over(&kafka).await;
+    let alice = "/api/clusters/local/scram-users/alice";
+
+    let (status, body) = klens
+        .put(
+            alice,
+            &json!({ "mechanism": "SHA256", "password": "alice-secret", "iterations": 8192 }),
+        )
+        .await;
+
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    assert_eq!(
+        klens.get(SCRAM_USERS).await["users"],
+        json!([{
+            "name": "alice",
+            "credentials": [{ "mechanism": "SHA256", "iterations": 8192 }],
+        }])
+    );
+
+    let (status, body) = klens.delete(&format!("{alice}?mechanism=SHA256")).await;
+
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    assert_eq!(klens.get(SCRAM_USERS).await["users"], json!([]));
+}
+
+#[tokio::test]
+async fn deleting_a_credential_kafka_does_not_hold_carries_the_broker_reason() {
+    let kafka = Kafka::start().await;
+    let klens = Klens::over(&kafka).await;
+
+    let (status, body) = klens
+        .delete("/api/clusters/local/scram-users/nobody?mechanism=SHA512")
+        .await;
+
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(body["code"], "REFUSED");
+}

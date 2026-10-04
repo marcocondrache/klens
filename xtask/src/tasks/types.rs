@@ -12,9 +12,9 @@ use klens::app::typescript::{
     QuotaListing, QuotaStatus, Record, RecordHeader, RecordLookup, RecordOrder, RecordPage,
     RecordPayload, RegisterSchema, RegisteredVersion, ResetOffsets, ResetTarget,
     SchemaCompatibility, SchemaReference, SchemaType, ScramCredential, ScramListing,
-    ScramMechanism, ScramStatus, ScramUser, SearchHit, SearchKind, SubjectDetail, SubjectRow,
-    SubjectRowsResult, TailEvent, TailStart, TopicDetail, TopicGroupRow, TopicRate, TopicRow,
-    Update,
+    ScramMechanism, ScramStatus, ScramUser, SearchHit, SearchKind, SetScramCredential,
+    SubjectDetail, SubjectRow, SubjectRowsResult, TailEvent, TailStart, TopicDetail, TopicGroupRow,
+    TopicRate, TopicRow, Update,
 };
 
 pub fn run(sh: &Shell) -> xshell::Result<()> {
@@ -90,6 +90,7 @@ fn typescript() -> String {
         ScramCredential,
         ScramUser,
         ScramListing,
+        SetScramCredential,
         RecordOrder,
         RecordHeader,
         Record,
