@@ -30,6 +30,7 @@ use crate::kafka::registry::{
 };
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
+use crate::kafka::scram::ScramListing;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::storage::LogDir;
 use crate::kafka::topic_config::{BrokerScope, ConfigEdit, ConfigEntry};
@@ -56,6 +57,7 @@ pub enum Api {
     SubjectSchema,
     Acls,
     ClientQuotas,
+    ScramUsers,
     CreateTopic,
     DeleteTopic,
     AlterTopicConfigs,
@@ -94,6 +96,7 @@ pub(super) struct World {
     schemas: HashMap<(String, i32), RegisteredSchema>,
     acls: AclListing,
     quotas: QuotaListing,
+    scram_users: ScramListing,
     faults: HashMap<Api, String>,
     delays: HashMap<Api, Duration>,
     traffic: HashMap<Api, Traffic>,
@@ -141,6 +144,7 @@ impl FakeCluster {
                 schemas: HashMap::new(),
                 acls: local.acls,
                 quotas: local.quotas,
+                scram_users: local.scram_users,
                 faults: HashMap::new(),
                 delays: HashMap::new(),
                 traffic: HashMap::new(),
@@ -347,6 +351,10 @@ impl FakeCluster {
 
     pub fn set_quotas(&self, quotas: QuotaListing) {
         self.world().quotas = quotas;
+    }
+
+    pub fn set_scram_users(&self, users: ScramListing) {
+        self.world().scram_users = users;
     }
 
     pub fn produce(&self, record: FixtureRecord) {
@@ -735,6 +743,11 @@ impl ClusterSession for FakeCluster {
     async fn client_quotas(&self) -> Result<QuotaListing, KafkaError> {
         self.answer(Api::ClientQuotas).await?;
         Ok(self.world().quotas.clone())
+    }
+
+    async fn scram_users(&self) -> Result<ScramListing, KafkaError> {
+        self.answer(Api::ScramUsers).await?;
+        Ok(self.world().scram_users.clone())
     }
 
     async fn create_topic(&self, topic: &NewTopic) -> Result<(), KafkaError> {

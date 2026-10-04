@@ -39,6 +39,8 @@ export type {
   SchemaCompatibility,
   SchemaReference,
   SchemaType,
+  ScramMechanism,
+  ScramUser,
   SubjectDetail,
   SubjectRow,
   TopicDetail,

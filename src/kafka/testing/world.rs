@@ -11,6 +11,7 @@ use crate::kafka::group::{
 use crate::kafka::metadata::{MetadataSnapshot, Watermarks};
 use crate::kafka::quota::{ClientQuota, QuotaEntity, QuotaEntityType, QuotaListing, QuotaValues};
 use crate::kafka::registry::SchemaSubject;
+use crate::kafka::scram::{ScramCredential, ScramListing, ScramMechanism, ScramUser};
 use crate::kafka::storage::{LogDir, ReplicaLog};
 use crate::kafka::topic_config::{ConfigEntry, ConfigSource};
 
@@ -25,6 +26,7 @@ pub(super) struct LocalWorld {
     pub subjects: Vec<SchemaSubject>,
     pub acls: AclListing,
     pub quotas: QuotaListing,
+    pub scram_users: ScramListing,
 }
 
 pub(super) fn local() -> LocalWorld {
@@ -89,6 +91,7 @@ pub(super) fn local() -> LocalWorld {
         subjects: vec![subject("orders.created-value", 1, 2)],
         acls: AclListing::Enabled(local_acls()),
         quotas: QuotaListing::Described(local_quotas()),
+        scram_users: ScramListing::Described(local_scram_users()),
     }
 }
 
@@ -207,4 +210,24 @@ fn quota(entity: &[(QuotaEntityType, Option<&str>)], values: QuotaValues) -> Cli
             .collect(),
         values,
     }
+}
+
+fn local_scram_users() -> Vec<ScramUser> {
+    let credential = |mechanism, iterations| ScramCredential {
+        mechanism,
+        iterations,
+    };
+    vec![
+        ScramUser {
+            name: "alice".into(),
+            credentials: vec![
+                credential(ScramMechanism::Sha256, 4096),
+                credential(ScramMechanism::Sha512, 8192),
+            ],
+        },
+        ScramUser {
+            name: "bob".into(),
+            credentials: vec![credential(ScramMechanism::Sha512, 4096)],
+        },
+    ]
 }

@@ -47,6 +47,7 @@ const ROUTES: &[(&str, Option<Privilege>)] = &[
     ),
     ("/clusters/local/acls", Some(Privilege::Acls)),
     ("/clusters/local/quotas", Some(Privilege::Configs)),
+    ("/clusters/local/scram-users", Some(Privilege::Acls)),
 ];
 
 const WRITES: &[(Method, &str, Option<&str>, Privilege)] = &[

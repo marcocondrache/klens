@@ -25,7 +25,7 @@ export type LaneHealth = { updatedAt: string | null, checkedAt: string | null, l
  */
 healthy: boolean, };
 
-export type ClusterHealth = { cluster: string, ready: boolean, topology: LaneHealth, watermarks: LaneHealth, offsets: LaneHealth, configs: LaneHealth, subjects: LaneHealth, logDirs: LaneHealth, acls: LaneHealth, quotas: LaneHealth, topicCount: number, partitionCount: number, groupCount: number, brokerCount: number, subjectCount: number, underReplicatedPartitions: number, offlinePartitions: number, };
+export type ClusterHealth = { cluster: string, ready: boolean, topology: LaneHealth, watermarks: LaneHealth, offsets: LaneHealth, configs: LaneHealth, subjects: LaneHealth, logDirs: LaneHealth, acls: LaneHealth, quotas: LaneHealth, scramUsers: LaneHealth, topicCount: number, partitionCount: number, groupCount: number, brokerCount: number, subjectCount: number, underReplicatedPartitions: number, offlinePartitions: number, };
 
 export type CleanupPolicy = "DELETE" | "COMPACT" | "COMPACT_DELETE";
 
@@ -221,6 +221,16 @@ export type ClientQuota = { entity: Array<QuotaEntity>, producerByteRate: number
 
 export type QuotaListing = { status: QuotaStatus, quotas: Array<ClientQuota>, sourceHealth: LaneHealth, };
 
+export type ScramStatus = "PENDING" | "DESCRIBED" | "DENIED";
+
+export type ScramMechanism = "SHA256" | "SHA512";
+
+export type ScramCredential = { mechanism: ScramMechanism, iterations: number, };
+
+export type ScramUser = { name: string, credentials: Array<ScramCredential>, };
+
+export type ScramListing = { status: ScramStatus, users: Array<ScramUser>, sourceHealth: LaneHealth, };
+
 export type RecordOrder = "NEWEST" | "OLDEST";
 
 export type RecordHeader = { key: string, value: string, };
@@ -282,5 +292,5 @@ export type Update = { "type": "watermarks",
  * One `{topic, rate}` pair per topic, never catalog objects. A scoped
  * subscriber gets only its topic.
  */
-topics: Array<TopicRate>, } | { "type": "groupLag", group: string, lag: number, lagComplete: boolean, offsets: Array<GroupOffset>, } | { "type": "topology", addedTopics: Array<string>, removedTopics: Array<string>, changedTopics: Array<string>, addedGroups: Array<string>, removedGroups: Array<string>, changedGroups: Array<string>, brokersChanged: boolean, } | { "type": "configs", topics: Array<string>, } | { "type": "subjects", removed: Array<string>, changed: Array<string>, } | { "type": "logDirs", topics: Array<string>, brokersChanged: boolean, } | { "type": "acls" } | { "type": "quotas" } | { "type": "resync" };
+topics: Array<TopicRate>, } | { "type": "groupLag", group: string, lag: number, lagComplete: boolean, offsets: Array<GroupOffset>, } | { "type": "topology", addedTopics: Array<string>, removedTopics: Array<string>, changedTopics: Array<string>, addedGroups: Array<string>, removedGroups: Array<string>, changedGroups: Array<string>, brokersChanged: boolean, } | { "type": "configs", topics: Array<string>, } | { "type": "subjects", removed: Array<string>, changed: Array<string>, } | { "type": "logDirs", topics: Array<string>, brokersChanged: boolean, } | { "type": "acls" } | { "type": "quotas" } | { "type": "scramUsers" } | { "type": "resync" };
 

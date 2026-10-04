@@ -167,6 +167,7 @@ clusters:
 #     log_dirs: 60s
 #     acls: 60s
 #     quotas: 60s
+#     scram_users: 60s
 #     offset_tick: 1s
 #     fast_offset: 2s
 #     slow_offset: 20s

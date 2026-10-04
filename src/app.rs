@@ -20,6 +20,7 @@ mod groups;
 mod health;
 mod quotas;
 mod records;
+mod scram_users;
 mod search;
 mod subjects;
 mod topics;

@@ -6,7 +6,7 @@ use serde_json::json;
 use tower::ServiceExt as _;
 
 use crate::app::auth::SessionGuard;
-use crate::kafka::model::{AclListing, QuotaListing};
+use crate::kafka::model::{AclListing, QuotaListing, ScramListing};
 use crate::kafka::store::bus::BUS_CAPACITY;
 use crate::kafka::store::{
     Change, ConfigsDelta, GroupLagUpdate, GroupOffsetsWave, LogDirsDelta, SubjectsDelta, TopicRate,
@@ -186,6 +186,20 @@ async fn a_quota_change_is_sent_as_a_quotas_event() {
 
     assert_eq!(event.name, "quotas");
     assert_eq!(event.data, json!({ "type": "quotas" }));
+}
+
+#[tokio::test]
+async fn a_scram_user_change_is_sent_as_a_scram_users_event() {
+    let app = TestApp::local().await;
+    let mut live = app.open(UPDATES).await;
+    app.cluster().set_scram_users(ScramListing::Denied);
+    let rig = app.rig();
+    rig.poll(&rig.scram_users()).await;
+
+    let event = live.next().await;
+
+    assert_eq!(event.name, "scramUsers");
+    assert_eq!(event.data, json!({ "type": "scramUsers" }));
 }
 
 #[tokio::test]

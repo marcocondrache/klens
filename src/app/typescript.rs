@@ -16,6 +16,9 @@ pub use super::records::types::{
     ProduceRecord, ProducedRecord, Record, RecordHeader, RecordLookup, RecordOrder, RecordPage,
     RecordPayload, TailEvent, TailStart,
 };
+pub use super::scram_users::types::{
+    ScramCredential, ScramListing, ScramMechanism, ScramStatus, ScramUser,
+};
 pub use super::search::types::{SearchHit, SearchKind};
 pub use super::subjects::types::{
     EditSubject, RegisterSchema, RegisteredVersion, SchemaCompatibility, SchemaReference,

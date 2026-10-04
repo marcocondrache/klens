@@ -122,4 +122,8 @@ impl Change {
     pub fn quotas(self) -> Option<()> {
         matches!(self, Self::Quotas).then_some(())
     }
+
+    pub fn scram_users(self) -> Option<()> {
+        matches!(self, Self::ScramUsers).then_some(())
+    }
 }

@@ -58,6 +58,7 @@ export const keys = {
 
   acls: (cluster: string) => ["cluster", cluster, "acls"] as const,
   quotas: (cluster: string) => ["cluster", cluster, "quotas"] as const,
+  scramUsers: (cluster: string) => ["cluster", cluster, "scramUsers"] as const,
   search: (cluster: string, term: string) => ["cluster", cluster, "search", term] as const,
 
   tail: (cluster: string, filter: TailFilter) => ["tail", cluster, filter] as const,

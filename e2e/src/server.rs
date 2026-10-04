@@ -40,6 +40,7 @@ impl Klens {
                 log_dirs: 1s
                 acls: 1s
                 quotas: 1s
+                scram_users: 1s
                 fast_offset: 1s
                 slow_offset: 1s
             ",

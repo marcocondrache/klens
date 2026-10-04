@@ -133,6 +133,7 @@ tuning:
     log_dirs: 60s
     acls: 60s
     quotas: 60s
+    scram_users: 60s
     offset_tick: 1s # how often the offset lane checks which groups are due
     fast_offset: 2s # groups someone is looking at
     slow_offset: 20s # every other group
@@ -186,6 +187,15 @@ page lists each user, client ID, and IP quota, including the defaults, and
 needs the `configs` privilege. Reading quotas needs the `DescribeConfigs`
 operation on the `Cluster` resource. On a cluster that does not grant it, the
 page says so.
+
+## SCRAM users
+
+klens describes SCRAM credentials every `tuning.ingest.scram_users` (`60s`).
+The users page lists each Kafka user that has one, with the mechanism and
+iteration count of each credential, and needs the `acls` privilege. Kafka never
+returns a password or salt. Reading credentials needs Kafka 2.7 or later and the
+`Describe` operation on the `Cluster` resource. On a cluster that does not grant
+it, the page says so.
 
 ## Authentication
 

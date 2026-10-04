@@ -1,9 +1,11 @@
 use e2e::{Kafka, Klens};
+use krafka::auth::ScramMechanism;
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
 const ACLS: &str = "/api/clusters/local/acls";
 const QUOTAS: &str = "/api/clusters/local/quotas";
+const SCRAM_USERS: &str = "/api/clusters/local/scram-users";
 
 #[tokio::test]
 async fn acls_on_a_broker_without_an_authorizer_are_disabled_not_failing() {
@@ -161,4 +163,30 @@ async fn a_quota_kafka_refuses_carries_the_broker_reason() {
 
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
     assert_eq!(body["code"], "REFUSED");
+}
+
+#[tokio::test]
+async fn a_scram_credential_set_on_the_broker_is_listed() {
+    let kafka = Kafka::start().await;
+    kafka
+        .set_scram_credential("alice", ScramMechanism::Sha512, 8192)
+        .await;
+    let klens = Klens::over(&kafka).await;
+
+    let users = klens
+        .eventually(SCRAM_USERS, |users| {
+            users["users"]
+                .as_array()
+                .is_some_and(|users| !users.is_empty())
+        })
+        .await;
+
+    assert_eq!(users["status"], "DESCRIBED");
+    assert_eq!(
+        users["users"],
+        json!([{
+            "name": "alice",
+            "credentials": [{ "mechanism": "SHA512", "iterations": 8192 }],
+        }])
+    );
 }
