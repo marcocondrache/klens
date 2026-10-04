@@ -39,11 +39,8 @@ export function CopyButton({
       tooltip={copied ? "Copied" : label}
       size={size}
       onClick={copy}
-      className={cn(
-        reveal &&
-          "opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 data-popup-open:opacity-100",
-        copied && "opacity-100",
-      )}
+      reveal={reveal}
+      className={cn(copied && "opacity-100")}
     >
       <span className="grid">
         <CopyIcon className={cn(ICON, copied && "scale-50 opacity-0 blur-[2px]")} />

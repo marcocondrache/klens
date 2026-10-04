@@ -4,11 +4,18 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-/** Ghost icon button with a tooltip. `label` is the accessible name and the default tooltip. */
+export const REVEAL_ON_ROW =
+  "opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 data-popup-open:opacity-100";
+
+/**
+ * Ghost icon button with a tooltip. `label` is the accessible name and the default tooltip.
+ * `reveal` hides it until its table row is hovered.
+ */
 export function IconButton({
   label,
   tooltip = label,
   size = "icon-xs",
+  reveal = false,
   className,
   children,
   ...props
@@ -16,6 +23,7 @@ export function IconButton({
   label: string;
   tooltip?: ReactNode;
   size?: "icon-xs" | "icon-sm" | "icon";
+  reveal?: boolean;
 }) {
   return (
     <Tooltip>
@@ -25,7 +33,7 @@ export function IconButton({
             variant="ghost"
             size={size}
             aria-label={label}
-            className={cn("text-muted-foreground", className)}
+            className={cn("text-muted-foreground", reveal && REVEAL_ON_ROW, className)}
             {...props}
           />
         }
