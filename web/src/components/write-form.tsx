@@ -1,10 +1,11 @@
-import type { ComponentProps, FormEvent, ReactNode } from "react";
+import { useRef, type ComponentProps, type FormEvent, type ReactNode } from "react";
 import { CircleAlertIcon } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   DialogClose,
+  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -71,19 +72,44 @@ function FormError({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * React's `autoFocus` runs before Base UI records what had focus, so focus would not return there
+ * on close. Forms mark the field with `data-autofocus` instead.
+ */
+function autofocusField(popup: HTMLElement | null) {
+  return popup?.querySelector<HTMLElement>("[data-autofocus]") ?? true;
+}
+
 export function FormSheetContent({
   wide = false,
   className,
   ...props
 }: ComponentProps<typeof SheetContent> & { wide?: boolean }) {
+  const popup = useRef<HTMLDivElement>(null);
+
   return (
     <SheetContent
+      ref={popup}
+      initialFocus={() => autofocusField(popup.current)}
       side="right"
       className={cn(
         "w-full gap-0 data-[side=right]:w-full",
         wide ? "data-[side=right]:sm:max-w-2xl" : "data-[side=right]:sm:max-w-lg",
         className,
       )}
+      {...props}
+    />
+  );
+}
+
+export function FormDialogContent({ className, ...props }: ComponentProps<typeof DialogContent>) {
+  const popup = useRef<HTMLDivElement>(null);
+
+  return (
+    <DialogContent
+      ref={popup}
+      initialFocus={() => autofocusField(popup.current)}
+      className={cn("sm:max-w-md", className)}
       {...props}
     />
   );
@@ -103,7 +129,9 @@ export function SheetForm({
     <form className="flex min-h-0 flex-1 flex-col" onSubmit={handle(onSubmit, submit)}>
       <SheetHeader className="gap-1 border-b px-5 py-4 pr-12">
         <SheetTitle className="truncate text-sm font-medium">{title}</SheetTitle>
-        {description ? <SheetDescription>{description}</SheetDescription> : null}
+        {description ? (
+          <SheetDescription className="wrap-anywhere">{description}</SheetDescription>
+        ) : null}
       </SheetHeader>
       <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-5 py-4">{children}</div>
       <SheetFooter className="shrink-0 gap-3 border-t px-5 py-3">
@@ -130,7 +158,7 @@ export function DialogForm({
   children,
 }: WriteFormProps) {
   return (
-    <form className="grid min-w-0 gap-4" onSubmit={handle(onSubmit, submit)}>
+    <form className="grid min-w-0 gap-4 wrap-anywhere" onSubmit={handle(onSubmit, submit)}>
       <DialogHeader>
         <DialogTitle>{title}</DialogTitle>
         {description ? <DialogDescription>{description}</DialogDescription> : null}
@@ -169,7 +197,7 @@ export function TypeToConfirm({
     >
       <Input
         id={id}
-        autoFocus
+        data-autofocus
         autoComplete="off"
         spellCheck={false}
         className="font-mono"

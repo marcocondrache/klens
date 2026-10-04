@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CircleAlertIcon } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog } from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Field } from "@/components/field";
-import { DialogForm } from "@/components/write-form";
+import { DialogForm, FormDialogContent } from "@/components/write-form";
 import { committedTopics } from "@/features/groups/group-state";
 import { apiErrorMessage, clusterPathname, del, resourceId } from "@/lib/api/client";
 import { keys } from "@/lib/api/keys";
@@ -31,9 +31,9 @@ export function DeleteOffsetsDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <FormDialogContent>
         <DeleteOffsetsForm cluster={cluster} group={group} onDeleted={() => onOpenChange(false)} />
-      </DialogContent>
+      </FormDialogContent>
     </Dialog>
   );
 }

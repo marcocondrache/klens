@@ -89,7 +89,7 @@ function CreateTopicForm({ cluster, onCreated }: { cluster: string; onCreated: (
       <Field label="Name" htmlFor={`${id}-name`}>
         <Input
           id={`${id}-name`}
-          autoFocus
+          data-autofocus
           autoComplete="off"
           spellCheck={false}
           className="font-mono"

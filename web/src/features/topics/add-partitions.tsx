@@ -1,10 +1,10 @@
 import { useId, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Field } from "@/components/field";
-import { DialogForm } from "@/components/write-form";
+import { DialogForm, FormDialogContent } from "@/components/write-form";
 import { apiErrorMessage, clusterPathname, post } from "@/lib/api/client";
 import { keys } from "@/lib/api/keys";
 import type { AddPartitions, TopicDetail } from "@/lib/api/types";
@@ -24,9 +24,9 @@ export function AddPartitionsDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <FormDialogContent>
         <AddPartitionsForm cluster={cluster} topic={topic} onAdded={() => onOpenChange(false)} />
-      </DialogContent>
+      </FormDialogContent>
     </Dialog>
   );
 }
@@ -73,7 +73,7 @@ function AddPartitionsForm({
       >
         <Input
           id={`${id}-count`}
-          autoFocus
+          data-autofocus
           inputMode="numeric"
           autoComplete="off"
           className="numeric w-32"

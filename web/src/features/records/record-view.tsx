@@ -315,14 +315,14 @@ export function RecordView({
         >
           {address ? (
             <SheetHeader className="gap-1 border-b px-5 py-4 pr-12">
-              <SheetTitle className="flex min-w-0 items-center gap-2 font-mono text-sm font-medium">
-                <span className="min-w-0 truncate">
+              <div className="flex min-w-0 items-center gap-2">
+                <SheetTitle className="min-w-0 truncate font-mono text-sm font-medium">
                   <span className="text-muted-foreground">{topic.name}</span>
                   <span className="text-muted-foreground/60"> / </span>
                   {address.partition}
                   <span className="text-muted-foreground/60"> @ </span>
                   {address.offset}
-                </span>
+                </SheetTitle>
                 <CopyButton value={link(address)} label="Copy link to this record" />
                 {canDuplicate ? (
                   <ProduceRecordSheet
@@ -353,7 +353,7 @@ export function RecordView({
                   </>
                 ) : null}
                 {selectedObfuscated ? <ObfuscatedBadge /> : null}
-              </SheetTitle>
+              </div>
               <SheetDescription>
                 {selectedRecord
                   ? `Produced ${formatRelative(selectedRecord.timestamp)}`

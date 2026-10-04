@@ -1,8 +1,8 @@
 import { useId, useState, type ReactNode } from "react";
 import { useMutation } from "@tanstack/react-query";
 
-import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { DialogForm, TypeToConfirm } from "@/components/write-form";
+import { Dialog } from "@/components/ui/dialog";
+import { DialogForm, FormDialogContent, TypeToConfirm } from "@/components/write-form";
 import { apiErrorMessage } from "@/lib/api/client";
 
 export function ConfirmDelete({
@@ -24,7 +24,7 @@ export function ConfirmDelete({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <FormDialogContent>
         <ConfirmForm
           noun={noun}
           name={name}
@@ -35,7 +35,7 @@ export function ConfirmDelete({
             onDeleted();
           }}
         />
-      </DialogContent>
+      </FormDialogContent>
     </Dialog>
   );
 }

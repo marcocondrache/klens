@@ -106,7 +106,7 @@ function EditTopicConfigForm({
       <Field label="Value" htmlFor={`${id}-value`}>
         <Input
           id={`${id}-value`}
-          autoFocus
+          data-autofocus
           autoComplete="off"
           spellCheck={false}
           className="font-mono"

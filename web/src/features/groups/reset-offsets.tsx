@@ -293,7 +293,7 @@ function TargetInput({
     <Field label={label} htmlFor={id}>
       <Input
         id={id}
-        autoFocus
+        data-autofocus
         type={timestamp ? "datetime-local" : "text"}
         inputMode={timestamp ? undefined : "numeric"}
         autoComplete="off"

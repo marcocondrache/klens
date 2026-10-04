@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CircleAlertIcon } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Field } from "@/components/field";
-import { DialogForm, TypeToConfirm } from "@/components/write-form";
+import { DialogForm, FormDialogContent, TypeToConfirm } from "@/components/write-form";
 import { apiErrorMessage, clusterPathname, del } from "@/lib/api/client";
 import { keys } from "@/lib/api/keys";
 import type { TopicDetail } from "@/lib/api/types";
@@ -40,14 +40,14 @@ export function DeleteRecordsDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <FormDialogContent>
         <DeleteRecordsForm
           cluster={cluster}
           topic={topic}
           cut={cut}
           onDeleted={() => onOpenChange(false)}
         />
-      </DialogContent>
+      </FormDialogContent>
     </Dialog>
   );
 }
