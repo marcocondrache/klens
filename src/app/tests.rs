@@ -122,6 +122,20 @@ const WRITES: &[(Method, &str, Option<&str>, Privilege)] = &[
         None,
         Privilege::ManageSchemas,
     ),
+    (
+        Method::POST,
+        "/clusters/local/acls",
+        Some(
+            r#"{ "bindings": [{ "resourceType": "TOPIC", "resourceName": "orders.created", "patternType": "LITERAL", "principal": "User:bob", "host": "*", "operation": "READ", "permission": "ALLOW" }] }"#,
+        ),
+        Privilege::ManageAcls,
+    ),
+    (
+        Method::DELETE,
+        "/clusters/local/acls?resourceType=TOPIC&resourceName=orders.created&patternType=LITERAL&principal=User:alice&host=*&operation=READ&permission=ALLOW",
+        None,
+        Privilege::ManageAcls,
+    ),
 ];
 
 fn write(method: &Method, route: &str, body: Option<&str>) -> Request<Body> {

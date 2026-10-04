@@ -8,8 +8,8 @@ use foldhash::{HashMap, HashMapExt};
 
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
-    AclListing, ClusterIdentity, CommittedOffset, ConfigEdit, ConfigEntry, GroupSnapshot, LogDir,
-    MetadataSnapshot, NewRecord, NewSchema, NewTopic, PartitionWindow, ProducedRecord,
+    Acl, AclListing, ClusterIdentity, CommittedOffset, ConfigEdit, ConfigEntry, GroupSnapshot,
+    LogDir, MetadataSnapshot, NewRecord, NewSchema, NewTopic, PartitionWindow, ProducedRecord,
     QuotaListing, RecordDeletion, RegisteredSchema, RegisteredVersion, ScanConsumer,
     SchemaCompatibility, SchemaDeletion, SchemaSubject, TailConsumer, TailPosition, TopicMetadata,
     Watermarks,
@@ -136,6 +136,12 @@ pub trait ClusterSession: Send + Sync + 'static {
         subject: &str,
         level: SchemaCompatibility,
     ) -> Result<(), KafkaError>;
+
+    /// Creating a binding that already exists changes nothing.
+    async fn create_acls(&self, acls: &[Acl]) -> Result<(), KafkaError>;
+
+    /// Deleting a binding that does not exist changes nothing.
+    async fn delete_acl(&self, acl: &Acl) -> Result<(), KafkaError>;
 
     fn consume_timeout(&self) -> Duration;
 

@@ -6,7 +6,7 @@ use xshell::Shell;
 use klens::app::typescript::{
     Acl, AclListing, AclOperation, AclPatternType, AclPermission, AclResourceType, AclStatus,
     AddPartitions, BrokerRow, CleanupPolicy, ClientQuota, ClusterGrant, ClusterHealth, ConfigEntry,
-    ConfigSource, CreateTopic, EditSubject, EditTopicConfigs, GroupDetail, GroupMember,
+    ConfigSource, CreateAcls, CreateTopic, EditSubject, EditTopicConfigs, GroupDetail, GroupMember,
     GroupOffset, GroupRow, GroupState, Identity, LaneHealth, LogDir, MemberAssignment, OffsetMove,
     PartitionRow, PayloadEncoding, PrivilegeName, ProduceRecord, ProducedRecord, QuotaEntity,
     QuotaEntityType, QuotaListing, QuotaStatus, Record, RecordHeader, RecordLookup, RecordOrder,
@@ -78,6 +78,7 @@ fn typescript() -> String {
         AclPermission,
         Acl,
         AclListing,
+        CreateAcls,
         QuotaStatus,
         QuotaEntityType,
         QuotaEntity,

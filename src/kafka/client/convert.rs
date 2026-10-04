@@ -8,7 +8,7 @@ use krafka::admin::{
     ConfigEntry as KrafkaConfigEntry, ConsumerGroupDescription, ConsumerGroupMember,
     GroupOffsetEntry, LogDirInfo, TopicPartitionAssignment,
 };
-use krafka::error::KrafkaError;
+use krafka::error::{ErrorCode, KrafkaError};
 use krafka::metadata::{ClusterMetadata, TopicInfo as KrafkaTopicInfo};
 use krafka::producer::ProducerRecord;
 use krafka::protocol::{
@@ -95,17 +95,20 @@ impl NewRecord {
 }
 
 pub(super) fn altered(response: IncrementalAlterConfigsResponse) -> Result<(), KafkaError> {
-    response.results.into_iter().try_for_each(|result| {
-        if result.error_code.is_ok() {
-            Ok(())
-        } else {
-            Err(KafkaError::Refused(
-                result
-                    .error_message
-                    .unwrap_or_else(|| format!("{:?}", result.error_code)),
-            ))
-        }
-    })
+    response
+        .results
+        .into_iter()
+        .try_for_each(|result| answered(result.error_code, result.error_message))
+}
+
+pub(super) fn answered(code: ErrorCode, message: Option<String>) -> Result<(), KafkaError> {
+    if code.is_ok() {
+        Ok(())
+    } else {
+        Err(KafkaError::Refused(
+            message.unwrap_or_else(|| format!("{code:?}")),
+        ))
+    }
 }
 
 impl ConfigEdit {

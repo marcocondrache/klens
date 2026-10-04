@@ -8,11 +8,11 @@ use axum::http::request::Parts;
 use crate::AppState;
 use crate::app::auth::SessionGuard;
 use crate::app::auth::access::{
-    AccessError, ClusterAccess, ConfigsCap, EffectiveAccess, ManageGroupsCap, ManageSchemasCap,
-    ManageTopicsCap, ProduceCap, RecordsCap, SchemaTextCap,
+    AccessError, ClusterAccess, ConfigsCap, EffectiveAccess, ManageAclsCap, ManageGroupsCap,
+    ManageSchemasCap, ManageTopicsCap, ProduceCap, RecordsCap, SchemaTextCap,
 };
 use crate::kafka::model::{
-    CommittedOffset, ConfigEdit, FoundRecord, NewRecord, NewSchema, NewTopic, OffsetMove,
+    Acl, CommittedOffset, ConfigEdit, FoundRecord, NewRecord, NewSchema, NewTopic, OffsetMove,
     OffsetReset, ProducedRecord, RecordAt, RecordDeletion, RegisteredSchema, RegisteredVersion,
     SchemaCompatibility, SchemaDeletion,
 };
@@ -77,6 +77,11 @@ impl<'a> ClusterHandle<'a> {
     pub(crate) fn manage_schemas(&self) -> Result<Granted<'a, ManageSchemasCap>, AccessError> {
         self.writable()?;
         self.access.manage_schemas().map(|cap| self.grant(cap))
+    }
+
+    pub(crate) fn manage_acls(&self) -> Result<Granted<'a, ManageAclsCap>, AccessError> {
+        self.writable()?;
+        self.access.manage_acls().map(|cap| self.grant(cap))
     }
 
     fn writable(&self) -> Result<(), AccessError> {
@@ -500,6 +505,28 @@ impl Granted<'_, ManageSchemasCap> {
                 version: version.unwrap_or(0),
             })
         }
+    }
+}
+
+impl Granted<'_, ManageAclsCap> {
+    pub(crate) async fn create_acls(&self, acls: &[Acl]) -> Result<(), KafkaError> {
+        self.cluster.session.create_acls(acls).await?;
+        for acl in acls {
+            tracing::info!(cluster = %self.cluster.store.name(), %acl, "created acl");
+        }
+        self.settle(&self.cluster.store.acls, |listing| {
+            acls.iter().all(|acl| listing.contains(acl))
+        })
+        .await;
+        Ok(())
+    }
+
+    pub(crate) async fn delete_acl(&self, acl: &Acl) -> Result<(), KafkaError> {
+        self.cluster.session.delete_acl(acl).await?;
+        tracing::info!(cluster = %self.cluster.store.name(), %acl, "deleted acl");
+        self.settle(&self.cluster.store.acls, |listing| !listing.contains(acl))
+            .await;
+        Ok(())
     }
 }
 

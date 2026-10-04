@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { createColumnHelper } from "@tanstack/react-table";
 
 import type { DataTableFeatures } from "@/components/data-table/features";
@@ -48,6 +49,15 @@ export const aclColumns = columnHelper.columns([
     ),
   }),
 ]);
+
+export function aclActionColumn(action: (acl: Acl) => ReactNode) {
+  return columnHelper.display({
+    id: "action",
+    enableResizing: false,
+    meta: { align: "right", width: "3.5rem" },
+    cell: ({ row }) => action(row.original),
+  });
+}
 
 function lengthPrefixed(parts: string[]): string {
   return parts.map((part) => `${part.length}:${part}`).join("");

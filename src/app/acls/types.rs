@@ -5,6 +5,7 @@ use crate::kafka::model as domain;
 use crate::r#macro::from_same_variants;
 
 use super::super::clusters::LaneHealth;
+use super::super::error::ApiError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -33,6 +34,13 @@ from_same_variants!(domain::AclResourceType => AclResourceType {
     TransactionalId,
     DelegationToken,
 });
+from_same_variants!(AclResourceType => domain::AclResourceType {
+    Topic,
+    Group,
+    Cluster,
+    TransactionalId,
+    DelegationToken,
+});
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -42,6 +50,7 @@ pub enum AclPatternType {
 }
 
 from_same_variants!(domain::AclPatternType => AclPatternType { Literal, Prefixed });
+from_same_variants!(AclPatternType => domain::AclPatternType { Literal, Prefixed });
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -72,6 +81,19 @@ from_same_variants!(domain::AclOperation => AclOperation {
     AlterConfigs,
     IdempotentWrite,
 });
+from_same_variants!(AclOperation => domain::AclOperation {
+    All,
+    Read,
+    Write,
+    Create,
+    Delete,
+    Alter,
+    Describe,
+    ClusterAction,
+    DescribeConfigs,
+    AlterConfigs,
+    IdempotentWrite,
+});
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -81,9 +103,10 @@ pub enum AclPermission {
 }
 
 from_same_variants!(domain::AclPermission => AclPermission { Allow, Deny });
+from_same_variants!(AclPermission => domain::AclPermission { Allow, Deny });
 
-#[derive(Debug, Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Acl {
     pub resource_type: AclResourceType,
     pub resource_name: String,
@@ -105,6 +128,35 @@ impl From<&domain::Acl> for Acl {
             operation: acl.operation.into(),
             permission: acl.permission.into(),
         }
+    }
+}
+
+impl From<Acl> for domain::Acl {
+    fn from(acl: Acl) -> Self {
+        Self {
+            resource_type: acl.resource_type.into(),
+            resource_name: acl.resource_name,
+            pattern_type: acl.pattern_type.into(),
+            principal: acl.principal,
+            host: acl.host,
+            operation: acl.operation.into(),
+            permission: acl.permission.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CreateAcls {
+    pub bindings: Vec<Acl>,
+}
+
+impl CreateAcls {
+    pub(crate) fn into_acls(self) -> Result<Vec<domain::Acl>, ApiError> {
+        if self.bindings.is_empty() {
+            return Err(ApiError::unprocessable("name at least one binding"));
+        }
+        Ok(self.bindings.into_iter().map(domain::Acl::from).collect())
     }
 }
 

@@ -25,14 +25,14 @@ use krafka::error::{KrafkaError, ProtocolErrorKind};
 use krafka::network::BrokerConnection;
 use krafka::producer::Producer;
 use krafka::protocol::{
-    ApiKey, DeleteGroupsRequest, DeleteGroupsResponse, FindCoordinatorRequest,
-    FindCoordinatorResponse, IncrementalAlterConfigsRequest, IncrementalAlterConfigsResource,
-    VersionedDecode, VersionedEncode, versions,
+    ApiKey, CreateAclsResponse, DeleteAclsResponse, DeleteGroupsRequest, DeleteGroupsResponse,
+    FindCoordinatorRequest, FindCoordinatorResponse, IncrementalAlterConfigsRequest,
+    IncrementalAlterConfigsResource, VersionedDecode, VersionedEncode, versions,
 };
 use tokio::sync::OnceCell;
 
 use crate::config::{self, Tuning};
-use crate::kafka::acl::AclListing;
+use crate::kafka::acl::{Acl, AclBindings, AclListing};
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
 use crate::kafka::group::{CommittedOffset, GroupSnapshot};
@@ -54,7 +54,7 @@ use crate::kafka::session::ClusterSession;
 use crate::kafka::storage::LogDir;
 use crate::kafka::topic_config::{ConfigEdit, ConfigEntry};
 
-use convert::{altered, committed_from_krafka, produce_refusal, refused};
+use convert::{altered, answered, committed_from_krafka, produce_refusal, refused};
 use groups::{
     ACTIVE_GROUP_STATES, LISTED_GROUP_TYPES, snapshots_from_descriptions, split_empty_groups,
 };
@@ -547,6 +547,39 @@ impl ClusterSession for KafkaClient {
         level: SchemaCompatibility,
     ) -> Result<(), KafkaError> {
         self.registry()?.set_compatibility(subject, level).await
+    }
+
+    async fn create_acls(&self, acls: &[Acl]) -> Result<(), KafkaError> {
+        let connection = self.transport.admin.get_controller_connection().await?;
+        let created: CreateAclsResponse = call(
+            &connection,
+            ApiKey::CreateAcls,
+            versions::CREATE_ACLS_MIN..=versions::CREATE_ACLS_MAX,
+            &AclBindings(acls),
+        )
+        .await?;
+        created
+            .results
+            .into_iter()
+            .try_for_each(|result| answered(result.error_code, result.error_message))
+    }
+
+    async fn delete_acl(&self, acl: &Acl) -> Result<(), KafkaError> {
+        let connection = self.transport.admin.get_controller_connection().await?;
+        let deleted: DeleteAclsResponse = call(
+            &connection,
+            ApiKey::DeleteAcls,
+            versions::DELETE_ACLS_MIN..=versions::DELETE_ACLS_MAX,
+            &AclBindings(std::slice::from_ref(acl)),
+        )
+        .await?;
+        deleted.filter_results.into_iter().try_for_each(|filter| {
+            answered(filter.error_code, filter.error_message)?;
+            filter
+                .matching_acls
+                .into_iter()
+                .try_for_each(|matched| answered(matched.error_code, matched.error_message))
+        })
     }
 }
 

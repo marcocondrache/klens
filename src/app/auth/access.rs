@@ -10,7 +10,7 @@ use crate::config::Role;
 const MAX_GROUPS: usize = 64;
 
 impl Privilege {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Records,
         Self::Configs,
         Self::SchemaText,
@@ -19,6 +19,7 @@ impl Privilege {
         Self::Produce,
         Self::ManageGroups,
         Self::ManageSchemas,
+        Self::ManageAcls,
     ];
 
     pub fn name(self) -> &'static str {
@@ -31,6 +32,7 @@ impl Privilege {
             Self::Produce => "produce",
             Self::ManageGroups => "manageGroups",
             Self::ManageSchemas => "manageSchemas",
+            Self::ManageAcls => "manageAcls",
         }
     }
 
@@ -246,6 +248,7 @@ capability!(ManageTopicsCap, manage_topics, Privilege::ManageTopics);
 capability!(ProduceCap, produce, Privilege::Produce);
 capability!(ManageGroupsCap, manage_groups, Privilege::ManageGroups);
 capability!(ManageSchemasCap, manage_schemas, Privilege::ManageSchemas);
+capability!(ManageAclsCap, manage_acls, Privilege::ManageAcls);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Identity<'a> {
@@ -452,6 +455,7 @@ mod tests {
         assert!(prod.produce().is_ok());
         assert!(prod.manage_groups().is_ok());
         assert!(prod.manage_schemas().is_ok());
+        assert!(prod.manage_acls().is_ok());
         assert_eq!(prod.privileges(), Privilege::ALL.to_vec());
         assert_eq!(access.privileges_for("prod"), Some(PrivilegeSet::ALL));
         assert!(access.cluster("staging").unwrap().schema_text().is_ok());
