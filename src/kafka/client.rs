@@ -26,8 +26,9 @@ use krafka::network::BrokerConnection;
 use krafka::producer::Producer;
 use krafka::protocol::{
     ApiKey, CreateAclsResponse, DeleteAclsResponse, DeleteGroupsRequest, DeleteGroupsResponse,
-    FindCoordinatorRequest, FindCoordinatorResponse, IncrementalAlterConfigsRequest,
-    IncrementalAlterConfigsResource, VersionedDecode, VersionedEncode, versions,
+    DescribeConfigsResponse, FindCoordinatorRequest, FindCoordinatorResponse,
+    IncrementalAlterConfigsRequest, IncrementalAlterConfigsResource, VersionedDecode,
+    VersionedEncode, versions,
 };
 use tokio::sync::OnceCell;
 
@@ -292,20 +293,23 @@ impl ClusterSession for KafkaClient {
     }
 
     async fn broker_configs(&self, broker_id: i32) -> Result<Vec<ConfigEntry>, KafkaError> {
-        let results = self
-            .transport
-            .admin
-            .describe_configs_per_resource(DescribeConfigsRequest::for_broker(broker_id))
-            .await?;
+        let connection = self.broker_connection(broker_id).await?;
+        let described: DescribeConfigsResponse = call(
+            &connection,
+            ApiKey::DescribeConfigs,
+            versions::DESCRIBE_CONFIGS_MIN..=versions::DESCRIBE_CONFIGS_MAX,
+            &DescribeConfigsRequest::for_broker(broker_id),
+        )
+        .await?;
 
-        match results.into_iter().next() {
+        match described.results.into_iter().next() {
             Some(result) if result.error_code.is_ok() => {
                 Ok(result.configs.into_iter().map(ConfigEntry::from).collect())
             }
             Some(result) => Err(KafkaError::BrokerConfigs {
                 id: broker_id,
                 message: result
-                    .error
+                    .error_message
                     .unwrap_or_else(|| format!("{:?}", result.error_code)),
             }),
             None => Ok(Vec::new()),
@@ -606,6 +610,17 @@ impl KafkaClient {
             .as_ref()
             .map(|decoder| decoder.client())
             .ok_or_else(|| KafkaError::NoSchemaRegistry(self.identity.name.clone()))
+    }
+
+    // krafka sends these to any broker, and Kafka describes or alters a
+    // broker's own configs only on that broker.
+    async fn broker_connection(&self, id: i32) -> Result<Arc<BrokerConnection>, KafkaError> {
+        Ok(self
+            .transport
+            .client
+            .metadata()
+            .get_broker_connection(id)
+            .await?)
     }
 
     // krafka's admin client only sends SET operations, and a reset needs DELETE.

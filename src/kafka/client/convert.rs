@@ -12,7 +12,8 @@ use krafka::error::{ErrorCode, KrafkaError};
 use krafka::metadata::{ClusterMetadata, TopicInfo as KrafkaTopicInfo};
 use krafka::producer::ProducerRecord;
 use krafka::protocol::{
-    AlterConfigOp, AlterableConfig, IncrementalAlterConfigsResponse, validate_topic_name,
+    AlterConfigOp, AlterableConfig, DescribeConfigsEntry, IncrementalAlterConfigsResponse,
+    validate_topic_name,
 };
 
 use crate::kafka::error::KafkaError;
@@ -260,6 +261,18 @@ impl LogDir {
 
 impl From<KrafkaConfigEntry> for ConfigEntry {
     fn from(entry: KrafkaConfigEntry) -> Self {
+        Self {
+            name: entry.name,
+            value: entry.value,
+            source: ConfigSource::from_krafka(entry.config_source),
+            read_only: entry.read_only,
+            sensitive: entry.is_sensitive,
+        }
+    }
+}
+
+impl From<DescribeConfigsEntry> for ConfigEntry {
+    fn from(entry: DescribeConfigsEntry) -> Self {
         Self {
             name: entry.name,
             value: entry.value,
