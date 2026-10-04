@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use foldhash::{HashMap, HashMapExt, HashSet, HashSetExt};
 use futures::StreamExt;
 use schemreg::error::error_code;
 use schemreg::{
@@ -65,10 +66,6 @@ impl SchemaRegistryClient {
         &self.registry
     }
 
-    pub(crate) fn fetch_concurrency(&self) -> usize {
-        self.fetch_concurrency
-    }
-
     pub(crate) fn fail(&self, message: impl Into<String>) -> KafkaError {
         KafkaError::SchemaRegistry {
             cluster: self.cluster.clone(),
@@ -116,6 +113,48 @@ impl SchemaRegistryClient {
             .await
             .map_err(|error| self.fail(error.to_string()))?;
         self.registered(&latest)
+    }
+
+    /// The name and body of every schema `references` reaches, each after
+    /// the schemas it references.
+    pub(crate) async fn dependencies(
+        &self,
+        references: &[schemreg::SchemaReference],
+    ) -> Result<Vec<(String, String)>, SchemaRegError> {
+        let roots = self::references(references);
+        let mut fetched = HashMap::new();
+        let mut pending = roots.clone();
+        let mut seen = HashSet::new();
+
+        loop {
+            let wave: Vec<SchemaReference> = pending
+                .drain(..)
+                .filter(|reference| seen.insert((reference.subject.clone(), reference.version)))
+                .collect();
+            if wave.is_empty() {
+                break;
+            }
+
+            let mut fetches = futures::stream::iter(wave.into_iter().map(|reference| async move {
+                let schema = self
+                    .registry
+                    .get_schema_by_version(
+                        &reference.subject,
+                        SchemaVersion::new(reference.version),
+                    )
+                    .await?;
+                Ok::<_, SchemaRegError>((reference, schema))
+            }))
+            .buffer_unordered(self.fetch_concurrency);
+
+            while let Some(result) = fetches.next().await {
+                let (reference, schema) = result?;
+                pending.extend(self::references(&schema.references));
+                fetched.insert((reference.subject, reference.version), schema);
+            }
+        }
+
+        Ok(in_dependency_order(roots, &fetched))
     }
 
     pub async fn register(&self, schema: &NewSchema) -> Result<RegisteredVersion, KafkaError> {
@@ -290,6 +329,37 @@ impl SchemaRegistryClient {
     }
 }
 
+enum Visit {
+    Enter(SchemaReference),
+    Leave(String, Arc<Schema>),
+}
+
+fn in_dependency_order(
+    roots: Vec<SchemaReference>,
+    fetched: &HashMap<(String, i32), Arc<Schema>>,
+) -> Vec<(String, String)> {
+    let mut ordered = Vec::with_capacity(fetched.len());
+    let mut entered = HashSet::with_capacity(fetched.len());
+    let mut visits: Vec<Visit> = roots.into_iter().map(Visit::Enter).collect();
+
+    while let Some(visit) = visits.pop() {
+        match visit {
+            Visit::Enter(reference) => {
+                let key = (reference.subject, reference.version);
+                if let Some(schema) = fetched.get(&key)
+                    && entered.insert(key)
+                {
+                    visits.push(Visit::Leave(reference.name, Arc::clone(schema)));
+                    visits.extend(references(&schema.references).into_iter().map(Visit::Enter));
+                }
+            }
+            Visit::Leave(name, schema) => ordered.push((name, schema.schema.to_string())),
+        }
+    }
+
+    ordered
+}
+
 fn is_soft_deleted(error: &SchemaRegError) -> bool {
     matches!(
         error.error_code(),
@@ -351,7 +421,7 @@ mod tests {
             ..SchemaRegistryTuning::default()
         };
 
-        assert_eq!(offline(&tuning).fetch_concurrency(), 3);
+        assert_eq!(offline(&tuning).fetch_concurrency, 3);
     }
 
     #[tokio::test]
@@ -840,6 +910,54 @@ mod tests {
         assert!(
             matches!(&error, KafkaError::RegistryRefused(message) if message == "Invalid compatibility level"),
             "{error:?}"
+        );
+    }
+
+    const STATUS: &str = r#"{"type": "enum", "name": "Status", "symbols": ["OPEN", "CLOSED"]}"#;
+
+    const LINE: &str =
+        r#"{"type": "record", "name": "Line", "fields": [{"name": "status", "type": "Status"}]}"#;
+
+    const SHIPMENT: &str = r#"{
+        "type": "record",
+        "name": "Shipment",
+        "fields": [{"name": "line", "type": "Line"}, {"name": "status", "type": "Status"}]
+    }"#;
+
+    async fn shipments() -> FakeRegistry {
+        let registry = FakeRegistry::start().await;
+        registry.register("status", 1, 1, Schema::avro(STATUS));
+        registry.register(
+            "line",
+            1,
+            2,
+            Schema::avro(LINE).referencing("Status", "status", 1),
+        );
+        registry.put(
+            3,
+            Schema::avro(SHIPMENT)
+                .referencing("Line", "line", 1)
+                .referencing("Status", "status", 1),
+        );
+        registry
+    }
+
+    #[tokio::test]
+    async fn dependencies_come_once_and_after_the_schemas_they_reference() {
+        let registry = shipments().await;
+        let references = [
+            schemreg::SchemaReference::new("Line", "line", SchemaVersion::new(1)),
+            schemreg::SchemaReference::new("Status", "status", SchemaVersion::new(1)),
+        ];
+
+        let dependencies = registry.client().dependencies(&references).await.unwrap();
+
+        assert_eq!(
+            dependencies,
+            [
+                ("Status".to_owned(), STATUS.to_owned()),
+                ("Line".to_owned(), LINE.to_owned()),
+            ]
         );
     }
 

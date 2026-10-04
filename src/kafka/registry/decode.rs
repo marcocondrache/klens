@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use foldhash::{HashMap, HashMapExt, HashSet, HashSetExt};
+use foldhash::{HashMap, HashMapExt, HashSet};
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -9,15 +9,15 @@ use futures::StreamExt;
 use futures::stream::FuturesUnordered;
 use moka::future::Cache;
 use schemreg::{
-    AvroSchemaDecoder, Schema, SchemaId, SchemaKey, SchemaRegistryClient as _, SchemaVersion,
-    decode_wire_prefix, encode_wire_format,
+    AvroSchemaDecoder, Schema, SchemaId, SchemaKey, SchemaRegistryClient as _, decode_wire_prefix,
+    encode_wire_format,
 };
 use serde_json::Value;
 use thiserror::Error;
 
-use super::client::{Registry, SchemaRegistryClient, references};
+use super::client::{Registry, SchemaRegistryClient};
 use super::protobuf::{ProtobufCodec, ProtobufError};
-use crate::kafka::model::{SchemaReference, SchemaType};
+use crate::kafka::model::SchemaType;
 use crate::kafka::scan::payload::{DecodedPayload, PayloadCodec, PayloadSlot};
 
 const MAX_CACHED_SCHEMAS: u64 = 10_000;
@@ -140,49 +140,16 @@ impl PayloadDecoder {
     ) -> Result<Arc<ProtobufCodec>, DecodeError> {
         self.pools
             .try_get_with(key, async {
-                let dependencies = self.collect_named_references(schema).await?;
+                let dependencies = self
+                    .client
+                    .dependencies(&schema.references)
+                    .await
+                    .map_err(DecodeError::failed)?;
                 let codec = ProtobufCodec::compile(&schema.schema, &dependencies)?;
                 Ok::<_, DecodeError>(Arc::new(codec))
             })
             .await
             .map_err(|error| (*error).clone())
-    }
-
-    async fn collect_named_references(
-        &self,
-        schema: &Schema,
-    ) -> Result<Vec<(String, String)>, DecodeError> {
-        let mut bodies = Vec::new();
-        let mut pending = references(&schema.references);
-        let mut seen = HashSet::new();
-
-        while !pending.is_empty() {
-            let wave: Vec<SchemaReference> = pending
-                .drain(..)
-                .filter(|reference| seen.insert((reference.subject.clone(), reference.version)))
-                .collect();
-
-            let mut fetches = futures::stream::iter(wave.into_iter().map(|reference| async move {
-                let fetched = self
-                    .registry()
-                    .get_schema_by_version(
-                        &reference.subject,
-                        SchemaVersion::new(reference.version),
-                    )
-                    .await
-                    .map_err(DecodeError::failed)?;
-                Ok::<_, DecodeError>((reference.name, fetched))
-            }))
-            .buffer_unordered(self.client.fetch_concurrency());
-
-            while let Some(result) = fetches.next().await {
-                let (name, fetched) = result?;
-                pending.extend(references(&fetched.references));
-                bodies.push((name, fetched.schema.to_string()));
-            }
-        }
-
-        Ok(bodies)
     }
 }
 
