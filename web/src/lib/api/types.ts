@@ -1,5 +1,6 @@
 export type {
   Acl,
+  AddPartitions,
   BrokerRow,
   CleanupPolicy,
   ClientQuota,

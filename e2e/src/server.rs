@@ -4,7 +4,7 @@ use std::net::{SocketAddr, TcpListener};
 use klens::kafka::ingest::Ingest;
 use klens::{AppState, AuthState, Clusters, Config, Limits, router};
 use reqwest::header::CONTENT_TYPE;
-use reqwest::{Response, StatusCode};
+use reqwest::{Method, Response, StatusCode};
 use serde_json::Value;
 use tempfile::NamedTempFile;
 use tokio::net::TcpStream;
@@ -89,15 +89,23 @@ impl Klens {
         serde_json::from_str(&body).unwrap_or_else(|error| panic!("GET {path}: {error}: {body}"))
     }
 
+    pub async fn post(&self, path: &str, body: &Value) -> (StatusCode, Value) {
+        self.send(Method::POST, path, body).await
+    }
+
     pub async fn patch(&self, path: &str, body: &Value) -> (StatusCode, Value) {
+        self.send(Method::PATCH, path, body).await
+    }
+
+    async fn send(&self, method: Method, path: &str, body: &Value) -> (StatusCode, Value) {
         let response = self
             .http
-            .patch(format!("{}{path}", self.base))
+            .request(method.clone(), format!("{}{path}", self.base))
             .header(CONTENT_TYPE, "application/json")
             .body(body.to_string())
             .send()
             .await
-            .unwrap_or_else(|error| panic!("PATCH {path}: {error}"));
+            .unwrap_or_else(|error| panic!("{method} {path}: {error}"));
         let status = response.status();
         let body = response.text().await.expect("response body");
         (status, serde_json::from_str(&body).unwrap_or(Value::Null))

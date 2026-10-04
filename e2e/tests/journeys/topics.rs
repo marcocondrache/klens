@@ -139,3 +139,27 @@ async fn a_config_value_kafka_refuses_carries_the_broker_reason() {
         "{body}"
     );
 }
+
+#[tokio::test]
+async fn added_partitions_show_once_the_add_answers() {
+    let kafka = Kafka::start().await;
+    kafka.topic("orders", 1).await;
+    let klens = Klens::over(&kafka).await;
+    let path = format!("{TOPICS}/orders");
+    klens.eventually(&path, |topic| topic.is_object()).await;
+
+    let (status, body) = klens
+        .post(&format!("{path}/partitions"), &json!({ "count": 3 }))
+        .await;
+
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    let topic = klens.get(&path).await;
+    assert_eq!(topic["partitions"].as_array().map(Vec::len), Some(3));
+
+    let (status, body) = klens
+        .post(&format!("{path}/partitions"), &json!({ "count": 2 }))
+        .await;
+
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(body["code"], "REFUSED");
+}

@@ -30,6 +30,7 @@ import {
   formatThroughput,
 } from "@/lib/format";
 
+import { AddPartitionsDialog } from "./add-partitions";
 import { EditTopicConfigButton, EditTopicConfigDialog } from "./edit-topic-config";
 import { topicTab } from "./search";
 import { partitionColumns, topicGroupColumns } from "./topic-columns";
@@ -103,7 +104,7 @@ export function TopicPage() {
     return <PageHeader title={topicName} mono description={lookup} />;
   }
 
-  const canEditConfigs = detail !== null && !detail.internal && canChange(cluster, "MANAGE_TOPICS");
+  const canManage = detail !== null && !detail.internal && canChange(cluster, "MANAGE_TOPICS");
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
@@ -204,6 +205,13 @@ export function TopicPage() {
         <TabsContent value="partitions" className="mt-4 flex min-h-0 flex-col">
           <DataTable
             columns={partitionColumns}
+            toolbar={
+              canManage ? (
+                <div className="ml-auto">
+                  <AddPartitionsDialog cluster={cluster} topic={detail} />
+                </div>
+              ) : null
+            }
             data={detail?.partitions ?? []}
             getRowId={(partition) => String(partition.id)}
             loading={isPending}
@@ -233,7 +241,7 @@ export function TopicPage() {
               entries={configs}
               loading={configsPending}
               action={
-                canEditConfigs
+                canManage
                   ? (entry) =>
                       entry.readOnly ? null : (
                         <EditTopicConfigButton handle={configEditor} entry={entry} />
@@ -241,7 +249,7 @@ export function TopicPage() {
                   : undefined
               }
             />
-            {canEditConfigs ? (
+            {canManage ? (
               <EditTopicConfigDialog cluster={cluster} topic={topicName} handle={configEditor} />
             ) : null}
           </TabsContent>

@@ -1,3 +1,4 @@
+use std::num::NonZeroU16;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -153,6 +154,25 @@ impl Granted<'_, ManageTopicsCap> {
             table
                 .get(topic)
                 .is_some_and(|entries| edit.shows_in(entries))
+        })
+        .await;
+        Ok(())
+    }
+
+    pub(crate) async fn add_partitions(
+        &self,
+        topic: &str,
+        count: NonZeroU16,
+    ) -> Result<(), KafkaError> {
+        self.writable_topic(topic, |_| ())?;
+        self.cluster.session.add_partitions(topic, count).await?;
+        tracing::info!(cluster = %self.cluster.store.name(), topic, count, "added partitions");
+        let count = usize::from(count.get());
+        self.settle(&self.cluster.store.topology, |known| {
+            known
+                .topics
+                .get(topic)
+                .is_some_and(|info| info.partitions.len() >= count)
         })
         .await;
         Ok(())
