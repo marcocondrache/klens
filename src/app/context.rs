@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
@@ -6,15 +7,18 @@ use axum::http::request::Parts;
 use crate::AppState;
 use crate::app::auth::SessionGuard;
 use crate::app::auth::access::{
-    AccessError, ClusterAccess, ConfigsCap, EffectiveAccess, RecordsCap, SchemaTextCap,
+    AccessError, ClusterAccess, ConfigsCap, EffectiveAccess, ManageTopicsCap, RecordsCap,
+    SchemaTextCap,
 };
-use crate::kafka::model::{FoundRecord, RecordAt, RegisteredSchema};
-use crate::kafka::store::ClusterStore;
+use crate::kafka::model::{FoundRecord, NewTopic, RecordAt, RegisteredSchema};
+use crate::kafka::store::{ClusterStore, Lane};
 use crate::kafka::{
     Cluster, ConfigEntry, Export, KafkaError, RecordPage, RecordQuery, Tail, TailLimits, TailQuery,
 };
 
 use super::error::ApiError;
+
+const SETTLE: Duration = Duration::from_secs(10);
 
 pub(crate) struct Session {
     pub state: AppState,
@@ -44,6 +48,19 @@ impl<'a> ClusterHandle<'a> {
 
     pub(crate) fn schema_text(&self) -> Result<Granted<'a, SchemaTextCap>, AccessError> {
         self.access.schema_text().map(|cap| self.grant(cap))
+    }
+
+    pub(crate) fn manage_topics(&self) -> Result<Granted<'a, ManageTopicsCap>, AccessError> {
+        self.writable()?;
+        self.access.manage_topics().map(|cap| self.grant(cap))
+    }
+
+    fn writable(&self) -> Result<(), AccessError> {
+        if self.cluster.writable {
+            Ok(())
+        } else {
+            Err(AccessError::ReadOnlyCluster(self.name().to_owned()))
+        }
     }
 
     fn grant<Cap>(&self, cap: Cap) -> Granted<'a, Cap> {
@@ -94,6 +111,32 @@ impl Granted<'_, SchemaTextCap> {
         version: i32,
     ) -> Result<RegisteredSchema, KafkaError> {
         self.cluster.session.subject_schema(subject, version).await
+    }
+}
+
+impl Granted<'_, ManageTopicsCap> {
+    pub(crate) async fn create_topic(&self, topic: &NewTopic) -> Result<(), KafkaError> {
+        self.cluster.session.create_topic(topic).await?;
+        tracing::info!(cluster = %self.cluster.store.name(), topic = %topic.name, "created topic");
+        self.settle(&self.cluster.store.topology, |topology| {
+            topology.topics.contains_key(topic.name.as_str())
+        })
+        .await;
+        Ok(())
+    }
+}
+
+impl<Cap> Granted<'_, Cap> {
+    async fn settle<T>(&self, lane: &Lane<T>, done: impl Fn(&T) -> bool) {
+        if tokio::time::timeout(SETTLE, lane.refresh_until(done))
+            .await
+            .is_err()
+        {
+            tracing::debug!(
+                cluster = %self.cluster.store.name(),
+                "the store did not show a change in time"
+            );
+        }
     }
 }
 

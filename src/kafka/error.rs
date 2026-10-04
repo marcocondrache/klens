@@ -47,6 +47,9 @@ pub enum KafkaError {
     #[error("kafka admin request failed: {0}")]
     Admin(String),
 
+    #[error("kafka refused the change: {0}")]
+    Refused(String),
+
     #[error("failed to describe broker {id} configs: {message}")]
     BrokerConfigs { id: i32, message: String },
 
@@ -70,6 +73,7 @@ impl KafkaError {
             Self::InvalidQuery(query) => query.code(),
             Self::Timeout => "TIMEOUT",
             Self::Admin(_) => "ADMIN",
+            Self::Refused(_) => "REFUSED",
             Self::BrokerConfigs { .. } => "BROKER_CONFIGS",
             Self::SchemaRegistry { .. } => "SCHEMA_REGISTRY",
             Self::Krafka(_) => "CLIENT",

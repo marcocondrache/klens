@@ -1,3 +1,6 @@
+use std::collections::BTreeMap;
+use std::num::{NonZeroU8, NonZeroU16};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MetadataSnapshot {
     pub cluster_id: Option<String>,
@@ -41,6 +44,14 @@ impl PartitionMetadata {
     pub fn offline(&self) -> bool {
         self.leader < 0
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewTopic {
+    pub name: String,
+    pub partitions: Option<NonZeroU16>,
+    pub replication_factor: Option<NonZeroU8>,
+    pub configs: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

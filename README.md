@@ -78,6 +78,11 @@ clusters:
 A cluster can also point at a [Schema Registry](#schema-registry) and hide
 record contents with [obfuscation](#obfuscation) rules.
 
+klens changes a cluster only when it sets `writable: true`, and then only for
+users who hold the privilege the change needs (see
+[Authentication](#authentication)). Without `auth`, everyone who reaches klens
+holds every privilege.
+
 ### Secrets
 
 Every secret names where to read it: `{value: ...}` inline, `{env: NAME}` from
@@ -217,9 +222,10 @@ same access as an open deployment.
 
 To restrict what signed-in users may do, add `roles`. A role is nothing but a
 name for a set of privileges, defined by you: there are no built-in roles. The
-privileges are `records`, `configs`, `schema_text`, and `acls`; a role that
-lists none still sees the catalog (clusters, topics, groups, lag, sizes) but no
-payloads, live configs, schema bodies, or ACL bindings. A role's `bindings`
+privileges are `records`, `configs`, `schema_text`, and `acls` to read, and
+`manage_topics` to create topics on a writable cluster. A role that lists none
+still sees the catalog (clusters, topics, groups, lag, sizes) but no payloads,
+live configs, schema bodies, or ACL bindings. A role's `bindings`
 name the IdP groups that hold it, read from the ID token claim that
 `oidc.groups_claim` names (default `groups`). Unmatched users cannot sign in.
 Omit `clusters` on a binding to allow every configured cluster.
@@ -243,7 +249,7 @@ auth:
     # groups_claim: groups
   roles:
     admin:
-      privileges: [records, configs, schema_text, acls]
+      privileges: [records, configs, schema_text, acls, manage_topics]
       bindings:
         - groups: [klens-admins]
     viewer:

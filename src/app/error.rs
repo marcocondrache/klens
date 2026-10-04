@@ -18,6 +18,13 @@ pub(crate) enum ApiError {
 }
 
 impl ApiError {
+    pub(crate) fn unprocessable(message: impl Into<String>) -> Self {
+        Self::InvalidRequest {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            message: message.into(),
+        }
+    }
+
     pub(crate) fn code(&self) -> &'static str {
         match self {
             Self::Kafka(error) => error.code(),
@@ -48,7 +55,9 @@ impl ApiError {
             Self::SessionExpired | Self::Unauthorized => StatusCode::UNAUTHORIZED,
             Self::TooManyTails => StatusCode::SERVICE_UNAVAILABLE,
             Self::InvalidRequest { status, .. } => *status,
-            Self::Access(AccessError::Forbidden { .. }) => StatusCode::FORBIDDEN,
+            Self::Access(AccessError::Forbidden { .. } | AccessError::ReadOnlyCluster(_)) => {
+                StatusCode::FORBIDDEN
+            }
             Self::Access(AccessError::UnknownCluster(_)) => StatusCode::NOT_FOUND,
             Self::Kafka(error) => kafka_status(error),
         }
@@ -65,6 +74,7 @@ fn kafka_status(error: &KafkaError) -> StatusCode {
         | KafkaError::UnknownPartition { .. }
         | KafkaError::UnknownOffset { .. } => StatusCode::NOT_FOUND,
         KafkaError::InvalidQuery(_) => StatusCode::BAD_REQUEST,
+        KafkaError::Refused(_) => StatusCode::UNPROCESSABLE_ENTITY,
         KafkaError::Timeout => StatusCode::GATEWAY_TIMEOUT,
         KafkaError::Admin(_)
         | KafkaError::BrokerConfigs { .. }

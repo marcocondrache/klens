@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use foldhash::{HashMap, HashMapExt};
 
 use super::consumers::{CountingCodec, FakeScan, FakeTail};
-use super::fixtures::{offsets, partition, topic};
+use super::fixtures::{config_entry, offsets, partition, topic};
 use super::records::FixtureRecord;
 use super::world;
 use crate::config::{KafkaTuning, ScanTuning};
@@ -14,7 +14,9 @@ use crate::kafka::acl::AclListing;
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
 use crate::kafka::group::{CommittedOffset, GroupSnapshot};
-use crate::kafka::metadata::{BrokerMetadata, MetadataSnapshot, TopicMetadata, Watermarks};
+use crate::kafka::metadata::{
+    BrokerMetadata, MetadataSnapshot, NewTopic, TopicMetadata, Watermarks,
+};
 use crate::kafka::model::{PartitionWindow, ScanConsumer, TailConsumer, TailPosition};
 use crate::kafka::quota::QuotaListing;
 use crate::kafka::registry::{RegisteredSchema, SchemaSubject};
@@ -46,6 +48,7 @@ pub enum Api {
     SubjectSchema,
     Acls,
     ClientQuotas,
+    CreateTopic,
 }
 
 #[derive(Clone)]
@@ -651,5 +654,26 @@ impl ClusterSession for FakeCluster {
     async fn client_quotas(&self) -> Result<QuotaListing, KafkaError> {
         self.answer(Api::ClientQuotas).await?;
         Ok(self.world().quotas.clone())
+    }
+
+    async fn create_topic(&self, topic: &NewTopic) -> Result<(), KafkaError> {
+        self.answer(Api::CreateTopic).await?;
+        if self.world().metadata.topic(&topic.name).is_some() {
+            return Err(KafkaError::Refused(format!(
+                "Topic '{}' already exists.",
+                topic.name
+            )));
+        }
+        let partitions = topic.partitions.map_or(1, |count| count.get().into());
+        self.add_topic(&topic.name, partitions, 0);
+        self.set_topic_configs(
+            &topic.name,
+            topic
+                .configs
+                .iter()
+                .map(|(name, value)| config_entry(name, value))
+                .collect(),
+        );
+        Ok(())
     }
 }

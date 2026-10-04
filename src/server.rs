@@ -40,6 +40,7 @@ pub async fn serve(router: Router, bind: SocketAddr) -> Result<()> {
                         "http.request",
                         method = %request.method(),
                         path = %request.uri().path(),
+                        user = tracing::field::Empty,
                     )
                 })
                 .on_response(|response: &Response<_>, latency: Duration, _span: &Span| {

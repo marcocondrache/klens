@@ -1,10 +1,12 @@
 use std::sync::Arc;
 
 use axum::http::StatusCode;
-use serde_json::Value;
+use serde_json::{Value, json};
+use tracing::Level;
 
 use crate::testing::{
-    Api, FakeCluster, TestApp, config_entry, offline_partition, partition, topic,
+    Api, FakeCluster, LogCapture, TestApp, access, config_entry, offline_partition, partition,
+    quiesce, topic, viewer,
 };
 
 fn compacted() -> FakeCluster {
@@ -165,4 +167,107 @@ async fn topic_configs_for_an_unknown_topic_are_an_error() {
         .get("/clusters/local/topics/ghost/configs")
         .await
         .assert_error(StatusCode::NOT_FOUND, "UNKNOWN_TOPIC");
+}
+
+async fn writable() -> TestApp {
+    TestApp::of([FakeCluster::local()])
+        .writable(&["local"])
+        .ingested()
+        .await
+}
+
+#[tokio::test]
+async fn a_created_topic_shows_before_the_create_answers() {
+    let app = writable().await;
+    let mut rig = app.rig();
+    let lane = rig.topology();
+    rig.spawn(lane);
+    quiesce().await;
+    let logs = LogCapture::at(Level::INFO);
+
+    app.post(
+        "/clusters/local/topics",
+        &json!({ "name": "invoices", "partitions": 3, "configs": { "cleanup.policy": "compact" } }),
+    )
+    .await
+    .expect(StatusCode::CREATED);
+
+    let topic = app.get("/clusters/local/topics/invoices").await.ok();
+    assert_eq!(topic["partitions"].as_array().map(Vec::len), Some(3));
+    rig.poll(&rig.configs()).await;
+    let configs = app
+        .get("/clusters/local/topics/invoices/configs")
+        .await
+        .ok();
+    assert_eq!(configs[0]["name"], "cleanup.policy");
+    assert_eq!(configs[0]["value"], "compact");
+    assert_eq!(app.cluster().calls(Api::CreateTopic), 1);
+    logs.assert_contains("created topic");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_create_answers_even_when_the_store_never_shows_it() {
+    let app = writable().await;
+
+    app.post("/clusters/local/topics", &json!({ "name": "invoices" }))
+        .await
+        .expect(StatusCode::CREATED);
+
+    app.get("/clusters/local/topics/invoices")
+        .await
+        .assert_error(StatusCode::NOT_FOUND, "UNKNOWN_TOPIC");
+}
+
+#[tokio::test]
+async fn a_create_without_the_privilege_names_the_one_it_needs() {
+    let reply = writable()
+        .await
+        .with_access(access([viewer()]))
+        .post("/clusters/local/topics", &json!({ "name": "invoices" }))
+        .await;
+
+    reply.assert_error(StatusCode::FORBIDDEN, "FORBIDDEN");
+    assert_eq!(
+        reply.body["error"],
+        "'manageTopics' is not permitted on cluster 'local'"
+    );
+}
+
+#[tokio::test]
+async fn creating_a_topic_that_exists_carries_the_broker_refusal() {
+    let reply = writable()
+        .await
+        .post(
+            "/clusters/local/topics",
+            &json!({ "name": "orders.created" }),
+        )
+        .await;
+
+    reply.assert_error(StatusCode::UNPROCESSABLE_ENTITY, "REFUSED");
+    assert!(
+        reply.body["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("Topic 'orders.created' already exists.")),
+        "{}",
+        reply.body
+    );
+}
+
+#[tokio::test]
+async fn a_create_kafka_would_reject_never_reaches_the_broker() {
+    let app = writable().await;
+
+    for body in [
+        json!({ "name": "bad name" }),
+        json!({ "name": "" }),
+        json!({ "name": "invoices", "partitions": 0 }),
+        json!({ "name": "invoices", "replicationFactor": 0 }),
+        json!({ "name": "invoices", "compacted": true }),
+    ] {
+        app.post("/clusters/local/topics", &body)
+            .await
+            .assert_error(StatusCode::UNPROCESSABLE_ENTITY, "INVALID_REQUEST");
+    }
+
+    assert_eq!(app.cluster().calls(Api::CreateTopic), 0);
 }
