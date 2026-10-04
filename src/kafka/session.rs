@@ -10,8 +10,8 @@ use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
     AclListing, ClusterIdentity, CommittedOffset, ConfigEdit, ConfigEntry, GroupSnapshot, LogDir,
     MetadataSnapshot, NewRecord, NewSchema, NewTopic, PartitionWindow, ProducedRecord,
-    QuotaListing, RecordDeletion, RegisteredSchema, RegisteredVersion, ScanConsumer, SchemaSubject,
-    TailConsumer, TailPosition, TopicMetadata, Watermarks,
+    QuotaListing, RecordDeletion, RegisteredSchema, RegisteredVersion, ScanConsumer,
+    SchemaDeletion, SchemaSubject, TailConsumer, TailPosition, TopicMetadata, Watermarks,
 };
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
@@ -127,6 +127,8 @@ pub trait ClusterSession: Send + Sync + 'static {
     ) -> Result<(), KafkaError>;
 
     async fn register_schema(&self, schema: &NewSchema) -> Result<RegisteredVersion, KafkaError>;
+
+    async fn delete_schema(&self, deletion: &SchemaDeletion) -> Result<(), KafkaError>;
 
     fn consume_timeout(&self) -> Duration;
 

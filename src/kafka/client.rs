@@ -44,7 +44,9 @@ use crate::kafka::model::{
 use crate::kafka::quota::{DescribedQuota, QuotaListing};
 use crate::kafka::registry::client::SchemaRegistryClient;
 use crate::kafka::registry::decode::PayloadDecoder;
-use crate::kafka::registry::{NewSchema, RegisteredSchema, RegisteredVersion, SchemaSubject};
+use crate::kafka::registry::{
+    NewSchema, RegisteredSchema, RegisteredVersion, SchemaDeletion, SchemaSubject,
+};
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
 use crate::kafka::session::ClusterSession;
@@ -531,14 +533,22 @@ impl ClusterSession for KafkaClient {
     }
 
     async fn register_schema(&self, schema: &NewSchema) -> Result<RegisteredVersion, KafkaError> {
-        let Some(decoder) = &self.schema_registry else {
-            return Err(KafkaError::NoSchemaRegistry(self.identity.name.clone()));
-        };
-        decoder.client().register(schema).await
+        self.registry()?.register(schema).await
+    }
+
+    async fn delete_schema(&self, deletion: &SchemaDeletion) -> Result<(), KafkaError> {
+        self.registry()?.delete(deletion).await
     }
 }
 
 impl KafkaClient {
+    fn registry(&self) -> Result<&SchemaRegistryClient, KafkaError> {
+        self.schema_registry
+            .as_ref()
+            .map(|decoder| decoder.client())
+            .ok_or_else(|| KafkaError::NoSchemaRegistry(self.identity.name.clone()))
+    }
+
     // krafka's admin client only sends SET operations, and a reset needs DELETE.
     async fn alter_configs(
         &self,
@@ -1319,15 +1329,44 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_cluster_without_a_registry_registers_no_schema() {
+    async fn a_schema_deletes_through_the_clusters_registry() {
+        let broker = Broker::start().await;
+        let registry = FakeRegistry::start().await;
+        let client = broker.client_with_registry(&registry).await;
+        client.register_schema(&order_schema()).await.unwrap();
+
+        client
+            .delete_schema(&SchemaDeletion {
+                subject: "orders-value".to_owned(),
+                version: None,
+                permanent: false,
+            })
+            .await
+            .unwrap();
+
+        assert!(client.schema_subjects().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_cluster_without_a_registry_changes_no_schema() {
         let client = Broker::start().await.client().await;
+        let deletion = SchemaDeletion {
+            subject: "orders-value".to_owned(),
+            version: None,
+            permanent: false,
+        };
 
         assert!(!client.has_schema_registry());
-        let error = client.register_schema(&order_schema()).await.unwrap_err();
+        let errors = [
+            client.register_schema(&order_schema()).await.unwrap_err(),
+            client.delete_schema(&deletion).await.unwrap_err(),
+        ];
 
-        assert!(
-            matches!(&error, KafkaError::NoSchemaRegistry(cluster) if cluster == "test"),
-            "{error:?}"
-        );
+        for error in errors {
+            assert!(
+                matches!(&error, KafkaError::NoSchemaRegistry(cluster) if cluster == "test"),
+                "{error:?}"
+            );
+        }
     }
 }
