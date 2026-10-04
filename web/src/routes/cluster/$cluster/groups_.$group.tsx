@@ -2,6 +2,7 @@ import { Link, createFileRoute, stripSearchParams } from "@tanstack/react-router
 import { createColumnHelper } from "@tanstack/react-table";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ConfirmDelete } from "@/components/confirm-delete";
 import { CopyButton } from "@/components/copy-button";
 import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
@@ -9,11 +10,13 @@ import { PageHeader } from "@/components/page-header";
 import { Facts } from "@/components/facts";
 import { TabCount } from "@/components/tab-count";
 import { GroupStateBadge, PendingValue, Pill, TONE_TEXT } from "@/components/status";
+import { hasMembers } from "@/features/groups/group-state";
 import { ResetOffsetsDialog } from "@/features/groups/reset-offsets";
 import { useAccess } from "@/hooks/use-access";
 import { lagTone } from "@/lib/tone";
 import { cn } from "@/lib/utils";
 import { useGroup } from "@/lib/api/catalog";
+import { clusterPathname, del, resourceId } from "@/lib/api/client";
 import { catalogLookupMessage } from "@/lib/catalog-lookup";
 import { useClusterName } from "@/lib/clusters";
 import { formatCount, formatNumber } from "@/lib/format";
@@ -243,7 +246,31 @@ function ConsumerGroupPage() {
         }
         actions={
           group && canChange(cluster, "MANAGE_GROUPS") ? (
-            <ResetOffsetsDialog cluster={cluster} group={group} />
+            <>
+              <ResetOffsetsDialog cluster={cluster} group={group} />
+              <ConfirmDelete
+                noun="group"
+                name={groupId}
+                consequence={
+                  hasMembers(group.state) ? (
+                    <>
+                      Kafka only deletes a group without members. Stop the consumers of{" "}
+                      <span className="font-mono">{groupId}</span> first.
+                    </>
+                  ) : (
+                    <>
+                      This deletes <span className="font-mono">{groupId}</span> and its committed
+                      offsets, and cannot be undone. Its consumers start from their reset policy
+                      when they rejoin.
+                    </>
+                  )
+                }
+                onDelete={() => del(clusterPathname(cluster, "groups", resourceId(groupId)))}
+                onDeleted={() =>
+                  void navigate({ to: "/cluster/$cluster/groups", params: { cluster } })
+                }
+              />
+            </>
           ) : null
         }
         description={

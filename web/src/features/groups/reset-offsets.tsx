@@ -32,6 +32,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { hasMembers } from "@/features/groups/group-state";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { apiErrorMessage, clusterPathname, patchAndRead, resourceId } from "@/lib/api/client";
 import { keys } from "@/lib/api/keys";
@@ -101,7 +102,7 @@ function ResetOffsetsForm({
   const [kind, setKind] = useState<TargetKind>("EARLIEST");
   const [value, setValue] = useState("");
   const path = clusterPathname(cluster, "group-offsets", resourceId(group.id));
-  const active = group.state !== "EMPTY" && group.state !== "DEAD";
+  const active = hasMembers(group.state);
 
   const to = resetTarget(kind, value);
   const request: ResetOffsets | null = to && {
