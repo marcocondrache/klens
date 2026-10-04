@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { PlusIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Field, FieldDescription, FieldError, FieldLabel, FieldTitle } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -13,7 +14,7 @@ import {
 } from "@/components/ui/select";
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { Field, FieldCount } from "@/components/field";
+import { FieldCount } from "@/components/field-count";
 import { FormSheetContent, SheetForm } from "@/components/write-form";
 import { apiErrorMessage, clusterPathname, post } from "@/lib/api/client";
 import { keys } from "@/lib/api/keys";
@@ -148,7 +149,8 @@ function CreateAclForm({ cluster, onCreated }: { cluster: string; onCreated: () 
       }}
       onSubmit={submit}
     >
-      <Field label="Principal" htmlFor={`${id}-principal`}>
+      <Field data-invalid={badPrincipal || undefined}>
+        <FieldLabel htmlFor={`${id}-principal`}>Principal</FieldLabel>
         <Input
           id={`${id}-principal`}
           data-autofocus
@@ -158,12 +160,19 @@ function CreateAclForm({ cluster, onCreated }: { cluster: string; onCreated: () 
           className="font-mono"
           value={principal}
           aria-invalid={badPrincipal || undefined}
+          aria-describedby={badPrincipal ? `${id}-principal-error` : undefined}
           onChange={(event) => setPrincipal(event.target.value)}
         />
+        {badPrincipal ? (
+          <FieldError id={`${id}-principal-error`}>
+            Enter a principal such as User:alice.
+          </FieldError>
+        ) : null}
       </Field>
 
       <div className="grid grid-cols-2 items-start gap-3">
-        <Field label="Host" htmlFor={`${id}-host`}>
+        <Field>
+          <FieldLabel htmlFor={`${id}-host`}>Host</FieldLabel>
           <Input
             id={`${id}-host`}
             autoComplete="off"
@@ -173,25 +182,29 @@ function CreateAclForm({ cluster, onCreated }: { cluster: string; onCreated: () 
             onChange={(event) => setHost(event.target.value)}
           />
         </Field>
-        <Field label="Permission">
-          <ToggleGroup
-            value={[permission]}
-            onValueChange={(next) => {
-              if (next[0]) setPermission(next[0] === "DENY" ? "DENY" : "ALLOW");
-            }}
-            variant="outline"
-            size="sm"
-            spacing={0}
-            aria-label="Permission"
-          >
-            <ToggleGroupItem value="ALLOW">Allow</ToggleGroupItem>
-            <ToggleGroupItem value="DENY">Deny</ToggleGroupItem>
-          </ToggleGroup>
+        <Field>
+          <FieldTitle id={`${id}-permission`}>Permission</FieldTitle>
+          <div>
+            <ToggleGroup
+              value={[permission]}
+              onValueChange={(next) => {
+                if (next[0]) setPermission(next[0] === "DENY" ? "DENY" : "ALLOW");
+              }}
+              variant="outline"
+              size="sm"
+              spacing={0}
+              aria-labelledby={`${id}-permission`}
+            >
+              <ToggleGroupItem value="ALLOW">Allow</ToggleGroupItem>
+              <ToggleGroupItem value="DENY">Deny</ToggleGroupItem>
+            </ToggleGroup>
+          </div>
         </Field>
       </div>
 
       <div className="grid grid-cols-2 items-start gap-3">
-        <Field label="Resource" htmlFor={`${id}-resource`}>
+        <Field>
+          <FieldLabel htmlFor={`${id}-resource`}>Resource</FieldLabel>
           <Select
             items={RESOURCES}
             value={resourceType}
@@ -211,35 +224,29 @@ function CreateAclForm({ cluster, onCreated }: { cluster: string; onCreated: () 
             </SelectContent>
           </Select>
         </Field>
-        <Field label="Pattern">
-          <ToggleGroup
-            value={[onCluster ? "LITERAL" : pattern]}
-            onValueChange={(next) => {
-              if (next[0]) setPattern(next[0] === "PREFIXED" ? "PREFIXED" : "LITERAL");
-            }}
-            disabled={onCluster}
-            variant="outline"
-            size="sm"
-            spacing={0}
-            aria-label="Pattern"
-          >
-            <ToggleGroupItem value="LITERAL">Literal</ToggleGroupItem>
-            <ToggleGroupItem value="PREFIXED">Prefixed</ToggleGroupItem>
-          </ToggleGroup>
+        <Field data-disabled={onCluster || undefined}>
+          <FieldTitle id={`${id}-pattern`}>Pattern</FieldTitle>
+          <div>
+            <ToggleGroup
+              value={[onCluster ? "LITERAL" : pattern]}
+              onValueChange={(next) => {
+                if (next[0]) setPattern(next[0] === "PREFIXED" ? "PREFIXED" : "LITERAL");
+              }}
+              disabled={onCluster}
+              variant="outline"
+              size="sm"
+              spacing={0}
+              aria-labelledby={`${id}-pattern`}
+            >
+              <ToggleGroupItem value="LITERAL">Literal</ToggleGroupItem>
+              <ToggleGroupItem value="PREFIXED">Prefixed</ToggleGroupItem>
+            </ToggleGroup>
+          </div>
         </Field>
       </div>
 
-      <Field
-        label="Name"
-        htmlFor={`${id}-name`}
-        hint={
-          onCluster
-            ? "Cluster bindings cover the whole cluster."
-            : pattern === "PREFIXED"
-              ? `Matches every ${resource.label.toLowerCase()} whose name starts with this.`
-              : `Use * to match every ${resource.label.toLowerCase()}.`
-        }
-      >
+      <Field data-disabled={onCluster || undefined}>
+        <FieldLabel htmlFor={`${id}-name`}>Name</FieldLabel>
         <Input
           id={`${id}-name`}
           autoComplete="off"
@@ -250,33 +257,39 @@ function CreateAclForm({ cluster, onCreated }: { cluster: string; onCreated: () 
           aria-describedby={`${id}-name-hint`}
           onChange={(event) => setName(event.target.value)}
         />
+        <FieldDescription id={`${id}-name-hint`}>
+          {onCluster
+            ? "Cluster bindings cover the whole cluster."
+            : pattern === "PREFIXED"
+              ? `Matches every ${resource.label.toLowerCase()} whose name starts with this.`
+              : `Use * to match every ${resource.label.toLowerCase()}.`}
+        </FieldDescription>
       </Field>
 
-      <Field
-        label={
-          <>
-            Operations
-            <FieldCount value={operations.length} />
-          </>
-        }
-      >
-        <ToggleGroup
-          multiple
-          value={operations}
-          onValueChange={(next) =>
-            setOperations(resource.operations.filter((operation) => next.includes(operation)))
-          }
-          variant="outline"
-          size="sm"
-          className="flex-wrap"
-          aria-label="Operations"
-        >
-          {resource.operations.map((operation) => (
-            <ToggleGroupItem key={operation} value={operation}>
-              {formatEnumLabel(operation)}
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
+      <Field>
+        <FieldTitle id={`${id}-operations`}>
+          Operations
+          <FieldCount value={operations.length} />
+        </FieldTitle>
+        <div>
+          <ToggleGroup
+            multiple
+            value={operations}
+            onValueChange={(next) =>
+              setOperations(resource.operations.filter((operation) => next.includes(operation)))
+            }
+            variant="outline"
+            size="sm"
+            className="flex-wrap"
+            aria-labelledby={`${id}-operations`}
+          >
+            {resource.operations.map((operation) => (
+              <ToggleGroupItem key={operation} value={operation}>
+                {formatEnumLabel(operation)}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+        </div>
       </Field>
     </SheetForm>
   );

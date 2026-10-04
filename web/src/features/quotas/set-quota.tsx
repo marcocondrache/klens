@@ -4,9 +4,14 @@ import { PlusIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, type DialogHandle } from "@/components/ui/dialog";
+import { Field, FieldError, FieldLabel, FieldTitle } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
-import { Label } from "@/components/ui/label";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+  InputGroupText,
+} from "@/components/ui/input-group";
 import {
   Select,
   SelectContent,
@@ -16,7 +21,6 @@ import {
 } from "@/components/ui/select";
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
-import { Field } from "@/components/field";
 import {
   DialogForm,
   FormDialogContent,
@@ -183,12 +187,14 @@ function QuotaForm({
       onSubmit={submit}
     >
       {quota ? (
-        <Field label="Entity">
+        <Field>
+          <FieldTitle>Entity</FieldTitle>
           <EntityCell parts={quota.entity} />
         </Field>
       ) : (
         <>
-          <Field label="Entity" htmlFor={`${id}-kind`}>
+          <Field>
+            <FieldLabel htmlFor={`${id}-kind`}>Entity</FieldLabel>
             <Select
               items={KINDS}
               value={kind}
@@ -210,21 +216,25 @@ function QuotaForm({
           </Field>
 
           {parts.map((entityType) => (
-            <Field
-              key={entityType}
-              label={ENTITY_LABEL[entityType]}
-              htmlFor={`${id}-${entityType}`}
-              action={
-                <Label className="text-xs font-normal text-muted-foreground">
+            <Field key={entityType} data-disabled={names[entityType].isDefault || undefined}>
+              <div className="flex items-center justify-between gap-2">
+                <FieldLabel htmlFor={`${id}-${entityType}`}>{ENTITY_LABEL[entityType]}</FieldLabel>
+                <Field orientation="horizontal" className="w-fit">
                   <Switch
+                    id={`${id}-${entityType}-default`}
                     size="sm"
                     checked={names[entityType].isDefault}
                     onCheckedChange={(isDefault) => editName(entityType, { isDefault })}
                   />
-                  Default
-                </Label>
-              }
-            >
+                  <FieldLabel
+                    htmlFor={`${id}-${entityType}-default`}
+                    className="font-normal group-data-[disabled=true]/field:opacity-100"
+                  >
+                    Default
+                    <span className="sr-only"> {ENTITY_LABEL[entityType]}</span>
+                  </FieldLabel>
+                </Field>
+              </div>
               <Input
                 id={`${id}-${entityType}`}
                 autoComplete="off"
@@ -245,7 +255,8 @@ function QuotaForm({
           const value = values[entry.key];
           const bad = value !== "" && !NUMBER.test(value);
           return (
-            <Field key={entry.key} label={entry.label} htmlFor={`${id}-${entry.key}`}>
+            <Field key={entry.key} data-invalid={bad || undefined}>
+              <FieldLabel htmlFor={`${id}-${entry.key}`}>{entry.label}</FieldLabel>
               <InputGroup>
                 <InputGroupInput
                   id={`${id}-${entry.key}`}
@@ -254,16 +265,24 @@ function QuotaForm({
                   className="numeric"
                   value={value}
                   aria-invalid={bad || undefined}
+                  aria-describedby={bad ? `${id}-${entry.key}-error` : undefined}
                   onChange={(event) =>
                     setValues((current) => ({ ...current, [entry.key]: event.target.value.trim() }))
                   }
                 />
                 <InputGroupAddon align="inline-end">
-                  {entry.bytes && value !== "" && !bad
-                    ? `${formatBytes(Number(value))}/s`
-                    : entry.unit}
+                  <InputGroupText>
+                    {entry.bytes && value !== "" && !bad
+                      ? `${formatBytes(Number(value))}/s`
+                      : entry.unit}
+                  </InputGroupText>
                 </InputGroupAddon>
               </InputGroup>
+              {bad ? (
+                <FieldError id={`${id}-${entry.key}-error`}>
+                  Enter a number such as 100 or 0.5.
+                </FieldError>
+              ) : null}
             </Field>
           );
         })}
