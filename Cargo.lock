@@ -1885,9 +1885,11 @@ dependencies = [
  "memory-serve",
  "moka",
  "openidconnect",
+ "pbkdf2",
  "percent-encoding",
  "prost-reflect",
  "protox",
+ "rand 0.9.5",
  "regex",
  "schemreg",
  "secrecy",
@@ -1907,6 +1909,7 @@ dependencies = [
  "ts-rs",
  "url",
  "wiremock",
+ "zeroize",
 ]
 
 [[package]]

@@ -146,6 +146,18 @@ const WRITES: &[(Method, &str, Option<&str>, Privilege)] = &[
         Privilege::ManageAcls,
     ),
     (
+        Method::PUT,
+        "/clusters/local/scram-users/carol",
+        Some(r#"{ "mechanism": "SHA256", "password": "s3cret" }"#),
+        Privilege::ManageAcls,
+    ),
+    (
+        Method::DELETE,
+        "/clusters/local/scram-users/alice?mechanism=SHA256",
+        None,
+        Privilege::ManageAcls,
+    ),
+    (
         Method::PATCH,
         "/clusters/local/brokers/1/configs",
         Some(r#"{ "set": { "log.retention.hours": "72" } }"#),

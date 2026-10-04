@@ -95,8 +95,9 @@ clusters:
 # produce, which writes records to one, manage_groups, which resets or deletes
 # a consumer group's committed offsets, or the group itself, on one,
 # manage_schemas, which changes the schemas in its registry, manage_acls,
-# which creates and deletes its ACLs and sets its client quotas, and
-# manage_brokers, which changes its brokers' dynamic configs. An empty list
+# which creates and deletes its ACLs, sets its client quotas, and sets and
+# deletes its SCRAM credentials, and manage_brokers, which changes its brokers'
+# dynamic configs. An empty list
 # still sees the catalog. A role's bindings name the groups that hold it. Omit
 # clusters on a binding to allow every configured cluster.
 #

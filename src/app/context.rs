@@ -15,8 +15,9 @@ use crate::app::auth::access::{
 };
 use crate::kafka::model::{
     Acl, BrokerScope, ClientQuota, CommittedOffset, ConfigEdit, ConfigSource, FoundRecord,
-    NewRecord, NewSchema, NewTopic, OffsetMove, OffsetReset, ProducedRecord, QuotaValues, RecordAt,
-    RecordDeletion, RegisteredSchema, RegisteredVersion, SchemaCompatibility, SchemaDeletion,
+    NewRecord, NewSchema, NewScramCredential, NewTopic, OffsetMove, OffsetReset, ProducedRecord,
+    QuotaValues, RecordAt, RecordDeletion, RegisteredSchema, RegisteredVersion,
+    SchemaCompatibility, SchemaDeletion, ScramMechanism,
 };
 use crate::kafka::store::{ClusterStore, GroupInfo, Lane, TopicInfo, reread_until};
 use crate::kafka::{
@@ -549,6 +550,51 @@ impl Granted<'_, ManageAclsCap> {
                 .map_or(quota.values == QuotaValues::default(), |values| {
                     *values == quota.values
                 })
+        })
+        .await;
+        Ok(())
+    }
+
+    pub(crate) async fn set_scram_credential(
+        &self,
+        credential: &NewScramCredential,
+    ) -> Result<(), KafkaError> {
+        self.cluster
+            .session
+            .set_scram_credential(credential)
+            .await?;
+        tracing::info!(
+            cluster = %self.cluster.store.name(),
+            user = %credential.user,
+            mechanism = %credential.mechanism,
+            iterations = credential.iterations,
+            "set scram credential"
+        );
+        self.settle(&self.cluster.store.scram_users, |listing| {
+            listing.iterations(&credential.user, credential.mechanism)
+                == Some(credential.iterations)
+        })
+        .await;
+        Ok(())
+    }
+
+    pub(crate) async fn delete_scram_credential(
+        &self,
+        user: &str,
+        mechanism: ScramMechanism,
+    ) -> Result<(), KafkaError> {
+        self.cluster
+            .session
+            .delete_scram_credential(user, mechanism)
+            .await?;
+        tracing::info!(
+            cluster = %self.cluster.store.name(),
+            %user,
+            %mechanism,
+            "deleted scram credential"
+        );
+        self.settle(&self.cluster.store.scram_users, |listing| {
+            listing.iterations(user, mechanism).is_none()
         })
         .await;
         Ok(())

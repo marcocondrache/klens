@@ -197,6 +197,13 @@ returns a password or salt. Reading credentials needs Kafka 2.7 or later and the
 `Describe` operation on the `Cluster` resource. On a cluster that does not grant
 it, the page says so.
 
+On a writable cluster, a role with `manage_acls` adds users, sets their
+passwords, and deletes credentials from the users page. klens salts the password
+itself with a random 32-byte salt and sends Kafka only the salted hash, so the
+password never reaches the broker or the log. Kafka takes 4096 to 16384
+iterations, and klens defaults to 4096. Changing credentials needs the `Alter`
+operation on the `Cluster` resource.
+
 ## Authentication
 
 By default the UI and JSON API are open to anyone who can reach the process.
@@ -237,8 +244,8 @@ privileges are `records`, `configs`, `schema_text`, and `acls` to read,
 writable cluster, `produce` to write records to one, `manage_groups` to reset
 or delete a consumer group's committed offsets, or the group itself, on one,
 `manage_schemas` to change the schemas in its registry, `manage_acls` to
-create and delete its ACLs and set its client quotas, and `manage_brokers` to
-change its brokers' dynamic configs. A role that lists none still sees the
+create and delete its ACLs, set its client quotas, and set and delete its SCRAM
+credentials, and `manage_brokers` to change its brokers' dynamic configs. A role that lists none still sees the
 catalog (clusters, topics, groups, lag, sizes) but no payloads, live configs,
 schema bodies, or ACL bindings. A role's `bindings` name the IdP groups that
 hold it, read from the ID token claim that `oidc.groups_claim` names (default

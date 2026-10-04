@@ -10,10 +10,10 @@ use foldhash::{HashMap, HashMapExt};
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
     Acl, AclListing, BrokerScope, ClientQuota, ClusterIdentity, CommittedOffset, ConfigEdit,
-    ConfigEntry, GroupSnapshot, LogDir, MetadataSnapshot, NewRecord, NewSchema, NewTopic,
-    PartitionWindow, ProducedRecord, QuotaListing, RecordDeletion, RegisteredSchema,
+    ConfigEntry, GroupSnapshot, LogDir, MetadataSnapshot, NewRecord, NewSchema, NewScramCredential,
+    NewTopic, PartitionWindow, ProducedRecord, QuotaListing, RecordDeletion, RegisteredSchema,
     RegisteredVersion, ScanConsumer, SchemaCompatibility, SchemaDeletion, SchemaSubject,
-    ScramListing, TailConsumer, TailPosition, TopicMetadata, Watermarks,
+    ScramListing, ScramMechanism, TailConsumer, TailPosition, TopicMetadata, Watermarks,
 };
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
@@ -159,6 +159,15 @@ pub trait ClusterSession: Send + Sync + 'static {
 
     /// Sets each value `quota` holds on its entity and removes the others.
     async fn alter_client_quota(&self, quota: &ClientQuota) -> Result<(), KafkaError>;
+
+    async fn set_scram_credential(&self, credential: &NewScramCredential)
+    -> Result<(), KafkaError>;
+
+    async fn delete_scram_credential(
+        &self,
+        user: &str,
+        mechanism: ScramMechanism,
+    ) -> Result<(), KafkaError>;
 
     fn consume_timeout(&self) -> Duration;
 
