@@ -19,4 +19,5 @@ exclude_re = [
     '\bKafkaClient::alter_configs\b',
     'KafkaClient>::add_partitions\b',
     'KafkaClient>::delete_records\b',
+    'kafka/client\.rs:\d+:\d+: replace call\b',
 ]

@@ -10,6 +10,7 @@ mod transport;
 
 use std::collections::BTreeMap;
 use std::num::NonZeroU16;
+use std::ops::RangeInclusive;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -21,10 +22,11 @@ use krafka::admin::{
     OffsetSpec, OffsetVisibility,
 };
 use krafka::error::{KrafkaError, ProtocolErrorKind};
+use krafka::network::BrokerConnection;
 use krafka::producer::Producer;
 use krafka::protocol::{
-    ApiKey, IncrementalAlterConfigsRequest, IncrementalAlterConfigsResource,
-    IncrementalAlterConfigsResponse, VersionedDecode as _, VersionedEncode as _, versions,
+    ApiKey, IncrementalAlterConfigsRequest, IncrementalAlterConfigsResource, VersionedDecode,
+    VersionedEncode, versions,
 };
 use tokio::sync::OnceCell;
 
@@ -494,32 +496,41 @@ impl KafkaClient {
         resource: IncrementalAlterConfigsResource,
     ) -> Result<(), KafkaError> {
         let connection = self.transport.admin.get_controller_connection().await?;
-        let version = connection
-            .negotiate_api_version(
-                ApiKey::IncrementalAlterConfigs,
-                versions::INCREMENTAL_ALTER_CONFIGS_MAX,
-                versions::INCREMENTAL_ALTER_CONFIGS_MIN,
-            )
-            .ok_or_else(|| {
-                KrafkaError::protocol_kind(
-                    ProtocolErrorKind::UnknownApiVersion,
-                    "the broker does not support IncrementalAlterConfigs",
-                )
-            })?;
         let request = IncrementalAlterConfigsRequest {
             resources: vec![resource],
             validate_only: false,
         };
-        let mut response = connection
-            .send_request(ApiKey::IncrementalAlterConfigs, version, |buf| {
-                request.encode_versioned(version, buf)
-            })
-            .await?;
-        altered(IncrementalAlterConfigsResponse::decode_versioned(
-            version,
-            &mut response,
-        )?)
+        altered(
+            call(
+                &connection,
+                ApiKey::IncrementalAlterConfigs,
+                versions::INCREMENTAL_ALTER_CONFIGS_MIN..=versions::INCREMENTAL_ALTER_CONFIGS_MAX,
+                &request,
+            )
+            .await?,
+        )
     }
+}
+
+/// Sends a request at the newest version both sides speak.
+async fn call<Request: VersionedEncode, Response: VersionedDecode>(
+    connection: &BrokerConnection,
+    api: ApiKey,
+    versions: RangeInclusive<i16>,
+    request: &Request,
+) -> Result<Response, KrafkaError> {
+    let version = connection
+        .negotiate_api_version(api, *versions.end(), *versions.start())
+        .ok_or_else(|| {
+            KrafkaError::protocol_kind(
+                ProtocolErrorKind::UnknownApiVersion,
+                format!("the broker does not support {api:?}"),
+            )
+        })?;
+    let mut response = connection
+        .send_request(api, version, |buf| request.encode_versioned(version, buf))
+        .await?;
+    Response::decode_versioned(version, &mut response)
 }
 
 fn partitions_by_topic(partitions: &[(String, i32)]) -> HashMap<String, Vec<i32>> {
