@@ -18,13 +18,7 @@ import type { QuotasSearch } from "./search";
 import { entityKey } from "./quota-entity";
 import { quotaActionColumn, quotaColumns } from "./quotas-columns";
 import { QUOTA_FILTERS, quotaMatches } from "./quotas-filters";
-import {
-  EditQuotaButton,
-  EditQuotaDialog,
-  NewQuotaDialog,
-  RemoveQuotaButton,
-  RemoveQuotaDialog,
-} from "./set-quota";
+import { EditQuotaSheet, NewQuotaSheet, RemoveQuotaDialog } from "./set-quota";
 
 const route = getRouteApi("/cluster/$cluster/quotas");
 
@@ -53,12 +47,10 @@ export function QuotasPage() {
       canManage
         ? [
             ...quotaColumns,
-            quotaActionColumn((quota) => (
-              <>
-                <EditQuotaButton handle={editor} quota={quota} />
-                <RemoveQuotaButton handle={remover} quota={quota} />
-              </>
-            )),
+            quotaActionColumn({
+              onEdit: (quota) => editor.openWithPayload(quota),
+              onRemove: (quota) => remover.openWithPayload(quota),
+            }),
           ]
         : quotaColumns,
     [canManage, editor, remover],
@@ -88,7 +80,6 @@ export function QuotasPage() {
             <LaneCaption lane={lane} />
           </>
         }
-        actions={canManage ? <NewQuotaDialog cluster={cluster} /> : null}
       />
 
       <DataTable
@@ -100,6 +91,8 @@ export function QuotasPage() {
             <SearchField {...searchInput} placeholder="Search users, client IDs and IPs…" />
 
             <FilterBar {...filterBar} />
+
+            {canManage ? <NewQuotaSheet cluster={cluster} /> : null}
           </>
         }
         loading={isPending || (status === "PENDING" && lane?.lastError == null)}
@@ -112,10 +105,11 @@ export function QuotasPage() {
               : "No client quotas are set."
         }
         defaultSort={{ id: "entity", direction: "asc" }}
+        onRowClick={canManage ? (quota) => editor.openWithPayload(quota) : undefined}
       />
       {canManage ? (
         <>
-          <EditQuotaDialog cluster={cluster} handle={editor} />
+          <EditQuotaSheet cluster={cluster} handle={editor} />
           <RemoveQuotaDialog cluster={cluster} handle={remover} />
         </>
       ) : null}

@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
 import { createColumnHelper } from "@tanstack/react-table";
+import { PencilIcon, Trash2Icon } from "lucide-react";
 
 import type { DataTableFeatures } from "@/components/data-table/features";
+import { IconButton } from "@/components/icon-button";
 import type { ClientQuota } from "@/lib/api/types";
 import { formatBytes, formatNumber, formatThroughput } from "@/lib/format";
 
@@ -63,12 +65,43 @@ function rateColumn(
   });
 }
 
-export function quotaActionColumn(action: (quota: ClientQuota) => ReactNode) {
+export function quotaActionColumn({
+  onEdit,
+  onRemove,
+}: {
+  onEdit: (quota: ClientQuota) => void;
+  onRemove: (quota: ClientQuota) => void;
+}) {
   return columnHelper.display({
     id: "action",
     enableResizing: false,
     meta: { align: "right", width: "5rem" },
-    cell: ({ row }) => action(row.original),
+    cell: ({ row }) => (
+      <>
+        <IconButton
+          label="Edit quota"
+          tooltip="Edit"
+          reveal
+          onClick={(event) => {
+            event.stopPropagation();
+            onEdit(row.original);
+          }}
+        >
+          <PencilIcon />
+        </IconButton>
+        <IconButton
+          label="Remove quota"
+          tooltip="Remove"
+          reveal
+          onClick={(event) => {
+            event.stopPropagation();
+            onRemove(row.original);
+          }}
+        >
+          <Trash2Icon />
+        </IconButton>
+      </>
+    ),
   });
 }
 

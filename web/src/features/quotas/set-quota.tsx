@@ -1,20 +1,10 @@
-import { useId, useState, type FormEvent } from "react";
+import { useId, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CircleAlertIcon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import { PlusIcon } from "lucide-react";
 
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  type DialogHandle,
-} from "@/components/ui/dialog";
+import { Dialog, type DialogHandle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Label } from "@/components/ui/label";
 import {
@@ -24,9 +14,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Spinner } from "@/components/ui/spinner";
+import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
-import { IconButton } from "@/components/icon-button";
+import { Field } from "@/components/field";
+import {
+  DialogForm,
+  FormDialogContent,
+  FormSheetContent,
+  SheetForm,
+} from "@/components/write-form";
 import { apiErrorMessage, clusterPathname, put } from "@/lib/api/client";
 import { keys } from "@/lib/api/keys";
 import type { ClientQuota, QuotaEntity, QuotaEntityType } from "@/lib/api/types";
@@ -86,41 +82,23 @@ function useSetQuota(cluster: string) {
   });
 }
 
-export function NewQuotaDialog({ cluster }: { cluster: string }) {
+export function NewQuotaSheet({ cluster }: { cluster: string }) {
   const [open, setOpen] = useState(false);
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button />}>
-        <PlusIcon data-icon="inline-start" />
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetTrigger render={<Button variant="outline" className="ml-auto font-normal" />}>
+        <PlusIcon className="text-muted-foreground" />
         Set quota
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
+      </SheetTrigger>
+      <FormSheetContent>
         <QuotaForm cluster={cluster} onSaved={() => setOpen(false)} />
-      </DialogContent>
-    </Dialog>
+      </FormSheetContent>
+    </Sheet>
   );
 }
 
-export function EditQuotaButton({
-  handle,
-  quota,
-}: {
-  handle: DialogHandle<ClientQuota>;
-  quota: ClientQuota;
-}) {
-  return (
-    <DialogTrigger
-      handle={handle}
-      payload={quota}
-      render={<IconButton label="Edit quota" tooltip="Edit" />}
-    >
-      <PencilIcon />
-    </DialogTrigger>
-  );
-}
-
-export function EditQuotaDialog({
+export function EditQuotaSheet({
   cluster,
   handle,
 }: {
@@ -130,11 +108,11 @@ export function EditQuotaDialog({
   return (
     <Dialog handle={handle}>
       {({ payload }) => (
-        <DialogContent className="sm:max-w-md">
+        <FormSheetContent>
           {payload ? (
             <QuotaForm cluster={cluster} quota={payload} onSaved={() => handle.close()} />
           ) : null}
-        </DialogContent>
+        </FormSheetContent>
       )}
     </Dialog>
   );
@@ -183,15 +161,12 @@ function QuotaForm({
   const ready =
     entity.every((part) => part.name !== "") &&
     filled.length > 0 &&
-    filled.every((entry) => NUMBER.test(values[entry.key])) &&
-    !save.isPending;
+    filled.every((entry) => NUMBER.test(values[entry.key]));
 
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!ready) return;
+  function submit() {
     const next = emptyQuota(entity);
     for (const entry of filled) next[entry.key] = Number(values[entry.key]);
-    // Unlike a hook-level onSuccess, this one is dropped once the dialog closes.
+    // Unlike a hook-level onSuccess, this one is dropped once the sheet closes.
     save.mutate(next, { onSuccess: onSaved });
   }
 
@@ -200,20 +175,20 @@ function QuotaForm({
   }
 
   return (
-    <form className="grid gap-4" onSubmit={submit}>
-      <DialogHeader>
-        <DialogTitle>{quota ? "Edit quota" : "Set quota"}</DialogTitle>
-        <DialogDescription>
-          Kafka throttles the clients that match the entity. Leave a value empty for no limit.
-        </DialogDescription>
-      </DialogHeader>
-
+    <SheetForm
+      title={quota ? "Edit quota" : "Set quota"}
+      description="Kafka throttles the clients that match the entity. Leave a value empty for no limit."
+      error={save.isError ? apiErrorMessage(save.error, "Failed to set the quota.") : null}
+      submit={{ label: "Save", pending: save.isPending, disabled: !ready }}
+      onSubmit={submit}
+    >
       {quota ? (
-        <EntityCell parts={quota.entity} />
+        <Field label="Entity">
+          <EntityCell parts={quota.entity} />
+        </Field>
       ) : (
         <>
-          <div className="grid gap-1.5">
-            <Label htmlFor={`${id}-kind`}>Entity</Label>
+          <Field label="Entity" htmlFor={`${id}-kind`}>
             <Select
               items={KINDS}
               value={kind}
@@ -232,13 +207,15 @@ function QuotaForm({
                 ))}
               </SelectContent>
             </Select>
-          </div>
+          </Field>
 
           {parts.map((entityType) => (
-            <div key={entityType} className="grid gap-1.5">
-              <div className="flex items-center justify-between gap-2">
-                <Label htmlFor={`${id}-${entityType}`}>{ENTITY_LABEL[entityType]}</Label>
-                <Label className="font-normal text-muted-foreground">
+            <Field
+              key={entityType}
+              label={ENTITY_LABEL[entityType]}
+              htmlFor={`${id}-${entityType}`}
+              action={
+                <Label className="text-xs font-normal text-muted-foreground">
                   <Switch
                     size="sm"
                     checked={names[entityType].isDefault}
@@ -246,22 +223,19 @@ function QuotaForm({
                   />
                   Default
                 </Label>
-              </div>
-              <InputGroup>
-                <InputGroupInput
-                  id={`${id}-${entityType}`}
-                  autoComplete="off"
-                  spellCheck={false}
-                  className="font-mono"
-                  placeholder={
-                    names[entityType].isDefault ? "All without a quota of their own" : ""
-                  }
-                  disabled={names[entityType].isDefault}
-                  value={names[entityType].isDefault ? "" : names[entityType].name}
-                  onChange={(event) => editName(entityType, { name: event.target.value })}
-                />
-              </InputGroup>
-            </div>
+              }
+            >
+              <Input
+                id={`${id}-${entityType}`}
+                autoComplete="off"
+                spellCheck={false}
+                className="font-mono"
+                placeholder={names[entityType].isDefault ? "All without a quota of their own" : ""}
+                disabled={names[entityType].isDefault}
+                value={names[entityType].isDefault ? "" : names[entityType].name}
+                onChange={(event) => editName(entityType, { name: event.target.value })}
+              />
+            </Field>
           ))}
         </>
       )}
@@ -271,8 +245,7 @@ function QuotaForm({
           const value = values[entry.key];
           const bad = value !== "" && !NUMBER.test(value);
           return (
-            <div key={entry.key} className="grid gap-1.5">
-              <Label htmlFor={`${id}-${entry.key}`}>{entry.label}</Label>
+            <Field key={entry.key} label={entry.label} htmlFor={`${id}-${entry.key}`}>
               <InputGroup>
                 <InputGroupInput
                   id={`${id}-${entry.key}`}
@@ -291,46 +264,11 @@ function QuotaForm({
                     : entry.unit}
                 </InputGroupAddon>
               </InputGroup>
-            </div>
+            </Field>
           );
         })}
       </div>
-
-      {save.isError ? (
-        <Alert variant="destructive">
-          <CircleAlertIcon />
-          <AlertDescription className="break-words">
-            {apiErrorMessage(save.error, "Failed to set the quota.")}
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
-      <DialogFooter>
-        <DialogClose render={<Button type="button" variant="outline" />}>Cancel</DialogClose>
-        <Button type="submit" disabled={!ready}>
-          {save.isPending ? <Spinner data-icon="inline-start" /> : null}
-          Save
-        </Button>
-      </DialogFooter>
-    </form>
-  );
-}
-
-export function RemoveQuotaButton({
-  handle,
-  quota,
-}: {
-  handle: DialogHandle<ClientQuota>;
-  quota: ClientQuota;
-}) {
-  return (
-    <DialogTrigger
-      handle={handle}
-      payload={quota}
-      render={<IconButton label="Remove quota" tooltip="Remove" />}
-    >
-      <Trash2Icon />
-    </DialogTrigger>
+    </SheetForm>
   );
 }
 
@@ -344,11 +282,11 @@ export function RemoveQuotaDialog({
   return (
     <Dialog handle={handle}>
       {({ payload }) => (
-        <DialogContent className="sm:max-w-md">
+        <FormDialogContent>
           {payload ? (
             <RemoveQuotaForm cluster={cluster} quota={payload} onRemoved={() => handle.close()} />
           ) : null}
-        </DialogContent>
+        </FormDialogContent>
       )}
     </Dialog>
   );
@@ -365,40 +303,16 @@ function RemoveQuotaForm({
 }) {
   const remove = useSetQuota(cluster);
 
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    if (remove.isPending) return;
-    // Unlike a hook-level onSuccess, this one is dropped once the dialog closes.
-    remove.mutate(emptyQuota(quota.entity), { onSuccess: onRemoved });
-  }
-
   return (
-    <form className="grid gap-4" onSubmit={submit}>
-      <DialogHeader>
-        <DialogTitle>Remove quota</DialogTitle>
-        <DialogDescription>
-          Kafka stops throttling the clients that match this entity by its own quota.
-        </DialogDescription>
-      </DialogHeader>
-
+    <DialogForm
+      title="Remove quota"
+      description="Kafka stops throttling the clients that match this entity by its own quota."
+      error={remove.isError ? apiErrorMessage(remove.error, "Failed to remove the quota.") : null}
+      submit={{ label: "Remove quota", pending: remove.isPending, destructive: true }}
+      // Unlike a hook-level onSuccess, this one is dropped once the dialog closes.
+      onSubmit={() => remove.mutate(emptyQuota(quota.entity), { onSuccess: onRemoved })}
+    >
       <EntityCell parts={quota.entity} />
-
-      {remove.isError ? (
-        <Alert variant="destructive">
-          <CircleAlertIcon />
-          <AlertDescription className="break-words">
-            {apiErrorMessage(remove.error, "Failed to remove the quota.")}
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
-      <DialogFooter>
-        <DialogClose render={<Button type="button" variant="outline" />}>Cancel</DialogClose>
-        <Button type="submit" variant="destructive" disabled={remove.isPending}>
-          {remove.isPending ? <Spinner data-icon="inline-start" /> : null}
-          Remove quota
-        </Button>
-      </DialogFooter>
-    </form>
+    </DialogForm>
   );
 }
