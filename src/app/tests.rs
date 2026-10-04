@@ -49,12 +49,31 @@ const ROUTES: &[(&str, Option<Privilege>)] = &[
     ("/clusters/local/quotas", Some(Privilege::Configs)),
 ];
 
-const WRITES: &[(Method, &str, &str, Privilege)] = &[(
-    Method::POST,
-    "/clusters/local/topics",
-    r#"{ "name": "invoices" }"#,
-    Privilege::ManageTopics,
-)];
+const WRITES: &[(Method, &str, Option<&str>, Privilege)] = &[
+    (
+        Method::POST,
+        "/clusters/local/topics",
+        Some(r#"{ "name": "invoices" }"#),
+        Privilege::ManageTopics,
+    ),
+    (
+        Method::DELETE,
+        "/clusters/local/topics/orders.created",
+        None,
+        Privilege::ManageTopics,
+    ),
+];
+
+fn write(method: &Method, route: &str, body: Option<&str>) -> Request<Body> {
+    match body {
+        Some(body) => json_request(method.clone(), route, body.to_owned()),
+        None => Request::builder()
+            .method(method.clone())
+            .uri(route)
+            .body(Body::empty())
+            .expect("request"),
+    }
+}
 
 #[tokio::test]
 async fn every_route_opens_to_exactly_the_privilege_it_names() {
@@ -97,7 +116,7 @@ async fn every_cluster_route_hides_a_cluster_the_session_cannot_see() {
     }
     for (method, route, body, _) in WRITES {
         let route = route.replacen("/clusters/local", "/clusters/payments", 1);
-        app.reply(json_request(method.clone(), &route, *body))
+        app.reply(write(method, &route, *body))
             .await
             .assert_error(StatusCode::NOT_FOUND, "UNKNOWN_CLUSTER");
     }
@@ -114,9 +133,7 @@ async fn every_write_opens_to_exactly_the_privilege_it_names() {
     for held in std::iter::once(None).chain(Privilege::ALL.map(Some)) {
         let session = app.with_access(access([role("probe", PrivilegeSet::from_privileges(held))]));
         for (method, route, body, needs) in WRITES {
-            let reply = session
-                .reply(json_request(method.clone(), route, *body))
-                .await;
+            let reply = session.reply(write(method, route, *body)).await;
             if reply.status.is_success() != (held == Some(*needs)) {
                 wrong.push(format!(
                     "{method} {route} holding {held:?} answered {} {}",
@@ -134,7 +151,7 @@ async fn every_write_is_refused_on_a_read_only_cluster() {
     let app = TestApp::local().await;
 
     for (method, route, body, _) in WRITES {
-        let reply = app.reply(json_request(method.clone(), route, *body)).await;
+        let reply = app.reply(write(method, route, *body)).await;
         reply.assert_error(StatusCode::FORBIDDEN, "READ_ONLY_CLUSTER");
         assert_eq!(reply.body["error"], "cluster 'local' is read-only");
     }
@@ -148,6 +165,7 @@ async fn every_write_refuses_a_body_a_cross_site_form_can_send() {
         .await;
 
     for (method, route, body, _) in WRITES {
+        let Some(body) = body else { continue };
         for content_type in ["text/plain", "application/x-www-form-urlencoded"] {
             let request = Request::builder()
                 .method(method.clone())

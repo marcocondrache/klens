@@ -3,6 +3,7 @@ import { getRouteApi } from "@tanstack/react-router";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConfigTable } from "@/components/config-table";
+import { ConfirmDelete } from "@/components/confirm-delete";
 import { CopyButton } from "@/components/copy-button";
 import { DataTable } from "@/components/data-table/data-table";
 import { Facts } from "@/components/facts";
@@ -12,6 +13,7 @@ import { PendingValue, Pill, StatusDot } from "@/components/status";
 import { TabCount } from "@/components/tab-count";
 import { useAccess } from "@/hooks/use-access";
 import { useTopic, useTopicGroups } from "@/lib/api/catalog";
+import { clusterPathname, del } from "@/lib/api/client";
 import { useTopicConfigs } from "@/lib/api/live";
 import type { TopicDetail } from "@/lib/api/types";
 import { catalogLookupMessage } from "@/lib/catalog-lookup";
@@ -62,7 +64,7 @@ export function TopicPage() {
   const navigate = route.useNavigate();
   const { topic: topicName } = route.useParams();
   const { tab: tabParam } = route.useSearch();
-  const { can } = useAccess();
+  const { can, canChange } = useAccess();
   const canRecords = can(cluster, "RECORDS");
   const canConfigs = can(cluster, "CONFIGS");
   const requested = tabParam ?? (canRecords ? "data" : "partitions");
@@ -121,6 +123,26 @@ export function TopicPage() {
           ) : null
         }
         description={detail ? <TopicFacts detail={detail} /> : null}
+        actions={
+          detail && !detail.internal && canChange(cluster, "MANAGE_TOPICS") ? (
+            <ConfirmDelete
+              noun="topic"
+              name={topicName}
+              consequence={
+                <>
+                  This deletes <span className="font-mono">{topicName}</span> and every record in
+                  it, and cannot be undone.
+                </>
+              }
+              onDelete={() =>
+                del(clusterPathname(cluster, "topics", encodeURIComponent(topicName)))
+              }
+              onDeleted={() =>
+                void navigate({ to: "/cluster/$cluster/topics", params: { cluster } })
+              }
+            />
+          ) : null
+        }
       />
 
       <Tabs

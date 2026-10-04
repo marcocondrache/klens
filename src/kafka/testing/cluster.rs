@@ -49,6 +49,7 @@ pub enum Api {
     Acls,
     ClientQuotas,
     CreateTopic,
+    DeleteTopic,
 }
 
 #[derive(Clone)]
@@ -674,6 +675,17 @@ impl ClusterSession for FakeCluster {
                 .map(|(name, value)| config_entry(name, value))
                 .collect(),
         );
+        Ok(())
+    }
+
+    async fn delete_topic(&self, topic: &str) -> Result<(), KafkaError> {
+        self.answer(Api::DeleteTopic).await?;
+        if self.world().metadata.topic(topic).is_none() {
+            return Err(KafkaError::Refused(
+                "This server does not host this topic-partition.".to_owned(),
+            ));
+        }
+        self.remove_topic(topic);
         Ok(())
     }
 }
