@@ -199,6 +199,15 @@ impl FakeCluster {
         self
     }
 
+    pub fn without_schema_registry(self) -> Self {
+        {
+            let mut world = self.world();
+            world.schema_registry = false;
+            world.subjects.clear();
+        }
+        self
+    }
+
     pub fn with_consume_timeout(self, timeout: Duration) -> Self {
         self.world().consume_timeout = Some(timeout);
         self

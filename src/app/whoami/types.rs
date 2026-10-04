@@ -14,6 +14,7 @@ pub enum PrivilegeName {
     ManageTopics,
     Produce,
     ManageGroups,
+    ManageSchemas,
 }
 
 from_same_variants!(Privilege => PrivilegeName {
@@ -24,6 +25,7 @@ from_same_variants!(Privilege => PrivilegeName {
     ManageTopics,
     Produce,
     ManageGroups,
+    ManageSchemas,
 });
 
 /// What the session may do on one cluster. Pairwise: a wider grant elsewhere

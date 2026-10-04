@@ -91,6 +91,7 @@ pub enum Privilege {
     ManageTopics,
     Produce,
     ManageGroups,
+    ManageSchemas,
 }
 
 #[cfg(test)]

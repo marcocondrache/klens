@@ -16,6 +16,7 @@ pub enum SchemaType {
 }
 
 from_same_variants!(domain::SchemaType => SchemaType { Avro, Json, Protobuf });
+from_same_variants!(SchemaType => domain::SchemaType { Avro, Json, Protobuf });
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -65,10 +66,11 @@ impl From<projections::SubjectRow> for SubjectRow {
 pub struct SubjectRowsResult {
     pub rows: Vec<SubjectRow>,
     pub source_health: LaneHealth,
+    pub has_registry: bool,
 }
 
-#[derive(Debug, Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SchemaReference {
     pub name: String,
     pub subject: String,
@@ -77,6 +79,16 @@ pub struct SchemaReference {
 
 impl From<domain::SchemaReference> for SchemaReference {
     fn from(reference: domain::SchemaReference) -> Self {
+        Self {
+            name: reference.name,
+            subject: reference.subject,
+            version: reference.version,
+        }
+    }
+}
+
+impl From<SchemaReference> for domain::SchemaReference {
+    fn from(reference: SchemaReference) -> Self {
         Self {
             name: reference.name,
             subject: reference.subject,
@@ -106,6 +118,43 @@ impl SubjectDetail {
             schema_type: schema.schema_type.into(),
             schema: schema.schema,
             references: schema.references.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RegisterSchema {
+    #[serde(rename = "type")]
+    pub schema_type: SchemaType,
+    pub schema: String,
+    #[serde(default)]
+    pub references: Vec<SchemaReference>,
+}
+
+impl RegisterSchema {
+    pub(crate) fn into_schema(self, subject: String) -> domain::NewSchema {
+        domain::NewSchema {
+            subject,
+            schema_type: self.schema_type.into(),
+            schema: self.schema,
+            references: self.references.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RegisteredVersion {
+    pub id: i32,
+    pub version: i32,
+}
+
+impl From<domain::RegisteredVersion> for RegisteredVersion {
+    fn from(registered: domain::RegisteredVersion) -> Self {
+        Self {
+            id: registered.id,
+            version: registered.version,
         }
     }
 }
