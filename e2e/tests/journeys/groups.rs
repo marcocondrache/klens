@@ -62,6 +62,26 @@ async fn a_commit_moves_the_lag_live_on_the_updates_stream() {
 }
 
 #[tokio::test]
+async fn a_deleted_group_is_gone_once_the_delete_answers() {
+    let (_kafka, klens) = billing_behind_by_six().await;
+    let billing = format!("{GROUPS}/billing");
+
+    let (status, body) = klens.delete(&billing).await;
+
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    assert_eq!(klens.status(&billing).await, StatusCode::NOT_FOUND);
+    let groups = klens.get(GROUPS).await;
+    assert!(
+        groups
+            .as_array()
+            .expect("groups")
+            .iter()
+            .all(|group| group["id"] != "billing"),
+        "{groups}"
+    );
+}
+
+#[tokio::test]
 async fn a_reset_previews_its_plan_and_shows_once_it_answers() {
     let (_kafka, klens) = billing_behind_by_six().await;
     let shift = json!({ "kind": "SHIFT", "by": -3 });

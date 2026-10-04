@@ -53,7 +53,7 @@ pub enum KafkaError {
     #[error("klens leaves the internal topic '{0}' alone")]
     InternalTopic(String),
 
-    #[error("group '{group}' has members; stop its consumers before resetting its offsets")]
+    #[error("group '{group}' has members; stop its consumers first")]
     ActiveGroup { group: String },
 
     #[error(

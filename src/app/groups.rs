@@ -1,5 +1,6 @@
 use axum::Json;
 use axum::Router;
+use axum::http::StatusCode;
 use axum::routing::{get, patch};
 
 use crate::AppState;
@@ -20,7 +21,7 @@ pub(crate) fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(groups))
         // Group ids may contain `/`.
-        .route("/{*group}", get(group))
+        .route("/{*group}", get(group).delete(delete_group))
 }
 
 /// A group's committed offsets, under their own prefix because a group id
@@ -61,6 +62,15 @@ async fn group(
             }
             .into()
         })
+}
+
+async fn delete_group(
+    session: Session,
+    Path((name, group)): Path<(String, String)>,
+) -> Result<StatusCode, ApiError> {
+    let cluster = session.cluster(&name)?;
+    cluster.manage_groups()?.delete_group(&group).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn reset_offsets(

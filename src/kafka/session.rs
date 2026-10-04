@@ -111,6 +111,10 @@ pub trait ClusterSession: Send + Sync + 'static {
         offsets: &[CommittedOffset],
     ) -> Result<(), KafkaError>;
 
+    /// Deletes `group` with its committed offsets. Kafka refuses this while
+    /// the group has members.
+    async fn delete_group(&self, group: &str) -> Result<(), KafkaError>;
+
     fn consume_timeout(&self) -> Duration;
 
     fn scan_poll_wait(&self) -> Duration;
