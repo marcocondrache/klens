@@ -173,7 +173,7 @@ sizeBytes: number | null,
  */
 logDirs: Array<LogDir>, };
 
-export type ConfigSource = "DYNAMIC_TOPIC_CONFIG" | "DYNAMIC_BROKER_CONFIG" | "STATIC_BROKER_CONFIG" | "DEFAULT_CONFIG";
+export type ConfigSource = "DYNAMIC_TOPIC_CONFIG" | "DYNAMIC_BROKER_CONFIG" | "DYNAMIC_DEFAULT_BROKER_CONFIG" | "STATIC_BROKER_CONFIG" | "DEFAULT_CONFIG";
 
 export type ConfigEntry = { name: string, value: string | null, source: ConfigSource, readOnly: boolean, sensitive: boolean, };
 

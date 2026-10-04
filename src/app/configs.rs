@@ -9,6 +9,7 @@ use crate::kafka::model as domain;
 pub enum ConfigSource {
     DynamicTopicConfig,
     DynamicBrokerConfig,
+    DynamicDefaultBrokerConfig,
     StaticBrokerConfig,
     DefaultConfig,
 }
@@ -18,6 +19,7 @@ impl From<domain::ConfigSource> for ConfigSource {
         match source {
             domain::ConfigSource::DynamicTopic => Self::DynamicTopicConfig,
             domain::ConfigSource::DynamicBroker => Self::DynamicBrokerConfig,
+            domain::ConfigSource::DynamicDefaultBroker => Self::DynamicDefaultBrokerConfig,
             domain::ConfigSource::StaticBroker => Self::StaticBrokerConfig,
             domain::ConfigSource::Default => Self::DefaultConfig,
         }

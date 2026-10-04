@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub enum ConfigSource {
     DynamicTopic,
     DynamicBroker,
+    DynamicDefaultBroker,
     StaticBroker,
     Default,
 }
