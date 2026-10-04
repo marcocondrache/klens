@@ -1,5 +1,9 @@
 export type {
   Acl,
+  AclOperation,
+  AclPatternType,
+  AclPermission,
+  AclResourceType,
   AddPartitions,
   BrokerRow,
   CleanupPolicy,

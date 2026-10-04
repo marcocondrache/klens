@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import { getRouteApi } from "@tanstack/react-router";
 
 import { DataTable } from "@/components/data-table/data-table";
@@ -6,6 +7,7 @@ import { useTableSearch } from "@/components/data-table/use-table-search";
 import { LaneCaption } from "@/components/lane-caption";
 import { PageHeader } from "@/components/page-header";
 import { SearchField } from "@/components/search-field";
+import { createDialogHandle } from "@/components/ui/dialog";
 import { useAccess } from "@/hooks/use-access";
 import { useAcls } from "@/lib/api/catalog";
 import type { Acl } from "@/lib/api/types";
@@ -13,8 +15,10 @@ import { useClusterName } from "@/lib/clusters";
 import { apiErrorMessage } from "@/lib/api/client";
 
 import type { AclsSearch } from "./search";
-import { aclColumns, aclRowId } from "./acls-columns";
+import { aclActionColumn, aclColumns, aclRowId } from "./acls-columns";
 import { ACL_FILTERS, aclMatches } from "./acls-filters";
+import { CreateAclDialog } from "./create-acl";
+import { DeleteAclButton, DeleteAclDialog } from "./delete-acl";
 
 const route = getRouteApi("/cluster/$cluster/acls");
 
@@ -30,11 +34,20 @@ export function AclsPage() {
   function setSearch(patch: Partial<AclsSearch>) {
     void navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true });
   }
-  const { can } = useAccess();
+  const { can, canChange } = useAccess();
   const canAcls = can(cluster, "ACLS");
   const { data, isPending, isError, error } = useAcls(cluster, canAcls);
   const lane = data?.sourceHealth;
   const status = data?.status;
+  const canManage = status === "ENABLED" && canChange(cluster, "MANAGE_ACLS");
+  const [deleter] = useState(() => createDialogHandle<Acl>());
+  const columns = useMemo(
+    () =>
+      canManage
+        ? [...aclColumns, aclActionColumn((acl) => <DeleteAclButton handle={deleter} acl={acl} />)]
+        : aclColumns,
+    [canManage, deleter],
+  );
   const notice = status === "DISABLED" ? DISABLED : status === "DENIED" ? DENIED : undefined;
   const bindings = data?.bindings ?? EMPTY_BINDINGS;
 
@@ -60,10 +73,11 @@ export function AclsPage() {
             <LaneCaption lane={lane} />
           </>
         }
+        actions={canManage ? <CreateAclDialog cluster={cluster} /> : null}
       />
 
       <DataTable
-        columns={aclColumns}
+        columns={columns}
         data={rows}
         getRowId={aclRowId}
         toolbar={
@@ -81,6 +95,7 @@ export function AclsPage() {
         }
         defaultSort={{ id: "resourceName", direction: "asc" }}
       />
+      {canManage ? <DeleteAclDialog cluster={cluster} handle={deleter} /> : null}
     </div>
   );
 }
