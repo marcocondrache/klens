@@ -4,9 +4,10 @@ import { useNavigate } from "@tanstack/react-router";
 import { PlusIcon, XIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Field, FieldDescription, FieldError, FieldLabel, FieldTitle } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";
-import { Field, FieldCount } from "@/components/field";
+import { FieldCount } from "@/components/field-count";
 import { IconButton } from "@/components/icon-button";
 import { FormSheetContent, SheetForm } from "@/components/write-form";
 import { apiErrorMessage, clusterPathname, post } from "@/lib/api/client";
@@ -86,7 +87,8 @@ function CreateTopicForm({ cluster, onCreated }: { cluster: string; onCreated: (
       }}
       onSubmit={submit}
     >
-      <Field label="Name" htmlFor={`${id}-name`}>
+      <Field>
+        <FieldLabel htmlFor={`${id}-name`}>Name</FieldLabel>
         <Input
           id={`${id}-name`}
           data-autofocus
@@ -99,7 +101,8 @@ function CreateTopicForm({ cluster, onCreated }: { cluster: string; onCreated: (
       </Field>
 
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Partitions" htmlFor={`${id}-partitions`}>
+        <Field data-invalid={badPartitions || undefined}>
+          <FieldLabel htmlFor={`${id}-partitions`}>Partitions</FieldLabel>
           <Input
             id={`${id}-partitions`}
             inputMode="numeric"
@@ -108,10 +111,15 @@ function CreateTopicForm({ cluster, onCreated }: { cluster: string; onCreated: (
             className="numeric"
             value={partitions}
             aria-invalid={badPartitions || undefined}
+            aria-describedby={badPartitions ? `${id}-partitions-error` : undefined}
             onChange={(event) => setPartitions(event.target.value.trim())}
           />
+          {badPartitions ? (
+            <FieldError id={`${id}-partitions-error`}>Enter a whole number above zero.</FieldError>
+          ) : null}
         </Field>
-        <Field label="Replication factor" htmlFor={`${id}-replication`}>
+        <Field data-invalid={badReplication || undefined}>
+          <FieldLabel htmlFor={`${id}-replication`}>Replication factor</FieldLabel>
           <Input
             id={`${id}-replication`}
             inputMode="numeric"
@@ -120,19 +128,21 @@ function CreateTopicForm({ cluster, onCreated }: { cluster: string; onCreated: (
             className="numeric"
             value={replicationFactor}
             aria-invalid={badReplication || undefined}
+            aria-describedby={badReplication ? `${id}-replication-error` : undefined}
             onChange={(event) => setReplicationFactor(event.target.value.trim())}
           />
+          {badReplication ? (
+            <FieldError id={`${id}-replication-error`}>Enter a whole number above zero.</FieldError>
+          ) : null}
         </Field>
       </div>
 
-      <Field
-        label={
-          <>
+      <Field aria-labelledby={`${id}-configs`}>
+        <div className="flex items-center justify-between gap-2">
+          <FieldTitle id={`${id}-configs`}>
             Configs
             <FieldCount value={configs.length} />
-          </>
-        }
-        action={
+          </FieldTitle>
           <Button
             type="button"
             variant="ghost"
@@ -148,15 +158,14 @@ function CreateTopicForm({ cluster, onCreated }: { cluster: string; onCreated: (
             <PlusIcon data-icon="inline-start" />
             Add config
           </Button>
-        }
-      >
+        </div>
         {configs.length === 0 ? (
-          <p className="text-sm text-muted-foreground">The topic follows the broker defaults.</p>
+          <FieldDescription>The topic follows the broker defaults.</FieldDescription>
         ) : null}
-        {configs.map((row) => (
-          <div key={row.key} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2">
+        {configs.map((row, index) => (
+          <Field key={row.key} orientation="horizontal">
             <Input
-              aria-label="Config name"
+              aria-label={`Config ${index + 1} name`}
               autoComplete="off"
               spellCheck={false}
               placeholder="retention.ms"
@@ -165,7 +174,7 @@ function CreateTopicForm({ cluster, onCreated }: { cluster: string; onCreated: (
               onChange={(event) => editConfig(row.key, { name: event.target.value })}
             />
             <Input
-              aria-label="Config value"
+              aria-label={`Config ${index + 1} value`}
               autoComplete="off"
               spellCheck={false}
               className="font-mono"
@@ -173,13 +182,14 @@ function CreateTopicForm({ cluster, onCreated }: { cluster: string; onCreated: (
               onChange={(event) => editConfig(row.key, { value: event.target.value })}
             />
             <IconButton
-              label="Remove config"
+              label={`Remove config ${index + 1}`}
+              tooltip="Remove config"
               size="icon"
               onClick={() => setConfigs((rows) => rows.filter((other) => other.key !== row.key))}
             >
               <XIcon />
             </IconButton>
-          </div>
+          </Field>
         ))}
       </Field>
     </SheetForm>
