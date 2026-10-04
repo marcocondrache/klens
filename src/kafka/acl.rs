@@ -1,8 +1,12 @@
+use std::fmt::{self, Display, Formatter};
+
+use bytes::BufMut;
 use krafka::admin::DescribeAclsResult;
 use krafka::error::{ErrorCode, KrafkaError};
 use krafka::protocol::{
     AclBinding, AclOperation as WireOperation, AclPatternType as WirePattern,
-    AclPermissionType as WirePermission, AclResourceType as WireResource,
+    AclPermissionType as WirePermission, AclResourceType as WireResource, KafkaArray, KafkaString,
+    TaggedFields, TryEncode, VersionedEncode,
 };
 use tracing::warn;
 
@@ -17,6 +21,22 @@ pub struct Acl {
     pub host: String,
     pub operation: AclOperation,
     pub permission: AclPermission,
+}
+
+impl Display for Acl {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{:?} {} from {} to {:?} {:?} {:?} {}",
+            self.permission,
+            self.principal,
+            self.host,
+            self.operation,
+            self.pattern_type,
+            self.resource_type,
+            self.resource_name,
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -64,6 +84,10 @@ pub enum AclListing {
 }
 
 impl AclListing {
+    pub fn contains(&self, acl: &Acl) -> bool {
+        matches!(self, Self::Enabled(rows) if rows.contains(acl))
+    }
+
     pub fn from_admin_result(
         cluster: &str,
         result: Result<DescribeAclsResult, KrafkaError>,
@@ -204,6 +228,110 @@ impl TryFrom<WirePermission> for AclPermission {
     }
 }
 
+impl From<AclResourceType> for WireResource {
+    fn from(value: AclResourceType) -> Self {
+        match value {
+            AclResourceType::Topic => Self::Topic,
+            AclResourceType::Group => Self::Group,
+            AclResourceType::Cluster => Self::Cluster,
+            AclResourceType::TransactionalId => Self::TransactionalId,
+            AclResourceType::DelegationToken => Self::DelegationToken,
+        }
+    }
+}
+
+impl AclPatternType {
+    /// Kafka numbers LITERAL 3 and PREFIXED 4, one above krafka's enum.
+    const fn wire(self) -> i8 {
+        match self {
+            Self::Literal => 3,
+            Self::Prefixed => 4,
+        }
+    }
+}
+
+impl From<AclOperation> for WireOperation {
+    fn from(value: AclOperation) -> Self {
+        match value {
+            AclOperation::All => Self::All,
+            AclOperation::Read => Self::Read,
+            AclOperation::Write => Self::Write,
+            AclOperation::Create => Self::Create,
+            AclOperation::Delete => Self::Delete,
+            AclOperation::Alter => Self::Alter,
+            AclOperation::Describe => Self::Describe,
+            AclOperation::ClusterAction => Self::ClusterAction,
+            AclOperation::DescribeConfigs => Self::DescribeConfigs,
+            AclOperation::AlterConfigs => Self::AlterConfigs,
+            AclOperation::IdempotentWrite => Self::IdempotentWrite,
+        }
+    }
+}
+
+impl From<AclPermission> for WirePermission {
+    fn from(value: AclPermission) -> Self {
+        match value {
+            AclPermission::Allow => Self::Allow,
+            AclPermission::Deny => Self::Deny,
+        }
+    }
+}
+
+/// The body CreateAcls and DeleteAcls share once every field of a binding is
+/// set. klens encodes it itself because krafka's pattern types cannot say
+/// PREFIXED.
+pub(crate) struct AclBindings<'a>(pub &'a [Acl]);
+
+const FLEXIBLE_VERSION: i16 = 2;
+
+impl VersionedEncode for AclBindings<'_> {
+    fn encode_versioned(&self, version: i16, buf: &mut impl BufMut) -> krafka::error::Result<()> {
+        let bindings = KafkaArray::new(self.0.iter().map(WireAcl).collect());
+        if version < FLEXIBLE_VERSION {
+            bindings.try_encode(buf)
+        } else {
+            bindings.try_encode_compact(buf)?;
+            TaggedFields::default().try_encode(buf)
+        }
+    }
+}
+
+struct WireAcl<'a>(&'a Acl);
+
+impl WireAcl<'_> {
+    fn put(&self, compact: bool, buf: &mut impl BufMut) -> krafka::error::Result<()> {
+        let acl = self.0;
+        buf.put_i8(WireResource::from(acl.resource_type).to_i8());
+        put_string(&acl.resource_name, compact, buf)?;
+        buf.put_i8(acl.pattern_type.wire());
+        put_string(&acl.principal, compact, buf)?;
+        put_string(&acl.host, compact, buf)?;
+        buf.put_i8(WireOperation::from(acl.operation).to_i8());
+        buf.put_i8(WirePermission::from(acl.permission).to_i8());
+        Ok(())
+    }
+}
+
+impl TryEncode for WireAcl<'_> {
+    fn try_encode(&self, buf: &mut impl BufMut) -> krafka::error::Result<()> {
+        self.put(false, buf)
+    }
+
+    fn try_encode_compact(&self, buf: &mut impl BufMut) -> krafka::error::Result<()> {
+        self.put(true, buf)?;
+        TaggedFields::default().try_encode(buf)
+    }
+}
+
+fn put_string(value: &str, compact: bool, buf: &mut impl BufMut) -> krafka::error::Result<()> {
+    let value = KafkaString::new(value);
+    if compact {
+        value.try_encode_compact(buf)
+    } else {
+        value.try_encode(buf)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SentinelAcl {
     pub field: &'static str,
@@ -223,6 +351,9 @@ fn is_security_disabled_text(message: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use bytes::BytesMut;
+    use krafka::protocol::{AclBindingFilter, CreateAclsRequest, DeleteAclsRequest, versions};
+
     use super::*;
 
     fn stored_binding() -> AclBinding {
@@ -461,5 +592,146 @@ mod tests {
         let listing =
             AclListing::from_describe("local", None, vec![stored_binding(), unknown]).unwrap();
         assert_eq!(listing, AclListing::Enabled(vec![stored_acl()]));
+    }
+
+    fn encoded(acls: &[Acl], version: i16) -> BytesMut {
+        let mut buf = BytesMut::new();
+        AclBindings(acls)
+            .encode_versioned(version, &mut buf)
+            .unwrap();
+        buf
+    }
+
+    fn group_acl() -> Acl {
+        Acl {
+            resource_type: AclResourceType::Group,
+            resource_name: "order-processor".into(),
+            principal: "User:bob".into(),
+            host: "10.0.0.1".into(),
+            operation: AclOperation::Describe,
+            permission: AclPermission::Deny,
+            ..stored_acl()
+        }
+    }
+
+    fn group_binding() -> AclBinding {
+        AclBinding {
+            resource_type: WireResource::Group,
+            resource_name: "order-processor".into(),
+            principal: "User:bob".into(),
+            host: "10.0.0.1".into(),
+            operation: WireOperation::Describe,
+            permission_type: WirePermission::Deny,
+            ..stored_binding()
+        }
+    }
+
+    #[test]
+    fn literal_bindings_encode_as_krafka_sends_kafkas_literal() {
+        let acls = [stored_acl(), group_acl()];
+        let bindings = vec![stored_binding(), group_binding()];
+        for version in versions::CREATE_ACLS_MIN..=versions::CREATE_ACLS_MAX {
+            let mut created = BytesMut::new();
+            CreateAclsRequest {
+                creations: bindings.clone(),
+            }
+            .encode_versioned(version, &mut created)
+            .unwrap();
+            let mut deleted = BytesMut::new();
+            DeleteAclsRequest {
+                filters: bindings.iter().map(AclBindingFilter::matching).collect(),
+            }
+            .encode_versioned(version, &mut deleted)
+            .unwrap();
+
+            assert_eq!(encoded(&acls, version), created, "CreateAcls v{version}");
+            assert_eq!(encoded(&acls, version), deleted, "DeleteAcls v{version}");
+        }
+    }
+
+    #[test]
+    fn a_prefixed_binding_differs_from_a_literal_one_only_in_kafkas_pattern_code() {
+        let prefixed = Acl {
+            pattern_type: AclPatternType::Prefixed,
+            ..stored_acl()
+        };
+        for version in versions::CREATE_ACLS_MIN..=versions::CREATE_ACLS_MAX {
+            let literal = encoded(&[stored_acl()], version);
+            let prefixed = encoded(std::slice::from_ref(&prefixed), version);
+
+            let changed: Vec<(u8, u8)> = literal
+                .iter()
+                .zip(prefixed.iter())
+                .filter(|(literal, prefixed)| literal != prefixed)
+                .map(|(literal, prefixed)| (*literal, *prefixed))
+                .collect();
+            assert_eq!(literal.len(), prefixed.len());
+            assert_eq!(changed, vec![(3, 4)], "v{version}");
+        }
+    }
+
+    #[test]
+    fn every_binding_field_survives_the_trip_to_the_wire() {
+        let resources = [
+            AclResourceType::Topic,
+            AclResourceType::Group,
+            AclResourceType::Cluster,
+            AclResourceType::TransactionalId,
+            AclResourceType::DelegationToken,
+        ];
+        for resource in resources {
+            assert_eq!(
+                AclResourceType::try_from(WireResource::from(resource)),
+                Ok(resource)
+            );
+        }
+        let operations = [
+            AclOperation::All,
+            AclOperation::Read,
+            AclOperation::Write,
+            AclOperation::Create,
+            AclOperation::Delete,
+            AclOperation::Alter,
+            AclOperation::Describe,
+            AclOperation::ClusterAction,
+            AclOperation::DescribeConfigs,
+            AclOperation::AlterConfigs,
+            AclOperation::IdempotentWrite,
+        ];
+        for operation in operations {
+            assert_eq!(
+                AclOperation::try_from(WireOperation::from(operation)),
+                Ok(operation)
+            );
+        }
+        for permission in [AclPermission::Allow, AclPermission::Deny] {
+            assert_eq!(
+                AclPermission::try_from(WirePermission::from(permission)),
+                Ok(permission)
+            );
+        }
+        for pattern in [AclPatternType::Literal, AclPatternType::Prefixed] {
+            assert_eq!(
+                AclPatternType::try_from(WirePattern::from_i8(pattern.wire())),
+                Ok(pattern)
+            );
+        }
+    }
+
+    #[test]
+    fn a_binding_reads_as_who_may_do_what_to_which_resource() {
+        assert_eq!(
+            group_acl().to_string(),
+            "Deny User:bob from 10.0.0.1 to Describe Literal Group order-processor"
+        );
+    }
+
+    #[test]
+    fn only_an_enabled_listing_contains_a_binding() {
+        let listing = AclListing::Enabled(vec![stored_acl()]);
+
+        assert!(listing.contains(&stored_acl()));
+        assert!(!listing.contains(&group_acl()));
+        assert!(!AclListing::Disabled.contains(&stored_acl()));
     }
 }

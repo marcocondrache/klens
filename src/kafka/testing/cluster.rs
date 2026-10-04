@@ -11,7 +11,7 @@ use super::fixtures::{config_entry, offsets, partition, topic};
 use super::records::FixtureRecord;
 use super::world;
 use crate::config::{KafkaTuning, ScanTuning};
-use crate::kafka::acl::AclListing;
+use crate::kafka::acl::{Acl, AclListing};
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
 use crate::kafka::group::{CommittedOffset, GroupSnapshot, GroupState};
@@ -67,6 +67,8 @@ pub enum Api {
     RegisterSchema,
     DeleteSchema,
     SetCompatibility,
+    CreateAcls,
+    DeleteAcl,
 }
 
 #[derive(Clone)]
@@ -441,6 +443,16 @@ impl FakeCluster {
 }
 
 impl World {
+    fn authorized_acls(&mut self) -> Result<&mut Vec<Acl>, KafkaError> {
+        match &mut self.acls {
+            AclListing::Enabled(rows) => Ok(rows),
+            AclListing::Disabled => Err(KafkaError::Refused(
+                "No Authorizer is configured.".to_owned(),
+            )),
+            AclListing::Denied => Err(KafkaError::Refused("ClusterAuthorizationFailed".to_owned())),
+        }
+    }
+
     fn put_topic(&mut self, topic: TopicMetadata) {
         match self
             .metadata
@@ -1033,6 +1045,24 @@ impl ClusterSession for FakeCluster {
                 version: 0,
             })?;
         known.compatibility = level;
+        Ok(())
+    }
+
+    async fn create_acls(&self, acls: &[Acl]) -> Result<(), KafkaError> {
+        self.answer(Api::CreateAcls).await?;
+        let mut world = self.world();
+        let rows = world.authorized_acls()?;
+        for acl in acls {
+            if !rows.contains(acl) {
+                rows.push(acl.clone());
+            }
+        }
+        Ok(())
+    }
+
+    async fn delete_acl(&self, acl: &Acl) -> Result<(), KafkaError> {
+        self.answer(Api::DeleteAcl).await?;
+        self.world().authorized_acls()?.retain(|row| row != acl);
         Ok(())
     }
 }
