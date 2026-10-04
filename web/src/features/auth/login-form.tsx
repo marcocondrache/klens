@@ -2,7 +2,7 @@ import { CircleAlertIcon, KeyRoundIcon } from "lucide-react";
 import { useSearch } from "@tanstack/react-router";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { LogoMark } from "@/components/logo";
 import { SIGN_IN_PATH } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
@@ -29,10 +29,10 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
           <AlertDescription>{alert.description}</AlertDescription>
         </Alert>
       ) : null}
-      <Button size="lg" className="w-full" render={<a href={SIGN_IN_PATH} />}>
+      <a href={SIGN_IN_PATH} className={cn(buttonVariants({ size: "lg" }), "w-full")}>
         <KeyRoundIcon data-icon="inline-start" />
         Continue with SSO
-      </Button>
+      </a>
     </div>
   );
 }
