@@ -144,7 +144,7 @@ jobs:
           shared-key: tests
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install nextest
-        uses: taiki-e/install-action@fda1432fb14a2fcc0435aaa25723e43657cd0cc4 # nextest
+        uses: taiki-e/install-action@c6be25d576b61102b3af9c1f35a7f2b3a55b5e3a # nextest
       - name: Run tests
         run: cargo nextest run --workspace --exclude e2e --locked
 
@@ -167,7 +167,7 @@ jobs:
           shared-key: e2e
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install nextest
-        uses: taiki-e/install-action@fda1432fb14a2fcc0435aaa25723e43657cd0cc4 # nextest
+        uses: taiki-e/install-action@c6be25d576b61102b3af9c1f35a7f2b3a55b5e3a # nextest
       - name: Run end-to-end tests against Kafka in Docker
         run: cargo nextest run -p e2e --locked
 
@@ -246,7 +246,7 @@ jobs:
         with:
           toolchain: stable
       - name: Install cargo-audit
-        uses: taiki-e/install-action@ded22353d9c456bc9bdfc813bfeca94808b8117b # cargo-audit
+        uses: taiki-e/install-action@2f205a16b33670c6744bb9451ca070d71ad155fa # cargo-audit
       - name: Audit dependencies
         run: cargo audit
 
@@ -264,7 +264,7 @@ jobs:
         with:
           toolchain: stable
       - name: Install cargo-machete
-        uses: taiki-e/install-action@84ace1997b65ebd0730c4566c06af7075afc7c9f # cargo-machete
+        uses: taiki-e/install-action@b6cdeb6464e950e09fbc1c26a062db82bf7c49f2 # cargo-machete
       - name: Check unused dependencies
         run: cargo machete
 
@@ -295,9 +295,9 @@ jobs:
           shared-key: tests
           save-if: false
       - name: Install nextest
-        uses: taiki-e/install-action@fda1432fb14a2fcc0435aaa25723e43657cd0cc4 # nextest
+        uses: taiki-e/install-action@c6be25d576b61102b3af9c1f35a7f2b3a55b5e3a # nextest
       - name: Install cargo-mutants
-        uses: taiki-e/install-action@3439eaf990bc0eb021fcb5d4e9ee30446b112a07 # cargo-mutants
+        uses: taiki-e/install-action@ba076cc50ecb66d236d2ca13de0524c70bedf39a # cargo-mutants
       - name: Run cargo-mutants on the pull request diff
         env:
           CARGO_INCREMENTAL: 1
