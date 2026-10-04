@@ -25,8 +25,9 @@ use krafka::error::{KrafkaError, ProtocolErrorKind};
 use krafka::network::BrokerConnection;
 use krafka::producer::Producer;
 use krafka::protocol::{
-    ApiKey, IncrementalAlterConfigsRequest, IncrementalAlterConfigsResource, VersionedDecode,
-    VersionedEncode, versions,
+    ApiKey, DeleteGroupsRequest, DeleteGroupsResponse, FindCoordinatorRequest,
+    FindCoordinatorResponse, IncrementalAlterConfigsRequest, IncrementalAlterConfigsResource,
+    VersionedDecode, VersionedEncode, versions,
 };
 use tokio::sync::OnceCell;
 
@@ -487,6 +488,24 @@ impl ClusterSession for KafkaClient {
             .into_iter()
             .try_for_each(|altered| refused(altered.error))
     }
+
+    async fn delete_group(&self, group: &str) -> Result<(), KafkaError> {
+        let coordinator = self.group_coordinator(group).await?;
+        let response: DeleteGroupsResponse = call(
+            &coordinator,
+            ApiKey::DeleteGroups,
+            versions::DELETE_GROUPS_MIN..=versions::DELETE_GROUPS_MAX,
+            &DeleteGroupsRequest::new(vec![group.to_owned()]),
+        )
+        .await?;
+        response.results.into_iter().try_for_each(|deleted| {
+            if deleted.error_code.is_ok() {
+                Ok(())
+            } else {
+                Err(KafkaError::Refused(format!("{:?}", deleted.error_code)))
+            }
+        })
+    }
 }
 
 impl KafkaClient {
@@ -509,6 +528,32 @@ impl KafkaClient {
             )
             .await?,
         )
+    }
+
+    // krafka sends DeleteGroups to any broker, and only the group's
+    // coordinator accepts it.
+    async fn group_coordinator(&self, group: &str) -> Result<Arc<BrokerConnection>, KafkaError> {
+        let admin = &self.transport.admin;
+        let connection = admin.get_controller_connection().await?;
+        let found: FindCoordinatorResponse = call(
+            &connection,
+            ApiKey::FindCoordinator,
+            versions::FIND_COORDINATOR_MIN..=versions::FIND_COORDINATOR_MAX,
+            &FindCoordinatorRequest::for_group(group),
+        )
+        .await?;
+        if !found.error_code.is_ok() {
+            return Err(KrafkaError::broker(
+                found.error_code,
+                format!("no coordinator for group '{group}'"),
+            )
+            .into());
+        }
+        let address = format!("{}:{}", found.host, found.port);
+        Ok(admin
+            .pool()
+            .get_connection_by_id(found.node_id, &address)
+            .await?)
     }
 }
 
