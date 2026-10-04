@@ -185,7 +185,7 @@ and the rest of klens works as before.
 
 klens describes client quotas every `tuning.ingest.quotas` (`60s`). The quotas
 page lists each user, client ID, and IP quota, including the defaults, and
-needs the `configs` privilege. Reading quotas needs the `DescribeConfigs`
+needs the `broker_configs` privilege. Reading quotas needs the `DescribeConfigs`
 operation on the `Cluster` resource. On a cluster that does not grant it, the
 page says so.
 
@@ -241,12 +241,12 @@ same access as an open deployment.
 
 To restrict what signed-in users may do, add `roles`. A role is nothing but a
 name for a set of privileges, defined by you: there are no built-in roles. The
-privileges are `records`, `configs`, `schema_text`, and `acls` to read, and
-one privilege per change on a writable cluster: `create_topics`,
-`delete_topics`, `alter_topic_configs`, `add_partitions`, `delete_records`,
-`produce`, `reset_offsets`, `delete_offsets`, `delete_groups`,
-`register_schemas`, `set_compatibility`, `delete_schemas`, `create_acls`,
-`delete_acls`, `alter_quotas`, `set_scram_credentials`,
+privileges are `records`, `topic_configs`, `broker_configs`, `schema_text`, and
+`acls` to read, and one privilege per change on a writable cluster:
+`create_topics`, `delete_topics`, `alter_topic_configs`, `add_partitions`,
+`delete_records`, `produce`, `reset_offsets`, `delete_offsets`,
+`delete_groups`, `register_schemas`, `set_compatibility`, `delete_schemas`,
+`create_acls`, `delete_acls`, `alter_quotas`, `set_scram_credentials`,
 `delete_scram_credentials`, and `alter_broker_configs`. A role that lists none
 still sees the catalog (clusters, topics, groups, lag, sizes) but no payloads,
 live configs, schema bodies, or ACL bindings. A role's `bindings` name the IdP groups that
@@ -274,7 +274,7 @@ auth:
   roles:
     admin:
       privileges:
-        [records, configs, schema_text, acls,
+        [records, topic_configs, broker_configs, schema_text, acls,
          create_topics, delete_topics, alter_topic_configs, add_partitions, delete_records, produce,
          reset_offsets, delete_offsets, delete_groups,
          register_schemas, set_compatibility, delete_schemas,
@@ -287,7 +287,7 @@ auth:
       bindings:
         - groups: [klens-viewers]
     operator:
-      privileges: [records, configs]
+      privileges: [records, topic_configs, broker_configs]
       bindings:
         - groups: [kafka-operators]
           clusters: [staging, dev]

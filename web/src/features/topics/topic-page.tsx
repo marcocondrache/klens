@@ -73,7 +73,7 @@ export function TopicPage() {
   const { tab: tabParam } = route.useSearch();
   const { can, canChange } = useAccess();
   const canRecords = can(cluster, "RECORDS");
-  const canConfigs = can(cluster, "CONFIGS");
+  const canConfigs = can(cluster, "TOPIC_CONFIGS");
   const requested = tabParam ?? (canRecords ? "data" : "partitions");
   const tab =
     (requested === "data" && !canRecords) || (requested === "config" && !canConfigs)

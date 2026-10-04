@@ -10,9 +10,10 @@ use crate::config::Role;
 const MAX_GROUPS: usize = 64;
 
 impl Privilege {
-    pub const ALL: [Self; 22] = [
+    pub const ALL: [Self; 23] = [
         Self::Records,
-        Self::Configs,
+        Self::TopicConfigs,
+        Self::BrokerConfigs,
         Self::SchemaText,
         Self::Acls,
         Self::CreateTopics,
@@ -38,7 +39,8 @@ impl Privilege {
     pub fn name(self) -> &'static str {
         match self {
             Self::Records => "records",
-            Self::Configs => "configs",
+            Self::TopicConfigs => "topicConfigs",
+            Self::BrokerConfigs => "brokerConfigs",
             Self::SchemaText => "schemaText",
             Self::Acls => "acls",
             Self::CreateTopics => "createTopics",
@@ -267,7 +269,8 @@ macro_rules! capability {
 }
 
 capability!(RecordsCap, records, Privilege::Records);
-capability!(ConfigsCap, configs, Privilege::Configs);
+capability!(TopicConfigsCap, topic_configs, Privilege::TopicConfigs);
+capability!(BrokerConfigsCap, broker_configs, Privilege::BrokerConfigs);
 capability!(SchemaTextCap, schema_text, Privilege::SchemaText);
 capability!(AclsCap, acls, Privilege::Acls);
 capability!(CreateTopicsCap, create_topics, Privilege::CreateTopics);
@@ -511,7 +514,8 @@ mod tests {
         let prod = access.cluster("prod").unwrap();
         assert_eq!(prod.role_names(), vec!["admin"]);
         assert!(prod.records().is_ok());
-        assert!(prod.configs().is_ok());
+        assert!(prod.topic_configs().is_ok());
+        assert!(prod.broker_configs().is_ok());
         assert!(prod.schema_text().is_ok());
         assert!(prod.acls().is_ok());
         assert!(prod.create_topics().is_ok());
@@ -540,7 +544,7 @@ mod tests {
     #[test]
     fn a_role_grants_exactly_what_it_declares() {
         let policy = table(
-            &[("operator", &[Privilege::Records, Privilege::Configs])],
+            &[("operator", &[Privilege::Records, Privilege::TopicConfigs])],
             vec![binding(&["kafka-operators"], "operator", None)],
         );
         let access = admit(&policy, &["kafka-operators"]).unwrap();
@@ -548,14 +552,14 @@ mod tests {
 
         assert_eq!(
             access.privileges_for("prod"),
-            Some(set(&[Privilege::Records, Privilege::Configs]))
+            Some(set(&[Privilege::Records, Privilege::TopicConfigs]))
         );
         assert_eq!(
             prod.privileges(),
-            vec![Privilege::Records, Privilege::Configs]
+            vec![Privilege::Records, Privilege::TopicConfigs]
         );
         assert!(prod.records().is_ok());
-        assert!(prod.configs().is_ok());
+        assert!(prod.topic_configs().is_ok());
         assert_eq!(
             prod.schema_text().unwrap_err(),
             AccessError::Forbidden {
@@ -588,7 +592,7 @@ mod tests {
                 privilege: Privilege::Records,
             }
         );
-        assert!(prod.configs().is_err());
+        assert!(prod.topic_configs().is_err());
         assert!(prod.schema_text().is_err());
         assert!(prod.acls().is_err());
     }
@@ -654,14 +658,14 @@ mod tests {
 
         assert_eq!(access.privileges_for("prod"), Some(PrivilegeSet::ALL));
         assert_eq!(access.privileges_for("staging"), Some(PrivilegeSet::NONE));
-        assert!(access.cluster("staging").unwrap().configs().is_err());
+        assert!(access.cluster("staging").unwrap().topic_configs().is_err());
     }
 
     #[test]
     fn incomparable_roles_union_only_where_both_grants_reach() {
         let policy = table(
             &[
-                ("operator", &[Privilege::Records, Privilege::Configs]),
+                ("operator", &[Privilege::Records, Privilege::TopicConfigs]),
                 ("auditor", &[Privilege::Acls, Privilege::SchemaText]),
             ],
             vec![
@@ -675,7 +679,7 @@ mod tests {
             access.privileges_for("prod"),
             Some(set(&[
                 Privilege::Records,
-                Privilege::Configs,
+                Privilege::TopicConfigs,
                 Privilege::SchemaText,
                 Privilege::Acls,
             ])),
@@ -683,7 +687,7 @@ mod tests {
         );
         assert_eq!(
             access.privileges_for("staging"),
-            Some(set(&[Privilege::Records, Privilege::Configs])),
+            Some(set(&[Privilege::Records, Privilege::TopicConfigs])),
             "the auditor grant is scoped to prod"
         );
 
@@ -697,7 +701,7 @@ mod tests {
     fn role_names_report_every_covering_grant_deduplicated() {
         let policy = table(
             &[
-                ("operator", &[Privilege::Records, Privilege::Configs]),
+                ("operator", &[Privilege::Records, Privilege::TopicConfigs]),
                 ("auditor", &[Privilege::Acls, Privilege::SchemaText]),
             ],
             vec![

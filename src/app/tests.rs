@@ -15,7 +15,7 @@ const ROUTES: &[(&str, Option<Privilege>)] = &[
     ("/clusters/local/topics/orders.created/groups", None),
     (
         "/clusters/local/topics/orders.created/configs",
-        Some(Privilege::Configs),
+        Some(Privilege::TopicConfigs),
     ),
     (
         "/clusters/local/topics/orders.created/records",
@@ -38,7 +38,7 @@ const ROUTES: &[(&str, Option<Privilege>)] = &[
     ("/clusters/local/brokers", None),
     (
         "/clusters/local/brokers/1/configs",
-        Some(Privilege::Configs),
+        Some(Privilege::BrokerConfigs),
     ),
     ("/clusters/local/subjects", None),
     (
@@ -46,7 +46,7 @@ const ROUTES: &[(&str, Option<Privilege>)] = &[
         Some(Privilege::SchemaText),
     ),
     ("/clusters/local/acls", Some(Privilege::Acls)),
-    ("/clusters/local/quotas", Some(Privilege::Configs)),
+    ("/clusters/local/quotas", Some(Privilege::BrokerConfigs)),
     ("/clusters/local/scram-users", Some(Privilege::Acls)),
 ];
 

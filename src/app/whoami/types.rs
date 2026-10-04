@@ -8,7 +8,8 @@ use crate::r#macro::from_same_variants;
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum PrivilegeName {
     Records,
-    Configs,
+    TopicConfigs,
+    BrokerConfigs,
     SchemaText,
     Acls,
     CreateTopics,
@@ -33,7 +34,8 @@ pub enum PrivilegeName {
 
 from_same_variants!(Privilege => PrivilegeName {
     Records,
-    Configs,
+    TopicConfigs,
+    BrokerConfigs,
     SchemaText,
     Acls,
     CreateTopics,

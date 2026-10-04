@@ -85,7 +85,8 @@ pub struct Binding {
 pub enum Privilege {
     /// Record pages and live tails.
     Records,
-    Configs,
+    TopicConfigs,
+    BrokerConfigs,
     SchemaText,
     Acls,
     CreateTopics,
@@ -176,7 +177,7 @@ session:
     privileges: []
     bindings: [{groups: [everyone]}]
   operator:
-    privileges: [records, configs, schema_text, acls]
+    privileges: [records, topic_configs, broker_configs, schema_text, acls]
     bindings:
       - groups: [ops, sre]
         clusters: [staging]
@@ -192,7 +193,8 @@ session:
             roles["operator"].privileges,
             [
                 Privilege::Records,
-                Privilege::Configs,
+                Privilege::TopicConfigs,
+                Privilege::BrokerConfigs,
                 Privilege::SchemaText,
                 Privilege::Acls
             ]

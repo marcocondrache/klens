@@ -498,10 +498,10 @@ mod tests {
     }
 
     fn bound_admins() -> AccessPolicy {
-        use config::Privilege::{Acls, Configs, Records, SchemaText};
+        use config::Privilege::{Acls, BrokerConfigs, Records, SchemaText, TopicConfigs};
         bound(
             "admin",
-            &[Records, Configs, SchemaText, Acls],
+            &[Records, TopicConfigs, BrokerConfigs, SchemaText, Acls],
             "klens-admins",
         )
     }

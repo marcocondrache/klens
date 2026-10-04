@@ -41,7 +41,7 @@ export function QuotasPage() {
     void navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true });
   }
   const { can, canChange } = useAccess();
-  const canConfigs = can(cluster, "CONFIGS");
+  const canConfigs = can(cluster, "BROKER_CONFIGS");
   const { data, isPending, isError, error } = useQuotas(cluster, canConfigs);
   const lane = data?.sourceHealth;
   const status = data?.status;

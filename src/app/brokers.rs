@@ -47,7 +47,7 @@ async fn broker_configs(
     session: Session,
     Path((name, id)): Path<(String, i32)>,
 ) -> Result<Json<Vec<ConfigEntry>>, ApiError> {
-    let configs = session.cluster(&name)?.configs()?;
+    let configs = session.cluster(&name)?.broker_configs()?;
     Ok(Json(
         configs
             .broker_configs(id)

@@ -102,7 +102,7 @@ async fn topic_configs(
     Path((name, topic)): Path<(String, String)>,
 ) -> Result<Json<Vec<ConfigEntry>>, ApiError> {
     let cluster = session.cluster(&name)?;
-    cluster.access.configs()?;
+    cluster.access.topic_configs()?;
     cluster
         .store
         .topic_configs(&topic)

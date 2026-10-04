@@ -48,7 +48,7 @@ export function BrokerPage() {
   const { tab: requested } = route.useSearch();
   const brokerId = Number(id);
   const { can, canChange } = useAccess();
-  const canConfigs = can(cluster, "CONFIGS");
+  const canConfigs = can(cluster, "BROKER_CONFIGS");
   const canAlter = canChange(cluster, "ALTER_BROKER_CONFIGS");
   const [configEditor] = useState(() => createDialogHandle<ConfigEntry>());
   const tab = requested === "config" && !canConfigs ? "log-dirs" : requested;

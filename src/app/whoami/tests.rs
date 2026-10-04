@@ -22,7 +22,8 @@ async fn whoami_reports_no_subject_when_auth_is_disabled() {
         whoami["clusters"][0]["privileges"],
         json!([
             "RECORDS",
-            "CONFIGS",
+            "TOPIC_CONFIGS",
+            "BROKER_CONFIGS",
             "SCHEMA_TEXT",
             "ACLS",
             "CREATE_TOPICS",
@@ -64,7 +65,8 @@ async fn whoami_resolves_each_cluster_against_its_own_grant() {
         clusters[0]["privileges"],
         json!([
             "RECORDS",
-            "CONFIGS",
+            "TOPIC_CONFIGS",
+            "BROKER_CONFIGS",
             "SCHEMA_TEXT",
             "ACLS",
             "CREATE_TOPICS",
@@ -99,7 +101,7 @@ async fn whoami_unions_the_privileges_of_every_role_covering_a_cluster() {
         .with_access(access([
             role(
                 "operator",
-                PrivilegeSet::from_privileges([Privilege::Records, Privilege::Configs]),
+                PrivilegeSet::from_privileges([Privilege::Records, Privilege::TopicConfigs]),
             ),
             role(
                 "auditor",
@@ -115,7 +117,7 @@ async fn whoami_unions_the_privileges_of_every_role_covering_a_cluster() {
     assert_eq!(local["roles"], json!(["auditor", "operator"]));
     assert_eq!(
         local["privileges"],
-        json!(["RECORDS", "CONFIGS", "SCHEMA_TEXT", "ACLS"])
+        json!(["RECORDS", "TOPIC_CONFIGS", "SCHEMA_TEXT", "ACLS"])
     );
 }
 

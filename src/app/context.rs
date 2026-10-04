@@ -11,10 +11,11 @@ use crate::AppState;
 use crate::app::auth::SessionGuard;
 use crate::app::auth::access::{
     AccessError, AddPartitionsCap, AlterBrokerConfigsCap, AlterQuotasCap, AlterTopicConfigsCap,
-    ClusterAccess, ConfigsCap, CreateAclsCap, CreateTopicsCap, DeleteAclsCap, DeleteGroupsCap,
-    DeleteOffsetsCap, DeleteRecordsCap, DeleteSchemasCap, DeleteScramCredentialsCap,
-    DeleteTopicsCap, EffectiveAccess, ProduceCap, RecordsCap, RegisterSchemasCap, ResetOffsetsCap,
-    SchemaTextCap, SetCompatibilityCap, SetScramCredentialsCap,
+    BrokerConfigsCap, ClusterAccess, CreateAclsCap, CreateTopicsCap, DeleteAclsCap,
+    DeleteGroupsCap, DeleteOffsetsCap, DeleteRecordsCap, DeleteSchemasCap,
+    DeleteScramCredentialsCap, DeleteTopicsCap, EffectiveAccess, ProduceCap, RecordsCap,
+    RegisterSchemasCap, ResetOffsetsCap, SchemaTextCap, SetCompatibilityCap,
+    SetScramCredentialsCap,
 };
 use crate::kafka::model::{
     Acl, BrokerScope, ClientQuota, CommittedOffset, ConfigEdit, ConfigSource, FoundRecord,
@@ -57,8 +58,8 @@ impl<'a> ClusterHandle<'a> {
         self.access.records().map(|cap| self.grant(cap))
     }
 
-    pub(crate) fn configs(&self) -> Result<Granted<'a, ConfigsCap>, AccessError> {
-        self.access.configs().map(|cap| self.grant(cap))
+    pub(crate) fn broker_configs(&self) -> Result<Granted<'a, BrokerConfigsCap>, AccessError> {
+        self.access.broker_configs().map(|cap| self.grant(cap))
     }
 
     pub(crate) fn schema_text(&self) -> Result<Granted<'a, SchemaTextCap>, AccessError> {
@@ -142,7 +143,7 @@ impl Granted<'_, RecordsCap> {
     }
 }
 
-impl Granted<'_, ConfigsCap> {
+impl Granted<'_, BrokerConfigsCap> {
     pub(crate) async fn broker_configs(&self, id: i32) -> Result<Vec<ConfigEntry>, KafkaError> {
         self.cluster.broker_configs(id).await
     }

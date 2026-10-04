@@ -25,7 +25,7 @@ async fn quotas(
     Path(name): Path<String>,
 ) -> Result<Json<QuotaListing>, ApiError> {
     let cluster = session.cluster(&name)?;
-    cluster.access.configs()?;
+    cluster.access.broker_configs()?;
     Ok(Json(QuotaListing::new(
         cluster.store.quotas.load().as_deref(),
         cluster.store.quotas.health().into(),
