@@ -1,25 +1,15 @@
-import { useId, useState, type FormEvent, type ReactElement, type ReactNode } from "react";
+import { useId, useState, type ReactElement, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CircleAlertIcon, PlusIcon, XIcon } from "lucide-react";
+import { PlusIcon, XIcon } from "lucide-react";
 
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Spinner } from "@/components/ui/spinner";
+import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Field, FieldCount } from "@/components/field";
 import { IconButton } from "@/components/icon-button";
+import { FormSheetContent, SheetForm } from "@/components/write-form";
 import { apiErrorMessage, clusterPathname, postAndRead, resourceId } from "@/lib/api/client";
 import { keys } from "@/lib/api/keys";
 import type {
@@ -54,7 +44,7 @@ export const NEW_SUBJECT: SchemaDraft = {
 
 type ReferenceRow = { id: number; name: string; subject: string; version: string };
 
-export function RegisterSchemaDialog({
+export function RegisterSchemaSheet({
   cluster,
   draft,
   trigger,
@@ -70,9 +60,9 @@ export function RegisterSchemaDialog({
   const [open, setOpen] = useState(false);
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={trigger}>{children}</DialogTrigger>
-      <DialogContent className="sm:max-w-2xl">
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetTrigger render={trigger}>{children}</SheetTrigger>
+      <FormSheetContent wide>
         <RegisterSchemaForm
           cluster={cluster}
           draft={draft}
@@ -81,8 +71,8 @@ export function RegisterSchemaDialog({
             onRegistered(subject, registered);
           }}
         />
-      </DialogContent>
-    </Dialog>
+      </FormSheetContent>
+    </Sheet>
   );
 }
 
@@ -128,12 +118,8 @@ function RegisterSchemaForm({
     (row.name !== "" || row.subject !== "" || row.version !== "") &&
     (row.name.trim() === "" || row.subject.trim() === "" || !VERSION.test(row.version));
   const name = subject.trim();
-  const ready =
-    name !== "" && schema.trim() !== "" && !filled.some(badReference) && !register.isPending;
 
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!ready) return;
+  function submit() {
     register.mutate(
       {
         subject: name,
@@ -148,7 +134,7 @@ function RegisterSchemaForm({
         },
       },
       {
-        // Unlike a hook-level onSuccess, this one is dropped once the dialog closes.
+        // Unlike a hook-level onSuccess, this one is dropped once the sheet closes.
         onSuccess: (registered) => onRegistered(name, registered),
       },
     );
@@ -159,28 +145,34 @@ function RegisterSchemaForm({
   }
 
   return (
-    <form className="grid min-w-0 gap-4" onSubmit={submit}>
-      <DialogHeader>
-        <DialogTitle>{draft.subject === null ? "Register schema" : "New version"}</DialogTitle>
-        <DialogDescription>
-          {draft.subject === null ? (
-            "The registry stores the schema as version 1 of a new subject, or as the next version of an existing one."
-          ) : (
-            <>
-              The registry checks the schema against the compatibility level of{" "}
-              <span className="font-mono">{draft.subject}</span> and stores it as the next version.
-              A schema the subject already holds keeps its version.
-            </>
-          )}
-        </DialogDescription>
-      </DialogHeader>
-
+    <SheetForm
+      title={draft.subject === null ? "Register schema" : "New version"}
+      description={
+        draft.subject === null ? (
+          "The registry stores the schema as version 1 of a new subject, or as the next version of an existing one."
+        ) : (
+          <>
+            The registry checks the schema against the compatibility level of{" "}
+            <span className="font-mono">{draft.subject}</span> and stores it as the next version. A
+            schema the subject already holds keeps its version.
+          </>
+        )
+      }
+      error={
+        register.isError ? apiErrorMessage(register.error, "Failed to register the schema.") : null
+      }
+      submit={{
+        label: "Register",
+        pending: register.isPending,
+        disabled: name === "" || schema.trim() === "" || filled.some(badReference),
+      }}
+      onSubmit={submit}
+    >
       {draft.subject === null ? (
-        <div className="grid gap-1.5">
-          <Label htmlFor={`${id}-subject`}>Subject</Label>
+        <Field label="Subject" htmlFor={`${id}-subject`}>
           <Input
             id={`${id}-subject`}
-            autoFocus
+            data-autofocus
             autoComplete="off"
             spellCheck={false}
             placeholder="orders-value"
@@ -188,12 +180,14 @@ function RegisterSchemaForm({
             value={subject}
             onChange={(event) => setSubject(event.target.value)}
           />
-        </div>
+        </Field>
       ) : null}
 
-      <div className="grid gap-1.5">
-        <div className="flex items-center justify-between gap-2">
-          <Label htmlFor={`${id}-schema`}>Schema</Label>
+      <Field
+        label="Schema"
+        htmlFor={`${id}-schema`}
+        className="flex min-h-48 flex-1 flex-col"
+        action={
           <ToggleGroup
             value={[type]}
             onValueChange={(next) => {
@@ -212,19 +206,47 @@ function RegisterSchemaForm({
               </ToggleGroupItem>
             ))}
           </ToggleGroup>
-        </div>
+        }
+      >
         <Textarea
           id={`${id}-schema`}
-          autoFocus={draft.subject !== null}
+          data-autofocus={draft.subject !== null || undefined}
           spellCheck={false}
-          className="max-h-80 min-h-48 font-mono"
+          className="min-h-0 flex-1 resize-none field-sizing-fixed bg-subtle px-3 py-2.5 font-mono leading-relaxed md:text-sm dark:bg-subtle"
           value={schema}
           onChange={(event) => setSchema(event.target.value)}
         />
-      </div>
+      </Field>
 
-      <div className="grid gap-1.5">
-        <Label>References</Label>
+      <Field
+        label={
+          <>
+            References
+            <FieldCount value={references.length} />
+          </>
+        }
+        action={
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            className="text-muted-foreground"
+            onClick={() =>
+              setReferences((rows) => [
+                ...rows,
+                { id: (rows.at(-1)?.id ?? 0) + 1, name: "", subject: "", version: "" },
+              ])
+            }
+          >
+            <PlusIcon data-icon="inline-start" />
+            Add reference
+          </Button>
+        }
+        className="shrink-0"
+      >
+        {references.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No references.</p>
+        ) : null}
         {references.map((row) => (
           <div
             key={row.id}
@@ -269,39 +291,7 @@ function RegisterSchemaForm({
             </IconButton>
           </div>
         ))}
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="justify-self-start"
-          onClick={() =>
-            setReferences((rows) => [
-              ...rows,
-              { id: (rows.at(-1)?.id ?? 0) + 1, name: "", subject: "", version: "" },
-            ])
-          }
-        >
-          <PlusIcon data-icon="inline-start" />
-          Add reference
-        </Button>
-      </div>
-
-      {register.isError ? (
-        <Alert variant="destructive">
-          <CircleAlertIcon />
-          <AlertDescription className="break-words">
-            {apiErrorMessage(register.error, "Failed to register the schema.")}
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
-      <DialogFooter>
-        <DialogClose render={<Button type="button" variant="outline" />}>Cancel</DialogClose>
-        <Button type="submit" disabled={!ready}>
-          {register.isPending ? <Spinner data-icon="inline-start" /> : null}
-          Register
-        </Button>
-      </DialogFooter>
-    </form>
+      </Field>
+    </SheetForm>
   );
 }

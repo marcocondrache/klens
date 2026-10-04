@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { getRouteApi } from "@tanstack/react-router";
-import { FilePlusIcon, PlusIcon } from "lucide-react";
+import { FilePlusIcon, PlusIcon, ShieldCheckIcon, Trash2Icon } from "lucide-react";
 
 import {
   Sheet,
@@ -11,7 +11,9 @@ import {
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { useOpenDialog } from "@/components/actions-menu";
 import { DataTable } from "@/components/data-table/data-table";
+import { IconButton } from "@/components/icon-button";
 import { LaneCaption } from "@/components/lane-caption";
 import { PageHeader } from "@/components/page-header";
 import { PayloadView } from "@/components/payload-view";
@@ -28,7 +30,7 @@ import { cn } from "@/lib/utils";
 
 import { DeleteSchemaDialog } from "./delete-schema";
 import { EditCompatibilityDialog } from "./edit-compatibility";
-import { NEW_SUBJECT, RegisterSchemaDialog } from "./register-schema";
+import { NEW_SUBJECT, RegisterSchemaSheet, type SchemaDraft } from "./register-schema";
 import { SchemaLoading } from "./schema-loading";
 import { subjectColumns } from "./schemas-columns";
 
@@ -49,6 +51,7 @@ export function SchemasPage() {
     void navigate({ search: (prev) => ({ ...prev, q }), replace: true });
   });
   const [expanded, setExpanded] = useState(false);
+  const sheetRef = useRef<HTMLDivElement>(null);
   const { can, canChange } = useAccess();
   const canSchemaText = can(cluster, "SCHEMA_TEXT");
   const { data, isPending, isError, error } = useSubjectRows(cluster);
@@ -116,19 +119,6 @@ export function SchemasPage() {
             <LaneCaption lane={data?.sourceHealth} />
           </>
         }
-        actions={
-          canRegister ? (
-            <RegisterSchemaDialog
-              cluster={cluster}
-              draft={NEW_SUBJECT}
-              trigger={<Button />}
-              onRegistered={show}
-            >
-              <PlusIcon data-icon="inline-start" />
-              Register schema
-            </RegisterSchemaDialog>
-          ) : null
-        }
       />
 
       <DataTable
@@ -136,7 +126,21 @@ export function SchemasPage() {
         data={rows}
         getRowId={(subject) => subject.subject}
         toolbar={
-          <SearchField className="shrink-0" {...searchInput} placeholder="Search subjects…" />
+          <>
+            <SearchField className="shrink-0" {...searchInput} placeholder="Search subjects…" />
+
+            {canRegister ? (
+              <RegisterSchemaSheet
+                cluster={cluster}
+                draft={NEW_SUBJECT}
+                trigger={<Button variant="outline" className="ml-auto font-normal" />}
+                onRegistered={show}
+              >
+                <PlusIcon className="text-muted-foreground" />
+                Register schema
+              </RegisterSchemaSheet>
+            ) : null}
+          </>
         }
         loading={isPending}
         error={isError ? apiErrorMessage(error, "Failed to load schemas.") : undefined}
@@ -151,9 +155,11 @@ export function SchemasPage() {
         }}
       >
         <SheetContent
+          ref={sheetRef}
+          initialFocus={sheetRef}
           side="right"
           className={cn(
-            "w-full gap-0 data-[side=right]:w-full",
+            "w-full gap-0 outline-none data-[side=right]:w-full",
             expanded
               ? "data-[side=right]:sm:max-w-[min(90vw,56rem)]"
               : "data-[side=right]:sm:max-w-2xl",
@@ -162,9 +168,27 @@ export function SchemasPage() {
           {selected ? (
             <>
               <SheetHeader className="gap-1 border-b px-5 py-4 pr-12">
-                <SheetTitle className="truncate font-mono text-sm font-medium">
-                  {selected.subject}
-                </SheetTitle>
+                <div className="flex min-w-0 items-center gap-2">
+                  <SheetTitle className="min-w-0 truncate font-mono text-sm font-medium">
+                    {selected.subject}
+                  </SheetTitle>
+                  <SubjectActions
+                    cluster={cluster}
+                    subject={selected}
+                    draft={{
+                      subject: selected.subject,
+                      type: detail?.type ?? selected.type,
+                      schema: detail?.schema ?? "",
+                      references: detail?.references ?? [],
+                    }}
+                    version={shownVersion ?? null}
+                    canRegister={canRegister}
+                    canSetCompatibility={canSetCompatibility}
+                    canDelete={canDelete}
+                    onRegistered={show}
+                    onDeleted={showRemaining}
+                  />
+                </div>
                 <SheetDescription>
                   {formatEnumLabel(selected.type)} · version {shownVersion} ·{" "}
                   {formatEnumLabel(selected.compatibility)} compatibility
@@ -198,40 +222,7 @@ export function SchemasPage() {
                 ) : null}
 
                 <section className="shrink-0 space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <h3 className="text-xs font-medium text-muted-foreground">Versions</h3>
-                    {canRegister || canSetCompatibility || canDelete ? (
-                      <div className="flex items-center gap-2">
-                        {canSetCompatibility ? (
-                          <EditCompatibilityDialog cluster={cluster} subject={selected} />
-                        ) : null}
-                        {canRegister ? (
-                          <RegisterSchemaDialog
-                            cluster={cluster}
-                            draft={{
-                              subject: selected.subject,
-                              type: detail?.type ?? selected.type,
-                              schema: detail?.schema ?? "",
-                              references: detail?.references ?? [],
-                            }}
-                            trigger={<Button variant="outline" size="sm" />}
-                            onRegistered={show}
-                          >
-                            <FilePlusIcon data-icon="inline-start" />
-                            New version
-                          </RegisterSchemaDialog>
-                        ) : null}
-                        {canDelete && shownVersion != null ? (
-                          <DeleteSchemaDialog
-                            cluster={cluster}
-                            subject={selected}
-                            version={shownVersion}
-                            onDeleted={showRemaining}
-                          />
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
+                  <h3 className="text-xs font-medium text-muted-foreground">Versions</h3>
                   <div className="max-h-32 overflow-y-auto">
                     <ToggleGroup
                       value={shownVersion != null ? [String(shownVersion)] : []}
@@ -267,5 +258,70 @@ export function SchemasPage() {
         </SheetContent>
       </Sheet>
     </div>
+  );
+}
+
+function SubjectActions({
+  cluster,
+  subject,
+  draft,
+  version,
+  canRegister,
+  canSetCompatibility,
+  canDelete,
+  onRegistered,
+  onDeleted,
+}: {
+  cluster: string;
+  subject: SubjectRow;
+  draft: SchemaDraft;
+  version: number | null;
+  canRegister: boolean;
+  canSetCompatibility: boolean;
+  canDelete: boolean;
+  onRegistered: (subject: string, registered: RegisteredVersion) => void;
+  onDeleted: (remaining: number | null) => void;
+}) {
+  const dialogs = useOpenDialog<"compatibility" | "delete">();
+
+  return (
+    <>
+      {canRegister ? (
+        <RegisterSchemaSheet
+          cluster={cluster}
+          draft={draft}
+          trigger={<IconButton label="Register a new version" />}
+          onRegistered={onRegistered}
+        >
+          <FilePlusIcon />
+        </RegisterSchemaSheet>
+      ) : null}
+      {canSetCompatibility ? (
+        <>
+          <IconButton label="Change compatibility" onClick={() => dialogs.show("compatibility")}>
+            <ShieldCheckIcon />
+          </IconButton>
+          <EditCompatibilityDialog
+            cluster={cluster}
+            subject={subject}
+            {...dialogs.props("compatibility")}
+          />
+        </>
+      ) : null}
+      {canDelete && version != null ? (
+        <>
+          <IconButton label="Delete this version" onClick={() => dialogs.show("delete")}>
+            <Trash2Icon />
+          </IconButton>
+          <DeleteSchemaDialog
+            cluster={cluster}
+            subject={subject}
+            version={version}
+            onDeleted={onDeleted}
+            {...dialogs.props("delete")}
+          />
+        </>
+      ) : null}
+    </>
   );
 }

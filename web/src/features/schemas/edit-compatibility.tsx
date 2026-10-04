@@ -1,20 +1,7 @@
-import { useId, useState, type FormEvent } from "react";
+import { useId, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CircleAlertIcon, ShieldCheckIcon } from "lucide-react";
 
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
+import { Dialog } from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -22,7 +9,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Spinner } from "@/components/ui/spinner";
+import { Field } from "@/components/field";
+import { DialogForm, FormDialogContent } from "@/components/write-form";
 import { apiErrorMessage, clusterPathname, patch, resourceId } from "@/lib/api/client";
 import { keys } from "@/lib/api/keys";
 import type { EditSubject, SchemaCompatibility, SubjectRow } from "@/lib/api/types";
@@ -64,21 +52,23 @@ const LEVELS: { value: SchemaCompatibility; label: string; rule: string }[] = [
 export function EditCompatibilityDialog({
   cluster,
   subject,
+  open,
+  onOpenChange,
 }: {
   cluster: string;
   subject: SubjectRow;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
-
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button variant="outline" size="sm" />}>
-        <ShieldCheckIcon data-icon="inline-start" />
-        Compatibility
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
-        <EditCompatibilityForm cluster={cluster} subject={subject} onSaved={() => setOpen(false)} />
-      </DialogContent>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <FormDialogContent>
+        <EditCompatibilityForm
+          cluster={cluster}
+          subject={subject}
+          onSaved={() => onOpenChange(false)}
+        />
+      </FormDialogContent>
     </Dialog>
   );
 }
@@ -103,28 +93,28 @@ function EditCompatibilityForm({
       queryClient.invalidateQueries({ queryKey: keys.subjectRows(cluster), exact: true }),
   });
 
-  const ready = level !== subject.compatibility && !save.isPending;
-
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!ready) return;
-    // Unlike a hook-level onSuccess, this one is dropped once the dialog closes.
-    save.mutate({ compatibility: level }, { onSuccess: onSaved });
-  }
-
   return (
-    <form className="grid gap-4" onSubmit={submit}>
-      <DialogHeader>
-        <DialogTitle>Compatibility</DialogTitle>
-        <DialogDescription>
+    <DialogForm
+      title="Compatibility"
+      description={
+        <>
           The registry checks every new schema for{" "}
           <span className="font-mono">{subject.subject}</span> against this level. Schemas it
           already holds stay as they are.
-        </DialogDescription>
-      </DialogHeader>
-
-      <div className="grid gap-1.5">
-        <Label htmlFor={`${id}-level`}>Level</Label>
+        </>
+      }
+      error={
+        save.isError ? apiErrorMessage(save.error, "Failed to set the compatibility level.") : null
+      }
+      submit={{ label: "Save", pending: save.isPending, disabled: level === subject.compatibility }}
+      // Unlike a hook-level onSuccess, this one is dropped once the dialog closes.
+      onSubmit={() => save.mutate({ compatibility: level }, { onSuccess: onSaved })}
+    >
+      <Field
+        label="Level"
+        htmlFor={`${id}-level`}
+        hint={LEVELS.find((entry) => entry.value === level)?.rule}
+      >
         <Select
           items={LEVELS}
           value={level}
@@ -132,7 +122,11 @@ function EditCompatibilityForm({
             if (next !== null) setLevel(next);
           }}
         >
-          <SelectTrigger id={`${id}-level`} className="w-full">
+          <SelectTrigger
+            id={`${id}-level`}
+            className="w-full"
+            aria-describedby={`${id}-level-hint`}
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -143,27 +137,7 @@ function EditCompatibilityForm({
             ))}
           </SelectContent>
         </Select>
-        <p className="text-sm text-muted-foreground">
-          {LEVELS.find((entry) => entry.value === level)?.rule}
-        </p>
-      </div>
-
-      {save.isError ? (
-        <Alert variant="destructive">
-          <CircleAlertIcon />
-          <AlertDescription className="break-words">
-            {apiErrorMessage(save.error, "Failed to set the compatibility level.")}
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
-      <DialogFooter>
-        <DialogClose render={<Button type="button" variant="outline" />}>Cancel</DialogClose>
-        <Button type="submit" disabled={!ready}>
-          {save.isPending ? <Spinner data-icon="inline-start" /> : null}
-          Save
-        </Button>
-      </DialogFooter>
-    </form>
+      </Field>
+    </DialogForm>
   );
 }
