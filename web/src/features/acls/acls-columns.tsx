@@ -1,7 +1,8 @@
-import type { ReactNode } from "react";
 import { createColumnHelper } from "@tanstack/react-table";
+import { Trash2Icon } from "lucide-react";
 
 import type { DataTableFeatures } from "@/components/data-table/features";
+import { IconButton } from "@/components/icon-button";
 import { Pill, StatusLabel } from "@/components/status";
 import type { Acl } from "@/lib/api/types";
 import { formatEnumLabel } from "@/lib/format";
@@ -50,12 +51,25 @@ export const aclColumns = columnHelper.columns([
   }),
 ]);
 
-export function aclActionColumn(action: (acl: Acl) => ReactNode) {
+export function aclDeleteColumn(onDelete: (acl: Acl) => void) {
   return columnHelper.display({
-    id: "action",
+    id: "delete",
     enableResizing: false,
     meta: { align: "right", width: "3.5rem" },
-    cell: ({ row }) => action(row.original),
+    cell: ({ row }) => {
+      const acl = row.original;
+
+      return (
+        <IconButton
+          label={`Delete ACL that ${acl.permission === "ALLOW" ? "allows" : "denies"} ${acl.principal} ${formatEnumLabel(acl.operation)} on ${acl.resourceName}`}
+          tooltip="Delete"
+          reveal
+          onClick={() => onDelete(acl)}
+        >
+          <Trash2Icon />
+        </IconButton>
+      );
+    },
   });
 }
 

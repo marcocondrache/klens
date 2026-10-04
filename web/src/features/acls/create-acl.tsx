@@ -1,21 +1,9 @@
-import { useId, useState, type FormEvent } from "react";
+import { useId, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CircleAlertIcon, PlusIcon } from "lucide-react";
+import { PlusIcon } from "lucide-react";
 
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -23,8 +11,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Spinner } from "@/components/ui/spinner";
+import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Field, FieldCount } from "@/components/field";
+import { FormSheetContent, SheetForm } from "@/components/write-form";
 import { apiErrorMessage, clusterPathname, post } from "@/lib/api/client";
 import { keys } from "@/lib/api/keys";
 import type {
@@ -80,19 +70,19 @@ const CLUSTER_NAME = "kafka-cluster";
 
 const PRINCIPAL = /^[^:\s]+:\S/;
 
-export function CreateAclDialog({ cluster }: { cluster: string }) {
+export function CreateAclSheet({ cluster }: { cluster: string }) {
   const [open, setOpen] = useState(false);
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button />}>
-        <PlusIcon data-icon="inline-start" />
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetTrigger render={<Button variant="outline" className="ml-auto font-normal" />}>
+        <PlusIcon className="text-muted-foreground" />
         Create ACL
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
+      </SheetTrigger>
+      <FormSheetContent>
         <CreateAclForm cluster={cluster} onCreated={() => setOpen(false)} />
-      </DialogContent>
-    </Dialog>
+      </FormSheetContent>
+    </Sheet>
   );
 }
 
@@ -120,8 +110,7 @@ function CreateAclForm({ cluster, onCreated }: { cluster: string; onCreated: () 
     PRINCIPAL.test(principal.trim()) &&
     host.trim() !== "" &&
     resourceName !== "" &&
-    operations.length > 0 &&
-    !create.isPending;
+    operations.length > 0;
 
   function pickResource(next: AclResourceType) {
     const allowed = RESOURCES.find((entry) => entry.value === next)?.operations ?? [];
@@ -129,9 +118,7 @@ function CreateAclForm({ cluster, onCreated }: { cluster: string; onCreated: () 
     setOperations((picked) => picked.filter((operation) => allowed.includes(operation)));
   }
 
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!ready) return;
+  function submit() {
     create.mutate(
       {
         bindings: operations.map((operation) => ({
@@ -144,35 +131,39 @@ function CreateAclForm({ cluster, onCreated }: { cluster: string; onCreated: () 
           permission,
         })),
       },
-      // Unlike a hook-level onSuccess, this one is dropped once the dialog closes.
+      // Unlike a hook-level onSuccess, this one is dropped once the sheet closes.
       { onSuccess: onCreated },
     );
   }
 
   return (
-    <form className="grid gap-4" onSubmit={submit}>
-      <DialogHeader>
-        <DialogTitle>Create ACL</DialogTitle>
-        <DialogDescription>Each operation you pick becomes its own binding.</DialogDescription>
-      </DialogHeader>
+    <SheetForm
+      title="Create ACL"
+      description="Each operation you pick becomes its own binding."
+      error={create.isError ? apiErrorMessage(create.error, "Failed to create the ACL.") : null}
+      submit={{
+        label: operations.length > 1 ? `Create ${operations.length} bindings` : "Create ACL",
+        pending: create.isPending,
+        disabled: !ready,
+      }}
+      onSubmit={submit}
+    >
+      <Field label="Principal" htmlFor={`${id}-principal`}>
+        <Input
+          id={`${id}-principal`}
+          data-autofocus
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="User:alice"
+          className="font-mono"
+          value={principal}
+          aria-invalid={badPrincipal || undefined}
+          onChange={(event) => setPrincipal(event.target.value)}
+        />
+      </Field>
 
-      <div className="grid grid-cols-[minmax(0,1fr)_8rem] gap-3">
-        <div className="grid gap-1.5">
-          <Label htmlFor={`${id}-principal`}>Principal</Label>
-          <Input
-            id={`${id}-principal`}
-            autoFocus
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="User:alice"
-            className="font-mono"
-            value={principal}
-            aria-invalid={badPrincipal || undefined}
-            onChange={(event) => setPrincipal(event.target.value)}
-          />
-        </div>
-        <div className="grid gap-1.5">
-          <Label htmlFor={`${id}-host`}>Host</Label>
+      <div className="grid grid-cols-2 items-start gap-3">
+        <Field label="Host" htmlFor={`${id}-host`}>
           <Input
             id={`${id}-host`}
             autoComplete="off"
@@ -181,29 +172,26 @@ function CreateAclForm({ cluster, onCreated }: { cluster: string; onCreated: () 
             value={host}
             onChange={(event) => setHost(event.target.value)}
           />
-        </div>
+        </Field>
+        <Field label="Permission">
+          <ToggleGroup
+            value={[permission]}
+            onValueChange={(next) => {
+              if (next[0]) setPermission(next[0] === "DENY" ? "DENY" : "ALLOW");
+            }}
+            variant="outline"
+            size="sm"
+            spacing={0}
+            aria-label="Permission"
+          >
+            <ToggleGroupItem value="ALLOW">Allow</ToggleGroupItem>
+            <ToggleGroupItem value="DENY">Deny</ToggleGroupItem>
+          </ToggleGroup>
+        </Field>
       </div>
 
-      <div className="grid gap-1.5">
-        <Label>Permission</Label>
-        <ToggleGroup
-          value={[permission]}
-          onValueChange={(next) => {
-            if (next[0]) setPermission(next[0] === "DENY" ? "DENY" : "ALLOW");
-          }}
-          variant="outline"
-          size="sm"
-          spacing={0}
-          aria-label="Permission"
-        >
-          <ToggleGroupItem value="ALLOW">Allow</ToggleGroupItem>
-          <ToggleGroupItem value="DENY">Deny</ToggleGroupItem>
-        </ToggleGroup>
-      </div>
-
-      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3">
-        <div className="grid gap-1.5">
-          <Label htmlFor={`${id}-resource`}>Resource</Label>
+      <div className="grid grid-cols-2 items-start gap-3">
+        <Field label="Resource" htmlFor={`${id}-resource`}>
           <Select
             items={RESOURCES}
             value={resourceType}
@@ -222,25 +210,36 @@ function CreateAclForm({ cluster, onCreated }: { cluster: string; onCreated: () 
               ))}
             </SelectContent>
           </Select>
-        </div>
-        <ToggleGroup
-          value={[onCluster ? "LITERAL" : pattern]}
-          onValueChange={(next) => {
-            if (next[0]) setPattern(next[0] === "PREFIXED" ? "PREFIXED" : "LITERAL");
-          }}
-          disabled={onCluster}
-          variant="outline"
-          size="sm"
-          spacing={0}
-          aria-label="Pattern"
-        >
-          <ToggleGroupItem value="LITERAL">Literal</ToggleGroupItem>
-          <ToggleGroupItem value="PREFIXED">Prefixed</ToggleGroupItem>
-        </ToggleGroup>
+        </Field>
+        <Field label="Pattern">
+          <ToggleGroup
+            value={[onCluster ? "LITERAL" : pattern]}
+            onValueChange={(next) => {
+              if (next[0]) setPattern(next[0] === "PREFIXED" ? "PREFIXED" : "LITERAL");
+            }}
+            disabled={onCluster}
+            variant="outline"
+            size="sm"
+            spacing={0}
+            aria-label="Pattern"
+          >
+            <ToggleGroupItem value="LITERAL">Literal</ToggleGroupItem>
+            <ToggleGroupItem value="PREFIXED">Prefixed</ToggleGroupItem>
+          </ToggleGroup>
+        </Field>
       </div>
 
-      <div className="grid gap-1.5">
-        <Label htmlFor={`${id}-name`}>Name</Label>
+      <Field
+        label="Name"
+        htmlFor={`${id}-name`}
+        hint={
+          onCluster
+            ? "Cluster bindings cover the whole cluster."
+            : pattern === "PREFIXED"
+              ? `Matches every ${resource.label.toLowerCase()} whose name starts with this.`
+              : `Use * to match every ${resource.label.toLowerCase()}.`
+        }
+      >
         <Input
           id={`${id}-name`}
           autoComplete="off"
@@ -248,19 +247,19 @@ function CreateAclForm({ cluster, onCreated }: { cluster: string; onCreated: () 
           className="font-mono"
           value={onCluster ? CLUSTER_NAME : name}
           disabled={onCluster}
+          aria-describedby={`${id}-name-hint`}
           onChange={(event) => setName(event.target.value)}
         />
-        <p className="text-sm text-muted-foreground">
-          {onCluster
-            ? "Cluster bindings cover the whole cluster."
-            : pattern === "PREFIXED"
-              ? `Matches every ${resource.label.toLowerCase()} whose name starts with this.`
-              : `Use * to match every ${resource.label.toLowerCase()}.`}
-        </p>
-      </div>
+      </Field>
 
-      <div className="grid gap-1.5">
-        <Label>Operations</Label>
+      <Field
+        label={
+          <>
+            Operations
+            <FieldCount value={operations.length} />
+          </>
+        }
+      >
         <ToggleGroup
           multiple
           value={operations}
@@ -278,24 +277,7 @@ function CreateAclForm({ cluster, onCreated }: { cluster: string; onCreated: () 
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
-      </div>
-
-      {create.isError ? (
-        <Alert variant="destructive">
-          <CircleAlertIcon />
-          <AlertDescription className="break-words">
-            {apiErrorMessage(create.error, "Failed to create the ACL.")}
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
-      <DialogFooter>
-        <DialogClose render={<Button type="button" variant="outline" />}>Cancel</DialogClose>
-        <Button type="submit" disabled={!ready}>
-          {create.isPending ? <Spinner data-icon="inline-start" /> : null}
-          {operations.length > 1 ? `Create ${operations.length} bindings` : "Create ACL"}
-        </Button>
-      </DialogFooter>
-    </form>
+      </Field>
+    </SheetForm>
   );
 }

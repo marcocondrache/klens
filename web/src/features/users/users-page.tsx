@@ -15,8 +15,8 @@ import type { ScramUser } from "@/lib/api/types";
 import { useClusterName } from "@/lib/clusters";
 
 import type { UsersSearch } from "./search";
-import { DeleteCredentialButton, DeleteCredentialDialog } from "./delete-credential";
-import { NewUserDialog, SetPasswordButton, SetPasswordDialog } from "./set-credential";
+import { DeleteCredentialDialog } from "./delete-credential";
+import { NewUserSheet, SetPasswordSheet } from "./set-credential";
 import { userActionColumn, userColumns } from "./users-columns";
 import { USER_FILTERS, userMatches } from "./users-filters";
 
@@ -48,12 +48,10 @@ export function UsersPage() {
       canSet || canDelete
         ? [
             ...userColumns,
-            userActionColumn((user) => (
-              <>
-                {canSet ? <SetPasswordButton handle={setter} user={user} /> : null}
-                {canDelete ? <DeleteCredentialButton handle={deleter} user={user} /> : null}
-              </>
-            )),
+            userActionColumn({
+              onSetPassword: canSet ? (user) => setter.openWithPayload(user) : undefined,
+              onDelete: canDelete ? (user) => deleter.openWithPayload(user) : undefined,
+            }),
           ]
         : userColumns,
     [canSet, canDelete, setter, deleter],
@@ -83,7 +81,6 @@ export function UsersPage() {
             <LaneCaption lane={lane} />
           </>
         }
-        actions={canSet ? <NewUserDialog cluster={cluster} /> : null}
       />
 
       <DataTable
@@ -95,6 +92,8 @@ export function UsersPage() {
             <SearchField {...searchInput} placeholder="Search users…" />
 
             <FilterBar {...filterBar} />
+
+            {canSet ? <NewUserSheet cluster={cluster} /> : null}
           </>
         }
         loading={isPending || (status === "PENDING" && lane?.lastError == null)}
@@ -107,8 +106,9 @@ export function UsersPage() {
               : "No user has a SCRAM credential."
         }
         defaultSort={{ id: "name", direction: "asc" }}
+        onRowClick={canSet ? (user) => setter.openWithPayload(user) : undefined}
       />
-      {canSet ? <SetPasswordDialog cluster={cluster} handle={setter} /> : null}
+      {canSet ? <SetPasswordSheet cluster={cluster} handle={setter} /> : null}
       {canDelete ? <DeleteCredentialDialog cluster={cluster} handle={deleter} /> : null}
     </div>
   );
