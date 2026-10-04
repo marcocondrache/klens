@@ -15,6 +15,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use foldhash::{HashMap, HashMapExt};
+use itertools::Itertools as _;
 use krafka::admin::{
     AclFilter, ConfigResourceType, DescribeConfigsRequest, DescribeConfigsResource, GroupListing,
     OffsetSpec, OffsetVisibility,
@@ -463,6 +464,27 @@ impl ClusterSession for KafkaClient {
             offset: sent.offset,
         })
     }
+
+    async fn alter_group_offsets(
+        &self,
+        group: &str,
+        offsets: &[CommittedOffset],
+    ) -> Result<(), KafkaError> {
+        let topics = offsets
+            .iter()
+            .map(|offset| (offset.topic.as_str(), (offset.partition, offset.offset)))
+            .into_group_map();
+        let request: Vec<(&str, &[(i32, i64)])> = topics
+            .iter()
+            .map(|(topic, partitions)| (*topic, partitions.as_slice()))
+            .collect();
+        self.transport
+            .admin
+            .alter_consumer_group_offsets(group, &request)
+            .await?
+            .into_iter()
+            .try_for_each(|altered| refused(altered.error))
+    }
 }
 
 impl KafkaClient {
@@ -554,11 +576,17 @@ mod tests {
         records.iter().map(|record| record.offset).collect()
     }
 
+    fn committed(topic: &str, partition: i32, offset: i64) -> CommittedOffset {
+        CommittedOffset {
+            topic: topic.to_owned(),
+            partition,
+            offset,
+        }
+    }
+
     async fn commit(client: &KafkaClient, group: &str, topic: &str, offset: i64) {
         client
-            .transport
-            .admin
-            .alter_consumer_group_offsets(group, &[(topic, &[(0, offset)])])
+            .alter_group_offsets(group, &[committed(topic, 0, offset)])
             .await
             .expect("commit");
     }
@@ -907,15 +935,57 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn altered_group_offsets_read_back_per_topic() {
+        let broker = Broker::start().await;
+        broker.topic("orders", 2);
+        broker.topic("payments", 1);
+        let client = broker.client().await;
+        let offsets = [
+            committed("orders", 0, 4),
+            committed("orders", 1, 7),
+            committed("payments", 0, 2),
+        ];
+
+        client
+            .alter_group_offsets("billing", &offsets)
+            .await
+            .expect("offset commit");
+
+        let mut read = client
+            .committed_offsets("billing", None)
+            .await
+            .expect("offset fetch");
+        read.sort_by(|left, right| {
+            (&left.topic, left.partition).cmp(&(&right.topic, right.partition))
+        });
+        assert_eq!(read, offsets);
+    }
+
+    #[tokio::test]
+    async fn a_refused_offset_commit_carries_the_broker_error() {
+        let broker = Broker::orders(1).await;
+        let client = broker.client().await;
+        broker.on(ApiKey::OffsetCommit, |_| {
+            Control::Error(ErrorCode::UnknownMemberId)
+        });
+
+        let error = client
+            .alter_group_offsets("billing", &[committed("orders", 0, 1)])
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(&error, KafkaError::Refused(message) if message == "UnknownMemberId"),
+            "{error}"
+        );
+    }
+
+    #[tokio::test]
     async fn lists_committed_offsets_with_and_without_a_partition_filter() {
         let broker = Broker::orders(1).await;
         let client = broker.client().await;
         commit(&client, "orders-group", "orders", 1).await;
-        let committed = vec![CommittedOffset {
-            topic: "orders".into(),
-            partition: 0,
-            offset: 1,
-        }];
+        let committed = vec![committed("orders", 0, 1)];
 
         let filtered = client
             .committed_offsets("orders-group", Some(&[("orders".into(), 0)]))

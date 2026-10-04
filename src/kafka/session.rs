@@ -103,6 +103,14 @@ pub trait ClusterSession: Send + Sync + 'static {
 
     async fn produce(&self, record: &NewRecord) -> Result<ProducedRecord, KafkaError>;
 
+    /// Commits `offsets` for `group` from outside it. Kafka refuses this while
+    /// the group has members.
+    async fn alter_group_offsets(
+        &self,
+        group: &str,
+        offsets: &[CommittedOffset],
+    ) -> Result<(), KafkaError>;
+
     fn consume_timeout(&self) -> Duration;
 
     fn scan_poll_wait(&self) -> Duration;

@@ -14,7 +14,7 @@ use crate::config::{KafkaTuning, ScanTuning};
 use crate::kafka::acl::AclListing;
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
-use crate::kafka::group::{CommittedOffset, GroupSnapshot};
+use crate::kafka::group::{CommittedOffset, GroupSnapshot, GroupState};
 use crate::kafka::metadata::{
     BrokerMetadata, MetadataSnapshot, NewTopic, TopicMetadata, Watermarks,
 };
@@ -58,6 +58,7 @@ pub enum Api {
     AddPartitions,
     DeleteRecords,
     Produce,
+    AlterGroupOffsets,
 }
 
 #[derive(Clone)]
@@ -781,5 +782,42 @@ impl ClusterSession for FakeCluster {
         }
         FakeCluster::produce(self, stored);
         Ok(ProducedRecord { partition, offset })
+    }
+
+    async fn alter_group_offsets(
+        &self,
+        group: &str,
+        offsets: &[CommittedOffset],
+    ) -> Result<(), KafkaError> {
+        self.answer(Api::AlterGroupOffsets).await?;
+        let mut world = self.world();
+        let index = match world
+            .groups
+            .iter()
+            .position(|snapshot| snapshot.id == group)
+        {
+            Some(index) => index,
+            None => {
+                world.groups.push(GroupSnapshot {
+                    id: group.to_owned(),
+                    state: GroupState::Empty,
+                    protocol: String::new(),
+                    members: Vec::new(),
+                    committed: Vec::new(),
+                });
+                world.groups.len() - 1
+            }
+        };
+        let snapshot = &mut world.groups[index];
+        if !snapshot.members.is_empty() {
+            return Err(KafkaError::Refused("UnknownMemberId".to_owned()));
+        }
+        for offset in offsets {
+            snapshot.committed.retain(|committed| {
+                committed.topic != offset.topic || committed.partition != offset.partition
+            });
+            snapshot.committed.push(offset.clone());
+        }
+        Ok(())
     }
 }
