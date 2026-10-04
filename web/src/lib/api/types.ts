@@ -6,6 +6,7 @@ export type {
   ClientQuota,
   ClusterHealth,
   ConfigEntry,
+  CreateAcls,
   CreateTopic,
   EditSubject,
   EditTopicConfigs,

@@ -21,15 +21,33 @@ pub struct Kafka {
 
 impl Kafka {
     pub async fn start() -> Self {
+        Self::start_with(&[]).await
+    }
+
+    /// Every client here connects as `User:ANONYMOUS`, which stays a super
+    /// user so no ACL a test creates locks out the harness or klens.
+    pub async fn with_authorizer() -> Self {
+        Self::start_with(&[
+            (
+                "KAFKA_AUTHORIZER_CLASS_NAME",
+                "org.apache.kafka.metadata.authorizer.StandardAuthorizer",
+            ),
+            ("KAFKA_SUPER_USERS", "User:ANONYMOUS"),
+        ])
+        .await
+    }
+
+    async fn start_with(env: &[(&str, &str)]) -> Self {
         // The native image's setup step segfaults now and then, and the JVM
         // image's default 1 GiB heap would crowd a runner with a broker per test.
-        let container = apache::Kafka::default()
+        let mut request = apache::Kafka::default()
             .with_jvm_image()
             .with_tag(IMAGE_TAG)
-            .with_env_var("KAFKA_HEAP_OPTS", "-Xms256m -Xmx256m")
-            .start()
-            .await
-            .expect("a kafka container starts");
+            .with_env_var("KAFKA_HEAP_OPTS", "-Xms256m -Xmx256m");
+        for (name, value) in env {
+            request = request.with_env_var(*name, *value);
+        }
+        let container = request.start().await.expect("a kafka container starts");
         let port = container
             .get_host_port_ipv4(apache::KAFKA_PORT)
             .await

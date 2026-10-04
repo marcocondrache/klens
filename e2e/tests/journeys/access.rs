@@ -1,5 +1,8 @@
 use e2e::{Kafka, Klens};
-use serde_json::json;
+use reqwest::StatusCode;
+use serde_json::{Value, json};
+
+const ACLS: &str = "/api/clusters/local/acls";
 
 #[tokio::test]
 async fn acls_on_a_broker_without_an_authorizer_are_disabled_not_failing() {
@@ -43,5 +46,67 @@ async fn a_client_quota_set_on_the_broker_is_listed() {
             "controllerMutationRate": null,
             "connectionCreationRate": null,
         }])
+    );
+}
+
+fn binding(principal: &str, pattern: &str, name: &str) -> Value {
+    json!({
+        "resourceType": "TOPIC",
+        "resourceName": name,
+        "patternType": pattern,
+        "principal": principal,
+        "host": "*",
+        "operation": "READ",
+        "permission": "ALLOW",
+    })
+}
+
+#[tokio::test]
+async fn acls_created_through_klens_are_listed_and_deleted_again() {
+    let kafka = Kafka::with_authorizer().await;
+    let klens = Klens::over(&kafka).await;
+    let literal = binding("User:alice", "LITERAL", "orders");
+    let prefixed = binding("User:alice", "PREFIXED", "orders.");
+
+    let (status, body) = klens
+        .post(ACLS, &json!({ "bindings": [literal, prefixed] }))
+        .await;
+
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let acls = klens.get(ACLS).await;
+    assert_eq!(acls["status"], "ENABLED");
+    let bindings = acls["bindings"].as_array().expect("bindings");
+    assert_eq!(bindings.len(), 2, "{acls}");
+    assert!(bindings.contains(&literal) && bindings.contains(&prefixed));
+
+    let (status, body) = klens
+        .delete(&format!(
+            "{ACLS}?resourceType=TOPIC&resourceName=orders.&patternType=PREFIXED&principal=User:alice&host=*&operation=READ&permission=ALLOW"
+        ))
+        .await;
+
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    assert_eq!(klens.get(ACLS).await["bindings"], json!([literal]));
+}
+
+#[tokio::test]
+async fn a_binding_kafka_refuses_carries_the_broker_reason() {
+    let kafka = Kafka::with_authorizer().await;
+    let klens = Klens::over(&kafka).await;
+
+    let (status, body) = klens
+        .post(
+            ACLS,
+            &json!({ "bindings": [binding("alice", "LITERAL", "orders")] }),
+        )
+        .await;
+
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(body["code"], "REFUSED");
+    assert!(
+        body["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("alice")),
+        "{body}"
     );
 }
