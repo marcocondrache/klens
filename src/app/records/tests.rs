@@ -633,6 +633,16 @@ async fn a_produce_kafka_would_reject_never_reaches_the_broker() {
             StatusCode::NOT_FOUND,
             "UNKNOWN_PARTITION",
         ),
+        (
+            json!({ "key": null, "value": { "encoding": "SCHEMA", "schemaId": 1, "data": r#"{"orderId":1}"# } }),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "UNENCODABLE",
+        ),
+        (
+            json!({ "key": null, "value": { "encoding": "SCHEMA", "schemaId": 9, "data": "{}" } }),
+            StatusCode::NOT_FOUND,
+            "UNKNOWN_SCHEMA",
+        ),
     ] {
         app.post(RECORDS, &body).await.assert_error(status, code);
     }
@@ -673,6 +683,50 @@ async fn wrapped_base64_decodes_as_one_payload() {
 
     let record = app.get(&format!("{RECORDS}/0/8")).await.ok();
     assert_eq!(record["record"]["value"], r#"{"total":42}"#);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_value_written_with_a_json_schema_reads_back_decoded() {
+    let app = writable().await;
+    let registered = app
+        .post(
+            "/clusters/local/subjects/totals-value",
+            &json!({ "type": "JSON", "schema": r#"{"type":"object"}"# }),
+        )
+        .await
+        .ok();
+
+    app.post(
+        RECORDS,
+        &json!({
+            "key": null,
+            "value": { "encoding": "SCHEMA", "schemaId": registered["id"], "data": r#"{"total":42}"# }
+        }),
+    )
+    .await
+    .expect(StatusCode::CREATED);
+
+    let record = app.get(&format!("{RECORDS}/0/8")).await.ok();
+    assert_eq!(record["record"]["value"], r#"{"total":42}"#);
+    assert_eq!(record["record"]["schemaId"], registered["id"]);
+}
+
+#[tokio::test]
+async fn a_key_written_with_an_avro_schema_carries_the_wire_format() {
+    let app = writable().await;
+
+    app.post(
+        RECORDS,
+        &json!({
+            "key": { "encoding": "SCHEMA", "schemaId": 1, "data": r#"{"orderId":"o-1"}"# },
+            "value": null
+        }),
+    )
+    .await
+    .expect(StatusCode::CREATED);
+
+    let record = app.get(&format!("{RECORDS}/0/8")).await.ok();
+    assert_eq!(record["record"]["key"], "\0\0\0\0\u{1}\u{6}o-1");
 }
 
 #[tokio::test]

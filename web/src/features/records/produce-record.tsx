@@ -31,13 +31,13 @@ import { apiErrorMessage, clusterPathname, postAndRead } from "@/lib/api/client"
 import { keys } from "@/lib/api/keys";
 import type {
   KafkaRecord,
-  PayloadEncoding,
   ProduceRecord,
   ProducedRecord,
+  RecordPayload,
   TopicDetail,
 } from "@/lib/api/types";
 
-type Encoding = PayloadEncoding | "NULL";
+type Encoding = Exclude<RecordPayload["encoding"], "SCHEMA"> | "NULL";
 
 type PayloadDraft = { encoding: Encoding; data: string };
 

@@ -15,6 +15,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use foldhash::{HashMap, HashMapExt};
 use itertools::Itertools as _;
 use krafka::admin::{
@@ -486,6 +487,10 @@ impl ClusterSession for KafkaClient {
                 refused(deleted.error).map(|()| (deleted.partition, deleted.low_watermark))
             })
             .collect()
+    }
+
+    async fn encode_payload(&self, schema_id: i32, json: &str) -> Result<Bytes, KafkaError> {
+        self.registry()?.encode(schema_id, json).await
     }
 
     async fn produce(&self, record: &NewRecord) -> Result<ProducedRecord, KafkaError> {
@@ -1464,6 +1469,22 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_payload_encodes_with_the_clusters_registry() {
+        let broker = Broker::start().await;
+        let registry = FakeRegistry::start().await;
+        let client = broker.client_with_registry(&registry).await;
+        let registered = client.register_schema(&order_schema()).await.unwrap();
+
+        let encoded = client
+            .encode_payload(registered.id, r#""abc""#)
+            .await
+            .unwrap();
+
+        let id = u8::try_from(registered.id).unwrap();
+        assert_eq!(encoded, [0, 0, 0, 0, id, 6, b'a', b'b', b'c'].as_slice());
+    }
+
+    #[tokio::test]
     async fn a_cluster_without_a_registry_changes_no_schema() {
         let client = Broker::start().await.client().await;
         let deletion = SchemaDeletion {
@@ -1480,6 +1501,7 @@ mod tests {
                 .set_compatibility("orders-value", SchemaCompatibility::Full)
                 .await
                 .unwrap_err(),
+            client.encode_payload(1, r#""abc""#).await.unwrap_err(),
         ];
 
         for error in errors {

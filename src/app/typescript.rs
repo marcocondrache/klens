@@ -13,8 +13,8 @@ pub use super::quotas::types::{
     ClientQuota, QuotaEntity, QuotaEntityType, QuotaListing, QuotaStatus,
 };
 pub use super::records::types::{
-    PayloadEncoding, ProduceRecord, ProducedRecord, Record, RecordHeader, RecordLookup,
-    RecordOrder, RecordPage, RecordPayload, TailEvent, TailStart,
+    ProduceRecord, ProducedRecord, Record, RecordHeader, RecordLookup, RecordOrder, RecordPage,
+    RecordPayload, TailEvent, TailStart,
 };
 pub use super::search::types::{SearchHit, SearchKind};
 pub use super::subjects::types::{

@@ -1,10 +1,13 @@
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use bytes::Bytes;
+use futures::future::OptionFuture;
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::app::auth::access::ProduceCap;
+use crate::app::context::Granted;
 use crate::app::error::ApiError;
 use crate::kafka::model as domain;
 use crate::kafka::{QueryError, RecordCursor, Tail, TailBatch, TailPosition, TailQuery};
@@ -99,26 +102,36 @@ impl From<domain::RecordPage> for RecordPage {
     }
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, TS)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum PayloadEncoding {
-    Text,
-    Base64,
-}
-
 #[derive(Debug, Clone, Deserialize, TS)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RecordPayload {
-    pub encoding: PayloadEncoding,
-    pub data: String,
+#[serde(
+    tag = "encoding",
+    rename_all = "SCREAMING_SNAKE_CASE",
+    rename_all_fields = "camelCase"
+)]
+pub enum RecordPayload {
+    Text {
+        data: String,
+    },
+    Base64 {
+        data: String,
+    },
+    /// `data` is JSON, written with the registry schema `schemaId`.
+    Schema {
+        schema_id: i32,
+        data: String,
+    },
 }
 
 impl RecordPayload {
-    fn into_bytes(self, part: &str) -> Result<Bytes, ApiError> {
-        match self.encoding {
-            PayloadEncoding::Text => Ok(Bytes::from(self.data)),
-            PayloadEncoding::Base64 => {
-                let mut data = self.data.into_bytes();
+    async fn into_bytes(
+        self,
+        part: &str,
+        producer: &Granted<'_, ProduceCap>,
+    ) -> Result<Bytes, ApiError> {
+        match self {
+            Self::Text { data } => Ok(Bytes::from(data)),
+            Self::Base64 { data } => {
+                let mut data = data.into_bytes();
                 // Pasted base64 is often wrapped at 76 columns.
                 data.retain(|byte| !byte.is_ascii_whitespace());
                 STANDARD
@@ -126,6 +139,7 @@ impl RecordPayload {
                     .map(Bytes::from)
                     .map_err(|_| ApiError::unprocessable(format!("the {part} is not valid base64")))
             }
+            Self::Schema { schema_id, data } => Ok(producer.encode(schema_id, &data).await?),
         }
     }
 }
@@ -145,14 +159,19 @@ pub struct ProduceRecord {
 }
 
 impl ProduceRecord {
-    pub(crate) fn into_record(self, topic: String) -> Result<domain::NewRecord, ApiError> {
+    pub(crate) async fn into_record(
+        self,
+        topic: String,
+        producer: &Granted<'_, ProduceCap>,
+    ) -> Result<domain::NewRecord, ApiError> {
         Ok(domain::NewRecord {
             topic,
             partition: self.partition,
-            key: self.key.map(|key| key.into_bytes("key")).transpose()?,
-            value: self
-                .value
-                .map(|value| value.into_bytes("value"))
+            key: OptionFuture::from(self.key.map(|key| key.into_bytes("key", producer)))
+                .await
+                .transpose()?,
+            value: OptionFuture::from(self.value.map(|value| value.into_bytes("value", producer)))
+                .await
                 .transpose()?,
             headers: self
                 .headers

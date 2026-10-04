@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use bytes::Bytes;
 use foldhash::{HashMap, HashMapExt, HashSet, HashSetExt};
 use futures::StreamExt;
 use schemreg::error::error_code;
@@ -113,6 +114,35 @@ impl SchemaRegistryClient {
             .await
             .map_err(|error| self.fail(error.to_string()))?;
         self.registered(&latest)
+    }
+
+    /// Encodes `json` with the schema the registry holds under `id`.
+    pub async fn encode(&self, id: i32, json: &str) -> Result<Bytes, KafkaError> {
+        let schema = self
+            .registry
+            .get_schema_by_id(SchemaId::new(id.cast_unsigned()))
+            .await
+            .map_err(|error| {
+                if error.is_not_found() {
+                    KafkaError::UnknownSchema {
+                        cluster: self.cluster.clone(),
+                        id,
+                    }
+                } else {
+                    self.fail(error.to_string())
+                }
+            })?;
+        let dependencies = self
+            .dependencies(&schema.references)
+            .await
+            .map_err(|error| self.fail(error.to_string()))?;
+        RegisteredSchema {
+            id,
+            schema_type: schema.schema_type.into(),
+            schema: schema.schema.to_string(),
+            references: references(&schema.references),
+        }
+        .encode(&dependencies, json)
     }
 
     /// The name and body of every schema `references` reaches, each after
@@ -958,6 +988,62 @@ mod tests {
                 ("Status".to_owned(), STATUS.to_owned()),
                 ("Line".to_owned(), LINE.to_owned()),
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_payload_encodes_with_the_schema_its_id_names() {
+        let registry = shipments().await;
+        let json = serde_json::json!({ "line": { "status": "CLOSED" }, "status": "OPEN" });
+
+        let encoded = registry
+            .client()
+            .encode(3, &json.to_string())
+            .await
+            .unwrap();
+
+        let decoded = registry.decoder().decode(&encoded).await;
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&decoded).unwrap(),
+            json
+        );
+    }
+
+    #[tokio::test]
+    async fn a_schema_id_the_registry_does_not_hold_is_unknown() {
+        let registry = FakeRegistry::start().await;
+
+        let error = registry.client().encode(3, "{}").await.unwrap_err();
+
+        assert!(
+            matches!(&error, KafkaError::UnknownSchema { cluster, id: 3 } if cluster == "local"),
+            "{error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_registry_that_fails_a_schema_read_is_a_registry_error() {
+        let registry = shipments().await;
+        registry.fail("/schemas/ids/3");
+
+        let error = registry.client().encode(3, "{}").await.unwrap_err();
+
+        assert!(
+            matches!(&error, KafkaError::SchemaRegistry { .. }),
+            "{error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_registry_that_fails_a_dependency_read_is_a_registry_error() {
+        let registry = shipments().await;
+        registry.fail("/subjects/status/versions/1");
+
+        let error = registry.client().encode(3, "{}").await.unwrap_err();
+
+        assert!(
+            matches!(&error, KafkaError::SchemaRegistry { .. }),
+            "{error:?}"
         );
     }
 
