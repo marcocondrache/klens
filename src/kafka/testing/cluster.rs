@@ -60,6 +60,7 @@ pub enum Api {
     Produce,
     AlterGroupOffsets,
     DeleteGroup,
+    DeleteGroupOffsets,
 }
 
 #[derive(Clone)]
@@ -836,6 +837,36 @@ impl ClusterSession for FakeCluster {
             return Err(KafkaError::Refused("NonEmptyGroup".to_owned()));
         }
         world.groups.remove(index);
+        Ok(())
+    }
+
+    async fn delete_group_offsets(
+        &self,
+        group: &str,
+        topic: &str,
+        partitions: &[i32],
+    ) -> Result<(), KafkaError> {
+        self.answer(Api::DeleteGroupOffsets).await?;
+        let mut world = self.world();
+        let Some(snapshot) = world
+            .groups
+            .iter_mut()
+            .find(|snapshot| snapshot.id == group)
+        else {
+            return Err(KafkaError::Refused("GroupIdNotFound".to_owned()));
+        };
+        let subscribed = snapshot.members.iter().any(|member| {
+            member
+                .assignments
+                .iter()
+                .any(|assignment| assignment.topic == topic)
+        });
+        if subscribed {
+            return Err(KafkaError::Refused("GroupSubscribedToTopic".to_owned()));
+        }
+        snapshot
+            .committed
+            .retain(|offset| offset.topic != topic || !partitions.contains(&offset.partition));
         Ok(())
     }
 }

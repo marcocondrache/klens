@@ -10,7 +10,8 @@ import { PageHeader } from "@/components/page-header";
 import { Facts } from "@/components/facts";
 import { TabCount } from "@/components/tab-count";
 import { GroupStateBadge, PendingValue, Pill, TONE_TEXT } from "@/components/status";
-import { hasMembers } from "@/features/groups/group-state";
+import { DeleteOffsetsDialog } from "@/features/groups/delete-offsets";
+import { committedTopics, hasMembers } from "@/features/groups/group-state";
 import { ResetOffsetsDialog } from "@/features/groups/reset-offsets";
 import { useAccess } from "@/hooks/use-access";
 import { lagTone } from "@/lib/tone";
@@ -309,6 +310,13 @@ function ConsumerGroupPage() {
         <TabsContent value="offsets" className="mt-4 flex min-h-0 flex-col">
           <DataTable
             columns={offsetColumns}
+            toolbar={
+              group && canChange(cluster, "MANAGE_GROUPS") && committedTopics(group).length > 0 ? (
+                <div className="ml-auto flex gap-2">
+                  <DeleteOffsetsDialog cluster={cluster} group={group} />
+                </div>
+              ) : null
+            }
             data={offsets}
             getRowId={(offset) => `${offset.topic}-${offset.partition}`}
             loading={isPending}

@@ -506,6 +506,25 @@ impl ClusterSession for KafkaClient {
             }
         })
     }
+
+    async fn delete_group_offsets(
+        &self,
+        group: &str,
+        topic: &str,
+        partitions: &[i32],
+    ) -> Result<(), KafkaError> {
+        let deleted = self
+            .transport
+            .admin
+            .delete_consumer_group_offsets(group, &[(topic, partitions)])
+            .await?;
+        refused(deleted.error)?;
+        deleted
+            .topics
+            .into_iter()
+            .flat_map(|topic| topic.partitions)
+            .try_for_each(|partition| refused(partition.error))
+    }
 }
 
 impl KafkaClient {

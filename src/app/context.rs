@@ -12,10 +12,10 @@ use crate::app::auth::access::{
     ProduceCap, RecordsCap, SchemaTextCap,
 };
 use crate::kafka::model::{
-    CommittedOffset, ConfigEdit, FoundRecord, GroupState, NewRecord, NewTopic, OffsetMove,
-    OffsetReset, ProducedRecord, RecordAt, RecordDeletion, RegisteredSchema,
+    CommittedOffset, ConfigEdit, FoundRecord, NewRecord, NewTopic, OffsetMove, OffsetReset,
+    ProducedRecord, RecordAt, RecordDeletion, RegisteredSchema,
 };
-use crate::kafka::store::{ClusterStore, Lane, TopicInfo};
+use crate::kafka::store::{ClusterStore, GroupInfo, Lane, TopicInfo};
 use crate::kafka::{
     Cluster, ConfigEntry, Export, KafkaError, RecordPage, RecordQuery, Tail, TailLimits, TailQuery,
 };
@@ -267,7 +267,7 @@ impl Granted<'_, ManageGroupsCap> {
         &self,
         reset: &OffsetReset,
     ) -> Result<Vec<OffsetMove>, KafkaError> {
-        self.known_group(&reset.group)?;
+        self.known_group(&reset.group, |_| ())?;
         self.plan(reset).await
     }
 
@@ -314,8 +314,50 @@ impl Granted<'_, ManageGroupsCap> {
         Ok(())
     }
 
+    pub(crate) async fn delete_offsets(&self, group: &str, topic: &str) -> Result<(), KafkaError> {
+        if self.known_group(group, |info| info.consumes(topic))? {
+            return Err(KafkaError::ConsumedTopic {
+                group: group.to_owned(),
+                topic: topic.to_owned(),
+            });
+        }
+        let partitions: Vec<i32> = self
+            .cluster
+            .session
+            .committed_offsets(group, None)
+            .await?
+            .into_iter()
+            .filter(|offset| offset.topic == topic)
+            .map(|offset| offset.partition)
+            .collect();
+        if partitions.is_empty() {
+            return Ok(());
+        }
+        self.cluster
+            .session
+            .delete_group_offsets(group, topic, &partitions)
+            .await?;
+        tracing::info!(
+            cluster = %self.cluster.store.name(),
+            group = %group,
+            topic,
+            partitions = partitions.len(),
+            "deleted group offsets"
+        );
+        let _watching = self.cluster.store.interest.lease_group(group);
+        self.settle(&self.cluster.store.offsets, |table| {
+            table.get(group).is_none_or(|offsets| {
+                offsets
+                    .partitions()
+                    .all(|(committed, _)| committed != topic)
+            })
+        })
+        .await;
+        Ok(())
+    }
+
     fn stopped_group(&self, group: &str) -> Result<(), KafkaError> {
-        if self.known_group(group)?.has_members() {
+        if self.known_group(group, |info| info.state.has_members())? {
             return Err(KafkaError::ActiveGroup {
                 group: group.to_owned(),
             });
@@ -323,14 +365,18 @@ impl Granted<'_, ManageGroupsCap> {
         Ok(())
     }
 
-    fn known_group(&self, group: &str) -> Result<GroupState, KafkaError> {
+    fn known_group<T>(
+        &self,
+        group: &str,
+        read: impl FnOnce(&GroupInfo) -> T,
+    ) -> Result<T, KafkaError> {
         self.cluster
             .store
             .topology
             .load()
             .as_ref()
             .and_then(|known| known.group(group))
-            .map(|info| info.state)
+            .map(read)
             .ok_or_else(|| KafkaError::UnknownGroup {
                 cluster: self.cluster.store.name().to_owned(),
                 group: group.to_owned(),

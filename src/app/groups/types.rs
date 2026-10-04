@@ -228,3 +228,8 @@ impl From<domain::OffsetMove> for OffsetMove {
         }
     }
 }
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct DeleteOffsets {
+    pub topic: String,
+}

@@ -8,13 +8,14 @@ use crate::kafka::KafkaError;
 
 use super::context::Session;
 use super::error::ApiError;
-use super::extract::{self, Path};
+use super::extract::{self, Path, Query};
 
 pub mod types;
 
 #[cfg(test)]
 mod tests;
 
+use types::DeleteOffsets;
 pub(crate) use types::{GroupDetail, GroupOffset, GroupRow, GroupState, OffsetMove, ResetOffsets};
 
 pub(crate) fn router() -> Router<AppState> {
@@ -27,7 +28,7 @@ pub(crate) fn router() -> Router<AppState> {
 /// A group's committed offsets, under their own prefix because a group id
 /// may contain `/` and so must end the path.
 pub(crate) fn offsets_router() -> Router<AppState> {
-    Router::new().route("/{*group}", patch(reset_offsets))
+    Router::new().route("/{*group}", patch(reset_offsets).delete(delete_offsets))
 }
 
 async fn groups(
@@ -88,4 +89,17 @@ async fn reset_offsets(
         groups.reset_offsets(&reset).await?
     };
     Ok(Json(moves.into_iter().map(OffsetMove::from).collect()))
+}
+
+async fn delete_offsets(
+    session: Session,
+    Path((name, group)): Path<(String, String)>,
+    Query(params): Query<DeleteOffsets>,
+) -> Result<StatusCode, ApiError> {
+    let cluster = session.cluster(&name)?;
+    cluster
+        .manage_groups()?
+        .delete_offsets(&group, &params.topic)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
