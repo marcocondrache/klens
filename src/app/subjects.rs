@@ -8,20 +8,22 @@ use crate::kafka::KafkaError;
 
 use super::context::Session;
 use super::error::ApiError;
-use super::extract::{Path, Query};
+use super::extract::{self, Path, Query};
 
 pub mod types;
 
 #[cfg(test)]
 mod tests;
 
-pub(crate) use types::{SubjectDetail, SubjectRow, SubjectRowsResult};
+pub(crate) use types::{
+    RegisterSchema, RegisteredVersion, SubjectDetail, SubjectRow, SubjectRowsResult,
+};
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(subjects))
         // Subject names may contain `/`.
-        .route("/{*subject}", get(subject))
+        .route("/{*subject}", get(subject).post(register_schema))
 }
 
 async fn subjects(
@@ -37,6 +39,7 @@ async fn subjects(
             .map(SubjectRow::from)
             .collect(),
         source_health: cluster.store.subjects.health().into(),
+        has_registry: cluster.has_schema_registry(),
     }))
 }
 
@@ -60,6 +63,19 @@ async fn subject(
     let schema = schema_text.subject_schema(&subject, version).await?;
 
     Ok(Json(SubjectDetail::new(subject, version, schema)))
+}
+
+async fn register_schema(
+    session: Session,
+    Path((name, subject)): Path<(String, String)>,
+    extract::Json(request): extract::Json<RegisterSchema>,
+) -> Result<Json<RegisteredVersion>, ApiError> {
+    let cluster = session.cluster(&name)?;
+    let schemas = cluster.manage_schemas()?;
+    let registered = schemas
+        .register_schema(&request.into_schema(subject))
+        .await?;
+    Ok(Json(registered.into()))
 }
 
 fn latest_version(

@@ -10,7 +10,10 @@ use tokio::sync::OnceCell;
 
 use crate::config::{SchemaRegistry, SchemaRegistryTuning};
 use crate::kafka::error::KafkaError;
-use crate::kafka::model::{RegisteredSchema, SchemaCompatibility, SchemaReference, SchemaSubject};
+use crate::kafka::model::{
+    NewSchema, RegisteredSchema, RegisteredVersion, SchemaCompatibility, SchemaReference,
+    SchemaSubject,
+};
 
 const MAX_CACHED_SCHEMAS: usize = 10_000;
 
@@ -112,6 +115,51 @@ impl SchemaRegistryClient {
             .await
             .map_err(|error| self.fail(error.to_string()))?;
         self.registered(&latest)
+    }
+
+    pub async fn register(&self, schema: &NewSchema) -> Result<RegisteredVersion, KafkaError> {
+        let schema_type = schema.schema_type.into();
+        let references: Vec<schemreg::SchemaReference> = schema
+            .references
+            .iter()
+            .map(|reference| {
+                schemreg::SchemaReference::new(
+                    &reference.name,
+                    &reference.subject,
+                    SchemaVersion::new(reference.version),
+                )
+            })
+            .collect();
+        self.registry
+            .register_schema(&schema.subject, &schema.schema, schema_type, &references)
+            .await
+            .map_err(|error| self.refusal(error))?;
+        let registered = self
+            .registry
+            .lookup_schema(&schema.subject, &schema.schema, schema_type, &references)
+            .await
+            .map_err(|error| self.fail(error.to_string()))?
+            .ok_or_else(|| self.fail("the registry does not hold the schema it registered"))?;
+        Ok(RegisteredVersion {
+            id: schema_id(&registered).ok_or_else(|| self.fail("schema is missing id"))?,
+            version: registered
+                .version
+                .map(SchemaVersion::as_i32)
+                .ok_or_else(|| self.fail("schema is missing version"))?,
+        })
+    }
+
+    /// A registry answers a write it will not take with a 4xx code and a
+    /// message meant for the user. Confluent sends an incompatible schema as
+    /// a bare 409 and an invalid one as 42201.
+    fn refusal(&self, error: SchemaRegError) -> KafkaError {
+        match error {
+            SchemaRegError::Api {
+                error_code: 400..500 | 40000..50000,
+                message,
+            } => KafkaError::RegistryRefused(message),
+            error => self.fail(error.to_string()),
+        }
     }
 
     async fn load_subject(
@@ -413,6 +461,108 @@ mod tests {
                 .get("authorization")
                 .map(|value| value.to_str().unwrap()),
             Some(expected.as_str())
+        );
+    }
+
+    fn new_schema(subject: &str, text: &str) -> NewSchema {
+        NewSchema {
+            subject: subject.to_owned(),
+            schema_type: SchemaType::Avro,
+            schema: text.to_owned(),
+            references: Vec::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_registered_schema_becomes_the_subjects_next_version() {
+        let registry = registry_of(&["orders-value"]).await;
+
+        let registered = registry
+            .client()
+            .register(&new_schema("orders-value", r#""int""#))
+            .await
+            .unwrap();
+
+        assert_eq!(registered, RegisteredVersion { id: 2, version: 2 });
+        let subjects = registry.client().subjects().await.unwrap();
+        assert_eq!(subjects[0].versions, vec![1, 2]);
+    }
+
+    #[tokio::test]
+    async fn registering_a_schema_the_subject_holds_answers_its_version() {
+        let registry = registry_of(&["orders-value", "payments-value"]).await;
+
+        let registered = registry
+            .client()
+            .register(&new_schema("payments-value", r#""string""#))
+            .await
+            .unwrap();
+
+        assert_eq!(registered, RegisteredVersion { id: 2, version: 1 });
+    }
+
+    #[tokio::test]
+    async fn a_new_subject_starts_at_version_one_with_its_references() {
+        let registry = registry_of(&["common"]).await;
+        let schema = NewSchema {
+            subject: "orders/v1-value".to_owned(),
+            schema_type: SchemaType::Protobuf,
+            schema: "syntax = \"proto3\";".to_owned(),
+            references: vec![SchemaReference {
+                name: "common.proto".to_owned(),
+                subject: "common".to_owned(),
+                version: 1,
+            }],
+        };
+
+        let registered = registry.client().register(&schema).await.unwrap();
+
+        assert_eq!(registered, RegisteredVersion { id: 2, version: 1 });
+        let read = registry
+            .client()
+            .schema_by_subject_version("orders/v1-value", 1)
+            .await
+            .unwrap();
+        assert_eq!(read.schema_type, SchemaType::Protobuf);
+        assert_eq!(read.references, schema.references);
+    }
+
+    #[tokio::test]
+    async fn a_schema_the_registry_refuses_carries_its_message() {
+        let registry = registry_of(&["orders-value"]).await;
+
+        for (status, code, message) in [
+            (409, 409, "Schema being registered is incompatible"),
+            (422, 42201, "Invalid schema"),
+        ] {
+            registry.refuse(status, code, message);
+            let error = registry
+                .client()
+                .register(&new_schema("orders-value", r#""int""#))
+                .await
+                .unwrap_err();
+
+            assert!(
+                matches!(&error, KafkaError::RegistryRefused(refused) if refused == message),
+                "{error:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_registry_that_fails_a_registration_is_a_registry_error() {
+        let registry = registry_of(&["orders-value"]).await;
+        registry.fail("/subjects/orders-value/versions");
+
+        let error = registry
+            .client()
+            .register(&new_schema("orders-value", r#""int""#))
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(error, KafkaError::SchemaRegistry { .. }),
+            "{error:?}"
         );
     }
 

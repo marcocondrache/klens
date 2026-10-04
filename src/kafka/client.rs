@@ -44,7 +44,7 @@ use crate::kafka::model::{
 use crate::kafka::quota::{DescribedQuota, QuotaListing};
 use crate::kafka::registry::client::SchemaRegistryClient;
 use crate::kafka::registry::decode::PayloadDecoder;
-use crate::kafka::registry::{RegisteredSchema, SchemaSubject};
+use crate::kafka::registry::{NewSchema, RegisteredSchema, RegisteredVersion, SchemaSubject};
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
 use crate::kafka::session::ClusterSession;
@@ -342,6 +342,10 @@ impl ClusterSession for KafkaClient {
         self.obfuscation.clone()
     }
 
+    fn has_schema_registry(&self) -> bool {
+        self.schema_registry.is_some()
+    }
+
     async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
         let Some(decoder) = &self.schema_registry else {
             return Ok(Vec::new());
@@ -525,6 +529,13 @@ impl ClusterSession for KafkaClient {
             .flat_map(|topic| topic.partitions)
             .try_for_each(|partition| refused(partition.error))
     }
+
+    async fn register_schema(&self, schema: &NewSchema) -> Result<RegisteredVersion, KafkaError> {
+        let Some(decoder) = &self.schema_registry else {
+            return Err(KafkaError::NoSchemaRegistry(self.identity.name.clone()));
+        };
+        decoder.client().register(schema).await
+    }
 }
 
 impl KafkaClient {
@@ -630,7 +641,10 @@ mod tests {
     use super::*;
     use crate::kafka::group::MemberAssignment;
     use crate::kafka::metadata::Watermarks;
-    use crate::kafka::model::{PartitionWindow, Record, RecordOrder, RecordQuery, TimestampRange};
+    use crate::kafka::model::{
+        PartitionWindow, Record, RecordOrder, RecordQuery, SchemaType, TimestampRange,
+    };
+    use crate::kafka::registry::testing::FakeRegistry;
     use crate::kafka::scan::session::{fetch_page, scan_once};
     use crate::kafka::session::watermarks;
     use crate::testing::LogCapture;
@@ -1279,5 +1293,41 @@ mod tests {
         );
         assert!(started.elapsed() < client.consume_timeout / 2);
         assert_eq!(page.records.len(), 50);
+    }
+
+    fn order_schema() -> NewSchema {
+        NewSchema {
+            subject: "orders-value".to_owned(),
+            schema_type: SchemaType::Avro,
+            schema: r#""string""#.to_owned(),
+            references: Vec::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_schema_registers_through_the_clusters_registry() {
+        let broker = Broker::start().await;
+        let registry = FakeRegistry::start().await;
+        let client = broker.client_with_registry(&registry).await;
+
+        assert!(client.has_schema_registry());
+        let registered = client.register_schema(&order_schema()).await.unwrap();
+
+        assert_eq!(registered.version, 1);
+        let subjects = client.schema_subjects().await.unwrap();
+        assert_eq!(subjects[0].subject, "orders-value");
+    }
+
+    #[tokio::test]
+    async fn a_cluster_without_a_registry_registers_no_schema() {
+        let client = Broker::start().await.client().await;
+
+        assert!(!client.has_schema_registry());
+        let error = client.register_schema(&order_schema()).await.unwrap_err();
+
+        assert!(
+            matches!(&error, KafkaError::NoSchemaRegistry(cluster) if cluster == "test"),
+            "{error:?}"
+        );
     }
 }

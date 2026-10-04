@@ -8,12 +8,12 @@ use axum::http::request::Parts;
 use crate::AppState;
 use crate::app::auth::SessionGuard;
 use crate::app::auth::access::{
-    AccessError, ClusterAccess, ConfigsCap, EffectiveAccess, ManageGroupsCap, ManageTopicsCap,
-    ProduceCap, RecordsCap, SchemaTextCap,
+    AccessError, ClusterAccess, ConfigsCap, EffectiveAccess, ManageGroupsCap, ManageSchemasCap,
+    ManageTopicsCap, ProduceCap, RecordsCap, SchemaTextCap,
 };
 use crate::kafka::model::{
-    CommittedOffset, ConfigEdit, FoundRecord, NewRecord, NewTopic, OffsetMove, OffsetReset,
-    ProducedRecord, RecordAt, RecordDeletion, RegisteredSchema,
+    CommittedOffset, ConfigEdit, FoundRecord, NewRecord, NewSchema, NewTopic, OffsetMove,
+    OffsetReset, ProducedRecord, RecordAt, RecordDeletion, RegisteredSchema, RegisteredVersion,
 };
 use crate::kafka::store::{ClusterStore, GroupInfo, Lane, TopicInfo};
 use crate::kafka::{
@@ -42,6 +42,10 @@ impl<'a> ClusterHandle<'a> {
         self.access.cluster()
     }
 
+    pub(crate) fn has_schema_registry(&self) -> bool {
+        self.cluster.session.has_schema_registry()
+    }
+
     pub(crate) fn records(&self) -> Result<Granted<'a, RecordsCap>, AccessError> {
         self.access.records().map(|cap| self.grant(cap))
     }
@@ -67,6 +71,11 @@ impl<'a> ClusterHandle<'a> {
     pub(crate) fn manage_groups(&self) -> Result<Granted<'a, ManageGroupsCap>, AccessError> {
         self.writable()?;
         self.access.manage_groups().map(|cap| self.grant(cap))
+    }
+
+    pub(crate) fn manage_schemas(&self) -> Result<Granted<'a, ManageSchemasCap>, AccessError> {
+        self.writable()?;
+        self.access.manage_schemas().map(|cap| self.grant(cap))
     }
 
     fn writable(&self) -> Result<(), AccessError> {
@@ -403,6 +412,29 @@ impl Granted<'_, ManageGroupsCap> {
         self.cluster
             .plan_reset(&reset.group, Some((topic, partitions)), reset.to)
             .await
+    }
+}
+
+impl Granted<'_, ManageSchemasCap> {
+    pub(crate) async fn register_schema(
+        &self,
+        schema: &NewSchema,
+    ) -> Result<RegisteredVersion, KafkaError> {
+        let registered = self.cluster.session.register_schema(schema).await?;
+        tracing::info!(
+            cluster = %self.cluster.store.name(),
+            subject = %schema.subject,
+            id = registered.id,
+            version = registered.version,
+            "registered schema"
+        );
+        self.settle(&self.cluster.store.subjects, |table| {
+            table
+                .get(&schema.subject)
+                .is_some_and(|info| info.versions.contains(&registered.version))
+        })
+        .await;
+        Ok(registered)
     }
 }
 

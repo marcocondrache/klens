@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { getRouteApi } from "@tanstack/react-router";
+import { FilePlusIcon, PlusIcon } from "lucide-react";
 
 import {
   Sheet,
@@ -8,6 +9,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { DataTable } from "@/components/data-table/data-table";
 import { LaneCaption } from "@/components/lane-caption";
@@ -19,11 +21,12 @@ import { useSearchDraft } from "@/hooks/use-search-draft";
 import { apiErrorMessage } from "@/lib/api/client";
 import { useSubjectRows } from "@/lib/api/catalog";
 import { useSubject } from "@/lib/api/live";
-import type { SubjectRow } from "@/lib/api/types";
+import type { RegisteredVersion, SubjectRow } from "@/lib/api/types";
 import { useClusterName } from "@/lib/clusters";
 import { formatEnumLabel, isJson } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
+import { NEW_SUBJECT, RegisterSchemaDialog } from "./register-schema";
 import { SchemaLoading } from "./schema-loading";
 import { subjectColumns } from "./schemas-columns";
 
@@ -44,9 +47,10 @@ export function SchemasPage() {
     void navigate({ search: (prev) => ({ ...prev, q }), replace: true });
   });
   const [expanded, setExpanded] = useState(false);
-  const { can } = useAccess();
+  const { can, canChange } = useAccess();
   const canSchemaText = can(cluster, "SCHEMA_TEXT");
   const { data, isPending, isError, error } = useSubjectRows(cluster);
+  const canRegister = data?.hasRegistry === true && canChange(cluster, "MANAGE_SCHEMAS");
   const subjects = data?.rows ?? EMPTY_SUBJECTS;
   const selected = subject ? (subjects.find((row) => row.subject === subject) ?? null) : null;
 
@@ -60,6 +64,13 @@ export function SchemasPage() {
   function open(row: SubjectRow) {
     void navigate({
       search: (prev) => ({ ...prev, subject: row.subject, version: undefined }),
+      replace: true,
+    });
+  }
+
+  function show(subject: string, registered: RegisteredVersion) {
+    void navigate({
+      search: (prev) => ({ ...prev, subject, version: registered.version }),
       replace: true,
     });
   }
@@ -88,6 +99,19 @@ export function SchemasPage() {
             {rows.length} subjects
             <LaneCaption lane={data?.sourceHealth} />
           </>
+        }
+        actions={
+          canRegister ? (
+            <RegisterSchemaDialog
+              cluster={cluster}
+              draft={NEW_SUBJECT}
+              trigger={<Button />}
+              onRegistered={show}
+            >
+              <PlusIcon data-icon="inline-start" />
+              Register schema
+            </RegisterSchemaDialog>
+          ) : null
         }
       />
 
@@ -158,7 +182,25 @@ export function SchemasPage() {
                 ) : null}
 
                 <section className="shrink-0 space-y-2">
-                  <h3 className="text-xs font-medium text-muted-foreground">Versions</h3>
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-xs font-medium text-muted-foreground">Versions</h3>
+                    {canRegister ? (
+                      <RegisterSchemaDialog
+                        cluster={cluster}
+                        draft={{
+                          subject: selected.subject,
+                          type: detail?.type ?? selected.type,
+                          schema: detail?.schema ?? "",
+                          references: detail?.references ?? [],
+                        }}
+                        trigger={<Button variant="outline" size="sm" />}
+                        onRegistered={show}
+                      >
+                        <FilePlusIcon data-icon="inline-start" />
+                        New version
+                      </RegisterSchemaDialog>
+                    ) : null}
+                  </div>
                   <div className="max-h-32 overflow-y-auto">
                     <ToggleGroup
                       value={shownVersion != null ? [String(shownVersion)] : []}

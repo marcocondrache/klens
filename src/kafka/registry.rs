@@ -22,6 +22,16 @@ impl From<schemreg::SchemaType> for SchemaType {
     }
 }
 
+impl From<SchemaType> for schemreg::SchemaType {
+    fn from(value: SchemaType) -> Self {
+        match value {
+            SchemaType::Avro => Self::Avro,
+            SchemaType::Json => Self::Json,
+            SchemaType::Protobuf => Self::Protobuf,
+        }
+    }
+}
+
 impl std::fmt::Display for SchemaType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
@@ -68,6 +78,22 @@ pub struct SchemaSubject {
 pub struct SchemaReference {
     pub name: String,
     pub subject: String,
+    pub version: i32,
+}
+
+/// A schema for `subject`. The registry stores it as the subject's next
+/// version unless the subject already holds the same schema.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewSchema {
+    pub subject: String,
+    pub schema_type: SchemaType,
+    pub schema: String,
+    pub references: Vec<SchemaReference>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RegisteredVersion {
+    pub id: i32,
     pub version: i32,
 }
 

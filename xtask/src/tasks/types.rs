@@ -10,9 +10,10 @@ use klens::app::typescript::{
     GroupState, Identity, LaneHealth, LogDir, MemberAssignment, OffsetMove, PartitionRow,
     PayloadEncoding, PrivilegeName, ProduceRecord, ProducedRecord, QuotaEntity, QuotaEntityType,
     QuotaListing, QuotaStatus, Record, RecordHeader, RecordLookup, RecordOrder, RecordPage,
-    RecordPayload, ResetOffsets, ResetTarget, SchemaCompatibility, SchemaReference, SchemaType,
-    SearchHit, SearchKind, SubjectDetail, SubjectRow, SubjectRowsResult, TailEvent, TailStart,
-    TopicDetail, TopicGroupRow, TopicRate, TopicRow, Update,
+    RecordPayload, RegisterSchema, RegisteredVersion, ResetOffsets, ResetTarget,
+    SchemaCompatibility, SchemaReference, SchemaType, SearchHit, SearchKind, SubjectDetail,
+    SubjectRow, SubjectRowsResult, TailEvent, TailStart, TopicDetail, TopicGroupRow, TopicRate,
+    TopicRow, Update,
 };
 
 pub fn run(sh: &Shell) -> xshell::Result<()> {
@@ -67,6 +68,8 @@ fn typescript() -> String {
         SubjectRowsResult,
         SchemaReference,
         SubjectDetail,
+        RegisterSchema,
+        RegisteredVersion,
         AclStatus,
         AclResourceType,
         AclPatternType,

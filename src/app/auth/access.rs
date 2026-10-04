@@ -10,7 +10,7 @@ use crate::config::Role;
 const MAX_GROUPS: usize = 64;
 
 impl Privilege {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Records,
         Self::Configs,
         Self::SchemaText,
@@ -18,6 +18,7 @@ impl Privilege {
         Self::ManageTopics,
         Self::Produce,
         Self::ManageGroups,
+        Self::ManageSchemas,
     ];
 
     pub fn name(self) -> &'static str {
@@ -29,11 +30,12 @@ impl Privilege {
             Self::ManageTopics => "manageTopics",
             Self::Produce => "produce",
             Self::ManageGroups => "manageGroups",
+            Self::ManageSchemas => "manageSchemas",
         }
     }
 
-    const fn bit(self) -> u8 {
-        1 << self as u8
+    const fn bit(self) -> u16 {
+        1 << self as u16
     }
 }
 
@@ -44,7 +46,7 @@ impl Display for Privilege {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct PrivilegeSet(u8);
+pub struct PrivilegeSet(u16);
 
 impl PrivilegeSet {
     pub const NONE: Self = Self(0);
@@ -243,6 +245,7 @@ capability!(AclsCap, acls, Privilege::Acls);
 capability!(ManageTopicsCap, manage_topics, Privilege::ManageTopics);
 capability!(ProduceCap, produce, Privilege::Produce);
 capability!(ManageGroupsCap, manage_groups, Privilege::ManageGroups);
+capability!(ManageSchemasCap, manage_schemas, Privilege::ManageSchemas);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Identity<'a> {
@@ -448,6 +451,7 @@ mod tests {
         assert!(prod.manage_topics().is_ok());
         assert!(prod.produce().is_ok());
         assert!(prod.manage_groups().is_ok());
+        assert!(prod.manage_schemas().is_ok());
         assert_eq!(prod.privileges(), Privilege::ALL.to_vec());
         assert_eq!(access.privileges_for("prod"), Some(PrivilegeSet::ALL));
         assert!(access.cluster("staging").unwrap().schema_text().is_ok());

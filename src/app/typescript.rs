@@ -17,7 +17,8 @@ pub use super::records::types::{
 };
 pub use super::search::types::{SearchHit, SearchKind};
 pub use super::subjects::types::{
-    SchemaCompatibility, SchemaReference, SchemaType, SubjectDetail, SubjectRow, SubjectRowsResult,
+    RegisterSchema, RegisteredVersion, SchemaCompatibility, SchemaReference, SchemaType,
+    SubjectDetail, SubjectRow, SubjectRowsResult,
 };
 pub use super::topics::types::{
     AddPartitions, CleanupPolicy, CreateTopic, EditTopicConfigs, PartitionRow, TopicDetail,
