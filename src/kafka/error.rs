@@ -56,6 +56,9 @@ pub enum KafkaError {
     #[error("group '{group}' has members; stop its consumers first")]
     ActiveGroup { group: String },
 
+    #[error("group '{group}' still consumes '{topic}'; stop its consumers first")]
+    ConsumedTopic { group: String, topic: String },
+
     #[error(
         "group '{group}' has no committed offset on partition {partition} of '{topic}' to shift"
     )]
@@ -91,6 +94,7 @@ impl KafkaError {
             Self::Refused(_) => "REFUSED",
             Self::InternalTopic(_) => "INTERNAL_TOPIC",
             Self::ActiveGroup { .. } => "ACTIVE_GROUP",
+            Self::ConsumedTopic { .. } => "CONSUMED_TOPIC",
             Self::NoCommittedOffset { .. } => "NO_COMMITTED_OFFSET",
             Self::BrokerConfigs { .. } => "BROKER_CONFIGS",
             Self::SchemaRegistry { .. } => "SCHEMA_REGISTRY",

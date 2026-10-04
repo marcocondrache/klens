@@ -94,6 +94,12 @@ const WRITES: &[(Method, &str, Option<&str>, Privilege)] = &[
     ),
     (
         Method::DELETE,
+        "/clusters/local/group-offsets/archive?topic=orders.created",
+        None,
+        Privilege::ManageGroups,
+    ),
+    (
+        Method::DELETE,
         "/clusters/local/groups/archive",
         None,
         Privilege::ManageGroups,

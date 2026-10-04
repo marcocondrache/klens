@@ -82,6 +82,30 @@ async fn a_deleted_group_is_gone_once_the_delete_answers() {
 }
 
 #[tokio::test]
+async fn deleted_offsets_leave_the_group_once_the_delete_answers() {
+    let (kafka, klens) = billing_behind_by_six().await;
+    kafka.topic("refunds", 1).await;
+    kafka.commit("billing", "refunds", &[(0, 0)]).await;
+    let billing = format!("{GROUPS}/billing");
+    klens
+        .eventually(&billing, |group| {
+            group["offsets"]
+                .as_array()
+                .is_some_and(|offsets| offsets.len() == 2)
+        })
+        .await;
+
+    let (status, body) = klens
+        .delete(&format!("{BILLING_OFFSETS}?topic=refunds"))
+        .await;
+
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    let offsets = &klens.get(&billing).await["offsets"];
+    assert_eq!(offsets.as_array().map(Vec::len), Some(1), "{offsets}");
+    assert_eq!(offsets[0]["topic"], "orders");
+}
+
+#[tokio::test]
 async fn a_reset_previews_its_plan_and_shows_once_it_answers() {
     let (_kafka, klens) = billing_behind_by_six().await;
     let shift = json!({ "kind": "SHIFT", "by": -3 });

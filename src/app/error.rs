@@ -77,7 +77,7 @@ fn kafka_status(error: &KafkaError) -> StatusCode {
         KafkaError::Refused(_)
         | KafkaError::InternalTopic(_)
         | KafkaError::NoCommittedOffset { .. } => StatusCode::UNPROCESSABLE_ENTITY,
-        KafkaError::ActiveGroup { .. } => StatusCode::CONFLICT,
+        KafkaError::ActiveGroup { .. } | KafkaError::ConsumedTopic { .. } => StatusCode::CONFLICT,
         KafkaError::Timeout => StatusCode::GATEWAY_TIMEOUT,
         KafkaError::Admin(_)
         | KafkaError::BrokerConfigs { .. }

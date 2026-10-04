@@ -86,6 +86,11 @@ impl GroupInfo {
         })
     }
 
+    pub fn consumes(&self, topic: &str) -> bool {
+        self.assigned_partition_refs()
+            .any(|(assigned, _)| assigned == topic)
+    }
+
     pub fn owners(&self) -> HashMap<(&str, i32), &str> {
         let mut owners = HashMap::new();
         for member in &self.members {

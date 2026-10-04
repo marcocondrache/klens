@@ -5,7 +5,8 @@ use serde_json::{Value, json};
 use tokio::time::Instant;
 use tracing::Level;
 
-use crate::testing::{Api, FakeCluster, LogCapture, TestApp, group, quiesce};
+use crate::kafka::ClusterSession as _;
+use crate::testing::{Api, FakeCluster, LogCapture, TestApp, group, offsets, quiesce};
 
 const ORDERS: &str = "orders.created";
 const BILLING: &str = "/clusters/local/group-offsets/billing";
@@ -373,4 +374,81 @@ async fn a_group_id_with_a_slash_deletes_as_one_group() {
         .await
         .assert_error(StatusCode::NOT_FOUND, "UNKNOWN_GROUP");
     app.get("/clusters/local/groups/billing").await.ok();
+}
+
+#[tokio::test(start_paused = true)]
+async fn deleted_offsets_leave_the_group_before_the_delete_answers() {
+    let app = billing().await;
+    let mut rig = app.rig();
+    rig.spawn_offsets(rig.offsets());
+    quiesce().await;
+    let logs = LogCapture::at(Level::INFO);
+    let started = Instant::now();
+
+    app.delete(&format!("{BILLING}?topic={ORDERS}"))
+        .await
+        .expect(StatusCode::NO_CONTENT);
+
+    assert!(started.elapsed() < Duration::from_secs(1));
+    let group = app.get("/clusters/local/groups/billing").await.ok();
+    assert_eq!(group["offsets"], json!([]));
+    assert_eq!(app.cluster().calls(Api::DeleteGroupOffsets), 1);
+    logs.assert_contains(
+        "deleted group offsets cluster=local group=billing topic=\"orders.created\" partitions=1",
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_active_group_drops_the_offsets_of_a_topic_it_left() {
+    let shipping =
+        group("shipping", ORDERS, vec![0]).with_committed(&[(ORDERS, 0, 6), ("payments", 0, 3)]);
+    let app = TestApp::of([FakeCluster::local().with_groups([shipping])])
+        .writable(&["local"])
+        .ingested()
+        .await;
+
+    app.delete("/clusters/local/group-offsets/shipping?topic=payments")
+        .await
+        .expect(StatusCode::NO_CONTENT);
+
+    let committed = app
+        .cluster()
+        .committed_offsets("shipping", None)
+        .await
+        .expect("committed offsets");
+    assert_eq!(committed, offsets(&[(ORDERS, 0, 6)]).committed);
+}
+
+#[tokio::test]
+async fn an_active_group_keeps_the_offsets_of_a_topic_it_consumes() {
+    let app = billing().await;
+
+    let reply = app
+        .delete(&format!(
+            "/clusters/local/group-offsets/order-processor?topic={ORDERS}"
+        ))
+        .await;
+
+    reply.assert_error(StatusCode::CONFLICT, "CONSUMED_TOPIC");
+    assert_eq!(
+        reply.body["error"],
+        "group 'order-processor' still consumes 'orders.created'; stop its consumers first"
+    );
+    assert_eq!(app.cluster().calls(Api::DeleteGroupOffsets), 0);
+}
+
+#[tokio::test]
+async fn deleting_offsets_klens_knows_nothing_of_never_reaches_kafka() {
+    let app = billing().await;
+
+    app.delete(&format!("{BILLING}?topic=payments"))
+        .await
+        .expect(StatusCode::NO_CONTENT);
+    app.delete(&format!(
+        "/clusters/local/group-offsets/ghost?topic={ORDERS}"
+    ))
+    .await
+    .assert_error(StatusCode::NOT_FOUND, "UNKNOWN_GROUP");
+
+    assert_eq!(app.cluster().calls(Api::DeleteGroupOffsets), 0);
 }
