@@ -250,6 +250,10 @@ pub struct GroupOffsets {
 }
 
 impl GroupOffsets {
+    pub fn shows(&self, offsets: &[CommittedOffset]) -> bool {
+        offsets.iter().all(|offset| self.committed.contains(offset))
+    }
+
     pub fn partitions(&self) -> impl Iterator<Item = (&str, i32)> {
         self.committed
             .iter()

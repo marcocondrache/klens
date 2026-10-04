@@ -8,12 +8,12 @@ use axum::http::request::Parts;
 use crate::AppState;
 use crate::app::auth::SessionGuard;
 use crate::app::auth::access::{
-    AccessError, ClusterAccess, ConfigsCap, EffectiveAccess, ManageTopicsCap, ProduceCap,
-    RecordsCap, SchemaTextCap,
+    AccessError, ClusterAccess, ConfigsCap, EffectiveAccess, ManageGroupsCap, ManageTopicsCap,
+    ProduceCap, RecordsCap, SchemaTextCap,
 };
 use crate::kafka::model::{
-    ConfigEdit, FoundRecord, NewRecord, NewTopic, ProducedRecord, RecordAt, RecordDeletion,
-    RegisteredSchema,
+    CommittedOffset, ConfigEdit, FoundRecord, GroupState, NewRecord, NewTopic, OffsetMove,
+    OffsetReset, ProducedRecord, RecordAt, RecordDeletion, RegisteredSchema,
 };
 use crate::kafka::store::{ClusterStore, Lane, TopicInfo};
 use crate::kafka::{
@@ -62,6 +62,11 @@ impl<'a> ClusterHandle<'a> {
     pub(crate) fn produce(&self) -> Result<Granted<'a, ProduceCap>, AccessError> {
         self.writable()?;
         self.access.produce().map(|cap| self.grant(cap))
+    }
+
+    pub(crate) fn manage_groups(&self) -> Result<Granted<'a, ManageGroupsCap>, AccessError> {
+        self.writable()?;
+        self.access.manage_groups().map(|cap| self.grant(cap))
     }
 
     fn writable(&self) -> Result<(), AccessError> {
@@ -254,6 +259,88 @@ impl Granted<'_, ProduceCap> {
             "produced record"
         );
         Ok(produced)
+    }
+}
+
+impl Granted<'_, ManageGroupsCap> {
+    pub(crate) async fn plan_reset(
+        &self,
+        reset: &OffsetReset,
+    ) -> Result<Vec<OffsetMove>, KafkaError> {
+        self.known_group(&reset.group)?;
+        self.plan(reset).await
+    }
+
+    pub(crate) async fn reset_offsets(
+        &self,
+        reset: &OffsetReset,
+    ) -> Result<Vec<OffsetMove>, KafkaError> {
+        if self.known_group(&reset.group)?.has_members() {
+            return Err(KafkaError::ActiveGroup {
+                group: reset.group.clone(),
+            });
+        }
+        let moves = self.plan(reset).await?;
+        if moves.is_empty() {
+            return Ok(moves);
+        }
+        let committed: Vec<CommittedOffset> = moves.iter().map(OffsetMove::committed).collect();
+        self.cluster
+            .session
+            .alter_group_offsets(&reset.group, &committed)
+            .await?;
+        tracing::info!(
+            cluster = %self.cluster.store.name(),
+            group = %reset.group,
+            topic = ?reset.topic,
+            partitions = committed.len(),
+            to = ?reset.to,
+            "reset group offsets"
+        );
+        let _watching = self.cluster.store.interest.lease_group(&reset.group);
+        self.settle(&self.cluster.store.offsets, |table| {
+            table
+                .get(&reset.group)
+                .is_some_and(|offsets| offsets.shows(&committed))
+        })
+        .await;
+        Ok(moves)
+    }
+
+    fn known_group(&self, group: &str) -> Result<GroupState, KafkaError> {
+        self.cluster
+            .store
+            .topology
+            .load()
+            .as_ref()
+            .and_then(|known| known.group(group))
+            .map(|info| info.state)
+            .ok_or_else(|| KafkaError::UnknownGroup {
+                cluster: self.cluster.store.name().to_owned(),
+                group: group.to_owned(),
+            })
+    }
+
+    async fn plan(&self, reset: &OffsetReset) -> Result<Vec<OffsetMove>, KafkaError> {
+        let Some(topic) = &reset.topic else {
+            return self.cluster.plan_reset(&reset.group, None, reset.to).await;
+        };
+        let known = self.writable_topic(topic, TopicInfo::partition_ids)?;
+        if let Some(&partition) = reset
+            .partitions
+            .iter()
+            .find(|partition| !known.contains(partition))
+        {
+            return Err(self.unknown_partition(topic, partition));
+        }
+        let partitions = if reset.partitions.is_empty() {
+            &known
+        } else {
+            &reset.partitions
+        };
+        self.cluster
+            .plan_reset(&reset.group, Some((topic, partitions)), reset.to)
+            .await
     }
 }
 

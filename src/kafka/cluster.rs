@@ -8,7 +8,10 @@ use crate::config::{self, IngestTuning, Tuning};
 use crate::kafka::client::KafkaClient;
 use crate::kafka::error::KafkaError;
 use crate::kafka::limits::{RecordLimits, TailLimits};
-use crate::kafka::model::{ConfigEntry, FoundRecord, RecordAt, RecordPage, RecordQuery};
+use crate::kafka::model::{
+    ConfigEntry, FoundRecord, OffsetMove, RecordAt, RecordPage, RecordQuery, ResetTarget,
+};
+use crate::kafka::reset::plan_reset;
 use crate::kafka::scan::export::Export;
 use crate::kafka::scan::read::{read_page, read_record};
 use crate::kafka::scan::tail::{Tail, TailQuery};
@@ -86,6 +89,15 @@ impl Cluster {
         }
 
         self.session.broker_configs(id).await
+    }
+
+    pub async fn plan_reset(
+        &self,
+        group: &str,
+        partitions: Option<(&str, &[i32])>,
+        to: ResetTarget,
+    ) -> Result<Vec<OffsetMove>, KafkaError> {
+        plan_reset(self.session.as_ref(), group, partitions, to).await
     }
 }
 

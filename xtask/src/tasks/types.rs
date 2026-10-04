@@ -7,12 +7,12 @@ use klens::app::typescript::{
     Acl, AclListing, AclOperation, AclPatternType, AclPermission, AclResourceType, AclStatus,
     AddPartitions, BrokerRow, CleanupPolicy, ClientQuota, ClusterGrant, ClusterHealth, ConfigEntry,
     ConfigSource, CreateTopic, EditTopicConfigs, GroupDetail, GroupMember, GroupOffset, GroupRow,
-    GroupState, Identity, LaneHealth, LogDir, MemberAssignment, PartitionRow, PayloadEncoding,
-    PrivilegeName, ProduceRecord, ProducedRecord, QuotaEntity, QuotaEntityType, QuotaListing,
-    QuotaStatus, Record, RecordHeader, RecordLookup, RecordOrder, RecordPage, RecordPayload,
-    SchemaCompatibility, SchemaReference, SchemaType, SearchHit, SearchKind, SubjectDetail,
-    SubjectRow, SubjectRowsResult, TailEvent, TailStart, TopicDetail, TopicGroupRow, TopicRate,
-    TopicRow, Update,
+    GroupState, Identity, LaneHealth, LogDir, MemberAssignment, OffsetMove, PartitionRow,
+    PayloadEncoding, PrivilegeName, ProduceRecord, ProducedRecord, QuotaEntity, QuotaEntityType,
+    QuotaListing, QuotaStatus, Record, RecordHeader, RecordLookup, RecordOrder, RecordPage,
+    RecordPayload, ResetOffsets, ResetTarget, SchemaCompatibility, SchemaReference, SchemaType,
+    SearchHit, SearchKind, SubjectDetail, SubjectRow, SubjectRowsResult, TailEvent, TailStart,
+    TopicDetail, TopicGroupRow, TopicRate, TopicRow, Update,
 };
 
 pub fn run(sh: &Shell) -> xshell::Result<()> {
@@ -53,6 +53,9 @@ fn typescript() -> String {
         GroupOffset,
         GroupRow,
         GroupDetail,
+        ResetTarget,
+        ResetOffsets,
+        OffsetMove,
         TopicGroupRow,
         LogDir,
         BrokerRow,

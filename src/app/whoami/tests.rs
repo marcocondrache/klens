@@ -26,7 +26,8 @@ async fn whoami_reports_no_subject_when_auth_is_disabled() {
             "SCHEMA_TEXT",
             "ACLS",
             "MANAGE_TOPICS",
-            "PRODUCE"
+            "PRODUCE",
+            "MANAGE_GROUPS"
         ])
     );
     assert_eq!(whoami["clusters"][1]["cluster"], "payments");
@@ -52,7 +53,8 @@ async fn whoami_resolves_each_cluster_against_its_own_grant() {
             "SCHEMA_TEXT",
             "ACLS",
             "MANAGE_TOPICS",
-            "PRODUCE"
+            "PRODUCE",
+            "MANAGE_GROUPS"
         ])
     );
     assert_eq!(clusters[1]["cluster"], "payments");

@@ -79,6 +79,12 @@ impl GroupSnapshot {
         self.committed = offsets(committed).committed;
         self
     }
+
+    pub fn stopped(mut self) -> Self {
+        self.state = GroupState::Empty;
+        self.members.clear();
+        self
+    }
 }
 
 pub fn topology(topics: Vec<TopicMetadata>, groups: Vec<GroupSnapshot>) -> Topology {

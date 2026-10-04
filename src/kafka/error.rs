@@ -53,6 +53,18 @@ pub enum KafkaError {
     #[error("klens leaves the internal topic '{0}' alone")]
     InternalTopic(String),
 
+    #[error("group '{group}' has members; stop its consumers before resetting its offsets")]
+    ActiveGroup { group: String },
+
+    #[error(
+        "group '{group}' has no committed offset on partition {partition} of '{topic}' to shift"
+    )]
+    NoCommittedOffset {
+        group: String,
+        topic: String,
+        partition: i32,
+    },
+
     #[error("failed to describe broker {id} configs: {message}")]
     BrokerConfigs { id: i32, message: String },
 
@@ -78,6 +90,8 @@ impl KafkaError {
             Self::Admin(_) => "ADMIN",
             Self::Refused(_) => "REFUSED",
             Self::InternalTopic(_) => "INTERNAL_TOPIC",
+            Self::ActiveGroup { .. } => "ACTIVE_GROUP",
+            Self::NoCommittedOffset { .. } => "NO_COMMITTED_OFFSET",
             Self::BrokerConfigs { .. } => "BROKER_CONFIGS",
             Self::SchemaRegistry { .. } => "SCHEMA_REGISTRY",
             Self::Krafka(_) => "CLIENT",

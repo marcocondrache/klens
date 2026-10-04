@@ -47,6 +47,8 @@ export const keys = {
 
   groupRows: (cluster: string) => ["cluster", cluster, "groups"] as const,
   group: (cluster: string, group: string) => ["cluster", cluster, "groups", group] as const,
+  groupReset: (cluster: string, group: string, request: string) =>
+    ["cluster", cluster, "group-offsets", group, request] as const,
 
   subjectRows: (cluster: string) => ["cluster", cluster, "subjects"] as const,
   subjectVersions: (cluster: string, name: string) =>

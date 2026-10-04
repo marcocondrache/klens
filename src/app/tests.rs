@@ -86,6 +86,12 @@ const WRITES: &[(Method, &str, Option<&str>, Privilege)] = &[
         Some(r#"{ "key": null, "value": null }"#),
         Privilege::Produce,
     ),
+    (
+        Method::PATCH,
+        "/clusters/local/group-offsets/order-processor",
+        Some(r#"{ "to": { "kind": "EARLIEST" }, "dryRun": true }"#),
+        Privilege::ManageGroups,
+    ),
 ];
 
 fn write(method: &Method, route: &str, body: Option<&str>) -> Request<Body> {
