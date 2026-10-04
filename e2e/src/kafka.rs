@@ -1,11 +1,14 @@
 use std::time::Duration;
 
 use krafka::admin::{AdminClient, NewTopic, QuotaAlteration};
+use krafka::auth::ScramMechanism;
 use krafka::producer::{Producer, ProducerRecord};
+use krafka::protocol::ScramCredentialUpsertion;
 use testcontainers_modules::kafka::apache;
 use testcontainers_modules::testcontainers::runners::AsyncRunner as _;
 use testcontainers_modules::testcontainers::{ContainerAsync, ImageExt as _};
 use tokio::time::{Instant, sleep};
+use zeroize::Zeroizing;
 
 use crate::{PATIENCE, POLL};
 
@@ -151,6 +154,36 @@ impl Kafka {
             .expect("alter client quotas");
         for entity in altered {
             assert_eq!(entity.error, None, "setting {key} for {user}");
+        }
+    }
+
+    pub async fn set_scram_credential(
+        &self,
+        user: &str,
+        mechanism: ScramMechanism,
+        iterations: i32,
+    ) {
+        let altered = self
+            .admin
+            .alter_user_scram_credentials(
+                Vec::new(),
+                vec![ScramCredentialUpsertion {
+                    name: user.to_owned(),
+                    mechanism,
+                    iterations,
+                    salt: Zeroizing::new(vec![1; 16]),
+                    salted_password: Zeroizing::new(vec![2; mechanism.hash_length()]),
+                }],
+            )
+            .await
+            .expect("alter scram credentials");
+        for result in altered {
+            assert_eq!(
+                result.error,
+                None,
+                "setting {} for {user}",
+                mechanism.mechanism_name()
+            );
         }
     }
 }

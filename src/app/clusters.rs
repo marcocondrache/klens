@@ -31,6 +31,7 @@ fn cluster_routes() -> Router<AppState> {
         .nest("/subjects", super::subjects::router())
         .nest("/acls", super::acls::router())
         .nest("/quotas", super::quotas::router())
+        .nest("/scram-users", super::scram_users::router())
         .nest("/search", super::search::router())
         .nest("/updates", super::updates::router())
 }

@@ -13,7 +13,7 @@ use crate::kafka::model::{
     ConfigEntry, GroupSnapshot, LogDir, MetadataSnapshot, NewRecord, NewSchema, NewTopic,
     PartitionWindow, ProducedRecord, QuotaListing, RecordDeletion, RegisteredSchema,
     RegisteredVersion, ScanConsumer, SchemaCompatibility, SchemaDeletion, SchemaSubject,
-    TailConsumer, TailPosition, TopicMetadata, Watermarks,
+    ScramListing, TailConsumer, TailPosition, TopicMetadata, Watermarks,
 };
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
@@ -89,6 +89,8 @@ pub trait ClusterSession: Send + Sync + 'static {
     async fn acls(&self) -> Result<AclListing, KafkaError>;
 
     async fn client_quotas(&self) -> Result<QuotaListing, KafkaError>;
+
+    async fn scram_users(&self) -> Result<ScramListing, KafkaError>;
 
     async fn create_topic(&self, topic: &NewTopic) -> Result<(), KafkaError>;
 

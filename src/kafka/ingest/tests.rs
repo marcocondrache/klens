@@ -46,7 +46,7 @@ async fn every_lane_runs_per_cluster_and_stops_with_the_ingest() {
     let clusters = Clusters::from_sessions(vec![prod.clone(), staging]);
     let lanes = Ingest::start(&clusters, &IngestTuning::default());
 
-    assert_eq!(lanes.lane_count(), 16, "eight lanes per cluster");
+    assert_eq!(lanes.lane_count(), 18, "nine lanes per cluster");
     until("both clusters ready", || clusters.ready()).await;
 
     drop(lanes);

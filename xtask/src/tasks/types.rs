@@ -11,9 +11,10 @@ use klens::app::typescript::{
     PartitionRow, PrivilegeName, ProduceRecord, ProducedRecord, QuotaEntity, QuotaEntityType,
     QuotaListing, QuotaStatus, Record, RecordHeader, RecordLookup, RecordOrder, RecordPage,
     RecordPayload, RegisterSchema, RegisteredVersion, ResetOffsets, ResetTarget,
-    SchemaCompatibility, SchemaReference, SchemaType, SearchHit, SearchKind, SubjectDetail,
-    SubjectRow, SubjectRowsResult, TailEvent, TailStart, TopicDetail, TopicGroupRow, TopicRate,
-    TopicRow, Update,
+    SchemaCompatibility, SchemaReference, SchemaType, ScramCredential, ScramListing,
+    ScramMechanism, ScramStatus, ScramUser, SearchHit, SearchKind, SubjectDetail, SubjectRow,
+    SubjectRowsResult, TailEvent, TailStart, TopicDetail, TopicGroupRow, TopicRate, TopicRow,
+    Update,
 };
 
 pub fn run(sh: &Shell) -> xshell::Result<()> {
@@ -84,6 +85,11 @@ fn typescript() -> String {
         QuotaEntity,
         ClientQuota,
         QuotaListing,
+        ScramStatus,
+        ScramMechanism,
+        ScramCredential,
+        ScramUser,
+        ScramListing,
         RecordOrder,
         RecordHeader,
         Record,

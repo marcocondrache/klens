@@ -4,6 +4,7 @@ pub mod log_dirs;
 pub mod offsets;
 pub mod quotas;
 pub mod runner;
+pub mod scram_users;
 pub mod subjects;
 pub mod topology;
 pub mod watermarks;
@@ -24,6 +25,7 @@ pub use log_dirs::LogDirLane;
 pub use offsets::{OffsetLane, Wave};
 pub use quotas::QuotaLane;
 pub use runner::{LaneSource, run};
+pub use scram_users::ScramUserLane;
 pub use subjects::SubjectLane;
 pub use topology::TopologyLane;
 pub use watermarks::WatermarkLane;
@@ -67,6 +69,10 @@ impl Ingest {
             tasks.spawn(run(
                 Arc::clone(store),
                 QuotaLane::with_interval(Arc::clone(session), tuning.quotas),
+            ));
+            tasks.spawn(run(
+                Arc::clone(store),
+                ScramUserLane::with_interval(Arc::clone(session), tuning.scram_users),
             ));
             tasks.spawn(
                 OffsetLane::new(Arc::clone(session))

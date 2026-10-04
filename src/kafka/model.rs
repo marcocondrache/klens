@@ -22,6 +22,7 @@ pub use crate::kafka::scan::query::{RecordAt, RecordOrder, RecordQuery, Timestam
 pub use crate::kafka::scan::session::{RawRecord, ScanConsumer};
 pub use crate::kafka::scan::tail::{TailConsumer, TailPosition};
 pub use crate::kafka::scan::{FoundRecord, Record, RecordHeader, RecordPage};
+pub use crate::kafka::scram::{ScramListing, ScramMechanism, ScramUser};
 pub use crate::kafka::storage::LogDir;
 pub use crate::kafka::store::{SearchHit, SearchKind};
 pub use crate::kafka::topic_config::{

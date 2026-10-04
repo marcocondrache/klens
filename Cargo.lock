@@ -981,6 +981,7 @@ dependencies = [
  "tempfile",
  "testcontainers-modules",
  "tokio",
+ "zeroize",
 ]
 
 [[package]]

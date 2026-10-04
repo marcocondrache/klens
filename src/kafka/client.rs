@@ -52,6 +52,7 @@ use crate::kafka::registry::{
 };
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
+use crate::kafka::scram::{DescribedUser, ScramListing};
 use crate::kafka::session::ClusterSession;
 use crate::kafka::storage::LogDir;
 use crate::kafka::topic_config::{BrokerScope, ConfigEdit, ConfigEntry};
@@ -405,6 +406,25 @@ impl ClusterSession for KafkaClient {
                     .values
                     .into_iter()
                     .map(|value| (value.key, value.value))
+                    .collect(),
+            }),
+        )
+    }
+
+    async fn scram_users(&self) -> Result<ScramListing, KafkaError> {
+        let described = self
+            .transport
+            .admin
+            .describe_user_scram_credentials(None)
+            .await?;
+        ScramListing::from_describe(
+            described.error.as_deref(),
+            described.users.into_iter().map(|user| DescribedUser {
+                name: user.name,
+                credentials: user
+                    .credential_infos
+                    .into_iter()
+                    .map(|info| (info.mechanism, info.iterations))
                     .collect(),
             }),
         )
@@ -900,6 +920,10 @@ mod tests {
             ("ListGroups", client.groups().await.err()),
             ("DescribeLogDirs", client.log_dirs().await.err()),
             ("DescribeClientQuotas", client.client_quotas().await.err()),
+            (
+                "DescribeUserScramCredentials",
+                client.scram_users().await.err(),
+            ),
         ] {
             assert!(
                 matches!(error, Some(KafkaError::Krafka(_))),

@@ -14,6 +14,7 @@ mod produce;
 mod quota;
 mod reset;
 mod scan;
+mod scram;
 
 pub mod ingest;
 pub mod store;
