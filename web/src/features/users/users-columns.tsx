@@ -1,7 +1,8 @@
-import type { ReactNode } from "react";
 import { createColumnHelper } from "@tanstack/react-table";
+import { KeyRoundIcon, Trash2Icon } from "lucide-react";
 
 import type { DataTableFeatures } from "@/components/data-table/features";
+import { IconButton } from "@/components/icon-button";
 import type { ScramMechanism, ScramUser } from "@/lib/api/types";
 import { formatNumber } from "@/lib/format";
 
@@ -41,11 +42,46 @@ export const userColumns = columnHelper.columns([
   mechanismColumn("SHA512"),
 ]);
 
-export function userActionColumn(action: (user: ScramUser) => ReactNode) {
+export function userActionColumn({
+  onSetPassword,
+  onDelete,
+}: {
+  onSetPassword?: (user: ScramUser) => void;
+  onDelete?: (user: ScramUser) => void;
+}) {
   return columnHelper.display({
     id: "action",
     enableResizing: false,
     meta: { align: "right", width: "5rem" },
-    cell: ({ row }) => action(row.original),
+    cell: ({ row }) => (
+      <>
+        {onSetPassword ? (
+          <IconButton
+            label={`Set a password for ${row.original.name}`}
+            tooltip="Set password"
+            reveal
+            onClick={(event) => {
+              event.stopPropagation();
+              onSetPassword(row.original);
+            }}
+          >
+            <KeyRoundIcon />
+          </IconButton>
+        ) : null}
+        {onDelete ? (
+          <IconButton
+            label={`Delete a credential of ${row.original.name}`}
+            tooltip="Delete"
+            reveal
+            onClick={(event) => {
+              event.stopPropagation();
+              onDelete(row.original);
+            }}
+          >
+            <Trash2Icon />
+          </IconButton>
+        ) : null}
+      </>
+    ),
   });
 }

@@ -1,24 +1,13 @@
-import { useId, useState, type FormEvent } from "react";
+import { useId, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CircleAlertIcon, KeyRoundIcon, PlusIcon } from "lucide-react";
+import { PlusIcon } from "lucide-react";
 
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  type DialogHandle,
-} from "@/components/ui/dialog";
+import { Dialog, type DialogHandle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Spinner } from "@/components/ui/spinner";
-import { IconButton } from "@/components/icon-button";
+import { Sheet, SheetTrigger } from "@/components/ui/sheet";
+import { Field } from "@/components/field";
+import { FormSheetContent, SheetForm } from "@/components/write-form";
 import { apiErrorMessage, clusterPathname, put, resourceId } from "@/lib/api/client";
 import { keys } from "@/lib/api/keys";
 import type { ScramMechanism, ScramUser, SetScramCredential } from "@/lib/api/types";
@@ -32,41 +21,23 @@ const MAX_ITERATIONS = 16384;
 
 type Change = { user: string; credential: SetScramCredential };
 
-export function NewUserDialog({ cluster }: { cluster: string }) {
+export function NewUserSheet({ cluster }: { cluster: string }) {
   const [open, setOpen] = useState(false);
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button />}>
-        <PlusIcon data-icon="inline-start" />
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetTrigger render={<Button variant="outline" className="ml-auto font-normal" />}>
+        <PlusIcon className="text-muted-foreground" />
         Add user
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
+      </SheetTrigger>
+      <FormSheetContent>
         <CredentialForm cluster={cluster} onSaved={() => setOpen(false)} />
-      </DialogContent>
-    </Dialog>
+      </FormSheetContent>
+    </Sheet>
   );
 }
 
-export function SetPasswordButton({
-  handle,
-  user,
-}: {
-  handle: DialogHandle<ScramUser>;
-  user: ScramUser;
-}) {
-  return (
-    <DialogTrigger
-      handle={handle}
-      payload={user}
-      render={<IconButton label={`Set a password for ${user.name}`} tooltip="Set password" />}
-    >
-      <KeyRoundIcon />
-    </DialogTrigger>
-  );
-}
-
-export function SetPasswordDialog({
+export function SetPasswordSheet({
   cluster,
   handle,
 }: {
@@ -76,11 +47,11 @@ export function SetPasswordDialog({
   return (
     <Dialog handle={handle}>
       {({ payload }) => (
-        <DialogContent className="sm:max-w-md">
+        <FormSheetContent>
           {payload ? (
             <CredentialForm cluster={cluster} user={payload} onSaved={() => handle.close()} />
           ) : null}
-        </DialogContent>
+        </FormSheetContent>
       )}
     </Dialog>
   );
@@ -120,13 +91,11 @@ function CredentialForm({
   const count = Number(iterations);
   const badIterations =
     !/^\d+$/.test(iterations) || count < MIN_ITERATIONS || count > MAX_ITERATIONS;
-  const ready = target !== "" && password !== "" && !badIterations && !save.isPending;
+  const ready = target !== "" && password !== "" && !badIterations;
   const replaces = user?.credentials.some((credential) => credential.mechanism === mechanism);
 
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!ready) return;
-    // Unlike a hook-level onSuccess, this one is dropped once the dialog closes.
+  function submit() {
+    // Unlike a hook-level onSuccess, this one is dropped once the sheet closes.
     save.mutate(
       { user: target, credential: { mechanism, password, iterations: count } },
       { onSuccess: onSaved },
@@ -134,21 +103,21 @@ function CredentialForm({
   }
 
   return (
-    <form className="grid gap-4" onSubmit={submit}>
-      <DialogHeader>
-        <DialogTitle>{user ? "Set password" : "Add user"}</DialogTitle>
-        <DialogDescription>
-          {replaces
-            ? `Kafka replaces the ${MECHANISM_LABEL[mechanism]} password. Clients need the new one from their next login.`
-            : "Kafka stores a SCRAM credential the user logs in with."}
-        </DialogDescription>
-      </DialogHeader>
-
-      <div className="grid gap-1.5">
-        <Label htmlFor={`${id}-user`}>User</Label>
+    <SheetForm
+      title={user ? "Set password" : "Add user"}
+      description={
+        replaces
+          ? `Kafka replaces the ${MECHANISM_LABEL[mechanism]} password. Clients need the new one from their next login.`
+          : "Kafka stores a SCRAM credential the user logs in with."
+      }
+      error={save.isError ? apiErrorMessage(save.error, "Failed to set the password.") : null}
+      submit={{ label: "Save", pending: save.isPending, disabled: !ready }}
+      onSubmit={submit}
+    >
+      <Field label="User" htmlFor={`${id}-user`}>
         <Input
           id={`${id}-user`}
-          autoFocus={!user}
+          data-autofocus={!user || undefined}
           autoComplete="off"
           spellCheck={false}
           className="font-mono"
@@ -156,10 +125,9 @@ function CredentialForm({
           value={user?.name ?? name}
           onChange={(event) => setName(event.target.value)}
         />
-      </div>
+      </Field>
 
-      <div className="grid gap-1.5">
-        <Label>Mechanism</Label>
+      <Field label="Mechanism">
         <MechanismToggle
           value={mechanism}
           onChange={(next) => {
@@ -167,53 +135,35 @@ function CredentialForm({
             setIterations(iterationsOf(user, next));
           }}
         />
-      </div>
+      </Field>
 
-      <div className="grid grid-cols-[minmax(0,1fr)_10rem] gap-3">
-        <div className="grid gap-1.5">
-          <Label htmlFor={`${id}-password`}>Password</Label>
-          <Input
-            id={`${id}-password`}
-            type="password"
-            autoFocus={user !== undefined}
-            autoComplete="new-password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-          />
-        </div>
-        <div className="grid gap-1.5">
-          <Label htmlFor={`${id}-iterations`}>Iterations</Label>
-          <Input
-            id={`${id}-iterations`}
-            inputMode="numeric"
-            autoComplete="off"
-            className="numeric"
-            value={iterations}
-            aria-invalid={badIterations || undefined}
-            onChange={(event) => setIterations(event.target.value.trim())}
-          />
-        </div>
-      </div>
-      <p className="-mt-2 text-sm text-muted-foreground">
-        Kafka takes {MIN_ITERATIONS} to {MAX_ITERATIONS} iterations.
-      </p>
+      <Field label="Password" htmlFor={`${id}-password`}>
+        <Input
+          id={`${id}-password`}
+          type="password"
+          data-autofocus={user !== undefined || undefined}
+          autoComplete="new-password"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+        />
+      </Field>
 
-      {save.isError ? (
-        <Alert variant="destructive">
-          <CircleAlertIcon />
-          <AlertDescription className="break-words">
-            {apiErrorMessage(save.error, "Failed to set the password.")}
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
-      <DialogFooter>
-        <DialogClose render={<Button type="button" variant="outline" />}>Cancel</DialogClose>
-        <Button type="submit" disabled={!ready}>
-          {save.isPending ? <Spinner data-icon="inline-start" /> : null}
-          Save
-        </Button>
-      </DialogFooter>
-    </form>
+      <Field
+        label="Iterations"
+        htmlFor={`${id}-iterations`}
+        hint={`Kafka takes ${MIN_ITERATIONS} to ${MAX_ITERATIONS} iterations.`}
+      >
+        <Input
+          id={`${id}-iterations`}
+          inputMode="numeric"
+          autoComplete="off"
+          className="numeric w-32"
+          value={iterations}
+          aria-invalid={badIterations || undefined}
+          aria-describedby={`${id}-iterations-hint`}
+          onChange={(event) => setIterations(event.target.value.trim())}
+        />
+      </Field>
+    </SheetForm>
   );
 }
