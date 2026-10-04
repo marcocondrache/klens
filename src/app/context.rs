@@ -4,19 +4,20 @@ use std::time::Duration;
 
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
+use futures::{FutureExt as _, future};
 
 use crate::AppState;
 use crate::app::auth::SessionGuard;
 use crate::app::auth::access::{
-    AccessError, ClusterAccess, ConfigsCap, EffectiveAccess, ManageAclsCap, ManageGroupsCap,
-    ManageSchemasCap, ManageTopicsCap, ProduceCap, RecordsCap, SchemaTextCap,
+    AccessError, ClusterAccess, ConfigsCap, EffectiveAccess, ManageAclsCap, ManageBrokersCap,
+    ManageGroupsCap, ManageSchemasCap, ManageTopicsCap, ProduceCap, RecordsCap, SchemaTextCap,
 };
 use crate::kafka::model::{
-    Acl, ClientQuota, CommittedOffset, ConfigEdit, ConfigSource, FoundRecord, NewRecord, NewSchema,
-    NewTopic, OffsetMove, OffsetReset, ProducedRecord, QuotaValues, RecordAt, RecordDeletion,
-    RegisteredSchema, RegisteredVersion, SchemaCompatibility, SchemaDeletion,
+    Acl, BrokerScope, ClientQuota, CommittedOffset, ConfigEdit, ConfigSource, FoundRecord,
+    NewRecord, NewSchema, NewTopic, OffsetMove, OffsetReset, ProducedRecord, QuotaValues, RecordAt,
+    RecordDeletion, RegisteredSchema, RegisteredVersion, SchemaCompatibility, SchemaDeletion,
 };
-use crate::kafka::store::{ClusterStore, GroupInfo, Lane, TopicInfo};
+use crate::kafka::store::{ClusterStore, GroupInfo, Lane, TopicInfo, reread_until};
 use crate::kafka::{
     Cluster, ConfigEntry, Export, KafkaError, RecordPage, RecordQuery, Tail, TailLimits, TailQuery,
 };
@@ -82,6 +83,11 @@ impl<'a> ClusterHandle<'a> {
     pub(crate) fn manage_acls(&self) -> Result<Granted<'a, ManageAclsCap>, AccessError> {
         self.writable()?;
         self.access.manage_acls().map(|cap| self.grant(cap))
+    }
+
+    pub(crate) fn manage_brokers(&self) -> Result<Granted<'a, ManageBrokersCap>, AccessError> {
+        self.writable()?;
+        self.access.manage_brokers().map(|cap| self.grant(cap))
     }
 
     fn writable(&self) -> Result<(), AccessError> {
@@ -544,6 +550,48 @@ impl Granted<'_, ManageAclsCap> {
     }
 }
 
+impl Granted<'_, ManageBrokersCap> {
+    pub(crate) async fn alter_broker_configs(
+        &self,
+        scope: BrokerScope,
+        edit: &ConfigEdit,
+    ) -> Result<(), KafkaError> {
+        if let BrokerScope::Broker(id) = scope {
+            self.cluster.known_broker(id)?;
+        }
+        self.cluster
+            .session
+            .alter_broker_configs(scope, edit)
+            .await?;
+        tracing::info!(
+            cluster = %self.cluster.store.name(),
+            %scope,
+            set = ?edit.set.keys().collect::<Vec<_>>(),
+            reset = ?edit.reset,
+            "altered broker configs"
+        );
+        let brokers = match scope {
+            BrokerScope::Broker(id) => vec![id],
+            BrokerScope::Cluster => self
+                .cluster
+                .store
+                .topology
+                .load()
+                .map(|topology| topology.brokers.keys().copied().collect())
+                .unwrap_or_default(),
+        };
+        let source = scope.source();
+        let shown = brokers.into_iter().map(|id| {
+            reread_until(
+                move || self.cluster.session.broker_configs(id),
+                |entries| edit.shows_in(entries, source),
+            )
+        });
+        self.settle_on(future::join_all(shown).map(drop)).await;
+        Ok(())
+    }
+}
+
 impl<Cap> Granted<'_, Cap> {
     fn unknown_partition(&self, topic: &str, partition: i32) -> KafkaError {
         KafkaError::UnknownPartition {
@@ -570,13 +618,14 @@ impl<Cap> Granted<'_, Cap> {
     }
 
     async fn settle<T>(&self, lane: &Lane<T>, done: impl Fn(&T) -> bool) {
-        if tokio::time::timeout(SETTLE, lane.refresh_until(done))
-            .await
-            .is_err()
-        {
+        self.settle_on(lane.refresh_until(done)).await;
+    }
+
+    async fn settle_on(&self, shown: impl Future<Output = ()>) {
+        if tokio::time::timeout(SETTLE, shown).await.is_err() {
             tracing::debug!(
                 cluster = %self.cluster.store.name(),
-                "the store did not show a change in time"
+                "the cluster did not show a change in time"
             );
         }
     }

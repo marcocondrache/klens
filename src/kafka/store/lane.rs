@@ -142,6 +142,19 @@ impl<T> Lane<T> {
     }
 }
 
+/// Reads a value no lane keeps until `done` holds or a read fails, pausing
+/// between reads as `Lane::refresh_until` does between polls.
+pub async fn reread_until<T, E, Read>(read: impl Fn() -> Read, done: impl Fn(&T) -> bool)
+where
+    Read: Future<Output = Result<T, E>>,
+{
+    let mut backoff = REFRESH_BACKOFF;
+    while read().await.is_ok_and(|value| !done(&value)) {
+        tokio::time::sleep(backoff).await;
+        backoff = (backoff * 2).min(REFRESH_BACKOFF_MAX);
+    }
+}
+
 pub struct Follower<'a, T> {
     lane: &'a Lane<T>,
     commits: watch::Receiver<()>,
@@ -172,6 +185,9 @@ impl<T> Follower<'_, T> {
 
 #[cfg(test)]
 mod tests {
+    use std::future::{Ready, ready};
+    use std::sync::atomic::AtomicUsize;
+
     use super::*;
 
     #[test]
@@ -336,6 +352,31 @@ mod tests {
             .expect("the fourth poll shows the change");
 
         assert_eq!(started.elapsed(), Duration::from_millis(50 + 100 + 200));
+    }
+
+    fn reads(
+        values: Vec<Result<u32, &'static str>>,
+    ) -> impl Fn() -> Ready<Result<u32, &'static str>> {
+        let calls = AtomicUsize::new(0);
+        move || ready(values[calls.fetch_add(1, Ordering::Relaxed)])
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn reread_until_backs_off_between_reads_that_miss() {
+        let started = tokio::time::Instant::now();
+
+        reread_until(reads(vec![Ok(1), Ok(1), Ok(1), Ok(2)]), |value| *value == 2).await;
+
+        assert_eq!(started.elapsed(), Duration::from_millis(50 + 100 + 200));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn reread_until_gives_up_after_a_failed_read() {
+        let started = tokio::time::Instant::now();
+
+        reread_until(reads(vec![Err("broker down")]), |value| *value == 2).await;
+
+        assert_eq!(started.elapsed(), Duration::ZERO);
     }
 
     #[tokio::test(start_paused = true)]

@@ -94,8 +94,9 @@ clusters:
 # creates, edits, and deletes topics and their records on a writable cluster,
 # produce, which writes records to one, manage_groups, which resets or deletes
 # a consumer group's committed offsets, or the group itself, on one,
-# manage_schemas, which changes the schemas in its registry, and manage_acls,
-# which creates and deletes its ACLs and sets its client quotas. An empty list
+# manage_schemas, which changes the schemas in its registry, manage_acls,
+# which creates and deletes its ACLs and sets its client quotas, and
+# manage_brokers, which changes its brokers' dynamic configs. An empty list
 # still sees the catalog. A role's bindings name the groups that hold it. Omit
 # clusters on a binding to allow every configured cluster.
 #
@@ -113,7 +114,7 @@ clusters:
 #     # max_age: 12h        # session cap, even if the ID token lasts longer
 #   roles:
 #     admin:
-#       privileges: [records, configs, schema_text, acls, manage_topics, produce, manage_groups, manage_schemas, manage_acls]
+#       privileges: [records, configs, schema_text, acls, manage_topics, produce, manage_groups, manage_schemas, manage_acls, manage_brokers]
 #       bindings:
 #         - groups: [klens-admins]
 #     viewer:

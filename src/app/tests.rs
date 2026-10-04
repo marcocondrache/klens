@@ -144,6 +144,18 @@ const WRITES: &[(Method, &str, Option<&str>, Privilege)] = &[
         ),
         Privilege::ManageAcls,
     ),
+    (
+        Method::PATCH,
+        "/clusters/local/brokers/1/configs",
+        Some(r#"{ "set": { "log.retention.hours": "72" } }"#),
+        Privilege::ManageBrokers,
+    ),
+    (
+        Method::PATCH,
+        "/clusters/local/brokers/configs",
+        Some(r#"{ "reset": ["log.retention.hours"] }"#),
+        Privilege::ManageBrokers,
+    ),
 ];
 
 fn write(method: &Method, route: &str, body: Option<&str>) -> Request<Body> {

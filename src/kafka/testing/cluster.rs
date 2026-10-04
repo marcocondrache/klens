@@ -167,6 +167,21 @@ impl FakeCluster {
         self
     }
 
+    /// Adds a broker that starts with broker 1's configs.
+    pub fn with_broker(self, id: i32) -> Self {
+        {
+            let mut world = self.world();
+            world.metadata.brokers.push(BrokerMetadata {
+                id,
+                host: "localhost".into(),
+                port: 9092,
+            });
+            let configs = world.broker_configs[&1].clone();
+            world.broker_configs.insert(id, configs);
+        }
+        self
+    }
+
     pub fn with_groups(self, groups: impl IntoIterator<Item = GroupSnapshot>) -> Self {
         for group in groups {
             self.put_group(group);
@@ -781,13 +796,18 @@ impl ClusterSession for FakeCluster {
                 continue;
             }
             entries.retain(|entry| {
-                entry.source != source
-                    || !edit.reset.contains(&entry.name) && !edit.set.contains_key(&entry.name)
+                let replaced = edit.set.contains_key(&entry.name) && entry.source >= source;
+                let reset = edit.reset.contains(&entry.name) && entry.source == source;
+                !replaced && !reset
             });
-            entries.extend(edit.set.iter().map(|(name, value)| ConfigEntry {
-                source,
-                ..config_entry(name, value)
-            }));
+            for (name, value) in &edit.set {
+                if !entries.iter().any(|entry| entry.name == *name) {
+                    entries.push(ConfigEntry {
+                        source,
+                        ..config_entry(name, value)
+                    });
+                }
+            }
         }
         Ok(())
     }

@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::num::{NonZeroU8, NonZeroU16};
 
 use krafka::error::KrafkaError;
@@ -194,32 +194,4 @@ impl CreateTopic {
 pub struct AddPartitions {
     /// The topic's partition count once the new partitions exist.
     pub count: NonZeroU16,
-}
-
-#[derive(Debug, Clone, Deserialize, TS)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct EditTopicConfigs {
-    /// Overrides to write, by config name.
-    #[serde(default)]
-    pub set: BTreeMap<String, String>,
-    /// Overrides to drop, so the topic follows the broker again.
-    #[serde(default)]
-    pub reset: BTreeSet<String>,
-}
-
-impl EditTopicConfigs {
-    pub(crate) fn into_edit(self) -> Result<domain::ConfigEdit, ApiError> {
-        if self.set.is_empty() && self.reset.is_empty() {
-            return Err(ApiError::unprocessable("name a config to set or reset"));
-        }
-        if let Some(name) = self.reset.iter().find(|name| self.set.contains_key(*name)) {
-            return Err(ApiError::unprocessable(format!(
-                "{name} cannot be both set and reset"
-            )));
-        }
-        Ok(domain::ConfigEdit {
-            set: self.set,
-            reset: self.reset,
-        })
-    }
 }

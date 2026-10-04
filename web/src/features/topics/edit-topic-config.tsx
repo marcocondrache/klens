@@ -21,7 +21,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { IconButton } from "@/components/icon-button";
 import { apiErrorMessage, clusterPathname, patch } from "@/lib/api/client";
 import { keys } from "@/lib/api/keys";
-import type { ConfigEntry, EditTopicConfigs } from "@/lib/api/types";
+import type { ConfigEntry, EditConfigs } from "@/lib/api/types";
 
 export function EditTopicConfigButton({
   handle,
@@ -85,14 +85,14 @@ function EditTopicConfigForm({
   const overridden = entry.source === "DYNAMIC_TOPIC_CONFIG";
 
   const edit = useMutation({
-    mutationFn: (change: EditTopicConfigs) =>
+    mutationFn: (change: EditConfigs) =>
       patch(clusterPathname(cluster, "topics", encodeURIComponent(topic), "configs"), change),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.topicConfigs(cluster, topic) }),
   });
   const resetting = edit.isPending && edit.variables.reset.length > 0;
   const unchanged = overridden && !entry.sensitive && value === entry.value;
 
-  function save(change: EditTopicConfigs) {
+  function save(change: EditConfigs) {
     if (edit.isPending) return;
     // Unlike a hook-level onSuccess, this one is dropped once the dialog closes.
     edit.mutate(change, { onSuccess: onEdited });

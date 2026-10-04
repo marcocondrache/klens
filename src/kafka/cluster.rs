@@ -79,16 +79,21 @@ impl Cluster {
     }
 
     pub async fn broker_configs(&self, id: i32) -> Result<Vec<ConfigEntry>, KafkaError> {
-        if let Some(topology) = self.store.topology.load()
-            && !topology.brokers.contains_key(&id)
-        {
-            return Err(KafkaError::UnknownBroker {
-                cluster: self.name().to_owned(),
-                id,
-            });
-        }
-
+        self.known_broker(id)?;
         self.session.broker_configs(id).await
+    }
+
+    /// Refuses a broker the topology does not list, once it lists any.
+    pub fn known_broker(&self, id: i32) -> Result<(), KafkaError> {
+        match self.store.topology.load() {
+            Some(topology) if !topology.brokers.contains_key(&id) => {
+                Err(KafkaError::UnknownBroker {
+                    cluster: self.name().to_owned(),
+                    id,
+                })
+            }
+            _ => Ok(()),
+        }
     }
 
     pub async fn plan_reset(

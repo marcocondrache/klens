@@ -6,7 +6,7 @@ use axum::routing::{get, post};
 use crate::AppState;
 use crate::kafka::KafkaError;
 
-use super::configs::ConfigEntry;
+use super::configs::{ConfigEntry, EditConfigs};
 use super::context::Session;
 use super::error::ApiError;
 use super::extract::{self, Path};
@@ -16,9 +16,7 @@ pub mod types;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use types::{
-    AddPartitions, CreateTopic, EditTopicConfigs, TopicDetail, TopicGroupRow, TopicRow,
-};
+pub(crate) use types::{AddPartitions, CreateTopic, TopicDetail, TopicGroupRow, TopicRow};
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
@@ -115,7 +113,7 @@ async fn topic_configs(
 async fn alter_topic_configs(
     session: Session,
     Path((name, topic)): Path<(String, String)>,
-    extract::Json(request): extract::Json<EditTopicConfigs>,
+    extract::Json(request): extract::Json<EditConfigs>,
 ) -> Result<StatusCode, ApiError> {
     let cluster = session.cluster(&name)?;
     let topics = cluster.manage_topics()?;
