@@ -29,7 +29,13 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { IconButton } from "@/components/icon-button";
 import { apiErrorMessage, clusterPathname, postAndRead } from "@/lib/api/client";
 import { keys } from "@/lib/api/keys";
-import type { PayloadEncoding, ProduceRecord, ProducedRecord, TopicDetail } from "@/lib/api/types";
+import type {
+  KafkaRecord,
+  PayloadEncoding,
+  ProduceRecord,
+  ProducedRecord,
+  TopicDetail,
+} from "@/lib/api/types";
 
 type Encoding = PayloadEncoding | "NULL";
 
@@ -37,23 +43,52 @@ type PayloadDraft = { encoding: Encoding; data: string };
 
 type HeaderRow = { id: number; key: string; value: string };
 
-const NO_KEY: PayloadDraft = { encoding: "NULL", data: "" };
+export type RecordDraft = {
+  partition: number | null;
+  key: PayloadDraft;
+  value: PayloadDraft;
+  headers: Omit<HeaderRow, "id">[];
+};
 
-const EMPTY_VALUE: PayloadDraft = { encoding: "TEXT", data: "" };
+const BLANK: RecordDraft = {
+  partition: null,
+  key: { encoding: "NULL", data: "" },
+  value: { encoding: "TEXT", data: "" },
+  headers: [],
+};
 
 const ANY_PARTITION = "any";
 
-/** Without `onProduced` the dialog stays open and says where Kafka stored the record. */
+export function duplicateDraft(record: KafkaRecord): RecordDraft | null {
+  if (!record.verbatim) return null;
+  return {
+    partition: record.partition,
+    key: textDraft(record.key),
+    value: textDraft(record.value),
+    headers: record.headers,
+  };
+}
+
+function textDraft(text: string | null): PayloadDraft {
+  return text === null ? { encoding: "NULL", data: "" } : { encoding: "TEXT", data: text };
+}
+
+/**
+ * Without `onProduced` the dialog stays open and says where Kafka stored the record.
+ * A null `trigger` hides the button but keeps an open dialog and its edits.
+ */
 export function ProduceRecordDialog({
   cluster,
   topic,
+  draft = BLANK,
   trigger,
   children,
   onProduced,
 }: {
   cluster: string;
   topic: TopicDetail;
-  trigger: ReactElement;
+  draft?: RecordDraft;
+  trigger: ReactElement | null;
   children: ReactNode;
   onProduced?: (record: ProducedRecord) => void;
 }) {
@@ -61,11 +96,12 @@ export function ProduceRecordDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={trigger}>{children}</DialogTrigger>
+      {trigger ? <DialogTrigger render={trigger}>{children}</DialogTrigger> : null}
       <DialogContent className="sm:max-w-lg">
         <ProduceRecordForm
           cluster={cluster}
           topic={topic}
+          draft={draft}
           onProduced={
             onProduced &&
             ((record) => {
@@ -82,18 +118,24 @@ export function ProduceRecordDialog({
 function ProduceRecordForm({
   cluster,
   topic,
+  draft,
   onProduced,
 }: {
   cluster: string;
   topic: TopicDetail;
+  draft: RecordDraft;
   onProduced?: (record: ProducedRecord) => void;
 }) {
   const id = useId();
   const queryClient = useQueryClient();
-  const [partition, setPartition] = useState(ANY_PARTITION);
-  const [key, setKey] = useState(NO_KEY);
-  const [value, setValue] = useState(EMPTY_VALUE);
-  const [headers, setHeaders] = useState<HeaderRow[]>([]);
+  const [partition, setPartition] = useState(
+    draft.partition === null ? ANY_PARTITION : String(draft.partition),
+  );
+  const [key, setKey] = useState(draft.key);
+  const [value, setValue] = useState(draft.value);
+  const [headers, setHeaders] = useState<HeaderRow[]>(() =>
+    draft.headers.map((header, index) => ({ id: index + 1, ...header })),
+  );
 
   const produce = useMutation({
     mutationFn: (record: ProduceRecord) =>

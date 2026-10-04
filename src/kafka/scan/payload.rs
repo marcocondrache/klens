@@ -63,6 +63,11 @@ impl DecodedPayload {
         })
     }
 
+    pub fn is_verbatim(&self) -> bool {
+        str::from_utf8(&self.raw)
+            .is_ok_and(|raw| self.json.is_none() && self.text.get().is_none_or(|text| text == raw))
+    }
+
     pub fn drop_tree_if_rendered(&mut self) {
         if self.text.get().is_some() {
             self.json = None;
@@ -216,5 +221,32 @@ mod tests {
         payload.edit_json().expect("tree")["pan"] = serde_json::json!("***");
 
         assert_eq!(payload.text(), r#"{"pan":"***"}"#);
+    }
+
+    #[test]
+    fn only_text_that_is_the_payload_bytes_is_verbatim() {
+        let plain = DecodedPayload::raw(Bytes::from_static(b"ord_1"));
+        assert!(plain.is_verbatim());
+        assert_eq!(plain.text(), "ord_1");
+        assert!(
+            plain.is_verbatim(),
+            "rendering plain bytes keeps them verbatim"
+        );
+
+        assert!(!DecodedPayload::raw(Bytes::from_static(&[0xff, 0x01])).is_verbatim());
+
+        let mut decoded =
+            DecodedPayload::decoded(framed(7, b"..."), serde_json::json!({"total": 42}));
+        assert!(!decoded.is_verbatim());
+        assert_eq!(decoded.text(), r#"{"total":42}"#);
+        decoded.drop_tree_if_rendered();
+        assert!(
+            !decoded.is_verbatim(),
+            "the rendered tree is not the wire bytes"
+        );
+
+        let mut redacted = DecodedPayload::raw(Bytes::from_static(b"ord_1"));
+        redacted.redact_with("***".to_owned());
+        assert!(!redacted.is_verbatim());
     }
 }

@@ -28,6 +28,7 @@ pub struct Record {
     pub schema_id: Option<i32>,
     pub headers: Vec<RecordHeader>,
     pub size_bytes: u64,
+    pub verbatim: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
