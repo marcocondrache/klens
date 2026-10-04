@@ -2,6 +2,7 @@ import { useId, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { Dialog } from "@/components/ui/dialog";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import {
   Select,
   SelectContent,
@@ -9,7 +10,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Field } from "@/components/field";
 import { DialogForm, FormDialogContent } from "@/components/write-form";
 import { apiErrorMessage, clusterPathname, patch, resourceId } from "@/lib/api/client";
 import { keys } from "@/lib/api/keys";
@@ -85,6 +85,7 @@ function EditCompatibilityForm({
   const id = useId();
   const queryClient = useQueryClient();
   const [level, setLevel] = useState(subject.compatibility);
+  const rule = LEVELS.find((entry) => entry.value === level)?.rule;
 
   const save = useMutation({
     mutationFn: (edit: EditSubject) =>
@@ -110,11 +111,8 @@ function EditCompatibilityForm({
       // Unlike a hook-level onSuccess, this one is dropped once the dialog closes.
       onSubmit={() => save.mutate({ compatibility: level }, { onSuccess: onSaved })}
     >
-      <Field
-        label="Level"
-        htmlFor={`${id}-level`}
-        hint={LEVELS.find((entry) => entry.value === level)?.rule}
-      >
+      <Field>
+        <FieldLabel htmlFor={`${id}-level`}>Level</FieldLabel>
         <Select
           items={LEVELS}
           value={level}
@@ -125,7 +123,7 @@ function EditCompatibilityForm({
           <SelectTrigger
             id={`${id}-level`}
             className="w-full"
-            aria-describedby={`${id}-level-hint`}
+            aria-describedby={rule ? `${id}-level-hint` : undefined}
           >
             <SelectValue />
           </SelectTrigger>
@@ -137,6 +135,7 @@ function EditCompatibilityForm({
             ))}
           </SelectContent>
         </Select>
+        {rule ? <FieldDescription id={`${id}-level-hint`}>{rule}</FieldDescription> : null}
       </Field>
     </DialogForm>
   );

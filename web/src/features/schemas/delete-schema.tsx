@@ -2,10 +2,9 @@ import { useId, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { Dialog } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
+import { Field, FieldLabel, FieldTitle } from "@/components/ui/field";
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { Field } from "@/components/field";
 import { DialogForm, FormDialogContent, TypeToConfirm } from "@/components/write-form";
 import { apiErrorMessage, clusterPathname, del, resourceId } from "@/lib/api/client";
 import { keys } from "@/lib/api/keys";
@@ -104,27 +103,37 @@ function DeleteSchemaForm({
         remove.mutate(undefined, { onSuccess: () => onDeleted(remaining.at(-1) ?? null) })
       }
     >
-      <Field label="What to delete">
-        <ToggleGroup
-          value={[scope]}
-          onValueChange={(next) => {
-            const picked = next[0];
-            if (picked) setScope(picked);
-          }}
-          variant="outline"
-          size="sm"
-          spacing={0}
-          aria-label="What to delete"
-        >
-          <ToggleGroupItem value={String(version)}>Version {version}</ToggleGroupItem>
-          <ToggleGroupItem value={SUBJECT}>All versions</ToggleGroupItem>
-        </ToggleGroup>
+      <Field>
+        <FieldTitle id={`${id}-scope`}>What to delete</FieldTitle>
+        <div>
+          <ToggleGroup
+            value={[scope]}
+            onValueChange={(next) => {
+              const picked = next[0];
+              if (picked) setScope(picked);
+            }}
+            variant="outline"
+            size="sm"
+            spacing={0}
+            aria-labelledby={`${id}-scope`}
+          >
+            <ToggleGroupItem value={String(version)}>Version {version}</ToggleGroupItem>
+            <ToggleGroupItem value={SUBJECT}>All versions</ToggleGroupItem>
+          </ToggleGroup>
+        </div>
       </Field>
 
-      <Label className="flex items-center gap-2 font-normal">
-        <Switch size="sm" checked={permanent} onCheckedChange={setPermanent} />
-        Delete permanently
-      </Label>
+      <Field orientation="horizontal" className="w-fit">
+        <Switch
+          id={`${id}-permanent`}
+          size="sm"
+          checked={permanent}
+          onCheckedChange={setPermanent}
+        />
+        <FieldLabel htmlFor={`${id}-permanent`} className="text-sm font-normal text-foreground">
+          Delete permanently
+        </FieldLabel>
+      </Field>
 
       <TypeToConfirm id={`${id}-name`} name={subject.subject} value={typed} onChange={setTyped} />
     </DialogForm>
