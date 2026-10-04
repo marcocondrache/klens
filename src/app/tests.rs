@@ -2,7 +2,7 @@ use axum::body::Body;
 use axum::http::{Method, Request, StatusCode, header};
 
 use crate::app::auth::access::{Privilege, PrivilegeSet};
-use crate::testing::{FakeCluster, TestApp, access, admin, json_request, role};
+use crate::testing::{FakeCluster, TestApp, access, admin, group, json_request, role};
 
 const ROUTES: &[(&str, Option<Privilege>)] = &[
     ("/whoami", None),
@@ -92,6 +92,12 @@ const WRITES: &[(Method, &str, Option<&str>, Privilege)] = &[
         Some(r#"{ "to": { "kind": "EARLIEST" }, "dryRun": true }"#),
         Privilege::ManageGroups,
     ),
+    (
+        Method::DELETE,
+        "/clusters/local/groups/archive",
+        None,
+        Privilege::ManageGroups,
+    ),
 ];
 
 fn write(method: &Method, route: &str, body: Option<&str>) -> Request<Body> {
@@ -154,7 +160,8 @@ async fn every_cluster_route_hides_a_cluster_the_session_cannot_see() {
 
 #[tokio::test(start_paused = true)]
 async fn every_write_opens_to_exactly_the_privilege_it_names() {
-    let app = TestApp::of([FakeCluster::local()])
+    let archive = group("archive", "orders.created", vec![0]).stopped();
+    let app = TestApp::of([FakeCluster::local().with_groups([archive])])
         .writable(&["local"])
         .ingested()
         .await;

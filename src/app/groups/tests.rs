@@ -226,7 +226,7 @@ async fn a_group_with_members_plans_but_never_commits() {
     reply.assert_error(StatusCode::CONFLICT, "ACTIVE_GROUP");
     assert_eq!(
         reply.body["error"],
-        "group 'order-processor' has members; stop its consumers before resetting its offsets"
+        "group 'order-processor' has members; stop its consumers first"
     );
     assert_eq!(app.cluster().calls(Api::AlterGroupOffsets), 0);
 }
@@ -307,4 +307,70 @@ async fn a_group_id_with_a_slash_resets_as_one_group() {
         .ok();
 
     assert_eq!(plan, json!([moved(0, Some(2), 0)]));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_deleted_group_is_gone_before_the_delete_answers() {
+    let app = billing().await;
+    let mut rig = app.rig();
+    let lane = rig.topology();
+    rig.spawn(lane);
+    quiesce().await;
+    let logs = LogCapture::at(Level::INFO);
+    let started = Instant::now();
+
+    app.delete("/clusters/local/groups/billing")
+        .await
+        .expect(StatusCode::NO_CONTENT);
+
+    assert!(started.elapsed() < Duration::from_secs(1));
+    app.get("/clusters/local/groups/billing")
+        .await
+        .assert_error(StatusCode::NOT_FOUND, "UNKNOWN_GROUP");
+    assert_eq!(app.cluster().calls(Api::DeleteGroup), 1);
+    logs.assert_contains("deleted group cluster=local group=billing");
+}
+
+#[tokio::test]
+async fn a_group_with_members_is_never_deleted() {
+    let app = billing().await;
+
+    let reply = app.delete("/clusters/local/groups/order-processor").await;
+
+    reply.assert_error(StatusCode::CONFLICT, "ACTIVE_GROUP");
+    assert_eq!(app.cluster().calls(Api::DeleteGroup), 0);
+}
+
+#[tokio::test]
+async fn deleting_a_group_the_store_does_not_know_never_reaches_kafka() {
+    let app = billing().await;
+
+    app.delete("/clusters/local/groups/ghost")
+        .await
+        .assert_error(StatusCode::NOT_FOUND, "UNKNOWN_GROUP");
+
+    assert_eq!(app.cluster().calls(Api::DeleteGroup), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_group_id_with_a_slash_deletes_as_one_group() {
+    let nightly = group("billing/nightly", ORDERS, vec![0]).stopped();
+    let billing = group("billing", ORDERS, vec![0]).stopped();
+    let app = TestApp::of([FakeCluster::local().with_groups([nightly, billing])])
+        .writable(&["local"])
+        .ingested()
+        .await;
+    let mut rig = app.rig();
+    let lane = rig.topology();
+    rig.spawn(lane);
+    quiesce().await;
+
+    app.delete("/clusters/local/groups/billing/nightly")
+        .await
+        .expect(StatusCode::NO_CONTENT);
+
+    app.get("/clusters/local/groups/billing/nightly")
+        .await
+        .assert_error(StatusCode::NOT_FOUND, "UNKNOWN_GROUP");
+    app.get("/clusters/local/groups/billing").await.ok();
 }

@@ -275,11 +275,7 @@ impl Granted<'_, ManageGroupsCap> {
         &self,
         reset: &OffsetReset,
     ) -> Result<Vec<OffsetMove>, KafkaError> {
-        if self.known_group(&reset.group)?.has_members() {
-            return Err(KafkaError::ActiveGroup {
-                group: reset.group.clone(),
-            });
-        }
+        self.stopped_group(&reset.group)?;
         let moves = self.plan(reset).await?;
         if moves.is_empty() {
             return Ok(moves);
@@ -305,6 +301,26 @@ impl Granted<'_, ManageGroupsCap> {
         })
         .await;
         Ok(moves)
+    }
+
+    pub(crate) async fn delete_group(&self, group: &str) -> Result<(), KafkaError> {
+        self.stopped_group(group)?;
+        self.cluster.session.delete_group(group).await?;
+        tracing::info!(cluster = %self.cluster.store.name(), group = %group, "deleted group");
+        self.settle(&self.cluster.store.topology, |known| {
+            !known.groups.contains_key(group)
+        })
+        .await;
+        Ok(())
+    }
+
+    fn stopped_group(&self, group: &str) -> Result<(), KafkaError> {
+        if self.known_group(group)?.has_members() {
+            return Err(KafkaError::ActiveGroup {
+                group: group.to_owned(),
+            });
+        }
+        Ok(())
     }
 
     fn known_group(&self, group: &str) -> Result<GroupState, KafkaError> {
