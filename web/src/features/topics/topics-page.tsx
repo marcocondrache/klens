@@ -15,7 +15,7 @@ import { apiErrorMessage } from "@/lib/api/client";
 import type { TopicRow } from "@/lib/api/types";
 import { useClusterName } from "@/lib/clusters";
 
-import { CreateTopicDialog } from "./create-topic";
+import { CreateTopicSheet } from "./create-topic";
 import type { TopicsSearch } from "./search";
 import { topicColumns } from "./topics-columns";
 import { TOPIC_FILTERS, topicMatches } from "./topics-filters";
@@ -60,9 +60,6 @@ export function TopicsPage() {
             <LaneCaption lane={health?.topology} />
           </>
         }
-        actions={
-          canChange(cluster, "CREATE_TOPICS") ? <CreateTopicDialog cluster={cluster} /> : null
-        }
       />
 
       <DataTable
@@ -83,6 +80,8 @@ export function TopicsPage() {
               />
               Show internal
             </Label>
+
+            {canChange(cluster, "CREATE_TOPICS") ? <CreateTopicSheet cluster={cluster} /> : null}
           </>
         }
         loading={isPending}

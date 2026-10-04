@@ -1,40 +1,32 @@
-import { useId, useState, type FormEvent } from "react";
+import { useId, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CircleAlertIcon, PlusIcon } from "lucide-react";
 
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Spinner } from "@/components/ui/spinner";
+import { Field } from "@/components/field";
+import { DialogForm, FormDialogContent } from "@/components/write-form";
 import { apiErrorMessage, clusterPathname, post } from "@/lib/api/client";
 import { keys } from "@/lib/api/keys";
 import type { AddPartitions, TopicDetail } from "@/lib/api/types";
 
 const COUNT = /^[1-9]\d*$/;
 
-export function AddPartitionsDialog({ cluster, topic }: { cluster: string; topic: TopicDetail }) {
-  const [open, setOpen] = useState(false);
-
+export function AddPartitionsDialog({
+  cluster,
+  topic,
+  open,
+  onOpenChange,
+}: {
+  cluster: string;
+  topic: TopicDetail;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button variant="outline" size="sm" />}>
-        <PlusIcon data-icon="inline-start" />
-        Add partitions
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
-        <AddPartitionsForm cluster={cluster} topic={topic} onAdded={() => setOpen(false)} />
-      </DialogContent>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <FormDialogContent>
+        <AddPartitionsForm cluster={cluster} topic={topic} onAdded={() => onOpenChange(false)} />
+      </FormDialogContent>
     </Dialog>
   );
 }
@@ -64,59 +56,33 @@ function AddPartitionsForm({
   });
 
   const valid = COUNT.test(count) && Number(count) > current;
-  const ready = valid && !add.isPending;
-
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!ready) return;
-    // Unlike a hook-level onSuccess, this one is dropped once the dialog closes.
-    add.mutate({ count: Number(count) }, { onSuccess: onAdded });
-  }
 
   return (
-    <form className="grid gap-4" onSubmit={submit}>
-      <DialogHeader>
-        <DialogTitle>Add partitions</DialogTitle>
-        <DialogDescription>
-          Kafka cannot remove partitions later, and records with a key may land in a different
-          partition than earlier records with the same key.
-        </DialogDescription>
-      </DialogHeader>
-
-      <div className="grid gap-1.5">
-        <Label htmlFor={`${id}-count`}>Partition count</Label>
+    <DialogForm
+      title="Add partitions"
+      description="Kafka cannot remove partitions later, and records with a key may land in a different partition than earlier records with the same key."
+      error={add.isError ? apiErrorMessage(add.error, "Failed to add partitions.") : null}
+      submit={{ label: "Add partitions", pending: add.isPending, disabled: !valid }}
+      // Unlike a hook-level onSuccess, this one is dropped once the dialog closes.
+      onSubmit={() => add.mutate({ count: Number(count) }, { onSuccess: onAdded })}
+    >
+      <Field
+        label="Partition count"
+        htmlFor={`${id}-count`}
+        hint={`${topic.name} has ${current} ${current === 1 ? "partition" : "partitions"} now.`}
+      >
         <Input
           id={`${id}-count`}
-          autoFocus
+          data-autofocus
           inputMode="numeric"
           autoComplete="off"
           className="numeric w-32"
           value={count}
           aria-invalid={(count !== "" && !valid) || undefined}
-          aria-describedby={`${id}-current`}
+          aria-describedby={`${id}-count-hint`}
           onChange={(event) => setCount(event.target.value.trim())}
         />
-        <p id={`${id}-current`} className="text-xs text-muted-foreground">
-          {topic.name} has {current} {current === 1 ? "partition" : "partitions"} now.
-        </p>
-      </div>
-
-      {add.isError ? (
-        <Alert variant="destructive">
-          <CircleAlertIcon />
-          <AlertDescription>
-            {apiErrorMessage(add.error, "Failed to add partitions.")}
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
-      <DialogFooter>
-        <DialogClose render={<Button type="button" variant="outline" />}>Cancel</DialogClose>
-        <Button type="submit" disabled={!ready}>
-          {add.isPending ? <Spinner data-icon="inline-start" /> : null}
-          Add partitions
-        </Button>
-      </DialogFooter>
-    </form>
+      </Field>
+    </DialogForm>
   );
 }

@@ -21,7 +21,7 @@ import type { BrokerRow, ConfigEntry } from "@/lib/api/types";
 
 import { brokerTab } from "./search";
 import { logDirColumns } from "./broker-columns";
-import { EditBrokerConfigButton, EditBrokerConfigDialog } from "./edit-broker-config";
+import { EditBrokerConfigSheet } from "./edit-broker-config";
 
 const route = getRouteApi("/cluster/$cluster/nodes_/$id");
 
@@ -120,17 +120,10 @@ export function BrokerPage() {
             <ConfigTable
               entries={configs}
               loading={configsPending}
-              action={
-                canAlter
-                  ? (entry) =>
-                      entry.readOnly ? null : (
-                        <EditBrokerConfigButton handle={configEditor} entry={entry} />
-                      )
-                  : undefined
-              }
+              onEdit={canAlter ? (entry) => configEditor.openWithPayload(entry) : undefined}
             />
             {canAlter ? (
-              <EditBrokerConfigDialog cluster={cluster} broker={brokerId} handle={configEditor} />
+              <EditBrokerConfigSheet cluster={cluster} broker={brokerId} handle={configEditor} />
             ) : null}
           </TabsContent>
         ) : null}

@@ -41,7 +41,7 @@ import type { KafkaRecord, TopicDetail } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
 import { DeleteRecordsDialog } from "./delete-records";
-import { ProduceRecordDialog, duplicateDraft } from "./produce-record";
+import { ProduceRecordSheet, duplicateDraft } from "./produce-record";
 import { useRecordAddress } from "./record-address";
 import { recordId } from "./record-id";
 import { RecordJump } from "./record-jump";
@@ -210,6 +210,7 @@ export function RecordView({
 }: RecordViewProps) {
   const { address, open, link } = useRecordAddress();
   const [expanded, setExpanded] = useState(false);
+  const [cutting, setCutting] = useState(false);
   const sheetRef = useRef<HTMLDivElement>(null);
 
   const { records, obfuscated } = source;
@@ -314,17 +315,17 @@ export function RecordView({
         >
           {address ? (
             <SheetHeader className="gap-1 border-b px-5 py-4 pr-12">
-              <SheetTitle className="flex min-w-0 items-center gap-2 font-mono text-sm font-medium">
-                <span className="min-w-0 truncate">
+              <div className="flex min-w-0 items-center gap-2">
+                <SheetTitle className="min-w-0 truncate font-mono text-sm font-medium">
                   <span className="text-muted-foreground">{topic.name}</span>
                   <span className="text-muted-foreground/60"> / </span>
                   {address.partition}
                   <span className="text-muted-foreground/60"> @ </span>
                   {address.offset}
-                </span>
+                </SheetTitle>
                 <CopyButton value={link(address)} label="Copy link to this record" />
                 {canDuplicate ? (
-                  <ProduceRecordDialog
+                  <ProduceRecordSheet
                     cluster={cluster}
                     topic={topic}
                     draft={duplicate ?? undefined}
@@ -332,20 +333,27 @@ export function RecordView({
                     onProduced={open}
                   >
                     <CopyPlusIcon />
-                  </ProduceRecordDialog>
+                  </ProduceRecordSheet>
                 ) : null}
                 {canDelete ? (
-                  <DeleteRecordsDialog
-                    cluster={cluster}
-                    topic={topic}
-                    cut={{ partition: address.partition, before: address.offset }}
-                    trigger={<IconButton label="Delete the records before this one" />}
-                  >
-                    <ListXIcon />
-                  </DeleteRecordsDialog>
+                  <>
+                    <IconButton
+                      label="Delete the records before this one"
+                      onClick={() => setCutting(true)}
+                    >
+                      <ListXIcon />
+                    </IconButton>
+                    <DeleteRecordsDialog
+                      cluster={cluster}
+                      topic={topic}
+                      cut={{ partition: address.partition, before: address.offset }}
+                      open={cutting}
+                      onOpenChange={setCutting}
+                    />
+                  </>
                 ) : null}
                 {selectedObfuscated ? <ObfuscatedBadge /> : null}
-              </SheetTitle>
+              </div>
               <SheetDescription>
                 {selectedRecord
                   ? `Produced ${formatRelative(selectedRecord.timestamp)}`

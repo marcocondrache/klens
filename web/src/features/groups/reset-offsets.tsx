@@ -1,21 +1,11 @@
-import { useId, useState, type FormEvent } from "react";
+import { useId, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { createColumnHelper } from "@tanstack/react-table";
 import { CircleAlertIcon, RotateCcwIcon } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -23,15 +13,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Spinner } from "@/components/ui/spinner";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Sheet, SheetTrigger } from "@/components/ui/sheet";
+import { DataTable } from "@/components/data-table/data-table";
+import { type DataTableFeatures } from "@/components/data-table/features";
+import { Field, FieldCount } from "@/components/field";
+import { FormSheetContent, SheetForm } from "@/components/write-form";
 import { hasMembers } from "@/features/groups/group-state";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { apiErrorMessage, clusterPathname, patchAndRead, resourceId } from "@/lib/api/client";
@@ -70,19 +56,19 @@ function resetTarget(kind: TargetKind, value: string): ResetTarget | null {
   }
 }
 
-export function ResetOffsetsDialog({ cluster, group }: { cluster: string; group: GroupDetail }) {
+export function ResetOffsetsSheet({ cluster, group }: { cluster: string; group: GroupDetail }) {
   const [open, setOpen] = useState(false);
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button variant="outline" />}>
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetTrigger render={<Button variant="outline" />}>
         <RotateCcwIcon data-icon="inline-start" />
         Reset offsets
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-xl">
+      </SheetTrigger>
+      <FormSheetContent wide>
         <ResetOffsetsForm cluster={cluster} group={group} onReset={() => setOpen(false)} />
-      </DialogContent>
-    </Dialog>
+      </FormSheetContent>
+    </Sheet>
   );
 }
 
@@ -146,25 +132,34 @@ function ResetOffsetsForm({
   ];
   const moves = preview.data ?? [];
   const current = preview.isSuccess && !preview.isPlaceholderData && debounced === planned;
-  const ready = request !== null && !active && current && moves.length > 0 && !reset.isPending;
-
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!ready || request === null) return;
-    // Unlike a hook-level onSuccess, this one is dropped once the dialog closes.
-    reset.mutate({ ...request, dryRun: false }, { onSuccess: onReset });
-  }
 
   return (
-    <form className="grid min-w-0 gap-4" onSubmit={submit}>
-      <DialogHeader>
-        <DialogTitle>Reset offsets</DialogTitle>
-        <DialogDescription>
+    <SheetForm
+      title="Reset offsets"
+      description={
+        <>
           This moves the committed offsets of <span className="font-mono">{group.id}</span>. Its
           consumers continue from the new offsets when they rejoin.
-        </DialogDescription>
-      </DialogHeader>
-
+        </>
+      }
+      error={
+        reset.isError
+          ? apiErrorMessage(reset.error, "Failed to reset the offsets.")
+          : preview.isError
+            ? apiErrorMessage(preview.error, "Failed to plan the reset.")
+            : null
+      }
+      submit={{
+        label: "Reset offsets",
+        pending: reset.isPending,
+        disabled: request === null || active || !current || moves.length === 0,
+      }}
+      onSubmit={() => {
+        if (request === null) return;
+        // Unlike a hook-level onSuccess, this one is dropped once the sheet closes.
+        reset.mutate({ ...request, dryRun: false }, { onSuccess: onReset });
+      }}
+    >
       {active ? (
         <Alert>
           <CircleAlertIcon />
@@ -176,8 +171,7 @@ function ResetOffsetsForm({
       ) : null}
 
       <div className="grid grid-cols-2 gap-3">
-        <div className="grid min-w-0 gap-1.5">
-          <Label htmlFor={`${id}-topic`}>Topic</Label>
+        <Field label="Topic" htmlFor={`${id}-topic`}>
           <Select
             items={topicItems}
             value={topic}
@@ -205,9 +199,8 @@ function ResetOffsetsForm({
               ))}
             </SelectContent>
           </Select>
-        </div>
-        <div className="grid min-w-0 gap-1.5">
-          <Label htmlFor={`${id}-partition`}>Partition</Label>
+        </Field>
+        <Field label="Partition" htmlFor={`${id}-partition`}>
           <Select
             items={partitionItems}
             value={partition}
@@ -227,12 +220,11 @@ function ResetOffsetsForm({
               ))}
             </SelectContent>
           </Select>
-        </div>
+        </Field>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <div className="grid min-w-0 gap-1.5">
-          <Label htmlFor={`${id}-target`}>Reset to</Label>
+        <Field label="Reset to" htmlFor={`${id}-target`}>
           <Select
             items={TARGETS}
             value={kind}
@@ -253,35 +245,30 @@ function ResetOffsetsForm({
               ))}
             </SelectContent>
           </Select>
-        </div>
+        </Field>
         <TargetInput id={`${id}-value`} kind={kind} value={value} onChange={setValue} />
       </div>
 
-      {moves.length > 0 ? (
-        <PlanTable moves={moves} stale={!current} />
-      ) : current ? (
-        <p className="text-sm text-muted-foreground">The group has no committed offsets to move.</p>
-      ) : null}
-
-      {preview.isError || reset.isError ? (
-        <Alert variant="destructive">
-          <CircleAlertIcon />
-          <AlertDescription>
-            {reset.isError
-              ? apiErrorMessage(reset.error, "Failed to reset the offsets.")
-              : apiErrorMessage(preview.error, "Failed to plan the reset.")}
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
-      <DialogFooter>
-        <DialogClose render={<Button type="button" variant="outline" />}>Cancel</DialogClose>
-        <Button type="submit" disabled={!ready}>
-          {reset.isPending ? <Spinner data-icon="inline-start" /> : null}
-          Reset offsets
-        </Button>
-      </DialogFooter>
-    </form>
+      <Field
+        label={
+          <>
+            Preview
+            <FieldCount value={moves.length} />
+          </>
+        }
+        className="flex min-h-0 flex-1 flex-col"
+      >
+        {moves.length > 0 ? (
+          <PlanTable moves={moves} stale={!current} />
+        ) : current ? (
+          <p className="text-sm text-muted-foreground">
+            The group has no committed offsets to move.
+          </p>
+        ) : request === null ? (
+          <p className="text-sm text-muted-foreground">Enter a target to see the new offsets.</p>
+        ) : null}
+      </Field>
+    </SheetForm>
   );
 }
 
@@ -303,11 +290,10 @@ function TargetInput({
   ];
 
   return (
-    <div className="grid min-w-0 gap-1.5">
-      <Label htmlFor={id}>{label}</Label>
+    <Field label={label} htmlFor={id}>
       <Input
         id={id}
-        autoFocus
+        data-autofocus
         type={timestamp ? "datetime-local" : "text"}
         inputMode={timestamp ? undefined : "numeric"}
         autoComplete="off"
@@ -316,42 +302,55 @@ function TargetInput({
         aria-invalid={(value !== "" && resetTarget(kind, value) === null) || undefined}
         onChange={(event) => onChange(timestamp ? event.target.value : event.target.value.trim())}
       />
-    </div>
+    </Field>
   );
 }
 
+const planColumnHelper = createColumnHelper<DataTableFeatures, OffsetMove>();
+
+const planColumns = planColumnHelper.columns([
+  planColumnHelper.accessor("topic", {
+    header: "Topic",
+    cell: ({ getValue }) => <span className="font-mono">{getValue()}</span>,
+  }),
+  planColumnHelper.accessor("partition", {
+    header: "Partition",
+    meta: { align: "right", width: "6rem" },
+  }),
+  planColumnHelper.accessor((move) => move.currentOffset ?? -1, {
+    id: "committed",
+    header: "Committed",
+    meta: { align: "right", width: "7rem" },
+    cell: ({ row }) => (
+      <span className="text-muted-foreground">
+        {row.original.currentOffset === null ? "none" : formatNumber(row.original.currentOffset)}
+      </span>
+    ),
+  }),
+  planColumnHelper.accessor("newOffset", {
+    header: "New",
+    meta: { align: "right", width: "7rem" },
+    cell: ({ getValue }) => formatNumber(getValue()),
+  }),
+  planColumnHelper.accessor((move) => move.endOffset - move.newOffset, {
+    id: "lag",
+    header: "Lag after",
+    meta: { align: "right", width: "7rem" },
+    cell: ({ getValue }) => (
+      <span className="text-muted-foreground">{formatNumber(getValue())}</span>
+    ),
+  }),
+]);
+
 function PlanTable({ moves, stale }: { moves: OffsetMove[]; stale: boolean }) {
   return (
-    <div
-      className="max-h-64 overflow-auto rounded-md border data-[stale=true]:opacity-60"
-      data-stale={stale}
-    >
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Topic</TableHead>
-            <TableHead className="text-right">Partition</TableHead>
-            <TableHead className="text-right">Committed</TableHead>
-            <TableHead className="text-right">New</TableHead>
-            <TableHead className="text-right">Lag after</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {moves.map((move) => (
-            <TableRow key={`${move.topic}-${move.partition}`}>
-              <TableCell className="max-w-48 truncate font-mono">{move.topic}</TableCell>
-              <TableCell className="numeric text-right">{move.partition}</TableCell>
-              <TableCell className="numeric text-right text-muted-foreground">
-                {move.currentOffset === null ? "none" : formatNumber(move.currentOffset)}
-              </TableCell>
-              <TableCell className="numeric text-right">{formatNumber(move.newOffset)}</TableCell>
-              <TableCell className="numeric text-right text-muted-foreground">
-                {formatNumber(move.endOffset - move.newOffset)}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+    <div className="flex min-h-48 flex-1 flex-col data-[stale=true]:opacity-60" data-stale={stale}>
+      <DataTable
+        columns={planColumns}
+        data={moves}
+        getRowId={(move) => `${move.topic}-${move.partition}`}
+        defaultSort={{ id: "topic", direction: "asc" }}
+      />
     </div>
   );
 }

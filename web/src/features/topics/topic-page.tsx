@@ -1,10 +1,12 @@
 import { useState } from "react";
-import { AlertTriangleIcon, ListXIcon, SendIcon } from "lucide-react";
+import { AlertTriangleIcon, ListXIcon, PlusIcon, SendIcon, Trash2Icon } from "lucide-react";
 import { getRouteApi } from "@tanstack/react-router";
 
 import { Button } from "@/components/ui/button";
 import { createDialogHandle } from "@/components/ui/dialog";
+import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ActionsMenu, useOpenDialog } from "@/components/actions-menu";
 import { ConfigTable } from "@/components/config-table";
 import { ConfirmDelete } from "@/components/confirm-delete";
 import { CopyButton } from "@/components/copy-button";
@@ -12,7 +14,7 @@ import { DataTable } from "@/components/data-table/data-table";
 import { Facts } from "@/components/facts";
 import { PageHeader } from "@/components/page-header";
 import { DeleteRecordsDialog } from "@/features/records/delete-records";
-import { ProduceRecordDialog } from "@/features/records/produce-record";
+import { ProduceRecordSheet } from "@/features/records/produce-record";
 import { RecordBrowser } from "@/features/records/record-browser";
 import { PendingValue, Pill, StatusDot } from "@/components/status";
 import { TabCount } from "@/components/tab-count";
@@ -32,7 +34,7 @@ import {
 } from "@/lib/format";
 
 import { AddPartitionsDialog } from "./add-partitions";
-import { EditTopicConfigButton, EditTopicConfigDialog } from "./edit-topic-config";
+import { EditTopicConfigSheet } from "./edit-topic-config";
 import { topicTab } from "./search";
 import { partitionColumns, topicGroupColumns } from "./topic-columns";
 
@@ -92,6 +94,7 @@ export function TopicPage() {
     tab === "groups",
   );
   const [configEditor] = useState(() => createDialogHandle<ConfigEntry>());
+  const dialogs = useOpenDialog<"partitions" | "records" | "delete">();
 
   const lookup = catalogLookupMessage({
     isPending,
@@ -106,8 +109,10 @@ export function TopicPage() {
   }
 
   const editable = detail !== null && !detail.internal;
+  const canProduce = editable && canChange(cluster, "PRODUCE");
   const canDeleteRecords = editable && canChange(cluster, "DELETE_RECORDS");
   const canAddPartitions = editable && canChange(cluster, "ADD_PARTITIONS");
+  const canDeleteTopic = editable && canChange(cluster, "DELETE_TOPICS");
   const canAlterConfigs = editable && canChange(cluster, "ALTER_TOPIC_CONFIGS");
 
   return (
@@ -137,10 +142,10 @@ export function TopicPage() {
         }
         description={detail ? <TopicFacts detail={detail} /> : null}
         actions={
-          detail && !detail.internal ? (
+          detail ? (
             <>
-              {canChange(cluster, "PRODUCE") ? (
-                <ProduceRecordDialog
+              {canProduce ? (
+                <ProduceRecordSheet
                   cluster={cluster}
                   topic={detail}
                   trigger={<Button variant="outline" />}
@@ -152,30 +157,62 @@ export function TopicPage() {
                 >
                   <SendIcon data-icon="inline-start" />
                   Produce record
-                </ProduceRecordDialog>
+                </ProduceRecordSheet>
               ) : null}
-              {canChange(cluster, "DELETE_TOPICS") ? (
-                <ConfirmDelete
-                  noun="topic"
-                  name={topicName}
-                  consequence={
+              {canAddPartitions || canDeleteRecords || canDeleteTopic ? (
+                <ActionsMenu label="Topic actions">
+                  {canAddPartitions ? (
+                    <DropdownMenuItem onClick={() => dialogs.show("partitions")}>
+                      <PlusIcon />
+                      Add partitions
+                    </DropdownMenuItem>
+                  ) : null}
+                  {canDeleteRecords ? (
+                    <DropdownMenuItem onClick={() => dialogs.show("records")}>
+                      <ListXIcon />
+                      Delete records
+                    </DropdownMenuItem>
+                  ) : null}
+                  {canDeleteTopic ? (
                     <>
-                      This deletes <span className="font-mono">{topicName}</span> and every record
-                      in it, and cannot be undone.
+                      {canAddPartitions || canDeleteRecords ? <DropdownMenuSeparator /> : null}
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onClick={() => dialogs.show("delete")}
+                      >
+                        <Trash2Icon />
+                        Delete topic
+                      </DropdownMenuItem>
                     </>
-                  }
-                  onDelete={() =>
-                    del(clusterPathname(cluster, "topics", encodeURIComponent(topicName)))
-                  }
-                  onDeleted={() =>
-                    void navigate({ to: "/cluster/$cluster/topics", params: { cluster } })
-                  }
-                />
+                  ) : null}
+                </ActionsMenu>
               ) : null}
             </>
           ) : null
         }
       />
+
+      {detail && canAddPartitions ? (
+        <AddPartitionsDialog cluster={cluster} topic={detail} {...dialogs.props("partitions")} />
+      ) : null}
+      {detail && canDeleteRecords ? (
+        <DeleteRecordsDialog cluster={cluster} topic={detail} {...dialogs.props("records")} />
+      ) : null}
+      {canDeleteTopic ? (
+        <ConfirmDelete
+          {...dialogs.props("delete")}
+          noun="topic"
+          name={topicName}
+          consequence={
+            <>
+              This deletes <span className="font-mono">{topicName}</span> and every record in it,
+              and cannot be undone.
+            </>
+          }
+          onDelete={() => del(clusterPathname(cluster, "topics", encodeURIComponent(topicName)))}
+          onDeleted={() => void navigate({ to: "/cluster/$cluster/topics", params: { cluster } })}
+        />
+      ) : null}
 
       <Tabs
         value={tab}
@@ -209,25 +246,6 @@ export function TopicPage() {
         <TabsContent value="partitions" className="mt-4 flex min-h-0 flex-col">
           <DataTable
             columns={partitionColumns}
-            toolbar={
-              canDeleteRecords || canAddPartitions ? (
-                <div className="ml-auto flex gap-2">
-                  {canDeleteRecords ? (
-                    <DeleteRecordsDialog
-                      cluster={cluster}
-                      topic={detail}
-                      trigger={<Button variant="outline" size="sm" />}
-                    >
-                      <ListXIcon data-icon="inline-start" />
-                      Delete records
-                    </DeleteRecordsDialog>
-                  ) : null}
-                  {canAddPartitions ? (
-                    <AddPartitionsDialog cluster={cluster} topic={detail} />
-                  ) : null}
-                </div>
-              ) : null
-            }
             data={detail?.partitions ?? []}
             getRowId={(partition) => String(partition.id)}
             loading={isPending}
@@ -256,17 +274,10 @@ export function TopicPage() {
             <ConfigTable
               entries={configs}
               loading={configsPending}
-              action={
-                canAlterConfigs
-                  ? (entry) =>
-                      entry.readOnly ? null : (
-                        <EditTopicConfigButton handle={configEditor} entry={entry} />
-                      )
-                  : undefined
-              }
+              onEdit={canAlterConfigs ? (entry) => configEditor.openWithPayload(entry) : undefined}
             />
             {canAlterConfigs ? (
-              <EditTopicConfigDialog cluster={cluster} topic={topicName} handle={configEditor} />
+              <EditTopicConfigSheet cluster={cluster} topic={topicName} handle={configEditor} />
             ) : null}
           </TabsContent>
         ) : null}
