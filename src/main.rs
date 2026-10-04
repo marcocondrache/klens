@@ -27,6 +27,14 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("oidc authentication enabled");
     }
 
+    let unguarded = config.writable_without_auth();
+    if !unguarded.is_empty() {
+        tracing::warn!(
+            clusters = ?unguarded,
+            "auth is off, so anyone who reaches klens can change these writable clusters"
+        );
+    }
+
     let _ingest = Ingest::start(&clusters, &config.tuning.ingest);
     let state = AppState::new(clusters, auth, Limits::new(&config.tuning));
 

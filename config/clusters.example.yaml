@@ -83,8 +83,8 @@ clusters:
     #           strategy: mask       # the match becomes ***
 
 # Optional OpenID Connect login gate. When omitted, the UI and JSON API are
-# open to anyone who can reach the process. /health and /ready stay public
-# either way.
+# open to anyone who can reach the process, and klens logs a warning at startup
+# that names each writable cluster. /health and /ready stay public either way.
 #
 # Register redirect_uri with the identity provider; session cookies are Secure
 # when it is https. Without roles, any authenticated user has the same access
