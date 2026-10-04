@@ -1,5 +1,7 @@
 use e2e::{Kafka, Klens};
+use krafka::admin::NewTopic;
 use krafka::producer::ProducerRecord;
+use reqwest::StatusCode;
 use serde_json::{Value, json};
 
 use crate::row;
@@ -105,4 +107,55 @@ async fn an_export_downloads_every_record_as_ndjson() {
         .map(|line| serde_json::from_str(line).expect("one json value per line"))
         .collect();
     assert_eq!(keys(&lines), produced);
+}
+
+#[tokio::test]
+async fn deleted_records_leave_the_log_once_the_delete_answers() {
+    let kafka = Kafka::start().await;
+    kafka.topic("orders", 2).await;
+    kafka.fill("orders", 0, &["a", "b", "c", "d"]).await;
+    kafka.fill("orders", 1, &["e", "f", "g", "h"]).await;
+    let klens = Klens::over(&kafka).await;
+    let topic = "/api/clusters/local/topics/orders";
+    klens
+        .eventually(topic, |topic| topic["retainedMessages"] == 8)
+        .await;
+
+    let (status, body) = klens
+        .delete(&format!("{RECORDS}?partition=0&before=3"))
+        .await;
+
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    let detail = klens.get(topic).await;
+    assert_eq!(detail["partitions"][0]["lowWatermark"], 3);
+    assert_eq!(detail["partitions"][1]["lowWatermark"], 0);
+
+    let (status, body) = klens.delete(RECORDS).await;
+
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    assert_eq!(klens.get(topic).await["retainedMessages"], 0);
+}
+
+#[tokio::test]
+async fn a_compacted_topic_keeps_its_records() {
+    let kafka = Kafka::start().await;
+    kafka
+        .create(
+            NewTopic::new("orders", 1, 1)
+                .expect("a valid topic")
+                .with_config("cleanup.policy", "compact"),
+        )
+        .await;
+    kafka.fill("orders", 0, &["a", "b"]).await;
+    let klens = Klens::over(&kafka).await;
+    klens
+        .eventually("/api/clusters/local/topics/orders", |topic| {
+            topic["retainedMessages"] == 2
+        })
+        .await;
+
+    let (status, body) = klens.delete(RECORDS).await;
+
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(body["code"], "REFUSED");
 }

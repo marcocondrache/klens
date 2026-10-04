@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AlertTriangleIcon, SendIcon } from "lucide-react";
+import { AlertTriangleIcon, ListXIcon, SendIcon } from "lucide-react";
 import { getRouteApi } from "@tanstack/react-router";
 
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { CopyButton } from "@/components/copy-button";
 import { DataTable } from "@/components/data-table/data-table";
 import { Facts } from "@/components/facts";
 import { PageHeader } from "@/components/page-header";
+import { DeleteRecordsDialog } from "@/features/records/delete-records";
 import { ProduceRecordDialog } from "@/features/records/produce-record";
 import { RecordBrowser } from "@/features/records/record-browser";
 import { PendingValue, Pill, StatusDot } from "@/components/status";
@@ -207,7 +208,15 @@ export function TopicPage() {
             columns={partitionColumns}
             toolbar={
               canManage ? (
-                <div className="ml-auto">
+                <div className="ml-auto flex gap-2">
+                  <DeleteRecordsDialog
+                    cluster={cluster}
+                    topic={detail}
+                    trigger={<Button variant="outline" size="sm" />}
+                  >
+                    <ListXIcon data-icon="inline-start" />
+                    Delete records
+                  </DeleteRecordsDialog>
                   <AddPartitionsDialog cluster={cluster} topic={detail} />
                 </div>
               ) : null

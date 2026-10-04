@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::num::NonZeroU16;
 use std::sync::Arc;
 use std::time::Duration;
@@ -9,8 +10,8 @@ use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
     AclListing, ClusterIdentity, CommittedOffset, ConfigEdit, ConfigEntry, GroupSnapshot, LogDir,
     MetadataSnapshot, NewRecord, NewTopic, PartitionWindow, ProducedRecord, QuotaListing,
-    RegisteredSchema, ScanConsumer, SchemaSubject, TailConsumer, TailPosition, TopicMetadata,
-    Watermarks,
+    RecordDeletion, RegisteredSchema, ScanConsumer, SchemaSubject, TailConsumer, TailPosition,
+    TopicMetadata, Watermarks,
 };
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
@@ -93,6 +94,12 @@ pub trait ClusterSession: Send + Sync + 'static {
 
     /// Grows `topic` to `total` partitions. Kafka never removes partitions.
     async fn add_partitions(&self, topic: &str, total: NonZeroU16) -> Result<(), KafkaError>;
+
+    /// Answers each partition's low watermark once its records are gone.
+    async fn delete_records(
+        &self,
+        deletion: &RecordDeletion,
+    ) -> Result<BTreeMap<i32, i64>, KafkaError>;
 
     async fn produce(&self, record: &NewRecord) -> Result<ProducedRecord, KafkaError>;
 

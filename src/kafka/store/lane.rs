@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use std::sync::RwLock;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use arc_swap::ArcSwapOption;
@@ -32,6 +32,7 @@ pub struct Lane<T> {
     version: AtomicU64,
     health: RwLock<LaneHealth>,
     kick: Notify,
+    refresh: AtomicBool,
     commits: watch::Sender<()>,
     polls: watch::Sender<()>,
 }
@@ -43,6 +44,7 @@ impl<T> Default for Lane<T> {
             version: AtomicU64::new(0),
             health: RwLock::new(LaneHealth::default()),
             kick: Notify::new(),
+            refresh: AtomicBool::new(false),
             commits: watch::Sender::new(()),
             polls: watch::Sender::new(()),
         }
@@ -109,12 +111,19 @@ impl<T> Lane<T> {
         }
     }
 
+    /// True once after `refresh_until` asked for a poll, so a source that
+    /// serves part of its table from a cache reads all of it again.
+    pub fn take_refresh(&self) -> bool {
+        self.refresh.swap(false, Ordering::AcqRel)
+    }
+
     pub async fn refresh_until(&self, done: impl Fn(&T) -> bool) {
         let shows = || self.load().is_some_and(|table| done(&table));
         let mut polls = self.polls.subscribe();
         let mut backoff = REFRESH_BACKOFF;
         while !shows() {
             polls.mark_unchanged();
+            self.refresh.store(true, Ordering::Release);
             self.kick();
             polls.changed().await.expect("a lane outlives its watchers");
             if self.health().last_error.is_some() || shows() {
@@ -295,6 +304,7 @@ mod tests {
                 .is_err(),
             "no kick is pending"
         );
+        assert!(!lane.take_refresh());
     }
 
     #[tokio::test(start_paused = true)]
@@ -310,6 +320,8 @@ mod tests {
 
         assert!(started.elapsed() < PATIENCE, "kicks, not the interval");
         assert_eq!(*lane.load().unwrap(), 2);
+        assert!(lane.take_refresh());
+        assert!(!lane.take_refresh(), "a refresh is taken once");
     }
 
     #[tokio::test(start_paused = true)]

@@ -5,7 +5,9 @@ pub use crate::kafka::cluster::ClusterIdentity;
 pub use crate::kafka::group::{
     CommittedOffset, GroupMember, GroupOffset, GroupSnapshot, GroupState, MemberAssignment,
 };
-pub use crate::kafka::metadata::{MetadataSnapshot, NewTopic, TopicMetadata, Watermarks};
+pub use crate::kafka::metadata::{
+    MetadataSnapshot, NewTopic, RecordDeletion, TopicMetadata, Watermarks,
+};
 pub use crate::kafka::produce::{NewRecord, ProducedRecord};
 pub use crate::kafka::quota::{ClientQuota, QuotaEntityType, QuotaListing};
 pub use crate::kafka::registry::{

@@ -12,7 +12,8 @@ use crate::app::auth::access::{
     RecordsCap, SchemaTextCap,
 };
 use crate::kafka::model::{
-    ConfigEdit, FoundRecord, NewRecord, NewTopic, ProducedRecord, RecordAt, RegisteredSchema,
+    ConfigEdit, FoundRecord, NewRecord, NewTopic, ProducedRecord, RecordAt, RecordDeletion,
+    RegisteredSchema,
 };
 use crate::kafka::store::{ClusterStore, Lane, TopicInfo};
 use crate::kafka::{
@@ -178,6 +179,51 @@ impl Granted<'_, ManageTopicsCap> {
         Ok(())
     }
 
+    /// Without `partitions` the deletion covers every partition, and without
+    /// `before` it deletes every record.
+    pub(crate) async fn delete_records(
+        &self,
+        topic: &str,
+        partitions: &[i32],
+        before: Option<i64>,
+    ) -> Result<(), KafkaError> {
+        let known = self.writable_topic(topic, TopicInfo::partition_ids)?;
+        if let Some(&partition) = partitions
+            .iter()
+            .find(|partition| !known.contains(partition))
+        {
+            return Err(self.unknown_partition(topic, partition));
+        }
+        let deletion = RecordDeletion {
+            topic: topic.to_owned(),
+            before: if partitions.is_empty() {
+                &known
+            } else {
+                partitions
+            }
+            .iter()
+            .map(|&partition| (partition, before))
+            .collect(),
+        };
+        let lows = self.cluster.session.delete_records(&deletion).await?;
+        tracing::info!(
+            cluster = %self.cluster.store.name(),
+            topic,
+            partitions = ?deletion.before.keys().collect::<Vec<_>>(),
+            before,
+            "deleted records"
+        );
+        self.settle(&self.cluster.store.watermarks, |marks| {
+            lows.iter().all(|(&partition, &low)| {
+                marks
+                    .get(topic, partition)
+                    .is_some_and(|mark| mark.low >= low)
+            })
+        })
+        .await;
+        Ok(())
+    }
+
     pub(crate) async fn delete_topic(&self, topic: &str) -> Result<(), KafkaError> {
         self.writable_topic(topic, |_| ())?;
         self.cluster.session.delete_topic(topic).await?;
@@ -197,11 +243,7 @@ impl Granted<'_, ProduceCap> {
         if let Some(partition) = record.partition
             && !partitions.contains(&partition)
         {
-            return Err(KafkaError::UnknownPartition {
-                cluster: self.cluster.store.name().to_owned(),
-                topic: topic.to_owned(),
-                partition,
-            });
+            return Err(self.unknown_partition(topic, partition));
         }
         let produced = self.cluster.session.produce(record).await?;
         tracing::info!(
@@ -216,6 +258,14 @@ impl Granted<'_, ProduceCap> {
 }
 
 impl<Cap> Granted<'_, Cap> {
+    fn unknown_partition(&self, topic: &str, partition: i32) -> KafkaError {
+        KafkaError::UnknownPartition {
+            cluster: self.cluster.store.name().to_owned(),
+            topic: topic.to_owned(),
+            partition,
+        }
+    }
+
     fn writable_topic<T>(
         &self,
         topic: &str,

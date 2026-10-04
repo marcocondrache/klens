@@ -241,6 +241,34 @@ async fn the_watermark_lane_rereads_low_watermarks_once_their_interval_passes() 
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_refresh_rereads_cached_low_watermarks() {
+    let rig = Rig::local();
+    let lane = rig.watermarks();
+    rig.poll(&rig.topology()).await;
+    rig.poll(&lane).await;
+    rig.cluster
+        .set_watermarks("orders.created", 0, Watermarks { low: 5, high: 12 });
+    let store = Arc::clone(&rig.store);
+    let waiter = tokio::spawn(async move {
+        store
+            .watermarks
+            .refresh_until(|marks| {
+                marks.get("orders.created", 0) == Some(Watermarks { low: 5, high: 12 })
+            })
+            .await;
+    });
+    quiesce().await;
+
+    rig.poll(&lane).await;
+
+    assert_eq!(rig.cluster.calls(Api::LowWatermarks), 2);
+    tokio::time::timeout(Duration::from_secs(1), waiter)
+        .await
+        .expect("the refresh sees the new low watermark")
+        .expect("the waiter");
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_new_partition_reads_its_low_watermark_on_the_next_poll() {
     let rig = Rig::local();
     let topology = rig.topology();

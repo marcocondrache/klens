@@ -75,6 +75,12 @@ const WRITES: &[(Method, &str, Option<&str>, Privilege)] = &[
         Privilege::ManageTopics,
     ),
     (
+        Method::DELETE,
+        "/clusters/local/topics/orders.created/records",
+        None,
+        Privilege::ManageTopics,
+    ),
+    (
         Method::POST,
         "/clusters/local/topics/orders.created/records",
         Some(r#"{ "key": null, "value": null }"#),

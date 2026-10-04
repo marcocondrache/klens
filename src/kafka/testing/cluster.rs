@@ -19,7 +19,8 @@ use crate::kafka::metadata::{
     BrokerMetadata, MetadataSnapshot, NewTopic, TopicMetadata, Watermarks,
 };
 use crate::kafka::model::{
-    NewRecord, PartitionWindow, ProducedRecord, ScanConsumer, TailConsumer, TailPosition,
+    NewRecord, PartitionWindow, ProducedRecord, RecordDeletion, ScanConsumer, TailConsumer,
+    TailPosition,
 };
 use crate::kafka::quota::QuotaListing;
 use crate::kafka::registry::{RegisteredSchema, SchemaSubject};
@@ -55,6 +56,7 @@ pub enum Api {
     DeleteTopic,
     AlterTopicConfigs,
     AddPartitions,
+    DeleteRecords,
     Produce,
 }
 
@@ -727,6 +729,35 @@ impl ClusterSession for FakeCluster {
             self.add_partition(topic, i32::try_from(id).expect("a partition id"));
         }
         Ok(())
+    }
+
+    async fn delete_records(
+        &self,
+        deletion: &RecordDeletion,
+    ) -> Result<BTreeMap<i32, i64>, KafkaError> {
+        self.answer(Api::DeleteRecords).await?;
+        let mut world = self.world();
+        let mut lows = BTreeMap::new();
+        for (&partition, &before) in &deletion.before {
+            let marks = world
+                .watermarks
+                .get_mut(&deletion.topic)
+                .and_then(|partitions| partitions.get_mut(&partition))
+                .ok_or_else(|| KafkaError::Refused("UnknownTopicOrPartition".to_owned()))?;
+            let low = before.unwrap_or(marks.high);
+            if low > marks.high {
+                return Err(KafkaError::Refused("OffsetOutOfRange".to_owned()));
+            }
+            marks.low = marks.low.max(low);
+            lows.insert(partition, marks.low);
+        }
+        world.records.retain(|record| {
+            record.topic() != deletion.topic
+                || lows
+                    .get(&record.partition())
+                    .is_none_or(|&low| record.offset() >= low)
+        });
+        Ok(lows)
     }
 
     async fn produce(&self, record: &NewRecord) -> Result<ProducedRecord, KafkaError> {

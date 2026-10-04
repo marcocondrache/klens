@@ -157,8 +157,11 @@ impl LaneSource for WatermarkLane {
     ) -> Result<WatermarkTable, KafkaError> {
         let wanted = self.wanted_partitions(store, topology);
         let now = Instant::now();
+        let refresh = store.watermarks.take_refresh();
         let fetched = match previous {
-            Some(previous) if !self.low_due(now) => self.read_high(&wanted, previous).await?,
+            Some(previous) if !refresh && !self.low_due(now) => {
+                self.read_high(&wanted, previous).await?
+            }
             _ => self.read_low_and_high(&wanted, now).await?,
         };
 
