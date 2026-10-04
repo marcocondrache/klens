@@ -31,6 +31,11 @@ pub enum GroupState {
 }
 
 impl GroupState {
+    /// Whether consumers hold the group, so only they may commit its offsets.
+    pub fn has_members(self) -> bool {
+        !matches!(self, Self::Empty | Self::Dead)
+    }
+
     pub fn parse(raw: &str) -> Self {
         let normalized: String = raw
             .chars()

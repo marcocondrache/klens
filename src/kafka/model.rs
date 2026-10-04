@@ -13,6 +13,7 @@ pub use crate::kafka::quota::{ClientQuota, QuotaEntityType, QuotaListing};
 pub use crate::kafka::registry::{
     RegisteredSchema, SchemaCompatibility, SchemaReference, SchemaSubject, SchemaType,
 };
+pub use crate::kafka::reset::{OffsetMove, OffsetReset, ResetTarget};
 pub use crate::kafka::scan::plan::PartitionWindow;
 pub use crate::kafka::scan::query::{RecordAt, RecordOrder, RecordQuery, TimestampRange};
 pub use crate::kafka::scan::session::{RawRecord, ScanConsumer};

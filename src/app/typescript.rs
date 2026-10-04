@@ -5,7 +5,8 @@ pub use super::brokers::types::{BrokerRow, LogDir};
 pub use super::clusters::types::{ClusterHealth, LaneHealth};
 pub use super::configs::{ConfigEntry, ConfigSource};
 pub use super::groups::types::{
-    GroupDetail, GroupMember, GroupOffset, GroupRow, GroupState, MemberAssignment,
+    GroupDetail, GroupMember, GroupOffset, GroupRow, GroupState, MemberAssignment, OffsetMove,
+    ResetOffsets, ResetTarget,
 };
 pub use super::quotas::types::{
     ClientQuota, QuotaEntity, QuotaEntityType, QuotaListing, QuotaStatus,

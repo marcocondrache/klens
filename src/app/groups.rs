@@ -1,26 +1,32 @@
 use axum::Json;
 use axum::Router;
-use axum::routing::get;
+use axum::routing::{get, patch};
 
 use crate::AppState;
 use crate::kafka::KafkaError;
 
 use super::context::Session;
 use super::error::ApiError;
-use super::extract::Path;
+use super::extract::{self, Path};
 
 pub mod types;
 
 #[cfg(test)]
 mod tests;
 
-pub(crate) use types::{GroupDetail, GroupOffset, GroupRow, GroupState};
+pub(crate) use types::{GroupDetail, GroupOffset, GroupRow, GroupState, OffsetMove, ResetOffsets};
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(groups))
         // Group ids may contain `/`.
         .route("/{*group}", get(group))
+}
+
+/// A group's committed offsets, under their own prefix because a group id
+/// may contain `/` and so must end the path.
+pub(crate) fn offsets_router() -> Router<AppState> {
+    Router::new().route("/{*group}", patch(reset_offsets))
 }
 
 async fn groups(
@@ -55,4 +61,21 @@ async fn group(
             }
             .into()
         })
+}
+
+async fn reset_offsets(
+    session: Session,
+    Path((name, group)): Path<(String, String)>,
+    extract::Json(request): extract::Json<ResetOffsets>,
+) -> Result<Json<Vec<OffsetMove>>, ApiError> {
+    let cluster = session.cluster(&name)?;
+    let groups = cluster.manage_groups()?;
+    let dry_run = request.dry_run;
+    let reset = request.into_reset(group)?;
+    let moves = if dry_run {
+        groups.plan_reset(&reset).await?
+    } else {
+        groups.reset_offsets(&reset).await?
+    };
+    Ok(Json(moves.into_iter().map(OffsetMove::from).collect()))
 }

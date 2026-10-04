@@ -12,6 +12,7 @@ mod group;
 mod limits;
 mod produce;
 mod quota;
+mod reset;
 mod scan;
 
 pub mod ingest;

@@ -90,6 +90,7 @@ pub enum Privilege {
     Acls,
     ManageTopics,
     Produce,
+    ManageGroups,
 }
 
 #[cfg(test)]
