@@ -28,19 +28,25 @@ function subjectOption(row: SubjectRow): SchemaOption {
   return { id: row.id, label: row.subject, detail: `${row.type} · v${row.latestVersion}` };
 }
 
+/** `raw` adds an option that picks no schema. */
 export function SchemaPicker({
   cluster,
-  topic,
+  preferred,
   value,
   onChange,
+  label,
+  placeholder,
+  raw = false,
 }: {
   cluster: string;
-  topic: string;
+  preferred: string;
   value: number | null;
   onChange: (id: number | null) => void;
+  label: string;
+  placeholder: string;
+  raw?: boolean;
 }) {
   const { data: subjects } = useSubjectRows(cluster);
-  const preferred = `${topic}-value`;
   const options = useMemo(() => {
     const rows = subjects?.rows ?? [];
     return {
@@ -55,7 +61,7 @@ export function SchemaPicker({
     return null;
   }
 
-  const groups: SchemaGroup[] = [{ value: "raw", label: null, items: [RAW] }];
+  const groups: SchemaGroup[] = raw ? [{ value: "raw", label: null, items: [RAW] }] : [];
   if (options.pinned.length > 0) {
     groups.push({ value: "suggested", label: "Suggested", items: options.pinned });
   }
@@ -71,7 +77,7 @@ export function SchemaPicker({
     <Combobox
       items={groups}
       autoHighlight
-      value={selected ?? RAW}
+      value={selected ?? (raw ? RAW : null)}
       onValueChange={(option) => {
         if (option) onChange(option.id);
       }}
@@ -83,12 +89,12 @@ export function SchemaPicker({
           <Button
             variant="outline"
             className="max-w-64 min-w-0 gap-1 font-normal"
-            aria-label="Decode value with schema"
+            aria-label={label}
           />
         }
       >
         <span className={cn("min-w-0 truncate", selected ? "font-mono" : "text-muted-foreground")}>
-          {selected ? selected.label : "Decode with schema…"}
+          {selected ? selected.label : placeholder}
         </span>
         {selected ? (
           <span className="shrink-0 text-muted-foreground">{selected.detail}</span>
