@@ -6,7 +6,7 @@ use foldhash::{HashMap, HashMapExt};
 
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
-    AclListing, ClusterIdentity, CommittedOffset, ConfigEntry, GroupSnapshot, LogDir,
+    AclListing, ClusterIdentity, CommittedOffset, ConfigEdit, ConfigEntry, GroupSnapshot, LogDir,
     MetadataSnapshot, NewRecord, NewTopic, PartitionWindow, ProducedRecord, QuotaListing,
     RegisteredSchema, ScanConsumer, SchemaSubject, TailConsumer, TailPosition, TopicMetadata,
     Watermarks,
@@ -87,6 +87,8 @@ pub trait ClusterSession: Send + Sync + 'static {
     async fn create_topic(&self, topic: &NewTopic) -> Result<(), KafkaError>;
 
     async fn delete_topic(&self, topic: &str) -> Result<(), KafkaError>;
+
+    async fn alter_topic_configs(&self, topic: &str, edit: &ConfigEdit) -> Result<(), KafkaError>;
 
     async fn produce(&self, record: &NewRecord) -> Result<ProducedRecord, KafkaError>;
 

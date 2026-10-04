@@ -81,6 +81,16 @@ partitions?: number,
  */
 replicationFactor?: number, configs: { [key in string]: string }, };
 
+export type EditTopicConfigs = { 
+/**
+ * Overrides to write, by config name.
+ */
+set: { [key in string]: string }, 
+/**
+ * Overrides to drop, so the topic follows the broker again.
+ */
+reset: Array<string>, };
+
 export type GroupState = "STABLE" | "EMPTY" | "PREPARING_REBALANCE" | "COMPLETING_REBALANCE" | "DEAD";
 
 export type MemberAssignment = { topic: string, partitions: Array<number>, };

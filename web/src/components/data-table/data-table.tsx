@@ -120,7 +120,9 @@ export function DataTable<TData extends RowData>({
                         )}
                       >
                         {header.isPlaceholder ? null : <HeaderContent header={header} />}
-                        {meta?.width ? <ColumnResizeHandle header={header} /> : null}
+                        {meta?.width && header.column.getCanResize() ? (
+                          <ColumnResizeHandle header={header} />
+                        ) : null}
                       </TableHead>
                     );
                   })}

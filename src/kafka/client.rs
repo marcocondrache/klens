@@ -17,7 +17,12 @@ use krafka::admin::{
     AclFilter, ConfigResourceType, DescribeConfigsRequest, DescribeConfigsResource, GroupListing,
     OffsetSpec, OffsetVisibility,
 };
+use krafka::error::{KrafkaError, ProtocolErrorKind};
 use krafka::producer::Producer;
+use krafka::protocol::{
+    ApiKey, IncrementalAlterConfigsRequest, IncrementalAlterConfigsResource,
+    IncrementalAlterConfigsResponse, VersionedDecode as _, VersionedEncode as _, versions,
+};
 use tokio::sync::OnceCell;
 
 use crate::config::{self, Tuning};
@@ -37,9 +42,9 @@ use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::storage::LogDir;
-use crate::kafka::topic_config::ConfigEntry;
+use crate::kafka::topic_config::{ConfigEdit, ConfigEntry};
 
-use convert::{committed_from_krafka, produce_refusal, refused};
+use convert::{altered, committed_from_krafka, produce_refusal, refused};
 use groups::{
     ACTIVE_GROUP_STATES, LISTED_GROUP_TYPES, snapshots_from_descriptions, split_empty_groups,
 };
@@ -404,6 +409,15 @@ impl ClusterSession for KafkaClient {
             .try_for_each(|deleted| refused(deleted.error))
     }
 
+    async fn alter_topic_configs(&self, topic: &str, edit: &ConfigEdit) -> Result<(), KafkaError> {
+        self.alter_configs(IncrementalAlterConfigsResource {
+            resource_type: ConfigResourceType::Topic,
+            resource_name: topic.to_owned(),
+            configs: edit.to_krafka(),
+        })
+        .await
+    }
+
     async fn produce(&self, record: &NewRecord) -> Result<ProducedRecord, KafkaError> {
         let producer = self
             .producer
@@ -417,6 +431,41 @@ impl ClusterSession for KafkaClient {
             partition: sent.partition,
             offset: sent.offset,
         })
+    }
+}
+
+impl KafkaClient {
+    // krafka's admin client only sends SET operations, and a reset needs DELETE.
+    async fn alter_configs(
+        &self,
+        resource: IncrementalAlterConfigsResource,
+    ) -> Result<(), KafkaError> {
+        let connection = self.transport.admin.get_controller_connection().await?;
+        let version = connection
+            .negotiate_api_version(
+                ApiKey::IncrementalAlterConfigs,
+                versions::INCREMENTAL_ALTER_CONFIGS_MAX,
+                versions::INCREMENTAL_ALTER_CONFIGS_MIN,
+            )
+            .ok_or_else(|| {
+                KrafkaError::protocol_kind(
+                    ProtocolErrorKind::UnknownApiVersion,
+                    "the broker does not support IncrementalAlterConfigs",
+                )
+            })?;
+        let request = IncrementalAlterConfigsRequest {
+            resources: vec![resource],
+            validate_only: false,
+        };
+        let mut response = connection
+            .send_request(ApiKey::IncrementalAlterConfigs, version, |buf| {
+                request.encode_versioned(version, buf)
+            })
+            .await?;
+        altered(IncrementalAlterConfigsResponse::decode_versioned(
+            version,
+            &mut response,
+        )?)
     }
 }
 

@@ -6,6 +6,7 @@ export type {
   ClusterHealth,
   ConfigEntry,
   CreateTopic,
+  EditTopicConfigs,
   GroupDetail,
   GroupMember,
   GroupOffset,

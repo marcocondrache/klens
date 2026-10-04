@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { AlertTriangleIcon, SendIcon } from "lucide-react";
 import { getRouteApi } from "@tanstack/react-router";
 
 import { Button } from "@/components/ui/button";
+import { createDialogHandle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConfigTable } from "@/components/config-table";
 import { ConfirmDelete } from "@/components/confirm-delete";
@@ -17,7 +19,7 @@ import { useAccess } from "@/hooks/use-access";
 import { useTopic, useTopicGroups } from "@/lib/api/catalog";
 import { clusterPathname, del } from "@/lib/api/client";
 import { useTopicConfigs } from "@/lib/api/live";
-import type { TopicDetail } from "@/lib/api/types";
+import type { ConfigEntry, TopicDetail } from "@/lib/api/types";
 import { catalogLookupMessage } from "@/lib/catalog-lookup";
 import { useClusterName } from "@/lib/clusters";
 import {
@@ -28,6 +30,7 @@ import {
   formatThroughput,
 } from "@/lib/format";
 
+import { EditTopicConfigButton, EditTopicConfigDialog } from "./edit-topic-config";
 import { topicTab } from "./search";
 import { partitionColumns, topicGroupColumns } from "./topic-columns";
 
@@ -86,6 +89,7 @@ export function TopicPage() {
     topicName,
     tab === "groups",
   );
+  const [configEditor] = useState(() => createDialogHandle<ConfigEntry>());
 
   const lookup = catalogLookupMessage({
     isPending,
@@ -98,6 +102,8 @@ export function TopicPage() {
   if (lookup) {
     return <PageHeader title={topicName} mono description={lookup} />;
   }
+
+  const canEditConfigs = detail !== null && !detail.internal && canChange(cluster, "MANAGE_TOPICS");
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
@@ -223,7 +229,21 @@ export function TopicPage() {
 
         {canConfigs ? (
           <TabsContent value="config" className="mt-4 flex min-h-0 flex-col">
-            <ConfigTable entries={configs} loading={configsPending} />
+            <ConfigTable
+              entries={configs}
+              loading={configsPending}
+              action={
+                canEditConfigs
+                  ? (entry) =>
+                      entry.readOnly ? null : (
+                        <EditTopicConfigButton handle={configEditor} entry={entry} />
+                      )
+                  : undefined
+              }
+            />
+            {canEditConfigs ? (
+              <EditTopicConfigDialog cluster={cluster} topic={topicName} handle={configEditor} />
+            ) : null}
           </TabsContent>
         ) : null}
       </Tabs>

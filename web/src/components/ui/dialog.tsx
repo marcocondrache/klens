@@ -7,11 +7,15 @@ import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { XIcon } from "lucide-react"
 
-function Dialog({ ...props }: DialogPrimitive.Root.Props) {
+const createDialogHandle = DialogPrimitive.createHandle
+
+type DialogHandle<Payload> = DialogPrimitive.Handle<Payload>
+
+function Dialog<Payload>({ ...props }: DialogPrimitive.Root.Props<Payload>) {
   return <DialogPrimitive.Root data-slot="dialog" {...props} />
 }
 
-function DialogTrigger({ ...props }: DialogPrimitive.Trigger.Props) {
+function DialogTrigger<Payload>({ ...props }: DialogPrimitive.Trigger.Props<Payload>) {
   return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />
 }
 
@@ -149,6 +153,7 @@ function DialogDescription({
 }
 
 export {
+  createDialogHandle,
   Dialog,
   DialogClose,
   DialogContent,
@@ -159,4 +164,5 @@ export {
   DialogPortal,
   DialogTitle,
   DialogTrigger,
+  type DialogHandle,
 }

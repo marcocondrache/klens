@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { EyeOffIcon, LockIcon } from "lucide-react";
 import { createColumnHelper } from "@tanstack/react-table";
 
@@ -86,12 +86,23 @@ const columns = columnHelper.columns([
   }),
 ]);
 
+function actionColumn(action: (entry: ConfigEntry) => ReactNode) {
+  return columnHelper.display({
+    id: "action",
+    enableResizing: false,
+    meta: { align: "right", width: "3.5rem" },
+    cell: ({ row }) => action(row.original),
+  });
+}
+
 export function ConfigTable({
   entries,
   loading = false,
+  action,
 }: {
   entries: ConfigEntry[];
   loading?: boolean;
+  action?: (entry: ConfigEntry) => ReactNode;
 }) {
   const [term, setTerm] = useState("");
   const [onlyOverrides, setOnlyOverrides] = useState(false);
@@ -109,9 +120,14 @@ export function ConfigTable({
     });
   }, [entries, term, onlyOverrides]);
 
+  const tableColumns = useMemo(
+    () => (action ? [...columns, actionColumn(action)] : columns),
+    [action],
+  );
+
   return (
     <DataTable
-      columns={columns}
+      columns={tableColumns}
       data={rows}
       getRowId={(entry) => entry.name}
       toolbar={

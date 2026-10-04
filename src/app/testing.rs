@@ -98,6 +98,11 @@ impl TestApp {
             .await
     }
 
+    pub async fn patch(&self, path: &str, body: &Value) -> Reply {
+        self.reply(json_request(Method::PATCH, path, body.to_string()))
+            .await
+    }
+
     pub async fn delete(&self, path: &str) -> Reply {
         self.reply(Request::delete(path).body(Body::empty()).expect("request"))
             .await

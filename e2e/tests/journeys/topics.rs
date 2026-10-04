@@ -1,5 +1,6 @@
 use e2e::{Kafka, Klens};
 use krafka::admin::NewTopic;
+use reqwest::StatusCode;
 use serde_json::json;
 
 use crate::row;
@@ -70,5 +71,71 @@ async fn topic_configs_set_at_creation_show_on_the_row_and_read_live() {
     assert_eq!(
         row(&configs, "name", "segment.bytes")["source"],
         "DEFAULT_CONFIG"
+    );
+}
+
+#[tokio::test]
+async fn an_edited_topic_config_reads_back_once_the_edit_answers() {
+    let kafka = Kafka::start().await;
+    kafka
+        .create(
+            NewTopic::new("audit", 1, 1)
+                .expect("a valid topic")
+                .with_config("cleanup.policy", "compact"),
+        )
+        .await;
+    let klens = Klens::over(&kafka).await;
+    let path = format!("{TOPICS}/audit/configs");
+    klens
+        .eventually(&path, |configs| {
+            row(configs, "name", "cleanup.policy")["value"] == "compact"
+        })
+        .await;
+
+    let (status, body) = klens
+        .patch(
+            &path,
+            &json!({ "set": { "retention.ms": "3600000" }, "reset": ["cleanup.policy"] }),
+        )
+        .await;
+
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    let configs = klens.get(&path).await;
+    assert_eq!(
+        row(&configs, "name", "retention.ms"),
+        &json!({
+            "name": "retention.ms",
+            "value": "3600000",
+            "source": "DYNAMIC_TOPIC_CONFIG",
+            "readOnly": false,
+            "sensitive": false
+        })
+    );
+    assert_eq!(row(&configs, "name", "cleanup.policy")["value"], "delete");
+    assert_eq!(
+        row(&configs, "name", "cleanup.policy")["source"],
+        "DEFAULT_CONFIG"
+    );
+}
+
+#[tokio::test]
+async fn a_config_value_kafka_refuses_carries_the_broker_reason() {
+    let kafka = Kafka::start().await;
+    kafka.topic("audit", 1).await;
+    let klens = Klens::over(&kafka).await;
+    let path = format!("{TOPICS}/audit/configs");
+    klens.eventually(&path, |configs| configs.is_array()).await;
+
+    let (status, body) = klens
+        .patch(&path, &json!({ "set": { "retention.ms": "soon" } }))
+        .await;
+
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(body["code"], "REFUSED");
+    assert!(
+        body["error"].as_str().is_some_and(
+            |error| error.contains("Invalid value soon for configuration retention.ms")
+        ),
+        "{body}"
     );
 }

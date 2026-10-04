@@ -26,7 +26,7 @@ use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
 use crate::kafka::session::ClusterSession;
 use crate::kafka::storage::LogDir;
-use crate::kafka::topic_config::ConfigEntry;
+use crate::kafka::topic_config::{ConfigEdit, ConfigEntry};
 use crate::testing::yaml;
 
 const SUBJECT_SCHEMA: &str =
@@ -52,6 +52,7 @@ pub enum Api {
     ClientQuotas,
     CreateTopic,
     DeleteTopic,
+    AlterTopicConfigs,
     Produce,
 }
 
@@ -689,6 +690,21 @@ impl ClusterSession for FakeCluster {
             ));
         }
         self.remove_topic(topic);
+        Ok(())
+    }
+
+    async fn alter_topic_configs(&self, topic: &str, edit: &ConfigEdit) -> Result<(), KafkaError> {
+        self.answer(Api::AlterTopicConfigs).await?;
+        let mut world = self.world();
+        let entries = world.topic_configs.entry(topic.to_owned()).or_default();
+        entries.retain(|entry| {
+            !edit.reset.contains(&entry.name) && !edit.set.contains_key(&entry.name)
+        });
+        entries.extend(
+            edit.set
+                .iter()
+                .map(|(name, value)| config_entry(name, value)),
+        );
         Ok(())
     }
 
