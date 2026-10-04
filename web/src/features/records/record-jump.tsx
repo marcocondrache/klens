@@ -41,8 +41,8 @@ export function RecordJump({
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger render={<Button variant="outline" className="gap-1.5 font-normal" />}>
-        <LocateFixedIcon className="text-muted-foreground" />
+      <PopoverTrigger render={<Button variant="outline" className="font-normal" />}>
+        <LocateFixedIcon data-icon="inline-start" className="text-muted-foreground" />
         Go to offset
       </PopoverTrigger>
       <PopoverContent align="end" className="w-64 p-3">

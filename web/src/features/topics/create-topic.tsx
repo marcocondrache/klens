@@ -23,7 +23,7 @@ export function CreateTopicSheet({ cluster }: { cluster: string }) {
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger render={<Button variant="outline" className="font-normal" />}>
-        <PlusIcon className="text-muted-foreground" />
+        <PlusIcon data-icon="inline-start" className="text-muted-foreground" />
         Create topic
       </SheetTrigger>
       <FormSheetContent>

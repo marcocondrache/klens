@@ -136,7 +136,7 @@ export function SchemasPage() {
                 trigger={<Button variant="outline" className="ml-auto font-normal" />}
                 onRegistered={show}
               >
-                <PlusIcon className="text-muted-foreground" />
+                <PlusIcon data-icon="inline-start" className="text-muted-foreground" />
                 Register schema
               </RegisterSchemaSheet>
             ) : null}
