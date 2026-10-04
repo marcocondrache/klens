@@ -85,15 +85,28 @@ pub struct Binding {
 pub enum Privilege {
     /// Record pages and live tails.
     Records,
-    Configs,
+    TopicConfigs,
+    BrokerConfigs,
     SchemaText,
     Acls,
-    ManageTopics,
+    CreateTopics,
+    DeleteTopics,
+    AlterTopicConfigs,
+    AddPartitions,
+    DeleteRecords,
     Produce,
-    ManageGroups,
-    ManageSchemas,
-    ManageAcls,
-    ManageBrokers,
+    ResetOffsets,
+    DeleteOffsets,
+    DeleteGroups,
+    RegisterSchemas,
+    SetCompatibility,
+    DeleteSchemas,
+    CreateAcls,
+    DeleteAcls,
+    AlterQuotas,
+    SetScramCredentials,
+    DeleteScramCredentials,
+    AlterBrokerConfigs,
 }
 
 #[cfg(test)]
@@ -164,7 +177,7 @@ session:
     privileges: []
     bindings: [{groups: [everyone]}]
   operator:
-    privileges: [records, configs, schema_text, acls]
+    privileges: [records, topic_configs, broker_configs, schema_text, acls]
     bindings:
       - groups: [ops, sre]
         clusters: [staging]
@@ -180,7 +193,8 @@ session:
             roles["operator"].privileges,
             [
                 Privilege::Records,
-                Privilege::Configs,
+                Privilege::TopicConfigs,
+                Privilege::BrokerConfigs,
                 Privilege::SchemaText,
                 Privilege::Acls
             ]

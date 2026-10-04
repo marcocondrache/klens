@@ -25,7 +25,7 @@ async fn quotas(
     Path(name): Path<String>,
 ) -> Result<Json<QuotaListing>, ApiError> {
     let cluster = session.cluster(&name)?;
-    cluster.access.configs()?;
+    cluster.access.broker_configs()?;
     Ok(Json(QuotaListing::new(
         cluster.store.quotas.load().as_deref(),
         cluster.store.quotas.health().into(),
@@ -38,7 +38,7 @@ async fn set_client_quota(
     extract::Json(request): extract::Json<ClientQuota>,
 ) -> Result<StatusCode, ApiError> {
     let cluster = session.cluster(&name)?;
-    let quotas = cluster.manage_acls()?;
+    let quotas = cluster.alter_quotas()?;
     quotas.set_client_quota(&request.into_quota()?).await?;
     Ok(StatusCode::NO_CONTENT)
 }

@@ -60,7 +60,7 @@ async fn delete_records(
     Query(params): Query<DeleteParams>,
 ) -> Result<StatusCode, ApiError> {
     let cluster = session.cluster(&name)?;
-    let topics = cluster.manage_topics()?;
+    let topics = cluster.delete_records()?;
     let before = params.before()?;
     topics
         .delete_records(&topic, &params.partition, before)

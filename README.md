@@ -185,7 +185,7 @@ and the rest of klens works as before.
 
 klens describes client quotas every `tuning.ingest.quotas` (`60s`). The quotas
 page lists each user, client ID, and IP quota, including the defaults, and
-needs the `configs` privilege. Reading quotas needs the `DescribeConfigs`
+needs the `broker_configs` privilege. Reading quotas needs the `DescribeConfigs`
 operation on the `Cluster` resource. On a cluster that does not grant it, the
 page says so.
 
@@ -198,10 +198,11 @@ returns a password or salt. Reading credentials needs Kafka 2.7 or later and the
 `Describe` operation on the `Cluster` resource. On a cluster that does not grant
 it, the page says so.
 
-On a writable cluster, a role with `manage_acls` adds users, sets their
-passwords, and deletes credentials from the users page. klens salts the password
-itself with a random 32-byte salt and sends Kafka only the salted hash, so the
-password never reaches the broker or the log. Kafka takes 4096 to 16384
+On a writable cluster, a role with `set_scram_credentials` adds users and sets
+their passwords, and a role with `delete_scram_credentials` deletes credentials
+from the users page. klens salts the password itself with a random 32-byte salt
+and sends Kafka only the salted hash, so the password never reaches the broker
+or the log. Kafka takes 4096 to 16384
 iterations, and klens defaults to 4096. Changing credentials needs the `Alter`
 operation on the `Cluster` resource.
 
@@ -240,15 +241,15 @@ same access as an open deployment.
 
 To restrict what signed-in users may do, add `roles`. A role is nothing but a
 name for a set of privileges, defined by you: there are no built-in roles. The
-privileges are `records`, `configs`, `schema_text`, and `acls` to read,
-`manage_topics` to create, edit, and delete topics and their records on a
-writable cluster, `produce` to write records to one, `manage_groups` to reset
-or delete a consumer group's committed offsets, or the group itself, on one,
-`manage_schemas` to change the schemas in its registry, `manage_acls` to
-create and delete its ACLs, set its client quotas, and set and delete its SCRAM
-credentials, and `manage_brokers` to change its brokers' dynamic configs. A role that lists none still sees the
-catalog (clusters, topics, groups, lag, sizes) but no payloads, live configs,
-schema bodies, or ACL bindings. A role's `bindings` name the IdP groups that
+privileges are `records`, `topic_configs`, `broker_configs`, `schema_text`, and
+`acls` to read, and one privilege per change on a writable cluster:
+`create_topics`, `delete_topics`, `alter_topic_configs`, `add_partitions`,
+`delete_records`, `produce`, `reset_offsets`, `delete_offsets`,
+`delete_groups`, `register_schemas`, `set_compatibility`, `delete_schemas`,
+`create_acls`, `delete_acls`, `alter_quotas`, `set_scram_credentials`,
+`delete_scram_credentials`, and `alter_broker_configs`. A role that lists none
+still sees the catalog (clusters, topics, groups, lag, sizes) but no payloads,
+live configs, schema bodies, or ACL bindings. A role's `bindings` name the IdP groups that
 hold it, read from the ID token claim that `oidc.groups_claim` names (default
 `groups`). Unmatched users cannot sign in. Omit `clusters` on a binding to
 allow every configured cluster.
@@ -272,7 +273,13 @@ auth:
     # groups_claim: groups
   roles:
     admin:
-      privileges: [records, configs, schema_text, acls, manage_topics, produce, manage_groups, manage_schemas, manage_acls, manage_brokers]
+      privileges:
+        [records, topic_configs, broker_configs, schema_text, acls,
+         create_topics, delete_topics, alter_topic_configs, add_partitions, delete_records, produce,
+         reset_offsets, delete_offsets, delete_groups,
+         register_schemas, set_compatibility, delete_schemas,
+         create_acls, delete_acls, alter_quotas, set_scram_credentials, delete_scram_credentials,
+         alter_broker_configs]
       bindings:
         - groups: [klens-admins]
     viewer:
@@ -280,7 +287,7 @@ auth:
       bindings:
         - groups: [klens-viewers]
     operator:
-      privileges: [records, configs]
+      privileges: [records, topic_configs, broker_configs]
       bindings:
         - groups: [kafka-operators]
           clusters: [staging, dev]

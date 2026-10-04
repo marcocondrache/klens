@@ -79,7 +79,7 @@ async fn register_schema(
     extract::Json(request): extract::Json<RegisterSchema>,
 ) -> Result<Json<RegisteredVersion>, ApiError> {
     let cluster = session.cluster(&name)?;
-    let schemas = cluster.manage_schemas()?;
+    let schemas = cluster.register_schemas()?;
     let registered = schemas
         .register_schema(&request.into_schema(subject))
         .await?;
@@ -92,7 +92,7 @@ async fn edit_subject(
     extract::Json(request): extract::Json<EditSubject>,
 ) -> Result<StatusCode, ApiError> {
     let cluster = session.cluster(&name)?;
-    let schemas = cluster.manage_schemas()?;
+    let schemas = cluster.set_compatibility()?;
     schemas
         .set_compatibility(&subject, request.compatibility.into())
         .await?;
@@ -112,7 +112,7 @@ async fn delete_schema(
     Query(query): Query<DeleteQuery>,
 ) -> Result<StatusCode, ApiError> {
     let cluster = session.cluster(&name)?;
-    let schemas = cluster.manage_schemas()?;
+    let schemas = cluster.delete_schemas()?;
     schemas
         .delete_schema(&SchemaDeletion {
             subject,

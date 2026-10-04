@@ -10,36 +10,62 @@ use crate::config::Role;
 const MAX_GROUPS: usize = 64;
 
 impl Privilege {
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 23] = [
         Self::Records,
-        Self::Configs,
+        Self::TopicConfigs,
+        Self::BrokerConfigs,
         Self::SchemaText,
         Self::Acls,
-        Self::ManageTopics,
+        Self::CreateTopics,
+        Self::DeleteTopics,
+        Self::AlterTopicConfigs,
+        Self::AddPartitions,
+        Self::DeleteRecords,
         Self::Produce,
-        Self::ManageGroups,
-        Self::ManageSchemas,
-        Self::ManageAcls,
-        Self::ManageBrokers,
+        Self::ResetOffsets,
+        Self::DeleteOffsets,
+        Self::DeleteGroups,
+        Self::RegisterSchemas,
+        Self::SetCompatibility,
+        Self::DeleteSchemas,
+        Self::CreateAcls,
+        Self::DeleteAcls,
+        Self::AlterQuotas,
+        Self::SetScramCredentials,
+        Self::DeleteScramCredentials,
+        Self::AlterBrokerConfigs,
     ];
 
     pub fn name(self) -> &'static str {
         match self {
             Self::Records => "records",
-            Self::Configs => "configs",
+            Self::TopicConfigs => "topicConfigs",
+            Self::BrokerConfigs => "brokerConfigs",
             Self::SchemaText => "schemaText",
             Self::Acls => "acls",
-            Self::ManageTopics => "manageTopics",
+            Self::CreateTopics => "createTopics",
+            Self::DeleteTopics => "deleteTopics",
+            Self::AlterTopicConfigs => "alterTopicConfigs",
+            Self::AddPartitions => "addPartitions",
+            Self::DeleteRecords => "deleteRecords",
             Self::Produce => "produce",
-            Self::ManageGroups => "manageGroups",
-            Self::ManageSchemas => "manageSchemas",
-            Self::ManageAcls => "manageAcls",
-            Self::ManageBrokers => "manageBrokers",
+            Self::ResetOffsets => "resetOffsets",
+            Self::DeleteOffsets => "deleteOffsets",
+            Self::DeleteGroups => "deleteGroups",
+            Self::RegisterSchemas => "registerSchemas",
+            Self::SetCompatibility => "setCompatibility",
+            Self::DeleteSchemas => "deleteSchemas",
+            Self::CreateAcls => "createAcls",
+            Self::DeleteAcls => "deleteAcls",
+            Self::AlterQuotas => "alterQuotas",
+            Self::SetScramCredentials => "setScramCredentials",
+            Self::DeleteScramCredentials => "deleteScramCredentials",
+            Self::AlterBrokerConfigs => "alterBrokerConfigs",
         }
     }
 
-    const fn bit(self) -> u16 {
-        1 << self as u16
+    const fn bit(self) -> u32 {
+        1 << self as u32
     }
 }
 
@@ -50,7 +76,7 @@ impl Display for Privilege {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct PrivilegeSet(u16);
+pub struct PrivilegeSet(u32);
 
 impl PrivilegeSet {
     pub const NONE: Self = Self(0);
@@ -243,15 +269,52 @@ macro_rules! capability {
 }
 
 capability!(RecordsCap, records, Privilege::Records);
-capability!(ConfigsCap, configs, Privilege::Configs);
+capability!(TopicConfigsCap, topic_configs, Privilege::TopicConfigs);
+capability!(BrokerConfigsCap, broker_configs, Privilege::BrokerConfigs);
 capability!(SchemaTextCap, schema_text, Privilege::SchemaText);
 capability!(AclsCap, acls, Privilege::Acls);
-capability!(ManageTopicsCap, manage_topics, Privilege::ManageTopics);
+capability!(CreateTopicsCap, create_topics, Privilege::CreateTopics);
+capability!(DeleteTopicsCap, delete_topics, Privilege::DeleteTopics);
+capability!(
+    AlterTopicConfigsCap,
+    alter_topic_configs,
+    Privilege::AlterTopicConfigs
+);
+capability!(AddPartitionsCap, add_partitions, Privilege::AddPartitions);
+capability!(DeleteRecordsCap, delete_records, Privilege::DeleteRecords);
 capability!(ProduceCap, produce, Privilege::Produce);
-capability!(ManageGroupsCap, manage_groups, Privilege::ManageGroups);
-capability!(ManageSchemasCap, manage_schemas, Privilege::ManageSchemas);
-capability!(ManageAclsCap, manage_acls, Privilege::ManageAcls);
-capability!(ManageBrokersCap, manage_brokers, Privilege::ManageBrokers);
+capability!(ResetOffsetsCap, reset_offsets, Privilege::ResetOffsets);
+capability!(DeleteOffsetsCap, delete_offsets, Privilege::DeleteOffsets);
+capability!(DeleteGroupsCap, delete_groups, Privilege::DeleteGroups);
+capability!(
+    RegisterSchemasCap,
+    register_schemas,
+    Privilege::RegisterSchemas
+);
+capability!(
+    SetCompatibilityCap,
+    set_compatibility,
+    Privilege::SetCompatibility
+);
+capability!(DeleteSchemasCap, delete_schemas, Privilege::DeleteSchemas);
+capability!(CreateAclsCap, create_acls, Privilege::CreateAcls);
+capability!(DeleteAclsCap, delete_acls, Privilege::DeleteAcls);
+capability!(AlterQuotasCap, alter_quotas, Privilege::AlterQuotas);
+capability!(
+    SetScramCredentialsCap,
+    set_scram_credentials,
+    Privilege::SetScramCredentials
+);
+capability!(
+    DeleteScramCredentialsCap,
+    delete_scram_credentials,
+    Privilege::DeleteScramCredentials
+);
+capability!(
+    AlterBrokerConfigsCap,
+    alter_broker_configs,
+    Privilege::AlterBrokerConfigs
+);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Identity<'a> {
@@ -451,15 +514,28 @@ mod tests {
         let prod = access.cluster("prod").unwrap();
         assert_eq!(prod.role_names(), vec!["admin"]);
         assert!(prod.records().is_ok());
-        assert!(prod.configs().is_ok());
+        assert!(prod.topic_configs().is_ok());
+        assert!(prod.broker_configs().is_ok());
         assert!(prod.schema_text().is_ok());
         assert!(prod.acls().is_ok());
-        assert!(prod.manage_topics().is_ok());
+        assert!(prod.create_topics().is_ok());
+        assert!(prod.delete_topics().is_ok());
+        assert!(prod.alter_topic_configs().is_ok());
+        assert!(prod.add_partitions().is_ok());
+        assert!(prod.delete_records().is_ok());
         assert!(prod.produce().is_ok());
-        assert!(prod.manage_groups().is_ok());
-        assert!(prod.manage_schemas().is_ok());
-        assert!(prod.manage_acls().is_ok());
-        assert!(prod.manage_brokers().is_ok());
+        assert!(prod.reset_offsets().is_ok());
+        assert!(prod.delete_offsets().is_ok());
+        assert!(prod.delete_groups().is_ok());
+        assert!(prod.register_schemas().is_ok());
+        assert!(prod.set_compatibility().is_ok());
+        assert!(prod.delete_schemas().is_ok());
+        assert!(prod.create_acls().is_ok());
+        assert!(prod.delete_acls().is_ok());
+        assert!(prod.alter_quotas().is_ok());
+        assert!(prod.set_scram_credentials().is_ok());
+        assert!(prod.delete_scram_credentials().is_ok());
+        assert!(prod.alter_broker_configs().is_ok());
         assert_eq!(prod.privileges(), Privilege::ALL.to_vec());
         assert_eq!(access.privileges_for("prod"), Some(PrivilegeSet::ALL));
         assert!(access.cluster("staging").unwrap().schema_text().is_ok());
@@ -468,7 +544,7 @@ mod tests {
     #[test]
     fn a_role_grants_exactly_what_it_declares() {
         let policy = table(
-            &[("operator", &[Privilege::Records, Privilege::Configs])],
+            &[("operator", &[Privilege::Records, Privilege::TopicConfigs])],
             vec![binding(&["kafka-operators"], "operator", None)],
         );
         let access = admit(&policy, &["kafka-operators"]).unwrap();
@@ -476,14 +552,14 @@ mod tests {
 
         assert_eq!(
             access.privileges_for("prod"),
-            Some(set(&[Privilege::Records, Privilege::Configs]))
+            Some(set(&[Privilege::Records, Privilege::TopicConfigs]))
         );
         assert_eq!(
             prod.privileges(),
-            vec![Privilege::Records, Privilege::Configs]
+            vec![Privilege::Records, Privilege::TopicConfigs]
         );
         assert!(prod.records().is_ok());
-        assert!(prod.configs().is_ok());
+        assert!(prod.topic_configs().is_ok());
         assert_eq!(
             prod.schema_text().unwrap_err(),
             AccessError::Forbidden {
@@ -516,7 +592,7 @@ mod tests {
                 privilege: Privilege::Records,
             }
         );
-        assert!(prod.configs().is_err());
+        assert!(prod.topic_configs().is_err());
         assert!(prod.schema_text().is_err());
         assert!(prod.acls().is_err());
     }
@@ -582,14 +658,14 @@ mod tests {
 
         assert_eq!(access.privileges_for("prod"), Some(PrivilegeSet::ALL));
         assert_eq!(access.privileges_for("staging"), Some(PrivilegeSet::NONE));
-        assert!(access.cluster("staging").unwrap().configs().is_err());
+        assert!(access.cluster("staging").unwrap().topic_configs().is_err());
     }
 
     #[test]
     fn incomparable_roles_union_only_where_both_grants_reach() {
         let policy = table(
             &[
-                ("operator", &[Privilege::Records, Privilege::Configs]),
+                ("operator", &[Privilege::Records, Privilege::TopicConfigs]),
                 ("auditor", &[Privilege::Acls, Privilege::SchemaText]),
             ],
             vec![
@@ -603,7 +679,7 @@ mod tests {
             access.privileges_for("prod"),
             Some(set(&[
                 Privilege::Records,
-                Privilege::Configs,
+                Privilege::TopicConfigs,
                 Privilege::SchemaText,
                 Privilege::Acls,
             ])),
@@ -611,7 +687,7 @@ mod tests {
         );
         assert_eq!(
             access.privileges_for("staging"),
-            Some(set(&[Privilege::Records, Privilege::Configs])),
+            Some(set(&[Privilege::Records, Privilege::TopicConfigs])),
             "the auditor grant is scoped to prod"
         );
 
@@ -625,7 +701,7 @@ mod tests {
     fn role_names_report_every_covering_grant_deduplicated() {
         let policy = table(
             &[
-                ("operator", &[Privilege::Records, Privilege::Configs]),
+                ("operator", &[Privilege::Records, Privilege::TopicConfigs]),
                 ("auditor", &[Privilege::Acls, Privilege::SchemaText]),
             ],
             vec![

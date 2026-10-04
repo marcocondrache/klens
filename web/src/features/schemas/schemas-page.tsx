@@ -52,7 +52,10 @@ export function SchemasPage() {
   const { can, canChange } = useAccess();
   const canSchemaText = can(cluster, "SCHEMA_TEXT");
   const { data, isPending, isError, error } = useSubjectRows(cluster);
-  const canManage = data?.hasRegistry === true && canChange(cluster, "MANAGE_SCHEMAS");
+  const hasRegistry = data?.hasRegistry === true;
+  const canRegister = hasRegistry && canChange(cluster, "REGISTER_SCHEMAS");
+  const canSetCompatibility = hasRegistry && canChange(cluster, "SET_COMPATIBILITY");
+  const canDelete = hasRegistry && canChange(cluster, "DELETE_SCHEMAS");
   const subjects = data?.rows ?? EMPTY_SUBJECTS;
   const selected = subject ? (subjects.find((row) => row.subject === subject) ?? null) : null;
 
@@ -114,7 +117,7 @@ export function SchemasPage() {
           </>
         }
         actions={
-          canManage ? (
+          canRegister ? (
             <RegisterSchemaDialog
               cluster={cluster}
               draft={NEW_SUBJECT}
@@ -197,24 +200,28 @@ export function SchemasPage() {
                 <section className="shrink-0 space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <h3 className="text-xs font-medium text-muted-foreground">Versions</h3>
-                    {canManage ? (
+                    {canRegister || canSetCompatibility || canDelete ? (
                       <div className="flex items-center gap-2">
-                        <EditCompatibilityDialog cluster={cluster} subject={selected} />
-                        <RegisterSchemaDialog
-                          cluster={cluster}
-                          draft={{
-                            subject: selected.subject,
-                            type: detail?.type ?? selected.type,
-                            schema: detail?.schema ?? "",
-                            references: detail?.references ?? [],
-                          }}
-                          trigger={<Button variant="outline" size="sm" />}
-                          onRegistered={show}
-                        >
-                          <FilePlusIcon data-icon="inline-start" />
-                          New version
-                        </RegisterSchemaDialog>
-                        {shownVersion != null ? (
+                        {canSetCompatibility ? (
+                          <EditCompatibilityDialog cluster={cluster} subject={selected} />
+                        ) : null}
+                        {canRegister ? (
+                          <RegisterSchemaDialog
+                            cluster={cluster}
+                            draft={{
+                              subject: selected.subject,
+                              type: detail?.type ?? selected.type,
+                              schema: detail?.schema ?? "",
+                              references: detail?.references ?? [],
+                            }}
+                            trigger={<Button variant="outline" size="sm" />}
+                            onRegistered={show}
+                          >
+                            <FilePlusIcon data-icon="inline-start" />
+                            New version
+                          </RegisterSchemaDialog>
+                        ) : null}
+                        {canDelete && shownVersion != null ? (
                           <DeleteSchemaDialog
                             cluster={cluster}
                             subject={selected}

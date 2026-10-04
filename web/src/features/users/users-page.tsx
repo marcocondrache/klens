@@ -39,23 +39,24 @@ export function UsersPage() {
   const { data, isPending, isError, error } = useScramUsers(cluster, canAcls);
   const lane = data?.sourceHealth;
   const status = data?.status;
-  const canManage = status === "DESCRIBED" && canChange(cluster, "MANAGE_ACLS");
+  const canSet = status === "DESCRIBED" && canChange(cluster, "SET_SCRAM_CREDENTIALS");
+  const canDelete = status === "DESCRIBED" && canChange(cluster, "DELETE_SCRAM_CREDENTIALS");
   const [setter] = useState(() => createDialogHandle<ScramUser>());
   const [deleter] = useState(() => createDialogHandle<ScramUser>());
   const columns = useMemo(
     () =>
-      canManage
+      canSet || canDelete
         ? [
             ...userColumns,
             userActionColumn((user) => (
               <>
-                <SetPasswordButton handle={setter} user={user} />
-                <DeleteCredentialButton handle={deleter} user={user} />
+                {canSet ? <SetPasswordButton handle={setter} user={user} /> : null}
+                {canDelete ? <DeleteCredentialButton handle={deleter} user={user} /> : null}
               </>
             )),
           ]
         : userColumns,
-    [canManage, setter, deleter],
+    [canSet, canDelete, setter, deleter],
   );
   const denied = status === "DENIED";
   const users = data?.users ?? EMPTY_USERS;
@@ -82,7 +83,7 @@ export function UsersPage() {
             <LaneCaption lane={lane} />
           </>
         }
-        actions={canManage ? <NewUserDialog cluster={cluster} /> : null}
+        actions={canSet ? <NewUserDialog cluster={cluster} /> : null}
       />
 
       <DataTable
@@ -107,12 +108,8 @@ export function UsersPage() {
         }
         defaultSort={{ id: "name", direction: "asc" }}
       />
-      {canManage ? (
-        <>
-          <SetPasswordDialog cluster={cluster} handle={setter} />
-          <DeleteCredentialDialog cluster={cluster} handle={deleter} />
-        </>
-      ) : null}
+      {canSet ? <SetPasswordDialog cluster={cluster} handle={setter} /> : null}
+      {canDelete ? <DeleteCredentialDialog cluster={cluster} handle={deleter} /> : null}
     </div>
   );
 }

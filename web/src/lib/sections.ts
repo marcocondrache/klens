@@ -43,7 +43,13 @@ export const SECTIONS: Section[] = [
   { segment: "nodes", label: "Brokers", icon: HardDriveIcon, group: "cluster" },
   { segment: "acls", label: "ACLs", icon: ShieldIcon, group: "cluster", privilege: "ACLS" },
   { segment: "users", label: "Users", icon: KeyRoundIcon, group: "cluster", privilege: "ACLS" },
-  { segment: "quotas", label: "Quotas", icon: GaugeIcon, group: "insights", privilege: "CONFIGS" },
+  {
+    segment: "quotas",
+    label: "Quotas",
+    icon: GaugeIcon,
+    group: "insights",
+    privilege: "BROKER_CONFIGS",
+  },
 ];
 
 export function visibleSections(can: (privilege: PrivilegeName) => boolean): Section[] {
