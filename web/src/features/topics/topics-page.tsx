@@ -1,7 +1,7 @@
-import { useMemo } from "react";
+import { useId, useMemo } from "react";
 import { getRouteApi } from "@tanstack/react-router";
 
-import { Label } from "@/components/ui/label";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Switch } from "@/components/ui/switch";
 import { DataTable } from "@/components/data-table/data-table";
 import { FilterBar } from "@/components/data-table/filter-bar";
@@ -30,6 +30,7 @@ export function TopicsPage() {
   const search = route.useSearch();
   const showInternal = search.internal;
   const { canChange } = useAccess();
+  const internalId = useId();
 
   function setSearch(patch: Partial<TopicsSearch>) {
     void navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true });
@@ -72,14 +73,17 @@ export function TopicsPage() {
 
             <FilterBar {...filterBar} />
 
-            <Label className="ml-auto flex items-center gap-2 text-sm font-normal text-muted-foreground">
+            <Field orientation="horizontal" className="ml-auto w-fit">
               <Switch
+                id={internalId}
                 size="sm"
                 checked={showInternal}
                 onCheckedChange={(checked) => setSearch({ internal: checked })}
               />
-              Show internal
-            </Label>
+              <FieldLabel htmlFor={internalId} className="text-sm font-normal">
+                Show internal
+              </FieldLabel>
+            </Field>
 
             {canChange(cluster, "CREATE_TOPICS") ? <CreateTopicSheet cluster={cluster} /> : null}
           </>

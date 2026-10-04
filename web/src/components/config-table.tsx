@@ -1,8 +1,8 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { EyeOffIcon, LockIcon, PencilIcon } from "lucide-react";
 import { createColumnHelper } from "@tanstack/react-table";
 
-import { Label } from "@/components/ui/label";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CopyButton } from "@/components/copy-button";
@@ -122,6 +122,7 @@ export function ConfigTable({
 }) {
   const [term, setTerm] = useState("");
   const [onlyOverrides, setOnlyOverrides] = useState(false);
+  const overridesId = useId();
 
   const rows = useMemo(() => {
     const needle = term.trim().toLowerCase();
@@ -155,14 +156,17 @@ export function ConfigTable({
             placeholder="Filter configuration…"
           />
 
-          <Label className="flex items-center gap-2 text-sm font-normal text-muted-foreground">
+          <Field orientation="horizontal" className="w-fit">
             <Switch
+              id={overridesId}
               size="sm"
               checked={onlyOverrides}
               onCheckedChange={(checked) => setOnlyOverrides(checked)}
             />
-            Overrides only
-          </Label>
+            <FieldLabel htmlFor={overridesId} className="text-sm font-normal">
+              Overrides only
+            </FieldLabel>
+          </Field>
         </>
       }
       loading={loading}
