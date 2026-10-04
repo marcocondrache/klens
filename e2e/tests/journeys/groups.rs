@@ -1,9 +1,14 @@
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
 use e2e::{Kafka, Klens};
+use reqwest::StatusCode;
 use serde_json::json;
+use tokio::time::sleep;
 
 use crate::row;
 
 const GROUPS: &str = "/api/clusters/local/groups";
+const BILLING_OFFSETS: &str = "/api/clusters/local/group-offsets/billing";
 
 async fn billing_behind_by_six() -> (Kafka, Klens) {
     let kafka = Kafka::start().await;
@@ -54,4 +59,69 @@ async fn a_commit_moves_the_lag_live_on_the_updates_stream() {
 
     assert_eq!(caught_up.data["group"], "billing");
     assert_eq!(caught_up.data["offsets"][0]["currentOffset"], 10);
+}
+
+#[tokio::test]
+async fn a_reset_previews_its_plan_and_shows_once_it_answers() {
+    let (_kafka, klens) = billing_behind_by_six().await;
+    let shift = json!({ "kind": "SHIFT", "by": -3 });
+
+    let (status, plan) = klens
+        .patch(BILLING_OFFSETS, &json!({ "to": shift, "dryRun": true }))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{plan}");
+    assert_eq!(
+        plan,
+        json!([{
+            "topic": "orders",
+            "partition": 0,
+            "currentOffset": 4,
+            "newOffset": 1,
+            "endOffset": 10
+        }])
+    );
+    assert_eq!(klens.get(&format!("{GROUPS}/billing")).await["totalLag"], 6);
+
+    let (status, applied) = klens.patch(BILLING_OFFSETS, &json!({ "to": shift })).await;
+
+    assert_eq!(status, StatusCode::OK, "{applied}");
+    assert_eq!(applied, plan);
+    let billing = klens.get(&format!("{GROUPS}/billing")).await;
+    assert_eq!(billing["offsets"][0]["currentOffset"], 1);
+    assert_eq!(billing["totalLag"], 9);
+}
+
+#[tokio::test]
+async fn a_reset_to_a_time_lands_on_the_first_record_at_or_after_it() {
+    let kafka = Kafka::start().await;
+    kafka.topic("orders", 1).await;
+    kafka.fill("orders", 0, &["early"]).await;
+    sleep(Duration::from_millis(50)).await;
+    let cut = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("a clock after the epoch")
+        .as_millis();
+    sleep(Duration::from_millis(50)).await;
+    kafka.fill("orders", 0, &["late", "later"]).await;
+    kafka.commit("billing", "orders", &[(0, 0)]).await;
+    let klens = Klens::over(&kafka).await;
+    klens
+        .eventually(GROUPS, |groups| {
+            row(groups, "id", "billing")["totalLag"] == 3
+        })
+        .await;
+
+    let (status, plan) = klens
+        .patch(
+            BILLING_OFFSETS,
+            &json!({
+                "topic": "orders",
+                "to": { "kind": "TIMESTAMP", "timestamp": cut },
+                "dryRun": true
+            }),
+        )
+        .await;
+
+    assert_eq!(status, StatusCode::OK, "{plan}");
+    assert_eq!(plan[0]["newOffset"], 1);
 }
