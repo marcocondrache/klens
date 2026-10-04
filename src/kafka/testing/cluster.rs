@@ -66,6 +66,7 @@ pub enum Api {
     DeleteGroupOffsets,
     RegisterSchema,
     DeleteSchema,
+    SetCompatibility,
 }
 
 #[derive(Clone)]
@@ -406,7 +407,8 @@ impl FakeCluster {
                 Api::SchemaSubjects
                 | Api::SubjectSchema
                 | Api::RegisterSchema
-                | Api::DeleteSchema => KafkaError::SchemaRegistry {
+                | Api::DeleteSchema
+                | Api::SetCompatibility => KafkaError::SchemaRegistry {
                     cluster: self.identity.name.clone(),
                     message: message.clone(),
                 },
@@ -1008,6 +1010,29 @@ impl ClusterSession for FakeCluster {
         world.schemas.retain(|(subject, version), _| {
             *subject != deletion.subject || deletion.version.is_some_and(|gone| gone != *version)
         });
+        Ok(())
+    }
+
+    async fn set_compatibility(
+        &self,
+        subject: &str,
+        level: SchemaCompatibility,
+    ) -> Result<(), KafkaError> {
+        self.answer(Api::SetCompatibility).await?;
+        let mut world = self.world();
+        if !world.schema_registry {
+            return Err(KafkaError::NoSchemaRegistry(self.identity.name.clone()));
+        }
+        let known = world
+            .subjects
+            .iter_mut()
+            .find(|known| known.subject == subject)
+            .ok_or_else(|| KafkaError::UnknownSubject {
+                cluster: self.identity.name.clone(),
+                subject: subject.to_owned(),
+                version: 0,
+            })?;
+        known.compatibility = level;
         Ok(())
     }
 }

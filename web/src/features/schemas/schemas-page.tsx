@@ -27,6 +27,7 @@ import { formatEnumLabel, isJson } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 import { DeleteSchemaDialog } from "./delete-schema";
+import { EditCompatibilityDialog } from "./edit-compatibility";
 import { NEW_SUBJECT, RegisterSchemaDialog } from "./register-schema";
 import { SchemaLoading } from "./schema-loading";
 import { subjectColumns } from "./schemas-columns";
@@ -198,6 +199,7 @@ export function SchemasPage() {
                     <h3 className="text-xs font-medium text-muted-foreground">Versions</h3>
                     {canManage ? (
                       <div className="flex items-center gap-2">
+                        <EditCompatibilityDialog cluster={cluster} subject={selected} />
                         <RegisterSchemaDialog
                           cluster={cluster}
                           draft={{

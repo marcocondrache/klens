@@ -45,7 +45,8 @@ use crate::kafka::quota::{DescribedQuota, QuotaListing};
 use crate::kafka::registry::client::SchemaRegistryClient;
 use crate::kafka::registry::decode::PayloadDecoder;
 use crate::kafka::registry::{
-    NewSchema, RegisteredSchema, RegisteredVersion, SchemaDeletion, SchemaSubject,
+    NewSchema, RegisteredSchema, RegisteredVersion, SchemaCompatibility, SchemaDeletion,
+    SchemaSubject,
 };
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
@@ -538,6 +539,14 @@ impl ClusterSession for KafkaClient {
 
     async fn delete_schema(&self, deletion: &SchemaDeletion) -> Result<(), KafkaError> {
         self.registry()?.delete(deletion).await
+    }
+
+    async fn set_compatibility(
+        &self,
+        subject: &str,
+        level: SchemaCompatibility,
+    ) -> Result<(), KafkaError> {
+        self.registry()?.set_compatibility(subject, level).await
     }
 }
 
@@ -1348,6 +1357,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_compatibility_level_sets_through_the_clusters_registry() {
+        let broker = Broker::start().await;
+        let registry = FakeRegistry::start().await;
+        let client = broker.client_with_registry(&registry).await;
+        client.register_schema(&order_schema()).await.unwrap();
+
+        client
+            .set_compatibility("orders-value", SchemaCompatibility::FullTransitive)
+            .await
+            .unwrap();
+
+        let subjects = client.schema_subjects().await.unwrap();
+        assert_eq!(
+            subjects[0].compatibility,
+            SchemaCompatibility::FullTransitive
+        );
+    }
+
+    #[tokio::test]
     async fn a_cluster_without_a_registry_changes_no_schema() {
         let client = Broker::start().await.client().await;
         let deletion = SchemaDeletion {
@@ -1360,6 +1388,10 @@ mod tests {
         let errors = [
             client.register_schema(&order_schema()).await.unwrap_err(),
             client.delete_schema(&deletion).await.unwrap_err(),
+            client
+                .set_compatibility("orders-value", SchemaCompatibility::Full)
+                .await
+                .unwrap_err(),
         ];
 
         for error in errors {

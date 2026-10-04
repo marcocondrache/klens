@@ -179,7 +179,7 @@ export type ConfigEntry = { name: string, value: string | null, source: ConfigSo
 
 export type SchemaType = "AVRO" | "JSON" | "PROTOBUF";
 
-export type SchemaCompatibility = "BACKWARD" | "FORWARD" | "FULL" | "NONE";
+export type SchemaCompatibility = "BACKWARD" | "BACKWARD_TRANSITIVE" | "FORWARD" | "FORWARD_TRANSITIVE" | "FULL" | "FULL_TRANSITIVE" | "NONE";
 
 export type SubjectRow = { subject: string, id: number, type: SchemaType, latestVersion: number, versions: Array<number>, compatibility: SchemaCompatibility, };
 
@@ -192,6 +192,8 @@ export type SubjectDetail = { subject: string, version: number, id: number, type
 export type RegisterSchema = { type: SchemaType, schema: string, references: Array<SchemaReference>, };
 
 export type RegisteredVersion = { id: number, version: number, };
+
+export type EditSubject = { compatibility: SchemaCompatibility, };
 
 export type AclStatus = "PENDING" | "ENABLED" | "DISABLED" | "DENIED";
 

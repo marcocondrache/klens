@@ -194,6 +194,17 @@ impl SchemaRegistryClient {
         }
     }
 
+    pub async fn set_compatibility(
+        &self,
+        subject: &str,
+        level: SchemaCompatibility,
+    ) -> Result<(), KafkaError> {
+        self.registry
+            .set_compatibility(subject, level.into())
+            .await
+            .map_err(|error| self.refusal(error))
+    }
+
     /// A registry answers a write it will not take with a 4xx code and a
     /// message meant for the user. Confluent sends an incompatible schema as
     /// a bare 409 and an invalid one as 42201.
@@ -380,7 +391,10 @@ mod tests {
 
         let subjects = registry.client().subjects().await.unwrap();
 
-        assert_eq!(subjects[0].compatibility, SchemaCompatibility::Forward);
+        assert_eq!(
+            subjects[0].compatibility,
+            SchemaCompatibility::ForwardTransitive
+        );
         assert_eq!(
             registry.hits("/config/orders-value").await,
             1,
@@ -395,7 +409,10 @@ mod tests {
 
         let subjects = registry.client().subjects().await.unwrap();
 
-        assert_eq!(subjects[0].compatibility, SchemaCompatibility::Backward);
+        assert_eq!(
+            subjects[0].compatibility,
+            SchemaCompatibility::BackwardTransitive
+        );
         assert_eq!(registry.hits("/config").await, 0);
     }
 
@@ -419,7 +436,10 @@ mod tests {
 
         assert_eq!(subjects.len(), 2);
         for subject in &subjects {
-            assert_eq!(subject.compatibility, SchemaCompatibility::Backward);
+            assert_eq!(
+                subject.compatibility,
+                SchemaCompatibility::BackwardTransitive
+            );
         }
         assert_eq!(
             registry.hits("/config").await,
@@ -784,6 +804,41 @@ mod tests {
 
         assert!(
             matches!(error, KafkaError::SchemaRegistry { .. }),
+            "{error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_set_compatibility_level_is_the_subjects_own() {
+        let registry = registry_of(&["orders-value"]).await;
+        registry.set_global_compatibility("BACKWARD");
+
+        registry
+            .client()
+            .set_compatibility("orders-value", SchemaCompatibility::FullTransitive)
+            .await
+            .unwrap();
+
+        let subjects = registry.client().subjects().await.unwrap();
+        assert_eq!(
+            subjects[0].compatibility,
+            SchemaCompatibility::FullTransitive
+        );
+    }
+
+    #[tokio::test]
+    async fn a_compatibility_level_the_registry_refuses_carries_its_message() {
+        let registry = registry_of(&["orders-value"]).await;
+        registry.refuse(422, 42203, "Invalid compatibility level");
+
+        let error = registry
+            .client()
+            .set_compatibility("orders-value", SchemaCompatibility::Full)
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(&error, KafkaError::RegistryRefused(message) if message == "Invalid compatibility level"),
             "{error:?}"
         );
     }

@@ -11,7 +11,8 @@ use crate::kafka::model::{
     AclListing, ClusterIdentity, CommittedOffset, ConfigEdit, ConfigEntry, GroupSnapshot, LogDir,
     MetadataSnapshot, NewRecord, NewSchema, NewTopic, PartitionWindow, ProducedRecord,
     QuotaListing, RecordDeletion, RegisteredSchema, RegisteredVersion, ScanConsumer,
-    SchemaDeletion, SchemaSubject, TailConsumer, TailPosition, TopicMetadata, Watermarks,
+    SchemaCompatibility, SchemaDeletion, SchemaSubject, TailConsumer, TailPosition, TopicMetadata,
+    Watermarks,
 };
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
@@ -129,6 +130,12 @@ pub trait ClusterSession: Send + Sync + 'static {
     async fn register_schema(&self, schema: &NewSchema) -> Result<RegisteredVersion, KafkaError>;
 
     async fn delete_schema(&self, deletion: &SchemaDeletion) -> Result<(), KafkaError>;
+
+    async fn set_compatibility(
+        &self,
+        subject: &str,
+        level: SchemaCompatibility,
+    ) -> Result<(), KafkaError>;
 
     fn consume_timeout(&self) -> Duration;
 

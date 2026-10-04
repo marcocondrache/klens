@@ -22,15 +22,30 @@ from_same_variants!(SchemaType => domain::SchemaType { Avro, Json, Protobuf });
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum SchemaCompatibility {
     Backward,
+    BackwardTransitive,
     Forward,
+    ForwardTransitive,
     Full,
+    FullTransitive,
     None,
 }
 
 from_same_variants!(domain::SchemaCompatibility => SchemaCompatibility {
     Backward,
+    BackwardTransitive,
     Forward,
+    ForwardTransitive,
     Full,
+    FullTransitive,
+    None,
+});
+from_same_variants!(SchemaCompatibility => domain::SchemaCompatibility {
+    Backward,
+    BackwardTransitive,
+    Forward,
+    ForwardTransitive,
+    Full,
+    FullTransitive,
     None,
 });
 
@@ -141,6 +156,12 @@ impl RegisterSchema {
             references: self.references.into_iter().map(Into::into).collect(),
         }
     }
+}
+
+#[derive(Debug, Clone, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EditSubject {
+    pub compatibility: SchemaCompatibility,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]

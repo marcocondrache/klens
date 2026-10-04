@@ -36,7 +36,7 @@ export const subjectColumns = columnHelper.columns([
   }),
   columnHelper.accessor("compatibility", {
     header: "Compatibility",
-    meta: { align: "right", width: "8rem" },
+    meta: { align: "right", width: "10rem" },
     cell: ({ getValue }) => (
       <span className={getValue() === "NONE" ? "text-warn" : "text-muted-foreground"}>
         {formatEnumLabel(getValue())}
