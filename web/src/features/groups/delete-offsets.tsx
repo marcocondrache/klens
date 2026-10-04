@@ -1,20 +1,9 @@
-import { useId, useState, type FormEvent } from "react";
+import { useId, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CircleAlertIcon, ListXIcon } from "lucide-react";
+import { CircleAlertIcon } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -22,23 +11,28 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Spinner } from "@/components/ui/spinner";
+import { Field } from "@/components/field";
+import { DialogForm } from "@/components/write-form";
 import { committedTopics } from "@/features/groups/group-state";
 import { apiErrorMessage, clusterPathname, del, resourceId } from "@/lib/api/client";
 import { keys } from "@/lib/api/keys";
 import type { GroupDetail } from "@/lib/api/types";
 
-export function DeleteOffsetsDialog({ cluster, group }: { cluster: string; group: GroupDetail }) {
-  const [open, setOpen] = useState(false);
-
+export function DeleteOffsetsDialog({
+  cluster,
+  group,
+  open,
+  onOpenChange,
+}: {
+  cluster: string;
+  group: GroupDetail;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button variant="outline" size="sm" />}>
-        <ListXIcon data-icon="inline-start" />
-        Delete offsets
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
-        <DeleteOffsetsForm cluster={cluster} group={group} onDeleted={() => setOpen(false)} />
+        <DeleteOffsetsForm cluster={cluster} group={group} onDeleted={() => onOpenChange(false)} />
       </DialogContent>
     </Dialog>
   );
@@ -74,28 +68,28 @@ function DeleteOffsetsForm({
   });
 
   const items = topics.map((name) => ({ value: name, label: name }));
-  const ready = topic !== "" && !consumed.has(topic) && !remove.isPending;
-
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!ready) return;
-    // Unlike a hook-level onSuccess, this one is dropped once the dialog closes.
-    remove.mutate(undefined, { onSuccess: onDeleted });
-  }
 
   return (
-    <form className="grid gap-4" onSubmit={submit}>
-      <DialogHeader>
-        <DialogTitle>Delete offsets</DialogTitle>
-        <DialogDescription>
+    <DialogForm
+      title="Delete offsets"
+      description={
+        <>
           This deletes the offsets <span className="font-mono">{group.id}</span> committed on{" "}
           <span className="font-mono">{topic}</span>. Its consumers start from their reset policy if
           they read the topic again.
-        </DialogDescription>
-      </DialogHeader>
-
-      <div className="grid gap-1.5">
-        <Label htmlFor={`${id}-topic`}>Topic</Label>
+        </>
+      }
+      error={remove.isError ? apiErrorMessage(remove.error, "Failed to delete the offsets.") : null}
+      submit={{
+        label: "Delete offsets",
+        pending: remove.isPending,
+        disabled: topic === "" || consumed.has(topic),
+        destructive: true,
+      }}
+      // Unlike a hook-level onSuccess, this one is dropped once the dialog closes.
+      onSubmit={() => remove.mutate(undefined, { onSuccess: onDeleted })}
+    >
+      <Field label="Topic" htmlFor={`${id}-topic`}>
         <Select
           items={items}
           value={topic}
@@ -114,7 +108,7 @@ function DeleteOffsetsForm({
             ))}
           </SelectContent>
         </Select>
-      </div>
+      </Field>
 
       {consumed.has(topic) ? (
         <Alert>
@@ -125,23 +119,6 @@ function DeleteOffsetsForm({
           </AlertDescription>
         </Alert>
       ) : null}
-
-      {remove.isError ? (
-        <Alert variant="destructive">
-          <CircleAlertIcon />
-          <AlertDescription>
-            {apiErrorMessage(remove.error, "Failed to delete the offsets.")}
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
-      <DialogFooter>
-        <DialogClose render={<Button type="button" variant="outline" />}>Cancel</DialogClose>
-        <Button type="submit" variant="destructive" disabled={!ready}>
-          {remove.isPending ? <Spinner data-icon="inline-start" /> : null}
-          Delete offsets
-        </Button>
-      </DialogFooter>
-    </form>
+    </DialogForm>
   );
 }

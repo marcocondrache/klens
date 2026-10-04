@@ -41,7 +41,7 @@ import type { KafkaRecord, TopicDetail } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
 import { DeleteRecordsDialog } from "./delete-records";
-import { ProduceRecordDialog, duplicateDraft } from "./produce-record";
+import { ProduceRecordSheet, duplicateDraft } from "./produce-record";
 import { useRecordAddress } from "./record-address";
 import { recordId } from "./record-id";
 import { RecordJump } from "./record-jump";
@@ -210,6 +210,7 @@ export function RecordView({
 }: RecordViewProps) {
   const { address, open, link } = useRecordAddress();
   const [expanded, setExpanded] = useState(false);
+  const [cutting, setCutting] = useState(false);
   const sheetRef = useRef<HTMLDivElement>(null);
 
   const { records, obfuscated } = source;
@@ -324,7 +325,7 @@ export function RecordView({
                 </span>
                 <CopyButton value={link(address)} label="Copy link to this record" />
                 {canDuplicate ? (
-                  <ProduceRecordDialog
+                  <ProduceRecordSheet
                     cluster={cluster}
                     topic={topic}
                     draft={duplicate ?? undefined}
@@ -332,17 +333,24 @@ export function RecordView({
                     onProduced={open}
                   >
                     <CopyPlusIcon />
-                  </ProduceRecordDialog>
+                  </ProduceRecordSheet>
                 ) : null}
                 {canDelete ? (
-                  <DeleteRecordsDialog
-                    cluster={cluster}
-                    topic={topic}
-                    cut={{ partition: address.partition, before: address.offset }}
-                    trigger={<IconButton label="Delete the records before this one" />}
-                  >
-                    <ListXIcon />
-                  </DeleteRecordsDialog>
+                  <>
+                    <IconButton
+                      label="Delete the records before this one"
+                      onClick={() => setCutting(true)}
+                    >
+                      <ListXIcon />
+                    </IconButton>
+                    <DeleteRecordsDialog
+                      cluster={cluster}
+                      topic={topic}
+                      cut={{ partition: address.partition, before: address.offset }}
+                      open={cutting}
+                      onOpenChange={setCutting}
+                    />
+                  </>
                 ) : null}
                 {selectedObfuscated ? <ObfuscatedBadge /> : null}
               </SheetTitle>

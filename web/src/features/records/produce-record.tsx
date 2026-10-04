@@ -1,21 +1,10 @@
-import { useId, useState, type FormEvent, type ReactElement, type ReactNode } from "react";
+import { useId, useState, type ReactElement, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CircleAlertIcon, CircleCheckIcon, PlusIcon, XIcon } from "lucide-react";
+import { CircleCheckIcon, PlusIcon, XIcon } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -23,10 +12,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Spinner } from "@/components/ui/spinner";
+import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Field, FieldCount } from "@/components/field";
 import { IconButton } from "@/components/icon-button";
+import { FormSheetContent, SheetForm } from "@/components/write-form";
 import { useSubjectRows } from "@/lib/api/catalog";
 import { apiErrorMessage, clusterPathname, postAndRead } from "@/lib/api/client";
 import { keys } from "@/lib/api/keys";
@@ -38,6 +29,7 @@ import type {
   SubjectRow,
   TopicDetail,
 } from "@/lib/api/types";
+import { cn } from "@/lib/utils";
 
 import { SchemaPicker } from "./schema-picker";
 
@@ -78,10 +70,10 @@ function textDraft(text: string | null): PayloadDraft {
 }
 
 /**
- * Without `onProduced` the dialog stays open and says where Kafka stored the record.
- * A null `trigger` hides the button but keeps an open dialog and its edits.
+ * Without `onProduced` the sheet stays open and says where Kafka stored the record.
+ * A null `trigger` hides the button but keeps an open sheet and its edits.
  */
-export function ProduceRecordDialog({
+export function ProduceRecordSheet({
   cluster,
   topic,
   draft = BLANK,
@@ -99,9 +91,9 @@ export function ProduceRecordDialog({
   const [open, setOpen] = useState(false);
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      {trigger ? <DialogTrigger render={trigger}>{children}</DialogTrigger> : null}
-      <DialogContent className="sm:max-w-lg">
+    <Sheet open={open} onOpenChange={setOpen}>
+      {trigger ? <SheetTrigger render={trigger}>{children}</SheetTrigger> : null}
+      <FormSheetContent wide>
         <ProduceRecordForm
           cluster={cluster}
           topic={topic}
@@ -114,8 +106,8 @@ export function ProduceRecordDialog({
             })
           }
         />
-      </DialogContent>
-    </Dialog>
+      </FormSheetContent>
+    </Sheet>
   );
 }
 
@@ -161,11 +153,9 @@ function ProduceRecordForm({
 
   const keyPayload = payload(key);
   const valuePayload = payload(value);
-  const incomplete = keyPayload === undefined || valuePayload === undefined;
 
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    if (produce.isPending || incomplete) return;
+  function submit() {
+    if (keyPayload === undefined || valuePayload === undefined) return;
     produce.mutate(
       {
         partition: partition === ANY_PARTITION ? undefined : Number(partition),
@@ -176,7 +166,7 @@ function ProduceRecordForm({
           .map((header) => ({ key: header.key, value: header.value })),
       },
       {
-        // Unlike a hook-level onSuccess, this one is dropped once the dialog closes.
+        // Unlike a hook-level onSuccess, this one is dropped once the sheet closes.
         onSuccess: onProduced,
       },
     );
@@ -187,16 +177,35 @@ function ProduceRecordForm({
   }
 
   return (
-    <form className="grid gap-4" onSubmit={submit}>
-      <DialogHeader>
-        <DialogTitle>Produce record</DialogTitle>
-        <DialogDescription>
+    <SheetForm
+      title="Produce record"
+      description={
+        <>
           Writes one record to <span className="font-mono">{topic.name}</span>.
-        </DialogDescription>
-      </DialogHeader>
-
-      <div className="grid gap-1.5">
-        <Label htmlFor={`${id}-partition`}>Partition</Label>
+        </>
+      }
+      notice={
+        produce.isSuccess && !onProduced ? (
+          <Alert>
+            <CircleCheckIcon />
+            <AlertDescription>
+              Kafka stored the record in partition {produce.data.partition} at offset{" "}
+              {produce.data.offset}.
+            </AlertDescription>
+          </Alert>
+        ) : null
+      }
+      error={
+        produce.isError ? apiErrorMessage(produce.error, "Failed to produce the record.") : null
+      }
+      submit={{
+        label: "Produce",
+        pending: produce.isPending,
+        disabled: keyPayload === undefined || valuePayload === undefined,
+      }}
+      onSubmit={submit}
+    >
+      <Field label="Partition" htmlFor={`${id}-partition`}>
         <Select
           items={partitions}
           value={partition}
@@ -215,7 +224,7 @@ function ProduceRecordForm({
             ))}
           </SelectContent>
         </Select>
-      </div>
+      </Field>
 
       <PayloadField
         id={`${id}-key`}
@@ -234,16 +243,43 @@ function ProduceRecordForm({
         subjects={subjects?.rows ?? []}
         draft={value}
         onChange={setValue}
+        fill
       />
 
-      <div className="grid gap-1.5">
-        <Label>Headers</Label>
+      <Field
+        label={
+          <>
+            Headers
+            <FieldCount value={headers.length} />
+          </>
+        }
+        action={
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            className="text-muted-foreground"
+            onClick={() =>
+              setHeaders((rows) => [
+                ...rows,
+                { id: (rows.at(-1)?.id ?? 0) + 1, key: "", value: "" },
+              ])
+            }
+          >
+            <PlusIcon data-icon="inline-start" />
+            Add header
+          </Button>
+        }
+        className="shrink-0"
+      >
+        {headers.length === 0 ? <p className="text-sm text-muted-foreground">No headers.</p> : null}
         {headers.map((row) => (
           <div key={row.id} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2">
             <Input
               aria-label="Header name"
               autoComplete="off"
               spellCheck={false}
+              placeholder="Name"
               className="font-mono"
               value={row.key}
               onChange={(event) => editHeader(row.id, { key: event.target.value })}
@@ -252,6 +288,7 @@ function ProduceRecordForm({
               aria-label="Header value"
               autoComplete="off"
               spellCheck={false}
+              placeholder="Value"
               className="font-mono"
               value={row.value}
               onChange={(event) => editHeader(row.id, { value: event.target.value })}
@@ -265,47 +302,8 @@ function ProduceRecordForm({
             </IconButton>
           </div>
         ))}
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="justify-self-start"
-          onClick={() =>
-            setHeaders((rows) => [...rows, { id: (rows.at(-1)?.id ?? 0) + 1, key: "", value: "" }])
-          }
-        >
-          <PlusIcon data-icon="inline-start" />
-          Add header
-        </Button>
-      </div>
-
-      {produce.isSuccess && !onProduced ? (
-        <Alert>
-          <CircleCheckIcon />
-          <AlertDescription>
-            Kafka stored the record in partition {produce.data.partition} at offset{" "}
-            {produce.data.offset}.
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
-      {produce.isError ? (
-        <Alert variant="destructive">
-          <CircleAlertIcon />
-          <AlertDescription>
-            {apiErrorMessage(produce.error, "Failed to produce the record.")}
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
-      <DialogFooter>
-        <DialogClose render={<Button type="button" variant="outline" />}>Cancel</DialogClose>
-        <Button type="submit" disabled={incomplete || produce.isPending}>
-          {produce.isPending ? <Spinner data-icon="inline-start" /> : null}
-          Produce
-        </Button>
-      </DialogFooter>
-    </form>
+      </Field>
+    </SheetForm>
   );
 }
 
@@ -324,6 +322,7 @@ function PayloadField({
   subjects,
   draft,
   onChange,
+  fill = false,
 }: {
   id: string;
   label: string;
@@ -332,11 +331,14 @@ function PayloadField({
   subjects: SubjectRow[];
   draft: PayloadDraft;
   onChange: (draft: PayloadDraft) => void;
+  fill?: boolean;
 }) {
   return (
-    <div className="grid gap-1.5">
-      <div className="flex items-center justify-between gap-2">
-        <Label htmlFor={id}>{label}</Label>
+    <Field
+      label={label}
+      htmlFor={id}
+      className={cn(fill ? "flex min-h-48 flex-1 flex-col" : "shrink-0")}
+      action={
         <ToggleGroup
           value={[draft.encoding]}
           onValueChange={(next) => {
@@ -357,7 +359,8 @@ function PayloadField({
           {subjects.length > 0 ? <ToggleGroupItem value="SCHEMA">Schema</ToggleGroupItem> : null}
           <ToggleGroupItem value="NULL">Null</ToggleGroupItem>
         </ToggleGroup>
-      </div>
+      }
+    >
       {draft.encoding === "SCHEMA" ? (
         <SchemaPicker
           cluster={cluster}
@@ -368,16 +371,21 @@ function PayloadField({
           placeholder="Choose a schema…"
         />
       ) : null}
-      {draft.encoding === "NULL" ? null : (
+      {draft.encoding === "NULL" ? (
+        <p className="text-sm text-muted-foreground">The record has no {label.toLowerCase()}.</p>
+      ) : (
         <Textarea
           id={id}
           spellCheck={false}
-          className="max-h-48 font-mono"
+          className={cn(
+            "bg-subtle px-3 py-2.5 font-mono leading-relaxed md:text-sm dark:bg-subtle",
+            fill ? "min-h-0 flex-1 resize-none field-sizing-fixed" : "max-h-40",
+          )}
           placeholder={draft.encoding === "SCHEMA" ? "JSON that fits the schema" : undefined}
           value={draft.data}
           onChange={(event) => onChange({ ...draft, data: event.target.value })}
         />
       )}
-    </div>
+    </Field>
   );
 }

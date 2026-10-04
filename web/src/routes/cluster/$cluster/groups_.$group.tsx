@@ -1,7 +1,10 @@
 import { Link, createFileRoute, stripSearchParams } from "@tanstack/react-router";
 import { createColumnHelper } from "@tanstack/react-table";
+import { ListXIcon, Trash2Icon } from "lucide-react";
 
+import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ActionsMenu, useOpenDialog } from "@/components/actions-menu";
 import { ConfirmDelete } from "@/components/confirm-delete";
 import { CopyButton } from "@/components/copy-button";
 import { DataTable } from "@/components/data-table/data-table";
@@ -12,7 +15,7 @@ import { TabCount } from "@/components/tab-count";
 import { GroupStateBadge, PendingValue, Pill, TONE_TEXT } from "@/components/status";
 import { DeleteOffsetsDialog } from "@/features/groups/delete-offsets";
 import { committedTopics, hasMembers } from "@/features/groups/group-state";
-import { ResetOffsetsDialog } from "@/features/groups/reset-offsets";
+import { ResetOffsetsSheet } from "@/features/groups/reset-offsets";
 import { useAccess } from "@/hooks/use-access";
 import { lagTone } from "@/lib/tone";
 import { cn } from "@/lib/utils";
@@ -122,6 +125,7 @@ function ConsumerGroupPage() {
   const canReset = canChange(cluster, "RESET_OFFSETS");
   const canDelete = canChange(cluster, "DELETE_GROUPS");
   const { data: group, isPending, isError, error } = useGroup(cluster, groupId);
+  const dialogs = useOpenDialog<"offsets" | "delete">();
 
   const lookup = catalogLookupMessage({
     isPending,
@@ -137,6 +141,8 @@ function ConsumerGroupPage() {
 
   const offsets = group?.offsets ?? [];
   const members = group?.members ?? [];
+  const canDeleteOffsets =
+    group != null && canChange(cluster, "DELETE_OFFSETS") && committedTopics(group).length > 0;
   const maxLag = Math.max(
     1,
     ...offsets.flatMap((offset) => (offset.lag === null ? [] : [offset.lag])),
@@ -248,32 +254,30 @@ function ConsumerGroupPage() {
           ) : null
         }
         actions={
-          group && (canReset || canDelete) ? (
+          group && (canReset || canDelete || canDeleteOffsets) ? (
             <>
-              {canReset ? <ResetOffsetsDialog cluster={cluster} group={group} /> : null}
-              {canDelete ? (
-                <ConfirmDelete
-                  noun="group"
-                  name={groupId}
-                  consequence={
-                    hasMembers(group.state) ? (
-                      <>
-                        Kafka only deletes a group without members. Stop the consumers of{" "}
-                        <span className="font-mono">{groupId}</span> first.
-                      </>
-                    ) : (
-                      <>
-                        This deletes <span className="font-mono">{groupId}</span> and its committed
-                        offsets, and cannot be undone. Its consumers start from their reset policy
-                        when they rejoin.
-                      </>
-                    )
-                  }
-                  onDelete={() => del(clusterPathname(cluster, "groups", resourceId(groupId)))}
-                  onDeleted={() =>
-                    void navigate({ to: "/cluster/$cluster/groups", params: { cluster } })
-                  }
-                />
+              {canReset ? <ResetOffsetsSheet cluster={cluster} group={group} /> : null}
+              {canDelete || canDeleteOffsets ? (
+                <ActionsMenu label="Group actions">
+                  {canDeleteOffsets ? (
+                    <DropdownMenuItem onClick={() => dialogs.show("offsets")}>
+                      <ListXIcon />
+                      Delete offsets
+                    </DropdownMenuItem>
+                  ) : null}
+                  {canDelete ? (
+                    <>
+                      {canDeleteOffsets ? <DropdownMenuSeparator /> : null}
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onClick={() => dialogs.show("delete")}
+                      >
+                        <Trash2Icon />
+                        Delete group
+                      </DropdownMenuItem>
+                    </>
+                  ) : null}
+                </ActionsMenu>
               ) : null}
             </>
           ) : null
@@ -289,6 +293,32 @@ function ConsumerGroupPage() {
           ) : null
         }
       />
+
+      {group && canDeleteOffsets ? (
+        <DeleteOffsetsDialog cluster={cluster} group={group} {...dialogs.props("offsets")} />
+      ) : null}
+      {group && canDelete ? (
+        <ConfirmDelete
+          {...dialogs.props("delete")}
+          noun="group"
+          name={groupId}
+          consequence={
+            hasMembers(group.state) ? (
+              <>
+                Kafka only deletes a group without members. Stop the consumers of{" "}
+                <span className="font-mono">{groupId}</span> first.
+              </>
+            ) : (
+              <>
+                This deletes <span className="font-mono">{groupId}</span> and its committed offsets,
+                and cannot be undone. Its consumers start from their reset policy when they rejoin.
+              </>
+            )
+          }
+          onDelete={() => del(clusterPathname(cluster, "groups", resourceId(groupId)))}
+          onDeleted={() => void navigate({ to: "/cluster/$cluster/groups", params: { cluster } })}
+        />
+      ) : null}
 
       <Tabs
         value={tab}
@@ -314,13 +344,6 @@ function ConsumerGroupPage() {
         <TabsContent value="offsets" className="mt-4 flex min-h-0 flex-col">
           <DataTable
             columns={offsetColumns}
-            toolbar={
-              group && canChange(cluster, "DELETE_OFFSETS") && committedTopics(group).length > 0 ? (
-                <div className="ml-auto flex gap-2">
-                  <DeleteOffsetsDialog cluster={cluster} group={group} />
-                </div>
-              ) : null
-            }
             data={offsets}
             getRowId={(offset) => `${offset.topic}-${offset.partition}`}
             loading={isPending}

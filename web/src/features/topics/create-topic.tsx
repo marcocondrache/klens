@@ -1,24 +1,14 @@
-import { useId, useState, type FormEvent } from "react";
+import { useId, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { CircleAlertIcon, PlusIcon, XIcon } from "lucide-react";
+import { PlusIcon, XIcon } from "lucide-react";
 
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Spinner } from "@/components/ui/spinner";
+import { Sheet, SheetTrigger } from "@/components/ui/sheet";
+import { Field, FieldCount } from "@/components/field";
 import { IconButton } from "@/components/icon-button";
+import { FormSheetContent, SheetForm } from "@/components/write-form";
 import { apiErrorMessage, clusterPathname, post } from "@/lib/api/client";
 import type { CreateTopic } from "@/lib/api/types";
 
@@ -26,19 +16,19 @@ const COUNT = /^[1-9]\d*$/;
 
 type ConfigRow = { key: number; name: string; value: string };
 
-export function CreateTopicDialog({ cluster }: { cluster: string }) {
+export function CreateTopicSheet({ cluster }: { cluster: string }) {
   const [open, setOpen] = useState(false);
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button />}>
-        <PlusIcon data-icon="inline-start" />
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetTrigger render={<Button variant="outline" className="font-normal" />}>
+        <PlusIcon className="text-muted-foreground" />
         Create topic
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
+      </SheetTrigger>
+      <FormSheetContent>
         <CreateTopicForm cluster={cluster} onCreated={() => setOpen(false)} />
-      </DialogContent>
-    </Dialog>
+      </FormSheetContent>
+    </Sheet>
   );
 }
 
@@ -56,11 +46,8 @@ function CreateTopicForm({ cluster, onCreated }: { cluster: string; onCreated: (
 
   const badPartitions = partitions !== "" && !COUNT.test(partitions);
   const badReplication = replicationFactor !== "" && !COUNT.test(replicationFactor);
-  const ready = name.trim() !== "" && !badPartitions && !badReplication && !create.isPending;
 
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!ready) return;
+  function submit() {
     const topic = name.trim();
     create.mutate(
       {
@@ -74,7 +61,7 @@ function CreateTopicForm({ cluster, onCreated }: { cluster: string; onCreated: (
         ),
       },
       {
-        // Unlike a hook-level onSuccess, this one is dropped once the dialog closes.
+        // Unlike a hook-level onSuccess, this one is dropped once the sheet closes.
         onSuccess: () => {
           onCreated();
           void navigate({ to: "/cluster/$cluster/topics/$topic", params: { cluster, topic } });
@@ -88,14 +75,18 @@ function CreateTopicForm({ cluster, onCreated }: { cluster: string; onCreated: (
   }
 
   return (
-    <form className="grid gap-4" onSubmit={submit}>
-      <DialogHeader>
-        <DialogTitle>Create topic</DialogTitle>
-        <DialogDescription>Leave a count empty to use the broker default.</DialogDescription>
-      </DialogHeader>
-
-      <div className="grid gap-1.5">
-        <Label htmlFor={`${id}-name`}>Name</Label>
+    <SheetForm
+      title="Create topic"
+      description="Leave a count empty to use the broker default."
+      error={create.isError ? apiErrorMessage(create.error, "Failed to create the topic.") : null}
+      submit={{
+        label: "Create topic",
+        pending: create.isPending,
+        disabled: name.trim() === "" || badPartitions || badReplication,
+      }}
+      onSubmit={submit}
+    >
+      <Field label="Name" htmlFor={`${id}-name`}>
         <Input
           id={`${id}-name`}
           autoFocus
@@ -105,11 +96,10 @@ function CreateTopicForm({ cluster, onCreated }: { cluster: string; onCreated: (
           value={name}
           onChange={(event) => setName(event.target.value)}
         />
-      </div>
+      </Field>
 
       <div className="grid grid-cols-2 gap-3">
-        <div className="grid gap-1.5">
-          <Label htmlFor={`${id}-partitions`}>Partitions</Label>
+        <Field label="Partitions" htmlFor={`${id}-partitions`}>
           <Input
             id={`${id}-partitions`}
             inputMode="numeric"
@@ -120,9 +110,8 @@ function CreateTopicForm({ cluster, onCreated }: { cluster: string; onCreated: (
             aria-invalid={badPartitions || undefined}
             onChange={(event) => setPartitions(event.target.value.trim())}
           />
-        </div>
-        <div className="grid gap-1.5">
-          <Label htmlFor={`${id}-replication`}>Replication factor</Label>
+        </Field>
+        <Field label="Replication factor" htmlFor={`${id}-replication`}>
           <Input
             id={`${id}-replication`}
             inputMode="numeric"
@@ -133,11 +122,37 @@ function CreateTopicForm({ cluster, onCreated }: { cluster: string; onCreated: (
             aria-invalid={badReplication || undefined}
             onChange={(event) => setReplicationFactor(event.target.value.trim())}
           />
-        </div>
+        </Field>
       </div>
 
-      <div className="grid gap-1.5">
-        <Label>Configs</Label>
+      <Field
+        label={
+          <>
+            Configs
+            <FieldCount value={configs.length} />
+          </>
+        }
+        action={
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            className="text-muted-foreground"
+            onClick={() =>
+              setConfigs((rows) => [
+                ...rows,
+                { key: (rows.at(-1)?.key ?? 0) + 1, name: "", value: "" },
+              ])
+            }
+          >
+            <PlusIcon data-icon="inline-start" />
+            Add config
+          </Button>
+        }
+      >
+        {configs.length === 0 ? (
+          <p className="text-sm text-muted-foreground">The topic follows the broker defaults.</p>
+        ) : null}
         {configs.map((row) => (
           <div key={row.key} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2">
             <Input
@@ -166,39 +181,7 @@ function CreateTopicForm({ cluster, onCreated }: { cluster: string; onCreated: (
             </IconButton>
           </div>
         ))}
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="justify-self-start"
-          onClick={() =>
-            setConfigs((rows) => [
-              ...rows,
-              { key: (rows.at(-1)?.key ?? 0) + 1, name: "", value: "" },
-            ])
-          }
-        >
-          <PlusIcon data-icon="inline-start" />
-          Add config
-        </Button>
-      </div>
-
-      {create.isError ? (
-        <Alert variant="destructive">
-          <CircleAlertIcon />
-          <AlertDescription>
-            {apiErrorMessage(create.error, "Failed to create the topic.")}
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
-      <DialogFooter>
-        <DialogClose render={<Button type="button" variant="outline" />}>Cancel</DialogClose>
-        <Button type="submit" disabled={!ready}>
-          {create.isPending ? <Spinner data-icon="inline-start" /> : null}
-          Create topic
-        </Button>
-      </DialogFooter>
-    </form>
+      </Field>
+    </SheetForm>
   );
 }

@@ -1,21 +1,10 @@
-import { useId, useState, type FormEvent, type ReactElement, type ReactNode } from "react";
+import { useId, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CircleAlertIcon } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -23,7 +12,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Spinner } from "@/components/ui/spinner";
+import { Field } from "@/components/field";
+import { DialogForm, TypeToConfirm } from "@/components/write-form";
 import { apiErrorMessage, clusterPathname, del } from "@/lib/api/client";
 import { keys } from "@/lib/api/keys";
 import type { TopicDetail } from "@/lib/api/types";
@@ -33,30 +23,29 @@ const OFFSET = /^\d+$/;
 
 export type RecordCut = { partition: number | null; before: number | null };
 
+const EVERYTHING: RecordCut = { partition: null, before: null };
+
 export function DeleteRecordsDialog({
   cluster,
   topic,
-  cut = { partition: null, before: null },
-  trigger,
-  children,
+  cut = EVERYTHING,
+  open,
+  onOpenChange,
 }: {
   cluster: string;
   topic: TopicDetail;
   cut?: RecordCut;
-  trigger: ReactElement;
-  children: ReactNode;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
-
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={trigger}>{children}</DialogTrigger>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DeleteRecordsForm
           cluster={cluster}
           topic={topic}
           cut={cut}
-          onDeleted={() => setOpen(false)}
+          onDeleted={() => onOpenChange(false)}
         />
       </DialogContent>
     </Dialog>
@@ -99,28 +88,29 @@ function DeleteRecordsForm({
     ...topic.partitions.map((entry) => ({ value: String(entry.id), label: String(entry.id) })),
   ];
   const badBefore = before !== "" && !OFFSET.test(before);
-  const ready = !compacted && !badBefore && typed === topic.name && !remove.isPending;
   const scope = partition === ALL ? "every partition" : `partition ${partition}`;
 
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!ready) return;
-    // Unlike a hook-level onSuccess, this one is dropped once the dialog closes.
-    remove.mutate(undefined, { onSuccess: onDeleted });
-  }
-
   return (
-    <form className="grid gap-4" onSubmit={submit}>
-      <DialogHeader>
-        <DialogTitle>Delete records</DialogTitle>
-        <DialogDescription>
+    <DialogForm
+      title="Delete records"
+      description={
+        <>
           {before === "" || badBefore
             ? `This deletes every record in ${scope}`
             : `This deletes the records before offset ${before} in ${scope}`}{" "}
           of <span className="font-mono">{topic.name}</span>, and cannot be undone.
-        </DialogDescription>
-      </DialogHeader>
-
+        </>
+      }
+      error={remove.isError ? apiErrorMessage(remove.error, "Failed to delete the records.") : null}
+      submit={{
+        label: "Delete records",
+        pending: remove.isPending,
+        disabled: compacted || badBefore || typed !== topic.name,
+        destructive: true,
+      }}
+      // Unlike a hook-level onSuccess, this one is dropped once the dialog closes.
+      onSubmit={() => remove.mutate(undefined, { onSuccess: onDeleted })}
+    >
       {compacted ? (
         <Alert>
           <CircleAlertIcon />
@@ -132,8 +122,7 @@ function DeleteRecordsForm({
       ) : null}
 
       <div className="grid grid-cols-2 gap-3">
-        <div className="grid gap-1.5">
-          <Label htmlFor={`${id}-partition`}>Partition</Label>
+        <Field label="Partition" htmlFor={`${id}-partition`}>
           <Select
             items={partitions}
             value={partition}
@@ -152,9 +141,8 @@ function DeleteRecordsForm({
               ))}
             </SelectContent>
           </Select>
-        </div>
-        <div className="grid gap-1.5">
-          <Label htmlFor={`${id}-before`}>Before offset</Label>
+        </Field>
+        <Field label="Before offset" htmlFor={`${id}-before`}>
           <Input
             id={`${id}-before`}
             inputMode="numeric"
@@ -165,40 +153,10 @@ function DeleteRecordsForm({
             aria-invalid={badBefore || undefined}
             onChange={(event) => setBefore(event.target.value.trim())}
           />
-        </div>
+        </Field>
       </div>
 
-      <div className="grid gap-1.5">
-        <Label htmlFor={`${id}-name`}>
-          Type <span className="font-mono">{topic.name}</span> to confirm
-        </Label>
-        <Input
-          id={`${id}-name`}
-          autoFocus
-          autoComplete="off"
-          spellCheck={false}
-          className="font-mono"
-          value={typed}
-          onChange={(event) => setTyped(event.target.value)}
-        />
-      </div>
-
-      {remove.isError ? (
-        <Alert variant="destructive">
-          <CircleAlertIcon />
-          <AlertDescription>
-            {apiErrorMessage(remove.error, "Failed to delete the records.")}
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
-      <DialogFooter>
-        <DialogClose render={<Button type="button" variant="outline" />}>Cancel</DialogClose>
-        <Button type="submit" variant="destructive" disabled={!ready}>
-          {remove.isPending ? <Spinner data-icon="inline-start" /> : null}
-          Delete records
-        </Button>
-      </DialogFooter>
-    </form>
+      <TypeToConfirm id={`${id}-name`} name={topic.name} value={typed} onChange={setTyped} />
+    </DialogForm>
   );
 }

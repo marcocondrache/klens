@@ -1,5 +1,5 @@
-import { useMemo, useState, type ReactNode } from "react";
-import { EyeOffIcon, LockIcon } from "lucide-react";
+import { useMemo, useState } from "react";
+import { EyeOffIcon, LockIcon, PencilIcon } from "lucide-react";
 import { createColumnHelper } from "@tanstack/react-table";
 
 import { Label } from "@/components/ui/label";
@@ -8,6 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { CopyButton } from "@/components/copy-button";
 import { DataTable } from "@/components/data-table/data-table";
 import { type DataTableFeatures } from "@/components/data-table/features";
+import { IconButton } from "@/components/icon-button";
 import { SearchField } from "@/components/search-field";
 import { StatusLabel } from "@/components/status";
 import type { ConfigEntry } from "@/lib/api/types";
@@ -87,23 +88,37 @@ const columns = columnHelper.columns([
   }),
 ]);
 
-function actionColumn(action: (entry: ConfigEntry) => ReactNode) {
+function editColumn(onEdit: (entry: ConfigEntry) => void) {
   return columnHelper.display({
-    id: "action",
+    id: "edit",
     enableResizing: false,
     meta: { align: "right", width: "3.5rem" },
-    cell: ({ row }) => action(row.original),
+    cell: ({ row }) =>
+      row.original.readOnly ? null : (
+        <IconButton
+          label={`Edit ${row.original.name}`}
+          tooltip="Edit"
+          reveal
+          onClick={(event) => {
+            event.stopPropagation();
+            onEdit(row.original);
+          }}
+        >
+          <PencilIcon />
+        </IconButton>
+      ),
   });
 }
 
+/** With `onEdit`, a click on a writable row opens it for editing. */
 export function ConfigTable({
   entries,
   loading = false,
-  action,
+  onEdit,
 }: {
   entries: ConfigEntry[];
   loading?: boolean;
-  action?: (entry: ConfigEntry) => ReactNode;
+  onEdit?: (entry: ConfigEntry) => void;
 }) {
   const [term, setTerm] = useState("");
   const [onlyOverrides, setOnlyOverrides] = useState(false);
@@ -122,8 +137,8 @@ export function ConfigTable({
   }, [entries, term, onlyOverrides]);
 
   const tableColumns = useMemo(
-    () => (action ? [...columns, actionColumn(action)] : columns),
-    [action],
+    () => (onEdit ? [...columns, editColumn(onEdit)] : columns),
+    [onEdit],
   );
 
   return (
@@ -152,6 +167,13 @@ export function ConfigTable({
       }
       loading={loading}
       defaultSort={{ id: "name", direction: "asc" }}
+      onRowClick={
+        onEdit
+          ? (entry) => {
+              if (!entry.readOnly) onEdit(entry);
+            }
+          : undefined
+      }
     />
   );
 }
