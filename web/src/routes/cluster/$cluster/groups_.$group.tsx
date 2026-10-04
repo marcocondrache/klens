@@ -9,6 +9,8 @@ import { PageHeader } from "@/components/page-header";
 import { Facts } from "@/components/facts";
 import { TabCount } from "@/components/tab-count";
 import { GroupStateBadge, PendingValue, Pill, TONE_TEXT } from "@/components/status";
+import { ResetOffsetsDialog } from "@/features/groups/reset-offsets";
+import { useAccess } from "@/hooks/use-access";
 import { lagTone } from "@/lib/tone";
 import { cn } from "@/lib/utils";
 import { useGroup } from "@/lib/api/catalog";
@@ -112,6 +114,7 @@ function ConsumerGroupPage() {
   const navigate = Route.useNavigate();
   const { group: groupId } = Route.useParams();
   const { tab } = Route.useSearch();
+  const { canChange } = useAccess();
   const { data: group, isPending, isError, error } = useGroup(cluster, groupId);
 
   const lookup = catalogLookupMessage({
@@ -236,6 +239,11 @@ function ConsumerGroupPage() {
               </Pill>
               {group.protocol ? <Pill>{group.protocol}</Pill> : null}
             </>
+          ) : null
+        }
+        actions={
+          group && canChange(cluster, "MANAGE_GROUPS") ? (
+            <ResetOffsetsDialog cluster={cluster} group={group} />
           ) : null
         }
         description={

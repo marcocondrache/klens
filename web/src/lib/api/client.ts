@@ -111,6 +111,11 @@ export async function patch(path: string, body: unknown): Promise<void> {
   await send("PATCH", path, body);
 }
 
+export async function patchAndRead<T>(path: string, body: unknown): Promise<T> {
+  const response = await send("PATCH", path, body);
+  return (await response.json()) as T;
+}
+
 export async function del(path: string, query?: Record<string, QueryValue>): Promise<void> {
   await send("DELETE", withQuery(path, query));
 }
