@@ -233,6 +233,27 @@ impl Contents {
                 _ => ResponseTemplate::new(404),
             };
         }
+        if request.method == Method::PUT {
+            if let Some(refusal) = self.refused() {
+                return refusal;
+            }
+            let body: Value = serde_json::from_slice(&request.body).expect("a config body");
+            let level = body["compatibility"].as_str().expect("a level").to_owned();
+            return match segments.as_slice() {
+                ["config", segment] => match self
+                    .subjects
+                    .iter_mut()
+                    .find(|subject| encoded(&subject.name) == *segment)
+                {
+                    Some(subject) => {
+                        subject.compatibility = Some(level.clone());
+                        found(json!({ "compatibility": level }))
+                    }
+                    None => missing(40401, "Subject not found."),
+                },
+                _ => ResponseTemplate::new(404),
+            };
+        }
         if request.method == Method::POST {
             let schema = Schema::parse(&request.body);
             return match segments.as_slice() {

@@ -69,6 +69,20 @@ impl From<schemreg::CompatibilityLevel> for SchemaCompatibility {
     }
 }
 
+impl From<SchemaCompatibility> for schemreg::CompatibilityLevel {
+    fn from(value: SchemaCompatibility) -> Self {
+        match value {
+            SchemaCompatibility::Backward => Self::Backward,
+            SchemaCompatibility::BackwardTransitive => Self::BackwardTransitive,
+            SchemaCompatibility::Forward => Self::Forward,
+            SchemaCompatibility::ForwardTransitive => Self::ForwardTransitive,
+            SchemaCompatibility::Full => Self::Full,
+            SchemaCompatibility::FullTransitive => Self::FullTransitive,
+            SchemaCompatibility::None => Self::None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SchemaSubject {
     pub subject: String,
@@ -125,6 +139,21 @@ mod tests {
     use schemreg::CompatibilityLevel as Level;
 
     use super::*;
+
+    #[test]
+    fn every_compatibility_level_survives_the_trip_to_the_registry() {
+        for level in [
+            Level::Backward,
+            Level::BackwardTransitive,
+            Level::Forward,
+            Level::ForwardTransitive,
+            Level::Full,
+            Level::FullTransitive,
+            Level::None,
+        ] {
+            assert_eq!(Level::from(SchemaCompatibility::from(level)), level);
+        }
+    }
 
     #[test]
     fn every_registry_compatibility_level_keeps_its_name() {
