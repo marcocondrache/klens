@@ -96,8 +96,9 @@ impl OffsetLane {
 
         let previous = store.offsets.load();
         let hot = store.interest.hot_groups();
+        let refresh = store.offsets.take_refresh();
 
-        let due = self.due_groups(topology, &hot, Instant::now());
+        let due = self.due_groups(topology, &hot, refresh, Instant::now());
         let dropped = stale_groups(topology, previous.as_deref());
         if due.is_empty() && dropped.is_empty() {
             return Wave::default();
@@ -154,6 +155,7 @@ impl OffsetLane {
         &self,
         topology: &Topology,
         hot: &HashSet<Arc<str>>,
+        refresh: bool,
         now: Instant,
     ) -> Vec<Arc<str>> {
         let attempted = self.attempted_at.lock().expect("offset lane clock");
@@ -161,10 +163,12 @@ impl OffsetLane {
             .groups
             .keys()
             .filter(|id| {
-                let threshold = if hot.contains(*id) {
-                    self.fast
-                } else {
+                let threshold = if !hot.contains(*id) {
                     self.slow
+                } else if refresh {
+                    Duration::ZERO
+                } else {
+                    self.fast
                 };
                 attempted
                     .get(*id)

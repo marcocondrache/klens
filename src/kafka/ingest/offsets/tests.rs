@@ -2,11 +2,11 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::time::advance;
+use tokio::time::{Instant, advance};
 
 use crate::kafka::group::GroupState;
-use crate::kafka::store::Change;
-use crate::testing::{Api, BusProbe, FakeCluster, IDLE, Rig, group};
+use crate::kafka::store::{Change, OffsetTable};
+use crate::testing::{Api, BusProbe, FakeCluster, IDLE, Rig, group, quiesce};
 
 fn lags(bus: &mut BusProbe) -> Vec<(String, i64)> {
     bus.drain()
@@ -15,6 +15,19 @@ fn lags(bus: &mut BusProbe) -> Vec<(String, i64)> {
         .flat_map(|wave| wave.groups.clone())
         .map(|update| (update.group.to_string(), update.total_lag))
         .collect()
+}
+
+fn committed(table: &OffsetTable, group: &str) -> Vec<i64> {
+    table
+        .get(group)
+        .map(|offsets| {
+            offsets
+                .committed
+                .iter()
+                .map(|offset| offset.offset)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn consumers(count: usize) -> FakeCluster {
@@ -333,4 +346,30 @@ async fn the_offset_lane_sweeps_nothing_until_topology_commits() {
 
     rig.poll(&rig.topology()).await;
     rig.store.offsets.committed().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_refresh_rereads_the_watched_groups_without_waiting_for_their_tier() {
+    let mut rig = Rig::new(consumers(2));
+    rig.poll(&rig.topology()).await;
+    rig.spawn_offsets(rig.offsets());
+    quiesce().await;
+    let _lease = rig.store.interest.lease_group("group-00");
+    for id in ["group-00", "group-01"] {
+        rig.cluster.commit_offsets(id, &[("orders.created", 0, 7)]);
+    }
+    let started = Instant::now();
+
+    rig.store
+        .offsets
+        .refresh_until(|table| committed(table, "group-00") == [7])
+        .await;
+
+    assert!(started.elapsed() < Duration::from_secs(1));
+    let table = rig.store.offsets.load().expect("offsets");
+    assert_eq!(
+        committed(&table, "group-01"),
+        [2],
+        "a group nobody watches keeps its tier"
+    );
 }
