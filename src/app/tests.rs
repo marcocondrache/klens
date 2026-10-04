@@ -110,6 +110,12 @@ const WRITES: &[(Method, &str, Option<&str>, Privilege)] = &[
         Some(r#"{ "type": "AVRO", "schema": "\"string\"" }"#),
         Privilege::ManageSchemas,
     ),
+    (
+        Method::DELETE,
+        "/clusters/local/subjects/orders.created-value?version=1",
+        None,
+        Privilege::ManageSchemas,
+    ),
 ];
 
 fn write(method: &Method, route: &str, body: Option<&str>) -> Request<Body> {

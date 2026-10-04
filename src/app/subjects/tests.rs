@@ -168,3 +168,62 @@ async fn a_cluster_with_a_registry_says_so() {
 
     assert_eq!(listing["hasRegistry"], true);
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_deleted_version_leaves_the_subject_before_the_delete_answers() {
+    let app = writable().await;
+    let mut rig = app.rig();
+    let lane = rig.subjects();
+    rig.spawn(lane);
+    quiesce().await;
+    let logs = LogCapture::at(Level::INFO);
+    let started = Instant::now();
+
+    app.delete("/clusters/local/subjects/orders.created-value?version=1")
+        .await
+        .expect(StatusCode::NO_CONTENT);
+
+    assert!(started.elapsed() < Duration::from_secs(1));
+    let listing = app.get("/clusters/local/subjects").await.ok();
+    assert_eq!(versions(&listing, "orders.created-value"), json!([2]));
+    logs.assert_contains(
+        "deleted schema cluster=local subject=orders.created-value version=1 permanent=false",
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_deleted_subject_is_gone_before_the_delete_answers() {
+    let app = writable().await;
+    let mut rig = app.rig();
+    let lane = rig.subjects();
+    rig.spawn(lane);
+    quiesce().await;
+    let started = Instant::now();
+
+    app.delete("/clusters/local/subjects/orders.created-value?permanent=true")
+        .await
+        .expect(StatusCode::NO_CONTENT);
+
+    assert!(started.elapsed() < Duration::from_secs(1));
+    let listing = app.get("/clusters/local/subjects").await.ok();
+    assert_eq!(listing["rows"], json!([]));
+    app.get("/clusters/local/subjects/orders.created-value")
+        .await
+        .assert_error(StatusCode::NOT_FOUND, "UNKNOWN_SUBJECT");
+}
+
+#[tokio::test]
+async fn deleting_a_schema_the_store_does_not_know_never_reaches_the_registry() {
+    let app = writable().await;
+
+    for route in [
+        "/clusters/local/subjects/ghost-value",
+        "/clusters/local/subjects/orders.created-value?version=9",
+    ] {
+        app.delete(route)
+            .await
+            .assert_error(StatusCode::NOT_FOUND, "UNKNOWN_SUBJECT");
+    }
+
+    assert_eq!(app.cluster().calls(Api::DeleteSchema), 0);
+}

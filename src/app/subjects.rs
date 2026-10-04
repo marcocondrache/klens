@@ -1,10 +1,12 @@
 use axum::Json;
 use axum::Router;
+use axum::http::StatusCode;
 use axum::routing::get;
 use serde::Deserialize;
 
 use crate::AppState;
 use crate::kafka::KafkaError;
+use crate::kafka::model::SchemaDeletion;
 
 use super::context::Session;
 use super::error::ApiError;
@@ -23,7 +25,10 @@ pub(crate) fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(subjects))
         // Subject names may contain `/`.
-        .route("/{*subject}", get(subject).post(register_schema))
+        .route(
+            "/{*subject}",
+            get(subject).post(register_schema).delete(delete_schema),
+        )
 }
 
 async fn subjects(
@@ -76,6 +81,30 @@ async fn register_schema(
         .register_schema(&request.into_schema(subject))
         .await?;
     Ok(Json(registered.into()))
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct DeleteQuery {
+    version: Option<i32>,
+    #[serde(default)]
+    permanent: bool,
+}
+
+async fn delete_schema(
+    session: Session,
+    Path((name, subject)): Path<(String, String)>,
+    Query(query): Query<DeleteQuery>,
+) -> Result<StatusCode, ApiError> {
+    let cluster = session.cluster(&name)?;
+    let schemas = cluster.manage_schemas()?;
+    schemas
+        .delete_schema(&SchemaDeletion {
+            subject,
+            version: query.version,
+            permanent: query.permanent,
+        })
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 fn latest_version(
