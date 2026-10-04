@@ -1,3 +1,6 @@
+use std::fmt::{self, Display, Formatter};
+
+use itertools::Itertools as _;
 use tracing::warn;
 
 use crate::kafka::error::{KafkaError, is_cluster_authorization_text};
@@ -18,6 +21,14 @@ impl QuotaEntityType {
             _ => None,
         }
     }
+
+    pub fn wire(self) -> &'static str {
+        match self {
+            Self::User => "user",
+            Self::ClientId => "client-id",
+            Self::Ip => "ip",
+        }
+    }
 }
 
 /// One part of the entity a quota applies to. `None` is the default entity.
@@ -25,6 +36,13 @@ impl QuotaEntityType {
 pub struct QuotaEntity {
     pub entity_type: QuotaEntityType,
     pub name: Option<String>,
+}
+
+impl Display for QuotaEntity {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let name = self.name.as_deref().unwrap_or("<default>");
+        write!(f, "{}={name}", self.entity_type.wire())
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -48,12 +66,35 @@ impl QuotaValues {
         };
         *slot = Some(value);
     }
+
+    pub fn entries(&self) -> [(&'static str, Option<f64>); 5] {
+        [
+            ("producer_byte_rate", self.producer_byte_rate),
+            ("consumer_byte_rate", self.consumer_byte_rate),
+            ("request_percentage", self.request_percentage),
+            ("controller_mutation_rate", self.controller_mutation_rate),
+            ("connection_creation_rate", self.connection_creation_rate),
+        ]
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClientQuota {
     pub entity: Vec<QuotaEntity>,
     pub values: QuotaValues,
+}
+
+impl Display for ClientQuota {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let values = self
+            .values
+            .entries()
+            .into_iter()
+            .filter_map(|(key, value)| value.map(|value| format!("{key}={value}")))
+            .join(" ");
+        write!(f, "{}: ", self.entity.iter().join(" "))?;
+        f.write_str(if values.is_empty() { "none" } else { &values })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -69,6 +110,17 @@ pub struct DescribedQuota {
 }
 
 impl QuotaListing {
+    /// The values set on exactly `entity`, whose parts are in type order.
+    pub fn values(&self, entity: &[QuotaEntity]) -> Option<&QuotaValues> {
+        match self {
+            Self::Described(quotas) => quotas
+                .iter()
+                .find(|quota| quota.entity == entity)
+                .map(|quota| &quota.values),
+            Self::Denied => None,
+        }
+    }
+
     pub fn from_describe(
         cluster: &str,
         error: Option<&str>,

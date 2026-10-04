@@ -8,11 +8,11 @@ use foldhash::{HashMap, HashMapExt};
 
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
-    Acl, AclListing, ClusterIdentity, CommittedOffset, ConfigEdit, ConfigEntry, GroupSnapshot,
-    LogDir, MetadataSnapshot, NewRecord, NewSchema, NewTopic, PartitionWindow, ProducedRecord,
-    QuotaListing, RecordDeletion, RegisteredSchema, RegisteredVersion, ScanConsumer,
-    SchemaCompatibility, SchemaDeletion, SchemaSubject, TailConsumer, TailPosition, TopicMetadata,
-    Watermarks,
+    Acl, AclListing, ClientQuota, ClusterIdentity, CommittedOffset, ConfigEdit, ConfigEntry,
+    GroupSnapshot, LogDir, MetadataSnapshot, NewRecord, NewSchema, NewTopic, PartitionWindow,
+    ProducedRecord, QuotaListing, RecordDeletion, RegisteredSchema, RegisteredVersion,
+    ScanConsumer, SchemaCompatibility, SchemaDeletion, SchemaSubject, TailConsumer, TailPosition,
+    TopicMetadata, Watermarks,
 };
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
@@ -142,6 +142,9 @@ pub trait ClusterSession: Send + Sync + 'static {
 
     /// Deleting a binding that does not exist changes nothing.
     async fn delete_acl(&self, acl: &Acl) -> Result<(), KafkaError>;
+
+    /// Sets each value `quota` holds on its entity and removes the others.
+    async fn alter_client_quota(&self, quota: &ClientQuota) -> Result<(), KafkaError>;
 
     fn consume_timeout(&self) -> Duration;
 

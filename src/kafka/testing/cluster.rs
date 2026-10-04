@@ -22,7 +22,7 @@ use crate::kafka::model::{
     NewRecord, PartitionWindow, ProducedRecord, RecordDeletion, ScanConsumer, TailConsumer,
     TailPosition,
 };
-use crate::kafka::quota::QuotaListing;
+use crate::kafka::quota::{ClientQuota, QuotaListing, QuotaValues};
 use crate::kafka::registry::{
     NewSchema, RegisteredSchema, RegisteredVersion, SchemaCompatibility, SchemaDeletion,
     SchemaSubject, SchemaType,
@@ -69,6 +69,7 @@ pub enum Api {
     SetCompatibility,
     CreateAcls,
     DeleteAcl,
+    AlterClientQuota,
 }
 
 #[derive(Clone)]
@@ -1063,6 +1064,19 @@ impl ClusterSession for FakeCluster {
     async fn delete_acl(&self, acl: &Acl) -> Result<(), KafkaError> {
         self.answer(Api::DeleteAcl).await?;
         self.world().authorized_acls()?.retain(|row| row != acl);
+        Ok(())
+    }
+
+    async fn alter_client_quota(&self, quota: &ClientQuota) -> Result<(), KafkaError> {
+        self.answer(Api::AlterClientQuota).await?;
+        let mut world = self.world();
+        let QuotaListing::Described(quotas) = &mut world.quotas else {
+            return Err(KafkaError::Refused("ClusterAuthorizationFailed".to_owned()));
+        };
+        quotas.retain(|known| known.entity != quota.entity);
+        if quota.values != QuotaValues::default() {
+            quotas.push(quota.clone());
+        }
         Ok(())
     }
 }
