@@ -4,6 +4,7 @@ import { CircleAlertIcon } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Dialog } from "@/components/ui/dialog";
+import { Field, FieldLabel } from "@/components/ui/field";
 import {
   Select,
   SelectContent,
@@ -11,7 +12,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Field } from "@/components/field";
 import { DialogForm, FormDialogContent } from "@/components/write-form";
 import { committedTopics } from "@/features/groups/group-state";
 import { apiErrorMessage, clusterPathname, del, resourceId } from "@/lib/api/client";
@@ -89,7 +89,8 @@ function DeleteOffsetsForm({
       // Unlike a hook-level onSuccess, this one is dropped once the dialog closes.
       onSubmit={() => remove.mutate(undefined, { onSuccess: onDeleted })}
     >
-      <Field label="Topic" htmlFor={`${id}-topic`}>
+      <Field>
+        <FieldLabel htmlFor={`${id}-topic`}>Topic</FieldLabel>
         <Select
           items={items}
           value={topic}

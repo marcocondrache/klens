@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { Dialog, type DialogHandle } from "@/components/ui/dialog";
-import { Field } from "@/components/field";
+import { Field, FieldTitle } from "@/components/ui/field";
 import { DialogForm, FormDialogContent } from "@/components/write-form";
 import { apiErrorMessage, clusterPathname, del, resourceId } from "@/lib/api/client";
 import { keys } from "@/lib/api/keys";
@@ -72,8 +72,11 @@ function DeleteCredentialForm({
       onSubmit={() => remove.mutate(mechanism, { onSuccess: onDeleted })}
     >
       {held.length > 1 ? (
-        <Field label="Mechanism">
-          <MechanismToggle value={mechanism} options={held} onChange={setMechanism} />
+        <Field>
+          <FieldTitle>Mechanism</FieldTitle>
+          <div>
+            <MechanismToggle value={mechanism} options={held} onChange={setMechanism} />
+          </div>
         </Field>
       ) : null}
     </DialogForm>

@@ -4,9 +4,9 @@ import { PlusIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, type DialogHandle } from "@/components/ui/dialog";
+import { Field, FieldDescription, FieldError, FieldLabel, FieldTitle } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";
-import { Field } from "@/components/field";
 import { FormSheetContent, SheetForm } from "@/components/write-form";
 import { apiErrorMessage, clusterPathname, put, resourceId } from "@/lib/api/client";
 import { keys } from "@/lib/api/keys";
@@ -27,7 +27,7 @@ export function NewUserSheet({ cluster }: { cluster: string }) {
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger render={<Button variant="outline" className="ml-auto font-normal" />}>
-        <PlusIcon className="text-muted-foreground" />
+        <PlusIcon data-icon="inline-start" className="text-muted-foreground" />
         Add user
       </SheetTrigger>
       <FormSheetContent>
@@ -114,7 +114,8 @@ function CredentialForm({
       submit={{ label: "Save", pending: save.isPending, disabled: !ready }}
       onSubmit={submit}
     >
-      <Field label="User" htmlFor={`${id}-user`}>
+      <Field data-disabled={user !== undefined || undefined}>
+        <FieldLabel htmlFor={`${id}-user`}>User</FieldLabel>
         <Input
           id={`${id}-user`}
           data-autofocus={!user || undefined}
@@ -127,17 +128,21 @@ function CredentialForm({
         />
       </Field>
 
-      <Field label="Mechanism">
-        <MechanismToggle
-          value={mechanism}
-          onChange={(next) => {
-            setMechanism(next);
-            setIterations(iterationsOf(user, next));
-          }}
-        />
+      <Field>
+        <FieldTitle>Mechanism</FieldTitle>
+        <div>
+          <MechanismToggle
+            value={mechanism}
+            onChange={(next) => {
+              setMechanism(next);
+              setIterations(iterationsOf(user, next));
+            }}
+          />
+        </div>
       </Field>
 
-      <Field label="Password" htmlFor={`${id}-password`}>
+      <Field>
+        <FieldLabel htmlFor={`${id}-password`}>Password</FieldLabel>
         <Input
           id={`${id}-password`}
           type="password"
@@ -148,21 +153,28 @@ function CredentialForm({
         />
       </Field>
 
-      <Field
-        label="Iterations"
-        htmlFor={`${id}-iterations`}
-        hint={`Kafka takes ${MIN_ITERATIONS} to ${MAX_ITERATIONS} iterations.`}
-      >
+      <Field data-invalid={badIterations || undefined}>
+        <FieldLabel htmlFor={`${id}-iterations`}>Iterations</FieldLabel>
         <Input
           id={`${id}-iterations`}
           inputMode="numeric"
           autoComplete="off"
-          className="numeric w-32"
+          className="numeric max-w-32"
           value={iterations}
           aria-invalid={badIterations || undefined}
-          aria-describedby={`${id}-iterations-hint`}
+          aria-describedby={
+            badIterations ? `${id}-iterations-hint ${id}-iterations-error` : `${id}-iterations-hint`
+          }
           onChange={(event) => setIterations(event.target.value.trim())}
         />
+        <FieldDescription id={`${id}-iterations-hint`}>
+          Kafka takes {MIN_ITERATIONS} to {MAX_ITERATIONS} iterations.
+        </FieldDescription>
+        {badIterations ? (
+          <FieldError id={`${id}-iterations-error`}>
+            Enter a whole number from {MIN_ITERATIONS} to {MAX_ITERATIONS}.
+          </FieldError>
+        ) : null}
       </Field>
     </SheetForm>
   );

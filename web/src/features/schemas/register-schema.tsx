@@ -1,13 +1,14 @@
-import { useId, useState, type ReactElement, type ReactNode } from "react";
+import { Fragment, useId, useState, type ReactElement, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { PlusIcon, XIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Field, FieldDescription, FieldError, FieldLabel, FieldTitle } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { Field, FieldCount } from "@/components/field";
+import { FieldCount } from "@/components/field-count";
 import { IconButton } from "@/components/icon-button";
 import { FormSheetContent, SheetForm } from "@/components/write-form";
 import { apiErrorMessage, clusterPathname, postAndRead, resourceId } from "@/lib/api/client";
@@ -20,6 +21,8 @@ import type {
 } from "@/lib/api/types";
 
 const VERSION = /^[1-9]\d*$/;
+
+const LIST_FORMAT = new Intl.ListFormat("en-GB");
 
 const TYPES: { value: SchemaType; label: string }[] = [
   { value: "AVRO", label: "Avro" },
@@ -43,6 +46,15 @@ export const NEW_SUBJECT: SchemaDraft = {
 };
 
 type ReferenceRow = { id: number; name: string; subject: string; version: string };
+
+function referenceError(name: boolean, subject: boolean, version: boolean) {
+  const parts = [
+    name ? "a name" : null,
+    subject ? "a subject" : null,
+    version ? "a whole version number above zero" : null,
+  ].filter((part) => part !== null);
+  return `Enter ${LIST_FORMAT.format(parts)}.`;
+}
 
 export function RegisterSchemaSheet({
   cluster,
@@ -169,7 +181,8 @@ function RegisterSchemaForm({
       onSubmit={submit}
     >
       {draft.subject === null ? (
-        <Field label="Subject" htmlFor={`${id}-subject`}>
+        <Field>
+          <FieldLabel htmlFor={`${id}-subject`}>Subject</FieldLabel>
           <Input
             id={`${id}-subject`}
             data-autofocus
@@ -183,11 +196,9 @@ function RegisterSchemaForm({
         </Field>
       ) : null}
 
-      <Field
-        label="Schema"
-        htmlFor={`${id}-schema`}
-        className="flex min-h-48 flex-1 flex-col"
-        action={
+      <Field className="min-h-48 flex-1">
+        <div className="flex items-center justify-between gap-2">
+          <FieldLabel htmlFor={`${id}-schema`}>Schema</FieldLabel>
           <ToggleGroup
             value={[type]}
             onValueChange={(next) => {
@@ -206,8 +217,7 @@ function RegisterSchemaForm({
               </ToggleGroupItem>
             ))}
           </ToggleGroup>
-        }
-      >
+        </div>
         <Textarea
           id={`${id}-schema`}
           data-autofocus={draft.subject !== null || undefined}
@@ -218,14 +228,12 @@ function RegisterSchemaForm({
         />
       </Field>
 
-      <Field
-        label={
-          <>
+      <Field aria-labelledby={`${id}-references`} className="shrink-0">
+        <div className="flex items-center justify-between gap-2">
+          <FieldTitle id={`${id}-references`}>
             References
             <FieldCount value={references.length} />
-          </>
-        }
-        action={
+          </FieldTitle>
           <Button
             type="button"
             variant="ghost"
@@ -241,56 +249,71 @@ function RegisterSchemaForm({
             <PlusIcon data-icon="inline-start" />
             Add reference
           </Button>
-        }
-        className="shrink-0"
-      >
-        {references.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No references.</p>
-        ) : null}
-        {references.map((row) => (
-          <div
-            key={row.id}
-            className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_5rem_auto] gap-2"
-          >
-            <Input
-              aria-label="Reference name"
-              autoComplete="off"
-              spellCheck={false}
-              placeholder="common.proto"
-              className="font-mono"
-              value={row.name}
-              aria-invalid={(badReference(row) && row.name.trim() === "") || undefined}
-              onChange={(event) => editReference(row.id, { name: event.target.value })}
-            />
-            <Input
-              aria-label="Reference subject"
-              autoComplete="off"
-              spellCheck={false}
-              placeholder="Subject"
-              className="font-mono"
-              value={row.subject}
-              aria-invalid={(badReference(row) && row.subject.trim() === "") || undefined}
-              onChange={(event) => editReference(row.id, { subject: event.target.value })}
-            />
-            <Input
-              aria-label="Reference version"
-              inputMode="numeric"
-              autoComplete="off"
-              placeholder="Version"
-              className="numeric"
-              value={row.version}
-              aria-invalid={(badReference(row) && !VERSION.test(row.version)) || undefined}
-              onChange={(event) => editReference(row.id, { version: event.target.value.trim() })}
-            />
-            <IconButton
-              label="Remove reference"
-              size="icon"
-              onClick={() => setReferences((rows) => rows.filter((other) => other.id !== row.id))}
-            >
-              <XIcon />
-            </IconButton>
-          </div>
-        ))}
+        </div>
+        {references.length === 0 ? <FieldDescription>No references.</FieldDescription> : null}
+        {references.map((row, index) => {
+          const bad = badReference(row);
+          const badName = bad && row.name.trim() === "";
+          const badSubject = bad && row.subject.trim() === "";
+          const badVersion = bad && !VERSION.test(row.version);
+          const errorId = `${id}-reference-${row.id}-error`;
+          return (
+            <Fragment key={row.id}>
+              <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_5rem_auto] gap-2">
+                <Input
+                  aria-label={`Reference ${index + 1} name`}
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="common.proto"
+                  className="font-mono"
+                  value={row.name}
+                  aria-invalid={badName || undefined}
+                  aria-describedby={badName ? errorId : undefined}
+                  onChange={(event) => editReference(row.id, { name: event.target.value })}
+                />
+                <Input
+                  aria-label={`Reference ${index + 1} subject`}
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="Subject"
+                  className="font-mono"
+                  value={row.subject}
+                  aria-invalid={badSubject || undefined}
+                  aria-describedby={badSubject ? errorId : undefined}
+                  onChange={(event) => editReference(row.id, { subject: event.target.value })}
+                />
+                <Input
+                  aria-label={`Reference ${index + 1} version`}
+                  inputMode="numeric"
+                  autoComplete="off"
+                  placeholder="Version"
+                  className="numeric"
+                  value={row.version}
+                  aria-invalid={badVersion || undefined}
+                  aria-describedby={badVersion ? errorId : undefined}
+                  onChange={(event) =>
+                    editReference(row.id, { version: event.target.value.trim() })
+                  }
+                />
+                <IconButton
+                  label={`Remove reference ${index + 1}`}
+                  tooltip="Remove reference"
+                  size="icon"
+                  onClick={() =>
+                    setReferences((rows) => rows.filter((other) => other.id !== row.id))
+                  }
+                >
+                  <XIcon />
+                </IconButton>
+              </div>
+              {bad ? (
+                <FieldError id={errorId}>
+                  {referenceError(badName, badSubject, badVersion)}
+                </FieldError>
+              ) : null}
+            </Fragment>
+          );
+        })}
       </Field>
     </SheetForm>
   );

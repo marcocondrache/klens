@@ -3,9 +3,9 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, type DialogHandle } from "@/components/ui/dialog";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
-import { Field } from "@/components/field";
 import { FormSheetContent, SheetForm } from "@/components/write-form";
 import { apiErrorMessage, clusterPathname, patch } from "@/lib/api/client";
 import { keys } from "@/lib/api/keys";
@@ -103,7 +103,8 @@ function EditTopicConfigForm({
       }
       onSubmit={() => save({ set: { [entry.name]: value }, reset: [] })}
     >
-      <Field label="Value" htmlFor={`${id}-value`}>
+      <Field>
+        <FieldLabel htmlFor={`${id}-value`}>Value</FieldLabel>
         <Input
           id={`${id}-value`}
           data-autofocus

@@ -2,8 +2,8 @@ import { useId, useState } from "react";
 import { ChevronDownIcon, ClockIcon } from "lucide-react";
 
 import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CHIP_SEGMENT, type CustomFilter } from "@/components/data-table/filter-bar";
 import { toDatetimeLocalValue } from "@/lib/format";
@@ -70,10 +70,10 @@ export function useTimestampFilter(): { range: TimestampRange; filter: CustomFil
           <ChevronDownIcon className="size-3.5 text-muted-foreground" />
         </PopoverTrigger>
         <PopoverContent align="start" className="w-auto gap-3 p-3">
-          <div className="grid gap-1.5">
-            <Label htmlFor={`${id}-from`} className="text-muted-foreground">
+          <Field className="gap-1.5">
+            <FieldLabel htmlFor={`${id}-from`} className="text-sm leading-none">
               From
-            </Label>
+            </FieldLabel>
             <Input
               id={`${id}-from`}
               type="datetime-local"
@@ -81,11 +81,11 @@ export function useTimestampFilter(): { range: TimestampRange; filter: CustomFil
               max={to || undefined}
               onChange={(event) => setBound("from", event.target.value)}
             />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor={`${id}-to`} className="text-muted-foreground">
+          </Field>
+          <Field className="gap-1.5">
+            <FieldLabel htmlFor={`${id}-to`} className="text-sm leading-none">
               To
-            </Label>
+            </FieldLabel>
             <Input
               id={`${id}-to`}
               type="datetime-local"
@@ -93,7 +93,7 @@ export function useTimestampFilter(): { range: TimestampRange; filter: CustomFil
               min={from || undefined}
               onChange={(event) => setBound("to", event.target.value)}
             />
-          </div>
+          </Field>
         </PopoverContent>
       </Popover>
     </>

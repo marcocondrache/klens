@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import { ClockIcon, DownloadIcon, TriangleAlertIcon } from "lucide-react";
 
-import { IconButton } from "@/components/icon-button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { buttonVariants } from "@/components/ui/button";
 import {
   Empty,
   EmptyDescription,
@@ -10,11 +10,13 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { recordsExportUrl, useRecords, type RecordsFilter } from "@/lib/api/live";
 import { apiErrorMessage } from "@/lib/api/client";
 import type { KafkaRecord, RecordOrder, TopicDetail } from "@/lib/api/types";
 import { fromDatetimeLocalValue } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 import { RecordModeSwitch, type RecordMode } from "./record-mode";
 import { RecordView, filterPartitions, type RecordFilter, type RecordSource } from "./record-view";
@@ -115,15 +117,24 @@ export function PagedRecords({
       actions={
         <>
           {partitions?.length !== 0 ? (
-            <IconButton
-              label="Download matching records as NDJSON"
-              tooltip="Download NDJSON"
-              size="icon"
-              nativeButton={false}
-              render={<a href={recordsExportUrl(cluster, query)} download />}
-            >
-              <DownloadIcon className="size-3.5" />
-            </IconButton>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <a
+                    href={recordsExportUrl(cluster, query)}
+                    download
+                    aria-label="Download matching records as NDJSON"
+                    className={cn(
+                      buttonVariants({ variant: "ghost", size: "icon" }),
+                      "text-muted-foreground",
+                    )}
+                  />
+                }
+              >
+                <DownloadIcon className="size-3.5" />
+              </TooltipTrigger>
+              <TooltipContent>Download NDJSON</TooltipContent>
+            </Tooltip>
           ) : null}
           <RecordModeSwitch value={order} onChange={onModeChange} />
         </>

@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
   SheetClose,
@@ -21,7 +22,6 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Spinner } from "@/components/ui/spinner";
-import { Field } from "@/components/field";
 import { cn } from "@/lib/utils";
 
 export type Submit = {
@@ -133,7 +133,7 @@ export function SheetForm({
           <SheetDescription className="wrap-anywhere">{description}</SheetDescription>
         ) : null}
       </SheetHeader>
-      <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-5 py-4">{children}</div>
+      <FieldGroup className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</FieldGroup>
       <SheetFooter className="shrink-0 gap-3 border-t px-5 py-3">
         {notice}
         {error ? <FormError>{error}</FormError> : null}
@@ -163,7 +163,7 @@ export function DialogForm({
         <DialogTitle>{title}</DialogTitle>
         {description ? <DialogDescription>{description}</DialogDescription> : null}
       </DialogHeader>
-      {children}
+      {children ? <FieldGroup className="gap-4">{children}</FieldGroup> : null}
       {notice}
       {error ? <FormError>{error}</FormError> : null}
       <DialogFooter>
@@ -187,14 +187,12 @@ export function TypeToConfirm({
   onChange: (value: string) => void;
 }) {
   return (
-    <Field
-      htmlFor={id}
-      label={
+    <Field>
+      <FieldLabel htmlFor={id}>
         <span>
           Type <span className="font-mono text-foreground">{name}</span> to confirm
         </span>
-      }
-    >
+      </FieldLabel>
       <Input
         id={id}
         data-autofocus

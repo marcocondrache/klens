@@ -2,7 +2,7 @@ import { CompassIcon } from "lucide-react";
 import { formatForDisplay } from "@tanstack/react-hotkeys";
 import { Link } from "@tanstack/react-router";
 
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import {
   Empty,
   EmptyContent,
@@ -25,7 +25,9 @@ export function NotFoundPage() {
         </EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
-        <Button render={<Link to="/" />}>Back to topics</Button>
+        <Link to="/" className={buttonVariants()}>
+          Back to topics
+        </Link>
       </EmptyContent>
     </Empty>
   );

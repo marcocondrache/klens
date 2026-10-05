@@ -2,8 +2,8 @@ import { useId, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { Dialog } from "@/components/ui/dialog";
+import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Field } from "@/components/field";
 import { DialogForm, FormDialogContent } from "@/components/write-form";
 import { apiErrorMessage, clusterPathname, post } from "@/lib/api/client";
 import { keys } from "@/lib/api/keys";
@@ -56,6 +56,7 @@ function AddPartitionsForm({
   });
 
   const valid = COUNT.test(count) && Number(count) > current;
+  const invalid = count !== "" && !valid;
 
   return (
     <DialogForm
@@ -66,22 +67,27 @@ function AddPartitionsForm({
       // Unlike a hook-level onSuccess, this one is dropped once the dialog closes.
       onSubmit={() => add.mutate({ count: Number(count) }, { onSuccess: onAdded })}
     >
-      <Field
-        label="Partition count"
-        htmlFor={`${id}-count`}
-        hint={`${topic.name} has ${current} ${current === 1 ? "partition" : "partitions"} now.`}
-      >
+      <Field data-invalid={invalid || undefined}>
+        <FieldLabel htmlFor={`${id}-count`}>Partition count</FieldLabel>
         <Input
           id={`${id}-count`}
           data-autofocus
           inputMode="numeric"
           autoComplete="off"
-          className="numeric w-32"
+          className="numeric max-w-32"
           value={count}
-          aria-invalid={(count !== "" && !valid) || undefined}
-          aria-describedby={`${id}-count-hint`}
+          aria-invalid={invalid || undefined}
+          aria-describedby={invalid ? `${id}-count-hint ${id}-count-error` : `${id}-count-hint`}
           onChange={(event) => setCount(event.target.value.trim())}
         />
+        <FieldDescription id={`${id}-count-hint`}>
+          {topic.name} has {current} {current === 1 ? "partition" : "partitions"} now.
+        </FieldDescription>
+        {invalid ? (
+          <FieldError id={`${id}-count-error`}>
+            Enter more than {current} {current === 1 ? "partition" : "partitions"}.
+          </FieldError>
+        ) : null}
       </Field>
     </DialogForm>
   );

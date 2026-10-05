@@ -4,6 +4,7 @@ import { CircleAlertIcon } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Dialog } from "@/components/ui/dialog";
+import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -12,7 +13,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Field } from "@/components/field";
 import { DialogForm, FormDialogContent, TypeToConfirm } from "@/components/write-form";
 import { apiErrorMessage, clusterPathname, del } from "@/lib/api/client";
 import { keys } from "@/lib/api/keys";
@@ -122,7 +122,8 @@ function DeleteRecordsForm({
       ) : null}
 
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Partition" htmlFor={`${id}-partition`}>
+        <Field>
+          <FieldLabel htmlFor={`${id}-partition`}>Partition</FieldLabel>
           <Select
             items={partitions}
             value={partition}
@@ -142,7 +143,8 @@ function DeleteRecordsForm({
             </SelectContent>
           </Select>
         </Field>
-        <Field label="Before offset" htmlFor={`${id}-before`}>
+        <Field data-invalid={badBefore || undefined}>
+          <FieldLabel htmlFor={`${id}-before`}>Before offset</FieldLabel>
           <Input
             id={`${id}-before`}
             inputMode="numeric"
@@ -151,8 +153,12 @@ function DeleteRecordsForm({
             className="numeric"
             value={before}
             aria-invalid={badBefore || undefined}
+            aria-describedby={badBefore ? `${id}-before-error` : undefined}
             onChange={(event) => setBefore(event.target.value.trim())}
           />
+          {badBefore ? (
+            <FieldError id={`${id}-before-error`}>Enter a whole number.</FieldError>
+          ) : null}
         </Field>
       </div>
 
