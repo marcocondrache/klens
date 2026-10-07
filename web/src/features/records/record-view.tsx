@@ -123,23 +123,24 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Part" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "4rem" },
     cell: ({ getValue }) => <span className="numeric text-muted-foreground">{getValue()}</span>,
   }),
   columnHelper.accessor("offset", {
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Offset" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "7rem" },
     cell: ({ getValue }) => <span className="numeric">{getValue()}</span>,
   }),
   columnHelper.accessor((record) => record.key ?? "", {
     id: "key",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Key" />,
+    meta: { width: "12rem" },
     cell: ({ row }) => (
       <span
         className={cn(
-          "block max-w-48 truncate font-mono",
+          "block truncate font-mono",
           row.original.key == null && "text-muted-foreground/60 italic",
         )}
       >
@@ -150,6 +151,7 @@ const columns = columnHelper.columns([
   columnHelper.accessor((record) => record.value ?? "", {
     id: "value",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Value" />,
+    meta: { minWidth: "4rem" },
     cell: ({ row }) => (
       <span className="block truncate font-mono text-muted-foreground">
         {preview(row.original.value)}
@@ -161,7 +163,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Size" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "5rem" },
     cell: ({ getValue }) => (
       <span className="numeric text-muted-foreground">{formatBytes(getValue())}</span>
     ),
@@ -170,7 +172,7 @@ const columns = columnHelper.columns([
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Timestamp" className="justify-end" />
     ),
-    meta: { align: "right" },
+    meta: { align: "right", width: "11rem" },
     cell: ({ getValue }) => (
       <Tooltip>
         <TooltipTrigger

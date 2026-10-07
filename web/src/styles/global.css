@@ -183,6 +183,12 @@
     @apply font-sans;
   }
 
+  html:has([data-column-resizing]),
+  html:has([data-column-resizing]) * {
+    cursor: col-resize !important;
+    user-select: none !important;
+  }
+
   ::selection {
     background-color: var(--brand-muted);
   }

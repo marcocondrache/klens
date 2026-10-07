@@ -12,6 +12,7 @@ import {
 export interface DataTableColumnMeta {
   align?: "left" | "right";
   width?: string;
+  minWidth?: string;
   className?: string;
 }
 
