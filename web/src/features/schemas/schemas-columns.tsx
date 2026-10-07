@@ -13,7 +13,7 @@ export const subjectColumns = columnHelper.columns([
     cell: ({ getValue }) => <span className="font-mono">{getValue()}</span>,
   }),
   columnHelper.accessor("id", {
-    header: "ID",
+    header: "Latest ID",
     meta: { align: "right", width: "6rem" },
     cell: ({ getValue }) => <span className="numeric text-muted-foreground">{getValue()}</span>,
   }),

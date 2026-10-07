@@ -33,6 +33,7 @@ import { EditCompatibilityDialog } from "./edit-compatibility";
 import { NEW_SUBJECT, RegisterSchemaSheet, type SchemaDraft } from "./register-schema";
 import { SchemaLoading } from "./schema-loading";
 import { subjectColumns } from "./schemas-columns";
+import { matchedVersion, subjectMatches } from "./subject-search";
 
 const route = getRouteApi("/cluster/$cluster/schemas");
 
@@ -60,6 +61,7 @@ export function SchemasPage() {
   const canSetCompatibility = hasRegistry && canChange(cluster, "SET_COMPATIBILITY");
   const canDelete = hasRegistry && canChange(cluster, "DELETE_SCHEMAS");
   const subjects = data?.rows ?? EMPTY_SUBJECTS;
+  const needle = term.trim().toLowerCase();
   const selected = subject ? (subjects.find((row) => row.subject === subject) ?? null) : null;
 
   const {
@@ -71,7 +73,7 @@ export function SchemasPage() {
 
   function open(row: SubjectRow) {
     void navigate({
-      search: (prev) => ({ ...prev, subject: row.subject, version: undefined }),
+      search: (prev) => ({ ...prev, subject: row.subject, version: matchedVersion(row, needle) }),
       replace: true,
     });
   }
@@ -102,12 +104,12 @@ export function SchemasPage() {
     });
   }
 
-  const rows = useMemo(() => {
-    const needle = term.trim().toLowerCase();
-    if (!needle) return subjects;
-    return subjects.filter((subject) => subject.subject.toLowerCase().includes(needle));
-  }, [subjects, term]);
+  const rows = useMemo(
+    () => (needle ? subjects.filter((subject) => subjectMatches(subject, needle)) : subjects),
+    [subjects, needle],
+  );
   const shownVersion = version ?? selected?.latestVersion;
+  const shownId = selected?.versions.find((entry) => entry.version === shownVersion)?.id;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
@@ -127,7 +129,11 @@ export function SchemasPage() {
         getRowId={(subject) => subject.subject}
         toolbar={
           <>
-            <SearchField className="shrink-0" {...searchInput} placeholder="Search subjects…" />
+            <SearchField
+              className="shrink-0"
+              {...searchInput}
+              placeholder="Search subjects and schema IDs…"
+            />
 
             {canRegister ? (
               <RegisterSchemaSheet
@@ -191,6 +197,7 @@ export function SchemasPage() {
                 </div>
                 <SheetDescription>
                   {formatEnumLabel(selected.type)} · version {shownVersion} ·{" "}
+                  {shownId != null ? `ID ${shownId} · ` : null}
                   {formatEnumLabel(selected.compatibility)} compatibility
                 </SheetDescription>
               </SheetHeader>
