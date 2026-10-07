@@ -3,7 +3,9 @@ import {
   useTable,
   type Column,
   type ColumnDef,
+  type ColumnSizingState,
   type Header,
+  type OnChangeFn,
   type ReactTable,
   type RowData,
 } from "@tanstack/react-table";
@@ -34,6 +36,8 @@ interface RecordTableProps<TData extends RowData> {
   columns: Array<ColumnDef<DataTableFeatures, TData>>;
   data: TData[];
   getRowId: (row: TData) => string;
+  columnSizing: ColumnSizingState;
+  onColumnSizingChange: OnChangeFn<ColumnSizingState>;
   toolbar?: ReactNode;
   onRowClick?: (row: TData) => void;
   selectedKey?: string;
@@ -52,6 +56,8 @@ export function RecordTable<TData extends RowData>({
   columns,
   data,
   getRowId,
+  columnSizing,
+  onColumnSizingChange,
   toolbar,
   onRowClick,
   selectedKey,
@@ -74,7 +80,9 @@ export function RecordTable<TData extends RowData>({
       columns,
       getRowId,
       enableSorting: false,
+      onColumnSizingChange,
       ...resizeOptions,
+      state: { columnSizing },
     },
     (state) => ({ columnSizing: state.columnSizing }),
   );

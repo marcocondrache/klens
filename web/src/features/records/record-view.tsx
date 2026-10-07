@@ -1,7 +1,7 @@
 import { useRef, useState, type ReactNode } from "react";
 import { CopyPlusIcon, EyeOffIcon, ListXIcon, Rows3Icon, SearchXIcon } from "lucide-react";
 import { Link } from "@tanstack/react-router";
-import { createColumnHelper } from "@tanstack/react-table";
+import { createColumnHelper, type ColumnSizingState } from "@tanstack/react-table";
 
 import {
   Sheet,
@@ -214,6 +214,7 @@ export function RecordView({
   const { address, open, link } = useRecordAddress();
   const [expanded, setExpanded] = useState(false);
   const [cutting, setCutting] = useState(false);
+  const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({});
   const sheetRef = useRef<HTMLDivElement>(null);
 
   const { records, obfuscated } = source;
@@ -246,6 +247,8 @@ export function RecordView({
         key={source.scope}
         columns={columns}
         data={records}
+        columnSizing={columnSizing}
+        onColumnSizingChange={setColumnSizing}
         toolbar={
           <>
             <SearchField
