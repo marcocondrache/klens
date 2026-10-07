@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use foldhash::HashSet;
 
 use crate::kafka::error::KafkaError;
 use crate::kafka::session::ClusterSession;
@@ -44,18 +45,45 @@ impl LaneSource for SchemaIdLane {
         subjects: &SubjectTable,
         previous: Option<&Arc<SchemaIdTable>>,
     ) -> Result<SchemaIdTable, KafkaError> {
+        let held_for = |subject: &str| previous.and_then(|previous| previous.subjects.get(subject));
+
+        // A registry that reuses a version number for another schema was reset
+        // or had the subject deleted and registered again. A subject past the
+        // versions held has its newest held id read again to catch that.
+        let checks: Vec<_> = subjects
+            .subjects
+            .iter()
+            .filter_map(|(subject, info)| {
+                let held = held_for(subject)?;
+                if held.contains_key(&info.latest_version) {
+                    return None;
+                }
+                let (&version, _) = held.last_key_value()?;
+                Some((Arc::clone(subject), version))
+            })
+            .collect();
+        let confirmed: HashSet<Arc<str>> = if checks.is_empty() {
+            HashSet::default()
+        } else {
+            self.session
+                .schema_version_ids(&checks)
+                .await?
+                .into_iter()
+                .filter(|(subject, found)| {
+                    held_for(subject).and_then(|held| held.get(&found.version)) == Some(&found.id)
+                })
+                .map(|(subject, _)| subject)
+                .collect()
+        };
+
         let mut table = SchemaIdTable::default();
         let mut wanted = Vec::new();
 
         for (subject, info) in &subjects.subjects {
-            // A registry that reuses the latest version number for another
-            // schema was reset or had the subject deleted and registered again.
-            let held = previous
-                .and_then(|previous| previous.subjects.get(subject))
-                .filter(|held| {
-                    held.get(&info.latest_version)
-                        .is_none_or(|&id| id == info.id)
-                });
+            let held = held_for(subject).filter(|held| match held.get(&info.latest_version) {
+                Some(&id) => id == info.id,
+                None => confirmed.contains(subject),
+            });
             let ids = table.subjects.entry(Arc::clone(subject)).or_default();
             for &version in &info.versions {
                 let known = if version == info.latest_version {

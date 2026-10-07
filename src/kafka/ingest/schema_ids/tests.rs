@@ -55,6 +55,17 @@ async fn the_lane_learns_the_id_of_every_version() {
 #[tokio::test]
 async fn a_known_id_is_not_read_again() {
     let rig = bare();
+    rig.cluster.put_subject("orders-value", &[5, 6, 7]);
+    poll(&rig).await;
+
+    poll(&rig).await;
+
+    assert_eq!(rig.cluster.calls(Api::SchemaVersionIds), 1);
+}
+
+#[tokio::test]
+async fn a_new_version_keeps_the_ids_its_newest_held_version_confirms() {
+    let rig = bare();
     rig.cluster.put_subject("orders-value", &[5, 6]);
     poll(&rig).await;
 
@@ -65,7 +76,26 @@ async fn a_known_id_is_not_read_again() {
         versions(&rig, "orders-value"),
         [(1, Some(5)), (2, Some(6)), (3, Some(7))]
     );
-    assert_eq!(rig.cluster.calls(Api::SchemaVersionIds), 1);
+    assert_eq!(
+        rig.cluster.calls(Api::SchemaVersionIds),
+        2,
+        "one read confirms version 2"
+    );
+}
+
+#[tokio::test]
+async fn a_subject_registered_again_with_more_versions_has_its_ids_read_again() {
+    let rig = bare();
+    rig.cluster.put_subject("orders-value", &[5, 6]);
+    poll(&rig).await;
+
+    rig.cluster.put_subject("orders-value", &[1, 2, 3]);
+    poll(&rig).await;
+
+    assert_eq!(
+        versions(&rig, "orders-value"),
+        [(1, Some(1)), (2, Some(2)), (3, Some(3))]
+    );
 }
 
 #[tokio::test]
