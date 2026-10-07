@@ -57,7 +57,7 @@ pub struct SubjectRow {
     #[serde(rename = "type")]
     pub schema_type: SchemaType,
     pub latest_version: i32,
-    pub versions: Vec<i32>,
+    pub versions: Vec<SubjectVersion>,
     pub compatibility: SchemaCompatibility,
 }
 
@@ -68,8 +68,25 @@ impl From<projections::SubjectRow> for SubjectRow {
             id: row.info.id,
             schema_type: row.info.schema_type.into(),
             latest_version: row.info.latest_version,
-            versions: row.info.versions,
+            versions: row.versions.into_iter().map(SubjectVersion::from).collect(),
             compatibility: row.info.compatibility.into(),
+        }
+    }
+}
+
+/// `id` stays null until the registry answers for the version.
+#[derive(Debug, Clone, Copy, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SubjectVersion {
+    pub version: i32,
+    pub id: Option<i32>,
+}
+
+impl From<projections::SubjectVersion> for SubjectVersion {
+    fn from(version: projections::SubjectVersion) -> Self {
+        Self {
+            version: version.version,
+            id: version.id,
         }
     }
 }

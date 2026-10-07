@@ -57,6 +57,7 @@ pub enum Api {
     OpenTail,
     SchemaSubjects,
     SubjectSchema,
+    SchemaVersionIds,
     Acls,
     ClientQuotas,
     ScramUsers,
@@ -347,6 +348,30 @@ impl FakeCluster {
 
     pub fn set_subjects(&self, subjects: Vec<SchemaSubject>) {
         self.world().subjects = subjects;
+    }
+
+    /// Holds `subject` with one version per id, in order.
+    pub fn put_subject(&self, subject: &str, ids: &[i32]) {
+        let mut world = self.world();
+        let latest = i32::try_from(ids.len()).expect("a few versions");
+        world.subjects.retain(|held| held.subject != subject);
+        world.subjects.push(super::fixtures::subject(
+            subject,
+            ids[ids.len() - 1],
+            latest,
+        ));
+        world.schemas.retain(|(held, _), _| held != subject);
+        for (version, &id) in (1..).zip(ids) {
+            world.schemas.insert(
+                (subject.to_owned(), version),
+                RegisteredSchema {
+                    id,
+                    schema_type: SchemaType::Avro,
+                    schema: SUBJECT_SCHEMA.to_owned(),
+                    references: Vec::new(),
+                },
+            );
+        }
     }
 
     pub fn set_acls(&self, acls: AclListing) {
@@ -737,6 +762,28 @@ impl ClusterSession for FakeCluster {
                 subject: subject.to_owned(),
                 version,
             })
+    }
+
+    async fn schema_version_ids(
+        &self,
+        versions: &[(Arc<str>, i32)],
+    ) -> Result<Vec<(Arc<str>, RegisteredVersion)>, KafkaError> {
+        self.answer(Api::SchemaVersionIds).await?;
+        let world = self.world();
+        Ok(versions
+            .iter()
+            .filter_map(|(subject, version)| {
+                let held = world.schemas.get(&(subject.to_string(), *version))?;
+                let version = *version;
+                Some((
+                    Arc::clone(subject),
+                    RegisteredVersion {
+                        id: held.id,
+                        version,
+                    },
+                ))
+            })
+            .collect())
     }
 
     async fn acls(&self) -> Result<AclListing, KafkaError> {

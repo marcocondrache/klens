@@ -20,6 +20,6 @@ pub use lane::{Follower, Lane, LaneHealth, reread_until};
 pub use projections::TopicRow;
 pub use search::{SearchHit, SearchKind};
 pub use tables::{
-    ConfigTable, GroupInfo, GroupOffsets, Interner, LogDirTable, OffsetTable, SubjectTable,
-    TopicInfo, Topology, WatermarkTable,
+    ConfigTable, GroupInfo, GroupOffsets, Interner, LogDirTable, OffsetTable, SchemaIdTable,
+    SubjectTable, TopicInfo, Topology, WatermarkTable,
 };

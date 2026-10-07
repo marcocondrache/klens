@@ -242,11 +242,11 @@ export function SchemasPage() {
                     >
                       {selected.versions.map((entry) => (
                         <ToggleGroupItem
-                          key={entry}
-                          value={String(entry)}
+                          key={entry.version}
+                          value={String(entry.version)}
                           className="numeric font-mono"
                         >
-                          v{entry}
+                          v{entry.version}
                         </ToggleGroupItem>
                       ))}
                     </ToggleGroup>

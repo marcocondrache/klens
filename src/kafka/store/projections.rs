@@ -8,8 +8,8 @@ use crate::kafka::topic_config::{CleanupPolicy, topic_config_values};
 
 use super::lane::LaneHealth;
 use super::tables::{
-    ConfigTable, GroupInfo, GroupOffsets, LogDirInfo, LogDirTable, OffsetTable, SubjectInfo,
-    SubjectTable, TopicInfo, Topology, WatermarkTable,
+    ConfigTable, GroupInfo, GroupOffsets, LogDirInfo, LogDirTable, OffsetTable, SchemaIdTable,
+    SubjectInfo, SubjectTable, TopicInfo, Topology, WatermarkTable,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -112,6 +112,13 @@ pub struct BrokerRow {
 pub struct SubjectRow {
     pub subject: Arc<str>,
     pub info: SubjectInfo,
+    pub versions: Vec<SubjectVersion>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SubjectVersion {
+    pub version: i32,
+    pub id: Option<i32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -400,13 +407,25 @@ pub fn broker_rows(topology: &Topology, log_dirs: Option<&LogDirTable>) -> Vec<B
         .collect()
 }
 
-pub fn subject_rows(subjects: &SubjectTable) -> Vec<SubjectRow> {
+pub fn subject_rows(subjects: &SubjectTable, ids: Option<&SchemaIdTable>) -> Vec<SubjectRow> {
     subjects
         .subjects
         .iter()
         .map(|(subject, info)| SubjectRow {
             subject: Arc::clone(subject),
             info: info.clone(),
+            versions: info
+                .versions
+                .iter()
+                .map(|&version| SubjectVersion {
+                    version,
+                    id: if version == info.latest_version {
+                        Some(info.id)
+                    } else {
+                        ids.and_then(|ids| ids.get(subject, version))
+                    },
+                })
+                .collect(),
         })
         .collect()
 }
@@ -424,12 +443,14 @@ fn unique_topics<'a>(names: impl Iterator<Item = &'a str>) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
     use crate::kafka::group::MemberAssignment;
     use crate::kafka::store::tables::Interner;
     use crate::testing::{
         config_entry, group as group_snapshot, log_dir, offline_partition, offsets, partition,
-        topic, topology as build_topology, watermarks,
+        subject, topic, topology as build_topology, watermarks,
     };
 
     fn topology() -> Topology {
@@ -709,5 +730,31 @@ mod tests {
         assert_eq!(detail.size_bytes, None);
         assert_eq!(detail.disk_bytes, None);
         assert_eq!(detail.partitions[0].size_bytes, None);
+    }
+
+    #[test]
+    fn a_subject_row_joins_the_latest_id_with_the_ids_learned_for_older_versions() {
+        let subjects =
+            SubjectTable::assemble(&[subject("orders-value", 7, 3)], &mut Interner::default());
+        let ids = SchemaIdTable {
+            subjects: BTreeMap::from([(Arc::from("orders-value"), BTreeMap::from([(1, 5)]))]),
+        };
+        let ids_of = |rows: Vec<SubjectRow>| -> Vec<(i32, Option<i32>)> {
+            rows[0]
+                .versions
+                .iter()
+                .map(|entry| (entry.version, entry.id))
+                .collect()
+        };
+
+        assert_eq!(
+            ids_of(subject_rows(&subjects, Some(&ids))),
+            [(1, Some(5)), (2, None), (3, Some(7))]
+        );
+        assert_eq!(
+            ids_of(subject_rows(&subjects, None)),
+            [(1, None), (2, None), (3, Some(7))],
+            "the latest id comes with the subject list"
+        );
     }
 }

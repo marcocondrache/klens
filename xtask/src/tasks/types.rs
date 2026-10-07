@@ -13,8 +13,8 @@ use klens::app::typescript::{
     RecordPayload, RegisterSchema, RegisteredVersion, ResetOffsets, ResetTarget,
     SchemaCompatibility, SchemaReference, SchemaType, ScramCredential, ScramListing,
     ScramMechanism, ScramStatus, ScramUser, SearchHit, SearchKind, SetScramCredential,
-    SubjectDetail, SubjectRow, SubjectRowsResult, TailEvent, TailStart, TopicDetail, TopicGroupRow,
-    TopicRate, TopicRow, Update,
+    SubjectDetail, SubjectRow, SubjectRowsResult, SubjectVersion, TailEvent, TailStart,
+    TopicDetail, TopicGroupRow, TopicRate, TopicRow, Update,
 };
 
 pub fn run(sh: &Shell) -> xshell::Result<()> {
@@ -65,6 +65,7 @@ fn typescript() -> String {
         EditConfigs,
         SchemaType,
         SchemaCompatibility,
+        SubjectVersion,
         SubjectRow,
         SubjectRowsResult,
         SchemaReference,

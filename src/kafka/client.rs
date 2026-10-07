@@ -380,6 +380,16 @@ impl ClusterSession for KafkaClient {
             .await
     }
 
+    async fn schema_version_ids(
+        &self,
+        versions: &[(Arc<str>, i32)],
+    ) -> Result<Vec<(Arc<str>, RegisteredVersion)>, KafkaError> {
+        let Some(decoder) = &self.schema_registry else {
+            return Ok(Vec::new());
+        };
+        Ok(decoder.client().version_ids(versions).await)
+    }
+
     async fn acls(&self) -> Result<AclListing, KafkaError> {
         AclListing::from_admin_result(
             &self.identity.name,
@@ -1535,6 +1545,35 @@ mod tests {
 
         let id = u8::try_from(registered.id).unwrap();
         assert_eq!(encoded, [0, 0, 0, 0, id, 6, b'a', b'b', b'c'].as_slice());
+    }
+
+    #[tokio::test]
+    async fn version_ids_read_through_the_clusters_registry() {
+        let broker = Broker::start().await;
+        let registry = FakeRegistry::start().await;
+        let client = broker.client_with_registry(&registry).await;
+        let registered = client.register_schema(&order_schema()).await.unwrap();
+
+        let ids = client
+            .schema_version_ids(&[(Arc::from("orders-value"), 1)])
+            .await
+            .unwrap();
+
+        assert_eq!(ids.len(), 1);
+        assert_eq!(&*ids[0].0, "orders-value");
+        assert_eq!(ids[0].1.id, registered.id);
+    }
+
+    #[tokio::test]
+    async fn a_cluster_without_a_registry_knows_no_version_ids() {
+        let client = Broker::start().await.client().await;
+
+        let ids = client
+            .schema_version_ids(&[(Arc::from("orders-value"), 1)])
+            .await
+            .unwrap();
+
+        assert!(ids.is_empty());
     }
 
     #[tokio::test]

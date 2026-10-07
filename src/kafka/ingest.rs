@@ -4,6 +4,7 @@ pub mod log_dirs;
 pub mod offsets;
 pub mod quotas;
 pub mod runner;
+pub mod schema_ids;
 pub mod scram_users;
 pub mod subjects;
 pub mod topology;
@@ -25,6 +26,7 @@ pub use log_dirs::LogDirLane;
 pub use offsets::{OffsetLane, Wave};
 pub use quotas::QuotaLane;
 pub use runner::{LaneSource, run};
+pub use schema_ids::SchemaIdLane;
 pub use scram_users::ScramUserLane;
 pub use subjects::SubjectLane;
 pub use topology::TopologyLane;
@@ -57,6 +59,10 @@ impl Ingest {
             tasks.spawn(run(
                 Arc::clone(store),
                 SubjectLane::with_interval(Arc::clone(session), tuning.subjects),
+            ));
+            tasks.spawn(run(
+                Arc::clone(store),
+                SchemaIdLane::with_interval(Arc::clone(session), tuning.subjects),
             ));
             tasks.spawn(run(
                 Arc::clone(store),

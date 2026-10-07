@@ -116,6 +116,35 @@ impl SchemaRegistryClient {
         self.registered(&latest)
     }
 
+    /// The schema id of each of `versions` the registry answers for. The reads
+    /// skip the id cache, which holds the schemas records decode with.
+    pub async fn version_ids(
+        &self,
+        versions: &[(Arc<str>, i32)],
+    ) -> Vec<(Arc<str>, RegisteredVersion)> {
+        futures::stream::iter(versions.iter().cloned())
+            .map(|(subject, version)| async move {
+                let read = self
+                    .registry
+                    .inner()
+                    .get_schema_by_version(&subject, SchemaVersion::new(version))
+                    .await;
+                match read {
+                    Ok(schema) => {
+                        schema_id(&schema).map(|id| (subject, RegisteredVersion { id, version }))
+                    }
+                    Err(error) => {
+                        tracing::debug!(%subject, version, %error, "no schema id for version");
+                        None
+                    }
+                }
+            })
+            .buffer_unordered(self.fetch_concurrency)
+            .filter_map(std::future::ready)
+            .collect()
+            .await
+    }
+
     /// Encodes `json` with the schema the registry holds under `id`.
     pub async fn encode(&self, id: i32, json: &str) -> Result<Bytes, KafkaError> {
         let schema = self
@@ -602,6 +631,38 @@ mod tests {
         assert_eq!(schema.references[0].name, "common.proto");
         assert_eq!(schema.references[0].subject, "common");
         assert_eq!(schema.references[0].version, 1);
+    }
+
+    #[tokio::test]
+    async fn version_ids_answer_for_the_versions_the_registry_holds() {
+        let registry = FakeRegistry::start().await;
+        for (version, id) in [(1, 5), (2, 6)] {
+            registry.register("orders-value", version, id, string());
+        }
+        let client = registry.client();
+        let subject = Arc::<str>::from("orders-value");
+
+        let mut ids: Vec<(i32, i32)> = client
+            .version_ids(&[
+                (Arc::clone(&subject), 1),
+                (Arc::clone(&subject), 2),
+                (Arc::clone(&subject), 3),
+            ])
+            .await
+            .into_iter()
+            .map(|(read, found)| {
+                assert_eq!(read, subject);
+                (found.version, found.id)
+            })
+            .collect();
+        ids.sort_unstable();
+
+        assert_eq!(ids, [(1, 5), (2, 6)], "version 3 is not registered");
+        assert_eq!(
+            client.registry().cache_len(),
+            0,
+            "the decoder's id cache is left alone"
+        );
     }
 
     #[tokio::test]

@@ -86,6 +86,12 @@ pub trait ClusterSession: Send + Sync + 'static {
         version: i32,
     ) -> Result<RegisteredSchema, KafkaError>;
 
+    /// The schema id of each of `versions` the registry answers for.
+    async fn schema_version_ids(
+        &self,
+        versions: &[(Arc<str>, i32)],
+    ) -> Result<Vec<(Arc<str>, RegisteredVersion)>, KafkaError>;
+
     async fn acls(&self) -> Result<AclListing, KafkaError>;
 
     async fn client_quotas(&self) -> Result<QuotaListing, KafkaError>;

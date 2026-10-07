@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use tokio::time::Instant;
 
 use crate::kafka::error::KafkaError;
-use crate::kafka::store::{ClusterStore, Follower, Lane, Topology};
+use crate::kafka::store::{ClusterStore, Follower, Lane, SubjectTable, Topology};
 
 #[async_trait]
 pub trait LaneSource: Send + Sync + 'static {
@@ -54,6 +54,12 @@ impl Upstream for () {
 impl Upstream for Topology {
     fn feed(store: &ClusterStore) -> Feed<'_, Self> {
         Feed::Lane(store.topology.follow())
+    }
+}
+
+impl Upstream for SubjectTable {
+    fn feed(store: &ClusterStore) -> Feed<'_, Self> {
+        Feed::Lane(store.subjects.follow())
     }
 }
 

@@ -11,8 +11,8 @@ use crate::testing::FakeCluster;
 
 use super::runner::{self, Upstream};
 use super::{
-    AclLane, ConfigLane, LaneSource, LogDirLane, OffsetLane, QuotaLane, ScramUserLane, SubjectLane,
-    TopologyLane, WatermarkLane, Wave,
+    AclLane, ConfigLane, LaneSource, LogDirLane, OffsetLane, QuotaLane, SchemaIdLane,
+    ScramUserLane, SubjectLane, TopologyLane, WatermarkLane, Wave,
 };
 
 pub const IDLE: Duration = Duration::from_secs(600);
@@ -61,6 +61,10 @@ impl Rig {
         SubjectLane::with_interval(self.port(), IDLE)
     }
 
+    pub fn schema_ids(&self) -> SchemaIdLane {
+        SchemaIdLane::with_interval(self.port(), IDLE)
+    }
+
     pub fn log_dirs(&self) -> LogDirLane {
         LogDirLane::with_interval(self.port(), IDLE)
     }
@@ -101,6 +105,9 @@ impl Rig {
         self.poll(&self.configs()).await;
         self.poll(&self.log_dirs()).await;
         self.poll(&self.subjects()).await;
+        if self.store.subjects.load().is_some() {
+            self.poll(&self.schema_ids()).await;
+        }
         self.poll(&self.acls()).await;
         self.poll(&self.quotas()).await;
         self.poll(&self.scram_users()).await;
