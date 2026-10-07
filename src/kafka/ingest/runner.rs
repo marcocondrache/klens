@@ -30,6 +30,11 @@ pub trait LaneSource: Send + Sync + 'static {
         false
     }
 
+    /// Why the fetch that just succeeded kept part of the previous table.
+    fn take_partial_error(&self) -> Option<String> {
+        None
+    }
+
     fn diff(&self, previous: Option<&Self::Table>, next: &Self::Table) -> Option<Self::Delta>;
 
     fn publish(
@@ -112,7 +117,11 @@ pub(super) async fn poll<S: LaneSource>(store: &ClusterStore, source: &S, upstre
                 source.publish(store, previous.as_ref(), &next, delta);
                 tracing::debug!(cluster = %cluster, lane, version, "lane committed");
             }
-            source.lane(store).record_poll(started.elapsed(), None);
+            let partial = source.take_partial_error();
+            if let Some(error) = &partial {
+                tracing::warn!(cluster = %cluster, lane, %error, "lane poll partly failed");
+            }
+            source.lane(store).record_poll(started.elapsed(), partial);
         }
         Err(error) => {
             source

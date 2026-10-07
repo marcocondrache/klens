@@ -4,7 +4,17 @@ use std::time::Duration;
 use tokio::time::advance;
 
 use super::*;
-use crate::testing::{Api, FakeCluster, Rig, quiesce, watermarks};
+use crate::kafka::group::GroupState;
+use crate::testing::{Api, FakeCluster, Rig, group, partition, quiesce, topic, watermarks};
+
+const ORDERS: &str = "orders.created";
+
+fn two_leaders() -> FakeCluster {
+    let cluster = FakeCluster::local().with_broker(2);
+    cluster.put_topic(topic("payments", vec![partition(0, vec![2], vec![2])]));
+    cluster.set_watermarks("payments", 0, Watermarks { low: 2, high: 30 });
+    cluster
+}
 
 fn pairs(rates: &[TopicRate]) -> Vec<(String, f64)> {
     rates
@@ -335,4 +345,109 @@ async fn a_new_topic_waits_for_the_next_watermark_poll() {
 
     assert_eq!(rig.cluster.calls(Api::LowWatermarks), 1);
     assert_eq!(rig.cluster.calls(Api::HighWatermarks), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_watermark_lane_asks_every_leader_at_once() {
+    let rig = Rig::new(two_leaders().with_delay(Api::HighWatermarks, Duration::from_secs(1)));
+    rig.poll(&rig.topology()).await;
+
+    rig.poll(&rig.watermarks()).await;
+
+    assert_eq!(rig.cluster.calls(Api::HighWatermarks), 2);
+    assert_eq!(rig.cluster.peak(Api::HighWatermarks), 2);
+    let marks = rig.store.watermarks.load().expect("watermarks");
+    assert_eq!(marks.get(ORDERS, 1), Some(Watermarks { low: 0, high: 8 }));
+    assert_eq!(
+        marks.get("payments", 0),
+        Some(Watermarks { low: 2, high: 30 })
+    );
+    assert_eq!(rig.store.watermarks.health().last_error, None);
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_unreachable_leader_keeps_the_other_leaders_watermarks() {
+    let rig = Rig::new(two_leaders());
+    rig.cluster.fail_leader(2, "broker 2 is unreachable");
+    rig.poll(&rig.topology()).await;
+
+    rig.poll(&rig.watermarks()).await;
+
+    let marks = rig
+        .store
+        .watermarks
+        .load()
+        .expect("a partial table commits");
+    assert_eq!(marks.get(ORDERS, 0), Some(Watermarks { low: 0, high: 8 }));
+    assert_eq!(marks.get("payments", 0), None);
+    assert_eq!(
+        rig.store.watermarks.health().last_error.as_deref(),
+        Some("leader 2: kafka admin request failed: broker 2 is unreachable")
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_unreachable_leader_keeps_its_last_watermarks() {
+    let rig = Rig::new(two_leaders());
+    let lane = rig.watermarks();
+    rig.poll(&rig.topology()).await;
+    rig.poll(&lane).await;
+
+    rig.cluster.fail_leader(2, "broker 2 is unreachable");
+    rig.cluster
+        .set_watermarks(ORDERS, 0, Watermarks { low: 0, high: 12 });
+    rig.cluster
+        .set_watermarks("payments", 0, Watermarks { low: 2, high: 40 });
+    rig.poll(&lane).await;
+
+    let marks = rig.store.watermarks.load().expect("watermarks");
+    assert_eq!(marks.get(ORDERS, 0), Some(Watermarks { low: 0, high: 12 }));
+    assert_eq!(
+        marks.get("payments", 0),
+        Some(Watermarks { low: 2, high: 30 }),
+        "a failed leader serves its last watermarks"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_watermark_poll_fails_when_every_leader_fails() {
+    let rig = Rig::new(two_leaders());
+    rig.cluster.fail_leader(1, "broker 1 is unreachable");
+    rig.cluster.fail_leader(2, "broker 2 is unreachable");
+    rig.poll(&rig.topology()).await;
+
+    rig.poll(&rig.watermarks()).await;
+
+    assert!(rig.store.watermarks.load().is_none());
+    assert_eq!(
+        rig.store.watermarks.health().last_error.as_deref(),
+        Some("kafka admin request failed: broker 2 is unreachable")
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn committed_partitions_with_no_known_leader_are_asked_apart_from_every_broker() {
+    let mut archiver =
+        group("archiver", "archived", Vec::new()).with_committed(&[("archived", 0, 3)]);
+    archiver.state = GroupState::Empty;
+    archiver.members.clear();
+    let rig = Rig::new(FakeCluster::local().with_groups([archiver]));
+    rig.cluster
+        .set_watermarks("archived", 0, Watermarks { low: 0, high: 9 });
+    rig.poll(&rig.topology()).await;
+    rig.sweep(&rig.offsets()).await;
+    rig.cluster.fail_leader(1, "broker 1 is unreachable");
+
+    rig.poll(&rig.watermarks()).await;
+
+    let marks = rig
+        .store
+        .watermarks
+        .load()
+        .expect("a partial table commits");
+    assert_eq!(
+        marks.get("archived", 0),
+        Some(Watermarks { low: 0, high: 9 })
+    );
+    assert_eq!(marks.get(ORDERS, 0), None);
 }

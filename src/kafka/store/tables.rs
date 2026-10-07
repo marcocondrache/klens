@@ -45,6 +45,13 @@ pub struct TopicInfo {
 }
 
 impl TopicInfo {
+    pub fn leader(&self, partition: i32) -> Option<i32> {
+        self.partitions
+            .binary_search_by_key(&partition, |partition| partition.id)
+            .ok()
+            .map(|index| self.partitions[index].leader)
+    }
+
     pub fn partition_ids(&self) -> Vec<i32> {
         self.partitions
             .iter()

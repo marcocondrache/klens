@@ -103,6 +103,7 @@ pub(super) struct World {
     quotas: QuotaListing,
     scram_users: ScramListing,
     faults: HashMap<Api, String>,
+    leader_faults: HashMap<i32, String>,
     delays: HashMap<Api, Duration>,
     traffic: HashMap<Api, Traffic>,
     growth: Option<Growth>,
@@ -151,6 +152,7 @@ impl FakeCluster {
                 quotas: local.quotas,
                 scram_users: local.scram_users,
                 faults: HashMap::new(),
+                leader_faults: HashMap::new(),
                 delays: HashMap::new(),
                 traffic: HashMap::new(),
                 growth: None,
@@ -262,6 +264,12 @@ impl FakeCluster {
 
     pub fn fail(&self, api: Api, message: &str) {
         self.world().faults.insert(api, message.to_owned());
+    }
+
+    /// Fails every watermark list that asks broker `id` for a partition it
+    /// leads, the way one unreachable leader fails a whole ListOffsets call.
+    pub fn fail_leader(&self, id: i32, message: &str) {
+        self.world().leader_faults.insert(id, message.to_owned());
     }
 
     pub fn add_topic(&self, name: &str, partitions: i32, high: i64) {
@@ -474,6 +482,23 @@ impl FakeCluster {
         }
     }
 
+    fn reach_leaders(&self, topics: &HashMap<String, Vec<i32>>) -> Result<(), KafkaError> {
+        let world = self.world();
+        let failed = topics.iter().find_map(|(name, partitions)| {
+            world
+                .metadata
+                .topic(name)?
+                .partitions
+                .iter()
+                .filter(|partition| partitions.contains(&partition.id))
+                .find_map(|partition| world.leader_faults.get(&partition.leader))
+        });
+        match failed {
+            Some(message) => Err(KafkaError::Admin(message.clone())),
+            None => Ok(()),
+        }
+    }
+
     fn ends(
         &self,
         topics: &HashMap<String, Vec<i32>>,
@@ -582,6 +607,7 @@ impl ClusterSession for FakeCluster {
         topics: &HashMap<String, Vec<i32>>,
     ) -> Result<HashMap<String, HashMap<i32, i64>>, KafkaError> {
         self.answer(Api::LowWatermarks).await?;
+        self.reach_leaders(topics)?;
         Ok(self.ends(topics, |marks| marks.low))
     }
 
@@ -590,6 +616,7 @@ impl ClusterSession for FakeCluster {
         topics: &HashMap<String, Vec<i32>>,
     ) -> Result<HashMap<String, HashMap<i32, i64>>, KafkaError> {
         self.answer(Api::HighWatermarks).await?;
+        self.reach_leaders(topics)?;
         let mut highs = self.ends(topics, |marks| marks.high);
         if let Some(growth) = &mut self.world().growth {
             for partitions in highs.values_mut() {
