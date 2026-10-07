@@ -57,6 +57,7 @@ pub enum Api {
     OpenTail,
     SchemaSubjects,
     SubjectSchema,
+    SchemaVersionIds,
     Acls,
     ClientQuotas,
     ScramUsers,
@@ -737,6 +738,28 @@ impl ClusterSession for FakeCluster {
                 subject: subject.to_owned(),
                 version,
             })
+    }
+
+    async fn schema_version_ids(
+        &self,
+        versions: &[(Arc<str>, i32)],
+    ) -> Result<Vec<(Arc<str>, RegisteredVersion)>, KafkaError> {
+        self.answer(Api::SchemaVersionIds).await?;
+        let world = self.world();
+        Ok(versions
+            .iter()
+            .filter_map(|(subject, version)| {
+                let held = world.schemas.get(&(subject.to_string(), *version))?;
+                let version = *version;
+                Some((
+                    Arc::clone(subject),
+                    RegisteredVersion {
+                        id: held.id,
+                        version,
+                    },
+                ))
+            })
+            .collect())
     }
 
     async fn acls(&self) -> Result<AclListing, KafkaError> {
