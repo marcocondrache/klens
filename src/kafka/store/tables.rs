@@ -423,6 +423,18 @@ impl SubjectTable {
     }
 }
 
+/// The schema id behind each version of each subject, keyed by version.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SchemaIdTable {
+    pub subjects: BTreeMap<Arc<str>, BTreeMap<i32, i32>>,
+}
+
+impl SchemaIdTable {
+    pub fn get(&self, subject: &str, version: i32) -> Option<i32> {
+        self.subjects.get(subject)?.get(&version).copied()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -544,6 +556,20 @@ mod tests {
             }),
             "the list projection carries no schema body"
         );
+    }
+
+    #[test]
+    fn a_schema_id_is_found_by_subject_and_version() {
+        let table = SchemaIdTable {
+            subjects: BTreeMap::from([(
+                Arc::from("orders-value"),
+                BTreeMap::from([(1, 5), (2, 6)]),
+            )]),
+        };
+
+        assert_eq!(table.get("orders-value", 2), Some(6));
+        assert_eq!(table.get("orders-value", 3), None);
+        assert_eq!(table.get("payments-value", 1), None);
     }
 
     #[test]

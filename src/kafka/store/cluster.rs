@@ -16,7 +16,7 @@ use super::projections::{
 use super::rates::RateStore;
 use super::search::{self, SearchHit};
 use super::tables::{
-    ConfigTable, LogDirTable, OffsetTable, SubjectTable, Topology, WatermarkTable,
+    ConfigTable, LogDirTable, OffsetTable, SchemaIdTable, SubjectTable, Topology, WatermarkTable,
 };
 
 pub struct ClusterStore {
@@ -26,6 +26,7 @@ pub struct ClusterStore {
     pub offsets: Lane<OffsetTable>,
     pub configs: Lane<ConfigTable>,
     pub subjects: Lane<SubjectTable>,
+    pub schema_ids: Lane<SchemaIdTable>,
     pub log_dirs: Lane<LogDirTable>,
     pub acls: Lane<AclListing>,
     pub quotas: Lane<QuotaListing>,
@@ -44,6 +45,7 @@ impl std::fmt::Debug for ClusterStore {
             .field("offsets", &self.offsets.version())
             .field("configs", &self.configs.version())
             .field("subjects", &self.subjects.version())
+            .field("schema_ids", &self.schema_ids.version())
             .field("log_dirs", &self.log_dirs.version())
             .field("acls", &self.acls.version())
             .field("quotas", &self.quotas.version())
@@ -61,6 +63,7 @@ impl ClusterStore {
             offsets: Lane::new(),
             configs: Lane::new(),
             subjects: Lane::new(),
+            schema_ids: Lane::new(),
             log_dirs: Lane::new(),
             acls: Lane::new(),
             quotas: Lane::new(),
@@ -220,7 +223,7 @@ impl ClusterStore {
     pub fn subject_rows(&self) -> Vec<SubjectRow> {
         self.subjects
             .load()
-            .map(|subjects| projections::subject_rows(&subjects))
+            .map(|subjects| projections::subject_rows(&subjects, self.schema_ids.load().as_deref()))
             .unwrap_or_default()
     }
 

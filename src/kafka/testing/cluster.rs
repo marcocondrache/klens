@@ -350,6 +350,30 @@ impl FakeCluster {
         self.world().subjects = subjects;
     }
 
+    /// Holds `subject` with one version per id, in order.
+    pub fn put_subject(&self, subject: &str, ids: &[i32]) {
+        let mut world = self.world();
+        let latest = i32::try_from(ids.len()).expect("a few versions");
+        world.subjects.retain(|held| held.subject != subject);
+        world.subjects.push(super::fixtures::subject(
+            subject,
+            ids[ids.len() - 1],
+            latest,
+        ));
+        world.schemas.retain(|(held, _), _| held != subject);
+        for (version, &id) in (1..).zip(ids) {
+            world.schemas.insert(
+                (subject.to_owned(), version),
+                RegisteredSchema {
+                    id,
+                    schema_type: SchemaType::Avro,
+                    schema: SUBJECT_SCHEMA.to_owned(),
+                    references: Vec::new(),
+                },
+            );
+        }
+    }
+
     pub fn set_acls(&self, acls: AclListing) {
         self.world().acls = acls;
     }

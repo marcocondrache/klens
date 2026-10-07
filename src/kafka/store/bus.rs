@@ -6,7 +6,7 @@ use tokio::sync::broadcast;
 
 use crate::kafka::group::GroupOffset;
 
-use super::tables::{ConfigTable, LogDirTable, SubjectTable, Topology};
+use super::tables::{ConfigTable, LogDirTable, SchemaIdTable, SubjectTable, Topology};
 
 pub const BUS_CAPACITY: usize = 256;
 
@@ -197,9 +197,19 @@ pub struct SubjectsDelta {
 
 impl SubjectsDelta {
     pub fn between(previous: Option<&SubjectTable>, next: &SubjectTable) -> Option<Self> {
-        let empty = SubjectTable::default();
-        let previous = previous.unwrap_or(&empty);
-        let (added, removed, changed) = diff_maps(&previous.subjects, &next.subjects);
+        Self::of(previous.map(|table| &table.subjects), &next.subjects)
+    }
+
+    pub fn of_ids(previous: Option<&SchemaIdTable>, next: &SchemaIdTable) -> Option<Self> {
+        Self::of(previous.map(|table| &table.subjects), &next.subjects)
+    }
+
+    fn of<V: PartialEq>(
+        previous: Option<&BTreeMap<Arc<str>, V>>,
+        next: &BTreeMap<Arc<str>, V>,
+    ) -> Option<Self> {
+        let empty = BTreeMap::new();
+        let (added, removed, changed) = diff_maps(previous.unwrap_or(&empty), next);
         (!added.is_empty() || !removed.is_empty() || !changed.is_empty()).then_some(Self {
             added,
             removed,
