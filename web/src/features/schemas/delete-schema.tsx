@@ -62,7 +62,7 @@ function DeleteSchemaForm({
   const [permanent, setPermanent] = useState(false);
   const [typed, setTyped] = useState("");
   const whole = scope === SUBJECT;
-  const remaining = whole ? [] : subject.versions.filter((kept) => kept !== version);
+  const remaining = whole ? [] : subject.versions.filter((kept) => kept.version !== version);
 
   const remove = useMutation({
     mutationFn: () =>
@@ -100,7 +100,7 @@ function DeleteSchemaForm({
       }}
       // Unlike a hook-level onSuccess, this one is dropped once the dialog closes.
       onSubmit={() =>
-        remove.mutate(undefined, { onSuccess: () => onDeleted(remaining.at(-1) ?? null) })
+        remove.mutate(undefined, { onSuccess: () => onDeleted(remaining.at(-1)?.version ?? null) })
       }
     >
       <Field>

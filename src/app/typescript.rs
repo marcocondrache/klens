@@ -22,7 +22,7 @@ pub use super::scram_users::types::{
 pub use super::search::types::{SearchHit, SearchKind};
 pub use super::subjects::types::{
     EditSubject, RegisterSchema, RegisteredVersion, SchemaCompatibility, SchemaReference,
-    SchemaType, SubjectDetail, SubjectRow, SubjectRowsResult,
+    SchemaType, SubjectDetail, SubjectRow, SubjectRowsResult, SubjectVersion,
 };
 pub use super::topics::types::{
     AddPartitions, CleanupPolicy, CreateTopic, PartitionRow, TopicDetail, TopicGroupRow, TopicRow,

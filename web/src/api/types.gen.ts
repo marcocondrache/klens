@@ -181,7 +181,9 @@ export type SchemaType = "AVRO" | "JSON" | "PROTOBUF";
 
 export type SchemaCompatibility = "BACKWARD" | "BACKWARD_TRANSITIVE" | "FORWARD" | "FORWARD_TRANSITIVE" | "FULL" | "FULL_TRANSITIVE" | "NONE";
 
-export type SubjectRow = { subject: string, id: number, type: SchemaType, latestVersion: number, versions: Array<number>, compatibility: SchemaCompatibility, };
+export type SubjectVersion = { version: number, id: number | null, };
+
+export type SubjectRow = { subject: string, id: number, type: SchemaType, latestVersion: number, versions: Array<SubjectVersion>, compatibility: SchemaCompatibility, };
 
 export type SubjectRowsResult = { rows: Array<SubjectRow>, sourceHealth: LaneHealth, hasRegistry: boolean, };
 

@@ -82,7 +82,14 @@ async fn a_registered_schema_is_listed_before_the_register_answers() {
     assert!(started.elapsed() < Duration::from_secs(1));
     assert_eq!(registered, json!({ "id": 2, "version": 3 }));
     let listing = app.get("/clusters/local/subjects").await.ok();
-    assert_eq!(versions(&listing, "orders.created-value"), json!([1, 2, 3]));
+    assert_eq!(
+        versions(&listing, "orders.created-value"),
+        json!([
+            { "version": 1, "id": null },
+            { "version": 2, "id": 1 },
+            { "version": 3, "id": 2 },
+        ])
+    );
     let read = app
         .get("/clusters/local/subjects/orders.created-value?version=3")
         .await
@@ -185,7 +192,10 @@ async fn a_deleted_version_leaves_the_subject_before_the_delete_answers() {
 
     assert!(started.elapsed() < Duration::from_secs(1));
     let listing = app.get("/clusters/local/subjects").await.ok();
-    assert_eq!(versions(&listing, "orders.created-value"), json!([2]));
+    assert_eq!(
+        versions(&listing, "orders.created-value"),
+        json!([{ "version": 2, "id": 1 }])
+    );
     logs.assert_contains(
         "deleted schema cluster=local subject=orders.created-value version=1 permanent=false",
     );
