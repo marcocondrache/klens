@@ -12,8 +12,12 @@ export function subjectMatches(subject: SubjectRow, needle: string) {
   );
 }
 
+export function versionWithId(subject: SubjectRow, id: number) {
+  return subject.versions.findLast((entry) => entry.id === id)?.version;
+}
+
 export function matchedVersion(subject: SubjectRow, needle: string) {
   const id = schemaId(needle);
   if (id === null || subject.id === id) return undefined;
-  return subject.versions.findLast((entry) => entry.id === id)?.version;
+  return versionWithId(subject, id);
 }

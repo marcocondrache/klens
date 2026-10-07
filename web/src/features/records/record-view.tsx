@@ -32,6 +32,7 @@ import { IconButton } from "@/components/icon-button";
 import { PayloadView } from "@/components/payload-view";
 import { SearchField } from "@/components/search-field";
 import { Pill } from "@/components/status";
+import { versionWithId } from "@/features/schemas/subject-search";
 import { useAccess } from "@/hooks/use-access";
 import { useSubjectRows } from "@/lib/api/catalog";
 import { ApiError, apiErrorMessage } from "@/lib/api/client";
@@ -463,10 +464,11 @@ function missingRecord(error: unknown, { partition, offset }: RecordAddress) {
 
 function SchemaLink({ cluster, topic, id }: { cluster: string; topic: string; id: number }) {
   const { data } = useSubjectRows(cluster);
-  const matches = data?.rows.filter((row) => row.id === id) ?? [];
+  const matches = data?.rows.filter((row) => versionWithId(row, id) != null) ?? [];
   const subject = matches.find((row) => row.subject === `${topic}-value`) ?? matches[0];
+  const version = subject && versionWithId(subject, id);
 
-  if (subject == null) {
+  if (subject == null || version == null) {
     return id;
   }
 
@@ -477,7 +479,7 @@ function SchemaLink({ cluster, topic, id }: { cluster: string; topic: string; id
           <Link
             to="/cluster/$cluster/schemas"
             params={{ cluster }}
-            search={{ subject: subject.subject, version: subject.latestVersion }}
+            search={{ subject: subject.subject, version }}
             className="text-primary underline-offset-4 outline-none hover:underline focus-visible:underline"
           />
         }
@@ -485,7 +487,7 @@ function SchemaLink({ cluster, topic, id }: { cluster: string; topic: string; id
         {id}
       </TooltipTrigger>
       <TooltipContent>
-        <span className="font-mono">{subject.subject}</span> · v{subject.latestVersion}
+        <span className="font-mono">{subject.subject}</span> · v{version}
       </TooltipContent>
     </Tooltip>
   );
