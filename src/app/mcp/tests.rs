@@ -96,9 +96,11 @@ fn refusal(result: &Value) -> Value {
     serde_json::from_str(text).expect("a json refusal")
 }
 
-/// Names what the local world holds, so each tool reaches its result.
 fn naming(tool: &Tool, cluster: &str) -> Value {
     let mut arguments = json!({});
+    if tool.input_schema["properties"].get("broker").is_some() {
+        arguments["broker"] = json!(1);
+    }
     let required = tool.input_schema.get("required").and_then(Value::as_array);
     for name in required.into_iter().flatten() {
         let name = name.as_str().expect("a property name");
@@ -207,7 +209,13 @@ fn the_tool_table_names_every_tool_the_router_serves() {
 
 #[tokio::test]
 async fn every_tool_opens_to_exactly_the_privilege_it_names() {
-    let app = TestApp::local().await;
+    let app = TestApp::of([FakeCluster::local()])
+        .limits(Limits {
+            mcp_live_calls_per_minute: NonZeroU32::MAX,
+            ..Limits::new(&Tuning::default())
+        })
+        .ingested()
+        .await;
     let tools = KlensMcp::tools().list_all();
     let mut wrong = Vec::new();
 
@@ -908,6 +916,12 @@ async fn access_explain_reports_privileges_under_the_ceiling() {
         json!([
             { "name": "klens_access_explain", "available": true },
             { "name": "klens_brokers_list", "available": true },
+            {
+                "name": "klens_brokers_list",
+                "section": "configs",
+                "available": false,
+                "needs": "BROKER_CONFIGS",
+            },
             { "name": "klens_clusters", "available": true },
             { "name": "klens_group_describe", "available": true },
             { "name": "klens_groups_list", "available": true },
@@ -1196,6 +1210,78 @@ async fn brokers_list_reaches_the_brokers_past_the_budget_with_after() {
     assert!(serde_json::to_vec(&first).expect("json").len() <= RESULT_BYTES);
     assert_eq!(rest["brokers"][0]["id"], last + 1);
     assert_eq!(rest["showing"], format!("{} of {}", 150 - last, 150 - last));
+}
+
+#[tokio::test]
+async fn brokers_list_reads_one_brokers_overrides_from_the_http_configs() {
+    let cluster = FakeCluster::local();
+    cluster.set_broker_configs(
+        1,
+        vec![
+            config("log.retention.hours", "168", ConfigSource::Default),
+            config("log.retention.hours", "72", ConfigSource::DynamicBroker),
+            config("num.io.threads", "16", ConfigSource::StaticBroker),
+        ],
+    );
+    let app = TestApp::over(cluster).await;
+
+    let described = structured(&call(&app, "klens_brokers_list", json!({ "broker": 1 })).await);
+    let http = app.get("/clusters/local/brokers/1/configs").await.ok();
+    let listed = structured(&call(&app, "klens_brokers_list", json!({})).await);
+
+    let overrides: Vec<&Value> = http
+        .as_array()
+        .expect("configs")
+        .iter()
+        .filter(|entry| entry["source"] != "DEFAULT_CONFIG")
+        .collect();
+    assert_eq!(described["configs"], json!(overrides));
+    assert_eq!(overrides.len(), 2);
+    let mut row = described.clone();
+    row.as_object_mut().expect("a broker").remove("configs");
+    assert_eq!(listed["brokers"], json!([row]));
+    assert_eq!(app.cluster().calls(Api::BrokerConfigs), 2);
+}
+
+#[tokio::test]
+async fn broker_configs_draw_on_the_live_budget_only_when_read() {
+    let app = TestApp::of([FakeCluster::local()])
+        .limits(Limits {
+            mcp_live_calls_per_minute: NonZeroU32::MIN,
+            ..Limits::new(&Tuning::default())
+        })
+        .ingested()
+        .await;
+    let viewer = app.with_access(access([viewer()]));
+    let describe = async |app: &TestApp, broker: i32| {
+        call(app, "klens_brokers_list", json!({ "broker": broker })).await
+    };
+
+    let unknown = refusal(&describe(&app, 7).await);
+    let paged = refusal(
+        &call(
+            &app,
+            "klens_brokers_list",
+            json!({ "broker": 1, "limit": 5 }),
+        )
+        .await,
+    );
+    let withheld = structured(&describe(&viewer, 1).await);
+    let served = structured(&describe(&app, 1).await);
+    let spent = refusal(&describe(&app, 1).await);
+
+    assert_eq!(unknown["code"], "UNKNOWN_BROKER");
+    assert_eq!(unknown["error"], "unknown broker 7 in cluster 'local'");
+    assert_eq!(paged["error"], "pass `broker` without `after` or `limit`");
+    assert_eq!(withheld["configs"], Value::Null);
+    assert_eq!(
+        withheld["omitted"],
+        json!({ "section": "configs", "needs": "BROKER_CONFIGS" })
+    );
+    assert_eq!(withheld["id"], 1);
+    assert_eq!(served["configs"], json!([]));
+    assert_eq!(spent["code"], "RATE_LIMITED");
+    assert_eq!(app.cluster().calls(Api::BrokerConfigs), 1);
 }
 
 #[tokio::test]

@@ -227,6 +227,18 @@ pub struct BrokerList<'a> {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct BrokerDetail<'a> {
+    #[serde(flatten)]
+    pub broker: &'a BrokerRow,
+    pub configs: Option<&'a [ConfigRow]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub omitted: Option<&'a Omitted>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub truncated: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BrokerRow {
     pub id: i32,
     pub host: String,

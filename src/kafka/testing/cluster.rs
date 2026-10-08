@@ -346,6 +346,10 @@ impl FakeCluster {
         self.world().topic_configs.insert(topic.to_owned(), configs);
     }
 
+    pub fn set_broker_configs(&self, broker: i32, configs: Vec<ConfigEntry>) {
+        self.world().broker_configs.insert(broker, configs);
+    }
+
     pub fn set_subjects(&self, subjects: Vec<SchemaSubject>) {
         self.world().subjects = subjects;
     }

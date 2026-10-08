@@ -32,13 +32,21 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
-      "description": "Lists a cluster's brokers by id, as klens last read them.\nEach broker shows its host and port, its rack and whether it is the controller (each null while klens does not know it), how many partition replicas and leaders it holds, its size in bytes, and its log dirs.\nEach log dir shows its path, its error when it is offline, its volume's total and usable bytes (null before Kafka 3.3), whether it is cordoned, its size in bytes and its replica count.\nSize and log dirs stay null until klens reads the broker's log dirs, which needs the Describe operation on the Cluster resource.\nIt returns the first 25 brokers, or `limit` of them up to 100, and `showing` gives how many it shows out of how many there are past `after`.\nIt reads klens' snapshot, so it costs Kafka nothing.",
+      "description": "Lists a cluster's brokers by id, as klens last read them.\nEach broker shows its host and port, its rack and whether it is the controller (each null while klens does not know it), how many partition replicas and leaders it holds, its size in bytes, and its log dirs.\nEach log dir shows its path, its error when it is offline, its volume's total and usable bytes (null before Kafka 3.3), whether it is cordoned, its size in bytes and its replica count.\nSize and log dirs stay null until klens reads the broker's log dirs, which needs the Describe operation on the Cluster resource.\nIt returns the first 25 brokers, or `limit` of them up to 100, and `showing` gives how many it shows out of how many there are past `after`.\nIt reads klens' snapshot, so it costs Kafka nothing.\nWith `broker`, it returns that broker alone with `configs`, each config whose value is not Kafka's default, with its source. It reads them live from Kafka, so these calls are limited per minute. Without the BROKER_CONFIGS privilege `configs` is null and `omitted` names that privilege.",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
           "after": {
             "description": "Lists only brokers with a higher id, such as the last id the previous call showed.",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "broker": {
+            "description": "Describes this one broker instead, with its config overrides read live from Kafka.",
             "format": "int32",
             "type": [
               "integer",

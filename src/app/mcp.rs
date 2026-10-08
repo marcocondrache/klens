@@ -57,10 +57,11 @@ mod tests;
 
 use findings::Finding;
 use types::{
-    AccessList, BrokerList, BrokerRow, ClusterDetail, ClusterHit, ClusterList, ClusterRights,
-    ClusterRow, ConfigRow, GroupDescription, GroupList, GroupPartitionRow, GroupRow, MemberRow,
-    Omitted, PartitionRow, Reason, SearchResult, Section, SubjectList, SubjectRow, ToolRights,
-    TopicDescription, TopicList, TopicRow, TopicSummary, UnhealthyPartition, UnreadLane,
+    AccessList, BrokerDetail, BrokerList, BrokerRow, ClusterDetail, ClusterHit, ClusterList,
+    ClusterRights, ClusterRow, ConfigRow, GroupDescription, GroupList, GroupPartitionRow, GroupRow,
+    MemberRow, Omitted, PartitionRow, Reason, SearchResult, Section, SubjectList, SubjectRow,
+    ToolRights, TopicDescription, TopicList, TopicRow, TopicSummary, UnhealthyPartition,
+    UnreadLane,
 };
 use untrusted::clip;
 
@@ -118,7 +119,7 @@ const TOOLS: &[ToolGate] = &[
     ToolGate {
         name: "klens_brokers_list",
         needs: None,
-        sections: &[],
+        sections: &[(Section::Configs, Privilege::BrokerConfigs)],
     },
     ToolGate {
         name: "klens_clusters",
@@ -716,6 +717,8 @@ struct BrokersQuery {
     cluster: Option<String>,
     /// Lists only brokers with a higher id, such as the last id the previous call showed.
     after: Option<i32>,
+    /// Describes this one broker instead, with its config overrides read live from Kafka.
+    broker: Option<i32>,
     /// How many brokers to return: 25 unless given, at most 100.
     #[schemars(range(min = 1, max = MAX_ROWS))]
     limit: Option<usize>,
@@ -1439,6 +1442,7 @@ impl KlensMcp {
     /// Size and log dirs stay null until klens reads the broker's log dirs, which needs the Describe operation on the Cluster resource.
     /// It returns the first 25 brokers, or `limit` of them up to 100, and `showing` gives how many it shows out of how many there are past `after`.
     /// It reads klens' snapshot, so it costs Kafka nothing.
+    /// With `broker`, it returns that broker alone with `configs`, each config whose value is not Kafka's default, with its source. It reads them live from Kafka, so these calls are limited per minute. Without the BROKER_CONFIGS privilege `configs` is null and `omitted` names that privilege.
     #[tool(
         title = "List brokers",
         annotations(
@@ -1456,17 +1460,49 @@ impl KlensMcp {
         let cluster = one_cluster(&session, query.cluster.as_deref())?;
         let topology = topology(&cluster)?;
         let log_dirs = cluster.store.log_dirs.load();
-        let brokers: Vec<BrokerRow> = cluster
-            .store
-            .broker_rows()
-            .into_iter()
+        let mut rows = cluster.store.broker_rows().into_iter().map(|row| {
+            let read = log_dirs
+                .as_deref()
+                .is_some_and(|table| table.broker(row.id).is_some());
+            BrokerRow::new(row, topology.controller.is_some(), read)
+        });
+        if let Some(id) = query.broker {
+            if query.after.is_some() || query.limit.is_some() {
+                return Err(ApiError::unprocessable(
+                    "pass `broker` without `after` or `limit`",
+                ));
+            }
+            let Some(broker) = rows.find(|row| row.id == id) else {
+                return Err(KafkaError::UnknownBroker {
+                    cluster: cluster.name().to_owned(),
+                    id,
+                }
+                .into());
+            };
+            let (configs, omitted) = match cluster.broker_configs() {
+                Ok(granted) => {
+                    if !self.state.mcp_live_call() {
+                        return Err(ApiError::TooManyLiveCalls);
+                    }
+                    (Some(overrides(granted.broker_configs(id).await?)), None)
+                }
+                Err(error) => (None, Some(omitted(Section::Configs, error)?)),
+            };
+            return Ok(fitted(
+                configs.as_deref().unwrap_or_default(),
+                "the klens UI shows every config",
+                |shown, truncated| {
+                    json!(BrokerDetail {
+                        broker: &broker,
+                        configs: configs.is_some().then_some(shown),
+                        omitted: omitted.as_ref(),
+                        truncated,
+                    })
+                },
+            ));
+        }
+        let brokers: Vec<BrokerRow> = rows
             .filter(|row| query.after.is_none_or(|after| row.id > after))
-            .map(|row| {
-                let read = log_dirs
-                    .as_deref()
-                    .is_some_and(|table| table.broker(row.id).is_some());
-                BrokerRow::new(row, topology.controller.is_some(), read)
-            })
             .collect();
         Ok(listed(
             brokers,

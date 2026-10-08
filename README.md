@@ -361,8 +361,9 @@ and the configs it sets apart from Kafka's defaults. `klens_groups_list` lists
 consumer groups by lag, and `klens_group_describe` shows one group's members,
 its lag per partition, and what looks wrong, such as one member that holds most
 of the lag. `klens_brokers_list` lists a cluster's brokers with their log dirs,
-and `klens_schemas_list` lists its schema subjects. A tool that reads one
-cluster needs no `cluster` argument when the agent sees only one.
+or one broker with the configs it sets apart from Kafka's defaults, and
+`klens_schemas_list` lists its schema subjects. A tool that reads one cluster
+needs no `cluster` argument when the agent sees only one.
 
 `klens_records_read` reads a page of a topic's records live from Kafka, newest
 first unless the agent asks for the oldest. The agent can pick partitions,
@@ -393,12 +394,14 @@ The block is a ceiling on what an MCP client may do. `privileges` lists the
 reads it may use beyond the catalog, out of `records`, `topic_configs`,
 `broker_configs`, `schema_text`, and `acls`, and defaults to all five. `records`
 opens the record tools. `topic_configs` adds a topic's config overrides to
-`klens_topic_describe`, which says when it left them out. MCP serves no writes,
-so a write privilege stops startup. `clusters` limits MCP to the clusters it
-names. When it is omitted, MCP reaches every cluster, and an empty list reaches
-none. A name that is not a configured cluster stops startup. The tool list an
-agent gets leaves out each tool that needs a privilege the agent holds on none
-of the clusters it sees, so without `records` it never sees the record tools.
+`klens_topic_describe`, and `broker_configs` adds a broker's to
+`klens_brokers_list`. A tool says when it left such a section out. MCP serves no
+writes, so a write privilege stops startup. `clusters` limits MCP to the
+clusters it names. When it is omitted, MCP reaches every cluster, and an empty
+list reaches none. A name that is not a configured cluster stops startup. The
+tool list an agent gets leaves out each tool that needs a privilege the agent
+holds on none of the clusters it sees, so without `records` it never sees the
+record tools.
 
 ```yaml
 mcp:
@@ -429,7 +432,8 @@ results at debug level.
 
 `klens_group_describe` makes klens read the group's offsets every
 `tuning.ingest.fast_offset` for `tuning.ingest.interest_ttl`, as opening the
-group in the UI does. The record tools read Kafka on every call.
+group in the UI does. The record tools read Kafka on every call, and so does
+`klens_brokers_list` when it reads a broker's configs.
 `tuning.mcp.live_calls_per_minute` (30) caps how often agents may call these
 tools. Every client shares that budget, and a call past it fails with
 `RATE_LIMITED`.
