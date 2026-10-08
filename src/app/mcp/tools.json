@@ -32,6 +32,96 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
+      "description": "Lists a cluster's ACL bindings, each with its resource type, resource name, pattern type, principal, host, operation and permission.\nFilter with `contains`, `resourceType`, `operation` and `permission`.\nA PREFIXED binding covers every resource whose name starts with its resource name, the resource name * covers every resource of its type, and the operation ALL covers every operation.\n`status` is DISABLED when the cluster runs no authorizer and DENIED when klens' own Kafka user may not describe ACLs, and `bindings` is then empty.\nIt returns the first 25 bindings, or `limit` of them up to 100, and `showing` gives how many it shows out of how many matched.\nIt reads klens' snapshot, so it costs Kafka nothing.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "cluster": {
+            "description": "A cluster name from klens_clusters. Optional when you can see only one cluster.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contains": {
+            "description": "Keeps bindings whose principal, resource name or host holds this text, in any case.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "description": "How many bindings to return: 25 unless given, at most 100.",
+            "format": "uint",
+            "maximum": 100,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "operation": {
+            "description": "Keeps bindings for this exact operation.",
+            "enum": [
+              "ALL",
+              "READ",
+              "WRITE",
+              "CREATE",
+              "DELETE",
+              "ALTER",
+              "DESCRIBE",
+              "CLUSTER_ACTION",
+              "DESCRIBE_CONFIGS",
+              "ALTER_CONFIGS",
+              "IDEMPOTENT_WRITE",
+              null
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "permission": {
+            "description": "Keeps bindings with this permission.",
+            "enum": [
+              "ALLOW",
+              "DENY",
+              null
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resourceType": {
+            "description": "Keeps bindings on this type of resource.",
+            "enum": [
+              "TOPIC",
+              "GROUP",
+              "CLUSTER",
+              "TRANSACTIONAL_ID",
+              "DELEGATION_TOKEN",
+              null
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "name": "klens_acls_list",
+      "title": "List ACLs"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
       "description": "Lists a cluster's brokers by id, as klens last read them.\nEach broker shows its host and port, its rack and whether it is the controller (each null while klens does not know it), how many partition replicas and leaders it holds, its size in bytes, and its log dirs.\nEach log dir shows its path, its error when it is offline, its volume's total and usable bytes (null before Kafka 3.3), whether it is cordoned, its size in bytes and its replica count.\nSize and log dirs stay null until klens reads the broker's log dirs, which needs the Describe operation on the Cluster resource.\nIt returns the first 25 brokers, or `limit` of them up to 100, and `showing` gives how many it shows out of how many there are past `after`.\nIt reads klens' snapshot, so it costs Kafka nothing.\nWith `broker`, it returns that broker alone with `configs`, each config whose value is not Kafka's default, with its source. It reads them live from Kafka, so these calls are limited per minute. Without the BROKER_CONFIGS privilege `configs` is null and `omitted` names that privilege.",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",

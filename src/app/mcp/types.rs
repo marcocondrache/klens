@@ -3,6 +3,8 @@ use std::borrow::Cow;
 use jiff::Timestamp;
 use serde::Serialize;
 
+use crate::app::acls::Acl;
+use crate::app::acls::types::AclStatus;
 use crate::app::brokers::types::LogDir;
 use crate::app::configs::ConfigEntry;
 use crate::app::groups::types::GroupState;
@@ -267,6 +269,15 @@ impl BrokerRow {
             log_dirs: log_dirs_read.then(|| row.log_dirs.into_iter().map(LogDir::from).collect()),
         }
     }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AclList<'a> {
+    pub status: AclStatus,
+    pub bindings: &'a [Acl],
+    pub showing: String,
+    pub notice: &'static str,
 }
 
 #[derive(Debug, Serialize)]

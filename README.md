@@ -364,8 +364,10 @@ of the lag. `klens_brokers_list` lists a cluster's brokers with their log dirs,
 or one broker with the configs it sets apart from Kafka's defaults.
 `klens_schemas_list` lists a cluster's schema subjects, and `klens_schema_get`
 reads the text of one subject's schema live from the registry, at its latest
-version unless the agent names one. A tool that reads one cluster needs no
-`cluster` argument when the agent sees only one.
+version unless the agent names one. `klens_acls_list` lists a cluster's ACL
+bindings, filtered by principal, resource, host, operation, or permission. A
+tool that reads one cluster needs no `cluster` argument when the agent sees
+only one.
 
 `klens_records_read` reads a page of a topic's records live from Kafka, newest
 first unless the agent asks for the oldest. The agent can pick partitions,
@@ -385,8 +387,9 @@ message of a failing schema registry there.
 A list returns 25 rows unless the agent asks for up to 100, and says how many
 it shows out of how many matched. A count, size, or rate klens has not
 measured yet is null rather than 0. Group ids, client ids, hosts, assignment
-protocols, and subject names come from whoever runs a Kafka client, so a result
-that carries them tells the agent to read them as data, not as instructions.
+protocols, subject names, principals, and resource names come from whoever runs
+a Kafka client, so a result that carries them tells the agent to read them as
+data, not as instructions.
 
 MCP runs only without `auth` for now, and klens refuses to start with both
 blocks. Anyone who reaches `/mcp` can then call its tools. `/mcp` answers only
@@ -397,15 +400,16 @@ browser. klens logs at startup that it serves `/mcp`, with the ceiling below.
 The block is a ceiling on what an MCP client may do. `privileges` lists the
 reads it may use beyond the catalog, out of `records`, `topic_configs`,
 `broker_configs`, `schema_text`, and `acls`, and defaults to all five. `records`
-opens the record tools, and `schema_text` opens `klens_schema_get`.
-`topic_configs` adds a topic's config overrides to `klens_topic_describe`, and
-`broker_configs` adds a broker's to `klens_brokers_list`. A tool says when it
-left such a section out. MCP serves no writes, so a write privilege stops
-startup. `clusters` limits MCP to the clusters it names. When it is omitted, MCP
-reaches every cluster, and an empty list reaches none. A name that is not a
-configured cluster stops startup. The tool list an agent gets leaves out each
-tool that needs a privilege the agent holds on none of the clusters it sees, so
-without `records` it never sees the record tools.
+opens the record tools, `schema_text` opens `klens_schema_get`, and `acls` opens
+`klens_acls_list`. `topic_configs` adds a topic's config overrides to
+`klens_topic_describe`, and `broker_configs` adds a broker's to
+`klens_brokers_list`. A tool says when it left such a section out. MCP serves no
+writes, so a write privilege stops startup. `clusters` limits MCP to the
+clusters it names. When it is omitted, MCP reaches every cluster, and an empty
+list reaches none. A name that is not a configured cluster stops startup. The
+tool list an agent gets leaves out each tool that needs a privilege the agent
+holds on none of the clusters it sees, so without `records` it never sees the
+record tools.
 
 ```yaml
 mcp:
@@ -442,9 +446,9 @@ Kafka when it reads a broker's configs. `tuning.mcp.live_calls_per_minute` (30)
 caps how often agents may call these tools. Every client shares that budget, and
 a call past it fails with `RATE_LIMITED`.
 
-Every result reaches the agent's model provider, record payloads, configs, and
-schema text included. Set `privileges` and `clusters` to what you would share
-with it, and leave out `records` to keep payloads from it.
+Every result reaches the agent's model provider, record payloads, configs,
+schema text, and ACLs included. Set `privileges` and `clusters` to what you
+would share with it, and leave out `records` to keep payloads from it.
 
 ## Schema Registry
 
