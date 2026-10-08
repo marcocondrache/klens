@@ -160,7 +160,7 @@ async fn a_set_quota_is_listed_before_the_put_answers() {
         }))
     );
     logs.assert_contains(
-        "set client quota cluster=local quota=user=<default> client-id=checkout: producer_byte_rate=1024 request_percentage=12.5",
+        r#"set client quota cluster=local quota="user=<default> client-id=checkout: producer_byte_rate=1024 request_percentage=12.5""#,
     );
 }
 

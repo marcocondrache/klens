@@ -213,7 +213,11 @@ impl OffsetLane {
                 match session.committed_offsets(&id, partitions.as_deref()).await {
                     Ok(committed) => (id, Some(committed)),
                     Err(error) => {
-                        tracing::warn!(group = %id, %error, "offset fetch failed");
+                        tracing::warn!(
+                            group = id.as_ref(),
+                            error = error.to_string().as_str(),
+                            "offset fetch failed"
+                        );
                         (id, None)
                     }
                 }

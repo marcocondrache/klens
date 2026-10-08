@@ -152,7 +152,7 @@ async fn a_reset_shows_on_the_group_before_it_answers() {
     assert_eq!(group["totalLag"], 0);
     assert_eq!(app.cluster().calls(Api::AlterGroupOffsets), 1);
     logs.assert_contains(
-        r#"reset group offsets cluster=local group=billing topic=Some("orders.created") partitions=2 to=Latest"#,
+        r#"reset group offsets cluster=local group="billing" topic=Some("orders.created") partitions=2 to=Latest"#,
     );
 }
 
@@ -329,7 +329,7 @@ async fn a_deleted_group_is_gone_before_the_delete_answers() {
         .await
         .assert_error(StatusCode::NOT_FOUND, "UNKNOWN_GROUP");
     assert_eq!(app.cluster().calls(Api::DeleteGroup), 1);
-    logs.assert_contains("deleted group cluster=local group=billing");
+    logs.assert_contains(r#"deleted group cluster=local group="billing""#);
 }
 
 #[tokio::test]
@@ -377,6 +377,27 @@ async fn a_group_id_with_a_slash_deletes_as_one_group() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_group_id_with_a_quote_and_a_newline_stays_on_its_audit_line() {
+    let forged = group("billing\"\nuser=\"mallory", ORDERS, vec![0]).stopped();
+    let app = TestApp::of([FakeCluster::local().with_groups([forged])])
+        .writable(&["local"])
+        .ingested()
+        .await;
+    let mut rig = app.rig();
+    let lane = rig.topology();
+    rig.spawn(lane);
+    quiesce().await;
+    let logs = LogCapture::at(Level::INFO);
+
+    app.delete("/clusters/local/groups/billing%22%0Auser=%22mallory")
+        .await
+        .expect(StatusCode::NO_CONTENT);
+
+    logs.assert_contains(r#"group="billing\"\nuser=\"mallory""#);
+    logs.assert_lacks("\nuser=");
+}
+
+#[tokio::test(start_paused = true)]
 async fn deleted_offsets_leave_the_group_before_the_delete_answers() {
     let app = billing().await;
     let mut rig = app.rig();
@@ -394,7 +415,7 @@ async fn deleted_offsets_leave_the_group_before_the_delete_answers() {
     assert_eq!(group["offsets"], json!([]));
     assert_eq!(app.cluster().calls(Api::DeleteGroupOffsets), 1);
     logs.assert_contains(
-        "deleted group offsets cluster=local group=billing topic=\"orders.created\" partitions=1",
+        r#"deleted group offsets cluster=local group="billing" topic="orders.created" partitions=1"#,
     );
 }
 

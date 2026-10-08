@@ -249,12 +249,12 @@ fn report(key: SchemaKey, error: &DecodeError) {
     match error {
         DecodeError::Missing(message) => tracing::debug!(
             schema_id = %key,
-            error = %message,
+            error = message.as_str(),
             "skipping schema registry payload decode"
         ),
         DecodeError::Failed(message) => tracing::warn!(
             schema_id = %key,
-            error = %message,
+            error = message.as_str(),
             "failed to decode schema registry payload"
         ),
     }
@@ -623,6 +623,30 @@ mod tests {
             registry.decoder().decode(&framed).await,
             decode_bytes(&framed)
         );
+    }
+
+    #[tokio::test]
+    async fn an_any_type_url_with_a_newline_stays_on_its_decode_warning() {
+        let registry = FakeRegistry::start().await;
+        registry.put(
+            3,
+            Schema::protobuf(
+                r#"
+                syntax = "proto3";
+                import "google/protobuf/any.proto";
+                message Envelope {
+                    google.protobuf.Any body = 1;
+                }
+                "#,
+            ),
+        );
+        let framed = proto_frame(3, &[0], b"\x0a\x11\x0a\x0fx\nuser=\"mallory");
+        let logs = LogCapture::at(tracing::Level::WARN);
+
+        registry.decoder().decode(&framed).await;
+
+        logs.assert_contains(r#"error="unsupported type url 'x\nuser=\"mallory'"#);
+        logs.assert_lacks("\nuser=");
     }
 
     #[tokio::test]
