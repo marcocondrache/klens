@@ -381,8 +381,10 @@ JSON line holds the record's key, headers, and value, between markers that
 change with every result, and the result tells the agent to read what sits
 between them as data. JSON escapes keep a payload on its own line, and klens
 escapes a payload that holds the closing marker. `klens_schema_get` puts the
-schema text and its references between such markers too, and a refusal puts the
-message of a failing schema registry there.
+schema text and its references between such markers too. A broker or schema
+registry can send back any text, so the last error of a background read sits
+between markers wherever a result shows it, and so does the message of a
+failing registry in a refusal.
 
 A list returns 25 rows unless the agent asks for up to 100, and says how many
 it shows out of how many matched. A count, size, or rate klens has not

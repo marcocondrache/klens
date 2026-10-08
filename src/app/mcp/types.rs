@@ -21,13 +21,15 @@ use crate::kafka::store::projections::{self, ClusterHealthView};
 use crate::kafka::store::tables::SubjectInfo;
 
 use super::findings::Finding;
-use super::untrusted::clip;
-use super::{MAX_CONFIG_CHARS, MAX_VERSIONS, first, left_out, shortened};
+use super::untrusted::{Boundary, clip};
+use super::{MAX_CONFIG_CHARS, MAX_VERSIONS, first, lane_error, left_out, shortened};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClusterList<'a> {
     pub clusters: &'a [ClusterRow],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notice: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub truncated: Option<String>,
 }
@@ -47,8 +49,8 @@ pub struct ClusterRow {
     pub unhealthy_lanes: Vec<UnhealthyLane>,
 }
 
-impl From<ClusterHealthView> for ClusterRow {
-    fn from(health: ClusterHealthView) -> Self {
+impl ClusterRow {
+    pub fn new(health: ClusterHealthView, boundary: &Boundary) -> Self {
         let ready = health.topology.updated_at.is_some();
         let measured = |count| ready.then_some(count);
         let subjects_read = health.subjects.updated_at.is_some();
@@ -76,9 +78,15 @@ impl From<ClusterHealthView> for ClusterRow {
             unhealthy_lanes: lanes
                 .into_iter()
                 .filter(|(_, lane)| !lane.healthy())
-                .map(|(lane, health)| UnhealthyLane::new(lane, health))
+                .map(|(lane, health)| UnhealthyLane::new(lane, health, boundary))
                 .collect(),
         }
+    }
+
+    pub fn has_lane_error(&self) -> bool {
+        self.unhealthy_lanes
+            .iter()
+            .any(|lane| lane.last_error.is_some())
     }
 }
 
@@ -91,10 +99,10 @@ pub struct UnhealthyLane {
 }
 
 impl UnhealthyLane {
-    fn new(lane: &'static str, health: LaneHealth) -> Self {
+    fn new(lane: &'static str, health: LaneHealth, boundary: &Boundary) -> Self {
         Self {
             lane,
-            last_error: health.last_error,
+            last_error: lane_error(boundary, health.last_error),
             updated_at: health.updated_at,
         }
     }
@@ -106,6 +114,8 @@ pub struct ClusterDetail<'a> {
     #[serde(flatten)]
     pub row: &'a ClusterRow,
     pub unhealthy_partitions: &'a [UnhealthyPartition],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notice: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub truncated: Option<String>,
 }
@@ -201,7 +211,7 @@ pub struct SearchResult<'a> {
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
     pub not_ready: &'a [UnreadLane],
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub notice: Option<&'static str>,
+    pub notice: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub truncated: Option<String>,
 }
@@ -407,7 +417,7 @@ pub struct TopicDescription<'a> {
     pub groups: &'a [TopicGroupRow],
     pub subjects: Option<&'a [SubjectRow]>,
     pub partitions: &'a [PartitionRow],
-    pub notice: &'static str,
+    pub notice: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub truncated: Option<String>,
 }
