@@ -3,42 +3,11 @@ use rmcp::model::{CallToolResult, ContentBlock};
 use crate::app::records::types::Record;
 
 use super::types::{HeaderText, RecordFacts, RecordText};
+use super::untrusted::{Boundary, clip};
 use super::{RESULT_BYTES, fit};
 
 #[cfg(test)]
 mod tests;
-
-struct Boundary {
-    open: String,
-    close: String,
-    escaped_close: String,
-}
-
-impl Boundary {
-    fn new() -> Self {
-        Self::with_marker(&format!("{:016x}", rand::random::<u64>()))
-    }
-
-    fn with_marker(marker: &str) -> Self {
-        Self {
-            open: format!("<data-{marker}>"),
-            close: format!("</data-{marker}>"),
-            escaped_close: format!("<\\/data-{marker}>"),
-        }
-    }
-
-    fn enclose(&self, text: &RecordText<'_>) -> String {
-        let json = serde_json::to_string(text).expect("record text is serializable");
-        // JSON leaves these line breaks raw, and a reader that splits lines on
-        // them would see a producer start a line of its own.
-        let line = json
-            .replace(&self.close, &self.escaped_close)
-            .replace('\u{85}', "\\u0085")
-            .replace('\u{2028}', "\\u2028")
-            .replace('\u{2029}', "\\u2029");
-        format!("{}\n{line}\n{}", self.open, self.close)
-    }
-}
 
 pub(super) fn records_result(records: &[Record], intro: &str, when_cut: &str) -> CallToolResult {
     let boundary = Boundary::new();
@@ -117,13 +86,6 @@ fn clipped(record: &Record, budget: usize) -> (RecordFacts, RecordText<'_>) {
     let left_out = record.headers.len().saturating_sub(budget);
     let facts = RecordFacts::new(record, cut || left_out > 0, left_out);
     (facts, text)
-}
-
-fn clip(text: &str, budget: usize) -> (&str, bool) {
-    match text.char_indices().nth(budget) {
-        Some((end, _)) => (&text[..end], true),
-        None => (text, false),
-    }
 }
 
 fn texts(record: &Record) -> impl Iterator<Item = &str> {

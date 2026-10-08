@@ -48,6 +48,7 @@ use super::topics::TopicGroupRow;
 mod findings;
 mod record_text;
 mod types;
+mod untrusted;
 
 #[cfg(test)]
 mod tests;
