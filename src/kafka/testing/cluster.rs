@@ -378,6 +378,14 @@ impl FakeCluster {
         }
     }
 
+    pub fn put_schema(&self, subject: &str, version: i32, schema: RegisteredSchema) {
+        *self
+            .world()
+            .schemas
+            .get_mut(&(subject.to_owned(), version))
+            .expect("a version put_subject holds") = schema;
+    }
+
     pub fn set_acls(&self, acls: AclListing) {
         self.world().acls = acls;
     }

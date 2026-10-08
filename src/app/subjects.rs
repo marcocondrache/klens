@@ -123,7 +123,7 @@ async fn delete_schema(
     Ok(StatusCode::NO_CONTENT)
 }
 
-fn latest_version(
+pub(crate) fn latest_version(
     cluster: &super::context::ClusterHandle<'_>,
     subject: &str,
 ) -> Result<i32, ApiError> {

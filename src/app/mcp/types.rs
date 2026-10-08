@@ -8,7 +8,9 @@ use crate::app::configs::ConfigEntry;
 use crate::app::groups::types::GroupState;
 use crate::app::records::types::Record;
 use crate::app::search::SearchHit;
-use crate::app::subjects::types::{SchemaCompatibility, SchemaType, SubjectVersion};
+use crate::app::subjects::types::{
+    SchemaCompatibility, SchemaReference, SchemaType, SubjectVersion,
+};
 use crate::app::topics::types::{CleanupPolicy, TopicGroupRow};
 use crate::app::whoami::types::PrivilegeName;
 use crate::kafka::model as domain;
@@ -624,6 +626,23 @@ impl RecordFacts {
             headers_left_out,
         }
     }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SchemaFacts {
+    pub version: i32,
+    pub id: i32,
+    #[serde(rename = "type")]
+    pub schema_type: SchemaType,
+    pub cut: bool,
+    pub references_left_out: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SchemaText<'a> {
+    pub schema: &'a str,
+    pub references: &'a [SchemaReference],
 }
 
 #[derive(Debug, Serialize)]
