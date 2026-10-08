@@ -364,6 +364,15 @@ what looks wrong, such as one member that holds most of the lag.
 `klens_schemas_list` lists its schema subjects. A tool that reads one cluster
 needs no `cluster` argument when the agent sees only one.
 
+`klens_record_get` reads one record live from Kafka by its partition and
+offset. It needs the `records` privilege, and an obfuscation rule hides what it
+covers, as in the UI. The result is text. A JSON line gives the record's
+partition, offset, timestamp, size, and schema id. A second JSON line holds the
+record's key, headers, and value, between markers that change with every
+result, and the result tells the agent to read what sits between them as data.
+JSON escapes keep a payload on its own line, and klens escapes a payload that
+holds the closing marker.
+
 A list returns 25 rows unless the agent asks for up to 100, and says how many
 it shows out of how many matched. A count, size, or rate klens has not
 measured yet is null rather than 0. Group ids, client ids, hosts, assignment
@@ -394,19 +403,23 @@ once, across every client. Past it, a call fails with `RATE_LIMITED` rather
 than waiting. A request body holds at most 64 KiB, and a search query at most
 256 characters. A result holds at most 24,000 bytes, counting both the text and
 the structured copy it carries. A longer one keeps its first rows and says how
-many it left out. A refused call returns its error code and a hint for the next
-call, and klens logs the tool and the code at info level, never the arguments.
-klens never logs the `rmcp` library below error, because rmcp logs tool
-arguments and results at debug level.
+many it left out. A record result instead cuts long keys, headers, and values
+to one length, and shows no more headers of a record than that length. It says
+which records it cut. A refused call returns its error code and a hint for the
+next call, and klens logs the tool and the code at info level, never the
+arguments. klens never logs the `rmcp` library below error, because rmcp logs
+tool arguments and results at debug level.
 
 `klens_group_describe` makes klens read the group's offsets every
 `tuning.ingest.fast_offset` for `tuning.ingest.interest_ttl`, as opening the
-group in the UI does. `tuning.mcp.live_calls_per_minute` (30) caps how often
-agents may call it. Every client shares that budget, and a call past it fails
-with `RATE_LIMITED`.
+group in the UI does. `klens_record_get` reads Kafka on every call.
+`tuning.mcp.live_calls_per_minute` (30) caps how often agents may call these
+tools. Every client shares that budget, and a call past it fails with
+`RATE_LIMITED`.
 
-Every result reaches the agent's model provider. Set `privileges` and
-`clusters` to what you would share with it.
+Every result reaches the agent's model provider, record payloads included. Set
+`privileges` and `clusters` to what you would share with it, and leave out
+`records` to keep payloads from it.
 
 ## Schema Registry
 

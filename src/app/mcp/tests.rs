@@ -11,8 +11,8 @@ use tracing::Level;
 use walkdir::WalkDir;
 
 use super::{
-    CLIENT_VALUES_NOTICE, KlensMcp, MAX_QUERY_CHARS, MAX_REQUEST_BYTES, RESULT_BYTES, TOOLS, limit,
-    listed, service, tool_list, tool_rights,
+    CLIENT_VALUES_NOTICE, KlensMcp, MAX_QUERY_CHARS, MAX_REQUEST_BYTES, OBFUSCATED_NOTICE,
+    RESULT_BYTES, TOOLS, limit, listed, service, tool_list, tool_rights,
 };
 use crate::app::auth::access::{Privilege, PrivilegeSet};
 use crate::app::{AppState, AuthState, Limits, router};
@@ -20,9 +20,11 @@ use crate::config::{AllowedHost, Config, Mcp, Tuning};
 use crate::kafka::Clusters;
 use crate::kafka::model::{GroupSnapshot, Watermarks};
 use crate::testing::{
-    Api, FakeCluster, LogCapture, TestApp, access, group, mcp_request, offline_partition,
-    partition, role, subject, topic, viewer, yaml,
+    Api, FakeCluster, FixtureRecord, LogCapture, TestApp, access, card_record, framed, group,
+    mcp_request, offline_partition, partition, role, subject, topic, viewer, yaml,
 };
+
+const PAN: &str = "4111111111111111";
 
 fn call_body(tool: &str, arguments: Value) -> Value {
     json!({
@@ -55,6 +57,36 @@ fn structured(result: &Value) -> Value {
 }
 
 #[track_caller]
+fn text(result: &Value) -> &str {
+    assert_eq!(result["isError"], false, "{result}");
+    assert!(result.get("structuredContent").is_none(), "{result}");
+    result["content"][0]["text"]
+        .as_str()
+        .expect("a text result")
+}
+
+fn records_in(text: &str) -> Vec<Value> {
+    let start = text.find("<data-").expect("a boundary") + "<data-".len();
+    let marker = &text[start..start + 16];
+    let (open, close) = (format!("<data-{marker}>"), format!("</data-{marker}>"));
+    let mut records = Vec::new();
+    let mut lines = text.lines();
+    while let Some(line) = lines.next() {
+        let Ok(mut record) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        assert_eq!(lines.next(), Some(open.as_str()), "{text}");
+        let data: Value = serde_json::from_str(lines.next().expect("a data line")).expect("json");
+        assert_eq!(lines.next(), Some(close.as_str()), "{text}");
+        for field in ["key", "headers", "value"] {
+            record[field] = data[field].clone();
+        }
+        records.push(record);
+    }
+    records
+}
+
+#[track_caller]
 fn refusal(result: &Value) -> Value {
     assert_eq!(result["isError"], true, "{result}");
     assert!(result.get("structuredContent").is_none(), "{result}");
@@ -71,6 +103,8 @@ fn naming(tool: &Tool, cluster: &str) -> Value {
         arguments[name] = match name {
             "topic" => json!("orders.created"),
             "group" => json!("order-processor"),
+            "partition" => json!(0),
+            "offset" => json!(1),
             _ => json!("x"),
         };
     }
@@ -700,22 +734,29 @@ async fn access_explain_reports_privileges_under_the_ceiling() {
     let explained = structured(&call(&app, "klens_access_explain", json!({})).await);
     let one = structured(&call(&app, "klens_access_explain", json!({ "cluster": "prod" })).await);
 
-    let tools = json!([
-        { "name": "klens_access_explain", "available": true },
-        { "name": "klens_brokers_list", "available": true },
-        { "name": "klens_clusters", "available": true },
-        { "name": "klens_group_describe", "available": true },
-        { "name": "klens_groups_list", "available": true },
-        { "name": "klens_schemas_list", "available": true },
-        { "name": "klens_search", "available": true },
-        { "name": "klens_topic_describe", "available": true },
-        { "name": "klens_topics_list", "available": true },
-    ]);
+    let tools = |records: bool| {
+        let reads_records = |name: &str| match records {
+            true => json!({ "name": name, "available": true }),
+            false => json!({ "name": name, "available": false, "needs": "RECORDS" }),
+        };
+        json!([
+            { "name": "klens_access_explain", "available": true },
+            { "name": "klens_brokers_list", "available": true },
+            { "name": "klens_clusters", "available": true },
+            { "name": "klens_group_describe", "available": true },
+            { "name": "klens_groups_list", "available": true },
+            reads_records("klens_record_get"),
+            { "name": "klens_schemas_list", "available": true },
+            { "name": "klens_search", "available": true },
+            { "name": "klens_topic_describe", "available": true },
+            { "name": "klens_topics_list", "available": true },
+        ])
+    };
     assert_eq!(
         explained,
         json!({ "clusters": [
-            { "cluster": "local", "writable": true, "privileges": ["RECORDS"], "tools": tools },
-            { "cluster": "prod", "writable": false, "privileges": [], "tools": tools },
+            { "cluster": "local", "writable": true, "privileges": ["RECORDS"], "tools": tools(true) },
+            { "cluster": "prod", "writable": false, "privileges": [], "tools": tools(false) },
         ]})
     );
     assert_eq!(one["clusters"], json!([explained["clusters"][1]]));
@@ -1880,4 +1921,169 @@ fn mcp_reaches_clusters_only_through_the_session() {
             );
         }
     }
+}
+
+fn orders(records: Vec<FixtureRecord>) -> FakeCluster {
+    FakeCluster::local().with_records(records)
+}
+
+fn cards() -> FakeCluster {
+    orders((0..3).map(|offset| card_record(offset, PAN)).collect()).with_obfuscation(
+        "
+        secret: {value: 0123456789abcdef0123456789abcdef}
+        rules:
+          - topics: ['orders.*']
+            headers: ['x-user-id']
+            fields:
+              - path: card.number
+                strategy: hash
+        ",
+    )
+}
+
+fn at(partition: i32, offset: i64) -> Value {
+    json!({ "topic": "orders.created", "partition": partition, "offset": offset })
+}
+
+#[tokio::test]
+async fn record_get_shows_what_the_http_route_returns() {
+    let app = TestApp::over(orders(vec![
+        FixtureRecord::order(0, 0)
+            .key("ord_0")
+            .value("paid")
+            .header("x-trace", "t-1"),
+        FixtureRecord::order(0, 1).value(framed(7, r#"{"total":7}"#)),
+        FixtureRecord::order(0, 2).key("ord_2"),
+    ]))
+    .await;
+
+    for offset in 0..3 {
+        let result = call(&app, "klens_record_get", at(0, offset)).await;
+        let mut http = app
+            .get(&format!(
+                "/clusters/local/topics/orders.created/records/0/{offset}"
+            ))
+            .await
+            .ok();
+
+        let mut expected = http["record"].take();
+        expected.as_object_mut().expect("a record").remove("topic");
+        expected["cut"] = json!(false);
+        expected["headersLeftOut"] = json!(0);
+        assert_eq!(records_in(text(&result)), [expected]);
+    }
+}
+
+#[tokio::test]
+async fn record_get_names_a_record_it_cannot_find() {
+    let app = TestApp::local().await;
+
+    let gone = refusal(&call(&app, "klens_record_get", at(0, 2)).await);
+    let nowhere = refusal(&call(&app, "klens_record_get", at(7, 1)).await);
+
+    assert_eq!(gone["code"], "UNKNOWN_OFFSET");
+    assert_eq!(
+        gone["hint"],
+        "Retention or compaction may have removed the record, or the offset may be past the end \
+         of the partition. Call klens_topic_describe for each partition's watermarks."
+    );
+    assert_eq!(nowhere["code"], "UNKNOWN_PARTITION");
+    assert_eq!(
+        nowhere["hint"],
+        "Call klens_topic_describe for the topic's partitions."
+    );
+}
+
+#[tokio::test]
+async fn record_get_cuts_only_what_one_record_cannot_fit() {
+    let long = "é".repeat(30_000);
+    let app = TestApp::over(orders(vec![
+        FixtureRecord::order(0, 0).key("ord_0").value(long.clone()),
+    ]))
+    .await;
+
+    let result = call(&app, "klens_record_get", at(0, 0)).await;
+
+    let text = text(&result);
+    let record = &records_in(text)[0];
+    let value = record["value"].as_str().expect("a value");
+    assert_eq!(record["cut"], true);
+    assert_eq!(record["key"], "ord_0");
+    assert!(value.chars().count() > 4_000, "{}", value.len());
+    assert!(long.starts_with(value));
+    assert!(
+        text.contains("the records it touched. The klens UI shows the whole record.\n"),
+        "{text}"
+    );
+    assert!(serde_json::to_vec(&result).expect("json").len() <= RESULT_BYTES);
+}
+
+#[tokio::test]
+async fn the_record_tools_need_the_records_privilege() {
+    let app = TestApp::local().await.with_access(access([viewer()]));
+
+    let refused = refusal(&call(&app, "klens_record_get", at(0, 1)).await);
+
+    assert_eq!(refused["code"], "FORBIDDEN");
+    assert_eq!(
+        refused["hint"],
+        "Call klens_access_explain to see what you may do on each cluster."
+    );
+    assert_eq!(app.cluster().calls(Api::OpenScan), 0);
+}
+
+#[tokio::test]
+async fn an_obfuscated_field_stays_obfuscated_for_the_agent() {
+    let app = TestApp::over(cards()).await;
+
+    let opened = call(&app, "klens_record_get", at(0, 1)).await;
+
+    let text = text(&opened);
+    let record = &records_in(text)[0];
+    let value = record["value"].as_str().expect("a value");
+    assert!(text.starts_with(OBFUSCATED_NOTICE), "{text}");
+    assert!(!text.contains(PAN), "{text}");
+    assert!(value.contains("\"kx:"), "{value}");
+    assert_eq!(
+        record["headers"],
+        json!([{ "key": "x-user-id", "value": "***" }])
+    );
+    assert_eq!(record["verbatim"], false);
+}
+
+#[tokio::test]
+async fn record_tools_draw_on_the_live_budget_once_their_checks_pass() {
+    let app = TestApp::of([FakeCluster::local()])
+        .limits(Limits {
+            mcp_live_calls_per_minute: NonZeroU32::MIN,
+            ..Limits::new(&Tuning::default())
+        })
+        .ingested()
+        .await;
+    let viewer = app.with_access(access([viewer()]));
+
+    let forbidden = refusal(&call(&viewer, "klens_record_get", at(0, 1)).await);
+    let hidden = refusal(
+        &call(
+            &app,
+            "klens_record_get",
+            json!({ "cluster": "prod", "topic": "orders.created", "partition": 0, "offset": 1 }),
+        )
+        .await,
+    );
+    for address in [at(-1, 1), at(0, -1)] {
+        let negative = refusal(&call(&app, "klens_record_get", address).await);
+        assert_eq!(
+            negative["error"], "`partition` and `offset` must be zero or more",
+            "{negative}"
+        );
+    }
+    let served = call(&app, "klens_record_get", at(0, 1)).await;
+    let spent = refusal(&call(&app, "klens_record_get", at(0, 1)).await);
+
+    assert_eq!(forbidden["code"], "FORBIDDEN");
+    assert_eq!(hidden["code"], "UNKNOWN_CLUSTER");
+    assert_eq!(records_in(text(&served))[0]["key"], "ord_1");
+    assert_eq!(spent["code"], "RATE_LIMITED");
+    assert_eq!(app.cluster().calls(Api::OpenScan), 1);
 }
