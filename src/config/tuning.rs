@@ -14,6 +14,7 @@ pub struct Tuning {
     pub records: RecordLimits,
     pub tail: TailTuning,
     pub ingest: IngestTuning,
+    pub mcp: McpTuning,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -206,6 +207,22 @@ impl Default for IngestTuning {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct McpTuning {
+    /// MCP tool calls served at once, across every client. A call past it
+    /// is refused rather than queued.
+    pub max_concurrent_calls: NonZeroUsize,
+}
+
+impl Default for McpTuning {
+    fn default() -> Self {
+        Self {
+            max_concurrent_calls: nonzero(16),
+        }
+    }
+}
+
 const fn nonzero(count: usize) -> NonZeroUsize {
     NonZeroUsize::new(count).expect("a default count is not zero")
 }
@@ -274,6 +291,9 @@ mod tests {
                 idle_heartbeat: secs(15),
                 max_sample_gap: secs(15),
             },
+            mcp: McpTuning {
+                max_concurrent_calls: nonzero(16),
+            },
         };
 
         assert_eq!(yaml::<Tuning>("{}"), defaults);
@@ -335,6 +355,8 @@ ingest:
   interest_ttl: 1m
   idle_heartbeat: 20s
   max_sample_gap: 45s
+mcp:
+  max_concurrent_calls: 4
 ",
         );
 
@@ -388,6 +410,9 @@ ingest:
                     interest_ttl: secs(60),
                     idle_heartbeat: secs(20),
                     max_sample_gap: secs(45),
+                },
+                mcp: McpTuning {
+                    max_concurrent_calls: nonzero(4),
                 },
             }
         );

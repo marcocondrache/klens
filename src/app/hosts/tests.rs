@@ -133,7 +133,7 @@ async fn with_auth_on_the_list_is_not_consulted() {
         Limits::new(&Tuning::default()),
     );
 
-    let response = router(state, &Config::default().allowed_hosts)
+    let response = router(state, &Config::default().allowed_hosts, None)
         .oneshot(get(Some("attacker.example"), "/api/auth/me"))
         .await
         .expect("response");

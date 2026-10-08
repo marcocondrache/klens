@@ -7,14 +7,14 @@ use axum::http::{HeaderMap, Method, Request, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::Response;
 use futures::StreamExt as _;
-use serde_json::Value;
+use serde_json::{Value, json};
 use tokio::time::timeout;
 use tower::ServiceExt as _;
 
 use super::auth::access::EffectiveAccess;
 use super::auth::{AuthState, SessionGuard};
-use super::{AppState, Limits, auth_routes, health, resources};
-use crate::config::{Config, Tuning};
+use super::{AppState, Limits, auth_routes, health, mcp, resources};
+use crate::config::{Config, Mcp, Tuning};
 use crate::kafka::store::ClusterStore;
 use crate::kafka::{ClusterSession, Clusters};
 use crate::testing::{FakeCluster, Rig};
@@ -27,6 +27,7 @@ pub struct TestApp {
     clusters: Vec<FakeCluster>,
     access: EffectiveAccess,
     guard: SessionGuard,
+    mcp: Option<Mcp>,
 }
 
 pub struct Setup {
@@ -89,6 +90,13 @@ impl TestApp {
         }
     }
 
+    pub fn serving_mcp(&self, mcp: Mcp) -> Self {
+        Self {
+            mcp: Some(mcp),
+            ..self.clone()
+        }
+    }
+
     pub async fn get(&self, path: &str) -> Reply {
         self.reply(get_request(path)).await
     }
@@ -120,8 +128,39 @@ impl TestApp {
 
     pub async fn reply_through_router(&self, request: Request<Body>) -> Reply {
         let request_line = format!("{} {}", request.method(), request.uri());
-        let response = super::router(self.state.clone(), &Config::default().allowed_hosts)
-            .oneshot(request)
+        read(request_line, self.send_through_router(request).await).await
+    }
+
+    pub async fn send_through_router(&self, request: Request<Body>) -> Response {
+        super::router(
+            self.state.clone(),
+            &Config::default().allowed_hosts,
+            self.mcp.as_ref(),
+        )
+        .oneshot(request)
+        .await
+        .expect("response")
+    }
+
+    pub async fn mcp(&self, method: &str, params: Value) -> Reply {
+        let body = json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params });
+        let request_line = format!("POST /mcp {method}");
+        let ceiling = mcp::ceiling(&self.mcp.clone().unwrap_or_default());
+        let access = self.access.clone().narrow(&ceiling);
+        let guard = self.guard.clone();
+        let response = Router::new()
+            .nest_service(
+                "/mcp",
+                mcp::service(self.state.clone(), &Config::default().allowed_hosts),
+            )
+            .layer(middleware::from_fn(
+                move |mut request: Request<Body>, next: Next| {
+                    request.extensions_mut().insert(access.clone());
+                    request.extensions_mut().insert(guard.clone());
+                    next.run(request)
+                },
+            ))
+            .oneshot(mcp_request(&body))
             .await
             .expect("response");
         read(request_line, response).await
@@ -194,6 +233,7 @@ impl Setup {
             clusters: self.clusters,
             access: EffectiveAccess::Unrestricted,
             guard: SessionGuard::open(),
+            mcp: None,
         }
     }
 
@@ -237,6 +277,16 @@ pub fn json_request(method: Method, path: &str, body: impl Into<Body>) -> Reques
         .uri(path)
         .header(header::CONTENT_TYPE, "application/json")
         .body(body.into())
+        .expect("request")
+}
+
+pub fn mcp_request(body: &Value) -> Request<Body> {
+    Request::post("/mcp")
+        .header(header::HOST, "localhost")
+        .header(header::ACCEPT, "application/json, text/event-stream")
+        .header(header::CONTENT_TYPE, "application/json")
+        .header("mcp-protocol-version", "2025-06-18")
+        .body(Body::from(body.to_string()))
         .expect("request")
 }
 

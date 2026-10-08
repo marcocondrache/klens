@@ -45,6 +45,7 @@ impl SessionGuard {
         Self {
             auth: AuthState::disabled(),
             subject: None,
+            ceiling: None,
         }
     }
 
@@ -52,6 +53,7 @@ impl SessionGuard {
         Self {
             auth: AuthState::enabled_for_tests(),
             subject: Some("gone".to_owned()),
+            ceiling: None,
         }
     }
 }
@@ -152,7 +154,7 @@ impl Browser {
             Limits::new(&Tuning::default()),
         );
         Self {
-            app: crate::app::router(state, &Config::default().allowed_hosts),
+            app: crate::app::router(state, &Config::default().allowed_hosts, None),
             jar: BTreeMap::new(),
         }
     }

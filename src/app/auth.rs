@@ -27,7 +27,7 @@ mod store;
 #[cfg(test)]
 pub(crate) mod testing;
 
-use access::{AccessPolicy, EffectiveAccess, Identity};
+use access::{AccessPolicy, Ceiling, EffectiveAccess, Identity, Narrowed};
 use backend::{AuthBackend, OidcCredentials};
 use oidc::{Oidc, OidcFlow};
 use store::ExpiringStore;
@@ -157,6 +157,7 @@ impl AuthState {
                 .is_enabled()
                 .then(|| session.user.as_ref().map(|user| user.sub.clone()))
                 .flatten(),
+            ceiling: None,
         }
     }
 }
@@ -165,10 +166,33 @@ impl AuthState {
 pub struct SessionGuard {
     auth: AuthState,
     subject: Option<String>,
+    ceiling: Option<Ceiling>,
 }
 
 impl SessionGuard {
+    pub(crate) fn capped(auth: AuthState, ceiling: Ceiling) -> Self {
+        Self {
+            auth,
+            subject: None,
+            ceiling: Some(ceiling),
+        }
+    }
+
     pub fn revalidate(&self) -> Option<EffectiveAccess> {
+        let access = self.held()?;
+        Some(match &self.ceiling {
+            Some(ceiling) => access.narrow(ceiling).into(),
+            None => access,
+        })
+    }
+
+    /// `None` when klens admits nobody, and for a guard without a ceiling.
+    pub(crate) fn narrowed(&self) -> Option<Narrowed> {
+        let ceiling = self.ceiling.as_ref()?;
+        Some(self.held()?.narrow(ceiling))
+    }
+
+    fn held(&self) -> Option<EffectiveAccess> {
         let Some(subject) = &self.subject else {
             return (!self.auth.is_enabled()).then_some(EffectiveAccess::Unrestricted);
         };
@@ -738,5 +762,40 @@ mod tests {
             browser.get("/api/clusters").await.status,
             StatusCode::UNAUTHORIZED
         );
+    }
+
+    #[test]
+    fn a_capped_guard_holds_an_open_caller_to_its_ceiling_every_time() {
+        let reads = [config::Privilege::Records, config::Privilege::Acls];
+        let guard = SessionGuard::capped(AuthState::disabled(), Ceiling::new("mcp", &reads, None));
+
+        let admitted: EffectiveAccess = guard.narrowed().expect("auth is off").into();
+        let revalidated = guard.revalidate().expect("auth is off");
+
+        assert_eq!(admitted, revalidated);
+        assert_ne!(revalidated, EffectiveAccess::Unrestricted);
+        let local = revalidated.cluster("local").unwrap();
+        assert!(local.records().is_ok());
+        assert!(local.produce().is_err());
+        assert!(local.delete_topics().is_err());
+    }
+
+    #[test]
+    fn a_capped_guard_admits_nobody_once_auth_is_on() {
+        let guard = SessionGuard::capped(
+            AuthState::enabled_for_tests(),
+            Ceiling::new("mcp", &config::Privilege::ALL, None),
+        );
+
+        assert_eq!(guard.narrowed(), None);
+        assert_eq!(guard.revalidate(), None);
+    }
+
+    #[test]
+    fn a_session_guard_keeps_what_the_session_holds() {
+        let guard = SessionGuard::open();
+
+        assert_eq!(guard.revalidate(), Some(EffectiveAccess::Unrestricted));
+        assert_eq!(guard.narrowed(), None);
     }
 }

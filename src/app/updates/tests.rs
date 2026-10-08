@@ -293,7 +293,7 @@ async fn a_session_that_expires_mid_stream_terminates_it() {
 #[tokio::test]
 async fn the_updates_route_is_wired_with_the_session_extensions() {
     let app = TestApp::local().await;
-    let response = crate::app::router(app.state().clone(), &Config::default().allowed_hosts)
+    let response = crate::app::router(app.state().clone(), &Config::default().allowed_hosts, None)
         .oneshot(
             Request::get("/api/clusters/local/updates")
                 .header(header::HOST, "localhost")

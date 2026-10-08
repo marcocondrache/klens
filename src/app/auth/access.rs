@@ -96,6 +96,10 @@ impl PrivilegeSet {
         Self(self.0 | other.0)
     }
 
+    pub fn intersect(self, other: Self) -> Self {
+        Self(self.0 & other.0)
+    }
+
     pub fn iter(self) -> impl Iterator<Item = Privilege> {
         Privilege::ALL
             .into_iter()
@@ -122,6 +126,43 @@ impl ClusterScope {
             None => Self::All,
             Some(names) => Self::Only(Arc::new(names.iter().cloned().collect())),
         }
+    }
+
+    fn intersect(&self, other: &Self) -> Self {
+        match (self, other) {
+            (Self::All, scope) | (scope, Self::All) => scope.clone(),
+            (Self::Only(left), Self::Only(right)) => {
+                Self::Only(Arc::new(left.intersection(right).cloned().collect()))
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Ceiling {
+    name: Arc<str>,
+    privileges: PrivilegeSet,
+    clusters: ClusterScope,
+}
+
+impl Ceiling {
+    pub fn new(name: &str, privileges: &[Privilege], clusters: Option<&[String]>) -> Self {
+        Self {
+            name: Arc::from(name),
+            privileges: PrivilegeSet::from_privileges(privileges.iter().copied()),
+            clusters: ClusterScope::from_list(clusters),
+        }
+    }
+}
+
+/// Only [`EffectiveAccess::narrow`] makes one, so whoever holds it knows a
+/// [`Ceiling`] applied.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Narrowed(EffectiveAccess);
+
+impl From<Narrowed> for EffectiveAccess {
+    fn from(narrowed: Narrowed) -> Self {
+        narrowed.0
     }
 }
 
@@ -170,6 +211,27 @@ impl EffectiveAccess {
 
     pub fn visible_clusters<'a>(&self, all: impl Iterator<Item = &'a str>) -> Vec<&'a str> {
         all.filter(|name| self.can_see_cluster(name)).collect()
+    }
+
+    pub fn narrow(self, ceiling: &Ceiling) -> Narrowed {
+        let grants = match self {
+            Self::Unrestricted => vec![Grant {
+                role_name: Arc::clone(&ceiling.name),
+                privileges: PrivilegeSet::ALL,
+                scope: ClusterScope::All,
+            }],
+            Self::Granted(grants) => grants,
+        };
+        Narrowed(Self::Granted(
+            grants
+                .into_iter()
+                .map(|grant| Grant {
+                    privileges: grant.privileges.intersect(ceiling.privileges),
+                    scope: grant.scope.intersect(&ceiling.clusters),
+                    role_name: grant.role_name,
+                })
+                .collect(),
+        ))
     }
 }
 
@@ -750,6 +812,97 @@ mod tests {
             PrivilegeSet::ALL
         );
         assert!(PrivilegeSet::NONE.iter().next().is_none());
+    }
+
+    #[test]
+    fn privilege_sets_intersect_by_bit() {
+        let held = set(&[Privilege::Records, Privilege::Produce]);
+
+        assert_eq!(
+            held.intersect(set(&[Privilege::Records, Privilege::Acls])),
+            set(&[Privilege::Records])
+        );
+        assert_eq!(held.intersect(PrivilegeSet::NONE), PrivilegeSet::NONE);
+        assert_eq!(held.intersect(PrivilegeSet::ALL), held);
+    }
+
+    fn ceiling(privileges: &[Privilege], clusters: Option<&[&str]>) -> Ceiling {
+        let clusters: Option<Vec<String>> =
+            clusters.map(|names| names.iter().map(|name| (*name).to_owned()).collect());
+        Ceiling::new("mcp", privileges, clusters.as_deref())
+    }
+
+    #[test]
+    fn narrowing_unrestricted_access_grants_the_ceiling_alone() {
+        let reads = [Privilege::Records, Privilege::Acls];
+        let access: EffectiveAccess = EffectiveAccess::Unrestricted
+            .narrow(&ceiling(&reads, None))
+            .into();
+
+        assert_eq!(access.privileges_for("prod"), Some(set(&reads)));
+        assert_eq!(access.privileges_for("staging"), Some(set(&reads)));
+        let prod = access.cluster("prod").unwrap();
+        assert!(prod.records().is_ok());
+        assert!(prod.produce().is_err());
+        assert!(prod.alter_broker_configs().is_err());
+        assert_eq!(prod.role_names(), ["mcp"]);
+    }
+
+    #[test]
+    fn a_ceiling_that_lists_clusters_hides_every_other_one() {
+        let dev: EffectiveAccess = EffectiveAccess::Unrestricted
+            .narrow(&ceiling(&[], Some(&["dev"])))
+            .into();
+        let none: EffectiveAccess = EffectiveAccess::Unrestricted
+            .narrow(&ceiling(EVERYTHING, Some(&[])))
+            .into();
+
+        assert_eq!(dev.privileges_for("dev"), Some(PrivilegeSet::NONE));
+        assert_eq!(
+            dev.cluster("prod").unwrap_err(),
+            AccessError::UnknownCluster("prod".into())
+        );
+        assert!(
+            none.visible_clusters(["dev", "prod"].into_iter())
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn narrowing_never_widens_a_grant_or_reveals_a_cluster() {
+        let policy = table(
+            &[
+                ("operator", &[Privilege::Records, Privilege::Produce]),
+                ("viewer", &[]),
+            ],
+            vec![
+                binding(&["ops"], "operator", Some(&["prod"])),
+                binding(&["everyone"], "viewer", Some(&["staging"])),
+            ],
+        );
+        let access: EffectiveAccess = admit(&policy, &["ops", "everyone"])
+            .unwrap()
+            .narrow(&ceiling(
+                &[Privilege::Records, Privilege::Acls],
+                Some(&["prod", "payments"]),
+            ))
+            .into();
+
+        assert_eq!(
+            access.privileges_for("prod"),
+            Some(set(&[Privilege::Records]))
+        );
+        assert_eq!(access.cluster("prod").unwrap().role_names(), ["operator"]);
+        assert_eq!(
+            access.privileges_for("staging"),
+            None,
+            "the ceiling leaves staging out"
+        );
+        assert_eq!(
+            access.privileges_for("payments"),
+            None,
+            "no role covered payments"
+        );
     }
 
     #[test]

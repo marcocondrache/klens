@@ -10,6 +10,7 @@ use serde::{Deserialize, Deserializer};
 mod auth;
 mod cluster;
 mod hosts;
+mod mcp;
 pub mod obfuscation;
 mod secret;
 mod tuning;
@@ -17,9 +18,11 @@ mod tuning;
 pub use auth::{Auth, Binding, Oidc, Privilege, Role, Session};
 pub use cluster::{BasicAuth, ClientCert, Cluster, Sasl, SaslMechanism, SchemaRegistry, Tls};
 pub use hosts::AllowedHost;
+pub use mcp::Mcp;
 pub use secret::{KeyMaterial, Secret};
 pub use tuning::{
-    IngestTuning, KafkaTuning, RecordLimits, ScanTuning, SchemaRegistryTuning, TailTuning, Tuning,
+    IngestTuning, KafkaTuning, McpTuning, RecordLimits, ScanTuning, SchemaRegistryTuning,
+    TailTuning, Tuning,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -37,6 +40,8 @@ pub struct Config {
     pub clusters: IndexMap<String, Cluster>,
     /// Without it, the UI and API are open to anyone who can reach them.
     pub auth: Option<Auth>,
+    /// Serves MCP tools at `/mcp`. Without it, there is no `/mcp`.
+    pub mcp: Option<Mcp>,
     pub tuning: Tuning,
 }
 
@@ -48,6 +53,7 @@ impl Default for Config {
             log_level: LogLevel::default(),
             clusters: IndexMap::new(),
             auth: None,
+            mcp: None,
             tuning: Tuning::default(),
         }
     }
@@ -70,7 +76,28 @@ impl Config {
         let path = path.as_ref();
         let yaml = std::fs::read_to_string(path)
             .with_context(|| format!("failed to read {}", path.display()))?;
-        parse(&yaml).with_context(|| format!("invalid config {}", path.display()))
+        parse(&yaml)
+            .and_then(|config: Self| config.check().map(|()| config))
+            .with_context(|| format!("invalid config {}", path.display()))
+    }
+
+    fn check(&self) -> anyhow::Result<()> {
+        let Some(mcp) = &self.mcp else {
+            return Ok(());
+        };
+        anyhow::ensure!(
+            self.auth.is_none(),
+            "mcp cannot be served together with auth yet; remove one of the two blocks"
+        );
+        if let Some(unknown) = mcp
+            .clusters
+            .iter()
+            .flatten()
+            .find(|name| !self.clusters.contains_key(*name))
+        {
+            anyhow::bail!("mcp.clusters names '{unknown}', which is not a configured cluster");
+        }
+        Ok(())
     }
 
     pub fn writable_without_auth(&self) -> Vec<&str> {
@@ -125,6 +152,7 @@ mod tests {
         assert_eq!(config.log_level, LogLevel::Info);
         assert!(config.clusters.is_empty());
         assert!(config.auth.is_none());
+        assert!(config.mcp.is_none());
         assert_eq!(config.tuning, Tuning::default());
     }
 
@@ -228,6 +256,66 @@ mod tests {
 
         assert_eq!(open.writable_without_auth(), ["zeta", "alpha"]);
         assert!(guarded.writable_without_auth().is_empty());
+    }
+
+    #[test]
+    fn mcp_runs_only_without_auth_for_now() {
+        let both: Config = yaml(
+            "
+            mcp: {}
+            auth:
+              oidc:
+                issuer: https://idp.example.com
+                client_id: klens
+                client_secret: {value: oidc-secret}
+                redirect_uri: https://klens.example.com/api/auth/callback
+            ",
+        );
+
+        assert_eq!(
+            both.check().unwrap_err().to_string(),
+            "mcp cannot be served together with auth yet; remove one of the two blocks"
+        );
+        assert!(yaml::<Config>("mcp: {}").check().is_ok());
+    }
+
+    #[test]
+    fn mcp_clusters_must_be_configured_clusters() {
+        let config = |mcp: &str| {
+            yaml::<Config>(&format!(
+                "
+                clusters:
+                  dev: {{bootstrap_servers: [dev:9092]}}
+                  prod: {{bootstrap_servers: [prod:9092]}}
+                mcp: {mcp}
+                "
+            ))
+        };
+
+        assert!(config("{clusters: [dev, prod]}").check().is_ok());
+        assert!(config("{clusters: []}").check().is_ok());
+        assert_eq!(
+            config("{clusters: [dev, staging]}")
+                .check()
+                .unwrap_err()
+                .to_string(),
+            "mcp.clusters names 'staging', which is not a configured cluster"
+        );
+    }
+
+    #[test]
+    fn load_checks_the_rules_that_span_blocks() {
+        let file = temp_file("mcp: {clusters: [ghost]}");
+
+        let invalid = Config::load(file.path()).unwrap_err();
+
+        assert_eq!(
+            format!("{invalid:#}"),
+            format!(
+                "invalid config {}: mcp.clusters names 'ghost', which is not a configured cluster",
+                file.path().display()
+            )
+        );
     }
 
     #[test]
