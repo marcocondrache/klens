@@ -551,7 +551,7 @@ impl Granted<'_, SetScramCredentialsCap> {
             .await?;
         tracing::info!(
             cluster = %self.cluster.store.name(),
-            user = %credential.user,
+            scram_user = credential.user.as_str(),
             mechanism = %credential.mechanism,
             iterations = credential.iterations,
             "set scram credential"
@@ -577,7 +577,7 @@ impl Granted<'_, DeleteScramCredentialsCap> {
             .await?;
         tracing::info!(
             cluster = %self.cluster.store.name(),
-            %user,
+            scram_user = user,
             %mechanism,
             "deleted scram credential"
         );
