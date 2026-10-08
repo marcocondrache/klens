@@ -39,7 +39,7 @@ pub async fn serve(router: Router, bind: SocketAddr) -> Result<()> {
                     tracing::info_span!(
                         "http.request",
                         method = %request.method(),
-                        path = %request.uri().path(),
+                        path = request.uri().path(),
                         user = tracing::field::Empty,
                     )
                 })
@@ -151,9 +151,30 @@ mod tests {
 
         let response = String::from_utf8(response).expect("utf-8 response");
         assert!(response.starts_with("HTTP/1.1 200"), "{response}");
-        logs.assert_contains("path=/api/auth/callback");
+        logs.assert_contains("path=\"/api/auth/callback\"");
         logs.assert_lacks("secret-code");
         logs.assert_lacks("secret-state");
+    }
+
+    #[tokio::test]
+    async fn a_quote_in_the_path_cannot_forge_a_span_field() {
+        let logs = LogCapture::at(tracing::Level::INFO);
+        let router = Router::new().route(
+            "/api/groups/{group}",
+            get(|| async { tracing::info!("handled") }),
+        );
+
+        let response = exchange(
+            router,
+            "GET /api/groups/x\"user=\"root\" HTTP/1.1\r\n\
+             Host: localhost\r\nConnection: close\r\n\r\n",
+        )
+        .await;
+
+        let response = String::from_utf8(response).expect("utf-8 response");
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+        logs.assert_contains(r#"path="/api/groups/x\"user=\"root\"""#);
+        logs.assert_lacks(r#"x"user="root""#);
     }
 
     const PAGE: &str = "{\"records\":[{\"offset\":0},{\"offset\":1},{\"offset\":2}]}";
