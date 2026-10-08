@@ -1,8 +1,10 @@
+use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Router;
 use axum::middleware;
+use governor::{DefaultDirectRateLimiter, Quota, RateLimiter};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::config::{AllowedHost, Mcp, Tuning};
@@ -47,6 +49,7 @@ pub struct AppState {
     limits: TailLimits,
     tails: Arc<Semaphore>,
     mcp_calls: Arc<Semaphore>,
+    mcp_live_calls: Arc<DefaultDirectRateLimiter>,
 }
 
 impl AppState {
@@ -57,6 +60,9 @@ impl AppState {
             limits: limits.tail,
             tails: Arc::new(Semaphore::new(limits.live_tails)),
             mcp_calls: Arc::new(Semaphore::new(limits.mcp_calls)),
+            mcp_live_calls: Arc::new(RateLimiter::direct(Quota::per_minute(
+                limits.mcp_live_calls_per_minute,
+            ))),
         }
     }
 
@@ -67,10 +73,14 @@ impl AppState {
     pub(crate) fn mcp_permit(&self) -> Option<OwnedSemaphorePermit> {
         Arc::clone(&self.mcp_calls).try_acquire_owned().ok()
     }
+
+    pub(crate) fn mcp_live_call(&self) -> bool {
+        self.mcp_live_calls.check().is_ok()
+    }
 }
 
-/// How much one request may read, and how many live tails and MCP tool calls
-/// run at once.
+/// How much one request may read, how many live tails and MCP tool calls run
+/// at once, and how often MCP tools may read more from Kafka.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
     /// Sizes live tails; its `records` also bounds one-shot record pages.
@@ -79,6 +89,7 @@ pub struct Limits {
     pub live_tails: usize,
     /// MCP tool calls served at once, across every client.
     pub mcp_calls: usize,
+    pub mcp_live_calls_per_minute: NonZeroU32,
 }
 
 impl Limits {
@@ -93,6 +104,7 @@ impl Limits {
             },
             live_tails: tuning.tail.max_live,
             mcp_calls: tuning.mcp.max_concurrent_calls.get(),
+            mcp_live_calls_per_minute: tuning.mcp.live_calls_per_minute,
         }
     }
 }

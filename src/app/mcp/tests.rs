@@ -1,3 +1,5 @@
+use std::num::NonZeroU32;
+
 use axum::Router;
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode, header};
@@ -14,7 +16,7 @@ use crate::app::auth::access::{Privilege, PrivilegeSet};
 use crate::app::{AppState, AuthState, Limits, router};
 use crate::config::{AllowedHost, Config, Mcp, Tuning};
 use crate::kafka::Clusters;
-use crate::kafka::model::Watermarks;
+use crate::kafka::model::{GroupSnapshot, Watermarks};
 use crate::testing::{
     Api, FakeCluster, LogCapture, TestApp, access, group, mcp_request, offline_partition,
     partition, role, subject, topic, viewer, yaml,
@@ -66,6 +68,7 @@ fn naming(tool: &Tool, cluster: &str) -> Value {
         let name = name.as_str().expect("a property name");
         arguments[name] = match name {
             "topic" => json!("orders.created"),
+            "group" => json!("order-processor"),
             _ => json!("x"),
         };
     }
@@ -699,6 +702,7 @@ async fn access_explain_reports_privileges_under_the_ceiling() {
         { "name": "klens_access_explain", "available": true },
         { "name": "klens_brokers_list", "available": true },
         { "name": "klens_clusters", "available": true },
+        { "name": "klens_group_describe", "available": true },
         { "name": "klens_groups_list", "available": true },
         { "name": "klens_schemas_list", "available": true },
         { "name": "klens_search", "available": true },
@@ -1513,6 +1517,17 @@ fn consumers() -> FakeCluster {
         ])
 }
 
+fn pair(id: &str, topic: &str) -> GroupSnapshot {
+    let mut group = group(id, topic, vec![0]);
+    let mut second = group.members[0].clone();
+    second.id = format!("{id}-m2");
+    second.client_id = "c2".into();
+    second.host = "10.0.0.2".into();
+    second.assignments[0].partitions = vec![1];
+    group.members.push(second);
+    group
+}
+
 #[tokio::test]
 async fn groups_list_reads_each_group_from_the_snapshot() {
     let app = TestApp::local().await;
@@ -1604,11 +1619,249 @@ async fn groups_list_puts_lag_klens_has_not_read_last() {
     assert_eq!(all["groups"][3]["totalLag"], 0);
 }
 
+#[tokio::test]
+async fn group_describe_joins_members_offsets_and_findings() {
+    let app = TestApp::local().await;
+
+    let described = structured(
+        &call(
+            &app,
+            "klens_group_describe",
+            json!({ "group": "order-processor" }),
+        )
+        .await,
+    );
+
+    let offset = |partition: i32, committed: i64| {
+        json!({
+            "topic": "orders.created",
+            "partition": partition,
+            "committedOffset": committed,
+            "endOffset": 8,
+            "lag": 8 - committed,
+        })
+    };
+    assert_eq!(
+        described,
+        json!({
+            "group": "order-processor",
+            "state": "STABLE",
+            "protocol": "range",
+            "totalLag": 5,
+            "lagComplete": true,
+            "findings": [],
+            "members": [{
+                "memberId": "member-1",
+                "clientId": "orders",
+                "host": "127.0.0.1",
+                "assignments": [{ "topic": "orders.created", "partitions": [0, 1] }],
+                "lag": 5,
+            }],
+            "partitions": [offset(1, 5), offset(0, 6)],
+            "notice": CLIENT_VALUES_NOTICE,
+        })
+    );
+    assert!(app.store().interest.is_hot("order-processor"));
+}
+
+#[tokio::test]
+async fn group_describe_names_the_member_that_holds_the_lag() {
+    let cluster = FakeCluster::local()
+        .with_topic("payments", 3, 5000)
+        .with_groups([pair("billing", "payments")
+            .with_committed(&[("payments", 0, 5000), ("payments", 1, 0)])]);
+    let app = TestApp::over(cluster).await;
+
+    let described =
+        structured(&call(&app, "klens_group_describe", json!({ "group": "billing" })).await);
+
+    assert_eq!(
+        described["findings"],
+        json!([
+            { "kind": "UNASSIGNED_PARTITIONS", "topic": "payments", "partitions": [2] },
+            {
+                "kind": "LAG_ON_ONE_MEMBER",
+                "memberId": "billing-m2",
+                "clientId": "c2",
+                "host": "10.0.0.2",
+                "lag": 5000,
+                "totalLag": 5000,
+            },
+        ])
+    );
+    assert_eq!(
+        names(&described, "members", "memberId"),
+        ["billing-m2", "billing-m1"]
+    );
+    assert_eq!(described["members"][0]["lag"], 5000);
+    assert_eq!(described["members"][1]["lag"], 0);
+}
+
+#[tokio::test]
+async fn group_describe_leaves_lag_klens_has_not_read_null() {
+    let cluster = FakeCluster::local();
+    let app = TestApp::over(cluster.clone()).await;
+    cluster.put_group(pair("fresh", "orders.created").stopped());
+    let rig = app.rig();
+    rig.poll(&rig.topology()).await;
+
+    let described =
+        structured(&call(&app, "klens_group_describe", json!({ "group": "fresh" })).await);
+
+    assert_eq!(described["state"], "EMPTY");
+    assert_eq!(described["totalLag"], Value::Null);
+    assert_eq!(described["findings"], json!([{ "kind": "NO_MEMBERS" }]));
+    assert_eq!(described["members"], json!([]));
+}
+
+#[tokio::test]
+async fn a_member_lag_is_null_until_klens_reads_the_offsets() {
+    let cluster = FakeCluster::local();
+    let app = TestApp::over(cluster.clone()).await;
+    cluster.put_group(pair("fresh", "orders.created"));
+    let rig = app.rig();
+    rig.poll(&rig.topology()).await;
+
+    let described =
+        structured(&call(&app, "klens_group_describe", json!({ "group": "fresh" })).await);
+
+    assert_eq!(described["members"][0]["lag"], Value::Null);
+    assert_eq!(described["partitions"][0]["committedOffset"], Value::Null);
+    assert_eq!(described["partitions"][0]["lag"], Value::Null);
+}
+
+#[tokio::test]
+async fn a_member_lag_is_null_while_one_of_its_partitions_has_no_end_offset() {
+    let cluster = FakeCluster::local();
+    let app = TestApp::over(cluster.clone()).await;
+    let mut billing = pair("billing", "orders.created")
+        .with_committed(&[("orders.created", 0, 6), ("payments", 0, 1)]);
+    billing.members[1].assignments[0].topic = "payments".into();
+    billing.members[1].assignments[0].partitions = vec![0];
+    cluster.add_topic("payments", 1, 4);
+    cluster.put_group(billing);
+    let rig = app.rig();
+    rig.poll(&rig.topology()).await;
+    rig.sweep(&rig.offsets()).await;
+
+    let described =
+        structured(&call(&app, "klens_group_describe", json!({ "group": "billing" })).await);
+
+    assert_eq!(described["totalLag"], 2);
+    assert_eq!(described["lagComplete"], false);
+    assert_eq!(
+        described["members"],
+        json!([
+            {
+                "memberId": "billing-m1",
+                "clientId": "c1",
+                "host": "127.0.0.1",
+                "assignments": [{ "topic": "orders.created", "partitions": [0] }],
+                "lag": 2,
+            },
+            {
+                "memberId": "billing-m2",
+                "clientId": "c2",
+                "host": "10.0.0.2",
+                "assignments": [{ "topic": "payments", "partitions": [0] }],
+                "lag": null,
+            },
+        ])
+    );
+}
+
+#[tokio::test]
+async fn group_describe_keeps_the_most_lagging_members_that_fit() {
+    let mut billing = group("billing", "orders.created", vec![0]);
+    let template = billing.members[0].clone();
+    billing.members = (0..400)
+        .map(|id| {
+            let mut member = template.clone();
+            member.id = format!("billing-consumer-{id:03}-5f0c1d2e-8a4b-4c3d-9e2f-0a1b2c3d4e5f");
+            match id {
+                0 | 1 => member.assignments[0].partitions = vec![id],
+                _ => member.assignments.clear(),
+            }
+            member
+        })
+        .collect();
+    let app = TestApp::over(FakeCluster::local().with_groups([billing])).await;
+
+    let result = call(&app, "klens_group_describe", json!({ "group": "billing" })).await;
+
+    let described = structured(&result);
+    let shown = described["members"].as_array().expect("members").len();
+    assert!(2 < shown && shown < 400, "{shown}");
+    assert_eq!(described["members"][1]["lag"], 8);
+    assert_eq!(described["members"][2]["lag"], 0);
+    assert_eq!(described["partitions"].as_array().map(Vec::len), Some(2));
+    assert_eq!(
+        described["findings"],
+        json!([{ "kind": "MORE_MEMBERS_THAN_PARTITIONS", "members": 400, "partitions": 2 }])
+    );
+    assert_eq!(
+        described["truncated"],
+        format!(
+            "{} of 400 members left out to fit the result; the lag totals and findings above \
+             cover every member and partition",
+            400 - shown
+        )
+    );
+    assert!(serde_json::to_vec(&result).expect("json").len() <= RESULT_BYTES);
+}
+
+#[tokio::test]
+async fn group_describe_names_an_unknown_group() {
+    let app = TestApp::local().await;
+
+    let refused = refusal(&call(&app, "klens_group_describe", json!({ "group": "ghost" })).await);
+
+    assert_eq!(refused["code"], "UNKNOWN_GROUP");
+    assert_eq!(refused["hint"], "Call klens_search to find the exact name.");
+}
+
+#[tokio::test]
+async fn live_tools_draw_on_a_budget_that_snapshot_tools_leave_alone() {
+    let app = TestApp::of([FakeCluster::local()])
+        .limits(Limits {
+            mcp_live_calls_per_minute: NonZeroU32::MIN,
+            ..Limits::new(&Tuning::default())
+        })
+        .ingested()
+        .await;
+    let describe = || {
+        call(
+            &app,
+            "klens_group_describe",
+            json!({ "group": "order-processor" }),
+        )
+    };
+
+    let listed = call(&app, "klens_groups_list", json!({})).await;
+    let served = describe().await;
+    let refused = refusal(&describe().await);
+    let still = call(&app, "klens_groups_list", json!({})).await;
+
+    structured(&listed);
+    structured(&served);
+    structured(&still);
+    assert_eq!(
+        refused,
+        json!({
+            "error": "too many calls this minute to tools that read more from Kafka",
+            "code": "RATE_LIMITED",
+            "hint": "Wait a minute before calling this tool again. Tools that read klens' \
+                     snapshot, such as klens_groups_list, still answer meanwhile.",
+        })
+    );
+}
+
 #[test]
 fn mcp_reaches_clusters_only_through_the_session() {
     for (file, source) in [
         ("mcp.rs", include_str!("../mcp.rs")),
         ("mcp/types.rs", include_str!("types.rs")),
+        ("mcp/findings.rs", include_str!("findings.rs")),
     ] {
         for unchecked in [concat!("state", ".clusters"), concat!("Cluster", "Session")] {
             assert!(!source.contains(unchecked), "{file} names {unchecked}");

@@ -1,4 +1,4 @@
-use std::num::NonZeroUsize;
+use std::num::{NonZeroU32, NonZeroUsize};
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -213,18 +213,27 @@ pub struct McpTuning {
     /// MCP tool calls served at once, across every client. A call past it
     /// is refused rather than queued.
     pub max_concurrent_calls: NonZeroUsize,
+    /// Calls a minute to the MCP tools that make klens read more from Kafka,
+    /// such as klens_group_describe. A call past it is refused. Every client
+    /// shares it.
+    pub live_calls_per_minute: NonZeroU32,
 }
 
 impl Default for McpTuning {
     fn default() -> Self {
         Self {
             max_concurrent_calls: nonzero(16),
+            live_calls_per_minute: nonzero_u32(30),
         }
     }
 }
 
 const fn nonzero(count: usize) -> NonZeroUsize {
     NonZeroUsize::new(count).expect("a default count is not zero")
+}
+
+const fn nonzero_u32(count: u32) -> NonZeroU32 {
+    NonZeroU32::new(count).expect("a default count is not zero")
 }
 
 #[cfg(test)]
@@ -293,6 +302,7 @@ mod tests {
             },
             mcp: McpTuning {
                 max_concurrent_calls: nonzero(16),
+                live_calls_per_minute: nonzero_u32(30),
             },
         };
 
@@ -357,6 +367,7 @@ ingest:
   max_sample_gap: 45s
 mcp:
   max_concurrent_calls: 4
+  live_calls_per_minute: 5
 ",
         );
 
@@ -413,6 +424,7 @@ mcp:
                 },
                 mcp: McpTuning {
                     max_concurrent_calls: nonzero(4),
+                    live_calls_per_minute: nonzero_u32(5),
                 },
             }
         );

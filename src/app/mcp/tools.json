@@ -92,6 +92,38 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
+      "description": "Describes one consumer group: its state, assignment protocol, total lag in records and whether that total covers every partition it reads.\n`findings` names what looks wrong, each by `kind`: NO_MEMBERS, REBALANCING, MORE_MEMBERS_THAN_PARTITIONS, which leaves some members idle, UNASSIGNED_PARTITIONS of a topic the group reads, and LAG_ON_ONE_MEMBER when one member holds at least 80% of a complete total lag of 1000 or more.\n`members` lists each member, the largest lag first, with its id, client id, host, assigned partitions and the lag on them.\n`partitions` lists each partition the group reads or has committed, the largest lag first, with its committed offset, end offset and lag.\nA lag is null until klens reads the committed offsets and end offsets it sums.\nA call makes klens read this group's offsets more often for a while, so calls to it are limited per minute.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "cluster": {
+            "description": "A cluster name from klens_clusters. Optional when you can see only one cluster.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "group": {
+            "description": "The consumer group's exact id.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "group"
+        ],
+        "type": "object"
+      },
+      "name": "klens_group_describe",
+      "title": "Describe a consumer group"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
       "description": "Lists a cluster's consumer groups, the largest total lag first and groups whose lag klens has not read last.\nEach group shows its state, member count, total lag in records and whether that total covers every partition it reads.\nFilter with `nameContains`, `state`, `minLag` and `topic`, which keeps the groups that read that exact topic.\n`responseFormat` DETAILED adds the topics each group reads.\nLag is null until klens reads the group's committed offsets.\nIt returns the first 25 groups, or `limit` of them up to 100, and `showing` gives how many it shows out of how many matched.\nIt reads klens' snapshot, so it costs Kafka nothing.",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",

@@ -197,3 +197,4 @@ clusters:
 #     max_sample_gap: 15s
 #   mcp:
 #     max_concurrent_calls: 16    # across every client; past it, a call is refused
+#     live_calls_per_minute: 30   # calls that make klens read more from Kafka

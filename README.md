@@ -180,6 +180,7 @@ tuning:
     max_sample_gap: 15s # older watermark samples do not count toward a rate
   mcp:
     max_concurrent_calls: 16 # MCP tool calls served at once, across every client
+    live_calls_per_minute: 30 # MCP calls that make klens read more from Kafka
 ```
 
 Every page reads a background projection of each cluster, refreshed by the
@@ -341,7 +342,8 @@ auth:
 With an `mcp` block in `config.yaml`, klens serves tools to AI agents over the
 [Model Context Protocol](https://modelcontextprotocol.io) at `/mcp`. Without
 the block, there is no `/mcp`. An agent in Claude Code, VS Code, or Cursor
-reads the same background projection as the UI, so a call costs Kafka nothing.
+reads the same background projection as the UI, so most calls cost Kafka
+nothing.
 
 ```yaml
 mcp: {}
@@ -355,16 +357,18 @@ groups, brokers, and schema subjects by name, and `klens_access_explain` tells
 the agent what it may do on each cluster. `klens_topics_list` filters and sorts
 a cluster's topics, and `klens_topic_describe` shows one topic's partitions,
 the consumer groups that read it with their lag, and the schema subjects named
-after it. `klens_groups_list` lists consumer groups by lag.
+after it. `klens_groups_list` lists consumer groups by lag, and
+`klens_group_describe` shows one group's members, its lag per partition, and
+what looks wrong, such as one member that holds most of the lag.
 `klens_brokers_list` lists a cluster's brokers with their log dirs, and
 `klens_schemas_list` lists its schema subjects. A tool that reads one cluster
 needs no `cluster` argument when the agent sees only one.
 
 A list returns 25 rows unless the agent asks for up to 100, and says how many
 it shows out of how many matched. A count, size, or rate klens has not
-measured yet is null rather than 0. Group ids, client ids, hosts, and subject
-names come from whoever runs a Kafka client, so a result that carries them
-tells the agent to read them as data, not as instructions.
+measured yet is null rather than 0. Group ids, client ids, hosts, assignment
+protocols, and subject names come from whoever runs a Kafka client, so a result
+that carries them tells the agent to read them as data, not as instructions.
 
 MCP runs only without `auth` for now, and klens refuses to start with both
 blocks. Anyone who reaches `/mcp` can then call its tools. `/mcp` answers only
@@ -394,6 +398,12 @@ many it left out. A refused call returns its error code and a hint for the next
 call, and klens logs the tool and the code at info level, never the arguments.
 klens never logs the `rmcp` library below error, because rmcp logs tool
 arguments and results at debug level.
+
+`klens_group_describe` makes klens read the group's offsets every
+`tuning.ingest.fast_offset` for `tuning.ingest.interest_ttl`, as opening the
+group in the UI does. `tuning.mcp.live_calls_per_minute` (30) caps how often
+agents may call it. Every client shares that budget, and a call past it fails
+with `RATE_LIMITED`.
 
 Every result reaches the agent's model provider. Set `privileges` and
 `clusters` to what you would share with it.

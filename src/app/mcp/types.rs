@@ -2,14 +2,17 @@ use jiff::Timestamp;
 use serde::Serialize;
 
 use crate::app::brokers::types::LogDir;
-use crate::app::groups::types::GroupState;
+use crate::app::groups::types::{GroupState, MemberAssignment};
 use crate::app::search::SearchHit;
 use crate::app::subjects::types::{SchemaCompatibility, SchemaType, SubjectVersion};
 use crate::app::topics::types::{CleanupPolicy, TopicGroupRow};
 use crate::app::whoami::types::PrivilegeName;
+use crate::kafka::model as domain;
 use crate::kafka::store::LaneHealth;
 use crate::kafka::store::projections::{self, ClusterHealthView};
 use crate::kafka::store::tables::SubjectInfo;
+
+use super::findings::Finding;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -426,6 +429,66 @@ impl GroupRow {
             topic_names: detailed.then_some(row.topic_names),
             total_lag: row.total_lag,
             lag_complete: row.lag_complete,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupDescription<'a> {
+    pub group: &'a str,
+    pub state: GroupState,
+    pub protocol: &'a str,
+    pub total_lag: Option<i64>,
+    pub lag_complete: bool,
+    pub findings: &'a [Finding],
+    pub members: &'a [MemberRow],
+    pub partitions: &'a [GroupPartitionRow],
+    pub notice: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub truncated: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemberRow {
+    pub member_id: String,
+    pub client_id: String,
+    pub host: String,
+    pub assignments: Vec<MemberAssignment>,
+    pub lag: Option<i64>,
+}
+
+impl MemberRow {
+    pub fn new(member: &domain::GroupMember, lag: Option<i64>) -> Self {
+        Self {
+            member_id: member.id.clone(),
+            client_id: member.client_id.clone(),
+            host: member.host.clone(),
+            assignments: member.assignments.iter().cloned().map(Into::into).collect(),
+            lag,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupPartitionRow {
+    pub topic: String,
+    pub partition: i32,
+    pub committed_offset: Option<i64>,
+    pub end_offset: Option<i64>,
+    pub lag: Option<i64>,
+}
+
+impl From<domain::GroupOffset> for GroupPartitionRow {
+    fn from(offset: domain::GroupOffset) -> Self {
+        Self {
+            topic: offset.topic,
+            partition: offset.partition,
+            committed_offset: offset.current_offset,
+            end_offset: offset.end_offset,
+            lag: offset.lag,
         }
     }
 }
