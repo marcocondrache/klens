@@ -4,7 +4,7 @@ use std::path::Path;
 use axum::Router;
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode, header};
-use rmcp::model::Tool;
+use rmcp::model::{CallToolResult, ContentBlock, Tool};
 use serde_json::{Value, json};
 use tower::ServiceExt as _;
 use tracing::Level;
@@ -12,7 +12,7 @@ use walkdir::WalkDir;
 
 use super::{
     CLIENT_VALUES_NOTICE, KlensMcp, MAX_QUERY_CHARS, MAX_REQUEST_BYTES, OBFUSCATED_NOTICE,
-    RESULT_BYTES, TOOLS, limit, listed, service, tool_list, tool_rights,
+    RESULT_BYTES, TOOLS, fits, limit, listed, service, tool_list, tool_rights,
 };
 use crate::app::auth::access::{Privilege, PrivilegeSet};
 use crate::app::{AppState, AuthState, Limits, router};
@@ -658,6 +658,15 @@ async fn a_result_past_the_budget_keeps_what_fits_and_says_so() {
     );
     assert_eq!(detail["offlinePartitions"], 2000);
     assert!(serde_json::to_vec(&result).expect("json").len() <= RESULT_BYTES);
+}
+
+#[test]
+fn a_result_of_exactly_the_budget_fits() {
+    let padded = |bytes| CallToolResult::success(vec![ContentBlock::text("x".repeat(bytes))]);
+    let overhead = serde_json::to_vec(&padded(0)).expect("json").len();
+
+    assert!(fits(&padded(RESULT_BYTES - overhead)));
+    assert!(!fits(&padded(RESULT_BYTES - overhead + 1)));
 }
 
 #[tokio::test]

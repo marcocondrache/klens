@@ -338,18 +338,19 @@ fn first<T>(rows: &[T], shown: usize) -> &[T] {
 
 fn fit(most: usize, showing: impl Fn(usize) -> CallToolResult) -> CallToolResult {
     let full = showing(most);
-    if size(&full) <= RESULT_BYTES {
+    if fits(&full) {
         return full;
     }
     // Counted from 1, the partition point is the most that fits.
     let counts: Vec<usize> = (1..most).collect();
-    showing(counts.partition_point(|&shown| size(&showing(shown)) <= RESULT_BYTES))
+    showing(counts.partition_point(|&shown| fits(&showing(shown))))
 }
 
-fn size(result: &CallToolResult) -> usize {
-    serde_json::to_vec(result)
+fn fits(result: &CallToolResult) -> bool {
+    let bytes = serde_json::to_vec(result)
         .expect("a tool result is serializable")
-        .len()
+        .len();
+    bytes <= RESULT_BYTES
 }
 
 fn limit(asked: Option<usize>) -> usize {
@@ -1265,7 +1266,7 @@ impl KlensMcp {
             &intro.join("\n"),
             "klens_record_get reads one of them with the whole result to itself.",
         );
-        if size(&result) > RESULT_BYTES {
+        if !fits(&result) {
             return Err(ApiError::unprocessable(
                 "the page does not fit the result even with its text cut, because its cursor \
                  names many partitions; pass a smaller `limit` or fewer `partitions`",
