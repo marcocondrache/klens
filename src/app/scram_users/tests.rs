@@ -114,7 +114,7 @@ async fn a_set_credential_is_listed_before_the_put_answers() {
         Some(json!([{ "mechanism": "SHA512", "iterations": 8192 }]))
     );
     logs.assert_contains(
-        "set scram credential cluster=local user=carol mechanism=SCRAM-SHA-512 iterations=8192",
+        "set scram credential cluster=local scram_user=\"carol\" mechanism=SCRAM-SHA-512 iterations=8192",
     );
     logs.assert_lacks("s3cret");
 }
@@ -154,6 +154,22 @@ async fn a_user_name_may_hold_a_slash() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_user_name_with_a_newline_stays_on_its_audit_line() {
+    let (app, _rig) = writable().await;
+    let logs = LogCapture::at(Level::INFO);
+
+    app.put(
+        "/clusters/local/scram-users/carol%0Auser=mallory",
+        &json!({ "mechanism": "SHA256", "password": "s3cret" }),
+    )
+    .await
+    .expect(StatusCode::NO_CONTENT);
+
+    logs.assert_contains(r#"scram_user="carol\nuser=mallory""#);
+    logs.assert_lacks("\nuser=mallory");
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_deleted_credential_leaves_the_listing_before_the_delete_answers() {
     let (app, _rig) = writable().await;
     let logs = LogCapture::at(Level::INFO);
@@ -169,7 +185,7 @@ async fn a_deleted_credential_leaves_the_listing_before_the_delete_answers() {
         Some(json!([{ "mechanism": "SHA512", "iterations": 8192 }]))
     );
     logs.assert_contains(
-        "deleted scram credential cluster=local user=alice mechanism=SCRAM-SHA-256",
+        "deleted scram credential cluster=local scram_user=\"alice\" mechanism=SCRAM-SHA-256",
     );
 }
 
