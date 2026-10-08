@@ -9,12 +9,14 @@ use serde::{Deserialize, Deserializer};
 
 mod auth;
 mod cluster;
+mod hosts;
 pub mod obfuscation;
 mod secret;
 mod tuning;
 
 pub use auth::{Auth, Binding, Oidc, Privilege, Role, Session};
 pub use cluster::{BasicAuth, ClientCert, Cluster, Sasl, SaslMechanism, SchemaRegistry, Tls};
+pub use hosts::AllowedHost;
 pub use secret::{KeyMaterial, Secret};
 pub use tuning::{
     IngestTuning, KafkaTuning, RecordLimits, ScanTuning, SchemaRegistryTuning, TailTuning, Tuning,
@@ -24,6 +26,12 @@ pub use tuning::{
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     pub bind: SocketAddr,
+    /// Hosts klens answers while `auth` is off, by name or IP address and
+    /// optionally port. Any other `Host` gets 403 everywhere but `/health`
+    /// and `/ready`, so a web page that points its own domain at klens cannot
+    /// use it from a visitor's browser.
+    #[serde(deserialize_with = "hosts::at_least_one")]
+    pub allowed_hosts: Vec<AllowedHost>,
     pub log_level: LogLevel,
     /// Keyed by the name the UI shows, in the order it shows them.
     pub clusters: IndexMap<String, Cluster>,
@@ -36,6 +44,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             bind: SocketAddr::from((Ipv4Addr::UNSPECIFIED, 8080)),
+            allowed_hosts: AllowedHost::loopback(),
             log_level: LogLevel::default(),
             clusters: IndexMap::new(),
             auth: None,
@@ -105,6 +114,14 @@ mod tests {
         let config: Config = yaml("{}");
 
         assert_eq!(config.bind, "0.0.0.0:8080".parse().unwrap());
+        assert_eq!(
+            config
+                .allowed_hosts
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            ["localhost", "127.0.0.1", "[::1]"]
+        );
         assert_eq!(config.log_level, LogLevel::Info);
         assert!(config.clusters.is_empty());
         assert!(config.auth.is_none());
@@ -149,6 +166,15 @@ mod tests {
             (
                 "bind: nowhere",
                 "invalid socket address syntax at line 1, column 7",
+            ),
+            (
+                "allowed_hosts: []",
+                "must name at least one host at line 1, column 16",
+            ),
+            (
+                "allowed_hosts: [localhost, 'https://klens.example.com']",
+                "'https://klens.example.com' must be a host and an optional port, \
+                 with no scheme, path or user at line 1, column 28",
             ),
             (
                 "clusters:\n  a: {bootstrap_servers: [a:9092]}\n  a: {bootstrap_servers: [b:9092]}",
