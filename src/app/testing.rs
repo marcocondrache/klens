@@ -14,7 +14,7 @@ use tower::ServiceExt as _;
 use super::auth::access::EffectiveAccess;
 use super::auth::{AuthState, SessionGuard};
 use super::{AppState, Limits, auth_routes, health, resources};
-use crate::config::Tuning;
+use crate::config::{Config, Tuning};
 use crate::kafka::store::ClusterStore;
 use crate::kafka::{ClusterSession, Clusters};
 use crate::testing::{FakeCluster, Rig};
@@ -115,27 +115,16 @@ impl TestApp {
 
     pub async fn reply(&self, request: Request<Body>) -> Reply {
         let request_line = format!("{} {}", request.method(), request.uri());
-        let response = self.send(request).await;
-        let status = response.status();
-        let body = timeout(WAIT, to_bytes(response.into_body(), usize::MAX))
+        read(request_line, self.send(request).await).await
+    }
+
+    pub async fn reply_through_router(&self, request: Request<Body>) -> Reply {
+        let request_line = format!("{} {}", request.method(), request.uri());
+        let response = super::router(self.state.clone(), &Config::default().allowed_hosts)
+            .oneshot(request)
             .await
-            .unwrap_or_else(|_| panic!("{request_line} never finished its body"))
-            .expect("body");
-        let body = if body.is_empty() {
-            Value::Null
-        } else {
-            serde_json::from_slice(&body).unwrap_or_else(|error| {
-                panic!(
-                    "{request_line} answered with no json ({error}): {}",
-                    String::from_utf8_lossy(&body)
-                )
-            })
-        };
-        Reply {
-            request: request_line,
-            status,
-            body,
-        }
+            .expect("response");
+        read(request_line, response).await
     }
 
     pub async fn status(&self, path: &str) -> StatusCode {
@@ -212,6 +201,29 @@ impl Setup {
         let app = self.build();
         app.ingest().await;
         app
+    }
+}
+
+async fn read(request_line: String, response: Response) -> Reply {
+    let status = response.status();
+    let body = timeout(WAIT, to_bytes(response.into_body(), usize::MAX))
+        .await
+        .unwrap_or_else(|_| panic!("{request_line} never finished its body"))
+        .expect("body");
+    let body = if body.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(&body).unwrap_or_else(|error| {
+            panic!(
+                "{request_line} answered with no json ({error}): {}",
+                String::from_utf8_lossy(&body)
+            )
+        })
+    };
+    Reply {
+        request: request_line,
+        status,
+        body,
     }
 }
 

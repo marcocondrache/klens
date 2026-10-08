@@ -51,7 +51,10 @@ impl Klens {
             .expect("klens connects to kafka");
         let ingest = Ingest::start(&clusters, &config.tuning.ingest);
         let state = AppState::new(clusters, AuthState::disabled(), Limits::new(&config.tuning));
-        let server = tokio::spawn(klens::serve(router(state), config.bind));
+        let server = tokio::spawn(klens::serve(
+            router(state, &config.allowed_hosts),
+            config.bind,
+        ));
 
         let deadline = Instant::now() + PATIENCE;
         while TcpStream::connect(bind).await.is_err() {

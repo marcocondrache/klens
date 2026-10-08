@@ -1,5 +1,5 @@
 use axum::body::Body;
-use axum::http::{Method, Request, StatusCode, header};
+use axum::http::{HeaderValue, Method, Request, StatusCode, header};
 
 use crate::app::auth::access::{Privilege, PrivilegeSet};
 use crate::testing::{FakeCluster, TestApp, access, admin, group, json_request, role};
@@ -285,5 +285,28 @@ async fn every_write_refuses_a_body_a_cross_site_form_can_send() {
                 .await
                 .assert_error(StatusCode::UNSUPPORTED_MEDIA_TYPE, "INVALID_REQUEST");
         }
+    }
+}
+
+#[tokio::test]
+async fn every_route_refuses_a_host_off_the_list_while_auth_is_off() {
+    let app = TestApp::of([FakeCluster::local()])
+        .writable(&["local"])
+        .ingested()
+        .await;
+    let reads = ROUTES.iter().map(|(route, _)| (Method::GET, *route, None));
+    let writes = WRITES
+        .iter()
+        .map(|(method, route, body, _)| (method.clone(), *route, *body));
+
+    for (method, route, body) in reads.chain(writes) {
+        let mut request = write(&method, &format!("/api{route}"), body);
+        request
+            .headers_mut()
+            .insert(header::HOST, HeaderValue::from_static("attacker.example"));
+
+        app.reply_through_router(request)
+            .await
+            .assert_error(StatusCode::FORBIDDEN, "HOST_NOT_ALLOWED");
     }
 }

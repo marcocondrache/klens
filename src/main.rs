@@ -34,9 +34,15 @@ async fn main() -> anyhow::Result<()> {
             "auth is off, so anyone who reaches klens can change these writable clusters"
         );
     }
+    if !auth.is_enabled() {
+        tracing::info!(
+            hosts = ?config.allowed_hosts.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            "auth is off, so klens refuses requests addressed to any host but these"
+        );
+    }
 
     let _ingest = Ingest::start(&clusters, &config.tuning.ingest);
     let state = AppState::new(clusters, auth, Limits::new(&config.tuning));
 
-    klens::serve(router(state), config.bind).await
+    klens::serve(router(state, &config.allowed_hosts), config.bind).await
 }
