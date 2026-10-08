@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
 use axum::Router;
@@ -6,6 +7,7 @@ use axum::extract::{Request, State};
 use axum::http::request::Parts;
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
+use futures::FutureExt as _;
 use rmcp::handler::server::common::FromContextPart;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::tool::{IntoCallToolResult, ToolCallContext};
@@ -1144,16 +1146,21 @@ impl ServerHandler for KlensMcp {
             let Some(_permit) = self.state.mcp_permit() else {
                 return ApiError::RateLimited.into_call_tool_result();
             };
+            let call = AssertUnwindSafe((route.call)(ToolCallContext::new(self, request, context)));
             tokio::select! {
-                response = (route.call)(ToolCallContext::new(self, request, context)) => {
+                response = call.catch_unwind() => {
                     match response {
                         // rmcp answers arguments that miss the input schema
                         // with serde's message alone, so they get a code and a
                         // hint like every other refusal.
-                        Err(error) if error.code == ErrorCode::INVALID_PARAMS => {
+                        Ok(Err(error)) if error.code == ErrorCode::INVALID_PARAMS => {
                             ApiError::unprocessable(error.message).into_call_tool_result()
                         }
-                        response => response,
+                        Ok(response) => response,
+                        // rmcp runs the call in a task of its own, out of reach
+                        // of the server's CatchPanicLayer, and a panic there
+                        // leaves the request without an answer.
+                        Err(_) => Err(ErrorData::internal_error("the tool failed", None)),
                     }
                 }
                 () = cancelled.cancelled() => {
