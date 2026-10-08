@@ -1,4 +1,5 @@
 use std::num::NonZeroU32;
+use std::path::Path;
 
 use axum::Router;
 use axum::body::{Body, to_bytes};
@@ -7,6 +8,7 @@ use rmcp::model::Tool;
 use serde_json::{Value, json};
 use tower::ServiceExt as _;
 use tracing::Level;
+use walkdir::WalkDir;
 
 use super::{
     CLIENT_VALUES_NOTICE, KlensMcp, MAX_QUERY_CHARS, MAX_REQUEST_BYTES, RESULT_BYTES, TOOLS, limit,
@@ -1858,13 +1860,24 @@ async fn live_tools_draw_on_a_budget_that_snapshot_tools_leave_alone() {
 
 #[test]
 fn mcp_reaches_clusters_only_through_the_session() {
-    for (file, source) in [
-        ("mcp.rs", include_str!("../mcp.rs")),
-        ("mcp/types.rs", include_str!("types.rs")),
-        ("mcp/findings.rs", include_str!("findings.rs")),
-    ] {
-        for unchecked in [concat!("state", ".clusters"), concat!("Cluster", "Session")] {
-            assert!(!source.contains(unchecked), "{file} names {unchecked}");
+    let app = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/app");
+    let sources = WalkDir::new(app.join("mcp"))
+        .into_iter()
+        .map(|entry| entry.expect("a source entry").into_path())
+        .chain([app.join("mcp.rs")])
+        .filter(|path| path.extension().is_some_and(|extension| extension == "rs"));
+
+    for path in sources {
+        let source = std::fs::read_to_string(&path).expect("a source file");
+        for (unchecked, skips) in [
+            (concat!("state", ".clusters"), "access checks"),
+            (concat!("Cluster", "Session"), "obfuscation"),
+        ] {
+            assert!(
+                !source.contains(unchecked),
+                "{} names {unchecked}, which skips {skips}",
+                path.display()
+            );
         }
     }
 }

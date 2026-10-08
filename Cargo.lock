@@ -1953,6 +1953,7 @@ dependencies = [
  "tracing-subscriber",
  "ts-rs",
  "url",
+ "walkdir",
  "wiremock",
  "zeroize",
 ]
