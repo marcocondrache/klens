@@ -14,7 +14,8 @@ use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::tool::{IntoCallToolResult, ToolCallContext};
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, ErrorCode,
+    CacheScope, CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, ErrorCode,
+    ListToolsResult, PaginatedRequestParams, ProtocolVersion,
 };
 use rmcp::service::RequestContext;
 use rmcp::transport::streamable_http_server::session::never::NeverSessionManager;
@@ -164,14 +165,30 @@ pub(crate) struct KlensMcp {
 
 impl FromContextPart<ToolCallContext<'_, KlensMcp>> for Session {
     fn from_context_part(context: &mut ToolCallContext<'_, KlensMcp>) -> Result<Self, ErrorData> {
-        let state = &context.service.state;
-        context
-            .request_context
-            .extensions
-            .get_mut::<Parts>()
-            .and_then(|parts| Self::take::<Narrowed>(&mut parts.extensions, state))
-            .ok_or_else(|| ErrorData::internal_error("the request carries no MCP session", None))
+        caller(&context.service.state, &mut context.request_context)
     }
+}
+
+fn caller(
+    state: &AppState,
+    context: &mut RequestContext<RoleServer>,
+) -> Result<Session, ErrorData> {
+    context
+        .extensions
+        .get_mut::<Parts>()
+        .and_then(|parts| Session::take::<Narrowed>(&mut parts.extensions, state))
+        .ok_or_else(|| ErrorData::internal_error("the request carries no MCP session", None))
+}
+
+fn offered(session: &Session, tool: &str) -> bool {
+    TOOLS.iter().any(|&(name, needs)| {
+        name == tool
+            && needs.is_none_or(|privilege| {
+                session
+                    .clusters()
+                    .any(|cluster| cluster.access.allows(privilege))
+            })
+    })
 }
 
 #[derive(Serialize)]
@@ -1354,6 +1371,28 @@ impl KlensMcp {
                     klens_access_explain when a call is refused."
 )]
 impl ServerHandler for KlensMcp {
+    async fn list_tools(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        mut context: RequestContext<RoleServer>,
+    ) -> Result<ListToolsResult, ErrorData> {
+        let session = caller(&self.state, &mut context)?;
+        let tools = self
+            .tools
+            .list_all()
+            .into_iter()
+            .filter(|tool| offered(&session, &tool.name))
+            .collect();
+        let mut list = ListToolsResult::with_all_items(tools);
+        if context
+            .protocol_version()
+            .is_some_and(|version| version >= ProtocolVersion::V_2026_07_28)
+        {
+            list = list.with_cache_scope(CacheScope::Private);
+        }
+        Ok(list)
+    }
+
     async fn call_tool(
         &self,
         request: CallToolRequestParams,

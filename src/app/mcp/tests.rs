@@ -253,6 +253,72 @@ async fn tools_list_serves_the_checked_in_snapshot() {
 }
 
 #[tokio::test]
+async fn tools_list_leaves_out_a_tool_the_caller_may_use_on_no_cluster() {
+    let app = TestApp::of([FakeCluster::local(), FakeCluster::named("prod")])
+        .ingested()
+        .await;
+    let reader = || {
+        role(
+            "reader",
+            PrivilegeSet::from_privileges([Privilege::Records]),
+        )
+    };
+    let listed = async |app: TestApp| {
+        let listed = app.mcp("tools/list", json!({})).await.ok();
+        names(&listed["result"], "tools", "name")
+    };
+
+    let viewing = listed(app.with_access(access([viewer()]))).await;
+    let reading_prod =
+        listed(app.with_access(access([viewer().on(&["local"]), reader().on(&["prod"])]))).await;
+    let reading_hidden = listed(
+        app.with_access(access([viewer().on(&["local"]), reader().on(&["prod"])]))
+            .serving_mcp(yaml("{clusters: [local]}")),
+    )
+    .await;
+
+    let records = ["klens_record_get", "klens_records_read"].map(str::to_owned);
+    for listed in [&viewing, &reading_hidden] {
+        assert!(listed.contains(&"klens_clusters".to_owned()), "{listed:?}");
+        assert!(
+            !records.iter().any(|tool| listed.contains(tool)),
+            "{listed:?}"
+        );
+    }
+    assert_eq!(reading_prod.len(), TOOLS.len());
+}
+
+#[tokio::test]
+async fn a_ceiling_without_records_hides_both_record_tools_in_either_protocol() {
+    let app = TestApp::local()
+        .await
+        .serving_mcp(yaml("{privileges: [acls]}"));
+
+    let listed = app
+        .reply_through_router(request_2026(
+            "tools/list",
+            None,
+            json!({ "_meta": meta_2026() }),
+        ))
+        .await
+        .ok();
+    let legacy = app.mcp("tools/list", json!({})).await.ok();
+
+    let result = &listed["result"];
+    let tools = names(result, "tools", "name");
+    assert_eq!(result["cacheScope"], "private", "{result}");
+    assert!(legacy["result"].get("cacheScope").is_none(), "{legacy}");
+    assert_eq!(names(&legacy["result"], "tools", "name"), tools);
+    assert_eq!(tools.len(), TOOLS.len() - 2, "{tools:?}");
+    assert!(
+        !tools
+            .iter()
+            .any(|tool| tool == "klens_record_get" || tool == "klens_records_read"),
+        "{tools:?}"
+    );
+}
+
+#[tokio::test]
 async fn a_2025_client_initializes_and_calls_with_no_session() {
     let app = TestApp::local().await.serving_mcp(Mcp::default());
 
@@ -403,23 +469,27 @@ async fn a_body_past_the_limit_is_refused_before_any_tool_runs() {
 }
 
 #[tokio::test]
-async fn a_tool_call_that_skips_admission_is_a_wiring_error() {
+async fn a_request_that_skips_admission_is_a_wiring_error() {
     let app = TestApp::local().await;
     let unadmitted = Router::new().nest_service(
         "/mcp",
         service(app.state().clone(), &Config::default().allowed_hosts),
     );
+    let list = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {} });
 
-    let response = unadmitted
-        .oneshot(mcp_request(&call_body("klens_clusters", json!({}))))
-        .await
-        .expect("response");
+    for body in [call_body("klens_clusters", json!({})), list] {
+        let response = unadmitted
+            .clone()
+            .oneshot(mcp_request(&body))
+            .await
+            .expect("response");
 
-    let body = to_bytes(response.into_body(), usize::MAX)
-        .await
-        .expect("body");
-    let reply: Value = serde_json::from_slice(&body).expect("json");
-    assert_eq!(reply["error"]["code"], -32603, "{reply}");
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let reply: Value = serde_json::from_slice(&body).expect("json");
+        assert_eq!(reply["error"]["code"], -32603, "{reply}");
+    }
 }
 
 #[tokio::test]

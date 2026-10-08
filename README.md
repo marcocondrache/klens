@@ -395,6 +395,9 @@ reads it may use beyond the catalog, out of `records`, `topic_configs`,
 serves no writes, so a write privilege stops startup. `clusters` limits MCP to
 the clusters it names. When it is omitted, MCP reaches every cluster, and an
 empty list reaches none. A name that is not a configured cluster stops startup.
+The tool list an agent gets leaves out each tool that needs a privilege the
+agent holds on none of the clusters it sees, so without `records` it never sees
+the record tools.
 
 ```yaml
 mcp:
