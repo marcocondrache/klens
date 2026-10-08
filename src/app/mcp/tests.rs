@@ -1058,7 +1058,51 @@ async fn brokers_list_leaves_unread_log_dirs_null_and_stops_at_the_limit() {
     assert_eq!(brokers.len(), 2);
     assert_eq!(brokers[0]["sizeBytes"], Value::Null);
     assert_eq!(brokers[0]["logDirs"], Value::Null);
-    assert_eq!(listed["showing"], "2 of 3; raise `limit` to see others");
+    assert_eq!(
+        listed["showing"],
+        "2 of 3; pass the last id shown as `after`, or raise `limit`, to see others"
+    );
+}
+
+#[tokio::test]
+async fn brokers_list_reaches_the_brokers_past_the_budget_with_after() {
+    let cluster = FakeCluster::local();
+    for id in 2..=150 {
+        cluster.add_broker(id);
+    }
+    let app = TestApp::over(cluster).await;
+
+    let first = call(&app, "klens_brokers_list", json!({ "limit": 100 })).await;
+    let page = structured(&first);
+    let ids: Vec<i64> = page["brokers"]
+        .as_array()
+        .expect("brokers")
+        .iter()
+        .map(|broker| broker["id"].as_i64().expect("an id"))
+        .collect();
+    let last = *ids.last().expect("a broker");
+    let rest = structured(
+        &call(
+            &app,
+            "klens_brokers_list",
+            json!({ "after": last, "limit": 100 }),
+        )
+        .await,
+    );
+
+    assert!(25 < ids.len() && ids.len() < 100, "{}", ids.len());
+    assert_eq!(ids, (1..=last).collect::<Vec<_>>());
+    assert_eq!(
+        page["showing"],
+        format!(
+            "{} of 150, as no more fit the result; pass the last id shown as `after` to see \
+             others",
+            ids.len()
+        )
+    );
+    assert!(serde_json::to_vec(&first).expect("json").len() <= RESULT_BYTES);
+    assert_eq!(rest["brokers"][0]["id"], last + 1);
+    assert_eq!(rest["showing"], format!("{} of {}", 150 - last, 150 - last));
 }
 
 #[tokio::test]
@@ -1089,6 +1133,45 @@ async fn schemas_list_gives_versions_and_ids_only_in_detail() {
     full["latestSchemaId"] = json!(1);
     full["versions"] = json!([{ "version": 1, "id": null }, { "version": 2, "id": 1 }]);
     assert_eq!(detailed["subjects"], json!([full]));
+}
+
+#[tokio::test]
+async fn schemas_list_shows_the_newest_versions_of_each_subject_within_the_budget() {
+    let cluster = FakeCluster::local();
+    cluster.set_subjects(
+        (0..100)
+            .map(|id| subject(&format!("events.{id:03}-value"), id, 300))
+            .collect(),
+    );
+    let app = TestApp::over(cluster).await;
+
+    let result = call(
+        &app,
+        "klens_schemas_list",
+        json!({ "responseFormat": "DETAILED", "limit": 100 }),
+    )
+    .await;
+
+    let listed = structured(&result);
+    let subjects = listed["subjects"].as_array().expect("subjects");
+    let versions: Vec<Value> = (291..=300)
+        .map(|version| {
+            let id = if version == 300 {
+                json!(0)
+            } else {
+                Value::Null
+            };
+            json!({ "version": version, "id": id })
+        })
+        .collect();
+    assert_eq!(subjects[0]["versions"], json!(versions));
+    assert_eq!(subjects[0]["versionsLeftOut"], 290);
+    assert!(
+        25 < subjects.len() && subjects.len() < 100,
+        "{}",
+        subjects.len()
+    );
+    assert!(serde_json::to_vec(&result).expect("json").len() <= RESULT_BYTES);
 }
 
 #[tokio::test]
@@ -1801,7 +1884,6 @@ async fn group_describe_names_the_member_that_holds_the_lag() {
     assert_eq!(
         described["findings"],
         json!([
-            { "kind": "UNASSIGNED_PARTITIONS", "topic": "payments", "partitions": [2] },
             {
                 "kind": "LAG_ON_ONE_MEMBER",
                 "memberId": "billing-m2",
@@ -1810,6 +1892,7 @@ async fn group_describe_names_the_member_that_holds_the_lag() {
                 "lag": 5000,
                 "totalLag": 5000,
             },
+            { "kind": "UNASSIGNED_PARTITIONS", "topic": "payments", "partitions": [2] },
         ])
     );
     assert_eq!(
@@ -1930,6 +2013,129 @@ async fn group_describe_keeps_the_most_lagging_members_that_fit() {
             400 - shown
         )
     );
+    assert!(serde_json::to_vec(&result).expect("json").len() <= RESULT_BYTES);
+}
+
+#[tokio::test]
+async fn group_describe_caps_each_assignment_and_finding_to_fit() {
+    let mut wide = group("wide", "wide", (0..1500).collect());
+    let mut second = wide.members[0].clone();
+    second.id = "wide-m2".into();
+    second.assignments[0].partitions = (1500..3000).collect();
+    wide.members.push(second);
+    let app = TestApp::over(
+        FakeCluster::local()
+            .with_topic("wide", 5000, 1)
+            .with_groups([wide]),
+    )
+    .await;
+
+    let result = call(&app, "klens_group_describe", json!({ "group": "wide" })).await;
+
+    let described = structured(&result);
+    let held = |row: &Value| {
+        row["partitions"].as_array().expect("partitions").len()
+            + row["partitionsLeftOut"]
+                .as_u64()
+                .map_or(0, |rest| rest as usize)
+    };
+    let members = described["members"].as_array().expect("members");
+    let shown = members[0]["assignments"][0]["partitions"]
+        .as_array()
+        .expect("partitions")
+        .len();
+    assert!(0 < shown && shown < 1500, "{shown}");
+    assert_eq!(members.len(), 2);
+    for member in members {
+        assert_eq!(held(&member["assignments"][0]), 1500, "{member}");
+        assert!(member.get("topicsLeftOut").is_none(), "{member}");
+    }
+    let finding = &described["findings"][0];
+    assert_eq!(finding["kind"], "UNASSIGNED_PARTITIONS");
+    assert_eq!(finding["partitions"][0], 3000);
+    assert_eq!(held(finding), 2000);
+    let rows = described["partitions"]
+        .as_array()
+        .expect("partitions")
+        .len();
+    assert_eq!(rows, shown);
+    assert_eq!(
+        described["truncated"],
+        format!(
+            "{} of 3000 partitions left out to fit the result; the lag totals and findings above \
+             cover every member and partition. Each member names at most {shown} topics, and each \
+             member and finding at most {shown} partitions of a topic; `topicsLeftOut` and \
+             `partitionsLeftOut` count the rest",
+            3000 - shown
+        )
+    );
+    assert!(serde_json::to_vec(&result).expect("json").len() <= RESULT_BYTES);
+}
+
+#[tokio::test]
+async fn group_describe_keeps_the_findings_that_fit_first() {
+    let cluster = FakeCluster::local();
+    for topic in 0..400 {
+        cluster.add_topic(&format!("events.{topic:03}"), 2, 1);
+    }
+    let mut spread = group("spread", "events.000", vec![0]);
+    let member = &mut spread.members[0];
+    member.assignments = (0..400)
+        .map(|topic| {
+            let mut assignment = member.assignments[0].clone();
+            assignment.topic = format!("events.{topic:03}");
+            assignment
+        })
+        .collect();
+    let app = TestApp::over(cluster.with_groups([spread])).await;
+
+    let result = call(&app, "klens_group_describe", json!({ "group": "spread" })).await;
+
+    let described = structured(&result);
+    let findings = described["findings"].as_array().expect("findings");
+    let shown = findings.len();
+    assert!(0 < shown && shown < 400, "{shown}");
+    assert_eq!(findings[0]["kind"], "UNASSIGNED_PARTITIONS");
+    assert_eq!(findings[0]["topic"], "events.000");
+    assert!(
+        described["truncated"]
+            .as_str()
+            .is_some_and(|note| note.starts_with(&format!("{} of 400 findings", 400 - shown))),
+        "{described}"
+    );
+    assert!(serde_json::to_vec(&result).expect("json").len() <= RESULT_BYTES);
+}
+
+#[tokio::test]
+async fn group_describe_shortens_the_names_a_client_chose() {
+    let mut billing = pair("billing", "payments");
+    let long = "c".repeat(8_000);
+    billing.protocol = long.clone();
+    for member in &mut billing.members {
+        member.id = format!("{long}-{}", member.id);
+        member.client_id = long.clone();
+        member.host = long.clone();
+    }
+    let app = TestApp::over(
+        FakeCluster::local()
+            .with_topic("payments", 2, 5000)
+            .with_groups([billing.with_committed(&[("payments", 0, 5000), ("payments", 1, 0)])]),
+    )
+    .await;
+
+    let result = call(&app, "klens_group_describe", json!({ "group": "billing" })).await;
+
+    let described = structured(&result);
+    let shortened = format!("{}…", "c".repeat(256));
+    assert_eq!(described["protocol"], shortened);
+    let lagging = &described["findings"][0];
+    assert_eq!(lagging["kind"], "LAG_ON_ONE_MEMBER");
+    for row in [lagging, &described["members"][0], &described["members"][1]] {
+        for key in ["memberId", "clientId", "host"] {
+            assert_eq!(row[key], shortened, "{key}");
+        }
+    }
+    assert!(described.get("truncated").is_none(), "{described}");
     assert!(serde_json::to_vec(&result).expect("json").len() <= RESULT_BYTES);
 }
 

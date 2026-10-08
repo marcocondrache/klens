@@ -410,15 +410,20 @@ once, across every client. Past it, a call fails with `RATE_LIMITED` rather
 than waiting. A request body holds at most 64 KiB, and a search query at most
 256 characters. A result holds at most 24,000 bytes, counting both the text and
 the structured copy it carries. A longer one keeps its first rows and says how
-many it left out. A record result instead cuts long keys, headers, and values
-to one length, and shows no more headers of a record than that length, so a
-page keeps every record and its cursor. It says which records it cut. When the
-cursor of a topic with many partitions leaves too little room,
+many it left out. `klens_group_describe` also shortens the topic and partition
+lists of each member and finding, and a detailed `klens_schemas_list` shows the
+newest 10 versions of each subject. `klens_brokers_list` takes the last broker
+id it showed as `after` to list the brokers that did not fit.
+`klens_group_describe` cuts a name a client chose, such as a client id, after
+256 characters and ends it with `…`. A record result instead cuts long keys,
+headers, and values to one length, and shows no more headers of a record than
+that length, so a page keeps every record and its cursor. It says which records
+it cut. When the cursor of a topic with many partitions leaves too little room,
 `klens_records_read` fails with `INVALID_REQUEST` and asks for fewer records or
 partitions. A refused call returns its error code and a hint for the next call,
-and klens logs the tool and the code at info level, never the arguments.
-klens never logs the `rmcp` library below error, because rmcp logs tool
-arguments and results at debug level.
+and klens logs the tool and the code at info level, never the arguments. klens
+never logs the `rmcp` library below error, because rmcp logs tool arguments and
+results at debug level.
 
 `klens_group_describe` makes klens read the group's offsets every
 `tuning.ingest.fast_offset` for `tuning.ingest.interest_ttl`, as opening the

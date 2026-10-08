@@ -136,6 +136,7 @@ fn partitions_no_member_holds_are_named_per_topic() {
         [Finding::UnassignedPartitions {
             topic: "orders".into(),
             partitions: vec![1, 3],
+            partitions_left_out: None,
         }]
     );
 }

@@ -1,8 +1,10 @@
+use std::borrow::Cow;
+
 use jiff::Timestamp;
 use serde::Serialize;
 
 use crate::app::brokers::types::LogDir;
-use crate::app::groups::types::{GroupState, MemberAssignment};
+use crate::app::groups::types::GroupState;
 use crate::app::records::types::Record;
 use crate::app::search::SearchHit;
 use crate::app::subjects::types::{SchemaCompatibility, SchemaType, SubjectVersion};
@@ -14,6 +16,7 @@ use crate::kafka::store::projections::{self, ClusterHealthView};
 use crate::kafka::store::tables::SubjectInfo;
 
 use super::findings::Finding;
+use super::{MAX_VERSIONS, first, left_out, shortened};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -225,10 +228,16 @@ pub struct SubjectRow {
 
 impl SubjectRow {
     pub fn new(row: projections::SubjectRow, detailed: bool) -> Self {
+        let older = row.versions.len().saturating_sub(MAX_VERSIONS);
         Self {
             versions: detailed.then(|| SubjectVersions {
                 latest_schema_id: row.info.id,
-                versions: row.versions.into_iter().map(SubjectVersion::from).collect(),
+                versions: row.versions[older..]
+                    .iter()
+                    .copied()
+                    .map(SubjectVersion::from)
+                    .collect(),
+                versions_left_out: (older > 0).then_some(older),
             }),
             ..Self::concise(row.subject.to_string(), &row.info)
         }
@@ -250,6 +259,8 @@ impl SubjectRow {
 pub struct SubjectVersions {
     pub latest_schema_id: i32,
     pub versions: Vec<SubjectVersion>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub versions_left_out: Option<usize>,
 }
 
 #[derive(Debug, Serialize)]
@@ -443,7 +454,7 @@ pub struct GroupDescription<'a> {
     pub total_lag: Option<i64>,
     pub lag_complete: bool,
     pub findings: &'a [Finding],
-    pub members: &'a [MemberRow],
+    pub members: &'a [MemberRow<'a>],
     pub partitions: &'a [GroupPartitionRow],
     pub notice: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -452,24 +463,53 @@ pub struct GroupDescription<'a> {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct MemberRow {
-    pub member_id: String,
-    pub client_id: String,
-    pub host: String,
-    pub assignments: Vec<MemberAssignment>,
+pub struct MemberRow<'a> {
+    pub member_id: Cow<'a, str>,
+    pub client_id: Cow<'a, str>,
+    pub host: Cow<'a, str>,
+    pub assignments: Vec<AssignmentRow<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub topics_left_out: Option<usize>,
     pub lag: Option<i64>,
 }
 
-impl MemberRow {
-    pub fn new(member: &domain::GroupMember, lag: Option<i64>) -> Self {
+impl<'a> MemberRow<'a> {
+    pub fn new(member: &'a domain::GroupMember, lag: Option<i64>, max_per_list: usize) -> Self {
         Self {
-            member_id: member.id.clone(),
-            client_id: member.client_id.clone(),
-            host: member.host.clone(),
-            assignments: member.assignments.iter().cloned().map(Into::into).collect(),
+            member_id: shortened(&member.id),
+            client_id: shortened(&member.client_id),
+            host: shortened(&member.host),
+            assignments: member
+                .assignments
+                .iter()
+                .take(max_per_list)
+                .map(|assignment| AssignmentRow {
+                    topic: shortened(&assignment.topic),
+                    partitions: first(&assignment.partitions, max_per_list),
+                    partitions_left_out: left_out(assignment.partitions.len(), max_per_list),
+                })
+                .collect(),
+            topics_left_out: left_out(member.assignments.len(), max_per_list),
             lag,
         }
     }
+
+    pub fn widest(member: &domain::GroupMember) -> usize {
+        member
+            .assignments
+            .iter()
+            .map(|assignment| assignment.partitions.len())
+            .fold(member.assignments.len(), usize::max)
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssignmentRow<'a> {
+    pub topic: Cow<'a, str>,
+    pub partitions: &'a [i32],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub partitions_left_out: Option<usize>,
 }
 
 #[derive(Debug, Serialize)]

@@ -32,11 +32,19 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
-      "description": "Lists a cluster's brokers by id, as klens last read them.\nEach broker shows its host and port, its rack and whether it is the controller (each null while klens does not know it), how many partition replicas and leaders it holds, its size in bytes, and its log dirs.\nEach log dir shows its path, its error when it is offline, its volume's total and usable bytes (null before Kafka 3.3), whether it is cordoned, its size in bytes and its replica count.\nSize and log dirs stay null until klens reads the broker's log dirs, which needs the Describe operation on the Cluster resource.\nIt returns the first 25 brokers, or `limit` of them up to 100, and `showing` gives how many it shows out of how many there are.\nIt reads klens' snapshot, so it costs Kafka nothing.",
+      "description": "Lists a cluster's brokers by id, as klens last read them.\nEach broker shows its host and port, its rack and whether it is the controller (each null while klens does not know it), how many partition replicas and leaders it holds, its size in bytes, and its log dirs.\nEach log dir shows its path, its error when it is offline, its volume's total and usable bytes (null before Kafka 3.3), whether it is cordoned, its size in bytes and its replica count.\nSize and log dirs stay null until klens reads the broker's log dirs, which needs the Describe operation on the Cluster resource.\nIt returns the first 25 brokers, or `limit` of them up to 100, and `showing` gives how many it shows out of how many there are past `after`.\nIt reads klens' snapshot, so it costs Kafka nothing.",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "after": {
+            "description": "Lists only brokers with a higher id, such as the last id the previous call showed.",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "cluster": {
             "description": "A cluster name from klens_clusters. Optional when you can see only one cluster.",
             "type": [
@@ -352,7 +360,7 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
-      "description": "Lists a cluster's schema registry subjects from A to Z, each with its latest version, its schema type (AVRO, JSON or PROTOBUF) and its compatibility level.\nPass `nameContains` to keep the subjects whose name holds that text.\n`responseFormat` DETAILED also gives each subject's latest schema id and every version with its schema id, null until klens learns it.\nIt returns the first 25 subjects, or `limit` of them up to 100, and `showing` gives how many it shows out of how many matched.\nIt fails with NO_SCHEMA_REGISTRY when klens reads no registry for the cluster, and with NOT_READY until klens has read the registry once.\nIt reads klens' snapshot, so it costs the registry nothing.",
+      "description": "Lists a cluster's schema registry subjects from A to Z, each with its latest version, its schema type (AVRO, JSON or PROTOBUF) and its compatibility level.\nPass `nameContains` to keep the subjects whose name holds that text.\n`responseFormat` DETAILED also gives each subject's latest schema id and its newest 10 versions with their schema ids, null until klens learns them, and `versionsLeftOut` counts older ones.\nIt returns the first 25 subjects, or `limit` of them up to 100, and `showing` gives how many it shows out of how many matched.\nIt fails with NO_SCHEMA_REGISTRY when klens reads no registry for the cluster, and with NOT_READY until klens has read the registry once.\nIt reads klens' snapshot, so it costs the registry nothing.",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
@@ -382,7 +390,7 @@
             ]
           },
           "responseFormat": {
-            "description": "CONCISE unless given. DETAILED adds each subject's latest schema id and every version with its schema id.",
+            "description": "CONCISE unless given. DETAILED adds each subject's latest schema id and its newest 10 versions with their schema ids.",
             "enum": [
               "CONCISE",
               "DETAILED"
