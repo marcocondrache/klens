@@ -1,0 +1,39 @@
+suite: notes
+templates:
+  - NOTES.txt
+tests:
+  - it: tells an auth-off install to list its ingress hosts
+    set:
+      ingress.enabled: true
+    asserts:
+      - matchRegexRaw:
+          pattern: klens answers only the hosts in `config.allowed_hosts`
+
+  - it: tells an auth-off install to list its HTTPRoute hostnames
+    set:
+      httpRoute.enabled: true
+      httpRoute.hostnames: [klens.example.com]
+    asserts:
+      - matchRegexRaw:
+          pattern: klens answers only the hosts in `config.allowed_hosts`
+
+  - it: says nothing about hosts once allowed_hosts is set
+    set:
+      ingress.enabled: true
+      config.allowed_hosts: [klens.example.com]
+    asserts:
+      - notMatchRegexRaw:
+          pattern: allowed_hosts
+
+  - it: says nothing about hosts with auth on
+    set:
+      ingress.enabled: true
+      config.auth.oidc.issuer: https://idp.example.com
+    asserts:
+      - notMatchRegexRaw:
+          pattern: allowed_hosts
+
+  - it: says nothing about hosts when nothing exposes klens
+    asserts:
+      - notMatchRegexRaw:
+          pattern: allowed_hosts

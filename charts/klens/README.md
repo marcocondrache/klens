@@ -45,6 +45,12 @@ Expose the UI with `ingress` or a Gateway API `httpRoute`. Use a Prefix `/`
 path so SPA routes and `/api` reach
 the pod.
 
+Without `config.auth`, klens answers only the hosts in `config.allowed_hosts`,
+which default to `localhost`, `127.0.0.1`, and `::1`. List each Ingress host
+and HTTPRoute hostname there, or klens answers them with 403.
+`kubectl port-forward` and the probes work without that. A load balancer
+health check names an IP address, so point it at `/ready` rather than `/`.
+
 ## Maintainers
 
 | Name | Email | Url |
@@ -64,7 +70,7 @@ Kubernetes: `>=1.25.0-0`
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity rules for pod scheduling (templated). |
-| config | object | `{"bind":"0.0.0.0:8080","clusters":{},"log_level":"info"}` | klens config file as a map. The binary validates this YAML, not the chart. `clusters` maps each cluster name to its settings. Timeouts, pool sizes, limits, and lane cadence go under `tuning`. |
+| config | object | `{"bind":"0.0.0.0:8080","clusters":{},"log_level":"info"}` | klens config file as a map. The binary validates this YAML, not the chart. `clusters` maps each cluster name to its settings. Timeouts, pool sizes, limits, and lane cadence go under `tuning`. Without `auth`, list the Ingress and HTTPRoute hostnames in `allowed_hosts`. |
 | deploymentAnnotations | object | `{}` | Annotations added to the Deployment. |
 | env | object | `{}` | Extra environment variables as a map (templated). |
 | envFrom | list | `[]` | Extra envFrom sources (templated). |
