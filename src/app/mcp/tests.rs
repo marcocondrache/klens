@@ -462,7 +462,10 @@ async fn a_2025_client_initializes_and_calls_with_no_session() {
     assert_eq!(initialized["result"]["protocolVersion"], "2025-06-18");
     assert_eq!(initialized["result"]["serverInfo"]["name"], "klens");
     assert!(initialized["result"]["capabilities"]["tools"].is_object());
-    assert!(initialized["result"]["instructions"].is_string());
+    let instructions = initialized["result"]["instructions"]
+        .as_str()
+        .expect("instructions");
+    assert!(instructions.len() < 2048, "{}", instructions.len());
 
     let notified = app
         .send_through_router(mcp_request(
