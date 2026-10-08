@@ -14,6 +14,7 @@ pub(crate) enum ApiError {
     SessionExpired,
     Unauthorized,
     HostNotAllowed,
+    NotFound,
     TooManyTails,
     InvalidRequest { status: StatusCode, message: String },
 }
@@ -33,6 +34,7 @@ impl ApiError {
             Self::SessionExpired => "SESSION_EXPIRED",
             Self::Unauthorized => "UNAUTHORIZED",
             Self::HostNotAllowed => "HOST_NOT_ALLOWED",
+            Self::NotFound => "NOT_FOUND",
             Self::TooManyTails => "TOO_MANY_TAILS",
             Self::InvalidRequest { .. } => "INVALID_REQUEST",
         }
@@ -61,7 +63,7 @@ impl ApiError {
             | Self::Access(AccessError::Forbidden { .. } | AccessError::ReadOnlyCluster(_)) => {
                 StatusCode::FORBIDDEN
             }
-            Self::Access(AccessError::UnknownCluster(_)) => StatusCode::NOT_FOUND,
+            Self::NotFound | Self::Access(AccessError::UnknownCluster(_)) => StatusCode::NOT_FOUND,
             Self::Kafka(error) => kafka_status(error),
         }
     }
@@ -101,6 +103,7 @@ impl std::fmt::Display for ApiError {
             Self::SessionExpired => formatter.write_str("session is no longer valid"),
             Self::Unauthorized => formatter.write_str("unauthorized"),
             Self::HostNotAllowed => formatter.write_str("host is not in allowed_hosts"),
+            Self::NotFound => formatter.write_str("not found"),
             Self::TooManyTails => {
                 formatter.write_str("too many live tails are open, try again later")
             }

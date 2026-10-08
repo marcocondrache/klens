@@ -33,6 +33,7 @@ pub struct Setup {
     clusters: Vec<FakeCluster>,
     limits: Limits,
     writable: Vec<String>,
+    auth: AuthState,
 }
 
 impl TestApp {
@@ -49,6 +50,7 @@ impl TestApp {
             clusters: clusters.into_iter().collect(),
             limits: Limits::new(&Tuning::default()),
             writable: Vec::new(),
+            auth: AuthState::disabled(),
         }
     }
 
@@ -186,11 +188,15 @@ impl Setup {
         }
     }
 
+    pub fn auth(self, auth: AuthState) -> Self {
+        Self { auth, ..self }
+    }
+
     pub fn build(self) -> TestApp {
         let writable: Vec<&str> = self.writable.iter().map(String::as_str).collect();
         let clusters = Clusters::from_sessions(self.clusters.clone()).writable(&writable);
         TestApp {
-            state: AppState::new(clusters, AuthState::disabled(), self.limits),
+            state: AppState::new(clusters, self.auth, self.limits),
             clusters: self.clusters,
             access: EffectiveAccess::Unrestricted,
             guard: SessionGuard::open(),
