@@ -44,6 +44,10 @@ impl PartitionRow {
         self.isr.len() < self.replicas.len()
     }
 
+    pub fn offline(&self) -> bool {
+        self.leader < 0
+    }
+
     pub fn retained(&self) -> i64 {
         (self.high_watermark - self.low_watermark).max(0)
     }
@@ -541,6 +545,26 @@ mod tests {
         assert!(detail.partitions[1].under_replicated());
         assert_eq!(detail.retained_messages, 130);
         assert_eq!(detail.produced_total, 150);
+    }
+
+    #[test]
+    fn a_partition_is_offline_only_without_a_leader() {
+        let topology = build_topology(
+            vec![topic(
+                "orders",
+                vec![
+                    partition(0, vec![0], vec![0]),
+                    offline_partition(1, vec![0]),
+                ],
+            )],
+            Vec::new(),
+        );
+        let (name, topic) = topology.topics.iter().next().unwrap();
+
+        let detail = topic_detail(name, topic, None, None, None, &topology, 0.0);
+
+        assert!(!detail.partitions[0].offline(), "broker 0 leads it");
+        assert!(detail.partitions[1].offline());
     }
 
     #[test]

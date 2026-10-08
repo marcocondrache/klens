@@ -4,9 +4,11 @@ use serde::Serialize;
 use crate::app::brokers::types::LogDir;
 use crate::app::search::SearchHit;
 use crate::app::subjects::types::{SchemaCompatibility, SchemaType, SubjectVersion};
+use crate::app::topics::types::{CleanupPolicy, TopicGroupRow};
 use crate::app::whoami::types::PrivilegeName;
 use crate::kafka::store::LaneHealth;
 use crate::kafka::store::projections::{self, ClusterHealthView};
+use crate::kafka::store::tables::SubjectInfo;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -219,14 +221,21 @@ pub struct SubjectRow {
 impl SubjectRow {
     pub fn new(row: projections::SubjectRow, detailed: bool) -> Self {
         Self {
-            subject: row.subject.to_string(),
-            latest_version: row.info.latest_version,
-            schema_type: row.info.schema_type.into(),
-            compatibility: row.info.compatibility.into(),
             versions: detailed.then(|| SubjectVersions {
                 latest_schema_id: row.info.id,
                 versions: row.versions.into_iter().map(SubjectVersion::from).collect(),
             }),
+            ..Self::concise(row.subject.to_string(), &row.info)
+        }
+    }
+
+    pub fn concise(subject: String, info: &SubjectInfo) -> Self {
+        Self {
+            subject,
+            latest_version: info.latest_version,
+            schema_type: info.schema_type.into(),
+            compatibility: info.compatibility.into(),
+            versions: None,
         }
     }
 }
@@ -236,4 +245,153 @@ impl SubjectRow {
 pub struct SubjectVersions {
     pub latest_schema_id: i32,
     pub versions: Vec<SubjectVersion>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TopicList<'a> {
+    pub topics: &'a [TopicRow],
+    pub showing: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unmeasured: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TopicRow {
+    pub name: String,
+    pub partition_count: i32,
+    pub retained_messages: Option<i64>,
+    pub size_bytes: Option<i64>,
+    pub rate: Option<f64>,
+    pub group_count: i32,
+    pub under_replicated: bool,
+    #[serde(flatten)]
+    pub detail: Option<TopicRowDetail>,
+}
+
+impl TopicRow {
+    pub fn new(
+        row: projections::TopicRow,
+        counted: bool,
+        rate: Option<f64>,
+        detailed: bool,
+    ) -> Self {
+        Self {
+            detail: detailed.then(|| TopicRowDetail {
+                internal: row.internal,
+                replication_factor: row.replication_factor,
+                produced_total: counted.then_some(row.produced_total),
+                retention_ms: row.retention_ms,
+                cleanup_policy: row.cleanup_policy.into(),
+            }),
+            name: row.name.to_string(),
+            partition_count: row.partition_count,
+            retained_messages: counted.then_some(row.retained_messages),
+            size_bytes: row.size_bytes,
+            rate,
+            group_count: row.group_count,
+            under_replicated: row.under_replicated,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TopicRowDetail {
+    pub internal: bool,
+    pub replication_factor: i32,
+    pub produced_total: Option<i64>,
+    pub retention_ms: Option<i64>,
+    pub cleanup_policy: CleanupPolicy,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TopicDescription<'a> {
+    #[serde(flatten)]
+    pub topic: &'a TopicSummary,
+    pub groups: &'a [TopicGroupRow],
+    pub subjects: Option<&'a [SubjectRow]>,
+    pub partitions: &'a [PartitionRow],
+    pub notice: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub truncated: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TopicSummary {
+    pub name: String,
+    pub internal: bool,
+    pub partition_count: usize,
+    pub replication_factor: i32,
+    pub retained_messages: Option<i64>,
+    pub produced_total: Option<i64>,
+    pub size_bytes: Option<i64>,
+    pub disk_bytes: Option<i64>,
+    pub rate: Option<f64>,
+    pub retention_ms: Option<i64>,
+    pub cleanup_policy: CleanupPolicy,
+    pub under_replicated_partitions: usize,
+    pub offline_partitions: usize,
+}
+
+impl TopicSummary {
+    pub fn new(detail: &projections::TopicDetail, counted: bool, rate: Option<f64>) -> Self {
+        let count = |test: fn(&projections::PartitionRow) -> bool| {
+            detail
+                .partitions
+                .iter()
+                .filter(|partition| test(partition))
+                .count()
+        };
+        Self {
+            name: detail.name.to_string(),
+            internal: detail.internal,
+            partition_count: detail.partitions.len(),
+            replication_factor: detail.replication_factor,
+            retained_messages: counted.then_some(detail.retained_messages),
+            produced_total: counted.then_some(detail.produced_total),
+            size_bytes: detail.size_bytes,
+            disk_bytes: detail.disk_bytes,
+            rate,
+            retention_ms: detail.retention_ms,
+            cleanup_policy: detail.cleanup_policy.into(),
+            under_replicated_partitions: count(projections::PartitionRow::under_replicated),
+            offline_partitions: count(projections::PartitionRow::offline),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PartitionRow {
+    pub partition: i32,
+    pub leader: Option<i32>,
+    pub replicas: Vec<i32>,
+    pub isr: Vec<i32>,
+    pub under_replicated: bool,
+    pub offline: bool,
+    pub low_watermark: Option<i64>,
+    pub high_watermark: Option<i64>,
+    pub retained_messages: Option<i64>,
+    pub size_bytes: Option<i64>,
+}
+
+impl PartitionRow {
+    pub fn new(row: &projections::PartitionRow, counted: bool) -> Self {
+        Self {
+            partition: row.id,
+            leader: (!row.offline()).then_some(row.leader),
+            replicas: row.replicas.clone(),
+            isr: row.isr.clone(),
+            under_replicated: row.under_replicated(),
+            offline: row.offline(),
+            low_watermark: counted.then_some(row.low_watermark),
+            high_watermark: counted.then_some(row.high_watermark),
+            retained_messages: counted.then(|| row.retained()),
+            size_bytes: row.size_bytes,
+        }
+    }
 }

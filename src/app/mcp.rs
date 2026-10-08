@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::sync::Arc;
 
 use axum::Router;
@@ -25,7 +26,7 @@ use tracing::field::Empty;
 use crate::AppState;
 use crate::config::{AllowedHost, Mcp};
 use crate::kafka::KafkaError;
-use crate::kafka::store::{Lane, Topology};
+use crate::kafka::store::{Lane, TopicInfo, Topology, WatermarkTable};
 
 use super::auth::SessionGuard;
 use super::auth::access::{AccessError, Ceiling, ClusterAccess, Narrowed, Privilege};
@@ -33,6 +34,7 @@ use super::context::{ClusterHandle, Session};
 use super::error::{ApiError, ErrorBody};
 use super::hosts;
 use super::search::types::{SearchHit, SearchKind};
+use super::topics::TopicGroupRow;
 
 mod types;
 
@@ -41,7 +43,8 @@ mod tests;
 
 use types::{
     AccessList, BrokerList, BrokerRow, ClusterDetail, ClusterHit, ClusterList, ClusterRights,
-    ClusterRow, SearchResult, SubjectList, SubjectRow, ToolRights, UnhealthyPartition, UnreadLane,
+    ClusterRow, PartitionRow, SearchResult, SubjectList, SubjectRow, ToolRights, TopicDescription,
+    TopicList, TopicRow, TopicSummary, UnhealthyPartition, UnreadLane,
 };
 
 /// Keeps a result, text and structured copies together, under the 10k tokens
@@ -72,6 +75,8 @@ const TOOLS: &[(&str, Option<Privilege>)] = &[
     ("klens_clusters", None),
     ("klens_schemas_list", None),
     ("klens_search", None),
+    ("klens_topic_describe", None),
+    ("klens_topics_list", None),
 ];
 
 pub(crate) fn router(state: AppState, allowed_hosts: &[AllowedHost], mcp: &Mcp) -> Router {
@@ -246,6 +251,32 @@ fn listed<T>(
     })
 }
 
+fn fitted_lists(
+    lists: &[(&str, usize)],
+    covered: &str,
+    result: impl Fn(usize, Option<String>) -> Value,
+) -> CallToolResult {
+    let longest = lists.iter().map(|&(_, rows)| rows).max().unwrap_or(0);
+    fit(longest, |shown| {
+        let cut: Vec<String> = lists
+            .iter()
+            .filter(|&&(_, rows)| shown < rows)
+            .map(|&(list, rows)| format!("{} of {rows} {list}", rows - shown))
+            .collect();
+        let note = (!cut.is_empty()).then(|| {
+            format!(
+                "{} left out to fit the result; {covered}",
+                cut.join(" and ")
+            )
+        });
+        CallToolResult::structured(result(shown, note))
+    })
+}
+
+fn first<T>(rows: &[T], shown: usize) -> &[T] {
+    &rows[..shown.min(rows.len())]
+}
+
 fn fit(rows: usize, result: impl Fn(usize) -> CallToolResult) -> CallToolResult {
     let full = result(rows);
     if size(&full) <= RESULT_BYTES {
@@ -292,6 +323,28 @@ fn one_cluster<'a>(
     } else {
         format!("pass `cluster` as one of {}", names.join(", "))
     }))
+}
+
+fn largest_first_unmeasured_last<T>(
+    a: Option<T>,
+    b: Option<T>,
+    order: impl FnOnce(&T, &T) -> Ordering,
+) -> Ordering {
+    match (a, b) {
+        (Some(a), Some(b)) => order(&b, &a),
+        (a, b) => a.is_none().cmp(&b.is_none()),
+    }
+}
+
+/// Watermarks default to zero, so a partition klens has not read would
+/// otherwise count as empty.
+fn counted(watermarks: Option<&WatermarkTable>, name: &str, topic: &TopicInfo) -> bool {
+    watermarks.is_some_and(|table| {
+        topic
+            .partitions
+            .iter()
+            .all(|partition| table.get(name, partition.id).is_some())
+    })
 }
 
 fn topology(cluster: &ClusterHandle<'_>) -> Result<Arc<Topology>, ApiError> {
@@ -411,6 +464,53 @@ enum ResponseFormat {
     #[default]
     Concise,
     Detailed,
+}
+
+#[derive(Clone, Copy, Default, Deserialize, JsonSchema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[schemars(inline)]
+enum TopicSort {
+    #[default]
+    Name,
+    Size,
+    Rate,
+    Records,
+    Partitions,
+    Groups,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TopicsQuery {
+    /// A cluster name from klens_clusters. Optional when you can see only one cluster.
+    cluster: Option<String>,
+    /// Keeps topics whose name holds this text, in any case.
+    name_contains: Option<String>,
+    /// True keeps topics with a partition short of in-sync replicas, false keeps the others.
+    under_replicated: Option<bool>,
+    /// True keeps topics that hold no records, false keeps those that hold some. Either way it leaves out the topics whose records klens has not measured, and `unmeasured` says how many.
+    empty: Option<bool>,
+    /// Also lists Kafka's internal topics, such as __consumer_offsets.
+    #[serde(default)]
+    include_internal: bool,
+    /// NAME unless given.
+    #[serde(default)]
+    sort: TopicSort,
+    /// How many topics to return: 25 unless given, at most 100.
+    #[schemars(range(min = 1, max = MAX_ROWS))]
+    limit: Option<usize>,
+    /// CONCISE unless given. DETAILED adds whether each topic is internal, its replication factor, the records it ever received, its retention and its cleanup policy.
+    #[serde(default)]
+    response_format: ResponseFormat,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct TopicName {
+    /// A cluster name from klens_clusters. Optional when you can see only one cluster.
+    cluster: Option<String>,
+    /// The topic's exact name.
+    topic: String,
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -581,6 +681,173 @@ impl KlensMcp {
                     hits,
                     not_ready: &not_ready,
                     notice,
+                    truncated,
+                })
+            },
+        ))
+    }
+
+    /// Lists a cluster's topics, each with its partition count, the records it holds, its size in bytes, its produce rate in records per second, how many consumer groups read it and whether a partition is under-replicated.
+    /// Filter with `nameContains`, `underReplicated` and `empty`. Kafka's internal topics stay hidden unless `includeInternal` is true.
+    /// `sort` orders by NAME, SIZE, RATE, RECORDS, PARTITIONS or GROUPS. NAME goes from A to Z, and the others put the largest first and unmeasured values last.
+    /// `responseFormat` DETAILED adds whether each topic is internal, its replication factor, the records it ever received, its retention in milliseconds and its cleanup policy.
+    /// A count, size or rate is null until klens has measured it.
+    /// It returns the first 25 topics, or `limit` of them up to 100, and `showing` gives how many it shows out of how many matched.
+    /// It reads klens' snapshot, so it costs Kafka nothing.
+    #[tool(
+        title = "List topics",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn klens_topics_list(
+        &self,
+        session: Session,
+        Parameters(query): Parameters<TopicsQuery>,
+    ) -> Result<CallToolResult, ApiError> {
+        let cluster = one_cluster(&session, query.cluster.as_deref())?;
+        let topology = topology(&cluster)?;
+        let watermarks = cluster.store.watermarks.load();
+        let detailed = query.response_format == ResponseFormat::Detailed;
+        let named = name_filter(query.name_contains.as_deref());
+        let mut unmeasured = 0;
+        let mut topics: Vec<TopicRow> = cluster
+            .store
+            .topic_rows()
+            .into_iter()
+            .filter(|row| {
+                (query.include_internal || !row.internal)
+                    && named(&row.name)
+                    && query
+                        .under_replicated
+                        .is_none_or(|wanted| row.under_replicated == wanted)
+            })
+            .map(|row| {
+                let counted = topology
+                    .topics
+                    .get(&row.name)
+                    .is_some_and(|topic| counted(watermarks.as_deref(), &row.name, topic));
+                let rate = cluster.store.rates.get(&row.name);
+                TopicRow::new(row, counted, rate, detailed)
+            })
+            .filter(|row| match (query.empty, row.retained_messages) {
+                (None, _) => true,
+                (Some(wanted), Some(records)) => (records == 0) == wanted,
+                (Some(_), None) => {
+                    unmeasured += 1;
+                    false
+                }
+            })
+            .collect();
+        topics.sort_by(|a, b| {
+            match query.sort {
+                TopicSort::Name => Ordering::Equal,
+                TopicSort::Size => {
+                    largest_first_unmeasured_last(a.size_bytes, b.size_bytes, i64::cmp)
+                }
+                TopicSort::Rate => largest_first_unmeasured_last(a.rate, b.rate, f64::total_cmp),
+                TopicSort::Records => largest_first_unmeasured_last(
+                    a.retained_messages,
+                    b.retained_messages,
+                    i64::cmp,
+                ),
+                TopicSort::Partitions => b.partition_count.cmp(&a.partition_count),
+                TopicSort::Groups => b.group_count.cmp(&a.group_count),
+            }
+            .then_with(|| a.name.cmp(&b.name))
+        });
+        let unmeasured = (unmeasured > 0).then_some(unmeasured);
+        Ok(listed(
+            topics,
+            query.limit,
+            Some("pass `nameContains` or a filter"),
+            |topics, showing| {
+                json!(TopicList {
+                    topics,
+                    showing,
+                    unmeasured,
+                })
+            },
+        ))
+    }
+
+    /// Describes one topic as klens last read it: whether it is internal, its partition count and replication factor, the records it holds and ever received, its size in bytes on one replica and on disk across every replica, its produce rate in records per second, its retention in milliseconds and cleanup policy, and how many partitions are under-replicated or offline.
+    /// `groups` lists each consumer group that reads the topic, the largest lag first, with its state, member count and lag on this topic, which is null until klens reads the group's offsets.
+    /// `subjects` lists the schema subjects named after the topic, `<topic>-key` and `<topic>-value`, and is null when klens reads no schema registry for the cluster or has not read it yet.
+    /// `partitions` lists each partition with its leader (null when it is offline), replicas, in-sync replicas, watermarks, records and size.
+    /// A count, size or rate is null until klens has measured it.
+    /// It reads klens' snapshot, so it costs Kafka nothing.
+    #[tool(
+        title = "Describe a topic",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn klens_topic_describe(
+        &self,
+        session: Session,
+        Parameters(named): Parameters<TopicName>,
+    ) -> Result<CallToolResult, ApiError> {
+        let cluster = one_cluster(&session, named.cluster.as_deref())?;
+        topology(&cluster)?;
+        let Some(detail) = cluster.store.topic_detail(&named.topic) else {
+            return Err(KafkaError::UnknownTopic {
+                cluster: cluster.name().to_owned(),
+                topic: named.topic,
+            }
+            .into());
+        };
+        let watermarks = cluster.store.watermarks.load();
+        let partitions: Vec<PartitionRow> = detail
+            .partitions
+            .iter()
+            .map(|partition| {
+                let counted = watermarks
+                    .as_deref()
+                    .is_some_and(|table| table.get(&detail.name, partition.id).is_some());
+                PartitionRow::new(partition, counted)
+            })
+            .collect();
+        let counted = partitions
+            .iter()
+            .all(|partition| partition.retained_messages.is_some());
+        let topic = TopicSummary::new(&detail, counted, cluster.store.rates.get(&detail.name));
+        let mut groups = cluster.store.topic_groups(&detail.name);
+        groups.sort_by(|a, b| {
+            largest_first_unmeasured_last(a.lag_on_topic, b.lag_on_topic, i64::cmp)
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        let groups: Vec<TopicGroupRow> = groups.into_iter().map(Into::into).collect();
+        let subjects = cluster
+            .has_schema_registry()
+            .then(|| cluster.store.subjects.load())
+            .flatten()
+            .map(|table| {
+                ["key", "value"]
+                    .into_iter()
+                    .filter_map(|part| {
+                        let subject = format!("{}-{part}", detail.name);
+                        let info = table.get(&subject)?;
+                        Some(SubjectRow::concise(subject, info))
+                    })
+                    .collect::<Vec<_>>()
+            });
+        Ok(fitted_lists(
+            &[("groups", groups.len()), ("partitions", partitions.len())],
+            "the counts above cover every partition",
+            |shown, truncated| {
+                json!(TopicDescription {
+                    topic: &topic,
+                    groups: first(&groups, shown),
+                    subjects: subjects.as_deref(),
+                    partitions: first(&partitions, shown),
+                    notice: CLIENT_VALUES_NOTICE,
                     truncated,
                 })
             },

@@ -167,6 +167,119 @@
       },
       "name": "klens_search",
       "title": "Search names"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Describes one topic as klens last read it: whether it is internal, its partition count and replication factor, the records it holds and ever received, its size in bytes on one replica and on disk across every replica, its produce rate in records per second, its retention in milliseconds and cleanup policy, and how many partitions are under-replicated or offline.\n`groups` lists each consumer group that reads the topic, the largest lag first, with its state, member count and lag on this topic, which is null until klens reads the group's offsets.\n`subjects` lists the schema subjects named after the topic, `<topic>-key` and `<topic>-value`, and is null when klens reads no schema registry for the cluster or has not read it yet.\n`partitions` lists each partition with its leader (null when it is offline), replicas, in-sync replicas, watermarks, records and size.\nA count, size or rate is null until klens has measured it.\nIt reads klens' snapshot, so it costs Kafka nothing.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "cluster": {
+            "description": "A cluster name from klens_clusters. Optional when you can see only one cluster.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "topic": {
+            "description": "The topic's exact name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "topic"
+        ],
+        "type": "object"
+      },
+      "name": "klens_topic_describe",
+      "title": "Describe a topic"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Lists a cluster's topics, each with its partition count, the records it holds, its size in bytes, its produce rate in records per second, how many consumer groups read it and whether a partition is under-replicated.\nFilter with `nameContains`, `underReplicated` and `empty`. Kafka's internal topics stay hidden unless `includeInternal` is true.\n`sort` orders by NAME, SIZE, RATE, RECORDS, PARTITIONS or GROUPS. NAME goes from A to Z, and the others put the largest first and unmeasured values last.\n`responseFormat` DETAILED adds whether each topic is internal, its replication factor, the records it ever received, its retention in milliseconds and its cleanup policy.\nA count, size or rate is null until klens has measured it.\nIt returns the first 25 topics, or `limit` of them up to 100, and `showing` gives how many it shows out of how many matched.\nIt reads klens' snapshot, so it costs Kafka nothing.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "cluster": {
+            "description": "A cluster name from klens_clusters. Optional when you can see only one cluster.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "empty": {
+            "description": "True keeps topics that hold no records, false keeps those that hold some. Either way it leaves out the topics whose records klens has not measured, and `unmeasured` says how many.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "includeInternal": {
+            "default": false,
+            "description": "Also lists Kafka's internal topics, such as __consumer_offsets.",
+            "type": "boolean"
+          },
+          "limit": {
+            "description": "How many topics to return: 25 unless given, at most 100.",
+            "format": "uint",
+            "maximum": 100,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "nameContains": {
+            "description": "Keeps topics whose name holds this text, in any case.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "responseFormat": {
+            "description": "CONCISE unless given. DETAILED adds whether each topic is internal, its replication factor, the records it ever received, its retention and its cleanup policy.",
+            "enum": [
+              "CONCISE",
+              "DETAILED"
+            ],
+            "type": "string"
+          },
+          "sort": {
+            "description": "NAME unless given.",
+            "enum": [
+              "NAME",
+              "SIZE",
+              "RATE",
+              "RECORDS",
+              "PARTITIONS",
+              "GROUPS"
+            ],
+            "type": "string"
+          },
+          "underReplicated": {
+            "description": "True keeps topics with a partition short of in-sync replicas, false keeps the others.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "name": "klens_topics_list",
+      "title": "List topics"
     }
   ]
 }
