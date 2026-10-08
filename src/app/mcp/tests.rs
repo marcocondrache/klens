@@ -10,18 +10,20 @@ use tower::ServiceExt as _;
 use tracing::Level;
 use walkdir::WalkDir;
 
+use super::types::Section;
 use super::{
     CLIENT_VALUES_NOTICE, KlensMcp, MAX_QUERY_CHARS, MAX_REQUEST_BYTES, OBFUSCATED_NOTICE,
     RESULT_BYTES, TOOLS, fits, limit, listed, service, tool_list, tool_rights,
 };
-use crate::app::auth::access::{Privilege, PrivilegeSet};
+use crate::app::auth::access::{EffectiveAccess, Privilege, PrivilegeSet};
+use crate::app::whoami::types::PrivilegeName;
 use crate::app::{AppState, AuthState, Limits, router};
 use crate::config::{AllowedHost, Config, Mcp, Tuning};
 use crate::kafka::Clusters;
-use crate::kafka::model::{GroupSnapshot, Watermarks};
+use crate::kafka::model::{ConfigEntry, ConfigSource, GroupSnapshot, Watermarks};
 use crate::testing::{
-    Api, FakeCluster, FixtureRecord, LogCapture, TestApp, access, card_record, framed, group,
-    mcp_request, offline_partition, partition, role, subject, topic, viewer, yaml,
+    Api, FakeCluster, FixtureRecord, LogCapture, TestApp, access, card_record, config_entry,
+    framed, group, mcp_request, offline_partition, partition, role, subject, topic, viewer, yaml,
 };
 
 const PAN: &str = "4111111111111111";
@@ -112,6 +114,54 @@ fn naming(tool: &Tool, cluster: &str) -> Value {
     arguments
 }
 
+fn tool_names() -> Vec<&'static str> {
+    TOOLS.iter().map(|gate| gate.name).collect()
+}
+
+fn gates() -> Vec<(&'static str, Option<Section>, Option<Privilege>)> {
+    TOOLS
+        .iter()
+        .flat_map(|gate| {
+            let sections = gate
+                .sections
+                .iter()
+                .map(|&(section, needs)| (gate.name, Some(section), Some(needs)));
+            std::iter::once((gate.name, None, gate.needs)).chain(sections)
+        })
+        .collect()
+}
+
+#[derive(Debug, PartialEq)]
+enum Outcome {
+    Answered,
+    Refused(Value),
+    Shown,
+    Omitted(Value),
+}
+
+fn outcome(result: &Value, section: Option<Section>) -> Outcome {
+    if result["isError"] == true {
+        return Outcome::Refused(refusal(result)["code"].clone());
+    }
+    let Some(section) = section else {
+        return Outcome::Answered;
+    };
+    let shown = structured(result);
+    let key = json!(section);
+    let key = key.as_str().expect("a section name");
+    match &shown["omitted"] {
+        Value::Null => {
+            assert!(!shown[key].is_null(), "{shown}");
+            Outcome::Shown
+        }
+        omitted => {
+            assert_eq!(omitted["section"], key, "{shown}");
+            assert!(shown[key].is_null(), "{shown}");
+            Outcome::Omitted(omitted["needs"].clone())
+        }
+    }
+}
+
 fn names(listed: &Value, rows: &str, key: &str) -> Vec<String> {
     listed[rows]
         .as_array()
@@ -152,10 +202,7 @@ fn the_tool_table_names_every_tool_the_router_serves() {
         .map(|tool| tool.name.into_owned())
         .collect();
 
-    assert_eq!(
-        served,
-        TOOLS.iter().map(|&(name, _)| name).collect::<Vec<_>>()
-    );
+    assert_eq!(served, tool_names());
 }
 
 #[tokio::test]
@@ -166,21 +213,20 @@ async fn every_tool_opens_to_exactly_the_privilege_it_names() {
 
     for held in std::iter::once(None).chain(Privilege::ALL.map(Some)) {
         let session = app.with_access(access([role("probe", PrivilegeSet::from_privileges(held))]));
-        for &(name, needs) in TOOLS {
+        for (name, section, needs) in gates() {
             let tool = tools.iter().find(|tool| tool.name == name).expect("a tool");
-            let expected = if needs.is_none() || needs == held {
-                Value::Null
-            } else {
-                json!("FORBIDDEN")
+            let expected = match (section, needs) {
+                (_, None) => Outcome::Answered,
+                (None, needs) if needs == held => Outcome::Answered,
+                (None, _) => Outcome::Refused(json!("FORBIDDEN")),
+                (Some(_), needs) if needs == held => Outcome::Shown,
+                (Some(_), Some(needs)) => Outcome::Omitted(json!(PrivilegeName::from(needs))),
             };
             let result = call(&session, name, naming(tool, "local")).await;
-            let code = match result["isError"].as_bool() {
-                Some(true) => refusal(&result)["code"].take(),
-                _ => Value::Null,
-            };
-            if code != expected {
+            let got = outcome(&result, section);
+            if got != expected {
                 wrong.push(format!(
-                    "{name} holding {held:?} answered {code}, not {expected}"
+                    "{name} {section:?} holding {held:?} answered {got:?}, not {expected:?}"
                 ));
             }
         }
@@ -189,17 +235,49 @@ async fn every_tool_opens_to_exactly_the_privilege_it_names() {
     assert!(wrong.is_empty(), "\n{}", wrong.join("\n"));
 }
 
+#[tokio::test]
+async fn a_ceiling_without_a_privilege_closes_each_tool_and_section_that_needs_it() {
+    let app = TestApp::local().await;
+    let tools = KlensMcp::tools().list_all();
+
+    for (name, section, needs) in gates() {
+        let Some(needs) = needs else { continue };
+        let mcp = Mcp::default();
+        let capped = app.serving_mcp(Mcp {
+            privileges: mcp
+                .privileges
+                .into_iter()
+                .filter(|&privilege| privilege != needs)
+                .collect(),
+            ..mcp
+        });
+        let tool = tools.iter().find(|tool| tool.name == name).expect("a tool");
+
+        let result = call_through_router(&capped, name, naming(tool, "local")).await;
+
+        let expected = match section {
+            None => Outcome::Refused(json!("FORBIDDEN")),
+            Some(_) => Outcome::Omitted(json!(PrivilegeName::from(needs))),
+        };
+        assert_eq!(outcome(&result, section), expected, "{name} {section:?}");
+    }
+}
+
 #[test]
 fn a_tool_names_the_privilege_it_lacks_on_a_cluster() {
-    let tool = ("klens_probe", Some(Privilege::Records));
     let viewer = access([viewer()]);
     let reader = access([role(
         "reader",
         PrivilegeSet::from_privileges([Privilege::Records]),
     )]);
+    let rights = |access: &EffectiveAccess, section: Option<Section>, needs: Privilege| {
+        let cluster = access.cluster("local").expect("visible");
+        tool_rights(&cluster, "klens_probe", section, Some(needs))
+    };
 
-    let lacking = tool_rights(&viewer.cluster("local").expect("visible"), &tool);
-    let holding = tool_rights(&reader.cluster("local").expect("visible"), &tool);
+    let lacking = rights(&viewer, None, Privilege::Records);
+    let holding = rights(&reader, None, Privilege::Records);
+    let no_section = rights(&reader, Some(Section::Configs), Privilege::TopicConfigs);
 
     assert_eq!(
         json!(lacking),
@@ -208,6 +286,15 @@ fn a_tool_names_the_privilege_it_lacks_on_a_cluster() {
     assert_eq!(
         json!(holding),
         json!({ "name": "klens_probe", "available": true })
+    );
+    assert_eq!(
+        json!(no_section),
+        json!({
+            "name": "klens_probe",
+            "section": "configs",
+            "available": false,
+            "needs": "TOPIC_CONFIGS",
+        })
     );
 }
 
@@ -285,7 +372,7 @@ async fn tools_list_leaves_out_a_tool_the_caller_may_use_on_no_cluster() {
             "{listed:?}"
         );
     }
-    assert_eq!(reading_prod.len(), TOOLS.len());
+    assert_eq!(reading_prod, tool_names());
 }
 
 #[tokio::test]
@@ -309,7 +396,7 @@ async fn a_ceiling_without_records_hides_both_record_tools_in_either_protocol() 
     assert_eq!(result["cacheScope"], "private", "{result}");
     assert!(legacy["result"].get("cacheScope").is_none(), "{legacy}");
     assert_eq!(names(&legacy["result"], "tools", "name"), tools);
-    assert_eq!(tools.len(), TOOLS.len() - 2, "{tools:?}");
+    assert_eq!(tools.len(), tool_names().len() - 2, "{tools:?}");
     assert!(
         !tools
             .iter()
@@ -829,6 +916,12 @@ async fn access_explain_reports_privileges_under_the_ceiling() {
             { "name": "klens_schemas_list", "available": true },
             { "name": "klens_search", "available": true },
             { "name": "klens_topic_describe", "available": true },
+            {
+                "name": "klens_topic_describe",
+                "section": "configs",
+                "available": false,
+                "needs": "TOPIC_CONFIGS",
+            },
             { "name": "klens_topics_list", "available": true },
         ])
     };
@@ -1357,6 +1450,11 @@ async fn topic_counts_klens_has_not_read_are_null_not_zero() {
         assert_eq!(described["partitions"][0][key], Value::Null, "{key}");
     }
     assert_eq!(described["subjects"], Value::Null);
+    assert_eq!(described["configs"], Value::Null);
+    assert_eq!(
+        described["omitted"],
+        json!({ "section": "configs", "notRead": { "lastError": null } })
+    );
     assert_eq!(
         app.get("/clusters/local/topics").await.ok()[0]["retainedMessages"],
         0,
@@ -1577,6 +1675,7 @@ async fn topic_describe_joins_partitions_groups_and_subjects() {
             "cleanupPolicy": "DELETE",
             "underReplicatedPartitions": 0,
             "offlinePartitions": 0,
+            "configs": [],
             "groups": [{
                 "id": "order-processor",
                 "state": "STABLE",
@@ -1619,6 +1718,107 @@ async fn topic_describe_shows_unhealthy_partitions_and_no_subjects_without_a_reg
     assert_eq!(described["partitions"][1]["offline"], true);
     assert_eq!(described["groups"], json!([]));
     assert_eq!(described["subjects"], Value::Null);
+}
+
+fn config(name: &str, value: &str, source: ConfigSource) -> ConfigEntry {
+    ConfigEntry {
+        source,
+        ..config_entry(name, value)
+    }
+}
+
+#[tokio::test]
+async fn topic_describe_shows_the_overrides_among_the_http_configs() {
+    let cluster = FakeCluster::local();
+    cluster.set_topic_configs(
+        "orders.created",
+        vec![
+            config("cleanup.policy", "delete", ConfigSource::Default),
+            config("retention.ms", "86400000", ConfigSource::DynamicTopic),
+            config("segment.bytes", "1048576", ConfigSource::StaticBroker),
+        ],
+    );
+    let app = TestApp::over(cluster).await;
+
+    let described = structured(
+        &call(
+            &app,
+            "klens_topic_describe",
+            json!({ "topic": "orders.created" }),
+        )
+        .await,
+    );
+    let http = app
+        .get("/clusters/local/topics/orders.created/configs")
+        .await
+        .ok();
+
+    let overrides: Vec<&Value> = http
+        .as_array()
+        .expect("configs")
+        .iter()
+        .filter(|entry| entry["source"] != "DEFAULT_CONFIG")
+        .collect();
+    assert_eq!(described["configs"], json!(overrides));
+    assert_eq!(
+        names(&described, "configs", "name"),
+        ["retention.ms", "segment.bytes"]
+    );
+}
+
+#[tokio::test]
+async fn topic_describe_cuts_a_long_override_and_keeps_the_partitions() {
+    let cluster = FakeCluster::local();
+    let throttled: Vec<String> = (0..3000)
+        .map(|partition| format!("{partition}:1"))
+        .collect();
+    cluster.set_topic_configs(
+        "orders.created",
+        vec![config(
+            "leader.replication.throttled.replicas",
+            &throttled.join(","),
+            ConfigSource::DynamicTopic,
+        )],
+    );
+    let app = TestApp::over(cluster).await;
+
+    let result = call(
+        &app,
+        "klens_topic_describe",
+        json!({ "topic": "orders.created" }),
+    )
+    .await;
+
+    let described = structured(&result);
+    let shown = &described["configs"][0];
+    let value = shown["value"].as_str().expect("a value");
+    assert_eq!(value.chars().count(), 500);
+    assert!(throttled.join(",").starts_with(value));
+    assert_eq!(shown["cut"], true);
+    assert_eq!(described["partitions"].as_array().map(Vec::len), Some(2));
+    assert!(described.get("truncated").is_none(), "{described}");
+    assert!(serde_json::to_vec(&result).expect("json").len() <= RESULT_BYTES);
+}
+
+#[tokio::test]
+async fn topic_describe_says_when_klens_has_not_read_the_configs() {
+    let cluster = FakeCluster::local();
+    let app = TestApp::over(cluster.clone()).await;
+    cluster.add_topic("invoices", 1, 0);
+    cluster.fail(Api::TopicConfigs, "describe configs denied");
+    let rig = app.rig();
+    rig.poll(&rig.topology()).await;
+    rig.poll(&rig.configs()).await;
+
+    let described =
+        structured(&call(&app, "klens_topic_describe", json!({ "topic": "invoices" })).await);
+
+    assert_eq!(described["configs"], Value::Null);
+    assert_eq!(described["omitted"]["section"], "configs");
+    let error = described["omitted"]["notRead"]["lastError"]
+        .as_str()
+        .expect("the lane's error");
+    assert!(error.contains("describe configs denied"), "{error}");
 }
 
 #[tokio::test]

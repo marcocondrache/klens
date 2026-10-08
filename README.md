@@ -355,14 +355,14 @@ On the machine that runs klens, add it to Claude Code with
 `klens_clusters` lists clusters with their health, `klens_search` finds topics,
 groups, brokers, and schema subjects by name, and `klens_access_explain` tells
 the agent what it may do on each cluster. `klens_topics_list` filters and sorts
-a cluster's topics, and `klens_topic_describe` shows one topic's partitions,
-the consumer groups that read it with their lag, and the schema subjects named
-after it. `klens_groups_list` lists consumer groups by lag, and
-`klens_group_describe` shows one group's members, its lag per partition, and
-what looks wrong, such as one member that holds most of the lag.
-`klens_brokers_list` lists a cluster's brokers with their log dirs, and
-`klens_schemas_list` lists its schema subjects. A tool that reads one cluster
-needs no `cluster` argument when the agent sees only one.
+a cluster's topics, and `klens_topic_describe` shows one topic's partitions, the
+consumer groups that read it with their lag, the schema subjects named after it,
+and the configs it sets apart from Kafka's defaults. `klens_groups_list` lists
+consumer groups by lag, and `klens_group_describe` shows one group's members,
+its lag per partition, and what looks wrong, such as one member that holds most
+of the lag. `klens_brokers_list` lists a cluster's brokers with their log dirs,
+and `klens_schemas_list` lists its schema subjects. A tool that reads one
+cluster needs no `cluster` argument when the agent sees only one.
 
 `klens_records_read` reads a page of a topic's records live from Kafka, newest
 first unless the agent asks for the oldest. The agent can pick partitions,
@@ -391,13 +391,14 @@ browser. klens logs at startup that it serves `/mcp`, with the ceiling below.
 
 The block is a ceiling on what an MCP client may do. `privileges` lists the
 reads it may use beyond the catalog, out of `records`, `topic_configs`,
-`broker_configs`, `schema_text`, and `acls`, and defaults to all five. MCP
-serves no writes, so a write privilege stops startup. `clusters` limits MCP to
-the clusters it names. When it is omitted, MCP reaches every cluster, and an
-empty list reaches none. A name that is not a configured cluster stops startup.
-The tool list an agent gets leaves out each tool that needs a privilege the
-agent holds on none of the clusters it sees, so without `records` it never sees
-the record tools.
+`broker_configs`, `schema_text`, and `acls`, and defaults to all five. `records`
+opens the record tools. `topic_configs` adds a topic's config overrides to
+`klens_topic_describe`, which says when it left them out. MCP serves no writes,
+so a write privilege stops startup. `clusters` limits MCP to the clusters it
+names. When it is omitted, MCP reaches every cluster, and an empty list reaches
+none. A name that is not a configured cluster stops startup. The tool list an
+agent gets leaves out each tool that needs a privilege the agent holds on none
+of the clusters it sees, so without `records` it never sees the record tools.
 
 ```yaml
 mcp:
@@ -415,10 +416,11 @@ lists of each member and finding, and a detailed `klens_schemas_list` shows the
 newest 10 versions of each subject. `klens_brokers_list` takes the last broker
 id it showed as `after` to list the brokers that did not fit.
 `klens_group_describe` cuts a name a client chose, such as a client id, after
-256 characters and ends it with `…`. A record result instead cuts long keys,
-headers, and values to one length, and shows no more headers of a record than
-that length, so a page keeps every record and its cursor. It says which records
-it cut. When the cursor of a topic with many partitions leaves too little room,
+256 characters and ends it with `…`. A config value longer than 500 characters
+is cut and marked `cut`. A record result instead cuts long keys, headers, and
+values to one length, and shows no more headers of a record than that length,
+so a page keeps every record and its cursor. It says which records it cut.
+When the cursor of a topic with many partitions leaves too little room,
 `klens_records_read` fails with `INVALID_REQUEST` and asks for fewer records or
 partitions. A refused call returns its error code and a hint for the next call,
 and klens logs the tool and the code at info level, never the arguments. klens

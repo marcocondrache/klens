@@ -4,6 +4,7 @@ use jiff::Timestamp;
 use serde::Serialize;
 
 use crate::app::brokers::types::LogDir;
+use crate::app::configs::ConfigEntry;
 use crate::app::groups::types::GroupState;
 use crate::app::records::types::Record;
 use crate::app::search::SearchHit;
@@ -16,7 +17,8 @@ use crate::kafka::store::projections::{self, ClusterHealthView};
 use crate::kafka::store::tables::SubjectInfo;
 
 use super::findings::Finding;
-use super::{MAX_VERSIONS, first, left_out, shortened};
+use super::untrusted::clip;
+use super::{MAX_CONFIG_CHARS, MAX_VERSIONS, first, left_out, shortened};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -136,9 +138,56 @@ pub struct ClusterRights {
 #[serde(rename_all = "camelCase")]
 pub struct ToolRights {
     pub name: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub section: Option<Section>,
     pub available: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub needs: Option<PrivilegeName>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Section {
+    Configs,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Omitted {
+    pub section: Section,
+    #[serde(flatten)]
+    pub reason: Reason,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum Reason {
+    Needs(PrivilegeName),
+    NotRead { last_error: Option<String> },
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigRow {
+    #[serde(flatten)]
+    pub entry: ConfigEntry,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub cut: bool,
+}
+
+impl ConfigRow {
+    pub fn new(entry: domain::ConfigEntry) -> Self {
+        let mut entry = ConfigEntry::from(entry);
+        let cut = match &mut entry.value {
+            Some(value) => {
+                let (kept, cut) = clip(value, MAX_CONFIG_CHARS);
+                value.truncate(kept.len());
+                cut
+            }
+            None => false,
+        };
+        Self { entry, cut }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -327,6 +376,9 @@ pub struct TopicRowDetail {
 pub struct TopicDescription<'a> {
     #[serde(flatten)]
     pub topic: &'a TopicSummary,
+    pub configs: Option<&'a [ConfigRow]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub omitted: Option<&'a Omitted>,
     pub groups: &'a [TopicGroupRow],
     pub subjects: Option<&'a [SubjectRow]>,
     pub partitions: &'a [PartitionRow],
