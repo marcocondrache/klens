@@ -92,6 +92,86 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
+      "description": "Lists a cluster's consumer groups, the largest total lag first and groups whose lag klens has not read last.\nEach group shows its state, member count, total lag in records and whether that total covers every partition it reads.\nFilter with `nameContains`, `state`, `minLag` and `topic`, which keeps the groups that read that exact topic.\n`responseFormat` DETAILED adds the topics each group reads.\nLag is null until klens reads the group's committed offsets.\nIt returns the first 25 groups, or `limit` of them up to 100, and `showing` gives how many it shows out of how many matched.\nIt reads klens' snapshot, so it costs Kafka nothing.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "cluster": {
+            "description": "A cluster name from klens_clusters. Optional when you can see only one cluster.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "description": "How many groups to return: 25 unless given, at most 100.",
+            "format": "uint",
+            "maximum": 100,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "minLag": {
+            "description": "Keeps groups whose total lag is at least this many records.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "nameContains": {
+            "description": "Keeps groups whose id holds this text, in any case.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "responseFormat": {
+            "description": "CONCISE unless given. DETAILED adds the topics each group reads.",
+            "enum": [
+              "CONCISE",
+              "DETAILED"
+            ],
+            "type": "string"
+          },
+          "state": {
+            "description": "Keeps groups in this state.",
+            "enum": [
+              "STABLE",
+              "EMPTY",
+              "PREPARING_REBALANCE",
+              "COMPLETING_REBALANCE",
+              "DEAD",
+              null
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "topic": {
+            "description": "Keeps groups that read this exact topic.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "name": "klens_groups_list",
+      "title": "List consumer groups"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
       "description": "Lists a cluster's schema registry subjects from A to Z, each with its latest version, its schema type (AVRO, JSON or PROTOBUF) and its compatibility level.\nPass `nameContains` to keep the subjects whose name holds that text.\n`responseFormat` DETAILED also gives each subject's latest schema id and every version with its schema id, null until klens learns it.\nIt returns the first 25 subjects, or `limit` of them up to 100, and `showing` gives how many it shows out of how many matched.\nIt fails with NO_SCHEMA_REGISTRY when klens reads no registry for the cluster, and with NOT_READY until klens has read the registry once.\nIt reads klens' snapshot, so it costs the registry nothing.",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",

@@ -2,6 +2,7 @@ use jiff::Timestamp;
 use serde::Serialize;
 
 use crate::app::brokers::types::LogDir;
+use crate::app::groups::types::GroupState;
 use crate::app::search::SearchHit;
 use crate::app::subjects::types::{SchemaCompatibility, SchemaType, SubjectVersion};
 use crate::app::topics::types::{CleanupPolicy, TopicGroupRow};
@@ -392,6 +393,39 @@ impl PartitionRow {
             high_watermark: counted.then_some(row.high_watermark),
             retained_messages: counted.then(|| row.retained()),
             size_bytes: row.size_bytes,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupList<'a> {
+    pub groups: &'a [GroupRow],
+    pub showing: String,
+    pub notice: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupRow {
+    pub id: String,
+    pub state: GroupState,
+    pub member_count: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub topic_names: Option<Vec<String>>,
+    pub total_lag: Option<i64>,
+    pub lag_complete: bool,
+}
+
+impl GroupRow {
+    pub fn new(row: projections::GroupRow, detailed: bool) -> Self {
+        Self {
+            id: row.id.to_string(),
+            state: row.state.into(),
+            member_count: row.member_count,
+            topic_names: detailed.then_some(row.topic_names),
+            total_lag: row.total_lag,
+            lag_complete: row.lag_complete,
         }
     }
 }

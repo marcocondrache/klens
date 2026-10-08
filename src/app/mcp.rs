@@ -32,6 +32,7 @@ use super::auth::SessionGuard;
 use super::auth::access::{AccessError, Ceiling, ClusterAccess, Narrowed, Privilege};
 use super::context::{ClusterHandle, Session};
 use super::error::{ApiError, ErrorBody};
+use super::groups::types::GroupState;
 use super::hosts;
 use super::search::types::{SearchHit, SearchKind};
 use super::topics::TopicGroupRow;
@@ -43,8 +44,9 @@ mod tests;
 
 use types::{
     AccessList, BrokerList, BrokerRow, ClusterDetail, ClusterHit, ClusterList, ClusterRights,
-    ClusterRow, PartitionRow, SearchResult, SubjectList, SubjectRow, ToolRights, TopicDescription,
-    TopicList, TopicRow, TopicSummary, UnhealthyPartition, UnreadLane,
+    ClusterRow, GroupList, GroupRow, PartitionRow, SearchResult, SubjectList, SubjectRow,
+    ToolRights, TopicDescription, TopicList, TopicRow, TopicSummary, UnhealthyPartition,
+    UnreadLane,
 };
 
 /// Keeps a result, text and structured copies together, under the 10k tokens
@@ -73,6 +75,7 @@ const TOOLS: &[(&str, Option<Privilege>)] = &[
     ("klens_access_explain", None),
     ("klens_brokers_list", None),
     ("klens_clusters", None),
+    ("klens_groups_list", None),
     ("klens_schemas_list", None),
     ("klens_search", None),
     ("klens_topic_describe", None),
@@ -514,6 +517,27 @@ struct TopicName {
 }
 
 #[derive(Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GroupsQuery {
+    /// A cluster name from klens_clusters. Optional when you can see only one cluster.
+    cluster: Option<String>,
+    /// Keeps groups whose id holds this text, in any case.
+    name_contains: Option<String>,
+    /// Keeps groups in this state.
+    state: Option<GroupState>,
+    /// Keeps groups whose total lag is at least this many records.
+    min_lag: Option<i64>,
+    /// Keeps groups that read this exact topic.
+    topic: Option<String>,
+    /// How many groups to return: 25 unless given, at most 100.
+    #[schemars(range(min = 1, max = MAX_ROWS))]
+    limit: Option<usize>,
+    /// CONCISE unless given. DETAILED adds the topics each group reads.
+    #[serde(default)]
+    response_format: ResponseFormat,
+}
+
+#[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct BrokersQuery {
     /// A cluster name from klens_clusters. Optional when you can see only one cluster.
@@ -849,6 +873,68 @@ impl KlensMcp {
                     partitions: first(&partitions, shown),
                     notice: CLIENT_VALUES_NOTICE,
                     truncated,
+                })
+            },
+        ))
+    }
+
+    /// Lists a cluster's consumer groups, the largest total lag first and groups whose lag klens has not read last.
+    /// Each group shows its state, member count, total lag in records and whether that total covers every partition it reads.
+    /// Filter with `nameContains`, `state`, `minLag` and `topic`, which keeps the groups that read that exact topic.
+    /// `responseFormat` DETAILED adds the topics each group reads.
+    /// Lag is null until klens reads the group's committed offsets.
+    /// It returns the first 25 groups, or `limit` of them up to 100, and `showing` gives how many it shows out of how many matched.
+    /// It reads klens' snapshot, so it costs Kafka nothing.
+    #[tool(
+        title = "List consumer groups",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn klens_groups_list(
+        &self,
+        session: Session,
+        Parameters(query): Parameters<GroupsQuery>,
+    ) -> Result<CallToolResult, ApiError> {
+        let cluster = one_cluster(&session, query.cluster.as_deref())?;
+        topology(&cluster)?;
+        let detailed = query.response_format == ResponseFormat::Detailed;
+        let named = name_filter(query.name_contains.as_deref());
+        let mut groups: Vec<GroupRow> = cluster
+            .store
+            .group_rows()
+            .into_iter()
+            .filter(|row| {
+                named(&row.id)
+                    && query
+                        .state
+                        .is_none_or(|state| GroupState::from(row.state) == state)
+                    && query
+                        .min_lag
+                        .is_none_or(|least| row.total_lag.is_some_and(|lag| lag >= least))
+                    && query
+                        .topic
+                        .as_ref()
+                        .is_none_or(|topic| row.topic_names.contains(topic))
+            })
+            .map(|row| GroupRow::new(row, detailed))
+            .collect();
+        groups.sort_by(|a, b| {
+            largest_first_unmeasured_last(a.total_lag, b.total_lag, i64::cmp)
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        Ok(listed(
+            groups,
+            query.limit,
+            Some("pass `nameContains` or a filter"),
+            |groups, showing| {
+                json!(GroupList {
+                    groups,
+                    showing,
+                    notice: CLIENT_VALUES_NOTICE,
                 })
             },
         ))

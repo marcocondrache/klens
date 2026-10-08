@@ -699,6 +699,7 @@ async fn access_explain_reports_privileges_under_the_ceiling() {
         { "name": "klens_access_explain", "available": true },
         { "name": "klens_brokers_list", "available": true },
         { "name": "klens_clusters", "available": true },
+        { "name": "klens_groups_list", "available": true },
         { "name": "klens_schemas_list", "available": true },
         { "name": "klens_search", "available": true },
         { "name": "klens_topic_describe", "available": true },
@@ -1497,6 +1498,110 @@ async fn topic_describe_keeps_the_most_lagging_groups_that_fit() {
         )
     );
     assert!(serde_json::to_vec(&result).expect("json").len() <= RESULT_BYTES);
+}
+
+fn consumers() -> FakeCluster {
+    FakeCluster::local()
+        .with_topic("payments", 1, 4)
+        .with_groups([
+            group("billing", "orders.created", vec![0, 1])
+                .with_committed(&[("orders.created", 0, 0), ("orders.created", 1, 0)]),
+            group("ledger", "payments", vec![0]).with_committed(&[("payments", 0, 4)]),
+            group("archive", "payments", vec![0])
+                .with_committed(&[("payments", 0, 1)])
+                .stopped(),
+        ])
+}
+
+#[tokio::test]
+async fn groups_list_reads_each_group_from_the_snapshot() {
+    let app = TestApp::local().await;
+
+    let listed = structured(&call(&app, "klens_groups_list", json!({})).await);
+
+    assert_eq!(
+        listed,
+        json!({
+            "groups": [{
+                "id": "order-processor",
+                "state": "STABLE",
+                "memberCount": 1,
+                "totalLag": 5,
+                "lagComplete": true,
+            }],
+            "showing": "1 of 1",
+            "notice": CLIENT_VALUES_NOTICE,
+        })
+    );
+}
+
+#[tokio::test]
+async fn detailed_group_rows_match_the_http_rows() {
+    let app = TestApp::over(consumers()).await;
+
+    let listed = structured(
+        &call(
+            &app,
+            "klens_groups_list",
+            json!({ "responseFormat": "DETAILED" }),
+        )
+        .await,
+    );
+    let mut http = app.get("/clusters/local/groups").await.ok();
+    http.as_array_mut()
+        .expect("rows")
+        .sort_by_key(|row| -row["totalLag"].as_i64().expect("a lag"));
+
+    assert_eq!(listed["groups"], http);
+}
+
+#[tokio::test]
+async fn groups_list_filters_by_name_state_lag_and_topic() {
+    let app = TestApp::over(consumers()).await;
+    let groups = async |arguments: Value| {
+        names(
+            &structured(&call(&app, "klens_groups_list", arguments).await),
+            "groups",
+            "id",
+        )
+    };
+
+    assert_eq!(
+        [
+            groups(json!({})).await,
+            groups(json!({ "nameContains": "LED" })).await,
+            groups(json!({ "state": "EMPTY" })).await,
+            groups(json!({ "minLag": 5 })).await,
+            groups(json!({ "topic": "payments" })).await,
+            groups(json!({ "topic": "payment" })).await,
+        ],
+        [
+            vec!["billing", "order-processor", "archive", "ledger"],
+            vec!["ledger"],
+            vec!["archive"],
+            vec!["billing", "order-processor"],
+            vec!["archive", "ledger"],
+            vec![],
+        ]
+        .map(|names| names.into_iter().map(str::to_owned).collect::<Vec<_>>())
+    );
+}
+
+#[tokio::test]
+async fn groups_list_puts_lag_klens_has_not_read_last() {
+    let cluster = consumers();
+    let app = TestApp::over(cluster.clone()).await;
+    cluster.put_group(group("fresh", "orders.created", vec![0]));
+    let rig = app.rig();
+    rig.poll(&rig.topology()).await;
+
+    let listed = structured(&call(&app, "klens_groups_list", json!({ "minLag": 0 })).await);
+    let all = structured(&call(&app, "klens_groups_list", json!({ "limit": 5 })).await);
+
+    assert!(!names(&listed, "groups", "id").contains(&"fresh".to_owned()));
+    assert_eq!(all["groups"][4]["id"], "fresh");
+    assert_eq!(all["groups"][4]["totalLag"], Value::Null);
+    assert_eq!(all["groups"][3]["totalLag"], 0);
 }
 
 #[test]

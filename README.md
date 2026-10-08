@@ -355,9 +355,10 @@ groups, brokers, and schema subjects by name, and `klens_access_explain` tells
 the agent what it may do on each cluster. `klens_topics_list` filters and sorts
 a cluster's topics, and `klens_topic_describe` shows one topic's partitions,
 the consumer groups that read it with their lag, and the schema subjects named
-after it. `klens_brokers_list` lists a cluster's brokers with their log dirs,
-and `klens_schemas_list` lists its schema subjects. A tool that reads one
-cluster needs no `cluster` argument when the agent sees only one.
+after it. `klens_groups_list` lists consumer groups by lag.
+`klens_brokers_list` lists a cluster's brokers with their log dirs, and
+`klens_schemas_list` lists its schema subjects. A tool that reads one cluster
+needs no `cluster` argument when the agent sees only one.
 
 A list returns 25 rows unless the agent asks for up to 100, and says how many
 it shows out of how many matched. A count, size, or rate klens has not
