@@ -2390,6 +2390,51 @@ async fn group_describe_caps_each_assignment_and_finding_to_fit() {
 }
 
 #[tokio::test]
+async fn group_describe_sizes_the_result_by_a_finding_wider_than_the_partition_rows() {
+    let app = TestApp::over(
+        FakeCluster::local()
+            .with_topic("wide", 60, 1)
+            .with_groups([group("sparse", "wide", vec![0])]),
+    )
+    .await;
+
+    let result = call(&app, "klens_group_describe", json!({ "group": "sparse" })).await;
+
+    let described = structured(&result);
+    assert_eq!(
+        described["findings"],
+        json!([{
+            "kind": "UNASSIGNED_PARTITIONS",
+            "topic": "wide",
+            "partitions": (1..60).collect::<Vec<_>>(),
+        }])
+    );
+    assert!(described.get("truncated").is_none(), "{described}");
+}
+
+#[tokio::test]
+async fn group_describe_sizes_the_result_by_a_member_with_more_topics_than_partition_rows() {
+    let mut idle = group("idle", "events.00", Vec::new());
+    let member = &mut idle.members[0];
+    member.assignments = (0..60)
+        .map(|topic| {
+            let mut assignment = member.assignments[0].clone();
+            assignment.topic = format!("events.{topic:02}");
+            assignment
+        })
+        .collect();
+    let app = TestApp::over(FakeCluster::local().with_groups([idle])).await;
+
+    let result = call(&app, "klens_group_describe", json!({ "group": "idle" })).await;
+
+    let described = structured(&result);
+    let member = &described["members"][0];
+    assert_eq!(member["assignments"].as_array().map(Vec::len), Some(60));
+    assert!(member.get("topicsLeftOut").is_none(), "{member}");
+    assert!(described.get("truncated").is_none(), "{described}");
+}
+
+#[tokio::test]
 async fn group_describe_keeps_the_findings_that_fit_first() {
     let cluster = FakeCluster::local();
     for topic in 0..400 {
@@ -2614,6 +2659,48 @@ async fn schema_get_cuts_a_schema_too_long_for_the_result() {
     assert_eq!(schema["cut"], true);
     assert!(shown.chars().count() > 4_000, "{}", shown.len());
     assert!(long.starts_with(shown));
+    assert!(
+        text.contains("The klens UI shows the whole schema.\n"),
+        "{text}"
+    );
+    assert!(serde_json::to_vec(&result).expect("json").len() <= RESULT_BYTES);
+}
+
+#[tokio::test]
+async fn schema_get_says_it_cut_a_schema_whose_references_alone_are_too_many() {
+    let cluster = FakeCluster::local();
+    cluster.put_subject("orders.created-value", &[1]);
+    cluster.put_schema(
+        "orders.created-value",
+        1,
+        RegisteredSchema {
+            id: 1,
+            schema_type: SchemaType::Protobuf,
+            schema: "syntax = \"proto3\";".to_owned(),
+            references: (0..2000)
+                .map(|id| SchemaReference {
+                    name: format!("common/{id:04}.proto"),
+                    subject: format!("common-{id:04}-value"),
+                    version: 1,
+                })
+                .collect(),
+        },
+    );
+    let app = TestApp::over(cluster).await;
+
+    let result = call(
+        &app,
+        "klens_schema_get",
+        json!({ "subject": "orders.created-value" }),
+    )
+    .await;
+
+    let text = text(&result);
+    let schema = schema_in(text);
+    let shown = schema["references"].as_array().expect("references").len();
+    assert_eq!(schema["schema"], "syntax = \"proto3\";");
+    assert_eq!(schema["cut"], true);
+    assert_eq!(schema["referencesLeftOut"], 2000 - shown);
     assert!(
         text.contains("The klens UI shows the whole schema.\n"),
         "{text}"
