@@ -18,6 +18,7 @@ pub(crate) enum ApiError {
     RateLimited,
     NotReady {
         cluster: String,
+        lane: &'static str,
         last_error: Option<String>,
     },
     InvalidRequest {
@@ -118,14 +119,20 @@ impl std::fmt::Display for ApiError {
             Self::RateLimited => formatter.write_str("too many tool calls are running at once"),
             Self::NotReady {
                 cluster,
+                lane,
                 last_error: None,
-            } => write!(formatter, "klens has not read cluster '{cluster}' yet"),
+            } => write!(
+                formatter,
+                "klens has not read the {lane} of cluster '{cluster}' yet"
+            ),
             Self::NotReady {
                 cluster,
+                lane,
                 last_error: Some(error),
             } => write!(
                 formatter,
-                "klens has not read cluster '{cluster}' yet; its last attempt failed: {error}"
+                "klens has not read the {lane} of cluster '{cluster}' yet; its last attempt \
+                 failed: {error}"
             ),
             Self::InvalidRequest { message, .. } => formatter.write_str(message),
         }

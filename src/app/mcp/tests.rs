@@ -7,8 +7,8 @@ use tower::ServiceExt as _;
 use tracing::Level;
 
 use super::{
-    KlensMcp, MAX_QUERY_CHARS, MAX_REQUEST_BYTES, RESULT_BYTES, TOOLS, service, tool_list,
-    tool_rights,
+    CLIENT_VALUES_NOTICE, KlensMcp, MAX_QUERY_CHARS, MAX_REQUEST_BYTES, RESULT_BYTES, TOOLS, limit,
+    listed, service, tool_list, tool_rights,
 };
 use crate::app::auth::access::{Privilege, PrivilegeSet};
 use crate::app::{AppState, AuthState, Limits, router};
@@ -16,7 +16,7 @@ use crate::config::{AllowedHost, Config, Mcp, Tuning};
 use crate::kafka::Clusters;
 use crate::testing::{
     Api, FakeCluster, LogCapture, TestApp, access, mcp_request, offline_partition, partition, role,
-    topic, viewer, yaml,
+    subject, topic, viewer, yaml,
 };
 
 fn call_body(tool: &str, arguments: Value) -> Value {
@@ -543,7 +543,10 @@ async fn a_cluster_klens_has_not_read_is_not_ready() {
 
     let unread = refusal(&call(&app, "klens_clusters", json!({ "cluster": "local" })).await);
     assert_eq!(unread["code"], "NOT_READY");
-    assert_eq!(unread["error"], "klens has not read cluster 'local' yet");
+    assert_eq!(
+        unread["error"],
+        "klens has not read the topology of cluster 'local' yet"
+    );
 
     cluster.fail(Api::Metadata, "brokers unreachable");
     let rig = app.rig();
@@ -554,8 +557,9 @@ async fn a_cluster_klens_has_not_read_is_not_ready() {
     assert_eq!(failed["code"], "NOT_READY");
     let error = failed["error"].as_str().expect("error");
     assert!(
-        error.starts_with("klens has not read cluster 'local' yet; its last attempt failed: ")
-            && error.contains("brokers unreachable"),
+        error.starts_with(
+            "klens has not read the topology of cluster 'local' yet; its last attempt failed: "
+        ) && error.contains("brokers unreachable"),
         "{error}"
     );
     let row = &listed["clusters"][0];
@@ -678,7 +682,9 @@ async fn access_explain_reports_privileges_under_the_ceiling() {
 
     let tools = json!([
         { "name": "klens_access_explain", "available": true },
+        { "name": "klens_brokers_list", "available": true },
         { "name": "klens_clusters", "available": true },
+        { "name": "klens_schemas_list", "available": true },
         { "name": "klens_search", "available": true },
     ]);
     assert_eq!(
@@ -787,6 +793,244 @@ async fn a_refused_call_logs_its_tool_and_code_but_not_its_arguments() {
     logs.assert_contains(r#"mcp.tool{tool="klens_search" client="unverified:probe"}"#);
     logs.assert_contains(r#"refused a tool call code="UNKNOWN_CLUSTER""#);
     logs.assert_lacks("4111");
+}
+
+#[test]
+fn a_list_returns_25_rows_unless_asked_and_between_1_and_100() {
+    assert_eq!(limit(None), 25);
+    assert_eq!(limit(Some(0)), 1);
+    assert_eq!(limit(Some(3)), 3);
+    assert_eq!(limit(Some(100)), 100);
+    assert_eq!(limit(Some(101)), 100);
+}
+
+#[test]
+fn a_list_says_whether_its_limit_or_the_result_size_cut_it() {
+    let showing = |rows: usize, asked: usize, narrow: Option<&str>| {
+        let rows = vec!["x".repeat(1000); rows];
+        let result = listed(
+            rows,
+            Some(asked),
+            narrow,
+            |rows, showing| json!({ "rows": rows, "showing": showing }),
+        );
+        let result = serde_json::to_value(result).expect("json");
+        result["structuredContent"]["showing"]
+            .as_str()
+            .expect("showing")
+            .to_owned()
+    };
+    let narrow = Some("pass `nameContains`");
+
+    assert_eq!(showing(5, 25, narrow), "5 of 5");
+    assert_eq!(
+        showing(5, 3, narrow),
+        "3 of 5; pass `nameContains`, or raise `limit`, to see others"
+    );
+    assert_eq!(showing(5, 3, None), "3 of 5; raise `limit` to see others");
+    for (narrow, rest) in [
+        (
+            narrow,
+            "50, as no more fit the result; pass `nameContains` to see others",
+        ),
+        (None, "50, as no more fit the result"),
+    ] {
+        let cut = showing(50, 100, narrow);
+        let (shown, after) = cut.split_once(" of ").expect("a count");
+        assert!(
+            shown.parse::<usize>().is_ok_and(|shown| shown < 50),
+            "{cut}"
+        );
+        assert_eq!(after, rest);
+    }
+}
+
+#[tokio::test]
+async fn a_cluster_tool_needs_no_cluster_when_the_caller_sees_only_one() {
+    let app = TestApp::of([FakeCluster::local(), FakeCluster::named("prod")])
+        .ingested()
+        .await;
+    let local_only = app.with_access(access([viewer().on(&["local"])]));
+    let blind = app.with_access(access(Vec::new()));
+
+    let served = structured(&call(&local_only, "klens_brokers_list", json!({})).await);
+    let ambiguous = refusal(&call(&app, "klens_brokers_list", json!({})).await);
+    let nothing = refusal(&call(&blind, "klens_brokers_list", json!({})).await);
+
+    assert_eq!(served["brokers"][0]["id"], 1);
+    assert_eq!(ambiguous["code"], "INVALID_REQUEST");
+    assert_eq!(ambiguous["error"], "pass `cluster` as one of local, prod");
+    assert_eq!(nothing["code"], "INVALID_REQUEST");
+    assert_eq!(nothing["error"], "you can see no cluster");
+}
+
+#[tokio::test]
+async fn brokers_list_reads_hosts_and_log_dirs_from_the_snapshot() {
+    let app = TestApp::local().await;
+
+    let listed = structured(&call(&app, "klens_brokers_list", json!({})).await);
+
+    assert_eq!(
+        listed,
+        json!({
+            "brokers": [{
+                "id": 1,
+                "host": "localhost",
+                "port": 9092,
+                "rack": null,
+                "controller": null,
+                "partitionCount": 2,
+                "leaderCount": 2,
+                "sizeBytes": 6144,
+                "logDirs": [{
+                    "path": "/var/lib/kafka/data",
+                    "error": null,
+                    "totalBytes": 1_000_000,
+                    "usableBytes": 750_000,
+                    "cordoned": false,
+                    "sizeBytes": 6144,
+                    "replicaCount": 2,
+                }],
+            }],
+            "showing": "1 of 1",
+        })
+    );
+    assert_eq!(app.cluster().calls(Api::LogDirs), 0);
+}
+
+#[tokio::test]
+async fn brokers_list_leaves_unread_log_dirs_null_and_stops_at_the_limit() {
+    let cluster = FakeCluster::local();
+    cluster.add_broker(2);
+    cluster.add_broker(3);
+    let app = TestApp::of([cluster]).build();
+    let rig = app.rig();
+    rig.poll(&rig.topology()).await;
+
+    let listed = structured(&call(&app, "klens_brokers_list", json!({ "limit": 2 })).await);
+
+    let brokers = listed["brokers"].as_array().expect("brokers");
+    assert_eq!(brokers.len(), 2);
+    assert_eq!(brokers[0]["sizeBytes"], Value::Null);
+    assert_eq!(brokers[0]["logDirs"], Value::Null);
+    assert_eq!(listed["showing"], "2 of 3; raise `limit` to see others");
+}
+
+#[tokio::test]
+async fn schemas_list_gives_versions_and_ids_only_in_detail() {
+    let app = TestApp::local().await;
+
+    let concise = structured(&call(&app, "klens_schemas_list", json!({})).await);
+    let detailed = structured(
+        &call(
+            &app,
+            "klens_schemas_list",
+            json!({ "responseFormat": "DETAILED" }),
+        )
+        .await,
+    );
+
+    let row = json!({
+        "subject": "orders.created-value",
+        "latestVersion": 2,
+        "type": "AVRO",
+        "compatibility": "BACKWARD",
+    });
+    assert_eq!(
+        concise,
+        json!({ "subjects": [row], "showing": "1 of 1", "notice": CLIENT_VALUES_NOTICE })
+    );
+    let mut full = row;
+    full["latestSchemaId"] = json!(1);
+    full["versions"] = json!([{ "version": 1, "id": null }, { "version": 2, "id": 1 }]);
+    assert_eq!(detailed["subjects"], json!([full]));
+}
+
+#[tokio::test]
+async fn schemas_list_filters_names_in_any_case() {
+    let cluster = FakeCluster::local();
+    cluster.set_subjects(vec![
+        subject("orders.created-value", 1, 1),
+        subject("payments-key", 2, 1),
+        subject("Payments-value", 3, 1),
+    ]);
+    let app = TestApp::over(cluster).await;
+
+    let payments = structured(
+        &call(
+            &app,
+            "klens_schemas_list",
+            json!({ "nameContains": "PAY", "limit": 1 }),
+        )
+        .await,
+    );
+
+    assert_eq!(payments["subjects"][0]["subject"], "Payments-value");
+    assert_eq!(payments["subjects"].as_array().map(Vec::len), Some(1));
+    assert_eq!(
+        payments["showing"],
+        "1 of 2; pass `nameContains`, or raise `limit`, to see others"
+    );
+}
+
+#[tokio::test]
+async fn schemas_list_says_when_there_is_no_registry_to_read() {
+    let without = TestApp::over(FakeCluster::local().without_schema_registry()).await;
+    let cluster = FakeCluster::local();
+    let unread = TestApp::of([cluster.clone()]).build();
+    let rig = unread.rig();
+    rig.poll(&rig.topology()).await;
+
+    let none = refusal(&call(&without, "klens_schemas_list", json!({})).await);
+    let pending = refusal(&call(&unread, "klens_schemas_list", json!({})).await);
+    cluster.fail(Api::SchemaSubjects, "registry down");
+    rig.poll(&rig.subjects()).await;
+    let failed = refusal(&call(&unread, "klens_schemas_list", json!({})).await);
+
+    assert_eq!(none["code"], "NO_SCHEMA_REGISTRY");
+    assert_eq!(
+        none["hint"],
+        "klens reads no schema registry for this cluster, so it knows no subjects or schemas there."
+    );
+    assert_eq!(pending["code"], "NOT_READY");
+    assert_eq!(
+        pending["error"],
+        "klens has not read the subjects of cluster 'local' yet"
+    );
+    assert!(
+        failed["error"]
+            .as_str()
+            .is_some_and(|error| error.starts_with(
+                "klens has not read the subjects of cluster 'local' yet; its last attempt failed: "
+            ) && error.contains("registry down")),
+        "{failed}"
+    );
+}
+
+#[tokio::test]
+async fn search_marks_group_and_subject_names_as_client_data() {
+    let app = TestApp::local().await;
+
+    let orders = structured(&call(&app, "klens_search", json!({ "query": "order" })).await);
+    let brokers = structured(&call(&app, "klens_search", json!({ "query": "localhost" })).await);
+
+    let kinds: Vec<&Value> = orders["hits"]
+        .as_array()
+        .expect("hits")
+        .iter()
+        .map(|hit| &hit["kind"])
+        .collect();
+    assert!(kinds.contains(&&json!("GROUP")), "{orders}");
+    assert_eq!(orders["notice"], CLIENT_VALUES_NOTICE);
+    assert!(
+        brokers["hits"]
+            .as_array()
+            .expect("hits")
+            .iter()
+            .all(|hit| hit["kind"] == "NODE"),
+        "{brokers}"
+    );
+    assert!(brokers.get("notice").is_none(), "{brokers}");
 }
 
 #[test]

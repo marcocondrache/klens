@@ -340,10 +340,8 @@ auth:
 
 With an `mcp` block in `config.yaml`, klens serves tools to AI agents over the
 [Model Context Protocol](https://modelcontextprotocol.io) at `/mcp`. Without
-the block, there is no `/mcp`. An agent in Claude Code, VS Code, or Cursor can
-list clusters with their health, find topics, groups, brokers, and schema
-subjects by name, and ask what it may do on each cluster. Each tool reads the
-background projection, so a call costs Kafka nothing.
+the block, there is no `/mcp`. An agent in Claude Code, VS Code, or Cursor
+reads the same background projection as the UI, so a call costs Kafka nothing.
 
 ```yaml
 mcp: {}
@@ -351,6 +349,19 @@ mcp: {}
 
 On the machine that runs klens, add it to Claude Code with
 `claude mcp add --transport http klens http://localhost:8080/mcp`.
+
+`klens_clusters` lists clusters with their health, `klens_search` finds topics,
+groups, brokers, and schema subjects by name, and `klens_access_explain` tells
+the agent what it may do on each cluster. `klens_brokers_list` lists a
+cluster's brokers with their log dirs, and `klens_schemas_list` lists its
+schema subjects. A tool that reads one cluster needs no `cluster` argument when
+the agent sees only one.
+
+A list returns 25 rows unless the agent asks for up to 100, and says how many
+it shows out of how many matched. A count or size klens has not read yet is
+null rather than 0. Group ids, client ids, hosts, and subject names come from
+whoever runs a Kafka client, so a result that carries them tells the agent to
+read them as data, not as instructions.
 
 MCP runs only without `auth` for now, and klens refuses to start with both
 blocks. Anyone who reaches `/mcp` can then call its tools. `/mcp` answers only
