@@ -10,6 +10,10 @@
 #
 # Durations are strings such as 250ms, 10s, or 1h 30m.
 bind: 0.0.0.0:8080
+# Hosts klens answers while auth is off. Any other host gets 403, except on
+# /health and /ready. An entry without a port matches any port. List the name
+# people browse to, such as an ingress host.
+allowed_hosts: [localhost, 127.0.0.1, "::1"]
 log_level: info
 
 # Clusters by name, shown in the UI in this order. Each name appears once.

@@ -47,6 +47,7 @@ value, with its line and column, for example
 
 ```yaml
 bind: 0.0.0.0:8080
+allowed_hosts: [localhost, 127.0.0.1, "::1"] # see Allowed hosts
 log_level: info # off, error, warn, info, debug, or trace
 clusters: {} # by name, shown in the UI in this order
 # auth: see Authentication
@@ -83,6 +84,40 @@ users who hold the privilege the change needs (see
 [Authentication](#authentication)). Without `auth`, everyone who reaches klens
 holds every privilege, and klens logs a warning at startup that names each
 writable cluster.
+
+### Allowed hosts
+
+Without `auth`, klens answers only requests addressed to a host in
+`allowed_hosts`. Any other host gets `403 HOST_NOT_ALLOWED`, and so does a
+request that names no host. This stops DNS rebinding, where a web page points
+its own domain at klens and then reads clusters or sends writes from a
+visitor's browser. The list binds browsers only, since any other client can
+name an allowed host. With `auth`, klens ignores the list, because such a page
+never holds the session cookie.
+
+`/health` and `/ready` answer every host, because Kubernetes probes and load
+balancer health checks name an IP address. Point a load balancer health check
+at one of them, not at `/`.
+
+An entry is a host name or an IP address, with an optional port. An entry
+without a port matches any port, and one with a port matches only that port.
+Browsers leave out `:80` and `:443`, so list a host on those ports without a
+port. Names match in any case. An IPv6 address takes brackets when a port
+follows, and YAML needs quotes around it, as in `"[::1]:8080"`. An empty list
+stops startup, and so does an entry with a scheme, a path, a wildcard, a bad
+port, or a short IPv4 form such as `10.1`.
+
+The default names only the local machine. A deployment that people reach by
+another name, such as an ingress host, must list it. A proxy in front of klens
+must pass on the browser's host, as nginx does with
+`proxy_set_header Host $host`. A proxy that always sends the same name, such as
+`127.0.0.1:8080`, defeats the check unless it refuses other hosts itself. klens
+logs the list at startup when auth is off, and each refused host at debug
+level.
+
+```yaml
+allowed_hosts: [localhost, 127.0.0.1, "::1", klens.example.com]
+```
 
 ### Secrets
 
@@ -208,7 +243,8 @@ operation on the `Cluster` resource.
 
 ## Authentication
 
-By default the UI and JSON API are open to anyone who can reach the process.
+By default the UI and JSON API are open to anyone who can reach the process,
+and browsers reach them only through the [allowed hosts](#allowed-hosts).
 
 To require a login, add an OIDC provider to `config.yaml`. klens uses the
 authorization code flow with PKCE. Sessions use

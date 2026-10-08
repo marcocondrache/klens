@@ -21,11 +21,12 @@ fullnameOverride: ""
 # -- Mount an existing ConfigMap with a `config.yaml` key instead of the inline `config`.
 existingConfigMap: ""
 
-# -- klens config file as a map. The binary validates this YAML, not the chart. `clusters` maps each cluster name to its settings. Timeouts, pool sizes, limits, and lane cadence go under `tuning`.
+# -- klens config file as a map. The binary validates this YAML, not the chart. `clusters` maps each cluster name to its settings. Timeouts, pool sizes, limits, and lane cadence go under `tuning`. Without `auth`, list the Ingress and HTTPRoute hostnames in `allowed_hosts`.
 config:
   bind: 0.0.0.0:8080
   log_level: info
   clusters: {}
+  # allowed_hosts: [localhost, 127.0.0.1, "::1", klens.example.com]
 
 # -- Extra environment variables as a map (templated).
 env: {}

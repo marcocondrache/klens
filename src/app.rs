@@ -5,7 +5,7 @@ use axum::Router;
 use axum::middleware;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-use crate::config::Tuning;
+use crate::config::{AllowedHost, Tuning};
 use crate::kafka::{Clusters, TailLimits};
 
 mod acls;
@@ -18,6 +18,7 @@ mod error;
 mod extract;
 mod groups;
 mod health;
+mod hosts;
 mod quotas;
 mod records;
 mod scram_users;
@@ -95,17 +96,31 @@ fn auth_routes() -> Router<AppState> {
     Router::new().nest("/auth", auth::router())
 }
 
-pub fn router(state: AppState) -> Router {
+pub fn router(state: AppState, allowed_hosts: &[AllowedHost]) -> Router {
     let resources = resources().route_layer(middleware::from_fn_with_state(
         state.clone(),
         auth::require_session,
     ));
     let auth_layer = state.auth.layer();
 
-    Router::new()
-        .merge(health::router())
+    let mut app = Router::new()
         .nest("/api", auth_routes().merge(resources))
+        .with_state(state.clone())
+        .merge(crate::server::web::router());
+    // With auth on, the session cookie stays with klens' own host, so a page
+    // that points its own domain at klens holds no session.
+    if !state.auth.is_enabled() {
+        app = app.layer(middleware::from_fn_with_state(
+            Arc::from(allowed_hosts),
+            hosts::require_allowed_host,
+        ));
+    }
+
+    // Kubernetes probes name the pod IP as the host, so health skips the
+    // check. When neither router sets a fallback, merge keeps the one from
+    // `app`, which carries the check.
+    health::router()
         .with_state(state)
-        .merge(crate::server::web::router())
+        .merge(app)
         .layer(auth_layer)
 }

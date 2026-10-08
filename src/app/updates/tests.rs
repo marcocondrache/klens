@@ -6,6 +6,7 @@ use serde_json::json;
 use tower::ServiceExt as _;
 
 use crate::app::auth::SessionGuard;
+use crate::config::Config;
 use crate::kafka::model::{AclListing, QuotaListing, ScramListing};
 use crate::kafka::store::bus::BUS_CAPACITY;
 use crate::kafka::store::{
@@ -292,9 +293,10 @@ async fn a_session_that_expires_mid_stream_terminates_it() {
 #[tokio::test]
 async fn the_updates_route_is_wired_with_the_session_extensions() {
     let app = TestApp::local().await;
-    let response = crate::app::router(app.state().clone())
+    let response = crate::app::router(app.state().clone(), &Config::default().allowed_hosts)
         .oneshot(
             Request::get("/api/clusters/local/updates")
+                .header(header::HOST, "localhost")
                 .body(Body::empty())
                 .expect("request"),
         )

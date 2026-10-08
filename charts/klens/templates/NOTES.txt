@@ -19,6 +19,13 @@ Or via HTTPRoute hostnames:
 {{- end }}
 {{- end }}
 
+{{- if and (or .Values.ingress.enabled .Values.httpRoute.enabled) (not .Values.existingConfigMap) (not .Values.config.auth) (not .Values.config.allowed_hosts) }}
+
+Without `config.auth`, klens answers only the hosts in `config.allowed_hosts`,
+which defaults to the local machine. List the hosts above there, or klens
+answers them with 403.
+{{- end }}
+
 {{- if and (not .Values.existingConfigMap) (eq (len (.Values.config.clusters | default dict)) 0) }}
 
 No clusters are defined yet. Add them under `config.clusters`, or set

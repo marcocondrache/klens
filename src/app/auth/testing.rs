@@ -5,7 +5,7 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use axum::body::{Body, Bytes, to_bytes};
 use axum::extract::State;
-use axum::http::{HeaderMap, Request, StatusCode, header};
+use axum::http::{HeaderMap, HeaderValue, Request, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::{Json, Router};
 use jiff::Timestamp;
@@ -21,7 +21,7 @@ use super::oidc::OidcFlow;
 use super::{AuthSession, AuthState, SessionGuard, SessionUser, session_layer};
 use crate::AppState;
 use crate::app::Limits;
-use crate::config::Tuning;
+use crate::config::{Config, Tuning};
 use crate::kafka::Clusters;
 use crate::testing::FakeCluster;
 
@@ -152,7 +152,7 @@ impl Browser {
             Limits::new(&Tuning::default()),
         );
         Self {
-            app: crate::app::router(state),
+            app: crate::app::router(state, &Config::default().allowed_hosts),
             jar: BTreeMap::new(),
         }
     }
@@ -188,6 +188,9 @@ impl Browser {
     }
 
     async fn send(&mut self, mut request: Request<Body>) -> Page {
+        request
+            .headers_mut()
+            .insert(header::HOST, HeaderValue::from_static("localhost:8080"));
         if !self.jar.is_empty() {
             let cookies = self
                 .jar
