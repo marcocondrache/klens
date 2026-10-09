@@ -4091,6 +4091,30 @@ async fn a_write_and_a_refused_write_log_the_user_and_client_of_the_token() {
 }
 
 #[tokio::test]
+async fn a_read_stops_and_frees_its_call_when_the_client_leaves() {
+    let app = TestApp::of([schemas().with_delay(Api::SubjectSchema, Duration::from_secs(60))])
+        .limits(Limits {
+            mcp_calls: 1,
+            ..Limits::new(&Tuning::default())
+        })
+        .ingested()
+        .await
+        .serving_mcp(every_tool());
+    let body = call_body(
+        "klens_schema_get",
+        json!({ "subject": "orders.created-value", "version": 2 }),
+    );
+    let answer = app.send_through_router(mcp_request(&body));
+
+    tokio::select! {
+        _ = answer => panic!("the read answered before the client left"),
+        () = eventually("a read in flight", || app.cluster().calls(Api::SubjectSchema) == 1) => {}
+    }
+
+    eventually("a free call", || app.state().mcp_permit().is_some()).await;
+}
+
+#[tokio::test]
 async fn a_write_still_logs_its_change_when_the_client_leaves() {
     let cluster = FakeCluster::local().with_delay(Api::CreateTopic, Duration::from_millis(100));
     let app = TestApp::of([cluster])
