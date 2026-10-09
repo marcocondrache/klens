@@ -180,7 +180,7 @@ tuning:
     max_sample_gap: 15s # older watermark samples do not count toward a rate
   mcp:
     max_concurrent_calls: 16 # MCP tool calls served at once, across every client
-    live_calls_per_minute: 30 # MCP calls that make klens read more from Kafka
+    live_calls_per_minute: 30 # MCP calls that make klens read more from Kafka or change it
 ```
 
 Every page reads a background projection of each cluster, refreshed by the
@@ -385,6 +385,22 @@ registry can send back any text, so the last error of a background read sits
 between markers wherever a result shows it, and so does the message of a
 failing registry in a refusal.
 
+Three tools change Kafka, and only once `privileges` allows it, as the ceiling
+below shows. `klens_topic_create` creates a topic with the partitions,
+replication factor, and configs the agent gives, or else the broker's defaults.
+`klens_record_produce` writes one record and returns its partition and offset.
+Its key and value are UTF-8 text, base64 bytes, or JSON that klens writes with
+a registry schema, as in the UI. It writes no tombstones, since a tombstone
+deletes its key from a compacted topic. `klens_schema_register` registers a
+schema version under a subject and returns the version and the schema id. Each
+needs the privilege the UI needs for the same change, `create_topics`,
+`produce`, or `register_schemas`, on a cluster with `writable: true`. klens logs
+each change as it logs one from the UI, with the user and client of the call.
+The tool list leaves out each of the three unless a cluster the agent sees takes
+changes and grants its privilege, and `klens_access_explain` marks it
+unavailable on a cluster that takes none. When Kafka or the registry refuses a
+change, the refusal carries the reason between markers.
+
 A list returns 25 rows unless the agent asks for up to 100, and says how many
 it shows out of how many matched. A count, size, or rate klens has not
 measured yet is null rather than 0. Group ids, client ids, hosts, assignment
@@ -423,23 +439,44 @@ mcp:
 ```
 
 The block is a ceiling on what an MCP client may do. `privileges` lists the
-reads it may use beyond the catalog, out of `records`, `topic_configs`,
-`broker_configs`, `schema_text`, and `acls`, and defaults to all five. `records`
-opens the record tools, `schema_text` opens `klens_schema_get`, and `acls` opens
-`klens_acls_list`. `topic_configs` adds a topic's config overrides to
-`klens_topic_describe`, and `broker_configs` adds a broker's to
-`klens_brokers_list`. A tool says when it left such a section out. MCP serves no
-writes, so a write privilege stops startup. `clusters` limits MCP to the
-clusters it names. When it is omitted, MCP reaches every cluster, and an empty
-list reaches none. A name that is not a configured cluster stops startup. The
-tool list an agent gets leaves out each tool that needs a privilege the agent
-holds on none of the clusters it sees, so without `records` it never sees the
-record tools.
+reads and changes it may use beyond the catalog. The reads are `records`,
+`topic_configs`, `broker_configs`, `schema_text`, and `acls`, and it defaults to
+all five. `records` opens the record tools, `schema_text` opens
+`klens_schema_get`, and `acls` opens `klens_acls_list`. `topic_configs` adds a
+topic's config overrides to `klens_topic_describe`, and `broker_configs` adds a
+broker's to `klens_brokers_list`. A tool says when it left such a section out.
+MCP changes nothing until `privileges` names `create_topics`, `produce`, or
+`register_schemas`, which open the three tools that change Kafka. Any other
+write privilege stops startup, so a later klens cannot switch on a new write
+tool by itself. `clusters` limits MCP to the clusters it names. When it is
+omitted, MCP reaches every cluster, and an empty list reaches none. A name that
+is not a configured cluster stops startup. The tool list an agent gets leaves
+out each tool that needs a privilege the agent holds on none of the clusters it
+sees, so without `records` it never sees the record tools.
 
 ```yaml
 mcp:
   privileges: [topic_configs, schema_text] # no record payloads or ACLs
   clusters: [dev, staging]
+```
+
+The UI and MCP share each cluster's `writable` flag, so name the clusters an
+agent may reach in `clusters` before you add a write privilege, and leave
+production out. With `auth`, `token.clients` is then required, so a token that
+another client of the provider gets cannot change Kafka. klens warns at startup
+when `auth` is off and `privileges` names a write, since anyone who reaches
+`/mcp` could then change a writable cluster. It also warns when `privileges`
+names `records` or `schema_text` beside a write. An agent that reads text a
+producer or schema author chose may follow instructions hidden in it, and a
+write gives it a way to copy private data out.
+
+```yaml
+mcp:
+  privileges: [topic_configs, create_topics, produce, register_schemas]
+  clusters: [dev, staging] # keep writes off production
+  resource: https://klens.example.com/mcp
+  token:
+    clients: [klens-mcp] # required with a write privilege
 ```
 
 `tuning.mcp.max_concurrent_calls` (16) caps the tool calls klens serves at
@@ -466,11 +503,11 @@ results at debug level.
 `klens_group_describe` makes klens read the group's offsets every
 `tuning.ingest.fast_offset` for `tuning.ingest.interest_ttl`, as opening the
 group in the UI does. The record tools read Kafka on every call,
-`klens_schema_get` reads the schema registry, and `klens_brokers_list` reads
-Kafka when it reads a broker's configs. `tuning.mcp.live_calls_per_minute` (30)
-caps how often agents may call these tools. With `auth`, each user has a
-budget of their own. Without it, every client shares one. A call past it fails
-with `RATE_LIMITED`.
+`klens_schema_get` reads the schema registry, `klens_brokers_list` reads Kafka
+when it reads a broker's configs, and the three write tools change Kafka or the
+registry. `tuning.mcp.live_calls_per_minute` (30) caps how often agents may call
+these tools. With `auth`, each user has a budget of their own. Without it, every
+client shares one. A call past it fails with `RATE_LIMITED`.
 
 Every result reaches the agent's model provider, record payloads, configs,
 schema text, and ACLs included. Set `privileges` and `clusters` to what you
@@ -500,7 +537,8 @@ client the id of this OAuth client.
 
 `token.clients` names that client, so a token that another client of the
 provider gets for the same audience does not open `/mcp`. klens logs a warning
-at startup while the list is empty.
+at startup while the list is empty, and refuses to start without it when
+`mcp.privileges` names a write.
 
 Keycloak fits. In the realm that `auth.oidc.issuer` names, create an OpenID
 Connect client such as `klens-mcp`. Turn Client authentication off, keep
@@ -540,17 +578,18 @@ Okta and Dex probably fit, and neither has been verified. Okta sets the
 audience of an access token only on a custom authorization server, so
 `auth.oidc.issuer` must name that server, with `mcp.resource` as its audience
 and a groups claim on its access tokens. Okta names the client in `cid`, which
-klens does not read, so leave `token.clients` empty there. Give klens an
-authorization server of its own instead, and assign its access policy only to
-the MCP client and the UI's client.
+klens does not read, so leave `token.clients` empty there, which keeps MCP to
+reads. Give klens an authorization server of its own instead, and assign its
+access policy only to the MCP client and the UI's client.
 
 Dex issues access tokens shaped like its ID tokens, with the id of the client
 that asked as the audience. Create a static public client for MCP apart from
 the UI's, put its id in `token.audiences`, and set `token.scopes` to
 `[openid, groups]` so Dex adds the groups. The audience already names the
-client, so `token.clients` can stay empty. Dex gives an access token the
-lifetime of its ID tokens, 24 hours unless `expiry.idTokens` says otherwise, so
-set that to `1h` or raise `token.max_age` to match.
+client, so `token.clients` can stay empty while MCP serves only reads. Dex
+gives an access token the lifetime of its ID tokens, 24 hours unless
+`expiry.idTokens` says otherwise, so set that to `1h` or raise `token.max_age`
+to match.
 
 Entra ID can work, but it needs more setup and breaks easily. Create an app
 registration for MCP apart from the UI's, because `token.audiences` may not
