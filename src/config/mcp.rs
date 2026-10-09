@@ -54,7 +54,11 @@ impl Default for Mcp {
 }
 
 impl Mcp {
-    pub const WRITES: &[Privilege] = &[Privilege::CreateTopics, Privilege::Produce];
+    pub const WRITES: &[Privilege] = &[
+        Privilege::CreateTopics,
+        Privilege::Produce,
+        Privilege::RegisterSchemas,
+    ];
 
     pub fn audiences(&self) -> Vec<String> {
         match &self.token.audiences {

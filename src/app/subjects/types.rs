@@ -1,3 +1,4 @@
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -7,8 +8,9 @@ use crate::r#macro::from_same_variants;
 
 use super::super::clusters::LaneHealth;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, JsonSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[schemars(inline)]
 pub enum SchemaType {
     Avro,
     Json,
@@ -101,8 +103,9 @@ pub struct SubjectRowsResult {
     pub has_registry: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[schemars(inline)]
 pub struct SchemaReference {
     pub name: String,
     pub subject: String,

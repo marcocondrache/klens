@@ -155,6 +155,8 @@ fn naming(tool: &Tool, cluster: &str) -> Value {
             "partition" => json!(0),
             "offset" => json!(1),
             "value" => json!({ "encoding": "TEXT", "data": "x" }),
+            "type" => json!("AVRO"),
+            "schema" => json!(r#""string""#),
             _ => json!("x"),
         };
     }
@@ -202,8 +204,9 @@ async fn writable() -> TestApp {
 
 fn lanes_writes_wait_on(app: &TestApp) -> Rig {
     let mut rig = app.rig();
-    let topology = rig.topology();
+    let (topology, subjects) = (rig.topology(), rig.subjects());
     rig.spawn(topology);
+    rig.spawn(subjects);
     rig
 }
 
@@ -376,6 +379,7 @@ async fn every_tool_that_changes_kafka_is_refused_on_a_read_only_cluster() {
     }
     assert_eq!(app.cluster().calls(Api::CreateTopic), 0);
     assert_eq!(app.cluster().calls(Api::Produce), 0);
+    assert_eq!(app.cluster().calls(Api::RegisterSchema), 0);
 }
 
 #[test]
@@ -900,6 +904,7 @@ async fn the_default_ceiling_keeps_a_bearer_token_from_writing() {
     }
     assert_eq!(app.cluster().calls(Api::CreateTopic), 0);
     assert_eq!(app.cluster().calls(Api::Produce), 0);
+    assert_eq!(app.cluster().calls(Api::RegisterSchema), 0);
 }
 
 #[tokio::test]
@@ -1265,6 +1270,7 @@ async fn access_explain_reports_privileges_under_the_ceiling() {
             { "name": "klens_record_produce", "available": false, "needs": "PRODUCE" },
             reads_records("klens_records_read"),
             { "name": "klens_schema_get", "available": false, "needs": "SCHEMA_TEXT" },
+            { "name": "klens_schema_register", "available": false, "needs": "REGISTER_SCHEMAS" },
             { "name": "klens_schemas_list", "available": true },
             { "name": "klens_search", "available": true },
             { "name": "klens_topic_create", "available": false, "needs": "CREATE_TOPICS" },
@@ -3883,16 +3889,75 @@ async fn record_produce_keeps_why_a_payload_misses_its_schema_inside_the_boundar
 }
 
 #[tokio::test]
-async fn write_tools_draw_on_the_live_budget_once_their_checks_pass() {
-    let app = TestApp::of([FakeCluster::local(), FakeCluster::named("prod")])
-        .limits(Limits {
-            mcp_live_calls_per_minute: NonZeroU32::MIN,
-            ..Limits::new(&Tuning::default())
-        })
-        .writable(&["local"])
-        .ingested()
+async fn schema_register_registers_what_the_http_route_registers() {
+    let (by_tool, by_route) = (writable().await, writable().await);
+    let _lanes = (
+        lanes_writes_wait_on(&by_tool),
+        lanes_writes_wait_on(&by_route),
+    );
+    let schema = json!({
+        "type": "AVRO",
+        "schema": r#"{"type":"record","name":"Invoice","fields":[{"name":"total","type":"long"}]}"#,
+    });
+    let mut arguments = schema.clone();
+    arguments["subject"] = json!("invoices-value");
+
+    let registered = structured(&call(&by_tool, "klens_schema_register", arguments).await);
+    let posted = by_route
+        .post("/clusters/local/subjects/invoices-value", &schema)
         .await
-        .serving_mcp(every_tool());
+        .ok();
+
+    assert_eq!(registered["version"], 1, "{registered}");
+    assert_eq!(registered, posted);
+    let path = "/clusters/local/subjects/invoices-value";
+    assert_eq!(by_tool.get(path).await.ok(), by_route.get(path).await.ok());
+}
+
+#[tokio::test]
+async fn schema_register_keeps_the_reason_the_registry_refused_inside_the_boundary() {
+    let app = writable().await;
+
+    let result = call(
+        &app,
+        "klens_schema_register",
+        json!({ "subject": "invoices-value", "type": "AVRO", "schema": FORGED_ERROR }),
+    )
+    .await;
+
+    let refused = refusal(&result);
+    assert_eq!(
+        refused,
+        json!({
+            "error": "the schema registry refused the change",
+            "code": "REGISTRY_REFUSED",
+            "hint": "Read the registry's reason in the message, and change the schema before you \
+                     call again.",
+        })
+    );
+    let text = result["content"][0]["text"].as_str().expect("a text");
+    assert_eq!(
+        enclosed(text)["message"],
+        format!("Invalid schema {FORGED_ERROR}")
+    );
+}
+
+#[tokio::test]
+async fn write_tools_draw_on_the_live_budget_once_their_checks_pass() {
+    let bare = FakeCluster::named("bare").without_schema_registry();
+    let app = TestApp::of([
+        FakeCluster::local(),
+        FakeCluster::named("prod"),
+        bare.clone(),
+    ])
+    .limits(Limits {
+        mcp_live_calls_per_minute: NonZeroU32::MIN,
+        ..Limits::new(&Tuning::default())
+    })
+    .writable(&["local", "bare"])
+    .ingested()
+    .await
+    .serving_mcp(every_tool());
     let _lanes = lanes_writes_wait_on(&app);
     let viewer = app.with_access(access([viewer()]));
     let writes: Vec<Tool> = KlensMcp::tools()
@@ -3932,6 +3997,14 @@ async fn write_tools_draw_on_the_live_budget_once_their_checks_pass() {
         let refused = refusal(&call(&app, "klens_record_produce", arguments).await);
         misaddressed.push(refused["code"].clone());
     }
+    let unregistered = refusal(
+        &call(
+            &app,
+            "klens_schema_register",
+            json!({ "cluster": "bare", "subject": "s", "type": "AVRO", "schema": r#""string""# }),
+        )
+        .await,
+    );
     let served = call(
         &app,
         "klens_topic_create",
@@ -3949,9 +4022,12 @@ async fn write_tools_draw_on_the_live_budget_once_their_checks_pass() {
 
     assert_eq!(malformed["code"], "INVALID_REQUEST");
     assert_eq!(misaddressed, ["UNKNOWN_TOPIC", "UNKNOWN_PARTITION"]);
+    assert_eq!(unregistered["code"], "NO_SCHEMA_REGISTRY");
     structured(&served);
     assert_eq!(app.cluster().calls(Api::CreateTopic), 1);
     assert_eq!(app.cluster().calls(Api::Produce), 0);
+    assert_eq!(app.cluster().calls(Api::RegisterSchema), 0);
+    assert_eq!(bare.calls(Api::RegisterSchema), 0);
 }
 
 #[tokio::test]
@@ -3975,6 +4051,7 @@ async fn a_write_and_a_refused_write_log_the_user_and_client_of_the_token() {
     let audits = [
         ("klens_topic_create", "created topic"),
         ("klens_record_produce", "produced record"),
+        ("klens_schema_register", "registered schema"),
     ];
     let logs = LogCapture::at(Level::INFO);
 

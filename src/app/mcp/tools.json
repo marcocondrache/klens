@@ -684,6 +684,78 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Registers a schema as a subject's next version and returns the version and the schema id. It changes the registry, so calls to it are limited per minute.\nWhen the subject already holds the same schema, the registry returns that version and registers nothing.\nIt needs a cluster that accepts changes, and fails with READ_ONLY_CLUSTER on any other. It fails with NO_SCHEMA_REGISTRY when klens reads no registry for the cluster, and with REGISTRY_REFUSED when the registry refuses the schema, such as for one the subject's compatibility level rules out.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "cluster": {
+            "description": "A cluster name from klens_clusters. Optional when you see only one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "references": {
+            "default": [],
+            "description": "The schemas this one references, each by the name it imports, a subject and a version.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "subject": {
+                  "type": "string"
+                },
+                "version": {
+                  "format": "int32",
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "name",
+                "subject",
+                "version"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "schema": {
+            "description": "The schema as text, JSON for AVRO and JSON, and .proto source for PROTOBUF.",
+            "type": "string"
+          },
+          "subject": {
+            "description": "The subject's exact name. The registry creates it unless it exists.",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "AVRO",
+              "JSON",
+              "PROTOBUF"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject",
+          "type",
+          "schema"
+        ],
+        "type": "object"
+      },
+      "name": "klens_schema_register",
+      "title": "Register a schema"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
         "readOnlyHint": true
       },
       "description": "Lists a cluster's schema subjects from A to Z with their latest version, schema type and compatibility level.\n`responseFormat` DETAILED adds the latest schema id and the newest 10 versions with their schema ids, and `versionsLeftOut` counts older ones.\nIt fails with NO_SCHEMA_REGISTRY when klens reads no registry for the cluster.",

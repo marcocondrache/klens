@@ -52,7 +52,9 @@ use super::records::types::{
 };
 use super::search::types::{SearchHit, SearchKind};
 use super::subjects::latest_version;
-use super::subjects::types::SubjectDetail;
+use super::subjects::types::{
+    RegisterSchema, RegisteredVersion, SchemaReference, SchemaType, SubjectDetail,
+};
 use super::topics::{CreateTopic, TopicGroupRow};
 
 mod findings;
@@ -177,6 +179,11 @@ const TOOLS: &[ToolGate] = &[
     ToolGate {
         name: "klens_schema_get",
         needs: Some(Privilege::SchemaText),
+        sections: &[],
+    },
+    ToolGate {
+        name: "klens_schema_register",
+        needs: Some(Privilege::RegisterSchemas),
         sections: &[],
     },
     ToolGate {
@@ -347,6 +354,10 @@ impl IntoCallToolResult for ApiError {
             ApiError::Kafka(KafkaError::Refused(message)) => {
                 ("kafka refused the change".to_owned(), Some(message))
             }
+            ApiError::Kafka(KafkaError::RegistryRefused(message)) => (
+                "the schema registry refused the change".to_owned(),
+                Some(message),
+            ),
             ApiError::Kafka(KafkaError::Unencodable { id, message }) => (
                 format!("the payload does not fit schema {id}"),
                 Some(message),
@@ -422,6 +433,10 @@ fn hint(error: &ApiError) -> &'static str {
         ApiError::Kafka(KafkaError::Timeout) => "Kafka did not answer in time. Call again shortly.",
         ApiError::Kafka(KafkaError::Refused(_)) => {
             "Read Kafka's reason in the message, and change the arguments before you call again."
+        }
+        ApiError::Kafka(KafkaError::RegistryRefused(_)) => {
+            "Read the registry's reason in the message, and change the schema before you call \
+             again."
         }
         ApiError::Kafka(KafkaError::Unencodable { .. } | KafkaError::UnknownSchema { .. }) => {
             "klens_schemas_list with responseFormat DETAILED gives the schema id of each subject \
@@ -1016,6 +1031,22 @@ struct RecordToProduce {
     /// Headers, each with a key and a text value.
     #[serde(default)]
     headers: Vec<RecordHeader>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct SchemaToRegister {
+    /// A cluster name from klens_clusters. Optional when you see only one.
+    cluster: Option<String>,
+    /// The subject's exact name. The registry creates it unless it exists.
+    subject: String,
+    #[serde(rename = "type")]
+    schema_type: SchemaType,
+    /// The schema as text, JSON for AVRO and JSON, and .proto source for PROTOBUF.
+    schema: String,
+    /// The schemas this one references, each by the name it imports, a subject and a version.
+    #[serde(default)]
+    references: Vec<SchemaReference>,
 }
 
 #[tool_router(router = tools)]
@@ -1840,6 +1871,43 @@ impl KlensMcp {
             version,
             schema,
         )))
+    }
+
+    /// Registers a schema as a subject's next version and returns the version and the schema id. It changes the registry, so calls to it are limited per minute.
+    /// When the subject already holds the same schema, the registry returns that version and registers nothing.
+    /// It needs a cluster that accepts changes, and fails with READ_ONLY_CLUSTER on any other. It fails with NO_SCHEMA_REGISTRY when klens reads no registry for the cluster, and with REGISTRY_REFUSED when the registry refuses the schema, such as for one the subject's compatibility level rules out.
+    #[tool(
+        title = "Register a schema",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn klens_schema_register(
+        &self,
+        session: Session,
+        Parameters(registered): Parameters<SchemaToRegister>,
+    ) -> Result<CallToolResult, ApiError> {
+        let cluster = one_cluster(&session, registered.cluster.as_deref())?;
+        let schemas = cluster.register_schemas()?;
+        if !cluster.has_schema_registry() {
+            return Err(KafkaError::NoSchemaRegistry(cluster.name().to_owned()).into());
+        }
+        if !self.state.mcp_live_call(session.guard.subject()) {
+            return Err(ApiError::TooManyLiveCalls);
+        }
+        let schema = RegisterSchema {
+            schema_type: registered.schema_type,
+            schema: registered.schema,
+            references: registered.references,
+        }
+        .into_schema(registered.subject);
+        let version = schemas.register_schema(&schema).await?;
+        Ok(CallToolResult::structured(json!(RegisteredVersion::from(
+            version
+        ))))
     }
 
     /// Lists a cluster's ACL bindings.
