@@ -7,7 +7,7 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
-      "description": "Explains what you may do on each cluster you can see: your privileges under the ceiling the klens operator set for MCP, whether the cluster accepts changes, and each tool or section with the privilege it needs when it is not available.\nEveryone sees the catalog of clusters, topics, groups, brokers and subjects. Privileges cover record payloads, configs, schema text and ACLs.\nCall it after a FORBIDDEN or READ_ONLY_CLUSTER error, or before work that needs a privilege.",
+      "description": "Explains what you may do on each cluster you can see: your privileges under the ceiling the klens operator set for MCP, whether the cluster accepts changes, and each tool or section with the privilege it needs when it is not available.\nEveryone sees the catalog of clusters, topics, groups, brokers and subjects. Privileges cover record payloads, configs, schema text, ACLs and changes. A tool that changes Kafka is available only on a cluster that accepts changes.\nCall it after a FORBIDDEN or READ_ONLY_CLUSTER error, or before work that needs a privilege.",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
@@ -574,6 +574,66 @@
       },
       "name": "klens_search",
       "title": "Search names"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Creates a topic with the partitions, replication factor and configs given, or else the broker's defaults. It changes Kafka, so calls to it are limited per minute.\nIt needs a cluster that accepts changes, and fails with READ_ONLY_CLUSTER on any other. It fails with REFUSED when Kafka refuses, such as for a topic that exists.\nThe result gives the topic's name and partition count, which is null when you gave no `partitions` and klens has not seen the topic yet.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "cluster": {
+            "description": "A cluster name from klens_clusters. Optional when you see only one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "configs": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "default": {},
+            "description": "Topic configs to set, such as cleanup.policy or retention.ms.",
+            "type": "object"
+          },
+          "partitions": {
+            "description": "The broker's num.partitions unless given.",
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "replicationFactor": {
+            "description": "The broker's default.replication.factor unless given.",
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "topic": {
+            "description": "The new topic's name, of letters, digits, `.`, `_` and `-`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "topic"
+        ],
+        "type": "object"
+      },
+      "name": "klens_topic_create",
+      "title": "Create a topic"
     },
     {
       "annotations": {

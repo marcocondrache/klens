@@ -1,5 +1,6 @@
 use std::num::NonZeroU32;
 use std::path::Path;
+use std::time::Duration;
 
 use axum::Router;
 use axum::body::{Body, to_bytes};
@@ -29,9 +30,9 @@ use crate::kafka::model::{
     SchemaType, Watermarks,
 };
 use crate::testing::{
-    Api, FakeCluster, FixtureRecord, LogCapture, TestApp, access, card_record, config_entry,
-    exchange, framed, group, mcp_request, offline_partition, partition, role, subject, topic,
-    viewer, yaml,
+    Api, FakeCluster, FixtureRecord, LogCapture, Rig, TestApp, access, card_record, config_entry,
+    eventually, exchange, framed, group, mcp_request, offline_partition, partition, role, subject,
+    topic, viewer, yaml,
 };
 
 const PAN: &str = "4111111111111111";
@@ -147,6 +148,7 @@ fn naming(tool: &Tool, cluster: &str) -> Value {
     for name in required.into_iter().flatten() {
         let name = name.as_str().expect("a property name");
         arguments[name] = match name {
+            "topic" if tool.name == "klens_topic_create" => json!("invoices"),
             "topic" => json!("orders.created"),
             "group" => json!("order-processor"),
             "subject" => json!("orders.created-value"),
@@ -161,6 +163,47 @@ fn naming(tool: &Tool, cluster: &str) -> Value {
 
 fn tool_names() -> Vec<&'static str> {
     TOOLS.iter().map(|gate| gate.name).collect()
+}
+
+fn read_tool_names() -> Vec<&'static str> {
+    TOOLS
+        .iter()
+        .filter(|gate| !gate.changes())
+        .map(|gate| gate.name)
+        .collect()
+}
+
+fn tool_names_that_change_kafka() -> Vec<&'static str> {
+    TOOLS
+        .iter()
+        .filter(|gate| gate.changes())
+        .map(|gate| gate.name)
+        .collect()
+}
+
+fn every_tool() -> Mcp {
+    Mcp {
+        privileges: gates()
+            .into_iter()
+            .filter_map(|(_, _, needs)| needs)
+            .collect(),
+        ..Mcp::default()
+    }
+}
+
+async fn writable() -> TestApp {
+    TestApp::of([FakeCluster::local()])
+        .writable(&["local"])
+        .ingested()
+        .await
+        .serving_mcp(every_tool())
+}
+
+fn lanes_writes_wait_on(app: &TestApp) -> Rig {
+    let mut rig = app.rig();
+    let topology = rig.topology();
+    rig.spawn(topology);
+    rig
 }
 
 fn gates() -> Vec<(&'static str, Option<Section>, Option<Privilege>)> {
@@ -257,8 +300,11 @@ async fn every_tool_opens_to_exactly_the_privilege_it_names() {
             mcp_live_calls_per_minute: NonZeroU32::MAX,
             ..Limits::new(&Tuning::default())
         })
+        .writable(&["local"])
         .ingested()
-        .await;
+        .await
+        .serving_mcp(every_tool());
+    let _lanes = lanes_writes_wait_on(&app);
     let tools = KlensMcp::tools().list_all();
     let mut wrong = Vec::new();
 
@@ -288,12 +334,12 @@ async fn every_tool_opens_to_exactly_the_privilege_it_names() {
 
 #[tokio::test]
 async fn a_ceiling_without_a_privilege_closes_each_tool_and_section_that_needs_it() {
-    let app = TestApp::local().await;
+    let app = writable().await;
     let tools = KlensMcp::tools().list_all();
 
     for (name, section, needs) in gates() {
         let Some(needs) = needs else { continue };
-        let mcp = Mcp::default();
+        let mcp = every_tool();
         let capped = app.serving_mcp(Mcp {
             privileges: mcp
                 .privileges
@@ -312,6 +358,22 @@ async fn a_ceiling_without_a_privilege_closes_each_tool_and_section_that_needs_i
         };
         assert_eq!(outcome(&result, section), expected, "{name} {section:?}");
     }
+}
+
+#[tokio::test]
+async fn every_tool_that_changes_kafka_is_refused_on_a_read_only_cluster() {
+    let app = TestApp::local().await.serving_mcp(every_tool());
+    let tools = KlensMcp::tools().list_all();
+
+    for name in tool_names_that_change_kafka() {
+        let tool = tools.iter().find(|tool| tool.name == name).expect("a tool");
+
+        let refused = refusal(&call(&app, name, naming(tool, "local")).await);
+
+        assert_eq!(refused["code"], "READ_ONLY_CLUSTER", "{name}");
+        assert_eq!(refused["error"], "cluster 'local' is read-only");
+    }
+    assert_eq!(app.cluster().calls(Api::CreateTopic), 0);
 }
 
 #[test]
@@ -350,11 +412,16 @@ fn a_tool_names_the_privilege_it_lacks_on_a_cluster() {
 }
 
 #[test]
-fn every_tool_is_a_titled_read_a_client_can_show() {
+fn every_tool_is_titled_and_says_whether_it_changes_kafka() {
     for tool in KlensMcp::tools().list_all() {
         let name = &*tool.name;
         let annotations = tool.annotations.as_ref().expect("annotations");
         let description = tool.description.as_deref().expect("a description");
+        let changes = TOOLS
+            .iter()
+            .find(|gate| gate.name == name)
+            .expect("a gate")
+            .changes();
 
         assert!(name.starts_with("klens_") && name.len() <= 64, "{name}");
         assert!(
@@ -367,10 +434,15 @@ fn every_tool_is_a_titled_read_a_client_can_show() {
             (
                 annotations.read_only_hint,
                 annotations.destructive_hint,
-                annotations.idempotent_hint,
                 annotations.open_world_hint,
             ),
-            (Some(true), Some(false), Some(true), Some(false)),
+            (Some(!changes), Some(false), Some(false)),
+            "{name}"
+        );
+        assert!(
+            annotations
+                .idempotent_hint
+                .is_some_and(|idempotent| idempotent || changes),
             "{name}"
         );
         assert!(description.len() < 2048, "{name}");
@@ -380,11 +452,7 @@ fn every_tool_is_a_titled_read_a_client_can_show() {
 
 #[tokio::test]
 async fn tools_list_serves_the_checked_in_snapshot() {
-    let listed = TestApp::local()
-        .await
-        .mcp("tools/list", json!({}))
-        .await
-        .ok();
+    let listed = writable().await.mcp("tools/list", json!({})).await.ok();
     let snapshot: Value = serde_json::from_str(&tool_list()).expect("json");
 
     assert_eq!(listed["result"]["tools"], snapshot["tools"]);
@@ -428,7 +496,50 @@ async fn tools_list_leaves_out_a_tool_the_caller_may_use_on_no_cluster() {
             "{listed:?}"
         );
     }
-    assert_eq!(reading_prod, tool_names());
+    assert_eq!(reading_prod, read_tool_names());
+}
+
+#[tokio::test]
+async fn a_tool_that_changes_kafka_is_offered_only_where_the_cluster_accepts_changes() {
+    let app = TestApp::of([FakeCluster::local(), FakeCluster::named("prod")])
+        .writable(&["local"])
+        .ingested()
+        .await
+        .serving_mcp(every_tool());
+    let creator = || {
+        role(
+            "creator",
+            PrivilegeSet::from_privileges([Privilege::CreateTopics]),
+        )
+    };
+    let offered = async |app: TestApp| {
+        let listed = app.mcp("tools/list", json!({})).await.ok();
+        names(&listed["result"], "tools", "name").contains(&"klens_topic_create".to_owned())
+    };
+    let everywhere = app.with_access(access([creator()]));
+
+    let explained = structured(&call(&everywhere, "klens_access_explain", json!({})).await);
+
+    let rights = |cluster: usize| {
+        explained["clusters"][cluster]["tools"]
+            .as_array()
+            .expect("tools")
+            .iter()
+            .find(|tool| tool["name"] == "klens_topic_create")
+            .cloned()
+            .expect("the create tool")
+    };
+    assert_eq!(explained["clusters"][0]["writable"], true);
+    assert_eq!(
+        rights(0),
+        json!({ "name": "klens_topic_create", "available": true })
+    );
+    assert_eq!(
+        rights(1),
+        json!({ "name": "klens_topic_create", "available": false })
+    );
+    assert!(offered(everywhere).await);
+    assert!(!offered(app.with_access(access([viewer(), creator().on(&["prod"])]))).await);
 }
 
 #[tokio::test]
@@ -754,6 +865,38 @@ async fn the_ceiling_holds_through_the_router_for_a_bearer_token() {
         let refused = refusal(&call(&tool.name, naming(&tool, "local")).await);
         assert_eq!(refused["code"], "UNKNOWN_CLUSTER", "{}", tool.name);
     }
+}
+
+#[tokio::test]
+async fn the_default_ceiling_keeps_a_bearer_token_from_writing() {
+    let a = Signer::a();
+    let idp = Idp::start(&[&a], &[&a]).await;
+    let mcp = for_resource("");
+    let app = TestApp::of([FakeCluster::local()])
+        .auth(idp.auth(&mcp).await)
+        .writable(&["local"])
+        .ingested()
+        .await
+        .serving_mcp(mcp);
+    let mut claims = idp.claims();
+    claims["groups"] = json!(["writers"]);
+    let token = a.sign(&claims);
+    let send = |body: &Value| {
+        let request = bearing(mcp_request(body), &token);
+        async { app.reply_through_router(request).await.ok()["result"].take() }
+    };
+    let tools = KlensMcp::tools().list_all();
+    let list = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {} });
+
+    let offered = names(&send(&list).await, "tools", "name");
+
+    for name in tool_names_that_change_kafka() {
+        let tool = tools.iter().find(|tool| tool.name == name).expect("a tool");
+        let refused = refusal(&send(&call_body(name, naming(tool, "local"))).await);
+        assert!(!offered.contains(&name.to_owned()), "{name}");
+        assert_eq!(refused["code"], "FORBIDDEN", "{name}");
+    }
+    assert_eq!(app.cluster().calls(Api::CreateTopic), 0);
 }
 
 #[tokio::test]
@@ -1120,6 +1263,7 @@ async fn access_explain_reports_privileges_under_the_ceiling() {
             { "name": "klens_schema_get", "available": false, "needs": "SCHEMA_TEXT" },
             { "name": "klens_schemas_list", "available": true },
             { "name": "klens_search", "available": true },
+            { "name": "klens_topic_create", "available": false, "needs": "CREATE_TOPICS" },
             { "name": "klens_topic_describe", "available": true },
             {
                 "name": "klens_topic_describe",
@@ -1250,27 +1394,11 @@ async fn a_refused_call_logs_the_user_and_client_of_its_token() {
     let body = call_body(
         "klens_search",
         json!({ "query": "orders", "cluster": "nope" }),
-    )
-    .to_string();
+    );
     let logs = LogCapture::at(Level::INFO);
 
-    let response = exchange(
-        router(
-            app.state().clone(),
-            &Config::default().allowed_hosts,
-            Some(&mcp),
-        ),
-        &format!(
-            "POST /mcp HTTP/1.1\r\nHost: {RESOURCE_HOST}\r\nAuthorization: Bearer {token}\r\n\
-             Accept: application/json, text/event-stream\r\nContent-Type: application/json\r\n\
-             Mcp-Protocol-Version: 2025-06-18\r\nContent-Length: {}\r\nConnection: close\r\n\r\n\
-             {body}",
-            body.len()
-        ),
-    )
-    .await;
+    let response = post_through_serve(&app, &mcp, &token, &body).await;
 
-    let response = String::from_utf8(response).expect("utf-8 response");
     assert!(response.contains("UNKNOWN_CLUSTER"), "{response}");
     let text = logs.text();
     let refused = text
@@ -1286,6 +1414,26 @@ async fn a_refused_call_logs_the_user_and_client_of_its_token() {
         "{refused}"
     );
     logs.assert_lacks(&token);
+}
+
+async fn post_through_serve(app: &TestApp, mcp: &Mcp, token: &str, body: &Value) -> String {
+    let body = body.to_string();
+    let response = exchange(
+        router(
+            app.state().clone(),
+            &Config::default().allowed_hosts,
+            Some(mcp),
+        ),
+        &format!(
+            "POST /mcp HTTP/1.1\r\nHost: {RESOURCE_HOST}\r\nAuthorization: Bearer {token}\r\n\
+             Accept: application/json, text/event-stream\r\nContent-Type: application/json\r\n\
+             Mcp-Protocol-Version: 2025-06-18\r\nContent-Length: {}\r\nConnection: close\r\n\r\n\
+             {body}",
+            body.len()
+        ),
+    )
+    .await;
+    String::from_utf8(response).expect("utf-8 response")
 }
 
 #[test]
@@ -3572,4 +3720,219 @@ async fn records_read_refuses_arguments_it_cannot_read() {
         "Pass `from` at or before `to`, then call again."
     );
     assert_eq!(app.cluster().calls(Api::OpenScan), 0);
+}
+
+#[tokio::test]
+async fn topic_create_creates_what_the_http_route_creates() {
+    let (by_tool, by_route) = (writable().await, writable().await);
+    let _lanes = (
+        lanes_writes_wait_on(&by_tool),
+        lanes_writes_wait_on(&by_route),
+    );
+    let configs = json!({ "cleanup.policy": "compact" });
+
+    let created = structured(
+        &call(
+            &by_tool,
+            "klens_topic_create",
+            json!({ "topic": "invoices", "partitions": 3, "configs": configs }),
+        )
+        .await,
+    );
+    by_route
+        .post(
+            "/clusters/local/topics",
+            &json!({ "name": "invoices", "partitions": 3, "configs": configs }),
+        )
+        .await
+        .expect(StatusCode::CREATED);
+
+    assert_eq!(created, json!({ "topic": "invoices", "partitions": 3 }));
+    for app in [&by_tool, &by_route] {
+        let rig = app.rig();
+        rig.poll(&rig.configs()).await;
+    }
+    for path in [
+        "/clusters/local/topics/invoices",
+        "/clusters/local/topics/invoices/configs",
+    ] {
+        assert_eq!(
+            by_tool.get(path).await.ok(),
+            by_route.get(path).await.ok(),
+            "{path}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn topic_create_leaves_the_partition_count_to_the_broker_unless_given() {
+    let app = writable().await;
+    let _lanes = lanes_writes_wait_on(&app);
+
+    let created =
+        structured(&call(&app, "klens_topic_create", json!({ "topic": "invoices" })).await);
+
+    assert_eq!(created, json!({ "topic": "invoices", "partitions": 1 }));
+}
+
+#[tokio::test]
+async fn topic_create_keeps_the_reason_kafka_refused_inside_the_boundary() {
+    let app = writable().await;
+
+    let result = call(
+        &app,
+        "klens_topic_create",
+        json!({ "topic": "orders.created" }),
+    )
+    .await;
+
+    let refused = refusal(&result);
+    assert_eq!(
+        refused,
+        json!({
+            "error": "kafka refused the change",
+            "code": "REFUSED",
+            "hint": "Read Kafka's reason in the message, and change the arguments before you call \
+                     again.",
+        })
+    );
+    let text = result["content"][0]["text"].as_str().expect("a text");
+    assert_eq!(
+        enclosed(text)["message"],
+        "Topic 'orders.created' already exists."
+    );
+    assert_eq!(text.matches("already exists").count(), 1, "{text}");
+}
+
+#[tokio::test]
+async fn write_tools_draw_on_the_live_budget_once_their_checks_pass() {
+    let app = TestApp::of([FakeCluster::local(), FakeCluster::named("prod")])
+        .limits(Limits {
+            mcp_live_calls_per_minute: NonZeroU32::MIN,
+            ..Limits::new(&Tuning::default())
+        })
+        .writable(&["local"])
+        .ingested()
+        .await
+        .serving_mcp(every_tool());
+    let _lanes = lanes_writes_wait_on(&app);
+    let viewer = app.with_access(access([viewer()]));
+    let writes: Vec<Tool> = KlensMcp::tools()
+        .list_all()
+        .into_iter()
+        .filter(|tool| tool_names_that_change_kafka().contains(&&*tool.name))
+        .collect();
+    let refused = async |app: &TestApp, tool: &Tool, cluster: &str| {
+        refusal(&call(app, &tool.name, naming(tool, cluster)).await)["code"].clone()
+    };
+
+    for tool in &writes {
+        for (app, cluster, code) in [
+            (&viewer, "local", "FORBIDDEN"),
+            (&app, "prod", "READ_ONLY_CLUSTER"),
+            (&app, "ghost", "UNKNOWN_CLUSTER"),
+        ] {
+            assert_eq!(refused(app, tool, cluster).await, code, "{}", tool.name);
+        }
+    }
+    let malformed = refusal(
+        &call(
+            &app,
+            "klens_topic_create",
+            json!({ "cluster": "local", "topic": "bad name" }),
+        )
+        .await,
+    );
+    let served = call(
+        &app,
+        "klens_topic_create",
+        json!({ "cluster": "local", "topic": "payments" }),
+    )
+    .await;
+    for tool in &writes {
+        assert_eq!(
+            refused(&app, tool, "local").await,
+            "RATE_LIMITED",
+            "{}",
+            tool.name
+        );
+    }
+
+    assert_eq!(malformed["code"], "INVALID_REQUEST");
+    structured(&served);
+    assert_eq!(app.cluster().calls(Api::CreateTopic), 1);
+}
+
+#[tokio::test]
+async fn a_write_and_a_refused_write_log_the_user_and_client_of_the_token() {
+    let a = Signer::a();
+    let idp = Idp::start(&[&a], &[&a]).await;
+    let mcp = Mcp {
+        privileges: every_tool().privileges,
+        ..for_resource("token: {clients: [claude-code]}")
+    };
+    let app = TestApp::of([FakeCluster::local(), FakeCluster::named("prod")])
+        .auth(idp.auth(&mcp).await)
+        .writable(&["local"])
+        .ingested()
+        .await;
+    let _lanes = lanes_writes_wait_on(&app);
+    let mut claims = idp.claims();
+    claims["groups"] = json!(["ops", "writers"]);
+    let token = a.sign(&claims);
+    let tools = KlensMcp::tools().list_all();
+    let audits = [("klens_topic_create", "created topic")];
+    let logs = LogCapture::at(Level::INFO);
+
+    for (name, _) in audits {
+        let tool = tools.iter().find(|tool| tool.name == name).expect("a tool");
+        for cluster in ["local", "prod"] {
+            let body = call_body(name, naming(tool, cluster));
+            post_through_serve(&app, &mcp, &token, &body).await;
+        }
+    }
+
+    let text = logs.text();
+    for (name, audit) in audits {
+        let span = format!(r#"mcp.tool{{tool="{name}" client="claude-code"}}"#);
+        for message in [audit, r#"refused a tool call code="READ_ONLY_CLUSTER""#] {
+            assert!(
+                text.lines().any(|line| line.contains(message)
+                    && line.contains(&span)
+                    && line.contains(r#"user="user-1" client="claude-code"}"#)),
+                "no `{message}` from {name} with its user and client in the logs:\n{text}"
+            );
+        }
+    }
+    logs.assert_lacks(&token);
+}
+
+#[tokio::test]
+async fn a_write_still_logs_its_change_when_the_client_leaves() {
+    let cluster = FakeCluster::local().with_delay(Api::CreateTopic, Duration::from_millis(100));
+    let app = TestApp::of([cluster])
+        .writable(&["local"])
+        .ingested()
+        .await
+        .serving_mcp(every_tool());
+    let _lanes = lanes_writes_wait_on(&app);
+    let logs = LogCapture::at(Level::INFO);
+    let body = call_body("klens_topic_create", json!({ "topic": "invoices" }));
+    let answer = app.send_through_router(mcp_request(&body));
+
+    tokio::select! {
+        _ = answer => panic!("the create answered before the client left"),
+        () = eventually("a create in flight", || app.cluster().calls(Api::CreateTopic) == 1) => {}
+    }
+
+    eventually("the created topic line", || {
+        logs.text().contains("created topic")
+    })
+    .await;
+    let text = logs.text();
+    assert!(
+        text.lines().any(|line| line.contains("created topic")
+            && line.contains(r#"mcp.tool{tool="klens_topic_create"}"#)),
+        "{text}"
+    );
 }

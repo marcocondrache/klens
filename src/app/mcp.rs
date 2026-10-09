@@ -1,5 +1,7 @@
 use std::borrow::Cow;
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
+use std::num::{NonZeroU8, NonZeroU16};
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
@@ -50,7 +52,7 @@ use super::records::types::{
 use super::search::types::{SearchHit, SearchKind};
 use super::subjects::latest_version;
 use super::subjects::types::SubjectDetail;
-use super::topics::TopicGroupRow;
+use super::topics::{CreateTopic, TopicGroupRow};
 
 mod findings;
 mod record_text;
@@ -64,7 +66,7 @@ mod tests;
 use findings::Finding;
 use types::{
     AccessList, AclList, BrokerDetail, BrokerList, BrokerRow, ClusterDetail, ClusterHit,
-    ClusterList, ClusterRights, ClusterRow, ConfigRow, GroupDescription, GroupList,
+    ClusterList, ClusterRights, ClusterRow, ConfigRow, CreatedTopic, GroupDescription, GroupList,
     GroupPartitionRow, GroupRow, MemberRow, Omitted, PartitionRow, Reason, SearchResult, Section,
     SubjectList, SubjectRow, ToolRights, TopicDescription, TopicList, TopicRow, TopicSummary,
     UnhealthyPartition, UnreadLane,
@@ -116,6 +118,13 @@ struct ToolGate {
     name: &'static str,
     needs: Option<Privilege>,
     sections: &'static [(Section, Privilege)],
+}
+
+impl ToolGate {
+    fn changes(&self) -> bool {
+        self.needs
+            .is_some_and(|privilege| Mcp::WRITES.contains(&privilege))
+    }
 }
 
 const TOOLS: &[ToolGate] = &[
@@ -172,6 +181,11 @@ const TOOLS: &[ToolGate] = &[
     ToolGate {
         name: "klens_search",
         needs: None,
+        sections: &[],
+    },
+    ToolGate {
+        name: "klens_topic_create",
+        needs: Some(Privilege::CreateTopics),
         sections: &[],
     },
     ToolGate {
@@ -299,12 +313,14 @@ fn caller(
 fn offered(session: &Session, tool: &str) -> bool {
     TOOLS.iter().any(|gate| {
         gate.name == tool
-            && gate.needs.is_none_or(|privilege| {
-                session
-                    .clusters()
-                    .any(|cluster| cluster.access.allows(privilege))
-            })
+            && (gate.needs.is_none() || session.clusters().any(|cluster| usable(&cluster, gate)))
     })
+}
+
+fn usable(cluster: &ClusterHandle<'_>, gate: &ToolGate) -> bool {
+    gate.needs
+        .is_none_or(|privilege| cluster.access.allows(privilege))
+        && (!gate.changes() || cluster.is_writable())
 }
 
 #[derive(Serialize)]
@@ -322,6 +338,9 @@ impl IntoCallToolResult for ApiError {
                 format!("the schema registry of cluster '{cluster}' failed the request"),
                 Some(message),
             ),
+            ApiError::Kafka(KafkaError::Refused(message)) => {
+                ("kafka refused the change".to_owned(), Some(message))
+            }
             ApiError::NotReady {
                 cluster,
                 lane,
@@ -391,6 +410,9 @@ fn hint(error: &ApiError) -> &'static str {
             "Fix the arguments to match the tool's input schema, then call again."
         }
         ApiError::Kafka(KafkaError::Timeout) => "Kafka did not answer in time. Call again shortly.",
+        ApiError::Kafka(KafkaError::Refused(_)) => {
+            "Read Kafka's reason in the message, and change the arguments before you call again."
+        }
         ApiError::Kafka(KafkaError::NoSchemaRegistry(_)) => {
             "klens reads no schema registry for this cluster, so it knows no subjects or schemas \
              there."
@@ -646,8 +668,11 @@ fn rights(cluster: &ClusterHandle<'_>) -> ClusterRights {
                 let sections = gate.sections.iter().map(|&(section, needs)| {
                     tool_rights(&cluster.access, gate.name, Some(section), Some(needs))
                 });
-                std::iter::once(tool_rights(&cluster.access, gate.name, None, gate.needs))
-                    .chain(sections)
+                let tool = ToolRights {
+                    available: usable(cluster, gate),
+                    ..tool_rights(&cluster.access, gate.name, None, gate.needs)
+                };
+                std::iter::once(tool).chain(sections)
             })
             .collect(),
     }
@@ -944,6 +969,22 @@ impl RecordsQuery {
     }
 }
 
+#[derive(Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TopicToCreate {
+    /// A cluster name from klens_clusters. Optional when you see only one.
+    cluster: Option<String>,
+    /// The new topic's name, of letters, digits, `.`, `_` and `-`.
+    topic: String,
+    /// The broker's num.partitions unless given.
+    partitions: Option<NonZeroU16>,
+    /// The broker's default.replication.factor unless given.
+    replication_factor: Option<NonZeroU8>,
+    /// Topic configs to set, such as cleanup.policy or retention.ms.
+    #[serde(default)]
+    configs: BTreeMap<String, String>,
+}
+
 #[tool_router(router = tools)]
 impl KlensMcp {
     /// Lists the Kafka clusters you can see with their health: broker, topic, partition, group and subject counts, under-replicated and offline partition counts, and each background read (lane) that failed or has not run yet.
@@ -1004,7 +1045,7 @@ impl KlensMcp {
     }
 
     /// Explains what you may do on each cluster you can see: your privileges under the ceiling the klens operator set for MCP, whether the cluster accepts changes, and each tool or section with the privilege it needs when it is not available.
-    /// Everyone sees the catalog of clusters, topics, groups, brokers and subjects. Privileges cover record payloads, configs, schema text and ACLs.
+    /// Everyone sees the catalog of clusters, topics, groups, brokers and subjects. Privileges cover record payloads, configs, schema text, ACLs and changes. A tool that changes Kafka is available only on a cluster that accepts changes.
     /// Call it after a FORBIDDEN or READ_ONLY_CLUSTER error, or before work that needs a privilege.
     #[tool(
         title = "Explain what you may do",
@@ -1192,6 +1233,47 @@ impl KlensMcp {
                 })
             },
         ))
+    }
+
+    /// Creates a topic with the partitions, replication factor and configs given, or else the broker's defaults. It changes Kafka, so calls to it are limited per minute.
+    /// It needs a cluster that accepts changes, and fails with READ_ONLY_CLUSTER on any other. It fails with REFUSED when Kafka refuses, such as for a topic that exists.
+    /// The result gives the topic's name and partition count, which is null when you gave no `partitions` and klens has not seen the topic yet.
+    #[tool(
+        title = "Create a topic",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn klens_topic_create(
+        &self,
+        session: Session,
+        Parameters(created): Parameters<TopicToCreate>,
+    ) -> Result<CallToolResult, ApiError> {
+        let cluster = one_cluster(&session, created.cluster.as_deref())?;
+        let topics = cluster.create_topics()?;
+        let topic = CreateTopic {
+            name: created.topic,
+            partitions: created.partitions,
+            replication_factor: created.replication_factor,
+            configs: created.configs,
+        }
+        .into_topic()?;
+        if !self.state.mcp_live_call(session.guard.subject()) {
+            return Err(ApiError::TooManyLiveCalls);
+        }
+        topics.create_topic(&topic).await?;
+        let partitions = cluster
+            .store
+            .topic_detail(&topic.name)
+            .map(|detail| detail.partitions.len())
+            .or(topic.partitions.map(|count| usize::from(count.get())));
+        Ok(CallToolResult::structured(json!(CreatedTopic {
+            topic: &topic.name,
+            partitions,
+        })))
     }
 
     /// Describes one topic: its partitions with their replicas and watermarks, its records, size, produce rate in records per second, retention and cleanup policy.
@@ -1804,10 +1886,10 @@ impl KlensMcp {
                     klens_clusters for cluster names and health. Use klens_search to find the \
                     exact name of a topic, group, broker or schema subject, and \
                     klens_access_explain when a call is refused. A tool reads klens' snapshot \
-                    and costs Kafka nothing unless it says it reads live. A value klens has not \
-                    measured yet is null, and a tool fails with NOT_READY until klens has read \
-                    what it needs. A list returns 25 rows unless `limit` asks for up to 100, and \
-                    `showing` says how many matched."
+                    and costs Kafka nothing unless it says it reads live or changes Kafka. A \
+                    value klens has not measured yet is null, and a tool fails with NOT_READY \
+                    until klens has read what it needs. A list returns 25 rows unless `limit` \
+                    asks for up to 100, and `showing` says how many matched."
 )]
 impl ServerHandler for KlensMcp {
     async fn list_tools(
@@ -1845,6 +1927,11 @@ impl ServerHandler for KlensMcp {
             span.record("client", client.as_str());
         }
         let cancelled = context.ct.clone();
+        // A write that reached Kafka must still log its audit line after the
+        // client goes away, so only a read stops when it does.
+        let changes = TOOLS
+            .iter()
+            .any(|gate| gate.name == route.attr.name && gate.changes());
         async move {
             let Some(_permit) = self.state.mcp_permit() else {
                 return ApiError::RateLimited.into_call_tool_result();
@@ -1866,7 +1953,7 @@ impl ServerHandler for KlensMcp {
                         Err(_) => Err(ErrorData::internal_error("the tool failed", None)),
                     }
                 }
-                () = cancelled.cancelled() => {
+                () = cancelled.cancelled(), if !changes => {
                     Err(ErrorData::internal_error("the client cancelled the call", None))
                 }
             }

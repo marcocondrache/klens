@@ -54,6 +54,8 @@ impl Default for Mcp {
 }
 
 impl Mcp {
+    pub const WRITES: &[Privilege] = &[Privilege::CreateTopics];
+
     pub fn audiences(&self) -> Vec<String> {
         match &self.token.audiences {
             Some(audiences) => audiences.clone(),
