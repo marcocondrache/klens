@@ -4,6 +4,7 @@ use std::path::Path;
 use axum::Router;
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode, header};
+use jiff::Timestamp;
 use rmcp::model::{CallToolResult, ContentBlock, Tool};
 use serde_json::{Value, json};
 use tower::ServiceExt as _;
@@ -16,6 +17,7 @@ use super::{
     CLIENT_VALUES_NOTICE, KlensMcp, MAX_QUERY_CHARS, MAX_REQUEST_BYTES, OBFUSCATED_NOTICE,
     RESULT_BYTES, TOOLS, fits, lane_error, limit, listed, service, tool_list, tool_rights,
 };
+use crate::app::auth::SessionGuard;
 use crate::app::auth::access::{EffectiveAccess, Privilege, PrivilegeSet};
 use crate::app::auth::testing::{Idp, RESOURCE_HOST, Signer, bearing, mcp as for_resource};
 use crate::app::whoami::types::PrivilegeName;
@@ -2753,6 +2755,40 @@ async fn live_tools_draw_on_a_budget_that_snapshot_tools_leave_alone() {
             "hint": "Wait a minute before calling this tool again. Tools that read klens' \
                      snapshot, such as klens_groups_list, still answer meanwhile.",
         })
+    );
+}
+
+#[tokio::test]
+async fn each_user_of_an_access_token_has_a_live_budget_of_their_own() {
+    let app = TestApp::of([FakeCluster::local()])
+        .limits(Limits {
+            mcp_live_calls_per_minute: NonZeroU32::MIN,
+            ..Limits::new(&Tuning::default())
+        })
+        .ingested()
+        .await;
+    let exp = Timestamp::now().as_second() + 300;
+    let alice = app.with_guard(SessionGuard::token("alice", exp));
+    let bob = app.with_guard(SessionGuard::token("bob", exp));
+    let describe = async |app: &TestApp| {
+        call(
+            app,
+            "klens_group_describe",
+            json!({ "group": "order-processor" }),
+        )
+        .await
+    };
+
+    structured(&describe(&alice).await);
+    let spent = refusal(&describe(&alice).await);
+    structured(&describe(&bob).await);
+    structured(&describe(&app).await);
+    let shared = refusal(&describe(&app).await);
+
+    assert_eq!(spent["code"], "RATE_LIMITED");
+    assert_eq!(
+        shared["code"], "RATE_LIMITED",
+        "callers without a token share one"
     );
 }
 

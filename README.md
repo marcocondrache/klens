@@ -468,8 +468,9 @@ results at debug level.
 group in the UI does. The record tools read Kafka on every call,
 `klens_schema_get` reads the schema registry, and `klens_brokers_list` reads
 Kafka when it reads a broker's configs. `tuning.mcp.live_calls_per_minute` (30)
-caps how often agents may call these tools. Every client shares that budget, and
-a call past it fails with `RATE_LIMITED`.
+caps how often agents may call these tools. With `auth`, each user has a
+budget of their own. Without it, every client shares one. A call past it fails
+with `RATE_LIMITED`.
 
 Every result reaches the agent's model provider, record payloads, configs,
 schema text, and ACLs included. Set `privileges` and `clusters` to what you

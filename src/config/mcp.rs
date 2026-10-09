@@ -86,8 +86,9 @@ pub struct Token {
     pub max_age: Duration,
     /// The claim that lists a token's groups. Omitted, `auth.oidc.groups_claim`.
     pub groups_claim: Option<String>,
-    /// The claim that names the user on log lines, such as `oid` on Entra ID.
-    /// A token without it is named by its `sub`.
+    /// The claim that names the user on log lines and keys their live-call
+    /// budget, such as `oid` on Entra ID. A token without it is named by its
+    /// `sub`.
     pub user_claim: String,
 }
 

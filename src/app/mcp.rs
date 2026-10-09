@@ -1384,7 +1384,7 @@ impl KlensMcp {
     ) -> Result<CallToolResult, ApiError> {
         let cluster = one_cluster(&session, named.cluster.as_deref())?;
         let topology = topology(&cluster)?;
-        if !self.state.mcp_live_call() {
+        if !self.state.mcp_live_call(session.guard.subject()) {
             return Err(ApiError::TooManyLiveCalls);
         }
         let Some(group) = cluster.store.group_detail(&named.group) else {
@@ -1493,7 +1493,7 @@ impl KlensMcp {
             address.offset,
             LookupParams { schema_id: None },
         );
-        if !self.state.mcp_live_call() {
+        if !self.state.mcp_live_call(session.guard.subject()) {
             return Err(ApiError::TooManyLiveCalls);
         }
         let found = RecordLookup::from(records.record(at).await?);
@@ -1536,7 +1536,7 @@ impl KlensMcp {
             _ => "newest first",
         };
         let query = read.query()?;
-        if !self.state.mcp_live_call() {
+        if !self.state.mcp_live_call(session.guard.subject()) {
             return Err(ApiError::TooManyLiveCalls);
         }
         let page = RecordPage::from(records.read(query).await?);
@@ -1616,7 +1616,7 @@ impl KlensMcp {
             };
             let (configs, omitted) = match cluster.broker_configs() {
                 Ok(granted) => {
-                    if !self.state.mcp_live_call() {
+                    if !self.state.mcp_live_call(session.guard.subject()) {
                         return Err(ApiError::TooManyLiveCalls);
                     }
                     (Some(overrides(granted.broker_configs(id).await?)), None)
@@ -1679,7 +1679,7 @@ impl KlensMcp {
                 latest_version(&cluster, &named.subject)?
             }
         };
-        if !self.state.mcp_live_call() {
+        if !self.state.mcp_live_call(session.guard.subject()) {
             return Err(ApiError::TooManyLiveCalls);
         }
         let schema = schema_text.subject_schema(&named.subject, version).await?;
