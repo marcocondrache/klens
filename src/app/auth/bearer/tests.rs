@@ -1,3 +1,5 @@
+use std::pin::pin;
+
 use axum::Router;
 use axum::body::{Body, to_bytes};
 use axum::http::{HeaderMap, Request as HttpRequest, StatusCode};
@@ -6,6 +8,7 @@ use axum::{Json, middleware};
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use futures::future::join_all;
+use futures::poll;
 use jsonwebtoken::{EncodingKey, Header};
 use serde_json::json;
 use tower::ServiceExt as _;
@@ -257,6 +260,26 @@ async fn a_token_passes_with_any_audience_it_lists_and_an_access_token_type() {
 }
 
 #[tokio::test]
+async fn a_token_issued_as_far_ahead_as_the_leeway_allows_passes() {
+    let a = Signer::a();
+    let idp = Idp::start(&[&a], &[&a]).await;
+    let app = probe(&idp.auth(&mcp("")).await);
+
+    // Only an answer that comes back within the second of issue saw the
+    // token exactly 30 seconds ahead.
+    let answer = loop {
+        let issued = now();
+        let token = a.sign(&with(idp.claims(), "iat", json!(issued + 30)));
+        let answer = probed(&app, &token).await;
+        if now() == issued {
+            break answer;
+        }
+    };
+
+    assert_eq!(answer.status, StatusCode::OK);
+}
+
+#[tokio::test]
 async fn a_token_that_fails_a_check_is_refused_as_invalid() {
     let (a, b) = (Signer::a(), Signer::b());
     let idp = Idp::start(&[&a, &b], &[&a, &b]).await;
@@ -504,6 +527,26 @@ async fn an_unknown_key_refetches_the_set_at_most_once_per_window() {
 }
 
 #[tokio::test]
+async fn an_unknown_key_refetches_the_set_the_moment_the_window_closes() {
+    let (a, b) = (Signer::a(), Signer::b());
+    let idp = Idp::start(&[&a], &[&a, &b]).await;
+    let auth = idp.auth(&mcp("")).await;
+    let keys = &auth.bearer().expect("a token check").keys;
+
+    // The window is checked on the paused clock in the first poll. The
+    // refetch runs on the real clock, since a paused one would skip ahead
+    // to the fetch timeout while the request is in flight.
+    tokio::time::pause();
+    *keys.missed_at.lock().await = Instant::now().checked_sub(MISS_REFETCH);
+    let mut lookup = pin!(keys.key(Some("b")));
+    assert!(poll!(&mut lookup).is_pending(), "no refetch started");
+    tokio::time::resume();
+
+    assert!(lookup.await.is_some());
+    assert_eq!(idp.key_fetches().await, 2);
+}
+
+#[tokio::test]
 async fn callers_with_a_new_key_share_one_refetch() {
     let (a, b) = (Signer::a(), Signer::b());
     let idp = Idp::serving(
@@ -554,7 +597,14 @@ async fn the_key_set_is_replaced_every_15_minutes() {
     quiesce().await;
 
     tokio::time::pause();
-    tokio::time::advance(Duration::from_secs(15 * 60)).await;
+    tokio::time::advance(Duration::from_secs(15 * 60 - 10)).await;
+    tokio::time::resume();
+    // An early refresh needs real time to reach the provider.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(idp.key_fetches().await, 1, "before 15 minutes");
+
+    tokio::time::pause();
+    tokio::time::advance(Duration::from_secs(10)).await;
     tokio::time::resume();
 
     eventually("the refresh", || keys.cached("b").is_some()).await;
@@ -600,6 +650,29 @@ async fn a_key_set_past_the_cap_adds_no_key() {
 
     assert_eq!(answer.status, StatusCode::UNAUTHORIZED);
     logs.assert_contains("the key set is larger than 65536 bytes");
+}
+
+#[tokio::test]
+async fn a_key_set_of_64_kib_adds_its_keys_and_one_byte_more_adds_none() {
+    let (a, b) = (Signer::a(), Signer::b());
+
+    for (size, status) in [
+        (64 * 1024, StatusCode::OK),
+        (64 * 1024 + 1, StatusCode::UNAUTHORIZED),
+    ] {
+        let mut body = key_set(&[&a, &b]).to_string().into_bytes();
+        body.resize(size, b' ');
+        let idp = Idp::serving(
+            key_set(&[&a]),
+            ResponseTemplate::new(200).set_body_raw(body, "application/json"),
+        )
+        .await;
+        let app = probe(&idp.auth(&mcp("")).await);
+
+        let answer = probed(&app, &b.sign(&idp.claims())).await;
+
+        assert_eq!(answer.status, status, "{size} bytes");
+    }
 }
 
 #[tokio::test]

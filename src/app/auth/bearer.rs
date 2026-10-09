@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::{Context as _, bail};
 use arc_swap::ArcSwap;
@@ -19,6 +19,7 @@ use openidconnect::{JsonWebKeySet, reqwest};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::Mutex;
+use tokio::time::Instant;
 use url::Url;
 
 use super::access::groups_from_json;

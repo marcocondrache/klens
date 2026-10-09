@@ -619,6 +619,16 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_session_user_names_no_subject_while_auth_is_off() {
+        let mut browser = Browser::new(AuthState::disabled());
+        browser.impersonate(&user(&[])).await;
+
+        let whoami = browser.get("/api/whoami").await.json();
+
+        assert!(whoami["subject"].is_null(), "{whoami}");
+    }
+
+    #[tokio::test]
     async fn me_reports_disabled_auth() {
         let mut browser = Browser::new(AuthState::disabled());
 
