@@ -393,11 +393,32 @@ protocols, subject names, principals, and resource names come from whoever runs
 a Kafka client, so a result that carries them tells the agent to read them as
 data, not as instructions.
 
-MCP runs only without `auth` for now, and klens refuses to start with both
-blocks. Anyone who reaches `/mcp` can then call its tools. `/mcp` answers only
-the hosts in [`allowed_hosts`](#allowed-hosts), and it refuses every request
-that carries an `Origin` header, so a web page cannot call it from a visitor's
-browser. klens logs at startup that it serves `/mcp`, with the ceiling below.
+Without `auth`, anyone who reaches `/mcp` can call its tools. `/mcp` then
+answers only the hosts in [`allowed_hosts`](#allowed-hosts), and it refuses
+every request that carries an `Origin` header, so a web page cannot call it
+from a visitor's browser. klens logs at startup that it serves `/mcp`, with the
+ceiling below.
+
+With `auth`, `/mcp` takes only an access token from the `auth.oidc` provider,
+sent as `Authorization: Bearer`, and never the session cookie. `resource` is
+then required, and `/mcp` answers only its host. The token's audience must be
+in `token.audiences`, which defaults to `resource`, and the agent holds what the
+roles of the token's groups grant, under the ceiling below. A missing or bad
+token gets `401` with a `WWW-Authenticate` challenge. A valid token whose groups
+bind no role gets `403`. klens logs each call with the token's user and client.
+
+```yaml
+mcp:
+  resource: https://klens.example.com/mcp # required with auth
+  allowed_origins: ["https://claude.ai:443"] # only with auth, with a port or :*
+  token:
+    audiences: [https://klens.example.com/mcp] # default: [resource]
+    clients: [klens-mcp] # azp, else client_id; default: any client
+    scopes: [] # named in the 401 challenge
+    max_age: 1h # the longest exp - iat; raise it on Entra ID
+    groups_claim: groups # default: auth.oidc.groups_claim
+    user_claim: sub # oid on Entra ID
+```
 
 The block is a ceiling on what an MCP client may do. `privileges` lists the
 reads it may use beyond the catalog, out of `records`, `topic_configs`,

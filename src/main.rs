@@ -19,7 +19,7 @@ async fn main() -> anyhow::Result<()> {
         "configured kafka clusters"
     );
 
-    let auth = AuthState::from_config(config.auth.as_ref())
+    let auth = AuthState::from_config(config.auth.as_ref(), config.mcp.as_ref())
         .await
         .context("failed to initialize authentication")?;
 
@@ -51,11 +51,27 @@ async fn main() -> anyhow::Result<()> {
             .clusters
             .as_ref()
             .map_or_else(|| "every cluster".to_owned(), |names| format!("{names:?}"));
-        tracing::info!(
-            ?privileges,
-            %clusters,
-            "serving MCP tools at /mcp to anyone who reaches klens"
-        );
+        match &mcp.resource {
+            Some(resource) => {
+                tracing::info!(
+                    ?privileges,
+                    %clusters,
+                    resource = resource.as_str(),
+                    "serving MCP tools at /mcp to holders of an access token from the oidc provider"
+                );
+                if mcp.token.clients.is_empty() {
+                    tracing::warn!(
+                        "mcp.token.clients is empty, so /mcp takes a token for its audience from \
+                         any client of the oidc provider"
+                    );
+                }
+            }
+            None => tracing::info!(
+                ?privileges,
+                %clusters,
+                "serving MCP tools at /mcp to anyone who reaches klens"
+            ),
+        }
     }
 
     let _ingest = Ingest::start(&clusters, &config.tuning.ingest);

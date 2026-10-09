@@ -153,7 +153,14 @@ impl TestApp {
         let response = Router::new()
             .nest_service(
                 "/mcp",
-                mcp::service(self.state.clone(), &Config::default().allowed_hosts),
+                mcp::service(
+                    self.state.clone(),
+                    Config::default()
+                        .allowed_hosts
+                        .iter()
+                        .map(ToString::to_string),
+                    [],
+                ),
             )
             .layer(middleware::from_fn(
                 move |mut request: Request<Body>, next: Next| {

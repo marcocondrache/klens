@@ -38,6 +38,7 @@ jiff = { version = "0.2", default-features = false, features = ["serde", "std"] 
 krafka = { git = "https://github.com/hupe1980/krafka", rev = "e6b154cef8dd0bfe7b2c8fadbf925c1e6494310f" }
 moka = { version = "0.12", features = ["future", "sync"] }
 memory-serve = { version = "2.4", optional = true }
+jsonwebtoken = { version = "11.1", default-features = false, features = ["rust_crypto"] }
 openidconnect = "4.0.1"
 pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
 rand = "0.9"

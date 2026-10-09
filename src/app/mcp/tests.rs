@@ -17,6 +17,7 @@ use super::{
     RESULT_BYTES, TOOLS, fits, lane_error, limit, listed, service, tool_list, tool_rights,
 };
 use crate::app::auth::access::{EffectiveAccess, Privilege, PrivilegeSet};
+use crate::app::auth::testing::{Idp, RESOURCE_HOST, Signer, bearing, mcp as for_resource};
 use crate::app::whoami::types::PrivilegeName;
 use crate::app::{AppState, AuthState, Limits, router};
 use crate::config::{AllowedHost, Config, Mcp, Tuning};
@@ -27,7 +28,8 @@ use crate::kafka::model::{
 };
 use crate::testing::{
     Api, FakeCluster, FixtureRecord, LogCapture, TestApp, access, card_record, config_entry,
-    framed, group, mcp_request, offline_partition, partition, role, subject, topic, viewer, yaml,
+    exchange, framed, group, mcp_request, offline_partition, partition, role, subject, topic,
+    viewer, yaml,
 };
 
 const PAN: &str = "4111111111111111";
@@ -620,7 +622,14 @@ async fn a_request_that_skips_admission_is_a_wiring_error() {
     let app = TestApp::local().await;
     let unadmitted = Router::new().nest_service(
         "/mcp",
-        service(app.state().clone(), &Config::default().allowed_hosts),
+        service(
+            app.state().clone(),
+            Config::default()
+                .allowed_hosts
+                .iter()
+                .map(ToString::to_string),
+            [],
+        ),
     );
     let list = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {} });
 
@@ -675,7 +684,7 @@ async fn without_an_mcp_block_only_the_ui_answers_at_mcp() {
 }
 
 #[tokio::test]
-async fn with_auth_on_mcp_admits_nobody() {
+async fn an_auth_state_without_a_token_check_admits_nobody_at_mcp() {
     let state = AppState::new(
         Clusters::from_sessions(vec![FakeCluster::local()]),
         AuthState::enabled_for_tests(),
@@ -710,6 +719,78 @@ async fn the_ceiling_holds_through_the_router() {
     for tool in KlensMcp::tools().list_all() {
         let refused = refusal(&call_through_router(&app, &tool.name, naming(&tool, "local")).await);
         assert_eq!(refused["code"], "UNKNOWN_CLUSTER", "{}", tool.name);
+    }
+}
+
+#[tokio::test]
+async fn the_ceiling_holds_through_the_router_for_a_bearer_token() {
+    let a = Signer::a();
+    let idp = Idp::start(&[&a], &[&a]).await;
+    let mcp = for_resource("privileges: [acls, broker_configs]\nclusters: [other]");
+    let app = TestApp::of([FakeCluster::local(), FakeCluster::named("other")])
+        .auth(idp.auth(&mcp).await)
+        .ingested()
+        .await
+        .serving_mcp(mcp);
+    let token = a.sign(&idp.claims());
+    let call = |tool: &str, arguments: Value| {
+        let request = bearing(mcp_request(&call_body(tool, arguments)), &token);
+        async { app.reply_through_router(request).await.ok()["result"].take() }
+    };
+
+    let explained = structured(&call("klens_access_explain", json!({})).await);
+
+    let clusters = explained["clusters"].as_array().expect("clusters");
+    assert_eq!(clusters.len(), 1, "{explained}");
+    assert_eq!(clusters[0]["cluster"], "other");
+    assert_eq!(
+        clusters[0]["privileges"],
+        json!(["ACLS"]),
+        "the role grants no broker configs"
+    );
+    for tool in KlensMcp::tools().list_all() {
+        let refused = refusal(&call(&tool.name, naming(&tool, "local")).await);
+        assert_eq!(refused["code"], "UNKNOWN_CLUSTER", "{}", tool.name);
+    }
+}
+
+#[tokio::test]
+async fn with_auth_on_mcp_answers_only_the_resource_host_and_listed_origins() {
+    let a = Signer::a();
+    let idp = Idp::start(&[&a], &[&a]).await;
+    let mcp = for_resource("allowed_origins: ['https://claude.ai:443']");
+    let app = TestApp::of([FakeCluster::local()])
+        .auth(idp.auth(&mcp).await)
+        .build()
+        .serving_mcp(mcp);
+    let token = a.sign(&idp.claims());
+    let list = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {} });
+
+    for (host, origin, status) in [
+        (RESOURCE_HOST, None, StatusCode::OK),
+        (RESOURCE_HOST, Some("https://claude.ai"), StatusCode::OK),
+        ("localhost", None, StatusCode::FORBIDDEN),
+        (
+            RESOURCE_HOST,
+            Some("http://claude.ai"),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            RESOURCE_HOST,
+            Some("https://evil.example"),
+            StatusCode::FORBIDDEN,
+        ),
+    ] {
+        let mut request = bearing(mcp_request(&list), &token);
+        let headers = request.headers_mut();
+        headers.insert(header::HOST, host.parse().expect("a host"));
+        if let Some(origin) = origin {
+            headers.insert(header::ORIGIN, origin.parse().expect("an origin"));
+        }
+
+        let response = app.send_through_router(request).await;
+
+        assert_eq!(response.status(), status, "{host} {origin:?}");
     }
 }
 
@@ -1153,6 +1234,56 @@ async fn a_refused_call_logs_its_tool_and_code_but_not_its_arguments() {
     logs.assert_contains(r#"mcp.tool{tool="klens_search" client="unverified:probe"}"#);
     logs.assert_contains(r#"refused a tool call code="UNKNOWN_CLUSTER""#);
     logs.assert_lacks("4111");
+}
+
+#[tokio::test]
+async fn a_refused_call_logs_the_user_and_client_of_its_token() {
+    let a = Signer::a();
+    let idp = Idp::start(&[&a], &[&a]).await;
+    let mcp = for_resource("");
+    let app = TestApp::of([FakeCluster::local()])
+        .auth(idp.auth(&mcp).await)
+        .build();
+    let token = a.sign(&idp.claims());
+    let body = call_body(
+        "klens_search",
+        json!({ "query": "orders", "cluster": "nope" }),
+    )
+    .to_string();
+    let logs = LogCapture::at(Level::INFO);
+
+    let response = exchange(
+        router(
+            app.state().clone(),
+            &Config::default().allowed_hosts,
+            Some(&mcp),
+        ),
+        &format!(
+            "POST /mcp HTTP/1.1\r\nHost: {RESOURCE_HOST}\r\nAuthorization: Bearer {token}\r\n\
+             Accept: application/json, text/event-stream\r\nContent-Type: application/json\r\n\
+             Mcp-Protocol-Version: 2025-06-18\r\nContent-Length: {}\r\nConnection: close\r\n\r\n\
+             {body}",
+            body.len()
+        ),
+    )
+    .await;
+
+    let response = String::from_utf8(response).expect("utf-8 response");
+    assert!(response.contains("UNKNOWN_CLUSTER"), "{response}");
+    let text = logs.text();
+    let refused = text
+        .lines()
+        .find(|line| line.contains(r#"refused a tool call code="UNKNOWN_CLUSTER""#))
+        .unwrap_or_else(|| panic!("no refusal in the logs:\n{text}"));
+    assert!(
+        refused.contains(r#"user="user-1" client="claude-code"}"#),
+        "{refused}"
+    );
+    assert!(
+        refused.contains(r#"mcp.tool{tool="klens_search" client="claude-code"}"#),
+        "{refused}"
+    );
+    logs.assert_lacks(&token);
 }
 
 #[test]

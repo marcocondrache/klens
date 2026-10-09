@@ -27,6 +27,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tracing::Instrument as _;
 use tracing::field::Empty;
+use url::Position;
 
 use crate::AppState;
 use crate::config::{AllowedHost, Mcp};
@@ -36,8 +37,8 @@ use crate::kafka::{KafkaError, QueryError, RecordCursor, RecordQuery};
 
 use super::acls::Acl;
 use super::acls::types::{AclOperation, AclPermission, AclResourceType, AclStatus};
-use super::auth::SessionGuard;
 use super::auth::access::{AccessError, Ceiling, ClusterAccess, Narrowed, Privilege};
+use super::auth::{self, SessionGuard};
 use super::context::{ClusterHandle, Session};
 use super::error::ApiError;
 use super::groups::types::GroupState;
@@ -187,12 +188,23 @@ const TOOLS: &[ToolGate] = &[
 
 pub(crate) fn router(state: AppState, allowed_hosts: &[AllowedHost], mcp: &Mcp) -> Router {
     let guard = SessionGuard::capped(state.auth.clone(), ceiling(mcp));
+    let Some(bearer) = state.auth.bearer().cloned() else {
+        let hosts = allowed_hosts.iter().map(ToString::to_string);
+        return Router::new()
+            .nest_service("/mcp", service(state, hosts, []))
+            .layer(middleware::from_fn_with_state(guard, admit))
+            .layer(middleware::from_fn_with_state(
+                Arc::from(allowed_hosts),
+                hosts::require_allowed_host,
+            ));
+    };
+    let host = bearer.resource()[Position::BeforeHost..Position::AfterPort].to_owned();
+    let origins = mcp.allowed_origins.iter().map(ToString::to_string);
     Router::new()
-        .nest_service("/mcp", service(state, allowed_hosts))
-        .layer(middleware::from_fn_with_state(guard, admit))
+        .nest_service("/mcp", service(state, [host], origins))
         .layer(middleware::from_fn_with_state(
-            Arc::from(allowed_hosts),
-            hosts::require_allowed_host,
+            (bearer, guard),
+            auth::require_bearer,
         ))
 }
 
@@ -202,7 +214,8 @@ pub(crate) fn ceiling(mcp: &Mcp) -> Ceiling {
 
 pub(crate) fn service(
     state: AppState,
-    allowed_hosts: &[AllowedHost],
+    hosts: impl IntoIterator<Item = String>,
+    origins: impl IntoIterator<Item = String>,
 ) -> StreamableHttpService<KlensMcp, NeverSessionManager> {
     let tools = Arc::new(KlensMcp::tools());
     StreamableHttpService::new(
@@ -218,7 +231,8 @@ pub(crate) fn service(
             .with_json_response(true)
             // rmcp reads an empty list as every host, and the config never
             // yields one.
-            .with_allowed_hosts(allowed_hosts.iter().map(ToString::to_string))
+            .with_allowed_hosts(hosts)
+            .with_allowed_origins(origins)
             .enforce_origin_validation()
             .with_max_request_body_bytes(MAX_REQUEST_BYTES),
     )
@@ -243,6 +257,24 @@ async fn admit(State(guard): State<SessionGuard>, mut request: Request, next: Ne
 pub(crate) struct KlensMcp {
     state: AppState,
     tools: Arc<ToolRouter<Self>>,
+}
+
+impl KlensMcp {
+    fn client(&self, context: &RequestContext<RoleServer>) -> Option<String> {
+        if self.state.auth.is_enabled() {
+            let parts = context.extensions.get::<Parts>()?;
+            let guard = parts.extensions.get::<SessionGuard>()?;
+            return guard.client().map(ToOwned::to_owned);
+        }
+        let name: String = context
+            .meta
+            .client_info()?
+            .name
+            .chars()
+            .take(MAX_CLIENT_CHARS)
+            .collect();
+        Some(format!("unverified:{name}"))
+    }
 }
 
 impl FromContextPart<ToolCallContext<'_, KlensMcp>> for Session {
@@ -380,6 +412,7 @@ fn hint(error: &ApiError) -> &'static str {
         | ApiError::Unauthorized
         | ApiError::HostNotAllowed
         | ApiError::NotFound => "Reconnect the MCP client to klens, then call again.",
+        ApiError::NoRole => "Ask the klens operator to bind one of your groups to a role.",
     }
 }
 
@@ -1806,9 +1839,8 @@ impl ServerHandler for KlensMcp {
             return Err(ErrorData::invalid_params("tool not found", None));
         };
         let span = tracing::info_span!("mcp.tool", tool = &*route.attr.name, client = Empty);
-        if let Some(client) = context.meta.client_info() {
-            let name: String = client.name.chars().take(MAX_CLIENT_CHARS).collect();
-            span.record("client", format!("unverified:{name}").as_str());
+        if let Some(client) = self.client(&context) {
+            span.record("client", client.as_str());
         }
         let cancelled = context.ct.clone();
         async move {
