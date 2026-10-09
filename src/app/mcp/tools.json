@@ -352,6 +352,193 @@
     {
       "annotations": {
         "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Writes one record to a topic and returns the partition and offset Kafka stored it at. It changes Kafka, so calls to it are limited per minute.\n`key` and `value` each take an `encoding`: TEXT for UTF-8 text, BASE64 for raw bytes, or SCHEMA for JSON that klens writes with the registry schema `schemaId`. Without `partition`, the producer picks one, by the key's hash when there is a key. klens writes no tombstones, so `value` is required.\nIt needs a cluster that accepts changes, and fails with READ_ONLY_CLUSTER on any other. It fails with UNENCODABLE when `data` does not fit its schema.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "cluster": {
+            "description": "A cluster name from klens_clusters. Optional when you see only one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "headers": {
+            "default": [],
+            "description": "Headers, each with a key and a text value.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key",
+                "value"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "properties": {
+                      "data": {
+                        "type": "string"
+                      },
+                      "encoding": {
+                        "const": "TEXT",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "encoding",
+                      "data"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "properties": {
+                      "data": {
+                        "type": "string"
+                      },
+                      "encoding": {
+                        "const": "BASE64",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "encoding",
+                      "data"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "description": "`data` is JSON, written with the registry schema `schemaId`.",
+                    "properties": {
+                      "data": {
+                        "type": "string"
+                      },
+                      "encoding": {
+                        "const": "SCHEMA",
+                        "type": "string"
+                      },
+                      "schemaId": {
+                        "format": "int32",
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "encoding",
+                      "schemaId",
+                      "data"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record's key. Omit it for a record without a key."
+          },
+          "partition": {
+            "description": "The partition to write to. The producer picks one unless given.",
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "topic": {
+            "description": "The topic's exact name.",
+            "type": "string"
+          },
+          "value": {
+            "oneOf": [
+              {
+                "properties": {
+                  "data": {
+                    "type": "string"
+                  },
+                  "encoding": {
+                    "const": "TEXT",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "encoding",
+                  "data"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "data": {
+                    "type": "string"
+                  },
+                  "encoding": {
+                    "const": "BASE64",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "encoding",
+                  "data"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "`data` is JSON, written with the registry schema `schemaId`.",
+                "properties": {
+                  "data": {
+                    "type": "string"
+                  },
+                  "encoding": {
+                    "const": "SCHEMA",
+                    "type": "string"
+                  },
+                  "schemaId": {
+                    "format": "int32",
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "encoding",
+                  "schemaId",
+                  "data"
+                ],
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "required": [
+          "topic",
+          "value"
+        ],
+        "type": "object"
+      },
+      "name": "klens_record_produce",
+      "title": "Produce a record"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false,
         "readOnlyHint": true

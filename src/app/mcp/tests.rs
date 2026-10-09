@@ -154,6 +154,7 @@ fn naming(tool: &Tool, cluster: &str) -> Value {
             "subject" => json!("orders.created-value"),
             "partition" => json!(0),
             "offset" => json!(1),
+            "value" => json!({ "encoding": "TEXT", "data": "x" }),
             _ => json!("x"),
         };
     }
@@ -374,6 +375,7 @@ async fn every_tool_that_changes_kafka_is_refused_on_a_read_only_cluster() {
         assert_eq!(refused["error"], "cluster 'local' is read-only");
     }
     assert_eq!(app.cluster().calls(Api::CreateTopic), 0);
+    assert_eq!(app.cluster().calls(Api::Produce), 0);
 }
 
 #[test]
@@ -897,6 +899,7 @@ async fn the_default_ceiling_keeps_a_bearer_token_from_writing() {
         assert_eq!(refused["code"], "FORBIDDEN", "{name}");
     }
     assert_eq!(app.cluster().calls(Api::CreateTopic), 0);
+    assert_eq!(app.cluster().calls(Api::Produce), 0);
 }
 
 #[tokio::test]
@@ -1259,6 +1262,7 @@ async fn access_explain_reports_privileges_under_the_ceiling() {
             { "name": "klens_group_describe", "available": true },
             { "name": "klens_groups_list", "available": true },
             reads_records("klens_record_get"),
+            { "name": "klens_record_produce", "available": false, "needs": "PRODUCE" },
             reads_records("klens_records_read"),
             { "name": "klens_schema_get", "available": false, "needs": "SCHEMA_TEXT" },
             { "name": "klens_schemas_list", "available": true },
@@ -3805,6 +3809,80 @@ async fn topic_create_keeps_the_reason_kafka_refused_inside_the_boundary() {
 }
 
 #[tokio::test]
+async fn record_produce_writes_what_the_http_route_writes() {
+    let (by_tool, by_route) = (writable().await, writable().await);
+    let record = json!({
+        "partition": 1,
+        "key": { "encoding": "TEXT", "data": "order-9" },
+        "value": { "encoding": "BASE64", "data": "eyJ0b3RhbCI6NDJ9" },
+        "headers": [{ "key": "trace", "value": "abc" }],
+    });
+    let mut arguments = record.clone();
+    arguments["topic"] = json!("orders.created");
+
+    let produced = structured(&call(&by_tool, "klens_record_produce", arguments).await);
+    let posted = by_route
+        .post("/clusters/local/topics/orders.created/records", &record)
+        .await
+        .expect(StatusCode::CREATED);
+
+    assert_eq!(produced, json!({ "partition": 1, "offset": 8 }));
+    assert_eq!(produced, posted);
+    let path = "/clusters/local/topics/orders.created/records/1/8";
+    let stored = by_tool.get(path).await.ok();
+    assert_eq!(stored["record"]["value"], r#"{"total":42}"#);
+    assert_eq!(stored, by_route.get(path).await.ok());
+}
+
+#[tokio::test]
+async fn record_produce_writes_no_tombstone() {
+    let app = writable().await;
+
+    let refused = refusal(
+        &call(
+            &app,
+            "klens_record_produce",
+            json!({ "topic": "orders.created", "value": null }),
+        )
+        .await,
+    );
+
+    assert_eq!(refused["code"], "INVALID_REQUEST", "{refused}");
+    assert_eq!(app.cluster().calls(Api::Produce), 0);
+}
+
+#[tokio::test]
+async fn record_produce_keeps_why_a_payload_misses_its_schema_inside_the_boundary() {
+    let app = writable().await;
+
+    let result = call(
+        &app,
+        "klens_record_produce",
+        json!({
+            "topic": "orders.created",
+            "value": { "encoding": "SCHEMA", "schemaId": 1, "data": r#"{"orderId":1}"# },
+        }),
+    )
+    .await;
+
+    let refused = refusal(&result);
+    assert_eq!(refused["error"], "the payload does not fit schema 1");
+    assert_eq!(refused["code"], "UNENCODABLE");
+    assert_eq!(
+        refused["hint"],
+        "klens_schemas_list with responseFormat DETAILED gives the schema id of each subject \
+         version, and klens_schema_get reads a version's text."
+    );
+    let text = result["content"][0]["text"].as_str().expect("a text");
+    let reason = enclosed(text)["message"].clone();
+    assert!(
+        reason.as_str().is_some_and(|reason| !reason.is_empty()),
+        "{text}"
+    );
+    assert_eq!(app.cluster().calls(Api::Produce), 0);
+}
+
+#[tokio::test]
 async fn write_tools_draw_on_the_live_budget_once_their_checks_pass() {
     let app = TestApp::of([FakeCluster::local(), FakeCluster::named("prod")])
         .limits(Limits {
@@ -3843,6 +3921,17 @@ async fn write_tools_draw_on_the_live_budget_once_their_checks_pass() {
         )
         .await,
     );
+    let mut misaddressed = Vec::new();
+    for (topic, partition) in [("ghost", None), ("orders.created", Some(9))] {
+        let arguments = json!({
+            "cluster": "local",
+            "topic": topic,
+            "partition": partition,
+            "value": { "encoding": "TEXT", "data": "x" },
+        });
+        let refused = refusal(&call(&app, "klens_record_produce", arguments).await);
+        misaddressed.push(refused["code"].clone());
+    }
     let served = call(
         &app,
         "klens_topic_create",
@@ -3859,8 +3948,10 @@ async fn write_tools_draw_on_the_live_budget_once_their_checks_pass() {
     }
 
     assert_eq!(malformed["code"], "INVALID_REQUEST");
+    assert_eq!(misaddressed, ["UNKNOWN_TOPIC", "UNKNOWN_PARTITION"]);
     structured(&served);
     assert_eq!(app.cluster().calls(Api::CreateTopic), 1);
+    assert_eq!(app.cluster().calls(Api::Produce), 0);
 }
 
 #[tokio::test]
@@ -3881,7 +3972,10 @@ async fn a_write_and_a_refused_write_log_the_user_and_client_of_the_token() {
     claims["groups"] = json!(["ops", "writers"]);
     let token = a.sign(&claims);
     let tools = KlensMcp::tools().list_all();
-    let audits = [("klens_topic_create", "created topic")];
+    let audits = [
+        ("klens_topic_create", "created topic"),
+        ("klens_record_produce", "produced record"),
+    ];
     let logs = LogCapture::at(Level::INFO);
 
     for (name, _) in audits {

@@ -47,7 +47,8 @@ use super::groups::types::GroupState;
 use super::hosts;
 use super::records::RecordPage;
 use super::records::types::{
-    LookupParams, RecordLookup, RecordOrder, RecordParams, record_at, record_query,
+    LookupParams, ProduceRecord, ProducedRecord, RecordHeader, RecordLookup, RecordOrder,
+    RecordParams, RecordPayload, record_at, record_query,
 };
 use super::search::types::{SearchHit, SearchKind};
 use super::subjects::latest_version;
@@ -161,6 +162,11 @@ const TOOLS: &[ToolGate] = &[
     ToolGate {
         name: "klens_record_get",
         needs: Some(Privilege::Records),
+        sections: &[],
+    },
+    ToolGate {
+        name: "klens_record_produce",
+        needs: Some(Privilege::Produce),
         sections: &[],
     },
     ToolGate {
@@ -341,6 +347,10 @@ impl IntoCallToolResult for ApiError {
             ApiError::Kafka(KafkaError::Refused(message)) => {
                 ("kafka refused the change".to_owned(), Some(message))
             }
+            ApiError::Kafka(KafkaError::Unencodable { id, message }) => (
+                format!("the payload does not fit schema {id}"),
+                Some(message),
+            ),
             ApiError::NotReady {
                 cluster,
                 lane,
@@ -413,6 +423,11 @@ fn hint(error: &ApiError) -> &'static str {
         ApiError::Kafka(KafkaError::Refused(_)) => {
             "Read Kafka's reason in the message, and change the arguments before you call again."
         }
+        ApiError::Kafka(KafkaError::Unencodable { .. } | KafkaError::UnknownSchema { .. }) => {
+            "klens_schemas_list with responseFormat DETAILED gives the schema id of each subject \
+             version, and klens_schema_get reads a version's text."
+        }
+        ApiError::Kafka(KafkaError::InternalTopic(_)) => "Write to a topic that is not internal.",
         ApiError::Kafka(KafkaError::NoSchemaRegistry(_)) => {
             "klens reads no schema registry for this cluster, so it knows no subjects or schemas \
              there."
@@ -983,6 +998,24 @@ struct TopicToCreate {
     /// Topic configs to set, such as cleanup.policy or retention.ms.
     #[serde(default)]
     configs: BTreeMap<String, String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RecordToProduce {
+    /// A cluster name from klens_clusters. Optional when you see only one.
+    cluster: Option<String>,
+    /// The topic's exact name.
+    topic: String,
+    /// The partition to write to. The producer picks one unless given.
+    #[schemars(range(min = 0))]
+    partition: Option<i32>,
+    /// The record's key. Omit it for a record without a key.
+    key: Option<RecordPayload>,
+    value: RecordPayload,
+    /// Headers, each with a key and a text value.
+    #[serde(default)]
+    headers: Vec<RecordHeader>,
 }
 
 #[tool_router(router = tools)]
@@ -1589,6 +1622,43 @@ impl KlensMcp {
             intro,
             "The klens UI shows the whole record.",
         ))
+    }
+
+    /// Writes one record to a topic and returns the partition and offset Kafka stored it at. It changes Kafka, so calls to it are limited per minute.
+    /// `key` and `value` each take an `encoding`: TEXT for UTF-8 text, BASE64 for raw bytes, or SCHEMA for JSON that klens writes with the registry schema `schemaId`. Without `partition`, the producer picks one, by the key's hash when there is a key. klens writes no tombstones, so `value` is required.
+    /// It needs a cluster that accepts changes, and fails with READ_ONLY_CLUSTER on any other. It fails with UNENCODABLE when `data` does not fit its schema.
+    #[tool(
+        title = "Produce a record",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn klens_record_produce(
+        &self,
+        session: Session,
+        Parameters(record): Parameters<RecordToProduce>,
+    ) -> Result<CallToolResult, ApiError> {
+        let cluster = one_cluster(&session, record.cluster.as_deref())?;
+        let producer = cluster.produce()?;
+        producer.writable_partition(&record.topic, record.partition)?;
+        if !self.state.mcp_live_call(session.guard.subject()) {
+            return Err(ApiError::TooManyLiveCalls);
+        }
+        let record = ProduceRecord {
+            partition: record.partition,
+            key: record.key,
+            value: Some(record.value),
+            headers: record.headers,
+        }
+        .into_record(record.topic, &producer)
+        .await?;
+        let produced = producer.produce(&record).await?;
+        Ok(CallToolResult::structured(json!(ProducedRecord::from(
+            produced
+        ))))
     }
 
     /// Reads a page of a topic's records live from Kafka, newest first unless `order` is OLDEST, so calls to it are limited per minute.
