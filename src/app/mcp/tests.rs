@@ -364,6 +364,18 @@ async fn a_ceiling_without_a_privilege_closes_each_tool_and_section_that_needs_i
     }
 }
 
+#[test]
+fn mcp_privileges_take_exactly_the_privileges_the_tools_need() {
+    let needed = every_tool().privileges;
+
+    for privilege in Privilege::ALL {
+        let named = json!(PrivilegeName::from(privilege));
+        let name = named.as_str().expect("a name").to_lowercase();
+        let parsed = crate::config::parse::<Mcp>(&format!("privileges: [{name}]"));
+        assert_eq!(parsed.is_ok(), needed.contains(&privilege), "{name}");
+    }
+}
+
 #[tokio::test]
 async fn every_tool_that_changes_kafka_is_refused_on_a_read_only_cluster() {
     let app = TestApp::local().await.serving_mcp(every_tool());

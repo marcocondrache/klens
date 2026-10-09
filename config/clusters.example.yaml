@@ -146,7 +146,9 @@ clusters:
 # the URL agents reach it at. The block is a ceiling: privileges lists the
 # reads an MCP client may use, out of records, topic_configs, broker_configs,
 # schema_text, and acls, and clusters limits it to the clusters named. Every
-# result reaches the agent's model provider.
+# result reaches the agent's model provider. Adding create_topics, produce, or
+# register_schemas lets agents make those changes on writable clusters, and
+# then token.clients is required with auth.
 #
 # With auth, the provider must issue JWT access tokens whose audience is in
 # token.audiences, resource by default, and that list the user's groups, to one
@@ -160,7 +162,7 @@ clusters:
 #   allowed_origins: []  # only with auth, each with its port or :*
 #   token:  # only with auth
 #     # audiences: [https://klens.example.com/mcp]  # default: [resource]; never auth.oidc.client_id
-#     clients: [klens-mcp]  # azp, else client_id; default: a token from any client
+#     clients: [klens-mcp]  # azp, else client_id; default: a token from any client; required with a write privilege
 #     scopes: []  # what MCP clients ask the provider for; Entra ID needs the API scope
 #     max_age: 1h  # the longest a token may last from iat to exp
 #     # groups_claim: groups  # default: auth.oidc.groups_claim
@@ -212,4 +214,4 @@ clusters:
 #     max_sample_gap: 15s
 #   mcp:
 #     max_concurrent_calls: 16    # across every client; past it, a call is refused
-#     live_calls_per_minute: 30   # calls that make klens read more from Kafka
+#     live_calls_per_minute: 30   # calls that make klens read more from Kafka or change it
