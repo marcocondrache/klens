@@ -12,6 +12,7 @@ pub use crate::kafka::testing::{
     group, identity, log_dir, metadata, offline_partition, offsets, partition, subject, topic,
     topology, watermarks,
 };
+pub use crate::server::testing::exchange;
 pub use files::temp_file;
 pub use logs::LogCapture;
 pub use wait::{eventually, quiesce, settle, until};

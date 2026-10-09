@@ -17,6 +17,8 @@ use tracing::Span;
 
 use crate::telemetry::log_http_completed;
 
+#[cfg(test)]
+pub(crate) mod testing;
 pub mod web;
 
 pub async fn serve(router: Router, bind: SocketAddr) -> Result<()> {
@@ -102,37 +104,9 @@ mod tests {
     use axum::response::sse::{Event, Sse};
     use axum::routing::get;
     use futures::stream;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::TcpStream;
 
     use super::*;
-    use crate::testing::LogCapture;
-
-    async fn exchange(router: Router, request: &str) -> Vec<u8> {
-        let bind = std::net::TcpListener::bind("127.0.0.1:0")
-            .and_then(|listener| listener.local_addr())
-            .expect("free port");
-        let server = tokio::spawn(serve(router, bind));
-
-        let mut stream = loop {
-            assert!(!server.is_finished(), "serve returned before accepting");
-            match TcpStream::connect(bind).await {
-                Ok(stream) => break stream,
-                Err(_) => tokio::task::yield_now().await,
-            }
-        };
-        stream
-            .write_all(request.as_bytes())
-            .await
-            .expect("write request");
-        let mut response = Vec::new();
-        stream
-            .read_to_end(&mut response)
-            .await
-            .expect("read response");
-        server.abort();
-        response
-    }
+    use crate::testing::{LogCapture, exchange};
 
     #[tokio::test]
     async fn the_request_log_has_the_path_but_not_the_query() {
