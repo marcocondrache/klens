@@ -200,12 +200,14 @@ pub(crate) fn router(state: AppState, allowed_hosts: &[AllowedHost], mcp: &Mcp) 
     };
     let host = bearer.resource()[Position::BeforeHost..Position::AfterPort].to_owned();
     let origins = mcp.allowed_origins.iter().map(ToString::to_string);
+    let metadata = bearer.metadata();
     Router::new()
         .nest_service("/mcp", service(state, [host], origins))
         .layer(middleware::from_fn_with_state(
             (bearer, guard),
             auth::require_bearer,
         ))
+        .merge(metadata)
 }
 
 pub(crate) fn ceiling(mcp: &Mcp) -> Ceiling {

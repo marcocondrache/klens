@@ -179,6 +179,18 @@ fn resource<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Url>, D
             "must be an http or https URL with no user, query or fragment",
         ));
     }
+    // klens routes the resource's metadata under its path, and axum 0.8
+    // refuses a route segment that starts with `:` or `*`.
+    if url
+        .path_segments()
+        .into_iter()
+        .flatten()
+        .any(|segment| segment.starts_with([':', '*']))
+    {
+        return Err(D::Error::custom(
+            "must not have a path segment that starts with : or *",
+        ));
+    }
     Ok(Some(url))
 }
 
@@ -315,6 +327,14 @@ mod tests {
             (
                 "resource: https://admin@klens.example.com/mcp",
                 "must be an http or https URL with no user, query or fragment",
+            ),
+            (
+                "resource: 'https://klens.example.com/:mcp'",
+                "must not have a path segment that starts with : or *",
+            ),
+            (
+                "resource: 'https://klens.example.com/klens/*'",
+                "must not have a path segment that starts with : or *",
             ),
             (
                 "token: {audiences: []}",

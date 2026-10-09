@@ -404,8 +404,10 @@ sent as `Authorization: Bearer`, and never the session cookie. `resource` is
 then required, and `/mcp` answers only its host. The token's audience must be
 in `token.audiences`, which defaults to `resource`, and the agent holds what the
 roles of the token's groups grant, under the ceiling below. A missing or bad
-token gets `401` with a `WWW-Authenticate` challenge. A valid token whose groups
-bind no role gets `403`. klens logs each call with the token's user and client.
+token gets `401` with a challenge that points to the resource's
+[RFC 9728](https://www.rfc-editor.org/rfc/rfc9728) metadata, so an MCP client
+finds the provider on its own. A valid token whose groups bind no role gets
+`403`. klens logs each call with the token's user and client.
 
 ```yaml
 mcp:
@@ -414,7 +416,7 @@ mcp:
   token:
     audiences: [https://klens.example.com/mcp] # default: [resource]
     clients: [klens-mcp] # azp, else client_id; default: any client
-    scopes: [] # named in the 401 challenge
+    scopes: [] # named in the 401 challenge and the metadata
     max_age: 1h # the longest exp - iat; raise it on Entra ID
     groups_claim: groups # default: auth.oidc.groups_claim
     user_claim: sub # oid on Entra ID

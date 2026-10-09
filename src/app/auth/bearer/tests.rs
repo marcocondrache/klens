@@ -1,7 +1,7 @@
 use axum::Router;
 use axum::body::{Body, to_bytes};
 use axum::http::{HeaderMap, Request as HttpRequest, StatusCode};
-use axum::routing::post;
+use axum::routing::{any, post};
 use axum::{Json, middleware};
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -20,7 +20,7 @@ use crate::app::auth::{AuthState, SessionUser};
 use crate::app::{AppState, Limits};
 use crate::config::{Config, Mcp, Tuning};
 use crate::kafka::Clusters;
-use crate::testing::{FakeCluster, LogCapture, eventually, mcp_request, quiesce};
+use crate::testing::{FakeCluster, LogCapture, eventually, mcp_request, quiesce, yaml};
 
 const CHALLENGE: &str = r#"Bearer resource_metadata="https://klens.example.com/.well-known/oauth-protected-resource/mcp""#;
 
@@ -703,6 +703,147 @@ async fn a_session_cookie_does_not_open_mcp() {
     );
 }
 
+fn spoofed(path: &str) -> HttpRequest<Body> {
+    HttpRequest::get(path)
+        .header(header::HOST, "evil.example")
+        .header("x-forwarded-host", "evil.example")
+        .header("x-forwarded-proto", "http")
+        .body(Body::empty())
+        .expect("request")
+}
+
+#[tokio::test]
+async fn the_metadata_names_the_resource_the_provider_and_the_scopes_at_both_paths() {
+    let a = Signer::a();
+    let idp = Idp::start(&[&a], &[&a]).await;
+    let mcp = mcp("token: {scopes: [mcp.read, offline_access]}");
+    let app = served(idp.auth(&mcp).await, &mcp);
+
+    for path in [
+        "/.well-known/oauth-protected-resource/mcp",
+        "/.well-known/oauth-protected-resource",
+    ] {
+        let answer = Answer::of(app.clone().oneshot(spoofed(path)).await.expect("response")).await;
+
+        assert_eq!(answer.status, StatusCode::OK, "{path}");
+        assert_eq!(
+            answer.body,
+            json!({
+                "resource": RESOURCE,
+                "authorization_servers": [idp.issuer()],
+                "scopes_supported": ["mcp.read", "offline_access"],
+                "bearer_methods_supported": ["header"],
+                "resource_name": "klens",
+            }),
+            "{path}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn the_metadata_and_the_challenge_follow_wherever_the_resource_sits() {
+    let a = Signer::a();
+    let idp = Idp::start(&[&a], &[&a]).await;
+
+    for (resource, host, metadata) in [
+        (
+            "https://klens.example.com/klens/mcp",
+            "klens.example.com",
+            "https://klens.example.com/.well-known/oauth-protected-resource/klens/mcp",
+        ),
+        (
+            "https://klens.example.com:8443",
+            "klens.example.com:8443",
+            "https://klens.example.com:8443/.well-known/oauth-protected-resource",
+        ),
+    ] {
+        let mcp: Mcp = yaml(&format!("resource: '{resource}'"));
+        let app = served(idp.auth(&mcp).await, &mcp);
+        let mut unsigned = explain();
+        unsigned
+            .headers_mut()
+            .insert(header::HOST, host.parse().expect("a host"));
+        let path = &metadata[metadata.find("/.well-known").expect("a path")..];
+
+        let challenged = Answer::of(app.clone().oneshot(unsigned).await.expect("response")).await;
+        let document =
+            Answer::of(app.clone().oneshot(spoofed(path)).await.expect("response")).await;
+        let root = Answer::of(
+            app.oneshot(spoofed("/.well-known/oauth-protected-resource"))
+                .await
+                .expect("response"),
+        )
+        .await;
+
+        assert_eq!(
+            challenged.challenge(),
+            format!(r#"Bearer resource_metadata="{metadata}""#),
+            "{resource}"
+        );
+        let expected = Url::parse(resource).expect("a url").to_string();
+        assert_eq!(document.body["resource"], expected, "{resource}");
+        assert_eq!(document.body.get("scopes_supported"), None, "{resource}");
+        assert_eq!(root.body, document.body, "{resource}");
+    }
+}
+
+#[tokio::test]
+async fn no_metadata_is_served_without_auth_or_without_mcp() {
+    let a = Signer::a();
+    let idp = Idp::start(&[&a], &[&a]).await;
+    let mcp = mcp("");
+    let without_mcp = crate::app::router(
+        AppState::new(
+            Clusters::from_sessions(vec![FakeCluster::local()]),
+            idp.auth(&mcp).await,
+            Limits::new(&Tuning::default()),
+        ),
+        &Config::default().allowed_hosts,
+        None,
+    );
+    let without_auth = served(AuthState::disabled(), &Mcp::default());
+
+    for app in [without_mcp, without_auth] {
+        for path in [
+            "/.well-known/oauth-protected-resource/mcp",
+            "/.well-known/oauth-protected-resource",
+        ] {
+            let request = HttpRequest::get(path)
+                .header(header::HOST, "localhost")
+                .body(Body::empty())
+                .expect("request");
+
+            let answer = Answer::of(app.clone().oneshot(request).await.expect("response")).await;
+
+            assert_eq!(answer.body.get("resource"), None, "{path}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn the_metadata_routes_sit_beside_a_catch_all_under_well_known() {
+    let a = Signer::a();
+    let idp = Idp::start(&[&a], &[&a]).await;
+    let auth = idp.auth(&mcp("")).await;
+    let app = Router::new()
+        .nest_service("/.well-known", any(|| async { StatusCode::NOT_FOUND }))
+        .merge(auth.bearer().expect("a token check").metadata());
+
+    for (path, status) in [
+        ("/.well-known/oauth-protected-resource/mcp", StatusCode::OK),
+        ("/.well-known/oauth-protected-resource", StatusCode::OK),
+        (
+            "/.well-known/oauth-protected-resource/other",
+            StatusCode::NOT_FOUND,
+        ),
+        ("/.well-known/openid-configuration", StatusCode::NOT_FOUND),
+    ] {
+        let response = app.clone().oneshot(spoofed(path)).await.expect("response");
+
+        assert_eq!(response.status(), status, "{path}");
+    }
+}
+
 #[test]
 fn a_key_set_yields_no_hmac_key() {
     let hmac =
@@ -730,23 +871,23 @@ fn only_jwt_and_access_token_types_name_an_access_token() {
 }
 
 #[test]
-fn the_metadata_url_puts_the_well_known_segment_before_the_path() {
+fn the_metadata_path_puts_the_well_known_segment_before_the_resource_path() {
     for (resource, expected) in [
         (
             "https://klens.example.com/mcp",
-            "https://klens.example.com/.well-known/oauth-protected-resource/mcp",
+            "/.well-known/oauth-protected-resource/mcp",
         ),
         (
             "https://klens.example.com/klens/mcp",
-            "https://klens.example.com/.well-known/oauth-protected-resource/klens/mcp",
+            "/.well-known/oauth-protected-resource/klens/mcp",
         ),
         (
-            "https://klens.example.com:8443/",
-            "https://klens.example.com:8443/.well-known/oauth-protected-resource",
+            "https://klens.example.com:8443",
+            "/.well-known/oauth-protected-resource",
         ),
     ] {
         assert_eq!(
-            metadata_url(&Url::parse(resource).expect("a url")),
+            metadata_path(&Url::parse(resource).expect("a url")),
             expected
         );
     }

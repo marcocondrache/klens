@@ -9,13 +9,15 @@ use axum::extract::{Request, State};
 use axum::http::{HeaderMap, HeaderValue, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use axum::routing::get;
+use axum::{Json, Router};
 use jiff::Timestamp;
 use jsonwebtoken::jwk::{AlgorithmParameters, Jwk, PublicKeyUse};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use openidconnect::core::CoreJsonWebKey;
 use openidconnect::{JsonWebKeySet, reqwest};
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 use tokio::sync::Mutex;
 use url::Url;
 
@@ -59,6 +61,7 @@ pub(crate) struct Bearer {
     groups_claim: String,
     user_claim: String,
     resource: Url,
+    metadata: Value,
     challenge: HeaderValue,
     invalid: HeaderValue,
 }
@@ -104,8 +107,19 @@ impl Bearer {
         // names them.
         validation.set_required_spec_claims(&["exp", "iss", "aud", "sub"]);
 
-        let mut challenge = format!(r#"Bearer resource_metadata="{}""#, metadata_url(&resource));
+        let mut metadata = json!({
+            "resource": resource.as_str(),
+            "authorization_servers": [oidc.issuer.as_str()],
+            "bearer_methods_supported": ["header"],
+            "resource_name": "klens",
+        });
+        let mut challenge = format!(
+            r#"Bearer resource_metadata="{}{}""#,
+            resource.origin().ascii_serialization(),
+            metadata_path(&resource)
+        );
         if !mcp.token.scopes.is_empty() {
+            metadata["scopes_supported"] = json!(mcp.token.scopes);
             challenge += &format!(r#", scope="{}""#, mcp.token.scopes.join(" "));
         }
         let invalid = format!(r#"{challenge}, error="invalid_token""#);
@@ -124,6 +138,7 @@ impl Bearer {
                 .unwrap_or_else(|| oidc.groups_claim.clone()),
             user_claim: mcp.token.user_claim.clone(),
             resource,
+            metadata,
             challenge: HeaderValue::try_from(challenge)?,
             invalid: HeaderValue::try_from(invalid)?,
         })
@@ -131,6 +146,18 @@ impl Bearer {
 
     pub(crate) fn resource(&self) -> &Url {
         &self.resource
+    }
+
+    /// MCP clients that get no `resource_metadata` fall back to the bare
+    /// well-known path.
+    pub(crate) fn metadata(&self) -> Router {
+        let document = Json(self.metadata.clone());
+        let serve = get(move || async move { document });
+        let router = Router::new().route(METADATA_PATH, serve.clone());
+        match metadata_path(&self.resource) {
+            path if path == METADATA_PATH => router,
+            path => router.route(&path, serve),
+        }
     }
 
     async fn authenticate(&self, headers: &HeaderMap) -> Result<Caller, Refusal> {
@@ -277,15 +304,11 @@ fn names_an_access_token(typ: &str) -> bool {
 }
 
 /// RFC 9728 3.1: the well-known segment goes between the host and the path.
-fn metadata_url(resource: &Url) -> String {
-    let path = match resource.path() {
-        "/" => "",
-        path => path,
-    };
-    format!(
-        "{}{METADATA_PATH}{path}",
-        resource.origin().ascii_serialization()
-    )
+fn metadata_path(resource: &Url) -> String {
+    match resource.path() {
+        "/" => METADATA_PATH.to_owned(),
+        path => format!("{METADATA_PATH}{path}"),
+    }
 }
 
 fn seconds(claims: &Value, name: &str) -> Option<i64> {
