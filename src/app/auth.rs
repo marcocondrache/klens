@@ -151,12 +151,13 @@ impl AuthState {
     }
 
     fn guard(&self, session: &AuthSession) -> SessionGuard {
+        let holder = match &session.user {
+            Some(user) if self.is_enabled() => Holder::Session(user.sub.clone()),
+            _ => Holder::Nobody,
+        };
         SessionGuard {
             auth: self.clone(),
-            subject: self
-                .is_enabled()
-                .then(|| session.user.as_ref().map(|user| user.sub.clone()))
-                .flatten(),
+            holder,
             ceiling: None,
         }
     }
@@ -165,15 +166,21 @@ impl AuthState {
 #[derive(Clone)]
 pub struct SessionGuard {
     auth: AuthState,
-    subject: Option<String>,
+    holder: Holder,
     ceiling: Option<Ceiling>,
+}
+
+#[derive(Clone)]
+enum Holder {
+    Nobody,
+    Session(String),
 }
 
 impl SessionGuard {
     pub(crate) fn capped(auth: AuthState, ceiling: Ceiling) -> Self {
         Self {
             auth,
-            subject: None,
+            holder: Holder::Nobody,
             ceiling: Some(ceiling),
         }
     }
@@ -193,17 +200,21 @@ impl SessionGuard {
     }
 
     fn held(&self) -> Option<EffectiveAccess> {
-        let Some(subject) = &self.subject else {
-            return (!self.auth.is_enabled()).then_some(EffectiveAccess::Unrestricted);
-        };
-        self.auth
-            .backend
-            .with_live_user(subject, |user| self.auth.access_from_user(user))
-            .flatten()
+        match &self.holder {
+            Holder::Nobody => (!self.auth.is_enabled()).then_some(EffectiveAccess::Unrestricted),
+            Holder::Session(subject) => self
+                .auth
+                .backend
+                .with_live_user(subject, |user| self.auth.access_from_user(user))
+                .flatten(),
+        }
     }
 
     pub fn subject(&self) -> Option<&str> {
-        self.subject.as_deref()
+        match &self.holder {
+            Holder::Nobody => None,
+            Holder::Session(subject) => Some(subject),
+        }
     }
 }
 

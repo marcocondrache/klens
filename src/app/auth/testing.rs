@@ -18,7 +18,7 @@ use tower_sessions::cookie::time::Duration;
 use super::access::{AccessPolicy, ClusterScope, EffectiveAccess, Grant, PrivilegeSet};
 use super::backend::AuthBackend;
 use super::oidc::OidcFlow;
-use super::{AuthSession, AuthState, SessionGuard, SessionUser, session_layer};
+use super::{AuthSession, AuthState, Holder, SessionGuard, SessionUser, session_layer};
 use crate::AppState;
 use crate::app::Limits;
 use crate::config::{Config, Tuning};
@@ -44,7 +44,7 @@ impl SessionGuard {
     pub fn open() -> Self {
         Self {
             auth: AuthState::disabled(),
-            subject: None,
+            holder: Holder::Nobody,
             ceiling: None,
         }
     }
@@ -52,7 +52,7 @@ impl SessionGuard {
     pub fn expired() -> Self {
         Self {
             auth: AuthState::enabled_for_tests(),
-            subject: Some("gone".to_owned()),
+            holder: Holder::Session("gone".to_owned()),
             ceiling: None,
         }
     }
