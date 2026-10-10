@@ -2,9 +2,6 @@ use std::sync::LazyLock;
 
 use rmcp::handler::server::router::tool::ToolRouter;
 
-use schemars::JsonSchema;
-use serde::Deserialize;
-
 use super::gate::ToolGate;
 use super::server::KlensMcp;
 
@@ -15,15 +12,6 @@ mod groups;
 mod records;
 mod schemas;
 mod topics;
-
-#[derive(Clone, Copy, Default, PartialEq, Eq, Deserialize, JsonSchema)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-#[schemars(inline)]
-pub(super) enum ResponseFormat {
-    #[default]
-    Concise,
-    Detailed,
-}
 
 impl KlensMcp {
     pub(super) fn tools() -> ToolRouter<Self> {

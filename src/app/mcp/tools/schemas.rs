@@ -2,26 +2,27 @@ use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::CallToolResult;
 use rmcp::{tool, tool_router};
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::kafka::KafkaError;
-
+use crate::app::auth::access::Privilege;
 use crate::app::context::Session;
 use crate::app::error::ApiError;
+use crate::app::mcp::args::{NameFilter, ResponseFormat};
+use crate::app::mcp::ext::{ClusterExt as _, SessionExt as _};
+use crate::app::mcp::gate::ToolGate;
+use crate::app::mcp::reply::{Cut, Page, Reply, fit};
+use crate::app::mcp::schema_text::schema_result;
+use crate::app::mcp::server::{KlensMcp, ToolResult};
+use crate::app::mcp::{CLIENT_VALUES_NOTICE, MAX_ROWS, MAX_VERSIONS};
 use crate::app::subjects::latest_version;
 use crate::app::subjects::types::{
-    RegisterSchema, RegisteredVersion, SchemaReference, SchemaType, SubjectDetail,
+    RegisterSchema, RegisteredVersion, SchemaCompatibility, SchemaReference, SchemaType,
+    SubjectDetail, SubjectVersion,
 };
+use crate::kafka::store::projections;
+use crate::kafka::store::tables::SubjectInfo;
 
-use super::super::gate::ToolGate;
-use super::super::types::{SubjectList, SubjectRow};
-use super::super::{CLIENT_VALUES_NOTICE, MAX_ROWS};
-use super::ResponseFormat;
-use crate::app::auth::access::Privilege;
-use crate::app::mcp::fit::{listed, name_filter, one_cluster};
-use crate::app::mcp::lanes::snapshot;
-use crate::app::mcp::server::KlensMcp;
 #[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SubjectsQuery {
@@ -71,6 +72,73 @@ pub(super) const GATES: &[ToolGate] = &[
     ToolGate::open("klens_schemas_list"),
 ];
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SubjectRow {
+    subject: String,
+    latest_version: i32,
+    #[serde(rename = "type")]
+    schema_type: SchemaType,
+    compatibility: SchemaCompatibility,
+    #[serde(flatten)]
+    versions: Option<SubjectVersions>,
+}
+
+/// The newest versions of a subject, which a DETAILED list adds.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SubjectVersions {
+    latest_schema_id: i32,
+    versions: Vec<SubjectVersion>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    versions_left_out: Option<usize>,
+}
+
+impl SubjectRow {
+    pub(super) fn concise(subject: String, info: &SubjectInfo) -> Self {
+        Self {
+            subject,
+            latest_version: info.latest_version,
+            schema_type: info.schema_type.into(),
+            compatibility: info.compatibility.into(),
+            versions: None,
+        }
+    }
+
+    fn detailed(row: projections::SubjectRow) -> Self {
+        let older = row.versions.len().saturating_sub(MAX_VERSIONS);
+        Self {
+            versions: Some(SubjectVersions {
+                latest_schema_id: row.info.id,
+                versions: row.versions[older..]
+                    .iter()
+                    .copied()
+                    .map(SubjectVersion::from)
+                    .collect(),
+                versions_left_out: (older > 0).then_some(older),
+            }),
+            ..Self::concise(row.subject.to_string(), &row.info)
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct SubjectList {
+    #[serde(flatten)]
+    page: Page<SubjectRow>,
+    notice: &'static str,
+}
+
+impl Reply for SubjectList {
+    fn lists(&mut self) -> Vec<&mut dyn Cut> {
+        vec![self.page.rows()]
+    }
+
+    fn kept_whole(&self) -> Option<&str> {
+        None
+    }
+}
+
 #[tool_router(router = schema_tools, vis = "pub(super)")]
 impl KlensMcp {
     /// Reads one version of a subject's schema live from the registry, the latest unless `version` is given, so calls to it are limited per minute.
@@ -80,30 +148,28 @@ impl KlensMcp {
     async fn klens_schema_get(
         &self,
         session: Session,
-        Parameters(named): Parameters<SchemaQuery>,
-    ) -> Result<CallToolResult, ApiError> {
-        let cluster = one_cluster(&session, named.cluster.as_deref())?;
+        Parameters(query): Parameters<SchemaQuery>,
+    ) -> ToolResult {
+        let cluster = session.cluster_or_only(query.cluster.as_deref())?;
         let schema_text = cluster.schema_text()?;
-        if !cluster.has_schema_registry() {
-            return Err(KafkaError::NoSchemaRegistry(cluster.name().to_owned()).into());
-        }
-        let version = match named.version {
+        cluster.require_schema_registry()?;
+        let version = match query.version {
             Some(version) if version < 1 => {
                 return Err(ApiError::unprocessable("`version` must be 1 or more"));
             }
             Some(version) => version,
             None => {
-                snapshot(&cluster, "subjects", &cluster.store.subjects)?;
-                latest_version(&cluster, &named.subject)?
+                cluster.snapshot("subjects", &cluster.store.subjects)?;
+                latest_version(&cluster, &query.subject)?
             }
         };
-        if !self.state.mcp_live_call(session.guard.subject()) {
-            return Err(ApiError::TooManyLiveCalls);
-        }
-        let schema = schema_text.subject_schema(&named.subject, version).await?;
-        Ok(super::super::schema_text::schema_result(
-            &SubjectDetail::new(named.subject, version, schema),
-        ))
+        self.live_call(&session)?;
+        let schema = schema_text.subject_schema(&query.subject, version).await?;
+        Ok(schema_result(&SubjectDetail::new(
+            query.subject,
+            version,
+            schema,
+        )))
     }
 
     /// Registers a schema as a subject's next version and returns the version and the schema id. It changes the registry, so calls to it are limited per minute.
@@ -113,23 +179,19 @@ impl KlensMcp {
     async fn klens_schema_register(
         &self,
         session: Session,
-        Parameters(registered): Parameters<SchemaToRegister>,
-    ) -> Result<CallToolResult, ApiError> {
-        let cluster = one_cluster(&session, registered.cluster.as_deref())?;
-        let schemas = cluster.register_schemas()?;
-        if !cluster.has_schema_registry() {
-            return Err(KafkaError::NoSchemaRegistry(cluster.name().to_owned()).into());
-        }
-        if !self.state.mcp_live_call(session.guard.subject()) {
-            return Err(ApiError::TooManyLiveCalls);
-        }
+        Parameters(request): Parameters<SchemaToRegister>,
+    ) -> ToolResult {
+        let cluster = session.cluster_or_only(request.cluster.as_deref())?;
+        let registry = cluster.register_schemas()?;
+        cluster.require_schema_registry()?;
+        self.live_call(&session)?;
         let schema = RegisterSchema {
-            schema_type: registered.schema_type,
-            schema: registered.schema,
-            references: registered.references,
+            schema_type: request.schema_type,
+            schema: request.schema,
+            references: request.references,
         }
-        .into_schema(registered.subject);
-        let version = schemas.register_schema(&schema).await?;
+        .into_schema(request.subject);
+        let version = registry.register_schema(&schema).await?;
         Ok(CallToolResult::structured(json!(RegisteredVersion::from(
             version
         ))))
@@ -143,32 +205,29 @@ impl KlensMcp {
         &self,
         session: Session,
         Parameters(query): Parameters<SubjectsQuery>,
-    ) -> Result<CallToolResult, ApiError> {
-        let cluster = one_cluster(&session, query.cluster.as_deref())?;
-        if !cluster.has_schema_registry() {
-            return Err(KafkaError::NoSchemaRegistry(cluster.name().to_owned()).into());
-        }
-        snapshot(&cluster, "subjects", &cluster.store.subjects)?;
-        let detailed = query.response_format == ResponseFormat::Detailed;
-        let named = name_filter(query.name_contains.as_deref());
-        let subjects: Vec<SubjectRow> = cluster
+    ) -> ToolResult {
+        let cluster = session.cluster_or_only(query.cluster.as_deref())?;
+        cluster.require_schema_registry()?;
+        cluster.snapshot("subjects", &cluster.store.subjects)?;
+        let names = NameFilter::new(query.name_contains.as_deref());
+        let subjects = cluster
             .store
             .subject_rows()
             .into_iter()
-            .filter(|row| named(&row.subject))
-            .map(|row| SubjectRow::new(row, detailed))
+            .filter(|row| names.matches(&row.subject))
+            .map(|row| match query.response_format.is_detailed() {
+                true => SubjectRow::detailed(row),
+                false => SubjectRow::concise(row.subject.to_string(), &row.info),
+            })
             .collect();
-        Ok(listed(
-            subjects,
-            query.limit,
-            Some("pass `nameContains`"),
-            |subjects, showing| {
-                json!(SubjectList {
-                    subjects,
-                    showing,
-                    notice: CLIENT_VALUES_NOTICE,
-                })
-            },
-        ))
+        Ok(fit(SubjectList {
+            page: Page::new(
+                "subjects",
+                subjects,
+                query.limit,
+                Some("pass `nameContains`"),
+            ),
+            notice: CLIENT_VALUES_NOTICE,
+        }))
     }
 }

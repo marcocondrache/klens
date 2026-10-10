@@ -6,8 +6,8 @@ use crate::kafka::model::GroupState;
 use crate::kafka::store::Topology;
 use crate::kafka::store::projections::GroupDetail;
 
-use crate::app::mcp::fit::{first, left_out};
-use crate::app::mcp::view::shortened;
+use crate::app::mcp::reply::prefix;
+use crate::app::mcp::untrusted::shorten;
 
 #[cfg(test)]
 mod tests;
@@ -48,11 +48,14 @@ impl Finding {
         match self {
             Self::UnassignedPartitions {
                 topic, partitions, ..
-            } => Self::UnassignedPartitions {
-                topic: topic.clone(),
-                partitions: first(partitions, max_partitions).to_vec(),
-                partitions_left_out: left_out(partitions.len(), max_partitions),
-            },
+            } => {
+                let (kept, left_out) = prefix(partitions, max_partitions);
+                Self::UnassignedPartitions {
+                    topic: topic.clone(),
+                    partitions: kept.to_vec(),
+                    partitions_left_out: left_out,
+                }
+            }
             finding => finding.clone(),
         }
     }
@@ -136,9 +139,9 @@ fn lag_on_one_member(group: &GroupDetail) -> Option<Finding> {
         .max_by_key(|&(_, lag)| lag)?;
     (i128::from(lag) * 100 >= i128::from(total) * ONE_MEMBER_SHARE_PERCENT).then(|| {
         Finding::LagOnOneMember {
-            member_id: shortened(&member.id).into_owned(),
-            client_id: shortened(&member.client_id).into_owned(),
-            host: shortened(&member.host).into_owned(),
+            member_id: shorten(&member.id).into_owned(),
+            client_id: shorten(&member.client_id).into_owned(),
+            host: shorten(&member.host).into_owned(),
             lag,
             total_lag: total,
         }

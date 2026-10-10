@@ -6,21 +6,22 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::kafka::{RecordCursor, RecordQuery};
-
+use crate::app::auth::access::Privilege;
 use crate::app::context::Session;
 use crate::app::error::ApiError;
+use crate::app::mcp::ext::SessionExt as _;
+use crate::app::mcp::gate::ToolGate;
+use crate::app::mcp::record_text::records_result;
+use crate::app::mcp::reply::fits;
+use crate::app::mcp::server::{KlensMcp, ToolResult};
+use crate::app::mcp::{DEFAULT_RECORDS, MAX_RECORDS, OBFUSCATED_NOTICE};
 use crate::app::records::RecordPage;
 use crate::app::records::types::{
     LookupParams, ProduceRecord, ProducedRecord, RecordHeader, RecordLookup, RecordOrder,
     RecordParams, RecordPayload, record_at, record_query,
 };
+use crate::kafka::{RecordCursor, RecordQuery};
 
-use super::super::{DEFAULT_RECORDS, MAX_RECORDS, OBFUSCATED_NOTICE};
-use crate::app::auth::access::Privilege;
-use crate::app::mcp::fit::{fits, one_cluster};
-use crate::app::mcp::gate::ToolGate;
-use crate::app::mcp::server::KlensMcp;
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct RecordAddress {
@@ -122,6 +123,38 @@ pub(super) const GATES: &[ToolGate] = &[
     ToolGate::needing("klens_records_read", Privilege::Records),
 ];
 
+impl RecordPage {
+    /// The lines that tell a client what the page holds and how to read on.
+    fn intro(&self, order: Option<RecordOrder>) -> String {
+        let direction = match order {
+            Some(RecordOrder::Oldest) => "oldest first",
+            _ => "newest first",
+        };
+        let mut lines = vec![match self.records.len() {
+            1 => format!("1 record, {direction}."),
+            count => format!("{count} records, {direction}."),
+        }];
+        if self.obfuscated {
+            lines.push(OBFUSCATED_NOTICE.to_owned());
+        }
+        if !self.complete {
+            lines.push(
+                "The read reached its deadline before it covered every partition, so this page \
+                 may hold fewer records than match."
+                    .to_owned(),
+            );
+        }
+        lines.push(match &self.next_cursor {
+            Some(cursor) => format!(
+                "For the next page, call again with `cursor` set to `{cursor}` and the other \
+                 arguments unchanged."
+            ),
+            None => "No more records match.".to_owned(),
+        });
+        lines.join("\n")
+    }
+}
+
 #[tool_router(router = record_tools, vis = "pub(super)")]
 impl KlensMcp {
     /// Reads one record live from Kafka by its topic, partition and offset, so calls to it are limited per minute.
@@ -133,8 +166,8 @@ impl KlensMcp {
         &self,
         session: Session,
         Parameters(address): Parameters<RecordAddress>,
-    ) -> Result<CallToolResult, ApiError> {
-        let cluster = one_cluster(&session, address.cluster.as_deref())?;
+    ) -> ToolResult {
+        let cluster = session.cluster_or_only(address.cluster.as_deref())?;
         let records = cluster.records()?;
         if address.partition < 0 || address.offset < 0 {
             return Err(ApiError::unprocessable(
@@ -147,16 +180,14 @@ impl KlensMcp {
             address.offset,
             LookupParams { schema_id: None },
         );
-        if !self.state.mcp_live_call(session.guard.subject()) {
-            return Err(ApiError::TooManyLiveCalls);
-        }
+        self.live_call(&session)?;
         let found = RecordLookup::from(records.record(at).await?);
         let intro = if found.obfuscated {
             OBFUSCATED_NOTICE
         } else {
             ""
         };
-        Ok(super::super::record_text::records_result(
+        Ok(records_result(
             std::slice::from_ref(&found.record),
             intro,
             "The klens UI shows the whole record.",
@@ -170,21 +201,19 @@ impl KlensMcp {
     async fn klens_record_produce(
         &self,
         session: Session,
-        Parameters(record): Parameters<RecordToProduce>,
-    ) -> Result<CallToolResult, ApiError> {
-        let cluster = one_cluster(&session, record.cluster.as_deref())?;
+        Parameters(request): Parameters<RecordToProduce>,
+    ) -> ToolResult {
+        let cluster = session.cluster_or_only(request.cluster.as_deref())?;
         let producer = cluster.produce()?;
-        producer.writable_partition(&record.topic, record.partition)?;
-        if !self.state.mcp_live_call(session.guard.subject()) {
-            return Err(ApiError::TooManyLiveCalls);
-        }
+        producer.writable_partition(&request.topic, request.partition)?;
+        self.live_call(&session)?;
         let record = ProduceRecord {
-            partition: record.partition,
-            key: record.key,
-            value: Some(record.value),
-            headers: record.headers,
+            partition: request.partition,
+            key: request.key,
+            value: Some(request.value),
+            headers: request.headers,
         }
-        .into_record(record.topic, &producer)
+        .into_record(request.topic, &producer)
         .await?;
         let produced = producer.produce(&record).await?;
         Ok(CallToolResult::structured(json!(ProducedRecord::from(
@@ -202,43 +231,17 @@ impl KlensMcp {
         &self,
         session: Session,
         Parameters(mut read): Parameters<RecordsQuery>,
-    ) -> Result<CallToolResult, ApiError> {
+    ) -> ToolResult {
         let name = read.cluster.take();
-        let cluster = one_cluster(&session, name.as_deref())?;
+        let cluster = session.cluster_or_only(name.as_deref())?;
         let records = cluster.records()?;
-        let first = match read.order {
-            Some(RecordOrder::Oldest) => "oldest first",
-            _ => "newest first",
-        };
+        let order = read.order;
         let query = read.query()?;
-        if !self.state.mcp_live_call(session.guard.subject()) {
-            return Err(ApiError::TooManyLiveCalls);
-        }
+        self.live_call(&session)?;
         let page = RecordPage::from(records.read(query).await?);
-        let mut intro = vec![match page.records.len() {
-            1 => format!("1 record, {first}."),
-            count => format!("{count} records, {first}."),
-        }];
-        if page.obfuscated {
-            intro.push(OBFUSCATED_NOTICE.to_owned());
-        }
-        if !page.complete {
-            intro.push(
-                "The read reached its deadline before it covered every partition, so this page \
-                 may hold fewer records than match."
-                    .to_owned(),
-            );
-        }
-        intro.push(match &page.next_cursor {
-            Some(cursor) => format!(
-                "For the next page, call again with `cursor` set to `{cursor}` and the other \
-                 arguments unchanged."
-            ),
-            None => "No more records match.".to_owned(),
-        });
-        let result = super::super::record_text::records_result(
+        let result = records_result(
             &page.records,
-            &intro.join("\n"),
+            &page.intro(order),
             "klens_record_get reads one of them with the whole result to itself.",
         );
         if !fits(&result) {

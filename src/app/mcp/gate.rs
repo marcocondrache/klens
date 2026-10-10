@@ -1,11 +1,17 @@
-use crate::app::mcp::tools::gates;
-use crate::config::Mcp;
+//! Which privileges let a caller use a tool.
+
 use rmcp::model::ToolAnnotations;
+use serde::Serialize;
 
 use crate::app::auth::access::{ClusterAccess, Privilege};
 use crate::app::context::{ClusterHandle, Session};
+use crate::app::whoami::types::PrivilegeName;
+use crate::config::Mcp;
 
-use super::types::{ClusterRights, Section, ToolRights};
+use super::configs::Section;
+use super::tools::gates;
+
+/// The privilege a tool needs, and the privilege each section of its result needs.
 pub(super) struct ToolGate {
     pub(super) name: &'static str,
     pub(super) needs: Option<Privilege>,
@@ -42,6 +48,10 @@ impl ToolGate {
         }
     }
 
+    pub(super) fn named(name: &str) -> Option<&'static Self> {
+        gates().find(|gate| gate.name == name)
+    }
+
     pub(super) fn changes(&self) -> bool {
         self.needs
             .is_some_and(|privilege| Mcp::WRITES.contains(&privilege))
@@ -54,57 +64,56 @@ impl ToolGate {
             .idempotent(self.idempotent)
             .open_world(false)
     }
-}
 
-pub(super) fn offered(session: &Session, tool: &str) -> bool {
-    gates().any(|gate| {
-        gate.name == tool
-            && (gate.needs.is_none() || session.clusters().any(|cluster| usable(&cluster, gate)))
-    })
-}
+    /// Whether the caller may use the tool on some cluster they see.
+    pub(super) fn offered_to(&self, session: &Session) -> bool {
+        self.needs.is_none() || session.clusters().any(|cluster| self.usable_on(&cluster))
+    }
 
-pub(super) fn usable(cluster: &ClusterHandle<'_>, gate: &ToolGate) -> bool {
-    gate.needs
-        .is_none_or(|privilege| cluster.access.allows(privilege))
-        && (!gate.changes() || cluster.is_writable())
-}
+    /// A tool that changes Kafka also needs a cluster that accepts changes.
+    pub(super) fn usable_on(&self, cluster: &ClusterHandle<'_>) -> bool {
+        self.needs
+            .is_none_or(|privilege| cluster.access.allows(privilege))
+            && (!self.changes() || cluster.is_writable())
+    }
 
-pub(super) fn rights(cluster: &ClusterHandle<'_>) -> ClusterRights {
-    ClusterRights {
-        cluster: cluster.name().to_owned(),
-        writable: cluster.is_writable(),
-        privileges: cluster
-            .access
-            .privileges()
-            .into_iter()
-            .map(Into::into)
-            .collect(),
-        tools: gates()
-            .flat_map(|gate| {
-                let sections = gate.sections.iter().map(|&(section, needs)| {
-                    tool_rights(&cluster.access, gate.name, Some(section), Some(needs))
-                });
-                let tool = ToolRights {
-                    available: usable(cluster, gate),
-                    ..tool_rights(&cluster.access, gate.name, None, gate.needs)
-                };
-                std::iter::once(tool).chain(sections)
-            })
-            .collect(),
+    /// The tool, then each of its sections, with what each lacks on the cluster.
+    pub(super) fn rights(&self, cluster: &ClusterHandle<'_>) -> Vec<ToolRights> {
+        let tool = ToolRights {
+            available: self.usable_on(cluster),
+            ..ToolRights::check(&cluster.access, self.name, None, self.needs)
+        };
+        let sections = self.sections.iter().map(|&(section, needs)| {
+            ToolRights::check(&cluster.access, self.name, Some(section), Some(needs))
+        });
+        std::iter::once(tool).chain(sections).collect()
     }
 }
 
-pub(super) fn tool_rights(
-    access: &ClusterAccess<'_>,
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ToolRights {
     name: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
     section: Option<Section>,
-    needs: Option<Privilege>,
-) -> ToolRights {
-    let missing = needs.filter(|privilege| !access.allows(*privilege));
-    ToolRights {
-        name,
-        section,
-        available: missing.is_none(),
-        needs: missing.map(Into::into),
+    available: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    needs: Option<PrivilegeName>,
+}
+
+impl ToolRights {
+    pub(super) fn check(
+        access: &ClusterAccess<'_>,
+        name: &'static str,
+        section: Option<Section>,
+        needs: Option<Privilege>,
+    ) -> Self {
+        let missing = needs.filter(|privilege| !access.allows(*privilege));
+        Self {
+            name,
+            section,
+            available: missing.is_none(),
+            needs: missing.map(Into::into),
+        }
     }
 }

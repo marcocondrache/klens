@@ -4,11 +4,11 @@ use std::sync::Arc;
 use axum::http::request::Parts;
 use futures::FutureExt as _;
 use rmcp::handler::server::common::FromContextPart;
-use rmcp::handler::server::router::tool::ToolRouter;
+use rmcp::handler::server::router::tool::{ToolRoute, ToolRouter};
 use rmcp::handler::server::tool::{IntoCallToolResult, ToolCallContext};
 use rmcp::model::{
-    CacheScope, CallToolRequestParams, CallToolResponse, ErrorCode, ListToolsResult,
-    PaginatedRequestParams, ProtocolVersion,
+    CacheScope, CallToolRequestParams, CallToolResponse, CallToolResult, ErrorCode,
+    ListToolsResult, PaginatedRequestParams, ProtocolVersion,
 };
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData, RoleServer, ServerHandler, tool_handler};
@@ -23,14 +23,26 @@ use crate::app::context::Session;
 use crate::app::error::ApiError;
 
 use super::MAX_CLIENT_CHARS;
-use crate::app::mcp::gate::offered;
-use crate::app::mcp::tools::gates;
+use super::gate::ToolGate;
+
+/// What every tool returns. A refusal becomes an error result the client reads.
+pub(super) type ToolResult = Result<CallToolResult, ApiError>;
+
 pub(crate) struct KlensMcp {
     pub(super) state: AppState,
     pub(super) tools: Arc<ToolRouter<Self>>,
 }
 
 impl KlensMcp {
+    /// Reading live from Kafka costs it a call, so each caller gets a few a minute.
+    pub(super) fn live_call(&self, session: &Session) -> Result<(), ApiError> {
+        if self.state.mcp_live_call(session.guard.subject()) {
+            Ok(())
+        } else {
+            Err(ApiError::TooManyLiveCalls)
+        }
+    }
+
     fn client(&self, context: &RequestContext<RoleServer>) -> Option<String> {
         if self.state.auth.is_enabled() {
             let parts = context.extensions.get::<Parts>()?;
@@ -54,7 +66,8 @@ impl FromContextPart<ToolCallContext<'_, KlensMcp>> for Session {
     }
 }
 
-pub(super) fn caller(
+/// The session the admission layer left in the request.
+fn caller(
     state: &AppState,
     context: &mut RequestContext<RoleServer>,
 ) -> Result<Session, ErrorData> {
@@ -88,7 +101,9 @@ impl ServerHandler for KlensMcp {
             .tools
             .list_all()
             .into_iter()
-            .filter(|tool| offered(&session, &tool.name))
+            .filter(|tool| {
+                ToolGate::named(&tool.name).is_some_and(|gate| gate.offered_to(&session))
+            })
             .collect();
         let mut list = ListToolsResult::with_all_items(tools);
         if context
@@ -112,37 +127,51 @@ impl ServerHandler for KlensMcp {
         if let Some(client) = self.client(&context) {
             span.record("client", client.as_str());
         }
-        let cancelled = context.ct.clone();
         // A write that reached Kafka must still log its audit line after the
         // client goes away, so only a read stops when it does.
-        let changes = gates().any(|gate| gate.name == route.attr.name && gate.changes());
-        async move {
-            let Some(_permit) = self.state.mcp_permit() else {
-                return ApiError::RateLimited.into_call_tool_result();
-            };
-            let call = AssertUnwindSafe((route.call)(ToolCallContext::new(self, request, context)));
-            tokio::select! {
-                response = call.catch_unwind() => {
-                    match response {
-                        // rmcp answers arguments that miss the input schema
-                        // with serde's message alone, so they get a code and a
-                        // hint like every other refusal.
-                        Ok(Err(error)) if error.code == ErrorCode::INVALID_PARAMS => {
-                            ApiError::unprocessable(error.message).into_call_tool_result()
-                        }
-                        Ok(response) => response,
-                        // rmcp runs the call in a task of its own, out of reach
-                        // of the server's CatchPanicLayer, and a panic there
-                        // leaves the request without an answer.
-                        Err(_) => Err(ErrorData::internal_error("the tool failed", None)),
-                    }
-                }
-                () = cancelled.cancelled(), if !changes => {
-                    Err(ErrorData::internal_error("the client cancelled the call", None))
-                }
+        let changes = ToolGate::named(&route.attr.name).is_some_and(ToolGate::changes);
+        self.run(route, request, context, !changes)
+            .instrument(span)
+            .await
+    }
+}
+
+impl KlensMcp {
+    async fn run(
+        &self,
+        route: &ToolRoute<Self>,
+        request: CallToolRequestParams,
+        context: RequestContext<RoleServer>,
+        stops_on_cancel: bool,
+    ) -> Result<CallToolResponse, ErrorData> {
+        let Some(_permit) = self.state.mcp_permit() else {
+            return ApiError::RateLimited.into_call_tool_result();
+        };
+        let cancelled = context.ct.clone();
+        let call = AssertUnwindSafe((route.call)(ToolCallContext::new(self, request, context)));
+        tokio::select! {
+            response = call.catch_unwind() => Self::settle(response),
+            () = cancelled.cancelled(), if stops_on_cancel => {
+                Err(ErrorData::internal_error("the client cancelled the call", None))
             }
         }
-        .instrument(span)
-        .await
+    }
+
+    fn settle(
+        response: std::thread::Result<Result<CallToolResponse, ErrorData>>,
+    ) -> Result<CallToolResponse, ErrorData> {
+        match response {
+            // rmcp answers arguments that miss the input schema with serde's
+            // message alone, so they get a code and a hint like every other
+            // refusal.
+            Ok(Err(error)) if error.code == ErrorCode::INVALID_PARAMS => {
+                ApiError::unprocessable(error.message).into_call_tool_result()
+            }
+            Ok(response) => response,
+            // rmcp runs the call in a task of its own, out of reach of the
+            // server's CatchPanicLayer, and a panic there leaves the request
+            // without an answer.
+            Err(_) => Err(ErrorData::internal_error("the tool failed", None)),
+        }
     }
 }
