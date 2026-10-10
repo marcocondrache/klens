@@ -1,8 +1,11 @@
 use foldhash::{HashMap, HashMapExt};
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use futures::future::join_all;
+use itertools::Itertools as _;
 use tokio::time::Instant;
 
 use crate::config::IngestTuning;
@@ -23,6 +26,7 @@ pub struct WatermarkLane {
     idle_heartbeat: Duration,
     max_sample_gap: Duration,
     committed_at: Mutex<Option<Instant>>,
+    partial_error: Mutex<Option<String>>,
 }
 
 impl WatermarkLane {
@@ -39,6 +43,7 @@ impl WatermarkLane {
             idle_heartbeat: tuning.idle_heartbeat,
             max_sample_gap: tuning.max_sample_gap,
             committed_at: Mutex::new(None),
+            partial_error: Mutex::new(None),
         }
     }
 
@@ -77,14 +82,15 @@ impl WatermarkLane {
             .is_none_or(|at| now.saturating_duration_since(at) >= self.low_interval)
     }
 
-    async fn read_low_and_high(
+    async fn read(
         &self,
         wanted: &HashMap<String, Vec<i32>>,
-        now: Instant,
+        cached: Option<&WatermarkTable>,
     ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError> {
-        let fetched = watermarks(self.session.as_ref(), wanted).await?;
-        *self.low_read_at.lock().expect("watermark lane clock") = Some(now);
-        Ok(fetched)
+        match cached {
+            Some(previous) => self.read_high(wanted, previous).await,
+            None => watermarks(self.session.as_ref(), wanted).await,
+        }
     }
 
     async fn read_high(
@@ -155,21 +161,58 @@ impl LaneSource for WatermarkLane {
         topology: &Topology,
         previous: Option<&Arc<WatermarkTable>>,
     ) -> Result<WatermarkTable, KafkaError> {
-        let wanted = self.wanted_partitions(store, topology);
         let now = Instant::now();
-        let refresh = store.watermarks.take_refresh();
-        let fetched = match previous {
-            Some(previous) if !refresh && !self.low_due(now) => {
-                self.read_high(&wanted, previous).await?
-            }
-            _ => self.read_low_and_high(&wanted, now).await?,
-        };
+        let previous = previous.map(Arc::as_ref);
+        let reread_lows = store.watermarks.take_refresh() || self.low_due(now);
+        let cached = previous.filter(|_| !reread_lows);
+        let leaders = by_leader(topology, self.wanted_partitions(store, topology));
+        let reads = join_all(leaders.iter().map(|(&leader, wanted)| async move {
+            (leader, wanted, self.read(wanted, cached).await)
+        }))
+        .await;
 
-        let marks = fetched
-            .into_iter()
-            .map(|(topic, partitions)| (topology.intern_topic(&topic), partitions))
-            .collect();
+        let mut marks: HashMap<Arc<str>, HashMap<i32, Watermarks>> = HashMap::new();
+        let mut failures = Vec::new();
+        for (leader, wanted, read) in reads {
+            match read {
+                Ok(fetched) => {
+                    for (topic, partitions) in fetched {
+                        marks
+                            .entry(topology.intern_topic(&topic))
+                            .or_default()
+                            .extend(partitions);
+                    }
+                }
+                Err(error) => {
+                    keep_previous(&mut marks, previous, wanted, topology);
+                    failures.push((leader, error));
+                }
+            }
+        }
+
+        if failures.len() == leaders.len()
+            && let Some((_, error)) = failures.pop()
+        {
+            return Err(error);
+        }
+        if cached.is_none() {
+            *self.low_read_at.lock().expect("watermark lane clock") = Some(now);
+        }
+        *self.partial_error.lock().expect("watermark lane error") =
+            (!failures.is_empty()).then(|| {
+                failures
+                    .iter()
+                    .map(|(leader, error)| format!("leader {leader}: {error}"))
+                    .join("; ")
+            });
         Ok(WatermarkTable { marks })
+    }
+
+    fn take_partial_error(&self) -> Option<String> {
+        self.partial_error
+            .lock()
+            .expect("watermark lane error")
+            .take()
     }
 
     fn diff(&self, previous: Option<&WatermarkTable>, next: &WatermarkTable) -> Option<()> {
@@ -203,6 +246,47 @@ impl LaneSource for WatermarkLane {
         store
             .bus
             .publish(Change::Watermarks(Arc::new(WatermarksTick { rates })));
+    }
+}
+
+fn by_leader(
+    topology: &Topology,
+    wanted: HashMap<String, Vec<i32>>,
+) -> BTreeMap<i32, HashMap<String, Vec<i32>>> {
+    let mut leaders: BTreeMap<i32, HashMap<String, Vec<i32>>> = BTreeMap::new();
+    for (topic, partitions) in wanted {
+        let info = topology.topics.get(topic.as_str());
+        let led = partitions.into_iter().into_group_map_by(|&partition| {
+            info.and_then(|info| info.leader(partition)).unwrap_or(-1)
+        });
+        for (leader, partitions) in led {
+            leaders
+                .entry(leader)
+                .or_default()
+                .insert(topic.clone(), partitions);
+        }
+    }
+    leaders
+}
+
+fn keep_previous(
+    marks: &mut HashMap<Arc<str>, HashMap<i32, Watermarks>>,
+    previous: Option<&WatermarkTable>,
+    wanted: &HashMap<String, Vec<i32>>,
+    topology: &Topology,
+) {
+    let Some(previous) = previous else {
+        return;
+    };
+    for (topic, partitions) in wanted {
+        for &partition in partitions {
+            if let Some(kept) = previous.get(topic, partition) {
+                marks
+                    .entry(topology.intern_topic(topic))
+                    .or_default()
+                    .insert(partition, kept);
+            }
+        }
     }
 }
 
