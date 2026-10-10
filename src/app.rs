@@ -29,6 +29,7 @@ mod topics;
 #[cfg(feature = "typescript")]
 pub mod typescript;
 mod updates;
+mod well_known;
 mod whoami;
 
 #[cfg(test)]
@@ -116,6 +117,7 @@ pub fn router(state: AppState, allowed_hosts: &[AllowedHost], mcp: Option<&Mcp>)
 
     let mut app = Router::new()
         .nest("/api", auth_routes().merge(resources))
+        .merge(well_known::router())
         .with_state(state.clone())
         .merge(crate::server::web::router());
     // With auth on, the session cookie stays with klens' own host, so a page
