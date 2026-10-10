@@ -380,7 +380,10 @@ async fn callback(
     };
 
     if state.auth.access_from_user(&user).is_none() {
-        tracing::info!(sub = %user.sub, "oidc login refused: no matching role");
+        tracing::info!(
+            sub = user.sub.as_str(),
+            "oidc login refused: no matching role"
+        );
         return login_error(&mut auth_session, LoginFail::Forbidden).await;
     }
 
@@ -405,7 +408,7 @@ async fn callback(
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
 
-    tracing::info!(sub = %user.sub, "oidc login succeeded");
+    tracing::info!(sub = user.sub.as_str(), "oidc login succeeded");
     Redirect::to("/login?from=callback").into_response()
 }
 
@@ -470,7 +473,7 @@ mod tests {
 
     use super::testing::{Browser, FakeOidc};
     use super::*;
-    use crate::testing::yaml;
+    use crate::testing::{LogCapture, yaml};
 
     #[test]
     fn the_session_hash_follows_every_claim_it_binds() {
@@ -661,12 +664,14 @@ mod tests {
     #[tokio::test]
     async fn callback_sets_session_when_state_matches() {
         let mut browser = Browser::new(AuthState::enabled_for_tests());
+        let logs = LogCapture::at(tracing::Level::INFO);
 
         let callback = browser.log_in("test-code").await;
 
         assert_eq!(callback.location(), "/login?from=callback");
         assert!(callback.set_cookie().starts_with(SESSION_COOKIE));
         assert_eq!(browser.get("/api/clusters").await.status, StatusCode::OK);
+        logs.assert_contains(r#"oidc login succeeded sub="user-1""#);
     }
 
     #[tokio::test]
@@ -686,6 +691,7 @@ mod tests {
             },
             bound_admins(),
         ));
+        let logs = LogCapture::at(tracing::Level::INFO);
 
         let callback = browser.log_in("test-code").await;
 
@@ -694,6 +700,7 @@ mod tests {
             browser.get("/api/clusters").await.status,
             StatusCode::UNAUTHORIZED
         );
+        logs.assert_contains(r#"oidc login refused: no matching role sub="user-1""#);
     }
 
     fn key(text: &str) -> KeyMaterial {

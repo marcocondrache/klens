@@ -335,7 +335,7 @@ impl Granted<'_, ResetOffsetsCap> {
             .await?;
         tracing::info!(
             cluster = %self.cluster.store.name(),
-            group = %reset.group,
+            group = reset.group.as_str(),
             topic = ?reset.topic,
             partitions = committed.len(),
             to = ?reset.to,
@@ -378,7 +378,7 @@ impl Granted<'_, DeleteGroupsCap> {
     pub(crate) async fn delete_group(&self, group: &str) -> Result<(), KafkaError> {
         self.stopped_group(group)?;
         self.cluster.session.delete_group(group).await?;
-        tracing::info!(cluster = %self.cluster.store.name(), group = %group, "deleted group");
+        tracing::info!(cluster = %self.cluster.store.name(), group, "deleted group");
         self.settle(&self.cluster.store.topology, |known| {
             !known.groups.contains_key(group)
         })
@@ -413,7 +413,7 @@ impl Granted<'_, DeleteOffsetsCap> {
             .await?;
         tracing::info!(
             cluster = %self.cluster.store.name(),
-            group = %group,
+            group,
             topic,
             partitions = partitions.len(),
             "deleted group offsets"
@@ -439,7 +439,7 @@ impl Granted<'_, RegisterSchemasCap> {
         let registered = self.cluster.session.register_schema(schema).await?;
         tracing::info!(
             cluster = %self.cluster.store.name(),
-            subject = %schema.subject,
+            subject = schema.subject.as_str(),
             id = registered.id,
             version = registered.version,
             "registered schema"
@@ -461,7 +461,7 @@ impl Granted<'_, DeleteSchemasCap> {
         self.cluster.session.delete_schema(deletion).await?;
         tracing::info!(
             cluster = %self.cluster.store.name(),
-            subject = %subject,
+            subject,
             version = deletion.version,
             permanent = deletion.permanent,
             "deleted schema"
@@ -491,7 +491,7 @@ impl Granted<'_, SetCompatibilityCap> {
             .await?;
         tracing::info!(
             cluster = %self.cluster.store.name(),
-            subject = %subject,
+            subject,
             compatibility = ?level,
             "set schema compatibility"
         );
@@ -509,7 +509,11 @@ impl Granted<'_, CreateAclsCap> {
     pub(crate) async fn create_acls(&self, acls: &[Acl]) -> Result<(), KafkaError> {
         self.cluster.session.create_acls(acls).await?;
         for acl in acls {
-            tracing::info!(cluster = %self.cluster.store.name(), %acl, "created acl");
+            tracing::info!(
+                cluster = %self.cluster.store.name(),
+                acl = acl.to_string().as_str(),
+                "created acl"
+            );
         }
         self.settle(&self.cluster.store.acls, |listing| {
             acls.iter().all(|acl| listing.contains(acl))
@@ -522,7 +526,11 @@ impl Granted<'_, CreateAclsCap> {
 impl Granted<'_, DeleteAclsCap> {
     pub(crate) async fn delete_acl(&self, acl: &Acl) -> Result<(), KafkaError> {
         self.cluster.session.delete_acl(acl).await?;
-        tracing::info!(cluster = %self.cluster.store.name(), %acl, "deleted acl");
+        tracing::info!(
+            cluster = %self.cluster.store.name(),
+            acl = acl.to_string().as_str(),
+            "deleted acl"
+        );
         self.settle(&self.cluster.store.acls, |listing| !listing.contains(acl))
             .await;
         Ok(())
@@ -532,7 +540,11 @@ impl Granted<'_, DeleteAclsCap> {
 impl Granted<'_, AlterQuotasCap> {
     pub(crate) async fn set_client_quota(&self, quota: &ClientQuota) -> Result<(), KafkaError> {
         self.cluster.session.alter_client_quota(quota).await?;
-        tracing::info!(cluster = %self.cluster.store.name(), %quota, "set client quota");
+        tracing::info!(
+            cluster = %self.cluster.store.name(),
+            quota = quota.to_string().as_str(),
+            "set client quota"
+        );
         self.settle(&self.cluster.store.quotas, |listing| {
             listing
                 .values(&quota.entity)

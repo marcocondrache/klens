@@ -3,10 +3,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::time::{Instant, advance};
+use tracing::Level;
 
 use crate::kafka::group::GroupState;
 use crate::kafka::store::{Change, OffsetTable};
-use crate::testing::{Api, BusProbe, FakeCluster, IDLE, Rig, group, quiesce};
+use crate::testing::{Api, BusProbe, FakeCluster, IDLE, LogCapture, Rig, group, quiesce};
 
 fn lags(bus: &mut BusProbe) -> Vec<(String, i64)> {
     bus.drain()
@@ -302,6 +303,25 @@ async fn a_failed_group_degrades_alone_and_keeps_its_last_offsets() {
         Arc::ptr_eq(group, &before),
         "the failed group keeps its last snapshot instead of a rebuilt one"
     );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_group_id_with_a_quote_and_a_newline_stays_on_its_fetch_warning() {
+    let forged = "billing\"\nuser=\"mallory";
+    let rig =
+        Rig::new(FakeCluster::local().with_groups([group(forged, "orders.created", vec![0])]));
+    let lane = rig.offsets();
+    rig.poll(&rig.topology()).await;
+    rig.cluster.fail(
+        Api::CommittedOffsets,
+        &format!("could not resolve the coordinator for group '{forged}'"),
+    );
+    let logs = LogCapture::at(Level::WARN);
+
+    rig.sweep(&lane).await;
+
+    logs.assert_contains(r#"offset fetch failed group="billing\"\nuser=\"mallory" error="#);
+    logs.assert_lacks("\nuser=");
 }
 
 #[tokio::test(start_paused = true)]

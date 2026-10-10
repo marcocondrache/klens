@@ -115,10 +115,11 @@ pub(super) async fn poll<S: LaneSource>(store: &ClusterStore, source: &S, upstre
             source.lane(store).record_poll(started.elapsed(), None);
         }
         Err(error) => {
+            let error = error.to_string();
+            tracing::warn!(cluster = %cluster, lane, error = error.as_str(), "lane poll failed");
             source
                 .lane(store)
-                .record_poll(started.elapsed(), Some(error.to_string()));
-            tracing::warn!(cluster = %cluster, lane, %error, "lane poll failed");
+                .record_poll(started.elapsed(), Some(error));
         }
     }
 }

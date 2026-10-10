@@ -107,10 +107,10 @@ async fn created_acls_are_listed_before_the_create_answers() {
     assert!(bindings.contains(&created[0]));
     assert!(bindings.contains(&created[1]));
     logs.assert_contains(
-        "created acl cluster=local acl=Allow User:bob from * to Read Literal Topic orders.created",
+        r#"created acl cluster=local acl="Allow User:bob from * to Read Literal Topic orders.created""#,
     );
     logs.assert_contains(
-        "created acl cluster=local acl=Allow User:bob from * to Read Prefixed Group order-",
+        r#"created acl cluster=local acl="Allow User:bob from * to Read Prefixed Group order-""#,
     );
 }
 
@@ -135,7 +135,7 @@ async fn a_deleted_acl_leaves_the_listing_before_the_delete_answers() {
         vec!["User:eve", "User:order-processor"]
     );
     logs.assert_contains(
-        "deleted acl cluster=local acl=Allow User:alice from * to Read Literal Topic orders.created",
+        r#"deleted acl cluster=local acl="Allow User:alice from * to Read Literal Topic orders.created""#,
     );
 }
 

@@ -89,7 +89,11 @@ impl SchemaRegistryClient {
                 async move {
                     let loaded = self.load_subject(&name, global).await;
                     if let Err(error) = &loaded {
-                        tracing::warn!(subject = %name, %error, "skipping subject");
+                        tracing::warn!(
+                            subject = name.as_str(),
+                            error = error.to_string().as_str(),
+                            "skipping subject"
+                        );
                     }
                     loaded.ok()
                 }
@@ -134,7 +138,12 @@ impl SchemaRegistryClient {
                         schema_id(&schema).map(|id| (subject, RegisteredVersion { id, version }))
                     }
                     Err(error) => {
-                        tracing::debug!(%subject, version, %error, "no schema id for version");
+                        tracing::debug!(
+                            subject = subject.as_ref(),
+                            version,
+                            error = error.to_string().as_str(),
+                            "no schema id for version"
+                        );
                         None
                     }
                 }
@@ -361,7 +370,11 @@ impl SchemaRegistryClient {
                 *global.get_or_init(|| self.global_compatibility()).await
             }
             Err(error) => {
-                tracing::warn!(subject = %name, %error, "falling back to NONE compatibility");
+                tracing::warn!(
+                    subject = name,
+                    error = error.to_string().as_str(),
+                    "falling back to NONE compatibility"
+                );
                 SchemaCompatibility::None
             }
         }
@@ -372,7 +385,10 @@ impl SchemaRegistryClient {
             Ok(level) => level.into(),
             Err(error) if is_unconfigured(&error) => SchemaCompatibility::None,
             Err(error) => {
-                tracing::warn!(%error, "falling back to NONE compatibility");
+                tracing::warn!(
+                    error = error.to_string().as_str(),
+                    "falling back to NONE compatibility"
+                );
                 SchemaCompatibility::None
             }
         }
@@ -455,7 +471,7 @@ mod tests {
     use super::*;
     use crate::kafka::model::SchemaType;
     use crate::kafka::registry::testing::{FakeRegistry, Schema};
-    use crate::testing::yaml;
+    use crate::testing::{LogCapture, yaml};
 
     fn offline(tuning: &SchemaRegistryTuning) -> SchemaRegistryClient {
         SchemaRegistryClient::new("local", &yaml("url: http://localhost:8081"), tuning).unwrap()
@@ -597,6 +613,18 @@ mod tests {
 
         let names: Vec<&str> = subjects.iter().map(|s| s.subject.as_str()).collect();
         assert_eq!(names, vec!["good-value"]);
+    }
+
+    #[tokio::test]
+    async fn a_subject_with_a_quote_and_a_newline_stays_on_its_skip_warning() {
+        let registry = registry_of(&["orders\"\nuser=\"mallory"]).await;
+        registry.fail("/subjects/orders%22%0Auser=%22mallory/versions");
+        let logs = LogCapture::at(tracing::Level::WARN);
+
+        registry.client().subjects().await.unwrap();
+
+        logs.assert_contains(r#"skipping subject subject="orders\"\nuser=\"mallory""#);
+        logs.assert_lacks("\nuser=");
     }
 
     #[tokio::test]

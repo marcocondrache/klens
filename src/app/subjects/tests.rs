@@ -96,8 +96,28 @@ async fn a_registered_schema_is_listed_before_the_register_answers() {
         .ok();
     assert_eq!(read["schema"], ORDER);
     logs.assert_contains(
-        "registered schema cluster=local subject=orders.created-value id=2 version=3",
+        r#"registered schema cluster=local subject="orders.created-value" id=2 version=3"#,
     );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_subject_with_a_quote_and_a_newline_stays_on_its_audit_line() {
+    let app = writable().await;
+    let mut rig = app.rig();
+    let lane = rig.subjects();
+    rig.spawn(lane);
+    quiesce().await;
+    let logs = LogCapture::at(Level::INFO);
+
+    app.post(
+        "/clusters/local/subjects/orders%22%0Auser=%22mallory",
+        &avro(ORDER),
+    )
+    .await
+    .ok();
+
+    logs.assert_contains(r#"subject="orders\"\nuser=\"mallory""#);
+    logs.assert_lacks("\nuser=");
 }
 
 #[tokio::test(start_paused = true)]
@@ -197,7 +217,7 @@ async fn a_deleted_version_leaves_the_subject_before_the_delete_answers() {
         json!([{ "version": 2, "id": 1 }])
     );
     logs.assert_contains(
-        "deleted schema cluster=local subject=orders.created-value version=1 permanent=false",
+        r#"deleted schema cluster=local subject="orders.created-value" version=1 permanent=false"#,
     );
 }
 
@@ -259,7 +279,7 @@ async fn a_set_compatibility_level_shows_before_the_edit_answers() {
     let listing = app.get("/clusters/local/subjects").await.ok();
     assert_eq!(listing["rows"][0]["compatibility"], "FULL_TRANSITIVE");
     logs.assert_contains(
-        "set schema compatibility cluster=local subject=orders.created-value compatibility=FullTransitive",
+        r#"set schema compatibility cluster=local subject="orders.created-value" compatibility=FullTransitive"#,
     );
 }
 
