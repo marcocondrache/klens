@@ -51,6 +51,7 @@ allowed_hosts: [localhost, 127.0.0.1, "::1"] # see Allowed hosts
 log_level: info # off, error, warn, info, debug, or trace
 clusters: {} # by name, shown in the UI in this order
 # auth: see Authentication
+# mcp: see MCP
 # tuning: see Tuning
 ```
 
@@ -177,6 +178,8 @@ tuning:
     interest_ttl: 30s # how long a viewed group stays on fast_offset
     idle_heartbeat: 15s # an idle topic's rate drops to zero after this
     max_sample_gap: 15s # older watermark samples do not count toward a rate
+  mcp:
+    max_concurrent_calls: 16 # MCP tool calls served at once, across every client
 ```
 
 Every page reads a background projection of each cluster, refreshed by the
@@ -332,6 +335,54 @@ auth:
       bindings:
         - groups: [security-team]
 ```
+
+## MCP
+
+With an `mcp` block in `config.yaml`, klens serves tools to AI agents over the
+[Model Context Protocol](https://modelcontextprotocol.io) at `/mcp`. Without
+the block, there is no `/mcp`. An agent in Claude Code, VS Code, or Cursor can
+list clusters with their health, find topics, groups, brokers, and schema
+subjects by name, and ask what it may do on each cluster. Each tool reads the
+background projection, so a call costs Kafka nothing.
+
+```yaml
+mcp: {}
+```
+
+On the machine that runs klens, add it to Claude Code with
+`claude mcp add --transport http klens http://localhost:8080/mcp`.
+
+MCP runs only without `auth` for now, and klens refuses to start with both
+blocks. Anyone who reaches `/mcp` can then call its tools. `/mcp` answers only
+the hosts in [`allowed_hosts`](#allowed-hosts), and it refuses every request
+that carries an `Origin` header, so a web page cannot call it from a visitor's
+browser. klens logs at startup that it serves `/mcp`, with the ceiling below.
+
+The block is a ceiling on what an MCP client may do. `privileges` lists the
+reads it may use beyond the catalog, out of `records`, `topic_configs`,
+`broker_configs`, `schema_text`, and `acls`, and defaults to all five. MCP
+serves no writes, so a write privilege stops startup. `clusters` limits MCP to
+the clusters it names. When it is omitted, MCP reaches every cluster, and an
+empty list reaches none. A name that is not a configured cluster stops startup.
+
+```yaml
+mcp:
+  privileges: [topic_configs, schema_text] # no record payloads or ACLs
+  clusters: [dev, staging]
+```
+
+`tuning.mcp.max_concurrent_calls` (16) caps the tool calls klens serves at
+once, across every client. Past it, a call fails with `RATE_LIMITED` rather
+than waiting. A request body holds at most 64 KiB, and a search query at most
+256 characters. A result holds at most 24,000 bytes, counting both the text and
+the structured copy it carries. A longer one keeps its first rows and says how
+many it left out. A refused call returns its error code and a hint for the next
+call, and klens logs the tool and the code at info level, never the arguments.
+klens never logs the `rmcp` library below error, because rmcp logs tool
+arguments and results at debug level.
+
+Every result reaches the agent's model provider. Set `privileges` and
+`clusters` to what you would share with it.
 
 ## Schema Registry
 

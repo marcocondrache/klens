@@ -15,7 +15,15 @@ pub(crate) enum ApiError {
     Unauthorized,
     HostNotAllowed,
     TooManyTails,
-    InvalidRequest { status: StatusCode, message: String },
+    RateLimited,
+    NotReady {
+        cluster: String,
+        last_error: Option<String>,
+    },
+    InvalidRequest {
+        status: StatusCode,
+        message: String,
+    },
 }
 
 impl ApiError {
@@ -34,6 +42,8 @@ impl ApiError {
             Self::Unauthorized => "UNAUTHORIZED",
             Self::HostNotAllowed => "HOST_NOT_ALLOWED",
             Self::TooManyTails => "TOO_MANY_TAILS",
+            Self::RateLimited => "RATE_LIMITED",
+            Self::NotReady { .. } => "NOT_READY",
             Self::InvalidRequest { .. } => "INVALID_REQUEST",
         }
     }
@@ -45,7 +55,7 @@ impl ApiError {
             .expect("error body is serializable")
     }
 
-    fn body(&self) -> ErrorBody<'_> {
+    pub(crate) fn body(&self) -> ErrorBody<'_> {
         ErrorBody {
             error: self.to_string(),
             code: self.code(),
@@ -55,7 +65,8 @@ impl ApiError {
     fn status(&self) -> StatusCode {
         match self {
             Self::SessionExpired | Self::Unauthorized => StatusCode::UNAUTHORIZED,
-            Self::TooManyTails => StatusCode::SERVICE_UNAVAILABLE,
+            Self::TooManyTails | Self::NotReady { .. } => StatusCode::SERVICE_UNAVAILABLE,
+            Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
             Self::InvalidRequest { status, .. } => *status,
             Self::HostNotAllowed
             | Self::Access(AccessError::Forbidden { .. } | AccessError::ReadOnlyCluster(_)) => {
@@ -104,6 +115,18 @@ impl std::fmt::Display for ApiError {
             Self::TooManyTails => {
                 formatter.write_str("too many live tails are open, try again later")
             }
+            Self::RateLimited => formatter.write_str("too many tool calls are running at once"),
+            Self::NotReady {
+                cluster,
+                last_error: None,
+            } => write!(formatter, "klens has not read cluster '{cluster}' yet"),
+            Self::NotReady {
+                cluster,
+                last_error: Some(error),
+            } => write!(
+                formatter,
+                "klens has not read cluster '{cluster}' yet; its last attempt failed: {error}"
+            ),
             Self::InvalidRequest { message, .. } => formatter.write_str(message),
         }
     }
@@ -130,7 +153,7 @@ impl From<AccessError> for ApiError {
 }
 
 #[derive(Serialize)]
-struct ErrorBody<'a> {
+pub(crate) struct ErrorBody<'a> {
     error: String,
     code: &'a str,
 }

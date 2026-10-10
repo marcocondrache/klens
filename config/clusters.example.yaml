@@ -140,6 +140,17 @@ clusters:
 #       bindings:
 #         - groups: [security-team]
 
+# Optional MCP tools for AI agents at /mcp. When omitted, there is no /mcp.
+# MCP runs only without auth for now, and anyone who reaches /mcp can call its
+# tools. The block is a ceiling: privileges lists the reads an MCP client may
+# use, out of records, topic_configs, broker_configs, schema_text, and acls,
+# and clusters limits it to the clusters named. Every result reaches the
+# agent's model provider.
+#
+# mcp:
+#   privileges: [records, topic_configs, broker_configs, schema_text, acls]
+#   clusters: [local]  # default: every cluster
+
 # Timeouts, pool sizes, limits, and lane cadence, the same for every cluster.
 # tuning:
 #   kafka:
@@ -184,3 +195,5 @@ clusters:
 #     interest_ttl: 30s
 #     idle_heartbeat: 15s
 #     max_sample_gap: 15s
+#   mcp:
+#     max_concurrent_calls: 16    # across every client; past it, a call is refused

@@ -1,0 +1,87 @@
+{
+  "tools": [
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Explains what you may do on each cluster you can see through klens.\nFor each cluster it lists your privileges after the ceiling the klens operator set for MCP clients, whether the cluster accepts changes at all, and each klens tool with whether it is available there and, if not, the privilege it needs.\nEvery caller sees the catalog of clusters, topics, groups, brokers and subjects; privileges cover record payloads, configs, schema text and ACLs.\nCall it after a FORBIDDEN or READ_ONLY_CLUSTER error, or before work that needs one of those.\nPass `cluster` to explain one cluster.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "cluster": {
+            "description": "One cluster's name. Omit it for every cluster you can see.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "name": "klens_access_explain",
+      "title": "Explain what you may do"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Lists the Kafka clusters you can see through klens, with each one's health as klens last read it.\nEach cluster shows whether klens has read it yet, its broker, topic, partition, consumer group and schema subject counts, how many partitions are under-replicated or offline, and each background lane (one of klens' periodic reads of the cluster) whose last read failed or that has read nothing yet.\nA count is null until klens has read it.\nPass `cluster` to also list that cluster's under-replicated and offline partitions, offline first, each with its leader (null when it has none), replicas and in-sync replicas.\nCall this first to learn the names other klens tools take as `cluster`.\nIt reads klens' snapshot of each cluster, which lanes refresh every few seconds, so it costs Kafka nothing.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "cluster": {
+            "description": "One cluster's name. Omit it for every cluster you can see.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "name": "klens_clusters",
+      "title": "List clusters and their health"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Finds topics, consumer groups, brokers and schema subjects by name, on one cluster or on every cluster you can see.\nMatching is fuzzy and ignores case: `ord cre` finds `orders.created`, `!test` leaves out names that match `test`, and `^prod` keeps names that start with `prod`.\nEach cluster gives up to 20 matches, best first, each with its cluster, its kind (TOPIC, GROUP, NODE for a broker, or SUBJECT), its exact id, and a detail such as a topic's partition count or a group's state.\nUse it to turn a vague name into the exact one.\n`notReady` names each cluster whose topology or schema subjects klens has not read yet, with the last error, so no match there does not mean the name is absent.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "cluster": {
+            "description": "One cluster's name. Omit it to search every cluster you can see.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "query": {
+            "description": "Words to match against names.",
+            "maxLength": 256,
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "name": "klens_search",
+      "title": "Search names"
+    }
+  ]
+}

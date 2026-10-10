@@ -31,14 +31,16 @@ impl Telemetry {
     }
 }
 
+/// rmcp logs tool arguments and results at debug and warns on each request it
+/// refuses, so it never logs below error.
 fn filter(level: LogLevel, target: &str) -> Result<EnvFilter, ParseError> {
     let directives = match level {
         LogLevel::Off => "off".to_owned(),
         LogLevel::Error => "error".to_owned(),
-        LogLevel::Warn => "warn".to_owned(),
-        LogLevel::Info => format!("warn,{target}=info"),
-        LogLevel::Debug => format!("warn,{target}=debug"),
-        LogLevel::Trace => format!("warn,{target}=trace"),
+        LogLevel::Warn => "warn,rmcp=error".to_owned(),
+        LogLevel::Info => format!("warn,rmcp=error,{target}=info"),
+        LogLevel::Debug => format!("warn,rmcp=error,{target}=debug"),
+        LogLevel::Trace => format!("warn,rmcp=error,{target}=trace"),
     };
     EnvFilter::builder().parse(directives)
 }
@@ -62,14 +64,14 @@ mod tests {
     use crate::testing::LogCapture;
 
     #[test]
-    fn a_log_level_filters_klens_and_leaves_its_dependencies_at_warn() {
+    fn a_log_level_filters_klens_and_leaves_its_dependencies_at_warn_and_rmcp_at_error() {
         for (level, expected) in [
             (LogLevel::Off, "off"),
             (LogLevel::Error, "error"),
-            (LogLevel::Warn, "warn"),
-            (LogLevel::Info, "klens=info,warn"),
-            (LogLevel::Debug, "klens=debug,warn"),
-            (LogLevel::Trace, "klens=trace,warn"),
+            (LogLevel::Warn, "rmcp=error,warn"),
+            (LogLevel::Info, "klens=info,rmcp=error,warn"),
+            (LogLevel::Debug, "klens=debug,rmcp=error,warn"),
+            (LogLevel::Trace, "klens=trace,rmcp=error,warn"),
         ] {
             assert_eq!(filter(level, "klens").unwrap().to_string(), expected);
         }

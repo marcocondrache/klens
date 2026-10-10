@@ -41,8 +41,29 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
+    if let Some(mcp) = &config.mcp {
+        let privileges: Vec<&str> = mcp
+            .privileges
+            .iter()
+            .map(|privilege| privilege.name())
+            .collect();
+        let clusters = mcp
+            .clusters
+            .as_ref()
+            .map_or_else(|| "every cluster".to_owned(), |names| format!("{names:?}"));
+        tracing::info!(
+            ?privileges,
+            %clusters,
+            "serving MCP tools at /mcp to anyone who reaches klens"
+        );
+    }
+
     let _ingest = Ingest::start(&clusters, &config.tuning.ingest);
     let state = AppState::new(clusters, auth, Limits::new(&config.tuning));
 
-    klens::serve(router(state, &config.allowed_hosts), config.bind).await
+    klens::serve(
+        router(state, &config.allowed_hosts, config.mcp.as_ref()),
+        config.bind,
+    )
+    .await
 }

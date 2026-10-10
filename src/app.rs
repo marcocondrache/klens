@@ -5,7 +5,7 @@ use axum::Router;
 use axum::middleware;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-use crate::config::{AllowedHost, Tuning};
+use crate::config::{AllowedHost, Mcp, Tuning};
 use crate::kafka::{Clusters, TailLimits};
 
 mod acls;
@@ -19,6 +19,7 @@ mod extract;
 mod groups;
 mod health;
 mod hosts;
+pub mod mcp;
 mod quotas;
 mod records;
 mod scram_users;
@@ -45,6 +46,7 @@ pub struct AppState {
     auth: AuthState,
     limits: TailLimits,
     tails: Arc<Semaphore>,
+    mcp_calls: Arc<Semaphore>,
 }
 
 impl AppState {
@@ -54,21 +56,29 @@ impl AppState {
             auth,
             limits: limits.tail,
             tails: Arc::new(Semaphore::new(limits.live_tails)),
+            mcp_calls: Arc::new(Semaphore::new(limits.mcp_calls)),
         }
     }
 
     pub(crate) fn tail_permit(&self) -> Option<OwnedSemaphorePermit> {
         Arc::clone(&self.tails).try_acquire_owned().ok()
     }
+
+    pub(crate) fn mcp_permit(&self) -> Option<OwnedSemaphorePermit> {
+        Arc::clone(&self.mcp_calls).try_acquire_owned().ok()
+    }
 }
 
-/// How much one request may read, and how many live tails run at once.
+/// How much one request may read, and how many live tails and MCP tool calls
+/// run at once.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
     /// Sizes live tails; its `records` also bounds one-shot record pages.
     pub tail: TailLimits,
     /// Live tails served at once, across every cluster.
     pub live_tails: usize,
+    /// MCP tool calls served at once, across every client.
+    pub mcp_calls: usize,
 }
 
 impl Limits {
@@ -82,6 +92,7 @@ impl Limits {
                 records: tuning.records,
             },
             live_tails: tuning.tail.max_live,
+            mcp_calls: tuning.mcp.max_concurrent_calls.get(),
         }
     }
 }
@@ -96,7 +107,7 @@ fn auth_routes() -> Router<AppState> {
     Router::new().nest("/auth", auth::router())
 }
 
-pub fn router(state: AppState, allowed_hosts: &[AllowedHost]) -> Router {
+pub fn router(state: AppState, allowed_hosts: &[AllowedHost], mcp: Option<&Mcp>) -> Router {
     let resources = resources().route_layer(middleware::from_fn_with_state(
         state.clone(),
         auth::require_session,
@@ -119,8 +130,14 @@ pub fn router(state: AppState, allowed_hosts: &[AllowedHost]) -> Router {
     // Kubernetes probes name the pod IP as the host, so health skips the
     // check. When neither router sets a fallback, merge keeps the one from
     // `app`, which carries the check.
-    health::router()
-        .with_state(state)
+    let app = health::router()
+        .with_state(state.clone())
         .merge(app)
-        .layer(auth_layer)
+        .layer(auth_layer);
+    // Merged after the auth layer, so the session cookie is never read or set
+    // on `/mcp`.
+    match mcp {
+        Some(mcp) => app.merge(mcp::router(state, allowed_hosts, mcp)),
+        None => app,
+    }
 }
