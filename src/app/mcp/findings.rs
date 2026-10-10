@@ -6,13 +6,15 @@ use crate::kafka::model::GroupState;
 use crate::kafka::store::Topology;
 use crate::kafka::store::projections::GroupDetail;
 
+use super::{first, left_out, shortened};
+
 #[cfg(test)]
 mod tests;
 
 const LAG_WORTH_NAMING: i64 = 1000;
 const ONE_MEMBER_SHARE_PERCENT: i128 = 80;
 
-#[derive(Debug, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(
     tag = "kind",
     rename_all = "SCREAMING_SNAKE_CASE",
@@ -28,6 +30,8 @@ pub enum Finding {
     UnassignedPartitions {
         topic: String,
         partitions: Vec<i32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        partitions_left_out: Option<usize>,
     },
     LagOnOneMember {
         member_id: String,
@@ -36,6 +40,28 @@ pub enum Finding {
         lag: i64,
         total_lag: i64,
     },
+}
+
+impl Finding {
+    pub fn capped(&self, max_partitions: usize) -> Self {
+        match self {
+            Self::UnassignedPartitions {
+                topic, partitions, ..
+            } => Self::UnassignedPartitions {
+                topic: topic.clone(),
+                partitions: first(partitions, max_partitions).to_vec(),
+                partitions_left_out: left_out(partitions.len(), max_partitions),
+            },
+            finding => finding.clone(),
+        }
+    }
+
+    pub fn width(&self) -> usize {
+        match self {
+            Self::UnassignedPartitions { partitions, .. } => partitions.len(),
+            _ => 0,
+        }
+    }
 }
 
 pub fn findings(group: &GroupDetail, topology: &Topology) -> Vec<Finding> {
@@ -57,7 +83,7 @@ pub fn findings(group: &GroupDetail, topology: &Topology) -> Vec<Finding> {
             .or_default()
             .extend(&assignment.partitions);
     }
-    let mut findings = Vec::new();
+    let mut unassigned_partitions = Vec::new();
     let mut partitions = 0;
     let mut every_topic_known = true;
     for (topic, held) in &assigned {
@@ -73,12 +99,14 @@ pub fn findings(group: &GroupDetail, topology: &Topology) -> Vec<Finding> {
             .filter(|id| !held.contains(id))
             .collect();
         if !unassigned.is_empty() {
-            findings.push(Finding::UnassignedPartitions {
+            unassigned_partitions.push(Finding::UnassignedPartitions {
                 topic: (*topic).to_owned(),
                 partitions: unassigned,
+                partitions_left_out: None,
             });
         }
     }
+    let mut findings = Vec::new();
     // klens decodes only consumer assignments, so a Kafka Connect group shows
     // none and says nothing about how many partitions it reads.
     if every_topic_known && !assigned.is_empty() && group.members.len() > partitions {
@@ -88,6 +116,9 @@ pub fn findings(group: &GroupDetail, topology: &Topology) -> Vec<Finding> {
         });
     }
     findings.extend(lag_on_one_member(group));
+    // A result that must shrink keeps the first findings, and a group can
+    // leave a partition of every topic it reads unassigned.
+    findings.extend(unassigned_partitions);
     findings
 }
 
@@ -104,9 +135,9 @@ fn lag_on_one_member(group: &GroupDetail) -> Option<Finding> {
         .max_by_key(|&(_, lag)| lag)?;
     (i128::from(lag) * 100 >= i128::from(total) * ONE_MEMBER_SHARE_PERCENT).then(|| {
         Finding::LagOnOneMember {
-            member_id: member.id.clone(),
-            client_id: member.client_id.clone(),
-            host: member.host.clone(),
+            member_id: shortened(&member.id).into_owned(),
+            client_id: shortened(&member.client_id).into_owned(),
+            host: shortened(&member.host).into_owned(),
             lag,
             total_lag: total,
         }

@@ -1,3 +1,4 @@
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -17,8 +18,9 @@ pub enum AclStatus {
     Denied,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, JsonSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[schemars(inline)]
 pub enum AclResourceType {
     Topic,
     Group,
@@ -52,8 +54,9 @@ pub enum AclPatternType {
 from_same_variants!(domain::AclPatternType => AclPatternType { Literal, Prefixed });
 from_same_variants!(AclPatternType => domain::AclPatternType { Literal, Prefixed });
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, JsonSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[schemars(inline)]
 pub enum AclOperation {
     All,
     Read,
@@ -95,8 +98,9 @@ from_same_variants!(AclOperation => domain::AclOperation {
     IdempotentWrite,
 });
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, JsonSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[schemars(inline)]
 pub enum AclPermission {
     Allow,
     Deny,

@@ -1,11 +1,18 @@
+use std::borrow::Cow;
+
 use jiff::Timestamp;
 use serde::Serialize;
 
+use crate::app::acls::Acl;
+use crate::app::acls::types::AclStatus;
 use crate::app::brokers::types::LogDir;
-use crate::app::groups::types::{GroupState, MemberAssignment};
+use crate::app::configs::ConfigEntry;
+use crate::app::groups::types::GroupState;
 use crate::app::records::types::Record;
 use crate::app::search::SearchHit;
-use crate::app::subjects::types::{SchemaCompatibility, SchemaType, SubjectVersion};
+use crate::app::subjects::types::{
+    SchemaCompatibility, SchemaReference, SchemaType, SubjectVersion,
+};
 use crate::app::topics::types::{CleanupPolicy, TopicGroupRow};
 use crate::app::whoami::types::PrivilegeName;
 use crate::kafka::model as domain;
@@ -14,11 +21,15 @@ use crate::kafka::store::projections::{self, ClusterHealthView};
 use crate::kafka::store::tables::SubjectInfo;
 
 use super::findings::Finding;
+use super::untrusted::{Boundary, clip};
+use super::{MAX_CONFIG_CHARS, MAX_VERSIONS, first, lane_error, left_out, shortened};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClusterList<'a> {
     pub clusters: &'a [ClusterRow],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notice: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub truncated: Option<String>,
 }
@@ -38,8 +49,8 @@ pub struct ClusterRow {
     pub unhealthy_lanes: Vec<UnhealthyLane>,
 }
 
-impl From<ClusterHealthView> for ClusterRow {
-    fn from(health: ClusterHealthView) -> Self {
+impl ClusterRow {
+    pub fn new(health: ClusterHealthView, boundary: &Boundary) -> Self {
         let ready = health.topology.updated_at.is_some();
         let measured = |count| ready.then_some(count);
         let subjects_read = health.subjects.updated_at.is_some();
@@ -67,9 +78,15 @@ impl From<ClusterHealthView> for ClusterRow {
             unhealthy_lanes: lanes
                 .into_iter()
                 .filter(|(_, lane)| !lane.healthy())
-                .map(|(lane, health)| UnhealthyLane::new(lane, health))
+                .map(|(lane, health)| UnhealthyLane::new(lane, health, boundary))
                 .collect(),
         }
+    }
+
+    pub fn has_lane_error(&self) -> bool {
+        self.unhealthy_lanes
+            .iter()
+            .any(|lane| lane.last_error.is_some())
     }
 }
 
@@ -82,10 +99,10 @@ pub struct UnhealthyLane {
 }
 
 impl UnhealthyLane {
-    fn new(lane: &'static str, health: LaneHealth) -> Self {
+    fn new(lane: &'static str, health: LaneHealth, boundary: &Boundary) -> Self {
         Self {
             lane,
-            last_error: health.last_error,
+            last_error: lane_error(boundary, health.last_error),
             updated_at: health.updated_at,
         }
     }
@@ -97,6 +114,8 @@ pub struct ClusterDetail<'a> {
     #[serde(flatten)]
     pub row: &'a ClusterRow,
     pub unhealthy_partitions: &'a [UnhealthyPartition],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notice: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub truncated: Option<String>,
 }
@@ -133,9 +152,56 @@ pub struct ClusterRights {
 #[serde(rename_all = "camelCase")]
 pub struct ToolRights {
     pub name: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub section: Option<Section>,
     pub available: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub needs: Option<PrivilegeName>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Section {
+    Configs,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Omitted {
+    pub section: Section,
+    #[serde(flatten)]
+    pub reason: Reason,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum Reason {
+    Needs(PrivilegeName),
+    NotRead { last_error: Option<String> },
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigRow {
+    #[serde(flatten)]
+    pub entry: ConfigEntry,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub cut: bool,
+}
+
+impl ConfigRow {
+    pub fn new(entry: domain::ConfigEntry) -> Self {
+        let mut entry = ConfigEntry::from(entry);
+        let cut = match &mut entry.value {
+            Some(value) => {
+                let (kept, cut) = clip(value, MAX_CONFIG_CHARS);
+                value.truncate(kept.len());
+                cut
+            }
+            None => false,
+        };
+        Self { entry, cut }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -145,7 +211,7 @@ pub struct SearchResult<'a> {
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
     pub not_ready: &'a [UnreadLane],
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub notice: Option<&'static str>,
+    pub notice: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub truncated: Option<String>,
 }
@@ -171,6 +237,18 @@ pub struct ClusterHit {
 pub struct BrokerList<'a> {
     pub brokers: &'a [BrokerRow],
     pub showing: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrokerDetail<'a> {
+    #[serde(flatten)]
+    pub broker: &'a BrokerRow,
+    pub configs: Option<&'a [ConfigRow]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub omitted: Option<&'a Omitted>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub truncated: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -205,6 +283,15 @@ impl BrokerRow {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AclList<'a> {
+    pub status: AclStatus,
+    pub bindings: &'a [Acl],
+    pub showing: String,
+    pub notice: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SubjectList<'a> {
     pub subjects: &'a [SubjectRow],
     pub showing: String,
@@ -225,10 +312,16 @@ pub struct SubjectRow {
 
 impl SubjectRow {
     pub fn new(row: projections::SubjectRow, detailed: bool) -> Self {
+        let older = row.versions.len().saturating_sub(MAX_VERSIONS);
         Self {
             versions: detailed.then(|| SubjectVersions {
                 latest_schema_id: row.info.id,
-                versions: row.versions.into_iter().map(SubjectVersion::from).collect(),
+                versions: row.versions[older..]
+                    .iter()
+                    .copied()
+                    .map(SubjectVersion::from)
+                    .collect(),
+                versions_left_out: (older > 0).then_some(older),
             }),
             ..Self::concise(row.subject.to_string(), &row.info)
         }
@@ -250,6 +343,8 @@ impl SubjectRow {
 pub struct SubjectVersions {
     pub latest_schema_id: i32,
     pub versions: Vec<SubjectVersion>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub versions_left_out: Option<usize>,
 }
 
 #[derive(Debug, Serialize)]
@@ -316,10 +411,13 @@ pub struct TopicRowDetail {
 pub struct TopicDescription<'a> {
     #[serde(flatten)]
     pub topic: &'a TopicSummary,
+    pub configs: Option<&'a [ConfigRow]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub omitted: Option<&'a Omitted>,
     pub groups: &'a [TopicGroupRow],
     pub subjects: Option<&'a [SubjectRow]>,
     pub partitions: &'a [PartitionRow],
-    pub notice: &'static str,
+    pub notice: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub truncated: Option<String>,
 }
@@ -443,7 +541,7 @@ pub struct GroupDescription<'a> {
     pub total_lag: Option<i64>,
     pub lag_complete: bool,
     pub findings: &'a [Finding],
-    pub members: &'a [MemberRow],
+    pub members: &'a [MemberRow<'a>],
     pub partitions: &'a [GroupPartitionRow],
     pub notice: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -452,24 +550,53 @@ pub struct GroupDescription<'a> {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct MemberRow {
-    pub member_id: String,
-    pub client_id: String,
-    pub host: String,
-    pub assignments: Vec<MemberAssignment>,
+pub struct MemberRow<'a> {
+    pub member_id: Cow<'a, str>,
+    pub client_id: Cow<'a, str>,
+    pub host: Cow<'a, str>,
+    pub assignments: Vec<AssignmentRow<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub topics_left_out: Option<usize>,
     pub lag: Option<i64>,
 }
 
-impl MemberRow {
-    pub fn new(member: &domain::GroupMember, lag: Option<i64>) -> Self {
+impl<'a> MemberRow<'a> {
+    pub fn new(member: &'a domain::GroupMember, lag: Option<i64>, max_per_list: usize) -> Self {
         Self {
-            member_id: member.id.clone(),
-            client_id: member.client_id.clone(),
-            host: member.host.clone(),
-            assignments: member.assignments.iter().cloned().map(Into::into).collect(),
+            member_id: shortened(&member.id),
+            client_id: shortened(&member.client_id),
+            host: shortened(&member.host),
+            assignments: member
+                .assignments
+                .iter()
+                .take(max_per_list)
+                .map(|assignment| AssignmentRow {
+                    topic: shortened(&assignment.topic),
+                    partitions: first(&assignment.partitions, max_per_list),
+                    partitions_left_out: left_out(assignment.partitions.len(), max_per_list),
+                })
+                .collect(),
+            topics_left_out: left_out(member.assignments.len(), max_per_list),
             lag,
         }
     }
+
+    pub fn widest(member: &domain::GroupMember) -> usize {
+        member
+            .assignments
+            .iter()
+            .map(|assignment| assignment.partitions.len())
+            .fold(member.assignments.len(), usize::max)
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssignmentRow<'a> {
+    pub topic: Cow<'a, str>,
+    pub partitions: &'a [i32],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub partitions_left_out: Option<usize>,
 }
 
 #[derive(Debug, Serialize)]
@@ -520,6 +647,23 @@ impl RecordFacts {
             headers_left_out,
         }
     }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SchemaFacts {
+    pub version: i32,
+    pub id: i32,
+    #[serde(rename = "type")]
+    pub schema_type: SchemaType,
+    pub cut: bool,
+    pub references_left_out: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SchemaText<'a> {
+    pub schema: &'a str,
+    pub references: &'a [SchemaReference],
 }
 
 #[derive(Debug, Serialize)]

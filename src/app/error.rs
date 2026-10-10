@@ -59,7 +59,7 @@ impl ApiError {
             .expect("error body is serializable")
     }
 
-    pub(crate) fn body(&self) -> ErrorBody<'_> {
+    fn body(&self) -> ErrorBody<'_> {
         ErrorBody {
             error: self.to_string(),
             code: self.code(),
@@ -167,7 +167,7 @@ impl From<AccessError> for ApiError {
 }
 
 #[derive(Serialize)]
-pub(crate) struct ErrorBody<'a> {
+struct ErrorBody<'a> {
     error: String,
     code: &'a str,
 }

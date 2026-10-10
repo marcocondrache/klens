@@ -116,7 +116,17 @@ impl SchemaRegistryClient {
             .registry
             .get_schema_by_version(subject, SchemaVersion::new(version))
             .await
-            .map_err(|error| self.fail(error.to_string()))?;
+            .map_err(|error| {
+                if error.is_not_found() {
+                    KafkaError::UnknownSubject {
+                        cluster: self.cluster.clone(),
+                        subject: subject.to_owned(),
+                        version,
+                    }
+                } else {
+                    self.fail(error.to_string())
+                }
+            })?;
         self.registered(&latest)
     }
 
@@ -659,6 +669,34 @@ mod tests {
         assert_eq!(schema.references[0].name, "common.proto");
         assert_eq!(schema.references[0].subject, "common");
         assert_eq!(schema.references[0].version, 1);
+    }
+
+    #[tokio::test]
+    async fn a_version_the_registry_does_not_hold_is_an_unknown_subject() {
+        let registry = FakeRegistry::start().await;
+        registry.register("orders-value", 1, 9, string());
+        let client = registry.client();
+
+        let missing = client.schema_by_subject_version("orders-value", 2).await;
+        let unknown = client.schema_by_subject_version("ghost-value", 1).await;
+        registry.fail("/subjects/orders-value/versions/1");
+        let failed = client.schema_by_subject_version("orders-value", 1).await;
+
+        assert!(
+            matches!(
+                &missing,
+                Err(KafkaError::UnknownSubject { subject, version: 2, .. }) if subject == "orders-value"
+            ),
+            "{missing:?}"
+        );
+        assert!(
+            matches!(&unknown, Err(KafkaError::UnknownSubject { version: 1, .. })),
+            "{unknown:?}"
+        );
+        assert!(
+            matches!(&failed, Err(KafkaError::SchemaRegistry { .. })),
+            "{failed:?}"
+        );
     }
 
     #[tokio::test]

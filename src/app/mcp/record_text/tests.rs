@@ -1,8 +1,9 @@
 use jiff::Timestamp;
 use serde_json::{Value, json};
 
-use super::{Boundary, clip, page, records_result};
+use super::{page, records_result};
 use crate::app::mcp::RESULT_BYTES;
+use crate::app::mcp::untrusted::Boundary;
 use crate::app::records::types::{Record, RecordHeader};
 
 fn record(offset: i64, key: Option<&str>, value: Option<&str>) -> Record {
@@ -127,13 +128,6 @@ fn a_record_without_a_key_or_value_shows_null() {
     let (facts, _) = &shown(&text)[0];
     assert_eq!(facts["cut"], false);
     assert_eq!(facts["headersLeftOut"], 0);
-}
-
-#[test]
-fn a_cut_keeps_whole_characters() {
-    assert_eq!(clip("ééé", 2), ("éé", true));
-    assert_eq!(clip("éé", 2), ("éé", false));
-    assert_eq!(clip("é", 0), ("", true));
 }
 
 #[test]
