@@ -2,9 +2,10 @@ use rmcp::model::{CallToolResult, ContentBlock};
 
 use crate::app::subjects::types::SubjectDetail;
 
+use super::RESULT_BYTES;
 use super::types::{SchemaFacts, SchemaText};
 use super::untrusted::{Boundary, clip};
-use super::{RESULT_BYTES, first, fit};
+use crate::app::mcp::fit::{first, fit};
 
 pub(super) fn schema_result(detail: &SubjectDetail) -> CallToolResult {
     let boundary = Boundary::new();

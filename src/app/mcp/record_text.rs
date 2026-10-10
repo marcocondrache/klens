@@ -2,9 +2,10 @@ use rmcp::model::{CallToolResult, ContentBlock};
 
 use crate::app::records::types::Record;
 
+use super::RESULT_BYTES;
 use super::types::{HeaderText, RecordFacts, RecordText};
 use super::untrusted::{Boundary, clip};
-use super::{RESULT_BYTES, fit};
+use crate::app::mcp::fit::fit;
 
 #[cfg(test)]
 mod tests;

@@ -6,7 +6,8 @@ use crate::kafka::model::GroupState;
 use crate::kafka::store::Topology;
 use crate::kafka::store::projections::GroupDetail;
 
-use super::{first, left_out, shortened};
+use crate::app::mcp::fit::{first, left_out};
+use crate::app::mcp::view::shortened;
 
 #[cfg(test)]
 mod tests;

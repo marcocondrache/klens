@@ -15,12 +15,16 @@ use walkdir::WalkDir;
 use super::types::Section;
 use super::untrusted::Boundary;
 use super::{
-    CLIENT_VALUES_NOTICE, KlensMcp, MAX_QUERY_CHARS, MAX_REQUEST_BYTES, OBFUSCATED_NOTICE,
-    RESULT_BYTES, TOOLS, fits, lane_error, limit, listed, service, tool_list, tool_rights,
+    CLIENT_VALUES_NOTICE, MAX_QUERY_CHARS, MAX_REQUEST_BYTES, OBFUSCATED_NOTICE, RESULT_BYTES,
+    service, tool_list,
 };
 use crate::app::auth::SessionGuard;
 use crate::app::auth::access::{EffectiveAccess, Privilege, PrivilegeSet};
 use crate::app::auth::testing::{Idp, RESOURCE_HOST, Signer, bearing, mcp as for_resource};
+use crate::app::mcp::fit::{fits, limit, listed};
+use crate::app::mcp::gate::{TOOLS, tool_rights};
+use crate::app::mcp::lanes::lane_error;
+use crate::app::mcp::server::KlensMcp;
 use crate::app::whoami::types::PrivilegeName;
 use crate::app::{AppState, AuthState, Limits, router};
 use crate::config::{AllowedHost, Config, Mcp, Tuning};

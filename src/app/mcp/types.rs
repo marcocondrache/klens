@@ -22,7 +22,10 @@ use crate::kafka::store::tables::SubjectInfo;
 
 use super::findings::Finding;
 use super::untrusted::{Boundary, clip};
-use super::{MAX_CONFIG_CHARS, MAX_VERSIONS, first, lane_error, left_out, shortened};
+use super::{MAX_CONFIG_CHARS, MAX_VERSIONS};
+use crate::app::mcp::fit::{first, left_out};
+use crate::app::mcp::lanes::lane_error;
+use crate::app::mcp::view::shortened;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
