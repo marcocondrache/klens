@@ -1,4 +1,6 @@
+use crate::app::mcp::tools::gates;
 use crate::config::Mcp;
+use rmcp::model::ToolAnnotations;
 
 use crate::app::auth::access::{ClusterAccess, Privilege};
 use crate::app::context::{ClusterHandle, Session};
@@ -8,100 +10,54 @@ pub(super) struct ToolGate {
     pub(super) name: &'static str,
     pub(super) needs: Option<Privilege>,
     pub(super) sections: &'static [(Section, Privilege)],
+    idempotent: bool,
 }
 
 impl ToolGate {
+    pub(super) const fn open(name: &'static str) -> Self {
+        Self {
+            name,
+            needs: None,
+            sections: &[],
+            idempotent: true,
+        }
+    }
+
+    pub(super) const fn needing(name: &'static str, privilege: Privilege) -> Self {
+        Self {
+            needs: Some(privilege),
+            ..Self::open(name)
+        }
+    }
+
+    pub(super) const fn with_sections(self, sections: &'static [(Section, Privilege)]) -> Self {
+        Self { sections, ..self }
+    }
+
+    /// A repeated call of this tool changes Kafka again.
+    pub(super) const fn not_idempotent(self) -> Self {
+        Self {
+            idempotent: false,
+            ..self
+        }
+    }
+
     pub(super) fn changes(&self) -> bool {
         self.needs
             .is_some_and(|privilege| Mcp::WRITES.contains(&privilege))
     }
+
+    pub(super) fn annotations(&self) -> ToolAnnotations {
+        ToolAnnotations::new()
+            .read_only(!self.changes())
+            .destructive(false)
+            .idempotent(self.idempotent)
+            .open_world(false)
+    }
 }
 
-pub(super) const TOOLS: &[ToolGate] = &[
-    ToolGate {
-        name: "klens_access_explain",
-        needs: None,
-        sections: &[],
-    },
-    ToolGate {
-        name: "klens_acls_list",
-        needs: Some(Privilege::Acls),
-        sections: &[],
-    },
-    ToolGate {
-        name: "klens_brokers_list",
-        needs: None,
-        sections: &[(Section::Configs, Privilege::BrokerConfigs)],
-    },
-    ToolGate {
-        name: "klens_clusters",
-        needs: None,
-        sections: &[],
-    },
-    ToolGate {
-        name: "klens_group_describe",
-        needs: None,
-        sections: &[],
-    },
-    ToolGate {
-        name: "klens_groups_list",
-        needs: None,
-        sections: &[],
-    },
-    ToolGate {
-        name: "klens_record_get",
-        needs: Some(Privilege::Records),
-        sections: &[],
-    },
-    ToolGate {
-        name: "klens_record_produce",
-        needs: Some(Privilege::Produce),
-        sections: &[],
-    },
-    ToolGate {
-        name: "klens_records_read",
-        needs: Some(Privilege::Records),
-        sections: &[],
-    },
-    ToolGate {
-        name: "klens_schema_get",
-        needs: Some(Privilege::SchemaText),
-        sections: &[],
-    },
-    ToolGate {
-        name: "klens_schema_register",
-        needs: Some(Privilege::RegisterSchemas),
-        sections: &[],
-    },
-    ToolGate {
-        name: "klens_schemas_list",
-        needs: None,
-        sections: &[],
-    },
-    ToolGate {
-        name: "klens_search",
-        needs: None,
-        sections: &[],
-    },
-    ToolGate {
-        name: "klens_topic_create",
-        needs: Some(Privilege::CreateTopics),
-        sections: &[],
-    },
-    ToolGate {
-        name: "klens_topic_describe",
-        needs: None,
-        sections: &[(Section::Configs, Privilege::TopicConfigs)],
-    },
-    ToolGate {
-        name: "klens_topics_list",
-        needs: None,
-        sections: &[],
-    },
-];
-
 pub(super) fn offered(session: &Session, tool: &str) -> bool {
-    TOOLS.iter().any(|gate| {
+    gates().any(|gate| {
         gate.name == tool
             && (gate.needs.is_none() || session.clusters().any(|cluster| usable(&cluster, gate)))
     })
@@ -123,8 +79,7 @@ pub(super) fn rights(cluster: &ClusterHandle<'_>) -> ClusterRights {
             .into_iter()
             .map(Into::into)
             .collect(),
-        tools: TOOLS
-            .iter()
+        tools: gates()
             .flat_map(|gate| {
                 let sections = gate.sections.iter().map(|&(section, needs)| {
                     tool_rights(&cluster.access, gate.name, Some(section), Some(needs))

@@ -15,6 +15,7 @@ use crate::app::context::Session;
 use crate::app::error::ApiError;
 use crate::app::topics::{CreateTopic, TopicGroupRow};
 
+use super::super::gate::ToolGate;
 use super::super::types::{
     CreatedTopic, Omitted, PartitionRow, Reason, Section, SubjectRow, TopicDescription, TopicList,
     TopicRow, TopicSummary,
@@ -22,6 +23,7 @@ use super::super::types::{
 use super::super::untrusted::Boundary;
 use super::super::{CLIENT_VALUES_NOTICE, MAX_ROWS};
 use super::ResponseFormat;
+use crate::app::auth::access::Privilege;
 use crate::app::mcp::fit::{
     first, fitted_lists, largest_first_unmeasured_last, listed, name_filter, one_cluster,
 };
@@ -91,20 +93,19 @@ struct TopicToCreate {
     configs: BTreeMap<String, String>,
 }
 
+pub(super) const GATES: &[ToolGate] = &[
+    ToolGate::open("klens_topics_list"),
+    ToolGate::needing("klens_topic_create", Privilege::CreateTopics).not_idempotent(),
+    ToolGate::open("klens_topic_describe")
+        .with_sections(&[(Section::Configs, Privilege::TopicConfigs)]),
+];
+
 #[tool_router(router = topic_tools, vis = "pub(super)")]
 impl KlensMcp {
     /// Lists a cluster's topics with their partition count, records, size, produce rate in records per second, how many groups read them and whether a partition is under-replicated.
     /// `sort` NAME goes from A to Z, and the others put the largest first and unmeasured values last.
     /// `responseFormat` DETAILED adds whether a topic is internal, its replication factor, the records it ever received, its retention and its cleanup policy.
-    #[tool(
-        title = "List topics",
-        annotations(
-            read_only_hint = true,
-            destructive_hint = false,
-            idempotent_hint = true,
-            open_world_hint = false
-        )
-    )]
+    #[tool(title = "List topics")]
     async fn klens_topics_list(
         &self,
         session: Session,
@@ -179,15 +180,7 @@ impl KlensMcp {
     /// Creates a topic with the partitions, replication factor and configs given, or else the broker's defaults. It changes Kafka, so calls to it are limited per minute.
     /// It needs a cluster that accepts changes, and fails with READ_ONLY_CLUSTER on any other. It fails with REFUSED when Kafka refuses, such as for a topic that exists.
     /// The result gives the topic's name and partition count, which is null when you gave no `partitions` and klens has not seen the topic yet.
-    #[tool(
-        title = "Create a topic",
-        annotations(
-            read_only_hint = false,
-            destructive_hint = false,
-            idempotent_hint = false,
-            open_world_hint = false
-        )
-    )]
+    #[tool(title = "Create a topic")]
     async fn klens_topic_create(
         &self,
         session: Session,
@@ -221,15 +214,7 @@ impl KlensMcp {
     /// `groups` lists the consumer groups that read it, the largest lag on this topic first.
     /// `subjects` lists its `<topic>-key` and `<topic>-value` schema subjects, and is null when klens reads no schema registry for the cluster or has not read it yet.
     /// `configs` lists each config whose value is not Kafka's default. When it is null, `omitted` gives the privilege it `needs`, or `notRead` while klens has not read them.
-    #[tool(
-        title = "Describe a topic",
-        annotations(
-            read_only_hint = true,
-            destructive_hint = false,
-            idempotent_hint = true,
-            open_world_hint = false
-        )
-    )]
+    #[tool(title = "Describe a topic")]
     async fn klens_topic_describe(
         &self,
         session: Session,

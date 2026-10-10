@@ -12,8 +12,10 @@ use crate::app::acls::types::{AclOperation, AclPermission, AclResourceType, AclS
 use crate::app::context::Session;
 use crate::app::error::ApiError;
 
+use super::super::gate::ToolGate;
 use super::super::types::AclList;
 use super::super::{CLIENT_VALUES_NOTICE, MAX_ROWS};
+use crate::app::auth::access::Privilege;
 use crate::app::mcp::fit::{listed, name_filter, one_cluster};
 use crate::app::mcp::lanes::snapshot;
 use crate::app::mcp::server::KlensMcp;
@@ -35,20 +37,14 @@ struct AclsQuery {
     limit: Option<usize>,
 }
 
+pub(super) const GATES: &[ToolGate] = &[ToolGate::needing("klens_acls_list", Privilege::Acls)];
+
 #[tool_router(router = acl_tools, vis = "pub(super)")]
 impl KlensMcp {
     /// Lists a cluster's ACL bindings.
     /// A PREFIXED binding covers every name that starts with its resource name, the resource name * covers every resource of its type, and the operation ALL covers every operation.
     /// `status` DISABLED means the cluster runs no authorizer, and DENIED means klens' own Kafka user may not describe ACLs.
-    #[tool(
-        title = "List ACLs",
-        annotations(
-            read_only_hint = true,
-            destructive_hint = false,
-            idempotent_hint = true,
-            open_world_hint = false
-        )
-    )]
+    #[tool(title = "List ACLs")]
     async fn klens_acls_list(
         &self,
         session: Session,

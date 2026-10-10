@@ -12,6 +12,7 @@ use crate::app::error::ApiError;
 use crate::app::groups::types::GroupState;
 
 use super::super::findings::Finding;
+use super::super::gate::ToolGate;
 use super::super::types::{GroupDescription, GroupList, GroupPartitionRow, GroupRow, MemberRow};
 use super::super::{CLIENT_VALUES_NOTICE, MAX_ROWS};
 use super::ResponseFormat;
@@ -51,20 +52,17 @@ struct GroupId {
     group: String,
 }
 
+pub(super) const GATES: &[ToolGate] = &[
+    ToolGate::open("klens_groups_list"),
+    ToolGate::open("klens_group_describe"),
+];
+
 #[tool_router(router = group_tools, vis = "pub(super)")]
 impl KlensMcp {
     /// Lists a cluster's consumer groups, the largest total lag first, with their state, member count and total lag in records.
     /// `lagComplete` is false when the total leaves out partitions whose lag klens has not read.
     /// `responseFormat` DETAILED adds the topics each group reads.
-    #[tool(
-        title = "List consumer groups",
-        annotations(
-            read_only_hint = true,
-            destructive_hint = false,
-            idempotent_hint = true,
-            open_world_hint = false
-        )
-    )]
+    #[tool(title = "List consumer groups")]
     async fn klens_groups_list(
         &self,
         session: Session,
@@ -114,15 +112,7 @@ impl KlensMcp {
     /// Describes one consumer group: its state, assignment protocol, total lag, and its members and partitions, the largest lag first.
     /// `findings` names what looks wrong by `kind`: NO_MEMBERS, REBALANCING, MORE_MEMBERS_THAN_PARTITIONS, UNASSIGNED_PARTITIONS, and LAG_ON_ONE_MEMBER when one member holds at least 80% of a complete total lag of 1000 or more.
     /// A call makes klens read the group's offsets more often for a while, so calls to it are limited per minute.
-    #[tool(
-        title = "Describe a consumer group",
-        annotations(
-            read_only_hint = true,
-            destructive_hint = false,
-            idempotent_hint = true,
-            open_world_hint = false
-        )
-    )]
+    #[tool(title = "Describe a consumer group")]
     async fn klens_group_describe(
         &self,
         session: Session,

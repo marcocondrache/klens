@@ -22,9 +22,10 @@ use crate::app::auth::SessionGuard;
 use crate::app::auth::access::{EffectiveAccess, Privilege, PrivilegeSet};
 use crate::app::auth::testing::{Idp, RESOURCE_HOST, Signer, bearing, mcp as for_resource};
 use crate::app::mcp::fit::{fits, limit, listed};
-use crate::app::mcp::gate::{TOOLS, tool_rights};
+use crate::app::mcp::gate::tool_rights;
 use crate::app::mcp::lanes::lane_error;
 use crate::app::mcp::server::KlensMcp;
+use crate::app::mcp::tools::gates;
 use crate::app::whoami::types::PrivilegeName;
 use crate::app::{AppState, AuthState, Limits, router};
 use crate::config::{AllowedHost, Config, Mcp, Tuning};
@@ -169,20 +170,18 @@ fn naming(tool: &Tool, cluster: &str) -> Value {
 }
 
 fn tool_names() -> Vec<&'static str> {
-    TOOLS.iter().map(|gate| gate.name).collect()
+    gates().map(|gate| gate.name).collect()
 }
 
 fn read_tool_names() -> Vec<&'static str> {
-    TOOLS
-        .iter()
+    gates()
         .filter(|gate| !gate.changes())
         .map(|gate| gate.name)
         .collect()
 }
 
 fn tool_names_that_change_kafka() -> Vec<&'static str> {
-    TOOLS
-        .iter()
+    gates()
         .filter(|gate| gate.changes())
         .map(|gate| gate.name)
         .collect()
@@ -190,7 +189,7 @@ fn tool_names_that_change_kafka() -> Vec<&'static str> {
 
 fn every_tool() -> Mcp {
     Mcp {
-        privileges: gates()
+        privileges: gate_rows()
             .into_iter()
             .filter_map(|(_, _, needs)| needs)
             .collect(),
@@ -214,9 +213,8 @@ fn lanes_writes_wait_on(app: &TestApp) -> Rig {
     rig
 }
 
-fn gates() -> Vec<(&'static str, Option<Section>, Option<Privilege>)> {
-    TOOLS
-        .iter()
+fn gate_rows() -> Vec<(&'static str, Option<Section>, Option<Privilege>)> {
+    gates()
         .flat_map(|gate| {
             let sections = gate
                 .sections
@@ -318,7 +316,7 @@ async fn every_tool_opens_to_exactly_the_privilege_it_names() {
 
     for held in std::iter::once(None).chain(Privilege::ALL.map(Some)) {
         let session = app.with_access(access([role("probe", PrivilegeSet::from_privileges(held))]));
-        for (name, section, needs) in gates() {
+        for (name, section, needs) in gate_rows() {
             let tool = tools.iter().find(|tool| tool.name == name).expect("a tool");
             let expected = match (section, needs) {
                 (_, None) => Outcome::Answered,
@@ -345,7 +343,7 @@ async fn a_ceiling_without_a_privilege_closes_each_tool_and_section_that_needs_i
     let app = writable().await;
     let tools = KlensMcp::tools().list_all();
 
-    for (name, section, needs) in gates() {
+    for (name, section, needs) in gate_rows() {
         let Some(needs) = needs else { continue };
         let mcp = every_tool();
         let capped = app.serving_mcp(Mcp {
@@ -439,8 +437,7 @@ fn every_tool_is_titled_and_says_whether_it_changes_kafka() {
         let name = &*tool.name;
         let annotations = tool.annotations.as_ref().expect("annotations");
         let description = tool.description.as_deref().expect("a description");
-        let changes = TOOLS
-            .iter()
+        let changes = gates()
             .find(|gate| gate.name == name)
             .expect("a gate")
             .changes();
@@ -505,8 +502,7 @@ async fn tools_list_leaves_out_a_tool_the_caller_may_use_on_no_cluster() {
     )
     .await;
 
-    let gated: Vec<&str> = TOOLS
-        .iter()
+    let gated: Vec<&str> = gates()
         .filter(|gate| gate.needs.is_some())
         .map(|gate| gate.name)
         .collect();
@@ -585,8 +581,7 @@ async fn a_ceiling_without_records_hides_both_record_tools_in_either_protocol() 
     assert_eq!(result["cacheScope"], "private", "{result}");
     assert!(legacy["result"].get("cacheScope").is_none(), "{legacy}");
     assert_eq!(names(&legacy["result"], "tools", "name"), tools);
-    let open: Vec<&str> = TOOLS
-        .iter()
+    let open: Vec<&str> = gates()
         .filter(|gate| gate.needs.is_none_or(|needs| needs == Privilege::Acls))
         .map(|gate| gate.name)
         .collect();

@@ -11,7 +11,9 @@ use crate::app::context::Session;
 use crate::app::error::ApiError;
 
 use super::super::MAX_ROWS;
+use super::super::gate::ToolGate;
 use super::super::types::{BrokerDetail, BrokerList, BrokerRow, Section};
+use crate::app::auth::access::Privilege;
 use crate::app::mcp::fit::{fitted, listed, one_cluster};
 use crate::app::mcp::lanes::topology;
 use crate::app::mcp::server::KlensMcp;
@@ -30,20 +32,15 @@ struct BrokersQuery {
     limit: Option<usize>,
 }
 
+pub(super) const GATES: &[ToolGate] = &[ToolGate::open("klens_brokers_list")
+    .with_sections(&[(Section::Configs, Privilege::BrokerConfigs)])];
+
 #[tool_router(router = broker_tools, vis = "pub(super)")]
 impl KlensMcp {
     /// Lists a cluster's brokers by id with their address, rack, controller flag, partition counts, size and log dirs.
     /// Size and log dirs stay null until klens can describe log dirs, which needs the Describe operation on the Cluster resource.
     /// With `broker`, it returns that broker alone with `configs`, each config whose value is not Kafka's default. It reads them live from Kafka, so these calls are limited per minute. Without the BROKER_CONFIGS privilege `configs` is null and `omitted` names that privilege.
-    #[tool(
-        title = "List brokers",
-        annotations(
-            read_only_hint = true,
-            destructive_hint = false,
-            idempotent_hint = true,
-            open_world_hint = false
-        )
-    )]
+    #[tool(title = "List brokers")]
     async fn klens_brokers_list(
         &self,
         session: Session,

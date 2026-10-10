@@ -9,6 +9,7 @@ use crate::app::context::Session;
 use crate::app::error::ApiError;
 use crate::app::search::types::SearchKind;
 
+use super::super::gate::ToolGate;
 use super::super::types::{
     AccessList, ClusterDetail, ClusterList, ClusterRights, ClusterRow, SearchResult,
 };
@@ -36,20 +37,18 @@ struct SearchQuery {
     cluster: Option<String>,
 }
 
+pub(super) const GATES: &[ToolGate] = &[
+    ToolGate::open("klens_clusters"),
+    ToolGate::open("klens_access_explain"),
+    ToolGate::open("klens_search"),
+];
+
 #[tool_router(router = cluster_tools, vis = "pub(super)")]
 impl KlensMcp {
     /// Lists the Kafka clusters you can see with their health: broker, topic, partition, group and subject counts, under-replicated and offline partition counts, and each background read (lane) that failed or has not run yet.
     /// Pass `cluster` to also list that cluster's under-replicated and offline partitions, offline first, with their leaders and replicas.
     /// Call this first to learn the names other tools take as `cluster`.
-    #[tool(
-        title = "List clusters and their health",
-        annotations(
-            read_only_hint = true,
-            destructive_hint = false,
-            idempotent_hint = true,
-            open_world_hint = false
-        )
-    )]
+    #[tool(title = "List clusters and their health")]
     async fn klens_clusters(
         &self,
         session: Session,
@@ -98,15 +97,7 @@ impl KlensMcp {
     /// Explains what you may do on each cluster you can see: your privileges under the ceiling the klens operator set for MCP, whether the cluster accepts changes, and each tool or section with the privilege it needs when it is not available.
     /// Everyone sees the catalog of clusters, topics, groups, brokers and subjects. Privileges cover record payloads, configs, schema text, ACLs and changes. A tool that changes Kafka is available only on a cluster that accepts changes.
     /// Call it after a FORBIDDEN or READ_ONLY_CLUSTER error, or before work that needs a privilege.
-    #[tool(
-        title = "Explain what you may do",
-        annotations(
-            read_only_hint = true,
-            destructive_hint = false,
-            idempotent_hint = true,
-            open_world_hint = false
-        )
-    )]
+    #[tool(title = "Explain what you may do")]
     async fn klens_access_explain(
         &self,
         session: Session,
@@ -132,15 +123,7 @@ impl KlensMcp {
     /// Matching is fuzzy and ignores case: `ord cre` finds `orders.created`, `!test` leaves out names that match `test`, and `^prod` keeps names that start with `prod`.
     /// Each cluster gives up to 20 matches, best first, each with its kind (TOPIC, GROUP, NODE for a broker, or SUBJECT) and exact id.
     /// `notReady` names each cluster klens has not read yet, where no match does not mean the name is absent.
-    #[tool(
-        title = "Search names",
-        annotations(
-            read_only_hint = true,
-            destructive_hint = false,
-            idempotent_hint = true,
-            open_world_hint = false
-        )
-    )]
+    #[tool(title = "Search names")]
     async fn klens_search(
         &self,
         session: Session,

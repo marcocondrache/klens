@@ -23,7 +23,8 @@ use crate::app::context::Session;
 use crate::app::error::ApiError;
 
 use super::MAX_CLIENT_CHARS;
-use crate::app::mcp::gate::{TOOLS, offered};
+use crate::app::mcp::gate::offered;
+use crate::app::mcp::tools::gates;
 pub(crate) struct KlensMcp {
     pub(super) state: AppState,
     pub(super) tools: Arc<ToolRouter<Self>>,
@@ -114,9 +115,7 @@ impl ServerHandler for KlensMcp {
         let cancelled = context.ct.clone();
         // A write that reached Kafka must still log its audit line after the
         // client goes away, so only a read stops when it does.
-        let changes = TOOLS
-            .iter()
-            .any(|gate| gate.name == route.attr.name && gate.changes());
+        let changes = gates().any(|gate| gate.name == route.attr.name && gate.changes());
         async move {
             let Some(_permit) = self.state.mcp_permit() else {
                 return ApiError::RateLimited.into_call_tool_result();
