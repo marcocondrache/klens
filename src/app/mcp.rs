@@ -216,9 +216,10 @@ fn hint(error: &ApiError) -> &'static str {
         ApiError::InvalidRequest { .. } => {
             "Fix the arguments to match the tool's input schema, then call again."
         }
-        ApiError::SessionExpired | ApiError::Unauthorized | ApiError::HostNotAllowed => {
-            "Reconnect the MCP client to klens, then call again."
-        }
+        ApiError::SessionExpired
+        | ApiError::Unauthorized
+        | ApiError::HostNotAllowed
+        | ApiError::NotFound => "Reconnect the MCP client to klens, then call again.",
     }
 }
 
