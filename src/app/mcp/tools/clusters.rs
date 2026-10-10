@@ -8,7 +8,7 @@ use crate::app::context::{ClusterHandle, Session};
 use crate::app::error::ApiError;
 use crate::app::mcp::ext::ClusterExt as _;
 use crate::app::mcp::gate::{ToolGate, ToolRights};
-use crate::app::mcp::reply::{Cut, Reply, Rows, fit};
+use crate::app::mcp::reply::{Rows, fit, reply};
 use crate::app::mcp::server::{KlensMcp, ToolResult};
 use crate::app::mcp::tools::gates;
 use crate::app::mcp::untrusted::Boundary;
@@ -161,15 +161,7 @@ struct ClusterList {
     notice: Option<String>,
 }
 
-impl Reply for ClusterList {
-    fn lists(&mut self) -> Vec<&mut dyn Cut> {
-        vec![&mut self.clusters]
-    }
-
-    fn kept_whole(&self) -> Option<&str> {
-        Some("pass `cluster` to read one cluster")
-    }
-}
+reply!(ClusterList: clusters; "pass `cluster` to read one cluster");
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -181,15 +173,7 @@ struct ClusterDetail {
     notice: Option<String>,
 }
 
-impl Reply for ClusterDetail {
-    fn lists(&mut self) -> Vec<&mut dyn Cut> {
-        vec![&mut self.unhealthy_partitions]
-    }
-
-    fn kept_whole(&self) -> Option<&str> {
-        Some("the counts above cover every partition")
-    }
-}
+reply!(ClusterDetail: unhealthy_partitions; "the counts above cover every partition");
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -221,15 +205,7 @@ struct AccessList {
     clusters: Rows<ClusterRights>,
 }
 
-impl Reply for AccessList {
-    fn lists(&mut self) -> Vec<&mut dyn Cut> {
-        vec![&mut self.clusters]
-    }
-
-    fn kept_whole(&self) -> Option<&str> {
-        Some("pass `cluster` to explain one cluster")
-    }
-}
+reply!(AccessList: clusters; "pass `cluster` to explain one cluster");
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -317,15 +293,7 @@ impl SearchResult {
     }
 }
 
-impl Reply for SearchResult {
-    fn lists(&mut self) -> Vec<&mut dyn Cut> {
-        vec![&mut self.hits]
-    }
-
-    fn kept_whole(&self) -> Option<&str> {
-        Some("pass `cluster` or a longer query")
-    }
-}
+reply!(SearchResult: hits; "pass `cluster` or a longer query");
 
 #[tool_router(router = cluster_tools, vis = "pub(super)")]
 impl KlensMcp {

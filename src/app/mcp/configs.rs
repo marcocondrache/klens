@@ -9,7 +9,7 @@ use crate::app::whoami::types::PrivilegeName;
 use crate::kafka::model as domain;
 
 use super::MAX_CONFIG_CHARS;
-use super::reply::{Cut, Rows};
+use super::reply::{Cut, Lists, Rows};
 use super::untrusted::{Boundary, clip};
 
 /// A part of a tool's result that the caller's privileges may withhold.
@@ -96,10 +96,6 @@ impl ConfigSection {
         )
     }
 
-    pub fn rows(&mut self) -> Option<&mut dyn Cut> {
-        self.configs.as_mut().map(|rows| rows as &mut dyn Cut)
-    }
-
     fn omitted(reason: Reason) -> Self {
         Self {
             configs: None,
@@ -107,6 +103,14 @@ impl ConfigSection {
                 section: Section::Configs,
                 reason,
             }),
+        }
+    }
+}
+
+impl Lists for ConfigSection {
+    fn push_lists<'a>(&'a mut self, lists: &mut Vec<&'a mut dyn Cut>) {
+        if let Some(configs) = &mut self.configs {
+            configs.push_lists(lists);
         }
     }
 }

@@ -1,33 +1,31 @@
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::{tool, tool_router};
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::app::auth::access::Privilege;
 use crate::app::brokers::types::LogDir;
 use crate::app::context::{ClusterHandle, Session};
 use crate::app::error::ApiError;
 use crate::app::mcp::MAX_ROWS;
+use crate::app::mcp::args::input;
 use crate::app::mcp::configs::{ConfigSection, Section};
 use crate::app::mcp::ext::{ClusterExt as _, SessionExt as _};
 use crate::app::mcp::gate::ToolGate;
-use crate::app::mcp::reply::{Cut, Page, Reply, fit};
+use crate::app::mcp::reply::{Page, fit, reply};
 use crate::app::mcp::server::{KlensMcp, ToolResult};
 use crate::kafka::KafkaError;
 use crate::kafka::store::projections;
 
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct BrokersQuery {
-    /// A cluster name from klens_clusters. Optional when you see only one.
-    cluster: Option<String>,
-    /// Lists only brokers with a higher id, such as the last one shown.
-    after: Option<i32>,
-    /// Describes this broker alone, with its config overrides.
-    broker: Option<i32>,
-    /// How many brokers to return: 25 unless given, at most 100.
-    #[schemars(range(min = 1, max = MAX_ROWS))]
-    limit: Option<usize>,
+input! {
+    struct BrokersQuery {
+        /// Lists only brokers with a higher id, such as the last one shown.
+        after: Option<i32>,
+        /// Describes this broker alone, with its config overrides.
+        broker: Option<i32>,
+        /// How many brokers to return: 25 unless given, at most 100.
+        #[schemars(range(min = 1, max = MAX_ROWS))]
+        limit: Option<usize>,
+    }
 }
 
 pub(super) const GATES: &[ToolGate] = &[ToolGate::open("klens_brokers_list")
@@ -83,15 +81,7 @@ struct BrokerList {
     page: Page<BrokerRow>,
 }
 
-impl Reply for BrokerList {
-    fn lists(&mut self) -> Vec<&mut dyn Cut> {
-        vec![self.page.rows()]
-    }
-
-    fn kept_whole(&self) -> Option<&str> {
-        None
-    }
-}
+reply!(BrokerList: page);
 
 #[derive(Serialize)]
 struct BrokerDetail {
@@ -101,15 +91,7 @@ struct BrokerDetail {
     configs: ConfigSection,
 }
 
-impl Reply for BrokerDetail {
-    fn lists(&mut self) -> Vec<&mut dyn Cut> {
-        self.configs.rows().into_iter().collect()
-    }
-
-    fn kept_whole(&self) -> Option<&str> {
-        Some("the klens UI shows every config")
-    }
-}
+reply!(BrokerDetail: configs; "the klens UI shows every config");
 
 #[tool_router(router = broker_tools, vis = "pub(super)")]
 impl KlensMcp {

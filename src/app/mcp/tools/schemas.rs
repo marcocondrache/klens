@@ -1,17 +1,16 @@
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::CallToolResult;
 use rmcp::{tool, tool_router};
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::json;
 
 use crate::app::auth::access::Privilege;
 use crate::app::context::Session;
 use crate::app::error::ApiError;
-use crate::app::mcp::args::{NameFilter, ResponseFormat};
+use crate::app::mcp::args::{NameFilter, ResponseFormat, input};
 use crate::app::mcp::ext::{ClusterExt as _, SessionExt as _};
 use crate::app::mcp::gate::ToolGate;
-use crate::app::mcp::reply::{Cut, Page, Reply, fit};
+use crate::app::mcp::reply::{Page, fit, reply};
 use crate::app::mcp::schema_text::schema_result;
 use crate::app::mcp::server::{KlensMcp, ToolResult};
 use crate::app::mcp::{CLIENT_VALUES_NOTICE, MAX_ROWS, MAX_VERSIONS};
@@ -23,47 +22,41 @@ use crate::app::subjects::types::{
 use crate::kafka::store::projections;
 use crate::kafka::store::tables::SubjectInfo;
 
-#[derive(Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct SubjectsQuery {
-    /// A cluster name from klens_clusters. Optional when you see only one.
-    cluster: Option<String>,
-    /// Keeps subjects whose name holds this text, in any case.
-    name_contains: Option<String>,
-    /// How many subjects to return: 25 unless given, at most 100.
-    #[schemars(range(min = 1, max = MAX_ROWS))]
-    limit: Option<usize>,
-    /// CONCISE unless given.
-    #[serde(default)]
-    response_format: ResponseFormat,
+input! {
+    struct SubjectsQuery {
+        /// Keeps subjects whose name holds this text, in any case.
+        name_contains: Option<String>,
+        /// How many subjects to return: 25 unless given, at most 100.
+        #[schemars(range(min = 1, max = MAX_ROWS))]
+        limit: Option<usize>,
+        /// CONCISE unless given.
+        #[serde(default)]
+        response_format: ResponseFormat,
+    }
 }
 
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct SchemaQuery {
-    /// A cluster name from klens_clusters. Optional when you see only one.
-    cluster: Option<String>,
-    /// The subject's exact name.
-    subject: String,
-    /// The version to read, the latest unless given.
-    #[schemars(range(min = 1))]
-    version: Option<i32>,
+input! {
+    struct SchemaQuery {
+        /// The subject's exact name.
+        subject: String,
+        /// The version to read, the latest unless given.
+        #[schemars(range(min = 1))]
+        version: Option<i32>,
+    }
 }
 
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct SchemaToRegister {
-    /// A cluster name from klens_clusters. Optional when you see only one.
-    cluster: Option<String>,
-    /// The subject's exact name. The registry creates it unless it exists.
-    subject: String,
-    #[serde(rename = "type")]
-    schema_type: SchemaType,
-    /// The schema as text, JSON for AVRO and JSON, and .proto source for PROTOBUF.
-    schema: String,
-    /// The schemas this one references, each by the name it imports, a subject and a version.
-    #[serde(default)]
-    references: Vec<SchemaReference>,
+input! {
+    struct SchemaToRegister {
+        /// The subject's exact name. The registry creates it unless it exists.
+        subject: String,
+        #[serde(rename = "type")]
+        schema_type: SchemaType,
+        /// The schema as text, JSON for AVRO and JSON, and .proto source for PROTOBUF.
+        schema: String,
+        /// The schemas this one references, each by the name it imports, a subject and a version.
+        #[serde(default)]
+        references: Vec<SchemaReference>,
+    }
 }
 
 pub(super) const GATES: &[ToolGate] = &[
@@ -129,15 +122,7 @@ struct SubjectList {
     notice: &'static str,
 }
 
-impl Reply for SubjectList {
-    fn lists(&mut self) -> Vec<&mut dyn Cut> {
-        vec![self.page.rows()]
-    }
-
-    fn kept_whole(&self) -> Option<&str> {
-        None
-    }
-}
+reply!(SubjectList: page);
 
 #[tool_router(router = schema_tools, vis = "pub(super)")]
 impl KlensMcp {

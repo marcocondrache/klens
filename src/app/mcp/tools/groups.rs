@@ -2,16 +2,15 @@ use std::borrow::Cow;
 
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::{tool, tool_router};
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::app::context::Session;
 use crate::app::groups::types::GroupState;
-use crate::app::mcp::args::{NameFilter, ResponseFormat, largest_first};
+use crate::app::mcp::args::{NameFilter, ResponseFormat, input, largest_first};
 use crate::app::mcp::ext::{ClusterExt as _, SessionExt as _};
 use crate::app::mcp::findings::{Finding, findings, member_lags};
 use crate::app::mcp::gate::ToolGate;
-use crate::app::mcp::reply::{Cut, Page, Reply, Rows, fit, prefix};
+use crate::app::mcp::reply::{Cut, Page, Reply, Rows, fit, prefix, reply};
 use crate::app::mcp::server::{KlensMcp, ToolResult};
 use crate::app::mcp::untrusted::shorten;
 use crate::app::mcp::{CLIENT_VALUES_NOTICE, MAX_ROWS};
@@ -19,34 +18,30 @@ use crate::kafka::KafkaError;
 use crate::kafka::model::{GroupMember, GroupOffset};
 use crate::kafka::store::projections::{self, GroupDetail};
 
-#[derive(Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct GroupsQuery {
-    /// A cluster name from klens_clusters. Optional when you see only one.
-    cluster: Option<String>,
-    /// Keeps groups whose id holds this text, in any case.
-    name_contains: Option<String>,
-    /// Keeps groups in this state.
-    state: Option<GroupState>,
-    /// Keeps groups whose total lag is at least this many records.
-    min_lag: Option<i64>,
-    /// Keeps groups that read this exact topic.
-    topic: Option<String>,
-    /// How many groups to return: 25 unless given, at most 100.
-    #[schemars(range(min = 1, max = MAX_ROWS))]
-    limit: Option<usize>,
-    /// CONCISE unless given.
-    #[serde(default)]
-    response_format: ResponseFormat,
+input! {
+    struct GroupsQuery {
+        /// Keeps groups whose id holds this text, in any case.
+        name_contains: Option<String>,
+        /// Keeps groups in this state.
+        state: Option<GroupState>,
+        /// Keeps groups whose total lag is at least this many records.
+        min_lag: Option<i64>,
+        /// Keeps groups that read this exact topic.
+        topic: Option<String>,
+        /// How many groups to return: 25 unless given, at most 100.
+        #[schemars(range(min = 1, max = MAX_ROWS))]
+        limit: Option<usize>,
+        /// CONCISE unless given.
+        #[serde(default)]
+        response_format: ResponseFormat,
+    }
 }
 
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct GroupId {
-    /// A cluster name from klens_clusters. Optional when you see only one.
-    cluster: Option<String>,
-    /// The consumer group's exact id.
-    group: String,
+input! {
+    struct GroupId {
+        /// The consumer group's exact id.
+        group: String,
+    }
 }
 
 pub(super) const GATES: &[ToolGate] = &[
@@ -102,15 +97,7 @@ struct GroupList {
     notice: &'static str,
 }
 
-impl Reply for GroupList {
-    fn lists(&mut self) -> Vec<&mut dyn Cut> {
-        vec![self.page.rows()]
-    }
-
-    fn kept_whole(&self) -> Option<&str> {
-        None
-    }
-}
+reply!(GroupList: page);
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
