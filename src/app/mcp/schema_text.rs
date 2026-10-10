@@ -1,18 +1,38 @@
 use rmcp::model::{CallToolResult, ContentBlock};
+use serde::Serialize;
 
-use crate::app::subjects::types::SubjectDetail;
+use crate::app::subjects::types::{SchemaReference, SchemaType, SubjectDetail};
 
-use super::types::{SchemaFacts, SchemaText};
+use super::RESULT_BYTES;
 use super::untrusted::{Boundary, clip};
-use super::{RESULT_BYTES, first, fit};
+use crate::app::mcp::reply::{prefix, search};
+
+/// What a client reads of a schema besides its text.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SchemaFacts {
+    version: i32,
+    id: i32,
+    #[serde(rename = "type")]
+    schema_type: SchemaType,
+    cut: bool,
+    references_left_out: usize,
+}
+
+/// The text of a schema, which whoever registered it chose.
+#[derive(Serialize)]
+struct SchemaText<'a> {
+    schema: &'a str,
+    references: &'a [SchemaReference],
+}
 
 pub(super) fn schema_result(detail: &SubjectDetail) -> CallToolResult {
     let boundary = Boundary::new();
     let most = detail.schema.chars().count().max(detail.references.len());
-    fit(most.min(RESULT_BYTES), |budget| {
+    search(most.min(RESULT_BYTES), |budget| {
         let (schema, cut) = clip(&detail.schema, budget);
-        let references = first(&detail.references, budget);
-        let left_out = detail.references.len() - references.len();
+        let (references, left_out) = prefix(&detail.references, budget);
+        let left_out = left_out.unwrap_or(0);
         let facts = SchemaFacts {
             version: detail.version,
             id: detail.id,

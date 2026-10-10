@@ -1,13 +1,58 @@
+use jiff::Timestamp;
 use rmcp::model::{CallToolResult, ContentBlock};
+use serde::Serialize;
 
 use crate::app::records::types::Record;
 
-use super::types::{HeaderText, RecordFacts, RecordText};
+use super::RESULT_BYTES;
 use super::untrusted::{Boundary, clip};
-use super::{RESULT_BYTES, fit};
+use crate::app::mcp::reply::search;
 
 #[cfg(test)]
 mod tests;
+
+/// What a client reads of a record besides its text.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RecordFacts {
+    partition: i32,
+    offset: i64,
+    timestamp: Timestamp,
+    size_bytes: u64,
+    schema_id: Option<i32>,
+    verbatim: bool,
+    cut: bool,
+    headers_left_out: usize,
+}
+
+impl RecordFacts {
+    fn new(record: &Record, cut: bool, headers_left_out: usize) -> Self {
+        Self {
+            partition: record.partition,
+            offset: record.offset,
+            timestamp: record.timestamp,
+            size_bytes: record.size_bytes,
+            schema_id: record.schema_id,
+            verbatim: record.verbatim,
+            cut,
+            headers_left_out,
+        }
+    }
+}
+
+/// The text of a record, which a producer chose.
+#[derive(Serialize)]
+struct RecordText<'a> {
+    key: Option<&'a str>,
+    headers: Vec<HeaderText<'a>>,
+    value: Option<&'a str>,
+}
+
+#[derive(Serialize)]
+struct HeaderText<'a> {
+    key: &'a str,
+    value: &'a str,
+}
 
 pub(super) fn records_result(records: &[Record], intro: &str, when_cut: &str) -> CallToolResult {
     let boundary = Boundary::new();
@@ -20,7 +65,7 @@ pub(super) fn records_result(records: &[Record], intro: &str, when_cut: &str) ->
         })
         .max()
         .unwrap_or(0);
-    fit(most.min(RESULT_BYTES), |budget| {
+    search(most.min(RESULT_BYTES), |budget| {
         let text = page(records, intro, when_cut, &boundary, budget);
         CallToolResult::success(vec![ContentBlock::text(text)])
     })
