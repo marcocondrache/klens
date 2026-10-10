@@ -138,7 +138,7 @@ pub enum QueryError {
     #[error("cursor is invalid")]
     InvalidCursor,
 
-    #[error("timestampFrom must not be after timestampTo")]
+    #[error("`from` must not be after `to`")]
     InvertedTimestampRange,
 }
 

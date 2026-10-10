@@ -3,6 +3,7 @@ use base64::engine::general_purpose::STANDARD;
 use bytes::Bytes;
 use futures::future::OptionFuture;
 use jiff::Timestamp;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -13,8 +14,9 @@ use crate::kafka::model as domain;
 use crate::kafka::{QueryError, RecordCursor, Tail, TailBatch, TailPosition, TailQuery};
 use crate::r#macro::from_same_variants;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, JsonSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[schemars(inline)]
 pub enum RecordOrder {
     Newest,
     Oldest,

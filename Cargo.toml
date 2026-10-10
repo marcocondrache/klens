@@ -83,7 +83,7 @@ rmcp = { version = "=3.5.1", default-features = false, features = [
     "macros",
     "transport-streamable-http-server",
 ] }
-schemars = "1.2"
+schemars = { version = "1.2", features = ["jiff02"] }
 aho-corasick = "1.1"
 arc-swap = "1.9.2"
 foldhash = "0.2.0"
@@ -100,6 +100,7 @@ krafka = { git = "https://github.com/hupe1980/krafka", rev = "e6b154cef8dd0bfe7b
 percent-encoding = "2.3"
 tempfile = "3"
 tokio = { version = "1", features = ["test-util"] }
+walkdir = "2.5"
 wiremock = "0.6.5"
 
 [profile.release]

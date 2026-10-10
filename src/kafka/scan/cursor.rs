@@ -48,6 +48,18 @@ impl Remaining {
 }
 
 impl RecordCursor {
+    /// The first page includes the record at `offset` in either order.
+    pub fn at(order: RecordOrder, partition: i32, offset: i64) -> Self {
+        let near_end = match order {
+            RecordOrder::Oldest => offset,
+            RecordOrder::Newest => offset.saturating_add(1),
+        };
+        Self {
+            order,
+            remaining: Remaining::walking(order, BTreeMap::from([(partition, near_end)])),
+        }
+    }
+
     pub fn walk(&self) -> RecordOrder {
         self.remaining.walk()
     }
@@ -167,6 +179,18 @@ mod tests {
         assert_eq!(cursor.remaining, Remaining::Before(BTreeMap::new()));
         assert_eq!(cursor.to_string(), "v2:o:b:");
         assert_eq!(RecordCursor::parse("v2:o:b").unwrap(), cursor);
+    }
+
+    #[test]
+    fn a_cursor_at_an_offset_keeps_that_offset_in_either_order() {
+        assert_eq!(
+            RecordCursor::at(RecordOrder::Oldest, 3, 10).to_string(),
+            "v2:o:f:3:10"
+        );
+        assert_eq!(
+            RecordCursor::at(RecordOrder::Newest, 3, 10).to_string(),
+            "v2:n:f:3:11"
+        );
     }
 
     #[test]

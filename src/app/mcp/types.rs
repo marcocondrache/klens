@@ -3,6 +3,7 @@ use serde::Serialize;
 
 use crate::app::brokers::types::LogDir;
 use crate::app::groups::types::{GroupState, MemberAssignment};
+use crate::app::records::types::Record;
 use crate::app::search::SearchHit;
 use crate::app::subjects::types::{SchemaCompatibility, SchemaType, SubjectVersion};
 use crate::app::topics::types::{CleanupPolicy, TopicGroupRow};
@@ -491,4 +492,45 @@ impl From<domain::GroupOffset> for GroupPartitionRow {
             lag: offset.lag,
         }
     }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordFacts {
+    pub partition: i32,
+    pub offset: i64,
+    pub timestamp: Timestamp,
+    pub size_bytes: u64,
+    pub schema_id: Option<i32>,
+    pub verbatim: bool,
+    pub cut: bool,
+    pub headers_left_out: usize,
+}
+
+impl RecordFacts {
+    pub fn new(record: &Record, cut: bool, headers_left_out: usize) -> Self {
+        Self {
+            partition: record.partition,
+            offset: record.offset,
+            timestamp: record.timestamp,
+            size_bytes: record.size_bytes,
+            schema_id: record.schema_id,
+            verbatim: record.verbatim,
+            cut,
+            headers_left_out,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct RecordText<'a> {
+    pub key: Option<&'a str>,
+    pub headers: Vec<HeaderText<'a>>,
+    pub value: Option<&'a str>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HeaderText<'a> {
+    pub key: &'a str,
+    pub value: &'a str,
 }

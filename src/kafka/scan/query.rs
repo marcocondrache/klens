@@ -1,9 +1,7 @@
-use std::collections::BTreeMap;
-
 use jiff::Timestamp;
 
 use crate::kafka::error::QueryError;
-use crate::kafka::scan::cursor::{CursorDirection, RecordCursor, Remaining};
+use crate::kafka::scan::cursor::{CursorDirection, RecordCursor};
 use crate::kafka::scan::filter::CompiledFilter;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,10 +66,11 @@ impl RecordAt {
             timestamps: TimestampRange::UNBOUNDED,
             limit: 1,
             order: RecordOrder::Oldest,
-            cursor: Some(RecordCursor {
-                order: RecordOrder::Oldest,
-                remaining: Remaining::From(BTreeMap::from([(self.partition, self.offset)])),
-            }),
+            cursor: Some(RecordCursor::at(
+                RecordOrder::Oldest,
+                self.partition,
+                self.offset,
+            )),
             schema_id: self.schema_id,
         }
     }
