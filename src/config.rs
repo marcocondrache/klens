@@ -18,7 +18,7 @@ mod tuning;
 pub use auth::{Auth, Binding, Oidc, Privilege, Role, Session};
 pub use cluster::{BasicAuth, ClientCert, Cluster, Sasl, SaslMechanism, SchemaRegistry, Tls};
 pub use hosts::AllowedHost;
-pub use mcp::Mcp;
+pub use mcp::{AllowedOrigin, Mcp, Token};
 pub use secret::{KeyMaterial, Secret};
 pub use tuning::{
     IngestTuning, KafkaTuning, McpTuning, RecordLimits, ScanTuning, SchemaRegistryTuning,
@@ -85,10 +85,6 @@ impl Config {
         let Some(mcp) = &self.mcp else {
             return Ok(());
         };
-        anyhow::ensure!(
-            self.auth.is_none(),
-            "mcp cannot be served together with auth yet; remove one of the two blocks"
-        );
         if let Some(unknown) = mcp
             .clusters
             .iter()
@@ -96,6 +92,27 @@ impl Config {
             .find(|name| !self.clusters.contains_key(*name))
         {
             anyhow::bail!("mcp.clusters names '{unknown}', which is not a configured cluster");
+        }
+        match &self.auth {
+            Some(auth) => {
+                anyhow::ensure!(mcp.resource.is_some(), "mcp.resource is required with auth");
+                anyhow::ensure!(
+                    !mcp.audiences().contains(&auth.oidc.client_id),
+                    "mcp.token.audiences must not name auth.oidc.client_id, or the UI's ID \
+                     tokens would open /mcp"
+                );
+            }
+            None => {
+                anyhow::ensure!(
+                    mcp.allowed_origins.is_empty(),
+                    "mcp.allowed_origins must stay empty without auth, or a web page could call \
+                     /mcp from a visitor's browser"
+                );
+                anyhow::ensure!(
+                    mcp.resource.is_none() && mcp.token == Token::default(),
+                    "mcp.resource and mcp.token need auth, since without it /mcp checks no token"
+                );
+            }
         }
         Ok(())
     }
@@ -258,25 +275,74 @@ mod tests {
         assert!(guarded.writable_without_auth().is_empty());
     }
 
-    #[test]
-    fn mcp_runs_only_without_auth_for_now() {
-        let both: Config = yaml(
-            "
-            mcp: {}
+    const AUTH: &str = "
             auth:
               oidc:
                 issuer: https://idp.example.com
                 client_id: klens
                 client_secret: {value: oidc-secret}
                 redirect_uri: https://klens.example.com/api/auth/callback
-            ",
-        );
+            ";
 
-        assert_eq!(
-            both.check().unwrap_err().to_string(),
-            "mcp cannot be served together with auth yet; remove one of the two blocks"
+    #[test]
+    fn mcp_with_auth_needs_a_resource_and_never_the_ui_audience() {
+        let with_auth = |mcp: &str| yaml::<Config>(&format!("{AUTH}\n            mcp: {mcp}"));
+
+        assert!(
+            with_auth("{resource: https://klens.example.com/mcp}")
+                .check()
+                .is_ok()
         );
+        assert!(
+            with_auth(
+                "{resource: https://klens.example.com/mcp, allowed_origins: ['https://claude.ai:443']}"
+            )
+            .check()
+            .is_ok()
+        );
+        for (mcp, expected) in [
+            ("{}", "mcp.resource is required with auth"),
+            (
+                "{resource: https://klens.example.com/mcp, token: {audiences: [api, klens]}}",
+                "mcp.token.audiences must not name auth.oidc.client_id, or the UI's ID tokens \
+                 would open /mcp",
+            ),
+        ] {
+            assert_eq!(
+                with_auth(mcp).check().unwrap_err().to_string(),
+                expected,
+                "{mcp}"
+            );
+        }
+    }
+
+    #[test]
+    fn mcp_without_auth_takes_no_token_rule_or_origin() {
         assert!(yaml::<Config>("mcp: {}").check().is_ok());
+        for (mcp, expected) in [
+            (
+                "{allowed_origins: ['https://claude.ai:443']}",
+                "mcp.allowed_origins must stay empty without auth, or a web page could call /mcp \
+                 from a visitor's browser",
+            ),
+            (
+                "{resource: https://klens.example.com/mcp}",
+                "mcp.resource and mcp.token need auth, since without it /mcp checks no token",
+            ),
+            (
+                "{token: {clients: [claude-code]}}",
+                "mcp.resource and mcp.token need auth, since without it /mcp checks no token",
+            ),
+        ] {
+            assert_eq!(
+                yaml::<Config>(&format!("mcp: {mcp}"))
+                    .check()
+                    .unwrap_err()
+                    .to_string(),
+                expected,
+                "{mcp}"
+            );
+        }
     }
 
     #[test]

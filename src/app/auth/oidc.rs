@@ -23,6 +23,7 @@ type DiscoveredClient = CoreClient<
 
 use super::SessionUser;
 use super::access::groups_from_json;
+use super::bearer::Jwks;
 use crate::config;
 
 #[async_trait]
@@ -54,7 +55,7 @@ impl Oidc {
     pub(crate) async fn discover(
         config: &config::Oidc,
         max_session: Duration,
-    ) -> anyhow::Result<Self> {
+    ) -> anyhow::Result<(Self, Jwks)> {
         let http = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .build()
@@ -66,6 +67,11 @@ impl Oidc {
             .await
             .map_err(|error| anyhow!("oidc provider discovery failed: {error}"))?;
 
+        let keys = Jwks::discovered(
+            http.clone(),
+            metadata.jwks_uri().url().clone(),
+            metadata.jwks(),
+        );
         let client = CoreClient::from_provider_metadata(
             metadata,
             ClientId::new(config.client_id.clone()),
@@ -75,13 +81,14 @@ impl Oidc {
         )
         .set_redirect_uri(config.redirect_uri.clone());
 
-        Ok(Self {
+        let oidc = Self {
             client,
             http,
             scopes: config.scopes.iter().cloned().map(Scope::new).collect(),
             groups_claim: config.groups_claim.clone(),
             max_session_secs: i64::try_from(max_session.as_secs()).unwrap_or(i64::MAX),
-        })
+        };
+        Ok((oidc, keys))
     }
 }
 

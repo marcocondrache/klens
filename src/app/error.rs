@@ -13,6 +13,7 @@ pub(crate) enum ApiError {
     Access(AccessError),
     SessionExpired,
     Unauthorized,
+    NoRole,
     HostNotAllowed,
     NotFound,
     TooManyTails,
@@ -43,6 +44,7 @@ impl ApiError {
             Self::Access(error) => error.code(),
             Self::SessionExpired => "SESSION_EXPIRED",
             Self::Unauthorized => "UNAUTHORIZED",
+            Self::NoRole => "FORBIDDEN",
             Self::HostNotAllowed => "HOST_NOT_ALLOWED",
             Self::NotFound => "NOT_FOUND",
             Self::TooManyTails => "TOO_MANY_TAILS",
@@ -72,7 +74,8 @@ impl ApiError {
             Self::TooManyTails | Self::NotReady { .. } => StatusCode::SERVICE_UNAVAILABLE,
             Self::RateLimited | Self::TooManyLiveCalls => StatusCode::TOO_MANY_REQUESTS,
             Self::InvalidRequest { status, .. } => *status,
-            Self::HostNotAllowed
+            Self::NoRole
+            | Self::HostNotAllowed
             | Self::Access(AccessError::Forbidden { .. } | AccessError::ReadOnlyCluster(_)) => {
                 StatusCode::FORBIDDEN
             }
@@ -115,6 +118,7 @@ impl std::fmt::Display for ApiError {
             Self::Access(error) => error.fmt(formatter),
             Self::SessionExpired => formatter.write_str("session is no longer valid"),
             Self::Unauthorized => formatter.write_str("unauthorized"),
+            Self::NoRole => formatter.write_str("no role is bound to a group of this token"),
             Self::HostNotAllowed => formatter.write_str("host is not in allowed_hosts"),
             Self::NotFound => formatter.write_str("not found"),
             Self::TooManyTails => {

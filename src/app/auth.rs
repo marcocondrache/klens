@@ -22,6 +22,7 @@ use crate::config::{self, KeyMaterial};
 
 pub(crate) mod access;
 mod backend;
+mod bearer;
 mod oidc;
 mod store;
 #[cfg(test)]
@@ -29,6 +30,8 @@ pub(crate) mod testing;
 
 use access::{AccessPolicy, Ceiling, EffectiveAccess, Identity, Narrowed};
 use backend::{AuthBackend, OidcCredentials};
+use bearer::Caller;
+pub(crate) use bearer::{Bearer, require_bearer};
 use oidc::{Oidc, OidcFlow};
 use store::ExpiringStore;
 
@@ -90,6 +93,7 @@ pub struct AuthState {
     policy: Arc<AccessPolicy>,
     session_layer: SessionLayer,
     login_timeout: Duration,
+    bearer: Option<Arc<Bearer>>,
 }
 
 impl AuthState {
@@ -99,15 +103,25 @@ impl AuthState {
             policy: Arc::new(AccessPolicy::disabled()),
             session_layer: session_layer(false, Key::generate()),
             login_timeout: Duration::ZERO,
+            bearer: None,
         }
     }
 
-    pub async fn from_config(auth: Option<&config::Auth>) -> anyhow::Result<Self> {
+    pub async fn from_config(
+        auth: Option<&config::Auth>,
+        mcp: Option<&config::Mcp>,
+    ) -> anyhow::Result<Self> {
         let Some(auth) = auth else {
             return Ok(Self::disabled());
         };
-        let flow = Oidc::discover(&auth.oidc, auth.session.max_age).await?;
-        Ok(Self::enabled(Arc::new(flow), auth))
+        let (flow, keys) = Oidc::discover(&auth.oidc, auth.session.max_age).await?;
+        let bearer = mcp
+            .map(|mcp| Bearer::new(&auth.oidc, mcp, keys))
+            .transpose()?;
+        Ok(Self {
+            bearer: bearer.map(Arc::new),
+            ..Self::enabled(Arc::new(flow), auth)
+        })
     }
 
     fn enabled(flow: Arc<dyn OidcFlow>, auth: &config::Auth) -> Self {
@@ -119,11 +133,16 @@ impl AuthState {
                 signing_key(auth.session.key.as_ref()),
             ),
             login_timeout: Duration::try_from(auth.session.login_timeout).unwrap_or(Duration::MAX),
+            bearer: None,
         }
     }
 
     pub fn is_enabled(&self) -> bool {
         self.backend.is_enabled()
+    }
+
+    pub(crate) fn bearer(&self) -> Option<&Arc<Bearer>> {
+        self.bearer.as_ref()
     }
 
     fn flow(&self) -> Option<&dyn OidcFlow> {
@@ -137,9 +156,11 @@ impl AuthState {
     }
 
     fn access_from_user(&self, user: &SessionUser) -> Option<EffectiveAccess> {
-        self.policy.admit(&Identity {
-            groups: &user.groups,
-        })
+        self.access_from_groups(&user.groups)
+    }
+
+    fn access_from_groups(&self, groups: &[String]) -> Option<EffectiveAccess> {
+        self.policy.admit(&Identity { groups })
     }
 
     fn access_from_session(&self, session: &AuthSession) -> Option<EffectiveAccess> {
@@ -151,12 +172,13 @@ impl AuthState {
     }
 
     fn guard(&self, session: &AuthSession) -> SessionGuard {
+        let holder = match &session.user {
+            Some(user) if self.is_enabled() => Holder::Session(user.sub.clone()),
+            _ => Holder::Nobody,
+        };
         SessionGuard {
             auth: self.clone(),
-            subject: self
-                .is_enabled()
-                .then(|| session.user.as_ref().map(|user| user.sub.clone()))
-                .flatten(),
+            holder,
             ceiling: None,
         }
     }
@@ -165,15 +187,22 @@ impl AuthState {
 #[derive(Clone)]
 pub struct SessionGuard {
     auth: AuthState,
-    subject: Option<String>,
+    holder: Holder,
     ceiling: Option<Ceiling>,
+}
+
+#[derive(Clone)]
+enum Holder {
+    Nobody,
+    Session(String),
+    Token(Arc<Caller>),
 }
 
 impl SessionGuard {
     pub(crate) fn capped(auth: AuthState, ceiling: Ceiling) -> Self {
         Self {
             auth,
-            subject: None,
+            holder: Holder::Nobody,
             ceiling: Some(ceiling),
         }
     }
@@ -193,17 +222,33 @@ impl SessionGuard {
     }
 
     fn held(&self) -> Option<EffectiveAccess> {
-        let Some(subject) = &self.subject else {
-            return (!self.auth.is_enabled()).then_some(EffectiveAccess::Unrestricted);
-        };
-        self.auth
-            .backend
-            .with_live_user(subject, |user| self.auth.access_from_user(user))
-            .flatten()
+        match &self.holder {
+            Holder::Nobody => (!self.auth.is_enabled()).then_some(EffectiveAccess::Unrestricted),
+            Holder::Session(subject) => self
+                .auth
+                .backend
+                .with_live_user(subject, |user| self.auth.access_from_user(user))
+                .flatten(),
+            Holder::Token(caller) => caller
+                .is_live()
+                .then(|| self.auth.access_from_groups(&caller.groups))
+                .flatten(),
+        }
     }
 
     pub fn subject(&self) -> Option<&str> {
-        self.subject.as_deref()
+        match &self.holder {
+            Holder::Nobody => None,
+            Holder::Session(subject) => Some(subject),
+            Holder::Token(caller) => Some(&caller.user),
+        }
+    }
+
+    pub(crate) fn client(&self) -> Option<&str> {
+        match &self.holder {
+            Holder::Token(caller) => caller.client.as_deref(),
+            Holder::Nobody | Holder::Session(_) => None,
+        }
     }
 }
 
@@ -574,6 +619,16 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_session_user_names_no_subject_while_auth_is_off() {
+        let mut browser = Browser::new(AuthState::disabled());
+        browser.impersonate(&user(&[])).await;
+
+        let whoami = browser.get("/api/whoami").await.json();
+
+        assert!(whoami["subject"].is_null(), "{whoami}");
+    }
+
+    #[tokio::test]
     async fn me_reports_disabled_auth() {
         let mut browser = Browser::new(AuthState::disabled());
 
@@ -796,6 +851,26 @@ mod tests {
 
         assert_eq!(guard.narrowed(), None);
         assert_eq!(guard.revalidate(), None);
+    }
+
+    #[test]
+    fn a_token_guard_holds_its_caller_to_the_ceiling_until_the_token_expires() {
+        let reads = [config::Privilege::Records, config::Privilege::Acls];
+        let capped = |exp| SessionGuard {
+            ceiling: Some(Ceiling::new("mcp", &reads, None)),
+            ..SessionGuard::token("alice", exp)
+        };
+        let live = capped(Timestamp::now().as_second() + 60);
+
+        let revalidated = live.revalidate().expect("a live token");
+
+        assert_eq!(revalidated, live.narrowed().expect("a live token").into());
+        let local = revalidated.cluster("local").unwrap();
+        assert!(local.records().is_ok());
+        assert!(local.produce().is_err());
+        let lapsed = capped(Timestamp::now().as_second());
+        assert_eq!(lapsed.revalidate(), None);
+        assert_eq!(lapsed.narrowed(), None);
     }
 
     #[test]
