@@ -2,13 +2,12 @@ use jiff::Timestamp;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::CallToolResult;
 use rmcp::{tool, tool_router};
-use schemars::JsonSchema;
-use serde::Deserialize;
 use serde_json::json;
 
 use crate::app::auth::access::Privilege;
 use crate::app::context::Session;
 use crate::app::error::ApiError;
+use crate::app::mcp::args::input;
 use crate::app::mcp::ext::SessionExt as _;
 use crate::app::mcp::gate::ToolGate;
 use crate::app::mcp::record_text::records_result;
@@ -22,47 +21,43 @@ use crate::app::records::types::{
 };
 use crate::kafka::{RecordCursor, RecordQuery};
 
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct RecordAddress {
-    /// A cluster name from klens_clusters. Optional when you see only one.
-    cluster: Option<String>,
-    /// The topic's exact name.
-    topic: String,
-    /// The partition that holds the record.
-    #[schemars(range(min = 0))]
-    partition: i32,
-    /// The record's offset in that partition.
-    #[schemars(range(min = 0))]
-    offset: i64,
+input! {
+    struct RecordAddress {
+        /// The topic's exact name.
+        topic: String,
+        /// The partition that holds the record.
+        #[schemars(range(min = 0))]
+        partition: i32,
+        /// The record's offset in that partition.
+        #[schemars(range(min = 0))]
+        offset: i64,
+    }
 }
 
-#[derive(Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct RecordsQuery {
-    /// A cluster name from klens_clusters. Optional when you see only one.
-    cluster: Option<String>,
-    /// The topic's exact name.
-    topic: String,
-    /// Reads only these partitions. Omit it for every partition.
-    #[serde(default)]
-    partitions: Vec<i32>,
-    /// NEWEST reads back from the end of each partition, and OLDEST forward from the start. NEWEST unless given.
-    order: Option<RecordOrder>,
-    /// Starts at this offset, record included, in the one partition `partitions` names.
-    #[schemars(range(min = 0))]
-    start_offset: Option<i64>,
-    /// Keeps records stamped at or after this RFC 3339 time, such as 2026-10-08T09:00:00Z.
-    from: Option<Timestamp>,
-    /// Keeps records stamped at or before this RFC 3339 time.
-    to: Option<Timestamp>,
-    /// Keeps records whose key or value holds this text, in any case.
-    contains: Option<String>,
-    /// How many records to return: 10 unless given, at most 50.
-    #[schemars(range(min = 1, max = MAX_RECORDS))]
-    limit: Option<i32>,
-    /// The cursor the previous page gave, to read the next one.
-    cursor: Option<String>,
+input! {
+    struct RecordsQuery {
+        /// The topic's exact name.
+        topic: String,
+        /// Reads only these partitions. Omit it for every partition.
+        #[serde(default)]
+        partitions: Vec<i32>,
+        /// NEWEST reads back from the end of each partition, and OLDEST forward from the start. NEWEST unless given.
+        order: Option<RecordOrder>,
+        /// Starts at this offset, record included, in the one partition `partitions` names.
+        #[schemars(range(min = 0))]
+        start_offset: Option<i64>,
+        /// Keeps records stamped at or after this RFC 3339 time, such as 2026-10-08T09:00:00Z.
+        from: Option<Timestamp>,
+        /// Keeps records stamped at or before this RFC 3339 time.
+        to: Option<Timestamp>,
+        /// Keeps records whose key or value holds this text, in any case.
+        contains: Option<String>,
+        /// How many records to return: 10 unless given, at most 50.
+        #[schemars(range(min = 1, max = MAX_RECORDS))]
+        limit: Option<i32>,
+        /// The cursor the previous page gave, to read the next one.
+        cursor: Option<String>,
+    }
 }
 
 impl RecordsQuery {
@@ -99,22 +94,20 @@ impl RecordsQuery {
     }
 }
 
-#[derive(Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct RecordToProduce {
-    /// A cluster name from klens_clusters. Optional when you see only one.
-    cluster: Option<String>,
-    /// The topic's exact name.
-    topic: String,
-    /// The partition to write to. The producer picks one unless given.
-    #[schemars(range(min = 0))]
-    partition: Option<i32>,
-    /// The record's key. Omit it for a record without a key.
-    key: Option<RecordPayload>,
-    value: RecordPayload,
-    /// Headers, each with a key and a text value.
-    #[serde(default)]
-    headers: Vec<RecordHeader>,
+input! {
+    struct RecordToProduce {
+        /// The topic's exact name.
+        topic: String,
+        /// The partition to write to. The producer picks one unless given.
+        #[schemars(range(min = 0))]
+        partition: Option<i32>,
+        /// The record's key. Omit it for a record without a key.
+        key: Option<RecordPayload>,
+        value: RecordPayload,
+        /// Headers, each with a key and a text value.
+        #[serde(default)]
+        headers: Vec<RecordHeader>,
+    }
 }
 
 pub(super) const GATES: &[ToolGate] = &[

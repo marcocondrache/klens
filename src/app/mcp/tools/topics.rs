@@ -12,7 +12,7 @@ use serde_json::json;
 use crate::app::auth::access::Privilege;
 use crate::app::context::{ClusterHandle, Session};
 use crate::app::error::ApiError;
-use crate::app::mcp::args::{NameFilter, ResponseFormat, largest_first};
+use crate::app::mcp::args::{NameFilter, ResponseFormat, input, largest_first};
 use crate::app::mcp::configs::{ConfigSection, Section};
 use crate::app::mcp::ext::{ClusterExt as _, SessionExt as _};
 use crate::app::mcp::gate::ToolGate;
@@ -41,54 +41,48 @@ enum TopicSort {
     Groups,
 }
 
-#[derive(Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct TopicsQuery {
-    /// A cluster name from klens_clusters. Optional when you see only one.
-    cluster: Option<String>,
-    /// Keeps topics whose name holds this text, in any case.
-    name_contains: Option<String>,
-    /// True keeps topics with a partition short of in-sync replicas, false keeps the others.
-    under_replicated: Option<bool>,
-    /// True keeps topics with no records, false keeps the others. Both leave out the topics klens has not measured, and `unmeasured` counts them.
-    empty: Option<bool>,
-    /// Also lists Kafka's internal topics, such as __consumer_offsets.
-    #[serde(default)]
-    include_internal: bool,
-    /// NAME unless given.
-    #[serde(default)]
-    sort: TopicSort,
-    /// How many topics to return: 25 unless given, at most 100.
-    #[schemars(range(min = 1, max = MAX_ROWS))]
-    limit: Option<usize>,
-    /// CONCISE unless given.
-    #[serde(default)]
-    response_format: ResponseFormat,
+input! {
+    struct TopicsQuery {
+        /// Keeps topics whose name holds this text, in any case.
+        name_contains: Option<String>,
+        /// True keeps topics with a partition short of in-sync replicas, false keeps the others.
+        under_replicated: Option<bool>,
+        /// True keeps topics with no records, false keeps the others. Both leave out the topics klens has not measured, and `unmeasured` counts them.
+        empty: Option<bool>,
+        /// Also lists Kafka's internal topics, such as __consumer_offsets.
+        #[serde(default)]
+        include_internal: bool,
+        /// NAME unless given.
+        #[serde(default)]
+        sort: TopicSort,
+        /// How many topics to return: 25 unless given, at most 100.
+        #[schemars(range(min = 1, max = MAX_ROWS))]
+        limit: Option<usize>,
+        /// CONCISE unless given.
+        #[serde(default)]
+        response_format: ResponseFormat,
+    }
 }
 
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct TopicName {
-    /// A cluster name from klens_clusters. Optional when you see only one.
-    cluster: Option<String>,
-    /// The topic's exact name.
-    topic: String,
+input! {
+    struct TopicName {
+        /// The topic's exact name.
+        topic: String,
+    }
 }
 
-#[derive(Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct TopicToCreate {
-    /// A cluster name from klens_clusters. Optional when you see only one.
-    cluster: Option<String>,
-    /// The new topic's name, of letters, digits, `.`, `_` and `-`.
-    topic: String,
-    /// The broker's num.partitions unless given.
-    partitions: Option<NonZeroU16>,
-    /// The broker's default.replication.factor unless given.
-    replication_factor: Option<NonZeroU8>,
-    /// Topic configs to set, such as cleanup.policy or retention.ms.
-    #[serde(default)]
-    configs: BTreeMap<String, String>,
+input! {
+    struct TopicToCreate {
+        /// The new topic's name, of letters, digits, `.`, `_` and `-`.
+        topic: String,
+        /// The broker's num.partitions unless given.
+        partitions: Option<NonZeroU16>,
+        /// The broker's default.replication.factor unless given.
+        replication_factor: Option<NonZeroU8>,
+        /// Topic configs to set, such as cleanup.policy or retention.ms.
+        #[serde(default)]
+        configs: BTreeMap<String, String>,
+    }
 }
 
 pub(super) const GATES: &[ToolGate] = &[

@@ -47,3 +47,19 @@ pub(super) fn largest_first<T>(
         (a, b) => a.is_none().cmp(&b.is_none()),
     }
 }
+
+/// Declares the arguments of a tool that reads one cluster. Every such tool
+/// takes a `cluster` first, and the schema client sees it with the same text.
+macro_rules! input {
+    ($(#[$meta:meta])* struct $name:ident { $($fields:tt)* }) => {
+        #[derive(serde::Deserialize, schemars::JsonSchema)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        $(#[$meta])*
+        struct $name {
+            /// A cluster name from klens_clusters. Optional when you see only one.
+            cluster: Option<String>,
+            $($fields)*
+        }
+    };
+}
+pub(super) use input;
