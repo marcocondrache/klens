@@ -17,6 +17,7 @@ use tower_sessions::cookie::{Key, SameSite};
 use tower_sessions::service::SignedCookie;
 use tower_sessions::{Expiry, SessionManagerLayer};
 
+use super::error::ApiError;
 use crate::AppState;
 use crate::config::{self, KeyMaterial};
 
@@ -282,15 +283,7 @@ pub async fn require_session(
         return next.run(request).await;
     }
 
-    unauthorized()
-}
-
-fn unauthorized() -> Response {
-    (
-        StatusCode::UNAUTHORIZED,
-        Json(serde_json::json!({ "error": "unauthorized" })),
-    )
-        .into_response()
+    ApiError::Unauthorized.into_response()
 }
 
 #[derive(Serialize)]
@@ -607,7 +600,10 @@ mod tests {
         let page = browser.get("/api/clusters").await;
 
         assert_eq!(page.status, StatusCode::UNAUTHORIZED);
-        assert_eq!(page.json()["error"], "unauthorized");
+        assert_eq!(
+            page.json(),
+            serde_json::json!({ "error": "unauthorized", "code": "UNAUTHORIZED" })
+        );
     }
 
     #[tokio::test]
