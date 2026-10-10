@@ -17,8 +17,10 @@ pub(crate) enum ApiError {
     NotFound,
     TooManyTails,
     RateLimited,
+    TooManyLiveCalls,
     NotReady {
         cluster: String,
+        lane: &'static str,
         last_error: Option<String>,
     },
     InvalidRequest {
@@ -44,7 +46,7 @@ impl ApiError {
             Self::HostNotAllowed => "HOST_NOT_ALLOWED",
             Self::NotFound => "NOT_FOUND",
             Self::TooManyTails => "TOO_MANY_TAILS",
-            Self::RateLimited => "RATE_LIMITED",
+            Self::RateLimited | Self::TooManyLiveCalls => "RATE_LIMITED",
             Self::NotReady { .. } => "NOT_READY",
             Self::InvalidRequest { .. } => "INVALID_REQUEST",
         }
@@ -68,7 +70,7 @@ impl ApiError {
         match self {
             Self::SessionExpired | Self::Unauthorized => StatusCode::UNAUTHORIZED,
             Self::TooManyTails | Self::NotReady { .. } => StatusCode::SERVICE_UNAVAILABLE,
-            Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
+            Self::RateLimited | Self::TooManyLiveCalls => StatusCode::TOO_MANY_REQUESTS,
             Self::InvalidRequest { status, .. } => *status,
             Self::HostNotAllowed
             | Self::Access(AccessError::Forbidden { .. } | AccessError::ReadOnlyCluster(_)) => {
@@ -119,16 +121,25 @@ impl std::fmt::Display for ApiError {
                 formatter.write_str("too many live tails are open, try again later")
             }
             Self::RateLimited => formatter.write_str("too many tool calls are running at once"),
+            Self::TooManyLiveCalls => {
+                formatter.write_str("too many calls this minute to tools that read more from Kafka")
+            }
             Self::NotReady {
                 cluster,
+                lane,
                 last_error: None,
-            } => write!(formatter, "klens has not read cluster '{cluster}' yet"),
+            } => write!(
+                formatter,
+                "klens has not read the {lane} of cluster '{cluster}' yet"
+            ),
             Self::NotReady {
                 cluster,
+                lane,
                 last_error: Some(error),
             } => write!(
                 formatter,
-                "klens has not read cluster '{cluster}' yet; its last attempt failed: {error}"
+                "klens has not read the {lane} of cluster '{cluster}' yet; its last attempt \
+                 failed: {error}"
             ),
             Self::InvalidRequest { message, .. } => formatter.write_str(message),
         }

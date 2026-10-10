@@ -1,9 +1,18 @@
 use jiff::Timestamp;
 use serde::Serialize;
 
+use crate::app::brokers::types::LogDir;
+use crate::app::groups::types::{GroupState, MemberAssignment};
 use crate::app::search::SearchHit;
+use crate::app::subjects::types::{SchemaCompatibility, SchemaType, SubjectVersion};
+use crate::app::topics::types::{CleanupPolicy, TopicGroupRow};
 use crate::app::whoami::types::PrivilegeName;
-use crate::kafka::store::{LaneHealth, projections::ClusterHealthView};
+use crate::kafka::model as domain;
+use crate::kafka::store::LaneHealth;
+use crate::kafka::store::projections::{self, ClusterHealthView};
+use crate::kafka::store::tables::SubjectInfo;
+
+use super::findings::Finding;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -135,6 +144,8 @@ pub struct SearchResult<'a> {
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
     pub not_ready: &'a [UnreadLane],
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub notice: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub truncated: Option<String>,
 }
 
@@ -152,4 +163,332 @@ pub struct ClusterHit {
     pub cluster: String,
     #[serde(flatten)]
     pub hit: SearchHit,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrokerList<'a> {
+    pub brokers: &'a [BrokerRow],
+    pub showing: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrokerRow {
+    pub id: i32,
+    pub host: String,
+    pub port: i32,
+    pub rack: Option<String>,
+    pub controller: Option<bool>,
+    pub partition_count: i32,
+    pub leader_count: i32,
+    pub size_bytes: Option<i64>,
+    pub log_dirs: Option<Vec<LogDir>>,
+}
+
+impl BrokerRow {
+    pub fn new(row: projections::BrokerRow, controller_known: bool, log_dirs_read: bool) -> Self {
+        Self {
+            id: row.id,
+            host: row.host,
+            port: row.port,
+            rack: row.rack,
+            controller: controller_known.then_some(row.controller),
+            partition_count: row.partition_count,
+            leader_count: row.leader_count,
+            size_bytes: row.size_bytes,
+            log_dirs: log_dirs_read.then(|| row.log_dirs.into_iter().map(LogDir::from).collect()),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubjectList<'a> {
+    pub subjects: &'a [SubjectRow],
+    pub showing: String,
+    pub notice: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubjectRow {
+    pub subject: String,
+    pub latest_version: i32,
+    #[serde(rename = "type")]
+    pub schema_type: SchemaType,
+    pub compatibility: SchemaCompatibility,
+    #[serde(flatten)]
+    pub versions: Option<SubjectVersions>,
+}
+
+impl SubjectRow {
+    pub fn new(row: projections::SubjectRow, detailed: bool) -> Self {
+        Self {
+            versions: detailed.then(|| SubjectVersions {
+                latest_schema_id: row.info.id,
+                versions: row.versions.into_iter().map(SubjectVersion::from).collect(),
+            }),
+            ..Self::concise(row.subject.to_string(), &row.info)
+        }
+    }
+
+    pub fn concise(subject: String, info: &SubjectInfo) -> Self {
+        Self {
+            subject,
+            latest_version: info.latest_version,
+            schema_type: info.schema_type.into(),
+            compatibility: info.compatibility.into(),
+            versions: None,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubjectVersions {
+    pub latest_schema_id: i32,
+    pub versions: Vec<SubjectVersion>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TopicList<'a> {
+    pub topics: &'a [TopicRow],
+    pub showing: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unmeasured: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TopicRow {
+    pub name: String,
+    pub partition_count: i32,
+    pub retained_messages: Option<i64>,
+    pub size_bytes: Option<i64>,
+    pub rate: Option<f64>,
+    pub group_count: i32,
+    pub under_replicated: bool,
+    #[serde(flatten)]
+    pub detail: Option<TopicRowDetail>,
+}
+
+impl TopicRow {
+    pub fn new(
+        row: projections::TopicRow,
+        counted: bool,
+        rate: Option<f64>,
+        detailed: bool,
+    ) -> Self {
+        Self {
+            detail: detailed.then(|| TopicRowDetail {
+                internal: row.internal,
+                replication_factor: row.replication_factor,
+                produced_total: counted.then_some(row.produced_total),
+                retention_ms: row.retention_ms,
+                cleanup_policy: row.cleanup_policy.into(),
+            }),
+            name: row.name.to_string(),
+            partition_count: row.partition_count,
+            retained_messages: counted.then_some(row.retained_messages),
+            size_bytes: row.size_bytes,
+            rate,
+            group_count: row.group_count,
+            under_replicated: row.under_replicated,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TopicRowDetail {
+    pub internal: bool,
+    pub replication_factor: i32,
+    pub produced_total: Option<i64>,
+    pub retention_ms: Option<i64>,
+    pub cleanup_policy: CleanupPolicy,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TopicDescription<'a> {
+    #[serde(flatten)]
+    pub topic: &'a TopicSummary,
+    pub groups: &'a [TopicGroupRow],
+    pub subjects: Option<&'a [SubjectRow]>,
+    pub partitions: &'a [PartitionRow],
+    pub notice: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub truncated: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TopicSummary {
+    pub name: String,
+    pub internal: bool,
+    pub partition_count: usize,
+    pub replication_factor: i32,
+    pub retained_messages: Option<i64>,
+    pub produced_total: Option<i64>,
+    pub size_bytes: Option<i64>,
+    pub disk_bytes: Option<i64>,
+    pub rate: Option<f64>,
+    pub retention_ms: Option<i64>,
+    pub cleanup_policy: CleanupPolicy,
+    pub under_replicated_partitions: usize,
+    pub offline_partitions: usize,
+}
+
+impl TopicSummary {
+    pub fn new(detail: &projections::TopicDetail, counted: bool, rate: Option<f64>) -> Self {
+        let count = |test: fn(&projections::PartitionRow) -> bool| {
+            detail
+                .partitions
+                .iter()
+                .filter(|partition| test(partition))
+                .count()
+        };
+        Self {
+            name: detail.name.to_string(),
+            internal: detail.internal,
+            partition_count: detail.partitions.len(),
+            replication_factor: detail.replication_factor,
+            retained_messages: counted.then_some(detail.retained_messages),
+            produced_total: counted.then_some(detail.produced_total),
+            size_bytes: detail.size_bytes,
+            disk_bytes: detail.disk_bytes,
+            rate,
+            retention_ms: detail.retention_ms,
+            cleanup_policy: detail.cleanup_policy.into(),
+            under_replicated_partitions: count(projections::PartitionRow::under_replicated),
+            offline_partitions: count(projections::PartitionRow::offline),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PartitionRow {
+    pub partition: i32,
+    pub leader: Option<i32>,
+    pub replicas: Vec<i32>,
+    pub isr: Vec<i32>,
+    pub under_replicated: bool,
+    pub offline: bool,
+    pub low_watermark: Option<i64>,
+    pub high_watermark: Option<i64>,
+    pub retained_messages: Option<i64>,
+    pub size_bytes: Option<i64>,
+}
+
+impl PartitionRow {
+    pub fn new(row: &projections::PartitionRow, counted: bool) -> Self {
+        Self {
+            partition: row.id,
+            leader: (!row.offline()).then_some(row.leader),
+            replicas: row.replicas.clone(),
+            isr: row.isr.clone(),
+            under_replicated: row.under_replicated(),
+            offline: row.offline(),
+            low_watermark: counted.then_some(row.low_watermark),
+            high_watermark: counted.then_some(row.high_watermark),
+            retained_messages: counted.then(|| row.retained()),
+            size_bytes: row.size_bytes,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupList<'a> {
+    pub groups: &'a [GroupRow],
+    pub showing: String,
+    pub notice: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupRow {
+    pub id: String,
+    pub state: GroupState,
+    pub member_count: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub topic_names: Option<Vec<String>>,
+    pub total_lag: Option<i64>,
+    pub lag_complete: bool,
+}
+
+impl GroupRow {
+    pub fn new(row: projections::GroupRow, detailed: bool) -> Self {
+        Self {
+            id: row.id.to_string(),
+            state: row.state.into(),
+            member_count: row.member_count,
+            topic_names: detailed.then_some(row.topic_names),
+            total_lag: row.total_lag,
+            lag_complete: row.lag_complete,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupDescription<'a> {
+    pub group: &'a str,
+    pub state: GroupState,
+    pub protocol: &'a str,
+    pub total_lag: Option<i64>,
+    pub lag_complete: bool,
+    pub findings: &'a [Finding],
+    pub members: &'a [MemberRow],
+    pub partitions: &'a [GroupPartitionRow],
+    pub notice: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub truncated: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemberRow {
+    pub member_id: String,
+    pub client_id: String,
+    pub host: String,
+    pub assignments: Vec<MemberAssignment>,
+    pub lag: Option<i64>,
+}
+
+impl MemberRow {
+    pub fn new(member: &domain::GroupMember, lag: Option<i64>) -> Self {
+        Self {
+            member_id: member.id.clone(),
+            client_id: member.client_id.clone(),
+            host: member.host.clone(),
+            assignments: member.assignments.iter().cloned().map(Into::into).collect(),
+            lag,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupPartitionRow {
+    pub topic: String,
+    pub partition: i32,
+    pub committed_offset: Option<i64>,
+    pub end_offset: Option<i64>,
+    pub lag: Option<i64>,
+}
+
+impl From<domain::GroupOffset> for GroupPartitionRow {
+    fn from(offset: domain::GroupOffset) -> Self {
+        Self {
+            topic: offset.topic,
+            partition: offset.partition,
+            committed_offset: offset.current_offset,
+            end_offset: offset.end_offset,
+            lag: offset.lag,
+        }
+    }
 }

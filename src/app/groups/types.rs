@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -9,8 +10,9 @@ use crate::r#macro::from_same_variants;
 
 use super::super::error::ApiError;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, JsonSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[schemars(inline)]
 pub enum GroupState {
     Stable,
     Empty,
