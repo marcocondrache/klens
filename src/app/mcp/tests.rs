@@ -3927,6 +3927,26 @@ async fn schema_register_registers_what_the_http_route_registers() {
 }
 
 #[tokio::test]
+async fn schema_register_keeps_a_subject_with_a_quote_and_a_newline_on_its_audit_line() {
+    let app = writable().await;
+    let _lanes = lanes_writes_wait_on(&app);
+    let logs = LogCapture::at(Level::INFO);
+
+    let registered = structured(
+        &call(
+            &app,
+            "klens_schema_register",
+            json!({ "subject": "orders\"\nuser=\"mallory", "type": "AVRO", "schema": r#""string""# }),
+        )
+        .await,
+    );
+
+    assert_eq!(registered["version"], 1, "{registered}");
+    logs.assert_contains(r#"registered schema cluster=local subject="orders\"\nuser=\"mallory""#);
+    logs.assert_lacks("\nuser=");
+}
+
+#[tokio::test]
 async fn schema_register_keeps_the_reason_the_registry_refused_inside_the_boundary() {
     let app = writable().await;
 
