@@ -161,11 +161,12 @@ impl Config {
     }
 }
 
-/// Snippets stay off because they quote the lines around an error, and those
-/// can hold a secret.
 pub(crate) fn parse<T: DeserializeOwned>(yaml: &str) -> anyhow::Result<T> {
-    serde_saphyr::from_str_with_options(yaml, serde_saphyr::options! { with_snippet: false })
-        .map_err(|error| anyhow!(error.render_with_formatter(&serde_saphyr::UserMessageFormatter)))
+    ::config::Config::builder()
+        .add_source(::config::File::from_str(yaml, ::config::FileFormat::Yaml))
+        .build()
+        .and_then(::config::Config::try_deserialize)
+        .map_err(|error| anyhow!(error))
 }
 
 fn duration<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Duration, D::Error> {
@@ -233,29 +234,36 @@ mod tests {
     }
 
     #[test]
+    fn cluster_names_keep_their_case() {
+        let config: Config = yaml("clusters:\n  Prod-EU: {bootstrap_servers: [a:9092]}");
+
+        assert_eq!(config.clusters.keys().collect::<Vec<_>>(), ["Prod-EU"]);
+    }
+
+    #[test]
     fn rejects_what_it_cannot_read_where_it_is() {
         for (source, expected) in [
-            ("bogus: true", "unknown field `bogus`"),
+            ("bogus: true", "unknown field `bogus`, expected one of"),
             (
                 "log_level: verbose",
-                "unknown variant `verbose`, expected one of off, error, warn, info, debug, trace",
+                "enum LogLevel does not have variant constructor verbose for key `log_level`",
             ),
             (
                 "bind: nowhere",
-                "invalid socket address syntax at line 1, column 7",
+                "invalid socket address syntax for key `bind`",
             ),
             (
                 "allowed_hosts: []",
-                "must name at least one host at line 1, column 16",
+                "must name at least one host for key `allowed_hosts`",
             ),
             (
                 "allowed_hosts: [localhost, 'https://klens.example.com']",
                 "'https://klens.example.com' must be a host and an optional port, \
-                 with no scheme, path or user at line 1, column 28",
+                 with no scheme, path or user for key `allowed_hosts[1]`",
             ),
             (
                 "clusters:\n  a: {bootstrap_servers: [a:9092]}\n  a: {bootstrap_servers: [b:9092]}",
-                "duplicate mapping key: a not allowed here at line 3, column 3",
+                "String(\"a\"): duplicated key in mapping",
             ),
         ] {
             let error = yaml_err::<Config>(source);
@@ -278,7 +286,7 @@ mod tests {
             format!("invalid config {}", file.path().display())
         );
         assert!(
-            format!("{invalid:#}").contains("unknown field `bogus`"),
+            format!("{invalid:#}").contains("unknown field `bogus`, expected one of"),
             "{invalid:#}"
         );
     }

@@ -570,7 +570,7 @@ mod tests {
     }
 
     fn bound_admins() -> AccessPolicy {
-        use config::Privilege::{Acls, BrokerConfigs, Records, SchemaText, TopicConfigs};
+        use self::config::Privilege::{Acls, BrokerConfigs, Records, SchemaText, TopicConfigs};
         bound(
             "admin",
             &[Records, TopicConfigs, BrokerConfigs, SchemaText, Acls],

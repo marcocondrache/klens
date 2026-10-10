@@ -439,7 +439,7 @@ mcp:
         assert_eq!(yaml::<Tuning>(&topology("1s")).ingest.topology, secs(1));
         assert_eq!(
             yaml_err::<Tuning>(&topology("999ms")),
-            "must be at least 1s at line 1, column 20"
+            "must be at least 1s for key `ingest.topology`"
         );
     }
 }
