@@ -74,8 +74,9 @@ pub struct Token {
     /// these. A Keycloak audience mapper on a default scope puts klens'
     /// audience on the tokens of every client in the realm.
     pub clients: Vec<String>,
-    /// The scopes an MCP client asks the provider for. Entra ID and Auth0
-    /// need the API's scope here, or they issue a token for another audience.
+    /// The scopes an MCP client asks the provider for. Entra ID needs the
+    /// API's scope here, or it issues a token for another audience, and Dex
+    /// needs `openid` and `groups`.
     #[serde(deserialize_with = "scopes")]
     pub scopes: Vec<String>,
     /// Refuses a token whose `exp` lies further than this past its `iat`,
