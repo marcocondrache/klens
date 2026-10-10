@@ -17,19 +17,21 @@ use crate::app::topics::{CreateTopic, TopicGroupRow};
 
 use super::super::gate::ToolGate;
 use super::super::types::{
-    CreatedTopic, Omitted, PartitionRow, Reason, Section, SubjectRow, TopicDescription, TopicList,
-    TopicRow, TopicSummary,
+    ConfigRow, CreatedTopic, Omitted, PartitionRow, Reason, Section, SubjectRow, TopicDescription,
+    TopicList, TopicRow, TopicSummary,
 };
 use super::super::untrusted::Boundary;
 use super::super::{CLIENT_VALUES_NOTICE, MAX_ROWS};
 use super::ResponseFormat;
 use crate::app::auth::access::Privilege;
+use crate::app::context::ClusterHandle;
 use crate::app::mcp::fit::{
     first, fitted_lists, largest_first_unmeasured_last, listed, name_filter, one_cluster,
 };
 use crate::app::mcp::lanes::{counted, lane_error, lane_error_notice, topology};
 use crate::app::mcp::server::KlensMcp;
 use crate::app::mcp::view::{omitted, overrides};
+use crate::kafka::store::projections::TopicDetail;
 #[derive(Clone, Copy, Default, Deserialize, JsonSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[schemars(inline)]
@@ -229,46 +231,14 @@ impl KlensMcp {
             }
             .into());
         };
-        let watermarks = cluster.store.watermarks.load();
-        let partitions: Vec<PartitionRow> = detail
-            .partitions
-            .iter()
-            .map(|partition| {
-                let counted = watermarks
-                    .as_deref()
-                    .is_some_and(|table| table.get(&detail.name, partition.id).is_some());
-                PartitionRow::new(partition, counted)
-            })
-            .collect();
+        let partitions = partition_rows(&cluster, &detail);
         let counted = partitions
             .iter()
             .all(|partition| partition.retained_messages.is_some());
         let topic = TopicSummary::new(&detail, counted, cluster.store.rates.get(&detail.name));
-        let mut groups = cluster.store.topic_groups(&detail.name);
-        groups.sort_by(|a, b| {
-            largest_first_unmeasured_last(a.lag_on_topic, b.lag_on_topic, i64::cmp)
-                .then_with(|| a.id.cmp(&b.id))
-        });
-        let groups: Vec<TopicGroupRow> = groups.into_iter().map(Into::into).collect();
+        let groups = group_rows(&cluster, &detail.name);
         let boundary = Boundary::new();
-        let (configs, omitted) = match cluster.access.topic_configs() {
-            Ok(_) => match cluster.store.topic_configs(&detail.name) {
-                Some(entries) => (Some(overrides(entries)), None),
-                None => (
-                    None,
-                    Some(Omitted {
-                        section: Section::Configs,
-                        reason: Reason::NotRead {
-                            last_error: lane_error(
-                                &boundary,
-                                cluster.store.configs.health().last_error,
-                            ),
-                        },
-                    }),
-                ),
-            },
-            Err(error) => (None, Some(omitted(Section::Configs, error)?)),
-        };
+        let (configs, omitted) = config_section(&cluster, &detail.name, &boundary)?;
         let notice = match &omitted {
             Some(Omitted {
                 reason: Reason::NotRead {
@@ -278,20 +248,7 @@ impl KlensMcp {
             }) => format!("{CLIENT_VALUES_NOTICE} {}", lane_error_notice(&boundary)),
             _ => CLIENT_VALUES_NOTICE.to_owned(),
         };
-        let subjects = cluster
-            .has_schema_registry()
-            .then(|| cluster.store.subjects.load())
-            .flatten()
-            .map(|table| {
-                ["key", "value"]
-                    .into_iter()
-                    .filter_map(|part| {
-                        let subject = format!("{}-{part}", detail.name);
-                        let info = table.get(&subject)?;
-                        Some(SubjectRow::concise(subject, info))
-                    })
-                    .collect::<Vec<_>>()
-            });
+        let subjects = topic_subjects(&cluster, &detail.name);
         Ok(fitted_lists(
             &[
                 ("configs", configs.as_ref().map_or(0, Vec::len)),
@@ -314,4 +271,66 @@ impl KlensMcp {
             },
         ))
     }
+}
+
+fn partition_rows(cluster: &ClusterHandle<'_>, detail: &TopicDetail) -> Vec<PartitionRow> {
+    let watermarks = cluster.store.watermarks.load();
+    detail
+        .partitions
+        .iter()
+        .map(|partition| {
+            let counted = watermarks
+                .as_deref()
+                .is_some_and(|table| table.get(&detail.name, partition.id).is_some());
+            PartitionRow::new(partition, counted)
+        })
+        .collect()
+}
+
+fn group_rows(cluster: &ClusterHandle<'_>, topic: &str) -> Vec<TopicGroupRow> {
+    let mut groups = cluster.store.topic_groups(topic);
+    groups.sort_by(|a, b| {
+        largest_first_unmeasured_last(a.lag_on_topic, b.lag_on_topic, i64::cmp)
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    groups.into_iter().map(Into::into).collect()
+}
+
+fn config_section(
+    cluster: &ClusterHandle<'_>,
+    topic: &str,
+    boundary: &Boundary,
+) -> Result<(Option<Vec<ConfigRow>>, Option<Omitted>), ApiError> {
+    match cluster.access.topic_configs() {
+        Ok(_) => match cluster.store.topic_configs(topic) {
+            Some(entries) => Ok((Some(overrides(entries)), None)),
+            None => Ok((
+                None,
+                Some(Omitted {
+                    section: Section::Configs,
+                    reason: Reason::NotRead {
+                        last_error: lane_error(boundary, cluster.store.configs.health().last_error),
+                    },
+                }),
+            )),
+        },
+        Err(error) => Ok((None, Some(omitted(Section::Configs, error)?))),
+    }
+}
+
+fn topic_subjects(cluster: &ClusterHandle<'_>, topic: &str) -> Option<Vec<SubjectRow>> {
+    let table = cluster
+        .has_schema_registry()
+        .then(|| cluster.store.subjects.load())
+        .flatten()?;
+    Some(
+        ["key", "value"]
+            .into_iter()
+            .filter_map(|part| {
+                let subject = format!("{topic}-{part}");
+                let info = table.get(&subject)?;
+                Some(SubjectRow::concise(subject, info))
+            })
+            .collect(),
+    )
 }

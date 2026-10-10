@@ -22,6 +22,8 @@ use crate::app::mcp::fit::{
 use crate::app::mcp::lanes::topology;
 use crate::app::mcp::server::KlensMcp;
 use crate::app::mcp::view::shortened;
+use crate::kafka::model::GroupMember;
+use crate::kafka::store::projections::GroupDetail;
 #[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct GroupsQuery {
@@ -131,30 +133,14 @@ impl KlensMcp {
             .into());
         };
         let findings = super::super::findings::findings(&group, &topology);
-        let mut members: Vec<_> = group
-            .members
-            .iter()
-            .zip(super::super::findings::member_lags(&group))
-            .collect();
-        members.sort_by(|(a, a_lag), (b, b_lag)| {
-            largest_first_unmeasured_last(*a_lag, *b_lag, i64::cmp).then_with(|| a.id.cmp(&b.id))
-        });
+        let members = members_by_lag(&group);
         let longest_inner_list = members
             .iter()
             .map(|(member, _)| MemberRow::widest(member))
             .chain(findings.iter().map(Finding::width))
             .max()
             .unwrap_or(0);
-        let mut partitions: Vec<GroupPartitionRow> = group
-            .offsets
-            .iter()
-            .cloned()
-            .map(GroupPartitionRow::from)
-            .collect();
-        partitions.sort_by(|a, b| {
-            largest_first_unmeasured_last(a.lag, b.lag, i64::cmp)
-                .then_with(|| (&a.topic, a.partition).cmp(&(&b.topic, b.partition)))
-        });
+        let partitions = partitions_by_lag(&group);
         Ok(fitted_lists(
             &[
                 ("findings", findings.len()),
@@ -197,4 +183,30 @@ impl KlensMcp {
             },
         ))
     }
+}
+
+fn members_by_lag(group: &GroupDetail) -> Vec<(&GroupMember, Option<i64>)> {
+    let mut members: Vec<_> = group
+        .members
+        .iter()
+        .zip(super::super::findings::member_lags(group))
+        .collect();
+    members.sort_by(|(a, a_lag), (b, b_lag)| {
+        largest_first_unmeasured_last(*a_lag, *b_lag, i64::cmp).then_with(|| a.id.cmp(&b.id))
+    });
+    members
+}
+
+fn partitions_by_lag(group: &GroupDetail) -> Vec<GroupPartitionRow> {
+    let mut partitions: Vec<GroupPartitionRow> = group
+        .offsets
+        .iter()
+        .cloned()
+        .map(GroupPartitionRow::from)
+        .collect();
+    partitions.sort_by(|a, b| {
+        largest_first_unmeasured_last(a.lag, b.lag, i64::cmp)
+            .then_with(|| (&a.topic, a.partition).cmp(&(&b.topic, b.partition)))
+    });
+    partitions
 }
