@@ -1,57 +1,20 @@
 use axum::extract::rejection::{JsonRejection, PathRejection};
-use axum::extract::{FromRequest, FromRequestParts, Request};
-use axum::http::request::Parts;
+use axum::extract::{FromRequest, FromRequestParts};
 use axum_extra::extract::QueryRejection;
-use serde::de::DeserializeOwned;
 
 use super::error::ApiError;
 
+#[derive(FromRequestParts)]
+#[from_request(via(axum_extra::extract::Query), rejection(ApiError))]
 pub(crate) struct Query<T>(pub T);
 
-impl<T, S> FromRequestParts<S> for Query<T>
-where
-    T: DeserializeOwned,
-    S: Send + Sync,
-{
-    type Rejection = ApiError;
-
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        let axum_extra::extract::Query(value) =
-            axum_extra::extract::Query::from_request_parts(parts, state).await?;
-        Ok(Self(value))
-    }
-}
-
+#[derive(FromRequestParts)]
+#[from_request(via(axum::extract::Path), rejection(ApiError))]
 pub(crate) struct Path<T>(pub T);
 
-impl<T, S> FromRequestParts<S> for Path<T>
-where
-    T: DeserializeOwned + Send,
-    S: Send + Sync,
-{
-    type Rejection = ApiError;
-
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        let axum::extract::Path(value) =
-            axum::extract::Path::from_request_parts(parts, state).await?;
-        Ok(Self(value))
-    }
-}
-
+#[derive(FromRequest)]
+#[from_request(via(axum::Json), rejection(ApiError))]
 pub(crate) struct Json<T>(pub T);
-
-impl<T, S> FromRequest<S> for Json<T>
-where
-    T: DeserializeOwned,
-    S: Send + Sync,
-{
-    type Rejection = ApiError;
-
-    async fn from_request(request: Request, state: &S) -> Result<Self, Self::Rejection> {
-        let axum::Json(value) = axum::Json::from_request(request, state).await?;
-        Ok(Self(value))
-    }
-}
 
 impl From<QueryRejection> for ApiError {
     fn from(rejection: QueryRejection) -> Self {

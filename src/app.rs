@@ -3,12 +3,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Router;
+use axum::http::StatusCode;
 use axum::middleware;
+use axum::routing::any;
 use governor::{DefaultKeyedRateLimiter, Quota, RateLimiter};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::config::{AllowedHost, Mcp, Tuning};
 use crate::kafka::{Clusters, TailLimits};
+use error::ApiError;
 
 mod acls;
 pub(crate) mod auth;
@@ -124,6 +127,30 @@ fn auth_routes() -> Router<AppState> {
     Router::new().nest("/auth", auth::router())
 }
 
+/// A nested router without a fallback takes the outer one, which serves the
+/// UI, so an unknown API path would answer 200 with HTML.
+fn api_routes(resources: Router<AppState>) -> Router<AppState> {
+    let api = auth_routes()
+        .merge(resources)
+        .fallback(not_found)
+        .method_not_allowed_fallback(method_not_allowed);
+    // `nest` leaves `/api/` to the outer fallback.
+    Router::new()
+        .nest("/api", api)
+        .route("/api/", any(not_found))
+}
+
+async fn not_found() -> ApiError {
+    ApiError::NotFound
+}
+
+async fn method_not_allowed() -> ApiError {
+    ApiError::InvalidRequest {
+        status: StatusCode::METHOD_NOT_ALLOWED,
+        message: "method not allowed".to_owned(),
+    }
+}
+
 pub fn router(state: AppState, allowed_hosts: &[AllowedHost], mcp: Option<&Mcp>) -> Router {
     let resources = resources().route_layer(middleware::from_fn_with_state(
         state.clone(),
@@ -132,7 +159,7 @@ pub fn router(state: AppState, allowed_hosts: &[AllowedHost], mcp: Option<&Mcp>)
     let auth_layer = state.auth.layer();
 
     let mut app = Router::new()
-        .nest("/api", auth_routes().merge(resources))
+        .merge(api_routes(resources))
         .merge(well_known::router())
         .with_state(state.clone())
         .merge(crate::server::web::router());

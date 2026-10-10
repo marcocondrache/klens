@@ -1,6 +1,7 @@
 use axum::body::Body;
 use axum::http::{HeaderValue, Method, Request, StatusCode, header};
 
+use crate::app::AuthState;
 use crate::app::auth::access::{Privilege, PrivilegeSet};
 use crate::testing::{FakeCluster, TestApp, access, admin, group, json_request, role};
 
@@ -286,6 +287,37 @@ async fn every_write_refuses_a_body_a_cross_site_form_can_send() {
                 .assert_error(StatusCode::UNSUPPORTED_MEDIA_TYPE, "INVALID_REQUEST");
         }
     }
+}
+
+async fn assert_unknown_api_paths_are_json(auth: AuthState) {
+    let app = TestApp::of([FakeCluster::local()]).auth(auth).build();
+    let request = |method: Method, path: &str| {
+        Request::builder()
+            .method(method)
+            .uri(path)
+            .header(header::HOST, "localhost")
+            .body(Body::empty())
+            .expect("request")
+    };
+
+    for path in ["/api", "/api/", "/api/nope", "/api/clusters/local/nope"] {
+        app.reply_through_router(request(Method::GET, path))
+            .await
+            .assert_error(StatusCode::NOT_FOUND, "NOT_FOUND");
+    }
+    app.reply_through_router(request(Method::PUT, "/api/clusters"))
+        .await
+        .assert_error(StatusCode::METHOD_NOT_ALLOWED, "INVALID_REQUEST");
+}
+
+#[tokio::test]
+async fn an_unknown_api_path_is_a_json_error_with_auth_off() {
+    assert_unknown_api_paths_are_json(AuthState::disabled()).await;
+}
+
+#[tokio::test]
+async fn an_unknown_api_path_is_a_json_error_with_auth_on() {
+    assert_unknown_api_paths_are_json(AuthState::enabled_for_tests()).await;
 }
 
 #[tokio::test]
