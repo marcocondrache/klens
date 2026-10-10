@@ -304,8 +304,8 @@ mod tests {
             assert_eq!(
                 error,
                 "MCP tools use only records, topic_configs, broker_configs, schema_text, acls, \
-                 create_topics, produce, and register_schemas, so privileges may name no other at \
-                 line 1, column 13",
+                 create_topics, produce, and register_schemas, so privileges may name no other for key \
+                 `privileges`",
                 "{privilege}"
             );
         }

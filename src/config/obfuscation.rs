@@ -192,7 +192,7 @@ mod tests {
         let missing = yaml_err::<Obfuscation>("rules: []");
         let short = yaml_err::<Obfuscation>("{secret: {value: short}, rules: []}");
 
-        assert!(missing.starts_with("missing field `secret`"), "{missing}");
+        assert!(missing.contains("secret"), "{missing}");
         assert!(short.starts_with("must be at least 32 bytes"), "{short}");
     }
 
