@@ -290,14 +290,23 @@ impl Granted<'_, ProduceCap> {
         self.cluster.session.encode_payload(schema_id, json).await
     }
 
-    pub(crate) async fn produce(&self, record: &NewRecord) -> Result<ProducedRecord, KafkaError> {
-        let topic = record.topic.as_str();
+    pub(crate) fn writable_partition(
+        &self,
+        topic: &str,
+        partition: Option<i32>,
+    ) -> Result<(), KafkaError> {
         let partitions = self.writable_topic(topic, TopicInfo::partition_ids)?;
-        if let Some(partition) = record.partition
+        if let Some(partition) = partition
             && !partitions.contains(&partition)
         {
             return Err(self.unknown_partition(topic, partition));
         }
+        Ok(())
+    }
+
+    pub(crate) async fn produce(&self, record: &NewRecord) -> Result<ProducedRecord, KafkaError> {
+        let topic = record.topic.as_str();
+        self.writable_partition(topic, record.partition)?;
         let produced = self.cluster.session.produce(record).await?;
         tracing::info!(
             cluster = %self.cluster.store.name(),

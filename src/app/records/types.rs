@@ -24,8 +24,9 @@ pub enum RecordOrder {
 
 from_same_variants!(RecordOrder => domain::RecordOrder { Newest, Oldest });
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[schemars(inline)]
 pub struct RecordHeader {
     pub key: String,
     pub value: String,
@@ -104,12 +105,13 @@ impl From<domain::RecordPage> for RecordPage {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, TS)]
+#[derive(Debug, Clone, Deserialize, TS, JsonSchema)]
 #[serde(
     tag = "encoding",
     rename_all = "SCREAMING_SNAKE_CASE",
     rename_all_fields = "camelCase"
 )]
+#[schemars(inline)]
 pub enum RecordPayload {
     Text {
         data: String,

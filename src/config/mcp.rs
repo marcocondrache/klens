@@ -23,9 +23,11 @@ pub struct Mcp {
     /// or `:*` for any port. Every other request that carries an `Origin`
     /// header gets 403. It must stay empty without `auth`.
     pub allowed_origins: Vec<AllowedOrigin>,
-    /// The most an MCP client may read beyond the catalog, whatever its roles
-    /// grant. MCP serves no writes yet.
-    #[serde(deserialize_with = "reads")]
+    /// The most an MCP client may read or change beyond the catalog, whatever
+    /// its roles grant. Omitted, it holds the five reads, so MCP changes
+    /// nothing until it names `create_topics`, `produce` or
+    /// `register_schemas`.
+    #[serde(deserialize_with = "tool_privileges")]
     pub privileges: Vec<Privilege>,
     /// Omitted, MCP reaches every cluster. A list, even an empty one, limits
     /// it to those clusters.
@@ -54,6 +56,24 @@ impl Default for Mcp {
 }
 
 impl Mcp {
+    pub const WRITES: &[Privilege] = &[
+        Privilege::CreateTopics,
+        Privilege::Produce,
+        Privilege::RegisterSchemas,
+    ];
+
+    pub fn writes(&self) -> bool {
+        self.privileges
+            .iter()
+            .any(|privilege| Self::WRITES.contains(privilege))
+    }
+
+    pub fn reads_private_text(&self) -> bool {
+        self.privileges
+            .iter()
+            .any(|privilege| matches!(privilege, Privilege::Records | Privilege::SchemaText))
+    }
+
     pub fn audiences(&self) -> Vec<String> {
         match &self.token.audiences {
             Some(audiences) => audiences.clone(),
@@ -155,15 +175,17 @@ impl Display for AllowedOrigin {
     }
 }
 
-fn reads<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<Privilege>, D::Error> {
+/// A later release may add a tool, a destructive one above all, and an
+/// existing config must not switch it on.
+fn tool_privileges<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<Privilege>, D::Error> {
     let privileges = Vec::<Privilege>::deserialize(deserializer)?;
     if privileges
         .iter()
-        .any(|privilege| !READS.contains(privilege))
+        .any(|privilege| !READS.contains(privilege) && !Mcp::WRITES.contains(privilege))
     {
         return Err(D::Error::custom(
-            "MCP serves reads only, so privileges may name only records, topic_configs, \
-             broker_configs, schema_text, and acls",
+            "MCP tools use only records, topic_configs, broker_configs, schema_text, acls, \
+             create_topics, produce, and register_schemas, so privileges may name no other",
         ));
     }
     Ok(privileges)
@@ -235,6 +257,7 @@ mod tests {
         assert_eq!(mcp.privileges, READS);
         assert_eq!(mcp.clusters, None);
         assert_eq!(mcp, Mcp::default());
+        assert!(!mcp.writes());
     }
 
     #[test]
@@ -252,14 +275,53 @@ mod tests {
     }
 
     #[test]
-    fn a_write_privilege_stops_the_load() {
-        let error = yaml_err::<Mcp>("privileges: [records, produce]");
+    fn reads_the_three_write_privileges_beside_the_reads() {
+        let mcp: Mcp =
+            yaml("privileges: [topic_configs, create_topics, produce, register_schemas]");
 
         assert_eq!(
-            error,
-            "MCP serves reads only, so privileges may name only records, topic_configs, \
-             broker_configs, schema_text, and acls at line 1, column 13"
+            mcp.privileges,
+            [
+                Privilege::TopicConfigs,
+                Privilege::CreateTopics,
+                Privilege::Produce,
+                Privilege::RegisterSchemas
+            ]
         );
+        assert!(mcp.writes());
+        assert!(!mcp.reads_private_text());
+    }
+
+    #[test]
+    fn any_other_write_privilege_stops_the_load() {
+        for privilege in [
+            "delete_topics",
+            "set_scram_credentials",
+            "set_compatibility",
+        ] {
+            let error = yaml_err::<Mcp>(&format!("privileges: [produce, {privilege}]"));
+
+            assert_eq!(
+                error,
+                "MCP tools use only records, topic_configs, broker_configs, schema_text, acls, \
+                 create_topics, produce, and register_schemas, so privileges may name no other at \
+                 line 1, column 13",
+                "{privilege}"
+            );
+        }
+    }
+
+    #[test]
+    fn records_and_schema_text_are_the_private_text() {
+        for (privileges, private) in [
+            ("[records]", true),
+            ("[schema_text]", true),
+            ("[topic_configs, broker_configs, acls, produce]", false),
+        ] {
+            let mcp: Mcp = yaml(&format!("privileges: {privileges}"));
+
+            assert_eq!(mcp.reads_private_text(), private, "{privileges}");
+        }
     }
 
     #[test]

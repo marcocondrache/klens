@@ -52,26 +52,21 @@ async fn main() -> anyhow::Result<()> {
             .as_ref()
             .map_or_else(|| "every cluster".to_owned(), |names| format!("{names:?}"));
         match &mcp.resource {
-            Some(resource) => {
-                tracing::info!(
-                    ?privileges,
-                    %clusters,
-                    resource = resource.as_str(),
-                    "serving MCP tools at /mcp to holders of an access token from the oidc provider"
-                );
-                if mcp.token.clients.is_empty() {
-                    tracing::warn!(
-                        "mcp.token.clients is empty, so /mcp takes a token for its audience from \
-                         any client of the oidc provider"
-                    );
-                }
-            }
+            Some(resource) => tracing::info!(
+                ?privileges,
+                %clusters,
+                resource = resource.as_str(),
+                "serving MCP tools at /mcp to holders of an access token from the oidc provider"
+            ),
             None => tracing::info!(
                 ?privileges,
                 %clusters,
                 "serving MCP tools at /mcp to anyone who reaches klens"
             ),
         }
+    }
+    for warning in config.mcp_warnings() {
+        tracing::warn!("{warning}");
     }
 
     let _ingest = Ingest::start(&clusters, &config.tuning.ingest);

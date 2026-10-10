@@ -7,7 +7,7 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
-      "description": "Explains what you may do on each cluster you can see: your privileges under the ceiling the klens operator set for MCP, whether the cluster accepts changes, and each tool or section with the privilege it needs when it is not available.\nEveryone sees the catalog of clusters, topics, groups, brokers and subjects. Privileges cover record payloads, configs, schema text and ACLs.\nCall it after a FORBIDDEN or READ_ONLY_CLUSTER error, or before work that needs a privilege.",
+      "description": "Explains what you may do on each cluster you can see: your privileges under the ceiling the klens operator set for MCP, whether the cluster accepts changes, and each tool or section with the privilege it needs when it is not available.\nEveryone sees the catalog of clusters, topics, groups, brokers and subjects. Privileges cover record payloads, configs, schema text, ACLs and changes. A tool that changes Kafka is available only on a cluster that accepts changes.\nCall it after a FORBIDDEN or READ_ONLY_CLUSTER error, or before work that needs a privilege.",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
@@ -352,6 +352,193 @@
     {
       "annotations": {
         "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Writes one record to a topic and returns the partition and offset Kafka stored it at. It changes Kafka, so calls to it are limited per minute.\n`key` and `value` each take an `encoding`: TEXT for UTF-8 text, BASE64 for raw bytes, or SCHEMA for JSON that klens writes with the registry schema `schemaId`. Without `partition`, the producer picks one, by the key's hash when there is a key. klens writes no tombstones, so `value` is required.\nIt needs a cluster that accepts changes, and fails with READ_ONLY_CLUSTER on any other. It fails with UNENCODABLE when `data` does not fit its schema.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "cluster": {
+            "description": "A cluster name from klens_clusters. Optional when you see only one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "headers": {
+            "default": [],
+            "description": "Headers, each with a key and a text value.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key",
+                "value"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "properties": {
+                      "data": {
+                        "type": "string"
+                      },
+                      "encoding": {
+                        "const": "TEXT",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "encoding",
+                      "data"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "properties": {
+                      "data": {
+                        "type": "string"
+                      },
+                      "encoding": {
+                        "const": "BASE64",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "encoding",
+                      "data"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "description": "`data` is JSON, written with the registry schema `schemaId`.",
+                    "properties": {
+                      "data": {
+                        "type": "string"
+                      },
+                      "encoding": {
+                        "const": "SCHEMA",
+                        "type": "string"
+                      },
+                      "schemaId": {
+                        "format": "int32",
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "encoding",
+                      "schemaId",
+                      "data"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record's key. Omit it for a record without a key."
+          },
+          "partition": {
+            "description": "The partition to write to. The producer picks one unless given.",
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "topic": {
+            "description": "The topic's exact name.",
+            "type": "string"
+          },
+          "value": {
+            "oneOf": [
+              {
+                "properties": {
+                  "data": {
+                    "type": "string"
+                  },
+                  "encoding": {
+                    "const": "TEXT",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "encoding",
+                  "data"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "data": {
+                    "type": "string"
+                  },
+                  "encoding": {
+                    "const": "BASE64",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "encoding",
+                  "data"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "`data` is JSON, written with the registry schema `schemaId`.",
+                "properties": {
+                  "data": {
+                    "type": "string"
+                  },
+                  "encoding": {
+                    "const": "SCHEMA",
+                    "type": "string"
+                  },
+                  "schemaId": {
+                    "format": "int32",
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "encoding",
+                  "schemaId",
+                  "data"
+                ],
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "required": [
+          "topic",
+          "value"
+        ],
+        "type": "object"
+      },
+      "name": "klens_record_produce",
+      "title": "Produce a record"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false,
         "readOnlyHint": true
@@ -497,6 +684,78 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Registers a schema as a subject's next version and returns the version and the schema id. It changes the registry, so calls to it are limited per minute.\nWhen the subject already holds the same schema, the registry returns that version and registers nothing.\nIt needs a cluster that accepts changes, and fails with READ_ONLY_CLUSTER on any other. It fails with NO_SCHEMA_REGISTRY when klens reads no registry for the cluster, and with REGISTRY_REFUSED when the registry refuses the schema, such as for one the subject's compatibility level rules out.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "cluster": {
+            "description": "A cluster name from klens_clusters. Optional when you see only one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "references": {
+            "default": [],
+            "description": "The schemas this one references, each by the name it imports, a subject and a version.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "subject": {
+                  "type": "string"
+                },
+                "version": {
+                  "format": "int32",
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "name",
+                "subject",
+                "version"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "schema": {
+            "description": "The schema as text, JSON for AVRO and JSON, and .proto source for PROTOBUF.",
+            "type": "string"
+          },
+          "subject": {
+            "description": "The subject's exact name. The registry creates it unless it exists.",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "AVRO",
+              "JSON",
+              "PROTOBUF"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject",
+          "type",
+          "schema"
+        ],
+        "type": "object"
+      },
+      "name": "klens_schema_register",
+      "title": "Register a schema"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
         "readOnlyHint": true
       },
       "description": "Lists a cluster's schema subjects from A to Z with their latest version, schema type and compatibility level.\n`responseFormat` DETAILED adds the latest schema id and the newest 10 versions with their schema ids, and `versionsLeftOut` counts older ones.\nIt fails with NO_SCHEMA_REGISTRY when klens reads no registry for the cluster.",
@@ -574,6 +833,66 @@
       },
       "name": "klens_search",
       "title": "Search names"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Creates a topic with the partitions, replication factor and configs given, or else the broker's defaults. It changes Kafka, so calls to it are limited per minute.\nIt needs a cluster that accepts changes, and fails with READ_ONLY_CLUSTER on any other. It fails with REFUSED when Kafka refuses, such as for a topic that exists.\nThe result gives the topic's name and partition count, which is null when you gave no `partitions` and klens has not seen the topic yet.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "cluster": {
+            "description": "A cluster name from klens_clusters. Optional when you see only one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "configs": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "default": {},
+            "description": "Topic configs to set, such as cleanup.policy or retention.ms.",
+            "type": "object"
+          },
+          "partitions": {
+            "description": "The broker's num.partitions unless given.",
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "replicationFactor": {
+            "description": "The broker's default.replication.factor unless given.",
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "topic": {
+            "description": "The new topic's name, of letters, digits, `.`, `_` and `-`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "topic"
+        ],
+        "type": "object"
+      },
+      "name": "klens_topic_create",
+      "title": "Create a topic"
     },
     {
       "annotations": {

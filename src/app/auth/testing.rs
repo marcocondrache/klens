@@ -226,6 +226,9 @@ impl Idp {
               operator:
                 privileges: [records, topic_configs, acls]
                 bindings: [{{groups: [ops]}}]
+              writer:
+                privileges: [create_topics, produce, register_schemas]
+                bindings: [{{groups: [writers]}}]
             ",
             self.issuer()
         ));

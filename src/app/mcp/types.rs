@@ -408,6 +408,13 @@ pub struct TopicRowDetail {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CreatedTopic<'a> {
+    pub topic: &'a str,
+    pub partitions: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TopicDescription<'a> {
     #[serde(flatten)]
     pub topic: &'a TopicSummary,
