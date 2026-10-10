@@ -3,7 +3,9 @@ import {
   useTable,
   type Column,
   type ColumnDef,
+  type ColumnSizingState,
   type Header,
+  type OnChangeFn,
   type ReactTable,
   type RowData,
 } from "@tanstack/react-table";
@@ -11,7 +13,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 
 import {
   ColumnResizeHandle,
-  resizedWidth,
+  columnLayout,
   resizeOptions,
 } from "@/components/data-table/column-resize";
 import { features, type DataTableFeatures } from "@/components/data-table/features";
@@ -30,19 +32,12 @@ const LOADER_ROWS = 3;
 const SKELETON_ROWS = 14;
 const PREFETCH_ROWS = 20;
 
-const COLUMN_TRACK: Record<string, string> = {
-  partition: "4rem",
-  offset: "7rem",
-  key: "minmax(8rem,12rem)",
-  value: "minmax(0,1fr)",
-  size: "5rem",
-  timestamp: "11rem",
-};
-
 interface RecordTableProps<TData extends RowData> {
   columns: Array<ColumnDef<DataTableFeatures, TData>>;
   data: TData[];
   getRowId: (row: TData) => string;
+  columnSizing: ColumnSizingState;
+  onColumnSizingChange: OnChangeFn<ColumnSizingState>;
   toolbar?: ReactNode;
   onRowClick?: (row: TData) => void;
   selectedKey?: string;
@@ -61,6 +56,8 @@ export function RecordTable<TData extends RowData>({
   columns,
   data,
   getRowId,
+  columnSizing,
+  onColumnSizingChange,
   toolbar,
   onRowClick,
   selectedKey,
@@ -76,21 +73,23 @@ export function RecordTable<TData extends RowData>({
 }: RecordTableProps<TData>) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const table = useTable({
-    features,
-    data,
-    columns,
-    getRowId,
-    enableSorting: false,
-    ...resizeOptions,
-  });
+  const table = useTable(
+    {
+      features,
+      data,
+      columns,
+      getRowId,
+      enableSorting: false,
+      onColumnSizingChange,
+      ...resizeOptions,
+      state: { columnSizing },
+    },
+    (state) => ({ columnSizing: state.columnSizing }),
+  );
 
   const rows = table.getRowModel().rows;
   const leafColumns = table.getAllLeafColumns();
-  const sizing = table.state.columnSizing;
-  const gridTemplateColumns = leafColumns
-    .map((column) => resizedWidth(column, sizing) ?? COLUMN_TRACK[column.id] ?? "minmax(0,1fr)")
-    .join(" ");
+  const gridTemplateColumns = columnLayout(leafColumns, table.state.columnSizing).tracks;
   const loaderCount = hasNextPage || isFetchingNextPage || isFetchNextPageError ? 1 : 0;
   const count = rows.length + loaderCount;
 
@@ -153,7 +152,7 @@ export function RecordTable<TData extends RowData>({
           >
             <div
               ref={scrollRef}
-              data-slot="table-container"
+              data-slot="table-viewport"
               className="min-h-0 flex-1 overflow-auto [scrollbar-gutter:stable]"
             >
               <HeaderRow table={table} gridTemplateColumns={gridTemplateColumns} sticky />
@@ -233,7 +232,7 @@ export function RecordTable<TData extends RowData>({
                                 key={cell.id}
                                 role="cell"
                                 className={cn(
-                                  "px-3 py-2.5 align-middle text-sm whitespace-nowrap first:pl-4 last:pr-4",
+                                  "min-w-0 truncate px-3 py-2.5 align-middle text-sm first:pl-4 last:pr-4",
                                   meta?.align === "right" && "text-right numeric",
                                   meta?.className,
                                 )}
@@ -260,7 +259,7 @@ function HeaderRow<TData extends RowData>({
   gridTemplateColumns,
   sticky = false,
 }: {
-  table: ReactTable<DataTableFeatures, TData>;
+  table: ReactTable<DataTableFeatures, TData, unknown>;
   gridTemplateColumns: string;
   sticky?: boolean;
 }) {
@@ -270,7 +269,7 @@ function HeaderRow<TData extends RowData>({
     <div
       role="row"
       className={cn(
-        "grid min-w-min shrink-0 border-b bg-subtle [scrollbar-gutter:stable]",
+        "group/header grid min-w-min shrink-0 border-b bg-subtle [scrollbar-gutter:stable]",
         sticky && "sticky top-0 z-10",
       )}
       style={{ gridTemplateColumns }}
@@ -289,7 +288,7 @@ function HeaderRow<TData extends RowData>({
             )}
           >
             {header.isPlaceholder ? null : <table.FlexRender header={header} />}
-            {column.id === "value" ? null : <ColumnResizeHandle header={header} />}
+            <ColumnResizeHandle header={header} />
           </div>
         );
       })}

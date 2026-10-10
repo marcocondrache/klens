@@ -2,9 +2,7 @@ import { useRef, useState, type ReactNode } from "react";
 import {
   FlexRender,
   useTable,
-  type Column,
   type ColumnDef,
-  type ColumnSizingState,
   type Header,
   type RowData,
   type SortingState,
@@ -22,14 +20,13 @@ import {
 import { cn } from "@/lib/utils";
 
 import { DataTableColumnHeader } from "./column-header";
-import { ColumnResizeHandle, resizedWidth, resizeOptions } from "./column-resize";
+import { ColumnResizeHandle, columnLayout, resizeOptions } from "./column-resize";
 import { features, type DataTableFeatures } from "./features";
 import { tablePlaceholder } from "./placeholder";
 import { CLICKABLE_ROW, clickableRowProps } from "./row-interaction";
 import { SkeletonBar, skeletonRowStyle } from "./skeleton-bar";
 
 const ROW_SIZE = 40;
-const MIN_FLEX_WIDTH = "12rem";
 const SKELETON_ROWS = 14;
 
 interface DataTableProps<TData extends RowData> {
@@ -59,22 +56,25 @@ export function DataTable<TData extends RowData>({
     defaultSort ? [{ id: defaultSort.id, desc: defaultSort.direction === "desc" }] : [],
   );
 
-  const table = useTable({
-    features,
-    data,
-    columns,
-    getRowId,
-    enableMultiSort: false,
-    sortDescFirst: false,
-    onSortingChange: setSorting,
-    ...resizeOptions,
-    state: { sorting },
-  });
+  const table = useTable(
+    {
+      features,
+      data,
+      columns,
+      getRowId,
+      enableMultiSort: false,
+      sortDescFirst: false,
+      onSortingChange: setSorting,
+      ...resizeOptions,
+      state: { sorting },
+    },
+    (state) => ({ columnSizing: state.columnSizing }),
+  );
 
   const rows = table.getRowModel().rows;
   const leafColumns = table.getAllLeafColumns();
   const columnCount = leafColumns.length || columns.length;
-  const sizing = table.state.columnSizing;
+  const layout = columnLayout(leafColumns, table.state.columnSizing);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLTableRowElement>({
@@ -94,20 +94,20 @@ export function DataTable<TData extends RowData>({
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       {toolbar ? <div className="flex shrink-0 flex-wrap items-center gap-2">{toolbar}</div> : null}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border">
-        <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
+        <div ref={scrollRef} data-slot="table-viewport" className="min-h-0 flex-1 overflow-auto">
           <Table
             aria-busy={loading || undefined}
             className="table-fixed"
-            style={{ minWidth: minTableWidth(leafColumns, sizing) }}
+            style={{ minWidth: layout.minWidth }}
           >
             <colgroup>
-              {leafColumns.map((column) => (
-                <col key={column.id} style={{ width: columnWidth(column, sizing) }} />
+              {leafColumns.map((column, index) => (
+                <col key={column.id} style={{ width: layout.cols[index] }} />
               ))}
             </colgroup>
-            <TableHeader className="[&_tr]:border-b-0!">
+            <TableHeader className="sticky top-0 z-10 [&_tr]:border-b-0!">
               {table.getHeaderGroups().map((headerGroup) => (
-                <TableRow key={headerGroup.id}>
+                <TableRow key={headerGroup.id} className="group/header">
                   {headerGroup.headers.map((header) => {
                     const meta = header.column.columnDef.meta;
 
@@ -115,14 +115,12 @@ export function DataTable<TData extends RowData>({
                       <TableHead
                         key={header.id}
                         className={cn(
-                          "sticky top-0 z-10 h-10 bg-subtle px-3 text-xs font-medium text-muted-foreground shadow-[inset_0_-1px_0_0_var(--color-border)] first:pl-4 last:pr-4",
+                          "relative h-10 bg-subtle px-3 text-xs font-medium text-muted-foreground shadow-[inset_0_-1px_0_0_var(--color-border)] first:pl-4 last:pr-4",
                           meta?.align === "right" && "text-right",
                         )}
                       >
                         {header.isPlaceholder ? null : <HeaderContent header={header} />}
-                        {meta?.width && header.column.getCanResize() ? (
-                          <ColumnResizeHandle header={header} />
-                        ) : null}
+                        <ColumnResizeHandle header={header} />
                       </TableHead>
                     );
                   })}
@@ -217,19 +215,4 @@ function HeaderContent<TData extends RowData>({
     return <DataTableColumnHeader column={header.column} title={title} />;
   }
   return <FlexRender header={header} />;
-}
-
-function columnWidth<TData extends RowData>(
-  column: Column<DataTableFeatures, TData, unknown>,
-  sizing: ColumnSizingState,
-) {
-  return resizedWidth(column, sizing) ?? column.columnDef.meta?.width;
-}
-
-function minTableWidth<TData extends RowData>(
-  columns: Array<Column<DataTableFeatures, TData, unknown>>,
-  sizing: ColumnSizingState,
-) {
-  const widths = columns.map((column) => columnWidth(column, sizing) ?? MIN_FLEX_WIDTH);
-  return `calc(${widths.join(" + ")})`;
 }

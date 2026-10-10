@@ -24,7 +24,7 @@ export function DataTableColumnHeader<TData extends RowData, TValue>({
   const right = column.columnDef.meta?.align === "right";
 
   if (!column.getCanSort()) {
-    return <div className={cn(right && "text-right", className)}>{title}</div>;
+    return <div className={cn("truncate", right && "text-right", className)}>{title}</div>;
   }
 
   const sorted = column.getIsSorted();
@@ -32,18 +32,18 @@ export function DataTableColumnHeader<TData extends RowData, TValue>({
     sorted === "desc" ? ArrowDownIcon : sorted === "asc" ? ArrowUpIcon : ChevronsUpDownIcon;
 
   return (
-    <div className={cn("flex", right && "justify-end", className)}>
+    <div className={cn("flex min-w-0", right && "justify-end", className)}>
       <button
         type="button"
         onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
         aria-label={`Sort by ${title}`}
         className={cn(
-          "group/sort -mx-1 inline-flex h-6 items-center gap-1 rounded-md px-1 outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50",
+          "group/sort -mx-1 inline-flex h-6 max-w-full min-w-0 items-center gap-1 rounded-md px-1 outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50",
           right && "flex-row-reverse",
           sorted && "text-foreground",
         )}
       >
-        <span>{title}</span>
+        <span className="truncate">{title}</span>
         <Icon
           aria-hidden
           className={cn(
