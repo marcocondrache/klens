@@ -22,7 +22,7 @@ use crate::app::auth::SessionGuard;
 use crate::app::auth::access::{EffectiveAccess, Privilege, PrivilegeSet};
 use crate::app::auth::testing::{Idp, RESOURCE_HOST, Signer, bearing, mcp as for_resource};
 use crate::app::mcp::gate::ToolRights;
-use crate::app::mcp::reply::{Cut, Page, Reply, fit, fits};
+use crate::app::mcp::reply::{Page, fit, fits, reply};
 use crate::app::mcp::server::KlensMcp;
 use crate::app::mcp::tools::gates;
 use crate::app::whoami::types::PrivilegeName;
@@ -1460,7 +1460,10 @@ async fn post_through_serve(app: &TestApp, mcp: &Mcp, token: &str, body: &Value)
 
 #[test]
 fn a_list_returns_25_rows_unless_asked_and_between_1_and_100() {
-    let kept = |asked| Page::new("rows", vec![0; 200], asked, None).rows().total();
+    let kept = |asked| {
+        let page = Page::new("rows", vec![0; 200], asked, None);
+        json!(page)["rows"].as_array().expect("rows").len()
+    };
     assert_eq!(kept(None), 25);
     assert_eq!(kept(Some(0)), 1);
     assert_eq!(kept(Some(3)), 3);
@@ -1477,15 +1480,7 @@ fn a_list_says_whether_its_limit_or_the_result_size_cut_it() {
             #[serde(flatten)]
             page: Page<String>,
         }
-        impl Reply for Probe {
-            fn lists(&mut self) -> Vec<&mut dyn Cut> {
-                vec![self.page.rows()]
-            }
-
-            fn kept_whole(&self) -> Option<&str> {
-                None
-            }
-        }
+        reply!(Probe: page);
         let result = fit(Probe {
             page: Page::new("rows", rows, Some(asked), narrow),
         });

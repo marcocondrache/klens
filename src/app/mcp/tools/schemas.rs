@@ -11,7 +11,7 @@ use crate::app::error::ApiError;
 use crate::app::mcp::args::{NameFilter, ResponseFormat};
 use crate::app::mcp::ext::{ClusterExt as _, SessionExt as _};
 use crate::app::mcp::gate::ToolGate;
-use crate::app::mcp::reply::{Cut, Page, Reply, fit};
+use crate::app::mcp::reply::{Page, fit, reply};
 use crate::app::mcp::schema_text::schema_result;
 use crate::app::mcp::server::{KlensMcp, ToolResult};
 use crate::app::mcp::{CLIENT_VALUES_NOTICE, MAX_ROWS, MAX_VERSIONS};
@@ -129,15 +129,7 @@ struct SubjectList {
     notice: &'static str,
 }
 
-impl Reply for SubjectList {
-    fn lists(&mut self) -> Vec<&mut dyn Cut> {
-        vec![self.page.rows()]
-    }
-
-    fn kept_whole(&self) -> Option<&str> {
-        None
-    }
-}
+reply!(SubjectList: page);
 
 #[tool_router(router = schema_tools, vis = "pub(super)")]
 impl KlensMcp {

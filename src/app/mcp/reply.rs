@@ -92,10 +92,6 @@ impl<T> Page<T> {
         }
     }
 
-    pub fn rows(&mut self) -> &mut dyn Cut {
-        &mut self.rows
-    }
-
     fn showing(&self) -> String {
         let (shown, matching) = (self.rows.shown, self.matching);
         let cut_to_fit = shown < self.rows.len();
@@ -121,6 +117,43 @@ impl<T: Serialize> Serialize for Page<T> {
         map.end()
     }
 }
+
+/// A reply field that holds lists `fit` may cut.
+pub(super) trait Lists {
+    fn push_lists<'a>(&'a mut self, lists: &mut Vec<&'a mut dyn Cut>);
+}
+
+impl<T> Lists for Rows<T> {
+    fn push_lists<'a>(&'a mut self, lists: &mut Vec<&'a mut dyn Cut>) {
+        lists.push(self);
+    }
+}
+
+impl<T> Lists for Page<T> {
+    fn push_lists<'a>(&'a mut self, lists: &mut Vec<&'a mut dyn Cut>) {
+        lists.push(&mut self.rows);
+    }
+}
+
+/// Implements [`Reply`] for a struct whose listed fields hold the lists to cut.
+/// A trailing string says what stays whole when a list is cut. Without one,
+/// the reply says so itself, as a [`Page`] does.
+macro_rules! reply {
+    ($reply:ty: $($field:ident),+ $(; $kept:literal)?) => {
+        impl $crate::app::mcp::reply::Reply for $reply {
+            fn lists(&mut self) -> Vec<&mut dyn $crate::app::mcp::reply::Cut> {
+                let mut lists = Vec::new();
+                $($crate::app::mcp::reply::Lists::push_lists(&mut self.$field, &mut lists);)+
+                lists
+            }
+
+            fn kept_whole(&self) -> Option<&str> {
+                None $(.or(Some($kept)))?
+            }
+        }
+    };
+}
+pub(super) use reply;
 
 /// A tool result that may need cutting to fit.
 pub(super) trait Reply: Serialize {

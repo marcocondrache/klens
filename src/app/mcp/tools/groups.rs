@@ -11,7 +11,7 @@ use crate::app::mcp::args::{NameFilter, ResponseFormat, largest_first};
 use crate::app::mcp::ext::{ClusterExt as _, SessionExt as _};
 use crate::app::mcp::findings::{Finding, findings, member_lags};
 use crate::app::mcp::gate::ToolGate;
-use crate::app::mcp::reply::{Cut, Page, Reply, Rows, fit, prefix};
+use crate::app::mcp::reply::{Cut, Page, Reply, Rows, fit, prefix, reply};
 use crate::app::mcp::server::{KlensMcp, ToolResult};
 use crate::app::mcp::untrusted::shorten;
 use crate::app::mcp::{CLIENT_VALUES_NOTICE, MAX_ROWS};
@@ -102,15 +102,7 @@ struct GroupList {
     notice: &'static str,
 }
 
-impl Reply for GroupList {
-    fn lists(&mut self) -> Vec<&mut dyn Cut> {
-        vec![self.page.rows()]
-    }
-
-    fn kept_whole(&self) -> Option<&str> {
-        None
-    }
-}
+reply!(GroupList: page);
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

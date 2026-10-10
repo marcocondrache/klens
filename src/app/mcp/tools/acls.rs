@@ -10,7 +10,7 @@ use crate::app::context::Session;
 use crate::app::mcp::args::NameFilter;
 use crate::app::mcp::ext::{ClusterExt as _, SessionExt as _};
 use crate::app::mcp::gate::ToolGate;
-use crate::app::mcp::reply::{Cut, Page, Reply, fit};
+use crate::app::mcp::reply::{Page, fit, reply};
 use crate::app::mcp::server::{KlensMcp, ToolResult};
 use crate::app::mcp::{CLIENT_VALUES_NOTICE, MAX_ROWS};
 use crate::kafka::model::AclListing;
@@ -44,15 +44,7 @@ struct AclList {
     notice: &'static str,
 }
 
-impl Reply for AclList {
-    fn lists(&mut self) -> Vec<&mut dyn Cut> {
-        vec![self.page.rows()]
-    }
-
-    fn kept_whole(&self) -> Option<&str> {
-        None
-    }
-}
+reply!(AclList: page);
 
 impl AclsQuery {
     fn bindings(&self, listing: &AclListing) -> (AclStatus, Vec<Acl>) {

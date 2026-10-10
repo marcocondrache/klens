@@ -11,7 +11,7 @@ use crate::app::mcp::MAX_ROWS;
 use crate::app::mcp::configs::{ConfigSection, Section};
 use crate::app::mcp::ext::{ClusterExt as _, SessionExt as _};
 use crate::app::mcp::gate::ToolGate;
-use crate::app::mcp::reply::{Cut, Page, Reply, fit};
+use crate::app::mcp::reply::{Page, fit, reply};
 use crate::app::mcp::server::{KlensMcp, ToolResult};
 use crate::kafka::KafkaError;
 use crate::kafka::store::projections;
@@ -83,15 +83,7 @@ struct BrokerList {
     page: Page<BrokerRow>,
 }
 
-impl Reply for BrokerList {
-    fn lists(&mut self) -> Vec<&mut dyn Cut> {
-        vec![self.page.rows()]
-    }
-
-    fn kept_whole(&self) -> Option<&str> {
-        None
-    }
-}
+reply!(BrokerList: page);
 
 #[derive(Serialize)]
 struct BrokerDetail {
@@ -101,15 +93,7 @@ struct BrokerDetail {
     configs: ConfigSection,
 }
 
-impl Reply for BrokerDetail {
-    fn lists(&mut self) -> Vec<&mut dyn Cut> {
-        self.configs.rows().into_iter().collect()
-    }
-
-    fn kept_whole(&self) -> Option<&str> {
-        Some("the klens UI shows every config")
-    }
-}
+reply!(BrokerDetail: configs; "the klens UI shows every config");
 
 #[tool_router(router = broker_tools, vis = "pub(super)")]
 impl KlensMcp {

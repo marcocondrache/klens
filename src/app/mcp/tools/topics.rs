@@ -16,7 +16,7 @@ use crate::app::mcp::args::{NameFilter, ResponseFormat, largest_first};
 use crate::app::mcp::configs::{ConfigSection, Section};
 use crate::app::mcp::ext::{ClusterExt as _, SessionExt as _};
 use crate::app::mcp::gate::ToolGate;
-use crate::app::mcp::reply::{Cut, Page, Reply, Rows, fit};
+use crate::app::mcp::reply::{Page, Rows, fit, reply};
 use crate::app::mcp::server::{KlensMcp, ToolResult};
 use crate::app::mcp::untrusted::Boundary;
 use crate::app::mcp::{CLIENT_VALUES_NOTICE, MAX_ROWS};
@@ -218,15 +218,7 @@ struct TopicList {
     unmeasured: Option<usize>,
 }
 
-impl Reply for TopicList {
-    fn lists(&mut self) -> Vec<&mut dyn Cut> {
-        vec![self.page.rows()]
-    }
-
-    fn kept_whole(&self) -> Option<&str> {
-        None
-    }
-}
+reply!(TopicList: page);
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -399,18 +391,7 @@ impl TopicDescription {
     }
 }
 
-impl Reply for TopicDescription {
-    fn lists(&mut self) -> Vec<&mut dyn Cut> {
-        let mut lists = self.configs.rows().into_iter().collect::<Vec<_>>();
-        lists.push(&mut self.groups);
-        lists.push(&mut self.partitions);
-        lists
-    }
-
-    fn kept_whole(&self) -> Option<&str> {
-        Some("the counts above cover every partition")
-    }
-}
+reply!(TopicDescription: configs, groups, partitions; "the counts above cover every partition");
 
 #[tool_router(router = topic_tools, vis = "pub(super)")]
 impl KlensMcp {
