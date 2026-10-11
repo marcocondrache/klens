@@ -45,15 +45,13 @@ const SESSION_COOKIE_KEY_PREFIX: &str = "klens-session-v1";
 type AuthSession = axum_login::AuthSession<AuthBackend>;
 type SessionLayer = SessionManagerLayer<ExpiringStore, SignedCookie>;
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SessionUser {
     pub sub: String,
     pub email: Option<String>,
     pub name: Option<String>,
     pub exp: i64,
-    #[serde(default)]
     pub groups: Vec<String>,
-    #[serde(skip)]
     auth_hash: [u8; 32],
 }
 
@@ -65,26 +63,20 @@ impl SessionUser {
         groups: Vec<String>,
         exp: i64,
     ) -> Self {
-        let mut user = Self {
-            sub: sub.into(),
+        let sub = sub.into();
+        let auth_hash = Sha256::digest(format!(
+            "{SESSION_COOKIE_KEY_PREFIX}|{sub}|{exp}|{}",
+            groups.join("\0")
+        ))
+        .into();
+        Self {
+            sub,
             email,
             name,
             groups,
             exp,
-            auth_hash: [0; 32],
-        };
-        user.refresh_auth_hash();
-        user
-    }
-
-    fn refresh_auth_hash(&mut self) {
-        self.auth_hash = Sha256::digest(format!(
-            "{SESSION_COOKIE_KEY_PREFIX}|{}|{}|{}",
-            self.sub,
-            self.exp,
-            self.groups.join("\0")
-        ))
-        .into();
+            auth_hash,
+        }
     }
 }
 
@@ -101,7 +93,7 @@ impl AuthState {
     pub fn disabled() -> Self {
         Self {
             backend: AuthBackend::disabled(),
-            policy: Arc::new(AccessPolicy::disabled()),
+            policy: Arc::new(AccessPolicy::Open),
             session_layer: session_layer(false, Key::generate()),
             login_timeout: Duration::ZERO,
             bearer: None,

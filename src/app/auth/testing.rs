@@ -13,6 +13,7 @@ use jiff::Timestamp;
 use jsonwebtoken::jwk::{Jwk, PublicKeyUse};
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use openidconnect::{CsrfToken, Nonce, PkceCodeChallenge, PkceCodeVerifier};
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tower::ServiceExt as _;
 use tower_sessions::cookie::Key;
@@ -304,12 +305,28 @@ impl OidcFlow for FakeOidc {
     }
 }
 
+/// The user a test signs in as, in the shape it crosses HTTP.
+#[derive(Serialize, Deserialize)]
+pub(super) struct Impersonated {
+    sub: String,
+    email: Option<String>,
+    name: Option<String>,
+    exp: i64,
+    groups: Vec<String>,
+}
+
 pub(super) async fn impersonate(
     State(state): State<AppState>,
     mut auth_session: AuthSession,
-    Json(mut user): Json<SessionUser>,
+    Json(impersonated): Json<Impersonated>,
 ) -> Response {
-    user.refresh_auth_hash();
+    let user = SessionUser::new(
+        impersonated.sub,
+        impersonated.email,
+        impersonated.name,
+        impersonated.groups,
+        impersonated.exp,
+    );
     state.auth.backend.remember(user.clone());
     if let Err(error) = auth_session.login(&user).await {
         tracing::error!(%error, "failed to impersonate");
@@ -377,7 +394,14 @@ impl Browser {
     }
 
     pub async fn impersonate(&mut self, user: &SessionUser) {
-        let body = serde_json::to_vec(user).expect("user json");
+        let body = serde_json::to_vec(&Impersonated {
+            sub: user.sub.clone(),
+            email: user.email.clone(),
+            name: user.name.clone(),
+            exp: user.exp,
+            groups: user.groups.clone(),
+        })
+        .expect("user json");
         let page = self
             .send(
                 Request::post("/api/auth/impersonate")

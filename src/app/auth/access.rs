@@ -378,16 +378,11 @@ struct CompiledBinding {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AccessPolicy {
-    Disabled,
     Open,
     Bound(RoleTable),
 }
 
 impl AccessPolicy {
-    pub fn disabled() -> Self {
-        Self::Disabled
-    }
-
     pub fn from_roles(roles: Option<&IndexMap<String, Role>>) -> Self {
         match roles {
             None => Self::Open,
@@ -397,7 +392,7 @@ impl AccessPolicy {
 
     pub fn admit(&self, identity: &Identity<'_>) -> Option<EffectiveAccess> {
         match self {
-            Self::Disabled | Self::Open => Some(EffectiveAccess::Unrestricted),
+            Self::Open => Some(EffectiveAccess::Unrestricted),
             Self::Bound(table) => {
                 if identity.groups.len() > MAX_GROUPS {
                     return None;
