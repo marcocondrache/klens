@@ -181,7 +181,11 @@ fn within_depth(message: &DynamicMessage, depth: usize) -> Result<(), ProtobufEr
         Field::Message(nested) => within_depth(nested, depth + 1),
         _ => Ok(()),
     };
-    message.fields().try_for_each(|(_, field)| match field {
+    // prost-reflect renders a proto2 extension with the fields, so an Any
+    // can nest through one too.
+    let fields = message.fields().map(|(_, field)| field);
+    let extensions = message.extensions().map(|(_, field)| field);
+    fields.chain(extensions).try_for_each(|field| match field {
         Field::List(items) => items.iter().try_for_each(nested),
         Field::Map(entries) => entries.values().try_for_each(nested),
         field => nested(field),
@@ -278,33 +282,41 @@ mod tests {
 
     #[test]
     fn anys_nested_past_the_depth_limit_are_refused_instead_of_overflowing_the_stack() {
-        const WRAPPED: &str = r#"
+        const FIELD: &str = r#"
             syntax = "proto3";
             import "google/protobuf/any.proto";
             message M { google.protobuf.Any a = 1; }
         "#;
-        let codec = ProtobufCodec::compile(WRAPPED, &[]).unwrap();
-        let nested = |levels: usize| {
+        const EXTENSION: &str = r#"
+            syntax = "proto2";
+            import "google/protobuf/any.proto";
+            message M { extensions 100 to 200; }
+            extend M { optional google.protobuf.Any x = 100; }
+        "#;
+        let nested = |tag: &[u8], levels: usize| {
             (0..levels).fold(Vec::new(), |inner, _| {
                 let any = Any {
                     type_url: "type.googleapis.com/M".to_owned(),
                     value: inner,
                 }
                 .encode_to_vec();
-                let mut outer = vec![0x0a];
+                let mut outer = tag.to_vec();
                 prost_reflect::prost::encoding::encode_varint(any.len() as u64, &mut outer);
                 outer.extend(any);
                 outer
             })
         };
 
-        let shallow = codec.decode_raw(&nested(2)).unwrap();
+        for (schema, tag) in [(FIELD, &[0x0a][..]), (EXTENSION, &[0xa2, 0x06][..])] {
+            let codec = ProtobufCodec::compile(schema, &[]).unwrap();
 
-        assert_eq!(shallow["a"]["a"]["@type"], "type.googleapis.com/M");
-        assert_eq!(
-            codec.decode_raw(&nested(5_000)),
-            Err(ProtobufError::RecordTooDeep)
-        );
+            assert!(codec.decode_raw(&nested(tag, 2)).is_ok(), "{schema}");
+            assert_eq!(
+                codec.decode_raw(&nested(tag, 5_000)),
+                Err(ProtobufError::RecordTooDeep),
+                "{schema}"
+            );
+        }
     }
 
     #[test]
