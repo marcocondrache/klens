@@ -21,6 +21,8 @@ pub(crate) enum ApiError {
     NoRole,
     #[error("host is not in allowed_hosts")]
     HostNotAllowed,
+    #[error("klens refuses an API request that another site's page sent")]
+    CrossSite,
     #[error("not found")]
     NotFound,
     #[error("too many live tails are open, try again later")]
@@ -64,6 +66,7 @@ impl ApiError {
             Self::Unauthorized => "UNAUTHORIZED",
             Self::NoRole => "FORBIDDEN",
             Self::HostNotAllowed => "HOST_NOT_ALLOWED",
+            Self::CrossSite => "CROSS_SITE",
             Self::NotFound => "NOT_FOUND",
             Self::TooManyTails => "TOO_MANY_TAILS",
             Self::RateLimited | Self::TooManyLiveCalls => "RATE_LIMITED",
@@ -94,6 +97,7 @@ impl ApiError {
             Self::InvalidRequest { status, .. } => *status,
             Self::NoRole
             | Self::HostNotAllowed
+            | Self::CrossSite
             | Self::Access(AccessError::Forbidden { .. } | AccessError::ReadOnlyCluster(_)) => {
                 StatusCode::FORBIDDEN
             }

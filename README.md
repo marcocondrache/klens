@@ -100,6 +100,12 @@ Every response also forbids framing, with `X-Frame-Options: DENY` and
 `Content-Security-Policy: frame-ancestors 'none'`, so a page cannot load klens
 in a frame and lay its own buttons over a delete.
 
+klens also refuses an `/api` request with `403 CROSS_SITE` when the browser's
+`Sec-Fetch-Site` header says another site sent it, unless the request opens a
+page, as a link or the identity provider's redirect does. Another site's page
+then cannot start exports or hold every live tail from a visitor's browser. A
+client that sends no such header, such as `curl`, is not affected.
+
 `/health` and `/ready` answer every host, because Kubernetes probes and load
 balancer health checks name an IP address. Point a load balancer health check
 at one of them, not at `/`.

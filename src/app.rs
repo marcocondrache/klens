@@ -14,6 +14,7 @@ use error::ApiError;
 
 pub(crate) mod auth;
 mod context;
+mod cross_site;
 mod error;
 mod extract;
 mod health;
@@ -117,7 +118,9 @@ fn api_routes(state: AppState, resources: Router<AppState>) -> Router<AppState> 
         .method_not_allowed_fallback(method_not_allowed)
         .with_state(state);
 
-    Router::new().nest_service("/api", api)
+    Router::new()
+        .nest_service("/api", api)
+        .layer(middleware::from_fn(cross_site::refuse_cross_site))
 }
 
 async fn not_found() -> ApiError {
