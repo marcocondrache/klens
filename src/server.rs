@@ -32,6 +32,25 @@ pub async fn serve(router: Router, bind: SocketAddr) -> Result<()> {
     ]);
 
     let layers = ServiceBuilder::new()
+        // A page that frames klens could lay its own buttons over a delete,
+        // and without auth any page can point a frame at localhost. Outside
+        // the panic catcher, so its 500 carries them too.
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::X_FRAME_OPTIONS,
+            HeaderValue::from_static("DENY"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static("frame-ancestors 'none'"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::REFERRER_POLICY,
+            HeaderValue::from_static("same-origin"),
+        ))
         .layer(CatchPanicLayer::new())
         .layer(SetSensitiveRequestHeadersLayer::from_shared(Arc::clone(
             &sensitive_headers,
@@ -54,24 +73,6 @@ pub async fn serve(router: Router, bind: SocketAddr) -> Result<()> {
         )
         .layer(SetSensitiveResponseHeadersLayer::from_shared(
             sensitive_headers,
-        ))
-        // A page that frames klens could lay its own buttons over a delete,
-        // and without auth any page can point a frame at localhost.
-        .layer(SetResponseHeaderLayer::if_not_present(
-            header::X_FRAME_OPTIONS,
-            HeaderValue::from_static("DENY"),
-        ))
-        .layer(SetResponseHeaderLayer::if_not_present(
-            header::CONTENT_SECURITY_POLICY,
-            HeaderValue::from_static("frame-ancestors 'none'"),
-        ))
-        .layer(SetResponseHeaderLayer::if_not_present(
-            header::X_CONTENT_TYPE_OPTIONS,
-            HeaderValue::from_static("nosniff"),
-        ))
-        .layer(SetResponseHeaderLayer::if_not_present(
-            header::REFERRER_POLICY,
-            HeaderValue::from_static("same-origin"),
         ))
         .layer(CompressionLayer::new());
 
@@ -192,22 +193,27 @@ mod tests {
     #[tokio::test]
     async fn every_response_forbids_framing_and_sniffing() {
         let _logs = LogCapture::at(tracing::Level::INFO);
-        let router = Router::new().route("/", get(|| async { "page" }));
+        async fn failing() -> &'static str {
+            panic!("handler failed")
+        }
+        let router = Router::new().route("/panic", get(failing));
 
-        let response = exchange(
-            router,
-            "GET /missing HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
-        )
-        .await;
+        for path in ["/missing", "/panic"] {
+            let response = exchange(
+                router.clone(),
+                &format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"),
+            )
+            .await;
 
-        let response = String::from_utf8(response).expect("utf-8 response");
-        for header in [
-            "x-frame-options: DENY",
-            "content-security-policy: frame-ancestors 'none'",
-            "x-content-type-options: nosniff",
-            "referrer-policy: same-origin",
-        ] {
-            assert!(response.contains(header), "no `{header}` in:\n{response}");
+            let response = String::from_utf8(response).expect("utf-8 response");
+            for header in [
+                "x-frame-options: DENY",
+                "content-security-policy: frame-ancestors 'none'",
+                "x-content-type-options: nosniff",
+                "referrer-policy: same-origin",
+            ] {
+                assert!(response.contains(header), "no `{header}` in:\n{response}");
+            }
         }
     }
 
