@@ -64,7 +64,7 @@ impl AppState {
         }
     }
 
-    /// The changes still running after their clients hung up.
+    /// The changes in flight, over HTTP or MCP, which shutdown waits for.
     pub fn writes(&self) -> &TaskTracker {
         &self.writes
     }
