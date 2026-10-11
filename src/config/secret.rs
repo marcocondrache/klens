@@ -1,3 +1,4 @@
+use std::env::VarError;
 use std::path::PathBuf;
 
 use secrecy::{ExposeSecret, SecretString};
@@ -29,15 +30,22 @@ impl TryFrom<Source> for Secret {
     fn try_from(source: Source) -> Result<Self, String> {
         let text = match source {
             Source::Value { value } => value,
-            Source::Env { env } => {
-                std::env::var(&env).map_err(|error| format!("{env}: {error}"))?
-            }
+            Source::Env { env } => std::env::var(&env).map_err(|error| env_error(&env, &error))?,
             Source::File { file } => std::fs::read_to_string(&file)
                 .map_err(|error| format!("{}: {error}", file.display()))?
                 .trim_end_matches(['\r', '\n'])
                 .to_owned(),
         };
         Ok(Self(text.into()))
+    }
+}
+
+/// `VarError::NotUnicode` displays the value it could not read, which here is
+/// the secret.
+fn env_error(name: &str, error: &VarError) -> String {
+    match error {
+        VarError::NotPresent => format!("{name}: {error}"),
+        VarError::NotUnicode(_) => format!("{name}: environment variable is not valid unicode"),
     }
 }
 
@@ -78,6 +86,22 @@ mod tests {
 
     fn exposed(source: &str) -> String {
         yaml::<Secret>(source).expose_secret().to_owned()
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_secret_that_is_not_unicode_is_not_echoed() {
+        use std::os::unix::ffi::OsStringExt as _;
+
+        let unreadable =
+            VarError::NotUnicode(std::ffi::OsString::from_vec(b"hunter\xff2".to_vec()));
+
+        let error = env_error("KAFKA_PASSWORD", &unreadable);
+
+        assert_eq!(
+            error,
+            "KAFKA_PASSWORD: environment variable is not valid unicode"
+        );
     }
 
     #[test]
