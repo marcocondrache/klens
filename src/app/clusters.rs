@@ -39,10 +39,7 @@ fn cluster_routes() -> Router<AppState> {
 async fn clusters(session: Session) -> Json<Vec<ClusterHealth>> {
     Json(
         session
-            .state
-            .clusters
-            .iter()
-            .filter(|cluster| session.access.can_see_cluster(cluster.name()))
+            .clusters()
             .map(|cluster| ClusterHealth::from(cluster.store.health()))
             .collect(),
     )

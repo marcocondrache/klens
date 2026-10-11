@@ -59,6 +59,21 @@ impl<'a> ClusterHandle<'a> {
         self.cluster.writable
     }
 
+    pub(crate) fn latest_version(&self, subject: &str) -> Result<i32, ApiError> {
+        self.store
+            .subjects
+            .load()
+            .and_then(|subjects| subjects.get(subject).map(|info| info.latest_version))
+            .ok_or_else(|| {
+                KafkaError::UnknownSubject {
+                    cluster: self.name().to_owned(),
+                    subject: subject.to_owned(),
+                    version: 0,
+                }
+                .into()
+            })
+    }
+
     pub(crate) fn records(&self) -> Result<Granted<'a, RecordsCap>, AccessError> {
         self.access.records().map(|cap| self.grant(cap))
     }

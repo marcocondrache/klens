@@ -205,14 +205,6 @@ impl EffectiveAccess {
         }
     }
 
-    pub fn can_see_cluster(&self, cluster: &str) -> bool {
-        self.privileges_for(cluster).is_some()
-    }
-
-    pub fn visible_clusters<'a>(&self, all: impl Iterator<Item = &'a str>) -> Vec<&'a str> {
-        all.filter(|name| self.can_see_cluster(name)).collect()
-    }
-
     pub fn narrow(self, ceiling: &Ceiling) -> Narrowed {
         let grants = match self {
             Self::Unrestricted => vec![Grant {
@@ -665,10 +657,6 @@ mod tests {
             access.cluster("prod").unwrap_err(),
             AccessError::UnknownCluster("prod".into())
         );
-        assert_eq!(
-            access.visible_clusters(["prod", "payments"].into_iter()),
-            vec!["payments"]
-        );
     }
 
     #[test]
@@ -850,10 +838,8 @@ mod tests {
             dev.cluster("prod").unwrap_err(),
             AccessError::UnknownCluster("prod".into())
         );
-        assert!(
-            none.visible_clusters(["dev", "prod"].into_iter())
-                .is_empty()
-        );
+        assert!(none.cluster("dev").is_err());
+        assert!(none.cluster("prod").is_err());
     }
 
     #[test]

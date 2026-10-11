@@ -14,7 +14,6 @@ use crate::app::mcp::reply::{Page, fit, reply};
 use crate::app::mcp::schema_text::schema_result;
 use crate::app::mcp::server::{KlensMcp, ToolResult};
 use crate::app::mcp::{CLIENT_VALUES_NOTICE, MAX_ROWS, MAX_VERSIONS};
-use crate::app::subjects::latest_version;
 use crate::app::subjects::types::{
     RegisterSchema, RegisteredVersion, SchemaCompatibility, SchemaReference, SchemaType,
     SubjectDetail, SubjectVersion,
@@ -145,7 +144,7 @@ impl KlensMcp {
             Some(version) => version,
             None => {
                 cluster.snapshot("subjects", &cluster.store.subjects)?;
-                latest_version(&cluster, &query.subject)?
+                cluster.latest_version(&query.subject)?
             }
         };
         self.live_call(&session)?;

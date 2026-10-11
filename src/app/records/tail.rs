@@ -12,7 +12,7 @@ use super::super::context::Session;
 use super::super::error::ApiError;
 use super::super::extract::{Path, Query};
 use super::denied;
-use super::types::{TailEvent, TailParams, tail_query};
+use super::types::{TailEvent, TailParams};
 
 type Events = BoxStream<'static, Result<Event, Infallible>>;
 
@@ -23,9 +23,9 @@ pub(super) async fn tail(
 ) -> Result<Sse<KeepAliveStream<Events>>, ApiError> {
     let records = session.cluster(&name)?.records()?;
     let permit = session.state.tail_permit().ok_or(ApiError::TooManyTails)?;
-    let tail = records.tail(tail_query(topic, params)).await?;
+    let tail = records.tail(params.into_query(topic)).await?;
 
-    let ready = frame(&TailEvent::ready(&tail));
+    let ready = TailEvent::ready(&tail).sse();
     let follow = Follow {
         tail,
         guard: session.guard,
@@ -69,7 +69,7 @@ impl Follow {
                     tokio::task::yield_now().await;
                     continue;
                 }
-                return Some((Ok(frame(&TailEvent::from(batch))), state));
+                return Some((Ok(TailEvent::from(batch).sse()), state));
             }
         })
         .boxed()
@@ -79,11 +79,4 @@ impl Follow {
         self.done = true;
         (Ok(error.event()), self)
     }
-}
-
-fn frame(event: &TailEvent) -> Event {
-    Event::default()
-        .event(event.event())
-        .json_data(event)
-        .expect("tail event is serializable")
 }

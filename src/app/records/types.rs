@@ -1,3 +1,4 @@
+use axum::response::sse::Event;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use bytes::Bytes;
@@ -248,65 +249,20 @@ pub(crate) struct LookupParams {
     pub schema_id: Option<i32>,
 }
 
-pub(crate) fn record_at(
-    topic: String,
-    partition: i32,
-    offset: i64,
-    params: LookupParams,
-) -> domain::RecordAt {
-    domain::RecordAt {
-        topic,
-        partition,
-        offset,
-        schema_id: params.schema_id,
+impl LookupParams {
+    pub(crate) fn into_record_at(
+        self,
+        topic: String,
+        partition: i32,
+        offset: i64,
+    ) -> domain::RecordAt {
+        domain::RecordAt {
+            topic,
+            partition,
+            offset,
+            schema_id: self.schema_id,
+        }
     }
-}
-
-pub(crate) fn record_query(
-    topic: String,
-    params: RecordParams,
-) -> Result<domain::RecordQuery, QueryError> {
-    let order = params.order.unwrap_or(RecordOrder::Newest).into();
-    Ok(domain::RecordQuery {
-        timestamps: domain::TimestampRange::new(params.from, params.to)?,
-        filter: params
-            .contains
-            .as_deref()
-            .and_then(CompiledFilter::contains),
-        cursor: match params.cursor.as_deref().map(str::trim) {
-            None | Some("") => None,
-            Some(cursor) => {
-                let cursor = RecordCursor::parse(cursor)?;
-                cursor.validate_for(order)?;
-                Some(cursor)
-            }
-        },
-        topic,
-        partitions: params.partition,
-        limit: params.limit,
-        order,
-        schema_id: params.schema_id,
-    })
-}
-
-/// Asks for the largest page the limits allow.
-pub(crate) fn export_query(
-    topic: String,
-    params: ExportParams,
-) -> Result<domain::RecordQuery, QueryError> {
-    Ok(domain::RecordQuery {
-        timestamps: domain::TimestampRange::new(params.from, params.to)?,
-        filter: params
-            .contains
-            .as_deref()
-            .and_then(CompiledFilter::contains),
-        cursor: None,
-        topic,
-        partitions: params.partition,
-        limit: i32::MAX,
-        order: params.order.unwrap_or(RecordOrder::Newest).into(),
-        schema_id: params.schema_id,
-    })
 }
 
 #[derive(Debug, Deserialize)]
@@ -334,6 +290,45 @@ pub(crate) struct ExportParams {
     pub to: Option<Timestamp>,
     pub contains: Option<String>,
     pub schema_id: Option<i32>,
+}
+
+impl RecordParams {
+    pub(crate) fn into_query(self, topic: String) -> Result<domain::RecordQuery, QueryError> {
+        let order = self.order.unwrap_or(RecordOrder::Newest).into();
+        Ok(domain::RecordQuery {
+            timestamps: domain::TimestampRange::new(self.from, self.to)?,
+            filter: self.contains.as_deref().and_then(CompiledFilter::contains),
+            cursor: match self.cursor.as_deref().map(str::trim) {
+                None | Some("") => None,
+                Some(cursor) => {
+                    let cursor = RecordCursor::parse(cursor)?;
+                    cursor.validate_for(order)?;
+                    Some(cursor)
+                }
+            },
+            topic,
+            partitions: self.partition,
+            limit: self.limit,
+            order,
+            schema_id: self.schema_id,
+        })
+    }
+}
+
+impl ExportParams {
+    /// Asks for the largest page the limits allow.
+    pub(crate) fn into_query(self, topic: String) -> Result<domain::RecordQuery, QueryError> {
+        Ok(domain::RecordQuery {
+            timestamps: domain::TimestampRange::new(self.from, self.to)?,
+            filter: self.contains.as_deref().and_then(CompiledFilter::contains),
+            cursor: None,
+            topic,
+            partitions: self.partition,
+            limit: i32::MAX,
+            order: self.order.unwrap_or(RecordOrder::Newest).into(),
+            schema_id: self.schema_id,
+        })
+    }
 }
 
 fn default_record_limit() -> i32 {
@@ -387,6 +382,13 @@ impl TailEvent {
             Self::Records { .. } => "records",
         }
     }
+
+    pub(crate) fn sse(&self) -> Event {
+        Event::default()
+            .event(self.event())
+            .json_data(self)
+            .expect("tail event is serializable")
+    }
 }
 
 impl From<TailBatch> for TailEvent {
@@ -407,14 +409,13 @@ pub(crate) struct TailParams {
     pub schema_id: Option<i32>,
 }
 
-pub(crate) fn tail_query(topic: String, params: TailParams) -> TailQuery {
-    TailQuery {
-        filter: params
-            .contains
-            .as_deref()
-            .and_then(CompiledFilter::contains),
-        topic,
-        partitions: params.partition,
-        schema_id: params.schema_id,
+impl TailParams {
+    pub(crate) fn into_query(self, topic: String) -> TailQuery {
+        TailQuery {
+            filter: self.contains.as_deref().and_then(CompiledFilter::contains),
+            topic,
+            partitions: self.partition,
+            schema_id: self.schema_id,
+        }
     }
 }
