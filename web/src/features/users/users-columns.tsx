@@ -6,10 +6,7 @@ import { IconButton } from "@/components/icon-button";
 import type { ScramMechanism, ScramUser } from "@/lib/api/types";
 import { formatNumber } from "@/lib/format";
 
-export const MECHANISM_LABEL: Record<ScramMechanism, string> = {
-  SHA256: "SCRAM-SHA-256",
-  SHA512: "SCRAM-SHA-512",
-};
+import { MECHANISM_LABEL } from "./search";
 
 function iterations(user: ScramUser, mechanism: ScramMechanism) {
   return user.credentials.find((credential) => credential.mechanism === mechanism)?.iterations;
