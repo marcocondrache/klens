@@ -8,7 +8,7 @@ use crate::app::context::Session;
 use crate::app::groups::types::GroupState;
 use crate::app::mcp::args::{NameFilter, ResponseFormat, input, largest_first};
 use crate::app::mcp::ext::{ClusterExt as _, SessionExt as _};
-use crate::app::mcp::findings::{Finding, findings, member_lags};
+use crate::app::mcp::findings::{Finding, member_lags};
 use crate::app::mcp::gate::ToolGate;
 use crate::app::mcp::reply::{Cut, Page, Reply, Rows, fit, prefix, reply};
 use crate::app::mcp::server::{KlensMcp, ToolResult};
@@ -330,7 +330,7 @@ impl KlensMcp {
             }
             .into());
         };
-        let findings = findings(&group, &topology);
+        let findings = Finding::all(&group, &topology);
         Ok(fit(GroupDescription::new(&group, findings)))
     }
 }

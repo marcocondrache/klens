@@ -33,7 +33,6 @@ impl SessionExt for Session {
 pub(super) trait ClusterExt {
     fn topology(&self) -> Result<Arc<Topology>, ApiError>;
 
-    /// Fails unless klens reads a schema registry for the cluster.
     fn require_schema_registry(&self) -> Result<(), ApiError>;
 
     /// What a lane last read. A lane before its first read holds nothing, which

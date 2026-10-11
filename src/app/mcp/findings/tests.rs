@@ -56,7 +56,7 @@ fn examine(
         committed.map(offsets).as_ref(),
         Some(&watermarks(&marks)),
     );
-    findings(&detail, &topology)
+    Finding::all(&detail, &topology)
 }
 
 #[test]
@@ -208,7 +208,7 @@ fn lag_on_one_member_is_not_judged_on_an_incomplete_total() {
 
     assert_eq!(detail.total_lag, Some(5000));
     assert!(!detail.lag_complete);
-    assert_eq!(findings(&detail, &topology), []);
+    assert_eq!(Finding::all(&detail, &topology), []);
 }
 
 #[test]

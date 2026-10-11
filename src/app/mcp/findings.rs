@@ -66,89 +66,89 @@ impl Finding {
             _ => 0,
         }
     }
-}
 
-pub fn findings(group: &GroupDetail, topology: &Topology) -> Vec<Finding> {
-    if group.members.is_empty() {
-        return vec![Finding::NoMembers];
-    }
-    match group.state {
-        GroupState::Stable => {}
-        GroupState::PreparingRebalance
-        | GroupState::CompletingRebalance
-        | GroupState::Assigning
-        | GroupState::Reconciling => {
-            return vec![Finding::Rebalancing];
+    pub fn all(group: &GroupDetail, topology: &Topology) -> Vec<Self> {
+        if group.members.is_empty() {
+            return vec![Self::NoMembers];
         }
-        GroupState::Empty | GroupState::Dead | GroupState::Unknown => return Vec::new(),
-    }
+        match group.state {
+            GroupState::Stable => {}
+            GroupState::PreparingRebalance
+            | GroupState::CompletingRebalance
+            | GroupState::Assigning
+            | GroupState::Reconciling => {
+                return vec![Self::Rebalancing];
+            }
+            GroupState::Empty | GroupState::Dead | GroupState::Unknown => return Vec::new(),
+        }
 
-    let mut assigned: BTreeMap<&str, BTreeSet<i32>> = BTreeMap::new();
-    for assignment in group.members.iter().flat_map(|member| &member.assignments) {
-        assigned
-            .entry(&assignment.topic)
-            .or_default()
-            .extend(&assignment.partitions);
-    }
-    let mut unassigned_partitions = Vec::new();
-    let mut partitions = 0;
-    let mut every_topic_known = true;
-    for (topic, held) in &assigned {
-        let Some(info) = topology.topics.get(*topic) else {
-            every_topic_known = false;
-            continue;
-        };
-        partitions += info.partitions.len();
-        let unassigned: Vec<i32> = info
-            .partitions
-            .iter()
-            .map(|partition| partition.id)
-            .filter(|id| !held.contains(id))
-            .collect();
-        if !unassigned.is_empty() {
-            unassigned_partitions.push(Finding::UnassignedPartitions {
-                topic: (*topic).to_owned(),
-                partitions: unassigned,
-                partitions_left_out: None,
+        let mut assigned: BTreeMap<&str, BTreeSet<i32>> = BTreeMap::new();
+        for assignment in group.members.iter().flat_map(|member| &member.assignments) {
+            assigned
+                .entry(&assignment.topic)
+                .or_default()
+                .extend(&assignment.partitions);
+        }
+        let mut unassigned_partitions = Vec::new();
+        let mut partitions = 0;
+        let mut every_topic_known = true;
+        for (topic, held) in &assigned {
+            let Some(info) = topology.topics.get(*topic) else {
+                every_topic_known = false;
+                continue;
+            };
+            partitions += info.partitions.len();
+            let unassigned: Vec<i32> = info
+                .partitions
+                .iter()
+                .map(|partition| partition.id)
+                .filter(|id| !held.contains(id))
+                .collect();
+            if !unassigned.is_empty() {
+                unassigned_partitions.push(Self::UnassignedPartitions {
+                    topic: (*topic).to_owned(),
+                    partitions: unassigned,
+                    partitions_left_out: None,
+                });
+            }
+        }
+        let mut findings = Vec::new();
+        // klens decodes only consumer assignments, so a Kafka Connect group shows
+        // none and says nothing about how many partitions it reads.
+        if every_topic_known && !assigned.is_empty() && group.members.len() > partitions {
+            findings.push(Self::MoreMembersThanPartitions {
+                members: group.members.len(),
+                partitions,
             });
         }
+        findings.extend(Self::lag_on_one_member(group));
+        // A result that must shrink keeps the first findings, and a group can
+        // leave a partition of every topic it reads unassigned.
+        findings.extend(unassigned_partitions);
+        findings
     }
-    let mut findings = Vec::new();
-    // klens decodes only consumer assignments, so a Kafka Connect group shows
-    // none and says nothing about how many partitions it reads.
-    if every_topic_known && !assigned.is_empty() && group.members.len() > partitions {
-        findings.push(Finding::MoreMembersThanPartitions {
-            members: group.members.len(),
-            partitions,
-        });
-    }
-    findings.extend(lag_on_one_member(group));
-    // A result that must shrink keeps the first findings, and a group can
-    // leave a partition of every topic it reads unassigned.
-    findings.extend(unassigned_partitions);
-    findings
-}
 
-fn lag_on_one_member(group: &GroupDetail) -> Option<Finding> {
-    let total = group.total_lag.filter(|_| group.lag_complete)?;
-    if group.members.len() < 2 || total < LAG_WORTH_NAMING {
-        return None;
-    }
-    let (member, lag) = group
-        .members
-        .iter()
-        .zip(member_lags(group))
-        .filter_map(|(member, lag)| Some((member, lag?)))
-        .max_by_key(|&(_, lag)| lag)?;
-    (i128::from(lag) * 100 >= i128::from(total) * ONE_MEMBER_SHARE_PERCENT).then(|| {
-        Finding::LagOnOneMember {
-            member_id: shorten(&member.id).into_owned(),
-            client_id: shorten(&member.client_id).into_owned(),
-            host: shorten(&member.host).into_owned(),
-            lag,
-            total_lag: total,
+    fn lag_on_one_member(group: &GroupDetail) -> Option<Self> {
+        let total = group.total_lag.filter(|_| group.lag_complete)?;
+        if group.members.len() < 2 || total < LAG_WORTH_NAMING {
+            return None;
         }
-    })
+        let (member, lag) = group
+            .members
+            .iter()
+            .zip(member_lags(group))
+            .filter_map(|(member, lag)| Some((member, lag?)))
+            .max_by_key(|&(_, lag)| lag)?;
+        (i128::from(lag) * 100 >= i128::from(total) * ONE_MEMBER_SHARE_PERCENT).then(|| {
+            Self::LagOnOneMember {
+                member_id: shorten(&member.id).into_owned(),
+                client_id: shorten(&member.client_id).into_owned(),
+                host: shorten(&member.host).into_owned(),
+                lag,
+                total_lag: total,
+            }
+        })
+    }
 }
 
 /// In `group.members` order, and 0 for a member that holds no partition.

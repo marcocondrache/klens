@@ -111,7 +111,7 @@ impl UnhealthyLane {
     fn new(lane: &'static str, health: LaneHealth, boundary: &Boundary) -> Self {
         Self {
             lane,
-            last_error: boundary.lane_error(health.last_error),
+            last_error: boundary.lane_error(health.last_error.as_deref()),
             updated_at: health.updated_at,
         }
     }
@@ -234,7 +234,7 @@ impl UnreadLane {
         (!lane.ready()).then(|| Self {
             cluster: cluster.name().to_owned(),
             lane: name,
-            last_error: boundary.lane_error(lane.health().last_error),
+            last_error: boundary.lane_error(lane.health().last_error.as_deref()),
         })
     }
 }

@@ -366,7 +366,10 @@ impl<'a> TopicDescription<'a> {
         }
         Ok(match cluster.store.topic_configs(topic) {
             Some(entries) => ConfigSection::overrides(entries),
-            None => ConfigSection::not_read(cluster.store.configs.health().last_error, boundary),
+            None => ConfigSection::not_read(
+                cluster.store.configs.health().last_error.as_deref(),
+                boundary,
+            ),
         })
     }
 

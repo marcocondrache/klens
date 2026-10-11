@@ -157,7 +157,6 @@ pub(super) use reply;
 
 /// A tool result that may need cutting to fit.
 pub(super) trait Reply: Serialize {
-    /// Every list in the reply.
     fn lists(&mut self) -> Vec<&mut dyn Cut>;
 
     /// What the client keeps whole when a list is cut, or `None` when the reply
