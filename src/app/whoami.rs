@@ -19,22 +19,22 @@ pub(crate) fn router() -> Router<AppState> {
 
 async fn whoami(session: Session) -> Json<Identity> {
     let clusters = session
-        .access
-        .visible_clusters(session.state.clusters.names())
-        .into_iter()
-        .filter_map(|name| {
-            let access = session.access.cluster(name).ok()?;
-            let writable = session.state.clusters.get(name).ok()?.writable;
-            Some(ClusterGrant {
-                cluster: name.to_owned(),
-                roles: access
-                    .role_names()
-                    .into_iter()
-                    .map(ToOwned::to_owned)
-                    .collect(),
-                privileges: access.privileges().into_iter().map(Into::into).collect(),
-                writable,
-            })
+        .clusters()
+        .map(|cluster| ClusterGrant {
+            cluster: cluster.name().to_owned(),
+            roles: cluster
+                .access
+                .role_names()
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect(),
+            privileges: cluster
+                .access
+                .privileges()
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            writable: cluster.is_writable(),
         })
         .collect();
 

@@ -8,7 +8,10 @@ export const GROUP_STATES = [
   "EMPTY",
   "PREPARING_REBALANCE",
   "COMPLETING_REBALANCE",
+  "ASSIGNING",
+  "RECONCILING",
   "DEAD",
+  "UNKNOWN",
 ] as const satisfies readonly GroupState[];
 
 const GROUP_LAG = ["lagging", "caught-up"] as const;
@@ -21,3 +24,13 @@ export const groupsSearch = z.object({
 
 export type GroupsSearch = z.output<typeof groupsSearch>;
 export type GroupFilter = Exclude<keyof GroupsSearch, "q">;
+
+const groupTabParam = z.catch(z._default(z.enum(["offsets", "members"]), "offsets"), "offsets");
+
+export const groupDetailSearch = z.object({
+  tab: groupTabParam,
+});
+
+export function groupTab(value: unknown) {
+  return z.parse(groupTabParam, value);
+}

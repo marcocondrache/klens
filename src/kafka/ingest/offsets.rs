@@ -11,7 +11,7 @@ use tokio::time::Instant;
 use crate::config::IngestTuning;
 use crate::kafka::group::CommittedOffset;
 use crate::kafka::session::ClusterSession;
-use crate::kafka::store::projections::group_offsets;
+use crate::kafka::store::projections::GroupLag;
 use crate::kafka::store::{
     Change, ClusterStore, GroupInfo, GroupLagUpdate, GroupOffsets, GroupOffsetsWave, OffsetTable,
     Topology,
@@ -131,7 +131,6 @@ impl OffsetLane {
             }
         }
 
-        self.retain(topology);
         let next = Arc::new(OffsetTable { groups });
         store.offsets.commit(Arc::clone(&next));
 
@@ -242,18 +241,16 @@ impl OffsetLane {
             .iter()
             .filter_map(|id| {
                 let group = topology.group(id)?;
-                let (offsets, Some(total_lag), lag_complete) = group_offsets(
+                let lag = GroupLag::project(
                     group,
                     offsets.get(id).map(Arc::as_ref),
                     watermarks.as_deref(),
-                ) else {
-                    return None;
-                };
+                );
                 let update = GroupLagUpdate {
                     group: Arc::clone(id),
-                    total_lag,
-                    lag_complete,
-                    offsets,
+                    total_lag: lag.total?,
+                    lag_complete: lag.complete,
+                    offsets: lag.offsets,
                 };
                 let fingerprint = self.fingerprint.hash_one(&update);
                 if published.insert(Arc::clone(id), fingerprint) == Some(fingerprint) {
@@ -265,11 +262,11 @@ impl OffsetLane {
     }
 }
 
-fn offset_fetch_partitions(
-    topology: &Topology,
-    previous: Option<&OffsetTable>,
+fn offset_fetch_partitions<'a>(
+    topology: &'a Topology,
+    previous: Option<&'a OffsetTable>,
     id: &str,
-) -> Option<Vec<(String, i32)>> {
+) -> Option<Vec<(&'a str, i32)>> {
     let mut partitions: Vec<(&str, i32)> = topology
         .group(id)
         .into_iter()
@@ -285,12 +282,7 @@ fn offset_fetch_partitions(
 
     partitions.sort_unstable();
     partitions.dedup();
-    Some(
-        partitions
-            .into_iter()
-            .map(|(topic, partition)| (topic.to_owned(), partition))
-            .collect(),
-    )
+    Some(partitions)
 }
 
 fn stale_groups(topology: &Topology, previous: Option<&OffsetTable>) -> Vec<Arc<str>> {

@@ -11,7 +11,7 @@ use super::super::context::Session;
 use super::super::error::ApiError;
 use super::super::extract::{Path, Query};
 use super::denied;
-use super::types::{ExportParams, Record, export_query};
+use super::types::{ExportParams, Record};
 
 pub(super) async fn export(
     session: Session,
@@ -20,7 +20,7 @@ pub(super) async fn export(
 ) -> Result<Response, ApiError> {
     let records = session.cluster(&name)?.records()?;
     let disposition = format!("attachment; filename=\"{topic}.ndjson\"");
-    let export = records.export(export_query(topic, params)?).await?;
+    let export = records.export(params.into_query(topic)?).await?;
     let lines = Lines {
         export,
         guard: session.guard,

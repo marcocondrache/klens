@@ -150,117 +150,137 @@ fn lag_of(committed: Option<i64>, end: Option<i64>) -> Option<i64> {
     Some((end? - committed?).max(0))
 }
 
-pub fn topic_row(
-    name: &Arc<str>,
-    topic: &TopicInfo,
-    watermarks: Option<&WatermarkTable>,
-    configs: Option<&ConfigTable>,
-    log_dirs: Option<&LogDirTable>,
-    topology: &Topology,
-    rate: f64,
-) -> TopicRow {
-    let (cleanup_policy, retention_ms) =
-        topic_config_values(configs.and_then(|configs| configs.get(name)));
+#[derive(Debug, Clone, Copy)]
+pub struct TopicLanes<'a> {
+    pub topology: &'a Topology,
+    pub watermarks: Option<&'a WatermarkTable>,
+    pub configs: Option<&'a ConfigTable>,
+    pub log_dirs: Option<&'a LogDirTable>,
+}
 
-    TopicRow {
-        name: Arc::clone(name),
-        internal: topic.internal,
-        partition_count: topic.partitions.len() as i32,
-        replication_factor: topic.replication_factor(),
-        retained_messages: watermarks.map(|marks| marks.retained(name)).unwrap_or(0),
-        produced_total: watermarks.map(|marks| marks.produced(name)).unwrap_or(0),
-        size_bytes: log_dirs
-            .and_then(|table| table.topic(name))
-            .map(|storage| storage.size_bytes),
-        rate,
-        retention_ms,
-        cleanup_policy,
-        group_count: topology.groups_for_topic(name).len() as i32,
-        under_replicated: topic.under_replicated(),
+impl TopicRow {
+    pub fn project(name: &Arc<str>, topic: &TopicInfo, lanes: TopicLanes<'_>, rate: f64) -> Self {
+        let (cleanup_policy, retention_ms) =
+            topic_config_values(lanes.configs.and_then(|configs| configs.get(name)));
+
+        Self {
+            name: Arc::clone(name),
+            internal: topic.internal,
+            partition_count: topic.partitions.len() as i32,
+            replication_factor: topic.replication_factor(),
+            retained_messages: lanes
+                .watermarks
+                .map(|marks| marks.retained(name))
+                .unwrap_or(0),
+            produced_total: lanes
+                .watermarks
+                .map(|marks| marks.produced(name))
+                .unwrap_or(0),
+            size_bytes: lanes
+                .log_dirs
+                .and_then(|table| table.topic(name))
+                .map(|storage| storage.size_bytes),
+            rate,
+            retention_ms,
+            cleanup_policy,
+            group_count: lanes.topology.groups_for_topic(name).len() as i32,
+            under_replicated: topic.under_replicated(),
+        }
     }
 }
 
-pub fn topic_detail(
-    name: &Arc<str>,
-    topic: &TopicInfo,
-    watermarks: Option<&WatermarkTable>,
-    configs: Option<&ConfigTable>,
-    log_dirs: Option<&LogDirTable>,
-    topology: &Topology,
-    rate: f64,
-) -> TopicDetail {
-    let partitions: Vec<PartitionRow> = topic
-        .partitions
-        .iter()
-        .map(|partition| {
-            let marks = watermarks
-                .and_then(|table| table.get(name, partition.id))
-                .unwrap_or_default();
-            PartitionRow {
-                id: partition.id,
-                leader: partition.leader,
-                replicas: partition.replicas.clone(),
-                isr: partition.isr.clone(),
-                low_watermark: marks.low,
-                high_watermark: marks.high,
-                size_bytes: log_dirs
-                    .and_then(|table| table.partition(name, partition.id))
-                    .map(|storage| storage.size_bytes),
-            }
-        })
-        .collect();
-    let storage = log_dirs.and_then(|table| table.topic(name));
-
-    let (cleanup_policy, retention_ms) =
-        topic_config_values(configs.and_then(|configs| configs.get(name)));
-
-    TopicDetail {
-        name: Arc::clone(name),
-        internal: topic.internal,
-        replication_factor: topic.replication_factor(),
-        retained_messages: partitions.iter().map(PartitionRow::retained).sum(),
-        produced_total: partitions
+impl TopicDetail {
+    pub fn project(name: &Arc<str>, topic: &TopicInfo, lanes: TopicLanes<'_>, rate: f64) -> Self {
+        let partitions: Vec<PartitionRow> = topic
+            .partitions
             .iter()
-            .map(|partition| partition.high_watermark.max(0))
-            .sum(),
-        size_bytes: storage.map(|storage| storage.size_bytes),
-        disk_bytes: storage.map(|storage| storage.disk_bytes),
-        rate,
-        retention_ms,
-        cleanup_policy,
-        group_count: topology.groups_for_topic(name).len() as i32,
-        under_replicated: partitions.iter().any(PartitionRow::under_replicated),
-        partitions,
+            .map(|partition| {
+                let marks = lanes
+                    .watermarks
+                    .and_then(|table| table.get(name, partition.id))
+                    .unwrap_or_default();
+                PartitionRow {
+                    id: partition.id,
+                    leader: partition.leader,
+                    replicas: partition.replicas.clone(),
+                    isr: partition.isr.clone(),
+                    low_watermark: marks.low,
+                    high_watermark: marks.high,
+                    size_bytes: lanes
+                        .log_dirs
+                        .and_then(|table| table.partition(name, partition.id))
+                        .map(|storage| storage.size_bytes),
+                }
+            })
+            .collect();
+        let storage = lanes.log_dirs.and_then(|table| table.topic(name));
+
+        let (cleanup_policy, retention_ms) =
+            topic_config_values(lanes.configs.and_then(|configs| configs.get(name)));
+
+        Self {
+            name: Arc::clone(name),
+            internal: topic.internal,
+            replication_factor: topic.replication_factor(),
+            retained_messages: partitions.iter().map(PartitionRow::retained).sum(),
+            produced_total: partitions
+                .iter()
+                .map(|partition| partition.high_watermark.max(0))
+                .sum(),
+            size_bytes: storage.map(|storage| storage.size_bytes),
+            disk_bytes: storage.map(|storage| storage.disk_bytes),
+            rate,
+            retention_ms,
+            cleanup_policy,
+            group_count: lanes.topology.groups_for_topic(name).len() as i32,
+            under_replicated: partitions.iter().any(PartitionRow::under_replicated),
+            partitions,
+        }
     }
 }
 
-pub fn group_offsets(
-    group: &GroupInfo,
-    offsets: Option<&GroupOffsets>,
-    watermarks: Option<&WatermarkTable>,
-) -> (Vec<GroupOffset>, Option<i64>, bool) {
-    let owners = group.owners();
-    let mut positions: Vec<_> = positions(group, offsets, None).into_iter().collect();
-    positions.sort_unstable_by_key(|(key, _)| *key);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GroupLag {
+    pub offsets: Vec<GroupOffset>,
+    /// `None` until the offset lane has read the group's committed offsets.
+    pub total: Option<i64>,
+    /// Whether `total` counts every partition, which takes a high watermark for each.
+    pub complete: bool,
+}
 
-    let rows: Vec<GroupOffset> = positions
-        .into_iter()
-        .map(|((topic, partition), current)| {
-            let end = high_watermark(watermarks, topic, partition);
-            GroupOffset {
-                topic: topic.to_owned(),
-                partition,
-                current_offset: current,
-                end_offset: end,
-                lag: lag_of(current, end),
-                member_id: owners
-                    .get(&(topic, partition))
-                    .map(|member| (*member).to_owned()),
-            }
-        })
-        .collect();
-    let (total, complete) = lag_totals(offsets.is_some(), rows.iter().map(|row| row.lag));
-    (rows, total, complete)
+impl GroupLag {
+    pub fn project(
+        group: &GroupInfo,
+        offsets: Option<&GroupOffsets>,
+        watermarks: Option<&WatermarkTable>,
+    ) -> Self {
+        let owners = group.owners();
+        let mut positions: Vec<_> = positions(group, offsets, None).into_iter().collect();
+        positions.sort_unstable_by_key(|(key, _)| *key);
+
+        let rows: Vec<GroupOffset> = positions
+            .into_iter()
+            .map(|((topic, partition), current)| {
+                let end = high_watermark(watermarks, topic, partition);
+                GroupOffset {
+                    topic: topic.to_owned(),
+                    partition,
+                    current_offset: current,
+                    end_offset: end,
+                    lag: lag_of(current, end),
+                    member_id: owners
+                        .get(&(topic, partition))
+                        .map(|member| (*member).to_owned()),
+                }
+            })
+            .collect();
+        let (total, complete) = lag_totals(offsets.is_some(), rows.iter().map(|row| row.lag));
+        Self {
+            offsets: rows,
+            total,
+            complete,
+        }
+    }
 }
 
 fn positions<'a>(
@@ -322,116 +342,127 @@ fn high_watermark(watermarks: Option<&WatermarkTable>, topic: &str, partition: i
         .map(|marks: Watermarks| marks.high)
 }
 
-pub fn group_row(
-    id: &Arc<str>,
-    group: &GroupInfo,
-    offsets: Option<&GroupOffsets>,
-    watermarks: Option<&WatermarkTable>,
-) -> GroupRow {
-    let positions = positions(group, offsets, None);
-    let (total_lag, lag_complete) = positions_lag(&positions, offsets.is_some(), watermarks);
-    GroupRow {
-        id: Arc::clone(id),
-        state: group.state,
-        member_count: group.members.len() as i32,
-        topic_names: unique_topics(positions.keys().map(|(topic, _)| *topic)),
-        total_lag,
-        lag_complete,
-    }
-}
-
-pub fn group_detail(
-    id: &Arc<str>,
-    group: &GroupInfo,
-    offsets: Option<&GroupOffsets>,
-    watermarks: Option<&WatermarkTable>,
-) -> GroupDetail {
-    let (offsets, total_lag, lag_complete) = group_offsets(group, offsets, watermarks);
-    GroupDetail {
-        id: Arc::clone(id),
-        state: group.state,
-        protocol: group.protocol.clone(),
-        members: group.members.clone(),
-        offsets,
-        total_lag,
-        lag_complete,
-    }
-}
-
-pub fn topic_group_row(
-    id: &Arc<str>,
-    topic: &str,
-    group: &GroupInfo,
-    offsets: Option<&GroupOffsets>,
-    watermarks: Option<&WatermarkTable>,
-) -> TopicGroupRow {
-    let positions = positions(group, offsets, Some(topic));
-    let (lag_on_topic, _) = positions_lag(&positions, offsets.is_some(), watermarks);
-    TopicGroupRow {
-        id: Arc::clone(id),
-        state: group.state,
-        member_count: group.members.len() as i32,
-        lag_on_topic,
-    }
-}
-
-pub fn broker_rows(topology: &Topology, log_dirs: Option<&LogDirTable>) -> Vec<BrokerRow> {
-    let mut partition_counts: HashMap<i32, i32> = HashMap::with_capacity(topology.brokers.len());
-    let mut leader_counts: HashMap<i32, i32> = HashMap::with_capacity(topology.brokers.len());
-    for partition in topology
-        .topics
-        .values()
-        .flat_map(|topic| topic.partitions.iter())
-    {
-        for replica in &partition.replicas {
-            *partition_counts.entry(*replica).or_default() += 1;
-        }
-        if !partition.offline() {
-            *leader_counts.entry(partition.leader).or_default() += 1;
+impl GroupRow {
+    pub fn project(
+        id: &Arc<str>,
+        group: &GroupInfo,
+        offsets: Option<&GroupOffsets>,
+        watermarks: Option<&WatermarkTable>,
+    ) -> Self {
+        let positions = positions(group, offsets, None);
+        let (total_lag, lag_complete) = positions_lag(&positions, offsets.is_some(), watermarks);
+        Self {
+            id: Arc::clone(id),
+            state: group.state,
+            member_count: group.members.len() as i32,
+            topic_names: unique_topics(positions.keys().map(|(topic, _)| *topic)),
+            total_lag,
+            lag_complete,
         }
     }
+}
 
-    topology
-        .brokers
-        .iter()
-        .map(|(id, broker)| {
-            let dirs = log_dirs.and_then(|table| table.broker(*id));
-            BrokerRow {
-                id: *id,
-                host: broker.host.clone(),
-                port: broker.port,
-                rack: broker.rack.clone(),
-                controller: topology.controller == Some(*id),
-                partition_count: partition_counts.get(id).copied().unwrap_or(0),
-                leader_count: leader_counts.get(id).copied().unwrap_or(0),
-                size_bytes: dirs.map(|dirs| dirs.iter().map(|dir| dir.size_bytes).sum()),
-                log_dirs: dirs.map(<[LogDirInfo]>::to_vec).unwrap_or_default(),
+impl GroupDetail {
+    pub fn project(
+        id: &Arc<str>,
+        group: &GroupInfo,
+        offsets: Option<&GroupOffsets>,
+        watermarks: Option<&WatermarkTable>,
+    ) -> Self {
+        let lag = GroupLag::project(group, offsets, watermarks);
+        Self {
+            id: Arc::clone(id),
+            state: group.state,
+            protocol: group.protocol.clone(),
+            members: group.members.clone(),
+            offsets: lag.offsets,
+            total_lag: lag.total,
+            lag_complete: lag.complete,
+        }
+    }
+}
+
+impl TopicGroupRow {
+    pub fn project(
+        id: &Arc<str>,
+        topic: &str,
+        group: &GroupInfo,
+        offsets: Option<&GroupOffsets>,
+        watermarks: Option<&WatermarkTable>,
+    ) -> Self {
+        let positions = positions(group, offsets, Some(topic));
+        let (lag_on_topic, _) = positions_lag(&positions, offsets.is_some(), watermarks);
+        Self {
+            id: Arc::clone(id),
+            state: group.state,
+            member_count: group.members.len() as i32,
+            lag_on_topic,
+        }
+    }
+}
+
+impl BrokerRow {
+    pub fn all(topology: &Topology, log_dirs: Option<&LogDirTable>) -> Vec<Self> {
+        let mut partition_counts: HashMap<i32, i32> =
+            HashMap::with_capacity(topology.brokers.len());
+        let mut leader_counts: HashMap<i32, i32> = HashMap::with_capacity(topology.brokers.len());
+        for partition in topology
+            .topics
+            .values()
+            .flat_map(|topic| topic.partitions.iter())
+        {
+            for replica in &partition.replicas {
+                *partition_counts.entry(*replica).or_default() += 1;
             }
-        })
-        .collect()
+            if !partition.offline() {
+                *leader_counts.entry(partition.leader).or_default() += 1;
+            }
+        }
+
+        topology
+            .brokers
+            .iter()
+            .map(|(id, broker)| {
+                let dirs = log_dirs.and_then(|table| table.broker(*id));
+                Self {
+                    id: *id,
+                    host: broker.host.clone(),
+                    port: broker.port,
+                    rack: broker.rack.clone(),
+                    controller: topology.controller == Some(*id),
+                    partition_count: partition_counts.get(id).copied().unwrap_or(0),
+                    leader_count: leader_counts.get(id).copied().unwrap_or(0),
+                    size_bytes: dirs.map(|dirs| dirs.iter().map(|dir| dir.size_bytes).sum()),
+                    log_dirs: dirs.map(<[LogDirInfo]>::to_vec).unwrap_or_default(),
+                }
+            })
+            .collect()
+    }
 }
 
-pub fn subject_rows(subjects: &SubjectTable, ids: Option<&SchemaIdTable>) -> Vec<SubjectRow> {
-    subjects
-        .subjects
-        .iter()
-        .map(|(subject, info)| SubjectRow {
-            subject: Arc::clone(subject),
-            info: info.clone(),
-            versions: info
-                .versions
-                .iter()
-                .map(|&version| SubjectVersion {
-                    version,
-                    id: if version == info.latest_version {
-                        Some(info.id)
-                    } else {
-                        ids.and_then(|ids| ids.get(subject, version))
-                    },
-                })
-                .collect(),
-        })
-        .collect()
+impl SubjectRow {
+    pub fn all(subjects: &SubjectTable, ids: Option<&SchemaIdTable>) -> Vec<Self> {
+        subjects
+            .subjects
+            .iter()
+            .map(|(subject, info)| Self {
+                subject: Arc::clone(subject),
+                info: info.clone(),
+                versions: info
+                    .versions
+                    .iter()
+                    .map(|&version| SubjectVersion {
+                        version,
+                        id: if version == info.latest_version {
+                            Some(info.id)
+                        } else {
+                            ids.and_then(|ids| ids.get(subject, version))
+                        },
+                    })
+                    .collect(),
+            })
+            .collect()
+    }
 }
 
 pub fn offsets_for<'a>(offsets: Option<&'a OffsetTable>, group: &str) -> Option<&'a GroupOffsets> {
@@ -470,6 +501,15 @@ mod tests {
         )
     }
 
+    fn lanes(topology: &Topology) -> TopicLanes<'_> {
+        TopicLanes {
+            topology,
+            watermarks: None,
+            configs: None,
+            log_dirs: None,
+        }
+    }
+
     fn marks() -> WatermarkTable {
         watermarks(&[("orders", 0, 20, 100), ("orders", 1, 0, 50)])
     }
@@ -479,7 +519,15 @@ mod tests {
         let topology = topology();
         let (name, topic) = topology.topics.iter().next().unwrap();
 
-        let row = topic_row(name, topic, Some(&marks()), None, None, &topology, 12.5);
+        let row = TopicRow::project(
+            name,
+            topic,
+            TopicLanes {
+                watermarks: Some(&marks()),
+                ..lanes(&topology)
+            },
+            12.5,
+        );
 
         assert_eq!(row.partition_count, 2);
         assert_eq!(row.replication_factor, 2);
@@ -495,7 +543,7 @@ mod tests {
         let topology = topology();
         let (name, topic) = topology.topics.iter().next().unwrap();
 
-        let row = topic_row(name, topic, None, None, None, &topology, 0.0);
+        let row = TopicRow::project(name, topic, lanes(&topology), 0.0);
         assert_eq!(row.retained_messages, 0);
         assert_eq!(row.cleanup_policy, CleanupPolicy::Delete);
         assert_eq!(
@@ -503,7 +551,7 @@ mod tests {
             "retention is unknown before the configs lane fetches this topic"
         );
 
-        let detail = topic_detail(name, topic, None, None, None, &topology, 0.0);
+        let detail = TopicDetail::project(name, topic, lanes(&topology), 0.0);
         assert_eq!(detail.partitions.len(), 2);
         assert_eq!(detail.partitions[0].high_watermark, 0);
         assert_eq!(detail.retention_ms, None);
@@ -523,11 +571,27 @@ mod tests {
             )]),
         };
 
-        let row = topic_row(name, topic, None, Some(&configs), None, &topology, 0.0);
+        let row = TopicRow::project(
+            name,
+            topic,
+            TopicLanes {
+                configs: Some(&configs),
+                ..lanes(&topology)
+            },
+            0.0,
+        );
         assert_eq!(row.cleanup_policy, CleanupPolicy::Compact);
         assert_eq!(row.retention_ms, Some(604_800_000));
 
-        let detail = topic_detail(name, topic, None, Some(&configs), None, &topology, 4.0);
+        let detail = TopicDetail::project(
+            name,
+            topic,
+            TopicLanes {
+                configs: Some(&configs),
+                ..lanes(&topology)
+            },
+            4.0,
+        );
         assert_eq!(detail.cleanup_policy, CleanupPolicy::Compact);
         assert_eq!(detail.retention_ms, Some(604_800_000));
         assert_eq!(detail.rate, 4.0);
@@ -538,7 +602,15 @@ mod tests {
         let topology = topology();
         let (name, topic) = topology.topics.iter().next().unwrap();
 
-        let detail = topic_detail(name, topic, Some(&marks()), None, None, &topology, 12.5);
+        let detail = TopicDetail::project(
+            name,
+            topic,
+            TopicLanes {
+                watermarks: Some(&marks()),
+                ..lanes(&topology)
+            },
+            12.5,
+        );
 
         assert_eq!(detail.partitions[1].isr, vec![1]);
         assert_eq!(detail.partitions[1].replicas, vec![1, 2]);
@@ -561,7 +633,7 @@ mod tests {
         );
         let (name, topic) = topology.topics.iter().next().unwrap();
 
-        let detail = topic_detail(name, topic, None, None, None, &topology, 0.0);
+        let detail = TopicDetail::project(name, topic, lanes(&topology), 0.0);
 
         assert!(!detail.partitions[0].offline(), "broker 0 leads it");
         assert!(detail.partitions[1].offline());
@@ -572,7 +644,7 @@ mod tests {
         let topology = topology();
         let (id, group) = topology.groups.iter().next().unwrap();
 
-        let row = group_row(
+        let row = GroupRow::project(
             id,
             group,
             Some(&offsets(&[("orders", 0, 90), ("orders", 1, 20)])),
@@ -590,7 +662,7 @@ mod tests {
         let topology = topology();
         let (id, group) = topology.groups.iter().next().unwrap();
 
-        let row = group_row(
+        let row = GroupRow::project(
             id,
             group,
             Some(&offsets(&[("orders", 0, 500)])),
@@ -609,7 +681,7 @@ mod tests {
         let topology = topology();
         let (id, group) = topology.groups.iter().next().unwrap();
 
-        let row = group_row(
+        let row = GroupRow::project(
             id,
             group,
             Some(&offsets(&[("orders", 0, 90)])),
@@ -628,7 +700,7 @@ mod tests {
         let topology = topology();
         let (id, group) = topology.groups.iter().next().unwrap();
 
-        let row = group_row(
+        let row = GroupRow::project(
             id,
             group,
             Some(&offsets(&[("orders", 0, 90)])),
@@ -647,7 +719,7 @@ mod tests {
         let topology = topology();
         let (id, group) = topology.groups.iter().next().unwrap();
 
-        let detail = group_detail(id, group, Some(&offsets(&[])), Some(&marks()));
+        let detail = GroupDetail::project(id, group, Some(&offsets(&[])), Some(&marks()));
 
         assert_eq!(detail.total_lag, Some(150));
         assert_eq!(detail.offsets.len(), 2);
@@ -670,7 +742,7 @@ mod tests {
         let marks = watermarks(&[("orders", 0, 0, 10), ("payments", 0, 0, 900)]);
 
         let fetched = offsets(&[]);
-        let row = topic_group_row(id, "orders", group, Some(&fetched), Some(&marks));
+        let row = TopicGroupRow::project(id, "orders", group, Some(&fetched), Some(&marks));
         assert_eq!(row.lag_on_topic, Some(10));
         assert_eq!(row.member_count, 1);
     }
@@ -688,7 +760,7 @@ mod tests {
             Vec::new(),
         );
 
-        let rows = broker_rows(&topology, None);
+        let rows = BrokerRow::all(&topology, None);
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].partition_count, 2);
         assert_eq!(
@@ -718,7 +790,7 @@ mod tests {
     fn broker_rows_sum_their_log_dirs() {
         let topology = topology();
 
-        let rows = broker_rows(&topology, Some(&storage()));
+        let rows = BrokerRow::all(&topology, Some(&storage()));
 
         assert_eq!(rows[0].size_bytes, Some(350));
         assert_eq!(rows[0].log_dirs.len(), 2);
@@ -731,10 +803,26 @@ mod tests {
         let (name, topic) = topology.topics.iter().next().unwrap();
         let storage = storage();
 
-        let row = topic_row(name, topic, None, None, Some(&storage), &topology, 0.0);
+        let row = TopicRow::project(
+            name,
+            topic,
+            TopicLanes {
+                log_dirs: Some(&storage),
+                ..lanes(&topology)
+            },
+            0.0,
+        );
         assert_eq!(row.size_bytes, Some(350));
 
-        let detail = topic_detail(name, topic, None, None, Some(&storage), &topology, 0.0);
+        let detail = TopicDetail::project(
+            name,
+            topic,
+            TopicLanes {
+                log_dirs: Some(&storage),
+                ..lanes(&topology)
+            },
+            0.0,
+        );
         assert_eq!(detail.size_bytes, Some(350));
         assert_eq!(detail.disk_bytes, Some(680));
         assert_eq!(detail.partitions[0].size_bytes, Some(300));
@@ -747,8 +835,24 @@ mod tests {
         let (name, topic) = topology.topics.iter().next().unwrap();
         let storage = LogDirTable::default();
 
-        let row = topic_row(name, topic, None, None, Some(&storage), &topology, 0.0);
-        let detail = topic_detail(name, topic, None, None, Some(&storage), &topology, 0.0);
+        let row = TopicRow::project(
+            name,
+            topic,
+            TopicLanes {
+                log_dirs: Some(&storage),
+                ..lanes(&topology)
+            },
+            0.0,
+        );
+        let detail = TopicDetail::project(
+            name,
+            topic,
+            TopicLanes {
+                log_dirs: Some(&storage),
+                ..lanes(&topology)
+            },
+            0.0,
+        );
 
         assert_eq!(row.size_bytes, None);
         assert_eq!(detail.size_bytes, None);
@@ -758,8 +862,10 @@ mod tests {
 
     #[test]
     fn a_subject_row_joins_the_latest_id_with_the_ids_learned_for_older_versions() {
-        let subjects =
-            SubjectTable::assemble(&[subject("orders-value", 7, 3)], &mut Interner::default());
+        let subjects = SubjectTable::assemble(
+            vec![subject("orders-value", 7, 3)],
+            &mut Interner::default(),
+        );
         let ids = SchemaIdTable {
             subjects: BTreeMap::from([(Arc::from("orders-value"), BTreeMap::from([(1, 5)]))]),
         };
@@ -772,11 +878,11 @@ mod tests {
         };
 
         assert_eq!(
-            ids_of(subject_rows(&subjects, Some(&ids))),
+            ids_of(SubjectRow::all(&subjects, Some(&ids))),
             [(1, Some(5)), (2, None), (3, Some(7))]
         );
         assert_eq!(
-            ids_of(subject_rows(&subjects, None)),
+            ids_of(SubjectRow::all(&subjects, None)),
             [(1, None), (2, None), (3, Some(7))],
             "the latest id comes with the subject list"
         );

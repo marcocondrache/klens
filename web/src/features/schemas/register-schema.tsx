@@ -202,8 +202,8 @@ function RegisterSchemaForm({
           <ToggleGroup
             value={[type]}
             onValueChange={(next) => {
-              const picked = next[0] as SchemaType | undefined;
-              if (picked) setType(picked);
+              const picked = TYPES.find((entry) => entry.value === next[0]);
+              if (picked) setType(picked.value);
             }}
             variant="outline"
             size="sm"

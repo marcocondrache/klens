@@ -58,7 +58,6 @@ impl AclsQuery {
         let names = NameFilter::new(self.contains.as_deref());
         let bindings = rows
             .iter()
-            .map(Acl::from)
             .filter(|acl| {
                 names.matches(&acl.principal)
                     || names.matches(&acl.resource_name)
@@ -66,16 +65,17 @@ impl AclsQuery {
             })
             .filter(|acl| {
                 self.resource_type
-                    .is_none_or(|kind| acl.resource_type == kind)
+                    .is_none_or(|kind| AclResourceType::from(acl.resource_type) == kind)
             })
             .filter(|acl| {
                 self.operation
-                    .is_none_or(|operation| acl.operation == operation)
+                    .is_none_or(|operation| AclOperation::from(acl.operation) == operation)
             })
             .filter(|acl| {
                 self.permission
-                    .is_none_or(|permission| acl.permission == permission)
+                    .is_none_or(|permission| AclPermission::from(acl.permission) == permission)
             })
+            .map(Acl::from)
             .collect();
         (status, bindings)
     }

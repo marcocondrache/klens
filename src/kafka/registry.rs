@@ -142,7 +142,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_compatibility_level_survives_the_trip_to_the_registry() {
+    fn every_compatibility_level_keeps_its_name_through_the_trip_to_the_registry() {
         for level in [
             Level::Backward,
             Level::BackwardTransitive,
@@ -152,25 +152,10 @@ mod tests {
             Level::FullTransitive,
             Level::None,
         ] {
-            assert_eq!(Level::from(SchemaCompatibility::from(level)), level);
-        }
-    }
+            let ours = SchemaCompatibility::from(level);
 
-    #[test]
-    fn every_registry_compatibility_level_keeps_its_name() {
-        for level in [
-            Level::Backward,
-            Level::BackwardTransitive,
-            Level::Forward,
-            Level::ForwardTransitive,
-            Level::Full,
-            Level::FullTransitive,
-            Level::None,
-        ] {
-            assert_eq!(
-                format!("{:?}", SchemaCompatibility::from(level)),
-                format!("{level:?}")
-            );
+            assert_eq!(Level::from(ours), level);
+            assert_eq!(format!("{ours:?}"), format!("{level:?}"));
         }
     }
 }

@@ -157,7 +157,6 @@ pub(super) use reply;
 
 /// A tool result that may need cutting to fit.
 pub(super) trait Reply: Serialize {
-    /// Every list in the reply.
     fn lists(&mut self) -> Vec<&mut dyn Cut>;
 
     /// What the client keeps whole when a list is cut, or `None` when the reply
@@ -235,14 +234,26 @@ pub(super) fn search(
     most: usize,
     mut showing: impl FnMut(usize) -> CallToolResult,
 ) -> CallToolResult {
+    // A row takes at least a byte, so more rows than bytes never fit, and an
+    // uncapped list would render whole just to learn that.
+    let most = most.min(RESULT_BYTES);
     let full = showing(most);
     if fits(&full) {
         return full;
     }
-    // Counted from 1, the partition point is the most that fits.
-    let counts: Vec<usize> = (1..most).collect();
-    let fitting = counts.partition_point(|&rows| fits(&showing(rows)));
-    showing(fitting)
+    // `fitting` rows fit, or it is 0, and `too_many` rows do not.
+    let (mut fitting, mut too_many, mut best) = (0, most, None);
+    while too_many - fitting > 1 {
+        let rows = fitting + (too_many - fitting) / 2;
+        let result = showing(rows);
+        if fits(&result) {
+            fitting = rows;
+            best = Some(result);
+        } else {
+            too_many = rows;
+        }
+    }
+    best.unwrap_or_else(|| showing(0))
 }
 
 pub(super) fn fits(result: &CallToolResult) -> bool {

@@ -268,11 +268,11 @@ impl TopicSummary {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct PartitionRow {
+struct PartitionRow<'a> {
     partition: i32,
     leader: Option<i32>,
-    replicas: Vec<i32>,
-    isr: Vec<i32>,
+    replicas: &'a [i32],
+    isr: &'a [i32],
     under_replicated: bool,
     offline: bool,
     low_watermark: Option<i64>,
@@ -281,13 +281,13 @@ struct PartitionRow {
     size_bytes: Option<i64>,
 }
 
-impl PartitionRow {
-    fn new(row: &projections::PartitionRow, counted: bool) -> Self {
+impl<'a> PartitionRow<'a> {
+    fn new(row: &'a projections::PartitionRow, counted: bool) -> Self {
         Self {
             partition: row.id,
             leader: (!row.offline()).then_some(row.leader),
-            replicas: row.replicas.clone(),
-            isr: row.isr.clone(),
+            replicas: &row.replicas,
+            isr: &row.isr,
             under_replicated: row.under_replicated(),
             offline: row.offline(),
             low_watermark: counted.then_some(row.low_watermark),
@@ -300,19 +300,19 @@ impl PartitionRow {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct TopicDescription {
+struct TopicDescription<'a> {
     #[serde(flatten)]
     topic: TopicSummary,
     #[serde(flatten)]
     configs: ConfigSection,
     groups: Rows<TopicGroupRow>,
     subjects: Option<Vec<SubjectRow>>,
-    partitions: Rows<PartitionRow>,
+    partitions: Rows<PartitionRow<'a>>,
     notice: String,
 }
 
-impl TopicDescription {
-    fn read(cluster: &ClusterHandle<'_>, detail: &TopicDetail) -> Result<Self, ApiError> {
+impl<'a> TopicDescription<'a> {
+    fn read(cluster: &ClusterHandle<'_>, detail: &'a TopicDetail) -> Result<Self, ApiError> {
         let boundary = Boundary::new();
         let partitions = Self::partitions(cluster, detail);
         let counted = partitions
@@ -333,7 +333,7 @@ impl TopicDescription {
         })
     }
 
-    fn partitions(cluster: &ClusterHandle<'_>, detail: &TopicDetail) -> Vec<PartitionRow> {
+    fn partitions(cluster: &ClusterHandle<'_>, detail: &'a TopicDetail) -> Vec<PartitionRow<'a>> {
         let watermarks = cluster.store.watermarks.load();
         detail
             .partitions
@@ -366,7 +366,10 @@ impl TopicDescription {
         }
         Ok(match cluster.store.topic_configs(topic) {
             Some(entries) => ConfigSection::overrides(entries),
-            None => ConfigSection::not_read(cluster.store.configs.health().last_error, boundary),
+            None => ConfigSection::not_read(
+                cluster.store.configs.health().last_error.as_deref(),
+                boundary,
+            ),
         })
     }
 
@@ -385,7 +388,7 @@ impl TopicDescription {
     }
 }
 
-reply!(TopicDescription: configs, groups, partitions; "the counts above cover every partition");
+reply!(TopicDescription<'_>: configs, groups, partitions; "the counts above cover every partition");
 
 #[tool_router(router = topic_tools, vis = "pub(super)")]
 impl KlensMcp {

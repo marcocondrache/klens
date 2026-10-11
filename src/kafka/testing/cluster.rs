@@ -678,7 +678,7 @@ impl ClusterSession for FakeCluster {
     async fn committed_offsets(
         &self,
         group_id: &str,
-        partitions: Option<&[(String, i32)]>,
+        partitions: Option<&[(&str, i32)]>,
     ) -> Result<Vec<CommittedOffset>, KafkaError> {
         self.answer(Api::CommittedOffsets).await?;
         let wanted = |offset: &&CommittedOffset| {

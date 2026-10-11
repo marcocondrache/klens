@@ -112,7 +112,6 @@ export function FilterBar<TData>(props: FilterBarProps<TData>) {
   );
 }
 
-/** Checkbox items for a field's options, with how many rows each would match. */
 function OptionItems<TData>({
   field,
   fields,

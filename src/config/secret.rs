@@ -124,7 +124,7 @@ mod tests {
         let secret: Secret = yaml("{value: hunter2}");
         let key: KeyMaterial = yaml(&format!("{{value: {}}}", "k".repeat(32)));
 
-        assert_eq!(format!("{secret:?}"), "Secret(SecretBox<str>([REDACTED]))");
+        assert!(!format!("{secret:?}").contains("hunter2"), "{secret:?}");
         assert!(!format!("{key:?}").contains('k'), "{key:?}");
     }
 

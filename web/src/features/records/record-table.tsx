@@ -3,7 +3,6 @@ import {
   useTable,
   type Column,
   type ColumnDef,
-  type Header,
   type ReactTable,
   type RowData,
 } from "@tanstack/react-table";
@@ -275,8 +274,8 @@ function HeaderRow<TData extends RowData>({
       )}
       style={{ gridTemplateColumns }}
     >
-      {headers.map((header: Header<DataTableFeatures, TData, unknown>) => {
-        const column = header.column as Column<DataTableFeatures, TData, unknown>;
+      {headers.map((header) => {
+        const column = header.column;
         const meta = column.columnDef.meta;
 
         return (

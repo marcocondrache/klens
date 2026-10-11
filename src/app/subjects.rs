@@ -5,7 +5,6 @@ use axum::routing::get;
 use serde::Deserialize;
 
 use crate::AppState;
-use crate::kafka::KafkaError;
 use crate::kafka::model::SchemaDeletion;
 
 use super::context::Session;
@@ -65,7 +64,7 @@ async fn subject(
     let schema_text = cluster.schema_text()?;
     let version = match query.version {
         Some(version) => version,
-        None => latest_version(&cluster, &subject)?,
+        None => cluster.latest_version(&subject)?,
     };
 
     let schema = schema_text.subject_schema(&subject, version).await?;
@@ -121,23 +120,4 @@ async fn delete_schema(
         })
         .await?;
     Ok(StatusCode::NO_CONTENT)
-}
-
-pub(crate) fn latest_version(
-    cluster: &super::context::ClusterHandle<'_>,
-    subject: &str,
-) -> Result<i32, ApiError> {
-    cluster
-        .store
-        .subjects
-        .load()
-        .and_then(|subjects| subjects.get(subject).map(|info| info.latest_version))
-        .ok_or_else(|| {
-            KafkaError::UnknownSubject {
-                cluster: cluster.name().to_owned(),
-                subject: subject.to_owned(),
-                version: 0,
-            }
-            .into()
-        })
 }

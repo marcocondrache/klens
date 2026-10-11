@@ -1,11 +1,8 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
-use tower::ServiceExt as _;
 use tracing::Level;
 
-use crate::app::{AppState, AuthState, Limits, router};
-use crate::config::{Config, Tuning};
-use crate::kafka::Clusters;
+use crate::app::AuthState;
 use crate::testing::{FakeCluster, LogCapture, TestApp};
 
 fn get(host: Option<&str>, uri: &str) -> Request<Body> {
@@ -127,16 +124,11 @@ async fn health_and_ready_answer_any_host() {
 
 #[tokio::test]
 async fn with_auth_on_the_list_is_not_consulted() {
-    let state = AppState::new(
-        Clusters::from_sessions(vec![FakeCluster::local()]),
-        AuthState::enabled_for_tests(),
-        Limits::new(&Tuning::default()),
-    );
-
-    let response = router(state, &Config::default().allowed_hosts, None)
-        .oneshot(get(Some("attacker.example"), "/api/auth/me"))
-        .await
-        .expect("response");
+    let response = TestApp::of([FakeCluster::local()])
+        .auth(AuthState::enabled_for_tests())
+        .build()
+        .send_through_router(get(Some("attacker.example"), "/api/auth/me"))
+        .await;
 
     assert_eq!(response.status(), StatusCode::OK);
 }

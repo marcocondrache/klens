@@ -65,13 +65,14 @@ use offsets::{known_offsets, partition_time_offsets};
 use pool::ScanPool;
 use scan::ReaderConfig;
 use tail::TailLease;
+use transport::Transport;
 
 pub struct KafkaClient {
     identity: ClusterIdentity,
     consume_timeout: Duration,
     scan_poll_wait: Duration,
     tail_reader: ReaderConfig,
-    transport: transport::Transport,
+    transport: Transport,
     producer: OnceCell<Producer>,
     scans: Arc<ScanPool>,
     schema_registry: Option<Arc<PayloadDecoder>>,
@@ -112,7 +113,7 @@ impl KafkaClient {
             .as_ref()
             .map(|rules| Arc::new(ObfuscationPolicy::compile(rules)));
 
-        let transport = transport::connect(name, cluster, &tuning.kafka).await?;
+        let transport = Transport::connect(name, cluster, &tuning.kafka).await?;
         let scan_client = transport.connector.connect().await?;
 
         Ok(Self {
@@ -200,7 +201,7 @@ impl ClusterSession for KafkaClient {
     async fn committed_offsets(
         &self,
         group_id: &str,
-        partitions: Option<&[(String, i32)]>,
+        partitions: Option<&[(&str, i32)]>,
     ) -> Result<Vec<CommittedOffset>, KafkaError> {
         let topics = partitions.map(partitions_by_topic);
         let query = topics.as_ref().map(list_offset_query);
@@ -568,13 +569,10 @@ impl ClusterSession for KafkaClient {
             &DeleteGroupsRequest::new(vec![group.to_owned()]),
         )
         .await?;
-        response.results.into_iter().try_for_each(|deleted| {
-            if deleted.error_code.is_ok() {
-                Ok(())
-            } else {
-                Err(KafkaError::Refused(format!("{:?}", deleted.error_code)))
-            }
-        })
+        response
+            .results
+            .into_iter()
+            .try_for_each(|deleted| answered(deleted.error_code, None))
     }
 
     async fn delete_group_offsets(
@@ -666,9 +664,13 @@ impl ClusterSession for KafkaClient {
         &self,
         credential: &NewScramCredential,
     ) -> Result<(), KafkaError> {
+        let credential = credential.clone();
+        let upsertion = tokio::task::spawn_blocking(move || credential.upsertion())
+            .await
+            .map_err(|error| KafkaError::Admin(error.to_string()))?;
         self.transport
             .admin
-            .alter_user_scram_credentials(Vec::new(), vec![credential.upsertion()])
+            .alter_user_scram_credentials(Vec::new(), vec![upsertion])
             .await?
             .into_iter()
             .try_for_each(|altered| refused(altered.error))
@@ -779,19 +781,19 @@ async fn call<Request: VersionedEncode, Response: VersionedDecode>(
     Response::decode_versioned(version, &mut response)
 }
 
-fn partitions_by_topic(partitions: &[(String, i32)]) -> HashMap<String, Vec<i32>> {
-    let mut topics: HashMap<String, Vec<i32>> = HashMap::new();
-    for (topic, partition) in partitions {
-        topics.entry(topic.clone()).or_default().push(*partition);
+fn partitions_by_topic<'a>(partitions: &[(&'a str, i32)]) -> HashMap<&'a str, Vec<i32>> {
+    let mut topics: HashMap<&str, Vec<i32>> = HashMap::new();
+    for &(topic, partition) in partitions {
+        topics.entry(topic).or_default().push(partition);
     }
     topics
 }
 
-fn list_offset_query(topics: &HashMap<String, Vec<i32>>) -> Vec<(&str, &[i32])> {
+fn list_offset_query<Topic: AsRef<str>>(topics: &HashMap<Topic, Vec<i32>>) -> Vec<(&str, &[i32])> {
     topics
         .iter()
+        .map(|(topic, partitions)| (topic.as_ref(), partitions.as_slice()))
         .filter(|(topic, _)| krafka::protocol::validate_topic_name(topic).is_ok())
-        .map(|(topic, partitions)| (topic.as_str(), partitions.as_slice()))
         .collect()
 }
 
@@ -1064,7 +1066,7 @@ mod tests {
         );
         assert!(
             client
-                .committed_offsets("unused", Some(&[(String::new(), 0)]))
+                .committed_offsets("unused", Some(&[("", 0)]))
                 .await
                 .unwrap()
                 .is_empty()
@@ -1252,7 +1254,7 @@ mod tests {
         let committed = vec![committed("orders", 0, 1)];
 
         let filtered = client
-            .committed_offsets("orders-group", Some(&[("orders".into(), 0)]))
+            .committed_offsets("orders-group", Some(&[("orders", 0)]))
             .await
             .expect("offset fetch");
         let every = client
@@ -1319,7 +1321,7 @@ mod tests {
             let client = Arc::clone(&client);
             async move {
                 client
-                    .committed_offsets(&format!("g{index}"), Some(&[("orders".into(), 0)]))
+                    .committed_offsets(&format!("g{index}"), Some(&[("orders", 0)]))
                     .await
             }
         });

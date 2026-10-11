@@ -16,6 +16,7 @@ use tower_sessions::cookie::time::Duration;
 use tower_sessions::cookie::{Key, SameSite};
 use tower_sessions::service::SignedCookie;
 use tower_sessions::{Expiry, SessionManagerLayer};
+use ts_rs::TS;
 
 use super::error::ApiError;
 use crate::AppState;
@@ -45,15 +46,13 @@ const SESSION_COOKIE_KEY_PREFIX: &str = "klens-session-v1";
 type AuthSession = axum_login::AuthSession<AuthBackend>;
 type SessionLayer = SessionManagerLayer<ExpiringStore, SignedCookie>;
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SessionUser {
     pub sub: String,
     pub email: Option<String>,
     pub name: Option<String>,
     pub exp: i64,
-    #[serde(default)]
     pub groups: Vec<String>,
-    #[serde(skip)]
     auth_hash: [u8; 32],
 }
 
@@ -65,26 +64,20 @@ impl SessionUser {
         groups: Vec<String>,
         exp: i64,
     ) -> Self {
-        let mut user = Self {
-            sub: sub.into(),
+        let sub = sub.into();
+        let auth_hash = Sha256::digest(format!(
+            "{SESSION_COOKIE_KEY_PREFIX}|{sub}|{exp}|{}",
+            groups.join("\0")
+        ))
+        .into();
+        Self {
+            sub,
             email,
             name,
             groups,
             exp,
-            auth_hash: [0; 32],
-        };
-        user.refresh_auth_hash();
-        user
-    }
-
-    fn refresh_auth_hash(&mut self) {
-        self.auth_hash = Sha256::digest(format!(
-            "{SESSION_COOKIE_KEY_PREFIX}|{}|{}|{}",
-            self.sub,
-            self.exp,
-            self.groups.join("\0")
-        ))
-        .into();
+            auth_hash,
+        }
     }
 }
 
@@ -101,7 +94,7 @@ impl AuthState {
     pub fn disabled() -> Self {
         Self {
             backend: AuthBackend::disabled(),
-            policy: Arc::new(AccessPolicy::disabled()),
+            policy: Arc::new(AccessPolicy::Open),
             session_layer: session_layer(false, Key::generate()),
             login_timeout: Duration::ZERO,
             bearer: None,
@@ -286,20 +279,20 @@ pub async fn require_session(
     ApiError::Unauthorized.into_response()
 }
 
-#[derive(Serialize)]
-struct AuthMeResponse {
+#[derive(Serialize, TS)]
+pub struct AuthMe {
     enabled: bool,
-    user: Option<AuthUserResponse>,
+    user: Option<AuthUser>,
 }
 
-#[derive(Serialize)]
-struct AuthUserResponse {
+#[derive(Serialize, TS)]
+pub struct AuthUser {
     sub: String,
     email: Option<String>,
     name: Option<String>,
 }
 
-impl From<SessionUser> for AuthUserResponse {
+impl From<SessionUser> for AuthUser {
     fn from(user: SessionUser) -> Self {
         Self {
             sub: user.sub,
@@ -312,9 +305,9 @@ impl From<SessionUser> for AuthUserResponse {
 async fn me(State(state): State<AppState>, auth_session: AuthSession) -> impl IntoResponse {
     let user = auth_session.user.and_then(|user| {
         state.auth.access_from_user(&user)?;
-        Some(AuthUserResponse::from(user))
+        Some(AuthUser::from(user))
     });
-    Json(AuthMeResponse {
+    Json(AuthMe {
         enabled: state.auth.is_enabled(),
         user,
     })
@@ -494,15 +487,7 @@ fn session_layer(secure: bool, key: Key) -> SessionLayer {
 }
 
 fn signing_key(configured: Option<&KeyMaterial>) -> Key {
-    let Some(secret) = configured else {
-        tracing::warn!(
-            "no session key configured; sessions will not survive a restart. \
-             set auth.session.key"
-        );
-        return Key::generate();
-    };
-
-    Key::derive_from(secret.as_bytes())
+    configured.map_or_else(Key::generate, |secret| Key::derive_from(secret.as_bytes()))
 }
 
 #[cfg(test)]
@@ -759,12 +744,12 @@ mod tests {
     }
 
     #[test]
-    fn a_session_key_derives_the_signing_key_as_written() {
+    fn a_configured_session_key_signs_the_same_way_on_every_boot() {
         let text = "0123456789abcdef0123456789abcdef";
 
         assert_eq!(
             signing_key(Some(&key(text))).signing(),
-            Key::derive_from(text.as_bytes()).signing()
+            signing_key(Some(&key(text))).signing()
         );
         assert_ne!(
             signing_key(Some(&key(text))).signing(),

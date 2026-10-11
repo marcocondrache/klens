@@ -102,7 +102,7 @@ pub(super) struct ToolRights {
 }
 
 impl ToolRights {
-    pub(super) fn check(
+    fn check(
         access: &ClusterAccess<'_>,
         name: &'static str,
         section: Option<Section>,

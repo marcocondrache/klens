@@ -1,8 +1,7 @@
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { ScramMechanism } from "@/lib/api/types";
 
-import { SCRAM_MECHANISMS } from "./search";
-import { MECHANISM_LABEL } from "./users-columns";
+import { MECHANISM_LABEL, SCRAM_MECHANISMS } from "./search";
 
 export function MechanismToggle({
   value,

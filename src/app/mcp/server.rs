@@ -62,20 +62,8 @@ impl KlensMcp {
 
 impl FromContextPart<ToolCallContext<'_, KlensMcp>> for Session {
     fn from_context_part(context: &mut ToolCallContext<'_, KlensMcp>) -> Result<Self, ErrorData> {
-        caller(&context.service.state, &mut context.request_context)
+        context.service.caller(&mut context.request_context)
     }
-}
-
-/// The session the admission layer left in the request.
-fn caller(
-    state: &AppState,
-    context: &mut RequestContext<RoleServer>,
-) -> Result<Session, ErrorData> {
-    context
-        .extensions
-        .get_mut::<Parts>()
-        .and_then(|parts| Session::take::<Narrowed>(&mut parts.extensions, state))
-        .ok_or_else(|| ErrorData::internal_error("the request carries no MCP session", None))
 }
 
 #[tool_handler(
@@ -96,7 +84,7 @@ impl ServerHandler for KlensMcp {
         _request: Option<PaginatedRequestParams>,
         mut context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        let session = caller(&self.state, &mut context)?;
+        let session = self.caller(&mut context)?;
         let tools = self
             .tools
             .list_all()
@@ -137,6 +125,15 @@ impl ServerHandler for KlensMcp {
 }
 
 impl KlensMcp {
+    /// The session the admission layer left in the request.
+    fn caller(&self, context: &mut RequestContext<RoleServer>) -> Result<Session, ErrorData> {
+        context
+            .extensions
+            .get_mut::<Parts>()
+            .and_then(|parts| Session::take::<Narrowed>(&mut parts.extensions, &self.state))
+            .ok_or_else(|| ErrorData::internal_error("the request carries no MCP session", None))
+    }
+
     async fn run(
         &self,
         route: &ToolRoute<Self>,

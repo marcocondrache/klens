@@ -20,7 +20,7 @@ import { isLogDirsPending } from "@/lib/storage";
 import type { BrokerRow, ConfigEntry } from "@/lib/api/types";
 
 import { brokerTab } from "./search";
-import { logDirColumns } from "./broker-columns";
+import { logDirColumns } from "./log-dir-columns";
 import { EditBrokerConfigSheet } from "./edit-broker-config";
 
 const route = getRouteApi("/cluster/$cluster/nodes_/$id");

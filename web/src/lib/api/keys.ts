@@ -20,6 +20,7 @@ export type TailFilter = {
 };
 
 export const keys = {
+  authMe: () => ["auth", "me"] as const,
   whoami: () => ["whoami"] as const,
   clusters: () => ["clusters"] as const,
   cluster: (cluster: string) => ["cluster", cluster] as const,

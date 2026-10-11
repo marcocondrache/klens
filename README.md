@@ -256,9 +256,8 @@ authorization code flow with PKCE. Sessions use
 live routes are under `/api`. `/health` and `/ready` stay public. A process
 restart drops in-memory sessions and requires a new login.
 
-Set `auth.session.key` to a secret of at least 32 bytes so the session cookie
-survives a restart. Without one, klens generates a key per boot and every
-deploy logs everyone out.
+`auth.session.key` signs the session cookie and needs at least 32 bytes.
+Without one, klens generates a key at boot.
 
 A login must come back from the provider within `auth.session.login_timeout`
 (`10m`). A session ends when the ID token expires or after

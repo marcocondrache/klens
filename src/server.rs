@@ -99,6 +99,7 @@ async fn shutdown_signal() {
 mod tests {
     use std::convert::Infallible;
 
+    use axum::http::StatusCode;
     use axum::response::sse::{Event, Sse};
     use axum::routing::get;
     use futures::stream;
@@ -126,6 +127,26 @@ mod tests {
         logs.assert_contains("path=\"/api/auth/callback\"");
         logs.assert_lacks("secret-code");
         logs.assert_lacks("secret-state");
+    }
+
+    #[tokio::test]
+    async fn only_a_server_error_logs_its_completion_at_info() {
+        let logs = LogCapture::at(tracing::Level::INFO);
+        let router = Router::new()
+            .route("/done", get(|| async { StatusCode::NO_CONTENT }))
+            .route(
+                "/broken",
+                get(|| async { StatusCode::INTERNAL_SERVER_ERROR }),
+            );
+        let request = |path: &str| {
+            format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        };
+
+        exchange(router.clone(), &request("/done")).await;
+        logs.assert_lacks("request completed");
+
+        exchange(router, &request("/broken")).await;
+        logs.assert_contains("status=500");
     }
 
     #[tokio::test]

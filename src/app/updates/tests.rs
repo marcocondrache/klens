@@ -2,11 +2,9 @@ use std::sync::Arc;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
-use serde_json::json;
-use tower::ServiceExt as _;
+use serde_json::{Value, json};
 
 use crate::app::auth::SessionGuard;
-use crate::config::Config;
 use crate::kafka::model::{AclListing, QuotaListing, ScramListing};
 use crate::kafka::store::bus::BUS_CAPACITY;
 use crate::kafka::store::{
@@ -162,45 +160,32 @@ async fn a_topic_scoped_subscriber_hears_only_its_own_size() {
 }
 
 #[tokio::test]
-async fn an_acl_change_tells_the_client_to_refetch() {
+async fn a_listing_change_tells_the_client_to_refetch() {
     let app = TestApp::local().await;
     let mut live = app.open(UPDATES).await;
+    let rig = app.rig();
     app.cluster().set_acls(AclListing::Enabled(Vec::new()));
-    let rig = app.rig();
     rig.poll(&rig.acls()).await;
-
-    let event = live.next().await;
-
-    assert_eq!(event.name, "acls");
-    assert_eq!(event.data, json!({ "type": "acls" }));
-}
-
-#[tokio::test]
-async fn a_quota_change_is_sent_as_a_quotas_event() {
-    let app = TestApp::local().await;
-    let mut live = app.open(UPDATES).await;
     app.cluster().set_quotas(QuotaListing::Denied);
-    let rig = app.rig();
     rig.poll(&rig.quotas()).await;
-
-    let event = live.next().await;
-
-    assert_eq!(event.name, "quotas");
-    assert_eq!(event.data, json!({ "type": "quotas" }));
-}
-
-#[tokio::test]
-async fn a_scram_user_change_is_sent_as_a_scram_users_event() {
-    let app = TestApp::local().await;
-    let mut live = app.open(UPDATES).await;
     app.cluster().set_scram_users(ScramListing::Denied);
-    let rig = app.rig();
     rig.poll(&rig.scram_users()).await;
 
-    let event = live.next().await;
+    let events: Vec<(String, Value)> = live
+        .take(3)
+        .await
+        .into_iter()
+        .map(|event| (event.name, event.data))
+        .collect();
 
-    assert_eq!(event.name, "scramUsers");
-    assert_eq!(event.data, json!({ "type": "scramUsers" }));
+    assert_eq!(
+        events,
+        [
+            ("acls".to_owned(), json!({ "type": "acls" })),
+            ("quotas".to_owned(), json!({ "type": "quotas" })),
+            ("scramUsers".to_owned(), json!({ "type": "scramUsers" })),
+        ]
+    );
 }
 
 #[tokio::test]
@@ -293,15 +278,14 @@ async fn a_session_that_expires_mid_stream_terminates_it() {
 #[tokio::test]
 async fn the_updates_route_is_wired_with_the_session_extensions() {
     let app = TestApp::local().await;
-    let response = crate::app::router(app.state().clone(), &Config::default().allowed_hosts, None)
-        .oneshot(
+    let response = app
+        .send_through_router(
             Request::get("/api/clusters/local/updates")
                 .header(header::HOST, "localhost")
                 .body(Body::empty())
                 .expect("request"),
         )
-        .await
-        .expect("response");
+        .await;
 
     assert_eq!(response.status(), StatusCode::OK);
     let content_type = response

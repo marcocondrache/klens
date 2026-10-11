@@ -54,18 +54,6 @@ fn a_truncated_log_reports_zero_rather_than_a_negative_rate() {
 }
 
 #[test]
-fn a_stale_previous_sample_is_not_divided_by() {
-    let previous = watermarks(&[("orders", 0, 0, 10)]);
-    let next = watermarks(&[("orders", 0, 0, 100_000)]);
-
-    assert_eq!(
-        rates(Some(&previous), &next, None),
-        vec![("orders".into(), 0.0)],
-        "the caller drops a gap longer than MAX_SAMPLE_GAP"
-    );
-}
-
-#[test]
 fn a_new_partition_contributes_nothing_on_its_first_appearance() {
     let previous = watermarks(&[("orders", 0, 0, 10)]);
     let next = watermarks(&[("orders", 0, 0, 10), ("orders", 1, 0, 5_000)]);
@@ -97,6 +85,24 @@ fn rates_round_to_thousandths() {
         rates(Some(&previous), &next, secs(3)),
         vec![("orders".into(), 0.333)]
     );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_sample_older_than_the_max_gap_is_not_divided_by() {
+    let rig = Rig::local();
+    let lane = rig.watermarks();
+    let step = |high: i64| Arc::new(watermarks(&[("orders", 0, 0, high)]));
+    let first = step(10);
+    lane.publish(&rig.store, None, &first, ());
+
+    advance(IngestTuning::default().max_sample_gap + Duration::from_secs(1)).await;
+    let late = step(100_000);
+    lane.publish(&rig.store, Some(&first), &late, ());
+    assert_eq!(rig.store.rates.get("orders"), Some(0.0));
+
+    advance(Duration::from_secs(1)).await;
+    lane.publish(&rig.store, Some(&late), &step(100_010), ());
+    assert_eq!(rig.store.rates.get("orders"), Some(10.0));
 }
 
 #[tokio::test(start_paused = true)]

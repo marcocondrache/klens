@@ -41,8 +41,8 @@ impl Boundary {
 
 impl Boundary {
     /// A broker or schema registry chooses the text of a lane's error.
-    pub(super) fn lane_error(&self, error: Option<String>) -> Option<String> {
-        error.map(|error| self.enclose(&clip(&error, MAX_MESSAGE_CHARS).0))
+    pub(super) fn lane_error(&self, error: Option<&str>) -> Option<String> {
+        error.map(|error| self.enclose(&clip(error, MAX_MESSAGE_CHARS).0))
     }
 
     pub(super) fn lane_error_notice(&self) -> String {

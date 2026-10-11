@@ -44,7 +44,8 @@ fn default_groups_claim() -> String {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Session {
-    /// Signs session cookies. Without it, each restart signs everyone out.
+    /// Signs session cookies. Without it, klens generates a key at boot.
+    /// Sessions live in memory, so a restart signs everyone out either way.
     pub key: Option<KeyMaterial>,
     /// How long a login may take at the provider.
     #[serde(deserialize_with = "duration")]

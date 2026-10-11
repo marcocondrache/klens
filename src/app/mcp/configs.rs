@@ -77,7 +77,7 @@ impl ConfigSection {
 
     /// klens has not read the configs yet. `last_error` is the message of the
     /// read that failed, which a broker chose.
-    pub fn not_read(last_error: Option<String>, boundary: &Boundary) -> Self {
+    pub fn not_read(last_error: Option<&str>, boundary: &Boundary) -> Self {
         Self::omitted(Reason::NotRead {
             last_error: boundary.lane_error(last_error),
         })

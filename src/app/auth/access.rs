@@ -205,14 +205,6 @@ impl EffectiveAccess {
         }
     }
 
-    pub fn can_see_cluster(&self, cluster: &str) -> bool {
-        self.privileges_for(cluster).is_some()
-    }
-
-    pub fn visible_clusters<'a>(&self, all: impl Iterator<Item = &'a str>) -> Vec<&'a str> {
-        all.filter(|name| self.can_see_cluster(name)).collect()
-    }
-
     pub fn narrow(self, ceiling: &Ceiling) -> Narrowed {
         let grants = match self {
             Self::Unrestricted => vec![Grant {
@@ -235,13 +227,16 @@ impl EffectiveAccess {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum AccessError {
+    #[error("unknown cluster '{0}'")]
     UnknownCluster(String),
+    #[error("'{privilege}' is not permitted on cluster '{cluster}'")]
     Forbidden {
         cluster: String,
         privilege: Privilege,
     },
+    #[error("cluster '{0}' is read-only")]
     ReadOnlyCluster(String),
 }
 
@@ -254,21 +249,6 @@ impl AccessError {
         }
     }
 }
-
-impl Display for AccessError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UnknownCluster(cluster) => write!(formatter, "unknown cluster '{cluster}'"),
-            Self::Forbidden { cluster, privilege } => write!(
-                formatter,
-                "'{privilege}' is not permitted on cluster '{cluster}'"
-            ),
-            Self::ReadOnlyCluster(cluster) => write!(formatter, "cluster '{cluster}' is read-only"),
-        }
-    }
-}
-
-impl std::error::Error for AccessError {}
 
 #[derive(Clone, Copy, Debug)]
 pub struct ClusterAccess<'a> {
@@ -398,16 +378,11 @@ struct CompiledBinding {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AccessPolicy {
-    Disabled,
     Open,
     Bound(RoleTable),
 }
 
 impl AccessPolicy {
-    pub fn disabled() -> Self {
-        Self::Disabled
-    }
-
     pub fn from_roles(roles: Option<&IndexMap<String, Role>>) -> Self {
         match roles {
             None => Self::Open,
@@ -417,7 +392,7 @@ impl AccessPolicy {
 
     pub fn admit(&self, identity: &Identity<'_>) -> Option<EffectiveAccess> {
         match self {
-            Self::Disabled | Self::Open => Some(EffectiveAccess::Unrestricted),
+            Self::Open => Some(EffectiveAccess::Unrestricted),
             Self::Bound(table) => {
                 if identity.groups.len() > MAX_GROUPS {
                     return None;
@@ -677,10 +652,6 @@ mod tests {
             access.cluster("prod").unwrap_err(),
             AccessError::UnknownCluster("prod".into())
         );
-        assert_eq!(
-            access.visible_clusters(["prod", "payments"].into_iter()),
-            vec!["payments"]
-        );
     }
 
     #[test]
@@ -862,10 +833,8 @@ mod tests {
             dev.cluster("prod").unwrap_err(),
             AccessError::UnknownCluster("prod".into())
         );
-        assert!(
-            none.visible_clusters(["dev", "prod"].into_iter())
-                .is_empty()
-        );
+        assert!(none.cluster("dev").is_err());
+        assert!(none.cluster("prod").is_err());
     }
 
     #[test]

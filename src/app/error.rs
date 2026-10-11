@@ -7,27 +7,45 @@ use serde::Serialize;
 use crate::app::auth::access::AccessError;
 use crate::kafka::{KafkaError, QueryError};
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub(crate) enum ApiError {
-    Kafka(KafkaError),
-    Access(AccessError),
+    #[error(transparent)]
+    Kafka(#[from] KafkaError),
+    #[error(transparent)]
+    Access(#[from] AccessError),
+    #[error("session is no longer valid")]
     SessionExpired,
+    #[error("unauthorized")]
     Unauthorized,
+    #[error("no role is bound to a group of this token")]
     NoRole,
+    #[error("host is not in allowed_hosts")]
     HostNotAllowed,
+    #[error("not found")]
     NotFound,
+    #[error("too many live tails are open, try again later")]
     TooManyTails,
+    #[error("too many tool calls are running at once")]
     RateLimited,
+    #[error("too many calls this minute to tools that read more from Kafka")]
     TooManyLiveCalls,
+    #[error(
+        "klens has not read the {lane} of cluster '{cluster}' yet{}",
+        last_attempt(last_error.as_deref())
+    )]
     NotReady {
         cluster: String,
         lane: &'static str,
         last_error: Option<String>,
     },
-    InvalidRequest {
-        status: StatusCode,
-        message: String,
-    },
+    #[error("{message}")]
+    InvalidRequest { status: StatusCode, message: String },
+}
+
+fn last_attempt(error: Option<&str>) -> String {
+    error.map_or_else(String::new, |error| {
+        format!("; its last attempt failed: {error}")
+    })
 }
 
 impl ApiError {
@@ -111,62 +129,9 @@ fn kafka_status(error: &KafkaError) -> StatusCode {
     }
 }
 
-impl std::fmt::Display for ApiError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Kafka(error) => error.fmt(formatter),
-            Self::Access(error) => error.fmt(formatter),
-            Self::SessionExpired => formatter.write_str("session is no longer valid"),
-            Self::Unauthorized => formatter.write_str("unauthorized"),
-            Self::NoRole => formatter.write_str("no role is bound to a group of this token"),
-            Self::HostNotAllowed => formatter.write_str("host is not in allowed_hosts"),
-            Self::NotFound => formatter.write_str("not found"),
-            Self::TooManyTails => {
-                formatter.write_str("too many live tails are open, try again later")
-            }
-            Self::RateLimited => formatter.write_str("too many tool calls are running at once"),
-            Self::TooManyLiveCalls => {
-                formatter.write_str("too many calls this minute to tools that read more from Kafka")
-            }
-            Self::NotReady {
-                cluster,
-                lane,
-                last_error: None,
-            } => write!(
-                formatter,
-                "klens has not read the {lane} of cluster '{cluster}' yet"
-            ),
-            Self::NotReady {
-                cluster,
-                lane,
-                last_error: Some(error),
-            } => write!(
-                formatter,
-                "klens has not read the {lane} of cluster '{cluster}' yet; its last attempt \
-                 failed: {error}"
-            ),
-            Self::InvalidRequest { message, .. } => formatter.write_str(message),
-        }
-    }
-}
-
-impl std::error::Error for ApiError {}
-
-impl From<KafkaError> for ApiError {
-    fn from(error: KafkaError) -> Self {
-        Self::Kafka(error)
-    }
-}
-
 impl From<QueryError> for ApiError {
     fn from(error: QueryError) -> Self {
         Self::Kafka(error.into())
-    }
-}
-
-impl From<AccessError> for ApiError {
-    fn from(error: AccessError) -> Self {
-        Self::Access(error)
     }
 }
 

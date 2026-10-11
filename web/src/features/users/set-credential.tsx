@@ -13,7 +13,7 @@ import { keys } from "@/lib/api/keys";
 import type { ScramMechanism, ScramUser, SetScramCredential } from "@/lib/api/types";
 
 import { MechanismToggle } from "./mechanism-toggle";
-import { MECHANISM_LABEL } from "./users-columns";
+import { MECHANISM_LABEL } from "./search";
 
 // Kafka refuses a credential outside these bounds.
 const MIN_ITERATIONS = 4096;

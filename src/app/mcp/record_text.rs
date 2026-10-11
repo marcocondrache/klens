@@ -4,7 +4,6 @@ use serde::Serialize;
 
 use crate::app::records::types::Record;
 
-use super::RESULT_BYTES;
 use super::untrusted::{Boundary, clip};
 use crate::app::mcp::reply::search;
 
@@ -65,7 +64,7 @@ pub(super) fn records_result(records: &[Record], intro: &str, when_cut: &str) ->
         })
         .max()
         .unwrap_or(0);
-    search(most.min(RESULT_BYTES), |budget| {
+    search(most, |budget| {
         let text = page(records, intro, when_cut, &boundary, budget);
         CallToolResult::success(vec![ContentBlock::text(text)])
     })

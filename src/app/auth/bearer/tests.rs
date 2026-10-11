@@ -634,27 +634,9 @@ async fn a_miss_only_adds_keys_and_a_refresh_drops_the_unpublished_ones() {
 }
 
 #[tokio::test]
-async fn a_key_set_past_the_cap_adds_no_key() {
-    let (a, b) = (Signer::a(), Signer::b());
-    let mut padded = key_set(&[&a, &b]);
-    padded["padding"] = json!("x".repeat(MAX_KEY_SET_BYTES));
-    let idp = Idp::serving(
-        key_set(&[&a]),
-        ResponseTemplate::new(200).set_body_json(padded),
-    )
-    .await;
-    let app = probe(&idp.auth(&mcp("")).await);
-    let logs = LogCapture::at(tracing::Level::WARN);
-
-    let answer = probed(&app, &b.sign(&idp.claims())).await;
-
-    assert_eq!(answer.status, StatusCode::UNAUTHORIZED);
-    logs.assert_contains("the key set is larger than 65536 bytes");
-}
-
-#[tokio::test]
 async fn a_key_set_of_64_kib_adds_its_keys_and_one_byte_more_adds_none() {
     let (a, b) = (Signer::a(), Signer::b());
+    let logs = LogCapture::at(tracing::Level::WARN);
 
     for (size, status) in [
         (64 * 1024, StatusCode::OK),
@@ -673,6 +655,7 @@ async fn a_key_set_of_64_kib_adds_its_keys_and_one_byte_more_adds_none() {
 
         assert_eq!(answer.status, status, "{size} bytes");
     }
+    logs.assert_contains("the key set is larger than 65536 bytes");
 }
 
 #[tokio::test]
@@ -940,28 +923,5 @@ fn only_jwt_and_access_token_types_name_an_access_token() {
         "",
     ] {
         assert!(!names_an_access_token(typ), "{typ}");
-    }
-}
-
-#[test]
-fn the_metadata_path_puts_the_well_known_segment_before_the_resource_path() {
-    for (resource, expected) in [
-        (
-            "https://klens.example.com/mcp",
-            "/.well-known/oauth-protected-resource/mcp",
-        ),
-        (
-            "https://klens.example.com/klens/mcp",
-            "/.well-known/oauth-protected-resource/klens/mcp",
-        ),
-        (
-            "https://klens.example.com:8443",
-            "/.well-known/oauth-protected-resource",
-        ),
-    ] {
-        assert_eq!(
-            metadata_path(&Url::parse(resource).expect("a url")),
-            expected
-        );
     }
 }

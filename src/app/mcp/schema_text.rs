@@ -3,7 +3,6 @@ use serde::Serialize;
 
 use crate::app::subjects::types::{SchemaReference, SchemaType, SubjectDetail};
 
-use super::RESULT_BYTES;
 use super::untrusted::{Boundary, clip};
 use crate::app::mcp::reply::{prefix, search};
 
@@ -29,7 +28,7 @@ struct SchemaText<'a> {
 pub(super) fn schema_result(detail: &SubjectDetail) -> CallToolResult {
     let boundary = Boundary::new();
     let most = detail.schema.chars().count().max(detail.references.len());
-    search(most.min(RESULT_BYTES), |budget| {
+    search(most, |budget| {
         let (schema, cut) = clip(&detail.schema, budget);
         let (references, left_out) = prefix(&detail.references, budget);
         let left_out = left_out.unwrap_or(0);

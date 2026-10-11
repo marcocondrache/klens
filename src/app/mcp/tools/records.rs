@@ -17,7 +17,7 @@ use crate::app::mcp::{DEFAULT_RECORDS, MAX_RECORDS, OBFUSCATED_NOTICE};
 use crate::app::records::RecordPage;
 use crate::app::records::types::{
     LookupParams, ProduceRecord, ProducedRecord, RecordHeader, RecordLookup, RecordOrder,
-    RecordParams, RecordPayload, record_at, record_query,
+    RecordParams, RecordPayload,
 };
 use crate::kafka::{RecordCursor, RecordQuery};
 
@@ -72,19 +72,17 @@ impl RecordsQuery {
                 ));
             }
         };
-        let mut query = record_query(
-            self.topic,
-            RecordParams {
-                partition: self.partitions,
-                order: self.order,
-                from: self.from,
-                to: self.to,
-                limit: self.limit.unwrap_or(DEFAULT_RECORDS).clamp(1, MAX_RECORDS),
-                contains: self.contains,
-                schema_id: None,
-                cursor: self.cursor,
-            },
-        )?;
+        let mut query = RecordParams {
+            partition: self.partitions,
+            order: self.order,
+            from: self.from,
+            to: self.to,
+            limit: self.limit.unwrap_or(DEFAULT_RECORDS).clamp(1, MAX_RECORDS),
+            contains: self.contains,
+            schema_id: None,
+            cursor: self.cursor,
+        }
+        .into_query(self.topic)?;
         if let Some((partition, offset)) = start
             && query.cursor.is_none()
         {
@@ -167,11 +165,10 @@ impl KlensMcp {
                 "`partition` and `offset` must be zero or more",
             ));
         }
-        let at = record_at(
+        let at = LookupParams { schema_id: None }.into_record_at(
             address.topic,
             address.partition,
             address.offset,
-            LookupParams { schema_id: None },
         );
         self.live_call(&session)?;
         let found = RecordLookup::from(records.record(at).await?);

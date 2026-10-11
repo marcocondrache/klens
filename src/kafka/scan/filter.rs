@@ -41,6 +41,21 @@ impl Debug for CompiledFilter {
 }
 
 impl CompiledFilter {
+    pub fn contains(needle: &str) -> Option<Self> {
+        let trimmed = needle.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        let matcher = AhoCorasick::builder()
+            .ascii_case_insensitive(true)
+            .build([trimmed])
+            .expect("a single needle fits the automaton");
+        Some(CompiledFilter {
+            needle: trimmed.to_owned(),
+            matcher,
+        })
+    }
+
     fn matches_bytes(&self, bytes: &[u8]) -> bool {
         self.matcher.is_match(bytes)
     }
@@ -70,21 +85,6 @@ impl CompiledFilter {
     }
 }
 
-pub fn contains(needle: &str) -> Option<CompiledFilter> {
-    let trimmed = needle.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    let matcher = AhoCorasick::builder()
-        .ascii_case_insensitive(true)
-        .build([trimmed])
-        .expect("a single needle fits the automaton");
-    Some(CompiledFilter {
-        needle: trimmed.to_owned(),
-        matcher,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use bytes::Bytes;
@@ -93,18 +93,24 @@ mod tests {
 
     #[test]
     fn empty_source_is_no_filter() {
-        assert_eq!(contains("  "), None);
+        assert_eq!(CompiledFilter::contains("  "), None);
     }
 
     #[test]
     fn filters_are_equal_by_their_trimmed_source() {
-        assert_eq!(contains("failed"), contains(" failed "));
-        assert_ne!(contains("failed"), contains("shipped"));
+        assert_eq!(
+            CompiledFilter::contains("failed"),
+            CompiledFilter::contains(" failed ")
+        );
+        assert_ne!(
+            CompiledFilter::contains("failed"),
+            CompiledFilter::contains("shipped")
+        );
     }
 
     #[test]
     fn a_substring_filter_answers_from_unframed_bytes() {
-        let filter = contains("FAILED").expect("needle");
+        let filter = CompiledFilter::contains("FAILED").expect("needle");
         let unframed = |bytes: &'static [u8]| RawField {
             bytes,
             framed: false,
@@ -127,7 +133,7 @@ mod tests {
 
     #[test]
     fn a_framed_payload_defers_the_substring_match_to_the_decode() {
-        let filter = contains("failed").expect("needle");
+        let filter = CompiledFilter::contains("failed").expect("needle");
         let framed = RawField {
             bytes: b"\0\0\0\0\x07binary",
             framed: true,
@@ -158,7 +164,7 @@ mod tests {
 
     #[test]
     fn a_substring_filter_matches_decoded_text() {
-        let filter = contains("FAILED").expect("needle");
+        let filter = CompiledFilter::contains("FAILED").expect("needle");
         let decoded = DecodedPayload::decoded(
             Bytes::from_static(b"\0\0\0\0\x07"),
             serde_json::json!({"status": "failed"}),

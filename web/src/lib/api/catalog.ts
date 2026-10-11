@@ -1,4 +1,4 @@
-import { keepPreviousData, useQuery, type Query } from "@tanstack/react-query";
+import { keepPreviousData, queryOptions, useQuery, type Query } from "@tanstack/react-query";
 
 import type {
   AclListing,
@@ -6,6 +6,7 @@ import type {
   ClusterHealth,
   GroupDetail,
   GroupRow,
+  LaneHealth,
   QuotaListing,
   ScramListing,
   SubjectRowsResult,
@@ -101,19 +102,29 @@ export function useGroup(cluster: string, group: string) {
   });
 }
 
-export function useBrokerRows(cluster: string) {
-  return useQuery({
+function brokerRows(cluster: string) {
+  return queryOptions({
     queryKey: keys.brokerRows(cluster),
     queryFn: () => get<BrokerRow[]>(clusterPathname(cluster, "brokers")),
   });
 }
 
+export function useBrokerRows(cluster: string) {
+  return useQuery(brokerRows(cluster));
+}
+
 export function useBroker(cluster: string, id: number) {
-  const { data, ...rest } = useBrokerRows(cluster);
-  return {
-    ...rest,
-    data: data?.find((broker) => broker.id === id) ?? null,
-  };
+  return useQuery({
+    ...brokerRows(cluster),
+    select: (rows) => rows.find((broker) => broker.id === id) ?? null,
+  });
+}
+
+function pollWhilePending<Listing extends { status: string; sourceHealth: LaneHealth }>(
+  query: Query<Listing>,
+) {
+  const data = query.state.data;
+  return data?.status === "PENDING" && data.sourceHealth.lastError == null ? 2000 : false;
 }
 
 export function useSubjectRows(cluster: string) {
@@ -128,10 +139,7 @@ export function useAcls(cluster: string, enabled = true) {
     queryKey: keys.acls(cluster),
     queryFn: () => get<AclListing>(clusterPathname(cluster, "acls")),
     enabled,
-    refetchInterval: (query: Query<AclListing>) => {
-      const data = query.state.data;
-      return data?.status === "PENDING" && data.sourceHealth.lastError == null ? 2000 : false;
-    },
+    refetchInterval: pollWhilePending,
   });
 }
 
@@ -140,10 +148,7 @@ export function useQuotas(cluster: string, enabled = true) {
     queryKey: keys.quotas(cluster),
     queryFn: () => get<QuotaListing>(clusterPathname(cluster, "quotas")),
     enabled,
-    refetchInterval: (query: Query<QuotaListing>) => {
-      const data = query.state.data;
-      return data?.status === "PENDING" && data.sourceHealth.lastError == null ? 2000 : false;
-    },
+    refetchInterval: pollWhilePending,
   });
 }
 
@@ -152,10 +157,7 @@ export function useScramUsers(cluster: string, enabled = true) {
     queryKey: keys.scramUsers(cluster),
     queryFn: () => get<ScramListing>(clusterPathname(cluster, "scram-users")),
     enabled,
-    refetchInterval: (query: Query<ScramListing>) => {
-      const data = query.state.data;
-      return data?.status === "PENDING" && data.sourceHealth.lastError == null ? 2000 : false;
-    },
+    refetchInterval: pollWhilePending,
   });
 }
 

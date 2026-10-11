@@ -13,7 +13,6 @@ import { useClusters } from "@/lib/api/catalog";
 import { clusterTone, useClusterName } from "@/lib/clusters";
 import { useSwitchCluster } from "@/lib/sections";
 
-/** Breadcrumb root that shows the active cluster and switches between clusters. */
 export function ClusterSwitcher() {
   const active = useClusterName();
   const { data: clusters = [] } = useClusters();

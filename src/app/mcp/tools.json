@@ -282,7 +282,10 @@
               "EMPTY",
               "PREPARING_REBALANCE",
               "COMPLETING_REBALANCE",
+              "ASSIGNING",
+              "RECONCILING",
               "DEAD",
+              "UNKNOWN",
               null
             ],
             "type": [

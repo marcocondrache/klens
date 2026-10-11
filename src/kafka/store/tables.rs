@@ -398,10 +398,10 @@ pub struct SubjectTable {
 }
 
 impl SubjectTable {
-    pub fn assemble(subjects: &[SchemaSubject], interner: &mut Interner) -> Self {
+    pub fn assemble(subjects: Vec<SchemaSubject>, interner: &mut Interner) -> Self {
         Self {
             subjects: subjects
-                .iter()
+                .into_iter()
                 .map(|subject| {
                     (
                         interner.intern(&subject.subject),
@@ -409,7 +409,7 @@ impl SubjectTable {
                             id: subject.id,
                             schema_type: subject.schema_type,
                             latest_version: subject.latest_version,
-                            versions: subject.versions.clone(),
+                            versions: subject.versions,
                             compatibility: subject.compatibility,
                         },
                     )
@@ -542,8 +542,10 @@ mod tests {
 
     #[test]
     fn subject_table_drops_schema_bodies() {
-        let table =
-            SubjectTable::assemble(&[subject("orders-value", 7, 3)], &mut Interner::default());
+        let table = SubjectTable::assemble(
+            vec![subject("orders-value", 7, 3)],
+            &mut Interner::default(),
+        );
 
         assert_eq!(
             table.get("orders-value"),

@@ -36,6 +36,8 @@ import { SchemaPicker } from "./schema-picker";
 
 type Encoding = RecordPayload["encoding"] | "NULL";
 
+const ENCODINGS = ["TEXT", "BASE64", "SCHEMA", "NULL"] as const satisfies readonly Encoding[];
+
 type PayloadDraft = { encoding: Encoding; data: string; schemaId: number | null };
 
 type HeaderRow = { id: number; key: string; value: string };
@@ -343,7 +345,7 @@ function PayloadField({
         <ToggleGroup
           value={[draft.encoding]}
           onValueChange={(next) => {
-            const encoding = next[0] as Encoding | undefined;
+            const encoding = ENCODINGS.find((option) => option === next[0]);
             if (!encoding) return;
             const schemaId =
               draft.schemaId ?? subjects.find((row) => row.subject === subject)?.id ?? null;

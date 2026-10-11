@@ -9,7 +9,7 @@ import { keys } from "@/lib/api/keys";
 import type { ScramMechanism, ScramUser } from "@/lib/api/types";
 
 import { MechanismToggle } from "./mechanism-toggle";
-import { MECHANISM_LABEL } from "./users-columns";
+import { MECHANISM_LABEL } from "./search";
 
 export function DeleteCredentialDialog({
   cluster,

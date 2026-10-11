@@ -3,8 +3,7 @@ import { KeyRoundIcon } from "lucide-react";
 import type { FilterField } from "@/components/data-table/filters";
 import type { ScramUser } from "@/lib/api/types";
 
-import { SCRAM_MECHANISMS, type UserFilter } from "./search";
-import { MECHANISM_LABEL } from "./users-columns";
+import { MECHANISM_LABEL, SCRAM_MECHANISMS, type UserFilter } from "./search";
 
 export const USER_FILTERS: Array<FilterField<ScramUser, UserFilter>> = [
   {

@@ -36,7 +36,7 @@ import {
 import { AddPartitionsDialog } from "./add-partitions";
 import { EditTopicConfigSheet } from "./edit-topic-config";
 import { topicTab } from "./search";
-import { partitionColumns, topicGroupColumns } from "./topic-columns";
+import { partitionColumns, topicGroupColumns } from "./topic-detail-columns";
 
 const route = getRouteApi("/cluster/$cluster/topics_/$topic");
 

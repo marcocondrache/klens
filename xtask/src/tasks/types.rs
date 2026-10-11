@@ -1,26 +1,28 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use ts_rs::TS;
 use xshell::Shell;
 
 use klens::app::typescript::{
     Acl, AclListing, AclOperation, AclPatternType, AclPermission, AclResourceType, AclStatus,
-    AddPartitions, BrokerRow, CleanupPolicy, ClientQuota, ClusterGrant, ClusterHealth, ConfigEntry,
-    ConfigSource, CreateAcls, CreateTopic, EditConfigs, EditSubject, GroupDetail, GroupMember,
-    GroupOffset, GroupRow, GroupState, Identity, LaneHealth, LogDir, MemberAssignment, OffsetMove,
-    PartitionRow, PrivilegeName, ProduceRecord, ProducedRecord, QuotaEntity, QuotaEntityType,
-    QuotaListing, QuotaStatus, Record, RecordHeader, RecordLookup, RecordOrder, RecordPage,
-    RecordPayload, RegisterSchema, RegisteredVersion, ResetOffsets, ResetTarget,
-    SchemaCompatibility, SchemaReference, SchemaType, ScramCredential, ScramListing,
+    AddPartitions, AuthMe, AuthUser, BrokerRow, CleanupPolicy, ClientQuota, ClusterGrant,
+    ClusterHealth, ConfigEntry, ConfigSource, CreateAcls, CreateTopic, EditConfigs, EditSubject,
+    GroupDetail, GroupMember, GroupOffset, GroupRow, GroupState, Identity, LaneHealth, LogDir,
+    MemberAssignment, OffsetMove, PartitionRow, PrivilegeName, ProduceRecord, ProducedRecord,
+    QuotaEntity, QuotaEntityType, QuotaListing, QuotaStatus, Record, RecordHeader, RecordLookup,
+    RecordOrder, RecordPage, RecordPayload, RegisterSchema, RegisteredVersion, ResetOffsets,
+    ResetTarget, SchemaCompatibility, SchemaReference, SchemaType, ScramCredential, ScramListing,
     ScramMechanism, ScramStatus, ScramUser, SearchHit, SearchKind, SetScramCredential,
     SubjectDetail, SubjectRow, SubjectRowsResult, SubjectVersion, TailEvent, TailStart,
     TopicDetail, TopicGroupRow, TopicRate, TopicRow, Update,
 };
 
 pub fn run(sh: &Shell) -> xshell::Result<()> {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../web/src/api/types.gen.ts");
-    sh.write_file(path, typescript())?;
-    Ok(())
+    sh.write_file(output(), typescript())
+}
+
+fn output() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../web/src/api/types.gen.ts")
 }
 
 fn typescript() -> String {
@@ -37,6 +39,8 @@ fn typescript() -> String {
         };
     }
     emit!(
+        AuthUser,
+        AuthMe,
         PrivilegeName,
         ClusterGrant,
         Identity,
@@ -112,14 +116,11 @@ fn typescript() -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
-    use super::typescript;
+    use super::{output, typescript};
 
     #[test]
     fn generated_typescript_is_checked_in() {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../web/src/api/types.gen.ts");
-        let actual = std::fs::read_to_string(&path).unwrap_or_default();
+        let actual = std::fs::read_to_string(output()).unwrap_or_default();
 
         assert_eq!(
             actual,

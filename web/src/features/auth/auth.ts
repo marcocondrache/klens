@@ -1,17 +1,8 @@
 import { queryOptions, useQuery } from "@tanstack/react-query";
 
 import { apiPath, get, LOGIN_PATH } from "@/lib/api/client";
-
-export type AuthUser = {
-  sub: string;
-  email: string | null;
-  name: string | null;
-};
-
-export type AuthMe = {
-  enabled: boolean;
-  user: AuthUser | null;
-};
+import { keys } from "@/lib/api/keys";
+import type { AuthMe, AuthUser } from "@/lib/api/types";
 
 export async function signOut(): Promise<void> {
   await fetch(apiPath("/auth/logout"), { method: "POST", credentials: "include" });
@@ -41,7 +32,7 @@ export function initials(user: AuthUser): string {
 }
 
 export const authQuery = queryOptions({
-  queryKey: ["auth", "me"],
+  queryKey: keys.authMe(),
   queryFn: () => get<AuthMe>("/auth/me"),
   staleTime: 60_000,
 });

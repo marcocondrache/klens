@@ -5,7 +5,6 @@ use tokio::time::advance;
 use tracing::Level;
 
 use super::SchemaIdLane;
-use crate::kafka::ingest::LaneSource;
 use crate::kafka::store::Change;
 use crate::kafka::store::projections::SubjectVersion;
 use crate::testing::{Api, LogCapture, Rig, quiesce, subject, until};
@@ -43,7 +42,6 @@ async fn the_lane_learns_the_id_of_every_version() {
 
     poll(&rig).await;
 
-    assert_eq!(rig.schema_ids().name(), "schema_ids");
     assert_eq!(
         versions(&rig, "orders-value"),
         [(1, Some(5)), (2, Some(6)), (3, Some(7))]

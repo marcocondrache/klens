@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::time::Duration;
 
 use anyhow::{Context, anyhow};
@@ -40,7 +41,29 @@ pub(crate) trait OidcFlow: Send + Sync {
         code: String,
         pkce_verifier: PkceCodeVerifier,
         nonce: Nonce,
-    ) -> anyhow::Result<SessionUser>;
+    ) -> Result<SessionUser, OidcError>;
+}
+
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum OidcError {
+    #[error("oidc token exchange failed: {0}")]
+    Exchange(String),
+    #[error("oidc provider did not return an ID token")]
+    NoIdToken,
+    #[error("oidc ID token is invalid: {0}")]
+    InvalidIdToken(String),
+    #[error("oidc ID token has expired")]
+    Expired,
+}
+
+impl OidcError {
+    fn exchange(error: impl Display) -> Self {
+        Self::Exchange(error.to_string())
+    }
+
+    fn invalid(error: impl Display) -> Self {
+        Self::InvalidIdToken(error.to_string())
+    }
 }
 
 pub(crate) struct Oidc {
@@ -123,42 +146,36 @@ impl OidcFlow for Oidc {
         code: String,
         pkce_verifier: PkceCodeVerifier,
         nonce: Nonce,
-    ) -> anyhow::Result<SessionUser> {
+    ) -> Result<SessionUser, OidcError> {
         let token_response = self
             .client
             .exchange_code(AuthorizationCode::new(code))
-            .map_err(|error| anyhow!("oidc token exchange failed: {error}"))?
+            .map_err(OidcError::exchange)?
             .set_pkce_verifier(pkce_verifier)
             .request_async(&self.http)
             .await
-            .map_err(|error| anyhow!("oidc token exchange failed: {error}"))?;
+            .map_err(OidcError::exchange)?;
 
-        let id_token = token_response
-            .id_token()
-            .ok_or_else(|| anyhow!("oidc provider did not return an ID token"))?;
+        let id_token = token_response.id_token().ok_or(OidcError::NoIdToken)?;
         let verifier = self.client.id_token_verifier();
         let claims = id_token
             .claims(&verifier, &nonce)
-            .map_err(|error| anyhow!("oidc ID token is invalid: {error}"))?;
+            .map_err(OidcError::invalid)?;
 
         if let Some(expected_hash) = claims.access_token_hash() {
-            let signing_alg = id_token
-                .signing_alg()
-                .map_err(|error| anyhow!("oidc ID token is invalid: {error}"))?;
+            let signing_alg = id_token.signing_alg().map_err(OidcError::invalid)?;
             let signing_key = id_token
                 .signing_key(&verifier)
-                .map_err(|error| anyhow!("oidc ID token is invalid: {error}"))?;
+                .map_err(OidcError::invalid)?;
             let actual_hash = AccessTokenHash::from_token(
                 token_response.access_token(),
                 signing_alg,
                 signing_key,
             )
-            .map_err(|error| anyhow!("oidc ID token is invalid: {error}"))?;
+            .map_err(OidcError::invalid)?;
 
             if actual_hash != *expected_hash {
-                return Err(anyhow!(
-                    "oidc ID token is invalid: access token hash mismatch"
-                ));
+                return Err(OidcError::invalid("access token hash mismatch"));
             }
         }
 
@@ -168,7 +185,7 @@ impl OidcFlow for Oidc {
             .timestamp()
             .min(now.saturating_add(self.max_session_secs));
         if exp <= now {
-            return Err(anyhow!("oidc ID token has expired"));
+            return Err(OidcError::Expired);
         }
 
         let name = claims.name().and_then(|localized| {
@@ -188,19 +205,18 @@ impl OidcFlow for Oidc {
     }
 }
 
-fn groups_from_id_token(id_token: &str, claim: &str) -> anyhow::Result<Vec<String>> {
+fn groups_from_id_token(id_token: &str, claim: &str) -> Result<Vec<String>, OidcError> {
     let payload = id_token
         .split('.')
         .nth(1)
-        .ok_or_else(|| anyhow!("oidc ID token is invalid"))?;
+        .ok_or_else(|| OidcError::invalid("it has no payload"))?;
     let decoded =
         base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, payload)
             .or_else(|_| {
                 base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE, payload)
             })
-            .map_err(|error| anyhow!("oidc ID token is invalid: {error}"))?;
-    let value: serde_json::Value = serde_json::from_slice(&decoded)
-        .map_err(|error| anyhow!("oidc ID token is invalid: {error}"))?;
+            .map_err(OidcError::invalid)?;
+    let value: serde_json::Value = serde_json::from_slice(&decoded).map_err(OidcError::invalid)?;
     Ok(groups_from_json(&value, claim))
 }
 

@@ -31,16 +31,6 @@ export function filter(allowed: readonly string[]) {
   return z.catch(z.optional(param), undefined);
 }
 
-const groupTabParam = z.catch(z._default(z.enum(["offsets", "members"]), "offsets"), "offsets");
-
-export const groupDetailSearch = z.object({
-  tab: groupTabParam,
-});
-
-export function groupTab(value: unknown) {
-  return z.parse(groupTabParam, value);
-}
-
 export function searchDefaults<T extends z.ZodMiniType>(schema: T): z.output<T> {
   return z.parse(schema, {});
 }

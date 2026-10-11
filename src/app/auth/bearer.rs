@@ -56,7 +56,8 @@ const METADATA_PATH: &str = "/.well-known/oauth-protected-resource";
 
 pub(crate) struct Bearer {
     keys: Arc<Jwks>,
-    validation: Validation,
+    /// One per algorithm in [`ASYMMETRIC`].
+    validations: HashMap<Algorithm, Validation>,
     max_age: i64,
     clients: Vec<String>,
     groups_claim: String,
@@ -98,15 +99,24 @@ impl Bearer {
             .resource
             .clone()
             .context("mcp.resource is required with auth")?;
-        let mut validation = Validation::new(Algorithm::ES256);
-        validation.leeway = PROVIDER_CLOCK_AHEAD_SECS.unsigned_abs();
-        validation.validate_exp = false;
-        validation.validate_nbf = true;
-        validation.set_issuer(&[oidc.issuer.as_str()]);
-        validation.set_audience(&mcp.audiences());
-        // jsonwebtoken checks the issuer and the audience only when the token
-        // names them.
-        validation.set_required_spec_claims(&["exp", "iss", "aud", "sub"]);
+        let audiences = mcp.audiences();
+        // jsonwebtoken refuses a list of algorithms that spans key families,
+        // so each token is checked against the one it names.
+        let validations = ASYMMETRIC
+            .into_iter()
+            .map(|alg| {
+                let mut validation = Validation::new(alg);
+                validation.leeway = PROVIDER_CLOCK_AHEAD_SECS.unsigned_abs();
+                validation.validate_exp = false;
+                validation.validate_nbf = true;
+                validation.set_issuer(&[oidc.issuer.as_str()]);
+                validation.set_audience(&audiences);
+                // jsonwebtoken checks the issuer and the audience only when the
+                // token names them.
+                validation.set_required_spec_claims(&["exp", "iss", "aud", "sub"]);
+                (alg, validation)
+            })
+            .collect();
 
         let mut metadata = json!({
             "resource": resource.as_str(),
@@ -129,7 +139,7 @@ impl Bearer {
         keys.refresh_every(REFRESH);
         Ok(Self {
             keys,
-            validation,
+            validations,
             max_age: i64::try_from(mcp.token.max_age.as_secs()).unwrap_or(i64::MAX),
             clients: mcp.token.clients.clone(),
             groups_claim: mcp
@@ -178,9 +188,10 @@ impl Bearer {
 
     async fn verify(&self, token: &str) -> Result<Caller, Refusal> {
         let header = jsonwebtoken::decode_header(token)?;
-        if !ASYMMETRIC.contains(&header.alg) {
-            return Err("the token is not signed with a public key".into());
-        }
+        let validation = self
+            .validations
+            .get(&header.alg)
+            .ok_or("the token is not signed with a public key")?;
         if !header.typ.as_deref().is_none_or(names_an_access_token) {
             return Err("the token is typed as something other than an access token".into());
         }
@@ -195,13 +206,7 @@ impl Bearer {
         if key.alg.is_some_and(|alg| alg != header.alg) {
             return Err("the key is for another algorithm".into());
         }
-        // jsonwebtoken refuses a list of algorithms that spans key families,
-        // so each token is checked against the one it names.
-        let validation = Validation {
-            algorithms: vec![header.alg],
-            ..self.validation.clone()
-        };
-        let claims = jsonwebtoken::decode::<Value>(token, &key.key, &validation)?.claims;
+        let claims = jsonwebtoken::decode::<Value>(token, &key.key, validation)?.claims;
 
         let now = Timestamp::now().as_second();
         let exp = seconds(&claims, "exp").ok_or("the token names no expiry")?;
@@ -325,7 +330,7 @@ struct Key {
 pub(crate) struct Jwks {
     http: reqwest::Client,
     uri: Url,
-    keys: ArcSwap<HashMap<String, Key>>,
+    keys: ArcSwap<HashMap<String, Arc<Key>>>,
     missed_at: Arc<Mutex<Option<Instant>>>,
 }
 
@@ -353,7 +358,7 @@ impl Jwks {
         }
     }
 
-    async fn key(self: &Arc<Self>, kid: Option<&str>) -> Option<Key> {
+    async fn key(self: &Arc<Self>, kid: Option<&str>) -> Option<Arc<Key>> {
         let Some(kid) = kid else {
             let keys = self.keys.load();
             return match keys.len() {
@@ -385,7 +390,7 @@ impl Jwks {
         self.cached(kid)
     }
 
-    fn cached(&self, kid: &str) -> Option<Key> {
+    fn cached(&self, kid: &str) -> Option<Arc<Key>> {
         self.keys.load().get(kid).cloned()
     }
 
@@ -430,7 +435,7 @@ impl Jwks {
         }
     }
 
-    async fn fetch(&self) -> anyhow::Result<HashMap<String, Key>> {
+    async fn fetch(&self) -> anyhow::Result<HashMap<String, Arc<Key>>> {
         let fetch = async {
             let mut response = self
                 .http
@@ -455,7 +460,7 @@ impl Jwks {
     }
 }
 
-fn usable(keys: Vec<Value>) -> HashMap<String, Key> {
+fn usable(keys: Vec<Value>) -> HashMap<String, Arc<Key>> {
     keys.into_iter()
         .filter_map(|key| serde_json::from_value::<Jwk>(key).ok())
         .filter(|jwk| {
@@ -473,7 +478,7 @@ fn usable(keys: Vec<Value>) -> HashMap<String, Key> {
                 .transpose()
                 .ok()?;
             let key = DecodingKey::from_jwk(&jwk).ok()?;
-            Some((jwk.common.key_id?, Key { key, alg }))
+            Some((jwk.common.key_id?, Arc::new(Key { key, alg })))
         })
         .collect()
 }

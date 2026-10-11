@@ -1,3 +1,4 @@
+use axum::response::sse::Event;
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -84,6 +85,32 @@ impl Update {
             Self::Quotas => "quotas",
             Self::ScramUsers => "scramUsers",
             Self::Resync => "resync",
+        }
+    }
+
+    pub(crate) fn sse(&self) -> Event {
+        Event::default()
+            .event(self.event())
+            .json_data(self)
+            .expect("update is serializable")
+    }
+
+    /// Only a subscriber scoped to the group gets its offsets.
+    pub(crate) fn group_lag(update: &store::GroupLagUpdate, with_offsets: bool) -> Self {
+        Self::GroupLag {
+            group: String::from(&*update.group),
+            lag: update.total_lag,
+            lag_complete: update.lag_complete,
+            offsets: if with_offsets {
+                update
+                    .offsets
+                    .iter()
+                    .cloned()
+                    .map(GroupOffset::from)
+                    .collect()
+            } else {
+                Vec::new()
+            },
         }
     }
 }

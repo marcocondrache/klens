@@ -10,7 +10,10 @@ import { router } from "@/router";
 import "./styles/global.css";
 import "./styles/highlighting.css";
 
-createRoot(document.getElementById("root")!).render(
+const root = document.getElementById("root");
+if (!root) throw new Error("index.html has no #root element");
+
+createRoot(root).render(
   <StrictMode>
     <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
       <QueryClientProvider client={queryClient}>

@@ -145,7 +145,12 @@ impl PayloadDecoder {
                     .dependencies(&schema.references)
                     .await
                     .map_err(DecodeError::failed)?;
-                let codec = ProtobufCodec::compile(&schema.schema, &dependencies)?;
+                let source = schema.schema.to_string();
+                let codec = tokio::task::spawn_blocking(move || {
+                    ProtobufCodec::compile(&source, &dependencies)
+                })
+                .await
+                .map_err(DecodeError::failed)??;
                 Ok::<_, DecodeError>(Arc::new(codec))
             })
             .await
@@ -157,7 +162,7 @@ impl PayloadDecoder {
 impl PayloadCodec for PayloadDecoder {
     async fn decode_batch(&self, slots: &mut [PayloadSlot]) {
         for (key, error) in self.decode_slots(slots).await {
-            report(key, &error);
+            error.report(key);
         }
     }
 }
@@ -245,21 +250,6 @@ impl PayloadDecoder {
     }
 }
 
-fn report(key: SchemaKey, error: &DecodeError) {
-    match error {
-        DecodeError::Missing(message) => tracing::debug!(
-            schema_id = %key,
-            error = message.as_str(),
-            "skipping schema registry payload decode"
-        ),
-        DecodeError::Failed(message) => tracing::warn!(
-            schema_id = %key,
-            error = message.as_str(),
-            "failed to decode schema registry payload"
-        ),
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
 enum DecodeError {
     #[error("{0}")]
@@ -275,6 +265,21 @@ impl DecodeError {
 
     fn failed(error: impl std::fmt::Display) -> Self {
         Self::Failed(error.to_string())
+    }
+
+    fn report(&self, key: SchemaKey) {
+        match self {
+            Self::Missing(message) => tracing::debug!(
+                schema_id = %key,
+                error = message.as_str(),
+                "skipping schema registry payload decode"
+            ),
+            Self::Failed(message) => tracing::warn!(
+                schema_id = %key,
+                error = message.as_str(),
+                "failed to decode schema registry payload"
+            ),
+        }
     }
 }
 
@@ -341,7 +346,7 @@ mod tests {
     use super::*;
     use crate::config::SchemaRegistryTuning;
     use crate::kafka::registry::testing::{FakeRegistry, Schema};
-    use crate::kafka::scan::filter::contains;
+    use crate::kafka::scan::filter::CompiledFilter;
     use crate::testing::LogCapture;
 
     fn decode_bytes(bytes: &[u8]) -> String {
@@ -419,7 +424,9 @@ mod tests {
     }
 
     fn matches_orderid(value: &DecodedPayload) -> bool {
-        contains("orderid").unwrap().on_payload(None, Some(value))
+        CompiledFilter::contains("orderid")
+            .unwrap()
+            .on_payload(None, Some(value))
     }
 
     async fn decode_payload(decoder: &PayloadDecoder, bytes: &[u8]) -> DecodedPayload {

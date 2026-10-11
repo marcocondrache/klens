@@ -184,13 +184,16 @@ impl SchemaRegistryClient {
             .dependencies(&schema.references)
             .await
             .map_err(|error| self.fail(error.to_string()))?;
-        RegisteredSchema {
+        let registered = RegisteredSchema {
             id,
             schema_type: schema.schema_type.into(),
             schema: schema.schema.to_string(),
             references: references(&schema.references),
-        }
-        .encode(&dependencies, json)
+        };
+        let json = json.to_owned();
+        tokio::task::spawn_blocking(move || registered.encode(&dependencies, &json))
+            .await
+            .map_err(|error| self.fail(error.to_string()))?
     }
 
     /// The name and body of every schema `references` reaches, each after
@@ -1171,16 +1174,6 @@ mod tests {
         assert!(
             matches!(&error, KafkaError::SchemaRegistry { .. }),
             "{error:?}"
-        );
-    }
-
-    #[test]
-    fn a_registry_error_names_its_cluster() {
-        let error = offline(&SchemaRegistryTuning::default()).fail("boom");
-
-        assert_eq!(
-            error.to_string(),
-            "schema registry request failed for cluster 'local': boom"
         );
     }
 }

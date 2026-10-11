@@ -235,7 +235,7 @@ mod tests {
 
     use super::*;
     use crate::kafka::limits::RecordLimits;
-    use crate::kafka::scan::filter::contains;
+    use crate::kafka::scan::filter::CompiledFilter;
     use crate::testing::{
         FAKE_TAIL_POLL_RECORDS, FakeCluster, FixtureRecord, card_record, partition, topic, topology,
     };
@@ -386,7 +386,7 @@ mod tests {
     async fn a_filter_sends_only_matching_records() {
         let session = FakeCluster::local();
         let mut filtered = query();
-        filtered.filter = contains("hit");
+        filtered.filter = CompiledFilter::contains("hit");
         let mut tail = open(&session, filtered).await;
 
         session.produce(record(0, 8, 8, "miss"));
@@ -473,7 +473,10 @@ mod tests {
         produce_run(&session, 8..41);
         let first = tail.next().await.unwrap();
 
-        assert_eq!(FAKE_TAIL_POLL_RECORDS, 4);
+        assert_eq!(
+            FAKE_TAIL_POLL_RECORDS, 4,
+            "the keys below assume four records a poll"
+        );
         assert_eq!(session.tail_seeks(), vec![vec![(0, 35)]]);
         assert_eq!(keys(&first), vec![(0, 9), (0, 10), (0, 11)]);
         assert_eq!(
@@ -521,7 +524,7 @@ mod tests {
     async fn a_filtered_tail_reads_a_longer_backlog_before_skipping() {
         let session = FakeCluster::local();
         let mut filtered = query();
-        filtered.filter = contains("ord");
+        filtered.filter = CompiledFilter::contains("ord");
         let mut tail = open(&session, filtered).await;
 
         produce_run(&session, 8..41);

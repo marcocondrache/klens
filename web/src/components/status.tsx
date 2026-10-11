@@ -73,7 +73,10 @@ export const GROUP_TONE: Record<GroupState, Tone> = {
   EMPTY: "idle",
   PREPARING_REBALANCE: "warn",
   COMPLETING_REBALANCE: "warn",
+  ASSIGNING: "warn",
+  RECONCILING: "warn",
   DEAD: "error",
+  UNKNOWN: "idle",
 };
 
 export function StatusLabel({

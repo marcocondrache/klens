@@ -2,6 +2,7 @@ pub use super::acls::types::{
     Acl, AclListing, AclOperation, AclPatternType, AclPermission, AclResourceType, AclStatus,
     CreateAcls,
 };
+pub use super::auth::{AuthMe, AuthUser};
 pub use super::brokers::types::{BrokerRow, LogDir};
 pub use super::clusters::types::{ClusterHealth, LaneHealth};
 pub use super::configs::{ConfigEntry, ConfigSource, EditConfigs};

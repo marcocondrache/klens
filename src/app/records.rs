@@ -20,7 +20,6 @@ mod tests;
 pub(crate) use types::RecordPage;
 use types::{
     DeleteParams, LookupParams, ProduceRecord, ProducedRecord, RecordLookup, RecordParams,
-    record_at, record_query,
 };
 
 pub(crate) fn router() -> Router<AppState> {
@@ -38,7 +37,7 @@ async fn records(
 ) -> Result<Json<RecordPage>, ApiError> {
     let records = session.cluster(&name)?.records()?;
     Ok(Json(RecordPage::from(
-        records.read(record_query(topic, params)?).await?,
+        records.read(params.into_query(topic)?).await?,
     )))
 }
 
@@ -76,7 +75,7 @@ async fn record(
     let records = session.cluster(&name)?.records()?;
     Ok(Json(RecordLookup::from(
         records
-            .record(record_at(topic, partition, offset, params))
+            .record(params.into_record_at(topic, partition, offset))
             .await?,
     )))
 }

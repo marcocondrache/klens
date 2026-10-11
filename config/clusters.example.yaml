@@ -112,7 +112,7 @@ clusters:
 #     # scopes: [openid, email, profile]
 #     # groups_claim: groups  # the ID token claim that lists a user's groups
 #   session:
-#     key: {env: KLENS_SESSION_KEY}  # 32 bytes or more; without it, a restart signs everyone out
+#     key: {env: KLENS_SESSION_KEY}  # 32 bytes or more; without it, klens generates one at boot
 #     # login_timeout: 10m  # how long a login may take at the provider
 #     # max_age: 12h        # session cap, even if the ID token lasts longer
 #   roles:
