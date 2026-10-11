@@ -766,3 +766,8 @@ most one rule, and the secret must be at least 32 bytes. Both are boot-time
 errors rather than a silently weaker policy. Offsets, timestamps, `sizeBytes`,
 and schema ids keep describing the wire record. A record page reports
 `obfuscated: true` for a covered topic, which is what the UI badges.
+
+A record page, single record, export, or tail refuses `schemaId` on a covered
+topic with `400 OBFUSCATED_TOPIC`. A schema the caller picks decides which
+fields the rules can reach, and one that names other fields would walk past
+them all.

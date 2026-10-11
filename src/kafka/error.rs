@@ -140,6 +140,11 @@ pub enum QueryError {
 
     #[error("`from` must not be after `to`")]
     InvertedTimestampRange,
+
+    #[error(
+        "an obfuscation rule covers this topic, so a value decodes only with the schema it names"
+    )]
+    SchemaIdOnObfuscatedTopic,
 }
 
 impl QueryError {
@@ -148,6 +153,7 @@ impl QueryError {
             Self::LimitTooSmall => "LIMIT_TOO_SMALL",
             Self::InvalidCursor => "INVALID_CURSOR",
             Self::InvertedTimestampRange => "INVERTED_TIMESTAMP_RANGE",
+            Self::SchemaIdOnObfuscatedTopic => "OBFUSCATED_TOPIC",
         }
     }
 }

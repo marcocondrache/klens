@@ -179,6 +179,38 @@ async fn an_obfuscated_topic_serves_tokens_instead_of_payloads() {
 }
 
 #[tokio::test]
+async fn a_caller_cannot_pick_the_schema_of_a_topic_a_rule_covers() {
+    let plain = TestApp::over(
+        FakeCluster::local().with_records((0..2).map(|offset| card_record(offset, PAN)).collect()),
+    )
+    .await;
+    let protected = TestApp::over(cards(
+        "
+        secret: {value: 0123456789abcdef0123456789abcdef}
+        rules:
+          - topics: ['orders.*']
+            fields:
+              - path: card.number
+                strategy: mask
+        ",
+    ))
+    .await;
+
+    plain.get(&format!("{RECORDS}?schemaId=7")).await.ok();
+    for path in [
+        format!("{RECORDS}?schemaId=7"),
+        format!("{RECORDS}/0/0?schemaId=7"),
+        format!("{EXPORT}?schemaId=7"),
+        format!("{TAIL}?schemaId=7"),
+    ] {
+        protected
+            .get(&path)
+            .await
+            .assert_error(StatusCode::BAD_REQUEST, "OBFUSCATED_TOPIC");
+    }
+}
+
+#[tokio::test]
 async fn a_page_says_whether_a_rule_covers_its_topic() {
     let path = format!("{RECORDS}?limit=2");
     let plain = TestApp::over(
