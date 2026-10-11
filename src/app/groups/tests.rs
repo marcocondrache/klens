@@ -290,6 +290,25 @@ async fn a_group_with_nothing_committed_resets_nothing() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_reset_over_an_offset_on_a_deleted_topic_names_the_missing_partition() {
+    let orphaned = group("orphaned", ORDERS, vec![0])
+        .with_committed(&[("deleted.topic", 0, 4)])
+        .stopped();
+    let app = TestApp::of([FakeCluster::local().with_groups([orphaned])])
+        .writable(&["local"])
+        .ingested()
+        .await;
+
+    app.patch(
+        "/clusters/local/group-offsets/orphaned",
+        &json!({ "to": { "kind": "LATEST" } }),
+    )
+    .await
+    .assert_error(StatusCode::NOT_FOUND, "UNKNOWN_PARTITION");
+    assert_eq!(app.cluster().calls(Api::AlterGroupOffsets), 0);
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_group_id_with_a_slash_resets_as_one_group() {
     let nightly = group("billing/nightly", ORDERS, vec![0])
         .with_committed(&[(ORDERS, 0, 2)])

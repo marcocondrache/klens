@@ -100,9 +100,11 @@ pub async fn plan_reset(
     for (topic, partitions) in &wanted {
         for &partition in partitions {
             let Some(&mark) = marks.get(topic).and_then(|marks| marks.get(&partition)) else {
-                return Err(KafkaError::Admin(format!(
-                    "no watermarks for partition {partition} of '{topic}'"
-                )));
+                return Err(KafkaError::UnknownPartition {
+                    cluster: session.identity().name.clone(),
+                    topic: topic.clone(),
+                    partition,
+                });
             };
             let from = current.get(&(topic.as_str(), partition)).copied();
             let at_time = at_times
