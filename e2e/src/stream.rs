@@ -28,7 +28,6 @@ impl Stream {
     }
 
     pub async fn find(&mut self, wanted: impl Fn(&Event) -> bool) -> Event {
-        let path = self.response.url().path().to_owned();
         let found = async {
             loop {
                 let event = self.read().await;
@@ -39,7 +38,7 @@ impl Stream {
         };
         timeout(PATIENCE, found)
             .await
-            .unwrap_or_else(|_| panic!("{path} never sent the event"))
+            .unwrap_or_else(|_| panic!("{} never sent the event", self.response.url().path()))
     }
 
     async fn read(&mut self) -> Event {

@@ -13,9 +13,7 @@ async fn acls_on_a_broker_without_an_authorizer_are_disabled_not_failing() {
     let klens = Klens::over(&kafka).await;
 
     let acls = klens
-        .eventually("/api/clusters/local/acls", |acls| {
-            acls["status"] != "PENDING"
-        })
+        .eventually(ACLS, |acls| acls["status"] != "PENDING")
         .await;
 
     assert_eq!(acls["status"], "DISABLED");
@@ -31,7 +29,7 @@ async fn a_client_quota_set_on_the_broker_is_listed() {
     let klens = Klens::over(&kafka).await;
 
     let quotas = klens
-        .eventually("/api/clusters/local/quotas", |quotas| {
+        .eventually(QUOTAS, |quotas| {
             quotas["quotas"]
                 .as_array()
                 .is_some_and(|quotas| !quotas.is_empty())
@@ -163,6 +161,10 @@ async fn a_quota_kafka_refuses_carries_the_broker_reason() {
 
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
     assert_eq!(body["code"], "REFUSED");
+    assert_eq!(
+        body["error"],
+        "kafka refused the change: Invalid configuration key producer_byte_rate"
+    );
 }
 
 #[tokio::test]
@@ -195,11 +197,11 @@ async fn a_scram_credential_set_on_the_broker_is_listed() {
 async fn a_scram_credential_set_through_klens_is_listed_and_deleted_again() {
     let kafka = Kafka::start().await;
     let klens = Klens::over(&kafka).await;
-    let alice = "/api/clusters/local/scram-users/alice";
+    let alice = format!("{SCRAM_USERS}/alice");
 
     let (status, body) = klens
         .put(
-            alice,
+            &alice,
             &json!({ "mechanism": "SHA256", "password": "alice-secret", "iterations": 8192 }),
         )
         .await;
@@ -225,9 +227,13 @@ async fn deleting_a_credential_kafka_does_not_hold_carries_the_broker_reason() {
     let klens = Klens::over(&kafka).await;
 
     let (status, body) = klens
-        .delete("/api/clusters/local/scram-users/nobody?mechanism=SHA512")
+        .delete(&format!("{SCRAM_USERS}/nobody?mechanism=SHA512"))
         .await;
 
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
     assert_eq!(body["code"], "REFUSED");
+    assert_eq!(
+        body["error"],
+        "kafka refused the change: Attempt to delete a user credential that does not exist"
+    );
 }
