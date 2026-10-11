@@ -1,11 +1,18 @@
+use std::time::Duration;
+
 use axum::body::Body;
 use axum::http::{HeaderValue, Method, Request, StatusCode, header};
-
 use strum::VariantArray as _;
+use tokio::io::AsyncWriteExt as _;
+use tokio::net::{TcpListener, TcpStream};
+use tracing::Level;
 
 use crate::app::AuthState;
 use crate::app::auth::access::{Privilege, PrivilegeSet};
-use crate::testing::{FakeCluster, TestApp, access, admin, group, json_request, role};
+use crate::config::Config;
+use crate::testing::{
+    Api, FakeCluster, LogCapture, TestApp, access, admin, eventually, group, json_request, role,
+};
 
 const ROUTES: &[(&str, Option<Privilege>)] = &[
     ("/whoami", None),
@@ -343,4 +350,35 @@ async fn every_route_refuses_a_host_off_the_list_while_auth_is_off() {
             .await
             .assert_error(StatusCode::FORBIDDEN, "HOST_NOT_ALLOWED");
     }
+}
+
+#[tokio::test]
+async fn a_change_logs_its_audit_line_after_the_client_hangs_up() {
+    let app =
+        TestApp::of(
+            [FakeCluster::local().with_delay(Api::DeleteTopic, Duration::from_millis(100))],
+        )
+        .writable(&["local"])
+        .ingested()
+        .await;
+    let logs = LogCapture::at(Level::INFO);
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("free port");
+    let address = listener.local_addr().expect("bound address");
+    let router = super::router(app.state().clone(), &Config::default().allowed_hosts, None);
+    tokio::spawn(async move { axum::serve(listener, router).await });
+
+    let mut client = TcpStream::connect(address).await.expect("connect");
+    client
+        .write_all(
+            b"DELETE /api/clusters/local/topics/orders.created HTTP/1.1\r\nHost: localhost\r\n\r\n",
+        )
+        .await
+        .expect("request");
+    eventually("the delete reaches kafka", || {
+        app.cluster().calls(Api::DeleteTopic) == 1
+    })
+    .await;
+    drop(client);
+
+    eventually("the audit line", || logs.count("deleted topic") == 1).await;
 }

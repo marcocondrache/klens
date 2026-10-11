@@ -23,6 +23,7 @@ mod resources;
 #[cfg(feature = "typescript")]
 pub mod typescript;
 mod well_known;
+mod writes;
 
 #[cfg(test)]
 pub(crate) mod testing;
@@ -131,10 +132,12 @@ async fn method_not_allowed() -> ApiError {
 }
 
 pub fn router(state: AppState, allowed_hosts: &[AllowedHost], mcp: Option<&Mcp>) -> Router {
-    let resources = resources::router().route_layer(middleware::from_fn_with_state(
-        state.clone(),
-        auth::require_session,
-    ));
+    let resources = resources::router()
+        .route_layer(middleware::from_fn(writes::run_to_completion))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth::require_session,
+        ));
     let auth_layer = state.auth.layer();
 
     let mut app = Router::new()
