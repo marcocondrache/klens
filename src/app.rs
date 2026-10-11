@@ -118,9 +118,7 @@ fn api_routes(state: AppState, resources: Router<AppState>) -> Router<AppState> 
         .method_not_allowed_fallback(method_not_allowed)
         .with_state(state);
 
-    Router::new()
-        .nest_service("/api", api)
-        .layer(middleware::from_fn(cross_site::refuse_cross_site))
+    Router::new().nest_service("/api", api)
 }
 
 async fn not_found() -> ApiError {
@@ -140,7 +138,8 @@ pub fn router(state: AppState, allowed_hosts: &[AllowedHost], mcp: Option<&Mcp>)
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             auth::require_session,
-        ));
+        ))
+        .route_layer(middleware::from_fn(cross_site::refuse_cross_site));
     let auth_layer = state.auth.layer();
 
     let mut app = Router::new()

@@ -384,37 +384,29 @@ async fn a_change_logs_its_audit_line_after_the_client_hangs_up() {
 }
 
 #[tokio::test]
-async fn an_api_request_another_site_sent_is_refused_unless_it_opens_a_page() {
+async fn a_resource_request_another_site_sent_is_refused() {
     let app = TestApp::of([FakeCluster::local()]).build();
-    let request = |method: Method, site: &str, mode: &str, dest: &str| {
+    let request = |path: &str, site: &str| {
         Request::builder()
-            .method(method)
-            .uri("/api/clusters")
+            .uri(path)
             .header(header::HOST, "localhost")
             .header("sec-fetch-site", site)
-            .header("sec-fetch-mode", mode)
-            .header("sec-fetch-dest", dest)
+            .header("sec-fetch-mode", "navigate")
+            .header("sec-fetch-dest", "document")
             .body(Body::empty())
             .expect("request")
     };
 
-    for (method, site, mode, dest) in [
-        (Method::GET, "cross-site", "no-cors", "empty"),
-        (Method::GET, "cross-site", "navigate", "iframe"),
-        (Method::GET, "same-site", "cors", "empty"),
-        (Method::POST, "cross-site", "navigate", "document"),
-    ] {
-        app.reply_through_router(request(method, site, mode, dest))
+    for site in ["cross-site", "same-site"] {
+        app.reply_through_router(request("/api/clusters", site))
             .await
             .assert_error(StatusCode::FORBIDDEN, "CROSS_SITE");
     }
-    for (site, mode, dest) in [
-        ("same-origin", "cors", "empty"),
-        ("none", "navigate", "document"),
-        ("cross-site", "navigate", "document"),
+    for (path, site) in [
+        ("/api/clusters", "same-origin"),
+        ("/api/clusters", "none"),
+        ("/api/auth/me", "cross-site"),
     ] {
-        app.reply_through_router(request(Method::GET, site, mode, dest))
-            .await
-            .ok();
+        app.reply_through_router(request(path, site)).await.ok();
     }
 }
