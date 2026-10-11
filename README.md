@@ -691,7 +691,8 @@ A producer chooses what a record holds, so klens refuses to decode an Avro
 value that nests deeper than 64 levels or holds more than 4 values per byte
 plus 4,096, and shows its bytes instead. A recursive schema could otherwise
 let a few hundred bytes crash klens, and an array of nulls could claim millions
-of values in a few bytes.
+of values in a few bytes. For the same reason klens refuses a Protobuf schema,
+or a schema it imports, that nests deeper than 64 levels.
 
 ```yaml
 schema_registry:

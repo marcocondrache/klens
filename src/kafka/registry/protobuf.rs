@@ -9,12 +9,20 @@ use schemreg::decode_protobuf_message_indexes;
 use serde_json::Value;
 use thiserror::Error;
 
+mod nesting;
+
 const ROOT_FILE: &str = "schema.proto";
+
+/// protox overflows a worker's stack a few hundred levels down, and no real
+/// schema nests anywhere near this deep.
+const MAX_NESTING: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub(crate) enum ProtobufError {
     #[error("{0}")]
     Compile(String),
+    #[error("{0} nests deeper than {MAX_NESTING} levels")]
+    TooDeep(String),
     #[error("compiled protobuf is missing {ROOT_FILE}")]
     MissingRoot,
     #[error("protobuf message index path is empty")]
@@ -60,6 +68,17 @@ impl ProtobufCodec {
         schema: &str,
         references: &[(String, String)],
     ) -> Result<Self, ProtobufError> {
+        let too_deep = std::iter::once((ROOT_FILE, schema))
+            .chain(
+                references
+                    .iter()
+                    .map(|(name, source)| (name.as_str(), source.as_str())),
+            )
+            .find(|(_, source)| nesting::depth(source) > MAX_NESTING);
+        if let Some((name, _)) = too_deep {
+            return Err(ProtobufError::TooDeep(name.to_owned()));
+        }
+
         let mut files = HashMap::new();
         files.insert(ROOT_FILE.to_owned(), schema.to_owned());
         for (name, source) in references {
@@ -175,6 +194,27 @@ mod tests {
             int32 n = 1;
         }
     "#;
+
+    #[test]
+    fn a_schema_nested_past_the_limit_is_refused_instead_of_overflowing_the_stack() {
+        let deep = |levels: usize| {
+            format!(
+                "syntax = \"proto3\";\n{}{}",
+                "message A { ".repeat(levels),
+                "} ".repeat(levels)
+            )
+        };
+
+        assert!(ProtobufCodec::compile(&deep(MAX_NESTING), &[]).is_ok());
+        assert_eq!(
+            ProtobufCodec::compile(ORDER, &[("deep.proto".to_owned(), deep(10_000))]).err(),
+            Some(ProtobufError::TooDeep("deep.proto".to_owned()))
+        );
+        assert_eq!(
+            ProtobufCodec::compile(&deep(10_000), &[]).err(),
+            Some(ProtobufError::TooDeep(ROOT_FILE.to_owned()))
+        );
+    }
 
     #[test]
     fn encodes_the_first_top_level_message() {
