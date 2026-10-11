@@ -493,6 +493,7 @@ fn signing_key(configured: Option<&KeyMaterial>) -> Key {
 #[cfg(test)]
 mod tests {
     use axum::http::StatusCode;
+    use strum::VariantArray as _;
 
     use super::testing::{Browser, FakeOidc};
     use super::*;
@@ -827,7 +828,7 @@ mod tests {
     fn a_capped_guard_admits_nobody_once_auth_is_on() {
         let guard = SessionGuard::capped(
             AuthState::enabled_for_tests(),
-            Ceiling::new("mcp", &config::Privilege::ALL, None),
+            Ceiling::new("mcp", config::Privilege::VARIANTS, None),
         );
 
         assert_eq!(guard.narrowed(), None);

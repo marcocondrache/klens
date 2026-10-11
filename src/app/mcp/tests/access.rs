@@ -1,3 +1,5 @@
+use strum::VariantArray as _;
+
 use super::*;
 
 #[tokio::test]
@@ -15,8 +17,8 @@ async fn every_tool_opens_to_exactly_the_privilege_it_names() {
     let tools = KlensMcp::tools().list_all();
     let mut wrong = Vec::new();
 
-    for held in std::iter::once(None).chain(Privilege::ALL.map(Some)) {
-        let session = app.with_access(access([role("probe", PrivilegeSet::from_privileges(held))]));
+    for held in std::iter::once(None).chain(Privilege::VARIANTS.iter().copied().map(Some)) {
+        let session = app.with_access(access([role("probe", PrivilegeSet::from_iter(held))]));
         for (name, section, needs) in gate_rows() {
             let tool = tools.iter().find(|tool| tool.name == name).expect("a tool");
             let expected = match (section, needs) {
@@ -24,7 +26,7 @@ async fn every_tool_opens_to_exactly_the_privilege_it_names() {
                 (None, needs) if needs == held => Outcome::Answered,
                 (None, _) => Outcome::Refused(json!("FORBIDDEN")),
                 (Some(_), needs) if needs == held => Outcome::Shown,
-                (Some(_), Some(needs)) => Outcome::Omitted(json!(PrivilegeName::from(needs))),
+                (Some(_), Some(needs)) => Outcome::Omitted(json!(needs)),
             };
             let result = call(&session, name, naming(tool, "local")).await;
             let got = outcome(&result, section);
@@ -61,7 +63,7 @@ async fn a_ceiling_without_a_privilege_closes_each_tool_and_section_that_needs_i
 
         let expected = match section {
             None => Outcome::Refused(json!("FORBIDDEN")),
-            Some(_) => Outcome::Omitted(json!(PrivilegeName::from(needs))),
+            Some(_) => Outcome::Omitted(json!(needs)),
         };
         assert_eq!(outcome(&result, section), expected, "{name} {section:?}");
     }
@@ -71,8 +73,8 @@ async fn a_ceiling_without_a_privilege_closes_each_tool_and_section_that_needs_i
 fn mcp_privileges_take_exactly_the_privileges_the_tools_need() {
     let needed = every_tool().privileges;
 
-    for privilege in Privilege::ALL {
-        let named = json!(PrivilegeName::from(privilege));
+    for &privilege in Privilege::VARIANTS {
+        let named = json!(privilege);
         let name = named.as_str().expect("a name").to_lowercase();
         let parsed = crate::config::parse::<Mcp>(&format!("privileges: [{name}]"));
         assert_eq!(parsed.is_ok(), needed.contains(&privilege), "{name}");
@@ -102,12 +104,7 @@ async fn tools_list_leaves_out_a_tool_the_caller_may_use_on_no_cluster() {
     let app = TestApp::of([FakeCluster::local(), FakeCluster::named("prod")])
         .ingested()
         .await;
-    let reader = || {
-        role(
-            "reader",
-            PrivilegeSet::from_privileges(Mcp::default().privileges),
-        )
-    };
+    let reader = || role("reader", PrivilegeSet::from_iter(Mcp::default().privileges));
     let listed = async |app: TestApp| {
         let listed = app.mcp("tools/list", json!({})).await.ok();
         names(&listed["result"], "tools", "name")
@@ -147,7 +144,7 @@ async fn a_tool_that_changes_kafka_is_offered_only_where_the_cluster_accepts_cha
     let creator = || {
         role(
             "creator",
-            PrivilegeSet::from_privileges([Privilege::CreateTopics]),
+            PrivilegeSet::from_iter([Privilege::CreateTopics]),
         )
     };
     let offered = async |app: TestApp| {

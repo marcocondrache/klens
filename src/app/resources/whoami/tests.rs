@@ -101,11 +101,11 @@ async fn whoami_unions_the_privileges_of_every_role_covering_a_cluster() {
         .with_access(access([
             role(
                 "operator",
-                PrivilegeSet::from_privileges([Privilege::Records, Privilege::TopicConfigs]),
+                PrivilegeSet::from_iter([Privilege::Records, Privilege::TopicConfigs]),
             ),
             role(
                 "auditor",
-                PrivilegeSet::from_privileges([Privilege::Acls, Privilege::SchemaText]),
+                PrivilegeSet::from_iter([Privilege::Acls, Privilege::SchemaText]),
             )
             .on(&["local"]),
         ]))

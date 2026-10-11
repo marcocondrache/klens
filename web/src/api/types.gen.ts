@@ -4,14 +4,14 @@ export type AuthUser = { sub: string, email: string | null, name: string | null,
 
 export type AuthMe = { enabled: boolean, user: AuthUser | null, };
 
-export type PrivilegeName = "RECORDS" | "TOPIC_CONFIGS" | "BROKER_CONFIGS" | "SCHEMA_TEXT" | "ACLS" | "CREATE_TOPICS" | "DELETE_TOPICS" | "ALTER_TOPIC_CONFIGS" | "ADD_PARTITIONS" | "DELETE_RECORDS" | "PRODUCE" | "RESET_OFFSETS" | "DELETE_OFFSETS" | "DELETE_GROUPS" | "REGISTER_SCHEMAS" | "SET_COMPATIBILITY" | "DELETE_SCHEMAS" | "CREATE_ACLS" | "DELETE_ACLS" | "ALTER_QUOTAS" | "SET_SCRAM_CREDENTIALS" | "DELETE_SCRAM_CREDENTIALS" | "ALTER_BROKER_CONFIGS";
+export type Privilege = "RECORDS" | "TOPIC_CONFIGS" | "BROKER_CONFIGS" | "SCHEMA_TEXT" | "ACLS" | "CREATE_TOPICS" | "DELETE_TOPICS" | "ALTER_TOPIC_CONFIGS" | "ADD_PARTITIONS" | "DELETE_RECORDS" | "PRODUCE" | "RESET_OFFSETS" | "DELETE_OFFSETS" | "DELETE_GROUPS" | "REGISTER_SCHEMAS" | "SET_COMPATIBILITY" | "DELETE_SCHEMAS" | "CREATE_ACLS" | "DELETE_ACLS" | "ALTER_QUOTAS" | "SET_SCRAM_CREDENTIALS" | "DELETE_SCRAM_CREDENTIALS" | "ALTER_BROKER_CONFIGS";
 
 export type ClusterGrant = { cluster: string, 
 /**
  * Names of the roles that granted this access, for tracing a privilege
  * back to an IdP group mapping. Empty when no role table applies.
  */
-roles: Array<string>, privileges: Array<PrivilegeName>, 
+roles: Array<string>, privileges: Array<Privilege>, 
 /**
  * False when the cluster refuses every change, whatever the privileges.
  */

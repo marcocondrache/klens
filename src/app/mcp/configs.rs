@@ -2,10 +2,9 @@
 
 use serde::Serialize;
 
-use crate::app::auth::access::AccessError;
+use crate::app::auth::access::{AccessError, Privilege};
 use crate::app::error::ApiError;
 use crate::app::resources::configs::ConfigEntry;
-use crate::app::resources::whoami::types::PrivilegeName;
 use crate::kafka::model as domain;
 
 use super::MAX_CONFIG_CHARS;
@@ -39,7 +38,7 @@ struct Omitted {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 enum Reason {
-    Needs(PrivilegeName),
+    Needs(Privilege),
     NotRead { last_error: Option<String> },
 }
 
@@ -68,9 +67,7 @@ impl ConfigSection {
     /// The caller lacks a privilege. Any other refusal is the tool's to return.
     pub fn withheld(error: AccessError) -> Result<Self, ApiError> {
         match error {
-            AccessError::Forbidden { privilege, .. } => {
-                Ok(Self::omitted(Reason::Needs(privilege.into())))
-            }
+            AccessError::Forbidden { privilege, .. } => Ok(Self::omitted(Reason::Needs(privilege))),
             error => Err(error.into()),
         }
     }

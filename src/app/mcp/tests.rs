@@ -24,7 +24,6 @@ use crate::app::auth::testing::{Idp, RESOURCE_HOST, Signer, bearing, mcp as for_
 use crate::app::mcp::reply::{Page, fit, fits, reply};
 use crate::app::mcp::server::KlensMcp;
 use crate::app::mcp::tools::gates;
-use crate::app::resources::whoami::types::PrivilegeName;
 use crate::app::{AppState, AuthState, Limits, router};
 use crate::config::{AllowedHost, Config, Mcp, Tuning};
 use crate::kafka::Clusters;

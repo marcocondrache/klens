@@ -340,11 +340,11 @@ pub fn access(grants: impl IntoIterator<Item = Grant>) -> EffectiveAccess {
 }
 
 pub fn admin() -> Grant {
-    role("admin", PrivilegeSet::ALL)
+    role("admin", PrivilegeSet::all())
 }
 
 pub fn viewer() -> Grant {
-    role("viewer", PrivilegeSet::NONE)
+    role("viewer", PrivilegeSet::empty())
 }
 
 pub fn role(name: &str, privileges: PrivilegeSet) -> Grant {

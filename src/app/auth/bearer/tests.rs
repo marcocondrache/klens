@@ -15,6 +15,8 @@ use tower::ServiceExt as _;
 use wiremock::ResponseTemplate;
 
 use super::*;
+use strum::VariantArray as _;
+
 use crate::app::auth::access::{Ceiling, EffectiveAccess, Narrowed, Privilege};
 use crate::app::auth::testing::{
     Browser, Idp, RESOURCE, RESOURCE_HOST, Signer, bearing, key_set, mcp,
@@ -61,7 +63,7 @@ impl Answer {
 
 fn probe(auth: &AuthState) -> Router {
     let bearer = Arc::clone(auth.bearer().expect("a token check"));
-    let guard = SessionGuard::capped(auth.clone(), Ceiling::new("mcp", &Privilege::ALL, None));
+    let guard = SessionGuard::capped(auth.clone(), Ceiling::new("mcp", Privilege::VARIANTS, None));
     Router::new()
         .route("/mcp", post(handed_on))
         .layer(middleware::from_fn_with_state(
@@ -82,7 +84,7 @@ async fn handed_on(request: Request) -> Json<Value> {
         .privileges_for("local")
         .expect("local is visible")
         .iter()
-        .map(Privilege::name)
+        .map(<&str>::from)
         .collect();
     Json(json!({
         "user": guard.subject(),

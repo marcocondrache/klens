@@ -2,7 +2,7 @@ import { queryOptions, useQuery } from "@tanstack/react-query";
 
 import { get } from "@/lib/api/client";
 import { keys } from "@/lib/api/keys";
-import type { Identity, PrivilegeName } from "@/lib/api/types";
+import type { Identity, Privilege } from "@/lib/api/types";
 
 const whoamiQuery = queryOptions({
   queryKey: keys.whoami(),
@@ -16,8 +16,8 @@ export function useWhoami() {
 
 export type Access = {
   ready: boolean;
-  can: (cluster: string, privilege: PrivilegeName) => boolean;
-  canChange: (cluster: string, privilege: PrivilegeName) => boolean;
+  can: (cluster: string, privilege: Privilege) => boolean;
+  canChange: (cluster: string, privilege: Privilege) => boolean;
   canSeeCluster: (cluster: string) => boolean;
 };
 
@@ -33,7 +33,7 @@ export function useAccess(): Access {
   };
 }
 
-function hasPrivilege(identity: Identity | undefined, cluster: string, privilege: PrivilegeName) {
+function hasPrivilege(identity: Identity | undefined, cluster: string, privilege: Privilege) {
   return grant(identity, cluster)?.privileges.includes(privilege) ?? !identity;
 }
 

@@ -1,6 +1,8 @@
 use axum::body::Body;
 use axum::http::{HeaderValue, Method, Request, StatusCode, header};
 
+use strum::VariantArray as _;
+
 use crate::app::AuthState;
 use crate::app::auth::access::{Privilege, PrivilegeSet};
 use crate::testing::{FakeCluster, TestApp, access, admin, group, json_request, role};
@@ -188,8 +190,8 @@ async fn every_route_opens_to_exactly_the_privilege_it_names() {
     let app = TestApp::local().await;
     let mut wrong = Vec::new();
 
-    for held in std::iter::once(None).chain(Privilege::ALL.map(Some)) {
-        let session = app.with_access(access([role("probe", PrivilegeSet::from_privileges(held))]));
+    for held in std::iter::once(None).chain(Privilege::VARIANTS.iter().copied().map(Some)) {
+        let session = app.with_access(access([role("probe", PrivilegeSet::from_iter(held))]));
         for &(route, needs) in ROUTES {
             let expected = if needs.is_none() || needs == held {
                 StatusCode::OK
@@ -239,8 +241,8 @@ async fn every_write_opens_to_exactly_the_privilege_it_names() {
         .await;
     let mut wrong = Vec::new();
 
-    for held in std::iter::once(None).chain(Privilege::ALL.map(Some)) {
-        let session = app.with_access(access([role("probe", PrivilegeSet::from_privileges(held))]));
+    for held in std::iter::once(None).chain(Privilege::VARIANTS.iter().copied().map(Some)) {
+        let session = app.with_access(access([role("probe", PrivilegeSet::from_iter(held))]));
         for (method, route, body, needs) in WRITES {
             let reply = session.reply(write(method, route, *body)).await;
             if reply.status.is_success() != (held == Some(*needs)) {

@@ -8,7 +8,7 @@ use klens::app::typescript::{
     AddPartitions, AuthMe, AuthUser, BrokerRow, CleanupPolicy, ClientQuota, ClusterGrant,
     ClusterHealth, ConfigEntry, ConfigSource, CreateAcls, CreateTopic, EditConfigs, EditSubject,
     GroupDetail, GroupMember, GroupOffset, GroupRow, GroupState, Identity, LaneHealth, LogDir,
-    MemberAssignment, OffsetMove, PartitionRow, PrivilegeName, ProduceRecord, ProducedRecord,
+    MemberAssignment, OffsetMove, PartitionRow, Privilege, ProduceRecord, ProducedRecord,
     QuotaEntity, QuotaEntityType, QuotaListing, QuotaStatus, Record, RecordHeader, RecordLookup,
     RecordOrder, RecordPage, RecordPayload, RegisterSchema, RegisteredVersion, ResetOffsets,
     ResetTarget, SchemaCompatibility, SchemaReference, SchemaType, ScramCredential, ScramListing,
@@ -41,7 +41,7 @@ fn typescript() -> String {
     emit!(
         AuthUser,
         AuthMe,
-        PrivilegeName,
+        Privilege,
         ClusterGrant,
         Identity,
         LaneHealth,

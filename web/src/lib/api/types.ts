@@ -26,7 +26,7 @@ export type {
   LogDir,
   OffsetMove,
   PartitionRow,
-  PrivilegeName,
+  Privilege,
   ProduceRecord,
   ProducedRecord,
   QuotaEntity,

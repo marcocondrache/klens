@@ -29,4 +29,5 @@ pub use super::resources::topics::types::{
     AddPartitions, CleanupPolicy, CreateTopic, PartitionRow, TopicDetail, TopicGroupRow, TopicRow,
 };
 pub use super::resources::updates::types::{TopicRate, Update};
-pub use super::resources::whoami::types::{ClusterGrant, Identity, PrivilegeName};
+pub use super::resources::whoami::types::{ClusterGrant, Identity};
+pub use crate::config::Privilege;

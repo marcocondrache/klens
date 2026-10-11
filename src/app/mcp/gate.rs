@@ -5,7 +5,6 @@ use serde::Serialize;
 
 use crate::app::auth::access::{ClusterAccess, Privilege};
 use crate::app::context::{ClusterHandle, Session};
-use crate::app::resources::whoami::types::PrivilegeName;
 use crate::config::Mcp;
 
 use super::configs::Section;
@@ -98,7 +97,7 @@ pub(super) struct ToolRights {
     section: Option<Section>,
     available: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    needs: Option<PrivilegeName>,
+    needs: Option<Privilege>,
 }
 
 impl ToolRights {
@@ -113,7 +112,7 @@ impl ToolRights {
             name,
             section,
             available: missing.is_none(),
-            needs: missing.map(Into::into),
+            needs: missing,
         }
     }
 }
