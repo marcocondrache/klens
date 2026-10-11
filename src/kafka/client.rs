@@ -666,9 +666,13 @@ impl ClusterSession for KafkaClient {
         &self,
         credential: &NewScramCredential,
     ) -> Result<(), KafkaError> {
+        let credential = credential.clone();
+        let upsertion = tokio::task::spawn_blocking(move || credential.upsertion())
+            .await
+            .map_err(|error| KafkaError::Admin(error.to_string()))?;
         self.transport
             .admin
-            .alter_user_scram_credentials(Vec::new(), vec![credential.upsertion()])
+            .alter_user_scram_credentials(Vec::new(), vec![upsertion])
             .await?
             .into_iter()
             .try_for_each(|altered| refused(altered.error))

@@ -145,7 +145,12 @@ impl PayloadDecoder {
                     .dependencies(&schema.references)
                     .await
                     .map_err(DecodeError::failed)?;
-                let codec = ProtobufCodec::compile(&schema.schema, &dependencies)?;
+                let source = schema.schema.to_string();
+                let codec = tokio::task::spawn_blocking(move || {
+                    ProtobufCodec::compile(&source, &dependencies)
+                })
+                .await
+                .map_err(DecodeError::failed)??;
                 Ok::<_, DecodeError>(Arc::new(codec))
             })
             .await
