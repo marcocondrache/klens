@@ -7,7 +7,9 @@ use klens::kafka::Clusters;
 use klens::kafka::ingest::Ingest;
 
 /// A change waits on one Kafka request and then on the cluster showing it.
-const WRITE_GRACE: Duration = Duration::from_secs(30);
+/// This stays under the chart's 30 s termination grace, so the warning below
+/// lands before Kubernetes kills the pod.
+const WRITE_GRACE: Duration = Duration::from_secs(25);
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
