@@ -66,6 +66,10 @@ impl OidcError {
     }
 }
 
+/// A provider that stops answering would otherwise hang startup and every
+/// login callback. Key set fetches stop after the same time.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+
 pub(crate) struct Oidc {
     http: reqwest::Client,
     client: DiscoveredClient,
@@ -81,6 +85,7 @@ impl Oidc {
     ) -> anyhow::Result<(Self, Jwks)> {
         let http = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
+            .timeout(REQUEST_TIMEOUT)
             .build()
             .context("failed to build oidc http client")?;
 
@@ -222,7 +227,35 @@ fn groups_from_id_token(id_token: &str, claim: &str) -> Result<Vec<String>, Oidc
 
 #[cfg(test)]
 mod tests {
+    use tokio::time::Instant;
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
     use super::*;
+    use crate::testing::yaml;
+
+    #[tokio::test(start_paused = true)]
+    async fn discovery_gives_up_on_a_provider_that_stops_answering() {
+        let provider = MockServer::start().await;
+        Mock::given(wiremock::matchers::any())
+            .respond_with(ResponseTemplate::new(200).set_delay(REQUEST_TIMEOUT * 2))
+            .mount(&provider)
+            .await;
+        let oidc: config::Oidc = yaml(&format!(
+            "
+            issuer: {}
+            client_id: klens
+            client_secret: {{value: secret}}
+            redirect_uri: http://localhost:8080/api/auth/callback
+            ",
+            provider.uri()
+        ));
+        let started = Instant::now();
+
+        let discovered = Oidc::discover(&oidc, Duration::from_secs(3600)).await;
+
+        assert!(discovered.is_err());
+        assert_eq!(started.elapsed(), REQUEST_TIMEOUT);
+    }
 
     #[test]
     fn groups_from_id_token_reads_the_payload_claim() {
