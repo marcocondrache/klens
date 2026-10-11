@@ -44,11 +44,13 @@ impl Deref for Reader {
 
 const RETIRE_GRACE: Duration = Duration::from_secs(1);
 
-fn retire(reader: Arc<Reader>) {
-    tokio::spawn(async move {
-        let _ = tokio::time::timeout(RETIRE_GRACE, reader.consumer.close()).await;
-        reader.client.pool().close_all().await;
-    });
+impl Reader {
+    fn retire(self: Arc<Self>) {
+        tokio::spawn(async move {
+            let _ = tokio::time::timeout(RETIRE_GRACE, self.consumer.close()).await;
+            self.client.pool().close_all().await;
+        });
+    }
 }
 
 pub(super) struct TailLease {
@@ -74,7 +76,7 @@ impl TailLease {
 
         let partitions = start.iter().map(|position| position.partition).collect();
         if let Err(error) = consumer.assign(topic, partitions).await {
-            retire(consumer);
+            consumer.retire();
             return Err(error.into());
         }
 
@@ -118,7 +120,7 @@ impl TailConsumer for TailLease {
 
 impl Drop for TailLease {
     fn drop(&mut self) {
-        retire(Arc::clone(&self.consumer));
+        Arc::clone(&self.consumer).retire();
     }
 }
 

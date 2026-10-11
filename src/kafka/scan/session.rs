@@ -481,7 +481,7 @@ mod tests {
 
     use super::*;
     use crate::kafka::scan::cursor::{RecordCursor, Remaining};
-    use crate::kafka::scan::filter::{CompiledFilter, contains};
+    use crate::kafka::scan::filter::CompiledFilter;
     use crate::kafka::scan::query::TimestampRange;
     use crate::kafka::session::watermarks;
     use crate::testing::{Api, FakeCluster, FixtureRecord, card_record, framed};
@@ -513,7 +513,7 @@ mod tests {
         RecordQuery {
             topic: "orders.created".into(),
             partitions: vec![0],
-            filter: contains("hit"),
+            filter: CompiledFilter::contains("hit"),
             timestamps: TimestampRange::UNBOUNDED,
             limit: 2,
             order: RecordOrder::Oldest,
@@ -1074,7 +1074,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_filter_matches_the_token_the_page_shows() {
-        let page = card_page(&cards(), contains("kx:")).await;
+        let page = card_page(&cards(), CompiledFilter::contains("kx:")).await;
 
         assert_eq!(offsets(&page), vec![0, 1, 2, 3]);
     }
@@ -1086,7 +1086,7 @@ mod tests {
         let page = card_page(&session, None).await;
         assert_eq!(page.records[0].headers[0].value, "***");
 
-        let matched = card_page(&session, contains("ada")).await;
+        let matched = card_page(&session, CompiledFilter::contains("ada")).await;
         assert!(
             matched.records.is_empty(),
             "a header filter sees the masked value too"
@@ -1138,14 +1138,14 @@ mod tests {
         let session = text_orders();
 
         assert!(
-            card_page(&session, contains("4111"))
+            card_page(&session, CompiledFilter::contains("4111"))
                 .await
                 .records
                 .is_empty(),
             "raw bytes must stay out of reach of a filter on a rewritten topic"
         );
         assert_eq!(
-            card_page(&session, contains("on order 2"))
+            card_page(&session, CompiledFilter::contains("on order 2"))
                 .await
                 .records
                 .len(),

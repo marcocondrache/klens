@@ -338,7 +338,7 @@ mod tests {
         let mut query = browse_query();
         query.limit = 10;
         query.order = RecordOrder::Newest;
-        query.filter = crate::kafka::compile_contains_filter("hit-");
+        query.filter = crate::kafka::CompiledFilter::contains("hit-");
 
         let first = page(&session, &store, query.clone()).await.unwrap();
         let keys: Vec<_> = first

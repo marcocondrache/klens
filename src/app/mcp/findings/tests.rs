@@ -1,6 +1,6 @@
 use super::*;
 use crate::kafka::model::{GroupMember, GroupSnapshot, MemberAssignment};
-use crate::kafka::store::projections::group_detail;
+use crate::kafka::store::projections::GroupDetail;
 use crate::testing::{offsets, partition, topic, topology, watermarks};
 
 fn member(id: &str, partitions: Vec<i32>) -> GroupMember {
@@ -50,7 +50,7 @@ fn examine(
     let topology = on_orders(state, members, partitions);
     let marks: Vec<_> = (0..partitions).map(|id| ("orders", id, 0, 1000)).collect();
     let (id, info) = topology.groups.iter().next().expect("the group");
-    let detail = group_detail(
+    let detail = GroupDetail::project(
         id,
         info,
         committed.map(offsets).as_ref(),
@@ -204,7 +204,7 @@ fn lag_on_one_member_is_not_judged_on_an_incomplete_total() {
     let committed = offsets(&[("orders", 0, 0), ("orders", 1, 0)]);
     let marks = watermarks(&[("orders", 0, 0, 5000)]);
 
-    let detail = group_detail(id, info, Some(&committed), Some(&marks));
+    let detail = GroupDetail::project(id, info, Some(&committed), Some(&marks));
 
     assert_eq!(detail.total_lag, Some(5000));
     assert!(!detail.lag_complete);
@@ -232,7 +232,7 @@ fn a_member_lag_sums_the_partitions_it_holds() {
         ("orders", 3, 0, 10),
     ]);
 
-    let detail = group_detail(id, info, Some(&committed), Some(&marks));
+    let detail = GroupDetail::project(id, info, Some(&committed), Some(&marks));
 
     assert_eq!(
         member_lags(&detail),

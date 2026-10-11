@@ -11,7 +11,9 @@ use crate::app::auth::access::ProduceCap;
 use crate::app::context::Granted;
 use crate::app::error::ApiError;
 use crate::kafka::model as domain;
-use crate::kafka::{QueryError, RecordCursor, Tail, TailBatch, TailPosition, TailQuery};
+use crate::kafka::{
+    CompiledFilter, QueryError, RecordCursor, Tail, TailBatch, TailPosition, TailQuery,
+};
 use crate::r#macro::from_same_variants;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, JsonSchema)]
@@ -270,7 +272,7 @@ pub(crate) fn record_query(
         filter: params
             .contains
             .as_deref()
-            .and_then(crate::kafka::compile_contains_filter),
+            .and_then(CompiledFilter::contains),
         cursor: match params.cursor.as_deref().map(str::trim) {
             None | Some("") => None,
             Some(cursor) => {
@@ -297,7 +299,7 @@ pub(crate) fn export_query(
         filter: params
             .contains
             .as_deref()
-            .and_then(crate::kafka::compile_contains_filter),
+            .and_then(CompiledFilter::contains),
         cursor: None,
         topic,
         partitions: params.partition,
@@ -410,7 +412,7 @@ pub(crate) fn tail_query(topic: String, params: TailParams) -> TailQuery {
         filter: params
             .contains
             .as_deref()
-            .and_then(crate::kafka::compile_contains_filter),
+            .and_then(CompiledFilter::contains),
         topic,
         partitions: params.partition,
         schema_id: params.schema_id,

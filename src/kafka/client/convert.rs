@@ -195,40 +195,48 @@ impl GroupMember {
             host: member.client_host.trim_start_matches('/').to_owned(),
             assignments: member
                 .assignment
-                .map(assignments_from_krafka)
+                .map(|assigned| {
+                    let mut assignments: Vec<MemberAssignment> = assigned
+                        .into_iter()
+                        .filter_map(MemberAssignment::from_krafka)
+                        .collect();
+                    assignments.shrink_to_fit();
+                    assignments
+                })
                 .unwrap_or_default(),
         }
     }
 }
 
-fn assignments_from_krafka(assigned: Vec<TopicPartitionAssignment>) -> Vec<MemberAssignment> {
-    let mut assignments: Vec<MemberAssignment> = assigned
-        .into_iter()
-        .filter(|assignment| !assignment.topic_name.is_empty())
-        .map(|assignment| MemberAssignment {
+impl MemberAssignment {
+    fn from_krafka(assignment: TopicPartitionAssignment) -> Option<Self> {
+        (!assignment.topic_name.is_empty()).then_some(Self {
             topic: assignment.topic_name,
             partitions: assignment.partitions,
         })
-        .collect();
-    assignments.shrink_to_fit();
-    assignments
+    }
 }
 
 pub(super) fn committed_from_krafka(entries: Vec<GroupOffsetEntry>) -> Vec<CommittedOffset> {
     let mut committed: Vec<CommittedOffset> = entries
         .into_iter()
-        .filter_map(|entry| committed_offset(entry.topic, entry.partition, entry.committed_offset))
+        .filter_map(|entry| {
+            CommittedOffset::from_krafka(entry.topic, entry.partition, entry.committed_offset)
+        })
         .collect();
     committed.shrink_to_fit();
     committed
 }
 
-fn committed_offset(topic: String, partition: i32, offset: i64) -> Option<CommittedOffset> {
-    (offset >= 0 && validate_topic_name(&topic).is_ok()).then_some(CommittedOffset {
-        topic,
-        partition,
-        offset,
-    })
+impl CommittedOffset {
+    /// Krafka reports a partition without a committed offset as `-1`.
+    fn from_krafka(topic: String, partition: i32, offset: i64) -> Option<Self> {
+        (offset >= 0 && validate_topic_name(&topic).is_ok()).then_some(Self {
+            topic,
+            partition,
+            offset,
+        })
+    }
 }
 
 impl LogDir {
@@ -340,16 +348,16 @@ mod tests {
     #[test]
     fn committed_offsets_drop_unset_offsets_and_illegal_topic_names() {
         assert_eq!(
-            committed_offset("orders".into(), 1, 0),
+            CommittedOffset::from_krafka("orders".into(), 1, 0),
             Some(CommittedOffset {
                 topic: "orders".into(),
                 partition: 1,
                 offset: 0,
             })
         );
-        assert_eq!(committed_offset("orders".into(), 1, -1), None);
-        assert_eq!(committed_offset(String::new(), 1, 7), None);
-        assert_eq!(committed_offset("bad/name".into(), 1, 7), None);
+        assert_eq!(CommittedOffset::from_krafka("orders".into(), 1, -1), None);
+        assert_eq!(CommittedOffset::from_krafka(String::new(), 1, 7), None);
+        assert_eq!(CommittedOffset::from_krafka("bad/name".into(), 1, 7), None);
     }
 
     #[test]

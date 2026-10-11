@@ -11,7 +11,7 @@ use tokio::time::Instant;
 use crate::config::IngestTuning;
 use crate::kafka::group::CommittedOffset;
 use crate::kafka::session::ClusterSession;
-use crate::kafka::store::projections::group_offsets;
+use crate::kafka::store::projections::GroupLag;
 use crate::kafka::store::{
     Change, ClusterStore, GroupInfo, GroupLagUpdate, GroupOffsets, GroupOffsetsWave, OffsetTable,
     Topology,
@@ -241,18 +241,16 @@ impl OffsetLane {
             .iter()
             .filter_map(|id| {
                 let group = topology.group(id)?;
-                let (offsets, Some(total_lag), lag_complete) = group_offsets(
+                let lag = GroupLag::project(
                     group,
                     offsets.get(id).map(Arc::as_ref),
                     watermarks.as_deref(),
-                ) else {
-                    return None;
-                };
+                );
                 let update = GroupLagUpdate {
                     group: Arc::clone(id),
-                    total_lag,
-                    lag_complete,
-                    offsets,
+                    total_lag: lag.total?,
+                    lag_complete: lag.complete,
+                    offsets: lag.offsets,
                 };
                 let fingerprint = self.fingerprint.hash_one(&update);
                 if published.insert(Arc::clone(id), fingerprint) == Some(fingerprint) {

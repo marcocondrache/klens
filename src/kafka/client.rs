@@ -65,13 +65,14 @@ use offsets::{known_offsets, partition_time_offsets};
 use pool::ScanPool;
 use scan::ReaderConfig;
 use tail::TailLease;
+use transport::Transport;
 
 pub struct KafkaClient {
     identity: ClusterIdentity,
     consume_timeout: Duration,
     scan_poll_wait: Duration,
     tail_reader: ReaderConfig,
-    transport: transport::Transport,
+    transport: Transport,
     producer: OnceCell<Producer>,
     scans: Arc<ScanPool>,
     schema_registry: Option<Arc<PayloadDecoder>>,
@@ -112,7 +113,7 @@ impl KafkaClient {
             .as_ref()
             .map(|rules| Arc::new(ObfuscationPolicy::compile(rules)));
 
-        let transport = transport::connect(name, cluster, &tuning.kafka).await?;
+        let transport = Transport::connect(name, cluster, &tuning.kafka).await?;
         let scan_client = transport.connector.connect().await?;
 
         Ok(Self {

@@ -11,7 +11,7 @@ use super::interest::InterestRegistry;
 use super::lane::Lane;
 use super::projections::{
     self, BrokerRow, ClusterHealthView, GroupDetail, GroupRow, SubjectRow, TopicDetail,
-    TopicGroupRow, TopicRow,
+    TopicGroupRow, TopicLanes, TopicRow,
 };
 use super::rates::RateStore;
 use super::search::{self, SearchHit};
@@ -95,20 +95,18 @@ impl ClusterStore {
         let watermarks = self.watermarks.load();
         let configs = self.configs.load();
         let log_dirs = self.log_dirs.load();
+        let lanes = TopicLanes {
+            topology: &topology,
+            watermarks: watermarks.as_deref(),
+            configs: configs.as_deref(),
+            log_dirs: log_dirs.as_deref(),
+        };
 
         topology
             .topics
             .iter()
             .map(|(name, topic)| {
-                projections::topic_row(
-                    name,
-                    topic,
-                    watermarks.as_deref(),
-                    configs.as_deref(),
-                    log_dirs.as_deref(),
-                    &topology,
-                    self.rates.get(name).unwrap_or(0.0),
-                )
+                TopicRow::project(name, topic, lanes, self.rates.get(name).unwrap_or(0.0))
             })
             .collect()
     }
@@ -116,13 +114,19 @@ impl ClusterStore {
     pub fn topic_row(&self, name: &str) -> Option<TopicRow> {
         let topology = self.topology.load()?;
         let (key, topic) = topology.topics.get_key_value(name)?;
-        Some(projections::topic_row(
+        let watermarks = self.watermarks.load();
+        let configs = self.configs.load();
+        let log_dirs = self.log_dirs.load();
+        let lanes = TopicLanes {
+            topology: &topology,
+            watermarks: watermarks.as_deref(),
+            configs: configs.as_deref(),
+            log_dirs: log_dirs.as_deref(),
+        };
+        Some(TopicRow::project(
             key,
             topic,
-            self.watermarks.load().as_deref(),
-            self.configs.load().as_deref(),
-            self.log_dirs.load().as_deref(),
-            &topology,
+            lanes,
             self.rates.get(name).unwrap_or(0.0),
         ))
     }
@@ -130,13 +134,19 @@ impl ClusterStore {
     pub fn topic_detail(&self, name: &str) -> Option<TopicDetail> {
         let topology = self.topology.load()?;
         let (key, topic) = topology.topics.get_key_value(name)?;
-        Some(projections::topic_detail(
+        let watermarks = self.watermarks.load();
+        let configs = self.configs.load();
+        let log_dirs = self.log_dirs.load();
+        let lanes = TopicLanes {
+            topology: &topology,
+            watermarks: watermarks.as_deref(),
+            configs: configs.as_deref(),
+            log_dirs: log_dirs.as_deref(),
+        };
+        Some(TopicDetail::project(
             key,
             topic,
-            self.watermarks.load().as_deref(),
-            self.configs.load().as_deref(),
-            self.log_dirs.load().as_deref(),
-            &topology,
+            lanes,
             self.rates.get(name).unwrap_or(0.0),
         ))
     }
@@ -157,7 +167,7 @@ impl ClusterStore {
             .groups
             .iter()
             .map(|(id, group)| {
-                projections::group_row(
+                GroupRow::project(
                     id,
                     group,
                     projections::offsets_for(offsets.as_deref(), id),
@@ -170,7 +180,7 @@ impl ClusterStore {
     pub fn group_row(&self, id: &str) -> Option<GroupRow> {
         let topology = self.topology.load()?;
         let (key, group) = topology.groups.get_key_value(id)?;
-        Some(projections::group_row(
+        Some(GroupRow::project(
             key,
             group,
             projections::offsets_for(self.offsets.load().as_deref(), id),
@@ -182,7 +192,7 @@ impl ClusterStore {
         let topology = self.topology.load()?;
         let (key, group) = topology.groups.get_key_value(id)?;
         self.interest.touch_group(key);
-        Some(projections::group_detail(
+        Some(GroupDetail::project(
             key,
             group,
             projections::offsets_for(self.offsets.load().as_deref(), id),
@@ -202,7 +212,7 @@ impl ClusterStore {
             .iter()
             .filter_map(|id| {
                 let (key, group) = topology.groups.get_key_value(id)?;
-                Some(projections::topic_group_row(
+                Some(TopicGroupRow::project(
                     key,
                     topic,
                     group,
@@ -216,14 +226,14 @@ impl ClusterStore {
     pub fn broker_rows(&self) -> Vec<BrokerRow> {
         self.topology
             .load()
-            .map(|topology| projections::broker_rows(&topology, self.log_dirs.load().as_deref()))
+            .map(|topology| BrokerRow::all(&topology, self.log_dirs.load().as_deref()))
             .unwrap_or_default()
     }
 
     pub fn subject_rows(&self) -> Vec<SubjectRow> {
         self.subjects
             .load()
-            .map(|subjects| projections::subject_rows(&subjects, self.schema_ids.load().as_deref()))
+            .map(|subjects| SubjectRow::all(&subjects, self.schema_ids.load().as_deref()))
             .unwrap_or_default()
     }
 

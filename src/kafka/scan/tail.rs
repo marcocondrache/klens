@@ -235,7 +235,7 @@ mod tests {
 
     use super::*;
     use crate::kafka::limits::RecordLimits;
-    use crate::kafka::scan::filter::contains;
+    use crate::kafka::scan::filter::CompiledFilter;
     use crate::testing::{
         FAKE_TAIL_POLL_RECORDS, FakeCluster, FixtureRecord, card_record, partition, topic, topology,
     };
@@ -386,7 +386,7 @@ mod tests {
     async fn a_filter_sends_only_matching_records() {
         let session = FakeCluster::local();
         let mut filtered = query();
-        filtered.filter = contains("hit");
+        filtered.filter = CompiledFilter::contains("hit");
         let mut tail = open(&session, filtered).await;
 
         session.produce(record(0, 8, 8, "miss"));
@@ -521,7 +521,7 @@ mod tests {
     async fn a_filtered_tail_reads_a_longer_backlog_before_skipping() {
         let session = FakeCluster::local();
         let mut filtered = query();
-        filtered.filter = contains("ord");
+        filtered.filter = CompiledFilter::contains("ord");
         let mut tail = open(&session, filtered).await;
 
         produce_run(&session, 8..41);

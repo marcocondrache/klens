@@ -67,6 +67,27 @@ impl Connector {
 }
 
 impl Transport {
+    pub(super) async fn connect(
+        name: &str,
+        cluster: &config::Cluster,
+        tuning: &KafkaTuning,
+    ) -> Result<Self, KafkaError> {
+        let connector = Connector::new(name, cluster, tuning)?;
+        let client = connector.connect().await?;
+        let admin = KrafkaAdmin::builder()
+            .with_client(&client)
+            .request_timeout(connector.request_timeout)
+            .connect_timeout(connector.connect_timeout)
+            .build()
+            .await?;
+
+        Ok(Self {
+            client,
+            admin,
+            connector,
+        })
+    }
+
     pub(super) async fn producer(&self) -> Result<Producer, KafkaError> {
         let request_timeout = self.connector.request_timeout;
         Ok(Producer::builder()
@@ -83,27 +104,6 @@ impl Transport {
             .build()
             .await?)
     }
-}
-
-pub(super) async fn connect(
-    name: &str,
-    cluster: &config::Cluster,
-    tuning: &KafkaTuning,
-) -> Result<Transport, KafkaError> {
-    let connector = Connector::new(name, cluster, tuning)?;
-    let client = connector.connect().await?;
-    let admin = KrafkaAdmin::builder()
-        .with_client(&client)
-        .request_timeout(connector.request_timeout)
-        .connect_timeout(connector.connect_timeout)
-        .build()
-        .await?;
-
-    Ok(Transport {
-        client,
-        admin,
-        connector,
-    })
 }
 
 fn krafka_auth(cluster: &config::Cluster) -> Result<Option<AuthConfig>, KafkaError> {
@@ -184,7 +184,9 @@ mod tests {
         ));
 
         // Building succeeds only if request_timeout is raised to the connect timeout.
-        let transport = connect("local", &cluster, &tuning(30, 8)).await.unwrap();
+        let transport = Transport::connect("local", &cluster, &tuning(30, 8))
+            .await
+            .unwrap();
         assert!(
             broker
                 .requests()
