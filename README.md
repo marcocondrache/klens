@@ -254,10 +254,8 @@ To require a login, add an OIDC provider to `config.yaml`. klens uses the
 authorization code flow with PKCE. Sessions use
 [axum-login](https://github.com/maxcountryman/axum-login). Auth, catalog, and
 live routes are under `/api`. `/health` and `/ready` stay public. A process
-restart drops in-memory sessions and requires a new login.
-
-`auth.session.key` signs the session cookie and needs at least 32 bytes.
-Without one, klens generates a key at boot.
+restart drops in-memory sessions and requires a new login. klens signs session
+cookies with a key it generates at boot.
 
 A login must come back from the provider within `auth.session.login_timeout`
 (`10m`). A session ends when the ID token expires or after
@@ -270,8 +268,6 @@ auth:
     client_id: klens
     client_secret: { env: OIDC_CLIENT_SECRET }
     redirect_uri: http://localhost:8080/api/auth/callback
-  session:
-    key: { env: KLENS_SESSION_KEY }
 ```
 
 Register `redirect_uri` with the identity provider. Session cookies are

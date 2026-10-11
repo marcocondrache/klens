@@ -6,7 +6,7 @@ use openidconnect::{IssuerUrl, RedirectUrl};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::{KeyMaterial, Secret, duration};
+use super::{Secret, duration};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -46,9 +46,6 @@ fn default_groups_claim() -> String {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Session {
-    /// Signs session cookies. Without it, klens generates a key at boot.
-    /// Sessions live in memory, so a restart signs everyone out either way.
-    pub key: Option<KeyMaterial>,
     /// How long a login may take at the provider.
     #[serde(deserialize_with = "duration")]
     pub login_timeout: Duration,
@@ -60,7 +57,6 @@ pub struct Session {
 impl Default for Session {
     fn default() -> Self {
         Self {
-            key: None,
             login_timeout: Duration::from_secs(10 * 60),
             max_age: Duration::from_secs(12 * 60 * 60),
         }
@@ -159,7 +155,6 @@ oidc:
         );
         assert_eq!(auth.oidc.scopes, ["openid", "email", "profile"]);
         assert_eq!(auth.oidc.groups_claim, "groups");
-        assert!(auth.session.key.is_none());
         assert_eq!(auth.session.login_timeout, Duration::from_secs(600));
         assert_eq!(auth.session.max_age, Duration::from_secs(43_200));
         assert!(auth.roles.is_none());
@@ -171,7 +166,6 @@ oidc:
             "  scopes: [openid, groups]
   groups_claim: roles
 session:
-  key: {value: 0123456789abcdef0123456789abcdef}
   login_timeout: 5m
   max_age: 1h
 ",
@@ -179,10 +173,6 @@ session:
 
         assert_eq!(auth.oidc.scopes, ["openid", "groups"]);
         assert_eq!(auth.oidc.groups_claim, "roles");
-        assert_eq!(
-            auth.session.key.unwrap().as_bytes(),
-            b"0123456789abcdef0123456789abcdef"
-        );
         assert_eq!(auth.session.login_timeout, Duration::from_secs(300));
         assert_eq!(auth.session.max_age, Duration::from_secs(3_600));
     }
