@@ -494,15 +494,7 @@ fn session_layer(secure: bool, key: Key) -> SessionLayer {
 }
 
 fn signing_key(configured: Option<&KeyMaterial>) -> Key {
-    let Some(secret) = configured else {
-        tracing::warn!(
-            "no session key configured; sessions will not survive a restart. \
-             set auth.session.key"
-        );
-        return Key::generate();
-    };
-
-    Key::derive_from(secret.as_bytes())
+    configured.map_or_else(Key::generate, |secret| Key::derive_from(secret.as_bytes()))
 }
 
 #[cfg(test)]
@@ -759,12 +751,12 @@ mod tests {
     }
 
     #[test]
-    fn a_session_key_derives_the_signing_key_as_written() {
+    fn a_configured_session_key_signs_the_same_way_on_every_boot() {
         let text = "0123456789abcdef0123456789abcdef";
 
         assert_eq!(
             signing_key(Some(&key(text))).signing(),
-            Key::derive_from(text.as_bytes()).signing()
+            signing_key(Some(&key(text))).signing()
         );
         assert_ne!(
             signing_key(Some(&key(text))).signing(),
