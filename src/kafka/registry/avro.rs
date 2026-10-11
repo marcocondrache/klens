@@ -178,7 +178,8 @@ impl Walk<'_> {
             Schema::Double => self.take(8),
             Schema::Duration => self.take(12),
             Schema::Fixed(fixed) => self.take(fixed.size),
-            Schema::Bytes | Schema::String | Schema::BigDecimal | Schema::Uuid => self.sized(),
+            Schema::Bytes | Schema::String | Schema::Uuid => self.sized(),
+            Schema::BigDecimal => self.big_decimal(),
             Schema::Decimal(decimal) => self.value(&decimal.inner, namespace, depth + 1),
             Schema::Array(array) => {
                 self.blocks(|walk| walk.value(&array.items, namespace, depth + 1))
@@ -217,6 +218,21 @@ impl Walk<'_> {
     fn sized(&mut self) -> Result<(), ShapeError> {
         let length = usize::try_from(self.long()?).map_err(|_| ShapeError::Mismatch)?;
         self.take(length)
+    }
+
+    /// apache-avro allocates a big decimal's digits by a second length inside
+    /// its bytes, so that length must fit inside them too.
+    fn big_decimal(&mut self) -> Result<(), ShapeError> {
+        let length = usize::try_from(self.long()?).map_err(|_| ShapeError::Mismatch)?;
+        let (digits, rest) = self
+            .rest
+            .split_at_checked(length)
+            .ok_or(ShapeError::Mismatch)?;
+
+        self.rest = digits;
+        self.sized()?;
+        self.rest = rest;
+        Ok(())
     }
 
     /// Arrays and maps arrive as blocks of items, each led by its count and
@@ -323,15 +339,21 @@ mod tests {
     fn a_length_the_datum_cannot_hold_is_refused_before_it_is_allocated() {
         let huge = codec(r#"{"type":"fixed","name":"Huge","size":1099511627776}"#);
         let text = codec(r#""string""#);
+        let decimal = codec(r#"{"type":"bytes","logicalType":"big-decimal"}"#);
 
-        assert!(matches!(
-            huge.decode(&[]),
-            Err(AvroError::Shape(ShapeError::Mismatch))
-        ));
-        assert!(matches!(
-            text.decode(&[0x80, 0x80, 0x80, 0x80, 0x04]),
-            Err(AvroError::Shape(ShapeError::Mismatch))
-        ));
+        for (codec, datum) in [
+            (&huge, &[][..]),
+            (&text, &[0x80, 0x80, 0x80, 0x80, 0x04]),
+            (&decimal, &[0x0a, 0x80, 0x80, 0x80, 0x80, 0x04]),
+        ] {
+            assert!(
+                matches!(
+                    codec.decode(datum),
+                    Err(AvroError::Shape(ShapeError::Mismatch))
+                ),
+                "{datum:?}"
+            );
+        }
     }
 
     #[test]
@@ -343,6 +365,7 @@ mod tests {
                 {"name": "weight", "type": "double"},
                 {"name": "tags", "type": {"type": "map", "values": "long"}},
                 {"name": "id", "type": {"type": "fixed", "name": "Id", "size": 4}},
+                {"name": "price", "type": {"type": "bytes", "logicalType": "big-decimal"}},
                 {"name": "parent", "type": ["null", "com.example.Tree"]},
                 {"name": "children", "type": {"type": "array", "items": "Tree"}}
             ]
@@ -357,6 +380,10 @@ mod tests {
                     Value::Map([("depth".to_owned(), Value::Long(-300))].into()),
                 ),
                 ("id".into(), Value::Fixed(4, vec![1, 2, 3, 4])),
+                (
+                    "price".into(),
+                    Value::BigDecimal("-12.345".parse().unwrap()),
+                ),
                 ("parent".into(), Value::Union(0, Box::new(Value::Null))),
                 ("children".into(), Value::Array(children)),
             ])
