@@ -3,7 +3,7 @@ use rmcp::{tool, tool_router};
 use serde::Serialize;
 
 use crate::app::auth::access::Privilege;
-use crate::app::brokers::types::LogDir;
+use crate::app::resources::brokers::types::LogDir;
 use crate::app::context::{ClusterHandle, Session};
 use crate::app::error::ApiError;
 use crate::app::mcp::MAX_ROWS;

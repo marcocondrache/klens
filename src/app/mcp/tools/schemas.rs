@@ -14,7 +14,7 @@ use crate::app::mcp::reply::{Page, fit, reply};
 use crate::app::mcp::schema_text::schema_result;
 use crate::app::mcp::server::{KlensMcp, ToolResult};
 use crate::app::mcp::{CLIENT_VALUES_NOTICE, MAX_ROWS, MAX_VERSIONS};
-use crate::app::subjects::types::{
+use crate::app::resources::subjects::types::{
     RegisterSchema, RegisteredVersion, SchemaCompatibility, SchemaReference, SchemaType,
     SubjectDetail, SubjectVersion,
 };

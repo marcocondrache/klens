@@ -304,7 +304,9 @@ pub fn mcp_request(body: &Value) -> Request<Body> {
 }
 
 fn api() -> Router<AppState> {
-    health::router().merge(auth_routes()).merge(resources())
+    health::router()
+        .merge(auth_routes())
+        .merge(resources::router())
 }
 
 pub struct Reply {

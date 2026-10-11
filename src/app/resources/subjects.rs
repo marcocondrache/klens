@@ -7,9 +7,9 @@ use serde::Deserialize;
 use crate::AppState;
 use crate::kafka::model::SchemaDeletion;
 
-use super::context::Session;
-use super::error::ApiError;
-use super::extract::{self, Path, Query};
+use crate::app::context::Session;
+use crate::app::error::ApiError;
+use crate::app::extract::{self, Path, Query};
 
 pub mod types;
 

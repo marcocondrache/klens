@@ -4,7 +4,7 @@ use axum::routing::get;
 
 use crate::AppState;
 
-use super::context::Session;
+use crate::app::context::Session;
 
 pub mod types;
 

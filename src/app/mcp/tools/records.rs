@@ -14,8 +14,8 @@ use crate::app::mcp::record_text::records_result;
 use crate::app::mcp::reply::fits;
 use crate::app::mcp::server::{KlensMcp, ToolResult};
 use crate::app::mcp::{DEFAULT_RECORDS, MAX_RECORDS, OBFUSCATED_NOTICE};
-use crate::app::records::RecordPage;
-use crate::app::records::types::{
+use crate::app::resources::records::RecordPage;
+use crate::app::resources::records::types::{
     LookupParams, ProduceRecord, ProducedRecord, RecordHeader, RecordLookup, RecordOrder,
     RecordParams, RecordPayload,
 };

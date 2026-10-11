@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 use super::{page, records_result};
 use crate::app::mcp::RESULT_BYTES;
 use crate::app::mcp::untrusted::Boundary;
-use crate::app::records::types::{Record, RecordHeader};
+use crate::app::resources::records::types::{Record, RecordHeader};
 
 fn record(offset: i64, key: Option<&str>, value: Option<&str>) -> Record {
     Record {

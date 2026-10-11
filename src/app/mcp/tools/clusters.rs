@@ -13,9 +13,9 @@ use crate::app::mcp::server::{KlensMcp, ToolResult};
 use crate::app::mcp::tools::gates;
 use crate::app::mcp::untrusted::Boundary;
 use crate::app::mcp::{CLIENT_VALUES_NOTICE, MAX_QUERY_CHARS};
-use crate::app::search::SearchHit;
-use crate::app::search::types::SearchKind;
-use crate::app::whoami::types::PrivilegeName;
+use crate::app::resources::search::SearchHit;
+use crate::app::resources::search::types::SearchKind;
+use crate::app::resources::whoami::types::PrivilegeName;
 use crate::kafka::store::projections::ClusterHealthView;
 use crate::kafka::store::{Lane, LaneHealth};
 
