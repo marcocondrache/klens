@@ -4,6 +4,7 @@ use axum::routing::get;
 use serde::Deserialize;
 
 use crate::AppState;
+use crate::kafka::store::search::MAX_QUERY_CHARS;
 
 use crate::app::context::Session;
 use crate::app::error::ApiError;
@@ -31,6 +32,11 @@ async fn search(
     Path(name): Path<String>,
     Query(query): Query<SearchQuery>,
 ) -> Result<Json<Vec<SearchHit>>, ApiError> {
+    if query.q.chars().count() > MAX_QUERY_CHARS {
+        return Err(ApiError::unprocessable(format!(
+            "a query holds at most {MAX_QUERY_CHARS} characters"
+        )));
+    }
     let cluster = session.cluster(&name)?;
     Ok(Json(
         cluster

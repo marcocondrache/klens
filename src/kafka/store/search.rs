@@ -6,6 +6,11 @@ use super::tables::{BrokerInfo, GroupInfo, SubjectInfo, SubjectTable, TopicInfo,
 
 const MAX_HITS: usize = 20;
 
+/// The fuzzy matcher's time and memory grow with the query, and a Kafka name
+/// is at most 249 characters. 30,000 one-letter words took 2.3 seconds to
+/// match against 2,000 topics.
+pub const MAX_QUERY_CHARS: usize = 256;
+
 const CHARS_PER_TYPO: usize = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
