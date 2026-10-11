@@ -5,7 +5,6 @@ use std::time::Duration;
 use axum::Router;
 use axum::http::StatusCode;
 use axum::middleware;
-use axum::routing::any;
 use governor::{DefaultKeyedRateLimiter, Quota, RateLimiter};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
@@ -127,17 +126,15 @@ fn auth_routes() -> Router<AppState> {
     Router::new().nest("/auth", auth::router())
 }
 
-/// A nested router without a fallback takes the outer one, which serves the
-/// UI, so an unknown API path would answer 200 with HTML.
-fn api_routes(resources: Router<AppState>) -> Router<AppState> {
+/// Nested as a service so the UI's HTML fallback never answers under `/api`.
+fn api_routes(state: AppState, resources: Router<AppState>) -> Router<AppState> {
     let api = auth_routes()
         .merge(resources)
         .fallback(not_found)
-        .method_not_allowed_fallback(method_not_allowed);
-    // `nest` leaves `/api/` to the outer fallback.
-    Router::new()
-        .nest("/api", api)
-        .route("/api/", any(not_found))
+        .method_not_allowed_fallback(method_not_allowed)
+        .with_state(state);
+
+    Router::new().nest_service("/api", api)
 }
 
 async fn not_found() -> ApiError {
@@ -159,7 +156,7 @@ pub fn router(state: AppState, allowed_hosts: &[AllowedHost], mcp: Option<&Mcp>)
     let auth_layer = state.auth.layer();
 
     let mut app = Router::new()
-        .merge(api_routes(resources))
+        .merge(api_routes(state.clone(), resources))
         .merge(well_known::router())
         .with_state(state.clone())
         .merge(crate::server::web::router());
