@@ -5,13 +5,13 @@ use xshell::Shell;
 
 use klens::app::typescript::{
     Acl, AclListing, AclOperation, AclPatternType, AclPermission, AclResourceType, AclStatus,
-    AddPartitions, BrokerRow, CleanupPolicy, ClientQuota, ClusterGrant, ClusterHealth, ConfigEntry,
-    ConfigSource, CreateAcls, CreateTopic, EditConfigs, EditSubject, GroupDetail, GroupMember,
-    GroupOffset, GroupRow, GroupState, Identity, LaneHealth, LogDir, MemberAssignment, OffsetMove,
-    PartitionRow, PrivilegeName, ProduceRecord, ProducedRecord, QuotaEntity, QuotaEntityType,
-    QuotaListing, QuotaStatus, Record, RecordHeader, RecordLookup, RecordOrder, RecordPage,
-    RecordPayload, RegisterSchema, RegisteredVersion, ResetOffsets, ResetTarget,
-    SchemaCompatibility, SchemaReference, SchemaType, ScramCredential, ScramListing,
+    AddPartitions, AuthMe, AuthUser, BrokerRow, CleanupPolicy, ClientQuota, ClusterGrant,
+    ClusterHealth, ConfigEntry, ConfigSource, CreateAcls, CreateTopic, EditConfigs, EditSubject,
+    GroupDetail, GroupMember, GroupOffset, GroupRow, GroupState, Identity, LaneHealth, LogDir,
+    MemberAssignment, OffsetMove, PartitionRow, PrivilegeName, ProduceRecord, ProducedRecord,
+    QuotaEntity, QuotaEntityType, QuotaListing, QuotaStatus, Record, RecordHeader, RecordLookup,
+    RecordOrder, RecordPage, RecordPayload, RegisterSchema, RegisteredVersion, ResetOffsets,
+    ResetTarget, SchemaCompatibility, SchemaReference, SchemaType, ScramCredential, ScramListing,
     ScramMechanism, ScramStatus, ScramUser, SearchHit, SearchKind, SetScramCredential,
     SubjectDetail, SubjectRow, SubjectRowsResult, SubjectVersion, TailEvent, TailStart,
     TopicDetail, TopicGroupRow, TopicRate, TopicRow, Update,
@@ -39,6 +39,8 @@ fn typescript() -> String {
         };
     }
     emit!(
+        AuthUser,
+        AuthMe,
         PrivilegeName,
         ClusterGrant,
         Identity,

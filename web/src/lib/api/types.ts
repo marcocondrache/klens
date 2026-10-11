@@ -1,5 +1,7 @@
 export type {
   Acl,
+  AuthMe,
+  AuthUser,
   AclOperation,
   AclPatternType,
   AclPermission,

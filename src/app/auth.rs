@@ -16,6 +16,7 @@ use tower_sessions::cookie::time::Duration;
 use tower_sessions::cookie::{Key, SameSite};
 use tower_sessions::service::SignedCookie;
 use tower_sessions::{Expiry, SessionManagerLayer};
+use ts_rs::TS;
 
 use super::error::ApiError;
 use crate::AppState;
@@ -278,20 +279,20 @@ pub async fn require_session(
     ApiError::Unauthorized.into_response()
 }
 
-#[derive(Serialize)]
-struct AuthMeResponse {
+#[derive(Serialize, TS)]
+pub struct AuthMe {
     enabled: bool,
-    user: Option<AuthUserResponse>,
+    user: Option<AuthUser>,
 }
 
-#[derive(Serialize)]
-struct AuthUserResponse {
+#[derive(Serialize, TS)]
+pub struct AuthUser {
     sub: String,
     email: Option<String>,
     name: Option<String>,
 }
 
-impl From<SessionUser> for AuthUserResponse {
+impl From<SessionUser> for AuthUser {
     fn from(user: SessionUser) -> Self {
         Self {
             sub: user.sub,
@@ -304,9 +305,9 @@ impl From<SessionUser> for AuthUserResponse {
 async fn me(State(state): State<AppState>, auth_session: AuthSession) -> impl IntoResponse {
     let user = auth_session.user.and_then(|user| {
         state.auth.access_from_user(&user)?;
-        Some(AuthUserResponse::from(user))
+        Some(AuthUser::from(user))
     });
-    Json(AuthMeResponse {
+    Json(AuthMe {
         enabled: state.auth.is_enabled(),
         user,
     })
