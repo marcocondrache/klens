@@ -353,7 +353,7 @@ async fn every_route_refuses_a_host_off_the_list_while_auth_is_off() {
 }
 
 #[tokio::test]
-async fn a_change_logs_its_audit_line_after_the_client_hangs_up() {
+async fn a_change_finishes_and_logs_after_the_client_hangs_up_and_shutdown_waits_for_it() {
     let app =
         TestApp::of(
             [FakeCluster::local().with_delay(Api::DeleteTopic, Duration::from_millis(100))],
@@ -361,6 +361,9 @@ async fn a_change_logs_its_audit_line_after_the_client_hangs_up() {
         .writable(&["local"])
         .ingested()
         .await;
+    let mut rig = app.rig();
+    let lane = rig.topology();
+    rig.spawn(lane);
     let logs = LogCapture::at(Level::INFO);
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("free port");
     let address = listener.local_addr().expect("bound address");
@@ -379,8 +382,11 @@ async fn a_change_logs_its_audit_line_after_the_client_hangs_up() {
     })
     .await;
     drop(client);
+    let writes = app.state().writes();
+    writes.close();
+    writes.wait().await;
 
-    eventually("the audit line", || logs.count("deleted topic") == 1).await;
+    logs.assert_contains("deleted topic");
 }
 
 #[tokio::test]

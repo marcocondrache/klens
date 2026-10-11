@@ -1,8 +1,13 @@
+use std::time::Duration;
+
 use anyhow::Context;
 use klens::app::{AppState, AuthState, Limits, router};
 use klens::config::Config;
 use klens::kafka::Clusters;
 use klens::kafka::ingest::Ingest;
+
+/// A change waits on one Kafka request and then on the cluster showing it.
+const WRITE_GRACE: Duration = Duration::from_secs(30);
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -71,10 +76,22 @@ async fn main() -> anyhow::Result<()> {
 
     let _ingest = Ingest::start(&clusters, &config.tuning.ingest);
     let state = AppState::new(clusters, auth, Limits::new(&config.tuning));
+    let writes = state.writes().clone();
 
     klens::serve(
         router(state, &config.allowed_hosts, config.mcp.as_ref()),
         config.bind,
     )
-    .await
+    .await?;
+
+    // A change whose client hung up still runs, and its audit line must land
+    // before the process exits.
+    writes.close();
+    if tokio::time::timeout(WRITE_GRACE, writes.wait())
+        .await
+        .is_err()
+    {
+        tracing::warn!("stopped before every change a client left behind had finished");
+    }
+    Ok(())
 }

@@ -7,6 +7,7 @@ use axum::http::StatusCode;
 use axum::middleware;
 use governor::{DefaultKeyedRateLimiter, Quota, RateLimiter};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio_util::task::TaskTracker;
 
 use crate::config::{AllowedHost, Mcp, Tuning};
 use crate::kafka::{Clusters, TailLimits};
@@ -45,6 +46,7 @@ pub struct AppState {
     // Never pruned, because only the users of valid tokens whose groups bind
     // a role become keys.
     mcp_live_calls: Arc<DefaultKeyedRateLimiter<Option<String>>>,
+    writes: TaskTracker,
 }
 
 impl AppState {
@@ -58,7 +60,13 @@ impl AppState {
             mcp_live_calls: Arc::new(RateLimiter::keyed(Quota::per_minute(
                 limits.mcp_live_calls_per_minute,
             ))),
+            writes: TaskTracker::new(),
         }
+    }
+
+    /// The changes still running after their clients hung up.
+    pub fn writes(&self) -> &TaskTracker {
+        &self.writes
     }
 
     pub(crate) fn tail_permit(&self) -> Option<OwnedSemaphorePermit> {
@@ -134,7 +142,10 @@ async fn method_not_allowed() -> ApiError {
 
 pub fn router(state: AppState, allowed_hosts: &[AllowedHost], mcp: Option<&Mcp>) -> Router {
     let resources = resources::router()
-        .route_layer(middleware::from_fn(writes::run_to_completion))
+        .route_layer(middleware::from_fn_with_state(
+            state.writes.clone(),
+            writes::run_to_completion,
+        ))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             auth::require_session,
