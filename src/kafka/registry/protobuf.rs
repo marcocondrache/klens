@@ -13,8 +13,9 @@ mod nesting;
 
 const ROOT_FILE: &str = "schema.proto";
 
-/// protox overflows a worker's stack a few hundred levels down, and no real
-/// schema nests anywhere near this deep.
+/// prost-reflect parses an option's value with a text-format parser that
+/// recurses without a limit, and overflows a worker's stack about a hundred
+/// levels down in a debug build. No real schema nests anywhere near this deep.
 const MAX_NESTING: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -49,9 +50,7 @@ struct MemoryResolver {
 impl FileResolver for MemoryResolver {
     fn open_file(&self, name: &str) -> Result<File, protox::Error> {
         match self.files.get(name) {
-            Some(source) => {
-                File::from_source(name, &drop_unknown_escapes(source)).map(without_source_spans)
-            }
+            Some(source) => File::from_source(name, source).map(without_source_spans),
             None => Err(protox::Error::file_not_found(name)),
         }
     }
@@ -68,21 +67,22 @@ impl ProtobufCodec {
         schema: &str,
         references: &[(String, String)],
     ) -> Result<Self, ProtobufError> {
-        let too_deep = std::iter::once((ROOT_FILE, schema))
+        // The depth is measured on the text protox lexes, since dropping an
+        // escape can turn `/\/` into a comment that hides a closing brace.
+        let files: HashMap<String, String> = std::iter::once((ROOT_FILE, schema))
             .chain(
                 references
                     .iter()
                     .map(|(name, source)| (name.as_str(), source.as_str())),
             )
-            .find(|(_, source)| nesting::depth(source) > MAX_NESTING);
-        if let Some((name, _)) = too_deep {
-            return Err(ProtobufError::TooDeep(name.to_owned()));
-        }
-
-        let mut files = HashMap::new();
-        files.insert(ROOT_FILE.to_owned(), schema.to_owned());
-        for (name, source) in references {
-            files.insert(name.clone(), source.clone());
+            .map(|(name, source)| (name.to_owned(), drop_unknown_escapes(source)))
+            .collect();
+        if let Some(name) = files
+            .iter()
+            .find(|(_, source)| nesting::depth(source) > MAX_NESTING)
+            .map(|(name, _)| name)
+        {
+            return Err(ProtobufError::TooDeep(name.clone()));
         }
 
         let mut resolver = ChainFileResolver::new();
@@ -212,6 +212,20 @@ mod tests {
         );
         assert_eq!(
             ProtobufCodec::compile(&deep(10_000), &[]).err(),
+            Some(ProtobufError::TooDeep(ROOT_FILE.to_owned()))
+        );
+    }
+
+    #[test]
+    fn a_brace_hidden_behind_a_dropped_escape_still_counts() {
+        let hidden = format!(
+            "syntax = \"proto3\";\n{}{}",
+            "message A { /\\/ }\n".repeat(10_000),
+            "}\n".repeat(10_000)
+        );
+
+        assert_eq!(
+            ProtobufCodec::compile(&hidden, &[]).err(),
             Some(ProtobufError::TooDeep(ROOT_FILE.to_owned()))
         );
     }
