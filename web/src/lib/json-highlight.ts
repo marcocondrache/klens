@@ -4,10 +4,10 @@ import { createHighlightedCodeBlockProps } from "@tanstack/highlight/react";
 
 const jsonHighlighter = createHighlighter({ languages: [json] });
 
-export function highlightJsonBlock(source: string) {
+export function highlightJsonBlock(source: string, lang: "json" | "plaintext") {
   return createHighlightedCodeBlockProps({
     highlighter: jsonHighlighter,
     code: source,
-    lang: "json",
+    lang,
   });
 }
