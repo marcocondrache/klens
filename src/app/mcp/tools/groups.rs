@@ -156,18 +156,18 @@ impl<'a> MemberRow<'a> {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct GroupPartitionRow {
-    topic: String,
+struct GroupPartitionRow<'a> {
+    topic: &'a str,
     partition: i32,
     committed_offset: Option<i64>,
     end_offset: Option<i64>,
     lag: Option<i64>,
 }
 
-impl From<GroupOffset> for GroupPartitionRow {
-    fn from(offset: GroupOffset) -> Self {
+impl<'a> From<&'a GroupOffset> for GroupPartitionRow<'a> {
+    fn from(offset: &'a GroupOffset) -> Self {
         Self {
-            topic: offset.topic,
+            topic: &offset.topic,
             partition: offset.partition,
             committed_offset: offset.current_offset,
             end_offset: offset.end_offset,
@@ -188,7 +188,7 @@ struct GroupDescription<'a> {
     lag_complete: bool,
     findings: Rows<Finding>,
     members: Rows<MemberRow<'a>>,
-    partitions: Rows<GroupPartitionRow>,
+    partitions: Rows<GroupPartitionRow<'a>>,
     notice: &'static str,
     #[serde(skip)]
     whole: Whole<'a>,
@@ -207,15 +207,11 @@ impl<'a> GroupDescription<'a> {
         members.sort_by(|(a, a_lag), (b, b_lag)| {
             largest_first(*a_lag, *b_lag, i64::cmp).then_with(|| a.id.cmp(&b.id))
         });
-        let mut partitions: Vec<GroupPartitionRow> = group
-            .offsets
-            .iter()
-            .cloned()
-            .map(GroupPartitionRow::from)
-            .collect();
+        let mut partitions: Vec<GroupPartitionRow> =
+            group.offsets.iter().map(GroupPartitionRow::from).collect();
         partitions.sort_by(|a, b| {
             largest_first(a.lag, b.lag, i64::cmp)
-                .then_with(|| (&a.topic, a.partition).cmp(&(&b.topic, b.partition)))
+                .then_with(|| (a.topic, a.partition).cmp(&(b.topic, b.partition)))
         });
         let widest = members
             .iter()
