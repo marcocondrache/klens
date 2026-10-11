@@ -9,6 +9,8 @@ import type { Tone } from "@/lib/tone";
 
 export type RecordMode = RecordOrder | "LIVE";
 
+const MODES = ["NEWEST", "OLDEST", "LIVE"] as const satisfies readonly RecordMode[];
+
 const TAIL: Record<TailStatus, { label: string; tone: Tone }> = {
   idle: { label: "Paused", tone: "idle" },
   connecting: { label: "Connecting…", tone: "warn" },
@@ -37,7 +39,7 @@ export function RecordModeSwitch({
       spacing={0}
       value={[value]}
       onValueChange={(next) => {
-        const picked = next[0] as RecordMode | undefined;
+        const picked = MODES.find((mode) => mode === next[0]);
         if (picked) onChange(picked);
       }}
       aria-label="Records to show"

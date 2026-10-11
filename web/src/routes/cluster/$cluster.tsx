@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { TriangleAlertIcon } from "lucide-react";
 import { useHotkey } from "@tanstack/react-hotkeys";
 import { Navigate, Outlet, createFileRoute, useMatch } from "@tanstack/react-router";
@@ -24,7 +24,8 @@ function AppLayout() {
   const cluster = useClusterName();
   const { data: clusters, isPending } = useClusterNames();
   const { data: health } = useClusterHealth(cluster);
-  useUpdates(cluster, useRouteScope());
+  const scope = useRouteScope();
+  useUpdates(cluster, scope);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const known = clusters?.includes(cluster);
 
@@ -93,8 +94,5 @@ function useRouteScope(): Scope {
     select: (match) => match.params.group,
   });
 
-  return useMemo(
-    () => ({ ...(topic ? { topic } : {}), ...(group ? { group } : {}) }),
-    [topic, group],
-  );
+  return { topic, group };
 }

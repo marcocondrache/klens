@@ -1,7 +1,6 @@
 import { cn } from "@/lib/utils";
 import { RELEASE_URL, REPO_URL, VERSION } from "@/lib/build";
 
-/** Version and repo links, set as a quiet footer line. */
 export function BuildLinks({ className }: { className?: string }) {
   return (
     <div

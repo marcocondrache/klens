@@ -55,7 +55,6 @@ export function applyFilters<TData>(
   return rows.filter((row) => active.every(({ field, rule }) => rowMatches(row, field, rule)));
 }
 
-/** Replaces the values of the `id` rule, adding it or dropping it as needed. */
 export function setFilterValues(rules: FilterRule[], id: string, values: string[]): FilterRule[] {
   const existing = rules.find((rule) => rule.id === id);
   if (values.length === 0) return rules.filter((rule) => rule !== existing);
