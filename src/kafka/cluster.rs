@@ -14,6 +14,7 @@ use crate::kafka::model::{
 use crate::kafka::reset::plan_reset;
 use crate::kafka::scan::export::Export;
 use crate::kafka::scan::read::{read_page, read_record};
+use crate::kafka::scan::session::topic_obfuscator;
 use crate::kafka::scan::tail::{Tail, TailQuery};
 use crate::kafka::session::ClusterSession;
 use crate::kafka::store::ClusterStore;
@@ -86,11 +87,7 @@ impl Cluster {
     /// names other fields walks past every rule. On a covered topic only a
     /// value's own wire prefix may name its schema.
     fn decodable_as(&self, topic: &str, schema_id: Option<i32>) -> Result<(), QueryError> {
-        let covered = self
-            .session
-            .obfuscation()
-            .is_some_and(|policy| policy.for_topic(topic).is_some());
-        if covered && schema_id.is_some() {
+        if schema_id.is_some() && topic_obfuscator(self.session.as_ref(), topic).is_some() {
             return Err(QueryError::SchemaIdOnObfuscatedTopic);
         }
         Ok(())

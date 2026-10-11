@@ -163,8 +163,9 @@ impl TopicObfuscator {
     /// A key is often plain text that no schema covers, but one with a wire
     /// prefix was written for the field rules to walk.
     fn masks_undecoded(&self, field: Field, payload: &DecodedPayload) -> bool {
-        let walkable = field == Field::Value || payload.is_framed();
-        walkable && !self.fields.is_empty() && self.unparsed == Unparsed::Mask
+        !self.fields.is_empty()
+            && self.unparsed == Unparsed::Mask
+            && (field == Field::Value || payload.is_framed())
     }
 
     fn rewrite_matches(&self, payload: &mut DecodedPayload) {
