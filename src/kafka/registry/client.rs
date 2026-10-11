@@ -20,6 +20,11 @@ use crate::kafka::model::{
 
 const MAX_CACHED_SCHEMAS: usize = 10_000;
 
+/// protox follows each import recursively, so a chain of a few hundred
+/// references overflows a worker's stack. schemreg holds Avro and JSON Schema
+/// references to the same count.
+const MAX_REFERENCES: usize = 256;
+
 pub(crate) type Registry = CachedSchemaRegistry<ConfluentSchemaRegistry>;
 
 #[derive(Clone)]
@@ -214,6 +219,11 @@ impl SchemaRegistryClient {
                 .collect();
             if wave.is_empty() {
                 break;
+            }
+            if seen.len() > MAX_REFERENCES {
+                return Err(SchemaRegError::config(format!(
+                    "the schema references more than {MAX_REFERENCES} schemas"
+                )));
             }
 
             let mut fetches = futures::stream::iter(wave.into_iter().map(|reference| async move {
@@ -1119,6 +1129,41 @@ mod tests {
                 ("Line".to_owned(), LINE.to_owned()),
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn a_reference_chain_past_the_cap_is_refused() {
+        let registry = FakeRegistry::start().await;
+        let chain = |links: usize| {
+            for link in 1..=links {
+                let schema =
+                    Schema::protobuf(&format!("syntax = \"proto3\"; message M{link} {{}}"));
+                let schema = if link == 1 {
+                    schema
+                } else {
+                    schema.referencing(
+                        &format!("m{}.proto", link - 1),
+                        &format!("m{}", link - 1),
+                        1,
+                    )
+                };
+                registry.register(&format!("m{link}"), 1, link as u32, schema);
+            }
+            [schemreg::SchemaReference::new(
+                format!("m{links}.proto"),
+                format!("m{links}"),
+                SchemaVersion::new(1),
+            )]
+        };
+
+        let longest = registry.client().dependencies(&chain(MAX_REFERENCES)).await;
+        let past = registry
+            .client()
+            .dependencies(&chain(MAX_REFERENCES + 1))
+            .await;
+
+        assert_eq!(longest.expect("within the cap").len(), MAX_REFERENCES);
+        assert!(past.is_err());
     }
 
     #[tokio::test]
