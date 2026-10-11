@@ -20,7 +20,7 @@ use ts_rs::TS;
 
 use super::error::ApiError;
 use crate::AppState;
-use crate::config::{self, KeyMaterial};
+use crate::config;
 
 pub(crate) mod access;
 mod backend;
@@ -124,7 +124,7 @@ impl AuthState {
             policy: Arc::new(AccessPolicy::from_roles(auth.roles.as_ref())),
             session_layer: session_layer(
                 auth.oidc.redirect_uri.url().scheme() == "https",
-                signing_key(auth.session.key.as_ref()),
+                Key::generate(),
             ),
             login_timeout: Duration::try_from(auth.session.login_timeout).unwrap_or(Duration::MAX),
             bearer: None,
@@ -486,10 +486,6 @@ fn session_layer(secure: bool, key: Key) -> SessionLayer {
         .with_signed(key)
 }
 
-fn signing_key(configured: Option<&KeyMaterial>) -> Key {
-    configured.map_or_else(Key::generate, |secret| Key::derive_from(secret.as_bytes()))
-}
-
 #[cfg(test)]
 mod tests {
     use axum::http::StatusCode;
@@ -737,24 +733,6 @@ mod tests {
             StatusCode::UNAUTHORIZED
         );
         logs.assert_contains(r#"oidc login refused: no matching role sub="user-1""#);
-    }
-
-    fn key(text: &str) -> KeyMaterial {
-        yaml(&format!("{{value: '{text}'}}"))
-    }
-
-    #[test]
-    fn a_configured_session_key_signs_the_same_way_on_every_boot() {
-        let text = "0123456789abcdef0123456789abcdef";
-
-        assert_eq!(
-            signing_key(Some(&key(text))).signing(),
-            signing_key(Some(&key(text))).signing()
-        );
-        assert_ne!(
-            signing_key(Some(&key(text))).signing(),
-            signing_key(Some(&key(&format!("{text} ")))).signing()
-        );
     }
 
     #[tokio::test]
