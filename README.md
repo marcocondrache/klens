@@ -687,6 +687,12 @@ Each cluster can optionally point at a Confluent-compatible Schema Registry.
 When omitted, the Schemas page is empty for that cluster. Framed Avro, JSON, and
 Protobuf payloads decode to JSON when a registry is configured.
 
+A producer chooses what a record holds, so klens refuses to decode an Avro
+value that nests deeper than 64 levels or holds more than 4 values per byte
+plus 4,096, and shows its bytes instead. A recursive schema could otherwise
+let a few hundred bytes crash klens, and an array of nulls could claim millions
+of values in a few bytes.
+
 ```yaml
 schema_registry:
   url: http://localhost:8081
