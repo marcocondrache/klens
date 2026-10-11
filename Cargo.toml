@@ -49,6 +49,7 @@ secrecy = { version = "0.10", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+tokio-util = { version = "0.7", features = ["rt"] }
 tokio = { version = "1", features = [
     "macros",
     "net",
@@ -64,6 +65,7 @@ tower-http = { version = "0.6", features = [
     "compression-gzip",
     "compression-zstd",
     "sensitive-headers",
+    "set-header",
     "trace",
 ] }
 tracing = "0.1"

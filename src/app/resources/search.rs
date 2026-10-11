@@ -4,6 +4,7 @@ use axum::routing::get;
 use serde::Deserialize;
 
 use crate::AppState;
+use crate::kafka::store::search::MAX_QUERY_CHARS;
 
 use crate::app::context::Session;
 use crate::app::error::ApiError;
@@ -26,11 +27,22 @@ struct SearchQuery {
     q: String,
 }
 
+/// The search endpoint and `klens_search` hold a query to the same length.
+pub(crate) fn refuse_long_query(query: &str) -> Result<(), ApiError> {
+    if query.chars().count() > MAX_QUERY_CHARS {
+        return Err(ApiError::unprocessable(format!(
+            "a query holds at most {MAX_QUERY_CHARS} characters"
+        )));
+    }
+    Ok(())
+}
+
 async fn search(
     session: Session,
     Path(name): Path<String>,
     Query(query): Query<SearchQuery>,
 ) -> Result<Json<Vec<SearchHit>>, ApiError> {
+    refuse_long_query(&query.q)?;
     let cluster = session.cluster(&name)?;
     Ok(Json(
         cluster

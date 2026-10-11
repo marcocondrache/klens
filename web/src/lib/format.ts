@@ -109,12 +109,47 @@ export function formatRelative(value: string | number, now = Date.now()) {
   return "just now";
 }
 
+// Indenting repeats two spaces per level on every line, so a deeply nested
+// record of a few kilobytes pretty-prints to hundreds of megabytes.
+const MAX_PRETTY_CHARS = 8 * 1024 * 1024;
+
 export function prettyJson(raw: string) {
+  if (prettyLength(raw) > MAX_PRETTY_CHARS) return raw;
+
   try {
     return JSON.stringify(JSON.parse(raw), null, 2);
   } catch {
     return raw;
   }
+}
+
+// The length `JSON.stringify(_, null, 2)` gives `raw`, less what it adds by
+// writing a number such as `9e20` out in full.
+function prettyLength(raw: string) {
+  let length = raw.length;
+  let depth = 0;
+  let inString = false;
+
+  for (let index = 0; index < raw.length; index++) {
+    const char = raw[index];
+    if (inString) {
+      if (char === "\\") index++;
+      else if (char === '"') inString = false;
+    } else if (char === '"') {
+      inString = true;
+    } else if (char === "[" || char === "{") {
+      depth++;
+      length += 4 * depth;
+    } else if (char === "]" || char === "}") {
+      depth--;
+    } else if (char === ",") {
+      length += 2 * depth + 1;
+    } else if (char === ":") {
+      length++;
+    }
+  }
+
+  return length;
 }
 
 export function isJson(raw: string) {

@@ -1,5 +1,5 @@
 use axum::Router;
-use axum::http::{Request, Response, header};
+use axum::http::{HeaderValue, Request, Response, header};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,6 +12,7 @@ use tower_http::compression::CompressionLayer;
 use tower_http::sensitive_headers::{
     SetSensitiveRequestHeadersLayer, SetSensitiveResponseHeadersLayer,
 };
+use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 use tracing::Span;
 
@@ -22,6 +23,15 @@ pub(crate) mod testing;
 pub mod web;
 
 pub async fn serve(router: Router, bind: SocketAddr) -> Result<()> {
+    serve_until(router, bind, shutdown_signal()).await
+}
+
+/// Serves until `shutdown` resolves, then until every open connection closes.
+pub async fn serve_until(
+    router: Router,
+    bind: SocketAddr,
+    shutdown: impl Future<Output = ()> + Send + 'static,
+) -> Result<()> {
     let listener = TcpListener::bind(bind).await?;
     let sensitive_headers: Arc<[_]> = Arc::new([
         header::AUTHORIZATION,
@@ -31,6 +41,25 @@ pub async fn serve(router: Router, bind: SocketAddr) -> Result<()> {
     ]);
 
     let layers = ServiceBuilder::new()
+        // A page that frames klens could lay its own buttons over a delete,
+        // and without auth any page can point a frame at localhost. Outside
+        // the panic catcher, so its 500 carries them too.
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::X_FRAME_OPTIONS,
+            HeaderValue::from_static("DENY"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static("frame-ancestors 'none'"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::REFERRER_POLICY,
+            HeaderValue::from_static("same-origin"),
+        ))
         .layer(CatchPanicLayer::new())
         .layer(SetSensitiveRequestHeadersLayer::from_shared(Arc::clone(
             &sensitive_headers,
@@ -61,7 +90,7 @@ pub async fn serve(router: Router, bind: SocketAddr) -> Result<()> {
     tracing::info!(bind = %bind, "listening");
 
     axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
+        .with_graceful_shutdown(shutdown)
         .await?;
 
     tracing::info!("server stopped");
@@ -69,7 +98,7 @@ pub async fn serve(router: Router, bind: SocketAddr) -> Result<()> {
     Ok(())
 }
 
-async fn shutdown_signal() {
+pub async fn shutdown_signal() {
     let ctrl_c = async {
         tokio::signal::ctrl_c()
             .await
@@ -168,6 +197,33 @@ mod tests {
         assert!(response.starts_with("HTTP/1.1 200"), "{response}");
         logs.assert_contains(r#"path="/api/groups/x\"user=\"root\"""#);
         logs.assert_lacks(r#"x"user="root""#);
+    }
+
+    #[tokio::test]
+    async fn every_response_forbids_framing_and_sniffing() {
+        let _logs = LogCapture::at(tracing::Level::INFO);
+        async fn failing() -> &'static str {
+            panic!("handler failed")
+        }
+        let router = Router::new().route("/panic", get(failing));
+
+        for path in ["/missing", "/panic"] {
+            let response = exchange(
+                router.clone(),
+                &format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"),
+            )
+            .await;
+
+            let response = String::from_utf8(response).expect("utf-8 response");
+            for header in [
+                "x-frame-options: DENY",
+                "content-security-policy: frame-ancestors 'none'",
+                "x-content-type-options: nosniff",
+                "referrer-policy: same-origin",
+            ] {
+                assert!(response.contains(header), "no `{header}` in:\n{response}");
+            }
+        }
     }
 
     const PAGE: &str = "{\"records\":[{\"offset\":0},{\"offset\":1},{\"offset\":2}]}";

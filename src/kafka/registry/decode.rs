@@ -8,13 +8,11 @@ use bytes::Bytes;
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
 use moka::future::Cache;
-use schemreg::{
-    AvroSchemaDecoder, Schema, SchemaId, SchemaKey, SchemaRegistryClient as _, decode_wire_prefix,
-    encode_wire_format,
-};
+use schemreg::{Schema, SchemaId, SchemaKey, SchemaRegistryClient as _, decode_wire_prefix};
 use serde_json::Value;
 use thiserror::Error;
 
+use super::avro::AvroCodec;
 use super::client::{Registry, SchemaRegistryClient};
 use super::protobuf::{ProtobufCodec, ProtobufError};
 use crate::kafka::model::SchemaType;
@@ -52,7 +50,7 @@ impl Framing {
 #[derive(Clone)]
 pub(crate) struct PayloadDecoder {
     client: SchemaRegistryClient,
-    avro: Arc<AvroSchemaDecoder<Arc<Registry>>>,
+    avro: Cache<SchemaKey, Arc<AvroCodec>>,
     pools: Cache<SchemaKey, Arc<ProtobufCodec>>,
     missing: Cache<SchemaKey, ()>,
     failed: Cache<SchemaKey, DecodeError>,
@@ -60,7 +58,7 @@ pub(crate) struct PayloadDecoder {
 
 #[derive(Clone)]
 enum Resolved {
-    Avro,
+    Avro(Arc<AvroCodec>),
     Json,
     Protobuf(Arc<ProtobufCodec>),
     Missing,
@@ -76,11 +74,9 @@ impl PayloadDecoder {
         missing_ttl: Duration,
         failed_ttl: Duration,
     ) -> Self {
-        let avro = AvroSchemaDecoder::new(client.registry().clone());
-
         Self {
             client,
-            avro: Arc::new(avro),
+            avro: Cache::builder().max_capacity(MAX_CACHED_SCHEMAS).build(),
             pools: Cache::builder().max_capacity(MAX_CACHED_SCHEMAS).build(),
             missing: Cache::builder()
                 .max_capacity(MAX_CACHED_SCHEMAS)
@@ -128,9 +124,33 @@ impl PayloadDecoder {
 
         match SchemaType::from(schema.schema_type) {
             SchemaType::Json => Ok(Resolved::Json),
-            SchemaType::Avro => Ok(Resolved::Avro),
+            SchemaType::Avro => self.avro_codec(key, &schema).await.map(Resolved::Avro),
             SchemaType::Protobuf => self.pool(key, &schema).await.map(Resolved::Protobuf),
         }
+    }
+
+    async fn avro_codec(
+        &self,
+        key: SchemaKey,
+        schema: &Schema,
+    ) -> Result<Arc<AvroCodec>, DecodeError> {
+        self.avro
+            .try_get_with(key, async {
+                let dependencies = self
+                    .client
+                    .dependencies(&schema.references)
+                    .await
+                    .map_err(DecodeError::failed)?;
+                let sources: Vec<&str> = dependencies
+                    .iter()
+                    .map(|(_, source)| source.as_str())
+                    .collect();
+                let codec =
+                    AvroCodec::parse(&schema.schema, &sources).map_err(DecodeError::failed)?;
+                Ok::<_, DecodeError>(Arc::new(codec))
+            })
+            .await
+            .map_err(|error| (*error).clone())
     }
 
     async fn pool(
@@ -225,21 +245,7 @@ impl PayloadDecoder {
         match resolved {
             Resolved::Missing => Err(DecodeError::missing("schema id not found in registry")),
             Resolved::Json => serde_json::from_slice(body).map_err(DecodeError::failed),
-            Resolved::Avro => {
-                // The decoder reads the identifier off the wire prefix, so an
-                // override has to be handed bytes that carry one.
-                let framed = if framing.has_wire_prefix {
-                    raw.clone()
-                } else {
-                    encode_wire_format(framing.key, body)
-                };
-                let value = self
-                    .avro
-                    .decode(framed)
-                    .await
-                    .map_err(DecodeError::failed)?;
-                Value::try_from(value).map_err(DecodeError::failed)
-            }
+            Resolved::Avro(codec) => codec.decode(body).map_err(DecodeError::failed),
             Resolved::Protobuf(codec) => if framing.has_wire_prefix {
                 codec.decode_framed(body)
             } else {
@@ -341,7 +347,7 @@ mod tests {
 
     use apache_avro::Schema as AvroSchema;
     use apache_avro::types::{Record, Value as AvroValue};
-    use schemreg::encode_protobuf_wire_format;
+    use schemreg::{encode_protobuf_wire_format, encode_wire_format};
 
     use super::*;
     use crate::config::SchemaRegistryTuning;
@@ -604,6 +610,25 @@ mod tests {
         assert_eq!(
             registry.decoder().decode(&framed).await,
             decode_bytes(&framed)
+        );
+    }
+
+    #[tokio::test]
+    async fn an_avro_value_nested_past_the_limit_falls_back_instead_of_overflowing_the_stack() {
+        const LIST: &str =
+            r#"{"type":"record","name":"Node","fields":[{"name":"next","type":["null","Node"]}]}"#;
+        let registry = FakeRegistry::start().await;
+        registry.put(5, Schema::avro(LIST));
+        let mut payload = vec![0x02; 10_000];
+        payload.push(0x00);
+        let framed = frame(5, &payload);
+
+        let decoder = registry.decoder();
+
+        assert_eq!(decoder.decode(&framed).await, decode_bytes(&framed));
+        assert_eq!(
+            decoder.decode_failure(&framed, None).await,
+            Some(DecodeError::failed("the value nests deeper than 64 levels"))
         );
     }
 

@@ -144,6 +144,7 @@ impl KlensMcp {
         let Some(_permit) = self.state.mcp_permit() else {
             return ApiError::RateLimited.into_call_tool_result();
         };
+        let _write = (!stops_on_cancel).then(|| self.state.writes().token());
         let cancelled = context.ct.clone();
         let call = AssertUnwindSafe((route.call)(ToolCallContext::new(self, request, context)));
         tokio::select! {

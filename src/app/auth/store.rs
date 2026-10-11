@@ -7,6 +7,13 @@ use tower_sessions::cookie::time::OffsetDateTime;
 use tower_sessions::session::{Id, Record};
 use tower_sessions::session_store::{self, SessionStore};
 
+/// Each cookieless request to `/api/auth/login` stores a session until the
+/// login times out, so without a cap a flood of them exhausts memory. Moka
+/// admits a new entry over an old one only when the new one is used more, so
+/// under a flood the sessions in active use stay, while idle sessions and new
+/// logins can be pushed out until it stops.
+const MAX_SESSIONS: u64 = 100_000;
+
 /// `MemoryStore` only hides an expired record, so every abandoned login
 /// would stay resident for the life of the process.
 #[derive(Clone, Debug)]
@@ -33,7 +40,12 @@ impl Expiry<Id, Record> for UntilExpiry {
 
 impl Default for ExpiringStore {
     fn default() -> Self {
-        Self(Cache::builder().expire_after(UntilExpiry).build())
+        Self(
+            Cache::builder()
+                .max_capacity(MAX_SESSIONS)
+                .expire_after(UntilExpiry)
+                .build(),
+        )
     }
 }
 
@@ -129,6 +141,24 @@ mod tests {
 
         assert_eq!(store.load(&extended.id).await.unwrap(), Some(extended));
         assert_eq!(store.load(&shortened.id).await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn a_flood_of_new_sessions_stops_at_the_cap_and_spares_one_in_use() {
+        let store = ExpiringStore::default();
+        let mut working = live();
+        store.create(&mut working).await.unwrap();
+
+        for flooded in 0..MAX_SESSIONS + 1_000 {
+            store.create(&mut live()).await.unwrap();
+            if flooded % 1_000 == 0 {
+                store.load(&working.id).await.unwrap();
+            }
+        }
+        store.0.run_pending_tasks().await;
+
+        assert!(store.0.entry_count() <= MAX_SESSIONS);
+        assert_eq!(store.load(&working.id).await.unwrap(), Some(working));
     }
 
     #[tokio::test]

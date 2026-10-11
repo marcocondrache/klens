@@ -6,7 +6,7 @@ use indexmap::IndexMap;
 
 use crate::config::{self, IngestTuning, Tuning};
 use crate::kafka::client::KafkaClient;
-use crate::kafka::error::KafkaError;
+use crate::kafka::error::{KafkaError, QueryError};
 use crate::kafka::limits::{RecordLimits, TailLimits};
 use crate::kafka::model::{
     ConfigEntry, FoundRecord, OffsetMove, RecordAt, RecordPage, RecordQuery, ResetTarget,
@@ -14,6 +14,7 @@ use crate::kafka::model::{
 use crate::kafka::reset::plan_reset;
 use crate::kafka::scan::export::Export;
 use crate::kafka::scan::read::{read_page, read_record};
+use crate::kafka::scan::session::topic_obfuscator;
 use crate::kafka::scan::tail::{Tail, TailQuery};
 use crate::kafka::session::ClusterSession;
 use crate::kafka::store::ClusterStore;
@@ -55,6 +56,7 @@ impl Cluster {
         query: RecordQuery,
         limits: RecordLimits,
     ) -> Result<RecordPage, KafkaError> {
+        self.decodable_as(&query.topic, query.schema_id)?;
         read_page(self.session.as_ref(), &self.store, query, limits).await
     }
 
@@ -63,6 +65,7 @@ impl Cluster {
         at: RecordAt,
         limits: RecordLimits,
     ) -> Result<FoundRecord, KafkaError> {
+        self.decodable_as(&at.topic, at.schema_id)?;
         read_record(self.session.as_ref(), &self.store, at, limits).await
     }
 
@@ -71,11 +74,23 @@ impl Cluster {
         query: RecordQuery,
         limits: RecordLimits,
     ) -> Result<Export, KafkaError> {
+        self.decodable_as(&query.topic, query.schema_id)?;
         Export::open(Arc::clone(&self.session), &self.store, query, limits).await
     }
 
     pub async fn tail(&self, query: TailQuery, limits: TailLimits) -> Result<Tail, KafkaError> {
+        self.decodable_as(&query.topic, query.schema_id)?;
         Tail::open(self.session.as_ref(), &self.store, query, limits).await
+    }
+
+    /// A caller's schema decides the tree that field rules walk, and one that
+    /// names other fields walks past every rule. On a covered topic only a
+    /// value's own wire prefix may name its schema.
+    fn decodable_as(&self, topic: &str, schema_id: Option<i32>) -> Result<(), QueryError> {
+        if schema_id.is_some() && topic_obfuscator(self.session.as_ref(), topic).is_some() {
+            return Err(QueryError::SchemaIdOnObfuscatedTopic);
+        }
+        Ok(())
     }
 
     pub async fn broker_configs(&self, id: i32) -> Result<Vec<ConfigEntry>, KafkaError> {

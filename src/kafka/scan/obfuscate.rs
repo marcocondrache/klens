@@ -145,7 +145,7 @@ impl TopicObfuscator {
             for rule in &self.fields {
                 rule.apply(json);
             }
-        } else if self.masks_undecoded(field) {
+        } else if self.masks_undecoded(field, payload) {
             payload.redact_with(MASK.to_owned());
         }
 
@@ -160,8 +160,12 @@ impl TopicObfuscator {
         }
     }
 
-    fn masks_undecoded(&self, field: Field) -> bool {
-        field == Field::Value && !self.fields.is_empty() && self.unparsed == Unparsed::Mask
+    /// A key is often plain text that no schema covers, but one with a wire
+    /// prefix was written for the field rules to walk.
+    fn masks_undecoded(&self, field: Field, payload: &DecodedPayload) -> bool {
+        !self.fields.is_empty()
+            && self.unparsed == Unparsed::Mask
+            && (field == Field::Value || payload.is_framed())
     }
 
     fn rewrite_matches(&self, payload: &mut DecodedPayload) {
@@ -594,6 +598,19 @@ mod tests {
         obfuscator.apply(Field::Key, &mut key);
 
         assert_eq!(key.expect("key").into_text(), "ord_1");
+    }
+
+    #[test]
+    fn a_framed_key_that_did_not_decode_is_masked_whole() {
+        let obfuscator = payments().for_topic("payments.authorized").expect("rule");
+
+        let mut key = Some(DecodedPayload::raw(schemreg::encode_wire_format(
+            7u32,
+            b"\x0eada@example",
+        )));
+        obfuscator.apply(Field::Key, &mut key);
+
+        assert_eq!(key.expect("key").into_text(), "***");
     }
 
     #[test]

@@ -78,6 +78,11 @@ impl AuthBackend {
         self.users.insert(user.sub.clone(), Arc::new(user));
     }
 
+    /// Streams revalidate against this cache, so forgetting a user ends them.
+    pub(crate) fn forget(&self, subject: &str) {
+        self.users.invalidate(subject);
+    }
+
     pub(crate) fn live_user(&self, subject: &str) -> Option<SessionUser> {
         self.with_live_user(subject, SessionUser::clone)
     }

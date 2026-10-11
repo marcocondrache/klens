@@ -10,6 +10,7 @@ use url::Position;
 
 use crate::AppState;
 use crate::config::{AllowedHost, Mcp};
+use crate::kafka::store::search::MAX_QUERY_CHARS;
 
 use super::auth::access::Ceiling;
 use super::auth::{self, SessionGuard};
@@ -58,10 +59,6 @@ const CLIENT_VALUES_NOTICE: &str = "Group ids, client ids, hosts, assignment pro
 
 const OBFUSCATED_NOTICE: &str = "An obfuscation rule covers this topic, so klens shows the \
                                  fields it protects as *** or as kx: tokens.";
-
-/// The fuzzy matcher's memory grows with the query, and a Kafka name is at
-/// most 249 characters.
-const MAX_QUERY_CHARS: usize = 256;
 
 /// No tool takes an argument near this size, where rmcp's default lets one
 /// call hold 4 MiB.

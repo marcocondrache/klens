@@ -96,6 +96,18 @@ visitor's browser. The list binds browsers only, since any other client can
 name an allowed host. With `auth`, klens ignores the list, because such a page
 never holds the session cookie.
 
+Every response also forbids framing, with `X-Frame-Options: DENY` and
+`Content-Security-Policy: frame-ancestors 'none'`, so a page cannot load klens
+in a frame and lay its own buttons over a delete.
+
+klens also refuses a request to the cluster routes under `/api`, or to
+logout, with `403 CROSS_SITE` when the browser's `Sec-Fetch-Site` header says
+another site sent it, so another site's page cannot start exports, hold every
+live tail, or end a session from a visitor's browser. The login routes stay
+open to the identity provider's redirect. Browsers send the header only when klens is served over
+https or on localhost, and a client that sends none, such as `curl`, is not
+affected.
+
 `/health` and `/ready` answer every host, because Kubernetes probes and load
 balancer health checks name an IP address. Point a load balancer health check
 at one of them, not at `/`.
@@ -194,7 +206,10 @@ starts as soon as that table exists. A lane's period and
 
 `GET /api/clusters/{cluster}/topics/{topic}/records/tail` follows a topic from
 its current end as a server-sent event stream. It takes the same `partition`,
-`contains`, and `schemaId` parameters as a record page. It needs the `records`
+`contains`, and `schemaId` parameters as a record page. A `contains` filter
+holds at most 256 characters on a page, an export, and a tail alike, because
+building its matcher costs time and memory that grow faster than the filter.
+It needs the `records`
 privilege, and it applies obfuscation the same way a page does. The first frame
 is `ready` and names each partition's start offset. After that, `records` frames
 arrive oldest first.
@@ -254,7 +269,10 @@ To require a login, add an OIDC provider to `config.yaml`. klens uses the
 authorization code flow with PKCE. Sessions use
 [axum-login](https://github.com/maxcountryman/axum-login). Auth, catalog, and
 live routes are under `/api`. `/health` and `/ready` stay public. A process
-restart drops in-memory sessions and requires a new login. klens signs session
+restart drops in-memory sessions and requires a new login. klens holds at most
+100,000 sessions, counting logins in progress. When a flood of logins reaches
+that cap, the sessions in active use stay, while idle sessions and new logins
+can be pushed out until the flood stops. klens signs session
 cookies with a key it generates at boot.
 
 A login must come back from the provider within `auth.session.login_timeout`
@@ -687,6 +705,13 @@ Each cluster can optionally point at a Confluent-compatible Schema Registry.
 When omitted, the Schemas page is empty for that cluster. Framed Avro, JSON, and
 Protobuf payloads decode to JSON when a registry is configured.
 
+A producer chooses what a record holds, so klens refuses to decode an Avro
+value that nests deeper than 64 levels or holds more than 4 values per byte
+plus 4,096, and shows its bytes instead. A recursive schema could otherwise
+let a few hundred bytes crash klens, and an array of nulls could claim millions
+of values in a few bytes. For the same reason klens refuses a Protobuf schema,
+or a schema it imports, that nests deeper than 64 levels.
+
 ```yaml
 schema_registry:
   url: http://localhost:8081
@@ -720,7 +745,8 @@ obfuscation:
           strategy: drop # the field disappears
         - path: customer.email
           strategy: mask # ***
-      # A value that never decoded cannot be walked. Default: mask it whole.
+      # A value that never decoded cannot be walked. Default: mask it whole,
+      # and a key with a wire prefix too. A plain-text key stays as it is.
       unparsed: mask # mask | allow
     # Whole-field rules, for topics browsed as raw text.
     - topics: ["audit.raw"]
@@ -759,3 +785,8 @@ most one rule, and the secret must be at least 32 bytes. Both are boot-time
 errors rather than a silently weaker policy. Offsets, timestamps, `sizeBytes`,
 and schema ids keep describing the wire record. A record page reports
 `obfuscated: true` for a covered topic, which is what the UI badges.
+
+A record page, single record, export, or tail refuses `schemaId` on a covered
+topic with `400 OBFUSCATED_TOPIC`. A schema the caller picks decides which
+fields the rules can reach, and one that names other fields would walk past
+them all.

@@ -7,6 +7,7 @@ use axum::http::StatusCode;
 use axum::middleware;
 use governor::{DefaultKeyedRateLimiter, Quota, RateLimiter};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio_util::task::TaskTracker;
 
 use crate::config::{AllowedHost, Mcp, Tuning};
 use crate::kafka::{Clusters, TailLimits};
@@ -14,6 +15,7 @@ use error::ApiError;
 
 pub(crate) mod auth;
 mod context;
+mod cross_site;
 mod error;
 mod extract;
 mod health;
@@ -23,6 +25,7 @@ mod resources;
 #[cfg(feature = "typescript")]
 pub mod typescript;
 mod well_known;
+mod writes;
 
 #[cfg(test)]
 pub(crate) mod testing;
@@ -43,6 +46,7 @@ pub struct AppState {
     // Never pruned, because only the users of valid tokens whose groups bind
     // a role become keys.
     mcp_live_calls: Arc<DefaultKeyedRateLimiter<Option<String>>>,
+    writes: TaskTracker,
 }
 
 impl AppState {
@@ -56,7 +60,13 @@ impl AppState {
             mcp_live_calls: Arc::new(RateLimiter::keyed(Quota::per_minute(
                 limits.mcp_live_calls_per_minute,
             ))),
+            writes: TaskTracker::new(),
         }
+    }
+
+    /// The changes in flight, over HTTP or MCP, which shutdown waits for.
+    pub fn writes(&self) -> &TaskTracker {
+        &self.writes
     }
 
     pub(crate) fn tail_permit(&self) -> Option<OwnedSemaphorePermit> {
@@ -131,10 +141,16 @@ async fn method_not_allowed() -> ApiError {
 }
 
 pub fn router(state: AppState, allowed_hosts: &[AllowedHost], mcp: Option<&Mcp>) -> Router {
-    let resources = resources::router().route_layer(middleware::from_fn_with_state(
-        state.clone(),
-        auth::require_session,
-    ));
+    let resources = resources::router()
+        .route_layer(middleware::from_fn_with_state(
+            state.writes.clone(),
+            writes::run_to_completion,
+        ))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth::require_session,
+        ))
+        .route_layer(middleware::from_fn(cross_site::refuse_cross_site));
     let auth_layer = state.auth.layer();
 
     let mut app = Router::new()

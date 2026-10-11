@@ -11,5 +11,9 @@ static/
 .env.*
 !.env.example
 
+# Cluster configuration may contain credentials
+config.yaml
+config/clusters.yaml
+
 **/*.rs.bk
 **/mutants.out*/

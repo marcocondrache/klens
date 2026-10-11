@@ -56,9 +56,11 @@ export function RecordView({
   const { address, open } = useRecordAddress();
 
   const { records, obfuscated } = source;
+  // The API refuses a chosen schema on an obfuscated topic, so the picker
+  // shows there only to clear one.
   const showSchemaPicker =
     filter.schemaId != null ||
-    records.some((record) => record.value != null && record.schemaId == null);
+    (!obfuscated && records.some((record) => record.value != null && record.schemaId == null));
   const fields = [partitionField(topic)];
 
   return (

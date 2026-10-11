@@ -2,7 +2,7 @@ use std::cell::OnceCell;
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use schemreg::{SchemaId, decode_wire_prefix};
+use schemreg::{DetectedWireFormat, SchemaId, decode_wire_prefix, detect_wire_format};
 
 #[derive(Debug)]
 pub struct DecodedPayload {
@@ -37,6 +37,15 @@ impl DecodedPayload {
 
     pub fn wire_schema_id(&self) -> Option<i32> {
         self.wire_schema_id
+    }
+
+    /// Whether the bytes start with a schema registry wire prefix, by id or
+    /// by guid.
+    pub fn is_framed(&self) -> bool {
+        matches!(
+            detect_wire_format(&self.raw),
+            DetectedWireFormat::Confluent { .. }
+        )
     }
 
     pub fn json(&self) -> Option<&serde_json::Value> {

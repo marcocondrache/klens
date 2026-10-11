@@ -295,7 +295,7 @@ async fn a_read_stops_and_frees_its_call_when_the_client_leaves() {
 }
 
 #[tokio::test]
-async fn a_write_still_logs_its_change_when_the_client_leaves() {
+async fn a_write_still_logs_its_change_when_the_client_leaves_and_shutdown_waits_for_it() {
     let cluster = FakeCluster::local().with_delay(Api::CreateTopic, Duration::from_millis(100));
     let app = TestApp::of([cluster])
         .writable(&["local"])
@@ -312,10 +312,10 @@ async fn a_write_still_logs_its_change_when_the_client_leaves() {
         () = eventually("a create in flight", || app.cluster().calls(Api::CreateTopic) == 1) => {}
     }
 
-    eventually("the created topic line", || {
-        logs.text().contains("created topic")
-    })
-    .await;
+    let writes = app.state().writes();
+    writes.close();
+    writes.wait().await;
+
     let text = logs.text();
     assert!(
         text.lines().any(|line| line.contains("created topic")

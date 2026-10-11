@@ -229,7 +229,7 @@ impl ScanSession {
     }
 }
 
-pub(super) fn topic_obfuscator<S: ClusterSession + ?Sized>(
+pub(in crate::kafka) fn topic_obfuscator<S: ClusterSession + ?Sized>(
     session: &S,
     topic: &str,
 ) -> Option<Arc<TopicObfuscator>> {

@@ -9,6 +9,7 @@ use schemreg::{
     SchemaRegistryClient as _, SchemaVersion,
 };
 use secrecy::ExposeSecret;
+use thiserror::Error;
 use tokio::sync::OnceCell;
 
 use crate::config::{SchemaRegistry, SchemaRegistryTuning};
@@ -20,7 +21,20 @@ use crate::kafka::model::{
 
 const MAX_CACHED_SCHEMAS: usize = 10_000;
 
+/// protox follows each import recursively, and apache-avro each type one
+/// schema takes from another, so a long chain of references overflows a
+/// worker's stack. A release build holds a chain this long.
+const MAX_REFERENCES: usize = 256;
+
 pub(crate) type Registry = CachedSchemaRegistry<ConfluentSchemaRegistry>;
+
+#[derive(Debug, Error)]
+pub(crate) enum DependencyError {
+    #[error("the schema references more than {MAX_REFERENCES} schemas")]
+    TooMany,
+    #[error(transparent)]
+    Registry(#[from] SchemaRegError),
+}
 
 #[derive(Clone)]
 pub struct SchemaRegistryClient {
@@ -180,10 +194,16 @@ impl SchemaRegistryClient {
                     self.fail(error.to_string())
                 }
             })?;
-        let dependencies = self
-            .dependencies(&schema.references)
-            .await
-            .map_err(|error| self.fail(error.to_string()))?;
+        let dependencies =
+            self.dependencies(&schema.references)
+                .await
+                .map_err(|error| match error {
+                    DependencyError::TooMany => KafkaError::Unencodable {
+                        id,
+                        message: error.to_string(),
+                    },
+                    DependencyError::Registry(error) => self.fail(error.to_string()),
+                })?;
         let registered = RegisteredSchema {
             id,
             schema_type: schema.schema_type.into(),
@@ -201,7 +221,7 @@ impl SchemaRegistryClient {
     pub(crate) async fn dependencies(
         &self,
         references: &[schemreg::SchemaReference],
-    ) -> Result<Vec<(String, String)>, SchemaRegError> {
+    ) -> Result<Vec<(String, String)>, DependencyError> {
         let roots = self::references(references);
         let mut fetched = HashMap::new();
         let mut pending = roots.clone();
@@ -214,6 +234,9 @@ impl SchemaRegistryClient {
                 .collect();
             if wave.is_empty() {
                 break;
+            }
+            if seen.len() > MAX_REFERENCES {
+                return Err(DependencyError::TooMany);
             }
 
             let mut fetches = futures::stream::iter(wave.into_iter().map(|reference| async move {
@@ -1118,6 +1141,34 @@ mod tests {
                 ("Status".to_owned(), STATUS.to_owned()),
                 ("Line".to_owned(), LINE.to_owned()),
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_reference_chain_past_the_cap_is_unencodable() {
+        let registry = FakeRegistry::start().await;
+        let longest = MAX_REFERENCES + 1;
+        for link in 1..=longest + 1 {
+            let schema = Schema::protobuf(&format!("syntax = \"proto3\"; message M{link} {{}}"));
+            let schema = if link == 1 {
+                schema
+            } else {
+                schema.referencing(
+                    &format!("m{}.proto", link - 1),
+                    &format!("m{}", link - 1),
+                    1,
+                )
+            };
+            registry.register(&format!("m{link}"), 1, link as u32, schema);
+        }
+
+        let within = registry.client().encode(longest as i32, "{}").await;
+        let past = registry.client().encode(longest as i32 + 1, "{}").await;
+
+        assert!(within.is_ok(), "{within:?}");
+        assert!(
+            matches!(&past, Err(KafkaError::Unencodable { .. })),
+            "{past:?}"
         );
     }
 
