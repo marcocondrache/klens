@@ -303,39 +303,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_consumer_that_failed_mid_page_is_not_pooled() {
+    async fn a_consumer_that_failed_mid_page_is_closed_instead_of_pooled() {
         let broker = Broker::orders(2).await;
         let client = broker.client().await;
-
-        let poisoned = client
+        let scan = client
             .scans
             .acquire("orders", &[window(0, 0, 2)])
             .await
             .unwrap();
-        poisoned.reusable.store(false, Ordering::SeqCst);
-        poisoned.close().await;
+        let consumer = Arc::clone(&scan.consumer);
+        // krafka retries a failed fetch inside poll and accepts any partition
+        // on assign, so no broker answer fails the lease on cue.
+        scan.reusable.store(false, Ordering::SeqCst);
+        scan.close().await;
 
         assert_eq!(
             client.scans.parked("orders"),
             0,
             "a consumer that failed mid-page must not be handed out again"
         );
-    }
-
-    #[tokio::test]
-    async fn a_consumer_that_is_not_pooled_is_closed() {
-        let broker = Broker::orders(1).await;
-        let client = broker.client().await;
-
-        let poisoned = client
-            .scans
-            .acquire("orders", &[window(0, 0, 1)])
-            .await
-            .unwrap();
-        let consumer = Arc::clone(&poisoned.consumer);
-        poisoned.reusable.store(false, Ordering::SeqCst);
-        poisoned.close().await;
-
         eventually("a consumer the pool does not keep closing", || {
             consumer.is_closed()
         })

@@ -653,57 +653,52 @@ mod tests {
     }
 
     #[test]
-    fn timestamp_from_raises_the_low_watermark() {
-        let mut watermarks = marks(10, 40);
-        let from = HashMap::from_iter([(0, Some(25))]);
+    fn timestamp_offsets_narrow_the_watermarks() {
+        let bound =
+            |partition: i32, offset: Option<i64>| Some(HashMap::from_iter([(partition, offset)]));
+        let cases = [
+            (
+                "a start offset raises the low watermark",
+                bound(0, Some(25)),
+                None,
+                (25, 40),
+            ),
+            (
+                "an end offset lowers the high watermark",
+                None,
+                bound(0, Some(22)),
+                (10, 22),
+            ),
+            (
+                "no start offset empties the partition",
+                bound(0, None),
+                None,
+                (40, 40),
+            ),
+            (
+                "another partition's start changes nothing",
+                bound(1, Some(25)),
+                None,
+                (10, 40),
+            ),
+            (
+                "no end offset keeps the high watermark",
+                None,
+                bound(0, None),
+                (10, 40),
+            ),
+            (
+                "inverted bounds collapse to empty",
+                bound(0, Some(30)),
+                bound(0, Some(20)),
+                (20, 20),
+            ),
+        ];
 
-        apply_timestamp_bounds(&mut watermarks, Some(&from), None);
-        assert_eq!(watermarks[&0], Watermarks { low: 25, high: 40 });
-    }
-
-    #[test]
-    fn timestamp_to_lowers_the_high_watermark() {
-        let mut watermarks = marks(10, 40);
-        let to = HashMap::from_iter([(0, Some(22))]);
-
-        apply_timestamp_bounds(&mut watermarks, None, Some(&to));
-        assert_eq!(watermarks[&0], Watermarks { low: 10, high: 22 });
-    }
-
-    #[test]
-    fn invalid_from_offset_empties_the_partition() {
-        let mut watermarks = marks(10, 40);
-        let from = HashMap::from_iter([(0, None)]);
-
-        apply_timestamp_bounds(&mut watermarks, Some(&from), None);
-        assert_eq!(watermarks[&0], Watermarks { low: 40, high: 40 });
-    }
-
-    #[test]
-    fn omitted_from_offset_keeps_the_watermark() {
-        let mut watermarks = marks(10, 40);
-        let from = HashMap::from_iter([(1, Some(25))]);
-
-        apply_timestamp_bounds(&mut watermarks, Some(&from), None);
-        assert_eq!(watermarks[&0], Watermarks { low: 10, high: 40 });
-    }
-
-    #[test]
-    fn invalid_to_offset_keeps_the_high_watermark() {
-        let mut watermarks = marks(10, 40);
-        let to = HashMap::from_iter([(0, None)]);
-
-        apply_timestamp_bounds(&mut watermarks, None, Some(&to));
-        assert_eq!(watermarks[&0], Watermarks { low: 10, high: 40 });
-    }
-
-    #[test]
-    fn inverted_timestamp_bounds_collapse_to_empty() {
-        let mut watermarks = marks(10, 40);
-        let from = HashMap::from_iter([(0, Some(30))]);
-        let to = HashMap::from_iter([(0, Some(20))]);
-
-        apply_timestamp_bounds(&mut watermarks, Some(&from), Some(&to));
-        assert_eq!(watermarks[&0], Watermarks { low: 20, high: 20 });
+        for (case, from, to, (low, high)) in cases {
+            let mut watermarks = marks(10, 40);
+            apply_timestamp_bounds(&mut watermarks, from.as_ref(), to.as_ref());
+            assert_eq!(watermarks[&0], Watermarks { low, high }, "{case}");
+        }
     }
 }

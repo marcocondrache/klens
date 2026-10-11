@@ -70,20 +70,19 @@ fn any_other_describe_error_fails_the_call() {
     );
 }
 
-fn listing() -> ScramListing {
-    ScramListing::from_describe(
-        None,
-        vec![described(
-            "alice",
-            &[(WireMechanism::Sha256, 4096), (WireMechanism::Sha512, 8192)],
-        )],
-    )
-    .expect("listing")
-}
-
 #[test]
 fn a_listing_finds_the_iterations_of_one_users_credential() {
-    let listing = listing();
+    let listing = ScramListing::from_describe(
+        None,
+        vec![
+            described(
+                "alice",
+                &[(WireMechanism::Sha256, 4096), (WireMechanism::Sha512, 8192)],
+            ),
+            described("bob", &[(WireMechanism::Sha512, 4096)]),
+        ],
+    )
+    .expect("listing");
 
     assert_eq!(
         listing.iterations("alice", ScramMechanism::Sha512),
@@ -93,22 +92,16 @@ fn a_listing_finds_the_iterations_of_one_users_credential() {
         listing.iterations("alice", ScramMechanism::Sha256),
         Some(4096)
     );
-    assert_eq!(listing.iterations("bob", ScramMechanism::Sha256), None);
+    assert_eq!(
+        listing.iterations("bob", ScramMechanism::Sha256),
+        None,
+        "bob has no SHA-256 credential"
+    );
+    assert_eq!(listing.iterations("carol", ScramMechanism::Sha256), None);
     assert_eq!(
         ScramListing::Denied.iterations("alice", ScramMechanism::Sha256),
         None
     );
-}
-
-#[test]
-fn a_user_without_a_mechanism_has_no_iterations_for_it() {
-    let listing = ScramListing::from_describe(
-        None,
-        vec![described("bob", &[(WireMechanism::Sha512, 4096)])],
-    )
-    .expect("listing");
-
-    assert_eq!(listing.iterations("bob", ScramMechanism::Sha256), None);
 }
 
 #[test]

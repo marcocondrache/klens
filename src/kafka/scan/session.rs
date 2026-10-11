@@ -612,25 +612,7 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn one_consumer_serves_every_pass_of_a_page() {
-        let session = delayed(&[0, 6, 12, 13], Duration::from_secs(1));
-        let mut query = query();
-        query.limit = 3;
-
-        let page = fetch_page(&session, &query, &[0], &marks(0, 24), 3, LIMITS)
-            .await
-            .unwrap();
-
-        assert_eq!(offsets(&page), vec![0, 6, 12]);
-        assert_eq!(session.calls(Api::OpenScan), 1);
-        assert_eq!(
-            session.assigned_windows(),
-            vec![vec![(0, 0, 6)], vec![(0, 6, 12)], vec![(0, 12, 18)]]
-        );
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn remaining_limit_shrinks_without_narrowing_scan_windows() {
+    async fn one_consumer_serves_every_full_width_pass_as_the_limit_shrinks() {
         let session = delayed(&[0, 6, 12, 13], Duration::from_secs(1));
         let mut query = query();
         query.limit = 3;
@@ -642,6 +624,12 @@ mod tests {
 
         assert_eq!(started.elapsed(), Duration::from_secs(3));
         assert_eq!(offsets(&page), vec![0, 6, 12]);
+        assert_eq!(session.calls(Api::OpenScan), 1);
+        assert_eq!(
+            session.assigned_windows(),
+            vec![vec![(0, 0, 6)], vec![(0, 6, 12)], vec![(0, 12, 18)]],
+            "a shrinking remaining limit never narrows a window"
+        );
         assert!(page.complete);
         assert!(page.has_more());
         assert_eq!(

@@ -7,7 +7,7 @@ use tracing::Level;
 
 use crate::kafka::group::GroupState;
 use crate::kafka::store::{Change, OffsetTable};
-use crate::testing::{Api, BusProbe, FakeCluster, IDLE, LogCapture, Rig, group, quiesce};
+use crate::testing::{Api, BusProbe, FakeCluster, IDLE, LogCapture, Rig, group};
 
 fn lags(bus: &mut BusProbe) -> Vec<(String, i64)> {
     bus.drain()
@@ -373,7 +373,7 @@ async fn a_refresh_rereads_the_watched_groups_without_waiting_for_their_tier() {
     let mut rig = Rig::new(consumers(2));
     rig.poll(&rig.topology()).await;
     rig.spawn_offsets(rig.offsets());
-    quiesce().await;
+    rig.store.offsets.committed().await;
     let _lease = rig.store.interest.lease_group("group-00");
     for id in ["group-00", "group-01"] {
         rig.cluster.commit_offsets(id, &[("orders.created", 0, 7)]);

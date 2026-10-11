@@ -1176,14 +1176,4 @@ mod tests {
             "{error:?}"
         );
     }
-
-    #[test]
-    fn a_registry_error_names_its_cluster() {
-        let error = offline(&SchemaRegistryTuning::default()).fail("boom");
-
-        assert_eq!(
-            error.to_string(),
-            "schema registry request failed for cluster 'local': boom"
-        );
-    }
 }

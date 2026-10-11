@@ -473,7 +473,10 @@ mod tests {
         produce_run(&session, 8..41);
         let first = tail.next().await.unwrap();
 
-        assert_eq!(FAKE_TAIL_POLL_RECORDS, 4);
+        assert_eq!(
+            FAKE_TAIL_POLL_RECORDS, 4,
+            "the keys below assume four records a poll"
+        );
         assert_eq!(session.tail_seeks(), vec![vec![(0, 35)]]);
         assert_eq!(keys(&first), vec![(0, 9), (0, 10), (0, 11)]);
         assert_eq!(
