@@ -8,7 +8,10 @@ export const GROUP_STATES = [
   "EMPTY",
   "PREPARING_REBALANCE",
   "COMPLETING_REBALANCE",
+  "ASSIGNING",
+  "RECONCILING",
   "DEAD",
+  "UNKNOWN",
 ] as const satisfies readonly GroupState[];
 
 const GROUP_LAG = ["lagging", "caught-up"] as const;

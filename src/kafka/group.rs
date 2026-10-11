@@ -27,7 +27,15 @@ pub enum GroupState {
     Empty,
     PreparingRebalance,
     CompletingRebalance,
+    /// A consumer-protocol (KIP-848) group computing a new assignment.
+    Assigning,
+    /// A consumer-protocol (KIP-848) group whose members are moving to a new
+    /// assignment.
+    Reconciling,
     Dead,
+    /// A state klens does not know. It counts as held by consumers, so
+    /// klens never resets the offsets of a group it cannot read.
+    Unknown,
 }
 
 impl GroupState {
@@ -45,10 +53,13 @@ impl GroupState {
 
         match normalized.as_str() {
             "stable" => Self::Stable,
+            "empty" => Self::Empty,
             "preparingrebalance" => Self::PreparingRebalance,
             "completingrebalance" => Self::CompletingRebalance,
+            "assigning" => Self::Assigning,
+            "reconciling" => Self::Reconciling,
             "dead" => Self::Dead,
-            _ => Self::Empty,
+            _ => Self::Unknown,
         }
     }
 }
@@ -60,7 +71,10 @@ impl std::fmt::Display for GroupState {
             Self::Empty => "Empty",
             Self::PreparingRebalance => "PreparingRebalance",
             Self::CompletingRebalance => "CompletingRebalance",
+            Self::Assigning => "Assigning",
+            Self::Reconciling => "Reconciling",
             Self::Dead => "Dead",
+            Self::Unknown => "Unknown",
         })
     }
 }
@@ -113,7 +127,17 @@ mod tests {
             GroupState::parse("PreparingRebalance"),
             GroupState::PreparingRebalance
         );
+        assert_eq!(GroupState::parse("Empty"), GroupState::Empty);
+        assert_eq!(GroupState::parse("Assigning"), GroupState::Assigning);
+        assert_eq!(GroupState::parse("Reconciling"), GroupState::Reconciling);
         assert_eq!(GroupState::parse("Dead"), GroupState::Dead);
-        assert_eq!(GroupState::parse("whatever"), GroupState::Empty);
+    }
+
+    #[test]
+    fn a_state_klens_does_not_know_keeps_the_group_held() {
+        let state = GroupState::parse("NotReady");
+
+        assert_eq!(state, GroupState::Unknown);
+        assert!(state.has_members());
     }
 }

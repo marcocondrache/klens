@@ -18,7 +18,10 @@ pub enum GroupState {
     Empty,
     PreparingRebalance,
     CompletingRebalance,
+    Assigning,
+    Reconciling,
     Dead,
+    Unknown,
 }
 
 from_same_variants!(domain::GroupState => GroupState {
@@ -26,7 +29,10 @@ from_same_variants!(domain::GroupState => GroupState {
     Empty,
     PreparingRebalance,
     CompletingRebalance,
+    Assigning,
+    Reconciling,
     Dead,
+    Unknown,
 });
 
 #[derive(Debug, Clone, Serialize, TS)]

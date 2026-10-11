@@ -87,7 +87,7 @@ export type AddPartitions = {
  */
 count: number, };
 
-export type GroupState = "STABLE" | "EMPTY" | "PREPARING_REBALANCE" | "COMPLETING_REBALANCE" | "DEAD";
+export type GroupState = "STABLE" | "EMPTY" | "PREPARING_REBALANCE" | "COMPLETING_REBALANCE" | "ASSIGNING" | "RECONCILING" | "DEAD" | "UNKNOWN";
 
 export type MemberAssignment = { topic: string, partitions: Array<number>, };
 

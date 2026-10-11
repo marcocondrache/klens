@@ -74,10 +74,13 @@ pub fn findings(group: &GroupDetail, topology: &Topology) -> Vec<Finding> {
     }
     match group.state {
         GroupState::Stable => {}
-        GroupState::PreparingRebalance | GroupState::CompletingRebalance => {
+        GroupState::PreparingRebalance
+        | GroupState::CompletingRebalance
+        | GroupState::Assigning
+        | GroupState::Reconciling => {
             return vec![Finding::Rebalancing];
         }
-        GroupState::Empty | GroupState::Dead => return Vec::new(),
+        GroupState::Empty | GroupState::Dead | GroupState::Unknown => return Vec::new(),
     }
 
     let mut assigned: BTreeMap<&str, BTreeSet<i32>> = BTreeMap::new();

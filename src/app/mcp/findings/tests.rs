@@ -85,6 +85,8 @@ fn a_rebalancing_group_finds_only_that() {
     for state in [
         GroupState::PreparingRebalance,
         GroupState::CompletingRebalance,
+        GroupState::Assigning,
+        GroupState::Reconciling,
     ] {
         let found = examine(state, vec![idle("a"), idle("b"), idle("c")], 2, None);
 
