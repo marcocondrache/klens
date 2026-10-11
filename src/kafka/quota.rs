@@ -5,7 +5,19 @@ use tracing::warn;
 
 use crate::kafka::error::{KafkaError, is_cluster_authorization_text};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    strum::EnumString,
+    strum::IntoStaticStr,
+)]
+#[strum(serialize_all = "kebab-case")]
 pub enum QuotaEntityType {
     User,
     ClientId,
@@ -13,21 +25,8 @@ pub enum QuotaEntityType {
 }
 
 impl QuotaEntityType {
-    fn from_wire(name: &str) -> Option<Self> {
-        match name {
-            "user" => Some(Self::User),
-            "client-id" => Some(Self::ClientId),
-            "ip" => Some(Self::Ip),
-            _ => None,
-        }
-    }
-
     pub fn wire(self) -> &'static str {
-        match self {
-            Self::User => "user",
-            Self::ClientId => "client-id",
-            Self::Ip => "ip",
-        }
+        self.into()
     }
 }
 
@@ -146,7 +145,7 @@ impl ClientQuota {
     fn from_described(cluster: &str, described: DescribedQuota) -> Option<Self> {
         let mut entity = Vec::with_capacity(described.entity.len());
         for (entity_type, name) in described.entity {
-            let Some(entity_type) = QuotaEntityType::from_wire(&entity_type) else {
+            let Ok(entity_type) = entity_type.parse::<QuotaEntityType>() else {
                 warn!(
                     cluster,
                     entity_type, "dropping quota for an unknown entity type"

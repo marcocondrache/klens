@@ -5,7 +5,8 @@ pub mod protobuf;
 #[cfg(test)]
 pub(crate) mod testing;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::Display)]
+#[strum(serialize_all = "UPPERCASE")]
 pub enum SchemaType {
     Avro,
     Json,
@@ -30,16 +31,6 @@ impl From<SchemaType> for schemreg::SchemaType {
             SchemaType::Json => Self::Json,
             SchemaType::Protobuf => Self::Protobuf,
         }
-    }
-}
-
-impl std::fmt::Display for SchemaType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::Avro => "AVRO",
-            Self::Json => "JSON",
-            Self::Protobuf => "PROTOBUF",
-        })
     }
 }
 
