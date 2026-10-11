@@ -23,6 +23,15 @@ pub(crate) mod testing;
 pub mod web;
 
 pub async fn serve(router: Router, bind: SocketAddr) -> Result<()> {
+    serve_until(router, bind, shutdown_signal()).await
+}
+
+/// Serves until `shutdown` resolves, then until every open connection closes.
+pub async fn serve_until(
+    router: Router,
+    bind: SocketAddr,
+    shutdown: impl Future<Output = ()> + Send + 'static,
+) -> Result<()> {
     let listener = TcpListener::bind(bind).await?;
     let sensitive_headers: Arc<[_]> = Arc::new([
         header::AUTHORIZATION,
@@ -81,7 +90,7 @@ pub async fn serve(router: Router, bind: SocketAddr) -> Result<()> {
     tracing::info!(bind = %bind, "listening");
 
     axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
+        .with_graceful_shutdown(shutdown)
         .await?;
 
     tracing::info!("server stopped");
@@ -89,7 +98,7 @@ pub async fn serve(router: Router, bind: SocketAddr) -> Result<()> {
     Ok(())
 }
 
-async fn shutdown_signal() {
+pub async fn shutdown_signal() {
     let ctrl_c = async {
         tokio::signal::ctrl_c()
             .await

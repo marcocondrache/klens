@@ -5,10 +5,12 @@ use klens::app::{AppState, AuthState, Limits, router};
 use klens::config::Config;
 use klens::kafka::Clusters;
 use klens::kafka::ingest::Ingest;
+use tokio::time::{Instant, timeout_at};
+use tokio_util::sync::CancellationToken;
 
-/// A change waits on one Kafka request and then on the cluster showing it.
-/// This stays under the chart's 30 s termination grace, so the warning below
-/// lands before Kubernetes kills the pod.
+/// How long shutdown waits for the changes in flight. This stays under the
+/// chart's 30 s termination grace, so the warning below lands before
+/// Kubernetes kills the pod.
 const WRITE_GRACE: Duration = Duration::from_secs(25);
 
 #[tokio::main]
@@ -79,21 +81,28 @@ async fn main() -> anyhow::Result<()> {
     let _ingest = Ingest::start(&clusters, &config.tuning.ingest);
     let state = AppState::new(clusters, auth, Limits::new(&config.tuning));
     let writes = state.writes().clone();
+    let shutdown = CancellationToken::new();
 
-    klens::serve(
+    let mut server = tokio::spawn(klens::server::serve_until(
         router(state, &config.allowed_hosts, config.mcp.as_ref()),
         config.bind,
-    )
-    .await?;
+        shutdown.clone().cancelled_owned(),
+    ));
+    tokio::select! {
+        served = &mut server => return served?,
+        () = klens::server::shutdown_signal() => shutdown.cancel(),
+    }
 
     // A change whose client hung up still runs, and its audit line must land
-    // before the process exits.
+    // before the process exits. A live stream never ends on its own, so the
+    // wait starts at the signal rather than once every connection closes.
+    let deadline = Instant::now() + WRITE_GRACE;
     writes.close();
-    if tokio::time::timeout(WRITE_GRACE, writes.wait())
-        .await
-        .is_err()
-    {
-        tracing::warn!("stopped before every change a client left behind had finished");
+    if timeout_at(deadline, writes.wait()).await.is_err() {
+        tracing::warn!("stopped before every change in flight had finished");
     }
+    // Reads still answering get until the same deadline, and a live stream
+    // still open ends with the process.
+    let _ = timeout_at(deadline, server).await;
     Ok(())
 }
