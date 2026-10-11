@@ -50,7 +50,7 @@ impl LaneSource for SubjectLane {
             Some(previous) => Interner::seeded(previous.subjects.keys()),
             None => Interner::default(),
         };
-        Ok(SubjectTable::assemble(&subjects, &mut interner))
+        Ok(SubjectTable::assemble(subjects, &mut interner))
     }
 
     fn diff(&self, previous: Option<&SubjectTable>, next: &SubjectTable) -> Option<SubjectsDelta> {

@@ -159,7 +159,7 @@ mod tests {
             vec![group("order-processor", "orders.created", vec![0])],
         );
         let subjects = SubjectTable::assemble(
-            &[subject("orders.created-value", 1, 2)],
+            vec![subject("orders.created-value", 1, 2)],
             &mut Interner::default(),
         );
         (topology, subjects)

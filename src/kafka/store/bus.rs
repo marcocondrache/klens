@@ -457,14 +457,14 @@ mod tests {
     fn subject_diff_reports_adds_removes_and_version_bumps() {
         let interner = &mut crate::kafka::store::tables::Interner::default();
         let previous = SubjectTable::assemble(
-            &[
+            vec![
                 subject("orders-value", 1, 1),
                 subject("payments-value", 2, 1),
             ],
             interner,
         );
         let next = SubjectTable::assemble(
-            &[
+            vec![
                 subject("orders-value", 1, 2),
                 subject("shipments-value", 3, 1),
             ],
@@ -482,15 +482,15 @@ mod tests {
     fn a_lone_removal_or_version_bump_is_a_subject_delta() {
         let interner = &mut crate::kafka::store::tables::Interner::default();
         let previous = SubjectTable::assemble(
-            &[
+            vec![
                 subject("orders-value", 1, 1),
                 subject("payments-value", 2, 1),
             ],
             interner,
         );
-        let removed = SubjectTable::assemble(&[subject("orders-value", 1, 1)], interner);
+        let removed = SubjectTable::assemble(vec![subject("orders-value", 1, 1)], interner);
         let bumped = SubjectTable::assemble(
-            &[
+            vec![
                 subject("orders-value", 1, 2),
                 subject("payments-value", 2, 1),
             ],

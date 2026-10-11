@@ -758,8 +758,10 @@ mod tests {
 
     #[test]
     fn a_subject_row_joins_the_latest_id_with_the_ids_learned_for_older_versions() {
-        let subjects =
-            SubjectTable::assemble(&[subject("orders-value", 7, 3)], &mut Interner::default());
+        let subjects = SubjectTable::assemble(
+            vec![subject("orders-value", 7, 3)],
+            &mut Interner::default(),
+        );
         let ids = SchemaIdTable {
             subjects: BTreeMap::from([(Arc::from("orders-value"), BTreeMap::from([(1, 5)]))]),
         };

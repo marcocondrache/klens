@@ -75,12 +75,8 @@ impl InterestRegistry {
     pub fn hot_groups(&self) -> HashSet<Arc<str>> {
         let now = Instant::now();
         let mut groups = self.groups.lock().expect("interest registry lock");
-        groups.retain(|_, state| state.leases > 0 || state.hot(now, self.ttl));
-        groups
-            .iter()
-            .filter(|(_, state)| state.hot(now, self.ttl))
-            .map(|(id, _)| Arc::clone(id))
-            .collect()
+        groups.retain(|_, state| state.hot(now, self.ttl));
+        groups.keys().cloned().collect()
     }
 
     pub fn is_hot(&self, id: &str) -> bool {

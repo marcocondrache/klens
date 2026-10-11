@@ -131,7 +131,6 @@ impl OffsetLane {
             }
         }
 
-        self.retain(topology);
         let next = Arc::new(OffsetTable { groups });
         store.offsets.commit(Arc::clone(&next));
 
@@ -265,11 +264,11 @@ impl OffsetLane {
     }
 }
 
-fn offset_fetch_partitions(
-    topology: &Topology,
-    previous: Option<&OffsetTable>,
+fn offset_fetch_partitions<'a>(
+    topology: &'a Topology,
+    previous: Option<&'a OffsetTable>,
     id: &str,
-) -> Option<Vec<(String, i32)>> {
+) -> Option<Vec<(&'a str, i32)>> {
     let mut partitions: Vec<(&str, i32)> = topology
         .group(id)
         .into_iter()
@@ -285,12 +284,7 @@ fn offset_fetch_partitions(
 
     partitions.sort_unstable();
     partitions.dedup();
-    Some(
-        partitions
-            .into_iter()
-            .map(|(topic, partition)| (topic.to_owned(), partition))
-            .collect(),
-    )
+    Some(partitions)
 }
 
 fn stale_groups(topology: &Topology, previous: Option<&OffsetTable>) -> Vec<Arc<str>> {

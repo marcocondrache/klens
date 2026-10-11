@@ -57,7 +57,7 @@ pub trait ClusterSession: Send + Sync + 'static {
     async fn committed_offsets(
         &self,
         group_id: &str,
-        partitions: Option<&[(String, i32)]>,
+        partitions: Option<&[(&str, i32)]>,
     ) -> Result<Vec<CommittedOffset>, KafkaError>;
 
     async fn open_scan(
