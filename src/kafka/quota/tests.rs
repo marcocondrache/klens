@@ -149,10 +149,7 @@ fn every_entity_type_names_itself_on_the_wire_as_kafka_does() {
         QuotaEntityType::ClientId,
         QuotaEntityType::Ip,
     ] {
-        assert_eq!(
-            QuotaEntityType::from_wire(entity_type.wire()),
-            Some(entity_type)
-        );
+        assert_eq!(entity_type.wire().parse().ok(), Some(entity_type));
     }
 }
 

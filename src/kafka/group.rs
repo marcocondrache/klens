@@ -21,7 +21,7 @@ impl GroupSnapshot {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::Display)]
 pub enum GroupState {
     Stable,
     Empty,
@@ -61,21 +61,6 @@ impl GroupState {
             "dead" => Self::Dead,
             _ => Self::Unknown,
         }
-    }
-}
-
-impl std::fmt::Display for GroupState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::Stable => "Stable",
-            Self::Empty => "Empty",
-            Self::PreparingRebalance => "PreparingRebalance",
-            Self::CompletingRebalance => "CompletingRebalance",
-            Self::Assigning => "Assigning",
-            Self::Reconciling => "Reconciling",
-            Self::Dead => "Dead",
-            Self::Unknown => "Unknown",
-        })
     }
 }
 
