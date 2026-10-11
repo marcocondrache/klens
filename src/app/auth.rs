@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::middleware::Next;
+use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -251,7 +251,10 @@ pub fn router() -> Router<AppState> {
         .route("/me", get(me))
         .route("/login", get(login))
         .route("/callback", get(callback))
-        .route("/logout", post(logout));
+        .route(
+            "/logout",
+            post(logout).layer(middleware::from_fn(super::cross_site::refuse_cross_site)),
+        );
 
     #[cfg(test)]
     let router = router.route("/impersonate", post(testing::impersonate));

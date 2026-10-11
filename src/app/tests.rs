@@ -392,8 +392,9 @@ async fn a_change_finishes_and_logs_after_the_client_hangs_up_and_shutdown_waits
 #[tokio::test]
 async fn a_resource_request_another_site_sent_is_refused() {
     let app = TestApp::of([FakeCluster::local()]).build();
-    let request = |path: &str, site: &str| {
+    let request = |method: Method, path: &str, site: &str| {
         Request::builder()
+            .method(method)
             .uri(path)
             .header(header::HOST, "localhost")
             .header("sec-fetch-site", site)
@@ -403,8 +404,12 @@ async fn a_resource_request_another_site_sent_is_refused() {
             .expect("request")
     };
 
-    for site in ["cross-site", "same-site"] {
-        app.reply_through_router(request("/api/clusters", site))
+    for (method, path, site) in [
+        (Method::GET, "/api/clusters", "cross-site"),
+        (Method::GET, "/api/clusters", "same-site"),
+        (Method::POST, "/api/auth/logout", "same-site"),
+    ] {
+        app.reply_through_router(request(method, path, site))
             .await
             .assert_error(StatusCode::FORBIDDEN, "CROSS_SITE");
     }
@@ -413,6 +418,8 @@ async fn a_resource_request_another_site_sent_is_refused() {
         ("/api/clusters", "none"),
         ("/api/auth/me", "cross-site"),
     ] {
-        app.reply_through_router(request(path, site)).await.ok();
+        app.reply_through_router(request(Method::GET, path, site))
+            .await
+            .ok();
     }
 }

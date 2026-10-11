@@ -100,11 +100,11 @@ Every response also forbids framing, with `X-Frame-Options: DENY` and
 `Content-Security-Policy: frame-ancestors 'none'`, so a page cannot load klens
 in a frame and lay its own buttons over a delete.
 
-klens also refuses a request to the cluster routes under `/api` with
-`403 CROSS_SITE` when the browser's `Sec-Fetch-Site` header says another site
-sent it, so another site's page cannot start exports or hold every live tail
-from a visitor's browser. The login routes stay open to the identity
-provider's redirect. Browsers send the header only when klens is served over
+klens also refuses a request to the cluster routes under `/api`, or to
+logout, with `403 CROSS_SITE` when the browser's `Sec-Fetch-Site` header says
+another site sent it, so another site's page cannot start exports, hold every
+live tail, or end a session from a visitor's browser. The login routes stay
+open to the identity provider's redirect. Browsers send the header only when klens is served over
 https or on localhost, and a client that sends none, such as `curl`, is not
 affected.
 
