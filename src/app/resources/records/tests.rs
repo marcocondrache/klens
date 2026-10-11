@@ -8,6 +8,7 @@ use tracing::Level;
 use crate::app::Limits;
 use crate::app::auth::SessionGuard;
 use crate::config::Tuning;
+use crate::kafka::CompiledFilter;
 use crate::testing::{
     Api, FakeCluster, FixtureRecord, LogCapture, TestApp, access, card_record, framed, quiesce,
     viewer,
@@ -207,6 +208,24 @@ async fn a_caller_cannot_pick_the_schema_of_a_topic_a_rule_covers() {
             .get(&path)
             .await
             .assert_error(StatusCode::BAD_REQUEST, "OBFUSCATED_TOPIC");
+    }
+}
+
+#[tokio::test]
+async fn a_contains_filter_past_the_cap_is_refused_before_it_is_built() {
+    let app = TestApp::local().await;
+    let longest = "o".repeat(CompiledFilter::MAX_NEEDLE_CHARS);
+    let past = "o".repeat(CompiledFilter::MAX_NEEDLE_CHARS + 1);
+
+    app.get(&format!("{RECORDS}?contains={longest}")).await.ok();
+    for path in [
+        format!("{RECORDS}?contains={past}"),
+        format!("{EXPORT}?contains={past}"),
+        format!("{TAIL}?contains={past}"),
+    ] {
+        app.get(&path)
+            .await
+            .assert_error(StatusCode::BAD_REQUEST, "CONTAINS_TOO_LONG");
     }
 }
 

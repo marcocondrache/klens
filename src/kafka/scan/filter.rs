@@ -2,6 +2,7 @@ use std::fmt::{Debug, Formatter};
 
 use aho_corasick::AhoCorasick;
 
+use crate::kafka::error::QueryError;
 use crate::kafka::scan::payload::DecodedPayload;
 
 #[derive(Debug, Clone, Copy)]
@@ -41,6 +42,21 @@ impl Debug for CompiledFilter {
 }
 
 impl CompiledFilter {
+    /// Building the matcher takes time and memory that grow faster than the
+    /// needle, on the async runtime: 60,000 characters took 11 seconds.
+    pub const MAX_NEEDLE_CHARS: usize = 256;
+
+    /// A caller's `contains`, refused past [`Self::MAX_NEEDLE_CHARS`].
+    pub fn requested(needle: Option<&str>) -> Result<Option<Self>, QueryError> {
+        let Some(needle) = needle else {
+            return Ok(None);
+        };
+        if needle.trim().chars().count() > Self::MAX_NEEDLE_CHARS {
+            return Err(QueryError::ContainsTooLong);
+        }
+        Ok(Self::contains(needle))
+    }
+
     pub fn contains(needle: &str) -> Option<Self> {
         let trimmed = needle.trim();
         if trimmed.is_empty() {

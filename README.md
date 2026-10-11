@@ -194,7 +194,10 @@ starts as soon as that table exists. A lane's period and
 
 `GET /api/clusters/{cluster}/topics/{topic}/records/tail` follows a topic from
 its current end as a server-sent event stream. It takes the same `partition`,
-`contains`, and `schemaId` parameters as a record page. It needs the `records`
+`contains`, and `schemaId` parameters as a record page. A `contains` filter
+holds at most 256 characters on a page, an export, and a tail alike, because
+building its matcher costs time and memory that grow faster than the filter.
+It needs the `records`
 privilege, and it applies obfuscation the same way a page does. The first frame
 is `ready` and names each partition's start offset. After that, `records` frames
 arrive oldest first.

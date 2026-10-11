@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+use crate::kafka::CompiledFilter;
+
 #[derive(Debug, Error)]
 pub enum KafkaError {
     #[error("unknown cluster '{0}'")]
@@ -145,6 +147,12 @@ pub enum QueryError {
         "an obfuscation rule covers this topic, so a value decodes only with the schema it names"
     )]
     SchemaIdOnObfuscatedTopic,
+
+    #[error(
+        "`contains` holds at most {} characters",
+        CompiledFilter::MAX_NEEDLE_CHARS
+    )]
+    ContainsTooLong,
 }
 
 impl QueryError {
@@ -154,6 +162,7 @@ impl QueryError {
             Self::InvalidCursor => "INVALID_CURSOR",
             Self::InvertedTimestampRange => "INVERTED_TIMESTAMP_RANGE",
             Self::SchemaIdOnObfuscatedTopic => "OBFUSCATED_TOPIC",
+            Self::ContainsTooLong => "CONTAINS_TOO_LONG",
         }
     }
 }
