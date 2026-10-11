@@ -20,7 +20,8 @@ import type { TopicDetail } from "@/lib/api/types";
 import { formatNumber } from "@/lib/format";
 
 import { RecordModeSwitch, type RecordMode } from "./record-mode";
-import { RecordView, filterPartitions, type RecordFilter, type RecordSource } from "./record-view";
+import { filterPartitions, type RecordFilter } from "./record-filter";
+import { RecordView, type RecordSource } from "./record-view";
 
 function SkippedBadge({ skipped }: { skipped: number }) {
   return (

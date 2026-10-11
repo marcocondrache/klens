@@ -19,7 +19,8 @@ import { fromDatetimeLocalValue } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 import { RecordModeSwitch, type RecordMode } from "./record-mode";
-import { RecordView, filterPartitions, type RecordFilter, type RecordSource } from "./record-view";
+import { filterPartitions, type RecordFilter } from "./record-filter";
+import { RecordView, type RecordSource } from "./record-view";
 import { useTimestampFilter } from "./timestamp-filter";
 import { recordId } from "./record-id";
 
