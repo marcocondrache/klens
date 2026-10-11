@@ -1,7 +1,7 @@
 use rmcp::model::{CallToolResult, ContentBlock};
 use serde::Serialize;
 
-use crate::app::subjects::types::{SchemaReference, SchemaType, SubjectDetail};
+use crate::app::resources::subjects::types::{SchemaReference, SchemaType, SubjectDetail};
 
 use super::untrusted::{Boundary, clip};
 use crate::app::mcp::reply::{prefix, search};

@@ -3,9 +3,9 @@
 use serde::Serialize;
 
 use crate::app::auth::access::AccessError;
-use crate::app::configs::ConfigEntry;
 use crate::app::error::ApiError;
-use crate::app::whoami::types::PrivilegeName;
+use crate::app::resources::configs::ConfigEntry;
+use crate::app::resources::whoami::types::PrivilegeName;
 use crate::kafka::model as domain;
 
 use super::MAX_CONFIG_CHARS;

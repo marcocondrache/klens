@@ -6,7 +6,7 @@ use crate::kafka::model as domain;
 use crate::r#macro::from_same_variants;
 
 use super::super::clusters::LaneHealth;
-use super::super::error::ApiError;
+use crate::app::error::ApiError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]

@@ -2,8 +2,8 @@ use rmcp::handler::server::wrapper::Parameters;
 use rmcp::{tool, tool_router};
 use serde::Serialize;
 
-use crate::app::acls::Acl;
-use crate::app::acls::types::{AclOperation, AclPermission, AclResourceType, AclStatus};
+use crate::app::resources::acls::Acl;
+use crate::app::resources::acls::types::{AclOperation, AclPermission, AclResourceType, AclStatus};
 use crate::app::auth::access::Privilege;
 use crate::app::context::Session;
 use crate::app::mcp::args::NameFilter;

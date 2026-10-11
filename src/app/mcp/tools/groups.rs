@@ -5,7 +5,7 @@ use rmcp::{tool, tool_router};
 use serde::Serialize;
 
 use crate::app::context::Session;
-use crate::app::groups::types::GroupState;
+use crate::app::resources::groups::types::GroupState;
 use crate::app::mcp::args::{NameFilter, ResponseFormat, input, largest_first};
 use crate::app::mcp::ext::{ClusterExt as _, SessionExt as _};
 use crate::app::mcp::findings::{Finding, member_lags};

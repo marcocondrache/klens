@@ -2,7 +2,7 @@ use jiff::Timestamp;
 use rmcp::model::{CallToolResult, ContentBlock};
 use serde::Serialize;
 
-use crate::app::records::types::Record;
+use crate::app::resources::records::types::Record;
 
 use super::untrusted::{Boundary, clip};
 use crate::app::mcp::reply::search;

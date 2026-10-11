@@ -5,7 +5,7 @@ use serde::Serialize;
 
 use crate::app::auth::access::{ClusterAccess, Privilege};
 use crate::app::context::{ClusterHandle, Session};
-use crate::app::whoami::types::PrivilegeName;
+use crate::app::resources::whoami::types::PrivilegeName;
 use crate::config::Mcp;
 
 use super::configs::Section;

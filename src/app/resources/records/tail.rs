@@ -8,11 +8,11 @@ use crate::app::SSE_KEEP_ALIVE;
 use crate::app::auth::SessionGuard;
 use crate::kafka::Tail;
 
-use super::super::context::Session;
-use super::super::error::ApiError;
-use super::super::extract::{Path, Query};
 use super::denied;
 use super::types::{TailEvent, TailParams};
+use crate::app::context::Session;
+use crate::app::error::ApiError;
+use crate::app::extract::{Path, Query};
 
 type Events = BoxStream<'static, Result<Event, Infallible>>;
 

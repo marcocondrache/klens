@@ -12,29 +12,17 @@ use crate::config::{AllowedHost, Mcp, Tuning};
 use crate::kafka::{Clusters, TailLimits};
 use error::ApiError;
 
-mod acls;
 pub(crate) mod auth;
-mod brokers;
-mod clusters;
-mod configs;
 mod context;
 mod error;
 mod extract;
-mod groups;
 mod health;
 mod hosts;
 pub mod mcp;
-mod quotas;
-mod records;
-mod scram_users;
-mod search;
-mod subjects;
-mod topics;
+mod resources;
 #[cfg(feature = "typescript")]
 pub mod typescript;
-mod updates;
 mod well_known;
-mod whoami;
 
 #[cfg(test)]
 pub(crate) mod testing;
@@ -116,12 +104,6 @@ impl Limits {
     }
 }
 
-fn resources() -> Router<AppState> {
-    Router::new()
-        .merge(whoami::router())
-        .nest("/clusters", clusters::router())
-}
-
 fn auth_routes() -> Router<AppState> {
     Router::new().nest("/auth", auth::router())
 }
@@ -149,7 +131,7 @@ async fn method_not_allowed() -> ApiError {
 }
 
 pub fn router(state: AppState, allowed_hosts: &[AllowedHost], mcp: Option<&Mcp>) -> Router {
-    let resources = resources().route_layer(middleware::from_fn_with_state(
+    let resources = resources::router().route_layer(middleware::from_fn_with_state(
         state.clone(),
         auth::require_session,
     ));

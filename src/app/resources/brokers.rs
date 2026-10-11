@@ -7,9 +7,9 @@ use crate::AppState;
 use crate::kafka::model::BrokerScope;
 
 use super::configs::{ConfigEntry, EditConfigs};
-use super::context::Session;
-use super::error::ApiError;
-use super::extract::{self, Path};
+use crate::app::context::Session;
+use crate::app::error::ApiError;
+use crate::app::extract::{self, Path};
 
 pub mod types;
 

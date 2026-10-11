@@ -5,7 +5,7 @@ use ts_rs::TS;
 
 use crate::kafka::model as domain;
 
-use super::error::ApiError;
+use crate::app::error::ApiError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]

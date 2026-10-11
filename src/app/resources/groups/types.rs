@@ -8,7 +8,7 @@ use crate::kafka::model as domain;
 use crate::kafka::store::projections;
 use crate::r#macro::from_same_variants;
 
-use super::super::error::ApiError;
+use crate::app::error::ApiError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, JsonSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
