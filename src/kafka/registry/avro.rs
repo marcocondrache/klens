@@ -11,7 +11,7 @@
 use std::collections::{HashMap, HashSet};
 
 use apache_avro::Schema;
-use apache_avro::schema::{Name, Namespace, ResolvedSchema};
+use apache_avro::schema::{Name, NamesRef, Namespace, ResolvedSchema};
 use thiserror::Error;
 
 /// Each level costs one frame of apache-avro's decoder. A debug build
@@ -62,6 +62,18 @@ impl AvroCodec {
     /// apache-avro refuses a name defined twice, so an exact copy is dropped.
     pub(crate) fn parse(schema: &str, dependencies: &[&str]) -> apache_avro::AvroResult<Self> {
         let (root, mut schemata) = Schema::parse_str_with_list(schema, distinct(dependencies))?;
+
+        // apache-avro lets a dependency use a type nested in another only when
+        // its HashMap happens to parse that other one first, so it is refused
+        // every time instead.
+        let tops: NamesRef = schemata
+            .iter()
+            .filter_map(|dependency| Some((dependency.name()?.clone(), dependency)))
+            .collect();
+        for dependency in &schemata {
+            ResolvedSchema::new_with_known_schemata(vec![dependency], &None, &tops)?;
+        }
+
         schemata.push(root.clone());
 
         let names = ResolvedSchema::try_from(schemata.iter().collect::<Vec<_>>())?
@@ -376,5 +388,24 @@ mod tests {
             codec.decode(&[0x00, 0x04, 0x00, 0x00, 0x00]).unwrap(),
             json!({"status": "OPEN", "history": ["OPEN", "OPEN"]})
         );
+    }
+
+    #[test]
+    fn a_dependency_that_uses_a_type_nested_in_another_is_always_refused() {
+        let wrapper = r#"{"type":"record","name":"Wrapper","namespace":"x","fields":[
+            {"name":"nested","type":{"type":"record","name":"Nested","fields":[]}}]}"#;
+        let user = r#"{"type":"record","name":"User","namespace":"x","fields":[
+            {"name":"nested","type":"x.Nested"}]}"#;
+        let user_of_wrapper = r#"{"type":"record","name":"User","namespace":"x","fields":[
+            {"name":"wrapper","type":"x.Wrapper"}]}"#;
+        let order =
+            r#"{"type":"record","name":"Order","fields":[{"name":"user","type":"x.User"}]}"#;
+
+        // apache-avro picks the first dependency to parse from a HashMap, so
+        // one parse would pass about half the time.
+        for _ in 0..64 {
+            assert!(AvroCodec::parse(order, &[wrapper, user]).is_err());
+            assert!(AvroCodec::parse(order, &[wrapper, user_of_wrapper]).is_ok());
+        }
     }
 }
