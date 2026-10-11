@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use prost_reflect::prost::Message as _;
-use prost_reflect::prost_types::FileDescriptorProto;
-use prost_reflect::{DynamicMessage, MessageDescriptor};
+use prost_reflect::prost_types::{Any, FileDescriptorProto};
+use prost_reflect::{DynamicMessage, MessageDescriptor, ReflectMessage as _, Value as Field};
 use protox::Compiler;
 use protox::file::{ChainFileResolver, File, FileResolver, GoogleFileResolver};
 use schemreg::decode_protobuf_message_indexes;
@@ -18,12 +18,20 @@ const ROOT_FILE: &str = "schema.proto";
 /// levels down in a debug build. No real schema nests anywhere near this deep.
 const MAX_NESTING: usize = 64;
 
+/// prost stops decoding at 100 nested messages, but prost-reflect decodes each
+/// `google.protobuf.Any` it renders with a fresh budget, so Anys nested in
+/// Anys overflow the stack. A record is held to prost's own limit with every
+/// Any expanded.
+const MAX_MESSAGE_DEPTH: usize = 100;
+
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub(crate) enum ProtobufError {
     #[error("{0}")]
     Compile(String),
     #[error("{0} nests deeper than {MAX_NESTING} levels")]
     TooDeep(String),
+    #[error("the record nests deeper than {MAX_MESSAGE_DEPTH} messages")]
+    RecordTooDeep,
     #[error("compiled protobuf is missing {ROOT_FILE}")]
     MissingRoot,
     #[error("protobuf message index path is empty")]
@@ -127,6 +135,7 @@ impl ProtobufCodec {
         let descriptor = self.message_at(indexes)?;
         let message = DynamicMessage::decode(descriptor, payload)
             .map_err(|error| ProtobufError::Decode(error.to_string()))?;
+        within_depth(&message, 0)?;
         serde_json::to_value(&message).map_err(|error| ProtobufError::Json(error.to_string()))
     }
 
@@ -140,6 +149,43 @@ impl ProtobufCodec {
         }
         Ok(current)
     }
+}
+
+/// Expands each Any the way prost-reflect renders it, and refuses the record
+/// once it nests past [`MAX_MESSAGE_DEPTH`].
+fn within_depth(message: &DynamicMessage, depth: usize) -> Result<(), ProtobufError> {
+    if depth > MAX_MESSAGE_DEPTH {
+        return Err(ProtobufError::RecordTooDeep);
+    }
+
+    let descriptor = message.descriptor();
+    if descriptor.full_name() == "google.protobuf.Any" {
+        let any: Any = message
+            .transcode_to()
+            .map_err(|error| ProtobufError::Decode(error.to_string()))?;
+        let name = any
+            .type_url
+            .rsplit_once('/')
+            .map_or(&*any.type_url, |(_, name)| name);
+        // prost-reflect refuses to render an Any it cannot name, so there is
+        // nothing deeper to measure.
+        let Some(inner) = descriptor.parent_pool().get_message_by_name(name) else {
+            return Ok(());
+        };
+        let inner = DynamicMessage::decode(inner, any.value.as_slice())
+            .map_err(|error| ProtobufError::Decode(error.to_string()))?;
+        return within_depth(&inner, depth + 1);
+    }
+
+    let nested = |field: &Field| match field {
+        Field::Message(nested) => within_depth(nested, depth + 1),
+        _ => Ok(()),
+    };
+    message.fields().try_for_each(|(_, field)| match field {
+        Field::List(items) => items.iter().try_for_each(nested),
+        Field::Map(entries) => entries.values().try_for_each(nested),
+        field => nested(field),
+    })
 }
 
 fn nth_message(
@@ -227,6 +273,37 @@ mod tests {
         assert_eq!(
             ProtobufCodec::compile(&hidden, &[]).err(),
             Some(ProtobufError::TooDeep(ROOT_FILE.to_owned()))
+        );
+    }
+
+    #[test]
+    fn anys_nested_past_the_depth_limit_are_refused_instead_of_overflowing_the_stack() {
+        const WRAPPED: &str = r#"
+            syntax = "proto3";
+            import "google/protobuf/any.proto";
+            message M { google.protobuf.Any a = 1; }
+        "#;
+        let codec = ProtobufCodec::compile(WRAPPED, &[]).unwrap();
+        let nested = |levels: usize| {
+            (0..levels).fold(Vec::new(), |inner, _| {
+                let any = Any {
+                    type_url: "type.googleapis.com/M".to_owned(),
+                    value: inner,
+                }
+                .encode_to_vec();
+                let mut outer = vec![0x0a];
+                prost_reflect::prost::encoding::encode_varint(any.len() as u64, &mut outer);
+                outer.extend(any);
+                outer
+            })
+        };
+
+        let shallow = codec.decode_raw(&nested(2)).unwrap();
+
+        assert_eq!(shallow["a"]["a"]["@type"], "type.googleapis.com/M");
+        assert_eq!(
+            codec.decode_raw(&nested(5_000)),
+            Err(ProtobufError::RecordTooDeep)
         );
     }
 
