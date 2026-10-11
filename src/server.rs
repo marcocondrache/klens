@@ -1,5 +1,5 @@
 use axum::Router;
-use axum::http::{Request, Response, header};
+use axum::http::{HeaderValue, Request, Response, header};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,6 +12,7 @@ use tower_http::compression::CompressionLayer;
 use tower_http::sensitive_headers::{
     SetSensitiveRequestHeadersLayer, SetSensitiveResponseHeadersLayer,
 };
+use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 use tracing::Span;
 
@@ -53,6 +54,24 @@ pub async fn serve(router: Router, bind: SocketAddr) -> Result<()> {
         )
         .layer(SetSensitiveResponseHeadersLayer::from_shared(
             sensitive_headers,
+        ))
+        // A page that frames klens could lay its own buttons over a delete,
+        // and without auth any page can point a frame at localhost.
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::X_FRAME_OPTIONS,
+            HeaderValue::from_static("DENY"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static("frame-ancestors 'none'"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::REFERRER_POLICY,
+            HeaderValue::from_static("same-origin"),
         ))
         .layer(CompressionLayer::new());
 
@@ -168,6 +187,28 @@ mod tests {
         assert!(response.starts_with("HTTP/1.1 200"), "{response}");
         logs.assert_contains(r#"path="/api/groups/x\"user=\"root\"""#);
         logs.assert_lacks(r#"x"user="root""#);
+    }
+
+    #[tokio::test]
+    async fn every_response_forbids_framing_and_sniffing() {
+        let _logs = LogCapture::at(tracing::Level::INFO);
+        let router = Router::new().route("/", get(|| async { "page" }));
+
+        let response = exchange(
+            router,
+            "GET /missing HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        )
+        .await;
+
+        let response = String::from_utf8(response).expect("utf-8 response");
+        for header in [
+            "x-frame-options: DENY",
+            "content-security-policy: frame-ancestors 'none'",
+            "x-content-type-options: nosniff",
+            "referrer-policy: same-origin",
+        ] {
+            assert!(response.contains(header), "no `{header}` in:\n{response}");
+        }
     }
 
     const PAGE: &str = "{\"records\":[{\"offset\":0},{\"offset\":1},{\"offset\":2}]}";

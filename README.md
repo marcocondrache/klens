@@ -96,6 +96,10 @@ visitor's browser. The list binds browsers only, since any other client can
 name an allowed host. With `auth`, klens ignores the list, because such a page
 never holds the session cookie.
 
+Every response also forbids framing, with `X-Frame-Options: DENY` and
+`Content-Security-Policy: frame-ancestors 'none'`, so a page cannot load klens
+in a frame and lay its own buttons over a delete.
+
 `/health` and `/ready` answer every host, because Kubernetes probes and load
 balancer health checks name an IP address. Point a load balancer health check
 at one of them, not at `/`.
