@@ -1,11 +1,12 @@
-//! A walk over an Avro datum before apache-avro decodes it.
+//! Avro decoding that walks each datum before apache-avro decodes it.
 //!
 //! apache-avro recurses once per schema node with no depth limit, so a
-//! recursive schema lets a few hundred bytes overflow the stack. It also
-//! allocates one value per array item even when an item takes no bytes, so a
-//! ten-byte record can claim millions of nulls. A stack overflow aborts the
-//! process, so the walk reads the datum against its writer schema without
-//! allocating and refuses one that nests too deep or holds too many values.
+//! recursive schema lets a few hundred bytes overflow the stack. It allocates
+//! a schema's fixed size and one value per array item before reading them, so
+//! a few bytes can claim a terabyte or millions of nulls. Either one aborts the
+//! process, so the walk reads the datum against its writer schema first and
+//! refuses one that nests too deep, holds too many values, or declares more
+//! bytes than it carries.
 
 use std::collections::HashMap;
 
@@ -13,8 +14,9 @@ use apache_avro::Schema;
 use apache_avro::schema::{Name, Namespace, ResolvedSchema};
 use thiserror::Error;
 
-/// Each level costs one frame of apache-avro's decoder, and a debug build
-/// overflows a 2 MiB worker stack at about 120 of them.
+/// Each level costs one frame of apache-avro's decoder. A debug build
+/// overflows a 2 MiB stack at about 90 of them, and a release build at about
+/// 1,800.
 const MAX_DEPTH: usize = 64;
 
 /// Nulls, empty records and zero-size fixed values take no bytes, so a datum
@@ -37,33 +39,56 @@ pub(crate) enum ShapeError {
     Mismatch,
 }
 
-/// A writer schema with every named type it can reach.
+#[derive(Debug, Error)]
+pub(crate) enum AvroError {
+    #[error(transparent)]
+    Shape(#[from] ShapeError),
+    #[error(transparent)]
+    Decode(#[from] apache_avro::Error),
+}
+
+/// A writer schema, the schemas it depends on, and every named type they hold.
 #[derive(Debug)]
-pub(crate) struct AvroShape {
+pub(crate) struct AvroCodec {
     root: Schema,
+    /// The dependencies in order, then the root.
+    schemata: Vec<Schema>,
     names: HashMap<Name, Schema>,
 }
 
-impl AvroShape {
+impl AvroCodec {
     /// `dependencies` must come in dependency order, as the registry client
-    /// returns them.
+    /// returns them. A type that two subjects reference arrives twice, and
+    /// apache-avro refuses a name defined twice, so an exact copy is dropped.
     pub(crate) fn parse(schema: &str, dependencies: &[&str]) -> apache_avro::AvroResult<Self> {
-        let (root, schemata) = Schema::parse_str_with_list(schema, dependencies)?;
+        let (root, mut schemata) = Schema::parse_str_with_list(schema, distinct(dependencies))?;
+        schemata.push(root.clone());
 
-        let mut all: Vec<&Schema> = schemata.iter().collect();
-        all.push(&root);
-        let names = ResolvedSchema::try_from(all)?
+        let names = ResolvedSchema::try_from(schemata.iter().collect::<Vec<_>>())?
             .get_names()
             .iter()
             .map(|(name, schema)| (name.clone(), (*schema).clone()))
             .collect();
 
-        Ok(Self { root, names })
+        Ok(Self {
+            root,
+            schemata,
+            names,
+        })
     }
 
-    /// Mirrors apache-avro's decoder, and is at least as lenient, so a datum it
-    /// refuses is one apache-avro would fail on or should not be given.
-    pub(crate) fn check(&self, datum: &[u8]) -> Result<(), ShapeError> {
+    pub(crate) fn decode(&self, datum: &[u8]) -> Result<serde_json::Value, AvroError> {
+        self.check(datum)?;
+        let value = apache_avro::from_avro_datum_schemata(
+            &self.root,
+            self.schemata.iter().collect(),
+            &mut &*datum,
+            None,
+        )?;
+        Ok(serde_json::Value::try_from(value)?)
+    }
+
+    fn check(&self, datum: &[u8]) -> Result<(), ShapeError> {
         let limit = datum
             .len()
             .saturating_mul(VALUES_PER_BYTE)
@@ -80,6 +105,24 @@ impl AvroShape {
     }
 }
 
+fn distinct<'a>(sources: &[&'a str]) -> Vec<&'a str> {
+    let mut seen: Vec<serde_json::Value> = Vec::new();
+    sources
+        .iter()
+        .copied()
+        .filter(|source| match serde_json::from_str(source) {
+            Ok(json) if seen.contains(&json) => false,
+            Ok(json) => {
+                seen.push(json);
+                true
+            }
+            Err(_) => true,
+        })
+        .collect()
+}
+
+/// Reads a datum the way apache-avro's decoder does, one schema node per
+/// level, but builds nothing.
 struct Walk<'a> {
     names: &'a HashMap<Name, Schema>,
     rest: &'a [u8],
@@ -108,10 +151,7 @@ impl Walk<'_> {
 
         match schema {
             Schema::Null => Ok(()),
-            Schema::Boolean => {
-                self.skip(1);
-                Ok(())
-            }
+            Schema::Boolean => self.take(1),
             Schema::Int
             | Schema::Long
             | Schema::Enum(_)
@@ -124,22 +164,10 @@ impl Walk<'_> {
             | Schema::LocalTimestampMillis
             | Schema::LocalTimestampMicros
             | Schema::LocalTimestampNanos => self.long().map(drop),
-            Schema::Float => {
-                self.skip(4);
-                Ok(())
-            }
-            Schema::Double => {
-                self.skip(8);
-                Ok(())
-            }
-            Schema::Duration => {
-                self.skip(12);
-                Ok(())
-            }
-            Schema::Fixed(fixed) => {
-                self.skip(fixed.size);
-                Ok(())
-            }
+            Schema::Float => self.take(4),
+            Schema::Double => self.take(8),
+            Schema::Duration => self.take(12),
+            Schema::Fixed(fixed) => self.take(fixed.size),
             Schema::Bytes | Schema::String | Schema::BigDecimal | Schema::Uuid => self.sized(),
             Schema::Decimal(decimal) => self.value(&decimal.inner, namespace, depth + 1),
             Schema::Array(array) => {
@@ -169,16 +197,16 @@ impl Walk<'_> {
         }
     }
 
-    /// apache-avro reads a truncated datum as if it ended in nulls, so a short
-    /// read here is not an error either.
-    fn skip(&mut self, count: usize) {
-        self.rest = self.rest.get(count..).unwrap_or_default();
+    /// apache-avro allocates a declared length before it reads a byte, so one
+    /// the rest of the datum cannot hold is refused first.
+    fn take(&mut self, count: usize) -> Result<(), ShapeError> {
+        self.rest = self.rest.get(count..).ok_or(ShapeError::Mismatch)?;
+        Ok(())
     }
 
     fn sized(&mut self) -> Result<(), ShapeError> {
         let length = usize::try_from(self.long()?).map_err(|_| ShapeError::Mismatch)?;
-        self.skip(length);
-        Ok(())
+        self.take(length)
     }
 
     /// Arrays and maps arrive as blocks of items, each led by its count and
@@ -202,14 +230,10 @@ impl Walk<'_> {
         }
     }
 
-    /// A zigzag varint. A datum that ends inside one reads as zero, which ends
-    /// any block or union it opens.
+    /// A zigzag varint.
     fn long(&mut self) -> Result<i64, ShapeError> {
         let mut raw: u64 = 0;
-        for (index, &byte) in self.rest.iter().enumerate() {
-            if index == MAX_VARINT_BYTES {
-                return Err(ShapeError::Mismatch);
-            }
+        for (index, &byte) in self.rest.iter().take(MAX_VARINT_BYTES).enumerate() {
             raw |= u64::from(byte & 0x7f) << (7 * index);
             if byte & 0x80 == 0 {
                 self.rest = &self.rest[index + 1..];
@@ -217,22 +241,22 @@ impl Walk<'_> {
             }
         }
 
-        self.rest = &[];
-        Ok(0)
+        Err(ShapeError::Mismatch)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use apache_avro::types::Value;
+    use serde_json::json;
 
     use super::*;
 
     /// Each level of the tree costs an array, a reference and a record.
     const TREE: &str = r#"{"type":"record","name":"Tree","fields":[{"name":"children","type":{"type":"array","items":"Tree"}}]}"#;
 
-    fn shape(schema: &str) -> AvroShape {
-        AvroShape::parse(schema, &[]).expect("a valid schema")
+    fn codec(schema: &str) -> AvroCodec {
+        AvroCodec::parse(schema, &[]).expect("a valid schema")
     }
 
     /// A chain of single children whose innermost array is empty.
@@ -243,17 +267,17 @@ mod tests {
     }
 
     #[test]
-    fn a_recursive_value_is_refused_past_the_depth_limit() {
-        let tree = shape(TREE);
+    fn a_recursive_value_decodes_up_to_the_depth_limit_and_no_further() {
+        let tree = codec(TREE);
         let deepest = (MAX_DEPTH - 1) / 3;
 
-        assert_eq!(tree.check(&chain(deepest)), Ok(()));
+        assert!(tree.decode(&chain(deepest)).is_ok());
         assert_eq!(tree.check(&chain(deepest + 1)), Err(ShapeError::TooDeep));
     }
 
     #[test]
     fn a_record_that_contains_itself_is_refused_without_reading_a_byte() {
-        let endless = shape(
+        let endless = codec(
             r#"{"type":"record","name":"Endless","fields":[{"name":"next","type":"Endless"}]}"#,
         );
 
@@ -262,7 +286,7 @@ mod tests {
 
     #[test]
     fn empty_items_are_refused_past_the_value_budget() {
-        let nulls = shape(r#"{"type":"array","items":"null"}"#);
+        let nulls = codec(r#"{"type":"array","items":"null"}"#);
         let claim = |count: i64| {
             let mut datum = Vec::new();
             let mut raw = ((count << 1) ^ (count >> 63)) as u64;
@@ -286,7 +310,22 @@ mod tests {
     }
 
     #[test]
-    fn a_value_written_by_apache_avro_passes_the_walk() {
+    fn a_length_the_datum_cannot_hold_is_refused_before_it_is_allocated() {
+        let huge = codec(r#"{"type":"fixed","name":"Huge","size":1099511627776}"#);
+        let text = codec(r#""string""#);
+
+        assert!(matches!(
+            huge.decode(&[]),
+            Err(AvroError::Shape(ShapeError::Mismatch))
+        ));
+        assert!(matches!(
+            text.decode(&[0x80, 0x80, 0x80, 0x80, 0x04]),
+            Err(AvroError::Shape(ShapeError::Mismatch))
+        ));
+    }
+
+    #[test]
+    fn a_value_written_by_apache_avro_decodes_through_the_walk() {
         let schema = r#"{
             "type": "record", "name": "Tree", "namespace": "com.example",
             "fields": [
@@ -321,17 +360,23 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(shape(schema).check(&datum), Ok(()));
+        let decoded = codec(schema).decode(&datum).unwrap();
+
+        assert_eq!(decoded["children"][0]["children"][0]["label"], "a1");
+        assert_eq!(decoded["tags"]["depth"], -300);
     }
 
     #[test]
-    fn a_reference_resolves_through_the_dependencies() {
+    fn a_type_two_dependencies_share_resolves_once() {
         let status = r#"{"type":"enum","name":"Status","namespace":"common","symbols":["OPEN"]}"#;
         let order = r#"{"type":"record","name":"Order","fields":[
             {"name":"status","type":"common.Status"},
             {"name":"history","type":{"type":"array","items":"common.Status"}}]}"#;
-        let shape = AvroShape::parse(order, &[status]).unwrap();
+        let codec = AvroCodec::parse(order, &[status, status]).unwrap();
 
-        assert_eq!(shape.check(&[0x00, 0x04, 0x00, 0x00, 0x00]), Ok(()));
+        assert_eq!(
+            codec.decode(&[0x00, 0x04, 0x00, 0x00, 0x00]).unwrap(),
+            json!({"status": "OPEN", "history": ["OPEN", "OPEN"]})
+        );
     }
 }
