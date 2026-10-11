@@ -270,8 +270,9 @@ authorization code flow with PKCE. Sessions use
 [axum-login](https://github.com/maxcountryman/axum-login). Auth, catalog, and
 live routes are under `/api`. `/health` and `/ready` stay public. A process
 restart drops in-memory sessions and requires a new login. klens holds at most
-100,000 sessions, counting logins in progress, and keeps the ones in use when a
-flood of logins reaches that cap. klens signs session
+100,000 sessions, counting logins in progress. When a flood of logins reaches
+that cap, the sessions in active use stay, while idle sessions and new logins
+can be pushed out until the flood stops. klens signs session
 cookies with a key it generates at boot.
 
 A login must come back from the provider within `auth.session.login_timeout`

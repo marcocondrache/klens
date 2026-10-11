@@ -10,7 +10,8 @@ use tower_sessions::session_store::{self, SessionStore};
 /// Each cookieless request to `/api/auth/login` stores a session until the
 /// login times out, so without a cap a flood of them exhausts memory. Moka
 /// admits a new entry over an old one only when the new one is used more, so
-/// a flood cannot evict the sessions people are working in.
+/// under a flood the sessions in active use stay, while idle sessions and new
+/// logins can be pushed out until it stops.
 const MAX_SESSIONS: u64 = 100_000;
 
 /// `MemoryStore` only hides an expired record, so every abandoned login
