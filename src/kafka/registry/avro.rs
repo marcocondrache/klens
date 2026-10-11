@@ -8,7 +8,7 @@
 //! refuses one that nests too deep, holds too many values, or declares more
 //! bytes than it carries.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use apache_avro::Schema;
 use apache_avro::schema::{Name, Namespace, ResolvedSchema};
@@ -106,18 +106,16 @@ impl AvroCodec {
 }
 
 fn distinct<'a>(sources: &[&'a str]) -> Vec<&'a str> {
-    let mut seen: Vec<serde_json::Value> = Vec::new();
+    let mut seen = HashSet::new();
     sources
         .iter()
         .copied()
-        .filter(|source| match serde_json::from_str(source) {
-            Ok(json) if seen.contains(&json) => false,
-            Ok(json) => {
-                seen.push(json);
-                true
-            }
-            Err(_) => true,
-        })
+        .filter(
+            |source| match serde_json::from_str::<serde_json::Value>(source) {
+                Ok(json) => seen.insert(json),
+                Err(_) => true,
+            },
+        )
         .collect()
 }
 
