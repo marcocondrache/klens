@@ -235,13 +235,16 @@ impl EffectiveAccess {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum AccessError {
+    #[error("unknown cluster '{0}'")]
     UnknownCluster(String),
+    #[error("'{privilege}' is not permitted on cluster '{cluster}'")]
     Forbidden {
         cluster: String,
         privilege: Privilege,
     },
+    #[error("cluster '{0}' is read-only")]
     ReadOnlyCluster(String),
 }
 
@@ -254,21 +257,6 @@ impl AccessError {
         }
     }
 }
-
-impl Display for AccessError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UnknownCluster(cluster) => write!(formatter, "unknown cluster '{cluster}'"),
-            Self::Forbidden { cluster, privilege } => write!(
-                formatter,
-                "'{privilege}' is not permitted on cluster '{cluster}'"
-            ),
-            Self::ReadOnlyCluster(cluster) => write!(formatter, "cluster '{cluster}' is read-only"),
-        }
-    }
-}
-
-impl std::error::Error for AccessError {}
 
 #[derive(Clone, Copy, Debug)]
 pub struct ClusterAccess<'a> {

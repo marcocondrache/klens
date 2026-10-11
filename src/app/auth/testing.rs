@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use anyhow::anyhow;
 use async_trait::async_trait;
 use axum::body::{Body, Bytes, to_bytes};
 use axum::extract::State;
@@ -24,7 +23,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 use super::access::{AccessPolicy, ClusterScope, EffectiveAccess, Grant, PrivilegeSet};
 use super::backend::AuthBackend;
 use super::bearer::Caller;
-use super::oidc::OidcFlow;
+use super::oidc::{OidcError, OidcFlow};
 use super::{AuthSession, AuthState, Holder, SessionGuard, SessionUser, session_layer};
 use crate::AppState;
 use crate::app::Limits;
@@ -290,9 +289,9 @@ impl OidcFlow for FakeOidc {
         code: String,
         _pkce_verifier: PkceCodeVerifier,
         _nonce: Nonce,
-    ) -> anyhow::Result<SessionUser> {
+    ) -> Result<SessionUser, OidcError> {
         if code != "test-code" {
-            return Err(anyhow!("invalid authorization code"));
+            return Err(OidcError::Exchange("invalid authorization code".to_owned()));
         }
 
         Ok(SessionUser::new(
