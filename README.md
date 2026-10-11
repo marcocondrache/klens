@@ -727,7 +727,8 @@ obfuscation:
           strategy: drop # the field disappears
         - path: customer.email
           strategy: mask # ***
-      # A value that never decoded cannot be walked. Default: mask it whole.
+      # A value that never decoded cannot be walked. Default: mask it whole,
+      # and a key with a wire prefix too. A plain-text key stays as it is.
       unparsed: mask # mask | allow
     # Whole-field rules, for topics browsed as raw text.
     - topics: ["audit.raw"]

@@ -39,6 +39,12 @@ impl DecodedPayload {
         self.wire_schema_id
     }
 
+    /// Whether the bytes start with a schema registry wire prefix, by id or
+    /// by guid.
+    pub fn is_framed(&self) -> bool {
+        decode_wire_prefix(&self.raw).is_ok()
+    }
+
     pub fn json(&self) -> Option<&serde_json::Value> {
         self.json.as_ref()
     }
