@@ -4,6 +4,7 @@ use rmcp::{tool, tool_router};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::app::auth::access::Privilege;
 use crate::app::context::{ClusterHandle, Session};
 use crate::app::error::ApiError;
 use crate::app::mcp::ext::ClusterExt as _;
@@ -15,7 +16,6 @@ use crate::app::mcp::untrusted::Boundary;
 use crate::app::mcp::{CLIENT_VALUES_NOTICE, MAX_QUERY_CHARS};
 use crate::app::resources::search::SearchHit;
 use crate::app::resources::search::types::SearchKind;
-use crate::app::resources::whoami::types::PrivilegeName;
 use crate::kafka::store::projections::ClusterHealthView;
 use crate::kafka::store::{Lane, LaneHealth};
 
@@ -180,7 +180,7 @@ reply!(ClusterDetail: unhealthy_partitions; "the counts above cover every partit
 struct ClusterRights {
     cluster: String,
     writable: bool,
-    privileges: Vec<PrivilegeName>,
+    privileges: Vec<Privilege>,
     tools: Vec<ToolRights>,
 }
 
@@ -189,12 +189,7 @@ impl ClusterRights {
         Self {
             cluster: cluster.name().to_owned(),
             writable: cluster.is_writable(),
-            privileges: cluster
-                .access
-                .privileges()
-                .into_iter()
-                .map(Into::into)
-                .collect(),
+            privileges: cluster.access.privileges(),
             tools: gates().flat_map(|gate| gate.rights(cluster)).collect(),
         }
     }

@@ -28,12 +28,7 @@ async fn whoami(session: Session) -> Json<Identity> {
                 .into_iter()
                 .map(ToOwned::to_owned)
                 .collect(),
-            privileges: cluster
-                .access
-                .privileges()
-                .into_iter()
-                .map(Into::into)
-                .collect(),
+            privileges: cluster.access.privileges(),
             writable: cluster.is_writable(),
         })
         .collect();

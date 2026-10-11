@@ -17,9 +17,11 @@ default-members = ["."]
 
 [dependencies]
 anyhow = "1"
+enumset = "1.1"
 async-trait = "0.1"
 indexmap = { version = "2", features = ["serde"] }
 itertools = "0.14"
+strum = { version = "0.27", features = ["derive"] }
 axum = { version = "0.8", default-features = false, features = [
     "http1",
     "json",

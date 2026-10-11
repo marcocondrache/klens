@@ -45,7 +45,7 @@ async fn main() -> anyhow::Result<()> {
         let privileges: Vec<&str> = mcp
             .privileges
             .iter()
-            .map(|privilege| privilege.name())
+            .map(|&privilege| <&str>::from(privilege))
             .collect();
         let clusters = mcp
             .clusters

@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
-use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
+use enumset::EnumSet;
 use indexmap::IndexMap;
 
 pub use crate::config::Privilege;
@@ -9,103 +9,7 @@ use crate::config::Role;
 
 const MAX_GROUPS: usize = 64;
 
-impl Privilege {
-    pub const ALL: [Self; 23] = [
-        Self::Records,
-        Self::TopicConfigs,
-        Self::BrokerConfigs,
-        Self::SchemaText,
-        Self::Acls,
-        Self::CreateTopics,
-        Self::DeleteTopics,
-        Self::AlterTopicConfigs,
-        Self::AddPartitions,
-        Self::DeleteRecords,
-        Self::Produce,
-        Self::ResetOffsets,
-        Self::DeleteOffsets,
-        Self::DeleteGroups,
-        Self::RegisterSchemas,
-        Self::SetCompatibility,
-        Self::DeleteSchemas,
-        Self::CreateAcls,
-        Self::DeleteAcls,
-        Self::AlterQuotas,
-        Self::SetScramCredentials,
-        Self::DeleteScramCredentials,
-        Self::AlterBrokerConfigs,
-    ];
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Records => "records",
-            Self::TopicConfigs => "topicConfigs",
-            Self::BrokerConfigs => "brokerConfigs",
-            Self::SchemaText => "schemaText",
-            Self::Acls => "acls",
-            Self::CreateTopics => "createTopics",
-            Self::DeleteTopics => "deleteTopics",
-            Self::AlterTopicConfigs => "alterTopicConfigs",
-            Self::AddPartitions => "addPartitions",
-            Self::DeleteRecords => "deleteRecords",
-            Self::Produce => "produce",
-            Self::ResetOffsets => "resetOffsets",
-            Self::DeleteOffsets => "deleteOffsets",
-            Self::DeleteGroups => "deleteGroups",
-            Self::RegisterSchemas => "registerSchemas",
-            Self::SetCompatibility => "setCompatibility",
-            Self::DeleteSchemas => "deleteSchemas",
-            Self::CreateAcls => "createAcls",
-            Self::DeleteAcls => "deleteAcls",
-            Self::AlterQuotas => "alterQuotas",
-            Self::SetScramCredentials => "setScramCredentials",
-            Self::DeleteScramCredentials => "deleteScramCredentials",
-            Self::AlterBrokerConfigs => "alterBrokerConfigs",
-        }
-    }
-
-    const fn bit(self) -> u32 {
-        1 << self as u32
-    }
-}
-
-impl Display for Privilege {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(self.name())
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct PrivilegeSet(u32);
-
-impl PrivilegeSet {
-    pub const NONE: Self = Self(0);
-    pub const ALL: Self = Self((1 << Privilege::ALL.len()) - 1);
-
-    pub fn from_privileges(privileges: impl IntoIterator<Item = Privilege>) -> Self {
-        privileges
-            .into_iter()
-            .fold(Self::NONE, |set, privilege| Self(set.0 | privilege.bit()))
-    }
-
-    pub fn contains(self, privilege: Privilege) -> bool {
-        self.0 & privilege.bit() != 0
-    }
-
-    pub fn union(self, other: Self) -> Self {
-        Self(self.0 | other.0)
-    }
-
-    pub fn intersect(self, other: Self) -> Self {
-        Self(self.0 & other.0)
-    }
-
-    pub fn iter(self) -> impl Iterator<Item = Privilege> {
-        Privilege::ALL
-            .into_iter()
-            .filter(move |privilege| self.contains(*privilege))
-    }
-}
+pub type PrivilegeSet = EnumSet<Privilege>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ClusterScope {
@@ -149,7 +53,7 @@ impl Ceiling {
     pub fn new(name: &str, privileges: &[Privilege], clusters: Option<&[String]>) -> Self {
         Self {
             name: Arc::from(name),
-            privileges: PrivilegeSet::from_privileges(privileges.iter().copied()),
+            privileges: PrivilegeSet::from_iter(privileges.iter().copied()),
             clusters: ClusterScope::from_list(clusters),
         }
     }
@@ -182,12 +86,12 @@ pub enum EffectiveAccess {
 impl EffectiveAccess {
     pub fn privileges_for(&self, cluster: &str) -> Option<PrivilegeSet> {
         match self {
-            Self::Unrestricted => Some(PrivilegeSet::ALL),
+            Self::Unrestricted => Some(PrivilegeSet::all()),
             Self::Granted(grants) => grants
                 .iter()
                 .filter(|grant| grant.scope.contains(cluster))
                 .map(|grant| grant.privileges)
-                .reduce(PrivilegeSet::union),
+                .reduce(|held, granted| held | granted),
         }
     }
 
@@ -209,7 +113,7 @@ impl EffectiveAccess {
         let grants = match self {
             Self::Unrestricted => vec![Grant {
                 role_name: Arc::clone(&ceiling.name),
-                privileges: PrivilegeSet::ALL,
+                privileges: PrivilegeSet::all(),
                 scope: ClusterScope::All,
             }],
             Self::Granted(grants) => grants,
@@ -218,7 +122,7 @@ impl EffectiveAccess {
             grants
                 .into_iter()
                 .map(|grant| Grant {
-                    privileges: grant.privileges.intersect(ceiling.privileges),
+                    privileges: grant.privileges.intersection(ceiling.privileges),
                     scope: grant.scope.intersect(&ceiling.clusters),
                     role_name: grant.role_name,
                 })
@@ -410,7 +314,7 @@ impl RoleTable {
                 .iter()
                 .flat_map(|(name, role)| {
                     let role_name: Arc<str> = Arc::from(name.as_str());
-                    let privileges = PrivilegeSet::from_privileges(role.privileges.iter().copied());
+                    let privileges = PrivilegeSet::from_iter(role.privileges.iter().copied());
                     role.bindings.iter().map(move |binding| CompiledBinding {
                         groups: binding.groups.iter().cloned().collect(),
                         role_name: Arc::clone(&role_name),
@@ -459,8 +363,9 @@ pub fn groups_from_json(value: &serde_json::Value, claim: &str) -> Vec<String> {
 mod tests {
     use super::*;
     use crate::config::Binding;
+    use strum::VariantArray as _;
 
-    const EVERYTHING: &[Privilege] = &Privilege::ALL;
+    const EVERYTHING: &[Privilege] = Privilege::VARIANTS;
 
     struct Bound<'a> {
         groups: &'a [&'a str],
@@ -513,7 +418,7 @@ mod tests {
     }
 
     fn set(privileges: &[Privilege]) -> PrivilegeSet {
-        PrivilegeSet::from_privileges(privileges.iter().copied())
+        PrivilegeSet::from_iter(privileges.iter().copied())
     }
 
     #[test]
@@ -523,7 +428,7 @@ mod tests {
 
         assert_eq!(access, EffectiveAccess::Unrestricted);
         assert!(access.cluster("prod").unwrap().records().is_ok());
-        assert_eq!(access.privileges_for("prod"), Some(PrivilegeSet::ALL));
+        assert_eq!(access.privileges_for("prod"), Some(PrivilegeSet::all()));
         assert!(
             access.cluster("prod").unwrap().role_names().is_empty(),
             "no role table decided anything"
@@ -573,8 +478,8 @@ mod tests {
         assert!(prod.set_scram_credentials().is_ok());
         assert!(prod.delete_scram_credentials().is_ok());
         assert!(prod.alter_broker_configs().is_ok());
-        assert_eq!(prod.privileges(), Privilege::ALL.to_vec());
-        assert_eq!(access.privileges_for("prod"), Some(PrivilegeSet::ALL));
+        assert_eq!(prod.privileges(), Privilege::VARIANTS.to_vec());
+        assert_eq!(access.privileges_for("prod"), Some(PrivilegeSet::all()));
         assert!(access.cluster("staging").unwrap().schema_text().is_ok());
     }
 
@@ -618,7 +523,7 @@ mod tests {
 
         assert_eq!(
             access.privileges_for("prod"),
-            Some(PrivilegeSet::NONE),
+            Some(PrivilegeSet::empty()),
             "visible with nothing on it, not invisible"
         );
         assert!(prod.privileges().is_empty());
@@ -665,10 +570,10 @@ mod tests {
         );
         let access = admit(&policy, &["payments-viewers", "klens-admins"]).unwrap();
 
-        assert_eq!(access.privileges_for("prod"), Some(PrivilegeSet::ALL));
+        assert_eq!(access.privileges_for("prod"), Some(PrivilegeSet::all()));
         assert_eq!(
             access.privileges_for("payments"),
-            Some(PrivilegeSet::NONE),
+            Some(PrivilegeSet::empty()),
             "the admin grant covers prod only"
         );
         assert!(access.cluster("prod").unwrap().records().is_ok());
@@ -689,8 +594,11 @@ mod tests {
         );
         let access = admit(&policy, &["everyone", "ops"]).unwrap();
 
-        assert_eq!(access.privileges_for("prod"), Some(PrivilegeSet::ALL));
-        assert_eq!(access.privileges_for("staging"), Some(PrivilegeSet::NONE));
+        assert_eq!(access.privileges_for("prod"), Some(PrivilegeSet::all()));
+        assert_eq!(
+            access.privileges_for("staging"),
+            Some(PrivilegeSet::empty())
+        );
         assert!(access.cluster("staging").unwrap().topic_configs().is_err());
     }
 
@@ -766,37 +674,6 @@ mod tests {
         assert_eq!(policy.admit(&Identity { groups: &groups }), None);
     }
 
-    #[test]
-    fn privilege_sets_union_and_test_by_bit() {
-        let records = set(&[Privilege::Records]);
-        let acls = set(&[Privilege::Acls]);
-
-        assert!(records.contains(Privilege::Records));
-        assert!(!records.contains(Privilege::Acls));
-        assert_eq!(
-            records.union(acls).iter().collect::<Vec<_>>(),
-            vec![Privilege::Records, Privilege::Acls]
-        );
-        assert_eq!(PrivilegeSet::default(), PrivilegeSet::NONE);
-        assert_eq!(
-            PrivilegeSet::from_privileges(Privilege::ALL),
-            PrivilegeSet::ALL
-        );
-        assert!(PrivilegeSet::NONE.iter().next().is_none());
-    }
-
-    #[test]
-    fn privilege_sets_intersect_by_bit() {
-        let held = set(&[Privilege::Records, Privilege::Produce]);
-
-        assert_eq!(
-            held.intersect(set(&[Privilege::Records, Privilege::Acls])),
-            set(&[Privilege::Records])
-        );
-        assert_eq!(held.intersect(PrivilegeSet::NONE), PrivilegeSet::NONE);
-        assert_eq!(held.intersect(PrivilegeSet::ALL), held);
-    }
-
     fn ceiling(privileges: &[Privilege], clusters: Option<&[&str]>) -> Ceiling {
         let clusters: Option<Vec<String>> =
             clusters.map(|names| names.iter().map(|name| (*name).to_owned()).collect());
@@ -828,7 +705,7 @@ mod tests {
             .narrow(&ceiling(EVERYTHING, Some(&[])))
             .into();
 
-        assert_eq!(dev.privileges_for("dev"), Some(PrivilegeSet::NONE));
+        assert_eq!(dev.privileges_for("dev"), Some(PrivilegeSet::empty()));
         assert_eq!(
             dev.cluster("prod").unwrap_err(),
             AccessError::UnknownCluster("prod".into())

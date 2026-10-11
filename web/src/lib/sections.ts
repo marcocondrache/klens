@@ -10,7 +10,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import type { PrivilegeName } from "@/lib/api/types";
+import type { Privilege } from "@/lib/api/types";
 
 export type ClusterSection =
   | "topics"
@@ -28,7 +28,7 @@ export interface Section {
   label: string;
   icon: LucideIcon;
   group: SectionGroup;
-  privilege?: PrivilegeName;
+  privilege?: Privilege;
 }
 
 export const SECTION_GROUPS: Array<{ id: SectionGroup; label: string }> = [
@@ -52,7 +52,7 @@ export const SECTIONS: Section[] = [
   },
 ];
 
-export function visibleSections(can: (privilege: PrivilegeName) => boolean): Section[] {
+export function visibleSections(can: (privilege: Privilege) => boolean): Section[] {
   return SECTIONS.filter((section) => section.privilege == null || can(section.privilege));
 }
 

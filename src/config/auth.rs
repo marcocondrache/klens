@@ -1,8 +1,10 @@
 use std::time::Duration;
 
+use enumset::EnumSetType;
 use indexmap::IndexMap;
 use openidconnect::{IssuerUrl, RedirectUrl};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 use super::{KeyMaterial, Secret, duration};
 
@@ -81,8 +83,23 @@ pub struct Binding {
     pub clusters: Option<Vec<String>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
-#[serde(rename_all = "snake_case")]
+/// Config files name a privilege in snake case, the API in screaming snake
+/// case, and messages in camel case.
+#[derive(
+    Debug,
+    PartialOrd,
+    Ord,
+    Deserialize,
+    Serialize,
+    TS,
+    EnumSetType,
+    strum::Display,
+    strum::IntoStaticStr,
+    strum::VariantArray,
+)]
+#[serde(rename_all(serialize = "SCREAMING_SNAKE_CASE", deserialize = "snake_case"))]
+#[ts(rename_all = "SCREAMING_SNAKE_CASE")]
+#[strum(serialize_all = "camelCase")]
 pub enum Privilege {
     /// Record pages and live tails.
     Records,

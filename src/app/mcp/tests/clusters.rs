@@ -268,7 +268,7 @@ async fn a_query_past_the_cap_is_refused() {
 
 #[tokio::test]
 async fn access_explain_reports_privileges_under_the_ceiling() {
-    let operator = PrivilegeSet::from_privileges([Privilege::Records, Privilege::Produce]);
+    let operator = PrivilegeSet::from_iter([Privilege::Records, Privilege::Produce]);
     let app = TestApp::of([FakeCluster::local(), FakeCluster::named("prod")])
         .writable(&["local"])
         .ingested()
