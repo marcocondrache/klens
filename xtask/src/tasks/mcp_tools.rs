@@ -24,11 +24,4 @@ mod tests {
             "the MCP tool list changed; review the diff, then run `cargo xtask mcp-tools`"
         );
     }
-
-    /// A client copies an argument marked `x-mcp-header` into an HTTP header,
-    /// where proxies log it.
-    #[test]
-    fn no_tool_copies_an_argument_into_a_header() {
-        assert!(!klens::app::mcp::tool_list().contains("x-mcp-header"));
-    }
 }

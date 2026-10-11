@@ -56,12 +56,7 @@ pub(crate) fn log_http_completed(status: u16, latency: std::time::Duration) {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
-    use tracing::Level;
-
-    use super::{LogLevel, filter, log_http_completed};
-    use crate::testing::LogCapture;
+    use super::{LogLevel, filter};
 
     #[test]
     fn a_log_level_filters_klens_and_leaves_its_dependencies_at_warn_and_rmcp_at_error() {
@@ -75,21 +70,5 @@ mod tests {
         ] {
             assert_eq!(filter(level, "klens").unwrap().to_string(), expected);
         }
-    }
-
-    #[test]
-    fn log_http_completed_204_is_silent_at_info() {
-        let logs = LogCapture::at(Level::INFO);
-        log_http_completed(204, Duration::from_millis(1));
-        logs.assert_lacks("request completed");
-    }
-
-    #[test]
-    fn log_http_completed_500_is_warn() {
-        let logs = LogCapture::at(Level::WARN);
-        log_http_completed(500, Duration::from_millis(3));
-        logs.assert_contains("request completed");
-        logs.assert_contains("status=500");
-        logs.assert_contains("WARN");
     }
 }

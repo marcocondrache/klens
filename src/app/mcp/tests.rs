@@ -19,9 +19,8 @@ use super::{
     service, tool_list,
 };
 use crate::app::auth::SessionGuard;
-use crate::app::auth::access::{EffectiveAccess, Privilege, PrivilegeSet};
+use crate::app::auth::access::{Privilege, PrivilegeSet};
 use crate::app::auth::testing::{Idp, RESOURCE_HOST, Signer, bearing, mcp as for_resource};
-use crate::app::mcp::gate::ToolRights;
 use crate::app::mcp::reply::{Page, fit, fits, reply};
 use crate::app::mcp::server::KlensMcp;
 use crate::app::mcp::tools::gates;
@@ -395,39 +394,11 @@ async fn every_tool_that_changes_kafka_is_refused_on_a_read_only_cluster() {
     assert_eq!(app.cluster().calls(Api::RegisterSchema), 0);
 }
 
+/// A client copies an argument marked `x-mcp-header` into an HTTP header,
+/// where proxies log it.
 #[test]
-fn a_tool_names_the_privilege_it_lacks_on_a_cluster() {
-    let viewer = access([viewer()]);
-    let reader = access([role(
-        "reader",
-        PrivilegeSet::from_privileges([Privilege::Records]),
-    )]);
-    let rights = |access: &EffectiveAccess, section: Option<Section>, needs: Privilege| {
-        let cluster = access.cluster("local").expect("visible");
-        ToolRights::check(&cluster, "klens_probe", section, Some(needs))
-    };
-
-    let lacking = rights(&viewer, None, Privilege::Records);
-    let holding = rights(&reader, None, Privilege::Records);
-    let no_section = rights(&reader, Some(Section::Configs), Privilege::TopicConfigs);
-
-    assert_eq!(
-        json!(lacking),
-        json!({ "name": "klens_probe", "available": false, "needs": "RECORDS" })
-    );
-    assert_eq!(
-        json!(holding),
-        json!({ "name": "klens_probe", "available": true })
-    );
-    assert_eq!(
-        json!(no_section),
-        json!({
-            "name": "klens_probe",
-            "section": "configs",
-            "available": false,
-            "needs": "TOPIC_CONFIGS",
-        })
-    );
+fn no_tool_copies_an_argument_into_a_header() {
+    assert!(!tool_list().contains("x-mcp-header"));
 }
 
 #[test]

@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use ts_rs::TS;
 use xshell::Shell;
@@ -18,9 +18,11 @@ use klens::app::typescript::{
 };
 
 pub fn run(sh: &Shell) -> xshell::Result<()> {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../web/src/api/types.gen.ts");
-    sh.write_file(path, typescript())?;
-    Ok(())
+    sh.write_file(output(), typescript())
+}
+
+fn output() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../web/src/api/types.gen.ts")
 }
 
 fn typescript() -> String {
@@ -112,14 +114,11 @@ fn typescript() -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
-    use super::typescript;
+    use super::{output, typescript};
 
     #[test]
     fn generated_typescript_is_checked_in() {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../web/src/api/types.gen.ts");
-        let actual = std::fs::read_to_string(&path).unwrap_or_default();
+        let actual = std::fs::read_to_string(output()).unwrap_or_default();
 
         assert_eq!(
             actual,

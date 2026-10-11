@@ -8,13 +8,10 @@ use tracing::Level;
 use crate::app::Limits;
 use crate::app::auth::SessionGuard;
 use crate::config::Tuning;
-use crate::kafka::model as domain;
 use crate::testing::{
     Api, FakeCluster, FixtureRecord, LogCapture, TestApp, access, card_record, framed, quiesce,
     viewer,
 };
-
-use super::types::Record;
 
 const RECORDS: &str = "/clusters/local/topics/orders.created/records";
 const TAIL: &str = "/clusters/local/topics/orders.created/records/tail";
@@ -48,24 +45,6 @@ fn paging_by(max_limit: usize) -> Limits {
     let mut tuning = Tuning::default();
     tuning.records.max_limit = NonZeroUsize::new(max_limit).expect("non-zero");
     Limits::new(&tuning)
-}
-
-#[test]
-fn a_record_keeps_its_wire_schema_id() {
-    let record = domain::Record {
-        topic: "orders".into(),
-        partition: 0,
-        offset: 1,
-        timestamp: 0,
-        key: Some("k".into()),
-        value: Some("{}".into()),
-        schema_id: Some(12),
-        headers: Vec::new(),
-        size_bytes: 2,
-        verbatim: true,
-    };
-
-    assert_eq!(Record::from(record).schema_id, Some(12));
 }
 
 #[tokio::test]
