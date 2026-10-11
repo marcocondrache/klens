@@ -444,6 +444,11 @@ async fn callback(
 }
 
 async fn logout(mut auth_session: AuthSession) -> impl IntoResponse {
+    // The session hash binds `exp`, so a subject has one live session and
+    // forgetting it ends that session's open tails and exports too.
+    if let Some(user) = &auth_session.user {
+        auth_session.backend.forget(&user.sub);
+    }
     if let Err(error) = auth_session.logout().await {
         tracing::error!(%error, "failed to log out");
         return StatusCode::INTERNAL_SERVER_ERROR;
@@ -705,6 +710,30 @@ mod tests {
         assert!(callback.set_cookie().starts_with(SESSION_COOKIE));
         assert_eq!(browser.get("/api/clusters").await.status, StatusCode::OK);
         logs.assert_contains(r#"oidc login succeeded sub="user-1""#);
+    }
+
+    #[tokio::test]
+    async fn logging_out_ends_the_streams_the_session_holds() {
+        let auth = AuthState::enabled_for_tests();
+        let mut browser = Browser::new(auth.clone());
+        browser.log_in("test-code").await;
+        let stream = SessionGuard {
+            auth,
+            holder: Holder::Session("user-1".to_owned()),
+            ceiling: None,
+        };
+        assert!(stream.revalidate().is_some());
+
+        let logout = browser
+            .send(
+                axum::http::Request::post("/api/auth/logout")
+                    .body(axum::body::Body::empty())
+                    .expect("request"),
+            )
+            .await;
+
+        assert_eq!(logout.status, StatusCode::NO_CONTENT);
+        assert_eq!(stream.revalidate(), None);
     }
 
     #[tokio::test]
