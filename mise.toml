@@ -45,6 +45,23 @@ dir = "web"
 depends = ["web:install"]
 run = "vp run build"
 
+[tasks."docs:install"]
+description = "Install docs site dependencies"
+dir = "docs"
+run = "bun install"
+
+[tasks."docs:dev"]
+description = "Run the docs site dev server on :3000"
+dir = "docs"
+depends = ["docs:install"]
+run = "bun run dev"
+
+[tasks."docs:build"]
+description = "Build the static docs site into docs/out/"
+dir = "docs"
+depends = ["docs:install"]
+run = "bun run build"
+
 [tasks."kafka:up"]
 description = "Start local Redpanda (Kafka :9092, Schema Registry :8081; needs Docker/Podman)"
 run = """

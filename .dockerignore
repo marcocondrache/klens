@@ -5,6 +5,7 @@ target/
 .idea/
 web/node_modules/
 web/dist/
+docs/
 static/
 
 .env
