@@ -64,7 +64,7 @@ async fn main() -> anyhow::Result<()> {
                 ?privileges,
                 %clusters,
                 bind = %mcp.bind,
-                "serving MCP tools at /mcp to anyone who reaches klens"
+                "serving MCP tools at /mcp to anyone who reaches mcp.bind"
             );
         }
     }
@@ -81,7 +81,7 @@ async fn main() -> anyhow::Result<()> {
     }];
     if let Some(mcp) = &config.mcp {
         listeners.push(Listener {
-            router: mcp_router(state, &config.allowed_hosts, mcp),
+            router: mcp_router(state, mcp),
             bind: mcp.bind,
         });
     }

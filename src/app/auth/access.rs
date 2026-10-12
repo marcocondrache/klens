@@ -31,43 +31,6 @@ impl ClusterScope {
             Some(names) => Self::Only(Arc::new(names.iter().cloned().collect())),
         }
     }
-
-    fn intersect(&self, other: &Self) -> Self {
-        match (self, other) {
-            (Self::All, scope) | (scope, Self::All) => scope.clone(),
-            (Self::Only(left), Self::Only(right)) => {
-                Self::Only(Arc::new(left.intersection(right).cloned().collect()))
-            }
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Ceiling {
-    name: Arc<str>,
-    privileges: PrivilegeSet,
-    clusters: ClusterScope,
-}
-
-impl Ceiling {
-    pub fn new(name: &str, privileges: &[Privilege], clusters: Option<&[String]>) -> Self {
-        Self {
-            name: Arc::from(name),
-            privileges: PrivilegeSet::from_iter(privileges.iter().copied()),
-            clusters: ClusterScope::from_list(clusters),
-        }
-    }
-}
-
-/// Only [`EffectiveAccess::narrow`] makes one, so whoever holds it knows a
-/// [`Ceiling`] applied.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Narrowed(EffectiveAccess);
-
-impl From<Narrowed> for EffectiveAccess {
-    fn from(narrowed: Narrowed) -> Self {
-        narrowed.0
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -75,6 +38,16 @@ pub struct Grant {
     pub role_name: Arc<str>,
     pub privileges: PrivilegeSet,
     pub scope: ClusterScope,
+}
+
+impl Grant {
+    pub fn new(role_name: &str, privileges: &[Privilege], clusters: Option<&[String]>) -> Self {
+        Self {
+            role_name: Arc::from(role_name),
+            privileges: PrivilegeSet::from_iter(privileges.iter().copied()),
+            scope: ClusterScope::from_list(clusters),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -107,27 +80,6 @@ impl EffectiveAccess {
             }),
             None => Err(AccessError::UnknownCluster(name.to_owned())),
         }
-    }
-
-    pub fn narrow(self, ceiling: &Ceiling) -> Narrowed {
-        let grants = match self {
-            Self::Unrestricted => vec![Grant {
-                role_name: Arc::clone(&ceiling.name),
-                privileges: PrivilegeSet::all(),
-                scope: ClusterScope::All,
-            }],
-            Self::Granted(grants) => grants,
-        };
-        Narrowed(Self::Granted(
-            grants
-                .into_iter()
-                .map(|grant| Grant {
-                    privileges: grant.privileges.intersection(ceiling.privileges),
-                    scope: grant.scope.intersect(&ceiling.clusters),
-                    role_name: grant.role_name,
-                })
-                .collect(),
-        ))
     }
 }
 
@@ -674,81 +626,21 @@ mod tests {
         assert_eq!(policy.admit(&Identity { groups: &groups }), None);
     }
 
-    fn ceiling(privileges: &[Privilege], clusters: Option<&[&str]>) -> Ceiling {
-        let clusters: Option<Vec<String>> =
-            clusters.map(|names| names.iter().map(|name| (*name).to_owned()).collect());
-        Ceiling::new("mcp", privileges, clusters.as_deref())
-    }
-
     #[test]
-    fn narrowing_unrestricted_access_grants_the_ceiling_alone() {
+    fn a_grant_that_lists_clusters_hides_every_other_one() {
         let reads = [Privilege::Records, Privilege::Acls];
-        let access: EffectiveAccess = EffectiveAccess::Unrestricted
-            .narrow(&ceiling(&reads, None))
-            .into();
+        let everywhere = EffectiveAccess::Granted(vec![Grant::new("mcp", &reads, None)]);
+        let dev = EffectiveAccess::Granted(vec![Grant::new("mcp", &[], Some(&["dev".into()]))]);
+        let nowhere = EffectiveAccess::Granted(vec![Grant::new("mcp", EVERYTHING, Some(&[]))]);
 
-        assert_eq!(access.privileges_for("prod"), Some(set(&reads)));
-        assert_eq!(access.privileges_for("staging"), Some(set(&reads)));
-        let prod = access.cluster("prod").unwrap();
-        assert!(prod.records().is_ok());
-        assert!(prod.produce().is_err());
-        assert!(prod.alter_broker_configs().is_err());
-        assert_eq!(prod.role_names(), ["mcp"]);
-    }
-
-    #[test]
-    fn a_ceiling_that_lists_clusters_hides_every_other_one() {
-        let dev: EffectiveAccess = EffectiveAccess::Unrestricted
-            .narrow(&ceiling(&[], Some(&["dev"])))
-            .into();
-        let none: EffectiveAccess = EffectiveAccess::Unrestricted
-            .narrow(&ceiling(EVERYTHING, Some(&[])))
-            .into();
-
+        assert_eq!(everywhere.privileges_for("prod"), Some(set(&reads)));
+        assert_eq!(everywhere.cluster("prod").unwrap().role_names(), ["mcp"]);
         assert_eq!(dev.privileges_for("dev"), Some(PrivilegeSet::empty()));
         assert_eq!(
             dev.cluster("prod").unwrap_err(),
             AccessError::UnknownCluster("prod".into())
         );
-        assert!(none.cluster("dev").is_err());
-        assert!(none.cluster("prod").is_err());
-    }
-
-    #[test]
-    fn narrowing_never_widens_a_grant_or_reveals_a_cluster() {
-        let policy = table(
-            &[
-                ("operator", &[Privilege::Records, Privilege::Produce]),
-                ("viewer", &[]),
-            ],
-            vec![
-                binding(&["ops"], "operator", Some(&["prod"])),
-                binding(&["everyone"], "viewer", Some(&["staging"])),
-            ],
-        );
-        let access: EffectiveAccess = admit(&policy, &["ops", "everyone"])
-            .unwrap()
-            .narrow(&ceiling(
-                &[Privilege::Records, Privilege::Acls],
-                Some(&["prod", "payments"]),
-            ))
-            .into();
-
-        assert_eq!(
-            access.privileges_for("prod"),
-            Some(set(&[Privilege::Records]))
-        );
-        assert_eq!(access.cluster("prod").unwrap().role_names(), ["operator"]);
-        assert_eq!(
-            access.privileges_for("staging"),
-            None,
-            "the ceiling leaves staging out"
-        );
-        assert_eq!(
-            access.privileges_for("payments"),
-            None,
-            "no role covered payments"
-        );
+        assert!(nowhere.cluster("dev").is_err());
     }
 
     #[test]

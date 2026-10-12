@@ -258,7 +258,7 @@ async fn schema_get_reads_the_registry_once_its_checks_pass() {
     })
     .ingested()
     .await;
-    let viewer = app.with_access(access([viewer()]));
+    let viewer = app.serving_mcp(Mcp::holding([]));
     let read = async |app: &TestApp, arguments: Value| {
         let mut arguments = arguments;
         if arguments.get("cluster").is_none() {

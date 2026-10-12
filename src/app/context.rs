@@ -2,7 +2,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::FromRequestParts;
-use axum::http::Extensions;
 use axum::http::request::Parts;
 
 use crate::AppState;
@@ -243,21 +242,6 @@ impl Session {
             .names()
             .filter_map(|name| self.cluster(name).ok())
     }
-
-    /// `A` is the access type the admission layer inserts, so an MCP tool
-    /// builds its session only from `Narrowed` access.
-    pub(crate) fn take<A>(extensions: &mut Extensions, state: &AppState) -> Option<Self>
-    where
-        A: Into<EffectiveAccess> + Send + Sync + 'static,
-    {
-        let access = extensions.remove::<A>()?.into();
-        let guard = extensions.remove::<SessionGuard>()?;
-        Some(Self {
-            state: state.clone(),
-            access,
-            guard,
-        })
-    }
 }
 
 impl FromRequestParts<AppState> for Session {
@@ -267,6 +251,16 @@ impl FromRequestParts<AppState> for Session {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        Self::take::<EffectiveAccess>(&mut parts.extensions, state).ok_or(ApiError::Unauthorized)
+        let access = parts.extensions.remove::<EffectiveAccess>();
+        let guard = parts.extensions.remove::<SessionGuard>();
+        let (Some(access), Some(guard)) = (access, guard) else {
+            return Err(ApiError::Unauthorized);
+        };
+
+        Ok(Self {
+            state: state.clone(),
+            access,
+            guard,
+        })
     }
 }

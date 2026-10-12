@@ -79,15 +79,23 @@ async fn a_2026_client_discovers_and_calls_with_no_handshake() {
 }
 
 #[tokio::test]
-async fn a_foreign_host_or_any_browser_origin_is_refused() {
+async fn any_host_is_served_and_any_browser_origin_refused() {
     let app = TestApp::local().await.serving_mcp(Mcp::default());
 
-    for (host, origin) in [
-        ("attacker.example", None),
-        ("localhost.attacker.example:8080", None),
-        ("localhost:8080", Some("http://localhost:8080")),
-        ("localhost:8080", Some("https://attacker.example")),
-        ("localhost:8080", Some("null")),
+    for (host, origin, status) in [
+        ("klens.internal:8090", None, StatusCode::OK),
+        ("attacker.example", None, StatusCode::OK),
+        (
+            "localhost:8090",
+            Some("http://localhost:8090"),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            "attacker.example",
+            Some("https://attacker.example"),
+            StatusCode::FORBIDDEN,
+        ),
+        ("localhost:8090", Some("null"), StatusCode::FORBIDDEN),
     ] {
         let mut request = mcp_request(&call_body("klens_clusters", json!({})));
         request
@@ -101,42 +109,7 @@ async fn a_foreign_host_or_any_browser_origin_is_refused() {
 
         let response = app.send_to_mcp(request).await;
 
-        assert_eq!(
-            response.status(),
-            StatusCode::FORBIDDEN,
-            "{host} {origin:?}"
-        );
-    }
-}
-
-#[tokio::test]
-async fn mcp_answers_the_configured_hosts_and_no_others() {
-    let app = TestApp::local().await;
-    let hosts: Vec<AllowedHost> = yaml("[klens.internal]");
-    let served = mcp_router(app.state().clone(), &hosts, &Mcp::default());
-
-    for (host, status, code) in [
-        ("klens.internal", StatusCode::OK, Value::Null),
-        ("klens.internal:8080", StatusCode::OK, Value::Null),
-        (
-            "localhost",
-            StatusCode::FORBIDDEN,
-            json!("HOST_NOT_ALLOWED"),
-        ),
-    ] {
-        let mut request = mcp_request(&call_body("klens_clusters", json!({})));
-        request
-            .headers_mut()
-            .insert(header::HOST, host.parse().expect("host"));
-
-        let response = served.clone().oneshot(request).await.expect("response");
-
-        assert_eq!(response.status(), status, "{host}");
-        let body = to_bytes(response.into_body(), usize::MAX)
-            .await
-            .expect("body");
-        let body: Value = serde_json::from_slice(&body).expect("json");
-        assert_eq!(body["code"], code, "{host}");
+        assert_eq!(response.status(), status, "{host} {origin:?}");
     }
 }
 
@@ -151,38 +124,6 @@ async fn a_body_past_the_limit_is_refused_before_any_tool_runs() {
     let response = app.send_to_mcp(mcp_request(&body)).await;
 
     assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
-}
-
-#[tokio::test]
-async fn a_request_that_skips_admission_is_a_wiring_error() {
-    let app = TestApp::local().await;
-    let unadmitted = Router::new().nest_service(
-        "/mcp",
-        service(
-            app.state().clone(),
-            browser_checks(
-                Config::default()
-                    .allowed_hosts
-                    .iter()
-                    .map(ToString::to_string),
-            ),
-        ),
-    );
-    let list = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {} });
-
-    for body in [call_body("klens_clusters", json!({})), list] {
-        let response = unadmitted
-            .clone()
-            .oneshot(mcp_request(&body))
-            .await
-            .expect("response");
-
-        let body = to_bytes(response.into_body(), usize::MAX)
-            .await
-            .expect("body");
-        let reply: Value = serde_json::from_slice(&body).expect("json");
-        assert_eq!(reply["error"]["code"], -32603, "{reply}");
-    }
 }
 
 #[tokio::test]

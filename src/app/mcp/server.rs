@@ -1,7 +1,6 @@
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
-use axum::http::request::Parts;
 use futures::FutureExt as _;
 use rmcp::handler::server::common::FromContextPart;
 use rmcp::handler::server::router::tool::{ToolRoute, ToolRouter};
@@ -17,7 +16,8 @@ use tracing::field::Empty;
 
 use crate::AppState;
 
-use crate::app::auth::access::Narrowed;
+use crate::app::auth::SessionGuard;
+use crate::app::auth::access::EffectiveAccess;
 use crate::app::context::Session;
 use crate::app::error::ApiError;
 
@@ -29,6 +29,7 @@ pub(super) type ToolResult = Result<CallToolResult, ApiError>;
 
 pub(crate) struct KlensMcp {
     pub(super) state: AppState,
+    pub(super) access: EffectiveAccess,
     pub(super) tools: Arc<ToolRouter<Self>>,
 }
 
@@ -56,7 +57,7 @@ impl KlensMcp {
 
 impl FromContextPart<ToolCallContext<'_, KlensMcp>> for Session {
     fn from_context_part(context: &mut ToolCallContext<'_, KlensMcp>) -> Result<Self, ErrorData> {
-        context.service.caller(&mut context.request_context)
+        Ok(context.service.caller())
     }
 }
 
@@ -76,9 +77,9 @@ impl ServerHandler for KlensMcp {
     async fn list_tools(
         &self,
         _request: Option<PaginatedRequestParams>,
-        mut context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        let session = self.caller(&mut context)?;
+        let session = self.caller();
         let tools = self
             .tools
             .list_all()
@@ -119,13 +120,12 @@ impl ServerHandler for KlensMcp {
 }
 
 impl KlensMcp {
-    /// The session the admission layer left in the request.
-    fn caller(&self, context: &mut RequestContext<RoleServer>) -> Result<Session, ErrorData> {
-        context
-            .extensions
-            .get_mut::<Parts>()
-            .and_then(|parts| Session::take::<Narrowed>(&mut parts.extensions, &self.state))
-            .ok_or_else(|| ErrorData::internal_error("the request carries no MCP session", None))
+    fn caller(&self) -> Session {
+        Session {
+            state: self.state.clone(),
+            access: self.access.clone(),
+            guard: SessionGuard::fixed(self.access.clone()),
+        }
     }
 
     async fn run(

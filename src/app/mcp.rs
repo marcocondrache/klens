@@ -1,20 +1,16 @@
 use std::sync::Arc;
 
 use axum::Router;
-use axum::extract::{Request, State};
-use axum::middleware::{self, Next};
-use axum::response::Response;
+use axum::middleware;
 use axum::routing::any;
 use rmcp::transport::streamable_http_server::session::never::NeverSessionManager;
 use rmcp::transport::{StreamableHttpServerConfig, StreamableHttpService};
 
 use crate::AppState;
-use crate::config::{AllowedHost, Mcp};
+use crate::config::Mcp;
 
-use super::auth::SessionGuard;
-use super::auth::access::{Ceiling, EffectiveAccess, Narrowed};
+use super::auth::access::{EffectiveAccess, Grant};
 use super::error::ApiError;
-use super::hosts;
 
 mod args;
 mod configs;
@@ -72,64 +68,49 @@ const MAX_REQUEST_BYTES: usize = 65_536;
 /// A client names itself, and the name lands on every log line of its call.
 const MAX_CLIENT_CHARS: usize = 64;
 
-pub(crate) fn router(state: AppState, allowed_hosts: &[AllowedHost], mcp: &Mcp) -> Router {
-    let ceiling = ceiling(mcp);
-    let admitted = (
-        EffectiveAccess::Unrestricted.narrow(&ceiling),
-        SessionGuard::capped(ceiling),
-    );
-    let admission = middleware::from_fn_with_state(admitted, admit);
+pub(crate) fn router(state: AppState, mcp: &Mcp) -> Router {
+    let access = access(mcp);
     match &mcp.secret {
-        Some(secret) => {
-            // The gateway forwards the public Host and the client's Origin,
-            // and a web page cannot learn the secret, so it stands in for
-            // both checks.
-            let unchecked = StreamableHttpServerConfig::default()
-                .disable_allowed_hosts()
-                .disable_allowed_origins();
-            Router::new()
-                .nest_service("/mcp", service(state, unchecked))
-                .layer(admission)
-                .layer(middleware::from_fn_with_state(
-                    GatewaySecret::new(secret),
-                    require_secret,
-                ))
-        }
+        // The gateway forwards the client's Origin, and a web page cannot
+        // learn the secret, so the secret stands in for the origin check.
+        Some(secret) => Router::new()
+            .nest_service(
+                "/mcp",
+                service(state, access, StreamableHttpServerConfig::default()),
+            )
+            .layer(middleware::from_fn_with_state(
+                GatewaySecret::new(secret),
+                require_secret,
+            )),
         // The config check requires a secret with auth, and /mcp stays shut
         // for any caller that skips it.
         None if state.auth.is_enabled() => {
             Router::new().nest_service("/mcp", any(async || ApiError::NotFromGateway))
         }
-        None => {
-            let hosts = allowed_hosts.iter().map(ToString::to_string);
-            Router::new()
-                .nest_service("/mcp", service(state, browser_checks(hosts)))
-                .layer(admission)
-                .layer(middleware::from_fn_with_state(
-                    Arc::from(allowed_hosts),
-                    hosts::require_allowed_host,
-                ))
-        }
+        None => Router::new().nest_service("/mcp", service(state, access, refusing_browsers())),
     }
 }
 
-pub(crate) fn ceiling(mcp: &Mcp) -> Ceiling {
-    Ceiling::new("mcp", mcp.privileges(), mcp.clusters.as_deref())
+/// Every MCP call holds exactly this, since a gateway in front of `/mcp`
+/// decides who reaches it.
+pub(crate) fn access(mcp: &Mcp) -> EffectiveAccess {
+    EffectiveAccess::Granted(vec![Grant::new(
+        "mcp",
+        mcp.privileges(),
+        mcp.clusters.as_deref(),
+    )])
 }
 
-/// rmcp answers only these hosts and refuses every request from a browser.
-pub(crate) fn browser_checks(
-    hosts: impl IntoIterator<Item = String>,
-) -> StreamableHttpServerConfig {
-    StreamableHttpServerConfig::default()
-        // rmcp reads an empty list as every host, and the config never
-        // yields one.
-        .with_allowed_hosts(hosts)
-        .enforce_origin_validation()
+/// A page that reaches `/mcp` through DNS rebinding still sends its Origin.
+pub(crate) fn refusing_browsers() -> StreamableHttpServerConfig {
+    StreamableHttpServerConfig::default().enforce_origin_validation()
 }
 
+/// `mcp.bind` and the gateway decide who reaches `/mcp`, so rmcp checks no
+/// Host.
 pub(crate) fn service(
     state: AppState,
+    access: EffectiveAccess,
     checks: StreamableHttpServerConfig,
 ) -> StreamableHttpService<KlensMcp, NeverSessionManager> {
     let tools = Arc::new(KlensMcp::tools());
@@ -137,11 +118,13 @@ pub(crate) fn service(
         move || {
             Ok(KlensMcp {
                 state: state.clone(),
+                access: access.clone(),
                 tools: Arc::clone(&tools),
             })
         },
         Arc::default(),
         checks
+            .disable_allowed_hosts()
             .with_legacy_session_mode(false)
             .with_json_response(true)
             .with_max_request_body_bytes(MAX_REQUEST_BYTES),
@@ -153,14 +136,4 @@ pub fn tool_list() -> String {
     let mut list = serde_json::to_string_pretty(&tools).expect("a tool list is serializable");
     list.push('\n');
     list
-}
-
-async fn admit(
-    State((access, guard)): State<(Narrowed, SessionGuard)>,
-    mut request: Request,
-    next: Next,
-) -> Response {
-    request.extensions_mut().insert(access);
-    request.extensions_mut().insert(guard);
-    next.run(request).await
 }

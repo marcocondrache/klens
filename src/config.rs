@@ -99,18 +99,10 @@ impl Config {
                 self.bind
             );
         }
-        if self.auth.is_some() {
-            anyhow::ensure!(
-                mcp.secret.is_some(),
-                "mcp.secret is required with auth, since /mcp leaves sign-in to a gateway that \
-                 sends it"
-            );
-            anyhow::ensure!(
-                mcp.names_privileges(),
-                "mcp.privileges is required with auth, since every MCP call holds all of it, \
-                 whoever signed in at the gateway"
-            );
-        }
+        anyhow::ensure!(
+            self.auth.is_none() || mcp.secret.is_some(),
+            "mcp.secret is required with auth, since /mcp leaves sign-in to a gateway that sends it"
+        );
         Ok(())
     }
 
@@ -119,10 +111,10 @@ impl Config {
             return Vec::new();
         };
         let mut warnings = Vec::new();
-        if self.auth.is_none() && mcp.secret.is_none() && mcp.writes() {
+        if mcp.secret.is_none() && mcp.writes() {
             warnings.push(
-                "auth is off and mcp.privileges names a write, so anyone who reaches /mcp can \
-                 change a writable cluster",
+                "mcp.secret is unset and mcp.privileges names a write, so anyone who reaches \
+                 mcp.bind can change a writable cluster",
             );
         }
         if mcp.writes() && mcp.reads_private_text() {
@@ -313,29 +305,18 @@ mod tests {
     const MCP_BIND: &str = "bind: 0.0.0.0:8090";
 
     #[test]
-    fn mcp_with_auth_needs_a_secret_and_its_privileges() {
+    fn mcp_with_auth_needs_a_secret() {
         let with_auth =
             |mcp: &str| yaml::<Config>(&format!("{AUTH}\n            mcp: {{{MCP_BIND}, {mcp}}}"));
-        const NO_SECRET: &str = "mcp.secret is required with auth, since /mcp leaves sign-in to a gateway that sends it";
-        const NO_PRIVILEGES: &str = "mcp.privileges is required with auth, since every MCP call \
-                                     holds all of it, whoever signed in at the gateway";
 
-        assert!(
-            with_auth(&format!("privileges: [], {SECRET}"))
+        assert!(with_auth(SECRET).check().is_ok());
+        assert_eq!(
+            with_auth("privileges: [records]")
                 .check()
-                .is_ok()
+                .unwrap_err()
+                .to_string(),
+            "mcp.secret is required with auth, since /mcp leaves sign-in to a gateway that sends it"
         );
-        for (mcp, expected) in [
-            ("", NO_SECRET),
-            ("privileges: [records]", NO_SECRET),
-            (SECRET, NO_PRIVILEGES),
-        ] {
-            assert_eq!(
-                with_auth(mcp).check().unwrap_err().to_string(),
-                expected,
-                "{mcp}"
-            );
-        }
         assert!(
             yaml::<Config>(&format!("mcp: {{{MCP_BIND}}}"))
                 .check()
@@ -345,8 +326,8 @@ mod tests {
 
     #[test]
     fn mcp_warns_of_each_way_a_write_reaches_too_far() {
-        const OPEN: &str = "auth is off and mcp.privileges names a write, so anyone who \
-                            reaches /mcp can change a writable cluster";
+        const OPEN: &str = "mcp.secret is unset and mcp.privileges names a write, so anyone \
+                            who reaches mcp.bind can change a writable cluster";
         const PRIVATE: &str = "mcp.privileges names records or schema_text beside a write, so \
                                text an agent reads from Kafka could steer it to copy private \
                                data out through that write";

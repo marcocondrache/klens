@@ -99,7 +99,7 @@ async fn record_get_cuts_only_what_one_record_cannot_fit() {
 
 #[tokio::test]
 async fn the_record_tools_need_the_records_privilege() {
-    let app = TestApp::local().await.with_access(access([viewer()]));
+    let app = TestApp::local().await.serving_mcp(Mcp::holding([]));
 
     for (tool, arguments) in [
         ("klens_record_get", at(0, 1)),
@@ -160,7 +160,7 @@ async fn record_tools_draw_on_the_live_budget_once_their_checks_pass() {
         })
         .ingested()
         .await;
-    let viewer = app.with_access(access([viewer()]));
+    let viewer = app.serving_mcp(Mcp::holding([]));
 
     let forbidden = refusal(&call(&viewer, "klens_record_get", at(0, 1)).await);
     let hidden = refusal(

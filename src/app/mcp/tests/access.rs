@@ -18,7 +18,7 @@ async fn every_tool_opens_to_exactly_the_privilege_it_names() {
     let mut wrong = Vec::new();
 
     for held in std::iter::once(None).chain(Privilege::VARIANTS.iter().copied().map(Some)) {
-        let session = app.with_access(access([role("probe", PrivilegeSet::from_iter(held))]));
+        let session = app.serving_mcp(Mcp::holding(held));
         for (name, section, needs) in gate_rows() {
             let tool = tools.iter().find(|tool| tool.name == name).expect("a tool");
             let expected = match (section, needs) {
@@ -103,39 +103,28 @@ async fn tools_list_leaves_out_a_tool_the_caller_may_use_on_no_cluster() {
     let app = TestApp::of([FakeCluster::local(), FakeCluster::named("prod")])
         .ingested()
         .await;
-    let reader = || {
-        role(
-            "reader",
-            PrivilegeSet::from_iter(Mcp::default().privileges().iter().copied()),
-        )
-    };
-    let listed = async |app: TestApp| {
-        let listed = app.mcp("tools/list", json!({})).await.ok();
+    let listed = async |mcp: Mcp| {
+        let listed = app.serving_mcp(mcp).mcp("tools/list", json!({})).await.ok();
         names(&listed["result"], "tools", "name")
     };
 
-    let viewing = listed(app.with_access(access([viewer()]))).await;
-    let reading_prod =
-        listed(app.with_access(access([viewer().on(&["local"]), reader().on(&["prod"])]))).await;
-    let reading_hidden = listed(
-        app.with_access(access([viewer().on(&["local"]), reader().on(&["prod"])]))
-            .serving_mcp(yaml("{bind: 127.0.0.1:0, clusters: [local]}")),
-    )
-    .await;
+    let viewing = listed(Mcp::holding([])).await;
+    let reading = listed(Mcp::default()).await;
+    let reading_nowhere = listed(yaml("{bind: 127.0.0.1:0, clusters: []}")).await;
 
     let gated: Vec<&str> = gates()
         .filter(|gate| gate.needs.is_some())
         .map(|gate| gate.name)
         .collect();
     assert!(gated.contains(&"klens_records_read"), "{gated:?}");
-    for listed in [&viewing, &reading_hidden] {
+    for listed in [&viewing, &reading_nowhere] {
         assert!(listed.contains(&"klens_clusters".to_owned()), "{listed:?}");
         assert!(
             !gated.iter().any(|&tool| listed.contains(&tool.to_owned())),
             "{listed:?}"
         );
     }
-    assert_eq!(reading_prod, read_tool_names());
+    assert_eq!(reading, read_tool_names());
 }
 
 #[tokio::test]
@@ -143,19 +132,15 @@ async fn a_tool_that_changes_kafka_is_offered_only_where_the_cluster_accepts_cha
     let app = TestApp::of([FakeCluster::local(), FakeCluster::named("prod")])
         .writable(&["local"])
         .ingested()
-        .await
-        .serving_mcp(every_tool());
-    let creator = || {
-        role(
-            "creator",
-            PrivilegeSet::from_iter([Privilege::CreateTopics]),
-        )
-    };
+        .await;
     let offered = async |app: TestApp| {
         let listed = app.mcp("tools/list", json!({})).await.ok();
         names(&listed["result"], "tools", "name").contains(&"klens_topic_create".to_owned())
     };
-    let everywhere = app.with_access(access([creator()]));
+    let everywhere = app.serving_mcp(Mcp::holding([Privilege::CreateTopics]));
+    let only_prod = app.serving_mcp(yaml(
+        "{bind: 127.0.0.1:0, privileges: [create_topics], clusters: [prod]}",
+    ));
 
     let explained = structured(&call(&everywhere, "klens_access_explain", json!({})).await);
 
@@ -178,7 +163,7 @@ async fn a_tool_that_changes_kafka_is_offered_only_where_the_cluster_accepts_cha
         json!({ "name": "klens_topic_create", "available": false })
     );
     assert!(offered(everywhere).await);
-    assert!(!offered(app.with_access(access([viewer(), creator().on(&["prod"])]))).await);
+    assert!(!offered(only_prod).await);
 }
 
 #[tokio::test]
@@ -267,7 +252,7 @@ async fn every_tool_hides_a_cluster_the_caller_cannot_see() {
     let app = TestApp::of([FakeCluster::local(), FakeCluster::named("prod")])
         .ingested()
         .await
-        .with_access(access([viewer().on(&["local"])]));
+        .serving_mcp(yaml("{bind: 127.0.0.1:0, clusters: [local]}"));
 
     for tool in KlensMcp::tools().list_all() {
         let refused = refusal(&call(&app, &tool.name, naming(&tool, "prod")).await);
@@ -280,8 +265,8 @@ async fn a_cluster_tool_needs_no_cluster_when_the_caller_sees_only_one() {
     let app = TestApp::of([FakeCluster::local(), FakeCluster::named("prod")])
         .ingested()
         .await;
-    let local_only = app.with_access(access([viewer().on(&["local"])]));
-    let blind = app.with_access(access(Vec::new()));
+    let local_only = app.serving_mcp(yaml("{bind: 127.0.0.1:0, clusters: [local]}"));
+    let blind = app.serving_mcp(yaml("{bind: 127.0.0.1:0, clusters: []}"));
 
     let served = structured(&call(&local_only, "klens_brokers_list", json!({})).await);
     let ambiguous = refusal(&call(&app, "klens_brokers_list", json!({})).await);
