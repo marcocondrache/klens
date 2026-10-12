@@ -37,3 +37,10 @@ tests:
     asserts:
       - notMatchRegexRaw:
           pattern: allowed_hosts
+
+  - it: gives the in-cluster /mcp URL when MCP is on
+    set:
+      config.mcp.bind: 0.0.0.0:8090
+    asserts:
+      - matchRegexRaw:
+          pattern: http://RELEASE-NAME-klens-mcp.NAMESPACE.svc:8090/mcp

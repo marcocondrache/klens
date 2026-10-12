@@ -51,6 +51,19 @@ and HTTPRoute hostname there, or klens answers them with 403.
 `kubectl port-forward` and the probes work without that. A load balancer
 health check names an IP address, so point it at `/ready` rather than `/`.
 
+To serve MCP tools, add a `config.mcp` block. The chart then creates a second
+Service, `<fullname>-mcp`, whose port serves only `/mcp`. It is a ClusterIP
+Service whatever `service.type` is, so exposing the UI does not expose the
+tools. Point an MCP gateway at it. `mcp.service.port` must match the port in
+`config.mcp.bind`. With `existingConfigMap`, set `mcp.enabled` when that file
+has an `mcp` block.
+
+```yaml
+config:
+  mcp:
+    bind: 0.0.0.0:8090
+```
+
 {{ template "chart.maintainersSection" . }}
 
 {{ template "chart.sourcesSection" . }}

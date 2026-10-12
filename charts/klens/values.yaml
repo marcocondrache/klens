@@ -21,12 +21,14 @@ fullnameOverride: ""
 # -- Mount an existing ConfigMap with a `config.yaml` key instead of the inline `config`.
 existingConfigMap: ""
 
-# -- klens config file as a map. The binary validates this YAML, not the chart. `clusters` maps each cluster name to its settings. Timeouts, pool sizes, limits, and lane cadence go under `tuning`. Without `auth`, list the Ingress and HTTPRoute hostnames in `allowed_hosts`.
+# -- klens config file as a map. The binary validates this YAML, not the chart. `clusters` maps each cluster name to its settings. Timeouts, pool sizes, limits, and lane cadence go under `tuning`. Without `auth`, list the Ingress and HTTPRoute hostnames in `allowed_hosts`. An `mcp` block serves `/mcp` on `mcp.bind` behind its own Service.
 config:
   bind: 0.0.0.0:8080
   log_level: info
   clusters: {}
   # allowed_hosts: [localhost, 127.0.0.1, "::1", klens.example.com]
+  # mcp:
+  #   bind: 0.0.0.0:8090
 
 # -- Extra environment variables as a map (templated).
 env: {}
@@ -87,6 +89,17 @@ service:
   port: 8080
   # -- Service annotations.
   annotations: {}
+
+mcp:
+  # -- Serve `/mcp` from an `existingConfigMap` that has an `mcp` block. With the inline `config`, a `config.mcp` block turns MCP on without it.
+  enabled: false
+  service:
+    # -- MCP Service type. It stays apart from `service.type`, so exposing the UI does not expose the tools.
+    type: ClusterIP
+    # -- MCP Service port. Must match the port in `config.mcp.bind` when the chart owns the ConfigMap.
+    port: 8090
+    # -- MCP Service annotations.
+    annotations: {}
 
 ingress:
   # -- Expose the UI via an Ingress. Use a Prefix `/` path so SPA routes and `/api` reach the pod.

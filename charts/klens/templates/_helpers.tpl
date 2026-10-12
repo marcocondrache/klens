@@ -69,15 +69,36 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "klens.validateBind" -}}
 {{- if not .Values.existingConfigMap }}
 {{- $bind := .Values.config.bind | default "" | toString }}
-{{- $port := .Values.service.port | toString }}
 {{- if not $bind }}
 {{- fail "config.bind is required when the chart owns the ConfigMap. Use 0.0.0.0 and match service.port." }}
 {{- end }}
+{{- include "klens.checkBind" (dict "key" "config.bind" "bind" $bind "portKey" "service.port" "port" .Values.service.port "reach" "the Service and probes can reach the process") }}
+{{- $mcp := .Values.config.mcp }}
+{{- if and .Values.mcp.enabled (not $mcp) }}
+{{- fail "mcp.enabled needs a config.mcp block, or nothing answers on the MCP port." }}
+{{- end }}
+{{- if $mcp }}
+{{- include "klens.checkBind" (dict "key" "config.mcp.bind" "bind" ($mcp.bind | default "" | toString) "portKey" "mcp.service.port" "port" .Values.mcp.service.port "reach" "the MCP Service can reach /mcp") }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- define "klens.mcpEnabled" -}}
+{{- if or .Values.mcp.enabled (and (not .Values.existingConfigMap) .Values.config.mcp) -}}
+true
+{{- end -}}
+{{- end }}
+
+{{- define "klens.mcpServiceName" -}}
+{{- printf "%s-mcp" (include "klens.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end }}
+
+{{- define "klens.checkBind" -}}
+{{- $bind := .bind }}
 {{- if or (hasPrefix "127.0.0.1:" $bind) (eq $bind "127.0.0.1") (hasPrefix "[::1]:" $bind) (eq $bind "::1") }}
-{{- fail "config.bind must not be a loopback address. The Service cannot reach the process. Use 0.0.0.0." }}
+{{- fail (printf "%s must not be a loopback address. The Service cannot reach the process. Use 0.0.0.0." .key) }}
 {{- end }}
-{{- if not (hasSuffix (printf ":%s" $port) $bind) }}
-{{- fail "config.bind port must match service.port so the Service and probes can reach the process." }}
-{{- end }}
+{{- if not (hasSuffix (printf ":%s" (toString .port)) $bind) }}
+{{- fail (printf "%s port must match %s so %s." .key .portKey .reach) }}
 {{- end }}
 {{- end }}

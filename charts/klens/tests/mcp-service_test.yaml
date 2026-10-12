@@ -1,0 +1,47 @@
+suite: mcp-service
+templates:
+  - mcp-service.tpl
+tests:
+  - it: renders nothing without MCP
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: keeps the tools on a ClusterIP Service when the UI is a LoadBalancer
+    set:
+      config.mcp.bind: 0.0.0.0:8090
+      service.type: LoadBalancer
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-klens-mcp
+      - equal:
+          path: spec.type
+          value: ClusterIP
+      - contains:
+          path: spec.ports
+          content:
+            name: mcp
+            port: 8090
+            targetPort: mcp
+            protocol: TCP
+
+  - it: renders from mcp.enabled with an existing ConfigMap
+    set:
+      existingConfigMap: my-config
+      mcp.enabled: true
+      mcp.service.port: 9000
+    asserts:
+      - equal:
+          path: spec.ports[0].port
+          value: 9000
+
+  - it: ignores config.mcp with an existing ConfigMap
+    set:
+      existingConfigMap: my-config
+      config.mcp.bind: 0.0.0.0:8090
+    asserts:
+      - hasDocuments:
+          count: 0

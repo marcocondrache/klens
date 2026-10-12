@@ -19,6 +19,12 @@ Or via HTTPRoute hostnames:
 {{- end }}
 {{- end }}
 
+{{- if include "klens.mcpEnabled" . }}
+
+MCP clients and gateways in the cluster reach the tools at
+  http://{{ include "klens.mcpServiceName" . }}.{{ .Release.Namespace }}.svc:{{ .Values.mcp.service.port }}/mcp
+{{- end }}
+
 {{- if and (or .Values.ingress.enabled .Values.httpRoute.enabled) (not .Values.existingConfigMap) (not .Values.config.auth) (not .Values.config.allowed_hosts) }}
 
 Without `config.auth`, klens answers only the hosts in `config.allowed_hosts`,

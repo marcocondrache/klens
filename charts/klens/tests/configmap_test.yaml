@@ -50,3 +50,24 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: config.bind port must match service.port
+
+  - it: fails render when mcp.enabled has no config.mcp
+    set:
+      mcp.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: mcp.enabled needs a config.mcp block
+
+  - it: fails render when the mcp bind is loopback
+    set:
+      config.mcp.bind: 127.0.0.1:8090
+    asserts:
+      - failedTemplate:
+          errorPattern: config.mcp.bind must not be a loopback address
+
+  - it: fails render when the mcp bind port does not match mcp.service.port
+    set:
+      config.mcp.bind: 0.0.0.0:9090
+    asserts:
+      - failedTemplate:
+          errorPattern: config.mcp.bind port must match mcp.service.port
