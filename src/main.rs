@@ -44,7 +44,7 @@ async fn main() -> anyhow::Result<()> {
 
     if let Some(mcp) = &config.mcp {
         let privileges: Vec<&str> = mcp
-            .privileges()
+            .privileges
             .iter()
             .map(|&privilege| <&str>::from(privilege))
             .collect();

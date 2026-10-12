@@ -7,7 +7,7 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
-      "description": "Explains what you may do on each cluster you can see: your privileges under the ceiling the klens operator set for MCP, whether the cluster accepts changes, and each tool or section with the privilege it needs when it is not available.\nEveryone sees the catalog of clusters, topics, groups, brokers and subjects. Privileges cover record payloads, configs, schema text, ACLs and changes. A tool that changes Kafka is available only on a cluster that accepts changes.\nCall it after a FORBIDDEN or READ_ONLY_CLUSTER error, or before work that needs a privilege.",
+      "description": "Explains what you may do on each cluster you can see: the privileges the klens operator gave MCP, whether the cluster accepts changes, and each tool or section with the privilege it needs when it is not available.\nEveryone sees the catalog of clusters, topics, groups, brokers and subjects. Privileges cover record payloads, configs, schema text, ACLs and changes. A tool that changes Kafka is available only on a cluster that accepts changes.\nCall it after a FORBIDDEN or READ_ONLY_CLUSTER error, or before work that needs a privilege.",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,

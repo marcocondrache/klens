@@ -323,7 +323,7 @@ impl KlensMcp {
         }))
     }
 
-    /// Explains what you may do on each cluster you can see: your privileges under the ceiling the klens operator set for MCP, whether the cluster accepts changes, and each tool or section with the privilege it needs when it is not available.
+    /// Explains what you may do on each cluster you can see: the privileges the klens operator gave MCP, whether the cluster accepts changes, and each tool or section with the privilege it needs when it is not available.
     /// Everyone sees the catalog of clusters, topics, groups, brokers and subjects. Privileges cover record payloads, configs, schema text, ACLs and changes. A tool that changes Kafka is available only on a cluster that accepts changes.
     /// Call it after a FORBIDDEN or READ_ONLY_CLUSTER error, or before work that needs a privilege.
     #[tool(title = "Explain what you may do")]
