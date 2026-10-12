@@ -1,0 +1,90 @@
+---
+title: Connect to a cluster
+description: Add a Kafka cluster over plaintext, TLS, mutual TLS, or SASL, and point it at a Schema Registry.
+---
+
+Each cluster is an entry under `clusters` in `config.yaml`. The key is the name the UI shows, and the UI lists clusters in file order. Restart klens after you change the file.
+
+## Add a plaintext cluster
+
+```yaml title="config.yaml"
+clusters:
+  local:
+    bootstrap_servers: [localhost:9092]
+```
+
+klens sends the client ID `klens-<cluster name>`, here `klens-local`. Set `client_id` to send another.
+
+## Connect over TLS
+
+TLS is on when the cluster has a `tls` block. An empty block verifies the broker certificate against the Mozilla root CAs that klens ships with.
+
+```yaml title="config.yaml"
+clusters:
+  prod:
+    bootstrap_servers: [broker-1:9093, broker-2:9093]
+    tls: {}
+```
+
+To trust your own CA in place of the Mozilla roots, set `ca_cert` to a PEM file.
+
+```yaml title="config.yaml"
+    tls:
+      ca_cert: /tls/ca.pem
+```
+
+For mutual TLS, add the client certificate and its key. Kafka then knows klens by the certificate.
+
+```yaml title="config.yaml"
+    tls:
+      ca_cert: /tls/ca.pem
+      client:
+        cert: /tls/client.pem
+        key: /tls/client.key
+```
+
+`insecure_skip_verify: true` turns off the certificate check. It lets anyone between klens and the brokers read and change the traffic, so use it only against a test cluster.
+
+## Authenticate with SASL
+
+SASL is on when the cluster has a `sasl` block. klens supports `PLAIN`, `SCRAM-SHA-256`, and `SCRAM-SHA-512`. With a `tls` block too, SASL runs over TLS.
+
+```yaml title="config.yaml"
+clusters:
+  prod:
+    bootstrap_servers: [broker-1:9093]
+    tls: {}
+    sasl:
+      mechanism: SCRAM-SHA-512
+      username: klens
+      password: {env: KAFKA_PASSWORD}
+```
+
+The password is a [secret](/docs/reference/configuration#secrets). Read it from an environment variable with `{env: NAME}` or from a file with `{file: PATH}`, so it stays out of the file.
+
+PLAIN sends the password as it is. Use it only with a `tls` block.
+
+## Add a Schema Registry
+
+klens reads a Confluent-compatible Schema Registry. With one, the record browser decodes framed Avro, JSON Schema, and Protobuf payloads to JSON, and the **Schema registry** page lists the subjects. Without one, that page is empty for the cluster.
+
+```yaml title="config.yaml"
+clusters:
+  prod:
+    bootstrap_servers: [broker-1:9093]
+    schema_registry:
+      url: https://registry.example.com
+      auth:
+        username: klens
+        password: {env: SCHEMA_REGISTRY_PASSWORD}
+```
+
+klens sends credentials over `http://` only to a loopback host such as `localhost`. A remote registry that needs credentials must use `https://`.
+
+## Give klens the Kafka permissions it needs
+
+klens reads Kafka as the user that `sasl` or the client certificate names. Kafka ACLs decide what that user may read, whatever the klens roles say. Some pages need permissions on the `Cluster` resource. [Kafka permissions for klens](/docs/reference/privileges#kafka-permissions-for-klens) lists them.
+
+## Check the connection
+
+Open the cluster in the UI. The cluster switcher shows a gray dot until klens has read the cluster, and a red one if the first read failed. A failure also shows **Cluster unreachable** at the top of each page with the error. `GET /api/clusters/<name>` returns the health of each background read with its last error.

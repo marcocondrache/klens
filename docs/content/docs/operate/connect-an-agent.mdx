@@ -1,0 +1,98 @@
+---
+title: Connect an AI agent
+description: Serve klens tools over MCP and add them to Claude Code, VS Code, or Cursor.
+---
+
+With an `mcp` block, klens serves tools to AI agents over the [Model Context Protocol](https://modelcontextprotocol.io) at `/mcp`. Most tools read the same in-memory projection as the UI, so an agent's questions cost Kafka nothing. The [MCP tools reference](/docs/reference/mcp-tools) lists the tools.
+
+This guide connects an agent on the machine that runs klens. To share the tools with a team, [put MCP behind a gateway](/docs/operate/put-mcp-behind-a-gateway).
+
+## Turn on MCP
+
+1. Add an `mcp` block. `bind` is required and must differ from the top-level `bind`. That port serves `/mcp` and nothing else.
+
+   ```yaml title="config.yaml"
+   mcp:
+     bind: 127.0.0.1:8090
+   ```
+
+2. Restart klens. The log names the address of `/mcp`, the privileges, and the clusters.
+
+Without `secret`, anyone who reaches `mcp.bind` can call the tools. `127.0.0.1` keeps the port on the local machine. `/mcp` refuses every request with an `Origin` header, so a web page cannot call it from a browser.
+
+`mcp` with `auth` requires `secret`, since `/mcp` never signs anyone in. See [put MCP behind a gateway](/docs/operate/put-mcp-behind-a-gateway).
+
+## Choose what agents may read
+
+The `mcp` block is the ceiling of every call. By default, an agent reads the catalog and the five read privileges: `records`, `topic_configs`, `broker_configs`, `schema_text`, and `acls`.
+
+Every result reaches the model provider of the agent, record payloads included. Set `privileges` and `clusters` to what you would share with that provider.
+
+```yaml title="config.yaml"
+mcp:
+  bind: 127.0.0.1:8090
+  privileges: [topic_configs, schema_text] # no record payloads or ACLs
+  clusters: [dev, staging]
+```
+
+`clusters` omitted reaches every cluster, and an empty list reaches none. `auth.roles` do not apply to `/mcp`.
+
+## Allow agents to make changes
+
+Three tools change Kafka: `klens_topic_create`, `klens_record_produce`, and `klens_schema_register`. Each needs its privilege in `privileges` and a cluster with `writable: true`.
+
+```yaml title="config.yaml"
+mcp:
+  bind: 127.0.0.1:8090
+  privileges: [topic_configs, create_topics, produce, register_schemas]
+  clusters: [dev, staging] # keep writes off production
+```
+
+The UI and MCP share the `writable` flag of each cluster. Name the clusters an agent may change in `clusters` before you add a write privilege.
+
+klens warns at startup in two cases:
+
+- `secret` is unset and `privileges` names a write. Anyone who reaches the port can then change a writable cluster.
+- `privileges` names `records` or `schema_text` beside a write. An agent that reads text a producer chose may follow instructions hidden in it, and a write tool gives it a way to copy data out.
+
+## Add klens to a client
+
+<Tabs items={['Claude Code', 'VS Code', 'Cursor']}>
+<Tab value="Claude Code">
+
+```sh
+claude mcp add --transport http klens http://localhost:8090/mcp
+```
+
+</Tab>
+<Tab value="VS Code">
+
+```json title=".vscode/mcp.json"
+{
+  "servers": {
+    "klens": { "type": "http", "url": "http://localhost:8090/mcp" }
+  }
+}
+```
+
+</Tab>
+<Tab value="Cursor">
+
+```json title=".cursor/mcp.json"
+{
+  "mcpServers": {
+    "klens": { "url": "http://localhost:8090/mcp" }
+  }
+}
+```
+
+</Tab>
+</Tabs>
+
+The commands and keys come from the documentation of each client. klens has not been tested with these clients.
+
+Ask the agent to call `klens_clusters` first. It lists the cluster names that the other tools take.
+
+## Limit the load agents put on Kafka
+
+Some tools read Kafka live or make klens read more often: the record tools, `klens_schema_get`, `klens_group_describe`, `klens_brokers_list` with `broker`, and the three write tools. Every client shares one budget for these, `tuning.mcp.live_calls_per_minute`, 30 by default. `tuning.mcp.max_concurrent_calls`, 16 by default, caps the calls served at once. A call past either limit fails with `RATE_LIMITED`.

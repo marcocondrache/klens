@@ -1,0 +1,82 @@
+---
+title: Require sign-in
+description: Put klens behind an OpenID Connect provider and give each group of users its own privileges.
+---
+
+By default, anyone who reaches klens can use it. An `auth` block makes every user sign in with an OpenID Connect provider first. klens uses the authorization code flow with PKCE.
+
+## Turn on sign-in
+
+1. In your identity provider, register a client for klens.
+   - Set the redirect URI to the address of klens followed by `/api/auth/callback`, such as `https://klens.example.com/api/auth/callback`.
+   - Make the provider add the groups of a user to the ID token, in a claim such as `groups`.
+2. Add the `auth` block to `config.yaml`.
+
+   ```yaml title="config.yaml"
+   auth:
+     oidc:
+       issuer: https://idp.example.com/realms/klens
+       client_id: klens
+       client_secret: {env: OIDC_CLIENT_SECRET}
+       redirect_uri: https://klens.example.com/api/auth/callback
+   ```
+
+3. Restart klens and open it. The login page shows **Continue with SSO**.
+
+`issuer` must match the issuer that the provider reports, character for character, including any trailing slash. When `redirect_uri` uses `https`, the session cookie is `Secure`.
+
+Without `roles`, every user who signs in holds every privilege on every cluster, as in an open deployment.
+
+## Grant privileges by group
+
+Add `roles` to decide what each group may do. A role is a list of [privileges](/docs/reference/privileges) and the groups that hold it. klens has no built-in roles.
+
+```yaml title="config.yaml"
+auth:
+  oidc:
+    # ...
+  roles:
+    viewer:
+      privileges: [] # the catalog only
+      bindings:
+        - groups: [klens-viewers]
+    operator:
+      privileges: [records, topic_configs, broker_configs, reset_offsets]
+      bindings:
+        - groups: [kafka-operators]
+          clusters: [staging, dev]
+    auditor:
+      privileges: [acls, schema_text]
+      bindings:
+        - groups: [security-team]
+```
+
+- A binding without `clusters` covers every cluster.
+- A user's privileges on a cluster are the union of the roles bound to the user's groups there. In this example, a user in `kafka-operators` and `security-team` holds both sets of privileges on `staging` and `dev`, and only the `auditor` privileges elsewhere.
+- A user who is in no bound group cannot sign in. The login page shows **Access denied**.
+- A cluster that none of a user's bindings cover is hidden from that user.
+
+Write privileges work only on clusters with `writable: true`. See [allow changes on a cluster](/docs/operate/allow-changes).
+
+If the provider names the claim differently, set `oidc.groups_claim`. To request other scopes, set `oidc.scopes`. The default is `[openid, email, profile]`.
+
+## Set how long sessions last
+
+A session ends when its ID token expires or after `auth.session.max_age`, whichever comes first. A sign-in must return from the provider within `auth.session.login_timeout`.
+
+```yaml title="config.yaml"
+auth:
+  session:
+    login_timeout: 10m
+    max_age: 12h
+```
+
+Sessions live in process memory. A restart ends every session, and users sign in again.
+
+## Troubleshoot sign-in
+
+| The login page shows | Cause |
+| --- | --- |
+| **Access denied** | The user's groups match no binding. Check the claim in the ID token and `oidc.groups_claim`. |
+| **Sign-in failed** | The provider returned an error, or the sign-in took longer than `login_timeout`. |
+| **Session not kept** | The provider signed the user in, but the session cookie did not reach klens. Check that a proxy passes cookies, and that the browser uses `https` when `redirect_uri` does. |

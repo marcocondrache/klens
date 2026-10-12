@@ -1,0 +1,48 @@
+---
+title: Access control
+description: How klens decides who may see a cluster, read its data, and change it, and why each check exists.
+---
+
+klens holds a Kafka user that can often read and change much more than any one person should. Access control in klens decides how much of that reach each person gets. It works in layers, and each layer answers one question.
+
+## Allowed hosts
+
+Without `auth`, klens has no idea who is asking, so its only protection is that it listens where only trusted people reach it. That is not enough on its own. A web page on any site can make the browser of a visitor send requests to `localhost:8080`. Browsers block the page from reading the answers, unless the attacker points their own domain at the address of klens. This is DNS rebinding. The browser then treats klens as part of the attacker's site and lets the page read clusters and send writes.
+
+`allowed_hosts` stops this. The `Host` header of a rebound request names the attacker's domain, and klens refuses any host not on the list. The check binds browsers only, since any other client can send any host. With `auth`, klens skips it, because the attacker's page never holds the session cookie.
+
+`/health` and `/ready` skip the check, because probes and load balancers name an IP address. `/mcp` skips it too, for the reasons in [the MCP ceiling](#the-mcp-ceiling).
+
+## Sign-in
+
+With `auth`, every request to the UI and `/api` needs a session from an OpenID Connect sign-in. The session cookie is `HttpOnly` and `SameSite=Lax`, and `Secure` when the redirect URI uses `https`. A session lasts until its ID token expires or `max_age` passes, and lives in process memory, so a restart signs everyone out. klens signs session cookies with a key it creates at startup, so no key needs to be configured or kept secret.
+
+## Roles and their scope
+
+A role is a name for a set of privileges. A binding gives the role to some groups, on some clusters or on all of them.
+
+klens adds up roles per cluster, not across clusters. A user's privileges on a cluster are the union of the roles bound to the user's groups whose bindings cover that cluster. An `operator` binding and an `auditor` binding on the same cluster give both sets of privileges. A wide `admin` binding scoped to `prod` adds nothing on `payments`. This keeps each binding readable on its own: to know what a group may do on a cluster, read the bindings that name that cluster.
+
+A cluster that none of a user's bindings cover does not exist for that user. The API answers `404 UNKNOWN_CLUSTER` for it, the same answer as for a name that is not configured, so nobody can probe for clusters they are not allowed to know about.
+
+The catalog needs no privilege. Everyone who sees a cluster sees its topics, groups, brokers, subjects, lag, and sizes, since an operator needs them to find anything. The privileges guard payloads, configs, schema text, ACLs, and every change.
+
+## Writable clusters
+
+A change needs two things: the privilege, and a cluster with `writable: true`. The flag belongs to the cluster, not to a role, because the question it answers is about the cluster. Should anyone ever change production from this UI? A role answers a different question, which is who may change the clusters that allow it. Keeping the two apart means a new role with broad privileges cannot open up a cluster that the operator kept read-only.
+
+klens checks the flag before the privilege, so a write on a read-only cluster always answers `READ_ONLY_CLUSTER`, whatever the user holds.
+
+## The MCP ceiling
+
+`/mcp` works differently, because an agent is not a person with a browser. It holds no session cookie, and klens does not implement the MCP authorization flow. Instead, the `mcp` block sets one fixed grant, the ceiling, that every MCP call holds. `auth.roles` do not apply.
+
+On its own, the ceiling suits one person on their own machine. To share the tools, a gateway signs people in and forwards their calls with `mcp.secret`. klens trusts the gateway for who the person is and which tools they may call, and trusts the ceiling for what any call may ever reach. A bug or a gap in the gateway rules can then never reach past the ceiling.
+
+`/mcp` listens on its own port, so a gateway can reach the tools without reaching the UI. It refuses requests from browsers, which send an `Origin` header, unless they carry the secret. That is why it can skip `allowed_hosts`: a page that rebinds a domain to the MCP port gets nothing back.
+
+The ceiling accepts three write privileges and refuses any other at startup. A later release of klens may add a new write tool, and an existing config must not switch it on by itself.
+
+## What klens cannot enforce
+
+klens acts with one Kafka user. Kafka ACLs on that user are the outer limit of anything klens can do, and klens roles only narrow it. Grant the Kafka user of klens what the most capable role needs, and no more.

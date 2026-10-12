@@ -1,0 +1,177 @@
+---
+title: Get started
+description: Run klens and a one-broker Kafka cluster on your machine, then create a topic, write records, and follow a consumer group.
+---
+
+In this tutorial, we run klens next to a local Kafka broker with Docker Compose. We create a topic, write records to it, find them, watch them arrive live, and move the offsets of a consumer group. It takes about fifteen minutes.
+
+You need Docker with Compose. Nothing else is installed on your machine.
+
+## Start Kafka and klens
+
+First, we create a folder with two files.
+
+1. Create a folder named `klens-tutorial` and open a terminal in it.
+2. Create `compose.yaml` with one Kafka broker and klens.
+
+   ```yaml title="compose.yaml"
+   services:
+     kafka:
+       image: apache/kafka:4.1.0
+       environment:
+         KAFKA_NODE_ID: 1
+         KAFKA_PROCESS_ROLES: broker,controller
+         KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+         KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+         KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+         KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+         KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+         KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+         KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+         KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+         KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+     klens:
+       image: ghcr.io/marcocondrache/klens:latest
+       ports:
+         - "8080:8080"
+       volumes:
+         - ./config.yaml:/config.yaml:ro
+       depends_on:
+         - kafka
+   ```
+
+3. Create `config.yaml`. It names one cluster, `local`, and lets klens change it.
+
+   ```yaml title="config.yaml"
+   clusters:
+     local:
+       bootstrap_servers: [kafka:9092]
+       writable: true
+   ```
+
+4. Start both containers.
+
+   ```sh
+   docker compose up -d
+   ```
+
+5. Open `http://localhost:8080` in a browser.
+
+The **Topics** page of the `local` cluster opens. It lists no topics yet, since **Show internal** is off. The dot next to `local` in the cluster switcher turns green once klens has read the cluster.
+
+<Callout type="warn">
+This setup has no sign-in, and `writable: true` lets anyone who reaches port 8080 change the cluster. Keep it on your own machine.
+</Callout>
+
+## Create a topic
+
+Now, we create a topic for orders.
+
+1. Select **Create topic**.
+2. Enter `orders` as the **Name** and `3` as the **Partitions**. Leave **Replication factor** empty.
+3. Select **Create topic**.
+
+klens opens the `orders` topic. The header shows **3 partitions** and **0 messages**, and the **Data** tab shows **No records**.
+
+## Write a record
+
+1. Select **Produce record**.
+2. Keep the **Key** as **Null**, and enter this **Value** as **Text**.
+
+   ```json
+   {"id": 1, "item": "book", "status": "placed"}
+   ```
+
+3. Select **Produce**.
+
+The record opens in a side sheet. It shows the partition and the offset that Kafka stored it at, and the value as formatted JSON. Close the sheet. The **Data** tab now lists the record.
+
+If klens shows `NotLeaderForPartition`, Kafka is still electing leaders for the new topic. Wait a second and select **Produce** again.
+
+## Write records from a producer
+
+klens is mostly for watching what other programs do. Next, we write records with the console producer that ships in the Kafka image.
+
+1. In the terminal, start the producer.
+
+   ```sh
+   docker compose exec kafka /opt/kafka/bin/kafka-console-producer.sh \
+     --bootstrap-server kafka:9092 --topic orders
+   ```
+
+2. Type these lines, pressing Enter after each one.
+
+   ```json
+   {"id": 2, "item": "lamp", "status": "placed"}
+   {"id": 3, "item": "book", "status": "shipped"}
+   ```
+
+3. Keep the producer running.
+
+In klens, the **Data** tab shows the new records at the top, and the header counts 3 messages.
+
+## Find a record
+
+1. Type `book` in **Search key or value…**.
+
+The list keeps the two records whose value holds `book`. klens runs the search on the server, so it works the same on a topic with millions of records.
+
+2. Clear the search box.
+
+## Follow the topic live
+
+1. Select **Live** in the mode switch. The dot on the button pulses, and the list shows **Waiting for records**.
+2. In the producer terminal, type another line.
+
+   ```json
+   {"id": 4, "item": "pen", "status": "placed"}
+   ```
+
+The record appears in klens as soon as Kafka stores it. The live tail shows only records that arrive after it starts.
+
+3. Stop the producer with Ctrl+C.
+
+## Read the topic with a consumer group
+
+Now, we read the topic with a consumer group and watch its lag.
+
+1. Start a console consumer in the group `tutorial`. It prints the four records.
+
+   ```sh
+   docker compose exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
+     --bootstrap-server kafka:9092 --topic orders \
+     --group tutorial --from-beginning
+   ```
+
+2. In klens, select **Consumer Groups** in the sidebar. The `tutorial` group is **Stable** with one member and a lag of 0.
+3. Stop the consumer with Ctrl+C. Within about ten seconds, the group becomes **Empty**.
+
+## Move the offsets of the group
+
+Last, we rewind the group so that it reads the topic again.
+
+1. Open the `tutorial` group and select **Reset offsets**.
+2. Keep **Every committed topic** and **Earliest offset**.
+
+The **Preview** lists each partition of `orders`, with the committed offset, the new offset, and the lag after the reset. The lag after the reset adds up to 4.
+
+3. Select **Reset offsets**.
+
+The **Offsets** tab now shows a total lag of 4. If you start the consumer again without `--from-beginning`, it prints all four records again.
+
+## Clean up
+
+Stop and remove both containers.
+
+```sh
+docker compose down
+```
+
+## Next steps
+
+You ran klens against a local broker, wrote and found records, followed a topic, and moved the offsets of a group. From here:
+
+- [Connect to a cluster](/docs/operate/connect-a-cluster) over TLS or SASL, with a Schema Registry.
+- [Require sign-in](/docs/operate/require-sign-in) before you share klens.
+- [Deploy klens on Kubernetes](/docs/operate/deploy-on-kubernetes).
+- Read [how klens reads Kafka](/docs/concepts/how-klens-reads-kafka) to see why its pages cost the brokers little.

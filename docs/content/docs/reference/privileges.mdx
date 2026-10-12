@@ -1,0 +1,74 @@
+---
+title: Privileges
+description: What each klens privilege opens in the UI, the API, and MCP, and the Kafka permissions klens itself needs.
+---
+
+A privilege lets a signed-in user, or an MCP call, read one kind of data or make one kind of change. [Roles](/docs/reference/configuration#roles) grant privileges, and [`mcp.privileges`](/docs/reference/configuration#mcp) sets the privileges of every MCP call. `config.yaml` names a privilege in snake case. `/api/whoami` returns it in screaming snake case, such as `TOPIC_CONFIGS`.
+
+## The catalog
+
+Everyone who reaches a cluster sees its catalog, with no privilege:
+
+- Clusters and their health.
+- Topics, with partitions, replicas, watermarks, record counts, sizes, and produce rates.
+- Consumer groups, with members, committed offsets, and lag.
+- Brokers and their log dirs.
+- Schema subjects, with versions, schema IDs, types, and compatibility levels.
+- Search across topics, groups, brokers, and subjects.
+
+## Read privileges
+
+| Privilege | Opens |
+| --- | --- |
+| `records` | The **Data** tab of a topic: record pages, single records, the NDJSON export, and the live tail. MCP `klens_records_read` and `klens_record_get`. |
+| `topic_configs` | The **Configuration** tab of a topic. The `configs` of MCP `klens_topic_describe`. |
+| `broker_configs` | The **Configuration** tab of a broker and the **Quotas** page. The `configs` of MCP `klens_brokers_list` with `broker`. |
+| `schema_text` | The text of a schema version. MCP `klens_schema_get`. |
+| `acls` | The **ACLs** page and the **Users** page of SCRAM credentials. MCP `klens_acls_list`. |
+
+## Write privileges
+
+A write privilege works only on a cluster with `writable: true`. On any other cluster, the UI hides the action and the API answers `403 READ_ONLY_CLUSTER`. The UI never offers a change to an internal topic.
+
+| Privilege | Allows | In the UI |
+| --- | --- | --- |
+| `create_topics` | Creating a topic. | **Create topic** on the topics page. |
+| `delete_topics` | Deleting a topic. | **Delete topic** on a topic. |
+| `alter_topic_configs` | Setting and removing topic config overrides. | Editing a row on the **Configuration** tab of a topic. |
+| `add_partitions` | Raising the partition count of a topic. | **Add partitions** on a topic. |
+| `delete_records` | Deleting the records before an offset. | **Delete records** on a topic or a record. |
+| `produce` | Writing a record. | **Produce record** on a topic, and **Duplicate this record** on a record. |
+| `reset_offsets` | Moving the committed offsets of a group, and planning a move. | **Reset offsets** on a group. |
+| `delete_offsets` | Deleting the offsets a group committed on a topic. | **Delete offsets** on a group. |
+| `delete_groups` | Deleting a group. | **Delete group** on a group. |
+| `register_schemas` | Registering a schema version. | **Register schema** and **Register a new version**. |
+| `set_compatibility` | Setting the compatibility level of a subject. | **Change compatibility** on a subject. |
+| `delete_schemas` | Deleting a schema version or a subject. | **Delete this version** on a subject. |
+| `create_acls` | Creating ACL bindings. | **Create ACL** on the ACLs page. |
+| `delete_acls` | Deleting an ACL binding. | **Delete** on an ACL row. |
+| `alter_quotas` | Setting and removing client quotas. | **Set quota**, **Edit quota**, and **Remove quota**. |
+| `set_scram_credentials` | Adding a SCRAM credential or replacing its password. | **Add user** and **Set password** on the users page. |
+| `delete_scram_credentials` | Deleting a SCRAM credential. | **Delete** on a user row. |
+| `alter_broker_configs` | Changing a broker config or the cluster-wide default. | Editing a row on the **Configuration** tab of a broker. |
+
+MCP accepts three write privileges: `create_topics`, `produce`, and `register_schemas`. Any other write privilege in `mcp.privileges` stops startup.
+
+## How klens combines roles
+
+A user's privileges on a cluster are the union of every role bound to one of the user's groups on that cluster. A binding without `clusters` covers every cluster. A user who reaches a cluster through no binding does not see it, and the API answers `404 UNKNOWN_CLUSTER` for it. [Access control](/docs/concepts/access-control) explains this model.
+
+Without `auth`, and with `auth` but no `roles`, every user holds every privilege on every cluster.
+
+## Kafka permissions for klens
+
+klens connects to Kafka as one Kafka user, set by `sasl` or a TLS client certificate. Kafka checks that user's ACLs on every request, whatever the klens role of the person who asked. Some pages need these Kafka permissions:
+
+| Page or data | Kafka operation | Resource | Without it |
+| --- | --- | --- | --- |
+| Sizes and log dirs | `Describe` | `Cluster` | Sizes stay blank. The rest of klens works. |
+| ACLs | `Describe` | `Cluster` | The page says that klens's Kafka user needs `DESCRIBE` on the cluster. |
+| SCRAM users | `Describe` | `Cluster` | The page says that klens's Kafka user needs `DESCRIBE` on the cluster. Kafka 2.7 or later is also required. |
+| Quotas | `DescribeConfigs` | `Cluster` | The page says that klens's Kafka user needs `DESCRIBE_CONFIGS` on the cluster. |
+| SCRAM credential changes | `Alter` | `Cluster` | Kafka refuses the change. |
+
+klens also reads topics, groups, and configs, and makes the changes its users ask for, with the same Kafka user. When Kafka refuses such a request, the UI shows the error and the API answers `REFUSED`, `ADMIN`, or `CLIENT`.

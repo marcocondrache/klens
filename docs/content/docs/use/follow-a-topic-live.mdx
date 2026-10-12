@@ -1,0 +1,24 @@
+---
+title: Follow a topic live
+description: Watch new records arrive in a topic as Kafka stores them.
+---
+
+The live tail shows records as producers write them, newest first. You need the `records` [privilege](/docs/reference/privileges).
+
+1. Open a topic and stay on the **Data** tab.
+2. Select **Live** in the mode switch. The dot on the button pulses while klens follows the topic.
+3. Optional: to narrow the tail, type in **Search key or value…**, or pick partitions in **Filter**. The schema picker applies too.
+4. To stop the list from moving, select **Pause**. Records written while the tail is paused do not appear later.
+5. To empty the list, select **Clear**.
+
+The tail starts at the current end of each partition, so it shows no older records. The list keeps the newest 1,000 records.
+
+## When records are skipped
+
+A tail shows at most 100 records in each update, and updates arrive at most every 250 milliseconds. When a topic produces faster, each update keeps the newest records and skips the rest. An amber **skipped** badge counts them. To read every record, use **Newest** or **Oldest**, or [download the records](/docs/use/find-records#download-the-records-that-match).
+
+`tuning.tail.batch_limit` and `tuning.tail.interval` set these limits. See [configuration](/docs/reference/configuration#tuningtail).
+
+## When the tail stops
+
+klens serves at most 32 tails at once across every cluster, set by `tuning.tail.max_live`. Past that, a new tail fails with `TOO_MANY_TAILS`. When a tail stops for this or any other error, the page shows **Live tail stopped**. Select **Retry** to connect again.

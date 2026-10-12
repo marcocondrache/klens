@@ -1,0 +1,36 @@
+---
+title: Obfuscation
+description: Why klens hides record fields on the server, why search sees the hidden form, and what the hash strategy protects.
+---
+
+Teams often need to debug a topic that carries card numbers, emails, or other data that most readers should never see. Obfuscation lets them read the topic and keep the private fields hidden.
+
+## Where the rules run
+
+klens applies the rules inside the record read, after it decodes a value and before it filters, renders, or sends the record anywhere. The UI, the NDJSON export, the live tail, and the MCP record tools all get the same hidden form. No client receives the original value and hides it, because a client that receives the value can show it.
+
+The rules apply to every session, including admins. A rule describes the data, not the reader. A per-role exception would turn every role change into a question about which data leaks.
+
+## Why search sees the hidden form
+
+A search on an obfuscated topic matches the hidden text, never the value behind it. That can look like a missing feature. It is deliberate. A search that matched the original value would answer yes or no about it, and a reader could find a hidden card number one character at a time: does it contain `4`, `41`, `411`, and so on. What a page can show is what a search can match.
+
+The `hash` strategy keeps search useful anyway. Equal values get equal tokens, so a reader who copies the token of one record can search for it and find every record with the same hidden value.
+
+## What a hash token protects
+
+A `hash` token is HMAC-SHA256 of the value, keyed with `obfuscation.secret`, and cut to 64 bits. Without the secret, nobody can compute the token of a guess, so nobody can try every card number and compare. Equal values still give equal tokens, so records stay correlatable. A new secret changes every token, which breaks that correlation across the change.
+
+## Field rules and pattern rules
+
+Field rules walk the JSON that a Schema Registry decode produces and hide the fields at their paths. They know exactly where the data is. A value that did not decode has no fields to walk, so by default klens masks it whole. Showing it would let a record written without a schema bypass every field rule.
+
+Pattern rules run regular expressions over the text of the key and the value. They are the only option for a topic without a schema, and they are weaker. A card number written with spaces, or an email in an unexpected encoding, passes the expression and shows as it is. Use field rules wherever a schema exists.
+
+## Strict at startup
+
+Two rules that can match the same topic stop startup, and so does a short secret or a bad expression. A config mistake that quietly picked one rule, or used a weak key, would hide less than the operator thinks. An error at startup is the safer failure.
+
+## What stays visible
+
+Offsets, timestamps, `sizeBytes`, and schema IDs keep describing the record as Kafka stores it. A record page reports `obfuscated: true` for a covered topic, and the UI shows the **Obfuscated** badge, so readers know the view is not the original data.

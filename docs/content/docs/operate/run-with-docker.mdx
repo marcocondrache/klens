@@ -1,0 +1,64 @@
+---
+title: Run klens with Docker
+description: Run the klens image with your config file and secrets.
+---
+
+klens ships as one image, `ghcr.io/marcocondrache/klens`, built for each release from `main`. The image runs the `klens` binary from `/`, so it loads `/config.yaml` by default.
+
+1. Pull the image.
+
+   ```sh
+   docker pull ghcr.io/marcocondrache/klens:latest
+   ```
+
+2. Copy [`config/clusters.example.yaml`](https://github.com/marcocondrache/klens/blob/main/config/clusters.example.yaml) to `config.yaml` and set your clusters. The [configuration reference](/docs/reference/configuration) lists every key.
+3. Run the image with the file mounted.
+
+   ```sh
+   docker run --rm -p 8080:8080 \
+     -v "$PWD/config.yaml:/config.yaml:ro" \
+     ghcr.io/marcocondrache/klens:latest
+   ```
+
+4. Open `http://localhost:8080`.
+
+## Pass secrets
+
+Keep passwords out of `config.yaml`. Name an environment variable in the config, and pass it to the container.
+
+```yaml title="config.yaml"
+clusters:
+  prod:
+    bootstrap_servers: [broker-1:9093]
+    tls: {}
+    sasl:
+      mechanism: SCRAM-SHA-512
+      username: klens
+      password: {env: KAFKA_PASSWORD}
+```
+
+```sh
+docker run --rm -p 8080:8080 \
+  -e KAFKA_PASSWORD \
+  -v "$PWD/config.yaml:/config.yaml:ro" \
+  ghcr.io/marcocondrache/klens:latest
+```
+
+A secret can also come from a mounted file with `{file: /run/secrets/kafka-password}`.
+
+## Reach klens by another name
+
+Without `auth`, klens answers only `localhost`, `127.0.0.1`, and `::1`. When people open klens at another address, such as `http://kafka-ui.internal:8080`, add the host to `allowed_hosts`. Otherwise klens answers `403 HOST_NOT_ALLOWED`.
+
+```yaml title="config.yaml"
+allowed_hosts: [localhost, 127.0.0.1, "::1", kafka-ui.internal]
+```
+
+[Access control](/docs/concepts/access-control#allowed-hosts) explains why klens checks the host.
+
+## Check the container
+
+- `GET /health` answers `204` once the process listens.
+- `GET /ready` answers `204` once klens has read every configured cluster, and `503` before.
+
+A config that klens cannot read stops the container at once. The log names the file, the key, the line, and the column.

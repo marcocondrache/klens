@@ -1,0 +1,47 @@
+---
+title: Reset a consumer group's offsets
+description: Move, delete, or clear the committed offsets of a consumer group.
+---
+
+Each change needs a cluster with `writable: true` and the [privilege](/docs/reference/privileges) the section names.
+
+Kafka changes the offsets only of a group without members. Before you reset offsets or delete a group, stop the consumers of the group. The group page shows the members on the **Members** tab.
+
+## Move the committed offsets
+
+You need `reset_offsets`.
+
+1. Open the group from **Consumer groups** and select **Reset offsets**.
+2. Pick a **Topic**, or keep **Every committed topic**.
+3. Optional: when you picked a topic, pick a **Partition**, or keep **All partitions**.
+4. In **Reset to**, pick the target:
+   - **Earliest offset** moves to the start of each partition.
+   - **Latest offset** moves to the end of each partition.
+   - **Offset** moves to the offset you enter.
+   - **Shift by** moves by the number of records you enter. A negative number moves back.
+   - **Date and time** moves to the first record at or after the time you enter.
+5. Check the **Preview**. It lists each partition with the committed offset, the new offset, and the lag after the reset. klens changes nothing until you confirm.
+6. Select **Reset offsets**.
+
+The consumers continue from the new offsets when they rejoin. While the group has members, **Reset offsets** stays disabled, and the preview still works.
+
+**Shift by** fails on a partition where the group has no committed offset. Pick a topic or a partition with committed offsets, or use another target.
+
+## Delete the offsets of one topic
+
+You need `delete_offsets`. Use this when a group stopped reading a topic and you want its old offsets gone.
+
+1. Open the group, open the **⋯** menu, and select **Delete offsets**.
+2. Pick the **Topic**. klens suggests a committed topic that no member consumes.
+3. Select **Delete offsets**.
+
+Kafka deletes the offsets only of a topic that no member of the group consumes. If the group reads the topic again, its consumers start from their `auto.offset.reset` policy.
+
+## Delete a group
+
+You need `delete_groups`.
+
+1. Open the group, open the **⋯** menu, and select **Delete group**.
+2. Type the group ID to confirm, and select **Delete group**.
+
+Kafka deletes the group and its committed offsets. You cannot undo the deletion.

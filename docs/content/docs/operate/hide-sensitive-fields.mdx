@@ -1,0 +1,91 @@
+---
+title: Hide sensitive fields in records
+description: Mask, hash, or drop card numbers, emails, and other private data before anyone sees a record.
+---
+
+An `obfuscation` block on a cluster hides parts of records from everyone who reads them, admins included. klens applies the rules on the server, before search filters run and before it sends a record to the UI, the export, or an MCP agent. [About obfuscation](/docs/concepts/obfuscation) explains the design.
+
+## Pick a strategy
+
+Each rule hides data with one of three strategies:
+
+| Strategy | Shows | Use it when |
+| --- | --- | --- |
+| `mask` | `***` | Nobody needs the value. |
+| `hash` | A token such as `kx:3f9a2c481b7d6e05` | People must see that two records hold the same value, without seeing the value. |
+| `drop` | Nothing. The field disappears. | The field should not appear at all. |
+
+## Hide fields of decoded values
+
+Field rules work on values that the Schema Registry decoded to JSON. They are the most precise kind of rule.
+
+1. Create a secret of at least 32 bytes for the `hash` strategy, and pass it to klens as an environment variable.
+
+   ```sh
+   export KLENS_OBFUSCATION_SECRET="$(openssl rand -base64 48)"
+   ```
+
+2. Add the rule under the cluster.
+
+   ```yaml title="config.yaml"
+   clusters:
+     prod:
+       bootstrap_servers: [broker-1:9093]
+       schema_registry: {url: https://registry.example.com}
+       obfuscation:
+         secret: {env: KLENS_OBFUSCATION_SECRET}
+         rules:
+           - topics: ["payments.*"]
+             fields:
+               - path: card.number
+                 strategy: hash
+               - path: card.cvv
+                 strategy: drop
+               - path: customer.email
+                 strategy: mask
+   ```
+
+3. Restart klens, and open a topic the rule covers. The record browser shows an **Obfuscated** badge.
+
+A topic pattern is an exact name, or a prefix that ends in `*`. A path is dotted. When a path meets an array, the rest of the path applies to each element, so `items.sku` covers the `sku` of every item.
+
+A value that did not decode has no fields to walk, so klens masks it whole. To show such values as they are, set `unparsed: allow` on the rule.
+
+## Hide whole keys, values, or headers
+
+For topics that klens shows as raw text, hide the whole key or value, and mask headers by name.
+
+```yaml title="config.yaml"
+        rules:
+          - topics: ["audit.raw"]
+            key: mask
+            value: hash
+            headers: ["x-user-id"]
+```
+
+## Hide text that matches a pattern
+
+For topics without a schema, pattern rules replace each match of a regular expression in the text of the key and the value. `drop` deletes the match.
+
+```yaml title="config.yaml"
+        rules:
+          - topics: ["app.logs"]
+            patterns:
+              - regex: '\b\d{13,19}\b'
+                strategy: hash
+              - regex: '[\w.+-]+@[\w-]+\.[\w.]+'
+                strategy: mask
+```
+
+A value written in a format the expression does not expect passes through unchanged. Use field rules wherever a schema exists.
+
+## Rules that stop startup
+
+- A topic that two rules can match, such as `payments.*` and `payments.cards`.
+- A `*` anywhere but at the end of a topic pattern.
+- A `secret` shorter than 32 bytes.
+- A regular expression that does not compile.
+
+## Rotate the secret
+
+A new `secret` changes every `hash` token. Tokens from before the change no longer match tokens after it, so links or notes that quote old tokens stop matching.

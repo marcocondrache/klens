@@ -1,0 +1,16 @@
+---
+title: Change broker configs
+description: Set a config on one broker or as the default for every broker, without a restart.
+---
+
+The **Configuration** tab of a broker needs the `broker_configs` [privilege](/docs/reference/privileges). Changes need `alter_broker_configs` on a cluster with `writable: true`.
+
+1. On **Brokers**, open a broker and select the **Configuration** tab.
+2. Select the row of the config. Rows with a lock icon are read-only.
+3. Enter the **Value**.
+4. In **Applies to**, pick **Broker N** to set the value on this broker, or **Every broker** to set the cluster default.
+5. Select **Save**.
+
+Kafka applies the new value without a restart. A broker that sets its own value keeps it when you change the cluster default.
+
+To return to the cluster default, open the row and select **Remove override**. To remove the cluster default, select **Remove default**.

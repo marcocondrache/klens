@@ -1,0 +1,39 @@
+---
+title: Reduce load on a large cluster
+description: Slow the background reads of klens when a cluster has thousands of topics or consumer groups.
+---
+
+klens reads each cluster in the background on fixed periods, set under `tuning.ingest`. The defaults suit most clusters. On a cluster with thousands of consumer groups, the number of requests grows with the number of groups, and longer periods lower the load. [How klens reads Kafka](/docs/concepts/how-klens-reads-kafka) explains what each lane reads.
+
+## Find the slow lanes
+
+`GET /api/clusters/<name>` returns each lane with `lastPollMs`, the duration of its last read, and `lastError`. A lane whose read takes close to its period runs almost without a pause.
+
+```sh
+curl -s http://localhost:8080/api/clusters/prod | jq '{topology, offsets, watermarks}'
+```
+
+## Lengthen the periods
+
+1. For a cluster with many groups, lengthen `slow_offset`, which reads the offsets of every group nobody is looking at, and `topology`, which lists every group and describes each active one.
+
+   ```yaml title="config.yaml"
+   tuning:
+     ingest:
+       topology: 30s
+       slow_offset: 60s
+   ```
+
+2. For a cluster with many partitions, lengthen `high_watermark`. Produce rates then update less often.
+3. Lengthen the periods of data that rarely changes, such as `config`, `acls`, `quotas`, and `scram_users`.
+4. Restart klens and check `lastPollMs` again.
+
+A group that someone opens in the UI, or that an agent describes, still updates every `fast_offset` for `interest_ttl`, so a longer `slow_offset` does not slow the group page.
+
+## Limit what readers can ask for
+
+- `tuning.records.max_limit` caps the records one page may ask for.
+- `tuning.tail.max_live` caps the live tails across every cluster.
+- `tuning.mcp.live_calls_per_minute` caps the MCP calls that read Kafka live.
+
+The [configuration reference](/docs/reference/configuration#tuning) lists every key with its default.

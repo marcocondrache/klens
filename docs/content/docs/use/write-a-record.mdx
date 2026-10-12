@@ -1,0 +1,36 @@
+---
+title: Write a record to a topic
+description: Produce one record from the UI, as text, bytes, or JSON encoded with a registry schema.
+---
+
+To write records, the cluster needs `writable: true`, and you need the `produce` [privilege](/docs/reference/privileges). klens never writes to an internal topic.
+
+## Produce a record
+
+1. Open a topic and select **Produce record**.
+2. Optional: pick a **Partition**. With **Any**, the producer picks one, by the hash of the key when there is a key.
+3. For the **Key**, pick an encoding and enter the key. The key is **Null** by default, which writes a record without a key.
+4. For the **Value**, pick an encoding and enter the value.
+5. Optional: select **Add header** and enter a **Name** and a **Value** for each header.
+6. Select **Produce**.
+
+The encodings are these:
+
+| Encoding | Writes |
+| --- | --- |
+| **Text** | The text as UTF-8. |
+| **Base64** | The bytes the base64 text encodes. |
+| **Schema** | The JSON you enter, encoded with the schema you pick. Shown when the cluster has a schema registry. |
+| **Null** | No key, or a tombstone value. A tombstone deletes the key from a compacted topic. |
+
+When you have the `records` privilege, the new record opens after Kafka stores it. Otherwise, the sheet shows the partition and the offset.
+
+If the JSON does not fit the schema, klens refuses the record with `UNENCODABLE` and writes nothing.
+
+## Write a copy of a record
+
+1. Open a record on the **Data** tab.
+2. Select **Duplicate this record**. The **Produce record** sheet opens with the partition, key, value, and headers of the record.
+3. Change what you need, and select **Produce**.
+
+**Duplicate this record** appears only when klens shows the exact bytes of the record. It does not appear for a value that klens decoded or obfuscated.

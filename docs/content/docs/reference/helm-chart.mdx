@@ -1,0 +1,136 @@
+---
+title: Helm chart
+description: The values of the klens Helm chart and the rules it checks at render time.
+---
+
+The chart is published to `oci://ghcr.io/marcocondrache/charts/klens` and lives in [`charts/klens`](https://github.com/marcocondrache/klens/tree/main/charts/klens). It needs Kubernetes 1.25 or later. [Deploy klens on Kubernetes](/docs/operate/deploy-on-kubernetes) walks through an install.
+
+## Resources
+
+The chart creates these resources:
+
+| Resource | Created when |
+| --- | --- |
+| Deployment | Always. |
+| Service `<fullname>` | Always. It serves the UI port. |
+| Service `<fullname>-mcp` | `config.mcp` is set, or `mcp.enabled` is `true`. It serves only `/mcp`. |
+| ConfigMap | `existingConfigMap` is empty. It holds `config` as `config.yaml`. |
+| Secret | `secret.existingSecret` is empty and `secret.stringData` has keys. |
+| ServiceAccount | `serviceAccount.create` is `true`. |
+| Ingress | `ingress.enabled` is `true`. |
+| HTTPRoute | `httpRoute.enabled` is `true`. |
+| Test pod | `helm test` runs. It requests `/health`. |
+
+The Deployment sets `KLENS_CONFIG_PATH` to `/config/config.yaml` and mounts the ConfigMap there.
+
+## Render checks
+
+When the chart owns the ConfigMap, `helm install` and `helm template` fail in these cases:
+
+- `config.bind` is empty.
+- `config.bind` or `config.mcp.bind` is a loopback address, which the Service cannot reach.
+- The port in `config.bind` differs from `service.port`.
+- The port in `config.mcp.bind` differs from `mcp.service.port`.
+- `mcp.enabled` is `true` and `config.mcp` is not set.
+
+The chart does not check the rest of `config`, and it checks nothing in an `existingConfigMap`. klens checks the file at startup.
+
+## Values
+
+### Image
+
+| Value | Default | Description |
+| --- | --- | --- |
+| `image.repository` | `ghcr.io/marcocondrache/klens` | The image repository. |
+| `image.tag` | `""` | The image tag. Empty uses the chart `appVersion`. |
+| `image.digest` | `""` | A digest, `sha256:…`, that pins the image. It overrides `image.tag`. |
+| `image.pullPolicy` | `IfNotPresent` | The image pull policy. |
+| `imagePullSecrets` | `[]` | The pull secrets for a private registry. |
+| `nameOverride` | `""` | Replaces the chart name in resource names. |
+| `fullnameOverride` | `""` | Replaces the full release name. |
+| `replicaCount` | `1` | The number of pods. Sessions live in process memory, so a user who reaches another pod signs in again. |
+
+### Configuration
+
+| Value | Default | Description |
+| --- | --- | --- |
+| `config` | `{bind: 0.0.0.0:8080, log_level: info, clusters: {}}` | The klens [configuration](/docs/reference/configuration) as a map. The chart writes it to `config.yaml`. |
+| `existingConfigMap` | `""` | An existing ConfigMap with a `config.yaml` key, used in place of `config`. |
+| `env` | `{}` | Extra environment variables as a map. Templated. |
+| `extraEnv` | `[]` | Extra environment variables as a list. Templated. |
+| `envFrom` | `[]` | Extra `envFrom` sources. Templated. |
+| `secret.existingSecret` | `""` | An existing Secret whose keys become environment variables. |
+| `secret.stringData` | `{}` | Keys for a Secret the chart creates. Ignored when `secret.existingSecret` is set. |
+
+A secret in `config` reads one of these environment variables with `{env: NAME}`.
+
+### Services and routes
+
+| Value | Default | Description |
+| --- | --- | --- |
+| `service.type` | `ClusterIP` | The type of the UI Service. |
+| `service.port` | `8080` | The port of the UI Service. Must match the port in `config.bind`. |
+| `service.annotations` | `{}` | Annotations on the UI Service. |
+| `mcp.enabled` | `false` | Create the MCP Service for an `existingConfigMap` that has an `mcp` block. With the inline `config`, a `config.mcp` block creates it. |
+| `mcp.service.type` | `ClusterIP` | The type of the MCP Service. It is separate from `service.type`, so a public UI does not make the tools public. |
+| `mcp.service.port` | `8090` | The port of the MCP Service. Must match the port in `config.mcp.bind`. |
+| `mcp.service.annotations` | `{}` | Annotations on the MCP Service. |
+| `ingress.enabled` | `false` | Create an Ingress for the UI. |
+| `ingress.className` | `""` | The IngressClass name. |
+| `ingress.annotations` | `{}` | Annotations on the Ingress. |
+| `ingress.hosts` | One host, `klens.example.com`, with path `/` of type `Prefix` | The hosts and their paths. |
+| `ingress.tls` | `[]` | The TLS settings of the Ingress. |
+| `httpRoute.enabled` | `false` | Create a Gateway API HTTPRoute for the UI. |
+| `httpRoute.apiVersion` | `""` | The HTTPRoute API version. Empty uses `gateway.networking.k8s.io/v1`. |
+| `httpRoute.kind` | `""` | The route kind. Empty uses `HTTPRoute`. |
+| `httpRoute.annotations` | `{}` | Annotations on the HTTPRoute. |
+| `httpRoute.labels` | `{}` | Labels on the HTTPRoute. |
+| `httpRoute.parentRefs` | `[]` | The Gateways the route attaches to. |
+| `httpRoute.hostnames` | `[]` | The hostnames the route matches. Templated. |
+| `httpRoute.additionalRules` | `[]` | Rules placed before the default rule. Templated. |
+| `httpRoute.filters` | `[]` | Filters on the default rule. |
+| `httpRoute.matches` | Path prefix `/` | The matches of the default rule. |
+| `httpRoute.httpsRedirect` | `false` | Answer with a 301 redirect to HTTPS in place of the backend. |
+
+Route the path prefix `/` to klens, so that the UI routes and `/api` both reach the pod. Without `config.auth`, list every Ingress host and HTTPRoute hostname in `config.allowed_hosts`.
+
+### Probes
+
+| Value | Default | Description |
+| --- | --- | --- |
+| `startupProbe` | `GET /health`, every 5s, 36 failures | Passes once the process listens. |
+| `livenessProbe` | `GET /health`, every 20s | Restarts a process that stops answering. |
+| `readinessProbe` | `GET /ready`, every 10s | Passes once klens has read the topology of every configured cluster. |
+
+### Pod
+
+| Value | Default | Description |
+| --- | --- | --- |
+| `serviceAccount.create` | `true` | Create a ServiceAccount. |
+| `serviceAccount.automount` | `false` | Mount the API token. klens does not call the Kubernetes API. |
+| `serviceAccount.annotations` | `{}` | Annotations on the ServiceAccount. |
+| `serviceAccount.name` | `""` | The ServiceAccount name. Empty uses the full name. |
+| `deploymentAnnotations` | `{}` | Annotations on the Deployment. |
+| `podAnnotations` | `{}` | Annotations on the pod. Templated. |
+| `podLabels` | `{}` | Labels on the pod. Templated. |
+| `podSecurityContext` | Non-root user and group 65532, `RuntimeDefault` seccomp | The pod security context. |
+| `securityContext` | No privilege escalation, read-only root file system, all capabilities dropped | The container security context. |
+| `resources` | `{}` | Resource requests and limits. |
+| `volumes` | `[]` | Extra volumes, such as a Secret of TLS PEM files. |
+| `volumeMounts` | `[]` | Extra volume mounts on the container. |
+| `nodeSelector` | `{}` | The node selector. Templated. |
+| `tolerations` | `[]` | Tolerations. Templated. |
+| `affinity` | `{}` | Affinity rules. Templated. |
+| `topologySpreadConstraints` | `[]` | Topology spread constraints. Templated. |
+| `priorityClassName` | `""` | The PriorityClass. Empty uses the cluster default. |
+| `terminationGracePeriodSeconds` | `30` | The grace period for shutdown. |
+
+### Tests
+
+| Value | Default | Description |
+| --- | --- | --- |
+| `tests.image.repository` | `mirror.gcr.io/curlimages/curl` | The image of the `helm test` pod. |
+| `tests.image.tag` | `8.22.0@sha256:…` | The tag and digest of that image. |
+| `tests.image.pullPolicy` | `IfNotPresent` | The pull policy of that image. |
+
+klens serves no `/metrics` route, and the chart creates no ServiceMonitor.

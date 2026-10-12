@@ -1,0 +1,43 @@
+---
+title: Register and change schemas
+description: Register a schema, set the compatibility level of a subject, and delete schema versions.
+---
+
+The **Schema registry** page lists the subjects of the cluster's [Schema Registry](/docs/operate/connect-a-cluster#add-a-schema-registry). Each change needs a cluster with `writable: true` and the [privilege](/docs/reference/privileges) the section names. To read the text of a schema, you need `schema_text`.
+
+## Find a subject by schema ID
+
+Type a schema ID in **Search subjects and schema IDs…**. The list keeps the subject that holds that ID, and opening it shows the version with that ID. A record also links to its schema from the **Schema** field of its side sheet.
+
+## Register a schema
+
+You need `register_schemas`.
+
+1. On **Schema registry**, select **Register schema**.
+2. Enter the **Subject**, such as `orders-value`.
+3. Pick the type: **Avro**, **JSON**, or **Protobuf**.
+4. Enter the **Schema**.
+5. Optional: if the schema imports others, select **Add reference** and enter the name it imports, the **Subject**, and the **Version** of each.
+6. Select **Register**.
+
+To register a new version of a subject, open the subject and select **Register a new version**. The sheet opens with the schema of the version you were reading. The registry checks the schema against the compatibility level of the subject. When the subject already holds the same schema, the registry keeps its version and registers nothing.
+
+## Set the compatibility level
+
+You need `set_compatibility`.
+
+1. Open the subject and select **Change compatibility**.
+2. Pick the **Level** and select **Save**.
+
+The registry checks each new schema against this level. Schemas it already holds stay as they are.
+
+## Delete a schema version
+
+You need `delete_schemas`.
+
+1. Open the subject at the version, and select **Delete this version**.
+2. Pick **Version N** or **All versions**.
+3. Optional: turn on **Delete permanently**.
+4. Type the subject to confirm, and select **Delete**.
+
+A soft delete removes the version from the subject, and the registry keeps its schema ID, so records that carry the ID still decode. A permanent delete removes the schema ID too, and records that carry it no longer decode.

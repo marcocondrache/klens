@@ -1,0 +1,58 @@
+---
+title: Create and change topics
+description: Create a topic, edit its configs, add partitions, delete records, and delete a topic.
+---
+
+Each change needs a cluster with `writable: true` and the [privilege](/docs/reference/privileges) the section names. The UI shows an action only when you hold its privilege, and never on an internal topic.
+
+## Create a topic
+
+You need `create_topics`.
+
+1. On **Topics**, select **Create topic**.
+2. Enter the **Name**.
+3. Optional: enter **Partitions** and **Replication factor**. An empty field uses the broker default.
+4. Optional: to set configs, select **Add config** and enter a name, such as `retention.ms`, and a value.
+5. Select **Create topic**. klens opens the new topic.
+
+## Change a topic config
+
+You need `topic_configs` to see the configs and `alter_topic_configs` to change them.
+
+1. Open a topic and select the **Configuration** tab. To see only the configs that differ from their default, turn on **Overrides only**.
+2. Select the row of the config.
+3. Enter the **Value** and select **Save**. The topic now overrides the broker value.
+
+To follow the broker value again, open the row and select **Remove override**. A sensitive value starts empty and shows **Hidden**. Rows with a lock icon are read-only.
+
+## Add partitions
+
+You need `add_partitions`.
+
+1. Open a topic, open the **⋯** menu, and select **Add partitions**.
+2. Enter the new **Partition count**. It must be larger than the current count.
+3. Select **Add partitions**.
+
+Kafka cannot remove partitions later. A record with a key may land in another partition than earlier records with the same key, so consumers that rely on key order can see records out of order.
+
+## Delete records
+
+You need `delete_records`. Kafka deletes records by moving the start offset of a partition forward.
+
+1. Open a topic, open the **⋯** menu, and select **Delete records**.
+2. Pick a **Partition**, or keep **All partitions**.
+3. Optional: enter **Before offset**. Without it, klens deletes every record up to the end of the log.
+4. Type the topic name to confirm, and select **Delete records**.
+
+To delete the records before a given record, open the record and select **Delete the records before this one**. The dialog opens with its partition and offset.
+
+Kafka keeps the records of a compacted topic. To delete records from one, add `delete` to its `cleanup.policy` first.
+
+## Delete a topic
+
+You need `delete_topics`.
+
+1. Open a topic, open the **⋯** menu, and select **Delete topic**.
+2. Type the topic name to confirm, and select **Delete topic**.
+
+Kafka deletes the topic and every record in it. You cannot undo the deletion.
