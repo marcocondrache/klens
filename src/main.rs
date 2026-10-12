@@ -1,5 +1,5 @@
 use anyhow::Context;
-use klens::app::{AppState, AuthState, Limits, router};
+use klens::app::{AppState, AuthState, Limits, mcp_router, router};
 use klens::config::Config;
 use klens::kafka::Clusters;
 use klens::kafka::ingest::Ingest;
@@ -56,12 +56,14 @@ async fn main() -> anyhow::Result<()> {
             tracing::info!(
                 ?privileges,
                 %clusters,
+                bind = %mcp.bind,
                 "serving MCP tools at /mcp to calls that carry the gateway's secret"
             );
         } else {
             tracing::info!(
                 ?privileges,
                 %clusters,
+                bind = %mcp.bind,
                 "serving MCP tools at /mcp to anyone who reaches klens"
             );
         }
@@ -73,9 +75,16 @@ async fn main() -> anyhow::Result<()> {
     let _ingest = Ingest::start(&clusters, &config.tuning.ingest);
     let state = AppState::new(clusters, auth, Limits::new(&config.tuning));
 
-    klens::serve([Listener {
-        router: router(state, &config.allowed_hosts, config.mcp.as_ref()),
+    let mut listeners = vec![Listener {
+        router: router(state.clone(), &config.allowed_hosts),
         bind: config.bind,
-    }])
-    .await
+    }];
+    if let Some(mcp) = &config.mcp {
+        listeners.push(Listener {
+            router: mcp_router(state, &config.allowed_hosts, mcp),
+            bind: mcp.bind,
+        });
+    }
+
+    klens::serve(listeners).await
 }

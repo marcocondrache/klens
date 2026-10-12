@@ -170,7 +170,7 @@ impl Browser {
             Limits::new(&Tuning::default()),
         );
         Self {
-            app: crate::app::router(state, &Config::default().allowed_hosts, None),
+            app: crate::app::router(state, &Config::default().allowed_hosts),
             jar: BTreeMap::new(),
         }
     }

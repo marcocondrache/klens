@@ -14,7 +14,7 @@ async fn a_2025_client_initializes_and_calls_with_no_session() {
             "clientInfo": { "name": "probe", "version": "1.0.0" },
         },
     });
-    let response = app.send_through_router(mcp_request(&initialize)).await;
+    let response = app.send_to_mcp(mcp_request(&initialize)).await;
     assert_eq!(response.status(), StatusCode::OK);
     assert!(response.headers().get("mcp-session-id").is_none());
     let body = to_bytes(response.into_body(), usize::MAX)
@@ -30,7 +30,7 @@ async fn a_2025_client_initializes_and_calls_with_no_session() {
     assert!(instructions.len() < 2048, "{}", instructions.len());
 
     let notified = app
-        .send_through_router(mcp_request(
+        .send_to_mcp(mcp_request(
             &json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
         ))
         .await;
@@ -45,7 +45,7 @@ async fn a_2026_client_discovers_and_calls_with_no_handshake() {
     let app = TestApp::local().await.serving_mcp(Mcp::default());
 
     let discovered = app
-        .reply_through_router(request_2026(
+        .reply_to_mcp(request_2026(
             "server/discover",
             None,
             json!({ "_meta": meta_2026() }),
@@ -71,7 +71,7 @@ async fn a_2026_client_discovers_and_calls_with_no_handshake() {
         "_meta": meta_2026(),
     });
     let found = app
-        .reply_through_router(request_2026("tools/call", Some("klens_search"), params))
+        .reply_to_mcp(request_2026("tools/call", Some("klens_search"), params))
         .await
         .ok();
     let found = structured(&found["result"]);
@@ -99,7 +99,7 @@ async fn a_foreign_host_or_any_browser_origin_is_refused() {
                 .insert(header::ORIGIN, origin.parse().expect("origin"));
         }
 
-        let response = app.send_through_router(request).await;
+        let response = app.send_to_mcp(request).await;
 
         assert_eq!(
             response.status(),
@@ -113,7 +113,7 @@ async fn a_foreign_host_or_any_browser_origin_is_refused() {
 async fn mcp_answers_the_configured_hosts_and_no_others() {
     let app = TestApp::local().await;
     let hosts: Vec<AllowedHost> = yaml("[klens.internal]");
-    let served = router(app.state().clone(), &hosts, Some(&Mcp::default()));
+    let served = mcp_router(app.state().clone(), &hosts, &Mcp::default());
 
     for (host, status, code) in [
         ("klens.internal", StatusCode::OK, Value::Null),
@@ -148,7 +148,7 @@ async fn a_body_past_the_limit_is_refused_before_any_tool_runs() {
         json!({ "query": "o".repeat(MAX_REQUEST_BYTES) }),
     );
 
-    let response = app.send_through_router(mcp_request(&body)).await;
+    let response = app.send_to_mcp(mcp_request(&body)).await;
 
     assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
 }
@@ -196,7 +196,7 @@ async fn only_post_is_served() {
             .body(Body::empty())
             .expect("request");
 
-        let response = app.send_through_router(request).await;
+        let response = app.send_to_mcp(request).await;
 
         assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
         assert_eq!(response.headers()[header::ALLOW], "POST");
@@ -204,8 +204,8 @@ async fn only_post_is_served() {
 }
 
 #[tokio::test]
-async fn without_an_mcp_block_only_the_ui_answers_at_mcp() {
-    let app = TestApp::local().await;
+async fn the_ui_router_never_answers_at_mcp() {
+    let app = TestApp::local().await.serving_mcp(Mcp::default());
 
     let response = app
         .send_through_router(mcp_request(&call_body("klens_clusters", json!({}))))
@@ -228,7 +228,7 @@ async fn with_auth_on_and_no_secret_mcp_answers_no_call() {
         .serving_mcp(Mcp::default());
 
     let reply = app
-        .reply_through_router(mcp_request(&call_body("klens_clusters", json!({}))))
+        .reply_to_mcp(mcp_request(&call_body("klens_clusters", json!({}))))
         .await;
 
     assert_eq!(reply.status, StatusCode::FORBIDDEN);
@@ -258,13 +258,13 @@ async fn with_a_secret_only_a_call_that_carries_it_reaches_a_tool() {
         vec![&format!("Basic {GATEWAY_SECRET}")],
         vec![&bearer, &bearer],
     ] {
-        let reply = app.reply_through_router(carrying(&authorization)).await;
+        let reply = app.reply_to_mcp(carrying(&authorization)).await;
 
         assert_eq!(reply.status, StatusCode::FORBIDDEN, "{authorization:?}");
         assert_eq!(reply.body["code"], "NOT_FROM_GATEWAY", "{authorization:?}");
     }
     let called = app
-        .reply_through_router(carrying(&[&format!("bearer  {GATEWAY_SECRET}")]))
+        .reply_to_mcp(carrying(&[&format!("bearer  {GATEWAY_SECRET}")]))
         .await
         .ok();
     assert_eq!(
@@ -283,7 +283,7 @@ async fn with_a_secret_any_host_and_browser_origin_pass_through_the_gateway() {
     headers.insert(header::HOST, "klens.example.com".parse().expect("host"));
     headers.insert(header::ORIGIN, "https://claude.ai".parse().expect("origin"));
 
-    let response = app.send_through_router(request).await;
+    let response = app.send_to_mcp(request).await;
 
     assert_eq!(response.status(), StatusCode::OK);
 }

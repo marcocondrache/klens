@@ -74,7 +74,8 @@ fn mcp_privileges_take_exactly_the_privileges_the_tools_need() {
     for &privilege in Privilege::VARIANTS {
         let named = json!(privilege);
         let name = named.as_str().expect("a name").to_lowercase();
-        let parsed = crate::config::parse::<Mcp>(&format!("privileges: [{name}]"));
+        let parsed =
+            crate::config::parse::<Mcp>(&format!("{{bind: 127.0.0.1:0, privileges: [{name}]}}"));
         assert_eq!(parsed.is_ok(), needed.contains(&privilege), "{name}");
     }
 }
@@ -118,7 +119,7 @@ async fn tools_list_leaves_out_a_tool_the_caller_may_use_on_no_cluster() {
         listed(app.with_access(access([viewer().on(&["local"]), reader().on(&["prod"])]))).await;
     let reading_hidden = listed(
         app.with_access(access([viewer().on(&["local"]), reader().on(&["prod"])]))
-            .serving_mcp(yaml("{clusters: [local]}")),
+            .serving_mcp(yaml("{bind: 127.0.0.1:0, clusters: [local]}")),
     )
     .await;
 
@@ -184,10 +185,10 @@ async fn a_tool_that_changes_kafka_is_offered_only_where_the_cluster_accepts_cha
 async fn a_ceiling_without_records_hides_both_record_tools_in_either_protocol() {
     let app = TestApp::local()
         .await
-        .serving_mcp(yaml("{privileges: [acls]}"));
+        .serving_mcp(yaml("{bind: 127.0.0.1:0, privileges: [acls]}"));
 
     let listed = app
-        .reply_through_router(request_2026(
+        .reply_to_mcp(request_2026(
             "tools/list",
             None,
             json!({ "_meta": meta_2026() }),
@@ -219,7 +220,9 @@ async fn the_ceiling_holds_through_the_router() {
     let app = TestApp::of([FakeCluster::local(), FakeCluster::named("other")])
         .ingested()
         .await
-        .serving_mcp(yaml("{privileges: [acls], clusters: [other]}"));
+        .serving_mcp(yaml(
+            "{bind: 127.0.0.1:0, privileges: [acls], clusters: [other]}",
+        ));
 
     let explained = structured(&call_through_router(&app, "klens_access_explain", json!({})).await);
 
@@ -244,7 +247,7 @@ async fn with_auth_on_a_call_from_the_gateway_holds_the_ceiling_whatever_its_gro
         .serving_mcp(mcp);
     let call = |tool: &str, arguments: Value| {
         let request = from_gateway(mcp_request(&call_body(tool, arguments)));
-        async { app.reply_through_router(request).await.ok()["result"].take() }
+        async { app.reply_to_mcp(request).await.ok()["result"].take() }
     };
 
     let explained = structured(&call("klens_access_explain", json!({})).await);

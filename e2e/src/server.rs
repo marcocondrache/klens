@@ -53,7 +53,7 @@ impl Klens {
         let ingest = Ingest::start(&clusters, &config.tuning.ingest);
         let state = AppState::new(clusters, AuthState::disabled(), Limits::new(&config.tuning));
         let server = tokio::spawn(klens::serve([Listener {
-            router: router(state, &config.allowed_hosts, config.mcp.as_ref()),
+            router: router(state, &config.allowed_hosts),
             bind: config.bind,
         }]));
 

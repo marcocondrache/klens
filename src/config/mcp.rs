@@ -1,3 +1,7 @@
+#[cfg(test)]
+use std::net::Ipv4Addr;
+use std::net::SocketAddr;
+
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer};
 
@@ -11,14 +15,14 @@ const READS: [Privilege; 5] = [
     Privilege::Acls,
 ];
 
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Mcp {
     /// What every MCP call may read or change beyond the catalog, whoever
     /// makes it. Omitted, it holds the five reads, so MCP changes nothing
     /// until it names `create_topics`, `produce` or `register_schemas`.
     /// Required with `auth`.
-    #[serde(deserialize_with = "tool_privileges")]
+    #[serde(default, deserialize_with = "tool_privileges")]
     privileges: Option<Vec<Privilege>>,
     /// Omitted, MCP reaches every cluster. A list, even an empty one, limits
     /// it to those clusters.
@@ -28,6 +32,9 @@ pub struct Mcp {
     /// `/mcp` answers only calls that carry it, from any host or browser
     /// origin, since the gateway forwards both. Required with `auth`.
     pub secret: Option<KeyMaterial>,
+    /// `/mcp` answers here and never on the UI's `bind`, so a gateway can
+    /// reach the tools without reaching the UI.
+    pub bind: SocketAddr,
 }
 
 impl Mcp {
@@ -55,6 +62,18 @@ impl Mcp {
         self.privileges()
             .iter()
             .any(|privilege| matches!(privilege, Privilege::Records | Privilege::SchemaText))
+    }
+}
+
+#[cfg(test)]
+impl Default for Mcp {
+    fn default() -> Self {
+        Self {
+            privileges: None,
+            clusters: None,
+            secret: None,
+            bind: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
+        }
     }
 }
 
@@ -92,8 +111,16 @@ mod tests {
     use crate::testing::{yaml, yaml_err};
 
     #[test]
-    fn an_empty_block_serves_every_read_on_every_cluster() {
-        let mcp: Mcp = yaml("{}");
+    fn a_block_without_bind_stops_the_load() {
+        assert_eq!(
+            yaml_err::<Mcp>("{}"),
+            r#"missing configuration field "value.bind""#
+        );
+    }
+
+    #[test]
+    fn a_block_with_only_bind_serves_every_read_on_every_cluster() {
+        let mcp: Mcp = yaml("bind: 0.0.0.0:8090");
 
         assert_eq!(mcp.privileges(), READS);
         assert_eq!(mcp.clusters, None);
@@ -102,8 +129,9 @@ mod tests {
 
     #[test]
     fn reads_privileges_and_clusters() {
-        let some: Mcp = yaml("{privileges: [records], clusters: [dev, staging]}");
-        let none: Mcp = yaml("{privileges: [], clusters: []}");
+        let some: Mcp =
+            yaml("{bind: 0.0.0.0:8090, privileges: [records], clusters: [dev, staging]}");
+        let none: Mcp = yaml("{bind: 0.0.0.0:8090, privileges: [], clusters: []}");
 
         assert_eq!(some.privileges(), [Privilege::Records]);
         assert_eq!(
@@ -116,8 +144,9 @@ mod tests {
 
     #[test]
     fn reads_the_three_write_privileges_beside_the_reads() {
-        let mcp: Mcp =
-            yaml("privileges: [topic_configs, create_topics, produce, register_schemas]");
+        let mcp: Mcp = yaml(
+            "{bind: 0.0.0.0:8090, privileges: [topic_configs, create_topics, produce, register_schemas]}",
+        );
 
         assert_eq!(
             mcp.privileges(),
@@ -139,7 +168,9 @@ mod tests {
             "set_scram_credentials",
             "set_compatibility",
         ] {
-            let error = yaml_err::<Mcp>(&format!("privileges: [produce, {privilege}]"));
+            let error = yaml_err::<Mcp>(&format!(
+                "{{bind: 0.0.0.0:8090, privileges: [produce, {privilege}]}}"
+            ));
 
             assert_eq!(
                 error,
@@ -158,7 +189,7 @@ mod tests {
             ("[schema_text]", true),
             ("[topic_configs, broker_configs, acls, produce]", false),
         ] {
-            let mcp: Mcp = yaml(&format!("privileges: {privileges}"));
+            let mcp: Mcp = yaml(&format!("{{bind: 0.0.0.0:8090, privileges: {privileges}}}"));
 
             assert_eq!(mcp.reads_private_text(), private, "{privileges}");
         }
