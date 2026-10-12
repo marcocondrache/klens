@@ -48,6 +48,7 @@ impl AuthState {
             session_layer: session_layer(false, Key::generate()),
             login_timeout: Duration::minutes(10),
             bearer: None,
+            oauth: None,
         }
     }
 }

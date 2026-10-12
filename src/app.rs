@@ -105,7 +105,9 @@ impl Limits {
 }
 
 fn auth_routes() -> Router<AppState> {
-    Router::new().nest("/auth", auth::router())
+    Router::new()
+        .nest("/auth", auth::router())
+        .nest("/oauth", auth::oauth_router())
 }
 
 /// Nested as a service so the UI's HTML fallback never answers under `/api`.

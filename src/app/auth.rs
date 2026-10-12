@@ -25,6 +25,7 @@ use crate::config;
 pub(crate) mod access;
 mod backend;
 mod bearer;
+mod oauth;
 mod oidc;
 mod store;
 #[cfg(test)]
@@ -34,6 +35,7 @@ use access::{AccessPolicy, Ceiling, EffectiveAccess, Identity, Narrowed};
 use backend::{AuthBackend, OidcCredentials};
 use bearer::Caller;
 pub(crate) use bearer::{Bearer, require_bearer};
+pub(crate) use oauth::{OAuth, router as oauth_router};
 use oidc::{Oidc, OidcFlow};
 use store::ExpiringStore;
 
@@ -88,6 +90,7 @@ pub struct AuthState {
     session_layer: SessionLayer,
     login_timeout: Duration,
     bearer: Option<Arc<Bearer>>,
+    oauth: Option<Arc<OAuth>>,
 }
 
 impl AuthState {
@@ -98,6 +101,7 @@ impl AuthState {
             session_layer: session_layer(false, Key::generate()),
             login_timeout: Duration::ZERO,
             bearer: None,
+            oauth: None,
         }
     }
 
@@ -112,8 +116,12 @@ impl AuthState {
         let bearer = mcp
             .map(|mcp| Bearer::new(&auth.oidc, mcp, keys))
             .transpose()?;
+        let oauth = bearer
+            .as_ref()
+            .map(|bearer| Arc::new(OAuth::new(bearer.resource())));
         Ok(Self {
             bearer: bearer.map(Arc::new),
+            oauth,
             ..Self::enabled(Arc::new(flow), auth)
         })
     }
@@ -128,6 +136,7 @@ impl AuthState {
             ),
             login_timeout: Duration::try_from(auth.session.login_timeout).unwrap_or(Duration::MAX),
             bearer: None,
+            oauth: None,
         }
     }
 
@@ -137,6 +146,10 @@ impl AuthState {
 
     pub(crate) fn bearer(&self) -> Option<&Arc<Bearer>> {
         self.bearer.as_ref()
+    }
+
+    pub(crate) fn oauth(&self) -> Option<&Arc<OAuth>> {
+        self.oauth.as_ref()
     }
 
     fn flow(&self) -> Option<&dyn OidcFlow> {
