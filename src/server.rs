@@ -19,6 +19,7 @@ use tracing::Span;
 
 use crate::telemetry::log_http_completed;
 
+pub mod hosts;
 #[cfg(test)]
 pub(crate) mod testing;
 pub mod web;

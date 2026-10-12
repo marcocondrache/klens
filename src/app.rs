@@ -10,14 +10,14 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::config::{AllowedHost, Mcp, Tuning};
 use crate::kafka::{Clusters, TailLimits};
+use crate::server::hosts::AllowedHostsLayer;
 use error::ApiError;
 
 pub(crate) mod auth;
 mod context;
-mod error;
+pub(crate) mod error;
 mod extract;
 mod health;
-mod hosts;
 pub mod mcp;
 mod resources;
 #[cfg(feature = "typescript")]
@@ -139,10 +139,7 @@ pub fn router(state: AppState, allowed_hosts: &[AllowedHost]) -> Router {
     // With auth on, the session cookie stays with klens' own host, so a page
     // that points its own domain at klens holds no session.
     if !state.auth.is_enabled() {
-        app = app.layer(middleware::from_fn_with_state(
-            Arc::from(allowed_hosts),
-            hosts::require_allowed_host,
-        ));
+        app = app.layer(AllowedHostsLayer::new(allowed_hosts));
     }
 
     // Kubernetes probes name the pod IP as the host, so health skips the
