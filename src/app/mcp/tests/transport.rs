@@ -160,11 +160,13 @@ async fn a_request_that_skips_admission_is_a_wiring_error() {
         "/mcp",
         service(
             app.state().clone(),
-            Config::default()
-                .allowed_hosts
-                .iter()
-                .map(ToString::to_string),
-            [],
+            browser_checks(
+                Config::default()
+                    .allowed_hosts
+                    .iter()
+                    .map(ToString::to_string),
+                [],
+            ),
         ),
     );
     let list = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {} });

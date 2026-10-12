@@ -155,11 +155,13 @@ impl TestApp {
                 "/mcp",
                 mcp::service(
                     self.state.clone(),
-                    Config::default()
-                        .allowed_hosts
-                        .iter()
-                        .map(ToString::to_string),
-                    [],
+                    mcp::browser_checks(
+                        Config::default()
+                            .allowed_hosts
+                            .iter()
+                            .map(ToString::to_string),
+                        [],
+                    ),
                 ),
             )
             .layer(middleware::from_fn(
