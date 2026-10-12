@@ -432,7 +432,7 @@ impl KlensMcp {
             configs: request.configs,
         }
         .into_topic()?;
-        self.live_call(&session)?;
+        self.live_call()?;
         admin.create_topic(&topic).await?;
         let partitions = cluster
             .store

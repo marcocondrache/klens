@@ -322,7 +322,7 @@ impl KlensMcp {
     ) -> ToolResult {
         let cluster = session.cluster_or_only(query.cluster.as_deref())?;
         let topology = cluster.topology()?;
-        self.live_call(&session)?;
+        self.live_call()?;
         let Some(group) = cluster.store.group_detail(&query.group) else {
             return Err(KafkaError::UnknownGroup {
                 cluster: cluster.name().to_owned(),

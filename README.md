@@ -391,7 +391,10 @@ deletes its key from a compacted topic. `klens_schema_register` registers a
 schema version under a subject and returns the version and the schema id. Each
 needs the privilege the UI needs for the same change, `create_topics`,
 `produce`, or `register_schemas`, on a cluster with `writable: true`. klens logs
-each change as it logs one from the UI, with the user and client of the call.
+each change as it logs one from the UI, without a user. A client that names
+itself in each request, as clients of the 2026-07-28 protocol do, appears on
+the line as `unverified:<name>`. Behind a gateway, the gateway's log names the
+person who made the call.
 The tool list leaves out each of the three unless a cluster the agent sees takes
 changes and grants its privilege, and `klens_access_explain` marks it
 unavailable on a cluster that takes none. When Kafka or the registry refuses a
@@ -404,56 +407,38 @@ protocols, subject names, principals, and resource names come from whoever runs
 a Kafka client, so a result that carries them tells the agent to read them as
 data, not as instructions.
 
-Without `auth`, anyone who reaches `/mcp` can call its tools. `/mcp` then
-answers only the hosts in [`allowed_hosts`](#allowed-hosts), and it refuses
-every request that carries an `Origin` header, so a web page cannot call it
-from a visitor's browser. klens logs at startup that it serves `/mcp`, with the
-ceiling below.
+Without `auth` or `secret`, anyone who reaches `/mcp` can call its tools.
+`/mcp` then answers only the hosts in [`allowed_hosts`](#allowed-hosts), and it
+refuses every request that carries an `Origin` header, so a web page cannot
+call it from a visitor's browser. klens logs at startup that it serves `/mcp`,
+with the ceiling below.
 
 `secret` puts `/mcp` behind a gateway that signs people in, such as
 agentgateway with Entra ID. The gateway adds the secret to every call it
 forwards as `Authorization: Bearer`, as agentgateway's `backendAuth.key` does,
 and `/mcp` refuses a call without it with `403 NOT_FROM_GATEWAY`. A call that
 carries it may name any host and send any `Origin`, since the gateway forwards
-the client's own and a web page cannot learn the secret. Every call holds the
-ceiling below, so the gateway decides who reaches `/mcp`. The secret must be at
-least 32 bytes, and it works only without `auth`. It guards nothing but `/mcp`,
-so keep the UI's port off any network the gateway does not front. klens warns
-about this at startup.
+the client's own and a web page cannot learn the secret. The secret must be at
+least 32 bytes. Without `auth`, it guards nothing but `/mcp`, so keep the UI's
+port off any network the gateway does not front. klens warns about this at
+startup.
+
+With `auth`, `/mcp` signs nobody in and never reads the session cookie, so
+`secret` is required. `privileges` is required too, because every call holds
+the whole ceiling below, whoever signed in at the gateway. Roles in
+`auth.roles` do not apply to `/mcp`, so the gateway decides who reaches it and
+which tools they may call.
 
 ```yaml
 mcp:
-  secret: {env: KLENS_MCP_SECRET} # at least 32 bytes; only without auth
+  secret: {env: KLENS_MCP_SECRET} # at least 32 bytes; required with auth
+  privileges: [topic_configs, schema_text] # required with auth
 ```
 
-With `auth`, `/mcp` takes only an access token from the `auth.oidc` provider,
-sent as `Authorization: Bearer`, and never the session cookie. `resource` is
-then required, and `/mcp` answers only its host. The token's audience must be
-in `token.audiences`, which defaults to `resource`, and the agent holds what the
-roles of the token's groups grant, under the ceiling below. A missing or bad
-token gets `401` with a challenge that points to the resource's
-[RFC 9728](https://www.rfc-editor.org/rfc/rfc9728) metadata, so an MCP client
-finds the provider on its own. A valid token whose groups bind no role gets
-`403`. klens logs each call with the token's user and client.
-[Identity provider](#identity-provider) shows how to set the provider up.
-
-```yaml
-mcp:
-  resource: https://klens.example.com/mcp # required with auth
-  allowed_origins: ["https://claude.ai:443"] # only with auth, with a port or :*
-  token:
-    audiences: [https://klens.example.com/mcp] # default: [resource]
-    clients: [klens-mcp] # azp, else client_id; default: any client
-    scopes: [] # named in the 401 challenge and the metadata
-    max_age: 1h # the longest exp - iat; raise it on Entra ID
-    groups_claim: groups # default: auth.oidc.groups_claim
-    user_claim: sub # oid on Entra ID
-```
-
-The block is a ceiling on what an MCP client may do. `privileges` lists the
-reads and changes it may use beyond the catalog. The reads are `records`,
-`topic_configs`, `broker_configs`, `schema_text`, and `acls`, and it defaults to
-all five. `records` opens the record tools, `schema_text` opens
+The block is the ceiling that every MCP call holds. `privileges` lists the
+reads and changes a call may use beyond the catalog. The reads are `records`,
+`topic_configs`, `broker_configs`, `schema_text`, and `acls`, and without
+`auth` it defaults to all five. `records` opens the record tools, `schema_text` opens
 `klens_schema_get`, and `acls` opens `klens_acls_list`. `topic_configs` adds a
 topic's config overrides to `klens_topic_describe`, and `broker_configs` adds a
 broker's to `klens_brokers_list`. A tool says when it left such a section out.
@@ -474,11 +459,12 @@ mcp:
 
 The UI and MCP share each cluster's `writable` flag, so name the clusters an
 agent may reach in `clusters` before you add a write privilege, and leave
-production out. With `auth`, `token.clients` is then required, so a token that
-another client of the provider gets cannot change Kafka. klens warns at startup
+production out. Behind a gateway, every person it lets through can then make
+those changes, so offer the three write tools only to the people who need
+them, as agentgateway's `mcpAuthorization` rules can. klens warns at startup
 when `auth` and `secret` are both off and `privileges` names a write, since
-anyone who reaches `/mcp` could then change a writable cluster. It also warns when `privileges`
-names `records` or `schema_text` beside a write. An agent that reads text a
+anyone who reaches `/mcp` could then change a writable cluster. It also warns
+when `privileges` names `records` or `schema_text` beside a write. An agent that reads text a
 producer or schema author chose may follow instructions hidden in it, and a
 write gives it a way to copy private data out.
 
@@ -486,9 +472,6 @@ write gives it a way to copy private data out.
 mcp:
   privileges: [topic_configs, create_topics, produce, register_schemas]
   clusters: [dev, staging] # keep writes off production
-  resource: https://klens.example.com/mcp
-  token:
-    clients: [klens-mcp] # required with a write privilege
 ```
 
 `tuning.mcp.max_concurrent_calls` (16) caps the tool calls klens serves at
@@ -518,185 +501,51 @@ group in the UI does. The record tools read Kafka on every call,
 `klens_schema_get` reads the schema registry, `klens_brokers_list` reads Kafka
 when it reads a broker's configs, and the three write tools change Kafka or the
 registry. `tuning.mcp.live_calls_per_minute` (30) caps how often agents may call
-these tools. With `auth`, each user has a budget of their own. Without it, every
-client shares one. A call past it fails with `RATE_LIMITED`.
+these tools, and every client shares one budget. A call past it fails with
+`RATE_LIMITED`.
 
 Every result reaches the agent's model provider, record payloads, configs,
 schema text, and ACLs included. Set `privileges` and `clusters` to what you
 would share with it, and leave out `records` to keep payloads from it.
 
-### Identity provider
-
-With `auth`, an MCP client signs the user in at the `auth.oidc` provider and
-sends klens the access token it gets back. klens checks that token itself, so
-the provider must issue it as a JWT signed with a public key, such as RS256 or
-ES256, and four settings must line up.
-
-The token's audience must be `mcp.resource`, unless `token.audiences` names
-another, as Dex and Entra ID need. klens writes the resource the way a URL
-parser does, with a lowercase host, no `:443`, and a `/` after a bare host,
-and logs it at startup. Use that exact text as the audience, and give users the
-same URL for their client.
-
-The access token must list the user's groups in the claim that
-`token.groups_claim` names. It defaults to `auth.oidc.groups_claim`, the claim
-the UI reads from the ID token, so the same role bindings apply to both.
-
-MCP clients share one public OAuth client at the provider. It has no secret,
-uses PKCE, and lists the redirect URI of every MCP client your users run, as
-[Connect an agent](#connect-an-agent) gives them. Each user gives their MCP
-client the id of this OAuth client.
-
-`token.clients` names that client, so a token that another client of the
-provider gets for the same audience does not open `/mcp`. klens logs a warning
-at startup while the list is empty, and refuses to start without it when
-`mcp.privileges` names a write.
-
-Keycloak fits. In the realm that `auth.oidc.issuer` names, create an OpenID
-Connect client such as `klens-mcp`. Turn Client authentication off, keep
-Standard flow on, require PKCE with S256, and list the redirect URIs under
-Valid redirect URIs. In the client's dedicated scope, add an Audience mapper
-with Included Custom Audience set to `mcp.resource` and Add to access token on,
-so only this client's tokens carry the audience. Add a Group Membership mapper
-there too, with Token Claim Name `groups`, Full group path set as for the UI's
-client, and Add to access token on. Keycloak names the client in `azp`, so set
-`token.clients: [klens-mcp]`.
-
-Auth0 fits. Under Settings, Advanced, turn on the Resource Parameter
-Compatibility Profile, so the `resource` parameter that MCP clients send
-selects the API. Under Applications, APIs, create an API whose identifier is
-`mcp.resource`, signed with RS256. Set its Maximum Access Token Lifetime to 3600
-seconds, because the default of 86,400 seconds is longer than `token.max_age`
-allows. Create a Native application, which has no secret, list the redirect
-URIs under Allowed Callback URLs, and put its client id in `token.clients`.
-Auth0 has no groups claim, so a post-login Action adds the user's roles to the
-access token, and `token.groups_claim` names that claim.
-
-```js
-exports.onExecutePostLogin = async (event, api) => {
-  const roles = event.authorization?.roles ?? [];
-  api.accessToken.setCustomClaim("https://klens.example.com/groups", roles);
-};
-```
-
-Claude Code can send a `resource` other than the one klens advertises
-([anthropics/claude-code#52871](https://github.com/anthropics/claude-code/issues/52871)),
-and Auth0 then shows an error page instead of a sign-in. If that happens, turn
-the profile off and set the tenant's Default Audience, under Settings, General,
-to `mcp.resource`. Every application in the tenant that names no audience then
-gets a token for klens, and `token.clients` keeps those tokens out of `/mcp`.
-
-Okta and Dex probably fit, and neither has been verified. Okta sets the
-audience of an access token only on a custom authorization server, so
-`auth.oidc.issuer` must name that server, with `mcp.resource` as its audience
-and a groups claim on its access tokens. Okta names the client in `cid`, which
-klens does not read, so leave `token.clients` empty there, which keeps MCP to
-reads. Give klens an authorization server of its own instead, and assign its
-access policy only to the MCP client and the UI's client.
-
-Dex issues access tokens shaped like its ID tokens, with the id of the client
-that asked as the audience. Create a static public client for MCP apart from
-the UI's, put its id in `token.audiences`, and set `token.scopes` to
-`[openid, groups]` so Dex adds the groups. The audience already names the
-client, so `token.clients` can stay empty while MCP serves only reads. Dex
-gives an access token the lifetime of its ID tokens, 24 hours unless
-`expiry.idTokens` says otherwise, so set that to `1h` or raise `token.max_age`
-to match.
-
-Entra ID can work, but it needs more setup and breaks easily. Create an app
-registration for MCP apart from the UI's, because `token.audiences` may not
-name `auth.oidc.client_id`. Set its Application ID URI to `mcp.resource`, which
-Entra accepts only on a domain the tenant has verified, expose a scope, and
-list the redirect URIs under Mobile and desktop applications. Set
-`requestedAccessTokenVersion` to 2 in its manifest, so its tokens carry the
-v2.0 issuer the UI signs in with. Such a token names the app's application id
-as its audience and in `azp`, so put that id in `token.audiences` and
-`token.clients`. Put the full scope, such as
-`https://klens.example.com/mcp/access`, in `token.scopes`, because Entra issues
-a token for another audience unless the client asks for it. Set
-`token.user_claim: oid`, because Entra's `sub` differs per app. Its tokens last
-up to 90 minutes, and their `iat` can lie 5 minutes before they are issued, so
-raise `token.max_age` to `100m`.
-
-Entra's groups claim lists group object ids, and klens refuses a token with
-more than 64 groups, so app roles in the `roles` claim, with
-`token.groups_claim: roles`, often fit better. Entra's discovery document names
-no PKCE methods, and the MCP specification tells a client to refuse such a
-provider, so a strict client may not sign in at all. Entra also refuses a
-sign-in with AADSTS9010010 when the client's `resource` is not the Application
-ID URI, so the Claude Code bug that affects Auth0 affects Entra too.
-
-Google cannot work. Its access tokens are opaque, so klens has nothing to
-check. A provider such as Keycloak or Dex can sign users in through Google and
-stand in front of both the UI and `/mcp`.
-
 ### Connect an agent
 
-Without `auth`, a user on the machine that runs klens adds it to Claude Code
-with one command.
+Without `auth` or `secret`, a user on the machine that runs klens adds it to
+Claude Code with one command.
 
 ```sh
 claude mcp add --transport http klens http://localhost:8080/mcp
 ```
 
-With `auth`, a client signs the user in the first time it calls `/mcp`, and it
-needs the id of the public client from [Identity provider](#identity-provider).
-Give it the URL exactly as klens logs `mcp.resource`. Claude Code sends the
-user back to `http://localhost:<port>/callback`, so fix the port with
-`--callback-port` and list that URI, here `http://localhost:8765/callback`.
-Then run `/mcp` in Claude Code to sign in.
-
-```sh
-claude mcp add --transport http --client-id klens-mcp --callback-port 8765 \
-  klens https://klens.example.com/mcp
-```
-
-VS Code reads the client id from `oauth.clientId` in `.vscode/mcp.json`. Its
-client metadata lists `http://127.0.0.1:33418/` and
-`https://vscode.dev/redirect` as its redirect URIs.
+VS Code reads the same URL from `servers` in `.vscode/mcp.json`.
 
 ```json
 {
   "servers": {
-    "klens": {
-      "type": "http",
-      "url": "https://klens.example.com/mcp",
-      "oauth": { "clientId": "klens-mcp" }
-    }
+    "klens": { "type": "http", "url": "http://localhost:8080/mcp" }
   }
 }
 ```
 
-Cursor reads it from `auth.CLIENT_ID` in `.cursor/mcp.json`, and its desktop
-app redirects to `http://localhost:8787/callback`. Unless `auth.scopes` names
-scopes, Cursor asks for the ones the provider's metadata lists, so copy
-`token.scopes` there when you set it.
+Cursor reads it from `mcpServers` in `.cursor/mcp.json`.
 
 ```json
 {
   "mcpServers": {
-    "klens": {
-      "url": "https://klens.example.com/mcp",
-      "auth": { "CLIENT_ID": "klens-mcp" }
-    }
+    "klens": { "url": "http://localhost:8080/mcp" }
   }
 }
 ```
 
-Without `auth`, leave out `oauth` and `auth`, and use
-`http://localhost:8080/mcp`.
+Behind a gateway, give each client the gateway's URL for `/mcp` instead. The
+client signs the user in at the gateway the first time it calls, so the
+redirect URIs it uses must be registered wherever the gateway signs people in.
+claude.ai and Claude Desktop connectors call from Anthropic's cloud, at
+addresses in `160.79.104.0/21`, so they reach klens only through a gateway that
+the internet can reach.
 
-claude.ai and Claude Desktop connectors call klens from Anthropic's cloud, at
-addresses in `160.79.104.0/21`. They reach klens only when klens is reachable
-from the internet, and they reach the provider's discovery document and token
-endpoint from there too. Add klens as a custom connector with its `/mcp` URL
-and your own OAuth client id, and list `https://claude.ai/api/mcp/auth_callback`
-on the OAuth client. If klens answers them with `403` and logs no
-`bearer token refused: no matching role` line, list `https://claude.ai:443` in
-`mcp.allowed_origins`.
-
-klens has not been tested with any of these clients. The commands, keys, and
-redirect URIs come from each client's own documentation.
+klens has not been tested with any of these clients. The commands and keys
+come from each client's own documentation.
 
 ## Schema Registry
 

@@ -147,7 +147,7 @@ impl KlensMcp {
                 cluster.latest_version(&query.subject)?
             }
         };
-        self.live_call(&session)?;
+        self.live_call()?;
         let schema = schema_text.subject_schema(&query.subject, version).await?;
         Ok(schema_result(&SubjectDetail::new(
             query.subject,
@@ -168,7 +168,7 @@ impl KlensMcp {
         let cluster = session.cluster_or_only(request.cluster.as_deref())?;
         let registry = cluster.register_schemas()?;
         cluster.require_schema_registry()?;
-        self.live_call(&session)?;
+        self.live_call()?;
         let schema = RegisterSchema {
             schema_type: request.schema_type,
             schema: request.schema,

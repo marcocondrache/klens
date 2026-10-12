@@ -142,6 +142,5 @@ pub(super) fn hint(error: &ApiError) -> &'static str {
         | ApiError::HostNotAllowed
         | ApiError::NotFromGateway
         | ApiError::NotFound => "Reconnect the MCP client to klens, then call again.",
-        ApiError::NoRole => "Ask the klens operator to bind one of your groups to a role.",
     }
 }

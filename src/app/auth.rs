@@ -24,16 +24,13 @@ use crate::config;
 
 pub(crate) mod access;
 mod backend;
-mod bearer;
 mod oidc;
 mod store;
 #[cfg(test)]
 pub(crate) mod testing;
 
-use access::{AccessPolicy, Ceiling, EffectiveAccess, Identity, Narrowed};
+use access::{AccessPolicy, Ceiling, EffectiveAccess, Identity};
 use backend::{AuthBackend, OidcCredentials};
-use bearer::Caller;
-pub(crate) use bearer::{Bearer, require_bearer};
 use oidc::{Oidc, OidcFlow};
 use store::ExpiringStore;
 
@@ -87,7 +84,6 @@ pub struct AuthState {
     policy: Arc<AccessPolicy>,
     session_layer: SessionLayer,
     login_timeout: Duration,
-    bearer: Option<Arc<Bearer>>,
 }
 
 impl AuthState {
@@ -97,25 +93,15 @@ impl AuthState {
             policy: Arc::new(AccessPolicy::Open),
             session_layer: session_layer(false, Key::generate()),
             login_timeout: Duration::ZERO,
-            bearer: None,
         }
     }
 
-    pub async fn from_config(
-        auth: Option<&config::Auth>,
-        mcp: Option<&config::Mcp>,
-    ) -> anyhow::Result<Self> {
+    pub async fn from_config(auth: Option<&config::Auth>) -> anyhow::Result<Self> {
         let Some(auth) = auth else {
             return Ok(Self::disabled());
         };
-        let (flow, keys) = Oidc::discover(&auth.oidc, auth.session.max_age).await?;
-        let bearer = mcp
-            .map(|mcp| Bearer::new(&auth.oidc, mcp, keys))
-            .transpose()?;
-        Ok(Self {
-            bearer: bearer.map(Arc::new),
-            ..Self::enabled(Arc::new(flow), auth)
-        })
+        let flow = Oidc::discover(&auth.oidc, auth.session.max_age).await?;
+        Ok(Self::enabled(Arc::new(flow), auth))
     }
 
     fn enabled(flow: Arc<dyn OidcFlow>, auth: &config::Auth) -> Self {
@@ -127,16 +113,11 @@ impl AuthState {
                 Key::generate(),
             ),
             login_timeout: Duration::try_from(auth.session.login_timeout).unwrap_or(Duration::MAX),
-            bearer: None,
         }
     }
 
     pub fn is_enabled(&self) -> bool {
         self.backend.is_enabled()
-    }
-
-    pub(crate) fn bearer(&self) -> Option<&Arc<Bearer>> {
-        self.bearer.as_ref()
     }
 
     fn flow(&self) -> Option<&dyn OidcFlow> {
@@ -150,11 +131,9 @@ impl AuthState {
     }
 
     fn access_from_user(&self, user: &SessionUser) -> Option<EffectiveAccess> {
-        self.access_from_groups(&user.groups)
-    }
-
-    fn access_from_groups(&self, groups: &[String]) -> Option<EffectiveAccess> {
-        self.policy.admit(&Identity { groups })
+        self.policy.admit(&Identity {
+            groups: &user.groups,
+        })
     }
 
     fn access_from_session(&self, session: &AuthSession) -> Option<EffectiveAccess> {
@@ -189,13 +168,14 @@ pub struct SessionGuard {
 enum Holder {
     Nobody,
     Session(String),
-    Token(Arc<Caller>),
 }
 
 impl SessionGuard {
-    pub(crate) fn capped(auth: AuthState, ceiling: Ceiling) -> Self {
+    /// Holds exactly the ceiling, whoever calls, since a gateway in front of
+    /// `/mcp` decides who reaches it.
+    pub(crate) fn capped(ceiling: Ceiling) -> Self {
         Self {
-            auth,
+            auth: AuthState::disabled(),
             holder: Holder::Nobody,
             ceiling: Some(ceiling),
         }
@@ -209,12 +189,6 @@ impl SessionGuard {
         })
     }
 
-    /// `None` when klens admits nobody, and for a guard without a ceiling.
-    pub(crate) fn narrowed(&self) -> Option<Narrowed> {
-        let ceiling = self.ceiling.as_ref()?;
-        Some(self.held()?.narrow(ceiling))
-    }
-
     fn held(&self) -> Option<EffectiveAccess> {
         match &self.holder {
             Holder::Nobody => (!self.auth.is_enabled()).then_some(EffectiveAccess::Unrestricted),
@@ -223,10 +197,6 @@ impl SessionGuard {
                 .backend
                 .with_live_user(subject, |user| self.auth.access_from_user(user))
                 .flatten(),
-            Holder::Token(caller) => caller
-                .is_live()
-                .then(|| self.auth.access_from_groups(&caller.groups))
-                .flatten(),
         }
     }
 
@@ -234,14 +204,6 @@ impl SessionGuard {
         match &self.holder {
             Holder::Nobody => None,
             Holder::Session(subject) => Some(subject),
-            Holder::Token(caller) => Some(&caller.user),
-        }
-    }
-
-    pub(crate) fn client(&self) -> Option<&str> {
-        match &self.holder {
-            Holder::Token(caller) => caller.client.as_deref(),
-            Holder::Nobody | Holder::Session(_) => None,
         }
     }
 }
@@ -489,7 +451,6 @@ fn session_layer(secure: bool, key: Key) -> SessionLayer {
 #[cfg(test)]
 mod tests {
     use axum::http::StatusCode;
-    use strum::VariantArray as _;
 
     use super::testing::{Browser, FakeOidc};
     use super::*;
@@ -787,14 +748,12 @@ mod tests {
     }
 
     #[test]
-    fn a_capped_guard_holds_an_open_caller_to_its_ceiling_every_time() {
+    fn a_capped_guard_holds_its_ceiling_every_time() {
         let reads = [config::Privilege::Records, config::Privilege::Acls];
-        let guard = SessionGuard::capped(AuthState::disabled(), Ceiling::new("mcp", &reads, None));
+        let guard = SessionGuard::capped(Ceiling::new("mcp", &reads, None));
 
-        let admitted: EffectiveAccess = guard.narrowed().expect("auth is off").into();
-        let revalidated = guard.revalidate().expect("auth is off");
+        let revalidated = guard.revalidate().expect("a capped guard");
 
-        assert_eq!(admitted, revalidated);
         assert_ne!(revalidated, EffectiveAccess::Unrestricted);
         let local = revalidated.cluster("local").unwrap();
         assert!(local.records().is_ok());
@@ -803,41 +762,9 @@ mod tests {
     }
 
     #[test]
-    fn a_capped_guard_admits_nobody_once_auth_is_on() {
-        let guard = SessionGuard::capped(
-            AuthState::enabled_for_tests(),
-            Ceiling::new("mcp", config::Privilege::VARIANTS, None),
-        );
-
-        assert_eq!(guard.narrowed(), None);
-        assert_eq!(guard.revalidate(), None);
-    }
-
-    #[test]
-    fn a_token_guard_holds_its_caller_to_the_ceiling_until_the_token_expires() {
-        let reads = [config::Privilege::Records, config::Privilege::Acls];
-        let capped = |exp| SessionGuard {
-            ceiling: Some(Ceiling::new("mcp", &reads, None)),
-            ..SessionGuard::token("alice", exp)
-        };
-        let live = capped(Timestamp::now().as_second() + 60);
-
-        let revalidated = live.revalidate().expect("a live token");
-
-        assert_eq!(revalidated, live.narrowed().expect("a live token").into());
-        let local = revalidated.cluster("local").unwrap();
-        assert!(local.records().is_ok());
-        assert!(local.produce().is_err());
-        let lapsed = capped(Timestamp::now().as_second());
-        assert_eq!(lapsed.revalidate(), None);
-        assert_eq!(lapsed.narrowed(), None);
-    }
-
-    #[test]
     fn a_session_guard_keeps_what_the_session_holds() {
         let guard = SessionGuard::open();
 
         assert_eq!(guard.revalidate(), Some(EffectiveAccess::Unrestricted));
-        assert_eq!(guard.narrowed(), None);
     }
 }

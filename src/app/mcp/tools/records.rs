@@ -170,7 +170,7 @@ impl KlensMcp {
             address.partition,
             address.offset,
         );
-        self.live_call(&session)?;
+        self.live_call()?;
         let found = RecordLookup::from(records.record(at).await?);
         let intro = if found.obfuscated {
             OBFUSCATED_NOTICE
@@ -196,7 +196,7 @@ impl KlensMcp {
         let cluster = session.cluster_or_only(request.cluster.as_deref())?;
         let producer = cluster.produce()?;
         producer.writable_partition(&request.topic, request.partition)?;
-        self.live_call(&session)?;
+        self.live_call()?;
         let record = ProduceRecord {
             partition: request.partition,
             key: request.key,
@@ -227,7 +227,7 @@ impl KlensMcp {
         let records = cluster.records()?;
         let order = read.order;
         let query = read.query()?;
-        self.live_call(&session)?;
+        self.live_call()?;
         let page = RecordPage::from(records.read(query).await?);
         let result = records_result(
             &page.records,

@@ -5,7 +5,7 @@ use std::time::Duration;
 use axum::Router;
 use axum::http::StatusCode;
 use axum::middleware;
-use governor::{DefaultKeyedRateLimiter, Quota, RateLimiter};
+use governor::{DefaultDirectRateLimiter, Quota, RateLimiter};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::config::{AllowedHost, Mcp, Tuning};
@@ -40,9 +40,7 @@ pub struct AppState {
     limits: TailLimits,
     tails: Arc<Semaphore>,
     mcp_calls: Arc<Semaphore>,
-    // Never pruned, because only the users of valid tokens whose groups bind
-    // a role become keys.
-    mcp_live_calls: Arc<DefaultKeyedRateLimiter<Option<String>>>,
+    mcp_live_calls: Arc<DefaultDirectRateLimiter>,
 }
 
 impl AppState {
@@ -53,7 +51,7 @@ impl AppState {
             limits: limits.tail,
             tails: Arc::new(Semaphore::new(limits.live_tails)),
             mcp_calls: Arc::new(Semaphore::new(limits.mcp_calls)),
-            mcp_live_calls: Arc::new(RateLimiter::keyed(Quota::per_minute(
+            mcp_live_calls: Arc::new(RateLimiter::direct(Quota::per_minute(
                 limits.mcp_live_calls_per_minute,
             ))),
         }
@@ -67,10 +65,8 @@ impl AppState {
         Arc::clone(&self.mcp_calls).try_acquire_owned().ok()
     }
 
-    pub(crate) fn mcp_live_call(&self, user: Option<&str>) -> bool {
-        self.mcp_live_calls
-            .check_key(&user.map(ToOwned::to_owned))
-            .is_ok()
+    pub(crate) fn mcp_live_call(&self) -> bool {
+        self.mcp_live_calls.check().is_ok()
     }
 }
 

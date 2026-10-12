@@ -215,8 +215,7 @@ pub struct McpTuning {
     pub max_concurrent_calls: NonZeroUsize,
     /// Calls a minute to the MCP tools that make klens read more from Kafka or
     /// change it, such as klens_group_describe. A call past it is refused.
-    /// With auth, each user has a budget of their own. Without it, every
-    /// client shares one.
+    /// Every MCP client shares it.
     pub live_calls_per_minute: NonZeroU32,
 }
 
