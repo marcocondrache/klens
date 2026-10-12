@@ -6,9 +6,20 @@ use tower::ServiceExt as _;
 use super::*;
 use crate::app::auth::AuthState;
 use crate::app::auth::testing::{Idp, RESOURCE_HOST, Signer, mcp};
+use crate::config::Mcp;
 use crate::testing::{FakeCluster, TestApp};
 
+mod flow;
+
 const METADATA: &str = "/.well-known/oauth-authorization-server";
+
+fn server(resource: &str) -> OAuth {
+    OAuth::new(
+        &Url::parse(resource).expect("a url"),
+        crate::app::mcp::ceiling(&Mcp::default()),
+        Duration::from_secs(60),
+    )
+}
 
 struct Answer {
     status: StatusCode,
@@ -82,7 +93,7 @@ async fn the_server_metadata_names_the_endpoints_beside_the_resource() {
 
 #[tokio::test]
 async fn a_resource_under_a_prefix_puts_the_issuer_under_it() {
-    let oauth = OAuth::new(&Url::parse("https://klens.example.com/kafka/mcp").expect("a url"));
+    let oauth = server("https://klens.example.com/kafka/mcp");
 
     for path in [METADATA, &format!("{METADATA}/kafka")] {
         let response = oauth.metadata().oneshot(get(path)).await.expect("response");
@@ -112,7 +123,7 @@ fn the_issuer_drops_the_last_segment_of_the_resource() {
             "https://klens.example.com/a/b",
         ),
     ] {
-        let oauth = OAuth::new(&Url::parse(resource).expect("a url"));
+        let oauth = server(resource);
 
         assert_eq!(oauth.metadata["issuer"], issuer, "{resource}");
     }

@@ -23,7 +23,8 @@ use tokio::time::Instant;
 use url::Url;
 
 use super::access::groups_from_json;
-use super::{Holder, SessionGuard};
+use super::oauth::TOKEN_PREFIX;
+use super::{Holder, OAuth, SessionGuard};
 use crate::app::error::ApiError;
 use crate::config;
 
@@ -171,7 +172,11 @@ impl Bearer {
         }
     }
 
-    async fn authenticate(&self, headers: &HeaderMap) -> Result<Caller, Refusal> {
+    async fn authenticate(
+        &self,
+        headers: &HeaderMap,
+        oauth: Option<&OAuth>,
+    ) -> Result<Arc<Caller>, Refusal> {
         let mut values = headers.get_all(header::AUTHORIZATION).iter();
         let (Some(value), None) = (values.next(), values.next()) else {
             return Err(Refusal::Missing);
@@ -183,7 +188,12 @@ impl Bearer {
             .filter(|(scheme, _)| scheme.eq_ignore_ascii_case("bearer"))
             .map(|(_, token)| token.trim())
             .ok_or(Refusal::Missing)?;
-        self.verify(token).await
+        match oauth {
+            Some(oauth) if token.starts_with(TOKEN_PREFIX) => oauth
+                .caller(token)
+                .ok_or_else(|| "klens issued no such token, or it has expired".into()),
+            _ => self.verify(token).await.map(Arc::new),
+        }
     }
 
     async fn verify(&self, token: &str) -> Result<Caller, Refusal> {
@@ -274,7 +284,8 @@ pub(crate) async fn require_bearer(
     mut request: Request,
     next: Next,
 ) -> Response {
-    let caller = match bearer.authenticate(request.headers()).await {
+    let oauth = capped.auth.oauth().map(Arc::as_ref);
+    let caller = match bearer.authenticate(request.headers(), oauth).await {
         Ok(caller) => caller,
         Err(refusal) => return bearer.refuse(refusal),
     };
@@ -285,7 +296,7 @@ pub(crate) async fn require_bearer(
         span.record("client", client.as_str());
     }
     let guard = SessionGuard {
-        holder: Holder::Token(Arc::new(caller)),
+        holder: Holder::Token(caller),
         ..capped
     };
     // A 401 would send the client back through the provider for a token

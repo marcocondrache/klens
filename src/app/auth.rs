@@ -35,6 +35,8 @@ use access::{AccessPolicy, Ceiling, EffectiveAccess, Identity, Narrowed};
 use backend::{AuthBackend, OidcCredentials};
 use bearer::Caller;
 pub(crate) use bearer::{Bearer, require_bearer};
+#[cfg(feature = "typescript")]
+pub use oauth::{ConsentRequest, Decided, RedirectTarget};
 pub(crate) use oauth::{OAuth, router as oauth_router};
 use oidc::{Oidc, OidcFlow};
 use store::ExpiringStore;
@@ -113,14 +115,20 @@ impl AuthState {
             return Ok(Self::disabled());
         };
         let (flow, keys) = Oidc::discover(&auth.oidc, auth.session.max_age).await?;
-        let bearer = mcp
-            .map(|mcp| Bearer::new(&auth.oidc, mcp, keys))
-            .transpose()?;
-        let oauth = bearer
-            .as_ref()
-            .map(|bearer| Arc::new(OAuth::new(bearer.resource())));
+        let (bearer, oauth) = match mcp {
+            Some(mcp) => {
+                let bearer = Bearer::new(&auth.oidc, mcp, keys)?;
+                let oauth = OAuth::new(
+                    bearer.resource(),
+                    crate::app::mcp::ceiling(mcp),
+                    auth.session.max_age,
+                );
+                (Some(Arc::new(bearer)), Some(Arc::new(oauth)))
+            }
+            None => (None, None),
+        };
         Ok(Self {
-            bearer: bearer.map(Arc::new),
+            bearer,
             oauth,
             ..Self::enabled(Arc::new(flow), auth)
         })
@@ -327,6 +335,18 @@ async fn me(State(state): State<AppState>, auth_session: AuthSession) -> impl In
 }
 
 async fn login(State(state): State<AppState>, auth_session: AuthSession) -> Response {
+    start_login(&state, &auth_session, Then::Ui).await
+}
+
+/// Where the browser goes once a login succeeds.
+#[derive(Debug, Serialize, Deserialize)]
+enum Then {
+    Ui,
+    /// The consent page of an MCP authorization.
+    Consent(oauth::Authorization),
+}
+
+async fn start_login(state: &AppState, auth_session: &AuthSession, then: Then) -> Response {
     let Some(flow) = state.auth.flow() else {
         return StatusCode::NOT_FOUND.into_response();
     };
@@ -340,6 +360,7 @@ async fn login(State(state): State<AppState>, auth_session: AuthSession) -> Resp
         state: csrf.secret().to_owned(),
         nonce: nonce.secret().to_owned(),
         pkce_verifier: pkce_verifier.secret().to_owned(),
+        then,
     };
 
     auth_session
@@ -453,7 +474,12 @@ async fn callback(
     }
 
     tracing::info!(sub = user.sub.as_str(), "oidc login succeeded");
-    Redirect::to("/login?from=callback").into_response()
+    match pending.then {
+        Then::Ui => Redirect::to("/login?from=callback").into_response(),
+        Then::Consent(authorization) => {
+            oauth::signed_in(&auth_session.session, authorization, &user.sub).await
+        }
+    }
 }
 
 async fn logout(mut auth_session: AuthSession) -> impl IntoResponse {
@@ -486,6 +512,7 @@ struct LoginPending {
     state: String,
     nonce: String,
     pkce_verifier: String,
+    then: Then,
 }
 
 fn session_layer(secure: bool, key: Key) -> SessionLayer {

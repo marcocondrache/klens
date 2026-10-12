@@ -76,6 +76,39 @@ impl Client {
         let json = serde_json::to_vec(self).expect("a client serializes");
         format!("{ID_PREFIX}{}", URL_SAFE_NO_PAD.encode(json))
     }
+
+    /// Anyone can write an id by hand, so every rule of [`Client::register`]
+    /// applies again.
+    pub(super) fn decode(id: &str) -> Option<Self> {
+        let json = URL_SAFE_NO_PAD.decode(id.strip_prefix(ID_PREFIX)?).ok()?;
+        let client: Self = serde_json::from_slice(&json).ok()?;
+        let registered = Self::register(client.name.as_deref(), &client.redirect_uris)?;
+        (registered == client).then_some(client)
+    }
+
+    /// The requested redirect, when it is a registered one. RFC 8252 7.3: a
+    /// loopback redirect matches whatever port the app listens on this time.
+    /// Every other redirect matches exactly.
+    pub(super) fn redirect(&self, requested: &str) -> Option<Url> {
+        self.redirect_uris
+            .iter()
+            .any(|registered| registered == requested || same_but_port(registered, requested))
+            .then(|| Url::parse(requested).ok())
+            .flatten()
+    }
+}
+
+/// A registered `http` redirect passed [`allowed`], so it is a loopback one.
+fn same_but_port(registered: &str, requested: &str) -> bool {
+    let (Ok(mut registered), Ok(mut requested)) = (Url::parse(registered), Url::parse(requested))
+    else {
+        return false;
+    };
+    if registered.scheme() != "http" {
+        return false;
+    }
+    let ports = (registered.set_port(None), requested.set_port(None));
+    ports.0.is_ok() && ports.1.is_ok() && registered == requested
 }
 
 fn allowed(uri: &str) -> bool {
@@ -206,6 +239,31 @@ mod tests {
         assert_eq!(kept.chars().count(), MAX_NAME_CHARS - 1);
         let blank = Client::register(Some(" \n "), &uris).expect("a client");
         assert_eq!(blank.name, None);
+    }
+
+    #[test]
+    fn only_a_loopback_redirect_may_name_another_port() {
+        let uris = [
+            "http://127.0.0.1:33418/callback".to_owned(),
+            "https://vscode.dev/redirect".to_owned(),
+            "cursor://anysphere.cursor-retrieval/callback".to_owned(),
+        ];
+        let client = Client::register(None, &uris).expect("a client");
+
+        let moved = client.redirect("http://127.0.0.1:60000/callback");
+
+        assert_eq!(
+            moved.as_ref().map(Url::as_str),
+            Some("http://127.0.0.1:60000/callback")
+        );
+        for refused in [
+            "http://127.0.0.1:60000/other",
+            "http://localhost:33418/callback",
+            "https://vscode.dev:8443/redirect",
+            "cursor://anysphere.cursor-retrieval:1/callback",
+        ] {
+            assert_eq!(client.redirect(refused), None, "{refused}");
+        }
     }
 
     #[test]

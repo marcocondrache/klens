@@ -23,9 +23,9 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use super::access::{AccessPolicy, ClusterScope, EffectiveAccess, Grant, PrivilegeSet};
 use super::backend::AuthBackend;
-use super::bearer::Caller;
+use super::bearer::{Bearer, Caller, Jwks};
 use super::oidc::{OidcError, OidcFlow};
-use super::{AuthSession, AuthState, Holder, SessionGuard, SessionUser, session_layer};
+use super::{AuthSession, AuthState, Holder, OAuth, SessionGuard, SessionUser, session_layer};
 use crate::AppState;
 use crate::app::Limits;
 use crate::config::{self, Config, Mcp, Tuning};
@@ -49,6 +49,35 @@ impl AuthState {
             login_timeout: Duration::minutes(10),
             bearer: None,
             oauth: None,
+        }
+    }
+
+    /// Serves `/mcp` with klens' own tokens for 12 hours, beside the fake
+    /// login. The IdP token check has no keys, so it refuses every JWT.
+    pub fn serving_mcp(self, mcp: &Mcp) -> Self {
+        let oidc: config::Oidc = yaml(
+            "
+            issuer: https://idp.example
+            client_id: klens
+            client_secret: {value: secret}
+            redirect_uri: https://klens.example.com/api/auth/callback
+            ",
+        );
+        let keys = Jwks::discovered(
+            openidconnect::reqwest::Client::new(),
+            url::Url::parse("https://idp.example/jwks").expect("a url"),
+            &openidconnect::JsonWebKeySet::new(Vec::new()),
+        );
+        let bearer = Bearer::new(&oidc, mcp, keys).expect("a token check");
+        let oauth = OAuth::new(
+            bearer.resource(),
+            crate::app::mcp::ceiling(mcp),
+            std::time::Duration::from_secs(12 * 60 * 60),
+        );
+        Self {
+            bearer: Some(Arc::new(bearer)),
+            oauth: Some(Arc::new(oauth)),
+            ..self
         }
     }
 }

@@ -1,4 +1,6 @@
 use std::borrow::Cow;
+use std::sync::Arc;
+use std::time::Duration;
 
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{DefaultBodyLimit, State};
@@ -11,29 +13,47 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use url::Url;
 
+use super::access::Ceiling;
+use super::bearer::Caller;
 use crate::AppState;
 use crate::app::error::ApiError;
 
 mod client;
+mod consent;
 #[cfg(test)]
 mod tests;
+mod token;
 
 use client::Client;
+pub(super) use consent::{Authorization, signed_in};
+#[cfg(feature = "typescript")]
+pub use consent::{ConsentRequest, Decided, RedirectTarget};
+use token::Grants;
+pub(super) use token::TOKEN_PREFIX;
 
 const METADATA_PATH: &str = "/.well-known/oauth-authorization-server";
 
-/// A registration needs a name and a few redirect URIs.
+/// A registration needs a name and a few redirect URIs, and a token request
+/// a few short fields.
 const MAX_REGISTRATION_BYTES: usize = 8 * 1024;
+const MAX_TOKEN_REQUEST_BYTES: usize = 4 * 1024;
 
 /// klens as the OAuth authorization server of its own `/mcp`.
 pub(crate) struct OAuth {
+    issuer: String,
     /// The issuer's path, empty when the issuer is an origin.
     path: String,
+    origin: String,
+    resource: Url,
     metadata: Value,
+    ceiling: Ceiling,
+    /// How long a token lasts from the person's approval.
+    lifetime: Duration,
+    grants: Grants,
 }
 
 impl OAuth {
-    pub(super) fn new(resource: &Url) -> Self {
+    pub(super) fn new(resource: &Url, ceiling: Ceiling, lifetime: Duration) -> Self {
         let path = resource.path().trim_end_matches('/');
         let path = path.rsplit_once('/').map_or("", |(parent, _)| parent);
         // The resource without its last segment, so the endpoints sit beside
@@ -52,8 +72,38 @@ impl OAuth {
         });
         Self {
             path: path.to_owned(),
+            origin: resource.origin().ascii_serialization(),
+            resource: resource.clone(),
+            issuer,
             metadata,
+            ceiling,
+            lifetime,
+            grants: Grants::new(lifetime),
         }
+    }
+
+    /// RFC 8707: a client that names a resource names `/mcp`.
+    fn serves(&self, resource: &str) -> bool {
+        Url::parse(resource).is_ok_and(|resource| resource == self.resource)
+    }
+
+    pub(super) fn caller(&self, token: &str) -> Option<Arc<Caller>> {
+        self.grants.caller(token)
+    }
+
+    /// Sends the browser back to the client with RFC 9207's `iss`, so a
+    /// client that talks to several servers can tell which one answered.
+    fn back(&self, redirect_uri: &Url, state: Option<&str>, params: &[(&str, &str)]) -> Url {
+        let mut url = redirect_uri.clone();
+        {
+            let mut query = url.query_pairs_mut();
+            query.extend_pairs(params);
+            if let Some(state) = state {
+                query.append_pair("state", state);
+            }
+            query.append_pair("iss", &self.issuer);
+        }
+        url
     }
 
     /// RFC 8414 3.1 puts the issuer's path after the well-known segment.
@@ -70,10 +120,17 @@ impl OAuth {
 }
 
 pub(crate) fn router() -> Router<AppState> {
-    Router::new().route(
-        "/register",
-        post(register).layer(DefaultBodyLimit::max(MAX_REGISTRATION_BYTES)),
-    )
+    Router::new()
+        .route(
+            "/register",
+            post(register).layer(DefaultBodyLimit::max(MAX_REGISTRATION_BYTES)),
+        )
+        .route("/authorize", get(consent::authorize))
+        .route("/consent/{id}", get(consent::show).post(consent::decide))
+        .route(
+            "/token",
+            post(token::token).layer(DefaultBodyLimit::max(MAX_TOKEN_REQUEST_BYTES)),
+        )
 }
 
 #[derive(Deserialize)]

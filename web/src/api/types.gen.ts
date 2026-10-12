@@ -17,6 +17,24 @@ roles: Array<string>, privileges: Array<Privilege>,
  */
 writable: boolean, };
 
+export type RedirectTarget = { "kind": "loopback", port: number, } | { "kind": "app", scheme: string, } | { "kind": "site", host: string, };
+
+export type ConsentRequest = { 
+/**
+ * The name the client registered, which it chose itself.
+ */
+client: string | null, redirect: RedirectTarget, user: AuthUser, 
+/**
+ * What the agent may do, under the ceiling the operator set for MCP.
+ */
+clusters: Array<ClusterGrant>, 
+/**
+ * How long the agent keeps this access, in seconds.
+ */
+lifetime: number, };
+
+export type Decided = { redirect: string, };
+
 export type Identity = { 
 /**
  * `null` when authentication is disabled.

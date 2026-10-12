@@ -1,4 +1,4 @@
-pub use super::auth::{AuthMe, AuthUser};
+pub use super::auth::{AuthMe, AuthUser, ConsentRequest, Decided, RedirectTarget};
 pub use super::resources::acls::types::{
     Acl, AclListing, AclOperation, AclPatternType, AclPermission, AclResourceType, AclStatus,
     CreateAcls,
