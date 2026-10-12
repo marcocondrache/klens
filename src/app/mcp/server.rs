@@ -30,6 +30,7 @@ pub(super) type ToolResult = Result<CallToolResult, ApiError>;
 pub(crate) struct KlensMcp {
     pub(super) state: AppState,
     pub(super) access: EffectiveAccess,
+    pub(super) guard: SessionGuard,
     pub(super) tools: Arc<ToolRouter<Self>>,
 }
 
@@ -124,7 +125,7 @@ impl KlensMcp {
         Session {
             state: self.state.clone(),
             access: self.access.clone(),
-            guard: SessionGuard::fixed(self.access.clone()),
+            guard: self.guard.clone(),
         }
     }
 

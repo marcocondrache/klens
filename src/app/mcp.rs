@@ -9,6 +9,7 @@ use rmcp::transport::{StreamableHttpServerConfig, StreamableHttpService};
 use crate::AppState;
 use crate::config::Mcp;
 
+use super::auth::SessionGuard;
 use super::auth::access::{EffectiveAccess, Grant};
 use super::error::ApiError;
 
@@ -114,11 +115,13 @@ pub(crate) fn service(
     checks: StreamableHttpServerConfig,
 ) -> StreamableHttpService<KlensMcp, NeverSessionManager> {
     let tools = Arc::new(KlensMcp::tools());
+    let guard = SessionGuard::fixed(access.clone());
     StreamableHttpService::new(
         move || {
             Ok(KlensMcp {
                 state: state.clone(),
                 access: access.clone(),
+                guard: guard.clone(),
                 tools: Arc::clone(&tools),
             })
         },
