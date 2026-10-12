@@ -508,6 +508,97 @@ Every result reaches the agent's model provider, record payloads, configs,
 schema text, and ACLs included. Set `privileges` and `clusters` to what you
 would share with it, and leave out `records` to keep payloads from it.
 
+### Behind agentgateway with Entra ID
+
+[agentgateway](https://agentgateway.dev) can sign people in with Entra ID in
+front of `/mcp`, as it does for Grafana's MCP server. It serves the OAuth
+metadata MCP clients look for, checks each Entra token, decides which tools a
+person may call, and logs who called which tool. It then drops the person's
+token and calls klens with the shared secret. The setup below ran with
+agentgateway 1.6.0 against tokens signed locally, not against a real Entra
+tenant.
+
+Register an application in the Entra admin center. Under Redirect URI, pick
+Mobile and desktop applications and add the callback of each MCP client, such
+as `http://localhost/callback` for Claude Code. Entra ignores the port of a
+loopback URI but matches its path. Do not use the Web or Single-page
+application platforms, because MCP clients hold no client secret and call from
+no browser page. Under Expose an API, keep the Application ID URI
+`api://<client-id>` and add a scope such as `mcp_access`. Under App roles, add
+`klens.writer` and assign it to the people who may change Kafka. In the
+enterprise application's properties, set Assignment required to Yes, so only
+the people you assign can sign in.
+
+Give klens a secret and the ceiling every call holds.
+
+```yaml
+mcp:
+  secret: {env: KLENS_MCP_SECRET}
+  privileges: [topic_configs, schema_text, create_topics, produce, register_schemas]
+  clusters: [dev, staging]
+```
+
+Give agentgateway the same secret. Its `resource` is the public URL that MCP
+clients use, and its target is the address where it reaches klens.
+
+```yaml
+gateways:
+  default:
+    port: 3000
+frontendPolicies:
+  accessLog:
+    add:
+      user: "jwt.preferred_username"
+      tool: "mcp.tool.name"
+mcp:
+  targets:
+    - name: klens
+      mcp:
+        host: http://klens.internal:8080/mcp
+  policies:
+    mcpAuthentication:
+      mode: strict
+      issuer: https://login.microsoftonline.com/${ENTRA_TENANT_ID}/v2.0
+      audiences:
+        - api://${ENTRA_CLIENT_ID}
+        - ${ENTRA_CLIENT_ID}
+      provider:
+        entra: {}
+      clientId: ${ENTRA_CLIENT_ID}
+      resourceMetadata:
+        resource: https://mcp.example.com/mcp
+        scopesSupported:
+          - api://${ENTRA_CLIENT_ID}/mcp_access
+        bearerMethodsSupported:
+          - header
+    mcpAuthorization:
+      rules:
+        - '!(mcp.tool.name in ["klens_record_produce", "klens_topic_create", "klens_schema_register"])'
+        - 'mcp.tool.name in ["klens_record_produce", "klens_topic_create", "klens_schema_register"] && has(jwt.roles) && "klens.writer" in jwt.roles'
+    backendAuth:
+      key:
+        value: ${KLENS_MCP_SECRET}
+```
+
+A client then needs only the gateway's URL, such as
+`https://mcp.example.com/mcp`. agentgateway answers a call without a valid
+token with `401` and the metadata the client follows to sign in, and it answers
+client registration with the Entra client id. A person without `klens.writer`
+does not see the three write tools, and a call to one gets `400` with
+`Unknown tool`. Each access log line names the token's `sub` and the tool, and
+`user` adds the person's `preferred_username`.
+
+agentgateway reads `${...}` from its environment, so neither config holds the
+secret itself. Set `config.session.key` to 64 hex characters, because
+agentgateway's session ids are otherwise plain base64 that a client can read
+and change. Keep `auth` on in klens, since the gateway guards only `/mcp`. A
+person you remove from Entra keeps access until their token expires, which
+Entra sets between 60 and 90 minutes. On Kubernetes, the same policies go on
+an `AgentgatewayPolicy` attached to the `HTTPRoute` that serves `/mcp` and the
+two `/.well-known` paths, as agentgateway's
+[Entra guide](https://agentgateway.dev/docs/kubernetes/latest/mcp/auth/entra/)
+shows. That setup has not been run with klens.
+
 ### Connect an agent
 
 Without `auth` or `secret`, a user on the machine that runs klens adds it to
@@ -539,7 +630,9 @@ Cursor reads it from `mcpServers` in `.cursor/mcp.json`.
 
 Behind a gateway, give each client the gateway's URL for `/mcp` instead. The
 client signs the user in at the gateway the first time it calls, so the
-redirect URIs it uses must be registered wherever the gateway signs people in.
+redirect URIs it uses must be registered wherever the gateway signs people in,
+as [Behind agentgateway with Entra ID](#behind-agentgateway-with-entra-id)
+shows.
 claude.ai and Claude Desktop connectors call from Anthropic's cloud, at
 addresses in `160.79.104.0/21`, so they reach klens only through a gateway that
 the internet can reach.
