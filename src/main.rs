@@ -3,6 +3,7 @@ use klens::app::{AppState, AuthState, Limits, router};
 use klens::config::Config;
 use klens::kafka::Clusters;
 use klens::kafka::ingest::Ingest;
+use klens::server::Listener;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -72,9 +73,9 @@ async fn main() -> anyhow::Result<()> {
     let _ingest = Ingest::start(&clusters, &config.tuning.ingest);
     let state = AppState::new(clusters, auth, Limits::new(&config.tuning));
 
-    klens::serve(
-        router(state, &config.allowed_hosts, config.mcp.as_ref()),
-        config.bind,
-    )
+    klens::serve([Listener {
+        router: router(state, &config.allowed_hosts, config.mcp.as_ref()),
+        bind: config.bind,
+    }])
     .await
 }

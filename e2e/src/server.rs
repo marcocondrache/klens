@@ -2,6 +2,7 @@ use std::io::Write as _;
 use std::net::{SocketAddr, TcpListener};
 
 use klens::kafka::ingest::Ingest;
+use klens::server::Listener;
 use klens::{AppState, AuthState, Clusters, Config, Limits, router};
 use reqwest::header::CONTENT_TYPE;
 use reqwest::{Method, Response, StatusCode};
@@ -51,10 +52,10 @@ impl Klens {
             .expect("klens connects to kafka");
         let ingest = Ingest::start(&clusters, &config.tuning.ingest);
         let state = AppState::new(clusters, AuthState::disabled(), Limits::new(&config.tuning));
-        let server = tokio::spawn(klens::serve(
-            router(state, &config.allowed_hosts, config.mcp.as_ref()),
-            config.bind,
-        ));
+        let server = tokio::spawn(klens::serve([Listener {
+            router: router(state, &config.allowed_hosts, config.mcp.as_ref()),
+            bind: config.bind,
+        }]));
 
         let deadline = Instant::now() + PATIENCE;
         while TcpStream::connect(bind).await.is_err() {

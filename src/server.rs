@@ -4,7 +4,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use futures::FutureExt;
+use futures::future::try_join_all;
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;
 use tower_http::catch_panic::CatchPanicLayer;
@@ -21,8 +23,38 @@ use crate::telemetry::log_http_completed;
 pub(crate) mod testing;
 pub mod web;
 
-pub async fn serve(router: Router, bind: SocketAddr) -> Result<()> {
-    let listener = TcpListener::bind(bind).await?;
+/// A router and the address it answers on.
+pub struct Listener {
+    pub router: Router,
+    pub bind: SocketAddr,
+}
+
+/// Binds every listener before it serves any, so a taken port stops startup
+/// instead of leaving klens half up.
+pub async fn serve(listeners: impl IntoIterator<Item = Listener>) -> Result<()> {
+    let mut bound = Vec::new();
+    for Listener { router, bind } in listeners {
+        let listener = TcpListener::bind(bind)
+            .await
+            .with_context(|| format!("failed to bind {bind}"))?;
+        bound.push((listener, router, bind));
+    }
+
+    let shutdown = shutdown_signal().shared();
+    let servers = bound.into_iter().map(|(listener, router, bind)| {
+        tracing::info!(bind = %bind, "listening");
+        axum::serve(listener, with_layers(router))
+            .with_graceful_shutdown(shutdown.clone())
+            .into_future()
+    });
+    try_join_all(servers).await?;
+
+    tracing::info!("server stopped");
+
+    Ok(())
+}
+
+fn with_layers(router: Router) -> Router {
     let sensitive_headers: Arc<[_]> = Arc::new([
         header::AUTHORIZATION,
         header::COOKIE,
@@ -55,17 +87,7 @@ pub async fn serve(router: Router, bind: SocketAddr) -> Result<()> {
         ))
         .layer(CompressionLayer::new());
 
-    let app = router.layer(layers);
-
-    tracing::info!(bind = %bind, "listening");
-
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
-
-    tracing::info!("server stopped");
-
-    Ok(())
+    router.layer(layers)
 }
 
 async fn shutdown_signal() {
@@ -167,6 +189,19 @@ mod tests {
         assert!(response.starts_with("HTTP/1.1 200"), "{response}");
         logs.assert_contains(r#"path="/api/groups/x\"user=\"root\"""#);
         logs.assert_lacks(r#"x"user="root""#);
+    }
+
+    #[tokio::test]
+    async fn a_taken_port_stops_startup() {
+        let taken = std::net::TcpListener::bind("127.0.0.1:0").expect("free port");
+        let listeners = [Listener {
+            router: Router::new(),
+            bind: taken.local_addr().expect("address"),
+        }];
+
+        let error = serve(listeners).await.expect_err("port is taken");
+
+        assert!(error.to_string().starts_with("failed to bind"), "{error}");
     }
 
     const PAGE: &str = "{\"records\":[{\"offset\":0},{\"offset\":1},{\"offset\":2}]}";
