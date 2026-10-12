@@ -9,6 +9,9 @@ live, hide fields in records, and restrict access by OIDC group.
 Responses are compressed with zstd, brotli, or gzip, whichever the client
 accepts. Live streams are not, so each event goes out as soon as it is ready.
 
+The full documentation is at
+[klens.marcocondrache.com/docs](https://klens.marcocondrache.com/docs).
+
 ## Install
 
 Images are published to GHCR on each release from `main`:
