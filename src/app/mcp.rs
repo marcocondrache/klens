@@ -97,7 +97,7 @@ pub(crate) fn router(state: AppState, mcp: &Mcp) -> Router {
 pub(crate) fn access(mcp: &Mcp) -> EffectiveAccess {
     EffectiveAccess::Granted(vec![Grant::new(
         "mcp",
-        mcp.privileges(),
+        &mcp.privileges,
         mcp.clusters.as_deref(),
     )])
 }

@@ -50,9 +50,8 @@ async fn a_ceiling_without_a_privilege_closes_each_tool_and_section_that_needs_i
         let Some(needs) = needs else { continue };
         let capped = app.serving_mcp(Mcp::holding(
             every_tool()
-                .privileges()
-                .iter()
-                .copied()
+                .privileges
+                .into_iter()
                 .filter(|&privilege| privilege != needs),
         ));
         let tool = tools.iter().find(|tool| tool.name == name).expect("a tool");
@@ -69,7 +68,7 @@ async fn a_ceiling_without_a_privilege_closes_each_tool_and_section_that_needs_i
 
 #[test]
 fn mcp_privileges_take_exactly_the_privileges_the_tools_need() {
-    let needed = every_tool().privileges().to_vec();
+    let needed = every_tool().privileges;
 
     for &privilege in Privilege::VARIANTS {
         let named = json!(privilege);

@@ -21,8 +21,8 @@ pub struct Mcp {
     /// What every MCP call may read or change beyond the catalog, whoever
     /// makes it. Omitted, it holds the five reads, so MCP changes nothing
     /// until it names `create_topics`, `produce` or `register_schemas`.
-    #[serde(default, deserialize_with = "tool_privileges")]
-    privileges: Option<Vec<Privilege>>,
+    #[serde(default = "reads", deserialize_with = "tool_privileges")]
+    pub privileges: Vec<Privilege>,
     /// Omitted, MCP reaches every cluster. A list, even an empty one, limits
     /// it to those clusters.
     pub clusters: Option<Vec<String>>,
@@ -43,18 +43,14 @@ impl Mcp {
         Privilege::RegisterSchemas,
     ];
 
-    pub fn privileges(&self) -> &[Privilege] {
-        self.privileges.as_deref().unwrap_or(&READS)
-    }
-
     pub fn writes(&self) -> bool {
-        self.privileges()
+        self.privileges
             .iter()
             .any(|privilege| Self::WRITES.contains(privilege))
     }
 
     pub fn reads_private_text(&self) -> bool {
-        self.privileges()
+        self.privileges
             .iter()
             .any(|privilege| matches!(privilege, Privilege::Records | Privilege::SchemaText))
     }
@@ -64,7 +60,7 @@ impl Mcp {
 impl Default for Mcp {
     fn default() -> Self {
         Self {
-            privileges: None,
+            privileges: reads(),
             clusters: None,
             secret: None,
             bind: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
@@ -76,17 +72,19 @@ impl Default for Mcp {
 impl Mcp {
     pub fn holding(privileges: impl IntoIterator<Item = Privilege>) -> Self {
         Self {
-            privileges: Some(privileges.into_iter().collect()),
+            privileges: privileges.into_iter().collect(),
             ..Self::default()
         }
     }
 }
 
+fn reads() -> Vec<Privilege> {
+    READS.to_vec()
+}
+
 /// A later release may add a tool, a destructive one above all, and an
 /// existing config must not switch it on.
-fn tool_privileges<'de, D: Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Option<Vec<Privilege>>, D::Error> {
+fn tool_privileges<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<Privilege>, D::Error> {
     let privileges = Vec::<Privilege>::deserialize(deserializer)?;
     if privileges
         .iter()
@@ -97,7 +95,7 @@ fn tool_privileges<'de, D: Deserializer<'de>>(
              create_topics, produce, and register_schemas, so privileges may name no other",
         ));
     }
-    Ok(Some(privileges))
+    Ok(privileges)
 }
 
 #[cfg(test)]
@@ -117,7 +115,7 @@ mod tests {
     fn a_block_with_only_bind_serves_every_read_on_every_cluster() {
         let mcp: Mcp = yaml("bind: 0.0.0.0:8090");
 
-        assert_eq!(mcp.privileges(), READS);
+        assert_eq!(mcp.privileges, READS);
         assert_eq!(mcp.clusters, None);
         assert!(!mcp.writes());
     }
@@ -128,12 +126,12 @@ mod tests {
             yaml("{bind: 0.0.0.0:8090, privileges: [records], clusters: [dev, staging]}");
         let none: Mcp = yaml("{bind: 0.0.0.0:8090, privileges: [], clusters: []}");
 
-        assert_eq!(some.privileges(), [Privilege::Records]);
+        assert_eq!(some.privileges, [Privilege::Records]);
         assert_eq!(
             some.clusters.as_deref(),
             Some(&["dev".into(), "staging".into()][..])
         );
-        assert!(none.privileges().is_empty());
+        assert!(none.privileges.is_empty());
         assert_eq!(none.clusters.as_deref(), Some(&[][..]));
     }
 
@@ -144,7 +142,7 @@ mod tests {
         );
 
         assert_eq!(
-            mcp.privileges(),
+            mcp.privileges,
             [
                 Privilege::TopicConfigs,
                 Privilege::CreateTopics,
