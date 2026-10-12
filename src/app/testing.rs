@@ -146,42 +146,21 @@ impl TestApp {
     }
 
     pub async fn send_to_mcp(&self, request: Request<Body>) -> Response {
-        super::mcp_router(
-            self.state.clone(),
-            &Config::default().allowed_hosts,
-            &self.mcp.clone().unwrap_or_default(),
-        )
-        .oneshot(request)
-        .await
-        .expect("response")
+        super::mcp_router(self.state.clone(), &self.mcp.clone().unwrap_or_default())
+            .oneshot(request)
+            .await
+            .expect("response")
     }
 
     pub async fn mcp(&self, method: &str, params: Value) -> Reply {
         let body = json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params });
         let request_line = format!("POST /mcp {method}");
-        let ceiling = mcp::ceiling(&self.mcp.clone().unwrap_or_default());
-        let access = self.access.clone().narrow(&ceiling);
-        let guard = self.guard.clone();
+        let access = mcp::access(&self.mcp.clone().unwrap_or_default());
         let response = Router::new()
             .nest_service(
                 "/mcp",
-                mcp::service(
-                    self.state.clone(),
-                    mcp::browser_checks(
-                        Config::default()
-                            .allowed_hosts
-                            .iter()
-                            .map(ToString::to_string),
-                    ),
-                ),
+                mcp::service(self.state.clone(), access, mcp::refusing_browsers()),
             )
-            .layer(middleware::from_fn(
-                move |mut request: Request<Body>, next: Next| {
-                    request.extensions_mut().insert(access.clone());
-                    request.extensions_mut().insert(guard.clone());
-                    next.run(request)
-                },
-            ))
             .oneshot(mcp_request(&body))
             .await
             .expect("response");

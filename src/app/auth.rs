@@ -29,7 +29,7 @@ mod store;
 #[cfg(test)]
 pub(crate) mod testing;
 
-use access::{AccessPolicy, Ceiling, EffectiveAccess, Identity};
+use access::{AccessPolicy, EffectiveAccess, Identity};
 use backend::{AuthBackend, OidcCredentials};
 use oidc::{Oidc, OidcFlow};
 use store::ExpiringStore;
@@ -152,7 +152,6 @@ impl AuthState {
         SessionGuard {
             auth: self.clone(),
             holder,
-            ceiling: None,
         }
     }
 }
@@ -161,35 +160,26 @@ impl AuthState {
 pub struct SessionGuard {
     auth: AuthState,
     holder: Holder,
-    ceiling: Option<Ceiling>,
 }
 
 #[derive(Clone)]
 enum Holder {
     Nobody,
     Session(String),
+    /// A gateway in front of `/mcp` decides who reaches it, so every call
+    /// holds the same access.
+    Fixed(EffectiveAccess),
 }
 
 impl SessionGuard {
-    /// Holds exactly the ceiling, whoever calls, since a gateway in front of
-    /// `/mcp` decides who reaches it.
-    pub(crate) fn capped(ceiling: Ceiling) -> Self {
+    pub(crate) fn fixed(access: EffectiveAccess) -> Self {
         Self {
             auth: AuthState::disabled(),
-            holder: Holder::Nobody,
-            ceiling: Some(ceiling),
+            holder: Holder::Fixed(access),
         }
     }
 
     pub fn revalidate(&self) -> Option<EffectiveAccess> {
-        let access = self.held()?;
-        Some(match &self.ceiling {
-            Some(ceiling) => access.narrow(ceiling).into(),
-            None => access,
-        })
-    }
-
-    fn held(&self) -> Option<EffectiveAccess> {
         match &self.holder {
             Holder::Nobody => (!self.auth.is_enabled()).then_some(EffectiveAccess::Unrestricted),
             Holder::Session(subject) => self
@@ -197,12 +187,13 @@ impl SessionGuard {
                 .backend
                 .with_live_user(subject, |user| self.auth.access_from_user(user))
                 .flatten(),
+            Holder::Fixed(access) => Some(access.clone()),
         }
     }
 
     pub fn subject(&self) -> Option<&str> {
         match &self.holder {
-            Holder::Nobody => None,
+            Holder::Nobody | Holder::Fixed(_) => None,
             Holder::Session(subject) => Some(subject),
         }
     }
@@ -745,20 +736,6 @@ mod tests {
             browser.get("/api/clusters").await.status,
             StatusCode::UNAUTHORIZED
         );
-    }
-
-    #[test]
-    fn a_capped_guard_holds_its_ceiling_every_time() {
-        let reads = [config::Privilege::Records, config::Privilege::Acls];
-        let guard = SessionGuard::capped(Ceiling::new("mcp", &reads, None));
-
-        let revalidated = guard.revalidate().expect("a capped guard");
-
-        assert_ne!(revalidated, EffectiveAccess::Unrestricted);
-        let local = revalidated.cluster("local").unwrap();
-        assert!(local.records().is_ok());
-        assert!(local.produce().is_err());
-        assert!(local.delete_topics().is_err());
     }
 
     #[test]

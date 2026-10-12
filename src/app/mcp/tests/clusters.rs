@@ -268,24 +268,16 @@ async fn a_query_past_the_cap_is_refused() {
 
 #[tokio::test]
 async fn access_explain_reports_privileges_under_the_ceiling() {
-    let operator = PrivilegeSet::from_iter([Privilege::Records, Privilege::Produce]);
     let app = TestApp::of([FakeCluster::local(), FakeCluster::named("prod")])
         .writable(&["local"])
         .ingested()
         .await
-        .with_access(access([
-            role("operator", operator).on(&["local"]),
-            viewer().on(&["prod"]),
-        ]));
+        .serving_mcp(Mcp::holding([Privilege::Records, Privilege::Produce]));
 
     let explained = structured(&call(&app, "klens_access_explain", json!({})).await);
     let one = structured(&call(&app, "klens_access_explain", json!({ "cluster": "prod" })).await);
 
-    let tools = |records: bool| {
-        let reads_records = |name: &str| match records {
-            true => json!({ "name": name, "available": true }),
-            false => json!({ "name": name, "available": false, "needs": "RECORDS" }),
-        };
+    let tools = |writable: bool| {
         json!([
             { "name": "klens_access_explain", "available": true },
             { "name": "klens_acls_list", "available": false, "needs": "ACLS" },
@@ -299,9 +291,9 @@ async fn access_explain_reports_privileges_under_the_ceiling() {
             { "name": "klens_clusters", "available": true },
             { "name": "klens_group_describe", "available": true },
             { "name": "klens_groups_list", "available": true },
-            reads_records("klens_record_get"),
-            { "name": "klens_record_produce", "available": false, "needs": "PRODUCE" },
-            reads_records("klens_records_read"),
+            { "name": "klens_record_get", "available": true },
+            { "name": "klens_record_produce", "available": writable },
+            { "name": "klens_records_read", "available": true },
             { "name": "klens_schema_get", "available": false, "needs": "SCHEMA_TEXT" },
             { "name": "klens_schema_register", "available": false, "needs": "REGISTER_SCHEMAS" },
             { "name": "klens_schemas_list", "available": true },
@@ -317,11 +309,12 @@ async fn access_explain_reports_privileges_under_the_ceiling() {
             { "name": "klens_topics_list", "available": true },
         ])
     };
+    let privileges = json!(["RECORDS", "PRODUCE"]);
     assert_eq!(
         explained,
         json!({ "clusters": [
-            { "cluster": "local", "writable": true, "privileges": ["RECORDS"], "tools": tools(true) },
-            { "cluster": "prod", "writable": false, "privileges": [], "tools": tools(false) },
+            { "cluster": "local", "writable": true, "privileges": privileges, "tools": tools(true) },
+            { "cluster": "prod", "writable": false, "privileges": privileges, "tools": tools(false) },
         ]})
     );
     assert_eq!(one["clusters"], json!([explained["clusters"][1]]));

@@ -2,13 +2,11 @@ use std::num::NonZeroU32;
 use std::path::Path;
 use std::time::Duration;
 
-use axum::Router;
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode, header};
 use indexmap::IndexMap;
 use rmcp::model::{CallToolResult, ContentBlock, Tool};
 use serde_json::{Value, json};
-use tower::ServiceExt as _;
 use tracing::Level;
 use walkdir::WalkDir;
 
@@ -16,23 +14,23 @@ use super::configs::Section;
 use super::untrusted::Boundary;
 use super::{
     CLIENT_VALUES_NOTICE, MAX_QUERY_CHARS, MAX_REQUEST_BYTES, OBFUSCATED_NOTICE, RESULT_BYTES,
-    browser_checks, service, tool_list,
+    tool_list,
 };
-use crate::app::auth::access::{AccessPolicy, Privilege, PrivilegeSet};
+use crate::app::auth::access::{AccessPolicy, Privilege};
 use crate::app::auth::testing::FakeOidc;
 use crate::app::mcp::reply::{Page, fit, fits, reply};
 use crate::app::mcp::server::KlensMcp;
 use crate::app::mcp::tools::gates;
 use crate::app::{AuthState, Limits, mcp_router};
-use crate::config::{AllowedHost, Config, Mcp, Tuning};
+use crate::config::{Mcp, Tuning};
 use crate::kafka::model::{
     AclListing, ConfigEntry, ConfigSource, GroupSnapshot, RegisteredSchema, SchemaReference,
     SchemaType, Watermarks,
 };
 use crate::testing::{
-    Api, FakeCluster, FixtureRecord, LogCapture, Rig, TestApp, access, card_record, config_entry,
-    eventually, exchange, framed, group, mcp_request, offline_partition, partition, role, subject,
-    topic, viewer, yaml,
+    Api, FakeCluster, FixtureRecord, LogCapture, Rig, TestApp, card_record, config_entry,
+    eventually, exchange, framed, group, mcp_request, offline_partition, partition, subject, topic,
+    yaml,
 };
 
 mod access;

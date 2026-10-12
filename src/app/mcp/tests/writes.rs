@@ -247,7 +247,7 @@ async fn write_tools_draw_on_the_live_budget_once_their_checks_pass() {
     .await
     .serving_mcp(every_tool());
     let _lanes = lanes_writes_wait_on(&app);
-    let viewer = app.with_access(access([viewer()]));
+    let viewer = app.serving_mcp(Mcp::holding([]));
     let writes: Vec<Tool> = KlensMcp::tools()
         .list_all()
         .into_iter()

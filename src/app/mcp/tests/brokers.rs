@@ -136,7 +136,7 @@ async fn broker_configs_draw_on_the_live_budget_only_when_read() {
         })
         .ingested()
         .await;
-    let viewer = app.with_access(access([viewer()]));
+    let viewer = app.serving_mcp(Mcp::holding([]));
     let describe = async |app: &TestApp, broker: i32| {
         call(app, "klens_brokers_list", json!({ "broker": broker })).await
     };

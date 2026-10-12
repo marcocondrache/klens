@@ -158,6 +158,6 @@ pub fn router(state: AppState, allowed_hosts: &[AllowedHost]) -> Router {
 
 /// Serves `/mcp` alone, at `mcp.bind`, so the session cookie is never read or
 /// set on it.
-pub fn mcp_router(state: AppState, allowed_hosts: &[AllowedHost], mcp: &Mcp) -> Router {
-    mcp::router(state, allowed_hosts, mcp)
+pub fn mcp_router(state: AppState, mcp: &Mcp) -> Router {
+    mcp::router(state, mcp)
 }

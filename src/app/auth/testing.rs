@@ -45,7 +45,6 @@ impl SessionGuard {
         Self {
             auth: AuthState::disabled(),
             holder: Holder::Nobody,
-            ceiling: None,
         }
     }
 
@@ -53,7 +52,6 @@ impl SessionGuard {
         Self {
             auth: AuthState::enabled_for_tests(),
             holder: Holder::Session("gone".to_owned()),
-            ceiling: None,
         }
     }
 }

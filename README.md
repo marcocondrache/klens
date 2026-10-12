@@ -94,8 +94,9 @@ request that names no host. This stops DNS rebinding, where a web page points
 its own domain at klens and then reads clusters or sends writes from a
 visitor's browser. The list binds browsers only, since any other client can
 name an allowed host. With `auth`, klens ignores the list, because such a page
-never holds the session cookie. With [`mcp.secret`](#mcp), `/mcp` ignores it
-too, because such a page never holds the secret.
+never holds the session cookie. [`/mcp`](#mcp) ignores the list too, because
+it refuses every request from a browser or, with `mcp.secret`, every request
+without the secret.
 
 `/health` and `/ready` answer every host, because Kubernetes probes and load
 balancer health checks name an IP address. Point a load balancer health check
@@ -413,39 +414,37 @@ a Kafka client, so a result that carries them tells the agent to read them as
 data, not as instructions.
 
 Without `auth` or `secret`, anyone who reaches `/mcp` can call its tools.
-`/mcp` then answers only the hosts in [`allowed_hosts`](#allowed-hosts), and it
-refuses every request that carries an `Origin` header, so a web page cannot
-call it from a visitor's browser. An entry in `allowed_hosts` that names a port
-matches only that port, so list the MCP port too, or name the host without a
-port. klens logs at startup the address where it serves `/mcp`, with the
-ceiling below.
+`/mcp` answers any host and ignores [`allowed_hosts`](#allowed-hosts), so keep
+the MCP port on a network that only trusted clients reach. It refuses every
+request that carries an `Origin` header, so a web page cannot call it from a
+visitor's browser. klens logs at startup the address where it serves `/mcp`,
+with the ceiling below.
 
 `secret` puts `/mcp` behind a gateway that signs people in, such as
 agentgateway with Entra ID. The gateway adds the secret to every call it
 forwards as `Authorization: Bearer`, as agentgateway's `backendAuth.key` does,
 and `/mcp` refuses a call without it with `403 NOT_FROM_GATEWAY`. A call that
-carries it may name any host and send any `Origin`, since the gateway forwards
-the client's own and a web page cannot learn the secret. The secret must be at
+carries it may send any `Origin`, since the gateway forwards the client's own
+and a web page cannot learn the secret. The secret must be at
 least 32 bytes. Without `auth`, it guards only the MCP port, so keep the UI's
 port off any network the gateway fronts.
 
 With `auth`, `/mcp` signs nobody in and never reads the session cookie, so
-`secret` is required. `privileges` is required too, because every call holds
-the whole ceiling below, whoever signed in at the gateway. Roles in
-`auth.roles` do not apply to `/mcp`, so the gateway decides who reaches it and
-which tools they may call.
+`secret` is required. Every call holds the whole ceiling below, whoever signed
+in at the gateway. Roles in `auth.roles` do not apply to `/mcp`, so the gateway
+decides who reaches it and which tools they may call.
 
 ```yaml
 mcp:
   bind: 0.0.0.0:8090
   secret: {env: KLENS_MCP_SECRET} # at least 32 bytes; required with auth
-  privileges: [topic_configs, schema_text] # required with auth
+  privileges: [topic_configs, schema_text]
 ```
 
 The block is the ceiling that every MCP call holds. `privileges` lists the
 reads and changes a call may use beyond the catalog. The reads are `records`,
-`topic_configs`, `broker_configs`, `schema_text`, and `acls`, and without
-`auth` it defaults to all five. `records` opens the record tools, `schema_text` opens
+`topic_configs`, `broker_configs`, `schema_text`, and `acls`, and it defaults
+to all five. `records` opens the record tools, `schema_text` opens
 `klens_schema_get`, and `acls` opens `klens_acls_list`. `topic_configs` adds a
 topic's config overrides to `klens_topic_describe`, and `broker_configs` adds a
 broker's to `klens_brokers_list`. A tool says when it left such a section out.

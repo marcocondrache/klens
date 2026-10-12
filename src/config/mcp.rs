@@ -21,7 +21,6 @@ pub struct Mcp {
     /// What every MCP call may read or change beyond the catalog, whoever
     /// makes it. Omitted, it holds the five reads, so MCP changes nothing
     /// until it names `create_topics`, `produce` or `register_schemas`.
-    /// Required with `auth`.
     #[serde(default, deserialize_with = "tool_privileges")]
     privileges: Option<Vec<Privilege>>,
     /// Omitted, MCP reaches every cluster. A list, even an empty one, limits
@@ -29,8 +28,8 @@ pub struct Mcp {
     pub clusters: Option<Vec<String>>,
     /// A secret of at least 32 bytes that a gateway sends with every call as
     /// `Authorization: Bearer`, such as agentgateway's `backendAuth.key`. Set,
-    /// `/mcp` answers only calls that carry it, from any host or browser
-    /// origin, since the gateway forwards both. Required with `auth`.
+    /// `/mcp` answers only calls that carry it, from any browser origin, since
+    /// the gateway forwards the client's. Required with `auth`.
     pub secret: Option<KeyMaterial>,
     /// `/mcp` answers here and never on the UI's `bind`, so a gateway can
     /// reach the tools without reaching the UI.
@@ -46,10 +45,6 @@ impl Mcp {
 
     pub fn privileges(&self) -> &[Privilege] {
         self.privileges.as_deref().unwrap_or(&READS)
-    }
-
-    pub fn names_privileges(&self) -> bool {
-        self.privileges.is_some()
     }
 
     pub fn writes(&self) -> bool {

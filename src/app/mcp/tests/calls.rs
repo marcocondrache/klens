@@ -101,7 +101,7 @@ async fn a_refused_call_logs_its_tool_and_code_but_not_its_arguments() {
 async fn post_through_serve(app: &TestApp, mcp: &Mcp, body: &Value) -> String {
     let body = body.to_string();
     let response = exchange(
-        mcp_router(app.state().clone(), &Config::default().allowed_hosts, mcp),
+        mcp_router(app.state().clone(), mcp),
         &format!(
             "POST /mcp HTTP/1.1\r\nHost: klens.example.com\r\n\
              Authorization: Bearer {GATEWAY_SECRET}\r\n\
