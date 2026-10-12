@@ -1,0 +1,96 @@
+---
+title: Deploy klens on Kubernetes
+description: Install the Helm chart, pass secrets, mount TLS files, and expose the UI.
+---
+
+The klens Helm chart deploys one Deployment and a Service. Its `config` value is the same YAML that klens loads, so the [configuration reference](/docs/reference/configuration) applies as written. The [Helm chart reference](/docs/reference/helm-chart) lists every value.
+
+## Install the chart
+
+1. Write `values.yaml` with your clusters.
+
+   ```yaml title="values.yaml"
+   config:
+     bind: 0.0.0.0:8080
+     clusters:
+       prod:
+         bootstrap_servers: [kafka-0.kafka:9093, kafka-1.kafka:9093]
+         tls: {ca_cert: /tls/ca.pem}
+         sasl:
+           mechanism: SCRAM-SHA-512
+           username: klens
+           password: {env: KAFKA_PASSWORD}
+   secret:
+     existingSecret: klens-secrets
+   volumes:
+     - name: kafka-tls
+       secret:
+         secretName: kafka-ca
+         defaultMode: 0400
+   volumeMounts:
+     - name: kafka-tls
+       mountPath: /tls
+       readOnly: true
+   ```
+
+2. Create the Secret that `existingSecret` names. Each key becomes an environment variable.
+
+   ```sh
+   kubectl create namespace klens
+   kubectl -n klens create secret generic klens-secrets \
+     --from-literal=KAFKA_PASSWORD='...'
+   ```
+
+3. Install the chart.
+
+   ```sh
+   helm install klens oci://ghcr.io/marcocondrache/charts/klens \
+     -n klens -f values.yaml
+   ```
+
+4. Forward the port and open `http://localhost:8080`.
+
+   ```sh
+   kubectl -n klens port-forward svc/klens 8080:8080
+   ```
+
+The pod turns ready once klens has read every configured cluster.
+
+To install from a checkout, replace the chart reference with `./charts/klens`.
+
+## Expose the UI
+
+Turn on an Ingress or a Gateway API HTTPRoute. Route the path prefix `/`, so the UI and `/api` both reach the pod.
+
+```yaml title="values.yaml"
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: klens.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: klens-tls
+      hosts: [klens.example.com]
+```
+
+Without `config.auth`, klens answers only the hosts in `config.allowed_hosts`. List every Ingress host and HTTPRoute hostname there, or klens answers them with `403 HOST_NOT_ALLOWED`.
+
+```yaml title="values.yaml"
+config:
+  allowed_hosts: [localhost, 127.0.0.1, "::1", klens.example.com]
+```
+
+A proxy in front of klens must pass on the host the browser sent. nginx does this with `proxy_set_header Host $host`. A load balancer health check names an IP address, so point it at `/ready`, not at `/`.
+
+Before you expose klens beyond your own machine, [require sign-in](/docs/operate/require-sign-in).
+
+## Run more than one replica
+
+`replicaCount` above 1 works, but sessions live in the memory of each pod. A user whose request reaches another pod signs in again. Use one replica, or route each user to one pod.
+
+## Use your own ConfigMap
+
+To keep the config outside the chart, create a ConfigMap with a `config.yaml` key and set `existingConfigMap` to its name. The chart then skips its render checks on the config. If that config has an `mcp` block, also set `mcp.enabled: true`, so the chart creates the MCP Service.

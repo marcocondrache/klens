@@ -1,0 +1,40 @@
+---
+title: Allow changes on a cluster
+description: Let klens create topics, produce records, reset offsets, and make other changes on a cluster.
+---
+
+klens changes nothing on a cluster by default. Two settings must agree before it makes a change:
+
+- The cluster has `writable: true`.
+- The user holds the [privilege](/docs/reference/privileges) for that change.
+
+1. Set `writable: true` on the cluster.
+
+   ```yaml title="config.yaml"
+   clusters:
+     staging:
+       bootstrap_servers: [staging-kafka:9092]
+       writable: true
+   ```
+
+2. If you use roles, grant the write privileges to the groups that need them.
+
+   ```yaml title="config.yaml"
+   auth:
+     roles:
+       developer:
+         privileges: [records, topic_configs, create_topics, produce, reset_offsets]
+         bindings:
+           - groups: [developers]
+             clusters: [staging]
+   ```
+
+3. Restart klens. The actions appear in the UI for users who hold the privilege.
+
+Without `auth`, everyone who reaches klens holds every privilege. klens then logs a warning at startup that names each writable cluster. [Require sign-in](/docs/operate/require-sign-in) before you make a shared cluster writable.
+
+The UI never offers a change to an internal topic, and the API refuses one with `INTERNAL_TOPIC`. Kafka still checks its own ACLs for the Kafka user of klens, so Kafka can refuse a change that klens allows.
+
+## Find who changed what
+
+klens logs each change at `info` level with the cluster and what changed, such as the group and the target of an offset reset. With `auth`, the line also carries the `user` field of its request, which is the OIDC subject (`sub`) of the user who made the change.

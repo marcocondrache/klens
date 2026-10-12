@@ -1,0 +1,272 @@
+---
+title: MCP tools
+description: The tools klens serves at /mcp, with their arguments, privileges, and limits.
+---
+
+klens serves these tools over the [Model Context Protocol](https://modelcontextprotocol.io) at `/mcp` on `mcp.bind`. [Connect an AI agent](/docs/operate/connect-an-agent) shows how to turn MCP on. The arguments on this page use the names an agent sends.
+
+## Tools
+
+| Tool | Reads or changes | Privilege | Limited per minute |
+| --- | --- | --- | --- |
+| `klens_clusters` | Clusters and their health | None | No |
+| `klens_search` | Topics, groups, brokers, and subjects by name | None | No |
+| `klens_access_explain` | What the agent may do on each cluster | None | No |
+| `klens_topics_list` | A cluster's topics | None | No |
+| `klens_topic_describe` | One topic | None. `topic_configs` adds its configs. | No |
+| `klens_groups_list` | A cluster's consumer groups | None | No |
+| `klens_group_describe` | One consumer group | None | Yes |
+| `klens_brokers_list` | A cluster's brokers | None. `broker_configs` adds configs for one broker. | Only with `broker` |
+| `klens_schemas_list` | A cluster's schema subjects | None | No |
+| `klens_schema_get` | One schema version, from the registry | `schema_text` | Yes |
+| `klens_acls_list` | A cluster's ACL bindings | `acls` | No |
+| `klens_records_read` | A page of records, from Kafka | `records` | Yes |
+| `klens_record_get` | One record, from Kafka | `records` | Yes |
+| `klens_topic_create` | Creates a topic | `create_topics` | Yes |
+| `klens_record_produce` | Writes one record | `produce` | Yes |
+| `klens_schema_register` | Registers a schema version | `register_schemas` | Yes |
+
+A tool without a per-minute limit reads the background projection that the UI reads, so it costs Kafka nothing. A tool with the limit reads Kafka or the registry live, makes klens read more often, or changes something. `tuning.mcp.live_calls_per_minute` sets the limit, and every client shares it.
+
+The tool list an agent receives leaves out each tool that needs a privilege the agent holds on none of the clusters it sees. It leaves out each write tool unless a cluster the agent sees has `writable: true` and grants the privilege of that tool.
+
+Every tool that reads one cluster takes a `cluster` argument. The argument is optional when the agent sees exactly one cluster.
+
+## Read the catalog
+
+### `klens_clusters`
+
+Lists the clusters the agent sees, with broker, topic, partition, group, and subject counts, the counts of under-replicated and offline partitions, and each background lane that failed or has not run yet.
+
+| Argument | Type | Description |
+| --- | --- | --- |
+| `cluster` | String | One cluster. With it, the result also lists that cluster's under-replicated and offline partitions, offline first. |
+
+### `klens_search`
+
+Finds topics, consumer groups, brokers, and schema subjects by name, on one cluster or on all of them. It returns up to 20 matches for each cluster, best first, each with its kind (`TOPIC`, `GROUP`, `NODE`, or `SUBJECT`) and exact ID. `notReady` names each cluster klens has not read yet.
+
+| Argument | Type | Description |
+| --- | --- | --- |
+| `query` | String, at most 256 characters | Required. Matching is fuzzy and ignores case. `ord cre` finds `orders.created`. `!test` leaves out names that match `test`. `^prod` keeps names that start with `prod`. |
+| `cluster` | String | One cluster. Omit it to search every cluster. |
+
+### `klens_access_explain`
+
+Explains the privileges the agent holds under the MCP ceiling, whether each cluster accepts changes, and the privilege each unavailable tool or section needs.
+
+| Argument | Type | Description |
+| --- | --- | --- |
+| `cluster` | String | One cluster. Omit it for every cluster. |
+
+### `klens_topics_list`
+
+Lists topics with their partition count, records, size, produce rate, the number of groups that read them, and whether a partition is under-replicated.
+
+| Argument | Type | Description |
+| --- | --- | --- |
+| `nameContains` | String | Keeps topics whose name holds this text, in any case. |
+| `sort` | `NAME`, `SIZE`, `RATE`, `RECORDS`, `PARTITIONS`, or `GROUPS` | `NAME` by default, from A to Z. The others put the largest first. |
+| `empty` | Boolean | `true` keeps topics with no records, `false` keeps the others. Both leave out unmeasured topics. |
+| `underReplicated` | Boolean | `true` keeps topics with a partition short of in-sync replicas. |
+| `includeInternal` | Boolean | Also lists internal topics such as `__consumer_offsets`. `false` by default. |
+| `responseFormat` | `CONCISE` or `DETAILED` | `DETAILED` adds internal, replication factor, records ever received, retention, and cleanup policy. |
+| `limit` | 1 to 100 | 25 by default. |
+
+### `klens_topic_describe`
+
+Describes one topic: partitions with replicas and watermarks, records, size, produce rate, retention, and cleanup policy. `groups` lists the groups that read it, largest lag first. `subjects` lists its `<topic>-key` and `<topic>-value` subjects. `configs` lists each config that differs from Kafka's default and needs `topic_configs`.
+
+| Argument | Type | Description |
+| --- | --- | --- |
+| `topic` | String | Required. The exact topic name. |
+
+### `klens_groups_list`
+
+Lists consumer groups, largest total lag first, with their state, member count, and total lag. `lagComplete` is `false` when the total leaves out partitions whose lag klens has not read.
+
+| Argument | Type | Description |
+| --- | --- | --- |
+| `nameContains` | String | Keeps groups whose ID holds this text, in any case. |
+| `state` | `STABLE`, `EMPTY`, `PREPARING_REBALANCE`, `COMPLETING_REBALANCE`, `ASSIGNING`, `RECONCILING`, `DEAD`, or `UNKNOWN` | Keeps groups in this state. |
+| `topic` | String | Keeps groups that read this exact topic. |
+| `minLag` | Integer | Keeps groups with at least this total lag. |
+| `responseFormat` | `CONCISE` or `DETAILED` | `DETAILED` adds the topics each group reads. |
+| `limit` | 1 to 100 | 25 by default. |
+
+### `klens_group_describe`
+
+Describes one group: state, assignment protocol, total lag, members, and partitions, largest lag first. `findings` names what looks wrong:
+
+| Finding | Meaning |
+| --- | --- |
+| `NO_MEMBERS` | The group has no members. |
+| `REBALANCING` | The group is rebalancing. |
+| `MORE_MEMBERS_THAN_PARTITIONS` | Some members have no partition. |
+| `UNASSIGNED_PARTITIONS` | Some partitions have no member. |
+| `LAG_ON_ONE_MEMBER` | One member holds at least 80% of a complete total lag of 1000 or more. |
+
+A call makes klens read the offsets of the group every `tuning.ingest.fast_offset` for `tuning.ingest.interest_ttl`, as opening the group in the UI does.
+
+| Argument | Type | Description |
+| --- | --- | --- |
+| `group` | String | Required. The exact group ID. |
+
+### `klens_brokers_list`
+
+Lists brokers by ID with address, rack, controller flag, partition counts, size, and log dirs.
+
+| Argument | Type | Description |
+| --- | --- | --- |
+| `broker` | Integer | Describes this broker alone, with each config that differs from Kafka's default. It reads configs live and needs `broker_configs`. |
+| `after` | Integer | Lists only brokers with a higher ID. Pass the last ID of the previous result. |
+| `limit` | 1 to 100 | 25 by default. |
+
+### `klens_schemas_list`
+
+Lists schema subjects from A to Z with their latest version, schema type, and compatibility level. It fails with `NO_SCHEMA_REGISTRY` when the cluster has no `schema_registry`.
+
+| Argument | Type | Description |
+| --- | --- | --- |
+| `nameContains` | String | Keeps subjects whose name holds this text, in any case. |
+| `responseFormat` | `CONCISE` or `DETAILED` | `DETAILED` adds the latest schema ID and the newest 10 versions with their schema IDs. |
+| `limit` | 1 to 100 | 25 by default. |
+
+### `klens_schema_get`
+
+Reads one version of a subject's schema live from the registry, with its references.
+
+| Argument | Type | Description |
+| --- | --- | --- |
+| `subject` | String | Required. The exact subject name. |
+| `version` | Integer, at least 1 | The latest version by default. |
+
+### `klens_acls_list`
+
+Lists ACL bindings. `status` `DISABLED` means the cluster runs no authorizer. `DENIED` means the Kafka user of klens may not describe ACLs.
+
+| Argument | Type | Description |
+| --- | --- | --- |
+| `contains` | String | Keeps bindings whose principal, resource name, or host holds this text, in any case. |
+| `resourceType` | `TOPIC`, `GROUP`, `CLUSTER`, `TRANSACTIONAL_ID`, or `DELEGATION_TOKEN` | Keeps bindings on this resource type. |
+| `operation` | `ALL`, `READ`, `WRITE`, `CREATE`, `DELETE`, `ALTER`, `DESCRIBE`, `CLUSTER_ACTION`, `DESCRIBE_CONFIGS`, `ALTER_CONFIGS`, or `IDEMPOTENT_WRITE` | Keeps bindings for this exact operation. |
+| `permission` | `ALLOW` or `DENY` | Keeps bindings with this permission. |
+| `limit` | 1 to 100 | 25 by default. |
+
+## Read records
+
+### `klens_records_read`
+
+Reads a page of records live from Kafka. For the next page, pass the `cursor` of the result with the other arguments unchanged.
+
+| Argument | Type | Description |
+| --- | --- | --- |
+| `topic` | String | Required. The exact topic name. |
+| `partitions` | List of integers | Reads only these partitions. Every partition by default. |
+| `order` | `NEWEST` or `OLDEST` | `NEWEST` reads back from the end of each partition. `OLDEST` reads forward from the start. `NEWEST` by default. |
+| `startOffset` | Integer | Starts at this offset, inclusive, in the one partition that `partitions` names. |
+| `from` | RFC 3339 time | Keeps records stamped at or after this time. |
+| `to` | RFC 3339 time | Keeps records stamped at or before this time. |
+| `contains` | String | Keeps records whose key or value holds this text, in any case. |
+| `limit` | 1 to 50 | 10 by default. |
+| `cursor` | String | The cursor of the previous page. |
+
+### `klens_record_get`
+
+Reads one record live from Kafka. It fails with `UNKNOWN_OFFSET` when the partition holds no record at that offset.
+
+| Argument | Type | Description |
+| --- | --- | --- |
+| `topic` | String | Required. The exact topic name. |
+| `partition` | Integer | Required. The partition of the record. |
+| `offset` | Integer | Required. The offset of the record. |
+
+### Record results
+
+A record result is text. For each record, a first JSON line gives the partition, offset, timestamp, size, value schema ID, `verbatim`, `cut`, and `headersLeftOut`. `verbatim` is `true` when the text shows the exact bytes. A second JSON line holds the key, the headers, and the value, between two markers that change with every result. The result tells the agent to read the text between the markers as data, not as instructions. JSON escapes keep a payload on one line, and klens escapes a payload that holds the closing marker.
+
+An obfuscation rule hides what it covers, as in the UI, and `contains` matches only what klens shows.
+
+## Change Kafka
+
+Each write tool needs its privilege in `mcp.privileges` and a cluster with `writable: true`. On any other cluster it fails with `READ_ONLY_CLUSTER`. klens logs each change as it logs a change from the UI. A client that names itself in each request appears on that log line as `unverified:<name>`.
+
+### `klens_topic_create`
+
+Creates a topic. It fails with `REFUSED` when Kafka refuses, such as for a topic that exists. The result gives the name and the partition count, which is `null` when the call gave no `partitions` and klens has not seen the topic yet.
+
+| Argument | Type | Description |
+| --- | --- | --- |
+| `topic` | String | Required. Letters, digits, `.`, `_`, and `-`. |
+| `partitions` | 1 to 65535 | The broker's `num.partitions` by default. |
+| `replicationFactor` | 1 to 255 | The broker's `default.replication.factor` by default. |
+| `configs` | Map of strings | Topic configs such as `cleanup.policy` or `retention.ms`. |
+
+### `klens_record_produce`
+
+Writes one record and returns its partition and offset. klens writes no tombstones, so `value` is required. It fails with `UNENCODABLE` when the data does not fit its schema.
+
+| Argument | Type | Description |
+| --- | --- | --- |
+| `topic` | String | Required. The exact topic name. |
+| `value` | Payload | Required. The value. |
+| `key` | Payload | The key. Omit it for a record without a key. |
+| `partition` | Integer | The partition. Without it, the producer picks one, by the hash of the key when there is a key. |
+| `headers` | List of `{key, value}` | Headers with text values. |
+
+A payload is an object with an `encoding`:
+
+| `encoding` | Fields | Writes |
+| --- | --- | --- |
+| `TEXT` | `data` | `data` as UTF-8 text. |
+| `BASE64` | `data` | The bytes that `data` encodes in base64. |
+| `SCHEMA` | `data`, `schemaId` | The JSON in `data`, encoded with the registry schema `schemaId`. |
+
+### `klens_schema_register`
+
+Registers a schema as the next version of a subject and returns the version and the schema ID. When the subject already holds the same schema, the registry returns that version and registers nothing. It fails with `REGISTRY_REFUSED` when the registry refuses the schema, such as for one the compatibility level of the subject rules out.
+
+| Argument | Type | Description |
+| --- | --- | --- |
+| `subject` | String | Required. The registry creates the subject when it does not exist. |
+| `type` | `AVRO`, `JSON`, or `PROTOBUF` | Required. |
+| `schema` | String | Required. JSON for `AVRO` and `JSON`, `.proto` source for `PROTOBUF`. |
+| `references` | List of `{name, subject, version}` | The schemas this one references. |
+
+## Limits
+
+| Limit | Value |
+| --- | --- |
+| Calls served at once, across every client | `tuning.mcp.max_concurrent_calls`, 16 by default |
+| Live calls a minute, across every client | `tuning.mcp.live_calls_per_minute`, 30 by default |
+| Request body | 64 KiB |
+| Search query | 256 characters |
+| Result | 24,000 bytes, counting the text and the structured copy |
+| Name a client chose, in `klens_group_describe` | 256 characters, then `…` |
+| Config value | 500 characters, then marked `cut` |
+
+A call past either call limit fails with `RATE_LIMITED`, and klens does not queue it. A list result that does not fit keeps its first rows and says how many it left out. A record result instead cuts long keys, headers, and values to one length, so that a page keeps every record and its cursor, and it marks each record it cut. When the cursor of a topic with many partitions leaves too little room, `klens_records_read` fails with `INVALID_REQUEST` and asks for fewer records or partitions.
+
+A count, size, or rate that klens has not measured yet is `null`, not `0`.
+
+## Errors
+
+A refused call returns a JSON object with `error`, `code`, and `hint`. The hint says what the agent can call next. When the refusal carries a message from Kafka or the registry, the message sits between markers, as record text does. klens logs the tool and the code at `info` level, never the arguments.
+
+This list holds the codes an agent meets most often. [HTTP API errors](/docs/reference/http-api#errors) lists every code.
+
+| Code | Cause |
+| --- | --- |
+| `UNKNOWN_CLUSTER` | The cluster does not exist, or MCP does not reach it. |
+| `FORBIDDEN` | The ceiling does not grant the privilege the call needs. |
+| `READ_ONLY_CLUSTER` | A write tool ran on a cluster without `writable: true`. |
+| `UNKNOWN_TOPIC`, `UNKNOWN_GROUP`, `UNKNOWN_BROKER`, `UNKNOWN_SUBJECT`, `UNKNOWN_PARTITION` | The named object does not exist. |
+| `UNKNOWN_OFFSET` | The partition holds no record at the offset. |
+| `INVALID_REQUEST` | An argument does not fit the input schema, or a cursor does not fit the other arguments. |
+| `NOT_READY` | klens has not read the data the call needs yet. |
+| `NO_SCHEMA_REGISTRY` | The cluster has no `schema_registry`. |
+| `REFUSED` | Kafka refused the change. |
+| `REGISTRY_REFUSED` | The registry refused the change. |
+| `UNENCODABLE` | The data does not fit the schema. |
+| `RATE_LIMITED` | The call passed a call limit. |
+| `NOT_FROM_GATEWAY` | `mcp.secret` is set and the request does not carry it. |

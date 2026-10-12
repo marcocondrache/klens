@@ -1,0 +1,47 @@
+---
+title: Find records in a topic
+description: Search, filter, and open records on the Data tab of a topic, and download what matches.
+---
+
+The **Data** tab of a topic shows its records. You need the `records` [privilege](/docs/reference/privileges) on the cluster to see it.
+
+## Pick the records to show
+
+1. Open a topic from **Topics**. The **Data** tab shows the newest records first.
+2. To read from the start of each partition, select **Oldest** in the mode switch. To return to the end, select **Newest**.
+3. To search, type in **Search key or value…**. klens keeps the records whose key or value holds the text, ignoring case.
+4. To read some partitions only, select **Filter**, then **Partition**, and check the partitions. Each partition shows how many records it holds.
+5. To read a time range, select **Filter**, then **Timestamp**, and pick a range such as **Last hour**. For other times, select **Custom range…** and set **From** and **To**.
+
+klens searches on the server and reads more records as you scroll. A search on a large topic can stop at the read timeout before it reads every offset. The page then shows **Partial scan**. Scroll down to keep reading.
+
+The search, the partitions, and the schema stay in place when you change the mode. The time range resets when you switch to **Live** and back.
+
+## Decode values without a schema ID
+
+klens decodes Avro, JSON Schema, and Protobuf values that carry a Schema Registry ID. A value written without that ID shows as raw text. To decode such values, open **Decode with schema…** and select a subject. The **Suggested** group lists `<topic>-value`. To show raw values again, select **Raw**.
+
+The picker appears only when the cluster has a `schema_registry` and a loaded value has no schema ID.
+
+## Open one record
+
+- To open a record from the list, select its row. A side sheet shows the partition, offset, size, timestamp, schema, key, value, and headers.
+- To open a record by its address, select **Go to offset**, enter the **Partition** and the **Offset**, and select **Open record**. klens reads the record from Kafka, even when it is not in the loaded list.
+
+In the sheet, **Pretty** formats a JSON value, and **Raw** shows it as stored. **Download value** saves the value as `<topic>-<partition>-<offset>.json`.
+
+When the partition holds no record at the offset, the sheet shows **Record not found**. Retention or compaction may have removed the record, or the offset may hold a transaction marker.
+
+## Share a record
+
+The address of an open record is `/cluster/<cluster>/topics/<topic>?partition=<p>&offset=<o>`. To copy it, select **Copy link to this record** in the sheet. The link opens the **Data** tab with the record open.
+
+## Download the records that match
+
+To save every record that matches the current view, select **Download NDJSON**. klens writes one JSON record a line to `<topic>.ndjson`. The file holds every match in the partitions, the time range, and the search you picked, in the current order. Records that arrive after the download starts are not in the file.
+
+The download is not available in **Live** mode, or when the partition filter excludes every partition.
+
+## Read obfuscated topics
+
+An **Obfuscated** badge means an [obfuscation rule](/docs/operate/hide-sensitive-fields) covers the topic. Hidden fields show as `***` or as a `kx:` token, and equal values get equal tokens. The search matches the hidden text, not the original value.

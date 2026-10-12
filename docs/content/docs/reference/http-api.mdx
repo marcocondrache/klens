@@ -1,0 +1,281 @@
+---
+title: HTTP API
+description: The JSON API the klens UI uses, with every route, parameter, stream frame, and error code.
+---
+
+The UI talks to klens through a JSON API under `/api`. Scripts can call the same API. Field names on the wire are in camel case, and enum values are in screaming snake case, such as `NEWEST`.
+
+## Conventions
+
+- **Sessions.** With `auth`, every route except `/api/auth/*` needs the `klens_session` cookie. Without a session, a route answers `401 UNAUTHORIZED`. Without `auth`, every caller holds every privilege on every cluster.
+- **Hosts.** Without `auth`, klens answers a request only when its `Host` is in [`allowed_hosts`](/docs/reference/configuration#allowed_hosts). Any other request gets `403 HOST_NOT_ALLOWED`.
+- **Errors.** An error body is `{"error": "<message>", "code": "<CODE>"}`. [Errors](#errors) lists the codes.
+- **Lists in a query.** A repeated key is a list: `partition=0&partition=2`.
+- **Writes.** A write needs a cluster with `writable: true` and the privilege the route names. klens checks `writable` first, so a read-only cluster answers `403 READ_ONLY_CLUSTER` before it checks the privilege. After a write succeeds, klens waits up to 10 seconds for its projection to show the change, then answers.
+- **Compression.** klens compresses a response with zstd, brotli, or gzip, as the `Accept-Encoding` header allows. It never compresses a server-sent event stream.
+- **Unknown paths.** An unknown path under `/api` answers `404 NOT_FOUND`. A known path with the wrong method answers `405 INVALID_REQUEST`.
+
+A cluster outside the caller's roles answers `404 UNKNOWN_CLUSTER`, the same as a cluster that does not exist.
+
+## Health
+
+| Route | Response |
+| --- | --- |
+| `GET /health` | `204` whenever the process runs. |
+| `GET /ready` | `204` once klens has read the topology of every configured cluster at least once, and `503` before. It stays `204` after that, even when later reads fail. |
+
+Both routes answer every host, need no session, and return no body. Point liveness checks at `/health` and readiness checks or load balancer health checks at `/ready`.
+
+## Sign-in
+
+These routes exist only with `auth`. Without it, they answer `404`.
+
+| Route | Description |
+| --- | --- |
+| `GET /api/auth/me` | Returns `{enabled, user}`. `user` is `{sub, email, name}`, or `null` without a session. It answers without `auth` too. |
+| `GET /api/auth/login` | Redirects to the identity provider with the authorization code flow and PKCE. |
+| `GET /api/auth/callback` | The OIDC redirect target. Redirects to `/login?from=callback` on success, `/login?error=forbidden` when no role matches the user, and `/login?error=auth` on any other failure. |
+| `POST /api/auth/logout` | Ends the session. Returns `204`. |
+
+## Access
+
+| Route | Privilege | Response |
+| --- | --- | --- |
+| `GET /api/whoami` | None | `{subject, clusters: [{cluster, roles, privileges, writable}]}`. `privileges` lists the privileges of the caller on each cluster. |
+
+## Clusters
+
+| Route | Privilege | Response |
+| --- | --- | --- |
+| `GET /api/clusters` | None | The health of each cluster the caller sees, in config order. |
+| `GET /api/clusters/{cluster}` | None | The health of one cluster. |
+| `GET /api/clusters/{cluster}/search` | None | Topics, groups, brokers, and subjects that match `q`. Each hit is `{kind, id, label, detail}`, and `kind` is `TOPIC`, `GROUP`, `NODE`, or `SUBJECT`. |
+
+Cluster health holds `ready`, the counts of topics, partitions, groups, brokers, and subjects, `underReplicatedPartitions`, `offlinePartitions`, and one entry for each lane: `topology`, `watermarks`, `offsets`, `configs`, `subjects`, `logDirs`, `acls`, `quotas`, and `scramUsers`. A lane entry is `{updatedAt, checkedAt, lastError, lastPollMs, healthy}`.
+
+## Topics
+
+| Route | Privilege | Body or query | Response |
+| --- | --- | --- | --- |
+| `GET /api/clusters/{cluster}/topics` | None | | Every topic. |
+| `POST /api/clusters/{cluster}/topics` | `create_topics` | `{name, partitions?, replicationFactor?, configs?}` | `201` |
+| `GET /api/clusters/{cluster}/topics/{topic}` | None | | The topic with its partitions. |
+| `DELETE /api/clusters/{cluster}/topics/{topic}` | `delete_topics` | | `204` |
+| `GET /api/clusters/{cluster}/topics/{topic}/groups` | None | | `[{id, state, memberCount, lagOnTopic}]` |
+| `POST /api/clusters/{cluster}/topics/{topic}/partitions` | `add_partitions` | `{count}`, the new total | `204` |
+| `GET /api/clusters/{cluster}/topics/{topic}/configs` | `topic_configs` | | `[{name, value, source, readOnly, sensitive}]` |
+| `PATCH /api/clusters/{cluster}/topics/{topic}/configs` | `alter_topic_configs` | `{set?: {name: value}, reset?: [name]}` | `204` |
+
+`source` is `DYNAMIC_TOPIC_CONFIG`, `DYNAMIC_BROKER_CONFIG`, `DYNAMIC_DEFAULT_BROKER_CONFIG`, `STATIC_BROKER_CONFIG`, or `DEFAULT_CONFIG`. A config edit must name at least one config, and no config in both `set` and `reset`. A write to an internal topic answers `422 INTERNAL_TOPIC`.
+
+## Records
+
+| Route | Privilege | Query or body | Response |
+| --- | --- | --- | --- |
+| `GET /api/clusters/{cluster}/topics/{topic}/records` | `records` | [Page query](#page-query) | A [record page](#record-page). |
+| `GET /api/clusters/{cluster}/topics/{topic}/records/{partition}/{offset}` | `records` | `schemaId` | `{record, obfuscated}` |
+| `GET /api/clusters/{cluster}/topics/{topic}/records/export` | `records` | The page query without `limit` and `cursor` | NDJSON, one record a line. |
+| `GET /api/clusters/{cluster}/topics/{topic}/records/tail` | `records` | `partition`, `contains`, `schemaId` | A [live tail](#live-tail) stream. |
+| `POST /api/clusters/{cluster}/topics/{topic}/records` | `produce` | `{partition?, key, value, headers?}` | `201 {partition, offset}` |
+| `DELETE /api/clusters/{cluster}/topics/{topic}/records` | `delete_records` | `partition`, `before` | `204` |
+
+### Page query
+
+| Parameter | Default | Description |
+| --- | --- | --- |
+| `partition` | Every partition | The partitions to read. Repeat the key for several. |
+| `order` | `NEWEST` | `NEWEST` reads back from the end of each partition. `OLDEST` reads forward from the start. |
+| `from` | None | An RFC 3339 time. Keeps records stamped at or after it. |
+| `to` | None | An RFC 3339 time. Keeps records stamped at or before it. |
+| `limit` | `50` | The records on the page. klens lowers a larger value to `tuning.records.max_limit`. A value below 1 answers `400 LIMIT_TOO_SMALL`. |
+| `contains` | None | Keeps records whose key or value holds this text, ignoring ASCII case. It matches the decoded text of a payload with a schema, and the obfuscated text of a covered topic. |
+| `schemaId` | None | A registry schema ID that decodes values without a schema ID of their own. |
+| `cursor` | None | `nextCursor` or `prevCursor` from the previous page. It must match `order`, or the page answers `400 INVALID_CURSOR`. |
+
+A `from` later than `to` answers `400 INVERTED_TIMESTAMP_RANGE`. An unknown partition answers `404 UNKNOWN_PARTITION`.
+
+### Record page
+
+A page is `{records, complete, obfuscated, nextCursor, prevCursor}`.
+
+- `complete` is `false` when the read reached `tuning.kafka.consume_timeout` before it read every offset in its window. More matches may exist. When the read reaches the timeout before it reads anything, the page answers `504 TIMEOUT`.
+- `obfuscated` is `true` when an obfuscation rule covers the topic.
+
+A record is `{topic, partition, offset, timestamp, key, value, schemaId, headers, sizeBytes, verbatim}`. `headers` is a list of `{key, value}`. `verbatim` is `true` when `key` and `value` show the exact bytes.
+
+### Single record
+
+The route answers `404 UNKNOWN_OFFSET` when the partition holds no record at that offset. Retention, compaction, or a transaction marker can leave an offset without a record.
+
+### Export
+
+The export reads every record that matches the query and streams it as `application/x-ndjson`, with the file name `<topic>.ndjson`. It reads the end offsets once at the start, so records that arrive during the export are not in it. It reads in pages of `tuning.records.max_limit` records and checks the session and the `records` privilege before each page. An error after the stream starts ends the stream without a JSON error.
+
+### Produce
+
+`key` and `value` are each a payload or `null`. A `null` key writes a record without a key. A `null` value writes a tombstone.
+
+| Payload | Writes |
+| --- | --- |
+| `{encoding: "TEXT", data}` | `data` as UTF-8 text. |
+| `{encoding: "BASE64", data}` | The bytes that `data` encodes. klens ignores whitespace in `data`. |
+| `{encoding: "SCHEMA", schemaId, data}` | The JSON in `data`, encoded with the registry schema `schemaId`. Answers `422 UNENCODABLE` when it does not fit, and `404 UNKNOWN_SCHEMA` when the registry has no such schema. |
+
+`headers` is a list of `{key, value}` with text values. Without `partition`, the producer picks a partition.
+
+### Delete records
+
+`partition` names the partitions, and every partition when it is absent. `before` deletes the records before that offset, and every record when it is absent.
+
+## Consumer groups
+
+| Route | Privilege | Body or query | Response |
+| --- | --- | --- | --- |
+| `GET /api/clusters/{cluster}/groups` | None | | `[{id, state, memberCount, topicNames, totalLag, lagComplete}]` |
+| `GET /api/clusters/{cluster}/groups/{group}` | None | | The group with `protocol`, `members`, `offsets`, `totalLag`, and `lagComplete`. |
+| `DELETE /api/clusters/{cluster}/groups/{group}` | `delete_groups` | | `204` |
+| `PATCH /api/clusters/{cluster}/group-offsets/{group}` | `reset_offsets` | `{topic?, partitions?, to, dryRun?}` | `[{topic, partition, currentOffset, newOffset, endOffset}]` |
+| `DELETE /api/clusters/{cluster}/group-offsets/{group}` | `delete_offsets` | `topic` | `204` |
+
+A group ID may contain `/`. `lagComplete` is `false` when the lag leaves out partitions whose end offset klens has not read yet.
+
+An offset reset moves the committed offsets of `topic`, or of every topic the group committed when `topic` is absent. `partitions` needs `topic`. `to` is one of these targets:
+
+| Target | Moves each offset to |
+| --- | --- |
+| `{kind: "EARLIEST"}` | The start of the partition. |
+| `{kind: "LATEST"}` | The end of the partition. |
+| `{kind: "OFFSET", offset}` | `offset`, kept within the start and the end of the partition. |
+| `{kind: "SHIFT", by}` | The committed offset plus `by`. A negative `by` moves back. A partition without a committed offset answers `422 NO_COMMITTED_OFFSET`. |
+| `{kind: "TIMESTAMP", timestamp}` | The first offset stamped at or after `timestamp`, in milliseconds since the Unix epoch, or the end of the partition when no record is that recent. |
+
+With `dryRun: true`, klens returns the moves and changes nothing. A dry run needs the same privilege and a writable cluster. A real reset and a group deletion answer `409 ACTIVE_GROUP` while the group has members. Deleting the offsets of a topic the group still consumes answers `409 CONSUMED_TOPIC`.
+
+## Brokers
+
+| Route | Privilege | Body | Response |
+| --- | --- | --- | --- |
+| `GET /api/clusters/{cluster}/brokers` | None | | Every broker with `host`, `port`, `rack`, `controller`, partition and leader counts, `sizeBytes`, and `logDirs`. |
+| `GET /api/clusters/{cluster}/brokers/{id}/configs` | `broker_configs` | | The configs of one broker, read live. |
+| `PATCH /api/clusters/{cluster}/brokers/{id}/configs` | `alter_broker_configs` | `{set?, reset?}` | `204` |
+| `PATCH /api/clusters/{cluster}/brokers/configs` | `alter_broker_configs` | `{set?, reset?}` | `204`. Changes the cluster-wide default. |
+
+A log dir is `{path, error, totalBytes, usableBytes, cordoned, sizeBytes, replicaCount}`.
+
+## Schema subjects
+
+| Route | Privilege | Body or query | Response |
+| --- | --- | --- | --- |
+| `GET /api/clusters/{cluster}/subjects` | None | | `{rows, sourceHealth, hasRegistry}` |
+| `GET /api/clusters/{cluster}/subjects/{subject}` | `schema_text` | `version` | `{subject, version, id, type, schema, references}` |
+| `POST /api/clusters/{cluster}/subjects/{subject}` | `register_schemas` | `{type, schema, references?}` | `200 {id, version}` |
+| `PATCH /api/clusters/{cluster}/subjects/{subject}` | `set_compatibility` | `{compatibility}` | `204` |
+| `DELETE /api/clusters/{cluster}/subjects/{subject}` | `delete_schemas` | `version`, `permanent` | `204` |
+
+A row is `{subject, id, type, latestVersion, versions, compatibility}`. `type` is `AVRO`, `JSON`, or `PROTOBUF`. `compatibility` is `BACKWARD`, `BACKWARD_TRANSITIVE`, `FORWARD`, `FORWARD_TRANSITIVE`, `FULL`, `FULL_TRANSITIVE`, or `NONE`. A delete without `version` deletes every version. `permanent` defaults to `false`, which keeps the schema IDs in the registry. A route on a cluster without a registry answers `404 NO_SCHEMA_REGISTRY`.
+
+## ACLs
+
+| Route | Privilege | Body or query | Response |
+| --- | --- | --- | --- |
+| `GET /api/clusters/{cluster}/acls` | `acls` | | `{status, bindings, sourceHealth}` |
+| `POST /api/clusters/{cluster}/acls` | `create_acls` | `{bindings: [binding]}` | `201` |
+| `DELETE /api/clusters/{cluster}/acls` | `delete_acls` | Every field of one binding, in the query | `204` |
+
+A binding is `{resourceType, resourceName, patternType, principal, host, operation, permission}`.
+
+| Field | Values |
+| --- | --- |
+| `resourceType` | `TOPIC`, `GROUP`, `CLUSTER`, `TRANSACTIONAL_ID`, `DELEGATION_TOKEN` |
+| `patternType` | `LITERAL`, `PREFIXED` |
+| `operation` | `ALL`, `READ`, `WRITE`, `CREATE`, `DELETE`, `ALTER`, `DESCRIBE`, `CLUSTER_ACTION`, `DESCRIBE_CONFIGS`, `ALTER_CONFIGS`, `IDEMPOTENT_WRITE` |
+| `permission` | `ALLOW`, `DENY` |
+
+`status` is `PENDING` before the first read, `ENABLED`, `DISABLED` when the cluster runs no authorizer, or `DENIED` when the Kafka user of klens may not describe ACLs.
+
+## Quotas
+
+| Route | Privilege | Body | Response |
+| --- | --- | --- | --- |
+| `GET /api/clusters/{cluster}/quotas` | `broker_configs` | | `{status, quotas, sourceHealth}` |
+| `PUT /api/clusters/{cluster}/quotas` | `alter_quotas` | `{entity, producerByteRate?, consumerByteRate?, requestPercentage?, controllerMutationRate?, connectionCreationRate?}` | `204` |
+
+`entity` is a list of `{entityType, name}`. `entityType` is `USER`, `CLIENT_ID`, or `IP`, and a `null` name means the default for that type. A `PUT` sets the quota values it names and removes every value it leaves out or sets to `null`. `status` is `PENDING`, `DESCRIBED`, or `DENIED`.
+
+## SCRAM users
+
+| Route | Privilege | Body or query | Response |
+| --- | --- | --- | --- |
+| `GET /api/clusters/{cluster}/scram-users` | `acls` | | `{status, users, sourceHealth}` |
+| `PUT /api/clusters/{cluster}/scram-users/{user}` | `set_scram_credentials` | `{mechanism, password, iterations?}` | `204` |
+| `DELETE /api/clusters/{cluster}/scram-users/{user}` | `delete_scram_credentials` | `mechanism` | `204` |
+
+`mechanism` is `SHA256` or `SHA512`. `iterations` defaults to 4096 and must be from 4096 to 16384. A user is `{name, credentials: [{mechanism, iterations}]}`. Kafka never returns a password or a salt.
+
+## Live updates
+
+`GET /api/clusters/{cluster}/updates` is a server-sent event stream that tells the UI what changed in the projection. It needs no privilege, since its frames carry names, counts, and rates only. The query takes `topic` and `group` to narrow it. With `group`, klens reads the offsets of that group every `tuning.ingest.fast_offset` while the stream is open.
+
+Each frame's event name is the value of its `type` field.
+
+| Event | Data |
+| --- | --- |
+| `watermarks` | `{topics: [{topic, rate}]}` |
+| `groupLag` | `{group, lag, lagComplete, offsets}`. `offsets` is empty unless the stream names `group`. |
+| `topology` | Added, removed, and changed topics and groups, and `brokersChanged`. |
+| `configs` | `{topics}` |
+| `subjects` | `{removed, changed}` |
+| `logDirs` | `{topics, brokersChanged}` |
+| `acls`, `quotas`, `scramUsers` | No fields. The data changed. |
+| `resync` | No fields. The stream missed events, so the client should read again. |
+| `error` | `{error, code}`. The last frame. |
+
+klens checks the session again on each change and sends `error` with `SESSION_EXPIRED` when it has ended. It sends a `keep-alive` comment every 15 seconds.
+
+## Live tail
+
+`GET /api/clusters/{cluster}/topics/{topic}/records/tail` follows a topic from the current end of each partition. It answers `503 TOO_MANY_TAILS` when `tuning.tail.max_live` tails already run.
+
+| Event | Data |
+| --- | --- |
+| `ready` | `{type: "ready", start: [{partition, offset}], obfuscated}`. Always the first frame. |
+| `records` | `{type: "records", records, skipped}`. Records arrive oldest first. |
+| `error` | `{error, code}`. The last frame. |
+
+A `records` frame holds at most `tuning.tail.batch_limit` records, and frames are at least `tuning.tail.interval` apart. When a topic produces faster than that, each frame keeps the newest records and `skipped` counts the rest. A partition that falls far behind skips ahead to its newest records. A frame can hold no records and a `skipped` count. klens checks the session after each frame and every 15 seconds.
+
+## Errors
+
+| Code | Status | Cause |
+| --- | --- | --- |
+| `UNAUTHORIZED` | 401 | No session, or the groups of the user match no role. |
+| `SESSION_EXPIRED` | 401 | The session ended during a stream. Sent as an `error` frame. |
+| `HOST_NOT_ALLOWED` | 403 | `auth` is off and the `Host` is not in `allowed_hosts`. |
+| `NOT_FROM_GATEWAY` | 403 | `/mcp` received a call without `mcp.secret`. |
+| `FORBIDDEN` | 403 | The caller lacks the privilege on the cluster. |
+| `READ_ONLY_CLUSTER` | 403 | A write on a cluster without `writable: true`. |
+| `NOT_FOUND` | 404 | An unknown path under `/api`. |
+| `UNKNOWN_CLUSTER` | 404 | The cluster does not exist, or the caller's roles do not cover it. |
+| `UNKNOWN_TOPIC`, `UNKNOWN_GROUP`, `UNKNOWN_BROKER`, `UNKNOWN_SUBJECT`, `UNKNOWN_PARTITION` | 404 | The named object does not exist. |
+| `UNKNOWN_OFFSET` | 404 | The partition holds no record at the offset. |
+| `UNKNOWN_SCHEMA` | 404 | The registry has no schema with the ID. |
+| `NO_SCHEMA_REGISTRY` | 404 | The cluster has no `schema_registry`. |
+| `INVALID_REQUEST` | 400, 405, 415, or 422 | The request does not fit the route: a bad query, path, or body, a wrong method, or a value klens rejects. |
+| `LIMIT_TOO_SMALL` | 400 | `limit` is below 1. |
+| `INVALID_CURSOR` | 400 | The cursor is malformed or does not match `order`. |
+| `INVERTED_TIMESTAMP_RANGE` | 400 | `from` is later than `to`. |
+| `ACTIVE_GROUP` | 409 | The group has members. |
+| `CONSUMED_TOPIC` | 409 | The group still consumes the topic. |
+| `REFUSED` | 422 | Kafka refused the change. The message carries the reason. |
+| `REGISTRY_REFUSED` | 422 | The registry refused the change. |
+| `UNENCODABLE` | 422 | The data does not fit the schema. |
+| `INTERNAL_TOPIC` | 422 | A write to an internal topic. |
+| `NO_COMMITTED_OFFSET` | 422 | A `SHIFT` reset on a partition without a committed offset. |
+| `ADMIN` | 502 | A Kafka admin request failed. |
+| `BROKER_CONFIGS` | 502 | Kafka failed to describe the broker configs. |
+| `SCHEMA_REGISTRY` | 502 | The registry failed the request. |
+| `CLIENT` | 502 | Another Kafka client error. |
+| `TOO_MANY_TAILS` | 503 | `tuning.tail.max_live` tails already run. |
+| `TIMEOUT` | 504 | Kafka did not answer within the timeout. |
+| `NOT_READY` | 503 | MCP only. klens has not read the data yet. |
+| `RATE_LIMITED` | 429 | MCP only. A call passed a call limit. |

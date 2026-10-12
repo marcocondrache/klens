@@ -1,0 +1,14 @@
+{
+  "title": "Use klens",
+  "pages": [
+    "find-records",
+    "follow-a-topic-live",
+    "write-a-record",
+    "change-topics",
+    "reset-consumer-offsets",
+    "change-schemas",
+    "grant-kafka-access",
+    "set-client-quotas",
+    "change-broker-configs"
+  ]
+}

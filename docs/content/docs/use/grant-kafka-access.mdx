@@ -1,0 +1,39 @@
+---
+title: Manage ACLs and SCRAM users
+description: Create and delete ACL bindings, and add, change, or delete SCRAM credentials.
+---
+
+The **ACLs** and **Users** pages need the `acls` [privilege](/docs/reference/privileges). Each change needs a cluster with `writable: true` and the privilege the section names. These pages also need Kafka permissions for the Kafka user of klens. See [Kafka permissions for klens](/docs/reference/privileges#kafka-permissions-for-klens).
+
+## Create an ACL binding
+
+You need `create_acls`. The page offers changes only when the cluster runs an authorizer.
+
+1. On **ACLs**, select **Create ACL**.
+2. Enter the **Principal**, such as `User:alice`.
+3. Optional: change the **Host**. `*` matches every host.
+4. Pick **Allow** or **Deny**.
+5. Pick the **Resource** type and the **Pattern**. **Literal** matches the name exactly. **Prefixed** matches every name that starts with it.
+6. Enter the **Name**. `*` matches every resource of the type. A cluster binding always names `kafka-cluster`.
+7. Pick one or more **Operations**. The list holds only the operations valid for the resource type.
+8. Select **Create ACL**. Each operation you picked becomes its own binding.
+
+## Delete an ACL binding
+
+You need `delete_acls`. Select the trash icon on the row, check the sentence that describes the binding, and select **Delete ACL**.
+
+## Add a SCRAM user
+
+You need `set_scram_credentials`.
+
+1. On **Users**, select **Add user**.
+2. Enter the **User**, and pick **SCRAM-SHA-256** or **SCRAM-SHA-512**.
+3. Enter the **Password**.
+4. Optional: change the **Iterations**. Kafka takes 4096 to 16384, and klens uses 4096 by default.
+5. Select **Save**.
+
+klens salts the password with a random 32-byte salt and sends Kafka only the salted hash, so the password never reaches the broker or a log. To change a password, select the key icon on the user's row. Clients need the new password from their next login.
+
+## Delete a SCRAM credential
+
+You need `delete_scram_credentials`. Select the trash icon on the user's row. When the user has two credentials, pick the **Mechanism**. Select **Delete credential**. The user can no longer log in with that mechanism.

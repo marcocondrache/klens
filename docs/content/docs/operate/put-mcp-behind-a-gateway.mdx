@@ -1,0 +1,48 @@
+---
+title: Put MCP behind a gateway
+description: Share the klens MCP tools with a team through a gateway that signs people in.
+---
+
+klens does not sign anyone in on `/mcp`. To share the tools, put an MCP gateway in front of `mcp.bind`. The gateway signs each person in, decides which tools they may call, and forwards their calls to klens with a shared secret. klens answers only calls that carry the secret.
+
+## Set the shared secret
+
+1. Create a secret of at least 32 bytes.
+
+   ```sh
+   openssl rand -base64 48
+   ```
+
+2. Pass it to klens and name it in `mcp.secret`.
+
+   ```yaml title="config.yaml"
+   mcp:
+     bind: 0.0.0.0:8090
+     secret: {env: KLENS_MCP_SECRET}
+     privileges: [records, topic_configs, broker_configs, schema_text, acls]
+     clusters: [dev, staging]
+   ```
+
+3. Configure the gateway to send the secret on every call it forwards, as the header `Authorization: Bearer <secret>`.
+4. Point the gateway at `mcp.bind`. On Kubernetes, the chart serves it as the Service `<release>-mcp`, at `http://<release>-mcp.<namespace>.svc:8090/mcp`.
+
+klens answers a call without the secret with `403 NOT_FROM_GATEWAY`. A call with the secret may carry any `Origin`, because the gateway forwards the client's own and a web page cannot learn the secret.
+
+With `auth`, `mcp.secret` is required. Without `auth`, the secret guards only the MCP port, so keep the UI port off every network the gateway serves.
+
+## Decide who may call which tool
+
+Every call that carries the secret holds the whole ceiling of the `mcp` block, whoever signed in at the gateway. klens roles do not apply to `/mcp`. The gateway decides who reaches the tools.
+
+- Set `mcp.privileges` and `mcp.clusters` to the most that any person needs.
+- Use the rules of the gateway to offer the write tools, `klens_topic_create`, `klens_record_produce`, and `klens_schema_register`, only to the people who need them.
+
+## Find who made a change
+
+klens logs each change an agent makes, as it logs a change from the UI, without a user. A client that names itself in each request appears on the line as `unverified:<name>`. The log of the gateway names the person who made the call.
+
+## Connect clients through the gateway
+
+Give each client the address of the gateway for `/mcp`, in place of the address of klens. A client signs its user in at the gateway on the first call, so register the redirect URIs of each client where the gateway signs people in.
+
+The claude.ai and Claude Desktop connectors call from Anthropic's cloud, from addresses in `160.79.104.0/21`. They reach klens only through a gateway that the internet can reach.

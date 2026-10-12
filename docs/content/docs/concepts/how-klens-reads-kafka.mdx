@@ -1,0 +1,52 @@
+---
+title: How klens reads Kafka
+description: Why klens keeps a projection of each cluster in memory, and how pages, record reads, and tails use it.
+---
+
+A Kafka UI that asks Kafka for everything on every page load puts the cost of each reader on the brokers. Ten people with the topics page open mean ten sets of metadata, offset, and config requests every few seconds. klens turns this around. It reads each cluster on a fixed schedule into an in-memory projection, and every page, API call, and most MCP tools read the projection. The load on Kafka depends on the size of the cluster and the `tuning.ingest` periods, not on how many people look.
+
+## Lanes
+
+The projection is a set of tables, one for each kind of data. A lane keeps one table current. Each lane is one task that reads Kafka or the registry, swaps in the new table, and sleeps for its period. The period starts after a read ends, so a slow read never overlaps the next one.
+
+| Lane | Reads | Period |
+| --- | --- | --- |
+| Topology | Brokers, topics, partitions, and consumer groups | `topology`, 10s |
+| Watermarks | The end offset of each partition, and its start offset less often | `high_watermark`, 3s, and `low_watermark`, 30s |
+| Offsets | The committed offsets of each group | `fast_offset`, 2s, or `slow_offset`, 20s |
+| Configs | Topic and broker configs | `config`, 60s |
+| Subjects | Schema subjects, versions, and the schema IDs in use | `subjects`, 30s |
+| Log dirs | Log dirs, sizes, and disk use | `log_dirs`, 60s |
+| ACLs | ACL bindings | `acls`, 60s |
+| Quotas | Client quotas | `quotas`, 60s |
+| SCRAM users | SCRAM credentials | `scram_users`, 60s |
+
+Most lanes need topic names and partitions, so they wait for the first topology read and start as soon as it exists. Some also read again early when topology changes. The log dirs lane, for example, reads as soon as a topic or a broker appears, so a new topic does not wait a minute for its size.
+
+Each lane fails on its own. When the ACL lane cannot describe ACLs, the ACLs page says so, and the topics page keeps working. The health of each lane, with its last error and the duration of its last read, is in `GET /api/clusters/<name>`, and the cluster switcher colors a cluster amber when a lane fails.
+
+Rates and lag come from the projection too. klens computes a produce rate from successive watermark samples and computes lag as the end offset minus the committed offset. A value klens has not measured yet stays blank, never 0, so an unmeasured topic does not look idle.
+
+## Reads that follow interest
+
+The offsets lane is the one that scales with the number of groups, so it reads at two speeds. A group that someone looks at, on its page or through `klens_group_describe`, moves to `fast_offset` for `interest_ttl`. Every other group reads every `slow_offset`. The group page then updates every two seconds, and a cluster with thousands of idle groups does not pay that price for all of them.
+
+## Live updates
+
+The UI does not poll. Each page holds one server-sent event stream, `/api/clusters/<name>/updates`, and klens sends a frame when a lane commits a change, such as a new rate, a topic that appeared, or a lag that moved. The page then reads again only the data that the frame names. A page with nobody looking at it costs nothing.
+
+## Record reads
+
+Records are the one thing klens cannot keep in memory, so each record page reads Kafka. klens plans the read from the watermarks in the projection. For each partition, it reads a window of offsets from the end, for **Newest**, or from the start, for **Oldest**, merges the partitions, and returns the page with a cursor for the next one. The window holds the page limit times `window_multiplier` offsets, and at least `min_window`.
+
+A search reads wider windows, `search_window_multiplier` times the limit, because most records will not match. A read stops at `consume_timeout`. When it stops before it reaches every offset in its windows, the page reports itself as partial, and the next page continues from the cursor.
+
+klens keeps a small pool of idle record readers for each topic, so paging through a topic does not open a new connection for every page.
+
+## Live tails
+
+A live tail follows the end of each partition with its own reader. It samples a busy topic rather than streaming all of it. Each frame keeps at most `batch_limit` of the newest records, frames are at least `interval` apart, and a partition that falls far behind skips ahead. The browser stays responsive on a topic that produces thousands of records a second, and the tail says how many it skipped. To read every record, page through the topic or export it.
+
+## The trade-off
+
+The projection is a few seconds old by design. A topic created outside klens appears at the next topology read, and a lag shown on the groups page is as old as its last offset read. klens hides this where it can: after a change made through klens, the API waits for the projection to show the change before it answers. For everything else, the periods in `tuning.ingest` decide how fresh the data is and how much klens asks of Kafka.

@@ -1,13 +1,33 @@
 ---
-title: Hello World
-description: Your first document
+title: klens
+description: A web UI and MCP server for Kafka, served by one Rust binary.
 ---
 
-Welcome to the docs! You can start writing documents in `/content/docs`.
+klens shows the topics, records, consumer groups, brokers, schemas, ACLs, quotas, and SCRAM users of one or more Kafka clusters. It is one binary that serves the UI, a JSON API, and, when you turn it on, tools for AI agents over MCP.
 
-## What is Next?
+klens reads each cluster in the background into memory, and every page reads that copy. A page costs Kafka nothing, however many people have it open. Only record reads, live tails, and changes go to Kafka when someone asks.
+
+## What you can do
+
+- Browse topics with their partitions, sizes, produce rates, retention, and configs.
+- Search the records of a topic by text, partition, and time, decode Avro, JSON Schema, and Protobuf values, and download the matches as NDJSON.
+- Follow a topic live.
+- Watch consumer groups and their lag, and reset or delete their offsets.
+- Read and register schemas, and set compatibility levels.
+- Manage ACL bindings, SCRAM users, client quotas, and broker configs.
+- Hide card numbers, emails, and other private fields in records for every reader.
+- Sign users in with OpenID Connect, and give each group its own privileges on each cluster.
+- Let AI agents read the same data through MCP, under a ceiling you set.
+
+klens changes nothing on a cluster until you mark it `writable` and grant the privilege for the change.
+
+## Where to start
 
 <Cards>
-  <Card title="Learn more about Next.js" href="https://nextjs.org/docs" />
-  <Card title="Learn more about Fumadocs" href="https://fumadocs.dev" />
+  <Card title="Get started" href="/docs/getting-started" description="Run klens next to a local Kafka broker and try it out." />
+  <Card title="Run klens with Docker" href="/docs/operate/run-with-docker" description="Run the image with your own clusters." />
+  <Card title="Deploy on Kubernetes" href="/docs/operate/deploy-on-kubernetes" description="Install the Helm chart." />
+  <Card title="Configuration" href="/docs/reference/configuration" description="Every key in config.yaml." />
 </Cards>
+
+The docs follow four kinds of page. [Get started](/docs/getting-started) is a tutorial. **Use klens** and **Operate klens** hold task guides for readers of the UI and for the people who run klens. **Concepts** explain why klens works the way it does. **Reference** lists configuration keys, privileges, API routes, MCP tools, and Helm values.

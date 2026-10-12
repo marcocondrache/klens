@@ -1,0 +1,24 @@
+---
+title: Set client quotas
+description: Throttle Kafka clients by user, client ID, or IP address.
+---
+
+The **Quotas** page needs the `broker_configs` [privilege](/docs/reference/privileges), and changes need `alter_quotas` on a cluster with `writable: true`. The Kafka user of klens needs `DescribeConfigs` on the `Cluster` resource to read quotas.
+
+## Set a quota
+
+1. On **Quotas**, select **Set quota**. To change an existing quota, select its row.
+2. Pick the **Entity**: **User**, **Client ID**, **User and client ID**, or **IP**.
+3. Enter each name. To set the default for every entity without a quota of its own, turn on **Default**.
+4. Enter the values. Leave a value empty for no limit.
+   - **Produce** and **Consume** in bytes per second.
+   - **Request time** as a percentage.
+   - **Mutations** per second.
+   - **Connections** per second, for an IP entity only.
+5. Select **Save**.
+
+Kafka throttles the clients that match the entity. A save replaces every value of the entity, so an empty value removes that limit.
+
+## Remove a quota
+
+Select **Remove quota** on the row, then **Remove quota** in the dialog. Kafka stops throttling the matching clients by this quota. A default quota can still apply to them.

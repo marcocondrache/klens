@@ -1,0 +1,66 @@
+---
+title: UI
+description: Keyboard shortcuts, page addresses, and the colors and limits the klens UI uses.
+---
+
+## Keyboard shortcuts
+
+| Keys | Action |
+| --- | --- |
+| <kbd>⌘</kbd> <kbd>K</kbd> or <kbd>Ctrl</kbd> <kbd>K</kbd> | Open or close the search palette. |
+| <kbd>/</kbd> | Focus the search box of the page, or open the search palette when the page has none. |
+| <kbd>⌘</kbd> <kbd>B</kbd> or <kbd>Ctrl</kbd> <kbd>B</kbd> | Collapse or expand the sidebar. |
+| <kbd>Enter</kbd> or <kbd>Space</kbd> on a row | Open the row. |
+
+## Search palette
+
+The palette searches topics, consumer groups, brokers, and schema subjects on the current cluster. Matching is fuzzy and tolerates typos. It shows at most 20 matches, grouped by kind. With an empty query, it lists the pages of the cluster and the other clusters.
+
+## Page addresses
+
+Each page keeps its search text and filters in its address, so a copied link opens the same view.
+
+| Address | Page |
+| --- | --- |
+| `/cluster/{cluster}/topics` | Topics. Takes `q`, `internal`, `policy`, `health`, and `activity`. |
+| `/cluster/{cluster}/topics/{topic}` | A topic. `tab` is `partitions`, `groups`, or `config`. Without `tab`, the page opens on **Data**. |
+| `/cluster/{cluster}/topics/{topic}?partition={p}&offset={o}` | A topic with one record open. |
+| `/cluster/{cluster}/groups` | Consumer groups. Takes `q`, `state`, and `lag`. |
+| `/cluster/{cluster}/groups/{group}` | A group. `tab` is `offsets` or `members`. |
+| `/cluster/{cluster}/schemas` | Schema subjects. `subject` and `version` open one version. |
+| `/cluster/{cluster}/nodes` | Brokers. |
+| `/cluster/{cluster}/nodes/{id}` | A broker. `tab` is `log-dirs` or `config`. |
+| `/cluster/{cluster}/acls` | ACL bindings. Takes `q`, `resource`, `operation`, `permission`, and `pattern`. |
+| `/cluster/{cluster}/users` | SCRAM users. Takes `q` and `mechanism`. |
+| `/cluster/{cluster}/quotas` | Client quotas. Takes `q`, `entity`, and `scope`. |
+
+A filter value is a list separated by commas, such as `state=STABLE,EMPTY`. A leading `!` excludes the values, such as `state=!DEAD`.
+
+## Cluster status
+
+The cluster switcher shows a dot for each cluster.
+
+| Dot | Meaning |
+| --- | --- |
+| Gray | klens has not read the cluster yet. |
+| Red | klens has not read the cluster, and the topology read failed. |
+| Amber | A background read failed. |
+| Green | Every background read succeeds. |
+
+## Lag colors
+
+| Lag | Color |
+| --- | --- |
+| 0 | Muted |
+| Below 10,000 | Normal |
+| Below 250,000 | Amber |
+| 250,000 or more | Red |
+
+A lag that starts with `≥` leaves out partitions whose end offset klens has not read yet.
+
+## Records
+
+| Limit | Value |
+| --- | --- |
+| Records a page loads | 50 at a time, as you scroll |
+| Records the live tail keeps | The newest 1,000 |

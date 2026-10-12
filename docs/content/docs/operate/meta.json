@@ -1,0 +1,14 @@
+{
+  "title": "Operate klens",
+  "pages": [
+    "run-with-docker",
+    "deploy-on-kubernetes",
+    "connect-a-cluster",
+    "require-sign-in",
+    "allow-changes",
+    "hide-sensitive-fields",
+    "connect-an-agent",
+    "put-mcp-behind-a-gateway",
+    "reduce-load-on-large-clusters"
+  ]
+}

@@ -1,0 +1,314 @@
+---
+title: Configuration
+description: Every key klens reads from config.yaml, with its type, default, and limits.
+---
+
+klens reads one YAML file at startup. It loads `config.yaml` from its working directory, or the file that the `KLENS_CONFIG_PATH` environment variable names. klens reads no other environment variable of its own. A secret can name an environment variable with `{env: NAME}`.
+
+Every key is optional unless this page marks it as required. An omitted key takes its default. An unknown key stops startup, and so does a value klens cannot read. The error names the line and the column, for example `must be at least 1s at line 12, column 15`. klens reads the file once, so a change takes effect at the next start.
+
+[`config/clusters.example.yaml`](https://github.com/marcocondrache/klens/blob/main/config/clusters.example.yaml) holds every key with its default.
+
+## Value types
+
+| Type | Format | Example |
+| --- | --- | --- |
+| Duration | A number and a unit, or ISO 8601 | `250ms`, `10s`, `1h 30m`, `PT10S` |
+| Socket address | An IP address and a port | `0.0.0.0:8080`, `"[::1]:8080"` |
+| Secret | A map with exactly one key, `value`, `env`, or `file` | `{env: KAFKA_PASSWORD}` |
+| Privilege | A privilege name in snake case | `records`, `create_topics` |
+
+### Secrets
+
+A secret names where klens reads it.
+
+| Form | Reads |
+| --- | --- |
+| `{value: TEXT}` | The text as written. Quote a value that YAML would read as a number. |
+| `{env: NAME}` | The environment variable `NAME`. Startup fails when it is unset. |
+| `{file: PATH}` | The file at `PATH`, without its trailing newline. Startup fails when the file cannot be read. |
+
+A plain string where a secret belongs stops startup, and the error does not repeat the string. Some secrets are key material and must be at least 32 bytes: `mcp.secret` and `obfuscation.secret`.
+
+## Top level
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `bind` | Socket address | `0.0.0.0:8080` | The address of the UI, `/api`, `/health`, and `/ready`. |
+| `allowed_hosts` | List of hosts | `[localhost, 127.0.0.1, "::1"]` | The hosts klens answers while `auth` is off. See [allowed hosts](#allowed_hosts). |
+| `log_level` | `off`, `error`, `warn`, `info`, `debug`, or `trace` | `info` | The level of the log klens writes to standard output. |
+| `clusters` | Map of [clusters](#clusters) | `{}` | The Kafka clusters, by name. The UI lists them in file order. |
+| `auth` | [Auth](#auth) | None | OIDC sign-in and roles. Without it, the UI and `/api` are open. |
+| `mcp` | [MCP](#mcp) | None | The MCP server for AI agents. Without it, klens serves no `/mcp`. |
+| `tuning` | [Tuning](#tuning) | See [tuning](#tuning) | Timeouts, pool sizes, limits, and polling periods for every cluster. |
+
+### `allowed_hosts`
+
+While `auth` is off, klens answers only a request whose `Host` header names an entry in this list. Any other request gets `403 HOST_NOT_ALLOWED`, and so does a request without a host. With `auth`, klens ignores the list. `/health` and `/ready` answer every host. `/mcp` ignores the list.
+
+An entry is a host name or an IP address, with an optional port.
+
+- An entry without a port matches the host on any port. An entry with a port matches that port only.
+- Names match in any case.
+- An IPv6 address takes brackets when a port follows. YAML needs quotes around such an entry, as in `"[::1]:8080"`.
+
+These values stop startup:
+
+- An empty list.
+- An entry with a scheme, a path, or a user, such as `https://klens.example.com`.
+- An entry with a wildcard, such as `*.example.com`.
+- A port that is not a number from 0 to 65535.
+- An IPv4 address in a short form, such as `10.1`.
+
+## Clusters
+
+Each key under `clusters` is a cluster name. A name keeps its case and appears once.
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `bootstrap_servers` | List of `host:port` | Required | The brokers klens connects to first. |
+| `client_id` | String | `klens-<cluster name>` | The client ID klens sends to the brokers. |
+| `writable` | Boolean | `false` | Whether klens may change this cluster. A change also needs its [privilege](/docs/reference/privileges). |
+| `tls` | [TLS](#tls) | None | Connect over TLS. An empty block, `tls: {}`, turns TLS on. |
+| `sasl` | [SASL](#sasl) | None | Authenticate with SASL. |
+| `schema_registry` | [Schema Registry](#schema_registry) | None | The registry that decodes and encodes framed payloads. |
+| `obfuscation` | [Obfuscation](#obfuscation) | None | Rules that hide parts of records. |
+
+### `tls`
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `ca_cert` | Path | None | A PEM file of the CAs to trust. Without it, klens trusts the Mozilla root CAs it ships with. |
+| `client.cert` | Path | None | A PEM client certificate for mutual TLS. Requires `client.key`. |
+| `client.key` | Path | None | The PEM private key of `client.cert`. Requires `client.cert`. |
+| `insecure_skip_verify` | Boolean | `false` | Skip the check of the broker certificate. |
+
+### `sasl`
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `mechanism` | `PLAIN`, `SCRAM-SHA-256`, or `SCRAM-SHA-512` | Required | The SASL mechanism. |
+| `username` | String | Required | The Kafka user. |
+| `password` | Secret | Required | The password of the Kafka user. |
+
+SASL runs over TLS when the cluster also has a `tls` block, and over plaintext otherwise.
+
+### `schema_registry`
+
+klens reads a Confluent-compatible Schema Registry API.
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `url` | URL | Required | The base URL of the registry. |
+| `auth.username` | String | Required in `auth` | The basic auth user. |
+| `auth.password` | Secret | Required in `auth` | The basic auth password. |
+
+Credentials travel over `http://` only to a loopback host. A remote registry with `auth` must use `https://`.
+
+### `obfuscation`
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `secret` | Secret, at least 32 bytes | Required | The key of the `hash` strategy, used as written. |
+| `rules` | List of [rules](#obfuscation-rules) | Required | The rules. No topic may match two rules. |
+
+#### Obfuscation rules
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `topics` | List of topic patterns | `[]` | The topics the rule covers. A pattern is an exact name, or a prefix that ends in `*`. |
+| `fields` | List of `{path, strategy}` | `[]` | Fields of a value that the schema registry decoded, by dotted path, such as `card.number`. |
+| `patterns` | List of `{regex, strategy}` | `[]` | Regular expressions that run on the text of the key and the value. |
+| `key` | Strategy | None | A strategy for the whole key. |
+| `value` | Strategy | None | A strategy for the whole value. |
+| `headers` | List of strings | `[]` | The names of headers whose values klens masks. |
+| `unparsed` | `mask` or `allow` | `mask` | What `fields` do to a value that did not decode. `mask` masks the whole value. `allow` shows it as it is. |
+
+The strategies are these:
+
+| Strategy | Result |
+| --- | --- |
+| `mask` | `***` |
+| `hash` | A token such as `kx:3f9a2c481b7d6e05`. Equal values give equal tokens. |
+| `drop` | A field disappears. A pattern match is deleted. |
+
+A path that meets an array applies the rest of the path to each element, so `items.sku` covers the `sku` of every element. `*` may appear only at the end of a topic pattern. Two patterns that can match the same topic stop startup with `topics '<a>' and '<b>' overlap`. [About obfuscation](/docs/concepts/obfuscation) explains how the rules apply.
+
+## Auth
+
+The `auth` block turns on sign-in with OpenID Connect.
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `oidc.issuer` | URL | Required | The issuer URL. klens compares it to the provider's issuer byte for byte. |
+| `oidc.client_id` | String | Required | The OIDC client ID. |
+| `oidc.client_secret` | Secret | Required | The OIDC client secret. |
+| `oidc.redirect_uri` | URL | Required | The callback URL, `<klens URL>/api/auth/callback`. Session cookies are `Secure` when it uses `https`. |
+| `oidc.scopes` | List of strings | `[openid, email, profile]` | The scopes klens requests. |
+| `oidc.groups_claim` | String | `groups` | The ID token claim that lists the groups of a user. |
+| `session.login_timeout` | Duration | `10m` | How long a sign-in may stay at the provider. |
+| `session.max_age` | Duration | `12h` | The longest a session lasts. A session also ends when its ID token expires. |
+| `roles` | Map of [roles](#roles) | None | The roles, by name. Without roles, every signed-in user holds every privilege. |
+
+### Roles
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `privileges` | List of privileges | Required | The [privileges](/docs/reference/privileges) the role grants beyond the catalog. An empty list grants the catalog only. |
+| `bindings` | List of bindings | Required | Who holds the role, and where. |
+| `bindings[].groups` | List of strings | Required | The groups, from `oidc.groups_claim`, that hold the role. |
+| `bindings[].clusters` | List of cluster names | Every cluster | The clusters where the binding applies. |
+
+With roles, a user whose groups match no binding cannot sign in.
+
+## MCP
+
+The `mcp` block turns on the MCP server at `/mcp`.
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `bind` | Socket address | Required | The address of `/mcp`. It must differ from the top-level `bind`, and it serves nothing but `/mcp`. |
+| `secret` | Secret, at least 32 bytes | None | The shared secret a gateway sends as `Authorization: Bearer`. Required with `auth`. |
+| `privileges` | List of privileges | `[records, topic_configs, broker_configs, schema_text, acls]` | The ceiling every MCP call holds. |
+| `clusters` | List of cluster names | Every cluster | The clusters MCP reaches. An empty list reaches none. |
+
+`privileges` takes only `records`, `topic_configs`, `broker_configs`, `schema_text`, `acls`, `create_topics`, `produce`, and `register_schemas`. Any other privilege stops startup. These rules also stop startup:
+
+- `mcp.bind` equals `bind`.
+- `mcp.clusters` names a cluster that `clusters` does not configure.
+- `auth` is set and `mcp.secret` is not.
+
+klens logs a warning at startup in these cases:
+
+- `mcp.secret` is unset and `privileges` names a write.
+- `privileges` names `records` or `schema_text` beside a write.
+
+## Tuning
+
+Every key under `tuning` applies to every cluster. This block shows the defaults.
+
+```yaml title="config.yaml"
+tuning:
+  kafka:
+    connect_timeout: 10s
+    request_timeout: 10s
+    consume_timeout: 5s
+    max_in_flight_requests: 32
+    max_response_mib: 32
+  schema_registry:
+    timeout: 5s
+    subject_fetch_concurrency: 8
+    missing_schema_ttl: 60s
+  scan:
+    pool_per_topic: 2
+    pool_total: 16
+    pool_idle_ttl: 60s
+    poll_wait: 100ms
+  records:
+    max_limit: 500
+    min_window: 4
+    window_multiplier: 2
+    search_window_multiplier: 8
+  tail:
+    batch_limit: 100
+    interval: 250ms
+    poll_wait: 500ms
+    max_live: 32
+  ingest:
+    topology: 10s
+    high_watermark: 3s
+    low_watermark: 30s
+    config: 60s
+    subjects: 30s
+    log_dirs: 60s
+    acls: 60s
+    quotas: 60s
+    scram_users: 60s
+    offset_tick: 1s
+    fast_offset: 2s
+    slow_offset: 20s
+    offset_fetch_concurrency: 32
+    interest_ttl: 30s
+    idle_heartbeat: 15s
+    max_sample_gap: 15s
+  mcp:
+    max_concurrent_calls: 16
+    live_calls_per_minute: 30
+```
+
+A count must be at least 1, except `records.min_window`, `records.window_multiplier`, `records.search_window_multiplier`, and `tail.max_live`, which may be 0.
+
+### `tuning.kafka`
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `connect_timeout` | `10s` | How long klens waits to open a broker connection. |
+| `request_timeout` | `10s` | How long klens waits for a broker response. klens raises it to `connect_timeout` when it is smaller. |
+| `consume_timeout` | `5s` | How long one record page or the start of one live tail may read. |
+| `max_in_flight_requests` | `32` | The most requests in flight on one broker connection. |
+| `max_response_mib` | `32` | The largest broker response frame, in MiB. |
+
+### `tuning.schema_registry`
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `timeout` | `5s` | How long klens waits for a registry response. |
+| `subject_fetch_concurrency` | `8` | The most subjects klens reads from the registry at once. |
+| `missing_schema_ttl` | `60s` | How long klens remembers that the registry does not know a schema ID. |
+
+### `tuning.scan`
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `pool_per_topic` | `2` | The most idle record readers klens keeps for one topic. |
+| `pool_total` | `16` | The most idle record readers klens keeps across all topics. |
+| `pool_idle_ttl` | `60s` | How long an idle record reader stays open. At least `1s`. |
+| `poll_wait` | `100ms` | The longest one poll of a record page waits for data. |
+
+### `tuning.records`
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `max_limit` | `500` | The most records one page may ask for. |
+| `min_window` | `4` | The fewest offsets klens reads from each partition for one page. |
+| `window_multiplier` | `2` | For one page, klens reads the page limit times this number of offsets from each partition. |
+| `search_window_multiplier` | `8` | The multiplier in place of `window_multiplier` while a `contains` or `schemaId` filter runs. |
+
+### `tuning.tail`
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `batch_limit` | `100` | The most records in one live tail frame. |
+| `interval` | `250ms` | The least time between two frames of a live tail. |
+| `poll_wait` | `500ms` | The longest one poll of a live tail waits for data. |
+| `max_live` | `32` | The most live tails served at once, across every cluster. Past it, a new tail gets `503 TOO_MANY_TAILS`. |
+
+### `tuning.ingest`
+
+klens keeps a projection of each cluster in memory and refreshes it in the background, one lane per kind of data. These keys set how often each lane reads Kafka or the registry. Each period must be at least `1s`. [How klens reads Kafka](/docs/concepts/how-klens-reads-kafka) explains the lanes.
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `topology` | `10s` | Brokers, topics, partitions, and consumer groups. |
+| `high_watermark` | `3s` | The end offset of each partition. Produce rates come from it. |
+| `low_watermark` | `30s` | The start offset of each partition. |
+| `config` | `60s` | Topic and broker configs. |
+| `subjects` | `30s` | Schema subjects and the schema IDs they use. |
+| `log_dirs` | `60s` | Log dirs and sizes. klens also reads them when a topic or a broker appears. |
+| `acls` | `60s` | ACL bindings. |
+| `quotas` | `60s` | Client quotas. |
+| `scram_users` | `60s` | SCRAM credentials. |
+| `offset_tick` | `1s` | How often the offset lane checks which groups are due. |
+| `fast_offset` | `2s` | How often klens reads the offsets of a group that someone looks at. |
+| `slow_offset` | `20s` | How often klens reads the offsets of every other group. |
+| `offset_fetch_concurrency` | `32` | The most groups whose offsets klens reads at once. |
+| `interest_ttl` | `30s` | How long a group stays on `fast_offset` after someone looks at it. |
+| `idle_heartbeat` | `15s` | How long a topic stays quiet before its produce rate drops to zero. |
+| `max_sample_gap` | `15s` | Watermark samples older than this do not count toward a rate. |
+
+### `tuning.mcp`
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `max_concurrent_calls` | `16` | The most MCP tool calls served at once, across every client. Past it, a call fails with `RATE_LIMITED`. |
+| `live_calls_per_minute` | `30` | The most calls a minute to the MCP tools that read Kafka live or change it, shared by every client. Past it, a call fails with `RATE_LIMITED`. |
