@@ -77,6 +77,11 @@ spec:
             - name: http
               containerPort: {{ .Values.service.port }}
               protocol: TCP
+            {{- if include "klens.mcpEnabled" . }}
+            - name: mcp
+              containerPort: {{ .Values.mcp.service.port }}
+              protocol: TCP
+            {{- end }}
           startupProbe:
             {{- tpl (toYaml .Values.startupProbe) $ | nindent 12 }}
           livenessProbe:

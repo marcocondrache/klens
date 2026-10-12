@@ -117,3 +117,22 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: config.bind port must match service.port
+
+  - it: opens the mcp port when config.mcp is set
+    template: deployment.tpl
+    set:
+      config.mcp.bind: 0.0.0.0:8090
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: mcp
+            containerPort: 8090
+            protocol: TCP
+
+  - it: opens only the http port without MCP
+    template: deployment.tpl
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.containers[0].ports
+          count: 1

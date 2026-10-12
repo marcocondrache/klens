@@ -145,7 +145,7 @@
       "properties": {
         "digest": {
           "default": "",
-          "description": "Pin the image by digest (`sha256:…`). When set, it overrides the tag.",
+          "description": "Pin the image by digest (`sha256:\u2026`). When set, it overrides the tag.",
           "title": "digest",
           "type": "string"
         },
@@ -223,6 +223,44 @@
       "title": "livenessProbe",
       "type": "object",
       "required": []
+    },
+    "mcp": {
+      "title": "mcp",
+      "type": "object",
+      "required": [],
+      "properties": {
+        "enabled": {
+          "default": false,
+          "description": "Serve `/mcp` from an `existingConfigMap` that has an `mcp` block. With the inline `config`, a `config.mcp` block turns MCP on without it.",
+          "title": "enabled",
+          "type": "boolean"
+        },
+        "service": {
+          "title": "service",
+          "type": "object",
+          "required": [],
+          "properties": {
+            "annotations": {
+              "description": "MCP Service annotations.",
+              "title": "annotations",
+              "type": "object",
+              "required": []
+            },
+            "port": {
+              "default": 8090,
+              "description": "MCP Service port. Must match the port in `config.mcp.bind` when the chart owns the ConfigMap.",
+              "title": "port",
+              "type": "integer"
+            },
+            "type": {
+              "default": "ClusterIP",
+              "description": "MCP Service type. It stays apart from `service.type`, so exposing the UI does not expose the tools.",
+              "title": "type",
+              "type": "string"
+            }
+          }
+        }
+      }
     },
     "nameOverride": {
       "default": "",

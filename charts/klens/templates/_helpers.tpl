@@ -73,7 +73,24 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- fail "config.bind is required when the chart owns the ConfigMap. Use 0.0.0.0 and match service.port." }}
 {{- end }}
 {{- include "klens.checkBind" (dict "key" "config.bind" "bind" $bind "portKey" "service.port" "port" .Values.service.port "reach" "the Service and probes can reach the process") }}
+{{- $mcp := .Values.config.mcp }}
+{{- if and .Values.mcp.enabled (not $mcp) }}
+{{- fail "mcp.enabled needs a config.mcp block, or nothing answers on the MCP port." }}
 {{- end }}
+{{- if $mcp }}
+{{- include "klens.checkBind" (dict "key" "config.mcp.bind" "bind" ($mcp.bind | default "" | toString) "portKey" "mcp.service.port" "port" .Values.mcp.service.port "reach" "the MCP Service can reach /mcp") }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- define "klens.mcpEnabled" -}}
+{{- if or .Values.mcp.enabled (and (not .Values.existingConfigMap) .Values.config.mcp) -}}
+true
+{{- end -}}
+{{- end }}
+
+{{- define "klens.mcpServiceName" -}}
+{{- printf "%s-mcp" (include "klens.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end }}
 
 {{- define "klens.checkBind" -}}

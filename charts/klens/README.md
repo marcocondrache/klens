@@ -51,6 +51,19 @@ and HTTPRoute hostname there, or klens answers them with 403.
 `kubectl port-forward` and the probes work without that. A load balancer
 health check names an IP address, so point it at `/ready` rather than `/`.
 
+To serve MCP tools, add a `config.mcp` block. The chart then creates a second
+Service, `<fullname>-mcp`, whose port serves only `/mcp`. It is a ClusterIP
+Service whatever `service.type` is, so exposing the UI does not expose the
+tools. Point an MCP gateway at it. `mcp.service.port` must match the port in
+`config.mcp.bind`. With `existingConfigMap`, set `mcp.enabled` when that file
+has an `mcp` block.
+
+```yaml
+config:
+  mcp:
+    bind: 0.0.0.0:8090
+```
+
 ## Maintainers
 
 | Name | Email | Url |
@@ -70,7 +83,7 @@ Kubernetes: `>=1.25.0-0`
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity rules for pod scheduling (templated). |
-| config | object | `{"bind":"0.0.0.0:8080","clusters":{},"log_level":"info"}` | klens config file as a map. The binary validates this YAML, not the chart. `clusters` maps each cluster name to its settings. Timeouts, pool sizes, limits, and lane cadence go under `tuning`. Without `auth`, list the Ingress and HTTPRoute hostnames in `allowed_hosts`. |
+| config | object | `{"bind":"0.0.0.0:8080","clusters":{},"log_level":"info"}` | klens config file as a map. The binary validates this YAML, not the chart. `clusters` maps each cluster name to its settings. Timeouts, pool sizes, limits, and lane cadence go under `tuning`. Without `auth`, list the Ingress and HTTPRoute hostnames in `allowed_hosts`. An `mcp` block serves `/mcp` on `mcp.bind` behind its own Service. |
 | deploymentAnnotations | object | `{}` | Annotations added to the Deployment. |
 | env | object | `{}` | Extra environment variables as a map (templated). |
 | envFrom | list | `[]` | Extra envFrom sources (templated). |
@@ -99,6 +112,10 @@ Kubernetes: `>=1.25.0-0`
 | ingress.hosts | list | `[{"host":"klens.example.com","paths":[{"path":"/","pathType":"Prefix"}]}]` | Ingress hosts and their paths. |
 | ingress.tls | list | `[]` | Ingress TLS configuration. |
 | livenessProbe | object | `{"httpGet":{"path":"/health","port":"http"},"periodSeconds":20}` | Liveness probe. Targets `/health` after startup succeeds. |
+| mcp.enabled | bool | `false` | Serve `/mcp` from an `existingConfigMap` that has an `mcp` block. With the inline `config`, a `config.mcp` block turns MCP on without it. |
+| mcp.service.annotations | object | `{}` | MCP Service annotations. |
+| mcp.service.port | int | `8090` | MCP Service port. Must match the port in `config.mcp.bind` when the chart owns the ConfigMap. |
+| mcp.service.type | string | `"ClusterIP"` | MCP Service type. It stays apart from `service.type`, so exposing the UI does not expose the tools. |
 | nameOverride | string | `""` | Override the chart name used in resource names. |
 | nodeSelector | object | `{}` | Node selector for pod scheduling (templated). |
 | podAnnotations | object | `{}` | Annotations added to the pod. |
