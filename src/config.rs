@@ -18,7 +18,7 @@ mod tuning;
 pub use auth::{Auth, Binding, Oidc, Privilege, Role, Session};
 pub use cluster::{BasicAuth, ClientCert, Cluster, Sasl, SaslMechanism, SchemaRegistry, Tls};
 pub use hosts::AllowedHost;
-pub use mcp::{AllowedOrigin, Mcp, Token};
+pub use mcp::Mcp;
 pub use secret::{KeyMaterial, Secret};
 pub use tuning::{
     IngestTuning, KafkaTuning, McpTuning, RecordLimits, ScanTuning, SchemaRegistryTuning,
@@ -93,37 +93,17 @@ impl Config {
         {
             anyhow::bail!("mcp.clusters names '{unknown}', which is not a configured cluster");
         }
-        match &self.auth {
-            Some(auth) => {
-                anyhow::ensure!(mcp.resource.is_some(), "mcp.resource is required with auth");
-                anyhow::ensure!(
-                    mcp.secret.is_none(),
-                    "mcp.secret needs auth to be off, since with auth /mcp reads IdP access \
-                     tokens from the same Authorization header"
-                );
-                anyhow::ensure!(
-                    !mcp.audiences().contains(&auth.oidc.client_id),
-                    "mcp.token.audiences must not name auth.oidc.client_id, or the UI's ID \
-                     tokens would open /mcp"
-                );
-                anyhow::ensure!(
-                    !mcp.writes() || !mcp.token.clients.is_empty(),
-                    "mcp.token.clients is required when mcp.privileges names create_topics, \
-                     produce or register_schemas, or any client of the oidc provider could \
-                     change Kafka"
-                );
-            }
-            None => {
-                anyhow::ensure!(
-                    mcp.allowed_origins.is_empty(),
-                    "mcp.allowed_origins must stay empty without auth, or a web page could call \
-                     /mcp from a visitor's browser"
-                );
-                anyhow::ensure!(
-                    mcp.resource.is_none() && mcp.token == Token::default(),
-                    "mcp.resource and mcp.token need auth, since without it /mcp checks no token"
-                );
-            }
+        if self.auth.is_some() {
+            anyhow::ensure!(
+                mcp.secret.is_some(),
+                "mcp.secret is required with auth, since /mcp leaves sign-in to a gateway that \
+                 sends it"
+            );
+            anyhow::ensure!(
+                mcp.names_privileges(),
+                "mcp.privileges is required with auth, since every MCP call holds all of it, \
+                 whoever signed in at the gateway"
+            );
         }
         Ok(())
     }
@@ -133,12 +113,6 @@ impl Config {
             return Vec::new();
         };
         let mut warnings = Vec::new();
-        if self.auth.is_some() && mcp.token.clients.is_empty() {
-            warnings.push(
-                "mcp.token.clients is empty, so /mcp takes a token for its audience from any \
-                 client of the oidc provider",
-            );
-        }
         if self.auth.is_none() && mcp.secret.is_some() {
             warnings.push(
                 "mcp.secret guards only /mcp, so with auth off the UI and /api on the same port \
@@ -338,34 +312,21 @@ mod tests {
     const SECRET: &str = "secret: {value: gateway-secret-of-at-least-32-bytes}";
 
     #[test]
-    fn mcp_with_auth_needs_a_resource_and_never_the_ui_audience() {
-        let with_auth = |mcp: &str| yaml::<Config>(&format!("{AUTH}\n            mcp: {mcp}"));
+    fn mcp_with_auth_needs_a_secret_and_its_privileges() {
+        let with_auth = |mcp: &str| yaml::<Config>(&format!("{AUTH}\n            mcp: {{{mcp}}}"));
+        const NO_SECRET: &str = "mcp.secret is required with auth, since /mcp leaves sign-in to a gateway that sends it";
+        const NO_PRIVILEGES: &str = "mcp.privileges is required with auth, since every MCP call \
+                                     holds all of it, whoever signed in at the gateway";
 
         assert!(
-            with_auth("{resource: https://klens.example.com/mcp}")
+            with_auth(&format!("privileges: [], {SECRET}"))
                 .check()
                 .is_ok()
         );
-        assert!(
-            with_auth(
-                "{resource: https://klens.example.com/mcp, allowed_origins: ['https://claude.ai:443']}"
-            )
-            .check()
-            .is_ok()
-        );
         for (mcp, expected) in [
-            ("{}", "mcp.resource is required with auth"),
-            (
-                "{resource: https://klens.example.com/mcp, token: {audiences: [api, klens]}}",
-                "mcp.token.audiences must not name auth.oidc.client_id, or the UI's ID tokens \
-                 would open /mcp",
-            ),
-            (
-                "{resource: https://klens.example.com/mcp, secret: {value: \
-                 gateway-secret-of-at-least-32-bytes}}",
-                "mcp.secret needs auth to be off, since with auth /mcp reads IdP access tokens \
-                 from the same Authorization header",
-            ),
+            ("", NO_SECRET),
+            ("privileges: [records]", NO_SECRET),
+            (SECRET, NO_PRIVILEGES),
         ] {
             assert_eq!(
                 with_auth(mcp).check().unwrap_err().to_string(),
@@ -373,39 +334,11 @@ mod tests {
                 "{mcp}"
             );
         }
-    }
-
-    #[test]
-    fn mcp_with_auth_needs_clients_before_it_writes() {
-        let with_auth = |mcp: &str| {
-            yaml::<Config>(&format!(
-                "{AUTH}\n            mcp: {{resource: https://klens.example.com/mcp, {mcp}}}"
-            ))
-        };
-
-        assert!(with_auth("privileges: [records]").check().is_ok());
-        assert!(
-            with_auth("privileges: [produce], token: {clients: [claude-code]}")
-                .check()
-                .is_ok()
-        );
-        for privilege in ["create_topics", "produce", "register_schemas"] {
-            assert_eq!(
-                with_auth(&format!("privileges: [{privilege}]"))
-                    .check()
-                    .unwrap_err()
-                    .to_string(),
-                "mcp.token.clients is required when mcp.privileges names create_topics, produce \
-                 or register_schemas, or any client of the oidc provider could change Kafka",
-                "{privilege}"
-            );
-        }
+        assert!(yaml::<Config>("mcp: {}").check().is_ok());
     }
 
     #[test]
     fn mcp_warns_of_each_way_a_write_reaches_too_far() {
-        const CLIENTS: &str = "mcp.token.clients is empty, so /mcp takes a token for its \
-                               audience from any client of the oidc provider";
         const OPEN: &str = "auth is off and mcp.privileges names a write, so anyone who \
                             reaches /mcp can change a writable cluster";
         const PRIVATE: &str = "mcp.privileges names records or schema_text beside a write, so \
@@ -413,29 +346,17 @@ mod tests {
                                data out through that write";
         const UI_OPEN: &str = "mcp.secret guards only /mcp, so with auth off the UI and /api on \
                                the same port stay open to anyone who reaches klens";
-        let with_auth = |mcp: &str| {
-            yaml::<Config>(&format!(
-                "{AUTH}\n            mcp: {{resource: https://klens.example.com/mcp, {mcp}}}"
-            ))
-        };
+        let with_auth =
+            |mcp: &str| yaml::<Config>(&format!("{AUTH}\n            mcp: {{{SECRET}, {mcp}}}"));
         let without_auth = |mcp: &str| yaml::<Config>(&format!("mcp: {{{mcp}}}"));
 
         for (config, expected) in [
             (yaml::<Config>("{}"), vec![]),
             (without_auth(""), vec![]),
-            (with_auth("privileges: [records]"), vec![CLIENTS]),
+            (with_auth("privileges: [records]"), vec![]),
+            (with_auth("privileges: [acls, produce]"), vec![]),
             (
-                with_auth("privileges: [records], token: {clients: [claude-code]}"),
-                vec![],
-            ),
-            (
-                with_auth("privileges: [acls, produce], token: {clients: [claude-code]}"),
-                vec![],
-            ),
-            (
-                with_auth(
-                    "privileges: [schema_text, register_schemas], token: {clients: [claude-code]}",
-                ),
+                with_auth("privileges: [schema_text, register_schemas]"),
                 vec![PRIVATE],
             ),
             (without_auth("privileges: [create_topics]"), vec![OPEN]),
@@ -450,35 +371,6 @@ mod tests {
             ),
         ] {
             assert_eq!(config.mcp_warnings(), expected, "{:?}", config.mcp);
-        }
-    }
-
-    #[test]
-    fn mcp_without_auth_takes_no_token_rule_or_origin() {
-        assert!(yaml::<Config>("mcp: {}").check().is_ok());
-        for (mcp, expected) in [
-            (
-                "{allowed_origins: ['https://claude.ai:443']}",
-                "mcp.allowed_origins must stay empty without auth, or a web page could call /mcp \
-                 from a visitor's browser",
-            ),
-            (
-                "{resource: https://klens.example.com/mcp}",
-                "mcp.resource and mcp.token need auth, since without it /mcp checks no token",
-            ),
-            (
-                "{token: {clients: [claude-code]}}",
-                "mcp.resource and mcp.token need auth, since without it /mcp checks no token",
-            ),
-        ] {
-            assert_eq!(
-                yaml::<Config>(&format!("mcp: {mcp}"))
-                    .check()
-                    .unwrap_err()
-                    .to_string(),
-                expected,
-                "{mcp}"
-            );
         }
     }
 

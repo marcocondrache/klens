@@ -17,7 +17,6 @@ use tracing::field::Empty;
 
 use crate::AppState;
 
-use crate::app::auth::SessionGuard;
 use crate::app::auth::access::Narrowed;
 use crate::app::context::Session;
 use crate::app::error::ApiError;
@@ -34,21 +33,16 @@ pub(crate) struct KlensMcp {
 }
 
 impl KlensMcp {
-    /// Reading live from Kafka costs it a call, so each caller gets a few a minute.
-    pub(super) fn live_call(&self, session: &Session) -> Result<(), ApiError> {
-        if self.state.mcp_live_call(session.guard.subject()) {
+    /// Reading live from Kafka costs it a call, so MCP gets a few a minute.
+    pub(super) fn live_call(&self) -> Result<(), ApiError> {
+        if self.state.mcp_live_call() {
             Ok(())
         } else {
             Err(ApiError::TooManyLiveCalls)
         }
     }
 
-    fn client(&self, context: &RequestContext<RoleServer>) -> Option<String> {
-        if self.state.auth.is_enabled() {
-            let parts = context.extensions.get::<Parts>()?;
-            let guard = parts.extensions.get::<SessionGuard>()?;
-            return guard.client().map(ToOwned::to_owned);
-        }
+    fn client(context: &RequestContext<RoleServer>) -> Option<String> {
         let name: String = context
             .meta
             .client_info()?
@@ -112,7 +106,7 @@ impl ServerHandler for KlensMcp {
             return Err(ErrorData::invalid_params("tool not found", None));
         };
         let span = tracing::info_span!("mcp.tool", tool = &*route.attr.name, client = Empty);
-        if let Some(client) = self.client(&context) {
+        if let Some(client) = Self::client(&context) {
             span.record("client", client.as_str());
         }
         // A write that reached Kafka must still log its audit line after the

@@ -160,7 +160,6 @@ impl TestApp {
                             .allowed_hosts
                             .iter()
                             .map(ToString::to_string),
-                        [],
                     ),
                 ),
             )

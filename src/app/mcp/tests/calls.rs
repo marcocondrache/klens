@@ -98,41 +98,7 @@ async fn a_refused_call_logs_its_tool_and_code_but_not_its_arguments() {
     logs.assert_lacks("4111");
 }
 
-#[tokio::test]
-async fn a_refused_call_logs_the_user_and_client_of_its_token() {
-    let a = Signer::a();
-    let idp = Idp::start(&[&a], &[&a]).await;
-    let mcp = for_resource("");
-    let app = TestApp::of([FakeCluster::local()])
-        .auth(idp.auth(&mcp).await)
-        .build();
-    let token = a.sign(&idp.claims());
-    let body = call_body(
-        "klens_search",
-        json!({ "query": "orders", "cluster": "nope" }),
-    );
-    let logs = LogCapture::at(Level::INFO);
-
-    let response = post_through_serve(&app, &mcp, &token, &body).await;
-
-    assert!(response.contains("UNKNOWN_CLUSTER"), "{response}");
-    let text = logs.text();
-    let refused = text
-        .lines()
-        .find(|line| line.contains(r#"refused a tool call code="UNKNOWN_CLUSTER""#))
-        .unwrap_or_else(|| panic!("no refusal in the logs:\n{text}"));
-    assert!(
-        refused.contains(r#"user="user-1" client="claude-code"}"#),
-        "{refused}"
-    );
-    assert!(
-        refused.contains(r#"mcp.tool{tool="klens_search" client="claude-code"}"#),
-        "{refused}"
-    );
-    logs.assert_lacks(&token);
-}
-
-async fn post_through_serve(app: &TestApp, mcp: &Mcp, token: &str, body: &Value) -> String {
+async fn post_through_serve(app: &TestApp, mcp: &Mcp, body: &Value) -> String {
     let body = body.to_string();
     let response = exchange(
         router(
@@ -141,7 +107,8 @@ async fn post_through_serve(app: &TestApp, mcp: &Mcp, token: &str, body: &Value)
             Some(mcp),
         ),
         &format!(
-            "POST /mcp HTTP/1.1\r\nHost: {RESOURCE_HOST}\r\nAuthorization: Bearer {token}\r\n\
+            "POST /mcp HTTP/1.1\r\nHost: klens.example.com\r\n\
+             Authorization: Bearer {GATEWAY_SECRET}\r\n\
              Accept: application/json, text/event-stream\r\nContent-Type: application/json\r\n\
              Mcp-Protocol-Version: 2025-06-18\r\nContent-Length: {}\r\nConnection: close\r\n\r\n\
              {body}",
@@ -189,56 +156,14 @@ async fn live_tools_draw_on_a_budget_that_snapshot_tools_leave_alone() {
 }
 
 #[tokio::test]
-async fn each_user_of_an_access_token_has_a_live_budget_of_their_own() {
-    let app = TestApp::of([FakeCluster::local()])
-        .limits(Limits {
-            mcp_live_calls_per_minute: NonZeroU32::MIN,
-            ..Limits::new(&Tuning::default())
-        })
-        .ingested()
-        .await;
-    let exp = Timestamp::now().as_second() + 300;
-    let alice = app.with_guard(SessionGuard::token("alice", exp));
-    let bob = app.with_guard(SessionGuard::token("bob", exp));
-    let describe = async |app: &TestApp| {
-        call(
-            app,
-            "klens_group_describe",
-            json!({ "group": "order-processor" }),
-        )
-        .await
-    };
-
-    structured(&describe(&alice).await);
-    let spent = refusal(&describe(&alice).await);
-    structured(&describe(&bob).await);
-    structured(&describe(&app).await);
-    let shared = refusal(&describe(&app).await);
-
-    assert_eq!(spent["code"], "RATE_LIMITED");
-    assert_eq!(
-        shared["code"], "RATE_LIMITED",
-        "callers without a token share one"
-    );
-}
-
-#[tokio::test]
-async fn a_write_and_a_refused_write_log_the_user_and_client_of_the_token() {
-    let a = Signer::a();
-    let idp = Idp::start(&[&a], &[&a]).await;
-    let mcp = Mcp {
-        privileges: every_tool().privileges,
-        ..for_resource("token: {clients: [claude-code]}")
-    };
+async fn with_auth_on_a_write_from_the_gateway_logs_its_audit_line_and_never_the_secret() {
+    let mcp = behind_gateway(every_tool());
     let app = TestApp::of([FakeCluster::local(), FakeCluster::named("prod")])
-        .auth(idp.auth(&mcp).await)
+        .auth(auth_granting_nothing())
         .writable(&["local"])
         .ingested()
         .await;
     let _lanes = lanes_writes_wait_on(&app);
-    let mut claims = idp.claims();
-    claims["groups"] = json!(["ops", "writers"]);
-    let token = a.sign(&claims);
     let tools = KlensMcp::tools().list_all();
     let audits = [
         ("klens_topic_create", "created topic"),
@@ -250,24 +175,22 @@ async fn a_write_and_a_refused_write_log_the_user_and_client_of_the_token() {
     for (name, _) in audits {
         let tool = tools.iter().find(|tool| tool.name == name).expect("a tool");
         for cluster in ["local", "prod"] {
-            let body = call_body(name, naming(tool, cluster));
-            post_through_serve(&app, &mcp, &token, &body).await;
+            post_through_serve(&app, &mcp, &call_body(name, naming(tool, cluster))).await;
         }
     }
 
     let text = logs.text();
     for (name, audit) in audits {
-        let span = format!(r#"mcp.tool{{tool="{name}" client="claude-code"}}"#);
+        let span = format!(r#"mcp.tool{{tool="{name}"}}"#);
         for message in [audit, r#"refused a tool call code="READ_ONLY_CLUSTER""#] {
             assert!(
-                text.lines().any(|line| line.contains(message)
-                    && line.contains(&span)
-                    && line.contains(r#"user="user-1" client="claude-code"}"#)),
-                "no `{message}` from {name} with its user and client in the logs:\n{text}"
+                text.lines()
+                    .any(|line| line.contains(message) && line.contains(&span)),
+                "no `{message}` from {name} in the logs:\n{text}"
             );
         }
     }
-    logs.assert_lacks(&token);
+    logs.assert_lacks(GATEWAY_SECRET);
 }
 
 #[tokio::test]

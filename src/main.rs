@@ -19,7 +19,7 @@ async fn main() -> anyhow::Result<()> {
         "configured kafka clusters"
     );
 
-    let auth = AuthState::from_config(config.auth.as_ref(), config.mcp.as_ref())
+    let auth = AuthState::from_config(config.auth.as_ref())
         .await
         .context("failed to initialize authentication")?;
 
@@ -43,7 +43,7 @@ async fn main() -> anyhow::Result<()> {
 
     if let Some(mcp) = &config.mcp {
         let privileges: Vec<&str> = mcp
-            .privileges
+            .privileges()
             .iter()
             .map(|&privilege| <&str>::from(privilege))
             .collect();
@@ -51,23 +51,18 @@ async fn main() -> anyhow::Result<()> {
             .clusters
             .as_ref()
             .map_or_else(|| "every cluster".to_owned(), |names| format!("{names:?}"));
-        match (&mcp.resource, &mcp.secret) {
-            (Some(resource), _) => tracing::info!(
-                ?privileges,
-                %clusters,
-                resource = resource.as_str(),
-                "serving MCP tools at /mcp to holders of an access token from the oidc provider"
-            ),
-            (None, Some(_)) => tracing::info!(
+        if mcp.secret.is_some() {
+            tracing::info!(
                 ?privileges,
                 %clusters,
                 "serving MCP tools at /mcp to calls that carry the gateway's secret"
-            ),
-            (None, None) => tracing::info!(
+            );
+        } else {
+            tracing::info!(
                 ?privileges,
                 %clusters,
                 "serving MCP tools at /mcp to anyone who reaches klens"
-            ),
+            );
         }
     }
     for warning in config.mcp_warnings() {

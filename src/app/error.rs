@@ -17,8 +17,6 @@ pub(crate) enum ApiError {
     SessionExpired,
     #[error("unauthorized")]
     Unauthorized,
-    #[error("no role is bound to a group of this token")]
-    NoRole,
     #[error("host is not in allowed_hosts")]
     HostNotAllowed,
     #[error("/mcp answers only its gateway, and this call lacks the gateway's secret")]
@@ -64,7 +62,6 @@ impl ApiError {
             Self::Access(error) => error.code(),
             Self::SessionExpired => "SESSION_EXPIRED",
             Self::Unauthorized => "UNAUTHORIZED",
-            Self::NoRole => "FORBIDDEN",
             Self::HostNotAllowed => "HOST_NOT_ALLOWED",
             Self::NotFromGateway => "NOT_FROM_GATEWAY",
             Self::NotFound => "NOT_FOUND",
@@ -95,8 +92,7 @@ impl ApiError {
             Self::TooManyTails | Self::NotReady { .. } => StatusCode::SERVICE_UNAVAILABLE,
             Self::RateLimited | Self::TooManyLiveCalls => StatusCode::TOO_MANY_REQUESTS,
             Self::InvalidRequest { status, .. } => *status,
-            Self::NoRole
-            | Self::HostNotAllowed
+            Self::HostNotAllowed
             | Self::NotFromGateway
             | Self::Access(AccessError::Forbidden { .. } | AccessError::ReadOnlyCluster(_)) => {
                 StatusCode::FORBIDDEN

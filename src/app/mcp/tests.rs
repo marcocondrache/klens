@@ -5,7 +5,7 @@ use std::time::Duration;
 use axum::Router;
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode, header};
-use jiff::Timestamp;
+use indexmap::IndexMap;
 use rmcp::model::{CallToolResult, ContentBlock, Tool};
 use serde_json::{Value, json};
 use tower::ServiceExt as _;
@@ -18,15 +18,13 @@ use super::{
     CLIENT_VALUES_NOTICE, MAX_QUERY_CHARS, MAX_REQUEST_BYTES, OBFUSCATED_NOTICE, RESULT_BYTES,
     browser_checks, service, tool_list,
 };
-use crate::app::auth::SessionGuard;
-use crate::app::auth::access::{Privilege, PrivilegeSet};
-use crate::app::auth::testing::{Idp, RESOURCE_HOST, Signer, bearing, mcp as for_resource};
+use crate::app::auth::access::{AccessPolicy, Privilege, PrivilegeSet};
+use crate::app::auth::testing::FakeOidc;
 use crate::app::mcp::reply::{Page, fit, fits, reply};
 use crate::app::mcp::server::KlensMcp;
 use crate::app::mcp::tools::gates;
-use crate::app::{AppState, AuthState, Limits, router};
+use crate::app::{AuthState, Limits, router};
 use crate::config::{AllowedHost, Config, Mcp, Tuning};
-use crate::kafka::Clusters;
 use crate::kafka::model::{
     AclListing, ConfigEntry, ConfigSource, GroupSnapshot, RegisteredSchema, SchemaReference,
     SchemaType, Watermarks,
@@ -197,13 +195,31 @@ fn tool_names_that_change_kafka() -> Vec<&'static str> {
 }
 
 fn every_tool() -> Mcp {
-    Mcp {
-        privileges: gate_rows()
-            .into_iter()
-            .filter_map(|(_, _, needs)| needs)
-            .collect(),
-        ..Mcp::default()
-    }
+    Mcp::holding(gate_rows().into_iter().filter_map(|(_, _, needs)| needs))
+}
+
+const GATEWAY_SECRET: &str = "gateway-secret-of-at-least-32-bytes";
+
+fn behind_gateway(mut mcp: Mcp) -> Mcp {
+    mcp.secret = Some(yaml(&format!("{{value: {GATEWAY_SECRET}}}")));
+    mcp
+}
+
+fn from_gateway(mut request: Request<Body>) -> Request<Body> {
+    let bearer = format!("Bearer {GATEWAY_SECRET}");
+    request
+        .headers_mut()
+        .insert(header::AUTHORIZATION, bearer.parse().expect("a header"));
+    request
+}
+
+/// Auth on, with no role for anyone, so only the MCP ceiling can grant a call
+/// anything.
+fn auth_granting_nothing() -> AuthState {
+    AuthState::enabled_for_tests_with(
+        FakeOidc::default(),
+        AccessPolicy::from_roles(Some(&IndexMap::new())),
+    )
 }
 
 async fn writable() -> TestApp {

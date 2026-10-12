@@ -131,7 +131,7 @@ impl KlensMcp {
         };
         let configs = match cluster.broker_configs() {
             Ok(granted) => {
-                self.live_call(&session)?;
+                self.live_call()?;
                 ConfigSection::overrides(granted.broker_configs(id).await?)
             }
             Err(error) => ConfigSection::withheld(error)?,

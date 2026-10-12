@@ -48,15 +48,13 @@ async fn a_ceiling_without_a_privilege_closes_each_tool_and_section_that_needs_i
 
     for (name, section, needs) in gate_rows() {
         let Some(needs) = needs else { continue };
-        let mcp = every_tool();
-        let capped = app.serving_mcp(Mcp {
-            privileges: mcp
-                .privileges
-                .into_iter()
-                .filter(|&privilege| privilege != needs)
-                .collect(),
-            ..mcp
-        });
+        let capped = app.serving_mcp(Mcp::holding(
+            every_tool()
+                .privileges()
+                .iter()
+                .copied()
+                .filter(|&privilege| privilege != needs),
+        ));
         let tool = tools.iter().find(|tool| tool.name == name).expect("a tool");
 
         let result = call_through_router(&capped, name, naming(tool, "local")).await;
@@ -71,7 +69,7 @@ async fn a_ceiling_without_a_privilege_closes_each_tool_and_section_that_needs_i
 
 #[test]
 fn mcp_privileges_take_exactly_the_privileges_the_tools_need() {
-    let needed = every_tool().privileges;
+    let needed = every_tool().privileges().to_vec();
 
     for &privilege in Privilege::VARIANTS {
         let named = json!(privilege);
@@ -104,7 +102,12 @@ async fn tools_list_leaves_out_a_tool_the_caller_may_use_on_no_cluster() {
     let app = TestApp::of([FakeCluster::local(), FakeCluster::named("prod")])
         .ingested()
         .await;
-    let reader = || role("reader", PrivilegeSet::from_iter(Mcp::default().privileges));
+    let reader = || {
+        role(
+            "reader",
+            PrivilegeSet::from_iter(Mcp::default().privileges().iter().copied()),
+        )
+    };
     let listed = async |app: TestApp| {
         let listed = app.mcp("tools/list", json!({})).await.ok();
         names(&listed["result"], "tools", "name")
@@ -231,18 +234,16 @@ async fn the_ceiling_holds_through_the_router() {
 }
 
 #[tokio::test]
-async fn the_ceiling_holds_through_the_router_for_a_bearer_token() {
-    let a = Signer::a();
-    let idp = Idp::start(&[&a], &[&a]).await;
-    let mcp = for_resource("privileges: [acls, broker_configs]\nclusters: [other]");
+async fn with_auth_on_a_call_from_the_gateway_holds_the_ceiling_whatever_its_groups() {
+    let mut mcp = behind_gateway(Mcp::holding([Privilege::Acls, Privilege::BrokerConfigs]));
+    mcp.clusters = Some(vec!["other".to_owned()]);
     let app = TestApp::of([FakeCluster::local(), FakeCluster::named("other")])
-        .auth(idp.auth(&mcp).await)
+        .auth(auth_granting_nothing())
         .ingested()
         .await
         .serving_mcp(mcp);
-    let token = a.sign(&idp.claims());
     let call = |tool: &str, arguments: Value| {
-        let request = bearing(mcp_request(&call_body(tool, arguments)), &token);
+        let request = from_gateway(mcp_request(&call_body(tool, arguments)));
         async { app.reply_through_router(request).await.ok()["result"].take() }
     };
 
@@ -251,49 +252,11 @@ async fn the_ceiling_holds_through_the_router_for_a_bearer_token() {
     let clusters = explained["clusters"].as_array().expect("clusters");
     assert_eq!(clusters.len(), 1, "{explained}");
     assert_eq!(clusters[0]["cluster"], "other");
-    assert_eq!(
-        clusters[0]["privileges"],
-        json!(["ACLS"]),
-        "the role grants no broker configs"
-    );
+    assert_eq!(clusters[0]["privileges"], json!(["BROKER_CONFIGS", "ACLS"]));
     for tool in KlensMcp::tools().list_all() {
         let refused = refusal(&call(&tool.name, naming(&tool, "local")).await);
         assert_eq!(refused["code"], "UNKNOWN_CLUSTER", "{}", tool.name);
     }
-}
-
-#[tokio::test]
-async fn the_default_ceiling_keeps_a_bearer_token_from_writing() {
-    let a = Signer::a();
-    let idp = Idp::start(&[&a], &[&a]).await;
-    let mcp = for_resource("");
-    let app = TestApp::of([FakeCluster::local()])
-        .auth(idp.auth(&mcp).await)
-        .writable(&["local"])
-        .ingested()
-        .await
-        .serving_mcp(mcp);
-    let mut claims = idp.claims();
-    claims["groups"] = json!(["writers"]);
-    let token = a.sign(&claims);
-    let send = |body: &Value| {
-        let request = bearing(mcp_request(body), &token);
-        async { app.reply_through_router(request).await.ok()["result"].take() }
-    };
-    let tools = KlensMcp::tools().list_all();
-    let list = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {} });
-
-    let offered = names(&send(&list).await, "tools", "name");
-
-    for name in tool_names_that_change_kafka() {
-        let tool = tools.iter().find(|tool| tool.name == name).expect("a tool");
-        let refused = refusal(&send(&call_body(name, naming(tool, "local"))).await);
-        assert!(!offered.contains(&name.to_owned()), "{name}");
-        assert_eq!(refused["code"], "FORBIDDEN", "{name}");
-    }
-    assert_eq!(app.cluster().calls(Api::CreateTopic), 0);
-    assert_eq!(app.cluster().calls(Api::Produce), 0);
-    assert_eq!(app.cluster().calls(Api::RegisterSchema), 0);
 }
 
 #[tokio::test]

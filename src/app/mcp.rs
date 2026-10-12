@@ -3,16 +3,16 @@ use std::sync::Arc;
 use axum::Router;
 use axum::extract::{Request, State};
 use axum::middleware::{self, Next};
-use axum::response::{IntoResponse, Response};
+use axum::response::Response;
+use axum::routing::any;
 use rmcp::transport::streamable_http_server::session::never::NeverSessionManager;
 use rmcp::transport::{StreamableHttpServerConfig, StreamableHttpService};
-use url::Position;
 
 use crate::AppState;
 use crate::config::{AllowedHost, Mcp};
 
-use super::auth::access::Ceiling;
-use super::auth::{self, SessionGuard};
+use super::auth::SessionGuard;
+use super::auth::access::{Ceiling, EffectiveAccess, Narrowed};
 use super::error::ApiError;
 use super::hosts;
 
@@ -73,58 +73,58 @@ const MAX_REQUEST_BYTES: usize = 65_536;
 const MAX_CLIENT_CHARS: usize = 64;
 
 pub(crate) fn router(state: AppState, allowed_hosts: &[AllowedHost], mcp: &Mcp) -> Router {
-    let guard = SessionGuard::capped(state.auth.clone(), ceiling(mcp));
-    let Some(bearer) = state.auth.bearer().cloned() else {
-        if let Some(secret) = &mcp.secret {
+    let ceiling = ceiling(mcp);
+    let admitted = (
+        EffectiveAccess::Unrestricted.narrow(&ceiling),
+        SessionGuard::capped(ceiling),
+    );
+    let admission = middleware::from_fn_with_state(admitted, admit);
+    match &mcp.secret {
+        Some(secret) => {
             // The gateway forwards the public Host and the client's Origin,
             // and a web page cannot learn the secret, so it stands in for
             // both checks.
             let unchecked = StreamableHttpServerConfig::default()
                 .disable_allowed_hosts()
                 .disable_allowed_origins();
-            return Router::new()
+            Router::new()
                 .nest_service("/mcp", service(state, unchecked))
-                .layer(middleware::from_fn_with_state(guard, admit))
+                .layer(admission)
                 .layer(middleware::from_fn_with_state(
                     GatewaySecret::new(secret),
                     require_secret,
-                ));
+                ))
         }
-        let hosts = allowed_hosts.iter().map(ToString::to_string);
-        return Router::new()
-            .nest_service("/mcp", service(state, browser_checks(hosts, [])))
-            .layer(middleware::from_fn_with_state(guard, admit))
-            .layer(middleware::from_fn_with_state(
-                Arc::from(allowed_hosts),
-                hosts::require_allowed_host,
-            ));
-    };
-    let host = bearer.resource()[Position::BeforeHost..Position::AfterPort].to_owned();
-    let origins = mcp.allowed_origins.iter().map(ToString::to_string);
-    let metadata = bearer.metadata();
-    Router::new()
-        .nest_service("/mcp", service(state, browser_checks([host], origins)))
-        .layer(middleware::from_fn_with_state(
-            (bearer, guard),
-            auth::require_bearer,
-        ))
-        .merge(metadata)
+        // The config check requires a secret with auth, and /mcp stays shut
+        // for any caller that skips it.
+        None if state.auth.is_enabled() => {
+            Router::new().nest_service("/mcp", any(async || ApiError::NotFromGateway))
+        }
+        None => {
+            let hosts = allowed_hosts.iter().map(ToString::to_string);
+            Router::new()
+                .nest_service("/mcp", service(state, browser_checks(hosts)))
+                .layer(admission)
+                .layer(middleware::from_fn_with_state(
+                    Arc::from(allowed_hosts),
+                    hosts::require_allowed_host,
+                ))
+        }
+    }
 }
 
 pub(crate) fn ceiling(mcp: &Mcp) -> Ceiling {
-    Ceiling::new("mcp", &mcp.privileges, mcp.clusters.as_deref())
+    Ceiling::new("mcp", mcp.privileges(), mcp.clusters.as_deref())
 }
 
-/// rmcp answers only these hosts and refuses any browser origin not listed.
+/// rmcp answers only these hosts and refuses every request from a browser.
 pub(crate) fn browser_checks(
     hosts: impl IntoIterator<Item = String>,
-    origins: impl IntoIterator<Item = String>,
 ) -> StreamableHttpServerConfig {
     StreamableHttpServerConfig::default()
         // rmcp reads an empty list as every host, and the config never
         // yields one.
         .with_allowed_hosts(hosts)
-        .with_allowed_origins(origins)
         .enforce_origin_validation()
 }
 
@@ -155,10 +155,11 @@ pub fn tool_list() -> String {
     list
 }
 
-async fn admit(State(guard): State<SessionGuard>, mut request: Request, next: Next) -> Response {
-    let Some(access) = guard.narrowed() else {
-        return ApiError::Unauthorized.into_response();
-    };
+async fn admit(
+    State((access, guard)): State<(Narrowed, SessionGuard)>,
+    mut request: Request,
+    next: Next,
+) -> Response {
     request.extensions_mut().insert(access);
     request.extensions_mut().insert(guard);
     next.run(request).await

@@ -165,7 +165,6 @@ async fn a_request_that_skips_admission_is_a_wiring_error() {
                     .allowed_hosts
                     .iter()
                     .map(ToString::to_string),
-                [],
             ),
         ),
     );
@@ -222,72 +221,21 @@ async fn without_an_mcp_block_only_the_ui_answers_at_mcp() {
 }
 
 #[tokio::test]
-async fn an_auth_state_without_a_token_check_admits_nobody_at_mcp() {
-    let state = AppState::new(
-        Clusters::from_sessions(vec![FakeCluster::local()]),
-        AuthState::enabled_for_tests(),
-        Limits::new(&Tuning::default()),
-    );
-
-    let response = router(
-        state,
-        &Config::default().allowed_hosts,
-        Some(&Mcp::default()),
-    )
-    .oneshot(mcp_request(&call_body("klens_clusters", json!({}))))
-    .await
-    .expect("response");
-
-    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-}
-
-#[tokio::test]
-async fn with_auth_on_mcp_answers_only_the_resource_host_and_listed_origins() {
-    let a = Signer::a();
-    let idp = Idp::start(&[&a], &[&a]).await;
-    let mcp = for_resource("allowed_origins: ['https://claude.ai:443']");
+async fn with_auth_on_and_no_secret_mcp_answers_no_call() {
     let app = TestApp::of([FakeCluster::local()])
-        .auth(idp.auth(&mcp).await)
+        .auth(AuthState::enabled_for_tests())
         .build()
-        .serving_mcp(mcp);
-    let token = a.sign(&idp.claims());
-    let list = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {} });
+        .serving_mcp(Mcp::default());
 
-    for (host, origin, status) in [
-        (RESOURCE_HOST, None, StatusCode::OK),
-        (RESOURCE_HOST, Some("https://claude.ai"), StatusCode::OK),
-        ("localhost", None, StatusCode::FORBIDDEN),
-        (
-            RESOURCE_HOST,
-            Some("http://claude.ai"),
-            StatusCode::FORBIDDEN,
-        ),
-        (
-            RESOURCE_HOST,
-            Some("https://evil.example"),
-            StatusCode::FORBIDDEN,
-        ),
-    ] {
-        let mut request = bearing(mcp_request(&list), &token);
-        let headers = request.headers_mut();
-        headers.insert(header::HOST, host.parse().expect("a host"));
-        if let Some(origin) = origin {
-            headers.insert(header::ORIGIN, origin.parse().expect("an origin"));
-        }
+    let reply = app
+        .reply_through_router(mcp_request(&call_body("klens_clusters", json!({}))))
+        .await;
 
-        let response = app.send_through_router(request).await;
-
-        assert_eq!(response.status(), status, "{host} {origin:?}");
-    }
+    assert_eq!(reply.status, StatusCode::FORBIDDEN);
+    assert_eq!(reply.body["code"], "NOT_FROM_GATEWAY");
 }
 
-const GATEWAY_SECRET: &str = "gateway-secret-of-at-least-32-bytes";
-
-fn behind_gateway() -> Mcp {
-    yaml(&format!("secret: {{value: {GATEWAY_SECRET}}}"))
-}
-
-fn from_gateway(authorization: &[&str]) -> Request<Body> {
+fn carrying(authorization: &[&str]) -> Request<Body> {
     let mut request = mcp_request(&call_body("klens_clusters", json!({})));
     for value in authorization {
         request
@@ -299,7 +247,9 @@ fn from_gateway(authorization: &[&str]) -> Request<Body> {
 
 #[tokio::test]
 async fn with_a_secret_only_a_call_that_carries_it_reaches_a_tool() {
-    let app = TestApp::local().await.serving_mcp(behind_gateway());
+    let app = TestApp::local()
+        .await
+        .serving_mcp(behind_gateway(Mcp::default()));
     let bearer = format!("Bearer {GATEWAY_SECRET}");
 
     for authorization in [
@@ -308,13 +258,13 @@ async fn with_a_secret_only_a_call_that_carries_it_reaches_a_tool() {
         vec![&format!("Basic {GATEWAY_SECRET}")],
         vec![&bearer, &bearer],
     ] {
-        let reply = app.reply_through_router(from_gateway(&authorization)).await;
+        let reply = app.reply_through_router(carrying(&authorization)).await;
 
         assert_eq!(reply.status, StatusCode::FORBIDDEN, "{authorization:?}");
         assert_eq!(reply.body["code"], "NOT_FROM_GATEWAY", "{authorization:?}");
     }
     let called = app
-        .reply_through_router(from_gateway(&[&format!("bearer  {GATEWAY_SECRET}")]))
+        .reply_through_router(carrying(&[&format!("bearer  {GATEWAY_SECRET}")]))
         .await
         .ok();
     assert_eq!(
@@ -325,8 +275,10 @@ async fn with_a_secret_only_a_call_that_carries_it_reaches_a_tool() {
 
 #[tokio::test]
 async fn with_a_secret_any_host_and_browser_origin_pass_through_the_gateway() {
-    let app = TestApp::local().await.serving_mcp(behind_gateway());
-    let mut request = from_gateway(&[&format!("Bearer {GATEWAY_SECRET}")]);
+    let app = TestApp::local()
+        .await
+        .serving_mcp(behind_gateway(Mcp::default()));
+    let mut request = from_gateway(mcp_request(&call_body("klens_clusters", json!({}))));
     let headers = request.headers_mut();
     headers.insert(header::HOST, "klens.example.com".parse().expect("host"));
     headers.insert(header::ORIGIN, "https://claude.ai".parse().expect("origin"));
