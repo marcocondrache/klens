@@ -134,10 +134,22 @@ impl TestApp {
     }
 
     pub async fn send_through_router(&self, request: Request<Body>) -> Response {
-        super::router(
+        super::router(self.state.clone(), &Config::default().allowed_hosts)
+            .oneshot(request)
+            .await
+            .expect("response")
+    }
+
+    pub async fn reply_to_mcp(&self, request: Request<Body>) -> Reply {
+        let request_line = format!("{} {}", request.method(), request.uri());
+        read(request_line, self.send_to_mcp(request).await).await
+    }
+
+    pub async fn send_to_mcp(&self, request: Request<Body>) -> Response {
+        super::mcp_router(
             self.state.clone(),
             &Config::default().allowed_hosts,
-            self.mcp.as_ref(),
+            &self.mcp.clone().unwrap_or_default(),
         )
         .oneshot(request)
         .await

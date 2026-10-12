@@ -93,6 +93,12 @@ impl Config {
         {
             anyhow::bail!("mcp.clusters names '{unknown}', which is not a configured cluster");
         }
+        if mcp.bind == self.bind {
+            anyhow::bail!(
+                "mcp.bind is {}, the address of bind, so give MCP a port of its own",
+                self.bind
+            );
+        }
         if self.auth.is_some() {
             anyhow::ensure!(
                 mcp.secret.is_some(),
@@ -113,12 +119,6 @@ impl Config {
             return Vec::new();
         };
         let mut warnings = Vec::new();
-        if self.auth.is_none() && mcp.secret.is_some() {
-            warnings.push(
-                "mcp.secret guards only /mcp, so with auth off the UI and /api on the same port \
-                 stay open to anyone who reaches klens",
-            );
-        }
         if self.auth.is_none() && mcp.secret.is_none() && mcp.writes() {
             warnings.push(
                 "auth is off and mcp.privileges names a write, so anyone who reaches /mcp can \
@@ -310,10 +310,12 @@ mod tests {
             ";
 
     const SECRET: &str = "secret: {value: gateway-secret-of-at-least-32-bytes}";
+    const MCP_BIND: &str = "bind: 0.0.0.0:8090";
 
     #[test]
     fn mcp_with_auth_needs_a_secret_and_its_privileges() {
-        let with_auth = |mcp: &str| yaml::<Config>(&format!("{AUTH}\n            mcp: {{{mcp}}}"));
+        let with_auth =
+            |mcp: &str| yaml::<Config>(&format!("{AUTH}\n            mcp: {{{MCP_BIND}, {mcp}}}"));
         const NO_SECRET: &str = "mcp.secret is required with auth, since /mcp leaves sign-in to a gateway that sends it";
         const NO_PRIVILEGES: &str = "mcp.privileges is required with auth, since every MCP call \
                                      holds all of it, whoever signed in at the gateway";
@@ -334,7 +336,11 @@ mod tests {
                 "{mcp}"
             );
         }
-        assert!(yaml::<Config>("mcp: {}").check().is_ok());
+        assert!(
+            yaml::<Config>(&format!("mcp: {{{MCP_BIND}}}"))
+                .check()
+                .is_ok()
+        );
     }
 
     #[test]
@@ -344,11 +350,12 @@ mod tests {
         const PRIVATE: &str = "mcp.privileges names records or schema_text beside a write, so \
                                text an agent reads from Kafka could steer it to copy private \
                                data out through that write";
-        const UI_OPEN: &str = "mcp.secret guards only /mcp, so with auth off the UI and /api on \
-                               the same port stay open to anyone who reaches klens";
-        let with_auth =
-            |mcp: &str| yaml::<Config>(&format!("{AUTH}\n            mcp: {{{SECRET}, {mcp}}}"));
-        let without_auth = |mcp: &str| yaml::<Config>(&format!("mcp: {{{mcp}}}"));
+        let with_auth = |mcp: &str| {
+            yaml::<Config>(&format!(
+                "{AUTH}\n            mcp: {{{MCP_BIND}, {SECRET}, {mcp}}}"
+            ))
+        };
+        let without_auth = |mcp: &str| yaml::<Config>(&format!("mcp: {{{MCP_BIND}, {mcp}}}"));
 
         for (config, expected) in [
             (yaml::<Config>("{}"), vec![]),
@@ -364,14 +371,25 @@ mod tests {
                 without_auth("privileges: [records, produce]"),
                 vec![OPEN, PRIVATE],
             ),
-            (without_auth(SECRET), vec![UI_OPEN]),
+            (without_auth(SECRET), vec![]),
             (
                 without_auth(&format!("privileges: [create_topics], {SECRET}")),
-                vec![UI_OPEN],
+                vec![],
             ),
         ] {
             assert_eq!(config.mcp_warnings(), expected, "{:?}", config.mcp);
         }
+    }
+
+    #[test]
+    fn mcp_bind_must_differ_from_bind() {
+        let config = |bind: &str| yaml::<Config>(&format!("mcp: {{bind: '{bind}'}}"));
+
+        assert_eq!(
+            config("0.0.0.0:8080").check().unwrap_err().to_string(),
+            "mcp.bind is 0.0.0.0:8080, the address of bind, so give MCP a port of its own"
+        );
+        assert!(config("0.0.0.0:8090").check().is_ok());
     }
 
     #[test]
@@ -382,25 +400,22 @@ mod tests {
                 clusters:
                   dev: {{bootstrap_servers: [dev:9092]}}
                   prod: {{bootstrap_servers: [prod:9092]}}
-                mcp: {mcp}
+                mcp: {{{MCP_BIND}, clusters: {mcp}}}
                 "
             ))
         };
 
-        assert!(config("{clusters: [dev, prod]}").check().is_ok());
-        assert!(config("{clusters: []}").check().is_ok());
+        assert!(config("[dev, prod]").check().is_ok());
+        assert!(config("[]").check().is_ok());
         assert_eq!(
-            config("{clusters: [dev, staging]}")
-                .check()
-                .unwrap_err()
-                .to_string(),
+            config("[dev, staging]").check().unwrap_err().to_string(),
             "mcp.clusters names 'staging', which is not a configured cluster"
         );
     }
 
     #[test]
     fn load_checks_the_rules_that_span_blocks() {
-        let file = temp_file("mcp: {clusters: [ghost]}");
+        let file = temp_file(&format!("mcp: {{{MCP_BIND}, clusters: [ghost]}}"));
 
         let invalid = Config::load(file.path()).unwrap_err();
 

@@ -2,13 +2,13 @@ use axum::Router;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-use super::serve;
+use super::{Listener, serve};
 
 pub async fn exchange(router: Router, request: &str) -> Vec<u8> {
     let bind = std::net::TcpListener::bind("127.0.0.1:0")
         .and_then(|listener| listener.local_addr())
         .expect("free port");
-    let server = tokio::spawn(serve(router, bind));
+    let server = tokio::spawn(serve([Listener { router, bind }]));
 
     let mut stream = loop {
         assert!(!server.is_finished(), "serve returned before accepting");

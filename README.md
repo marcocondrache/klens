@@ -341,8 +341,13 @@ the block, there is no `/mcp`. An agent in Claude Code, VS Code, or Cursor
 reads the same background projection as the UI, so most calls cost Kafka
 nothing.
 
+`bind` is required and must differ from the top-level `bind`. `/mcp` answers
+only there, and that port serves nothing else, so a gateway can reach the tools
+without reaching the UI or `/api`.
+
 ```yaml
-mcp: {}
+mcp:
+  bind: 0.0.0.0:8090
 ```
 
 [Connect an agent](#connect-an-agent) shows how to add klens to each client.
@@ -410,8 +415,10 @@ data, not as instructions.
 Without `auth` or `secret`, anyone who reaches `/mcp` can call its tools.
 `/mcp` then answers only the hosts in [`allowed_hosts`](#allowed-hosts), and it
 refuses every request that carries an `Origin` header, so a web page cannot
-call it from a visitor's browser. klens logs at startup that it serves `/mcp`,
-with the ceiling below.
+call it from a visitor's browser. An entry in `allowed_hosts` that names a port
+matches only that port, so list the MCP port too, or name the host without a
+port. klens logs at startup the address where it serves `/mcp`, with the
+ceiling below.
 
 `secret` puts `/mcp` behind a gateway that signs people in, such as
 agentgateway with Entra ID. The gateway adds the secret to every call it
@@ -419,9 +426,8 @@ forwards as `Authorization: Bearer`, as agentgateway's `backendAuth.key` does,
 and `/mcp` refuses a call without it with `403 NOT_FROM_GATEWAY`. A call that
 carries it may name any host and send any `Origin`, since the gateway forwards
 the client's own and a web page cannot learn the secret. The secret must be at
-least 32 bytes. Without `auth`, it guards nothing but `/mcp`, so keep the UI's
-port off any network the gateway does not front. klens warns about this at
-startup.
+least 32 bytes. Without `auth`, it guards only the MCP port, so keep the UI's
+port off any network the gateway fronts.
 
 With `auth`, `/mcp` signs nobody in and never reads the session cookie, so
 `secret` is required. `privileges` is required too, because every call holds
@@ -431,6 +437,7 @@ which tools they may call.
 
 ```yaml
 mcp:
+  bind: 0.0.0.0:8090
   secret: {env: KLENS_MCP_SECRET} # at least 32 bytes; required with auth
   privileges: [topic_configs, schema_text] # required with auth
 ```
@@ -514,7 +521,7 @@ Without `auth` or `secret`, a user on the machine that runs klens adds it to
 Claude Code with one command.
 
 ```sh
-claude mcp add --transport http klens http://localhost:8080/mcp
+claude mcp add --transport http klens http://localhost:8090/mcp
 ```
 
 VS Code reads the same URL from `servers` in `.vscode/mcp.json`.
@@ -522,7 +529,7 @@ VS Code reads the same URL from `servers` in `.vscode/mcp.json`.
 ```json
 {
   "servers": {
-    "klens": { "type": "http", "url": "http://localhost:8080/mcp" }
+    "klens": { "type": "http", "url": "http://localhost:8090/mcp" }
   }
 }
 ```
@@ -532,7 +539,7 @@ Cursor reads it from `mcpServers` in `.cursor/mcp.json`.
 ```json
 {
   "mcpServers": {
-    "klens": { "url": "http://localhost:8080/mcp" }
+    "klens": { "url": "http://localhost:8090/mcp" }
   }
 }
 ```

@@ -23,7 +23,7 @@ use crate::app::auth::testing::FakeOidc;
 use crate::app::mcp::reply::{Page, fit, fits, reply};
 use crate::app::mcp::server::KlensMcp;
 use crate::app::mcp::tools::gates;
-use crate::app::{AuthState, Limits, router};
+use crate::app::{AuthState, Limits, mcp_router};
 use crate::config::{AllowedHost, Config, Mcp, Tuning};
 use crate::kafka::model::{
     AclListing, ConfigEntry, ConfigSource, GroupSnapshot, RegisteredSchema, SchemaReference,
@@ -67,7 +67,7 @@ async fn call(app: &TestApp, tool: &str, arguments: Value) -> Value {
 }
 
 async fn call_through_router(app: &TestApp, tool: &str, arguments: Value) -> Value {
-    app.reply_through_router(mcp_request(&call_body(tool, arguments)))
+    app.reply_to_mcp(mcp_request(&call_body(tool, arguments)))
         .await
         .ok()["result"]
         .take()

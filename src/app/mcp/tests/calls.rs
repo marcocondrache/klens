@@ -88,7 +88,7 @@ async fn a_refused_call_logs_its_tool_and_code_but_not_its_arguments() {
         "_meta": meta_2026(),
     });
     let reply = app
-        .reply_through_router(request_2026("tools/call", Some("klens_search"), params))
+        .reply_to_mcp(request_2026("tools/call", Some("klens_search"), params))
         .await
         .ok();
     refusal(&reply["result"]);
@@ -101,11 +101,7 @@ async fn a_refused_call_logs_its_tool_and_code_but_not_its_arguments() {
 async fn post_through_serve(app: &TestApp, mcp: &Mcp, body: &Value) -> String {
     let body = body.to_string();
     let response = exchange(
-        router(
-            app.state().clone(),
-            &Config::default().allowed_hosts,
-            Some(mcp),
-        ),
+        mcp_router(app.state().clone(), &Config::default().allowed_hosts, mcp),
         &format!(
             "POST /mcp HTTP/1.1\r\nHost: klens.example.com\r\n\
              Authorization: Bearer {GATEWAY_SECRET}\r\n\
@@ -207,7 +203,7 @@ async fn a_read_stops_and_frees_its_call_when_the_client_leaves() {
         "klens_schema_get",
         json!({ "subject": "orders.created-value", "version": 2 }),
     );
-    let answer = app.send_through_router(mcp_request(&body));
+    let answer = app.send_to_mcp(mcp_request(&body));
 
     tokio::select! {
         _ = answer => panic!("the read answered before the client left"),
@@ -228,7 +224,7 @@ async fn a_write_still_logs_its_change_when_the_client_leaves() {
     let _lanes = lanes_writes_wait_on(&app);
     let logs = LogCapture::at(Level::INFO);
     let body = call_body("klens_topic_create", json!({ "topic": "invoices" }));
-    let answer = app.send_through_router(mcp_request(&body));
+    let answer = app.send_to_mcp(mcp_request(&body));
 
     tokio::select! {
         _ = answer => panic!("the create answered before the client left"),

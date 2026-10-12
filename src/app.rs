@@ -126,7 +126,7 @@ async fn method_not_allowed() -> ApiError {
     }
 }
 
-pub fn router(state: AppState, allowed_hosts: &[AllowedHost], mcp: Option<&Mcp>) -> Router {
+pub fn router(state: AppState, allowed_hosts: &[AllowedHost]) -> Router {
     let resources = resources::router().route_layer(middleware::from_fn_with_state(
         state.clone(),
         auth::require_session,
@@ -150,14 +150,14 @@ pub fn router(state: AppState, allowed_hosts: &[AllowedHost], mcp: Option<&Mcp>)
     // Kubernetes probes name the pod IP as the host, so health skips the
     // check. When neither router sets a fallback, merge keeps the one from
     // `app`, which carries the check.
-    let app = health::router()
-        .with_state(state.clone())
+    health::router()
+        .with_state(state)
         .merge(app)
-        .layer(auth_layer);
-    // Merged after the auth layer, so the session cookie is never read or set
-    // on `/mcp`.
-    match mcp {
-        Some(mcp) => app.merge(mcp::router(state, allowed_hosts, mcp)),
-        None => app,
-    }
+        .layer(auth_layer)
+}
+
+/// Serves `/mcp` alone, at `mcp.bind`, so the session cookie is never read or
+/// set on it.
+pub fn mcp_router(state: AppState, allowed_hosts: &[AllowedHost], mcp: &Mcp) -> Router {
+    mcp::router(state, allowed_hosts, mcp)
 }
