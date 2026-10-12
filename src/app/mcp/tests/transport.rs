@@ -280,3 +280,58 @@ async fn with_auth_on_mcp_answers_only_the_resource_host_and_listed_origins() {
         assert_eq!(response.status(), status, "{host} {origin:?}");
     }
 }
+
+const GATEWAY_SECRET: &str = "gateway-secret-of-at-least-32-bytes";
+
+fn behind_gateway() -> Mcp {
+    yaml(&format!("secret: {{value: {GATEWAY_SECRET}}}"))
+}
+
+fn from_gateway(authorization: &[&str]) -> Request<Body> {
+    let mut request = mcp_request(&call_body("klens_clusters", json!({})));
+    for value in authorization {
+        request
+            .headers_mut()
+            .append(header::AUTHORIZATION, value.parse().expect("a header"));
+    }
+    request
+}
+
+#[tokio::test]
+async fn with_a_secret_only_a_call_that_carries_it_reaches_a_tool() {
+    let app = TestApp::local().await.serving_mcp(behind_gateway());
+    let bearer = format!("Bearer {GATEWAY_SECRET}");
+
+    for authorization in [
+        vec![],
+        vec!["Bearer not-the-gateway-secret-of-32-bytes"],
+        vec![&format!("Basic {GATEWAY_SECRET}")],
+        vec![&bearer, &bearer],
+    ] {
+        let reply = app.reply_through_router(from_gateway(&authorization)).await;
+
+        assert_eq!(reply.status, StatusCode::FORBIDDEN, "{authorization:?}");
+        assert_eq!(reply.body["code"], "NOT_FROM_GATEWAY", "{authorization:?}");
+    }
+    let called = app
+        .reply_through_router(from_gateway(&[&format!("bearer  {GATEWAY_SECRET}")]))
+        .await
+        .ok();
+    assert_eq!(
+        structured(&called["result"])["clusters"][0]["cluster"],
+        "local"
+    );
+}
+
+#[tokio::test]
+async fn with_a_secret_any_host_and_browser_origin_pass_through_the_gateway() {
+    let app = TestApp::local().await.serving_mcp(behind_gateway());
+    let mut request = from_gateway(&[&format!("Bearer {GATEWAY_SECRET}")]);
+    let headers = request.headers_mut();
+    headers.insert(header::HOST, "klens.example.com".parse().expect("host"));
+    headers.insert(header::ORIGIN, "https://claude.ai".parse().expect("origin"));
+
+    let response = app.send_through_router(request).await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+}

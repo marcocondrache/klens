@@ -47,7 +47,8 @@ impl ExposeSecret<str> for Secret {
     }
 }
 
-/// A [`Secret`] that keys an HMAC or signs cookies, used exactly as written.
+/// A [`Secret`] that keys an HMAC, signs cookies or stands as a shared
+/// bearer secret, used exactly as written.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(try_from = "Secret")]
 pub struct KeyMaterial(Secret);

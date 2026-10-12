@@ -21,6 +21,7 @@ mod configs;
 mod ext;
 mod findings;
 mod gate;
+mod gateway;
 mod record_text;
 mod refusal;
 mod reply;
@@ -32,6 +33,7 @@ mod untrusted;
 #[cfg(test)]
 mod tests;
 
+use gateway::{GatewaySecret, require_secret};
 use server::KlensMcp;
 
 /// Keeps a result, text and structured copies together, under the 10k tokens
@@ -73,6 +75,21 @@ const MAX_CLIENT_CHARS: usize = 64;
 pub(crate) fn router(state: AppState, allowed_hosts: &[AllowedHost], mcp: &Mcp) -> Router {
     let guard = SessionGuard::capped(state.auth.clone(), ceiling(mcp));
     let Some(bearer) = state.auth.bearer().cloned() else {
+        if let Some(secret) = &mcp.secret {
+            // The gateway forwards the public Host and the client's Origin,
+            // and a web page cannot learn the secret, so it stands in for
+            // both checks.
+            let unchecked = StreamableHttpServerConfig::default()
+                .disable_allowed_hosts()
+                .disable_allowed_origins();
+            return Router::new()
+                .nest_service("/mcp", service(state, unchecked))
+                .layer(middleware::from_fn_with_state(guard, admit))
+                .layer(middleware::from_fn_with_state(
+                    GatewaySecret::new(secret),
+                    require_secret,
+                ));
+        }
         let hosts = allowed_hosts.iter().map(ToString::to_string);
         return Router::new()
             .nest_service("/mcp", service(state, browser_checks(hosts, [])))

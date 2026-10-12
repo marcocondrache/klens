@@ -94,7 +94,8 @@ request that names no host. This stops DNS rebinding, where a web page points
 its own domain at klens and then reads clusters or sends writes from a
 visitor's browser. The list binds browsers only, since any other client can
 name an allowed host. With `auth`, klens ignores the list, because such a page
-never holds the session cookie.
+never holds the session cookie. With [`mcp.secret`](#mcp), `/mcp` ignores it
+too, because such a page never holds the secret.
 
 `/health` and `/ready` answer every host, because Kubernetes probes and load
 balancer health checks name an IP address. Point a load balancer health check
@@ -409,6 +410,22 @@ every request that carries an `Origin` header, so a web page cannot call it
 from a visitor's browser. klens logs at startup that it serves `/mcp`, with the
 ceiling below.
 
+`secret` puts `/mcp` behind a gateway that signs people in, such as
+agentgateway with Entra ID. The gateway adds the secret to every call it
+forwards as `Authorization: Bearer`, as agentgateway's `backendAuth.key` does,
+and `/mcp` refuses a call without it with `403 NOT_FROM_GATEWAY`. A call that
+carries it may name any host and send any `Origin`, since the gateway forwards
+the client's own and a web page cannot learn the secret. Every call holds the
+ceiling below, so the gateway decides who reaches `/mcp`. The secret must be at
+least 32 bytes, and it works only without `auth`. It guards nothing but `/mcp`,
+so keep the UI's port off any network the gateway does not front. klens warns
+about this at startup.
+
+```yaml
+mcp:
+  secret: {env: KLENS_MCP_SECRET} # at least 32 bytes; only without auth
+```
+
 With `auth`, `/mcp` takes only an access token from the `auth.oidc` provider,
 sent as `Authorization: Bearer`, and never the session cookie. `resource` is
 then required, and `/mcp` answers only its host. The token's audience must be
@@ -459,8 +476,8 @@ The UI and MCP share each cluster's `writable` flag, so name the clusters an
 agent may reach in `clusters` before you add a write privilege, and leave
 production out. With `auth`, `token.clients` is then required, so a token that
 another client of the provider gets cannot change Kafka. klens warns at startup
-when `auth` is off and `privileges` names a write, since anyone who reaches
-`/mcp` could then change a writable cluster. It also warns when `privileges`
+when `auth` and `secret` are both off and `privileges` names a write, since
+anyone who reaches `/mcp` could then change a writable cluster. It also warns when `privileges`
 names `records` or `schema_text` beside a write. An agent that reads text a
 producer or schema author chose may follow instructions hidden in it, and a
 write gives it a way to copy private data out.
