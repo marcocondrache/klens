@@ -6,7 +6,7 @@ use serde::de::Error as _;
 use serde::{Deserialize, Deserializer};
 use url::Url;
 
-use super::{Privilege, at_least_one_second};
+use super::{KeyMaterial, Privilege, at_least_one_second};
 
 const READS: [Privilege; 5] = [
     Privilege::Records,
@@ -16,7 +16,7 @@ const READS: [Privilege; 5] = [
     Privilege::Acls,
 ];
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Mcp {
     /// Browser origins `/mcp` answers while `auth` is on, each with its port
@@ -41,6 +41,12 @@ pub struct Mcp {
     /// Which access tokens from the `auth.oidc` provider open `/mcp`. Only
     /// with `auth`.
     pub token: Token,
+    /// A secret of at least 32 bytes that a gateway sends with every call as
+    /// `Authorization: Bearer`, such as agentgateway's `backendAuth.key`. Set,
+    /// `/mcp` answers only calls that carry it, from any host or browser
+    /// origin, since the gateway forwards both. Refused with `auth`, whose
+    /// `/mcp` reads IdP access tokens from the same header.
+    pub secret: Option<KeyMaterial>,
 }
 
 impl Default for Mcp {
@@ -51,6 +57,7 @@ impl Default for Mcp {
             clusters: None,
             resource: None,
             token: Token::default(),
+            secret: None,
         }
     }
 }
@@ -256,7 +263,6 @@ mod tests {
 
         assert_eq!(mcp.privileges, READS);
         assert_eq!(mcp.clusters, None);
-        assert_eq!(mcp, Mcp::default());
         assert!(!mcp.writes());
     }
 

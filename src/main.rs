@@ -51,14 +51,19 @@ async fn main() -> anyhow::Result<()> {
             .clusters
             .as_ref()
             .map_or_else(|| "every cluster".to_owned(), |names| format!("{names:?}"));
-        match &mcp.resource {
-            Some(resource) => tracing::info!(
+        match (&mcp.resource, &mcp.secret) {
+            (Some(resource), _) => tracing::info!(
                 ?privileges,
                 %clusters,
                 resource = resource.as_str(),
                 "serving MCP tools at /mcp to holders of an access token from the oidc provider"
             ),
-            None => tracing::info!(
+            (None, Some(_)) => tracing::info!(
+                ?privileges,
+                %clusters,
+                "serving MCP tools at /mcp to calls that carry the gateway's secret"
+            ),
+            (None, None) => tracing::info!(
                 ?privileges,
                 %clusters,
                 "serving MCP tools at /mcp to anyone who reaches klens"

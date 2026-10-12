@@ -149,6 +149,10 @@ clusters:
 # register_schemas lets agents make those changes on writable clusters, and
 # then token.clients is required with auth.
 #
+# Without auth, secret puts /mcp behind a gateway that signs people in, such
+# as agentgateway with Entra ID. /mcp then answers only calls that carry the
+# secret as Authorization: Bearer, which agentgateway's backendAuth.key adds.
+#
 # With auth, the provider must issue JWT access tokens whose audience is in
 # token.audiences, resource by default, and that list the user's groups, to one
 # public client that MCP clients share. The README's MCP section shows how to
@@ -157,6 +161,7 @@ clusters:
 # mcp:
 #   privileges: [records, topic_configs, broker_configs, schema_text, acls]
 #   clusters: [local]  # default: every cluster
+#   secret: {env: KLENS_MCP_SECRET}  # at least 32 bytes; only without auth
 #   resource: https://klens.example.com/mcp  # required with auth
 #   allowed_origins: []  # only with auth, each with its port or :*
 #   token:  # only with auth

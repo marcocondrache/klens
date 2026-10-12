@@ -21,6 +21,7 @@ mod configs;
 mod ext;
 mod findings;
 mod gate;
+mod gateway;
 mod record_text;
 mod refusal;
 mod reply;
@@ -32,6 +33,7 @@ mod untrusted;
 #[cfg(test)]
 mod tests;
 
+use gateway::{GatewaySecret, require_secret};
 use server::KlensMcp;
 
 /// Keeps a result, text and structured copies together, under the 10k tokens
@@ -73,9 +75,24 @@ const MAX_CLIENT_CHARS: usize = 64;
 pub(crate) fn router(state: AppState, allowed_hosts: &[AllowedHost], mcp: &Mcp) -> Router {
     let guard = SessionGuard::capped(state.auth.clone(), ceiling(mcp));
     let Some(bearer) = state.auth.bearer().cloned() else {
+        if let Some(secret) = &mcp.secret {
+            // The gateway forwards the public Host and the client's Origin,
+            // and a web page cannot learn the secret, so it stands in for
+            // both checks.
+            let unchecked = StreamableHttpServerConfig::default()
+                .disable_allowed_hosts()
+                .disable_allowed_origins();
+            return Router::new()
+                .nest_service("/mcp", service(state, unchecked))
+                .layer(middleware::from_fn_with_state(guard, admit))
+                .layer(middleware::from_fn_with_state(
+                    GatewaySecret::new(secret),
+                    require_secret,
+                ));
+        }
         let hosts = allowed_hosts.iter().map(ToString::to_string);
         return Router::new()
-            .nest_service("/mcp", service(state, hosts, []))
+            .nest_service("/mcp", service(state, browser_checks(hosts, [])))
             .layer(middleware::from_fn_with_state(guard, admit))
             .layer(middleware::from_fn_with_state(
                 Arc::from(allowed_hosts),
@@ -86,7 +103,7 @@ pub(crate) fn router(state: AppState, allowed_hosts: &[AllowedHost], mcp: &Mcp) 
     let origins = mcp.allowed_origins.iter().map(ToString::to_string);
     let metadata = bearer.metadata();
     Router::new()
-        .nest_service("/mcp", service(state, [host], origins))
+        .nest_service("/mcp", service(state, browser_checks([host], origins)))
         .layer(middleware::from_fn_with_state(
             (bearer, guard),
             auth::require_bearer,
@@ -98,10 +115,22 @@ pub(crate) fn ceiling(mcp: &Mcp) -> Ceiling {
     Ceiling::new("mcp", &mcp.privileges, mcp.clusters.as_deref())
 }
 
-pub(crate) fn service(
-    state: AppState,
+/// rmcp answers only these hosts and refuses any browser origin not listed.
+pub(crate) fn browser_checks(
     hosts: impl IntoIterator<Item = String>,
     origins: impl IntoIterator<Item = String>,
+) -> StreamableHttpServerConfig {
+    StreamableHttpServerConfig::default()
+        // rmcp reads an empty list as every host, and the config never
+        // yields one.
+        .with_allowed_hosts(hosts)
+        .with_allowed_origins(origins)
+        .enforce_origin_validation()
+}
+
+pub(crate) fn service(
+    state: AppState,
+    checks: StreamableHttpServerConfig,
 ) -> StreamableHttpService<KlensMcp, NeverSessionManager> {
     let tools = Arc::new(KlensMcp::tools());
     StreamableHttpService::new(
@@ -112,14 +141,9 @@ pub(crate) fn service(
             })
         },
         Arc::default(),
-        StreamableHttpServerConfig::default()
+        checks
             .with_legacy_session_mode(false)
             .with_json_response(true)
-            // rmcp reads an empty list as every host, and the config never
-            // yields one.
-            .with_allowed_hosts(hosts)
-            .with_allowed_origins(origins)
-            .enforce_origin_validation()
             .with_max_request_body_bytes(MAX_REQUEST_BYTES),
     )
 }

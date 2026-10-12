@@ -16,7 +16,7 @@ use super::configs::Section;
 use super::untrusted::Boundary;
 use super::{
     CLIENT_VALUES_NOTICE, MAX_QUERY_CHARS, MAX_REQUEST_BYTES, OBFUSCATED_NOTICE, RESULT_BYTES,
-    service, tool_list,
+    browser_checks, service, tool_list,
 };
 use crate::app::auth::SessionGuard;
 use crate::app::auth::access::{Privilege, PrivilegeSet};

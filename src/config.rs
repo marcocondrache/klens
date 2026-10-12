@@ -97,6 +97,11 @@ impl Config {
             Some(auth) => {
                 anyhow::ensure!(mcp.resource.is_some(), "mcp.resource is required with auth");
                 anyhow::ensure!(
+                    mcp.secret.is_none(),
+                    "mcp.secret needs auth to be off, since with auth /mcp reads IdP access \
+                     tokens from the same Authorization header"
+                );
+                anyhow::ensure!(
                     !mcp.audiences().contains(&auth.oidc.client_id),
                     "mcp.token.audiences must not name auth.oidc.client_id, or the UI's ID \
                      tokens would open /mcp"
@@ -134,7 +139,13 @@ impl Config {
                  client of the oidc provider",
             );
         }
-        if self.auth.is_none() && mcp.writes() {
+        if self.auth.is_none() && mcp.secret.is_some() {
+            warnings.push(
+                "mcp.secret guards only /mcp, so with auth off the UI and /api on the same port \
+                 stay open to anyone who reaches klens",
+            );
+        }
+        if self.auth.is_none() && mcp.secret.is_none() && mcp.writes() {
             warnings.push(
                 "auth is off and mcp.privileges names a write, so anyone who reaches /mcp can \
                  change a writable cluster",
@@ -324,6 +335,8 @@ mod tests {
                 redirect_uri: https://klens.example.com/api/auth/callback
             ";
 
+    const SECRET: &str = "secret: {value: gateway-secret-of-at-least-32-bytes}";
+
     #[test]
     fn mcp_with_auth_needs_a_resource_and_never_the_ui_audience() {
         let with_auth = |mcp: &str| yaml::<Config>(&format!("{AUTH}\n            mcp: {mcp}"));
@@ -346,6 +359,12 @@ mod tests {
                 "{resource: https://klens.example.com/mcp, token: {audiences: [api, klens]}}",
                 "mcp.token.audiences must not name auth.oidc.client_id, or the UI's ID tokens \
                  would open /mcp",
+            ),
+            (
+                "{resource: https://klens.example.com/mcp, secret: {value: \
+                 gateway-secret-of-at-least-32-bytes}}",
+                "mcp.secret needs auth to be off, since with auth /mcp reads IdP access tokens \
+                 from the same Authorization header",
             ),
         ] {
             assert_eq!(
@@ -392,6 +411,8 @@ mod tests {
         const PRIVATE: &str = "mcp.privileges names records or schema_text beside a write, so \
                                text an agent reads from Kafka could steer it to copy private \
                                data out through that write";
+        const UI_OPEN: &str = "mcp.secret guards only /mcp, so with auth off the UI and /api on \
+                               the same port stay open to anyone who reaches klens";
         let with_auth = |mcp: &str| {
             yaml::<Config>(&format!(
                 "{AUTH}\n            mcp: {{resource: https://klens.example.com/mcp, {mcp}}}"
@@ -421,6 +442,11 @@ mod tests {
             (
                 without_auth("privileges: [records, produce]"),
                 vec![OPEN, PRIVATE],
+            ),
+            (without_auth(SECRET), vec![UI_OPEN]),
+            (
+                without_auth(&format!("privileges: [create_topics], {SECRET}")),
+                vec![UI_OPEN],
             ),
         ] {
             assert_eq!(config.mcp_warnings(), expected, "{:?}", config.mcp);
