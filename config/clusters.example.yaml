@@ -156,7 +156,7 @@ clusters:
 #   bind: 0.0.0.0:8090  # required; must differ from bind
 #   privileges: [records, topic_configs, broker_configs, schema_text, acls]
 #   clusters: [local]  # default: every cluster
-#   secret: {env: KLENS_MCP_SECRET}  # at least 32 bytes; required with auth
+#   secret: {env: KLENS_MCP_SECRET}  # at least 32 bytes
 
 # Timeouts, pool sizes, limits, and lane cadence, the same for every cluster.
 # tuning:

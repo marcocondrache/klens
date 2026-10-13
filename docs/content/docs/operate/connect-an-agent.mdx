@@ -20,7 +20,7 @@ This guide connects an agent on the machine that runs klens. To share the tools 
 
 Without `secret`, anyone who reaches `mcp.bind` can call the tools. `127.0.0.1` keeps the port on the local machine. `/mcp` refuses every request with an `Origin` header, so a web page cannot call it from a browser.
 
-`mcp` with `auth` requires `secret`, since `/mcp` never signs anyone in. See [put MCP behind a gateway](/docs/operate/put-mcp-behind-a-gateway).
+`/mcp` never signs anyone in, even with `auth`. To share the tools, see [put MCP behind a gateway](/docs/operate/put-mcp-behind-a-gateway).
 
 ## Choose what agents may read
 

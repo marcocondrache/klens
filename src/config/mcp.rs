@@ -29,7 +29,7 @@ pub struct Mcp {
     /// A secret of at least 32 bytes that a gateway sends with every call as
     /// `Authorization: Bearer`, such as agentgateway's `backendAuth.key`. Set,
     /// `/mcp` answers only calls that carry it, from any browser origin, since
-    /// the gateway forwards the client's. Required with `auth`.
+    /// the gateway forwards the client's.
     pub secret: Option<KeyMaterial>,
     /// `/mcp` answers here and never on the UI's `bind`, so a gateway can
     /// reach the tools without reaching the UI.

@@ -168,7 +168,7 @@ The `mcp` block turns on the MCP server at `/mcp`.
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `bind` | Socket address | Required | The address of `/mcp`. It must differ from the top-level `bind`, and it serves nothing but `/mcp`. |
-| `secret` | Secret, at least 32 bytes | None | The shared secret a gateway sends as `Authorization: Bearer`. Required with `auth`. |
+| `secret` | Secret, at least 32 bytes | None | The shared secret a gateway sends as `Authorization: Bearer`. |
 | `privileges` | List of privileges | `[records, topic_configs, broker_configs, schema_text, acls]` | The ceiling every MCP call holds. |
 | `clusters` | List of cluster names | Every cluster | The clusters MCP reaches. An empty list reaches none. |
 
@@ -176,7 +176,6 @@ The `mcp` block turns on the MCP server at `/mcp`.
 
 - `mcp.bind` equals `bind`.
 - `mcp.clusters` names a cluster that `clusters` does not configure.
-- `auth` is set and `mcp.secret` is not.
 
 klens logs a warning at startup in these cases:
 
