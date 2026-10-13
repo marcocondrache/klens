@@ -1,5 +1,7 @@
 use apache_avro::Schema as AvroSchema;
+use apache_avro::schema::ResolvedSchema;
 use apache_avro::types::Value as AvroValue;
+use apache_avro::writer::datum::GenericDatumWriter;
 use bytes::Bytes;
 use schemreg::{encode_protobuf_wire_format, encode_wire_format};
 use serde::de::IgnoredAny;
@@ -51,13 +53,18 @@ fn avro(
     dependencies: &[(String, String)],
     json: &str,
 ) -> Result<Vec<u8>, EncodeError> {
-    let value = AvroValue::from(serde_json::from_str::<serde_json::Value>(json)?);
+    let value = AvroValue::try_from(serde_json::from_str::<serde_json::Value>(json)?)?;
     let (root, named) =
         AvroSchema::parse_str_with_list(schema, dependencies.iter().map(|(_, body)| body))?;
+
     // The writer learns names front to back, so a schema follows those it references.
-    let schemata: Vec<&AvroSchema> = named.iter().chain([&root]).collect();
-    let datum = value.resolve_schemata(&root, schemata.clone())?;
-    Ok(apache_avro::to_avro_datum_schemata(&root, schemata, datum)?)
+    let resolved = ResolvedSchema::new_with_schemata(named.iter().chain([&root]).collect())?;
+    let datum = value.resolve_with_names(&root, resolved.get_names())?;
+
+    let writer = GenericDatumWriter::builder(&root)
+        .resolved_schemata(resolved)
+        .build()?;
+    Ok(writer.write_value_to_vec(datum)?)
 }
 
 fn protobuf(
@@ -183,6 +190,15 @@ mod tests {
             .unwrap_err();
 
         assert!(unencodable(error).contains("got: Int(1)"));
+    }
+
+    #[test]
+    fn an_avro_long_refuses_a_number_past_its_range() {
+        let error = schema(SchemaType::Avro, r#""long""#)
+            .encode(&[], "9223372036854775808")
+            .unwrap_err();
+
+        assert!(unencodable(error).contains("9223372036854775808"));
     }
 
     #[test]
