@@ -14,6 +14,7 @@ import { LiveTail } from '@/components/landing/live-tail';
 import { ObfuscatedRecord } from '@/components/landing/obfuscation';
 import { Projection } from '@/components/landing/projection';
 import { ClusterResources, ConsumerLag, RecordSearch } from '@/components/landing/reading';
+import { Grain, Warp } from '@/components/landing/shaders';
 import { type LogLine, Terminal } from '@/components/landing/terminal';
 import { button, card, cardHeading, sectionHeading } from '@/components/landing/variants';
 
@@ -258,9 +259,9 @@ export default function Page() {
           <p className="mt-3 text-center font-mono text-xs text-fd-muted-foreground">
             one lens for every cluster.
           </p>
-          <div
-            aria-hidden
-            className="absolute inset-x-0 bottom-0 h-1/2 bg-[radial-gradient(50%_80%_at_50%_100%,color-mix(in_oklch,var(--color-brand-glow)_35%,transparent),transparent)]"
+          <Grain
+            shape="sphere"
+            className="absolute inset-x-0 bottom-0 h-2/3 opacity-60 mask-[linear-gradient(to_top,white_30%,transparent)]"
           />
           <Lens className="absolute -bottom-[250px] left-1/2 size-[440px] -translate-x-1/2" />
         </div>
@@ -319,10 +320,10 @@ function Point({
 function TryIt() {
   return (
     <div className="relative isolate col-span-full overflow-hidden rounded-2xl border p-2 sm:p-4 md:p-8">
-      <div
-        aria-hidden
-        className="absolute inset-0 -z-1 bg-[radial-gradient(60%_80%_at_50%_0%,color-mix(in_oklch,var(--color-brand-glow)_30%,transparent),transparent)]"
-      />
+      <div aria-hidden className="pointer-events-none absolute inset-0 -z-1">
+        <div className="absolute inset-0 bg-[radial-gradient(60%_80%_at_50%_0%,color-mix(in_oklch,var(--color-brand-glow)_30%,transparent),transparent)]" />
+        <Warp className="absolute inset-0 size-full opacity-60 mask-[linear-gradient(to_bottom,white_20%,transparent)]" />
+      </div>
       <div className="mx-auto flex w-full max-w-[1000px] flex-col gap-3 rounded-2xl border bg-fd-card p-3 shadow-lg">
         <div className="flex flex-wrap items-center gap-3">
           <h2 className="rounded-xl border-2 border-brand/50 px-3 py-1.5 font-mono text-sm font-bold text-brand uppercase">
