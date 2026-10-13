@@ -1,16 +1,7 @@
 'use client';
 
-import {
-  type CSSProperties,
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from 'react';
-import { BotIcon, BracesIcon, DatabaseIcon, MonitorIcon, ServerIcon } from 'lucide-react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { DatabaseIcon } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { LogoMark } from '@/components/logo';
 import { useMotionAllowed } from './motion';
@@ -35,13 +26,12 @@ const HEAD_LENGTH = 0.025;
 const TAIL_LENGTH = 0.16;
 
 /** How many pulses one beam can carry at once. */
-const POOL_SIZE: Record<BeamKind, number> = { lane: 2, push: 2, poll: 6, record: 1 };
+const POOL_SIZE: Record<BeamKind, number> = { lane: 2, push: 2, poll: 6 };
 
 const BEAM_COUNT: Record<BeamKind, number> = {
   lane: lanes.length,
   push: READER_ROWS,
   poll: READER_ROWS,
-  record: 1,
 };
 
 /** The reads in one bin that fill the chart. More than this clips at the top. */
@@ -57,7 +47,6 @@ type Targets = {
   pools: Pools;
   kafka: HTMLElement | null;
   laneRows: (HTMLElement | null)[];
-  laneBars: (HTMLElement | null)[];
   readerRows: (HTMLElement | null)[];
   loadBars: (SVGRectElement | null)[];
   multiple: HTMLElement | null;
@@ -81,7 +70,6 @@ export function Projection() {
     pools: emptyPools(),
     kafka: null,
     laneRows: [],
-    laneBars: [],
     readerRows: [],
     loadBars: [],
     multiple: null,
@@ -167,12 +155,11 @@ export function Projection() {
   };
 
   const direct = mode === 'direct';
-  const readerLabel = readers === 1 ? '1 reader' : `${readers} readers`;
 
   return (
-    <div className="flex flex-col gap-6">
-      <div ref={containerRef} aria-hidden className="relative select-none pt-4 text-xs lg:pt-28">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(var(--color-fd-border)_1px,transparent_1px)] bg-size-[18px_18px] mask-[radial-gradient(ellipse_at_center,white_30%,transparent_75%)]" />
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
+      <div ref={containerRef} aria-hidden className="relative select-none text-xs">
+        <div className="pointer-events-none absolute -inset-6 bg-[radial-gradient(var(--color-fd-border)_1px,transparent_1px)] bg-size-[18px_18px] mask-[radial-gradient(ellipse_at_center,white_30%,transparent_70%)]" />
 
         {geometry && (
           <Beams
@@ -184,195 +171,133 @@ export function Projection() {
           />
         )}
 
-        {geometry?.record && (
-          <span
+        <div className="relative mx-auto grid max-w-60 grid-cols-1 gap-16 lg:max-w-none lg:grid-cols-[11rem_minmax(3rem,1fr)_13rem_minmax(3rem,1fr)_10rem] lg:items-center lg:gap-0">
+          <div
+            ref={(element) => {
+              targets.kafka = element;
+            }}
             className={cn(
-              'absolute -translate-x-1/2 -translate-y-full rounded-full border bg-fd-card px-3 py-1 text-[11px] text-nowrap text-fd-muted-foreground shadow-sm transition-opacity duration-500',
-              direct && 'opacity-0',
+              'flex flex-col gap-2 rounded-xl border bg-fd-popover p-3 shadow-lg shadow-black/5 transition-colors duration-500',
+              direct && readers === 100 && 'border-fd-warning/60',
             )}
-            style={{ left: geometry.record.apex.x, top: geometry.record.apex.y - 6 }}
-          >
-            Record reads and live tails go to Kafka when someone asks
-          </span>
-        )}
-
-        <div className="relative grid grid-cols-1 gap-20 lg:grid-cols-[minmax(0,15rem)_minmax(4rem,1fr)_minmax(0,16rem)_minmax(4rem,1fr)_minmax(0,15rem)] lg:items-center lg:gap-0">
-          <Node
-            caption={
-              direct ? 'Load grows with every reader' : 'Load set by cluster size and lane periods'
+            style={
+              direct
+                ? {
+                    boxShadow:
+                      '0 0 calc(var(--heat, 0) * 32px) color-mix(in oklch, var(--color-fd-warning) calc(var(--heat, 0) * 60%), transparent)',
+                  }
+                : undefined
             }
           >
-            <div
-              ref={(element) => {
-                targets.kafka = element;
-              }}
+            <div className="flex items-center gap-2 font-medium text-fd-foreground">
+              <DatabaseIcon className="size-4" />
+              Kafka
+              <span
+                ref={(element) => {
+                  targets.multiple = element;
+                }}
+                className={cn(
+                  'ms-auto font-mono tabular-nums',
+                  direct ? 'text-amber-700 dark:text-fd-warning' : 'text-fd-muted-foreground',
+                )}
+              />
+            </div>
+            <svg
+              viewBox={`0 0 ${BINS * 4} ${CHART_HEIGHT}`}
+              preserveAspectRatio="none"
               className={cn(
-                'flex flex-col gap-3 rounded-xl border bg-fd-popover p-3 shadow-lg shadow-black/5 transition-colors duration-500',
-                direct && readers === 100 && 'border-fd-warning/60',
+                'h-8 w-full transition-colors duration-500',
+                direct ? 'text-fd-warning' : 'text-brand',
               )}
-              style={
-                direct
-                  ? {
-                      boxShadow:
-                        '0 0 calc(var(--heat, 0) * 32px) color-mix(in oklch, var(--color-fd-warning) calc(var(--heat, 0) * 60%), transparent)',
-                    }
-                  : undefined
-              }
             >
-              <div className="flex items-center gap-2 font-medium text-fd-foreground">
-                <DatabaseIcon className="size-4" />
-                Kafka
-              </div>
-              {['broker-1', 'broker-2', 'broker-3'].map((broker) => (
-                <div
-                  key={broker}
-                  className="flex items-center gap-2 font-mono text-fd-muted-foreground"
-                >
-                  <ServerIcon className="size-3.5" />
-                  {broker}
-                  <span
-                    className={cn(
-                      'ms-auto size-1.5 rounded-full transition-colors duration-500',
-                      heat(mode, readers),
-                    )}
-                  />
-                </div>
+              {Array.from({ length: BINS }, (_, i) => (
+                <rect
+                  key={i}
+                  ref={(element) => {
+                    targets.loadBars[i] = element;
+                  }}
+                  x={i * 4}
+                  width={3}
+                  y={CHART_HEIGHT}
+                  height={0}
+                  rx={1}
+                  fill="currentColor"
+                />
               ))}
-              <div className="border-t pt-3">
-                <div className="mb-2 flex items-baseline justify-between text-[11px] text-fd-muted-foreground">
-                  <span>Reads of Kafka</span>
-                  <span
-                    ref={(element) => {
-                      targets.multiple = element;
-                    }}
-                    className={cn(
-                      'font-mono text-sm font-medium tabular-nums',
-                      direct ? 'text-amber-700 dark:text-fd-warning' : 'text-fd-foreground',
-                    )}
-                  />
-                </div>
-                <svg
-                  viewBox={`0 0 ${BINS * 4} ${CHART_HEIGHT}`}
-                  preserveAspectRatio="none"
-                  className={cn(
-                    'h-10 w-full transition-colors duration-500',
-                    direct ? 'text-fd-warning' : 'text-brand',
-                  )}
+            </svg>
+          </div>
+
+          <div className="max-lg:hidden" />
+
+          <div
+            ref={coreRef}
+            className={cn(
+              'flex flex-col rounded-xl border border-brand/50 bg-fd-popover p-2 shadow-[0_0_0_6px] shadow-brand/5 transition-opacity duration-500',
+              direct && 'opacity-35',
+            )}
+          >
+            <div className="flex items-center gap-2 px-1 pt-1 pb-2 font-medium text-fd-foreground">
+              <LogoMark className="size-4" />
+              klens
+            </div>
+            {lanes.map((lane, i) => (
+              <div
+                key={lane.name}
+                ref={(element) => {
+                  targets.laneRows[i] = element;
+                }}
+                className="flex justify-between gap-2 rounded-md px-1.5 py-0.5 font-mono text-[11px]"
+                style={{
+                  backgroundColor:
+                    'color-mix(in oklch, var(--color-brand) calc(var(--flash, 0) * 22%), transparent)',
+                }}
+              >
+                <span className="truncate">{lane.name}</span>
+                <span className="text-fd-muted-foreground">{lane.period}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="max-lg:hidden" />
+
+          <div
+            ref={readersRef}
+            className="flex flex-col gap-2 rounded-xl border bg-fd-popover p-3 shadow-lg shadow-black/5"
+          >
+            <div className="flex items-center justify-between font-medium text-fd-foreground">
+              Readers
+              <span className="font-mono text-fd-muted-foreground tabular-nums">{readers}</span>
+            </div>
+            <div className="flex flex-col gap-0.5">
+              {Array.from({ length: READER_ROWS }, (_, row) => (
+                <div
+                  key={row}
+                  ref={(element) => {
+                    targets.readerRows[row] = element;
+                  }}
+                  className="flex gap-0.5"
                 >
-                  {Array.from({ length: BINS }, (_, i) => (
-                    <rect
-                      key={i}
-                      ref={(element) => {
-                        targets.loadBars[i] = element;
-                      }}
-                      x={i * 4}
-                      width={3}
-                      y={CHART_HEIGHT}
-                      height={0}
-                      rx={1}
-                      fill="currentColor"
+                  {Array.from({ length: READER_COLUMNS }, (_, column) => (
+                    <span
+                      key={column}
+                      className={cn(
+                        'aspect-square flex-1 rounded-[2px] transition-colors duration-300',
+                        column < readersInRow(readers, row)
+                          ? direct
+                            ? 'bg-fd-warning opacity-[calc(0.45+0.55*var(--pulse,0))]'
+                            : 'bg-brand opacity-[calc(0.45+0.55*var(--pulse,0))]'
+                          : 'bg-fd-border/50',
+                      )}
                     />
                   ))}
-                </svg>
-              </div>
-            </div>
-          </Node>
-
-          <div className="max-lg:hidden" />
-
-          <Node caption={direct ? 'Skipped, every page asks Kafka' : 'One copy in memory'}>
-            <div
-              ref={coreRef}
-              className={cn(
-                'flex flex-col gap-1 rounded-xl border border-brand/50 bg-fd-popover p-3 shadow-[0_0_0_6px] shadow-brand/5 transition-opacity duration-500',
-                direct && 'opacity-35',
-              )}
-            >
-              <div className="mb-1 flex items-center gap-2 font-medium text-fd-foreground">
-                <LogoMark className="size-4" />
-                klens
-                <span className="ms-auto rounded-full border border-brand/30 bg-brand/10 px-2 py-0.5 text-[10px] text-brand">
-                  projection
-                </span>
-              </div>
-              {lanes.map((lane, i) => (
-                <div
-                  key={lane.name}
-                  ref={(element) => {
-                    targets.laneRows[i] = element;
-                  }}
-                  className="relative flex flex-col gap-1 overflow-hidden rounded-md px-2 py-1"
-                  style={
-                    {
-                      backgroundColor:
-                        'color-mix(in oklch, var(--color-brand) calc(var(--flash, 0) * 22%), transparent)',
-                    } as CSSProperties
-                  }
-                >
-                  <span className="flex justify-between gap-2 font-mono text-[11px]">
-                    <span className="truncate">{lane.name}</span>
-                    <span className="text-fd-muted-foreground">{lane.period}</span>
-                  </span>
-                  <span className="h-0.5 overflow-hidden rounded-full bg-fd-border/60">
-                    <span
-                      ref={(element) => {
-                        targets.laneBars[i] = element;
-                      }}
-                      className="block h-full origin-left rounded-full bg-brand"
-                    />
-                  </span>
                 </div>
               ))}
             </div>
-          </Node>
-
-          <div className="max-lg:hidden" />
-
-          <Node caption="Pages, API calls, and agents">
-            <div
-              ref={readersRef}
-              className="flex flex-col gap-3 rounded-xl border bg-fd-popover p-3 shadow-lg shadow-black/5"
-            >
-              <div className="flex items-center justify-between font-medium text-fd-foreground">
-                Readers
-                <span className="font-mono text-fd-muted-foreground tabular-nums">{readers}</span>
-              </div>
-              <div className="flex flex-col gap-1">
-                {Array.from({ length: READER_ROWS }, (_, row) => (
-                  <div
-                    key={row}
-                    ref={(element) => {
-                      targets.readerRows[row] = element;
-                    }}
-                    className="flex gap-1"
-                  >
-                    {Array.from({ length: READER_COLUMNS }, (_, column) => (
-                      <span
-                        key={column}
-                        className={cn(
-                          'aspect-square flex-1 rounded-[2px] transition-colors duration-300',
-                          column < readersInRow(readers, row)
-                            ? direct
-                              ? 'bg-fd-warning opacity-[calc(0.45+0.55*var(--pulse,0))]'
-                              : 'bg-brand opacity-[calc(0.45+0.55*var(--pulse,0))]'
-                            : 'bg-fd-border/50',
-                        )}
-                      />
-                    ))}
-                  </div>
-                ))}
-              </div>
-              <div className="flex justify-between text-fd-muted-foreground">
-                <MonitorIcon className="size-3.5" />
-                <BracesIcon className="size-3.5" />
-                <BotIcon className="size-3.5" />
-              </div>
-            </div>
-          </Node>
+          </div>
         </div>
       </div>
 
-      <div className="flex flex-col items-center gap-3 rounded-2xl border bg-fd-background/60 p-2 md:flex-row">
+      <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-between">
         <Segmented
           label="How the UI reads Kafka"
           value={mode}
@@ -382,18 +307,13 @@ export function Projection() {
             { value: 'direct', label: 'Each page asks Kafka' },
           ]}
         />
-        <p aria-live="polite" className="flex-1 px-2 text-center text-xs text-fd-muted-foreground">
-          {direct
-            ? `${readerLabel} ask Kafka every few seconds, so each one adds its own reads.`
-            : `${readerLabel} read the copy in memory. Kafka sees the same lane reads for 1 or 100.`}
-        </p>
         <Segmented
           label="Readers"
           value={readers}
           onChange={changeReaders}
           options={READER_COUNTS.map((count) => ({
             value: count,
-            label: count === 1 ? '1 reader' : `${count}`,
+            label: count === 1 ? '1 reader' : `${count} readers`,
           }))}
         />
       </div>
@@ -419,13 +339,11 @@ function Beams({
     lane: geometry.lanes,
     push: geometry.pushes,
     poll: geometry.polls,
-    record: geometry.record ? [geometry.record.path] : [],
   };
   const visible: Record<BeamKind, boolean> = {
     lane: true,
     push: !direct,
     poll: direct,
-    record: !direct,
   };
 
   return (
@@ -448,11 +366,7 @@ function Beams({
           key={kind}
           className={cn(
             'transition-opacity duration-500',
-            kind === 'poll'
-              ? 'text-fd-warning'
-              : kind === 'record'
-                ? 'text-fd-muted-foreground'
-                : 'text-brand',
+            kind === 'poll' ? 'text-fd-warning' : 'text-brand',
             !visible[kind] && 'opacity-0',
             kind === 'lane' && direct && 'opacity-15',
           )}
@@ -471,7 +385,6 @@ function Beams({
                   stroke="currentColor"
                   strokeOpacity={0.22}
                   strokeWidth={1}
-                  strokeDasharray={kind === 'record' ? '4 5' : undefined}
                 />
                 <g filter={`url(#${glowId})`}>
                   {Array.from({ length: POOL_SIZE[kind] }, (_, slot) => (
@@ -484,7 +397,7 @@ function Beams({
                     >
                       {[
                         { length: TAIL_LENGTH, width: 2, opacity: 0.35 },
-                        { length: HEAD_LENGTH, width: kind === 'record' ? 2 : 3, opacity: 1 },
+                        { length: HEAD_LENGTH, width: 3, opacity: 1 },
                       ].map((stroke) => (
                         <path
                           key={stroke.length}
@@ -508,15 +421,6 @@ function Beams({
         </g>
       ))}
     </svg>
-  );
-}
-
-function Node({ caption, children }: { caption: string; children: ReactNode }) {
-  return (
-    <div className="relative mx-auto flex w-full max-w-sm flex-col gap-2">
-      {children}
-      <span className="text-center text-[11px] text-fd-muted-foreground">{caption}</span>
-    </div>
   );
 }
 
@@ -558,14 +462,6 @@ function Segmented<T extends string | number>({
   );
 }
 
-/** Brokers warm up as readers pile onto them, and stay cool behind a projection. */
-function heat(mode: Mode, readers: number): string {
-  if (mode === 'projection' || readers === 1) return 'bg-fd-success';
-  if (readers === 10) return 'bg-fd-warning';
-
-  return 'bg-red-500 motion-safe:animate-pulse';
-}
-
 function rowsWithReaders(readers: number): boolean[] {
   return Array.from({ length: READER_ROWS }, (_, row) => readersInRow(readers, row) > 0);
 }
@@ -585,7 +481,6 @@ function paint(model: FlowModel, targets: Targets, withPulses: boolean) {
     lane: new Array<number>(BEAM_COUNT.lane).fill(0),
     push: new Array<number>(BEAM_COUNT.push).fill(0),
     poll: new Array<number>(BEAM_COUNT.poll).fill(0),
-    record: [0],
   };
 
   if (withPulses) {
@@ -616,9 +511,8 @@ function paint(model: FlowModel, targets: Targets, withPulses: boolean) {
     });
   }
 
-  lanes.forEach((lane, i) => {
+  lanes.forEach((_, i) => {
     const age = model.time - model.laneRefreshed[i];
-    targets.laneBars[i]?.style.setProperty('transform', `scaleX(${clamp(1 - age / lane.seconds)})`);
     targets.laneRows[i]?.style.setProperty(
       '--flash',
       String(withPulses ? clamp(1 - age / 0.7) : 0),

@@ -16,11 +16,7 @@ export type Geometry = {
   lanes: string[];
   pushes: string[];
   polls: string[];
-  record: { path: string; apex: Point } | null;
 };
-
-/** How far above the nodes the record arc bends. */
-const ARC_RISE = 84;
 
 /**
  * Lays the beams between the nodes. Side by side, beams leave the right edge of a node and enter
@@ -43,13 +39,8 @@ export function layBeams(width: number, height: number, nodes: Nodes): Geometry 
       polls: readerRows.map((_, i, all) =>
         curve(alongTop(readers, i, all.length), alongBottom(kafka, i, all.length), 'vertical'),
       ),
-      record: null,
     };
   }
-
-  const top = Math.min(kafka.top, readers.top) - ARC_RISE;
-  const from = { x: center(readers), y: readers.top };
-  const to = { x: center(kafka), y: kafka.top };
 
   return {
     width,
@@ -63,11 +54,6 @@ export function layBeams(width: number, height: number, nodes: Nodes): Geometry 
     polls: readerRows.map((row, i, all) =>
       curve({ x: readers.left, y: middle(row) }, alongRight(kafka, i, all.length), 'horizontal'),
     ),
-    record: {
-      path: `M ${from.x} ${from.y} C ${from.x} ${top}, ${to.x} ${top}, ${to.x} ${to.y}`,
-      // The midpoint of a cubic Bézier is (P0 + 3 P1 + 3 P2 + P3) / 8.
-      apex: { x: (from.x + to.x) / 2, y: (from.y + 6 * top + to.y) / 8 },
-    },
   };
 }
 
@@ -100,10 +86,6 @@ function alongTop(box: Box, index: number, count: number): Point {
 
 function alongBottom(box: Box, index: number, count: number): Point {
   return { x: spread(box.left, box.right, index, count), y: box.bottom };
-}
-
-function center(box: Box): number {
-  return (box.left + box.right) / 2;
 }
 
 function middle(box: Box): number {

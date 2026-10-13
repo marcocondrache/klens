@@ -1,6 +1,6 @@
 export type Mode = 'projection' | 'direct';
 
-export type BeamKind = 'lane' | 'push' | 'poll' | 'record';
+export type BeamKind = 'lane' | 'push' | 'poll';
 
 export type Pulse = { kind: BeamKind; index: number; start: number };
 
@@ -30,17 +30,14 @@ export const TRAVEL_SECONDS: Record<BeamKind, number> = {
   lane: 1.1,
   push: 0.8,
   poll: 1.5,
-  record: 1.9,
 };
 
 /** A page that asks Kafka itself refreshes every few seconds. */
 const POLL_SECONDS = 3;
-const RECORD_READ_SECONDS = 6.5;
 const PUSH_STAGGER_SECONDS = 0.04;
 
 /** The reads per second with a projection, whatever the number of readers. */
-const PROJECTION_READS_PER_SECOND =
-  lanes.reduce((sum, lane) => sum + 1 / lane.seconds, 0) + 1 / RECORD_READ_SECONDS;
+const PROJECTION_READS_PER_SECOND = lanes.reduce((sum, lane) => sum + 1 / lane.seconds, 0);
 
 /**
  * A time-lapse of one cluster and its readers. With a projection, the lanes read Kafka on their
@@ -55,7 +52,6 @@ export class FlowModel {
   private reads: number[] = [];
   private laneDue: number[] = [];
   private rowDue: number[] = [];
-  private recordDue = 0;
 
   constructor(
     private mode: Mode,
@@ -115,7 +111,6 @@ export class FlowModel {
       { length: READER_ROWS },
       (_, row) => this.time + this.pollInterval(row) * jitter(row),
     );
-    this.recordDue = this.time + 2;
   }
 
   private pollInterval(row: number): number {
@@ -131,11 +126,6 @@ export class FlowModel {
           this.laneDue[i] += lane.seconds;
         }
       });
-
-      while (this.recordDue <= this.time) {
-        this.pulses.push({ kind: 'record', index: 0, start: this.recordDue });
-        this.recordDue += RECORD_READ_SECONDS;
-      }
 
       return;
     }
@@ -175,7 +165,6 @@ export class FlowModel {
           this.rowFlashed[pulse.index] = arrival;
           break;
         case 'poll':
-        case 'record':
           this.reads.push(arrival);
           break;
       }
