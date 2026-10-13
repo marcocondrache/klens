@@ -35,7 +35,7 @@ axum-login = "0.18"
 # `tower_sessions::cookie::Key::derive_from` (HKDF) so a configured session
 # secret does not have to be a full 64-byte key.
 cookie = { version = "0.18", features = ["key-expansion"] }
-tower-sessions = { version = "0.14", features = ["memory-store", "signed"] }
+tower-sessions = { version = "0.15", features = ["memory-store", "signed"] }
 futures = "0.3"
 jiff = { version = "0.2", default-features = false, features = ["serde", "std"] }
 krafka = { git = "https://github.com/hupe1980/krafka", rev = "e6b154cef8dd0bfe7b2c8fadbf925c1e6494310f" }
