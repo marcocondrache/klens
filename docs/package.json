@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "cn": "^0.4.0",
-    "fumadocs-core": "16.17.1",
+    "fumadocs-core": "16.17.2",
     "fumadocs-mdx": "15.4.7",
     "fumadocs-ui": "npm:@fumadocs/base-ui@16.17.2",
     "lucide-react": "^1.50.0",
