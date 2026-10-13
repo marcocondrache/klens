@@ -2,6 +2,24 @@
 @import 'fumadocs-ui/css/neutral.css';
 @import 'fumadocs-ui/css/preset.css';
 
+@theme {
+  --color-fd-muted-foreground: hsl(0, 0%, 40%);
+  --color-brand: oklch(0.53 0.17 42);
+  --color-brand-mark: oklch(0.68 0.19 45);
+  --color-brand-foreground: oklch(0.99 0.01 80);
+}
+
+.dark {
+  --color-brand: oklch(0.74 0.17 52);
+  --color-brand-mark: oklch(0.74 0.17 52);
+  --color-brand-foreground: oklch(0.18 0.02 45);
+}
+
+@theme inline {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
 html {
   scrollbar-gutter: stable;
 }
