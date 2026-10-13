@@ -1999,7 +1999,7 @@ dependencies = [
  "percent-encoding",
  "prost-reflect",
  "protox",
- "rand 0.9.5",
+ "rand 0.10.3",
  "regex",
  "rmcp",
  "schemars 1.2.2",
