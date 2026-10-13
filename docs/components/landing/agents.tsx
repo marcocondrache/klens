@@ -39,14 +39,17 @@ const tools = [
 
 export function ToolList() {
   return (
-    <div className="@container">
-      <ul className="grid gap-2">
+    <div className="@container overflow-hidden rounded-xl border bg-fd-popover text-fd-popover-foreground">
+      <ul>
         {tools.map((tool) => (
           <li
             key={tool.name}
-            className="flex flex-col gap-1 rounded-lg border border-dashed border-brand/40 p-2.5 @md:flex-row @md:items-center @md:gap-3"
+            className="flex flex-col gap-1 border-b border-fd-border/60 px-4 py-2.5 last:border-b-0 @md:flex-row @md:items-center @md:gap-3"
           >
-            <span className="font-mono text-xs font-medium text-nowrap">{tool.name}</span>
+            <span className="flex items-center gap-2 font-mono text-xs font-medium text-nowrap">
+              <WrenchIcon className="size-3.5 text-brand" />
+              {tool.name}
+            </span>
             <span className="text-xs text-fd-muted-foreground @md:ms-auto @md:text-end">
               {tool.description}
             </span>
