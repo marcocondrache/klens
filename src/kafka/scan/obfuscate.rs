@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use foldhash::{HashMap, HashMapExt};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use regex::{Captures, Regex};
 use sha2::Sha256;
 

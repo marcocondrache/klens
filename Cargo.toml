@@ -42,7 +42,7 @@ krafka = { git = "https://github.com/hupe1980/krafka", rev = "e6b154cef8dd0bfe7b
 moka = { version = "0.12", features = ["future", "sync"] }
 memory-serve = { version = "2.4", optional = true }
 openidconnect = "4.0.1"
-pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
+pbkdf2 = { version = "0.13", default-features = false, features = ["hmac"] }
 rand = "0.10"
 secrecy = { version = "0.10", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
@@ -75,8 +75,8 @@ apache-avro = "0.21"
 prost-reflect = { version = "0.16", features = ["serde"] }
 protox = "0.10"
 bytes = "1"
-hmac = "0.12"
-sha2 = "0.10"
+hmac = "0.13"
+sha2 = "0.11"
 regex = "1.13"
 # Pinned exactly because rmcp changes fast. src/app/mcp/tools.json shows what
 # each upgrade changes in the tools clients see.
