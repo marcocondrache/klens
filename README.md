@@ -1,4 +1,4 @@
-# klens
+![klens](./docs/public/banner.png)
 
 A web UI for Kafka that is safe to point at production.
 
