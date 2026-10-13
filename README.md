@@ -6,7 +6,7 @@ klens shows the topics, records, consumer groups, brokers, schemas, and ACLs of
 one or more clusters. It is one Rust binary that serves the UI, a JSON API,
 and, when you turn it on, tools for AI agents over MCP.
 
-Read the [documentation](https://klens.marcocondrache.com/docs) to get started.
+Read the [documentation](https://klens.dev/docs) to get started.
 
 ## Why klens
 

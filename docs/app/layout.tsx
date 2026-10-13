@@ -4,7 +4,7 @@ import type { Metadata } from 'next';
 import './global.css';
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://klens.marcocondrache.com'),
+  metadataBase: new URL('https://klens.dev'),
 };
 
 const geist = Geist({
