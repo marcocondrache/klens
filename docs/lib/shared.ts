@@ -11,6 +11,8 @@ export const gitConfig = {
   branch: 'main',
 };
 
+export const repoUrl = `https://github.com/${gitConfig.user}/${gitConfig.repo}`;
+
 const getContentUrl = createGetUrl(docsContentRoute);
 
 export function getPageMarkdownUrl(page: { slugs: string[]; locale?: string }) {
