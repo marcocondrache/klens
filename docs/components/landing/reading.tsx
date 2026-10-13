@@ -154,18 +154,17 @@ const resources: { icon: LucideIcon; name: string; changes: string }[] = [
 
 export function ClusterResources() {
   return (
-    <div className="@container">
-      <ul className="grid gap-2 @sm:grid-cols-2">
+    <div className="@container overflow-hidden rounded-xl border bg-fd-popover text-fd-popover-foreground">
+      <ul className="grid gap-px bg-fd-border/60 @sm:grid-cols-2">
         {resources.map(({ icon: Icon, name, changes }) => (
-          <li
-            key={name}
-            className="flex flex-col gap-1 rounded-lg border border-dashed border-brand/40 p-2.5"
-          >
-            <span className="flex items-center gap-2 font-medium text-nowrap">
-              <Icon className="size-4 text-brand" />
-              {name}
+          <li key={name} className="flex items-start gap-3 bg-fd-popover p-3">
+            <span className="rounded-md border border-brand/30 bg-brand/10 p-1.5 text-brand">
+              <Icon className="size-3.5" />
             </span>
-            <span className="text-xs text-fd-muted-foreground">{changes}</span>
+            <span className="flex min-w-0 flex-col gap-0.5">
+              <span className="font-medium text-nowrap">{name}</span>
+              <span className="text-xs text-fd-muted-foreground">{changes}</span>
+            </span>
           </li>
         ))}
       </ul>
