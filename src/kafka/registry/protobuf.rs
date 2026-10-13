@@ -66,9 +66,11 @@ impl ProtobufCodec {
             files.insert(name.clone(), source.clone());
         }
 
+        // Registries serve their own copies of the well-known types, and protox
+        // cannot compile some of them, such as a `descriptor.proto` with editions.
         let mut resolver = ChainFileResolver::new();
-        resolver.add(MemoryResolver { files });
         resolver.add(GoogleFileResolver::new());
+        resolver.add(MemoryResolver { files });
 
         let mut compiler = Compiler::with_file_resolver(resolver);
         compiler
@@ -255,6 +257,29 @@ mod tests {
         .unwrap();
         let json: serde_json::Value = codec.decode_raw(b"\x0a\x02ab").unwrap();
         assert_eq!(json["id"], "ab");
+    }
+
+    #[test]
+    fn prefers_bundled_well_known_types_over_registry_copies() {
+        let root = r#"
+            syntax = "proto3";
+            import "google/protobuf/timestamp.proto";
+            message Event {
+                google.protobuf.Timestamp ts = 1;
+            }
+        "#;
+        let codec = ProtobufCodec::compile(
+            root,
+            &[(
+                "google/protobuf/timestamp.proto".into(),
+                "a copy protox cannot compile".into(),
+            )],
+        )
+        .unwrap();
+
+        let json: serde_json::Value = codec.decode_raw(b"\x0a\x02\x08\x01").unwrap();
+
+        assert_eq!(json["ts"], "1970-01-01T00:00:01Z");
     }
 
     #[test]
