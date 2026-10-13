@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::middleware;
-use axum::routing::any;
 use rmcp::transport::streamable_http_server::session::never::NeverSessionManager;
 use rmcp::transport::{StreamableHttpServerConfig, StreamableHttpService};
 
@@ -11,7 +10,6 @@ use crate::config::Mcp;
 
 use super::auth::SessionGuard;
 use super::auth::access::{EffectiveAccess, Grant};
-use super::error::ApiError;
 
 mod args;
 mod configs;
@@ -83,11 +81,6 @@ pub(crate) fn router(state: AppState, mcp: &Mcp) -> Router {
                 GatewaySecret::new(secret),
                 require_secret,
             )),
-        // The config check requires a secret with auth, and /mcp stays shut
-        // for any caller that skips it.
-        None if state.auth.is_enabled() => {
-            Router::new().nest_service("/mcp", any(async || ApiError::NotFromGateway))
-        }
         None => Router::new().nest_service("/mcp", service(state, access, refusing_browsers())),
     }
 }

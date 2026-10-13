@@ -28,7 +28,7 @@ klens does not sign anyone in on `/mcp`. To share the tools, put an MCP gateway 
 
 klens answers a call without the secret with `403 NOT_FROM_GATEWAY`. A call with the secret may carry any `Origin`, because the gateway forwards the client's own and a web page cannot learn the secret.
 
-With `auth`, `mcp.secret` is required. Without `auth`, the secret guards only the MCP port, so keep the UI port off every network the gateway serves.
+`auth` does not guard `/mcp`. Without `mcp.secret`, anyone who reaches `mcp.bind` can call the tools, with or without `auth`. Without `auth`, the secret guards only the MCP port, so keep the UI port off every network the gateway serves.
 
 ## Decide who may call which tool
 

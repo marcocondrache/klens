@@ -162,7 +162,7 @@ async fn the_ui_router_never_answers_at_mcp() {
 }
 
 #[tokio::test]
-async fn with_auth_on_and_no_secret_mcp_answers_no_call() {
+async fn with_auth_on_and_no_secret_mcp_still_answers_calls() {
     let app = TestApp::of([FakeCluster::local()])
         .auth(AuthState::enabled_for_tests())
         .build()
@@ -172,8 +172,7 @@ async fn with_auth_on_and_no_secret_mcp_answers_no_call() {
         .reply_to_mcp(mcp_request(&call_body("klens_clusters", json!({}))))
         .await;
 
-    assert_eq!(reply.status, StatusCode::FORBIDDEN);
-    assert_eq!(reply.body["code"], "NOT_FROM_GATEWAY");
+    assert_eq!(reply.status, StatusCode::OK);
 }
 
 fn carrying(authorization: &[&str]) -> Request<Body> {

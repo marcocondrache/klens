@@ -99,10 +99,6 @@ impl Config {
                 self.bind
             );
         }
-        anyhow::ensure!(
-            self.auth.is_none() || mcp.secret.is_some(),
-            "mcp.secret is required with auth, since /mcp leaves sign-in to a gateway that sends it"
-        );
         Ok(())
     }
 
@@ -305,23 +301,10 @@ mod tests {
     const MCP_BIND: &str = "bind: 0.0.0.0:8090";
 
     #[test]
-    fn mcp_with_auth_needs_a_secret() {
-        let with_auth =
-            |mcp: &str| yaml::<Config>(&format!("{AUTH}\n            mcp: {{{MCP_BIND}, {mcp}}}"));
+    fn mcp_with_auth_loads_without_a_secret() {
+        let config = yaml::<Config>(&format!("{AUTH}\n            mcp: {{{MCP_BIND}}}"));
 
-        assert!(with_auth(SECRET).check().is_ok());
-        assert_eq!(
-            with_auth("privileges: [records]")
-                .check()
-                .unwrap_err()
-                .to_string(),
-            "mcp.secret is required with auth, since /mcp leaves sign-in to a gateway that sends it"
-        );
-        assert!(
-            yaml::<Config>(&format!("mcp: {{{MCP_BIND}}}"))
-                .check()
-                .is_ok()
-        );
+        assert!(config.check().is_ok());
     }
 
     #[test]
