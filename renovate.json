@@ -2,17 +2,10 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
   "enabledManagers": ["github-actions", "cargo", "bun"],
-  "bun": {
-    "managerFilePatterns": [
-      "/(^|/)web/package\\.json$/",
-      "/(^|/)web/bun\\.lock$/"
-    ]
-  },
   "dependencyDashboard": true,
   "timezone": "Europe/Rome",
   "lockFileMaintenance": {
     "enabled": true,
-    "schedule": ["before 4am on monday"],
     "automerge": false
   },
   "packageRules": [
@@ -24,17 +17,7 @@
     },
     {
       "matchManagers": ["cargo"],
-      "rangeStrategy": "in-range-only",
-      "schedule": ["before 4am on monday"]
-    },
-    {
-      "matchManagers": ["cargo"],
-      "matchPackageNames": ["rmcp"],
-      "rangeStrategy": "replace"
-    },
-    {
-      "matchManagers": ["bun"],
-      "schedule": ["before 4am on monday"]
+      "rangeStrategy": "update-lockfile"
     }
   ]
 }
