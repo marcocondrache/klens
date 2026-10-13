@@ -15,10 +15,7 @@ export function Hero() {
       <Lens className="absolute size-[560px] max-lg:top-[440px] max-lg:-left-[140px] md:max-lg:hidden lg:-top-[120px] lg:-right-[160px] lg:size-[700px] xl:-right-[60px]" />
 
       <div className="relative z-2 flex size-full flex-col px-6 py-12 max-md:items-center max-md:text-center md:px-12">
-        <p className="w-fit rounded-full border border-brand/50 bg-fd-background/50 px-3 py-1.5 text-xs font-medium text-brand backdrop-blur-sm">
-          Kafka web UI and MCP server
-        </p>
-        <h1 className="my-6 text-4xl leading-[1.05] font-medium tracking-tight text-fd-foreground md:text-5xl xl:text-6xl">
+        <h1 className="mb-6 text-4xl leading-[1.05] font-medium tracking-tight text-fd-foreground md:text-5xl xl:text-6xl">
           Your Kafka clusters,
           <br />
           in <span className="text-brand">focus</span>.
