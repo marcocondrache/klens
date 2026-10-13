@@ -341,6 +341,7 @@ mod tests {
 
     use apache_avro::Schema as AvroSchema;
     use apache_avro::types::{Record, Value as AvroValue};
+    use apache_avro::writer::datum::GenericDatumWriter;
     use schemreg::encode_protobuf_wire_format;
 
     use super::*;
@@ -420,7 +421,15 @@ mod tests {
         let parsed = AvroSchema::parse_str(schema).unwrap();
         let mut record = Record::new(&parsed).unwrap();
         build(&parsed, &mut record);
-        apache_avro::to_avro_datum(&parsed, AvroValue::Record(record.fields)).unwrap()
+        write_avro(&parsed, record)
+    }
+
+    fn write_avro(schema: &AvroSchema, value: impl Into<AvroValue>) -> Vec<u8> {
+        GenericDatumWriter::builder(schema)
+            .build()
+            .unwrap()
+            .write_value_to_vec(value)
+            .unwrap()
     }
 
     fn matches_orderid(value: &DecodedPayload) -> bool {
@@ -515,7 +524,7 @@ mod tests {
         ] {
             registry.put(id, Schema::avro(schema));
             let parsed = AvroSchema::parse_str(schema).unwrap();
-            let payload = apache_avro::to_avro_datum(&parsed, value).unwrap();
+            let payload = write_avro(&parsed, value);
             assert_eq!(
                 registry.decoder().decode(&frame(id, &payload)).await,
                 expected
@@ -774,12 +783,13 @@ mod tests {
         record.put("status", "OPEN");
         let mut schemata: Vec<&AvroSchema> = dependencies.iter().collect();
         schemata.push(&writer);
-        let payload = apache_avro::to_avro_datum_schemata(
-            &writer,
-            schemata,
-            AvroValue::Record(record.fields),
-        )
-        .unwrap();
+        let payload = GenericDatumWriter::builder(&writer)
+            .schemata(schemata)
+            .unwrap()
+            .build()
+            .unwrap()
+            .write_value_to_vec(record)
+            .unwrap();
 
         let json = registry.decoder().decode(&frame(20, &payload)).await;
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
