@@ -69,7 +69,7 @@ tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = { version = "2.5.8", features = ["serde"] }
-base64 = "0.22"
+base64 = "0.23"
 schemreg = { version = "0.6", features = ["confluent", "avro"] }
 apache-avro = "0.21"
 prost-reflect = { version = "0.16", features = ["serde"] }

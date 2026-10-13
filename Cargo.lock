@@ -1978,7 +1978,7 @@ dependencies = [
  "axum",
  "axum-extra",
  "axum-login",
- "base64 0.22.1",
+ "base64 0.23.1",
  "bytes",
  "config",
  "cookie",
