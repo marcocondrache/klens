@@ -153,26 +153,18 @@ export default function Page() {
 
         <h2 className={sectionHeading()}>Light on your brokers.</h2>
 
-        <div className={card('col-span-full flex flex-col gap-10 lg:p-10')}>
-          <div className="grid gap-6 lg:grid-cols-2">
-            <h3 className={cardHeading('mb-0')}>A page costs Kafka nothing.</h3>
-            <div className="flex flex-col gap-4 text-fd-muted-foreground">
-              <p>
-                klens reads each cluster on a fixed schedule into an in-memory projection, and every
-                page, API call, and most MCP tools read that copy. The load on Kafka depends on the
-                size of the cluster, not on how many people look.
-              </p>
-              <p>
-                Record reads, live tails, broker configs, and changes go to Kafka only when someone
-                asks.
-              </p>
-              <DocsLink href="/docs/concepts/how-klens-reads-kafka" className="mb-0">
-                How klens reads Kafka
-              </DocsLink>
-            </div>
-          </div>
-          <Projection />
-        </div>
+        <Projection>
+          <h3 className={cardHeading()}>A page costs Kafka nothing.</h3>
+          <p className="mb-4 text-fd-muted-foreground">
+            klens reads each cluster on a fixed schedule into an in-memory projection, and every
+            page, API call, and most MCP tools read that copy. The load on Kafka depends on the size
+            of the cluster, not on how many people look. Record reads, live tails, broker configs,
+            and changes go to Kafka only when someone asks.
+          </p>
+          <DocsLink href="/docs/concepts/how-klens-reads-kafka" className="mx-auto mb-0">
+            How klens reads Kafka
+          </DocsLink>
+        </Projection>
 
         <h2 className={sectionHeading()}>Safe to open up.</h2>
 

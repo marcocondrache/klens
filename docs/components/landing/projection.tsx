@@ -1,9 +1,17 @@
 'use client';
 
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import { DatabaseIcon } from 'lucide-react';
 import { cn } from '@/lib/cn';
-import { LogoMark } from '@/components/logo';
+import { Lens } from './lens';
 import { useMotionAllowed } from './motion';
 import { type Box, type Geometry, layBeams } from './projection/geometry';
 import {
@@ -46,13 +54,18 @@ type Pools = Record<BeamKind, (SVGGElement | null)[][]>;
 type Targets = {
   pools: Pools;
   kafka: HTMLElement | null;
-  laneRows: (HTMLElement | null)[];
+  hub: HTMLElement | null;
   readerRows: (HTMLElement | null)[];
   loadBars: (SVGRectElement | null)[];
   multiple: HTMLElement | null;
 };
 
-export function Projection() {
+/**
+ * One cluster and its readers, drawn as beams across the section below its copy. With klens,
+ * the lanes converge on the lens and frames fan out to the readers. Without it, every reader
+ * reaches across to Kafka on its own.
+ */
+export function Projection({ children }: { children: ReactNode }) {
   const [mode, setMode] = useState<Mode>('projection');
   const [readers, setReaders] = useState<number>(10);
   const [model] = useState(() => {
@@ -62,31 +75,28 @@ export function Projection() {
     return model;
   });
   const [geometry, setGeometry] = useState<Geometry | null>(null);
-
-  const containerRef = useRef<HTMLDivElement>(null);
-  const coreRef = useRef<HTMLDivElement>(null);
-  const readersRef = useRef<HTMLDivElement>(null);
   const [targets] = useState<Targets>(() => ({
     pools: emptyPools(),
     kafka: null,
-    laneRows: [],
+    hub: null,
     readerRows: [],
     loadBars: [],
     multiple: null,
   }));
 
-  const inView = useInView(containerRef);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const readersRef = useRef<HTMLDivElement>(null);
+
+  const inView = useInView(stageRef);
   const animate = useMotionAllowed() && inView;
   const glowId = `glow-${useId().replace(/[^\w-]/g, '')}`;
 
   const measure = useCallback(() => {
-    const container = containerRef.current;
-    const kafka = targets.kafka;
-    const core = coreRef.current;
+    const stage = stageRef.current;
     const readersNode = readersRef.current;
-    if (!container || !kafka || !core || !readersNode) return;
+    if (!stage || !targets.kafka || !targets.hub || !readersNode) return;
 
-    const origin = container.getBoundingClientRect();
+    const origin = stage.getBoundingClientRect();
     const box = (element: Element | null): Box => {
       const rect = element?.getBoundingClientRect() ?? origin;
 
@@ -100,22 +110,21 @@ export function Projection() {
 
     setGeometry(
       layBeams(origin.width, origin.height, {
-        kafka: box(kafka),
-        core: box(core),
+        kafka: box(targets.kafka),
+        hub: box(targets.hub),
         readers: box(readersNode),
-        laneRows: targets.laneRows.map(box),
         readerRows: targets.readerRows.map(box),
       }),
     );
   }, [targets]);
 
   useLayoutEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
+    const stage = stageRef.current;
+    if (!stage) return;
 
     measure();
     const observer = new ResizeObserver(measure);
-    observer.observe(container);
+    observer.observe(stage);
 
     return () => observer.disconnect();
   }, [measure]);
@@ -157,10 +166,12 @@ export function Projection() {
   const direct = mode === 'direct';
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
-      <div ref={containerRef} aria-hidden className="relative select-none text-xs">
-        <div className="pointer-events-none absolute -inset-6 bg-[radial-gradient(var(--color-fd-border)_1px,transparent_1px)] bg-size-[18px_18px] mask-[radial-gradient(ellipse_at_center,white_30%,transparent_70%)]" />
+    <div className="relative isolate col-span-full flex flex-col items-center gap-10">
+      <div className="pointer-events-none absolute -inset-x-6 -inset-y-16 -z-1 bg-[radial-gradient(var(--color-fd-border)_1px,transparent_1px)] bg-size-[18px_18px] mask-[radial-gradient(ellipse_at_center,white_10%,transparent_70%)] md:-inset-x-12" />
 
+      <div className="max-w-2xl text-center">{children}</div>
+
+      <div ref={stageRef} aria-hidden className="relative w-full select-none text-xs lg:h-[360px]">
         {geometry && (
           <Beams
             geometry={geometry}
@@ -171,20 +182,20 @@ export function Projection() {
           />
         )}
 
-        <div className="relative mx-auto grid max-w-60 grid-cols-1 gap-16 lg:max-w-none lg:grid-cols-[11rem_minmax(3rem,1fr)_13rem_minmax(3rem,1fr)_10rem] lg:items-center lg:gap-0">
+        <div className="relative flex h-full flex-col items-center gap-14 lg:flex-row lg:justify-between lg:gap-0 lg:px-[7%]">
           <div
             ref={(element) => {
               targets.kafka = element;
             }}
             className={cn(
-              'flex flex-col gap-2 rounded-xl border bg-fd-popover p-3 shadow-lg shadow-black/5 transition-colors duration-500',
+              'flex w-44 flex-col gap-2 rounded-xl border bg-fd-popover/85 p-3 shadow-xl shadow-black/5 backdrop-blur-md transition-colors duration-500',
               direct && readers === 100 && 'border-fd-warning/60',
             )}
             style={
               direct
                 ? {
                     boxShadow:
-                      '0 0 calc(var(--heat, 0) * 32px) color-mix(in oklch, var(--color-fd-warning) calc(var(--heat, 0) * 60%), transparent)',
+                      '0 0 calc(var(--heat, 0) * 40px) color-mix(in oklch, var(--color-fd-warning) calc(var(--heat, 0) * 60%), transparent)',
                   }
                 : undefined
             }
@@ -206,7 +217,7 @@ export function Projection() {
               viewBox={`0 0 ${BINS * 4} ${CHART_HEIGHT}`}
               preserveAspectRatio="none"
               className={cn(
-                'h-8 w-full transition-colors duration-500',
+                'h-7 w-full transition-colors duration-500',
                 direct ? 'text-fd-warning' : 'text-brand',
               )}
             >
@@ -227,44 +238,30 @@ export function Projection() {
             </svg>
           </div>
 
-          <div className="max-lg:hidden" />
-
           <div
-            ref={coreRef}
+            ref={(element) => {
+              targets.hub = element;
+            }}
             className={cn(
-              'flex flex-col rounded-xl border border-brand/50 bg-fd-popover p-2 shadow-[0_0_0_6px] shadow-brand/5 transition-opacity duration-500',
-              direct && 'opacity-35',
+              'relative size-44 transition-[opacity,filter] duration-700 lg:size-60',
+              direct && 'opacity-20 grayscale',
             )}
           >
-            <div className="flex items-center gap-2 px-1 pt-1 pb-2 font-medium text-fd-foreground">
-              <LogoMark className="size-4" />
-              klens
-            </div>
-            {lanes.map((lane, i) => (
-              <div
-                key={lane.name}
-                ref={(element) => {
-                  targets.laneRows[i] = element;
-                }}
-                className="flex justify-between gap-2 rounded-md px-1.5 py-0.5 font-mono text-[11px]"
-                style={{
-                  backgroundColor:
-                    'color-mix(in oklch, var(--color-brand) calc(var(--flash, 0) * 22%), transparent)',
-                }}
-              >
-                <span className="truncate">{lane.name}</span>
-                <span className="text-fd-muted-foreground">{lane.period}</span>
-              </div>
-            ))}
+            <div
+              className="absolute -inset-1/3 rounded-full"
+              style={{
+                background:
+                  'radial-gradient(closest-side, color-mix(in oklch, var(--color-brand-glow) calc(18% + var(--flash, 0) * 30%), transparent), transparent)',
+              }}
+            />
+            <Lens className="relative size-full" />
           </div>
-
-          <div className="max-lg:hidden" />
 
           <div
             ref={readersRef}
-            className="flex flex-col gap-2 rounded-xl border bg-fd-popover p-3 shadow-lg shadow-black/5"
+            className="flex flex-col gap-2 rounded-xl border bg-fd-popover/85 p-3 shadow-xl shadow-black/5 backdrop-blur-md"
           >
-            <div className="flex items-center justify-between font-medium text-fd-foreground">
+            <div className="flex items-center justify-between gap-4 font-medium text-fd-foreground">
               Readers
               <span className="font-mono text-fd-muted-foreground tabular-nums">{readers}</span>
             </div>
@@ -281,12 +278,12 @@ export function Projection() {
                     <span
                       key={column}
                       className={cn(
-                        'aspect-square flex-1 rounded-[2px] transition-colors duration-300',
+                        'size-2 rounded-[2px] transition-colors duration-300',
                         column < readersInRow(readers, row)
                           ? direct
                             ? 'bg-fd-warning opacity-[calc(0.45+0.55*var(--pulse,0))]'
                             : 'bg-brand opacity-[calc(0.45+0.55*var(--pulse,0))]'
-                          : 'bg-fd-border/50',
+                          : 'bg-fd-border/60',
                       )}
                     />
                   ))}
@@ -297,7 +294,7 @@ export function Projection() {
         </div>
       </div>
 
-      <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-between">
+      <div className="flex flex-wrap items-center justify-center gap-3">
         <Segmented
           label="How the UI reads Kafka"
           value={mode}
@@ -340,11 +337,7 @@ function Beams({
     push: geometry.pushes,
     poll: geometry.polls,
   };
-  const visible: Record<BeamKind, boolean> = {
-    lane: true,
-    push: !direct,
-    poll: direct,
-  };
+  const visible: Record<BeamKind, boolean> = { lane: true, push: !direct, poll: direct };
 
   return (
     <svg
@@ -361,6 +354,12 @@ function Beams({
         </filter>
       </defs>
 
+      <g className="text-fd-muted-foreground mask-[linear-gradient(to_right,transparent,white_12%,white_88%,transparent)]">
+        {geometry.edges.map((path) => (
+          <path key={path} d={path} fill="none" stroke="currentColor" strokeOpacity={0.25} />
+        ))}
+      </g>
+
       {kinds.map((kind) => (
         <g
           key={kind}
@@ -372,7 +371,7 @@ function Beams({
           )}
         >
           {paths[kind].map((path, index) => {
-            const hidden = (kind === 'push' || kind === 'poll') && !activeRows[index];
+            const hidden = kind !== 'lane' && !activeRows[index];
 
             return (
               <g
@@ -383,7 +382,7 @@ function Beams({
                   d={path}
                   fill="none"
                   stroke="currentColor"
-                  strokeOpacity={0.22}
+                  strokeOpacity={0.25}
                   strokeWidth={1}
                 />
                 <g filter={`url(#${glowId})`}>
@@ -439,7 +438,7 @@ function Segmented<T extends string | number>({
     <div
       role="group"
       aria-label={label}
-      className="flex shrink-0 rounded-full border bg-fd-card p-0.5 text-xs"
+      className="flex shrink-0 rounded-full border bg-fd-card/85 p-0.5 text-xs shadow-lg shadow-black/5 backdrop-blur-md"
     >
       {options.map((option) => (
         <button
@@ -511,13 +510,11 @@ function paint(model: FlowModel, targets: Targets, withPulses: boolean) {
     });
   }
 
-  lanes.forEach((_, i) => {
-    const age = model.time - model.laneRefreshed[i];
-    targets.laneRows[i]?.style.setProperty(
-      '--flash',
-      String(withPulses ? clamp(1 - age / 0.7) : 0),
-    );
-  });
+  const freshest = Math.max(...model.laneRefreshed);
+  targets.hub?.style.setProperty(
+    '--flash',
+    String(withPulses ? clamp(1 - (model.time - freshest) / 0.8) : 0),
+  );
 
   targets.readerRows.forEach((row, i) => {
     const age = model.time - model.rowFlashed[i];

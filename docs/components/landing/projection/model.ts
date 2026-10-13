@@ -5,17 +5,17 @@ export type BeamKind = 'lane' | 'push' | 'poll';
 export type Pulse = { kind: BeamKind; index: number; start: number };
 
 /**
- * The ingest lanes with their default periods. The animation plays each lane faster than its
- * period, so the slow lanes still move while someone watches.
+ * The ingest lanes. Each plays faster than its default period, from 2s for offsets to 60s for
+ * configs, so the slow lanes still move while someone watches.
  */
 export const lanes = [
-  { name: 'topology', period: '10s', seconds: 5, pushes: false },
-  { name: 'watermarks', period: '3s · 30s', seconds: 3, pushes: true },
-  { name: 'offsets', period: '2s · 20s', seconds: 2.2, pushes: true },
-  { name: 'configs', period: '60s', seconds: 9, pushes: false },
-  { name: 'subjects', period: '30s', seconds: 7, pushes: false },
-  { name: 'log dirs', period: '60s', seconds: 9.6, pushes: false },
-  { name: 'acls · quotas · users', period: '60s', seconds: 10.4, pushes: false },
+  { name: 'topology', seconds: 5, pushes: false },
+  { name: 'watermarks', seconds: 3, pushes: true },
+  { name: 'offsets', seconds: 2.2, pushes: true },
+  { name: 'configs', seconds: 9, pushes: false },
+  { name: 'subjects', seconds: 7, pushes: false },
+  { name: 'log dirs', seconds: 9.6, pushes: false },
+  { name: 'acls · quotas · users', seconds: 10.4, pushes: false },
 ] as const;
 
 export const READER_ROWS = 10;
