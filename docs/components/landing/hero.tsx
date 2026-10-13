@@ -53,9 +53,9 @@ export function Hero() {
 function Backdrop() {
   return (
     <InView aria-hidden className="pointer-events-none absolute inset-0">
-      <div className="absolute -top-1/3 -right-1/4 size-[90%] bg-[radial-gradient(closest-side,var(--color-brand-glow),transparent)] opacity-45 motion-safe:animate-drift dark:opacity-40" />
-      <div className="absolute -bottom-1/2 -left-1/4 size-[80%] bg-[radial-gradient(closest-side,var(--color-amber-glow),transparent)] opacity-55 dark:opacity-35" />
-      <div className="absolute inset-0 bg-grain opacity-25 mix-blend-overlay dark:opacity-30 dark:mix-blend-soft-light" />
+      <div className="absolute -top-1/3 -right-[15%] size-[75%] bg-[radial-gradient(closest-side,var(--color-brand-glow),transparent)] opacity-45 motion-safe:animate-drift dark:opacity-40" />
+      <div className="absolute top-1/4 -left-[20%] size-[70%] bg-[radial-gradient(closest-side,var(--color-amber-glow),transparent)] opacity-55 dark:opacity-35" />
+      <div className="absolute inset-0 bg-grain opacity-70 mix-blend-overlay dark:mix-blend-soft-light" />
     </InView>
   );
 }
