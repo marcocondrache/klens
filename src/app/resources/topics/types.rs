@@ -1,12 +1,10 @@
 use std::collections::BTreeMap;
 use std::num::{NonZeroU8, NonZeroU16};
 
-use krafka::error::KrafkaError;
-use krafka::protocol::validate_topic_name;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::kafka::model as domain;
+use crate::kafka::model::{self as domain, validate_topic_name};
 use crate::kafka::store::projections;
 use crate::r#macro::from_same_variants;
 
@@ -176,16 +174,14 @@ pub struct CreateTopic {
 
 impl CreateTopic {
     pub(crate) fn into_topic(self) -> Result<domain::NewTopic, ApiError> {
-        match validate_topic_name(&self.name) {
-            Ok(()) => Ok(domain::NewTopic {
-                name: self.name,
-                partitions: self.partitions,
-                replication_factor: self.replication_factor,
-                configs: self.configs,
-            }),
-            Err(KrafkaError::Protocol { message, .. }) => Err(ApiError::unprocessable(message)),
-            Err(error) => Err(ApiError::unprocessable(error.to_string())),
-        }
+        validate_topic_name(&self.name)
+            .map_err(|error| ApiError::unprocessable(error.to_string()))?;
+        Ok(domain::NewTopic {
+            name: self.name,
+            partitions: self.partitions,
+            replication_factor: self.replication_factor,
+            configs: self.configs,
+        })
     }
 }
 
