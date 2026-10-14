@@ -1,16 +1,13 @@
 use std::fmt::{self, Display, Formatter};
 
-use bytes::BufMut;
-use krafka::admin::DescribeAclsResult;
-use krafka::error::{ErrorCode, KrafkaError};
-use krafka::protocol::{
-    AclBinding, AclOperation as WireOperation, AclPatternType as WirePattern,
-    AclPermissionType as WirePermission, AclResourceType as WireResource, KafkaArray, KafkaString,
-    TaggedFields, TryEncode, VersionedEncode,
+use krafka::admin::{
+    AclBinding, AclFilter, AclOperation as WireOperation, AclPatternType as WirePattern,
+    AclPermissionType as WirePermission, AclResourceType as WireResource,
 };
+use krafka::error::{ErrorCode, KrafkaError};
 use tracing::warn;
 
-use crate::kafka::error::{KafkaError, is_cluster_authorization_text};
+use crate::kafka::error::KafkaError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Acl {
@@ -90,13 +87,11 @@ impl AclListing {
 
     pub fn from_admin_result(
         cluster: &str,
-        result: Result<DescribeAclsResult, KrafkaError>,
+        result: Result<Vec<AclBinding>, KrafkaError>,
     ) -> Result<Self, KafkaError> {
         match result {
             Err(error) => Self::from_krafka_error(error),
-            Ok(described) => {
-                Self::from_describe(cluster, described.error.as_deref(), described.bindings)
-            }
+            Ok(bindings) => Ok(Self::from_describe(cluster, bindings)),
         }
     }
 
@@ -114,21 +109,7 @@ impl AclListing {
         }
     }
 
-    fn from_describe(
-        cluster: &str,
-        error: Option<&str>,
-        bindings: Vec<AclBinding>,
-    ) -> Result<Self, KafkaError> {
-        if let Some(message) = error {
-            if is_security_disabled_text(message) {
-                return Ok(Self::Disabled);
-            }
-            if is_cluster_authorization_text(message) {
-                return Ok(Self::Denied);
-            }
-            return Err(KafkaError::Admin(message.to_owned()));
-        }
-
+    fn from_describe(cluster: &str, bindings: Vec<AclBinding>) -> Self {
         let rows = bindings
             .into_iter()
             .filter_map(|binding| match Acl::try_from(binding) {
@@ -139,7 +120,7 @@ impl AclListing {
                 }
             })
             .collect();
-        Ok(Self::Enabled(rows))
+        Self::Enabled(rows)
     }
 }
 
@@ -176,12 +157,12 @@ impl TryFrom<WireResource> for AclResourceType {
     }
 }
 
+// krafka numbers pattern types one below Kafka, whose LITERAL is 3 and
+// PREFIXED is 4, so a stored literal decodes as `Prefixed` and a stored prefix
+// as `Unknown`.
 impl TryFrom<WirePattern> for AclPatternType {
     type Error = SentinelAcl;
 
-    // krafka numbers pattern types one below Kafka, whose LITERAL is 3 and
-    // PREFIXED is 4, so a stored literal decodes as `Prefixed` and a stored
-    // prefix as `Unknown`.
     fn try_from(value: WirePattern) -> Result<Self, Self::Error> {
         match value {
             WirePattern::Prefixed => Ok(Self::Literal),
@@ -241,11 +222,12 @@ impl From<AclResourceType> for WireResource {
 }
 
 impl AclPatternType {
-    /// Kafka numbers LITERAL 3 and PREFIXED 4, one above krafka's enum.
-    const fn wire(self) -> i8 {
+    /// The krafka pattern type Kafka reads as this one. krafka has none that
+    /// Kafka reads as PREFIXED.
+    fn to_krafka(self) -> Result<WirePattern, KafkaError> {
         match self {
-            Self::Literal => 3,
-            Self::Prefixed => 4,
+            Self::Literal => Ok(WirePattern::Prefixed),
+            Self::Prefixed => Err(KafkaError::PrefixedAcl),
         }
     }
 }
@@ -277,58 +259,29 @@ impl From<AclPermission> for WirePermission {
     }
 }
 
-/// The body CreateAcls and DeleteAcls share once every field of a binding is
-/// set. klens encodes it itself because krafka's pattern types cannot say
-/// PREFIXED.
-pub(crate) struct AclBindings<'a>(pub &'a [Acl]);
-
-const FLEXIBLE_VERSION: i16 = 2;
-
-impl VersionedEncode for AclBindings<'_> {
-    fn encode_versioned(&self, version: i16, buf: &mut impl BufMut) -> krafka::error::Result<()> {
-        let bindings = KafkaArray::new(self.0.iter().map(WireAcl).collect());
-        if version < FLEXIBLE_VERSION {
-            bindings.try_encode(buf)
-        } else {
-            bindings.try_encode_compact(buf)?;
-            TaggedFields::default().try_encode(buf)
-        }
-    }
-}
-
-struct WireAcl<'a>(&'a Acl);
-
-impl WireAcl<'_> {
-    fn put(&self, compact: bool, buf: &mut impl BufMut) -> krafka::error::Result<()> {
-        let acl = self.0;
-        buf.put_i8(WireResource::from(acl.resource_type).to_i8());
-        put_string(&acl.resource_name, compact, buf)?;
-        buf.put_i8(acl.pattern_type.wire());
-        put_string(&acl.principal, compact, buf)?;
-        put_string(&acl.host, compact, buf)?;
-        buf.put_i8(WireOperation::from(acl.operation).to_i8());
-        buf.put_i8(WirePermission::from(acl.permission).to_i8());
-        Ok(())
-    }
-}
-
-impl TryEncode for WireAcl<'_> {
-    fn try_encode(&self, buf: &mut impl BufMut) -> krafka::error::Result<()> {
-        self.put(false, buf)
+impl Acl {
+    pub(crate) fn to_krafka(&self) -> Result<AclBinding, KafkaError> {
+        Ok(AclBinding::new(
+            self.resource_type.into(),
+            self.resource_name.as_str(),
+            self.principal.as_str(),
+            self.host.as_str(),
+            self.operation.into(),
+            self.permission.into(),
+        )
+        .with_pattern_type(self.pattern_type.to_krafka()?))
     }
 
-    fn try_encode_compact(&self, buf: &mut impl BufMut) -> krafka::error::Result<()> {
-        self.put(true, buf)?;
-        TaggedFields::default().try_encode(buf)
-    }
-}
-
-fn put_string(value: &str, compact: bool, buf: &mut impl BufMut) -> krafka::error::Result<()> {
-    let value = KafkaString::new(value);
-    if compact {
-        value.try_encode_compact(buf)
-    } else {
-        value.try_encode(buf)
+    /// Matches this ACL and no other.
+    pub(crate) fn to_krafka_filter(&self) -> Result<AclFilter, KafkaError> {
+        Ok(
+            AclFilter::for_resource(self.resource_type.into(), self.resource_name.as_str())
+                .pattern_type(self.pattern_type.to_krafka()?)
+                .principal(self.principal.as_str())
+                .host(self.host.as_str())
+                .operation(self.operation.into())
+                .permission_type(self.permission.into()),
+        )
     }
 }
 
@@ -337,23 +290,8 @@ pub struct SentinelAcl {
     pub field: &'static str,
 }
 
-/// krafka's `DescribeAclsResult` carries the broker error only as text: the
-/// broker's own message, or the error-code name when the broker sent none. A
-/// KRaft broker without an authorizer says "No Authorizer is configured on the
-/// broker", not the protocol default message.
-fn is_security_disabled_text(message: &str) -> bool {
-    let lower = message.to_ascii_lowercase();
-    lower.contains("securitydisabled")
-        || lower.contains("security_disabled")
-        || lower.contains("security features are disabled")
-        || lower.contains("no authorizer is configured")
-}
-
 #[cfg(test)]
 mod tests {
-    use bytes::BytesMut;
-    use krafka::protocol::{AclBindingFilter, CreateAclsRequest, DeleteAclsRequest, versions};
-
     use super::*;
 
     fn stored_binding() -> AclBinding {
@@ -520,21 +458,6 @@ mod tests {
     }
 
     #[test]
-    fn describe_error_text_maps_security_disabled_names() {
-        for message in [
-            "SecurityDisabled",
-            "SECURITY_DISABLED",
-            "Broker: SECURITY_DISABLED",
-            "Security features are disabled.",
-            "No Authorizer is configured on the broker",
-        ] {
-            let listing =
-                AclListing::from_describe("local", Some(message), vec![stored_binding()]).unwrap();
-            assert_eq!(listing, AclListing::Disabled, "{message}");
-        }
-    }
-
-    #[test]
     fn a_denied_describe_is_a_denied_listing() {
         let listing = AclListing::from_admin_result(
             "local",
@@ -545,43 +468,11 @@ mod tests {
         )
         .unwrap();
         assert_eq!(listing, AclListing::Denied);
-
-        for message in [
-            "ClusterAuthorizationFailed",
-            "CLUSTER_AUTHORIZATION_FAILED",
-            "Request Request(processor=2, listenerName=ListenerName(SASL_PLAINTEXT)) needs DESCRIBE permission.",
-        ] {
-            let listing = AclListing::from_describe("local", Some(message), Vec::new()).unwrap();
-            assert_eq!(listing, AclListing::Denied, "{message}");
-        }
-    }
-
-    #[test]
-    fn describe_error_text_does_not_match_authorizer_prose() {
-        let error = AclListing::from_describe(
-            "local",
-            Some("authorizer is not configured"),
-            vec![stored_binding()],
-        )
-        .unwrap_err();
-        assert!(
-            matches!(error, KafkaError::Admin(message) if message == "authorizer is not configured")
-        );
-    }
-
-    #[test]
-    fn other_describe_errors_fail_the_call() {
-        let error =
-            AclListing::from_describe("local", Some("TopicAuthorizationFailed"), Vec::new())
-                .unwrap_err();
-        assert!(
-            matches!(error, KafkaError::Admin(message) if message == "TopicAuthorizationFailed")
-        );
     }
 
     #[test]
     fn good_bindings_become_an_enabled_listing() {
-        let listing = AclListing::from_describe("local", None, vec![stored_binding()]).unwrap();
+        let listing = AclListing::from_describe("local", vec![stored_binding()]);
         assert_eq!(listing, AclListing::Enabled(vec![stored_acl()]));
     }
 
@@ -589,17 +480,8 @@ mod tests {
     fn sentinel_rows_are_dropped_from_an_otherwise_good_list() {
         let mut unknown = stored_binding();
         unknown.operation = WireOperation::Unknown;
-        let listing =
-            AclListing::from_describe("local", None, vec![stored_binding(), unknown]).unwrap();
+        let listing = AclListing::from_describe("local", vec![stored_binding(), unknown]);
         assert_eq!(listing, AclListing::Enabled(vec![stored_acl()]));
-    }
-
-    fn encoded(acls: &[Acl], version: i16) -> BytesMut {
-        let mut buf = BytesMut::new();
-        AclBindings(acls)
-            .encode_versioned(version, &mut buf)
-            .unwrap();
-        buf
     }
 
     fn group_acl() -> Acl {
@@ -614,60 +496,34 @@ mod tests {
         }
     }
 
-    fn group_binding() -> AclBinding {
-        AclBinding {
-            resource_type: WireResource::Group,
-            resource_name: "order-processor".into(),
-            principal: "User:bob".into(),
-            host: "10.0.0.1".into(),
-            operation: WireOperation::Describe,
-            permission_type: WirePermission::Deny,
-            ..stored_binding()
-        }
+    #[test]
+    fn a_literal_acl_reaches_kafka_as_literal_and_matches_only_itself() {
+        let binding = stored_acl().to_krafka().unwrap();
+        assert_eq!(binding.pattern_type.to_i8(), 3, "Kafka's LITERAL");
+        assert_eq!(Acl::try_from(binding), Ok(stored_acl()));
+
+        let filter = group_acl().to_krafka_filter().unwrap();
+        assert_eq!(filter.pattern_type.to_i8(), 3, "Kafka's LITERAL");
+        assert_eq!(filter.resource_type, WireResource::Group);
+        assert_eq!(filter.resource_name.as_deref(), Some("order-processor"));
+        assert_eq!(filter.principal.as_deref(), Some("User:bob"));
+        assert_eq!(filter.host.as_deref(), Some("10.0.0.1"));
+        assert_eq!(filter.operation, WireOperation::Describe);
+        assert_eq!(filter.permission_type, WirePermission::Deny);
     }
 
     #[test]
-    fn literal_bindings_encode_as_krafka_sends_kafkas_literal() {
-        let acls = [stored_acl(), group_acl()];
-        let bindings = vec![stored_binding(), group_binding()];
-        for version in versions::CREATE_ACLS_MIN..=versions::CREATE_ACLS_MAX {
-            let mut created = BytesMut::new();
-            CreateAclsRequest {
-                creations: bindings.clone(),
-            }
-            .encode_versioned(version, &mut created)
-            .unwrap();
-            let mut deleted = BytesMut::new();
-            DeleteAclsRequest {
-                filters: bindings.iter().map(AclBindingFilter::matching).collect(),
-            }
-            .encode_versioned(version, &mut deleted)
-            .unwrap();
-
-            assert_eq!(encoded(&acls, version), created, "CreateAcls v{version}");
-            assert_eq!(encoded(&acls, version), deleted, "DeleteAcls v{version}");
-        }
-    }
-
-    #[test]
-    fn a_prefixed_binding_differs_from_a_literal_one_only_in_kafkas_pattern_code() {
+    fn a_prefixed_acl_is_refused_before_it_reaches_kafka() {
         let prefixed = Acl {
             pattern_type: AclPatternType::Prefixed,
             ..stored_acl()
         };
-        for version in versions::CREATE_ACLS_MIN..=versions::CREATE_ACLS_MAX {
-            let literal = encoded(&[stored_acl()], version);
-            let prefixed = encoded(std::slice::from_ref(&prefixed), version);
 
-            let changed: Vec<(u8, u8)> = literal
-                .iter()
-                .zip(prefixed.iter())
-                .filter(|(literal, prefixed)| literal != prefixed)
-                .map(|(literal, prefixed)| (*literal, *prefixed))
-                .collect();
-            assert_eq!(literal.len(), prefixed.len());
-            assert_eq!(changed, vec![(3, 4)], "v{version}");
-        }
+        assert!(matches!(prefixed.to_krafka(), Err(KafkaError::PrefixedAcl)));
+        assert!(matches!(
+            prefixed.to_krafka_filter(),
+            Err(KafkaError::PrefixedAcl)
+        ));
     }
 
     #[test]
@@ -708,12 +564,6 @@ mod tests {
             assert_eq!(
                 AclPermission::try_from(WirePermission::from(permission)),
                 Ok(permission)
-            );
-        }
-        for pattern in [AclPatternType::Literal, AclPatternType::Prefixed] {
-            assert_eq!(
-                AclPatternType::try_from(WirePattern::from_i8(pattern.wire())),
-                Ok(pattern)
             );
         }
     }

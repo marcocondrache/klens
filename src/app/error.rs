@@ -119,6 +119,7 @@ fn kafka_status(error: &KafkaError) -> StatusCode {
         | KafkaError::RegistryRefused(_)
         | KafkaError::Unencodable { .. }
         | KafkaError::InternalTopic(_)
+        | KafkaError::PrefixedAcl
         | KafkaError::NoCommittedOffset { .. } => StatusCode::UNPROCESSABLE_ENTITY,
         KafkaError::ActiveGroup { .. } | KafkaError::ConsumedTopic { .. } => StatusCode::CONFLICT,
         KafkaError::Timeout => StatusCode::GATEWAY_TIMEOUT,

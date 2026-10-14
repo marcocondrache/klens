@@ -22,20 +22,3 @@ pub struct ReplicaLog {
     /// but is not yet the partition's log.
     pub future: bool,
 }
-
-/// Kafka reports an unknown volume size as `-1`.
-pub fn volume_bytes(reported: i64) -> Option<i64> {
-    (reported >= 0).then_some(reported)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_negative_volume_size_is_unknown() {
-        assert_eq!(volume_bytes(-1), None);
-        assert_eq!(volume_bytes(0), Some(0));
-        assert_eq!(volume_bytes(4_096), Some(4_096));
-    }
-}

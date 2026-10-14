@@ -82,12 +82,7 @@ impl FixtureRecord {
             headers: self
                 .headers
                 .iter()
-                .map(|header| {
-                    (
-                        Bytes::from(header.key.clone()),
-                        Some(Bytes::from(header.value.clone())),
-                    )
-                })
+                .map(|header| (header.key.clone(), Some(Bytes::from(header.value.clone()))))
                 .collect(),
         }
     }

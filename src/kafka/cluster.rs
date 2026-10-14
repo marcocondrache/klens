@@ -188,7 +188,7 @@ impl Clusters {
 
 #[cfg(test)]
 mod tests {
-    use krafka::protocol::ApiKey;
+    use krafka::testing::ApiKey;
 
     use super::*;
     use crate::kafka::client::testing::Broker;

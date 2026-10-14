@@ -1,8 +1,8 @@
 use std::fmt::{self, Display, Formatter};
 use std::ops::RangeInclusive;
 
+use krafka::admin::ScramCredentialUpsertion;
 use krafka::auth::ScramMechanism as WireMechanism;
-use krafka::protocol::ScramCredentialUpsertion;
 use pbkdf2::pbkdf2_hmac;
 use secrecy::{ExposeSecret, SecretString};
 use sha2::{Sha256, Sha512};

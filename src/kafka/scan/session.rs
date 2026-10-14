@@ -33,7 +33,7 @@ pub struct RawRecord {
     pub timestamp: i64,
     pub key: Option<Bytes>,
     pub value: Option<Bytes>,
-    pub headers: Vec<(Bytes, Option<Bytes>)>,
+    pub headers: Vec<(String, Option<Bytes>)>,
 }
 
 impl RawRecord {

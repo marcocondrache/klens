@@ -2,7 +2,7 @@ use std::ops::Deref;
 
 use futures::StreamExt as _;
 use futures::stream::FuturesUnordered;
-use krafka::producer::{Producer, ProducerRecord};
+use krafka::producer::{Producer, Record};
 use krafka::testing::FakeBroker;
 
 use super::KafkaClient;
@@ -35,7 +35,7 @@ impl Broker {
         let producer = self.producer().await;
         for _ in 0..count {
             let _metadata = producer
-                .send(topic, Some(b"k"), Some(b"hello"))
+                .send(Record::new(topic, &b"hello"[..]).key(&b"k"[..]))
                 .await
                 .expect("produce");
         }
@@ -46,7 +46,7 @@ impl Broker {
         let mut acks = FuturesUnordered::new();
         for partition in 0..partitions {
             for _ in 0..count {
-                let record = ProducerRecord::new(topic, &b"hello"[..]).with_partition(partition);
+                let record = Record::new(topic, &b"hello"[..]).partition(partition);
                 acks.push(producer.enqueue(record).await.expect("enqueue"));
             }
         }
@@ -84,8 +84,12 @@ impl Broker {
     }
 
     async fn producer(&self) -> Producer {
-        Producer::builder()
-            .bootstrap_servers(self.bootstrap_servers())
+        self.0
+            .kafka()
+            .connect()
+            .await
+            .expect("kafka")
+            .producer()
             .build()
             .await
             .expect("producer")

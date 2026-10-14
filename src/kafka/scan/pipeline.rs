@@ -43,11 +43,10 @@ impl DecodedRecord {
     pub fn into_record(self, topic: &str) -> Record {
         let schema_id = self.value.as_ref().and_then(DecodedPayload::wire_schema_id);
         let verbatim = !self.masked
-            && self.raw.headers.iter().all(|(key, value)| {
-                str::from_utf8(key).is_ok()
-                    && value
-                        .as_deref()
-                        .is_some_and(|value| str::from_utf8(value).is_ok())
+            && self.raw.headers.iter().all(|(_, value)| {
+                value
+                    .as_deref()
+                    .is_some_and(|value| str::from_utf8(value).is_ok())
             })
             && [&self.key, &self.value]
                 .into_iter()
@@ -58,7 +57,7 @@ impl DecodedRecord {
             .headers
             .iter()
             .map(|(key, value)| RecordHeader {
-                key: String::from_utf8_lossy(key).into_owned(),
+                key: key.clone(),
                 value: value
                     .as_deref()
                     .map(|value| String::from_utf8_lossy(value).into_owned())
@@ -266,7 +265,7 @@ struct Candidate {
 mod tests {
     use super::*;
 
-    fn verbatim(key: &'static [u8], value: Option<&'static [u8]>) -> bool {
+    fn verbatim(value: Option<&'static [u8]>) -> bool {
         DecodedRecord {
             raw: RawRecord {
                 partition: 0,
@@ -274,7 +273,7 @@ mod tests {
                 timestamp: 0,
                 key: None,
                 value: None,
-                headers: vec![(Bytes::from_static(key), value.map(Bytes::from_static))],
+                headers: vec![("trace".to_owned(), value.map(Bytes::from_static))],
             },
             key: None,
             value: None,
@@ -286,12 +285,8 @@ mod tests {
 
     #[test]
     fn a_record_is_verbatim_only_while_every_header_is_text() {
-        assert!(verbatim(b"trace", Some(b"abc")));
-        assert!(
-            !verbatim(b"trace", None),
-            "a null value would come back empty"
-        );
-        assert!(!verbatim(b"trace", Some(&[0xff])));
-        assert!(!verbatim(&[0xff], Some(b"abc")));
+        assert!(verbatim(Some(b"abc")));
+        assert!(!verbatim(None), "a null value would come back empty");
+        assert!(!verbatim(Some(&[0xff])));
     }
 }

@@ -38,7 +38,7 @@ cookie = { version = "0.18", features = ["key-expansion"] }
 tower-sessions = { version = "0.14", features = ["memory-store", "signed"] }
 futures = "0.3"
 jiff = { version = "0.2", default-features = false, features = ["serde", "std"] }
-krafka = { git = "https://github.com/hupe1980/krafka", rev = "e6b154cef8dd0bfe7b2c8fadbf925c1e6494310f" }
+krafka = { git = "https://github.com/hupe1980/krafka", rev = "2512eb7f41f81f26a9dc5218cc595a9d41b79dfd" }
 moka = { version = "0.12", features = ["future", "sync"] }
 memory-serve = { version = "2.4", optional = true }
 openidconnect = "4.0.1"
@@ -99,7 +99,7 @@ config = { version = "0.15", default-features = false, features = ["yaml", "pres
 memory-serve = { version = "2.4", optional = true }
 
 [dev-dependencies]
-krafka = { git = "https://github.com/hupe1980/krafka", rev = "e6b154cef8dd0bfe7b2c8fadbf925c1e6494310f", features = ["test-broker"] }
+krafka = { git = "https://github.com/hupe1980/krafka", rev = "2512eb7f41f81f26a9dc5218cc595a9d41b79dfd", features = ["test-broker"] }
 percent-encoding = "2.3"
 tempfile = "3"
 tokio = { version = "1", features = ["test-util"] }

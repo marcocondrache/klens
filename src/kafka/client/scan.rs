@@ -3,8 +3,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use krafka::client::KrafkaClient as KrafkaSharedClient;
-use krafka::consumer::{AutoOffsetReset, Consumer, ConsumerBuilder, ConsumerRecord};
+use krafka::Kafka;
+use krafka::consumer::{
+    AutoOffsetReset, Consumer, ConsumerBuilder, ConsumerRecord, TopicPartition,
+};
 
 use crate::config::Tuning;
 use crate::kafka::error::KafkaError;
@@ -24,7 +26,7 @@ pub(super) struct ReaderConfig {
 impl ReaderConfig {
     pub(super) fn new(tuning: &Tuning, fetch_wait: Duration) -> Self {
         Self {
-            fetch_wait,
+            fetch_wait: fetch_wait.max(MIN_FETCH_WAIT),
             page_limit: i32::try_from(tuning.records.max_limit.get()).unwrap_or(i32::MAX),
             // krafka's 50 MB default is wider than the frame the connection
             // now accepts, which would make a busy fetch unreadable.
@@ -35,24 +37,24 @@ impl ReaderConfig {
 }
 
 pub(super) fn reader(
-    client: &KrafkaSharedClient,
+    kafka: &Kafka,
     topic: &str,
     start: impl IntoIterator<Item = (i32, i64)>,
     config: ReaderConfig,
 ) -> ConsumerBuilder {
-    Consumer::builder()
-        .with_client(client)
+    kafka
+        .consumer_without_group()
         .enable_auto_commit(false)
+        .metrics_push(false)
         .auto_offset_reset(AutoOffsetReset::Earliest)
-        .fetch_max_wait(config.fetch_wait.max(MIN_FETCH_WAIT))
+        .fetch_max_wait(config.fetch_wait)
         .max_poll_records(config.page_limit)
         .max_buffered_records(config.page_limit.saturating_mul(2))
         .fetch_max_bytes(config.fetch_max_bytes)
         .initial_offsets(
             start
                 .into_iter()
-                .map(|(partition, offset)| ((topic.to_owned(), partition), offset))
-                .collect(),
+                .map(|(partition, offset)| (TopicPartition::new(topic, partition), offset)),
         )
 }
 
@@ -122,13 +124,15 @@ impl ScanConsumer for ScanLease {
     }
 
     async fn seek_to_end(&self, windows: &[PartitionWindow]) {
-        let ends = windows
-            .iter()
-            .map(|window| ((self.topic.clone(), window.partition), window.end))
-            .collect();
+        let ends = windows.iter().map(|window| {
+            (
+                TopicPartition::new(self.topic.as_str(), window.partition),
+                window.end,
+            )
+        });
         let _ = self.poison(
             self.consumer
-                .seek_many(&ends)
+                .seek_many(ends)
                 .await
                 .map_err(KafkaError::from),
         );
@@ -139,7 +143,11 @@ impl ScanConsumer for ScanLease {
     }
 
     async fn lag(&self, partition: i32) -> Option<u64> {
-        self.consumer.current_lag(&self.topic, partition).await
+        self.consumer
+            .lag()
+            .await
+            .get(&TopicPartition::new(self.topic.as_str(), partition))?
+            .lag
     }
 
     async fn close(&self) {
@@ -155,8 +163,8 @@ impl Drop for ScanLease {
 
 #[cfg(test)]
 mod tests {
-    use krafka::admin::OffsetSpec;
-    use krafka::protocol::ApiKey;
+    use krafka::admin::{ListOffsetsOptions, OffsetSpec};
+    use krafka::testing::ApiKey;
     use krafka::testing::Control;
 
     use super::*;
@@ -189,46 +197,24 @@ mod tests {
         offsets
     }
 
-    #[tokio::test]
-    async fn a_reader_asks_for_at_most_half_a_response_frame() {
-        let broker = Broker::start().await;
-        let client = broker.client().await;
-
-        let config = reader(
-            &client.transport.client,
-            "orders",
-            [(0, 5)],
-            ReaderConfig::new(&Tuning::default(), Duration::from_millis(250)),
-        )
-        .build_config()
-        .unwrap();
+    #[test]
+    fn a_reader_asks_for_at_most_half_a_response_frame() {
+        let config = ReaderConfig::new(&Tuning::default(), Duration::from_millis(250));
 
         assert_eq!(
-            config.fetch_max_bytes(),
+            config.fetch_max_bytes,
             16 * 1024 * 1024,
             "a fetch wider than the frame limit would be unreadable"
         );
-        assert_eq!(config.fetch_max_wait(), Duration::from_millis(250));
-        assert_eq!(config.auto_offset_reset(), AutoOffsetReset::Earliest);
+        assert_eq!(config.fetch_wait, Duration::from_millis(250));
     }
 
-    #[tokio::test]
-    async fn a_reader_never_asks_the_broker_for_a_zero_wait() {
-        let broker = Broker::start().await;
-        let client = broker.client().await;
-
-        let config = reader(
-            &client.transport.client,
-            "orders",
-            [(0, 0)],
-            ReaderConfig::new(&Tuning::default(), Duration::ZERO),
-        )
-        .build_config()
-        .unwrap();
+    #[test]
+    fn a_reader_never_asks_the_broker_for_a_zero_wait() {
+        let config = ReaderConfig::new(&Tuning::default(), Duration::ZERO);
 
         assert_eq!(
-            config.fetch_max_wait(),
-            MIN_FETCH_WAIT,
+            config.fetch_wait, MIN_FETCH_WAIT,
             "Redpanda never answers a fetch-session close with max_wait_ms 0"
         );
     }
@@ -288,10 +274,10 @@ mod tests {
         );
         let listed = tokio::time::timeout(
             Duration::from_secs(1),
-            client
-                .transport
-                .admin
-                .list_offsets(&[("orders", &[0])], OffsetSpec::Latest),
+            client.transport.admin.list_offsets(
+                [(TopicPartition::new("orders", 0), OffsetSpec::Latest)],
+                ListOffsetsOptions::default(),
+            ),
         )
         .await;
 
@@ -340,6 +326,11 @@ mod tests {
             .unwrap();
 
         assert_eq!(scan.position(0).await, Some(0));
+        assert_eq!(
+            scan.lag(0).await,
+            None,
+            "nothing fetched yet, so the high watermark is unknown"
+        );
         assert_eq!(read(&scan, window(0, 0, 2)).await, vec![0, 1]);
         assert_eq!(scan.position(0).await, Some(2));
         assert_eq!(scan.lag(0).await, Some(0));
