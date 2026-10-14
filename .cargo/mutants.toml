@@ -13,14 +13,18 @@ exclude_globs = [
 exclude_re = [
     '<impl (\w+::)*Debug for ',
     '>::expecting\b',
-    # krafka's FakeBroker has no DescribeConfigs, IncrementalAlterConfigs,
-    # CreatePartitions, DeleteRecords, DeleteGroups, OffsetDelete, CreateAcls,
-    # DeleteAcls, AlterClientQuotas or AlterUserScramCredentials handler, so
-    # the e2e journeys on a real broker cover these.
+    # krafka's FakeBroker has no DescribeCluster, DescribeConfigs,
+    # IncrementalAlterConfigs, ListGroups, CreatePartitions, DeleteRecords,
+    # DeleteGroups, OffsetDelete, CreateAcls, DeleteAcls, AlterClientQuotas or
+    # AlterUserScramCredentials handler, so the e2e journeys on a real broker
+    # cover these.
+    '\bKafkaClient::cluster_id\b',
+    'KafkaClient>::topic_configs\b',
     'KafkaClient>::broker_configs\b',
     'KafkaClient>::alter_topic_configs\b',
     'KafkaClient>::alter_broker_configs\b',
-    'kafka/client\.rs:\d+:\d+: replace alter_configs\b',
+    '\bKafkaClient::alter_configs\b',
+    'kafka/client\.rs:\d+:\d+: replace owned\b',
     'KafkaClient>::add_partitions\b',
     'KafkaClient>::delete_records\b',
     'KafkaClient>::delete_group\b',
@@ -30,7 +34,4 @@ exclude_re = [
     'KafkaClient>::alter_client_quota\b',
     'KafkaClient>::set_scram_credential\b',
     'KafkaClient>::delete_scram_credential\b',
-    '\bKafkaClient::group_coordinator\b',
-    '\bKafkaClient::broker_connection\b',
-    'kafka/client\.rs:\d+:\d+: replace call\b',
 ]

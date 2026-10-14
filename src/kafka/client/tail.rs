@@ -1,11 +1,9 @@
-use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use foldhash::HashMap;
-use krafka::client::KrafkaClient as KrafkaSharedClient;
-use krafka::consumer::{AutoOffsetReset, Consumer, ConsumerBuilder};
+use krafka::consumer::{AutoOffsetReset, Consumer, TopicPartition};
 
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{RawRecord, TailConsumer, TailPosition};
@@ -13,49 +11,13 @@ use crate::kafka::model::{RawRecord, TailConsumer, TailPosition};
 use super::scan::{ReaderConfig, raw_record, reader};
 use super::transport::Connector;
 
-struct Reader {
-    consumer: Consumer,
-    client: KrafkaSharedClient,
-}
-
-impl Reader {
-    async fn open(
-        connector: &Connector,
-        configure: impl FnOnce(&KrafkaSharedClient) -> ConsumerBuilder,
-    ) -> Result<Self, KafkaError> {
-        let client = connector.connect().await?;
-        match configure(&client).build().await {
-            Ok(consumer) => Ok(Self { consumer, client }),
-            Err(error) => {
-                client.pool().close_all().await;
-                Err(error.into())
-            }
-        }
-    }
-}
-
-impl Deref for Reader {
-    type Target = Consumer;
-
-    fn deref(&self) -> &Consumer {
-        &self.consumer
-    }
-}
-
 const RETIRE_GRACE: Duration = Duration::from_secs(1);
 
-impl Reader {
-    fn retire(self: Arc<Self>) {
-        tokio::spawn(async move {
-            let _ = tokio::time::timeout(RETIRE_GRACE, self.consumer.close()).await;
-            self.client.pool().close_all().await;
-        });
-    }
-}
-
+/// Each tail reads over a connection pool of its own, so a fetch the broker
+/// holds open never queues the cluster's other requests behind it.
 pub(super) struct TailLease {
     topic: String,
-    consumer: Arc<Reader>,
+    consumer: Arc<Consumer>,
 }
 
 impl TailLease {
@@ -68,15 +30,16 @@ impl TailLease {
         let offsets = start
             .iter()
             .map(|position| (position.partition, position.offset));
-        let consumer = Reader::open(connector, |client| {
-            reader(client, topic, offsets, config).auto_offset_reset(AutoOffsetReset::Latest)
-        })
-        .await?;
+        let kafka = connector.connect().await?;
+        let consumer = reader(&kafka, topic, offsets, config)
+            .auto_offset_reset(AutoOffsetReset::Latest)
+            .build()
+            .await?;
         let consumer = Arc::new(consumer);
 
         let partitions = start.iter().map(|position| position.partition).collect();
         if let Err(error) = consumer.assign(topic, partitions).await {
-            consumer.retire();
+            retire(consumer);
             return Err(error.into());
         }
 
@@ -85,6 +48,13 @@ impl TailLease {
             consumer,
         })
     }
+}
+
+/// The pool closes once the consumer, its last owner, is gone.
+fn retire(consumer: Arc<Consumer>) {
+    tokio::spawn(async move {
+        let _ = tokio::time::timeout(RETIRE_GRACE, consumer.close()).await;
+    });
 }
 
 #[async_trait]
@@ -102,31 +72,32 @@ impl TailConsumer for TailLease {
         self.consumer
             .lag()
             .await
-            .lag
             .into_iter()
-            .filter(|((topic, _), _)| *topic == self.topic)
-            .map(|((_, partition), lag)| (partition, lag))
+            .filter(|(partition, _)| partition.topic == self.topic)
+            .filter_map(|(partition, lag)| Some((partition.partition, lag.lag?)))
             .collect()
     }
 
     async fn seek(&self, positions: &[TailPosition]) -> Result<(), KafkaError> {
-        let offsets = positions
-            .iter()
-            .map(|position| ((self.topic.clone(), position.partition), position.offset))
-            .collect();
-        Ok(self.consumer.seek_many(&offsets).await?)
+        let offsets = positions.iter().map(|position| {
+            (
+                TopicPartition::new(self.topic.as_str(), position.partition),
+                position.offset,
+            )
+        });
+        Ok(self.consumer.seek_many(offsets).await?)
     }
 }
 
 impl Drop for TailLease {
     fn drop(&mut self) {
-        Arc::clone(&self.consumer).retire();
+        retire(Arc::clone(&self.consumer));
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use krafka::protocol::ApiKey;
+    use krafka::testing::ApiKey;
     use krafka::testing::Control;
 
     use super::*;

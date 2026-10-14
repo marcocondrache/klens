@@ -1,20 +1,18 @@
 //! Collected `Vec`s are shrunk because `collect` reuses the wider krafka
 //! allocation in place, and the store keeps them for as long as they live.
 
-use bytes::Bytes;
 use std::collections::HashMap;
 
+use bytes::Bytes;
+use krafka::TopicInfo;
 use krafka::admin::{
-    ConfigEntry as KrafkaConfigEntry, ConsumerGroupDescription, ConsumerGroupMember,
-    GroupOffsetEntry, LogDirInfo, TopicPartitionAssignment,
+    ConfigEntry as KrafkaConfigEntry, ConfigOp, ConfigResource, ConsumerGroupDescription,
+    ConsumerGroupMember, GroupOffset, LogDirDescription, TopicPartition, TopicPartitionAssignment,
 };
-use krafka::error::{ErrorCode, KrafkaError};
-use krafka::metadata::{ClusterMetadata, TopicInfo as KrafkaTopicInfo};
-use krafka::producer::ProducerRecord;
-use krafka::protocol::{
-    AlterConfigOp, AlterableConfig, DescribeConfigsEntry, IncrementalAlterConfigsResponse,
-    validate_topic_name,
-};
+use krafka::consumer::FetchMetadataResult;
+use krafka::error::KrafkaError;
+use krafka::producer::Record;
+use tracing::warn;
 
 use crate::kafka::error::KafkaError;
 use crate::kafka::group::{
@@ -22,18 +20,18 @@ use crate::kafka::group::{
 };
 use crate::kafka::metadata::{
     BrokerMetadata, MetadataSnapshot, NewTopic, PartitionMetadata, RecordDeletion, TopicMetadata,
-    is_internal_topic,
+    is_internal_topic, validate_topic_name,
 };
 use crate::kafka::produce::NewRecord;
-use crate::kafka::storage::{LogDir, ReplicaLog, volume_bytes};
+use crate::kafka::storage::{LogDir, ReplicaLog};
 use crate::kafka::topic_config::{BrokerScope, ConfigEdit, ConfigEntry, ConfigSource};
 
 impl MetadataSnapshot {
-    pub(super) fn from_krafka(cache: &ClusterMetadata) -> Self {
+    pub(super) fn from_krafka(cluster_id: Option<String>, cached: FetchMetadataResult) -> Self {
         Self {
-            cluster_id: cache.cluster_id(),
-            brokers: cache
-                .brokers()
+            cluster_id,
+            brokers: cached
+                .brokers
                 .into_iter()
                 .map(|broker| BrokerMetadata {
                     id: broker.id(),
@@ -41,8 +39,8 @@ impl MetadataSnapshot {
                     port: broker.port(),
                 })
                 .collect(),
-            topics: cache
-                .topics()
+            topics: cached
+                .topics
                 .into_iter()
                 .map(TopicMetadata::from_krafka)
                 .collect(),
@@ -50,24 +48,26 @@ impl MetadataSnapshot {
     }
 }
 
-pub(super) fn refused(error: Option<String>) -> Result<(), KafkaError> {
-    error.map_or(Ok(()), |message| Err(KafkaError::Refused(message)))
+/// A broker's answer for one item is the user's to act on. Anything else,
+/// such as a timeout, failed the call.
+pub(super) fn refused<T>(result: Result<T, KrafkaError>) -> Result<T, KafkaError> {
+    result.map_err(|error| match error {
+        KrafkaError::Broker { message, .. } => KafkaError::Refused(message),
+        error => error.into(),
+    })
 }
 
 /// DeleteRecords reads this offset as the partition's high watermark.
 const HIGH_WATERMARK: i64 = -1;
 
 impl RecordDeletion {
-    pub(super) fn to_krafka(&self) -> HashMap<(String, i32), i64> {
-        self.before
-            .iter()
-            .map(|(&partition, before)| {
-                (
-                    (self.topic.clone(), partition),
-                    before.unwrap_or(HIGH_WATERMARK),
-                )
-            })
-            .collect()
+    pub(super) fn to_krafka(&self) -> impl Iterator<Item = (TopicPartition, i64)> + '_ {
+        self.before.iter().map(|(&partition, before)| {
+            (
+                TopicPartition::new(self.topic.as_str(), partition),
+                before.unwrap_or(HIGH_WATERMARK),
+            )
+        })
     }
 }
 
@@ -81,8 +81,8 @@ pub(super) fn produce_refusal(error: KrafkaError) -> KafkaError {
 }
 
 impl NewRecord {
-    pub(super) fn to_krafka(&self) -> ProducerRecord {
-        let mut record = ProducerRecord::new(self.topic.as_str(), Bytes::new());
+    pub(super) fn to_krafka(&self) -> Record {
+        let mut record = Record::new(self.topic.as_str(), Bytes::new());
         record.partition = self.partition;
         record.key = self.key.clone();
         record.value = self.value.clone();
@@ -95,35 +95,13 @@ impl NewRecord {
     }
 }
 
-pub(super) fn altered(response: IncrementalAlterConfigsResponse) -> Result<(), KafkaError> {
-    response
-        .results
-        .into_iter()
-        .try_for_each(|result| answered(result.error_code, result.error_message))
-}
-
-pub(super) fn answered(code: ErrorCode, message: Option<String>) -> Result<(), KafkaError> {
-    if code.is_ok() {
-        Ok(())
-    } else {
-        Err(KafkaError::Refused(
-            message.unwrap_or_else(|| format!("{code:?}")),
-        ))
-    }
-}
-
 impl ConfigEdit {
-    pub(super) fn to_krafka(&self) -> Vec<AlterableConfig> {
-        let set = self.set.iter().map(|(name, value)| AlterableConfig {
-            name: name.clone(),
-            config_operation: AlterConfigOp::Set,
-            value: Some(value.clone()),
-        });
-        let reset = self.reset.iter().map(|name| AlterableConfig {
-            name: name.clone(),
-            config_operation: AlterConfigOp::Delete,
-            value: None,
-        });
+    pub(super) fn to_krafka(&self) -> Vec<ConfigOp> {
+        let set = self
+            .set
+            .iter()
+            .map(|(name, value)| ConfigOp::set(name, value));
+        let reset = self.reset.iter().map(ConfigOp::delete);
         set.chain(reset).collect()
     }
 }
@@ -147,7 +125,7 @@ impl NewTopic {
 }
 
 impl TopicMetadata {
-    pub(super) fn from_krafka(topic: KrafkaTopicInfo) -> Self {
+    pub(super) fn from_krafka(topic: TopicInfo) -> Self {
         let mut partitions: Vec<PartitionMetadata> = topic
             .partitions
             .into_values()
@@ -217,11 +195,24 @@ impl MemberAssignment {
     }
 }
 
-pub(super) fn committed_from_krafka(entries: Vec<GroupOffsetEntry>) -> Vec<CommittedOffset> {
-    let mut committed: Vec<CommittedOffset> = entries
+pub(super) fn committed_from_krafka(
+    group: &str,
+    offsets: HashMap<TopicPartition, Result<GroupOffset, KrafkaError>>,
+) -> Vec<CommittedOffset> {
+    let mut committed: Vec<CommittedOffset> = offsets
         .into_iter()
-        .filter_map(|entry| {
-            CommittedOffset::from_krafka(entry.topic, entry.partition, entry.committed_offset)
+        .filter_map(|(partition, offset)| match offset {
+            Ok(offset) => CommittedOffset::from_krafka(partition, offset.offset),
+            Err(error) => {
+                warn!(
+                    group,
+                    topic = partition.topic,
+                    partition = partition.partition,
+                    %error,
+                    "skipping a committed offset Kafka would not return"
+                );
+                None
+            }
         })
         .collect();
     committed.shrink_to_fit();
@@ -229,38 +220,53 @@ pub(super) fn committed_from_krafka(entries: Vec<GroupOffsetEntry>) -> Vec<Commi
 }
 
 impl CommittedOffset {
-    /// Krafka reports a partition without a committed offset as `-1`.
-    fn from_krafka(topic: String, partition: i32, offset: i64) -> Option<Self> {
-        (offset >= 0 && validate_topic_name(&topic).is_ok()).then_some(Self {
-            topic,
-            partition,
+    fn from_krafka(partition: TopicPartition, offset: Option<i64>) -> Option<Self> {
+        let offset = offset?;
+        validate_topic_name(&partition.topic).ok()?;
+        Some(Self {
+            topic: partition.topic,
+            partition: partition.partition,
             offset,
         })
     }
 }
 
 impl LogDir {
-    pub(super) fn from_krafka(dir: LogDirInfo) -> Self {
+    pub(super) fn from_krafka(
+        broker: i32,
+        path: String,
+        dir: Result<LogDirDescription, KrafkaError>,
+    ) -> Self {
+        let dir = match dir {
+            Ok(dir) => dir,
+            Err(error) => {
+                return Self {
+                    broker,
+                    path,
+                    error: Some(error.to_string()),
+                    total_bytes: None,
+                    usable_bytes: None,
+                    cordoned: false,
+                    replicas: Vec::new(),
+                };
+            }
+        };
+
         Self {
-            broker: dir.broker_id,
-            path: dir.log_dir,
-            error: dir.error,
-            total_bytes: volume_bytes(dir.total_bytes),
-            usable_bytes: volume_bytes(dir.usable_bytes),
+            broker,
+            path,
+            error: None,
+            total_bytes: dir.total_bytes,
+            usable_bytes: dir.usable_bytes,
             cordoned: dir.is_cordoned,
             replicas: dir
-                .topics
+                .replicas
                 .into_iter()
-                .flat_map(|topic| {
-                    topic
-                        .partitions
-                        .into_iter()
-                        .map(move |partition| ReplicaLog {
-                            topic: topic.name.clone(),
-                            partition: partition.partition_index,
-                            size_bytes: partition.partition_size,
-                            future: partition.is_future_key,
-                        })
+                .map(|(partition, replica)| ReplicaLog {
+                    topic: partition.topic,
+                    partition: partition.partition,
+                    size_bytes: replica.size,
+                    future: replica.is_future,
                 })
                 .collect(),
         }
@@ -279,23 +285,11 @@ impl From<KrafkaConfigEntry> for ConfigEntry {
     }
 }
 
-impl From<DescribeConfigsEntry> for ConfigEntry {
-    fn from(entry: DescribeConfigsEntry) -> Self {
-        Self {
-            name: entry.name,
-            value: entry.value,
-            source: ConfigSource::from_krafka(entry.config_source),
-            read_only: entry.read_only,
-            sensitive: entry.is_sensitive,
-        }
-    }
-}
-
 impl BrokerScope {
-    pub(super) fn resource_name(self) -> String {
+    pub(super) fn to_krafka(self) -> ConfigResource {
         match self {
-            Self::Broker(id) => id.to_string(),
-            Self::Cluster => String::new(),
+            Self::Broker(id) => ConfigResource::broker(id),
+            Self::Cluster => ConfigResource::broker_default(),
         }
     }
 }
@@ -317,9 +311,7 @@ mod tests {
     use std::collections::BTreeMap;
     use std::num::{NonZeroU8, NonZeroU16};
 
-    use krafka::admin::ConfigResourceType;
     use krafka::error::ErrorCode;
-    use krafka::protocol::IncrementalAlterConfigsResult;
 
     use super::*;
     use crate::kafka::scan::RecordHeader;
@@ -341,23 +333,28 @@ mod tests {
 
     #[test]
     fn a_broker_scope_names_its_broker_and_the_cluster_default_names_none() {
-        assert_eq!(BrokerScope::Broker(12).resource_name(), "12");
-        assert_eq!(BrokerScope::Cluster.resource_name(), "");
+        assert_eq!(
+            BrokerScope::Broker(12).to_krafka(),
+            ConfigResource::broker(12)
+        );
+        assert_eq!(BrokerScope::Cluster.to_krafka().name, "");
     }
 
     #[test]
     fn committed_offsets_drop_unset_offsets_and_illegal_topic_names() {
+        let at = |topic: &str| TopicPartition::new(topic, 1);
+
         assert_eq!(
-            CommittedOffset::from_krafka("orders".into(), 1, 0),
+            CommittedOffset::from_krafka(at("orders"), Some(0)),
             Some(CommittedOffset {
                 topic: "orders".into(),
                 partition: 1,
                 offset: 0,
             })
         );
-        assert_eq!(CommittedOffset::from_krafka("orders".into(), 1, -1), None);
-        assert_eq!(CommittedOffset::from_krafka(String::new(), 1, 7), None);
-        assert_eq!(CommittedOffset::from_krafka("bad/name".into(), 1, 7), None);
+        assert_eq!(CommittedOffset::from_krafka(at("orders"), None), None);
+        assert_eq!(CommittedOffset::from_krafka(at(""), Some(7)), None);
+        assert_eq!(CommittedOffset::from_krafka(at("bad/name"), Some(7)), None);
     }
 
     #[test]
@@ -435,10 +432,10 @@ mod tests {
         };
 
         assert_eq!(
-            deletion.to_krafka(),
+            deletion.to_krafka().collect::<HashMap<_, _>>(),
             HashMap::from([
-                (("orders".to_owned(), 0), 42),
-                (("orders".to_owned(), 1), -1)
+                (TopicPartition::new("orders", 0), 42),
+                (TopicPartition::new("orders", 1), -1)
             ])
         );
     }
@@ -450,55 +447,28 @@ mod tests {
             reset: ["cleanup.policy".to_owned()].into(),
         };
 
-        let ops: Vec<_> = edit
-            .to_krafka()
-            .into_iter()
-            .map(|config| (config.name, config.config_operation, config.value))
-            .collect();
-
         assert_eq!(
-            ops,
+            edit.to_krafka(),
             [
-                (
-                    "retention.ms".to_owned(),
-                    AlterConfigOp::Set,
-                    Some("60000".to_owned())
-                ),
-                ("cleanup.policy".to_owned(), AlterConfigOp::Delete, None),
+                ConfigOp::set("retention.ms", "60000"),
+                ConfigOp::delete("cleanup.policy"),
             ]
         );
     }
 
-    fn alter_result(code: ErrorCode, message: Option<&str>) -> IncrementalAlterConfigsResponse {
-        IncrementalAlterConfigsResponse {
-            throttle_time_ms: 0,
-            results: vec![IncrementalAlterConfigsResult {
-                error_code: code,
-                error_message: message.map(str::to_owned),
-                resource_type: ConfigResourceType::Topic,
-                resource_name: "orders".to_owned(),
-            }],
-        }
-    }
-
     #[test]
-    fn an_altered_resource_is_ok_and_a_refused_one_carries_the_broker_reason() {
-        assert!(altered(alter_result(ErrorCode::None, None)).is_ok());
-
-        let invalid = altered(alter_result(
+    fn a_refused_item_carries_the_broker_reason_but_a_timeout_stays_a_client_error() {
+        let invalid = refused::<()>(Err(KrafkaError::broker(
             ErrorCode::InvalidConfig,
-            Some("Invalid value -5 for configuration retention.ms"),
-        ))
+            "Invalid value -5 for configuration retention.ms",
+        )))
         .unwrap_err();
         assert!(
             matches!(&invalid, KafkaError::Refused(reason) if reason.starts_with("Invalid value -5")),
             "{invalid}"
         );
 
-        let bare = altered(alter_result(ErrorCode::PolicyViolation, None)).unwrap_err();
-        assert!(
-            matches!(&bare, KafkaError::Refused(reason) if reason == "PolicyViolation"),
-            "{bare}"
-        );
+        let timeout = refused::<()>(Err(KrafkaError::timeout("CreateTopics"))).unwrap_err();
+        assert!(matches!(timeout, KafkaError::Krafka(_)), "{timeout}");
     }
 }

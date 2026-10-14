@@ -1,9 +1,9 @@
 use std::time::Duration;
 
+use krafka::Kafka;
 use krafka::admin::AdminClient as KrafkaAdmin;
 use krafka::auth::{AuthConfig, TlsConfig as KrafkaTlsConfig};
-use krafka::client::KrafkaClient as KrafkaSharedClient;
-use krafka::network::TransportConfig;
+use krafka::consumer::Consumer;
 use krafka::producer::Producer;
 use secrecy::ExposeSecret;
 
@@ -13,8 +13,11 @@ use crate::kafka::error::KafkaError;
 const CLIENT_ID_PREFIX: &str = "klens";
 
 pub(super) struct Transport {
-    pub(super) client: KrafkaSharedClient,
+    pub(super) kafka: Kafka,
     pub(super) admin: KrafkaAdmin,
+    /// krafka shows the metadata cache its clients share only through a
+    /// consumer. This one is never assigned a partition, so it fetches nothing.
+    pub(super) metadata: Consumer,
     pub(super) connector: Connector,
 }
 
@@ -24,17 +27,14 @@ pub(super) struct Connector {
     client_id: String,
     request_timeout: Duration,
     connect_timeout: Duration,
-    transport: TransportConfig,
+    max_in_flight_requests: usize,
+    max_response_size: usize,
     auth: Option<AuthConfig>,
 }
 
 impl Connector {
-    fn new(
-        name: &str,
-        cluster: &config::Cluster,
-        tuning: &KafkaTuning,
-    ) -> Result<Self, KafkaError> {
-        Ok(Self {
+    fn new(name: &str, cluster: &config::Cluster, tuning: &KafkaTuning) -> Self {
+        Self {
             bootstrap_servers: cluster.bootstrap_servers.join(","),
             client_id: cluster
                 .client_id
@@ -42,27 +42,26 @@ impl Connector {
                 .unwrap_or_else(|| format!("{CLIENT_ID_PREFIX}-{name}")),
             request_timeout: tuning.request_timeout.max(tuning.connect_timeout),
             connect_timeout: tuning.connect_timeout,
-            transport: TransportConfig::builder()
-                .max_in_flight_requests(tuning.max_in_flight_requests.get())
-                .max_response_size(tuning.max_response_bytes())
-                .tcp_nodelay(true)
-                .build()?,
-            auth: krafka_auth(cluster)?,
-        })
+            max_in_flight_requests: tuning.max_in_flight_requests.get(),
+            max_response_size: tuning.max_response_bytes(),
+            auth: krafka_auth(cluster),
+        }
     }
 
-    pub(super) async fn connect(&self) -> Result<KrafkaSharedClient, KafkaError> {
-        let mut builder = KrafkaSharedClient::builder(self.bootstrap_servers.clone())
+    pub(super) async fn connect(&self) -> Result<Kafka, KafkaError> {
+        let mut builder = Kafka::builder(self.bootstrap_servers.clone())
             .client_id(self.client_id.clone())
             .request_timeout(self.request_timeout)
             .connect_timeout(self.connect_timeout)
-            .transport(self.transport.clone());
+            .max_in_flight_requests(self.max_in_flight_requests)
+            .max_response_size(self.max_response_size)
+            .tcp_nodelay(true);
 
         if let Some(auth) = &self.auth {
-            builder = builder.auth(auth.clone());
+            builder = builder.security(auth.clone());
         }
 
-        Ok(builder.build().await?)
+        Ok(builder.connect().await?)
     }
 }
 
@@ -72,70 +71,60 @@ impl Transport {
         cluster: &config::Cluster,
         tuning: &KafkaTuning,
     ) -> Result<Self, KafkaError> {
-        let connector = Connector::new(name, cluster, tuning)?;
-        let client = connector.connect().await?;
-        let admin = KrafkaAdmin::builder()
-            .with_client(&client)
-            .request_timeout(connector.request_timeout)
-            .connect_timeout(connector.connect_timeout)
+        let connector = Connector::new(name, cluster, tuning);
+        let kafka = connector.connect().await?;
+        let admin = kafka
+            .admin()
+            .default_api_timeout(connector.request_timeout)
+            .metrics_push(false);
+        let metadata = kafka
+            .consumer_without_group()
+            .metrics_push(false)
             .build()
             .await?;
 
         Ok(Self {
-            client,
+            kafka,
             admin,
+            metadata,
             connector,
         })
     }
 
     pub(super) async fn producer(&self) -> Result<Producer, KafkaError> {
         let request_timeout = self.connector.request_timeout;
-        Ok(Producer::builder()
-            .with_client(&self.client)
-            .request_timeout(request_timeout)
-            .connect_timeout(self.connector.connect_timeout)
+        // krafka retries a retriable error until the delivery timeout, and
+        // only idempotence keeps a resend from storing the record twice.
+        Ok(self
+            .kafka
+            .producer()
+            .linger(Duration::ZERO)
             .max_block(request_timeout)
             .delivery_timeout(request_timeout)
-            // A resend without idempotence can store the record twice, and
-            // idempotence needs IDEMPOTENT_WRITE on the cluster before Kafka 2.8,
-            // so a failed write goes back to the user to retry.
-            .retries(0)
-            .idempotent(false)
+            .idempotent(true)
+            .metrics_push(false)
             .build()
             .await?)
     }
 }
 
-fn krafka_auth(cluster: &config::Cluster) -> Result<Option<AuthConfig>, KafkaError> {
+fn krafka_auth(cluster: &config::Cluster) -> Option<AuthConfig> {
     let tls = cluster.tls.as_ref().map(krafka_tls);
-    Ok(match (&cluster.sasl, tls) {
+    match (&cluster.sasl, tls) {
         (None, None) => None,
         (None, Some(tls)) => Some(AuthConfig::ssl(tls)),
-        (Some(sasl), tls) => Some(krafka_sasl(sasl, tls)?),
-    })
+        (Some(sasl), None) => Some(krafka_sasl(sasl)),
+        (Some(sasl), Some(tls)) => Some(krafka_sasl(sasl).with_tls(tls)),
+    }
 }
 
-fn krafka_sasl(sasl: &Sasl, tls: Option<KrafkaTlsConfig>) -> Result<AuthConfig, KafkaError> {
-    Ok(match (sasl.mechanism, tls) {
-        (SaslMechanism::Plain, None) => {
-            AuthConfig::sasl_plain(&sasl.username, sasl.password.expose_secret())?
-        }
-        (SaslMechanism::Plain, Some(tls)) => {
-            AuthConfig::sasl_plain_ssl(&sasl.username, sasl.password.expose_secret(), tls)?
-        }
-        (SaslMechanism::ScramSha256, None) => {
-            AuthConfig::sasl_scram_sha256(&sasl.username, sasl.password.expose_secret())
-        }
-        (SaslMechanism::ScramSha256, Some(tls)) => {
-            AuthConfig::sasl_scram_sha256_ssl(&sasl.username, sasl.password.expose_secret(), tls)
-        }
-        (SaslMechanism::ScramSha512, None) => {
-            AuthConfig::sasl_scram_sha512(&sasl.username, sasl.password.expose_secret())
-        }
-        (SaslMechanism::ScramSha512, Some(tls)) => {
-            AuthConfig::sasl_scram_sha512_ssl(&sasl.username, sasl.password.expose_secret(), tls)
-        }
-    })
+fn krafka_sasl(sasl: &Sasl) -> AuthConfig {
+    let password = sasl.password.expose_secret();
+    match sasl.mechanism {
+        SaslMechanism::Plain => AuthConfig::sasl_plain(&sasl.username, password),
+        SaslMechanism::ScramSha256 => AuthConfig::sasl_scram_sha256(&sasl.username, password),
+        SaslMechanism::ScramSha512 => AuthConfig::sasl_scram_sha512(&sasl.username, password),
+    }
 }
 
 fn krafka_tls(tls: &Tls) -> KrafkaTlsConfig {
@@ -184,7 +173,7 @@ mod tests {
         ));
 
         // Building succeeds only if request_timeout is raised to the connect timeout.
-        let transport = Transport::connect("local", &cluster, &tuning(30, 8))
+        Transport::connect("local", &cluster, &tuning(30, 8))
             .await
             .unwrap();
         assert!(
@@ -193,9 +182,6 @@ mod tests {
                 .iter()
                 .all(|request| request.client_id.as_deref() == Some("custom-client"))
         );
-        assert_eq!(transport.admin.request_timeout(), Duration::from_secs(30));
-        transport.admin.close().await;
-        transport.client.pool().close_all().await;
     }
 
     #[test]
@@ -205,8 +191,7 @@ mod tests {
                 "local",
                 &cluster("bootstrap_servers: [kafka:9092]"),
                 &tuning,
-            )
-            .unwrap();
+            );
             (connector.connect_timeout, connector.request_timeout)
         };
 
@@ -226,8 +211,7 @@ mod tests {
             "local",
             &cluster("bootstrap_servers: [a:9092, b:9092]"),
             &KafkaTuning::default(),
-        )
-        .unwrap();
+        );
 
         assert_eq!(connector.client_id, "klens-local");
         assert_eq!(connector.bootstrap_servers, "a:9092,b:9092");
@@ -235,7 +219,7 @@ mod tests {
 
     #[test]
     fn a_cluster_without_tls_or_sasl_connects_in_plaintext() {
-        let auth = krafka_auth(&cluster("bootstrap_servers: [kafka:9092]")).unwrap();
+        let auth = krafka_auth(&cluster("bootstrap_servers: [kafka:9092]"));
 
         assert!(auth.is_none());
     }
@@ -245,7 +229,6 @@ mod tests {
         let auth = krafka_auth(&cluster(
             "{bootstrap_servers: [kafka:9093], tls: {ca_cert: /etc/ca.pem}}",
         ))
-        .unwrap()
         .expect("ssl auth");
 
         assert_eq!(auth.sasl_mechanism(), None);
@@ -262,7 +245,6 @@ mod tests {
             sasl: {mechanism: PLAIN, username: admin, password: {value: secret}}
             ",
         ))
-        .unwrap()
         .expect("sasl auth");
 
         assert_eq!(
@@ -287,7 +269,6 @@ mod tests {
               password: {value: secret}
             ",
         ))
-        .unwrap()
         .expect("sasl ssl auth");
 
         assert_eq!(

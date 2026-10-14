@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use krafka::client::KrafkaClient as KrafkaSharedClient;
+use krafka::Kafka;
 use krafka::consumer::Consumer;
 
 use crate::config::ScanTuning;
@@ -12,7 +12,7 @@ use crate::kafka::model::PartitionWindow;
 use super::scan::{ReaderConfig, ScanLease, reader};
 
 pub(super) struct ScanPool {
-    client: KrafkaSharedClient,
+    kafka: Kafka,
     reader: ReaderConfig,
     inner: Mutex<ScanPoolInner>,
 }
@@ -92,13 +92,9 @@ pub(super) fn retire(consumer: Arc<Consumer>) {
 }
 
 impl ScanPool {
-    pub(super) fn spawn(
-        client: KrafkaSharedClient,
-        tuning: &ScanTuning,
-        reader: ReaderConfig,
-    ) -> Arc<Self> {
+    pub(super) fn spawn(kafka: Kafka, tuning: &ScanTuning, reader: ReaderConfig) -> Arc<Self> {
         let pool = Arc::new(Self {
-            client,
+            kafka,
             reader,
             inner: Mutex::new(ScanPoolInner::new(tuning)),
         });
@@ -175,7 +171,7 @@ impl ScanPool {
             .iter()
             .map(|window| (window.partition, window.start));
 
-        Ok(reader(&self.client, topic, start, self.reader)
+        Ok(reader(&self.kafka, topic, start, self.reader)
             .build()
             .await?)
     }

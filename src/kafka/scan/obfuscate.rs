@@ -110,7 +110,7 @@ impl TopicObfuscator {
             || self.value.is_some()
     }
 
-    pub fn mask_headers(&self, headers: &mut [(Bytes, Option<Bytes>)]) {
+    pub fn mask_headers(&self, headers: &mut [(String, Option<Bytes>)]) {
         if self.headers.is_empty() {
             return;
         }
@@ -119,7 +119,7 @@ impl TopicObfuscator {
             if self
                 .headers
                 .iter()
-                .any(|masked| masked.as_bytes() == name.as_ref())
+                .any(|masked| masked.as_ref() == name.as_str())
             {
                 *value = Some(Bytes::from_static(MASK.as_bytes()));
             }
@@ -620,14 +620,8 @@ mod tests {
         .expect("rule");
 
         let mut headers = vec![
-            (
-                Bytes::from_static(b"x-user-id"),
-                Some(Bytes::from_static(b"ada")),
-            ),
-            (
-                Bytes::from_static(b"source"),
-                Some(Bytes::from_static(b"checkout")),
-            ),
+            ("x-user-id".to_owned(), Some(Bytes::from_static(b"ada"))),
+            ("source".to_owned(), Some(Bytes::from_static(b"checkout"))),
         ];
         obfuscator.mask_headers(&mut headers);
 

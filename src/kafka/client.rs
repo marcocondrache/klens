@@ -10,35 +10,33 @@ mod transport;
 
 use std::collections::BTreeMap;
 use std::num::NonZeroU16;
-use std::ops::RangeInclusive;
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use bytes::Bytes;
 use foldhash::{HashMap, HashMapExt};
-use itertools::Itertools as _;
 use krafka::admin::{
-    AclFilter, ConfigResourceType, DescribeConfigsRequest, DescribeConfigsResource, GroupListing,
-    OffsetSpec, OffsetVisibility, QuotaAlteration,
+    AclFilter, AlterClientQuotasOptions, AlterConsumerGroupOffsetsOptions,
+    AlterUserScramCredentialsOptions, ClientQuotaAlteration, ClientQuotaFilter, ConfigResource,
+    ConsumerGroupListing, CreateAclsOptions, CreatePartitionsOptions, CreateTopicsOptions,
+    DeleteAclsOptions, DeleteConsumerGroupOffsetsOptions, DeleteConsumerGroupsOptions,
+    DeleteRecordsOptions, DeleteTopicsOptions, DescribeAclsOptions, DescribeClientQuotasOptions,
+    DescribeClusterOptions, DescribeConfigsOptions, DescribeConsumerGroupsOptions,
+    DescribeLogDirsOptions, DescribeUserScramCredentialsOptions, IncrementalAlterConfigsOptions,
+    ListConsumerGroupOffsetsOptions, ListConsumerGroupsOptions, ListOffsetsOptions,
+    ListTopicsOptions, ListedOffset, OffsetSpec, ScramCredentialDeletion, TopicPartition,
 };
 use krafka::error::{KrafkaError, ProtocolErrorKind};
-use krafka::network::BrokerConnection;
 use krafka::producer::Producer;
-use krafka::protocol::{
-    ApiKey, CreateAclsResponse, DeleteAclsResponse, DeleteGroupsRequest, DeleteGroupsResponse,
-    DescribeConfigsResponse, FindCoordinatorRequest, FindCoordinatorResponse,
-    IncrementalAlterConfigsRequest, IncrementalAlterConfigsResource, ScramCredentialDeletion,
-    VersionedDecode, VersionedEncode, versions,
-};
 use tokio::sync::OnceCell;
 
 use crate::config::{self, Tuning};
-use crate::kafka::acl::{Acl, AclBindings, AclListing};
+use crate::kafka::acl::{Acl, AclListing};
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
 use crate::kafka::group::{CommittedOffset, GroupSnapshot};
-use crate::kafka::metadata::{MetadataSnapshot, NewTopic, TopicMetadata};
+use crate::kafka::metadata::{MetadataSnapshot, NewTopic, TopicMetadata, validate_topic_name};
 use crate::kafka::model::{
     NewRecord, PartitionWindow, ProducedRecord, RecordDeletion, ScanConsumer, TailConsumer,
     TailPosition,
@@ -57,7 +55,7 @@ use crate::kafka::session::ClusterSession;
 use crate::kafka::storage::LogDir;
 use crate::kafka::topic_config::{BrokerScope, ConfigEdit, ConfigEntry};
 
-use convert::{altered, answered, committed_from_krafka, produce_refusal, refused};
+use convert::{committed_from_krafka, produce_refusal, refused};
 use groups::{
     ACTIVE_GROUP_STATES, LISTED_GROUP_TYPES, snapshots_from_descriptions, split_empty_groups,
 };
@@ -138,13 +136,35 @@ impl KafkaClient {
         topics: &HashMap<String, Vec<i32>>,
         spec: OffsetSpec,
     ) -> Result<HashMap<String, HashMap<i32, i64>>, KafkaError> {
-        let query = list_offset_query(topics);
-        if query.is_empty() {
+        let specs = offset_specs(topics, spec);
+        if specs.is_empty() {
             return Ok(HashMap::new());
         }
 
-        let listed = self.transport.admin.list_offsets(&query, spec).await?;
-        Ok(known_offsets(listed.into_iter().map(list_offset_parts)))
+        let listed = self
+            .transport
+            .admin
+            .list_offsets(specs, ListOffsetsOptions::default())
+            .await?;
+        Ok(known_offsets(listed.into_iter().map(listed_offset_parts)))
+    }
+
+    /// Kafka before 2.8 has no DescribeCluster, and no other request krafka
+    /// sends reports the cluster id.
+    async fn cluster_id(&self) -> Result<Option<String>, KafkaError> {
+        match self
+            .transport
+            .admin
+            .describe_cluster(DescribeClusterOptions::default())
+            .await
+        {
+            Ok(cluster) => Ok(Some(cluster.cluster_id)),
+            Err(KrafkaError::Protocol {
+                kind: ProtocolErrorKind::UnknownApiVersion,
+                ..
+            }) => Ok(None),
+            Err(error) => Err(error.into()),
+        }
     }
 }
 
@@ -163,37 +183,52 @@ impl ClusterSession for KafkaClient {
     }
 
     async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError> {
-        let cache = self.transport.client.metadata();
-        cache.refresh().await?;
-        Ok(MetadataSnapshot::from_krafka(cache))
+        // Listing the topics refreshes the metadata cache the clients share.
+        let refreshed = async {
+            self.transport
+                .admin
+                .list_topics(ListTopicsOptions::default().include_internal(true))
+                .await
+                .map_err(KafkaError::from)
+        };
+        let (_, cluster_id) = tokio::try_join!(refreshed, self.cluster_id())?;
+        let cached = self.transport.metadata.fetch_metadata(None).await?;
+        Ok(MetadataSnapshot::from_krafka(cluster_id, cached))
     }
 
     async fn topic_metadata(&self, topic: &str) -> Result<TopicMetadata, KafkaError> {
-        let cache = self.transport.client.metadata();
-        cache.refresh_for_topics(Some(&[topic])).await?;
-        cache
-            .topic(topic)
+        let unknown = || KafkaError::UnknownTopic {
+            cluster: self.identity.name.clone(),
+            topic: topic.to_owned(),
+        };
+        if validate_topic_name(topic).is_err() {
+            return Err(unknown());
+        }
+
+        self.transport
+            .metadata
+            .fetch_metadata(Some(topic))
+            .await?
+            .topics
+            .into_iter()
+            .next()
             .map(TopicMetadata::from_krafka)
-            .ok_or_else(|| KafkaError::UnknownTopic {
-                cluster: self.identity.name.clone(),
-                topic: topic.to_owned(),
-            })
+            .ok_or_else(unknown)
     }
 
     async fn groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
         let admin = &self.transport.admin;
-        let listing = GroupListing::all().of_types(LISTED_GROUP_TYPES);
-        let active_listing = listing.clone().in_states(ACTIVE_GROUP_STATES);
+        let listing = ListConsumerGroupsOptions::default().types(owned(&LISTED_GROUP_TYPES));
+        let active_listing = listing.clone().states(owned(&ACTIVE_GROUP_STATES));
         let (listed, active) = tokio::try_join!(
-            admin.list_consumer_groups(&listing),
-            admin.list_consumer_groups(&active_listing),
+            admin.list_consumer_groups(listing),
+            admin.list_consumer_groups(active_listing),
         )?;
-        let (active, mut groups) = split_empty_groups(
-            listed.into_iter().map(|group| group.group_id),
-            active.into_iter().map(|group| group.group_id),
-        );
+        let (active, mut groups) = split_empty_groups(group_ids(listed)?, group_ids(active)?);
         groups.extend(snapshots_from_descriptions(
-            admin.describe_consumer_groups(active).await?,
+            admin
+                .describe_consumer_groups(active, DescribeConsumerGroupsOptions::default())
+                .await?,
         ));
         Ok(groups)
     }
@@ -203,21 +238,25 @@ impl ClusterSession for KafkaClient {
         group_id: &str,
         partitions: Option<&[(&str, i32)]>,
     ) -> Result<Vec<CommittedOffset>, KafkaError> {
-        let topics = partitions.map(partitions_by_topic);
-        let query = topics.as_ref().map(list_offset_query);
-        if query.as_ref().is_some_and(Vec::is_empty) {
-            return Ok(Vec::new());
+        let mut options = ListConsumerGroupOffsetsOptions::default();
+        if let Some(partitions) = partitions {
+            let partitions: Vec<TopicPartition> = partitions
+                .iter()
+                .filter(|(topic, _)| validate_topic_name(topic).is_ok())
+                .map(|&(topic, partition)| TopicPartition::new(topic, partition))
+                .collect();
+            if partitions.is_empty() {
+                return Ok(Vec::new());
+            }
+            options = options.partitions(partitions);
         }
+
         let listed = self
             .transport
             .admin
-            .describe_consumer_group_offsets(
-                group_id,
-                query.as_deref(),
-                OffsetVisibility::IncludeUnstable,
-            )
+            .list_consumer_group_offsets(group_id, options)
             .await?;
-        Ok(committed_from_krafka(listed))
+        Ok(committed_from_krafka(group_id, listed))
     }
 
     async fn low_watermarks(
@@ -240,17 +279,23 @@ impl ClusterSession for KafkaClient {
         partitions: &[i32],
         timestamp: i64,
     ) -> Result<HashMap<i32, Option<i64>>, KafkaError> {
-        if partitions.is_empty() {
+        if partitions.is_empty() || validate_topic_name(topic).is_err() {
             return Ok(HashMap::new());
         }
 
+        let specs = partitions.iter().map(|&partition| {
+            (
+                TopicPartition::new(topic, partition),
+                OffsetSpec::Timestamp(timestamp),
+            )
+        });
         let listed = self
             .transport
             .admin
-            .list_offsets(&[(topic, partitions)], OffsetSpec::Timestamp(timestamp))
+            .list_offsets(specs, ListOffsetsOptions::default())
             .await?;
         Ok(partition_time_offsets(
-            listed.into_iter().map(list_offset_parts),
+            listed.into_iter().map(listed_offset_parts),
         ))
     }
 
@@ -262,66 +307,66 @@ impl ClusterSession for KafkaClient {
             return Ok(HashMap::new());
         }
 
-        let request = DescribeConfigsRequest {
-            resources: topics
-                .iter()
-                .map(|topic| DescribeConfigsResource {
-                    resource_type: ConfigResourceType::Topic,
-                    resource_name: (*topic).to_owned(),
-                    config_names: None,
-                })
-                .collect(),
-            include_synonyms: false,
-            include_documentation: false,
-        };
-        let results = self
+        let described = self
             .transport
             .admin
-            .describe_configs_per_resource(request)
+            .describe_configs(
+                topics.iter().map(|topic| ConfigResource::topic(*topic)),
+                DescribeConfigsOptions::default(),
+            )
             .await?;
 
-        let mut out = HashMap::new();
-        for result in results {
-            if !result.error_code.is_ok() {
-                continue;
-            }
-            if result.resource_type == ConfigResourceType::Topic {
-                out.insert(
-                    result.resource_name,
-                    result.configs.into_iter().map(ConfigEntry::from).collect(),
-                );
-            }
-        }
-        Ok(out)
+        Ok(described
+            .into_iter()
+            .filter_map(|(resource, configs)| {
+                let configs = configs.ok()?;
+                Some((
+                    resource.name,
+                    configs.into_iter().map(ConfigEntry::from).collect(),
+                ))
+            })
+            .collect())
     }
 
     async fn broker_configs(&self, broker_id: i32) -> Result<Vec<ConfigEntry>, KafkaError> {
-        let connection = self.broker_connection(broker_id).await?;
-        let described: DescribeConfigsResponse = call(
-            &connection,
-            ApiKey::DescribeConfigs,
-            versions::DESCRIBE_CONFIGS_MIN..=versions::DESCRIBE_CONFIGS_MAX,
-            &DescribeConfigsRequest::for_broker(broker_id),
-        )
-        .await?;
+        let described = self
+            .transport
+            .admin
+            .describe_configs(
+                [ConfigResource::broker(broker_id)],
+                DescribeConfigsOptions::default(),
+            )
+            .await?;
 
-        match described.results.into_iter().next() {
-            Some(result) if result.error_code.is_ok() => {
-                Ok(result.configs.into_iter().map(ConfigEntry::from).collect())
-            }
-            Some(result) => Err(KafkaError::BrokerConfigs {
+        match described.into_values().next() {
+            Some(Ok(configs)) => Ok(configs.into_iter().map(ConfigEntry::from).collect()),
+            Some(Err(KrafkaError::Broker { message, .. })) => Err(KafkaError::BrokerConfigs {
                 id: broker_id,
-                message: result
-                    .error_message
-                    .unwrap_or_else(|| format!("{:?}", result.error_code)),
+                message,
             }),
+            Some(Err(error)) => Err(error.into()),
             None => Ok(Vec::new()),
         }
     }
 
     async fn log_dirs(&self) -> Result<Vec<LogDir>, KafkaError> {
-        let dirs = self.transport.admin.describe_log_dirs(None).await?;
-        Ok(dirs.into_iter().map(LogDir::from_krafka).collect())
+        let cached = self.transport.metadata.fetch_metadata(None).await?;
+        let brokers = cached.brokers.iter().map(|broker| broker.id());
+        let described = self
+            .transport
+            .admin
+            .describe_log_dirs(brokers, DescribeLogDirsOptions::default())
+            .await?;
+
+        let mut dirs = Vec::new();
+        for (broker, broker_dirs) in described {
+            dirs.extend(
+                broker_dirs?
+                    .into_iter()
+                    .map(|(path, dir)| LogDir::from_krafka(broker, path, dir)),
+            );
+        }
+        Ok(dirs)
     }
 
     async fn open_scan(
@@ -394,7 +439,10 @@ impl ClusterSession for KafkaClient {
     async fn acls(&self) -> Result<AclListing, KafkaError> {
         AclListing::from_admin_result(
             &self.identity.name,
-            self.transport.admin.describe_acls(AclFilter::all()).await,
+            self.transport
+                .admin
+                .describe_acls(AclFilter::all(), DescribeAclsOptions::default())
+                .await,
         )
     }
 
@@ -402,23 +450,21 @@ impl ClusterSession for KafkaClient {
         let described = self
             .transport
             .admin
-            .describe_client_quotas(&[], false)
-            .await?;
+            .describe_client_quotas(
+                ClientQuotaFilter::all(),
+                DescribeClientQuotasOptions::default(),
+            )
+            .await;
+        let (error, described) = split_refusal(described)?;
         QuotaListing::from_describe(
             &self.identity.name,
-            described.error.as_deref(),
-            described.entries.into_iter().map(|entry| DescribedQuota {
-                entity: entry
-                    .entity
-                    .into_iter()
-                    .map(|part| (part.entity_type, part.entity_name))
-                    .collect(),
-                values: entry
-                    .values
-                    .into_iter()
-                    .map(|value| (value.key, value.value))
-                    .collect(),
-            }),
+            error.as_deref(),
+            described
+                .into_iter()
+                .map(|(entity, values)| DescribedQuota {
+                    entity: entity.0.into_iter().collect(),
+                    values: values.into_iter().collect(),
+                }),
         )
     }
 
@@ -426,50 +472,42 @@ impl ClusterSession for KafkaClient {
         let described = self
             .transport
             .admin
-            .describe_user_scram_credentials(None)
-            .await?;
-        ScramListing::from_describe(
-            described.error.as_deref(),
-            described.users.into_iter().map(|user| DescribedUser {
-                name: user.name,
-                credentials: user
-                    .credential_infos
+            .describe_user_scram_credentials(None, DescribeUserScramCredentialsOptions::default())
+            .await;
+        let (error, described) = split_refusal(described)?;
+        let mut users = Vec::with_capacity(described.len());
+        for (name, infos) in described {
+            users.push(DescribedUser {
+                name,
+                credentials: infos?
                     .into_iter()
                     .map(|info| (info.mechanism, info.iterations))
                     .collect(),
-            }),
-        )
+            });
+        }
+        ScramListing::from_describe(error.as_deref(), users)
     }
 
     async fn create_topic(&self, topic: &NewTopic) -> Result<(), KafkaError> {
-        let admin = &self.transport.admin;
-        admin
-            .create_topics(vec![topic.to_krafka()?], admin.request_timeout(), false)
+        self.transport
+            .admin
+            .create_topics([topic.to_krafka()?], CreateTopicsOptions::default())
             .await?
-            .into_iter()
-            .try_for_each(|created| refused(created.error))
+            .into_values()
+            .try_for_each(refused)
     }
 
     async fn delete_topic(&self, topic: &str) -> Result<(), KafkaError> {
-        let admin = &self.transport.admin;
-        admin
-            .delete_topics(vec![topic.to_owned()], admin.request_timeout())
+        self.transport
+            .admin
+            .delete_topics([topic], DeleteTopicsOptions::default())
             .await?
-            .into_iter()
-            .try_for_each(|deleted| refused(deleted.error))
+            .into_values()
+            .try_for_each(refused)
     }
 
     async fn alter_topic_configs(&self, topic: &str, edit: &ConfigEdit) -> Result<(), KafkaError> {
-        let connection = self.transport.admin.get_controller_connection().await?;
-        alter_configs(
-            &connection,
-            IncrementalAlterConfigsResource {
-                resource_type: ConfigResourceType::Topic,
-                resource_name: topic.to_owned(),
-                configs: edit.to_krafka(),
-            },
-        )
-        .await
+        self.alter_configs(ConfigResource::topic(topic), edit).await
     }
 
     async fn alter_broker_configs(
@@ -477,46 +515,31 @@ impl ClusterSession for KafkaClient {
         scope: BrokerScope,
         edit: &ConfigEdit,
     ) -> Result<(), KafkaError> {
-        let connection = match scope {
-            BrokerScope::Broker(id) => self.broker_connection(id).await?,
-            BrokerScope::Cluster => self.transport.admin.get_controller_connection().await?,
-        };
-        alter_configs(
-            &connection,
-            IncrementalAlterConfigsResource {
-                resource_type: ConfigResourceType::Broker,
-                resource_name: scope.resource_name(),
-                configs: edit.to_krafka(),
-            },
-        )
-        .await
+        self.alter_configs(scope.to_krafka(), edit).await
     }
 
     async fn add_partitions(&self, topic: &str, total: NonZeroU16) -> Result<(), KafkaError> {
-        let admin = &self.transport.admin;
-        let added = admin
+        self.transport
+            .admin
             .create_partitions(
-                topic,
-                i32::from(total.get()),
-                admin.request_timeout(),
-                false,
+                [(topic, i32::from(total.get()))],
+                CreatePartitionsOptions::default(),
             )
-            .await?;
-        refused(added.error)
+            .await?
+            .into_values()
+            .try_for_each(refused)
     }
 
     async fn delete_records(
         &self,
         deletion: &RecordDeletion,
     ) -> Result<BTreeMap<i32, i64>, KafkaError> {
-        let admin = &self.transport.admin;
-        admin
-            .delete_records(deletion.to_krafka(), admin.request_timeout())
+        self.transport
+            .admin
+            .delete_records(deletion.to_krafka(), DeleteRecordsOptions::default())
             .await?
             .into_iter()
-            .map(|deleted| {
-                refused(deleted.error).map(|()| (deleted.partition, deleted.low_watermark))
-            })
+            .map(|(partition, low_watermark)| Ok((partition.partition, refused(low_watermark)?)))
             .collect()
     }
 
@@ -530,7 +553,7 @@ impl ClusterSession for KafkaClient {
             .get_or_try_init(|| self.transport.producer())
             .await?;
         let sent = producer
-            .send_record(record.to_krafka())
+            .send(record.to_krafka())
             .await
             .map_err(produce_refusal)?;
         Ok(ProducedRecord {
@@ -544,35 +567,31 @@ impl ClusterSession for KafkaClient {
         group: &str,
         offsets: &[CommittedOffset],
     ) -> Result<(), KafkaError> {
-        let topics = offsets
-            .iter()
-            .map(|offset| (offset.topic.as_str(), (offset.partition, offset.offset)))
-            .into_group_map();
-        let request: Vec<(&str, &[(i32, i64)])> = topics
-            .iter()
-            .map(|(topic, partitions)| (*topic, partitions.as_slice()))
-            .collect();
+        let offsets = offsets.iter().map(|offset| {
+            (
+                TopicPartition::new(offset.topic.as_str(), offset.partition),
+                offset.offset,
+            )
+        });
         self.transport
             .admin
-            .alter_consumer_group_offsets(group, &request)
+            .alter_consumer_group_offsets(
+                group,
+                offsets,
+                AlterConsumerGroupOffsetsOptions::default(),
+            )
             .await?
-            .into_iter()
-            .try_for_each(|altered| refused(altered.error))
+            .into_values()
+            .try_for_each(refused)
     }
 
     async fn delete_group(&self, group: &str) -> Result<(), KafkaError> {
-        let coordinator = self.group_coordinator(group).await?;
-        let response: DeleteGroupsResponse = call(
-            &coordinator,
-            ApiKey::DeleteGroups,
-            versions::DELETE_GROUPS_MIN..=versions::DELETE_GROUPS_MAX,
-            &DeleteGroupsRequest::new(vec![group.to_owned()]),
-        )
-        .await?;
-        response
-            .results
-            .into_iter()
-            .try_for_each(|deleted| answered(deleted.error_code, None))
+        self.transport
+            .admin
+            .delete_consumer_groups([group], DeleteConsumerGroupsOptions::default())
+            .await?
+            .into_values()
+            .try_for_each(refused)
     }
 
     async fn delete_group_offsets(
@@ -581,17 +600,19 @@ impl ClusterSession for KafkaClient {
         topic: &str,
         partitions: &[i32],
     ) -> Result<(), KafkaError> {
-        let deleted = self
-            .transport
+        let partitions = partitions
+            .iter()
+            .map(|&partition| TopicPartition::new(topic, partition));
+        self.transport
             .admin
-            .delete_consumer_group_offsets(group, &[(topic, partitions)])
-            .await?;
-        refused(deleted.error)?;
-        deleted
-            .topics
-            .into_iter()
-            .flat_map(|topic| topic.partitions)
-            .try_for_each(|partition| refused(partition.error))
+            .delete_consumer_group_offsets(
+                group,
+                partitions,
+                DeleteConsumerGroupOffsetsOptions::default(),
+            )
+            .await?
+            .into_values()
+            .try_for_each(refused)
     }
 
     async fn register_schema(&self, schema: &NewSchema) -> Result<RegisteredVersion, KafkaError> {
@@ -611,53 +632,52 @@ impl ClusterSession for KafkaClient {
     }
 
     async fn create_acls(&self, acls: &[Acl]) -> Result<(), KafkaError> {
-        let connection = self.transport.admin.get_controller_connection().await?;
-        let created: CreateAclsResponse = call(
-            &connection,
-            ApiKey::CreateAcls,
-            versions::CREATE_ACLS_MIN..=versions::CREATE_ACLS_MAX,
-            &AclBindings(acls),
-        )
-        .await?;
-        created
-            .results
+        let bindings = acls
+            .iter()
+            .map(Acl::to_krafka)
+            .collect::<Result<Vec<_>, _>>()?;
+        self.transport
+            .admin
+            .create_acls(bindings, CreateAclsOptions::default())
+            .await?
             .into_iter()
-            .try_for_each(|result| answered(result.error_code, result.error_message))
+            .try_for_each(|(_, created)| refused(created))
     }
 
     async fn delete_acl(&self, acl: &Acl) -> Result<(), KafkaError> {
-        let connection = self.transport.admin.get_controller_connection().await?;
-        let deleted: DeleteAclsResponse = call(
-            &connection,
-            ApiKey::DeleteAcls,
-            versions::DELETE_ACLS_MIN..=versions::DELETE_ACLS_MAX,
-            &AclBindings(std::slice::from_ref(acl)),
-        )
-        .await?;
-        deleted.filter_results.into_iter().try_for_each(|filter| {
-            answered(filter.error_code, filter.error_message)?;
-            filter
-                .matching_acls
-                .into_iter()
-                .try_for_each(|matched| answered(matched.error_code, matched.error_message))
-        })
+        let deleted = self
+            .transport
+            .admin
+            .delete_acls(vec![acl.to_krafka_filter()?], DeleteAclsOptions::default())
+            .await?;
+        for (_, deleted) in deleted {
+            if let Some((_, error)) = refused(deleted)?.failed.into_iter().next() {
+                return refused(Err(error));
+            }
+        }
+        Ok(())
     }
 
     async fn alter_client_quota(&self, quota: &ClientQuota) -> Result<(), KafkaError> {
-        let alteration = QuotaAlteration {
-            entity: quota
+        let alteration = ClientQuotaAlteration::new(
+            quota
                 .entity
                 .iter()
                 .map(|part| (part.entity_type.wire(), part.name.as_deref()))
                 .collect(),
-            ops: quota.values.entries().to_vec(),
-        };
+            quota
+                .values
+                .entries()
+                .into_iter()
+                .map(|(key, value)| (key.to_owned(), value))
+                .collect(),
+        );
         self.transport
             .admin
-            .alter_client_quotas(&[alteration], false)
+            .alter_client_quotas(vec![alteration], AlterClientQuotasOptions::default())
             .await?
-            .into_iter()
-            .try_for_each(|altered| refused(altered.error))
+            .into_values()
+            .try_for_each(refused)
     }
 
     async fn set_scram_credential(
@@ -670,10 +690,14 @@ impl ClusterSession for KafkaClient {
             .map_err(|error| KafkaError::Admin(error.to_string()))?;
         self.transport
             .admin
-            .alter_user_scram_credentials(Vec::new(), vec![upsertion])
+            .alter_user_scram_credentials(
+                Vec::new(),
+                vec![upsertion],
+                AlterUserScramCredentialsOptions::default(),
+            )
             .await?
-            .into_iter()
-            .try_for_each(|altered| refused(altered.error))
+            .into_values()
+            .try_for_each(refused)
     }
 
     async fn delete_scram_credential(
@@ -687,10 +711,14 @@ impl ClusterSession for KafkaClient {
         };
         self.transport
             .admin
-            .alter_user_scram_credentials(vec![deletion], Vec::new())
+            .alter_user_scram_credentials(
+                vec![deletion],
+                Vec::new(),
+                AlterUserScramCredentialsOptions::default(),
+            )
             .await?
-            .into_iter()
-            .try_for_each(|altered| refused(altered.error))
+            .into_values()
+            .try_for_each(refused)
     }
 }
 
@@ -702,103 +730,72 @@ impl KafkaClient {
             .ok_or_else(|| KafkaError::NoSchemaRegistry(self.identity.name.clone()))
     }
 
-    // krafka sends these to any broker, and Kafka describes or alters a
-    // broker's own configs only on that broker.
-    async fn broker_connection(&self, id: i32) -> Result<Arc<BrokerConnection>, KafkaError> {
-        Ok(self
-            .transport
-            .client
-            .metadata()
-            .get_broker_connection(id)
-            .await?)
-    }
-
-    // krafka sends DeleteGroups to any broker, and only the group's
-    // coordinator accepts it.
-    async fn group_coordinator(&self, group: &str) -> Result<Arc<BrokerConnection>, KafkaError> {
-        let admin = &self.transport.admin;
-        let connection = admin.get_controller_connection().await?;
-        let found: FindCoordinatorResponse = call(
-            &connection,
-            ApiKey::FindCoordinator,
-            versions::FIND_COORDINATOR_MIN..=versions::FIND_COORDINATOR_MAX,
-            &FindCoordinatorRequest::for_group(group),
-        )
-        .await?;
-        if !found.error_code.is_ok() {
-            return Err(KrafkaError::broker(
-                found.error_code,
-                format!("no coordinator for group '{group}'"),
+    async fn alter_configs(
+        &self,
+        resource: ConfigResource,
+        edit: &ConfigEdit,
+    ) -> Result<(), KafkaError> {
+        self.transport
+            .admin
+            .incremental_alter_configs(
+                [(resource, edit.to_krafka())],
+                IncrementalAlterConfigsOptions::default(),
             )
-            .into());
-        }
-        let address = format!("{}:{}", found.host, found.port);
-        Ok(admin
-            .pool()
-            .get_connection_by_id(found.node_id, &address)
-            .await?)
+            .await?
+            .into_values()
+            .try_for_each(refused)
     }
 }
 
-// krafka's admin client only sends SET operations, and a reset needs DELETE.
-async fn alter_configs(
-    connection: &BrokerConnection,
-    resource: IncrementalAlterConfigsResource,
-) -> Result<(), KafkaError> {
-    let request = IncrementalAlterConfigsRequest {
-        resources: vec![resource],
-        validate_only: false,
-    };
-    altered(
-        call(
-            connection,
-            ApiKey::IncrementalAlterConfigs,
-            versions::INCREMENTAL_ALTER_CONFIGS_MIN..=versions::INCREMENTAL_ALTER_CONFIGS_MAX,
-            &request,
-        )
-        .await?,
-    )
-}
-
-/// Sends a request at the newest version both sides speak.
-async fn call<Request: VersionedEncode, Response: VersionedDecode>(
-    connection: &BrokerConnection,
-    api: ApiKey,
-    versions: RangeInclusive<i16>,
-    request: &Request,
-) -> Result<Response, KrafkaError> {
-    let version = connection
-        .negotiate_api_version(api, *versions.end(), *versions.start())
-        .ok_or_else(|| {
-            KrafkaError::protocol_kind(
-                ProtocolErrorKind::UnknownApiVersion,
-                format!("the broker does not support {api:?}"),
-            )
-        })?;
-    let mut response = connection
-        .send_request(api, version, |buf| request.encode_versioned(version, buf))
-        .await?;
-    Response::decode_versioned(version, &mut response)
-}
-
-fn partitions_by_topic<'a>(partitions: &[(&'a str, i32)]) -> HashMap<&'a str, Vec<i32>> {
-    let mut topics: HashMap<&str, Vec<i32>> = HashMap::new();
-    for &(topic, partition) in partitions {
-        topics.entry(topic).or_default().push(partition);
+/// A broker that refuses a whole describe, as one without the right ACL
+/// does, is an answer for the listing to explain. Anything else failed.
+fn split_refusal<T: Default>(
+    result: Result<T, KrafkaError>,
+) -> Result<(Option<String>, T), KafkaError> {
+    match result {
+        Ok(described) => Ok((None, described)),
+        Err(KrafkaError::Broker { message, .. }) => Ok((Some(message), T::default())),
+        Err(error) => Err(error.into()),
     }
-    topics
 }
 
-fn list_offset_query<Topic: AsRef<str>>(topics: &HashMap<Topic, Vec<i32>>) -> Vec<(&str, &[i32])> {
+fn owned(values: &[&str]) -> Vec<String> {
+    values.iter().map(|&value| value.to_owned()).collect()
+}
+
+/// A broker that fails its listing would hide its groups, which would then
+/// look deleted.
+fn group_ids(
+    listed: std::collections::HashMap<i32, Result<Vec<ConsumerGroupListing>, KrafkaError>>,
+) -> Result<Vec<String>, KafkaError> {
+    let mut ids = Vec::new();
+    for groups in listed.into_values() {
+        ids.extend(groups?.into_iter().map(|group| group.group_id));
+    }
+    Ok(ids)
+}
+
+fn offset_specs<Topic: AsRef<str>>(
+    topics: &HashMap<Topic, Vec<i32>>,
+    spec: OffsetSpec,
+) -> Vec<(TopicPartition, OffsetSpec)> {
     topics
         .iter()
-        .map(|(topic, partitions)| (topic.as_ref(), partitions.as_slice()))
-        .filter(|(topic, _)| krafka::protocol::validate_topic_name(topic).is_ok())
+        .filter(|(topic, _)| validate_topic_name(topic.as_ref()).is_ok())
+        .flat_map(|(topic, partitions)| {
+            partitions
+                .iter()
+                .map(move |&partition| (TopicPartition::new(topic.as_ref(), partition), spec))
+        })
         .collect()
 }
 
-fn list_offset_parts(result: krafka::admin::ListOffsetResult) -> (String, i32, i64) {
-    (result.topic, result.partition, result.offset)
+/// A partition the broker could not answer for has no known offset.
+fn listed_offset_parts(
+    (partition, listed): (TopicPartition, Result<ListedOffset, KrafkaError>),
+) -> (String, i32, i64) {
+    let offset = listed.map_or(-1, |listed| listed.offset);
+    (partition.topic, partition.partition, offset)
 }
 
 #[cfg(test)]
@@ -807,7 +804,7 @@ mod tests {
     use std::num::NonZeroU16;
 
     use krafka::error::ErrorCode;
-    use krafka::protocol::ApiKey;
+    use krafka::testing::ApiKey;
     use krafka::testing::Control;
 
     use super::testing::Broker;
@@ -854,8 +851,7 @@ mod tests {
     }
 
     async fn close(client: KafkaClient) {
-        client.transport.admin.close().await;
-        client.transport.client.pool().close_all().await;
+        client.transport.admin.close().await.expect("close admin");
     }
 
     #[tokio::test]
@@ -931,13 +927,11 @@ mod tests {
     async fn broker_io_is_bounded_by_the_configured_request_timeout() {
         let broker = Broker::start().await;
         let mut tuning = Tuning::default();
-        tuning.kafka.request_timeout = Duration::from_millis(100);
-        tuning.kafka.connect_timeout = Duration::from_millis(100);
+        // Above krafka's 100 ms backoff between metadata fetches, so the
+        // fetch after the one at connect is sent before the deadline.
+        tuning.kafka.request_timeout = Duration::from_millis(500);
+        tuning.kafka.connect_timeout = Duration::from_millis(500);
         let client = broker.client_with(&tuning).await;
-        assert_eq!(
-            client.transport.admin.request_timeout(),
-            Duration::from_millis(100)
-        );
         broker.clear_requests();
         broker.on(ApiKey::Metadata, |_| Control::Silence);
 
@@ -990,6 +984,35 @@ mod tests {
             vec![0, 1]
         );
         assert!(!topic.internal);
+    }
+
+    #[tokio::test]
+    async fn a_partition_kafka_cannot_list_has_no_offset() {
+        let broker = Broker::orders(1).await;
+        let client = broker.client().await;
+        broker.on(ApiKey::ListOffsets, |_| {
+            Control::Error(ErrorCode::TopicAuthorizationFailed)
+        });
+
+        let highs = client
+            .high_watermarks(&wanted("orders", &[0]))
+            .await
+            .expect("high watermarks");
+
+        assert!(highs.is_empty(), "{highs:?}");
+    }
+
+    #[tokio::test]
+    async fn a_topic_name_kafka_would_reject_has_no_time_offsets() {
+        let broker = Broker::start().await;
+        let client = broker.client().await;
+
+        let offsets = client
+            .offsets_for_times("orders/eu", &[0], 0)
+            .await
+            .expect("time offsets");
+
+        assert!(offsets.is_empty());
     }
 
     #[tokio::test]
@@ -1247,6 +1270,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn committed_offsets_come_back_from_a_broker_that_offers_offset_fetch_v10() {
+        let broker = Broker::orders(1).await;
+        // Kafka 4 offers v10, which names topics by id instead of by name.
+        broker.set_api_versions(ApiKey::OffsetFetch, 5, 10);
+        broker.set_api_versions(ApiKey::OffsetCommit, 7, 10);
+        let client = broker.client().await;
+        commit(&client, "orders-group", "orders", 1).await;
+
+        for partitions in [None, Some(&[("orders", 0)][..])] {
+            let fetched = client
+                .committed_offsets("orders-group", partitions)
+                .await
+                .expect("offset fetch");
+
+            assert_eq!(fetched, vec![committed("orders", 0, 1)], "{partitions:?}");
+        }
+    }
+
+    #[tokio::test]
     async fn lists_committed_offsets_with_and_without_a_partition_filter() {
         let broker = Broker::orders(1).await;
         let client = broker.client().await;
@@ -1270,15 +1312,28 @@ mod tests {
     async fn describes_classic_group_member_assignments() {
         let broker = Broker::start().await;
         broker.topic("orders", 2);
-        let consumer = krafka::consumer::Consumer::builder()
-            .bootstrap_servers(broker.bootstrap_servers())
-            .group_id("orders-group")
+        let consumer = broker
+            .kafka()
             .request_timeout(Duration::from_secs(2))
             .connect_timeout(Duration::from_secs(2))
+            .connect()
+            .await
+            .expect("kafka")
+            .consumer("orders-group")
             .build()
             .await
             .expect("consumer");
-        consumer.subscribe(&["orders"]).await.expect("subscribe");
+        consumer.subscribe(["orders"]).await.expect("subscribe");
+        let consumer = Arc::new(consumer);
+        // The group is joined by poll.
+        let polling = tokio::spawn({
+            let consumer = Arc::clone(&consumer);
+            async move {
+                loop {
+                    let _ = consumer.poll(Duration::from_millis(100)).await;
+                }
+            }
+        });
         assert!(
             broker
                 .wait_for_requests(ApiKey::SyncGroup, 1, Duration::from_secs(15))
@@ -1291,7 +1346,7 @@ mod tests {
             .await
             .transport
             .admin
-            .describe_consumer_groups(vec!["orders-group".to_owned()])
+            .describe_consumer_groups(["orders-group"], DescribeConsumerGroupsOptions::default())
             .await
             .expect("describe group");
         let group = snapshots_from_descriptions(described)
@@ -1306,6 +1361,7 @@ mod tests {
                 partitions: vec![0, 1],
             }]
         );
+        polling.abort();
         consumer.close().await.expect("close consumer");
     }
 
@@ -1401,13 +1457,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_failed_produce_is_sent_once() {
+    async fn a_produce_retried_after_its_append_is_stored_once() {
         let broker = Broker::start().await;
         broker.topic("orders", 1);
         let client = broker.client().await;
         let logs = LogCapture::at(tracing::Level::WARN);
         broker.on_once(ApiKey::Produce, |_| {
-            Control::Error(ErrorCode::NotEnoughReplicasAfterAppend)
+            Control::ApplyThen(Box::new(Control::Error(
+                ErrorCode::NotEnoughReplicasAfterAppend,
+            )))
         });
         let record = NewRecord {
             topic: "orders".to_owned(),
@@ -1417,10 +1475,10 @@ mod tests {
             headers: Vec::new(),
         };
 
-        let error = client.produce(&record).await.unwrap_err();
+        client.produce(&record).await.expect("retried produce");
 
-        assert!(matches!(error, KafkaError::Krafka(_)), "{error}");
-        assert_eq!(broker.request_count(ApiKey::Produce), 1);
+        assert_eq!(broker.request_count(ApiKey::Produce), 2);
+        assert_eq!(broker.all_records("orders").expect("records").len(), 1);
         logs.assert_lacks("delivery_timeout is shorter");
     }
 

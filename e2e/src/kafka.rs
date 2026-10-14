@@ -1,9 +1,12 @@
 use std::time::Duration;
 
-use krafka::admin::{AdminClient, NewTopic, QuotaAlteration};
+use krafka::admin::{
+    AdminClient, AlterClientQuotasOptions, AlterConsumerGroupOffsetsOptions,
+    AlterUserScramCredentialsOptions, ClientQuotaAlteration, CreateTopicsOptions, NewTopic,
+    ScramCredentialUpsertion, TopicPartition,
+};
 use krafka::auth::ScramMechanism;
-use krafka::producer::{Producer, ProducerRecord};
-use krafka::protocol::ScramCredentialUpsertion;
+use krafka::producer::{Producer, Record};
 use testcontainers_modules::kafka::apache;
 use testcontainers_modules::testcontainers::runners::AsyncRunner as _;
 use testcontainers_modules::testcontainers::{ContainerAsync, ImageExt as _};
@@ -56,16 +59,12 @@ impl Kafka {
             .await
             .expect("the kafka port is mapped");
         let bootstrap_servers = format!("127.0.0.1:{port}");
-        let admin = AdminClient::builder()
-            .bootstrap_servers(&bootstrap_servers)
-            .build()
+        let kafka = krafka::Kafka::builder(&bootstrap_servers)
+            .connect()
             .await
-            .expect("admin client");
-        let producer = Producer::builder()
-            .bootstrap_servers(&bootstrap_servers)
-            .build()
-            .await
-            .expect("producer");
+            .expect("kafka");
+        let admin = kafka.admin();
+        let producer = kafka.producer().build().await.expect("producer");
 
         Self {
             bootstrap_servers,
@@ -87,28 +86,27 @@ impl Kafka {
     pub async fn create(&self, topic: NewTopic) {
         let created = self
             .admin
-            .create_topics(vec![topic], CREATE_TIMEOUT, false)
+            .create_topics(
+                [topic],
+                CreateTopicsOptions::default().timeout(CREATE_TIMEOUT),
+            )
             .await
             .expect("create topics");
-        for topic in created {
-            assert_eq!(topic.error, None, "creating {}", topic.name);
+        for (name, result) in created {
+            result.unwrap_or_else(|error| panic!("creating {name}: {error}"));
         }
     }
 
-    pub async fn send(&self, record: ProducerRecord) -> i64 {
-        self.producer
-            .send_record(record)
-            .await
-            .expect("produce")
-            .offset
+    pub async fn send(&self, record: Record) -> i64 {
+        self.producer.send(record).await.expect("produce").offset
     }
 
     pub async fn fill(&self, topic: &str, partition: i32, keys: &[impl AsRef<str>]) {
         for key in keys {
             let key = key.as_ref();
-            let record = ProducerRecord::new(topic, format!("{{\"key\":\"{key}\"}}"))
-                .with_key(key.to_owned())
-                .with_partition(partition);
+            let record = Record::new(topic, format!("{{\"key\":\"{key}\"}}"))
+                .key(key.to_owned())
+                .partition(partition);
             self.send(record).await;
         }
     }
@@ -118,14 +116,21 @@ impl Kafka {
     pub async fn commit(&self, group: &str, topic: &str, offsets: &[(i32, i64)]) {
         let deadline = Instant::now() + PATIENCE;
         loop {
+            let offsets = offsets
+                .iter()
+                .map(|&(partition, offset)| (TopicPartition::new(topic, partition), offset));
             let refused: Vec<String> = match self
                 .admin
-                .alter_consumer_group_offsets(group, &[(topic, offsets)])
+                .alter_consumer_group_offsets(
+                    group,
+                    offsets,
+                    AlterConsumerGroupOffsetsOptions::default(),
+                )
                 .await
             {
                 Ok(partitions) => partitions
-                    .into_iter()
-                    .filter_map(|partition| partition.error)
+                    .into_values()
+                    .filter_map(|result| result.err().map(|error| error.to_string()))
                     .collect(),
                 Err(error) => vec![error.to_string()],
             };
@@ -144,16 +149,16 @@ impl Kafka {
         let altered = self
             .admin
             .alter_client_quotas(
-                &[QuotaAlteration {
-                    entity: vec![("user", Some(user))],
-                    ops: vec![(key, Some(value))],
-                }],
-                false,
+                vec![ClientQuotaAlteration::new(
+                    [("user", Some(user))].into_iter().collect(),
+                    vec![(key.to_owned(), Some(value))],
+                )],
+                AlterClientQuotasOptions::default(),
             )
             .await
             .expect("alter client quotas");
-        for entity in altered {
-            assert_eq!(entity.error, None, "setting {key} for {user}");
+        for result in altered.into_values() {
+            result.unwrap_or_else(|error| panic!("setting {key} for {user}: {error}"));
         }
     }
 
@@ -174,16 +179,14 @@ impl Kafka {
                     salt: Zeroizing::new(vec![1; 16]),
                     salted_password: Zeroizing::new(vec![2; mechanism.hash_length()]),
                 }],
+                AlterUserScramCredentialsOptions::default(),
             )
             .await
             .expect("alter scram credentials");
-        for result in altered {
-            assert_eq!(
-                result.error,
-                None,
-                "setting {} for {user}",
-                mechanism.mechanism_name()
-            );
+        for result in altered.into_values() {
+            result.unwrap_or_else(|error| {
+                panic!("setting {} for {user}: {error}", mechanism.mechanism_name())
+            });
         }
     }
 }

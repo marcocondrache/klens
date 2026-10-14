@@ -1,6 +1,6 @@
 use e2e::{Kafka, Klens};
 use krafka::admin::NewTopic;
-use krafka::producer::ProducerRecord;
+use krafka::producer::Record;
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -55,10 +55,10 @@ async fn a_record_reads_back_with_its_key_value_and_headers() {
     let (kafka, klens, _) = orders(3).await;
     let offset = kafka
         .send(
-            ProducerRecord::new("orders", r#"{"total":42}"#)
-                .with_key("order-3")
-                .with_partition(0)
-                .with_header("source", "checkout"),
+            Record::new("orders", r#"{"total":42}"#)
+                .key("order-3")
+                .partition(0)
+                .header("source", "checkout"),
         )
         .await;
 

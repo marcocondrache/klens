@@ -118,6 +118,9 @@ pub(super) fn hint(error: &ApiError) -> &'static str {
              version, and klens_schema_get reads a version's text."
         }
         ApiError::Kafka(KafkaError::InternalTopic(_)) => "Write to a topic that is not internal.",
+        ApiError::Kafka(KafkaError::PrefixedAcl) => {
+            "klens manages literal ACLs only. Manage a prefixed ACL with Kafka's own tools."
+        }
         ApiError::Kafka(KafkaError::NoSchemaRegistry(_)) => {
             "klens reads no schema registry for this cluster, so it knows no subjects or schemas \
              there."

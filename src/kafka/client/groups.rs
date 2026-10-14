@@ -1,5 +1,8 @@
+use std::collections::HashMap;
+
 use foldhash::HashSet;
 use krafka::admin::ConsumerGroupDescription;
+use krafka::error::KrafkaError;
 
 use crate::kafka::group::{GroupSnapshot, GroupState, is_internal_group};
 
@@ -14,13 +17,13 @@ pub(super) const ACTIVE_GROUP_STATES: [&str; 5] = [
 ];
 
 pub(super) fn snapshots_from_descriptions(
-    descriptions: Vec<ConsumerGroupDescription>,
+    descriptions: HashMap<String, Result<ConsumerGroupDescription, KrafkaError>>,
 ) -> Vec<GroupSnapshot> {
     descriptions
-        .into_iter()
+        .into_values()
+        .filter_map(Result::ok)
         .filter(|description| {
-            description.error.is_none()
-                && !description.state.eq_ignore_ascii_case("dead")
+            !description.state.eq_ignore_ascii_case("dead")
                 && !is_internal_group(&description.group_id)
         })
         .map(GroupSnapshot::from_krafka)

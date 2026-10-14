@@ -193,6 +193,8 @@ A binding is `{resourceType, resourceName, patternType, principal, host, operati
 
 `status` is `PENDING` before the first read, `ENABLED`, `DISABLED` when the cluster runs no authorizer, or `DENIED` when the Kafka user of klens may not describe ACLs.
 
+A `POST` or `DELETE` of a `PREFIXED` binding answers `422 PREFIXED_ACL`. The Kafka client klens uses cannot send that pattern type yet, so manage prefixed bindings with Kafka's own tools. The listing still shows them.
+
 ## Quotas
 
 | Route | Privilege | Body | Response |
