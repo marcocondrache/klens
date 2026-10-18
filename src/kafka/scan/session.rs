@@ -2,7 +2,7 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::time::Duration;
 
-use foldhash::{HashMap, HashSet, HashSetExt};
+use foldhash::{HashMap, HashMapExt, HashSet, HashSetExt};
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -185,7 +185,7 @@ impl ScanSession {
                 continue;
             }
 
-            let sort = raw.sort_key();
+            let sort = scan.rank(&raw);
             if !batch.admits(&sort) {
                 continue;
             }
@@ -246,6 +246,7 @@ pub(super) fn topic_obfuscator<S: ClusterSession + ?Sized>(
 struct WindowScan {
     remaining: HashMap<i32, Range<i64>>,
     completed: HashSet<i32>,
+    newest: HashMap<i32, i64>,
     planned: usize,
 }
 
@@ -261,6 +262,7 @@ impl WindowScan {
             planned: remaining.len(),
             remaining,
             completed: HashSet::new(),
+            newest: HashMap::new(),
         }
     }
 
@@ -274,6 +276,21 @@ impl WindowScan {
             self.finish(partition);
         }
         accepted
+    }
+
+    /// CreateTime need not rise with offset. Ranking a record as no older than
+    /// the records before it in its window keeps each partition's share of a
+    /// page to consecutive offsets, so the cursor never steps over a record
+    /// the page left out.
+    fn rank(&mut self, raw: &RawRecord) -> SortKey {
+        let newest = self.newest.entry(raw.partition).or_insert(raw.timestamp);
+        *newest = (*newest).max(raw.timestamp);
+
+        SortKey {
+            timestamp: *newest,
+            partition: raw.partition,
+            offset: raw.offset,
+        }
     }
 
     fn finished(&self, windows: &[PartitionWindow]) -> Vec<PartitionWindow> {
