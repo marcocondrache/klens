@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 klens = { path = ".." }
-krafka = { git = "https://github.com/hupe1980/krafka", rev = "2512eb7f41f81f26a9dc5218cc595a9d41b79dfd" }
+krafka = "0.27.1"
 reqwest = { version = "0.12", default-features = false }
 serde_json = "1"
 tempfile = "3"
