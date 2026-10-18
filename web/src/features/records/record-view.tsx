@@ -63,8 +63,6 @@ export function RecordView({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
-      {notice}
-
       <div className="flex shrink-0 flex-wrap items-center gap-2">
         <SearchField
           className="min-w-48 flex-1"
@@ -99,6 +97,8 @@ export function RecordView({
           {actions}
         </div>
       </div>
+
+      {notice}
 
       <RecordTable
         key={source.scope}
