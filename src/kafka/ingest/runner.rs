@@ -110,12 +110,20 @@ pub(super) async fn poll<S: LaneSource>(
 
     match source.fetch(store, upstream, previous.as_ref()).await {
         Ok(next) => {
-            if let Some(delta) = source.diff(previous.as_deref(), &next) {
+            let delta = source.diff(previous.as_deref(), &next);
+
+            // An empty first read adds no entry, so it has no delta. It still
+            // commits, because lane health and the lanes that follow this one
+            // wait for a first table.
+            if delta.is_some() || previous.is_none() {
                 let next = Arc::new(next);
                 let version = source.lane(store).commit(Arc::clone(&next));
-                source.publish(store, previous.as_ref(), &next, delta);
+                if let Some(delta) = delta {
+                    source.publish(store, previous.as_ref(), &next, delta);
+                }
                 tracing::debug!(cluster = %cluster, lane, version, "lane committed");
             }
+
             source.lane(store).record_poll(started.elapsed(), None);
         }
         Err(error) => {
