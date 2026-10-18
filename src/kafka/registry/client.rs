@@ -5,8 +5,8 @@ use foldhash::{HashMap, HashMapExt, HashSet, HashSetExt};
 use futures::StreamExt;
 use schemreg::error::error_code;
 use schemreg::{
-    CachedSchemaRegistry, ConfluentSchemaRegistry, RetryPolicy, Schema, SchemaId, SchemaRegError,
-    SchemaRegistryClient as _, SchemaVersion,
+    CachedSchemaRegistry, CompatibilityLevel, ConfluentSchemaRegistry, RetryPolicy, Schema,
+    SchemaId, SchemaRegError, SchemaRegistryClient as _, SchemaVersion,
 };
 use secrecy::ExposeSecret;
 use tokio::sync::OnceCell;
@@ -15,7 +15,7 @@ use crate::config::{SchemaRegistry, SchemaRegistryTuning};
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
     NewSchema, RegisteredSchema, RegisteredVersion, SchemaCompatibility, SchemaDeletion,
-    SchemaReference, SchemaSubject,
+    SchemaReference, SchemaSubject, SchemaType,
 };
 
 const MAX_CACHED_SCHEMAS: usize = 10_000;
@@ -183,7 +183,7 @@ impl SchemaRegistryClient {
             .map_err(|error| self.fail(error.to_string()))?;
         let registered = RegisteredSchema {
             id,
-            schema_type: schema.schema_type.into(),
+            schema_type: self.schema_type(&schema)?,
             schema: schema.schema.to_string(),
             references: references(&schema.references),
         };
@@ -357,7 +357,7 @@ impl SchemaRegistryClient {
         Ok(SchemaSubject {
             subject: name.to_owned(),
             id: schema_id(&latest).ok_or_else(|| self.fail("schema is missing id"))?,
-            schema_type: latest.schema_type.into(),
+            schema_type: self.schema_type(&latest)?,
             latest_version: latest
                 .version
                 .map(SchemaVersion::as_i32)
@@ -372,40 +372,43 @@ impl SchemaRegistryClient {
         name: &str,
         global: &OnceCell<SchemaCompatibility>,
     ) -> SchemaCompatibility {
-        match self.registry.get_compatibility(name).await {
-            Ok(level) => level.into(),
+        let level = match self.registry.get_compatibility(name).await {
             Err(error) if is_unconfigured(&error) => {
-                *global.get_or_init(|| self.global_compatibility()).await
+                return *global.get_or_init(|| self.global_compatibility()).await;
             }
-            Err(error) => {
-                tracing::warn!(
-                    subject = name,
-                    error = error.to_string().as_str(),
-                    "falling back to NONE compatibility"
-                );
-                SchemaCompatibility::None
-            }
-        }
+            level => readable(level),
+        };
+
+        level.unwrap_or_else(|error| {
+            tracing::warn!(
+                subject = name,
+                error = error.as_str(),
+                "falling back to NONE compatibility"
+            );
+            SchemaCompatibility::None
+        })
     }
 
     async fn global_compatibility(&self) -> SchemaCompatibility {
-        match self.registry.get_compatibility("").await {
-            Ok(level) => level.into(),
-            Err(error) if is_unconfigured(&error) => SchemaCompatibility::None,
-            Err(error) => {
-                tracing::warn!(
-                    error = error.to_string().as_str(),
-                    "falling back to NONE compatibility"
-                );
-                SchemaCompatibility::None
-            }
-        }
+        let level = match self.registry.get_compatibility("").await {
+            Err(error) if is_unconfigured(&error) => return SchemaCompatibility::None,
+            level => readable(level),
+        };
+
+        level.unwrap_or_else(|error| {
+            tracing::warn!(error = error.as_str(), "falling back to NONE compatibility");
+            SchemaCompatibility::None
+        })
+    }
+
+    fn schema_type(&self, schema: &Schema) -> Result<SchemaType, KafkaError> {
+        SchemaType::try_from(schema.schema_type).map_err(|unknown| self.fail(unknown.to_string()))
     }
 
     fn registered(&self, schema: &Schema) -> Result<RegisteredSchema, KafkaError> {
         Ok(RegisteredSchema {
             id: schema_id(schema).ok_or_else(|| self.fail("schema is missing id"))?,
-            schema_type: schema.schema_type.into(),
+            schema_type: self.schema_type(schema)?,
             schema: schema.schema.to_string(),
             references: references(&schema.references),
         })
@@ -441,6 +444,13 @@ fn in_dependency_order(
     }
 
     ordered
+}
+
+fn readable(
+    level: Result<CompatibilityLevel, SchemaRegError>,
+) -> Result<SchemaCompatibility, String> {
+    let level = level.map_err(|error| error.to_string())?;
+    SchemaCompatibility::try_from(level).map_err(|unknown| unknown.to_string())
 }
 
 fn is_soft_deleted(error: &SchemaRegError) -> bool {

@@ -126,7 +126,7 @@ impl PayloadDecoder {
             Err(error) => return Err(DecodeError::failed(error)),
         };
 
-        match SchemaType::from(schema.schema_type) {
+        match SchemaType::try_from(schema.schema_type).map_err(DecodeError::failed)? {
             SchemaType::Json => Ok(Resolved::Json),
             SchemaType::Avro => Ok(Resolved::Avro),
             SchemaType::Protobuf => self.pool(key, &schema).await.map(Resolved::Protobuf),

@@ -5,6 +5,8 @@ pub mod protobuf;
 #[cfg(test)]
 pub(crate) mod testing;
 
+use thiserror::Error;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::Display)]
 #[strum(serialize_all = "UPPERCASE")]
 pub enum SchemaType {
@@ -13,13 +15,19 @@ pub enum SchemaType {
     Protobuf,
 }
 
-impl From<schemreg::SchemaType> for SchemaType {
-    fn from(value: schemreg::SchemaType) -> Self {
+#[derive(Debug, Error)]
+#[error("klens does not know the schema type {0}")]
+pub struct UnknownSchemaType(schemreg::SchemaType);
+
+impl TryFrom<schemreg::SchemaType> for SchemaType {
+    type Error = UnknownSchemaType;
+
+    fn try_from(value: schemreg::SchemaType) -> Result<Self, Self::Error> {
         match value {
-            schemreg::SchemaType::Avro => Self::Avro,
-            schemreg::SchemaType::Json => Self::Json,
-            schemreg::SchemaType::Protobuf => Self::Protobuf,
-            _ => Self::Avro,
+            schemreg::SchemaType::Avro => Ok(Self::Avro),
+            schemreg::SchemaType::Json => Ok(Self::Json),
+            schemreg::SchemaType::Protobuf => Ok(Self::Protobuf),
+            unknown => Err(UnknownSchemaType(unknown)),
         }
     }
 }
@@ -45,18 +53,25 @@ pub enum SchemaCompatibility {
     None,
 }
 
-impl From<schemreg::CompatibilityLevel> for SchemaCompatibility {
-    fn from(value: schemreg::CompatibilityLevel) -> Self {
+#[derive(Debug, Error)]
+#[error("klens does not know the compatibility level {0}")]
+pub struct UnknownCompatibility(schemreg::CompatibilityLevel);
+
+impl TryFrom<schemreg::CompatibilityLevel> for SchemaCompatibility {
+    type Error = UnknownCompatibility;
+
+    fn try_from(value: schemreg::CompatibilityLevel) -> Result<Self, Self::Error> {
         use schemreg::CompatibilityLevel as Level;
 
         match value {
-            Level::Backward => Self::Backward,
-            Level::BackwardTransitive => Self::BackwardTransitive,
-            Level::Forward => Self::Forward,
-            Level::ForwardTransitive => Self::ForwardTransitive,
-            Level::Full => Self::Full,
-            Level::FullTransitive => Self::FullTransitive,
-            _ => Self::None,
+            Level::Backward => Ok(Self::Backward),
+            Level::BackwardTransitive => Ok(Self::BackwardTransitive),
+            Level::Forward => Ok(Self::Forward),
+            Level::ForwardTransitive => Ok(Self::ForwardTransitive),
+            Level::Full => Ok(Self::Full),
+            Level::FullTransitive => Ok(Self::FullTransitive),
+            Level::None => Ok(Self::None),
+            unknown => Err(UnknownCompatibility(unknown)),
         }
     }
 }
@@ -143,7 +158,7 @@ mod tests {
             Level::FullTransitive,
             Level::None,
         ] {
-            let ours = SchemaCompatibility::from(level);
+            let ours = SchemaCompatibility::try_from(level).unwrap();
 
             assert_eq!(Level::from(ours), level);
             assert_eq!(format!("{ours:?}"), format!("{level:?}"));
