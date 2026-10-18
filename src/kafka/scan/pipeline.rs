@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use bytes::Bytes;
-use tracing::{Dispatch, Span, dispatcher};
+
+use crate::kafka::blocking::off_runtime;
 
 use super::batch::{RecordBatch, SortKey};
 use super::filter::{CompiledFilter, RawField, Verdict};
@@ -349,21 +350,6 @@ impl Stages {
             bytes,
             framed: self.decodes && needs_decode(bytes, fallback_schema_id),
         })
-    }
-}
-
-/// The work runs in the caller's tracing context, so a decode warning still
-/// names the request that read the record.
-async fn off_runtime<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> T {
-    let span = Span::current();
-    let dispatch = dispatcher::get_default(Dispatch::clone);
-    let work = move || dispatcher::with_default(&dispatch, || span.in_scope(work));
-
-    match tokio::task::spawn_blocking(work).await {
-        Ok(output) => output,
-        // The pool cancels a task only while the runtime shuts down, so the
-        // error carries the work's own panic.
-        Err(error) => std::panic::resume_unwind(error.into_panic()),
     }
 }
 

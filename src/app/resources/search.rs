@@ -36,6 +36,7 @@ async fn search(
         cluster
             .store
             .search(&query.q)
+            .await
             .into_iter()
             .map(SearchHit::from)
             .collect(),
